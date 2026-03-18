@@ -57,7 +57,7 @@ func (s *Store) migrate() error {
 		return err
 	}
 
-	migrations := []string{"001_init.sql"}
+	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql"}
 
 	for i := version; i < len(migrations); i++ {
 		data, err := migrationsFS.ReadFile("migrations/" + migrations[i])
@@ -92,12 +92,12 @@ func (s *Store) migrate() error {
 
 func (s *Store) CreateTicket(ctx context.Context, t Ticket) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO tickets (id, summary, description, description_md, status, jira_status,
+		INSERT INTO tickets (id, summary, description, description_md, status, remote_status,
 			priority, issue_type, assignee, labels, epic_key, epic_name, url,
-			created_at, updated_at, jira_updated_at, sort_order)
-		VALUES (:id, :summary, :description, :description_md, :status, :jira_status,
+			created_at, updated_at, remote_updated_at, sort_order, stale_at, local_move_at)
+		VALUES (:id, :summary, :description, :description_md, :status, :remote_status,
 			:priority, :issue_type, :assignee, :labels, :epic_key, :epic_name, :url,
-			:created_at, :updated_at, :jira_updated_at, :sort_order)`, t)
+			:created_at, :updated_at, :remote_updated_at, :sort_order, :stale_at, :local_move_at)`, t)
 	return err
 }
 
@@ -105,10 +105,13 @@ func (s *Store) GetTicket(ctx context.Context, id string) (*Ticket, error) {
 	var t Ticket
 	err := s.db.GetContext(ctx, &t, "SELECT * FROM tickets WHERE id = ?", id)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("ticket %q not found", id)
+		return nil, ErrNotFound
 	}
 	return &t, err
 }
+
+// ErrNotFound is returned when a record is not found.
+var ErrNotFound = fmt.Errorf("not found")
 
 func (s *Store) ListTicketsByStatus(ctx context.Context, status string) ([]Ticket, error) {
 	var tickets []Ticket
@@ -121,10 +124,11 @@ func (s *Store) UpdateTicket(ctx context.Context, t Ticket) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		UPDATE tickets SET
 			summary = :summary, description = :description, description_md = :description_md,
-			status = :status, jira_status = :jira_status, priority = :priority,
+			status = :status, remote_status = :remote_status, priority = :priority,
 			issue_type = :issue_type, assignee = :assignee, labels = :labels,
 			epic_key = :epic_key, epic_name = :epic_name, url = :url,
-			updated_at = :updated_at, jira_updated_at = :jira_updated_at, sort_order = :sort_order
+			updated_at = :updated_at, remote_updated_at = :remote_updated_at, sort_order = :sort_order,
+			stale_at = :stale_at, local_move_at = :local_move_at
 		WHERE id = :id`, t)
 	return err
 }
@@ -134,12 +138,45 @@ func (s *Store) DeleteTicket(ctx context.Context, id string) error {
 	return err
 }
 
+// UpsertTicket inserts a ticket or updates it if it already exists.
+func (s *Store) UpsertTicket(ctx context.Context, t Ticket) error {
+	_, err := s.db.NamedExecContext(ctx, `
+		INSERT INTO tickets (id, summary, description, description_md, status, remote_status,
+			priority, issue_type, assignee, labels, epic_key, epic_name, url,
+			created_at, updated_at, remote_updated_at, sort_order, stale_at, local_move_at)
+		VALUES (:id, :summary, :description, :description_md, :status, :remote_status,
+			:priority, :issue_type, :assignee, :labels, :epic_key, :epic_name, :url,
+			:created_at, :updated_at, :remote_updated_at, :sort_order, :stale_at, :local_move_at)
+		ON CONFLICT(id) DO UPDATE SET
+			summary = :summary, description = :description, description_md = :description_md,
+			status = :status, remote_status = :remote_status, priority = :priority,
+			issue_type = :issue_type, assignee = :assignee, labels = :labels,
+			epic_key = :epic_key, epic_name = :epic_name, url = :url,
+			updated_at = :updated_at, remote_updated_at = :remote_updated_at, sort_order = :sort_order,
+			stale_at = :stale_at, local_move_at = :local_move_at`, t)
+	return err
+}
+
+// ListAllTickets returns all tickets in the store.
+func (s *Store) ListAllTickets(ctx context.Context) ([]Ticket, error) {
+	var tickets []Ticket
+	err := s.db.SelectContext(ctx, &tickets, "SELECT * FROM tickets ORDER BY id")
+	return tickets, err
+}
+
+// ListTicketIDs returns all ticket IDs in the store.
+func (s *Store) ListTicketIDs(ctx context.Context) ([]string, error) {
+	var ids []string
+	err := s.db.SelectContext(ctx, &ids, "SELECT id FROM tickets ORDER BY id")
+	return ids, err
+}
+
 // Column Mapping CRUD
 
 func (s *Store) CreateColumnMapping(ctx context.Context, m ColumnMapping) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO column_mappings (column_name, jira_statuses, jira_transition, sort_order)
-		VALUES (:column_name, :jira_statuses, :jira_transition, :sort_order)`, m)
+		INSERT INTO column_mappings (column_name, remote_statuses, remote_transition, sort_order)
+		VALUES (:column_name, :remote_statuses, :remote_transition, :sort_order)`, m)
 	return err
 }
 
@@ -153,8 +190,8 @@ func (s *Store) ListColumnMappings(ctx context.Context) ([]ColumnMapping, error)
 func (s *Store) UpdateColumnMapping(ctx context.Context, m ColumnMapping) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		UPDATE column_mappings SET
-			column_name = :column_name, jira_statuses = :jira_statuses,
-			jira_transition = :jira_transition, sort_order = :sort_order
+			column_name = :column_name, remote_statuses = :remote_statuses,
+			remote_transition = :remote_transition, sort_order = :sort_order
 		WHERE id = :id`, m)
 	return err
 }

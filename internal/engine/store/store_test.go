@@ -50,10 +50,10 @@ func TestCreateAndGetTicket(t *testing.T) {
 		ID:             "REX-1234",
 		Summary:        "Fix auth bug",
 		Status:         "Backlog",
-		JiraStatus:     "To Do",
+		RemoteStatus:     "To Do",
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt:      time.Now().UTC().Format(time.RFC3339),
-		JiraUpdatedAt:  time.Now().UTC().Format(time.RFC3339),
+		RemoteUpdatedAt:  time.Now().UTC().Format(time.RFC3339),
 	}
 
 	if err := s.CreateTicket(ctx, ticket); err != nil {
@@ -77,10 +77,10 @@ func TestCreateDuplicateTicketReturnsError(t *testing.T) {
 	ctx := context.Background()
 
 	ticket := Ticket{
-		ID: "REX-1", Summary: "A", Status: "Backlog", JiraStatus: "To Do",
+		ID: "REX-1", Summary: "A", Status: "Backlog", RemoteStatus: "To Do",
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
-		JiraUpdatedAt: time.Now().UTC().Format(time.RFC3339),
+		RemoteUpdatedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 	if err := s.CreateTicket(ctx, ticket); err != nil {
 		t.Fatal(err)
@@ -106,10 +106,10 @@ func TestListTicketsByStatusOrderedBySortOrder(t *testing.T) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	tickets := []Ticket{
-		{ID: "A-3", Summary: "Third", Status: "Doing", JiraStatus: "In Progress", SortOrder: 2, CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now},
-		{ID: "A-1", Summary: "First", Status: "Doing", JiraStatus: "In Progress", SortOrder: 0, CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now},
-		{ID: "A-2", Summary: "Second", Status: "Doing", JiraStatus: "In Progress", SortOrder: 1, CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now},
-		{ID: "B-1", Summary: "Other", Status: "Backlog", JiraStatus: "To Do", SortOrder: 0, CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now},
+		{ID: "A-3", Summary: "Third", Status: "Doing", RemoteStatus: "In Progress", SortOrder: 2, CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now},
+		{ID: "A-1", Summary: "First", Status: "Doing", RemoteStatus: "In Progress", SortOrder: 0, CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now},
+		{ID: "A-2", Summary: "Second", Status: "Doing", RemoteStatus: "In Progress", SortOrder: 1, CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now},
+		{ID: "B-1", Summary: "Other", Status: "Backlog", RemoteStatus: "To Do", SortOrder: 0, CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now},
 	}
 	for _, tk := range tickets {
 		if err := s.CreateTicket(ctx, tk); err != nil {
@@ -135,8 +135,8 @@ func TestUpdateTicketPersistsChanges(t *testing.T) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	ticket := Ticket{
-		ID: "REX-1", Summary: "Original", Status: "Backlog", JiraStatus: "To Do",
-		CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now,
+		ID: "REX-1", Summary: "Original", Status: "Backlog", RemoteStatus: "To Do",
+		CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now,
 	}
 	if err := s.CreateTicket(ctx, ticket); err != nil {
 		t.Fatal(err)
@@ -167,8 +167,8 @@ func TestDeleteTicketRemovesIt(t *testing.T) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	ticket := Ticket{
-		ID: "REX-1", Summary: "Bye", Status: "Backlog", JiraStatus: "To Do",
-		CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now,
+		ID: "REX-1", Summary: "Bye", Status: "Backlog", RemoteStatus: "To Do",
+		CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now,
 	}
 	if err := s.CreateTicket(ctx, ticket); err != nil {
 		t.Fatal(err)

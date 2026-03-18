@@ -18,7 +18,7 @@ func seedTicketForExport(t *testing.T, s *store.Store) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	if err := s.CreateColumnMapping(ctx, store.ColumnMapping{
-		ColumnName: "Backlog", JiraStatuses: `["To Do"]`, SortOrder: 0,
+		ColumnName: "Backlog", RemoteStatuses: `["To Do"]`, SortOrder: 0,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -27,9 +27,9 @@ func seedTicketForExport(t *testing.T, s *store.Store) {
 		ID: "REX-1238", Summary: "Refactor user service",
 		Description:   "Refactor the user service to use the new repository pattern.\n\nThis includes updating all endpoints.",
 		DescriptionMD: "Refactor the user service to use the new repository pattern.\n\nThis includes updating all endpoints.",
-		Status: "Backlog", JiraStatus: "To Do", Priority: "High", IssueType: "Story",
+		Status: "Backlog", RemoteStatus: "To Do", Priority: "High", IssueType: "Story",
 		Assignee: "alice", Labels: "backend", EpicKey: "REX-100", EpicName: "Platform Modernisation",
-		URL: "https://jira.example.com/browse/REX-1238", CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now,
+		URL: "https://jira.example.com/browse/REX-1238", CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -55,10 +55,10 @@ func TestFormatDescription_EmptyDescription(t *testing.T) {
 	s, _, svc := setupExportBoard(t)
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
-	s.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: "Backlog", JiraStatuses: `["To Do"]`, SortOrder: 0})
+	s.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: "Backlog", RemoteStatuses: `["To Do"]`, SortOrder: 0})
 	s.CreateTicket(ctx, store.Ticket{
-		ID: "X-1", Summary: "No desc", Status: "Backlog", JiraStatus: "To Do",
-		CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now,
+		ID: "X-1", Summary: "No desc", Status: "Backlog", RemoteStatus: "To Do",
+		CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now,
 	})
 
 	out, err := svc.ExportCardContext(ctx, "X-1", ExportFormatDescription)
@@ -116,11 +116,11 @@ func TestFormatFull_MissingOptionalFields(t *testing.T) {
 	s, _, svc := setupExportBoard(t)
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
-	s.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: "Backlog", JiraStatuses: `["To Do"]`, SortOrder: 0})
+	s.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: "Backlog", RemoteStatuses: `["To Do"]`, SortOrder: 0})
 	s.CreateTicket(ctx, store.Ticket{
 		ID: "X-2", Summary: "Minimal card", DescriptionMD: "Some desc.",
-		Status: "Backlog", JiraStatus: "To Do",
-		CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now,
+		Status: "Backlog", RemoteStatus: "To Do",
+		CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now,
 	})
 
 	out, err := svc.ExportCardContext(ctx, "X-2", ExportFormatFull)
@@ -145,11 +145,11 @@ func TestFormatFull_EmptyDescription(t *testing.T) {
 	s, _, svc := setupExportBoard(t)
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
-	s.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: "Backlog", JiraStatuses: `["To Do"]`, SortOrder: 0})
+	s.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: "Backlog", RemoteStatuses: `["To Do"]`, SortOrder: 0})
 	s.CreateTicket(ctx, store.Ticket{
-		ID: "X-3", Summary: "No desc full", Status: "Backlog", JiraStatus: "To Do",
+		ID: "X-3", Summary: "No desc full", Status: "Backlog", RemoteStatus: "To Do",
 		Priority: "Low", IssueType: "Bug",
-		CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now,
+		CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now,
 	})
 
 	out, err := svc.ExportCardContext(ctx, "X-3", ExportFormatFull)

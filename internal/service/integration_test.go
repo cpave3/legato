@@ -25,9 +25,9 @@ func TestIntegration_BoardServiceEndToEnd(t *testing.T) {
 
 	// Seed columns
 	for _, col := range []store.ColumnMapping{
-		{ColumnName: "Backlog", JiraStatuses: `["To Do"]`, SortOrder: 0},
-		{ColumnName: "Doing", JiraStatuses: `["In Progress"]`, SortOrder: 1},
-		{ColumnName: "Done", JiraStatuses: `["Done"]`, SortOrder: 2},
+		{ColumnName: "Backlog", RemoteStatuses: `["To Do"]`, SortOrder: 0},
+		{ColumnName: "Doing", RemoteStatuses: `["In Progress"]`, SortOrder: 1},
+		{ColumnName: "Done", RemoteStatuses: `["Done"]`, SortOrder: 2},
 	} {
 		if err := s.CreateColumnMapping(ctx, col); err != nil {
 			t.Fatal(err)
@@ -37,15 +37,15 @@ func TestIntegration_BoardServiceEndToEnd(t *testing.T) {
 	// Seed tickets
 	for _, ticket := range []store.Ticket{
 		{ID: "INT-1", Summary: "Alpha task", DescriptionMD: "Alpha description.\n\n## Details\n\nMore info here.",
-			Status: "Backlog", JiraStatus: "To Do", Priority: "High", IssueType: "Story",
+			Status: "Backlog", RemoteStatus: "To Do", Priority: "High", IssueType: "Story",
 			Assignee: "dev1", Labels: "backend", EpicKey: "INT-100", EpicName: "Integration Epic",
-			URL: "https://jira.example.com/INT-1", CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now, SortOrder: 0},
+			URL: "https://jira.example.com/INT-1", CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now, SortOrder: 0},
 		{ID: "INT-2", Summary: "Beta task", DescriptionMD: "Beta description.",
-			Status: "Backlog", JiraStatus: "To Do", Priority: "Medium", IssueType: "Bug",
-			CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now, SortOrder: 1},
+			Status: "Backlog", RemoteStatus: "To Do", Priority: "Medium", IssueType: "Bug",
+			CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now, SortOrder: 1},
 		{ID: "INT-3", Summary: "Gamma task", DescriptionMD: "Gamma description.",
-			Status: "Doing", JiraStatus: "In Progress", Priority: "Low", IssueType: "Task",
-			CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now, SortOrder: 0},
+			Status: "Doing", RemoteStatus: "In Progress", Priority: "Low", IssueType: "Task",
+			CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now, SortOrder: 0},
 	} {
 		if err := s.CreateTicket(ctx, ticket); err != nil {
 			t.Fatal(err)

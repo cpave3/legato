@@ -12,7 +12,7 @@ func TestColumnMappingCRUDCycle(t *testing.T) {
 	// Create
 	m := ColumnMapping{
 		ColumnName:   "Backlog",
-		JiraStatuses: `["To Do","Open"]`,
+		RemoteStatuses: `["To Do","Open"]`,
 		SortOrder:    0,
 	}
 	if err := s.CreateColumnMapping(ctx, m); err != nil {
@@ -21,7 +21,7 @@ func TestColumnMappingCRUDCycle(t *testing.T) {
 
 	m2 := ColumnMapping{
 		ColumnName:   "Doing",
-		JiraStatuses: `["In Progress"]`,
+		RemoteStatuses: `["In Progress"]`,
 		SortOrder:    1,
 	}
 	if err := s.CreateColumnMapping(ctx, m2); err != nil {
@@ -41,7 +41,7 @@ func TestColumnMappingCRUDCycle(t *testing.T) {
 	}
 
 	// Update
-	mappings[0].JiraStatuses = `["To Do","Open","Backlog"]`
+	mappings[0].RemoteStatuses = `["To Do","Open","Backlog"]`
 	if err := s.UpdateColumnMapping(ctx, mappings[0]); err != nil {
 		t.Fatal(err)
 	}
@@ -49,8 +49,8 @@ func TestColumnMappingCRUDCycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated[0].JiraStatuses != `["To Do","Open","Backlog"]` {
-		t.Errorf("JiraStatuses = %q after update", updated[0].JiraStatuses)
+	if updated[0].RemoteStatuses != `["To Do","Open","Backlog"]` {
+		t.Errorf("RemoteStatuses = %q after update", updated[0].RemoteStatuses)
 	}
 
 	// Delete
@@ -70,7 +70,7 @@ func TestDuplicateColumnNameReturnsError(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	m := ColumnMapping{ColumnName: "Backlog", JiraStatuses: `["To Do"]`}
+	m := ColumnMapping{ColumnName: "Backlog", RemoteStatuses: `["To Do"]`}
 	if err := s.CreateColumnMapping(ctx, m); err != nil {
 		t.Fatal(err)
 	}

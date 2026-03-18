@@ -30,9 +30,9 @@ type BoardConfig struct {
 }
 
 type ColumnConfig struct {
-	Name              string   `yaml:"name"`
-	JiraStatuses      []string `yaml:"jira_statuses"`
-	JiraTransitionID  string   `yaml:"jira_transition_id"`
+	Name               string   `yaml:"name"`
+	RemoteStatuses     []string `yaml:"remote_statuses"`
+	RemoteTransitionID string   `yaml:"remote_transition_id"`
 }
 
 type KeybindingsConfig struct {
@@ -126,10 +126,10 @@ func applyDefaults(cfg *Config) {
 
 func defaultColumns() []ColumnConfig {
 	return []ColumnConfig{
-		{Name: "Backlog", JiraStatuses: []string{"To Do", "Open", "Backlog"}},
-		{Name: "Ready", JiraStatuses: []string{"Ready for Dev", "Selected for Development"}},
-		{Name: "Doing", JiraStatuses: []string{"In Progress", "In Development"}},
-		{Name: "Review", JiraStatuses: []string{"In Review"}},
-		{Name: "Done", JiraStatuses: []string{"Done", "Closed"}},
+		{Name: "Backlog", RemoteStatuses: []string{"To Do", "Open", "Backlog"}},
+		{Name: "Ready", RemoteStatuses: []string{"Ready for Dev", "Selected for Development"}},
+		{Name: "Doing", RemoteStatuses: []string{"In Progress", "In Development"}},
+		{Name: "Review", RemoteStatuses: []string{"In Review"}},
+		{Name: "Done", RemoteStatuses: []string{"Done", "Closed"}},
 	}
 }

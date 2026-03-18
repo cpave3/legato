@@ -28,9 +28,9 @@ func seedColumns(t *testing.T, s *store.Store) {
 	t.Helper()
 	ctx := context.Background()
 	cols := []store.ColumnMapping{
-		{ColumnName: "Backlog", JiraStatuses: `["To Do"]`, SortOrder: 0},
-		{ColumnName: "In Progress", JiraStatuses: `["In Progress"]`, SortOrder: 1},
-		{ColumnName: "Done", JiraStatuses: `["Done"]`, SortOrder: 2},
+		{ColumnName: "Backlog", RemoteStatuses: `["To Do"]`, SortOrder: 0},
+		{ColumnName: "In Progress", RemoteStatuses: `["In Progress"]`, SortOrder: 1},
+		{ColumnName: "Done", RemoteStatuses: `["Done"]`, SortOrder: 2},
 	}
 	for _, c := range cols {
 		if err := s.CreateColumnMapping(ctx, c); err != nil {
@@ -44,12 +44,12 @@ func seedTickets(t *testing.T, s *store.Store) {
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
 	tickets := []store.Ticket{
-		{ID: "T-1", Summary: "First ticket", Status: "Backlog", JiraStatus: "To Do",
-			Priority: "High", IssueType: "Story", CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now, SortOrder: 0},
-		{ID: "T-2", Summary: "Second ticket", Status: "Backlog", JiraStatus: "To Do",
-			Priority: "Medium", IssueType: "Bug", CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now, SortOrder: 1},
-		{ID: "T-3", Summary: "Third ticket", Status: "In Progress", JiraStatus: "In Progress",
-			Priority: "Low", IssueType: "Task", CreatedAt: now, UpdatedAt: now, JiraUpdatedAt: now, SortOrder: 0},
+		{ID: "T-1", Summary: "First ticket", Status: "Backlog", RemoteStatus: "To Do",
+			Priority: "High", IssueType: "Story", CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now, SortOrder: 0},
+		{ID: "T-2", Summary: "Second ticket", Status: "Backlog", RemoteStatus: "To Do",
+			Priority: "Medium", IssueType: "Bug", CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now, SortOrder: 1},
+		{ID: "T-3", Summary: "Third ticket", Status: "In Progress", RemoteStatus: "In Progress",
+			Priority: "Low", IssueType: "Task", CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now, SortOrder: 0},
 	}
 	for _, t := range tickets {
 		if err := s.CreateTicket(ctx, t); err != nil {

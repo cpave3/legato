@@ -2,7 +2,7 @@
 
 for all work in this project, use the tdd skill, if present.
 
-AI Agent Orchestration TUI — a keyboard-driven kanban board for Jira tickets, built for developers who work with AI coding agents.
+AI Agent Orchestration TUI — a keyboard-driven kanban board for tracking tickets, built for developers who work with AI coding agents. Supports pluggable ticket providers (Jira first, others planned).
 
 ## Tech Stack
 
@@ -43,7 +43,9 @@ task check                 # build + test + vet + lint
 
 - `internal/engine/store/` — SQLite store with embedded migrations, ticket/column mapping/sync log CRUD
 - `internal/engine/events/` — Channel-based event bus with buffered pub/sub (buffer size 64, non-blocking drops on full)
-- `internal/service/` — BoardService (columns/cards CRUD) and SyncService (stub with fake data)
+- `internal/engine/jira/` — Jira REST API v3 client (types, HTTP client with Basic Auth/backoff, ADF-to-Markdown converter), plus `Provider` adapter
+- `internal/service/` — BoardService (columns/cards CRUD), SyncService (pull/push with conflict resolution), `TicketProvider` interface for pluggable backends
+- `internal/setup/` — Setup wizard logic: first-run detection, credential validation, project/status discovery, column mapping heuristics, config writing
 - `internal/tui/` — Root Bubbletea app model, view routing, EventBus bridge
 - `internal/tui/board/` — Kanban board model with vim navigation, card/column rendering
 - `internal/tui/statusbar/` — Status bar with sync state, relative time, key hints
@@ -55,7 +57,9 @@ task check                 # build + test + vet + lint
 - SQLite file location: `cfg.DB.Path` > `$XDG_DATA_HOME/legato/legato.db` > `~/.local/share/legato/legato.db`
 - Migrations embedded via `embed.FS`, tracked with `PRAGMA user_version`
 - WAL mode enabled, foreign keys ON
-- Schema: `tickets`, `column_mappings`, `sync_log` tables (see `internal/engine/store/migrations/001_init.sql`)
+- Schema: `tickets`, `column_mappings`, `sync_log` tables
+- DB columns use provider-agnostic names: `remote_status`, `remote_updated_at`, `remote_statuses`, `remote_transition` (not Jira-specific)
+- Migrations: `001_init.sql` (base), `002_stale_and_move_tracking.sql` (stale_at, local_move_at), `003_rename_jira_to_remote.sql` (agnostic naming)
 
 ## Config
 
@@ -63,11 +67,29 @@ task check                 # build + test + vet + lint
 - Missing config file returns defaults (no error) — app starts without config for initial setup
 - Env vars expanded before YAML parsing: `${LEGATO_JIRA_TOKEN}` works in config values
 
+## Provider Architecture
+
+The ticket source is abstracted behind `service.TicketProvider` — Jira is the first implementation, but others (Linear, GitHub Issues, etc.) can be plugged in by implementing the same interface:
+
+- `service.TicketProvider` interface defined in `internal/service/provider.go`
+- `service.JiraProviderAdapter` in `internal/service/provider_jira.go` bridges `jira.Provider` → `TicketProvider`
+- Sync service (`internal/service/sync.go`) depends only on the interface, never on Jira directly
+- ADF-to-Markdown conversion is internal to the Jira provider — the interface returns markdown
+
+## Sync Algorithm
+
+- **Pull**: periodic fetch via provider → upsert into SQLite, status-to-column mapping, stale detection (7-day retention)
+- **Push**: local SQLite update first (non-blocking), then async remote transition; failure logs to `sync_log` and preserves local column
+- **Conflict resolution**: local wins within 5-minute window of `local_move_at`; after window, remote state accepted on next pull
+- **Scheduler**: configurable interval (default 60s), publishes SyncStarted/SyncCompleted/SyncFailed events
+
 ## Development Notes
 
 - Tests use real SQLite databases in `t.TempDir()` — no mocks for storage
 - Event bus tests use real channels — no mocks
 - Config tests use `t.Setenv()` for env var isolation
+- Jira client tests use `net/http/httptest` servers — no real API calls
+- Sync service tests use a `mockProvider` implementing `TicketProvider` — not the real Jira client
 - `sync_log` uses `datetime('now')` which has second precision — queries use `id DESC` as tiebreaker for ordering
 - TUI tests: test model state via `Update()`, not rendered ANSI output — lipgloss strips styles in non-TTY test environments
 - Bubbletea async data loading: never replace the entire model in a `DataLoadedMsg` — only copy data fields, or dimensions set by `WindowSizeMsg` get wiped
@@ -81,6 +103,6 @@ task check                 # build + test + vet + lint
 1. ~~Engine Layer~~ (complete)
 2. ~~Service Layer~~ (complete)
 3. ~~TUI Shell~~ (complete)
-4. Jira Integration
+4. ~~Jira Integration~~ (complete)
 5. Detail View & Clipboard
 6. Polish (overlays, error handling, server stub)
