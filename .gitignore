@@ -1,4 +1,5 @@
 bin/
+legato
 *.db
 *.sqlite
 .DS_Store
