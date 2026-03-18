@@ -37,3 +37,13 @@ type SyncLogEntry struct {
 	Detail    string `db:"detail"`
 	CreatedAt string `db:"created_at"`
 }
+
+type AgentSession struct {
+	ID          int     `db:"id"`
+	TicketID    string  `db:"ticket_id"`
+	TmuxSession string  `db:"tmux_session"`
+	Command     string  `db:"command"`
+	Status      string  `db:"status"`
+	StartedAt   string  `db:"started_at"`
+	EndedAt     *string `db:"ended_at"`
+}

@@ -115,6 +115,36 @@ func TestLoadReturnsDefaultsWhenNoConfigFile(t *testing.T) {
 	}
 }
 
+func TestAgentsEscapeKeyDefault(t *testing.T) {
+	writeTestConfig(t, `
+jira:
+  base_url: "https://example.atlassian.net"
+`)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agents.EscapeKey != "ctrl+]" {
+		t.Errorf("EscapeKey = %q, want %q", cfg.Agents.EscapeKey, "ctrl+]")
+	}
+}
+
+func TestAgentsEscapeKeyCustom(t *testing.T) {
+	writeTestConfig(t, `
+agents:
+  escape_key: "ctrl+\\"
+`)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agents.EscapeKey != `ctrl+\` {
+		t.Errorf("EscapeKey = %q, want %q", cfg.Agents.EscapeKey, `ctrl+\`)
+	}
+}
+
 func TestResolveDBPathPrecedence(t *testing.T) {
 	t.Run("from config", func(t *testing.T) {
 		cfg := &Config{DB: DBConfig{Path: "/tmp/legato-test.db"}}

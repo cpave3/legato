@@ -44,10 +44,12 @@ task check                 # build + test + vet + lint
 - `internal/engine/store/` — SQLite store with embedded migrations, ticket/column mapping/sync log CRUD
 - `internal/engine/events/` — Channel-based event bus with buffered pub/sub (buffer size 64, non-blocking drops on full), error event types (`EventSyncError`, `EventTransitionFailed`, `EventAuthFailed`, `EventRateLimited`) with `ErrorPayload` struct
 - `internal/engine/jira/` — Jira REST API v3 client (types, HTTP client with Basic Auth/backoff, ADF-to-Markdown converter), plus `Provider` adapter
-- `internal/service/` — BoardService (columns/cards CRUD), SyncService (pull/push with conflict resolution), `TicketProvider` interface for pluggable backends
+- `internal/engine/tmux/` — Tmux session manager: spawn, kill, capture-pane, attach, list/filter legato-prefixed sessions. LookPath-injectable for testing.
+- `internal/service/` — BoardService (columns/cards CRUD), SyncService (pull/push with conflict resolution), AgentService (tmux session lifecycle + SQLite tracking), `TicketProvider` interface for pluggable backends
 - `internal/setup/` — Setup wizard logic: first-run detection, credential validation, project/status discovery, column mapping heuristics, config writing
-- `internal/tui/` — Root Bubbletea app model, view routing, overlay state management (`overlayType` enum + `activeOverlay tea.Model`), EventBus bridge
-- `internal/tui/board/` — Kanban board model with vim navigation, card/column rendering
+- `internal/tui/` — Root Bubbletea app model, view routing (viewBoard/viewDetail/viewAgents), overlay state management (`overlayType` enum + `activeOverlay tea.Model`), EventBus bridge
+- `internal/tui/agents/` — Agent split-view: sidebar with agent list + terminal output panel, j/k navigation, spawn/kill/attach keybindings, capture-pane polling at 200ms
+- `internal/tui/board/` — Kanban board model with vim navigation, card/column rendering, agent indicator (`▶` prefix)
 - `internal/tui/detail/` — Full-screen ticket detail view with Glamour markdown, metadata header, viewport scrolling
 - `internal/tui/clipboard/` — OS-native clipboard (pbcopy/wl-copy/xclip/xsel) and browser open (open/xdg-open)
 - `internal/tui/overlay/` — Overlay system: shared `RenderPanel`, move overlay (single-letter shortcuts), search overlay (real-time filtering via `BoardService.SearchCards`), help overlay (keybinding reference)
@@ -61,9 +63,9 @@ task check                 # build + test + vet + lint
 - SQLite file location: `cfg.DB.Path` > `$XDG_DATA_HOME/legato/legato.db` > `~/.local/share/legato/legato.db`
 - Migrations embedded via `embed.FS`, tracked with `PRAGMA user_version`
 - WAL mode enabled, foreign keys ON
-- Schema: `tickets`, `column_mappings`, `sync_log` tables
+- Schema: `tickets`, `column_mappings`, `sync_log`, `agent_sessions` tables
 - DB columns use provider-agnostic names: `remote_status`, `remote_updated_at`, `remote_statuses`, `remote_transition` (not Jira-specific)
-- Migrations: `001_init.sql` (base), `002_stale_and_move_tracking.sql` (stale_at, local_move_at), `003_rename_jira_to_remote.sql` (agnostic naming)
+- Migrations: `001_init.sql` (base), `002_stale_and_move_tracking.sql` (stale_at, local_move_at), `003_rename_jira_to_remote.sql` (agnostic naming), `004_agent_sessions.sql` (agent session tracking)
 
 ## Config
 
@@ -108,6 +110,11 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 - Card warning indicators: `CardData.Warning` bool → renders `!` prefix; sourced from `sync_log` where most recent entry for ticket is `push_failed`
 - Error event classification: sync service classifies errors by message content (auth/rate-limit/offline) and publishes typed events; app converts to `statusbar.ErrorMsg`
 - Server stub: `internal/server/` consumes `BoardService` interface only — no TUI imports, independently startable; tests use `httptest.NewRecorder`
+- Agent sessions: tmux sessions named `legato-<TICKET_ID>`, tracked in `agent_sessions` SQLite table. Tmux manager (`internal/engine/tmux/`) uses `exec.LookPath` injection for testability. Integration tests skip when tmux not installed (`skipWithoutTmux`)
+- Agent service tests use `mockTmux` implementing `TmuxManager` interface + real SQLite — same pattern as sync service with `mockProvider`
+- Agent view: `viewAgents` enum value, toggled via `A` key from board. `agents.Model.Update` returns `(Model, tea.Cmd)` (concrete type, same as board — not `tea.Model`). Polling via `agentTickMsg` at 200ms; capture output forwarded as `CaptureOutputMsg`
+- Agent attach: `tea.ExecProcess` suspends bubbletea, runs `tmux attach-session` with escape key set to `Ctrl+]` (configurable via `agents.escape_key` in config). On detach, refreshes agent list
+- Agent card indicator: `CardData.AgentActive` bool → renders `▶` prefix on board cards with active agents
 
 ## Build Plan
 

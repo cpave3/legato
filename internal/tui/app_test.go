@@ -68,7 +68,7 @@ func (f *fakeBoardService) ExportCardContext(_ context.Context, _ string, _ serv
 }
 
 func newTestApp() App {
-	return NewApp(&fakeBoardService{}, nil)
+	return NewApp(&fakeBoardService{}, nil, nil)
 }
 
 func updateApp(a App, msg tea.Msg) (App, tea.Cmd) {
@@ -338,6 +338,50 @@ func TestHelpEscDismisses(t *testing.T) {
 	}
 	if app.overlayType != overlayNone {
 		t.Error("help should be dismissed after esc")
+	}
+}
+
+func TestShiftAOpensAgentView(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	if app.active != viewAgents {
+		t.Errorf("active = %d, want viewAgents (%d)", app.active, viewAgents)
+	}
+}
+
+func TestAgentViewEscReturnsToBoard(t *testing.T) {
+	app := initTestApp()
+	// Switch to agent view
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	if app.active != viewAgents {
+		t.Fatalf("active = %d, want viewAgents", app.active)
+	}
+	// esc from agent view produces ReturnToBoardMsg
+	app, cmd := updateApp(app, tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	if app.active != viewBoard {
+		t.Errorf("active = %d, want viewBoard after esc", app.active)
+	}
+}
+
+func TestAgentViewQReturnsToBoard(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if app.active != viewBoard {
+		t.Errorf("active = %d, want viewBoard after q", app.active)
+	}
+}
+
+func TestAgentViewRendering(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	view := app.View()
+	if view == "" {
+		t.Error("agent view should not be empty")
 	}
 }
 

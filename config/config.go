@@ -14,6 +14,11 @@ type Config struct {
 	Theme       string            `yaml:"theme"`
 	Keybindings KeybindingsConfig `yaml:"keybindings"`
 	DB          DBConfig          `yaml:"db"`
+	Agents      AgentsConfig      `yaml:"agents"`
+}
+
+type AgentsConfig struct {
+	EscapeKey string `yaml:"escape_key"`
 }
 
 type JiraConfig struct {
@@ -118,6 +123,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if len(cfg.Board.Columns) == 0 {
 		cfg.Board.Columns = defaultColumns()
+	}
+	if cfg.Agents.EscapeKey == "" {
+		cfg.Agents.EscapeKey = "ctrl+]"
 	}
 	// VimMode defaults to true — yaml unmarshals missing bool as false,
 	// so we only set it if the entire keybindings section was absent.

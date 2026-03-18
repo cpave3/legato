@@ -2,11 +2,13 @@ package tui
 
 import (
 	"context"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/agents"
 	"github.com/cpave3/legato/internal/tui/board"
 	"github.com/cpave3/legato/internal/tui/clipboard"
 	"github.com/cpave3/legato/internal/tui/detail"
@@ -19,6 +21,7 @@ type viewType int
 const (
 	viewBoard viewType = iota
 	viewDetail
+	viewAgents
 )
 
 type overlayKind int
@@ -46,8 +49,10 @@ type SearchResultsMsg struct {
 // App is the root Bubbletea model.
 type App struct {
 	svc       service.BoardService
+	agentSvc  service.AgentService
 	board     board.Model
 	detail    detail.Model
+	agentView agents.Model
 	statusBar statusbar.Model
 	clip          *clipboard.Clipboard
 	activeOverlay tea.Model
@@ -60,11 +65,13 @@ type App struct {
 }
 
 // NewApp creates a new root application model.
-func NewApp(svc service.BoardService, bus *events.Bus) App {
+func NewApp(svc service.BoardService, agentSvc service.AgentService, bus *events.Bus) App {
 	clip := clipboard.New()
 	app := App{
 		svc:       svc,
+		agentSvc:  agentSvc,
 		board:     board.New(svc),
+		agentView: agents.New(),
 		statusBar: statusbar.New(),
 		clip:      clip,
 		active:    viewBoard,
@@ -129,7 +136,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.active == viewBoard {
 				return a, tea.Quit
 			}
-			// In detail view, q goes back to board
+			// In detail or agent view, q goes back to board
+			if a.active == viewAgents {
+				a.agentView.StopPolling()
+			}
 			a.active = viewBoard
 			return a, nil
 		case "/":
@@ -163,6 +173,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Propagate to agent view
+		a.agentView.SetSize(msg.Width, msg.Height-1)
+
 		// Propagate to status bar
 		a.statusBar, _ = a.statusBar.Update(msg)
 
@@ -186,6 +199,34 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case detail.BackToBoard:
 		a.active = viewBoard
 		return a, nil
+
+	case agents.ReturnToBoardMsg:
+		a.active = viewBoard
+		a.agentView.StopPolling()
+		return a, nil
+
+	case agents.SpawnAgentMsg:
+		return a.handleSpawnAgent(msg)
+
+	case agents.KillAgentMsg:
+		return a.handleKillAgent(msg)
+
+	case agents.AttachSessionMsg:
+		return a.handleAttachSession(msg)
+
+	case agents.CaptureOutputMsg:
+		a.agentView, _ = a.agentView.Update(msg)
+		return a, nil
+
+	case agents.AgentsRefreshedMsg:
+		a.agentView, _ = a.agentView.Update(msg)
+		return a, nil
+
+	case agentTickMsg:
+		if a.active != viewAgents || a.agentSvc == nil {
+			return a, nil
+		}
+		return a.handleAgentTick()
 
 	case detail.OpenMoveOverlay:
 		return a.openMoveOverlay(msg.TicketID)
@@ -254,6 +295,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.eventSub != nil {
 			cmds = append(cmds, a.listenEventBus())
 		}
+
+	case statusbar.ErrorMsg:
+		a.statusBar, _ = a.statusBar.Update(msg)
+		return a, nil
 
 	case board.DataLoadedMsg:
 		// Forward data loaded to board
@@ -363,10 +408,170 @@ func (a App) handleSearchSelected(msg overlay.SearchSelectedMsg) (tea.Model, tea
 	return a, nil
 }
 
+// agentTickMsg is an internal tick for agent capture polling.
+type agentTickMsg struct{}
+
+func agentTickCmd() tea.Cmd {
+	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
+		return agentTickMsg{}
+	})
+}
+
+func (a App) switchToAgentView() (tea.Model, tea.Cmd) {
+	a.active = viewAgents
+	a.agentView.StartPolling()
+
+	var cmds []tea.Cmd
+	if a.agentSvc != nil {
+		svc := a.agentSvc
+		cmds = append(cmds, func() tea.Msg {
+			_ = svc.ReconcileSessions(context.Background())
+			agentList, _ := svc.ListAgents(context.Background())
+			return agents.AgentsRefreshedMsg{Agents: agentList}
+		})
+	}
+	cmds = append(cmds, agentTickCmd())
+	return a, tea.Batch(cmds...)
+}
+
+func (a App) handleAgentTick() (tea.Model, tea.Cmd) {
+	if a.agentSvc == nil {
+		return a, nil
+	}
+	selected := a.agentView.SelectedAgent()
+	if selected == nil || selected.Status != "running" {
+		return a, agentTickCmd()
+	}
+	svc := a.agentSvc
+	ticketID := selected.TicketID
+	return a, tea.Batch(
+		func() tea.Msg {
+			output, _ := svc.CaptureOutput(context.Background(), ticketID)
+			return agents.CaptureOutputMsg{Output: output}
+		},
+		agentTickCmd(),
+	)
+}
+
+func (a App) handleSpawnAgent(msg agents.SpawnAgentMsg) (tea.Model, tea.Cmd) {
+	if a.agentSvc == nil {
+		return a, nil
+	}
+	ticketID := msg.TicketID
+	// If no ticket ID, use selected board card
+	if ticketID == "" {
+		if card := a.board.SelectedCard(); card != nil {
+			ticketID = card.Key
+		}
+	}
+	if ticketID == "" {
+		return a, nil
+	}
+	svc := a.agentSvc
+	return a, func() tea.Msg {
+		if err := svc.SpawnAgent(context.Background(), ticketID); err != nil {
+			return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
+		}
+		agentList, _ := svc.ListAgents(context.Background())
+		return agents.AgentsRefreshedMsg{Agents: agentList}
+	}
+}
+
+func (a App) handleKillAgent(msg agents.KillAgentMsg) (tea.Model, tea.Cmd) {
+	if a.agentSvc == nil {
+		return a, nil
+	}
+	svc := a.agentSvc
+	ticketID := msg.TicketID
+	return a, func() tea.Msg {
+		_ = svc.KillAgent(context.Background(), ticketID)
+		agentList, _ := svc.ListAgents(context.Background())
+		return agents.AgentsRefreshedMsg{Agents: agentList}
+	}
+}
+
+func (a App) handleAttachSession(msg agents.AttachSessionMsg) (tea.Model, tea.Cmd) {
+	if a.agentSvc == nil {
+		return a, nil
+	}
+	// Find the ticket ID for the session
+	selected := a.agentView.SelectedAgent()
+	if selected == nil {
+		return a, nil
+	}
+	svc := a.agentSvc
+	ticketID := selected.TicketID
+	cmd, err := svc.AttachCmd(context.Background(), ticketID)
+	if err != nil {
+		return a, nil
+	}
+	return a, tea.ExecProcess(cmd, func(err error) tea.Msg {
+		// After detach, refresh agent list
+		agentList, _ := svc.ListAgents(context.Background())
+		return agents.AgentsRefreshedMsg{Agents: agentList}
+	})
+}
+
+func (a App) handleBoardSpawnAgent() (tea.Model, tea.Cmd) {
+	if a.agentSvc == nil {
+		return a, nil
+	}
+	card := a.board.SelectedCard()
+	if card == nil {
+		return a, nil
+	}
+
+	ticketID := card.Key
+	svc := a.agentSvc
+
+	// Check if agent already exists for this card
+	_, err := svc.CaptureOutput(context.Background(), ticketID)
+	if err == nil {
+		// Agent already running — switch to agent view with it selected
+		a.active = viewAgents
+		a.agentView.StartPolling()
+		a.agentView.SelectByTicketID(ticketID)
+		return a, tea.Batch(
+			func() tea.Msg {
+				_ = svc.ReconcileSessions(context.Background())
+				agentList, _ := svc.ListAgents(context.Background())
+				return agents.AgentsRefreshedMsg{Agents: agentList, SelectTicket: ticketID}
+			},
+			agentTickCmd(),
+		)
+	}
+
+	// Spawn and switch to agent view
+	a.active = viewAgents
+	a.agentView.StartPolling()
+	return a, tea.Batch(
+		func() tea.Msg {
+			if err := svc.SpawnAgent(context.Background(), ticketID); err != nil {
+				return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
+			}
+			agentList, _ := svc.ListAgents(context.Background())
+			return agents.AgentsRefreshedMsg{Agents: agentList, SelectTicket: ticketID}
+		},
+		agentTickCmd(),
+	)
+}
+
 func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch a.active {
 	case viewBoard:
+		// 'A' switches to agent view
+		if msg.String() == "A" {
+			return a.switchToAgentView()
+		}
+		// 'a' spawns agent on selected card
+		if msg.String() == "a" {
+			return a.handleBoardSpawnAgent()
+		}
+		// 't' opens terminal for selected card (spawns if needed)
+		if msg.String() == "t" {
+			return a.handleBoardSpawnAgent()
+		}
 		var cmd tea.Cmd
 		a.board, cmd = a.board.Update(msg)
 		if cmd != nil {
@@ -377,6 +582,12 @@ func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		detailModel, cmd = a.detail.Update(msg)
 		a.detail = detailModel.(detail.Model)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case viewAgents:
+		var cmd tea.Cmd
+		a.agentView, cmd = a.agentView.Update(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
@@ -393,6 +604,13 @@ func (a App) View() string {
 	switch a.active {
 	case viewDetail:
 		return a.detail.View()
+	case viewAgents:
+		statusBar := a.statusBar.View()
+		statusBarHeight := lipgloss.Height(statusBar)
+		// Set agent view height to fill space above status bar
+		a.agentView.SetSize(a.width, a.height-statusBarHeight)
+		content := a.agentView.View()
+		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 	default:
 		content := a.board.View()
 		statusBar := a.statusBar.View()

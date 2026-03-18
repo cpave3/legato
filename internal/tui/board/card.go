@@ -7,11 +7,12 @@ import (
 
 // CardData holds the data needed to render a card.
 type CardData struct {
-	Key       string
-	Summary   string
-	Priority  string
-	IssueType string
-	Warning   bool
+	Key         string
+	Summary     string
+	Priority    string
+	IssueType   string
+	Warning     bool
+	AgentActive bool
 }
 
 // RenderCard renders a single card with the given parameters.
@@ -34,8 +35,15 @@ func RenderCard(card CardData, width int, selected bool, column string) string {
 		warningPrefix = warningStyle.Render("!") + " "
 	}
 
+	// Agent running indicator
+	agentPrefix := ""
+	if card.AgentActive {
+		agentStyle := lipgloss.NewStyle().Foreground(theme.SyncOK).Bold(true)
+		agentPrefix = agentStyle.Render("▶") + " "
+	}
+
 	// Apply done-column muted styling
-	keyLine := warningPrefix + card.Key
+	keyLine := agentPrefix + warningPrefix + card.Key
 	typeLine := card.IssueType
 	if isDone {
 		keyLine = theme.DoneMuted.Render(card.Key)

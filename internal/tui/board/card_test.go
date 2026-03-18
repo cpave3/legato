@@ -90,6 +90,22 @@ func TestCardNoWarningByDefault(t *testing.T) {
 	}
 }
 
+func TestCardAgentActiveIndicator(t *testing.T) {
+	card := CardData{Key: "REX-1", Summary: "Test", Priority: "High", IssueType: "Bug", AgentActive: true}
+	out := RenderCard(card, 30, false, "Doing")
+	if !strings.Contains(out, "▶") {
+		t.Errorf("agent-active card should contain '▶' indicator, got: %q", out)
+	}
+}
+
+func TestCardNoAgentIndicatorByDefault(t *testing.T) {
+	card := CardData{Key: "REX-1", Summary: "Test", Priority: "High", IssueType: "Bug"}
+	out := RenderCard(card, 30, false, "Doing")
+	if strings.Contains(out, "▶") {
+		t.Error("card without agent should not have ▶ indicator")
+	}
+}
+
 func TestCardDoneColumnRender(t *testing.T) {
 	card := CardData{Key: "REX-1", Summary: "Finished", Priority: "Low", IssueType: "Story"}
 	out := RenderCard(card, 30, false, "Done")
