@@ -1,0 +1,4 @@
+bin/
+*.db
+*.sqlite
+.DS_Store
