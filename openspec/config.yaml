@@ -1,20 +1,22 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  Tech stack: Go 1.23+, Bubbletea (TUI), Lipgloss (styling), Glamour (markdown rendering),
+  SQLite via modernc.org/sqlite (pure Go, no CGO), sqlx, YAML config.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  Architecture: 3-layer (engine → service → presentation). Engine has no business logic,
+  service is presentation-agnostic, TUI is the first presentation client.
+
+  Import rules: engine/ imports only stdlib+3rd-party. service/ imports engine/, never tui/.
+  tui/ imports service/ via interfaces. cmd/legato/ wires everything.
+
+  Module path: github.com/cpave3/legato
+  Config location: ~/.config/legato/config.yaml
+
+  See spec.md for full specification, init.md for bootstrap, lifecycle.mermaid for workflow.
+
+rules:
+  tasks:
+    - Each task should be independently implementable and testable
+    - Tasks should respect the layer boundaries (engine → service → tui)
+    - Include validation criteria for each task
