@@ -24,11 +24,13 @@ const (
 type SyncStartedMsg struct{}
 type SyncCompletedMsg struct{ At time.Time }
 type SyncFailedMsg struct{}
+type WarningMsg struct{ Text string }
 
 // Model is the status bar Bubbletea model.
 type Model struct {
 	state    SyncState
 	lastSync time.Time
+	warning  string
 	width    int
 	now      func() time.Time // for testing
 }
@@ -56,6 +58,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.lastSync = msg.At
 	case SyncFailedMsg:
 		m.state = StateError
+	case WarningMsg:
+		m.warning = msg.Text
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 	}
@@ -70,6 +74,13 @@ func (m Model) View() string {
 
 	// Sync indicator
 	syncDisplay := m.renderSyncState()
+
+	// Warning display (between sync and hints)
+	var warningDisplay string
+	if m.warning != "" {
+		warningStyle := lipgloss.NewStyle().Foreground(theme.SyncActive)
+		warningDisplay = "  " + warningStyle.Render(m.warning)
+	}
 
 	// Key hints
 	hints := []struct{ key, label string }{
@@ -91,13 +102,14 @@ func (m Model) View() string {
 	// Truncate hints to fit
 	hintsStr := truncateHints(hintParts, m.width-lipgloss.Width(syncDisplay)-4)
 
-	// Compose left (sync) and right (hints)
-	gap := m.width - lipgloss.Width(syncDisplay) - lipgloss.Width(hintsStr)
+	// Compose left (sync + warning) and right (hints)
+	leftPart := syncDisplay + warningDisplay
+	gap := m.width - lipgloss.Width(leftPart) - lipgloss.Width(hintsStr)
 	if gap < 1 {
 		gap = 1
 	}
 
-	content := syncDisplay + strings.Repeat(" ", gap) + hintsStr
+	content := leftPart + strings.Repeat(" ", gap) + hintsStr
 	return theme.StatusBar.Width(m.width).Render(content)
 }
 

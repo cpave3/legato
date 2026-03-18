@@ -48,7 +48,10 @@ task check                 # build + test + vet + lint
 - `internal/setup/` — Setup wizard logic: first-run detection, credential validation, project/status discovery, column mapping heuristics, config writing
 - `internal/tui/` — Root Bubbletea app model, view routing, EventBus bridge
 - `internal/tui/board/` — Kanban board model with vim navigation, card/column rendering
-- `internal/tui/statusbar/` — Status bar with sync state, relative time, key hints
+- `internal/tui/detail/` — Full-screen ticket detail view with Glamour markdown, metadata header, viewport scrolling
+- `internal/tui/clipboard/` — OS-native clipboard (pbcopy/wl-copy/xclip/xsel) and browser open (open/xdg-open)
+- `internal/tui/overlay/` — Move overlay for selecting target column
+- `internal/tui/statusbar/` — Status bar with sync state, relative time, key hints, warnings
 - `internal/tui/theme/` — Lipgloss color palette and style constants
 - `config/` — YAML config parser with env var expansion (`os.ExpandEnv`) and XDG path resolution
 
@@ -95,6 +98,9 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 - Bubbletea async data loading: never replace the entire model in a `DataLoadedMsg` — only copy data fields, or dimensions set by `WindowSizeMsg` get wiped
 - `tea.Model` interface requires `Update` to return `(tea.Model, tea.Cmd)` — concrete types need type assertions in tests
 - `cmd/validate/service-smoke/` — standalone service layer smoke test (renamed from phase2)
+- Glamour: must use `glamour.WithStyles(styles.DarkStyleConfig)`, NOT `WithAutoStyle()` — auto-style probes terminal background via stdin/stdout which deadlocks in bubbletea's alt-screen mode
+- Clipboard: `Copy()` uses `cmd.Start()` + `StdinPipe()`, NOT `cmd.Run()` — `wl-copy` on Wayland stays alive to serve paste requests, so `Run()` blocks forever
+- Detail view loads cards synchronously via `GetCard()` in the `OpenDetailMsg` handler (hits local SQLite, not remote API)
 
 ## Build Plan
 
@@ -104,5 +110,5 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 2. ~~Service Layer~~ (complete)
 3. ~~TUI Shell~~ (complete)
 4. ~~Jira Integration~~ (complete)
-5. Detail View & Clipboard
+5. ~~Detail View & Clipboard~~ (complete)
 6. Polish (overlays, error handling, server stub)

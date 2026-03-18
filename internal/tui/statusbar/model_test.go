@@ -104,6 +104,19 @@ func TestViewContainsKeyHints(t *testing.T) {
 	}
 }
 
+func TestWarningMessage(t *testing.T) {
+	m := New()
+	m.width = 120
+	m, _ = m.Update(WarningMsg{Text: "clipboard unavailable"})
+	if m.warning != "clipboard unavailable" {
+		t.Errorf("warning = %q, want 'clipboard unavailable'", m.warning)
+	}
+	view := m.View()
+	if !strings.Contains(view, "clipboard unavailable") {
+		t.Errorf("view should contain warning, got: %q", view)
+	}
+}
+
 func TestNarrowTerminalTruncatesHints(t *testing.T) {
 	m := New()
 	m.width = 30 // very narrow

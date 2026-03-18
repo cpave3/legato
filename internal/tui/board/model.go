@@ -73,6 +73,16 @@ func (m Model) Init() tea.Cmd {
 	}
 }
 
+// OpenDetailMsg signals the app to open the detail view for a card.
+type OpenDetailMsg struct {
+	CardKey string
+}
+
+// OpenMoveMsg signals the app to open the move overlay for a card.
+type OpenMoveMsg struct {
+	CardKey string
+}
+
 // Update handles messages.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -88,12 +98,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		return m.handleKey(msg), nil
+		return m.handleKey(msg)
 	}
 	return m, nil
 }
 
-func (m Model) handleKey(msg tea.KeyMsg) Model {
+func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	switch msg.String() {
 	case "h":
 		if m.cursorCol > 0 {
@@ -121,6 +131,16 @@ func (m Model) handleKey(msg tea.KeyMsg) Model {
 		if max >= 0 {
 			m.cursorRow = max
 		}
+	case "enter":
+		if card := m.SelectedCard(); card != nil {
+			key := card.Key
+			return m, func() tea.Msg { return OpenDetailMsg{CardKey: key} }
+		}
+	case "m":
+		if card := m.SelectedCard(); card != nil {
+			key := card.Key
+			return m, func() tea.Msg { return OpenMoveMsg{CardKey: key} }
+		}
 	case "1", "2", "3", "4", "5":
 		idx := int(msg.String()[0]-'0') - 1
 		if idx < len(m.columns) {
@@ -128,7 +148,21 @@ func (m Model) handleKey(msg tea.KeyMsg) Model {
 			m.clampRow()
 		}
 	}
-	return m
+	return m, nil
+}
+
+// SelectedCard returns the currently selected card data, or nil if none.
+func (m Model) SelectedCard() *CardData {
+	if m.cursorCol >= len(m.columns) {
+		return nil
+	}
+	col := m.columns[m.cursorCol]
+	cards := m.cards[col]
+	if m.cursorRow >= len(cards) {
+		return nil
+	}
+	c := cards[m.cursorRow]
+	return &c
 }
 
 func (m *Model) clampRow() {

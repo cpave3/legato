@@ -5,10 +5,15 @@ A keyboard-driven kanban board TUI for tracking tickets, built for developers wh
 ## Features
 
 - Vim-style keyboard navigation (h/j/k/l)
+- Full-screen ticket detail view with Glamour-rendered markdown
+- Copy ticket context to clipboard for AI coding agents (`y` description, `Y` full context)
+- Move cards between columns via overlay (`m`)
+- Open tickets in browser (`o`)
 - Bidirectional sync: pull tickets from Jira, push card moves back as transitions
 - Offline-first: works from local SQLite when the network is down
 - ADF-to-Markdown conversion for Jira ticket descriptions
 - Conflict resolution: local moves win within a 5-minute window
+- OS-native clipboard detection (pbcopy, wl-copy, xclip, xsel)
 - Provider-agnostic architecture: swap Jira for Linear, GitHub Issues, etc.
 
 ## Install
@@ -85,15 +90,31 @@ legato setup  # run the setup wizard (coming soon)
 
 ### Keyboard Shortcuts
 
+#### Board View
+
 | Key | Action |
 |-----|--------|
 | `h` / `l` | Move between columns |
 | `j` / `k` | Move between cards |
-| `H` / `L` | Move card left/right |
-| `J` / `K` | Reorder card up/down |
-| `/` | Search |
-| `r` | Manual sync (also retries failed pushes) |
+| `g` / `G` | Jump to first/last card |
+| `1`-`5` | Jump to column by number |
+| `enter` | Open ticket detail view |
+| `m` | Move card to another column |
+| `r` | Manual sync |
 | `q` | Quit |
+
+#### Detail View
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Scroll line by line |
+| `d` / `u` | Scroll half page |
+| `g` / `G` | Jump to top/bottom |
+| `y` | Copy description to clipboard |
+| `Y` | Copy full context to clipboard |
+| `o` | Open ticket in browser |
+| `m` | Move card to another column |
+| `esc` | Back to board |
 
 ## Architecture
 

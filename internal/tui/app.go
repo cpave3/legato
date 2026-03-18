@@ -1,18 +1,24 @@
 package tui
 
 import (
+	"context"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/engine/events"
-	"github.com/cpave3/legato/internal/tui/board"
-	"github.com/cpave3/legato/internal/tui/statusbar"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/board"
+	"github.com/cpave3/legato/internal/tui/clipboard"
+	"github.com/cpave3/legato/internal/tui/detail"
+	"github.com/cpave3/legato/internal/tui/overlay"
+	"github.com/cpave3/legato/internal/tui/statusbar"
 )
 
 type viewType int
 
 const (
 	viewBoard viewType = iota
+	viewDetail
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -20,11 +26,19 @@ type EventBusMsg struct {
 	Event events.Event
 }
 
+// ClipboardWarningMsg signals that clipboard is unavailable.
+type ClipboardWarningMsg struct{}
+
 // App is the root Bubbletea model.
 type App struct {
+	svc       service.BoardService
 	board     board.Model
+	detail    detail.Model
 	statusBar statusbar.Model
-	active    viewType
+	clip        *clipboard.Clipboard
+	moveOverlay overlay.MoveOverlay
+	showOverlay bool
+	active      viewType
 	width     int
 	height    int
 	eventBus  *events.Bus
@@ -33,9 +47,12 @@ type App struct {
 
 // NewApp creates a new root application model.
 func NewApp(svc service.BoardService, bus *events.Bus) App {
+	clip := clipboard.New()
 	app := App{
+		svc:       svc,
 		board:     board.New(svc),
 		statusBar: statusbar.New(),
+		clip:      clip,
 		active:    viewBoard,
 		eventBus:  bus,
 	}
@@ -50,6 +67,12 @@ func (a App) Init() tea.Cmd {
 	cmds := []tea.Cmd{a.board.Init()}
 	if a.eventSub != nil {
 		cmds = append(cmds, a.listenEventBus())
+	}
+	// Clipboard availability check
+	if a.clip == nil || !a.clip.Available() {
+		a.statusBar, _ = a.statusBar.Update(statusbar.WarningMsg{
+			Text: "clipboard unavailable -- install xclip or wl-copy",
+		})
 	}
 	return tea.Batch(cmds...)
 }
@@ -72,19 +95,28 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Overlay intercepts all keys when active
+		if a.showOverlay {
+			var overlayModel tea.Model
+			var cmd tea.Cmd
+			overlayModel, cmd = a.moveOverlay.Update(msg)
+			a.moveOverlay = overlayModel.(overlay.MoveOverlay)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return a, tea.Batch(cmds...)
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
-			return a, tea.Quit
-		default:
-			// Delegate to active view
-			switch a.active {
-			case viewBoard:
-				var cmd tea.Cmd
-				a.board, cmd = a.board.Update(msg)
-				if cmd != nil {
-					cmds = append(cmds, cmd)
-				}
+			if a.active == viewBoard {
+				return a, tea.Quit
 			}
+			// In detail view, q goes back to board
+			a.active = viewBoard
+			return a, nil
+		default:
+			return a.delegateKey(msg)
 		}
 
 	case tea.WindowSizeMsg:
@@ -99,8 +131,63 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+		// Propagate to detail if active
+		if a.active == viewDetail {
+			var detailModel tea.Model
+			detailModel, cmd = a.detail.Update(tea.WindowSizeMsg{Width: msg.Width, Height: msg.Height - 1})
+			a.detail = detailModel.(detail.Model)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+
 		// Propagate to status bar
 		a.statusBar, _ = a.statusBar.Update(msg)
+
+	case board.OpenDetailMsg:
+		a.active = viewDetail
+		// Load card synchronously — GetCard hits local SQLite, not remote API
+		card, err := a.svc.GetCard(context.Background(), msg.CardKey)
+		if err != nil {
+			a.detail = detail.NewLoading(msg.CardKey, a.svc, a.clip)
+		} else {
+			a.detail = detail.New(card, a.svc, a.clip)
+		}
+		// Send window size
+		detailModel, cmd := a.detail.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height - 1})
+		a.detail = detailModel.(detail.Model)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		return a, tea.Batch(cmds...)
+
+	case detail.BackToBoard:
+		a.active = viewBoard
+		return a, nil
+
+	case detail.OpenMoveOverlay:
+		return a.openMoveOverlay(msg.TicketID)
+
+	case board.OpenMoveMsg:
+		return a.openMoveOverlay(msg.CardKey)
+
+	case overlay.MoveSelectedMsg:
+		return a.handleMoveSelected(msg)
+
+	case overlay.MoveCancelledMsg:
+		a.showOverlay = false
+		return a, nil
+
+	case detail.CardLoadedMsg:
+		if a.active == viewDetail {
+			var detailModel tea.Model
+			var cmd tea.Cmd
+			detailModel, cmd = a.detail.Update(msg)
+			a.detail = detailModel.(detail.Model)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
 
 	case EventBusMsg:
 		// Convert event bus events to status bar messages
@@ -126,32 +213,112 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	default:
-		// Forward other messages to board
-		var cmd tea.Cmd
-		a.board, cmd = a.board.Update(msg)
-		if cmd != nil {
-			cmds = append(cmds, cmd)
+		// Forward other messages to active view
+		switch a.active {
+		case viewBoard:
+			var cmd tea.Cmd
+			a.board, cmd = a.board.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		case viewDetail:
+			var detailModel tea.Model
+			var cmd tea.Cmd
+			detailModel, cmd = a.detail.Update(msg)
+			a.detail = detailModel.(detail.Model)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 	}
 
 	return a, tea.Batch(cmds...)
 }
 
-// View renders the application.
-func (a App) View() string {
-	var content string
+func (a App) openMoveOverlay(ticketID string) (tea.Model, tea.Cmd) {
+	// Get columns from the board
+	columns, err := a.svc.ListColumns(context.Background())
+	if err != nil {
+		return a, nil
+	}
+	colNames := make([]string, len(columns))
+	for i, c := range columns {
+		colNames[i] = c.Name
+	}
+	// Get current column for the ticket
+	card, _ := a.svc.GetCard(context.Background(), ticketID)
+	currentCol := ""
+	if card != nil {
+		currentCol = card.Status
+	}
+
+	a.moveOverlay = overlay.NewMove(ticketID, colNames, currentCol)
+	// Send size
+	overlayModel, _ := a.moveOverlay.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.moveOverlay = overlayModel.(overlay.MoveOverlay)
+	a.showOverlay = true
+	return a, nil
+}
+
+func (a App) handleMoveSelected(msg overlay.MoveSelectedMsg) (tea.Model, tea.Cmd) {
+	a.showOverlay = false
+	err := a.svc.MoveCard(context.Background(), msg.TicketID, msg.TargetColumn)
+	if err != nil {
+		return a, nil
+	}
+	// Refresh board data
+	cmd := a.board.Init()
+	// If in detail view, refresh the card
+	if a.active == viewDetail {
+		card, err := a.svc.GetCard(context.Background(), msg.TicketID)
+		if err == nil {
+			a.detail.SetCard(card)
+		}
+	}
+	return a, cmd
+}
+
+func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
 	switch a.active {
 	case viewBoard:
-		content = a.board.View()
+		var cmd tea.Cmd
+		a.board, cmd = a.board.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case viewDetail:
+		var detailModel tea.Model
+		var cmd tea.Cmd
+		detailModel, cmd = a.detail.Update(msg)
+		a.detail = detailModel.(detail.Model)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
-	statusBar := a.statusBar.View()
-	statusBarHeight := lipgloss.Height(statusBar)
+	return a, tea.Batch(cmds...)
+}
 
-	// Pad board content to fill available height
-	boardHeight := a.height - statusBarHeight
-	if boardHeight > 0 {
-		content = lipgloss.NewStyle().Height(boardHeight).Render(content)
+// View renders the application.
+func (a App) View() string {
+	if a.showOverlay {
+		return a.moveOverlay.View()
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
+	switch a.active {
+	case viewDetail:
+		return a.detail.View()
+	default:
+		content := a.board.View()
+		statusBar := a.statusBar.View()
+		statusBarHeight := lipgloss.Height(statusBar)
+
+		// Pad board content to fill available height
+		boardHeight := a.height - statusBarHeight
+		if boardHeight > 0 {
+			content = lipgloss.NewStyle().Height(boardHeight).Render(content)
+		}
+
+		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
+	}
 }
