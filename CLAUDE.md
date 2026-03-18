@@ -1,5 +1,7 @@
 # Legato
 
+for all work in this project, use the tdd skill, if present.
+
 AI Agent Orchestration TUI — a keyboard-driven kanban board for Jira tickets, built for developers who work with AI coding agents.
 
 ## Tech Stack
@@ -63,6 +65,7 @@ go vet ./...               # static analysis
 ## Build Plan
 
 6-phase v0 plan in `openspec/changes/`:
+
 1. ~~Engine Layer~~ (complete)
 2. Service Layer
 3. TUI Shell
