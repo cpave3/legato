@@ -1,0 +1,152 @@
+<div style="font-family: var(--font-mono); font-size: 13px; line-height: 1.5; color: var(--color-text-primary); background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); overflow: hidden;">
+
+<div style="padding: 6px 16px; border-bottom: 0.5px solid var(--color-border-tertiary); display: flex; justify-content: space-between; align-items: center;">
+  <div style="display: flex; align-items: center; gap: 12px;">
+    <span style="font-weight: 500; color: #7F77DD;">legato</span>
+    <span style="color: var(--color-text-tertiary);">/</span>
+    <span style="color: var(--color-text-secondary);">agents</span>
+  </div>
+  <div style="display: flex; gap: 12px; font-size: 11px;">
+    <span style="color: #1D9E75;">● REX-1238</span>
+    <span style="color: #1D9E75;">● REX-1239</span>
+    <span style="color: var(--color-text-tertiary);">2 active</span>
+  </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 220px 1fr; min-height: 480px;">
+
+  <div style="border-right: 0.5px solid var(--color-border-tertiary); padding: 8px; display: flex; flex-direction: column; gap: 4px;">
+    <div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--color-text-tertiary); padding: 4px 8px 6px;">Active agents</div>
+
+    <div style="background: #EEEDFE; border-radius: 4px; padding: 8px; border-left: 2px solid #7F77DD;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 11px; color: #534AB7; font-weight: 500;">REX-1238</span>
+        <span style="font-size: 9px; background: #1D9E75; color: white; padding: 1px 5px; border-radius: 2px;">running</span>
+      </div>
+      <div style="font-size: 11px; color: #3C3489; margin-top: 2px;">Refactor user service</div>
+      <div style="font-size: 10px; color: #534AB7; margin-top: 4px;">claude-code · 4m 32s</div>
+      <div style="font-size: 10px; color: #534AB7; margin-top: 2px;">worktree: rex-1238</div>
+    </div>
+
+    <div style="background: var(--color-background-secondary); border-radius: 4px; padding: 8px; border-left: 2px solid var(--color-border-tertiary);">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 11px; color: var(--color-text-secondary); font-weight: 500;">REX-1239</span>
+        <span style="font-size: 9px; background: #1D9E75; color: white; padding: 1px 5px; border-radius: 2px;">running</span>
+      </div>
+      <div style="font-size: 11px; color: var(--color-text-secondary); margin-top: 2px;">Add response caching</div>
+      <div style="font-size: 10px; color: var(--color-text-tertiary); margin-top: 4px;">claude-code · 12m 07s</div>
+      <div style="font-size: 10px; color: var(--color-text-tertiary); margin-top: 2px;">worktree: rex-1239</div>
+    </div>
+
+    <div style="flex: 1;"></div>
+
+    <div style="font-size: 10px; color: var(--color-text-tertiary); padding: 4px 8px; border-top: 0.5px solid var(--color-border-tertiary); padding-top: 8px;">
+      <div><span style="color: var(--color-text-secondary);">j/k</span> select agent</div>
+      <div><span style="color: var(--color-text-secondary);">s</span> spawn new</div>
+      <div><span style="color: var(--color-text-secondary);">X</span> kill agent</div>
+      <div><span style="color: var(--color-text-secondary);">tab</span> focus terminal</div>
+      <div><span style="color: var(--color-text-secondary);">esc</span> back to board</div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column;">
+
+    <div style="padding: 6px 12px; border-bottom: 0.5px solid var(--color-border-tertiary); display: flex; justify-content: space-between; align-items: center; font-size: 11px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="color: #534AB7; font-weight: 500;">REX-1238</span>
+        <span style="color: var(--color-text-tertiary);">·</span>
+        <span style="color: var(--color-text-secondary);">Refactor user service</span>
+        <span style="color: var(--color-text-tertiary);">·</span>
+        <span style="color: var(--color-text-tertiary);">claude-code</span>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <span style="color: var(--color-text-tertiary);">4m 32s</span>
+        <span style="color: #1D9E75;">● live</span>
+      </div>
+    </div>
+
+    <div style="flex: 1; background: #1a1a2e; color: #e0e0e0; padding: 12px 16px; font-size: 12px; line-height: 1.6; overflow-y: auto;">
+
+      <div style="color: #7F77DD; margin-bottom: 8px;">╭─────────────────────────────────────────────────────────╮
+│ Claude Code                                  v1.2.3    │
+│ Working in: ~/rex/worktrees/rex-1238                   │
+╰─────────────────────────────────────────────────────────╯</div>
+
+      <div style="color: #888;">$ Injected context from Legato: REX-1238 — Refactor user service</div>
+      <div style="margin-bottom: 12px;"></div>
+
+      <div><span style="color: #7F77DD; font-weight: 500;">Claude</span> I'll refactor the user service by extracting auth into a dedicated module and implementing the repository pattern. Let me start by understanding the current structure.</div>
+      <div style="margin-bottom: 8px;"></div>
+
+      <div style="color: #5DCAA5;">  Read src/services/user-service.ts (623 lines)</div>
+      <div style="color: #5DCAA5;">  Read src/services/user-service.test.ts (284 lines)</div>
+      <div style="color: #5DCAA5;">  Read src/repositories/billing-repository.ts (pattern reference)</div>
+      <div style="margin-bottom: 8px;"></div>
+
+      <div><span style="color: #7F77DD; font-weight: 500;">Claude</span> I can see the issues described in the ticket. The service has 23 public methods mixing auth, profile, and data access. I'll follow the billing service pattern from REX-1180. Here's my plan:</div>
+      <div style="margin-bottom: 4px;"></div>
+      <div style="color: #e0e0e0; padding-left: 16px;">1. Extract <span style="color: #F0997B;">UserRepository</span> (data access layer)</div>
+      <div style="color: #e0e0e0; padding-left: 16px;">2. Extract <span style="color: #F0997B;">AuthService</span> (token validation, session mgmt)</div>
+      <div style="color: #e0e0e0; padding-left: 16px;">3. Slim down <span style="color: #F0997B;">UserService</span> to profile operations only</div>
+      <div style="color: #e0e0e0; padding-left: 16px;">4. Update tests and verify no API contract breaks</div>
+      <div style="margin-bottom: 8px;"></div>
+
+      <div style="color: #5DCAA5;">  Create src/repositories/user-repository.ts</div>
+      <div style="color: #85B7EB;">  Write (+142 lines)</div>
+      <div style="margin-bottom: 4px;"></div>
+      <div style="color: #5DCAA5;">  Create src/services/auth-service.ts</div>
+      <div style="color: #85B7EB;">  Write (+98 lines)</div>
+      <div style="margin-bottom: 4px;"></div>
+      <div style="color: #5DCAA5;">  Edit src/services/user-service.ts</div>
+      <div style="color: #F0997B;">  -418 lines</div> <span style="color: #85B7EB;">  +52 lines</span>
+      <div style="margin-bottom: 8px;"></div>
+
+      <div><span style="color: #7F77DD; font-weight: 500;">Claude</span> Repository and auth service extracted. Now updating the existing tests and adding coverage for the new modules...</div>
+      <div style="margin-bottom: 4px;"></div>
+
+      <div style="color: #5DCAA5;">  Edit src/services/user-service.test.ts</div>
+      <div style="color: #5DCAA5;">  Create src/services/auth-service.test.ts</div>
+      <div style="color: #5DCAA5;">  Create src/repositories/user-repository.test.ts</div>
+      <div style="margin-bottom: 4px;"></div>
+
+      <div style="color: #FACA75;">  Running: npm test -- --filter user</div>
+      <div style="color: #FACA75; animation: blink 1.2s step-end infinite;">  ▍</div>
+
+    </div>
+
+    <div style="border-top: 0.5px solid var(--color-border-tertiary); background: var(--color-background-primary);">
+      <div style="padding: 6px 12px; display: flex; align-items: center; gap: 8px; font-size: 11px; border-bottom: 0.5px solid var(--color-border-tertiary);">
+        <span style="color: var(--color-text-tertiary);">inject context:</span>
+        <div style="flex: 1; background: var(--color-background-secondary); border-radius: 4px; padding: 4px 8px; font-size: 11px; color: var(--color-text-tertiary);">type a message to send to the agent... <span style="float: right; font-size: 10px; color: var(--color-text-tertiary);">enter to send</span></div>
+      </div>
+
+      <div style="padding: 4px 12px; display: flex; gap: 16px; font-size: 10px; color: var(--color-text-tertiary);">
+        <div><span style="color: var(--color-text-secondary);">i</span> inject message</div>
+        <div><span style="color: var(--color-text-secondary);">p</span> pause agent</div>
+        <div><span style="color: var(--color-text-secondary);">c</span> copy last output</div>
+        <div><span style="color: var(--color-text-secondary);">L</span> view full log</div>
+        <div><span style="color: var(--color-text-secondary);">P</span> create PR</div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<div style="padding: 6px 16px; border-top: 0.5px solid var(--color-border-tertiary); display: flex; justify-content: space-between; font-size: 11px; color: var(--color-text-tertiary);">
+  <div>
+    <span style="color: #1D9E75;">●</span> synced
+    <span style="margin-left: 12px;">2 agents active</span>
+    <span style="margin-left: 8px;">·</span>
+    <span style="margin-left: 8px;">API cost this session: $0.42</span>
+  </div>
+  <div>legato v1.0.0</div>
+</div>
+
+</div>
+
+<style>
+@keyframes blink {
+  50% { opacity: 0; }
+}
+</style>

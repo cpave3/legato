@@ -1,0 +1,103 @@
+stateDiagram-v2
+    direction TB
+
+    classDef jiraState fill:#E6F1FB,stroke:#85B7EB,color:#0C447C
+    classDef legatoState fill:#EEEDFE,stroke:#AFA9EC,color:#26215C
+    classDef agentState fill:#E1F5EE,stroke:#5DCAA5,color:#04342C
+    classDef githubState fill:#FAECE7,stroke:#F0997B,color:#4A1B0C
+    classDef humanState fill:#FAEEDA,stroke:#FAC775,color:#412402
+    classDef doneState fill:#EAF3DE,stroke:#97C459,color:#173404
+
+    state "Jira" as jira_zone {
+        [*] --> TicketCreated
+        TicketCreated: Ticket created &\nassigned in Jira
+    }
+
+    state "Legato — Board" as board_zone {
+        Backlog: Backlog\n─────────\nTicket appears via\nJira sync pull
+        Ready: Ready\n─────────\nTriaged, context\nreviewed
+        Doing: Doing\n─────────\nWork in progress
+        Review: Review\n─────────\nPR open, awaiting\nreview
+        Done: Done\n─────────\nPR merged, ticket\nclosed
+    }
+
+    state "Legato — Agent" as agent_zone {
+        state "Context Assembly" as ctx
+        ctx: Assemble context\n─────────\nTicket body + AC +\ntechnical notes +\nrepo conventions
+
+        state "Agent Running" as running {
+            Spawned: Agent spawned\n─────────\nClaude Code starts\nin isolated worktree
+
+            Working: Agent working\n─────────\nReading, writing,\ntesting code
+
+            HumanSteer: Human steers\n─────────\nInject message via\ni → enter
+
+            state "Agent tests" as testing
+            testing: Running tests\n─────────\nnpm test / lint /\ntype check
+
+            Spawned --> Working
+            Working --> HumanSteer: User presses i\nand injects context
+            HumanSteer --> Working: Agent continues\nwith new context
+            Working --> testing: Agent runs\nverification
+            testing --> Working: Tests fail →\nagent iterates
+        }
+
+        state "PR Creation" as pr_create
+        pr_create: Create PR\n─────────\ngh pr create from\nworktree branch
+
+        ctx --> running
+        running --> pr_create: Tests pass →\nuser presses P\nor agent signals done
+    }
+
+    state "GitHub" as github_zone {
+        PROpen: PR open\n─────────\nReviewers assigned\nautomatically
+
+        state "Review Cycle" as review_cycle {
+            ReviewerLooks: Reviewer examines\n─────────\nCode review in\nGitHub
+
+            Approved: Approved ✓\n─────────\nAll reviewers\nsign off
+
+            ChangesRequested: Changes requested\n─────────\nReviewer leaves\ncomments
+            
+            ReviewerLooks --> Approved
+            ReviewerLooks --> ChangesRequested
+        }
+
+        state "Feedback Assembly" as feedback
+        feedback: Assemble feedback\n─────────\nStaccato extracts\nPR comments → markdown
+
+        PROpen --> review_cycle
+
+        ChangesRequested --> feedback
+    }
+
+    state "Merge & Close" as merge_zone {
+        Merged: PR merged\n─────────\nBranch deleted,\nworktree cleaned
+        JiraClosed: Jira updated\n─────────\nTicket transitioned\nto Done via API
+        Merged --> JiraClosed
+    }
+
+    %% Main flow
+    TicketCreated --> Backlog: Jira sync\npulls ticket
+
+    Backlog --> Ready: User moves card\n(m → r)
+    Ready --> Doing: User moves card\n(m → d)
+
+    Doing --> ctx: User presses s\n(spawn agent)
+
+    pr_create --> PROpen: gh pr create\nfrom worktree
+    pr_create --> Review: Card auto-moves\nto Review column
+
+    feedback --> ctx: Re-inject with\noriginal ticket +\nPR comments
+    feedback --> Doing: Card moves back\nto Doing
+
+    Approved --> Merged: Merge PR
+
+    Merged --> Done: Card auto-moves\nto Done
+    JiraClosed --> Done
+
+    class TicketCreated jiraState
+    class Backlog,Ready,Doing,Review,Done legatoState
+    class ctx,Spawned,Working,HumanSteer,testing,pr_create agentState
+    class PROpen,ReviewerLooks,Approved,ChangesRequested,feedback githubState
+    class Merged,JiraClosed doneState

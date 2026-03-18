@@ -1,0 +1,82 @@
+<div style="font-family: var(--font-mono); font-size: 13px; line-height: 1.5; color: var(--color-text-primary); background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); overflow: hidden;">
+
+<div style="padding: 8px 16px; border-bottom: 0.5px solid var(--color-border-tertiary); display: flex; justify-content: space-between; align-items: center;">
+  <div>
+    <span style="font-weight: 500; color: #7F77DD;">legato</span>
+    <span style="color: var(--color-text-tertiary);"> / </span>
+    <span style="color: var(--color-text-secondary);">REX-1238</span>
+  </div>
+  <span style="font-size: 10px; background: #EEEDFE; color: #534AB7; padding: 2px 8px; border-radius: 3px;">doing</span>
+</div>
+
+<div style="padding: 16px 20px; max-height: 520px; overflow-y: auto;">
+
+  <div style="font-size: 16px; font-weight: 500; margin-bottom: 12px;">Refactor user service</div>
+
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 16px; font-size: 11px;">
+    <div style="background: var(--color-background-secondary); border-radius: 4px; padding: 6px 8px;">
+      <div style="color: var(--color-text-tertiary);">priority</div>
+      <div style="color: #993C1D; font-weight: 500;">high</div>
+    </div>
+    <div style="background: var(--color-background-secondary); border-radius: 4px; padding: 6px 8px;">
+      <div style="color: var(--color-text-tertiary);">type</div>
+      <div style="font-weight: 500;">story</div>
+    </div>
+    <div style="background: var(--color-background-secondary); border-radius: 4px; padding: 6px 8px;">
+      <div style="color: var(--color-text-tertiary);">epic</div>
+      <div style="font-weight: 500;">Platform Mod...</div>
+    </div>
+    <div style="background: var(--color-background-secondary); border-radius: 4px; padding: 6px 8px;">
+      <div style="color: var(--color-text-tertiary);">labels</div>
+      <div style="font-weight: 500;">backend, platform</div>
+    </div>
+  </div>
+
+  <div style="font-size: 11px; color: var(--color-text-tertiary); margin-bottom: 16px;">
+    https://rexsoftware.atlassian.net/browse/REX-1238
+  </div>
+
+  <div style="border-top: 0.5px solid var(--color-border-tertiary); padding-top: 16px; font-family: var(--font-sans); font-size: 14px; line-height: 1.7;">
+
+    <p style="margin: 0 0 12px; color: var(--color-text-primary);">The user service has grown organically and now has multiple responsibilities that should be separated. This is blocking our ability to scale auth independently and makes the codebase harder for new developers (and agents) to navigate.</p>
+
+    <p style="margin: 0 0 8px; font-weight: 500; color: var(--color-text-primary);">Problems</p>
+    <ul style="margin: 0 0 16px; padding-left: 20px; color: var(--color-text-secondary);">
+      <li style="margin-bottom: 4px;">Authentication logic mixed with profile management</li>
+      <li style="margin-bottom: 4px;">Direct database queries instead of repository pattern</li>
+      <li style="margin-bottom: 4px;">No separation between read and write paths</li>
+      <li style="margin-bottom: 4px;">600+ line service file with 23 public methods</li>
+    </ul>
+
+    <p style="margin: 0 0 8px; font-weight: 500; color: var(--color-text-primary);">Acceptance criteria</p>
+    <div style="margin: 0 0 16px; color: var(--color-text-secondary);">
+      <div style="padding: 3px 0;"><span style="color: var(--color-text-tertiary);">[ ]</span> Extract auth into dedicated AuthService module</div>
+      <div style="padding: 3px 0;"><span style="color: var(--color-text-tertiary);">[ ]</span> Implement repository pattern for data access</div>
+      <div style="padding: 3px 0;"><span style="color: var(--color-text-tertiary);">[ ]</span> Add unit tests for extracted modules (>80% coverage)</div>
+      <div style="padding: 3px 0;"><span style="color: var(--color-text-tertiary);">[ ]</span> No breaking changes to existing API contracts</div>
+      <div style="padding: 3px 0;"><span style="color: var(--color-text-tertiary);">[ ]</span> Update relevant ADRs</div>
+    </div>
+
+    <p style="margin: 0 0 8px; font-weight: 500; color: var(--color-text-primary);">Technical notes</p>
+    <p style="margin: 0 0 8px; color: var(--color-text-secondary);">See ADR-042 for the agreed service decomposition approach. The auth extraction should follow the pattern established in the billing service refactor (REX-1180).</p>
+
+    <div style="background: var(--color-background-secondary); border-left: 2px solid #85B7EB; border-radius: 0 4px 4px 0; padding: 8px 12px; margin: 12px 0; font-size: 13px; color: var(--color-text-secondary);">
+      <span style="font-size: 11px; color: #185FA5; font-weight: 500;">NOTE</span><br>
+      Coordinate with @sarah on the auth token schema — she's working on the refresh token rotation in REX-1244 and the interfaces need to align.
+    </div>
+
+  </div>
+</div>
+
+<div style="padding: 6px 16px; border-top: 0.5px solid var(--color-border-tertiary); display: flex; justify-content: space-between; font-size: 11px; color: var(--color-text-tertiary);">
+  <div>
+    <span style="color: var(--color-text-secondary);">esc</span> back
+    <span style="margin-left: 12px; color: var(--color-text-secondary);">y</span> copy description
+    <span style="margin-left: 8px; color: var(--color-text-secondary);">Y</span> copy full context
+    <span style="margin-left: 8px; color: var(--color-text-secondary);">m</span> move
+    <span style="margin-left: 8px; color: var(--color-text-secondary);">o</span> open in browser
+  </div>
+  <div>legato v0.1.0</div>
+</div>
+
+</div>
