@@ -432,6 +432,77 @@ func TestSyncOfflineResilience(t *testing.T) {
 	}
 }
 
+// Phase 6: Error event publishing tests
+func TestSyncFailurePublishesSyncErrorEvent(t *testing.T) {
+	svc, _, provider, bus := newTestSync(t)
+	ctx := context.Background()
+
+	errCh := bus.Subscribe(events.EventSyncError)
+	provider.searchErr = fmt.Errorf("network error: connection refused")
+
+	_, err := svc.Sync(ctx)
+	if err == nil {
+		t.Fatal("expected sync error")
+	}
+
+	select {
+	case got := <-errCh:
+		p, ok := got.Payload.(events.ErrorPayload)
+		if !ok {
+			t.Fatalf("expected ErrorPayload, got %T", got.Payload)
+		}
+		if p.ErrorType != "offline" {
+			t.Errorf("ErrorType = %q, want offline", p.ErrorType)
+		}
+	default:
+		t.Error("expected EventSyncError event")
+	}
+}
+
+func TestPushFailurePublishesTransitionFailedEvent(t *testing.T) {
+	svc, s, provider, bus := newTestSync(t)
+	ctx := context.Background()
+
+	now := time.Now()
+	s.CreateTicket(ctx, store.Ticket{
+		ID: "TEST-1", Summary: "Test",
+		Status: "Backlog", RemoteStatus: "To Do",
+		CreatedAt:       now.Format(time.RFC3339),
+		UpdatedAt:       now.Format(time.RFC3339),
+		RemoteUpdatedAt: now.Format(time.RFC3339),
+	})
+
+	mappings, _ := s.ListColumnMappings(ctx)
+	for _, m := range mappings {
+		if m.ColumnName == "Doing" {
+			m.RemoteTransition = "21"
+			s.UpdateColumnMapping(ctx, m)
+		}
+	}
+
+	errCh := bus.Subscribe(events.EventTransitionFailed)
+	provider.doTransErr = fmt.Errorf("transition not available")
+
+	svc.PushMove(ctx, "TEST-1", "Doing")
+	time.Sleep(100 * time.Millisecond)
+
+	select {
+	case got := <-errCh:
+		p, ok := got.Payload.(events.ErrorPayload)
+		if !ok {
+			t.Fatalf("expected ErrorPayload, got %T", got.Payload)
+		}
+		if p.TicketKey != "TEST-1" {
+			t.Errorf("TicketKey = %q, want TEST-1", p.TicketKey)
+		}
+		if p.ErrorType != "transition_failed" {
+			t.Errorf("ErrorType = %q, want transition_failed", p.ErrorType)
+		}
+	default:
+		t.Error("expected EventTransitionFailed event")
+	}
+}
+
 func statusToColumn(status string, mappings []store.ColumnMapping) string {
 	for _, m := range mappings {
 		var statuses []string

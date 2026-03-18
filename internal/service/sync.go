@@ -48,6 +48,16 @@ func (s *syncService) Sync(ctx context.Context) (*SyncResult, error) {
 	if err != nil {
 		s.broadcast(SyncEvent{Type: EventSyncFailed, Message: err.Error()})
 		s.bus.Publish(events.Event{Type: events.EventSyncFailed, Payload: err.Error(), At: time.Now()})
+		// Publish specific error event
+		errType := classifyError(err)
+		s.bus.Publish(events.Event{
+			Type: errType,
+			Payload: events.ErrorPayload{
+				ErrorType: errorTypeName(errType),
+				Message:   err.Error(),
+			},
+			At: time.Now(),
+		})
 		return nil, err
 	}
 
@@ -259,6 +269,16 @@ func (s *syncService) executePush(ticketID, transitionID, targetColumn string) {
 
 		s.broadcast(SyncEvent{Type: EventSyncFailed, Message: "push failed: " + err.Error()})
 		s.bus.Publish(events.Event{Type: events.EventSyncFailed, Payload: err.Error(), At: time.Now()})
+		// Publish specific transition failure event
+		s.bus.Publish(events.Event{
+			Type: events.EventTransitionFailed,
+			Payload: events.ErrorPayload{
+				ErrorType: "transition_failed",
+				Message:   err.Error(),
+				TicketKey: ticketID,
+			},
+			At: time.Now(),
+		})
 		return
 	}
 
@@ -364,6 +384,32 @@ func (s *syncService) broadcast(e SyncEvent) {
 		case ch <- e:
 		default:
 		}
+	}
+}
+
+// classifyError maps an error to the appropriate error event type.
+func classifyError(err error) events.EventType {
+	msg := err.Error()
+	if strings.Contains(msg, "authentication failed") || strings.Contains(msg, "401") || strings.Contains(msg, "403") {
+		return events.EventAuthFailed
+	}
+	if strings.Contains(msg, "rate limited") || strings.Contains(msg, "429") {
+		return events.EventRateLimited
+	}
+	return events.EventSyncError
+}
+
+// errorTypeName returns a human-readable name for an error event type.
+func errorTypeName(t events.EventType) string {
+	switch t {
+	case events.EventAuthFailed:
+		return "auth_failed"
+	case events.EventRateLimited:
+		return "rate_limited"
+	case events.EventTransitionFailed:
+		return "transition_failed"
+	default:
+		return "offline"
 	}
 }
 

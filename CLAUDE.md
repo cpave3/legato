@@ -42,17 +42,18 @@ task check                 # build + test + vet + lint
 ## Key Packages
 
 - `internal/engine/store/` — SQLite store with embedded migrations, ticket/column mapping/sync log CRUD
-- `internal/engine/events/` — Channel-based event bus with buffered pub/sub (buffer size 64, non-blocking drops on full)
+- `internal/engine/events/` — Channel-based event bus with buffered pub/sub (buffer size 64, non-blocking drops on full), error event types (`EventSyncError`, `EventTransitionFailed`, `EventAuthFailed`, `EventRateLimited`) with `ErrorPayload` struct
 - `internal/engine/jira/` — Jira REST API v3 client (types, HTTP client with Basic Auth/backoff, ADF-to-Markdown converter), plus `Provider` adapter
 - `internal/service/` — BoardService (columns/cards CRUD), SyncService (pull/push with conflict resolution), `TicketProvider` interface for pluggable backends
 - `internal/setup/` — Setup wizard logic: first-run detection, credential validation, project/status discovery, column mapping heuristics, config writing
-- `internal/tui/` — Root Bubbletea app model, view routing, EventBus bridge
+- `internal/tui/` — Root Bubbletea app model, view routing, overlay state management (`overlayType` enum + `activeOverlay tea.Model`), EventBus bridge
 - `internal/tui/board/` — Kanban board model with vim navigation, card/column rendering
 - `internal/tui/detail/` — Full-screen ticket detail view with Glamour markdown, metadata header, viewport scrolling
 - `internal/tui/clipboard/` — OS-native clipboard (pbcopy/wl-copy/xclip/xsel) and browser open (open/xdg-open)
-- `internal/tui/overlay/` — Move overlay for selecting target column
-- `internal/tui/statusbar/` — Status bar with sync state, relative time, key hints, warnings
+- `internal/tui/overlay/` — Overlay system: shared `RenderPanel`, move overlay (single-letter shortcuts), search overlay (real-time filtering via `BoardService.SearchCards`), help overlay (keybinding reference)
+- `internal/tui/statusbar/` — Status bar with sync state, relative time, key hints, warnings, error messages (auto-clear on sync success)
 - `internal/tui/theme/` — Lipgloss color palette and style constants
+- `internal/server/` — Minimal HTTP server wrapping `BoardService` with `GET /health` endpoint returning board state as JSON
 - `config/` — YAML config parser with env var expansion (`os.ExpandEnv`) and XDG path resolution
 
 ## Database
@@ -101,6 +102,12 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 - Glamour: must use `glamour.WithStyles(styles.DarkStyleConfig)`, NOT `WithAutoStyle()` — auto-style probes terminal background via stdin/stdout which deadlocks in bubbletea's alt-screen mode
 - Clipboard: `Copy()` uses `cmd.Start()` + `StdinPipe()`, NOT `cmd.Run()` — `wl-copy` on Wayland stays alive to serve paste requests, so `Run()` blocks forever
 - Detail view loads cards synchronously via `GetCard()` in the `OpenDetailMsg` handler (hits local SQLite, not remote API)
+- Overlay system: only one overlay active at a time — `overlayType` enum (`overlayNone/Move/Search/Help`) + `activeOverlay tea.Model`; `?` opens help from any context (replaces active overlay); `esc` always dismisses
+- Move overlay shortcuts: first letter of column name lowercased (`b`=Backlog, `r`=Ready, `d`=Doing, `v`=Review, `x`=Done); falls back to number keys on conflict
+- Search overlay: typing appends to query, produces `SearchQueryChangedMsg` → app calls `BoardService.SearchCards` → returns `SearchResultsMsg` → overlay updates results; `enter` closes overlay and calls `board.NavigateTo(cardID)`
+- Card warning indicators: `CardData.Warning` bool → renders `!` prefix; sourced from `sync_log` where most recent entry for ticket is `push_failed`
+- Error event classification: sync service classifies errors by message content (auth/rate-limit/offline) and publishes typed events; app converts to `statusbar.ErrorMsg`
+- Server stub: `internal/server/` consumes `BoardService` interface only — no TUI imports, independently startable; tests use `httptest.NewRecorder`
 
 ## Build Plan
 
@@ -111,4 +118,4 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 3. ~~TUI Shell~~ (complete)
 4. ~~Jira Integration~~ (complete)
 5. ~~Detail View & Clipboard~~ (complete)
-6. Polish (overlays, error handling, server stub)
+6. ~~Polish~~ (complete) — overlays (search/move/help), error handling, server stub

@@ -21,6 +21,15 @@ const (
 	viewDetail
 )
 
+type overlayKind int
+
+const (
+	overlayNone overlayKind = iota
+	overlayMove
+	overlaySearch
+	overlayHelp
+)
+
 // EventBusMsg wraps an event bus event as a Bubbletea message.
 type EventBusMsg struct {
 	Event events.Event
@@ -29,16 +38,21 @@ type EventBusMsg struct {
 // ClipboardWarningMsg signals that clipboard is unavailable.
 type ClipboardWarningMsg struct{}
 
+// SearchResultsMsg carries search results back to the app.
+type SearchResultsMsg struct {
+	Results []service.Card
+}
+
 // App is the root Bubbletea model.
 type App struct {
 	svc       service.BoardService
 	board     board.Model
 	detail    detail.Model
 	statusBar statusbar.Model
-	clip        *clipboard.Clipboard
-	moveOverlay overlay.MoveOverlay
-	showOverlay bool
-	active      viewType
+	clip          *clipboard.Clipboard
+	activeOverlay tea.Model
+	overlayType   overlayKind
+	active        viewType
 	width     int
 	height    int
 	eventBus  *events.Bus
@@ -95,12 +109,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// ? opens help from any context (replaces active overlay if any)
+		if msg.String() == "?" {
+			return a.openHelpOverlay()
+		}
+
 		// Overlay intercepts all keys when active
-		if a.showOverlay {
-			var overlayModel tea.Model
+		if a.overlayType != overlayNone {
 			var cmd tea.Cmd
-			overlayModel, cmd = a.moveOverlay.Update(msg)
-			a.moveOverlay = overlayModel.(overlay.MoveOverlay)
+			a.activeOverlay, cmd = a.activeOverlay.Update(msg)
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
@@ -115,6 +132,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// In detail view, q goes back to board
 			a.active = viewBoard
 			return a, nil
+		case "/":
+			if a.active == viewBoard {
+				return a.openSearchOverlay()
+			}
+			return a.delegateKey(msg)
 		default:
 			return a.delegateKey(msg)
 		}
@@ -175,7 +197,32 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleMoveSelected(msg)
 
 	case overlay.MoveCancelledMsg:
-		a.showOverlay = false
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
+	case overlay.SearchSelectedMsg:
+		return a.handleSearchSelected(msg)
+
+	case overlay.SearchCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
+	case overlay.SearchQueryChangedMsg:
+		return a.handleSearchQuery(msg)
+
+	case overlay.HelpClosedMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
+	case SearchResultsMsg:
+		if a.overlayType == overlaySearch {
+			so := a.activeOverlay.(overlay.SearchOverlay)
+			so = so.SetResults(msg.Results)
+			a.activeOverlay = so
+		}
 		return a, nil
 
 	case detail.CardLoadedMsg:
@@ -198,6 +245,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusBar, _ = a.statusBar.Update(statusbar.SyncCompletedMsg{})
 		case events.EventSyncFailed:
 			a.statusBar, _ = a.statusBar.Update(statusbar.SyncFailedMsg{})
+		case events.EventSyncError, events.EventAuthFailed, events.EventRateLimited, events.EventTransitionFailed:
+			if p, ok := msg.Event.Payload.(events.ErrorPayload); ok {
+				a.statusBar, _ = a.statusBar.Update(statusbar.ErrorMsg{Text: p.Message})
+			}
 		}
 		// Continue listening
 		if a.eventSub != nil {
@@ -252,16 +303,17 @@ func (a App) openMoveOverlay(ticketID string) (tea.Model, tea.Cmd) {
 		currentCol = card.Status
 	}
 
-	a.moveOverlay = overlay.NewMove(ticketID, colNames, currentCol)
+	moveModel := overlay.NewMove(ticketID, colNames, currentCol)
 	// Send size
-	overlayModel, _ := a.moveOverlay.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
-	a.moveOverlay = overlayModel.(overlay.MoveOverlay)
-	a.showOverlay = true
+	sized, _ := moveModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.activeOverlay = sized
+	a.overlayType = overlayMove
 	return a, nil
 }
 
 func (a App) handleMoveSelected(msg overlay.MoveSelectedMsg) (tea.Model, tea.Cmd) {
-	a.showOverlay = false
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
 	err := a.svc.MoveCard(context.Background(), msg.TicketID, msg.TargetColumn)
 	if err != nil {
 		return a, nil
@@ -276,6 +328,39 @@ func (a App) handleMoveSelected(msg overlay.MoveSelectedMsg) (tea.Model, tea.Cmd
 		}
 	}
 	return a, cmd
+}
+
+func (a App) openHelpOverlay() (tea.Model, tea.Cmd) {
+	a.activeOverlay = overlay.NewHelp(a.width, a.height)
+	a.overlayType = overlayHelp
+	return a, nil
+}
+
+func (a App) openSearchOverlay() (tea.Model, tea.Cmd) {
+	a.activeOverlay = overlay.NewSearch(a.width, a.height)
+	a.overlayType = overlaySearch
+	return a, nil
+}
+
+func (a App) handleSearchQuery(msg overlay.SearchQueryChangedMsg) (tea.Model, tea.Cmd) {
+	svc := a.svc
+	query := msg.Query
+	cmd := func() tea.Msg {
+		results, err := svc.SearchCards(context.Background(), query)
+		if err != nil {
+			return SearchResultsMsg{}
+		}
+		return SearchResultsMsg{Results: results}
+	}
+	return a, cmd
+}
+
+func (a App) handleSearchSelected(msg overlay.SearchSelectedMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	// Navigate board cursor to the selected card
+	a.board.NavigateTo(msg.CardID)
+	return a, nil
 }
 
 func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -301,8 +386,8 @@ func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // View renders the application.
 func (a App) View() string {
-	if a.showOverlay {
-		return a.moveOverlay.View()
+	if a.overlayType != overlayNone && a.activeOverlay != nil {
+		return a.activeOverlay.View()
 	}
 
 	switch a.active {

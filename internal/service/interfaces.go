@@ -21,12 +21,13 @@ type Column struct {
 
 // Card represents a ticket summary for list views.
 type Card struct {
-	ID        string
-	Summary   string
-	Priority  string
-	IssueType string
-	Status    string
-	SortOrder int
+	ID         string
+	Summary    string
+	Priority   string
+	IssueType  string
+	Status     string
+	SortOrder  int
+	HasWarning bool
 }
 
 // CardDetail contains all metadata for a single ticket.

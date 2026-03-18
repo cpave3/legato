@@ -25,14 +25,16 @@ type SyncStartedMsg struct{}
 type SyncCompletedMsg struct{ At time.Time }
 type SyncFailedMsg struct{}
 type WarningMsg struct{ Text string }
+type ErrorMsg struct{ Text string }
 
 // Model is the status bar Bubbletea model.
 type Model struct {
-	state    SyncState
-	lastSync time.Time
-	warning  string
-	width    int
-	now      func() time.Time // for testing
+	state     SyncState
+	lastSync  time.Time
+	warning   string
+	errorText string
+	width     int
+	now       func() time.Time // for testing
 }
 
 // New creates a new status bar model.
@@ -56,10 +58,13 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case SyncCompletedMsg:
 		m.state = StateSynced
 		m.lastSync = msg.At
+		m.errorText = "" // clear errors on successful sync
 	case SyncFailedMsg:
 		m.state = StateError
 	case WarningMsg:
 		m.warning = msg.Text
+	case ErrorMsg:
+		m.errorText = msg.Text
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 	}
@@ -75,9 +80,12 @@ func (m Model) View() string {
 	// Sync indicator
 	syncDisplay := m.renderSyncState()
 
-	// Warning display (between sync and hints)
+	// Error display (takes priority over warning)
 	var warningDisplay string
-	if m.warning != "" {
+	if m.errorText != "" {
+		errorStyle := lipgloss.NewStyle().Foreground(theme.SyncError)
+		warningDisplay = "  " + errorStyle.Render(m.errorText)
+	} else if m.warning != "" {
 		warningStyle := lipgloss.NewStyle().Foreground(theme.SyncActive)
 		warningDisplay = "  " + warningStyle.Render(m.warning)
 	}

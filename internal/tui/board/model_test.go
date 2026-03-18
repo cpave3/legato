@@ -211,6 +211,40 @@ func TestWindowResize(t *testing.T) {
 	}
 }
 
+func TestNavigateToMovesToCard(t *testing.T) {
+	m := newTestModel()
+	// REX-4 is in Doing (col 1), row 0
+	m.NavigateTo("REX-4")
+	if m.cursorCol != 1 {
+		t.Errorf("cursorCol = %d, want 1 (Doing)", m.cursorCol)
+	}
+	if m.cursorRow != 0 {
+		t.Errorf("cursorRow = %d, want 0", m.cursorRow)
+	}
+}
+
+func TestNavigateToSecondCardInColumn(t *testing.T) {
+	m := newTestModel()
+	// REX-2 is in Backlog (col 0), row 1
+	m.NavigateTo("REX-2")
+	if m.cursorCol != 0 {
+		t.Errorf("cursorCol = %d, want 0", m.cursorCol)
+	}
+	if m.cursorRow != 1 {
+		t.Errorf("cursorRow = %d, want 1", m.cursorRow)
+	}
+}
+
+func TestNavigateToUnknownCardNoChange(t *testing.T) {
+	m := newTestModel()
+	m.cursorCol = 2
+	m.cursorRow = 0
+	m.NavigateTo("UNKNOWN-99")
+	if m.cursorCol != 2 {
+		t.Errorf("cursorCol should stay at 2, got %d", m.cursorCol)
+	}
+}
+
 func TestViewNonEmpty(t *testing.T) {
 	m := newTestModel()
 	view := m.View()

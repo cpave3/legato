@@ -69,6 +69,27 @@ func TestCardSelectedRender(t *testing.T) {
 	}
 }
 
+func TestCardWarningIndicator(t *testing.T) {
+	card := CardData{Key: "REX-1", Summary: "Test", Priority: "High", IssueType: "Bug", Warning: true}
+	out := RenderCard(card, 30, false, "Doing")
+	if !strings.Contains(out, "!") {
+		t.Errorf("warning card should contain '!' indicator, got: %q", out)
+	}
+}
+
+func TestCardNoWarningByDefault(t *testing.T) {
+	card := CardData{Key: "REX-1", Summary: "Test", Priority: "High", IssueType: "Bug"}
+	out := RenderCard(card, 30, false, "Doing")
+	// The key line should NOT start with !
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "! REX-1") {
+			t.Error("card without warning should not have ! prefix")
+		}
+	}
+}
+
 func TestCardDoneColumnRender(t *testing.T) {
 	card := CardData{Key: "REX-1", Summary: "Finished", Priority: "Low", IssueType: "Story"}
 	out := RenderCard(card, 30, false, "Done")

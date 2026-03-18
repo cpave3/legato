@@ -77,6 +77,51 @@ func TestMoveOverlayEscCancels(t *testing.T) {
 	}
 }
 
+func TestMoveOverlayShortcutKeys(t *testing.T) {
+	m := NewMove("REX-1", []string{"Backlog", "Ready", "Doing", "Review", "Done"}, "Doing")
+	// Press 'r' for Ready
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	if cmd == nil {
+		t.Fatal("shortcut key should produce a command")
+	}
+	msg := cmd()
+	result, ok := msg.(MoveSelectedMsg)
+	if !ok {
+		t.Fatalf("expected MoveSelectedMsg, got %T", msg)
+	}
+	if result.TargetColumn != "Ready" {
+		t.Errorf("targetColumn = %q, want Ready", result.TargetColumn)
+	}
+}
+
+func TestMoveOverlayShortcutCurrentColumnNoOp(t *testing.T) {
+	m := NewMove("REX-1", []string{"Backlog", "Ready", "Doing", "Review", "Done"}, "Doing")
+	// Press 'd' for Doing (current column) — should close without moving
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if cmd == nil {
+		t.Fatal("shortcut for current column should produce cancel command")
+	}
+	msg := cmd()
+	if _, ok := msg.(MoveCancelledMsg); !ok {
+		t.Fatalf("expected MoveCancelledMsg for current column, got %T", msg)
+	}
+}
+
+func TestMoveOverlayShortcutRendered(t *testing.T) {
+	m := NewMove("REX-1", []string{"Backlog", "Ready", "Doing"}, "Doing")
+	view := m.View()
+	// Should show shortcut keys
+	mustContain(t, view, "b")
+	mustContain(t, view, "r")
+}
+
+func TestMoveOverlayTicketSummaryShown(t *testing.T) {
+	m := NewMove("REX-1", []string{"Backlog", "Doing"}, "Doing")
+	m = m.WithSummary("Fix login bug")
+	view := m.View()
+	mustContain(t, view, "Fix login bug")
+}
+
 func mustContain(t *testing.T, s, substr string) {
 	t.Helper()
 	for i := 0; i <= len(s)-len(substr); i++ {

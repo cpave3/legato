@@ -117,6 +117,26 @@ func TestWarningMessage(t *testing.T) {
 	}
 }
 
+func TestErrorMessageDisplayed(t *testing.T) {
+	m := New()
+	m.width = 120
+	m, _ = m.Update(ErrorMsg{Text: "auth error: check config"})
+	view := m.View()
+	if !strings.Contains(view, "auth error") {
+		t.Errorf("view should contain error message, got: %q", view)
+	}
+}
+
+func TestErrorMessageClearsAfterSync(t *testing.T) {
+	m := New()
+	m.width = 120
+	m, _ = m.Update(ErrorMsg{Text: "offline"})
+	m, _ = m.Update(SyncCompletedMsg{At: time.Now()})
+	if m.errorText != "" {
+		t.Errorf("error should clear after sync, got %q", m.errorText)
+	}
+}
+
 func TestNarrowTerminalTruncatesHints(t *testing.T) {
 	m := New()
 	m.width = 30 // very narrow

@@ -55,12 +55,13 @@ func (b *boardService) ListCards(ctx context.Context, column string) ([]Card, er
 	cards := make([]Card, len(tickets))
 	for i, t := range tickets {
 		cards[i] = Card{
-			ID:        t.ID,
-			Summary:   t.Summary,
-			Priority:  t.Priority,
-			IssueType: t.IssueType,
-			Status:    t.Status,
-			SortOrder: t.SortOrder,
+			ID:         t.ID,
+			Summary:    t.Summary,
+			Priority:   t.Priority,
+			IssueType:  t.IssueType,
+			Status:     t.Status,
+			SortOrder:  t.SortOrder,
+			HasWarning: hasPushFailure(ctx, b.store, t.ID),
 		}
 	}
 	return cards, nil
@@ -250,6 +251,16 @@ func ticketToCardDetail(t *store.Ticket) *CardDetail {
 		CreatedAt:     createdAt,
 		UpdatedAt:     updatedAt,
 	}
+}
+
+// hasPushFailure checks if the most recent sync_log entry for a ticket is a push_failed.
+func hasPushFailure(ctx context.Context, s *store.Store, ticketID string) bool {
+	logs, err := s.ListSyncLogs(ctx, ticketID)
+	if err != nil || len(logs) == 0 {
+		return false
+	}
+	// Most recent entry is first (ordered by id DESC)
+	return logs[0].Action == "push_failed"
 }
 
 func containsInsensitive(s, substr string) bool {

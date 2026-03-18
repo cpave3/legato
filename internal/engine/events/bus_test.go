@@ -122,6 +122,56 @@ func TestFullBufferDropsEventWithoutBlocking(t *testing.T) {
 	_ = ch // used above to fill buffer
 }
 
+func TestErrorEventPayloads(t *testing.T) {
+	bus := New()
+	ch := bus.Subscribe(EventSyncError)
+
+	payload := ErrorPayload{
+		ErrorType: "offline",
+		Message:   "network unreachable",
+		TicketKey: "",
+	}
+	bus.Publish(Event{Type: EventSyncError, Payload: payload, At: time.Now()})
+
+	select {
+	case got := <-ch:
+		p, ok := got.Payload.(ErrorPayload)
+		if !ok {
+			t.Fatalf("expected ErrorPayload, got %T", got.Payload)
+		}
+		if p.ErrorType != "offline" {
+			t.Errorf("ErrorType = %q, want offline", p.ErrorType)
+		}
+		if p.Message != "network unreachable" {
+			t.Errorf("Message = %q, want 'network unreachable'", p.Message)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out")
+	}
+}
+
+func TestTransitionFailedEvent(t *testing.T) {
+	bus := New()
+	ch := bus.Subscribe(EventTransitionFailed)
+
+	payload := ErrorPayload{
+		ErrorType: "transition_failed",
+		Message:   "transition not available",
+		TicketKey: "REX-42",
+	}
+	bus.Publish(Event{Type: EventTransitionFailed, Payload: payload, At: time.Now()})
+
+	select {
+	case got := <-ch:
+		p := got.Payload.(ErrorPayload)
+		if p.TicketKey != "REX-42" {
+			t.Errorf("TicketKey = %q, want REX-42", p.TicketKey)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out")
+	}
+}
+
 func TestConcurrentPublishSubscribeUnsubscribe(t *testing.T) {
 	bus := New()
 	done := make(chan struct{})

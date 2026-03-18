@@ -17,7 +17,18 @@ const (
 	EventAgentStarted
 	EventAgentOutput
 	EventAgentCompleted
+	EventSyncError
+	EventTransitionFailed
+	EventAuthFailed
+	EventRateLimited
 )
+
+// ErrorPayload carries structured error information for error events.
+type ErrorPayload struct {
+	ErrorType string // "offline", "auth_failed", "transition_failed", "rate_limited"
+	Message   string
+	TicketKey string // affected ticket, empty for general errors
+}
 
 type Event struct {
 	Type    EventType

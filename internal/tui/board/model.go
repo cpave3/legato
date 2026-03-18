@@ -52,6 +52,7 @@ func (m Model) loadData() Model {
 				Summary:   c.Summary,
 				Priority:  c.Priority,
 				IssueType: c.IssueType,
+				Warning:   c.HasWarning,
 			}
 		}
 		m.cards[col.Name] = cardData
@@ -163,6 +164,19 @@ func (m Model) SelectedCard() *CardData {
 	}
 	c := cards[m.cursorRow]
 	return &c
+}
+
+// NavigateTo moves the board cursor to the card with the given ID.
+func (m *Model) NavigateTo(cardID string) {
+	for colIdx, colName := range m.columns {
+		for rowIdx, card := range m.cards[colName] {
+			if card.Key == cardID {
+				m.cursorCol = colIdx
+				m.cursorRow = rowIdx
+				return
+			}
+		}
+	}
 }
 
 func (m *Model) clampRow() {

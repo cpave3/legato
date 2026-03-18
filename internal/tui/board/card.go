@@ -11,6 +11,7 @@ type CardData struct {
 	Summary   string
 	Priority  string
 	IssueType string
+	Warning   bool
 }
 
 // RenderCard renders a single card with the given parameters.
@@ -26,8 +27,15 @@ func RenderCard(card CardData, width int, selected bool, column string) string {
 	// Truncate summary
 	summary := truncateSummary(card.Summary, contentWidth)
 
+	// Warning indicator for failed transitions
+	warningPrefix := ""
+	if card.Warning {
+		warningStyle := lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true)
+		warningPrefix = warningStyle.Render("!") + " "
+	}
+
 	// Apply done-column muted styling
-	keyLine := card.Key
+	keyLine := warningPrefix + card.Key
 	typeLine := card.IssueType
 	if isDone {
 		keyLine = theme.DoneMuted.Render(card.Key)
