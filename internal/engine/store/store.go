@@ -37,6 +37,10 @@ func New(dbPath string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("enabling foreign keys: %w", err)
 	}
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("setting busy timeout: %w", err)
+	}
 
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {

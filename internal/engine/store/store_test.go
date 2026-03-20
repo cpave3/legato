@@ -18,6 +18,18 @@ func newTestStore(t *testing.T) *Store {
 	return s
 }
 
+func TestNewSetsBusyTimeout(t *testing.T) {
+	s := newTestStore(t)
+
+	var timeout int
+	if err := s.db.Get(&timeout, "PRAGMA busy_timeout"); err != nil {
+		t.Fatal(err)
+	}
+	if timeout != 5000 {
+		t.Errorf("busy_timeout = %d, want 5000", timeout)
+	}
+}
+
 func TestNewCreatesDBAndTables(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "sub", "dir", "test.db")
 	s, err := New(dbPath)
