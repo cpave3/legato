@@ -1,8 +1,8 @@
-## ADDED Requirements
+## Requirements
 
 ### Requirement: BoardService interface definition
 
-The system SHALL define a `BoardService` interface in `internal/service/interfaces.go` with the following methods: `ListColumns`, `ListCards`, `GetCard`, `MoveCard`, `ReorderCard`, `SearchCards`, and `ExportCardContext`. All methods MUST accept a `context.Context` as the first parameter. The interface MUST NOT import any presentation-layer packages.
+The system SHALL define a `BoardService` interface in `internal/service/interfaces.go` with the following methods: `ListColumns`, `ListCards`, `GetCard`, `MoveCard`, `ReorderCard`, `SearchCards`, `ExportCardContext`, `CreateTask`, and `DeleteTask`. All methods MUST accept a `context.Context` as the first parameter. The interface MUST NOT import any presentation-layer packages. The `BoardService` interface SHALL operate on tasks. The `Card` type SHALL have a `Title` field (replacing `Summary`). The `CardDetail` type SHALL include `Provider` and `RemoteID` fields.
 
 #### Scenario: Interface is consumable by presentation layer
 
@@ -13,6 +13,11 @@ The system SHALL define a `BoardService` interface in `internal/service/interfac
 
 - **WHEN** a developer inspects the `BoardService` interface
 - **THEN** it SHALL match the signatures defined in spec.md section 3.4, including return types `[]Column`, `[]Card`, `*CardDetail`, and `error`
+
+#### Scenario: Card type reflects task schema
+
+- **WHEN** a `Card` is returned from `ListCards`
+- **THEN** it SHALL have fields: ID, Title, Priority, IssueType, Status, SortOrder, HasWarning, AgentActive
 
 ### Requirement: ListColumns returns configured board columns
 
@@ -30,36 +35,41 @@ The system SHALL define a `BoardService` interface in `internal/service/interfac
 
 ### Requirement: ListCards returns cards for a column
 
-`BoardService.ListCards` SHALL return all cards in the specified column, ordered by `sort_order`. Each `Card` MUST include at minimum: id (issue key), summary, priority, and issue type.
+The `ListCards` method SHALL return cards for the given column. Cards represent tasks and SHALL include the task ID, title, priority, status, sort order, and warning indicator.
 
 #### Scenario: Cards returned in sort order
 
 - **WHEN** `ListCards` is called with a valid column name
-- **THEN** it SHALL return cards in that column ordered by `sort_order` ascending
+- **THEN** cards are returned ordered by sort_order ascending, with `Card.ID` from `task.ID`, `Card.Title` from `task.Title`, and other fields mapped from the task
 
 #### Scenario: Empty column
 
-- **WHEN** `ListCards` is called for a column with no cards
-- **THEN** it SHALL return an empty slice and no error
+- **WHEN** `ListCards` is called for a column with no tasks
+- **THEN** an empty slice is returned
 
 #### Scenario: Invalid column name
 
-- **WHEN** `ListCards` is called with a column name that does not exist
-- **THEN** it SHALL return an error indicating the column was not found
+- **WHEN** `ListCards` is called with a column name that doesn't exist
+- **THEN** an error is returned
 
 ### Requirement: GetCard returns full card detail
 
-`BoardService.GetCard` SHALL return the full detail for a single card, including all metadata fields and the rendered markdown description.
+The `GetCard` method SHALL return full detail for a task, including provider metadata when available.
 
-#### Scenario: Card exists
+#### Scenario: Local task detail
 
-- **WHEN** `GetCard` is called with a valid card ID
-- **THEN** it SHALL return a `*CardDetail` containing id, summary, description_md, status, priority, issue_type, assignee, labels, epic_key, epic_name, url, created_at, and updated_at
+- **WHEN** `GetCard` is called for a local task (no provider)
+- **THEN** the returned `CardDetail` SHALL have the task's core fields populated, `Provider` and `RemoteID` empty, and provider-specific fields (Assignee, Labels, etc.) empty
+
+#### Scenario: Synced task detail
+
+- **WHEN** `GetCard` is called for a synced task (provider set)
+- **THEN** the returned `CardDetail` SHALL have core fields from the task and provider-specific fields parsed from `remote_meta` JSON
 
 #### Scenario: Card does not exist
 
-- **WHEN** `GetCard` is called with an ID that does not exist in the store
-- **THEN** it SHALL return `nil` and an error indicating the card was not found
+- **WHEN** `GetCard` is called with a non-existent ID
+- **THEN** an error is returned
 
 ### Requirement: MoveCard transitions a card between columns
 
@@ -96,11 +106,11 @@ The system SHALL define a `BoardService` interface in `internal/service/interfac
 
 ### Requirement: SearchCards performs text search
 
-`BoardService.SearchCards` SHALL search across card id (issue key) and summary fields, returning all cards that match the query string. The search MUST be case-insensitive.
+`BoardService.SearchCards` SHALL search across card id (issue key) and title fields, returning all cards that match the query string. The search MUST be case-insensitive.
 
 #### Scenario: Query matches cards
 
-- **WHEN** `SearchCards` is called with a query that matches one or more card summaries or issue keys
+- **WHEN** `SearchCards` is called with a query that matches one or more card titles or issue keys
 - **THEN** it SHALL return all matching cards regardless of which column they belong to
 
 #### Scenario: No matches
@@ -120,14 +130,42 @@ The system SHALL define a `BoardService` interface in `internal/service/interfac
 #### Scenario: Description-only format
 
 - **WHEN** `ExportCardContext` is called with `ExportFormatDescription`
-- **THEN** it SHALL return a markdown string containing the issue key and summary as a heading followed by the markdown description body
+- **THEN** it SHALL return a markdown string containing the issue key and title as a heading followed by the markdown description body
 
 #### Scenario: Full structured block format
 
 - **WHEN** `ExportCardContext` is called with `ExportFormatFull`
-- **THEN** it SHALL return a markdown string containing metadata (summary, type, priority, epic, labels, URL) followed by a separator and the full description, matching the format defined in spec.md section 8.1
+- **THEN** it SHALL return a markdown string containing metadata (title, type, priority, epic, labels, URL) followed by a separator and the full description, matching the format defined in spec.md section 8.1
 
 #### Scenario: Card not found
 
 - **WHEN** `ExportCardContext` is called with an ID that does not exist
 - **THEN** it SHALL return an empty string and an error
+
+### Requirement: CreateTask via BoardService
+
+The `BoardService` SHALL provide a `CreateTask` method for creating local tasks from the TUI.
+
+#### Scenario: Creating a local task
+
+- **WHEN** `CreateTask` is called with a title, column, and priority
+- **THEN** a new task SHALL be created with a generated ID, inserted into the database, and a board refresh event published
+
+#### Scenario: Creating a task with custom ID
+
+- **WHEN** `CreateTask` is called with an optional custom ID
+- **THEN** the task SHALL use that ID if available, or return an error if it conflicts
+
+### Requirement: DeleteTask via BoardService
+
+The `BoardService` SHALL provide a `DeleteTask` method for removing tasks.
+
+#### Scenario: Deleting a local task
+
+- **WHEN** `DeleteTask` is called with a valid task ID
+- **THEN** the task SHALL be verified to exist, deleted from the store, and an `EventCardsRefreshed` event published
+
+#### Scenario: Deleting a remote-tracking task
+
+- **WHEN** `DeleteTask` is called for a task with a provider set
+- **THEN** only the local reference SHALL be removed; no remote deletion SHALL occur

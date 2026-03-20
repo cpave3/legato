@@ -1,4 +1,4 @@
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Database Initialization
 
@@ -20,9 +20,9 @@ The store package SHALL initialize a SQLite database connection using `modernc.o
 
 The store SHALL apply schema migrations on startup using embedded SQL files. Migrations SHALL be tracked using SQLite's `user_version` pragma. Each migration SHALL run inside a transaction so that a failed migration does not leave the database in a partial state.
 
-#### Scenario: Fresh database receives initial migration
+#### Scenario: Fresh database receives all migrations
 - **WHEN** the store opens a database with `user_version = 0`
-- **THEN** the initial migration SHALL create the `tickets`, `column_mappings`, and `sync_log` tables with all columns and indexes as defined in the schema, and `user_version` SHALL be set to 1
+- **THEN** all migrations including `005_tasks.sql` SHALL be applied, resulting in a `tasks` table (no `tickets` table)
 
 #### Scenario: Already-migrated database is opened
 - **WHEN** the store opens a database whose `user_version` matches the latest migration version
@@ -32,13 +32,21 @@ The store SHALL apply schema migrations on startup using embedded SQL files. Mig
 - **WHEN** a migration fails partway through execution
 - **THEN** the transaction SHALL be rolled back, `user_version` SHALL remain at its previous value, and the store SHALL return an error
 
-### Requirement: Tickets Table Schema
+#### Scenario: Existing database migrates from tickets to tasks
+- **WHEN** an existing database at user_version 4 is opened
+- **THEN** migration `005_tasks.sql` SHALL run, preserving all data in the new `tasks` table
 
-The initial migration SHALL create a `tickets` table with the following columns: `id` (TEXT PRIMARY KEY, Jira issue key), `summary` (TEXT NOT NULL), `description` (TEXT), `description_md` (TEXT), `status` (TEXT NOT NULL, local kanban column), `jira_status` (TEXT NOT NULL), `priority` (TEXT), `issue_type` (TEXT), `assignee` (TEXT), `labels` (TEXT, JSON array), `epic_key` (TEXT), `epic_name` (TEXT), `url` (TEXT), `created_at` (TEXT NOT NULL, ISO 8601), `updated_at` (TEXT NOT NULL, ISO 8601), `jira_updated_at` (TEXT NOT NULL), `sort_order` (INTEGER DEFAULT 0). An index `idx_tickets_status` SHALL be created on the `status` column. An index `idx_tickets_updated` SHALL be created on the `jira_updated_at` column.
+### Requirement: Tasks Table Schema
 
-#### Scenario: Tickets table exists after migration
-- **WHEN** the initial migration has been applied
-- **THEN** inserting a row with all required fields into the `tickets` table SHALL succeed, and querying it back SHALL return matching values
+The database SHALL contain a `tasks` table (renamed from `tickets`) with columns: `id` (TEXT PRIMARY KEY), `title` (TEXT NOT NULL), `description` (TEXT NOT NULL DEFAULT ''), `description_md` (TEXT NOT NULL DEFAULT ''), `status` (TEXT NOT NULL DEFAULT ''), `priority` (TEXT NOT NULL DEFAULT ''), `sort_order` (INTEGER NOT NULL DEFAULT 0), `provider` (TEXT, nullable), `remote_id` (TEXT, nullable), `remote_meta` (TEXT, nullable -- JSON), `created_at` (DATETIME NOT NULL), `updated_at` (DATETIME NOT NULL).
+
+#### Scenario: Tasks table exists after migration
+- **WHEN** the database is initialized or migrated
+- **THEN** the `tasks` table SHALL exist with the specified columns, and the `tickets` table SHALL NOT exist
+
+#### Scenario: Migration from tickets to tasks
+- **WHEN** the database has an existing `tickets` table from a prior version
+- **THEN** the migration SHALL create the `tasks` table, copy all ticket data into it (mapping `summary` to `title`, packing remote fields into `remote_meta` JSON, setting `provider='jira'` and `remote_id` to the ticket ID), update `agent_sessions` and `sync_log` references, and drop the `tickets` table
 
 ### Requirement: Column Mappings Table Schema
 
@@ -56,37 +64,41 @@ The initial migration SHALL create a `sync_log` table with the following columns
 - **WHEN** the initial migration has been applied
 - **THEN** inserting a row into `sync_log` with `ticket_id` and `action` SHALL succeed, and the `created_at` column SHALL be automatically populated
 
-### Requirement: Ticket CRUD Operations
+### Requirement: Task CRUD Operations
 
-The store SHALL provide functions for creating, reading, updating, and deleting tickets. All operations MUST accept a `context.Context` for cancellation. The store SHALL use `sqlx` named parameters for insert and update operations.
+The store SHALL provide CRUD operations for tasks (renamed from tickets): `CreateTask`, `GetTask`, `ListTasksByStatus`, `UpdateTask`, `UpsertTask`, `DeleteTask`, `ListAllTasks`, `ListTaskIDs`. All operations MUST accept a `context.Context` for cancellation. The store SHALL use `sqlx` named parameters for insert and update operations.
 
-#### Scenario: Create a ticket
-- **WHEN** a ticket struct with a unique `id` is passed to the create function
-- **THEN** the ticket SHALL be persisted in the `tickets` table with all fields stored correctly
+#### Scenario: Create a task
+- **WHEN** `CreateTask` is called with a valid Task struct
+- **THEN** a new row is inserted into the `tasks` table with all fields populated
 
-#### Scenario: Create a duplicate ticket
-- **WHEN** a ticket struct with an `id` that already exists is passed to the create function
-- **THEN** the function SHALL return an error indicating the ticket already exists
+#### Scenario: Create a duplicate task
+- **WHEN** `CreateTask` is called with an ID that already exists
+- **THEN** an error is returned
 
-#### Scenario: Get a ticket by ID
-- **WHEN** a valid ticket `id` is passed to the get function
-- **THEN** the function SHALL return the ticket struct with all fields populated from the database
+#### Scenario: Get a task by ID
+- **WHEN** `GetTask` is called with an existing ID
+- **THEN** the full task record is returned
 
-#### Scenario: Get a non-existent ticket
-- **WHEN** a ticket `id` that does not exist is passed to the get function
-- **THEN** the function SHALL return a not-found error
+#### Scenario: Get a non-existent task
+- **WHEN** `GetTask` is called with a non-existent ID
+- **THEN** `ErrNotFound` is returned
 
-#### Scenario: List tickets by status
-- **WHEN** a status string is passed to the list function
-- **THEN** the function SHALL return all tickets with that status, ordered by `sort_order` ascending
+#### Scenario: List tasks by status
+- **WHEN** `ListTasksByStatus` is called with a status string
+- **THEN** all tasks matching that status are returned ordered by `sort_order` ascending
 
-#### Scenario: Update a ticket
-- **WHEN** a ticket struct with an existing `id` and modified fields is passed to the update function
-- **THEN** the modified fields SHALL be persisted and the `updated_at` timestamp SHALL reflect the update time
+#### Scenario: Update a task
+- **WHEN** `UpdateTask` is called with modified fields
+- **THEN** the task record is updated in place
 
-#### Scenario: Delete a ticket
-- **WHEN** a valid ticket `id` is passed to the delete function
-- **THEN** the ticket SHALL be removed from the `tickets` table
+#### Scenario: Upsert a task
+- **WHEN** a task is upserted (insert or update on conflict)
+- **THEN** if the task ID exists, it SHALL be updated; otherwise it SHALL be inserted
+
+#### Scenario: Delete a task
+- **WHEN** `DeleteTask` is called with an existing ID
+- **THEN** the task is removed from the database
 
 ### Requirement: Column Mapping CRUD Operations
 
@@ -119,6 +131,22 @@ The store SHALL provide a function to insert sync log entries and a function to 
 #### Scenario: List sync log entries for a ticket
 - **WHEN** a `ticket_id` is passed to the list function
 - **THEN** all sync log entries for that ticket SHALL be returned ordered by `created_at` descending
+
+### Requirement: Remote metadata handling
+
+The `remote_meta` field SHALL store provider-specific data as a JSON string. The store layer SHALL treat it as opaque -- parsing is the responsibility of the service/sync layer.
+
+#### Scenario: Storing remote metadata
+- **WHEN** a synced task is created or updated with remote metadata
+- **THEN** the `remote_meta` field SHALL contain a valid JSON string with provider-specific fields
+
+#### Scenario: Local task has no remote metadata
+- **WHEN** a local task is created
+- **THEN** the `remote_meta` field SHALL be NULL
+
+#### Scenario: Querying by provider
+- **WHEN** the system needs to find all tasks from a specific provider
+- **THEN** it SHALL query using the indexed `provider` column, not by parsing `remote_meta`
 
 ### Requirement: Store Cleanup
 

@@ -1,33 +1,33 @@
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Pull Sync from Jira to SQLite
 
-The sync service SHALL pull tickets from Jira using the configured JQL query and upsert them into the local SQLite database. On pull, the service MUST map each ticket's Jira status to the appropriate local kanban column using the configured column mappings.
+The sync service SHALL pull tickets from Jira and convert them into legato tasks with `provider='jira'` and `remote_id` set to the Jira issue key. Jira-specific fields (remote_status, issue_type, assignee, labels, epic, URL, stale_at, local_move_at, remote_transition) SHALL be stored in the `remote_meta` JSON field.
 
 #### Scenario: New ticket from Jira
 
-- **WHEN** a pull sync finds a Jira issue that does not exist in SQLite
-- **THEN** the ticket is inserted into SQLite with the local column derived from the Jira status-to-column mapping
+- **WHEN** a pull sync finds a Jira issue that does not exist as a task in SQLite
+- **THEN** a new task is created with `provider='jira'`, `remote_id` set to the Jira key, title from summary, description from ADF conversion, status from column mapping, and Jira-specific fields packed into `remote_meta`
 
 #### Scenario: Updated ticket from Jira
 
-- **WHEN** a pull sync finds a Jira issue that exists in SQLite and the Jira `updated` timestamp is newer than the stored `jira_updated_at`
-- **THEN** the ticket fields (summary, description, priority, labels, etc.) are updated in SQLite
+- **WHEN** a pull sync finds a Jira issue that exists as a task and the Jira `updated` timestamp is newer
+- **THEN** the task's title, description, priority, and `remote_meta` fields are updated
 
 #### Scenario: Jira status changed externally with no pending local move
 
-- **WHEN** a pull sync detects that a ticket's Jira status maps to a different column than the local column and there is no pending local move for that ticket
-- **THEN** the ticket's local column is updated to match the Jira status mapping
+- **WHEN** a pull sync detects that a task's Jira status maps to a different column and there is no pending local move
+- **THEN** the task's status (column) is updated to match the Jira status mapping
 
 #### Scenario: Jira status changed externally with pending local move within window
 
-- **WHEN** a pull sync detects a Jira status change but the ticket has a pending local move that occurred within the last 5 minutes
-- **THEN** the local column is preserved (local wins) and the Jira status change is ignored
+- **WHEN** a pull sync detects a Jira status change but the task has a pending local move within the last 5 minutes (tracked in `remote_meta`)
+- **THEN** the local column is preserved (local wins)
 
 #### Scenario: ADF description conversion on pull
 
-- **WHEN** a ticket is pulled from Jira with an ADF description
-- **THEN** the ADF description is converted to Markdown and stored in the `description_md` field
+- **WHEN** a task is synced from Jira with an ADF description
+- **THEN** the ADF is converted to Markdown and stored in `description_md`
 
 ### Requirement: Stale Ticket Handling
 
@@ -45,17 +45,22 @@ The sync service SHALL detect tickets present in SQLite but absent from the Jira
 
 ### Requirement: Push Sync from Local to Jira
 
-The sync service SHALL push local card movements to Jira as transitions. When a card is moved in the UI, the local SQLite state MUST be updated immediately and the Jira transition MUST be queued for async execution.
+The sync service SHALL push local card movements to Jira as transitions. The transition ID SHALL be read from `remote_meta` for the target column. When a card is moved in the UI, the local SQLite state MUST be updated immediately and the Jira transition MUST be queued for async execution.
 
 #### Scenario: Successful push transition
 
-- **WHEN** a card is moved to a new column and the Jira transition succeeds
-- **THEN** the `jira_status` field in SQLite is updated to reflect the new Jira status and a success entry is written to `sync_log`
+- **WHEN** a synced task (provider='jira') is moved to a new column and the transition succeeds
+- **THEN** the `remote_meta` remote_status field is updated and a success entry is written to `sync_log`
 
 #### Scenario: Failed push transition
 
-- **WHEN** a card is moved to a new column and the Jira transition fails
-- **THEN** the card remains in the local column (user intent preserved), a warning indicator is set on the card, the error is surfaced in the status bar, and a failure entry is written to `sync_log`
+- **WHEN** a transition fails
+- **THEN** the task remains in the local column, a warning is set, and a failure entry is written to `sync_log`
+
+#### Scenario: Push skipped for local tasks
+
+- **WHEN** a local task (provider is NULL) is moved
+- **THEN** no remote transition SHALL be attempted
 
 #### Scenario: Push is non-blocking
 

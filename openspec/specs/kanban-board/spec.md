@@ -1,4 +1,4 @@
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Multi-Column Layout
 
@@ -21,24 +21,24 @@ The kanban board SHALL render columns side by side, each with a header showing t
 
 ### Requirement: Card Rendering
 
-Each card SHALL display the issue key, a truncated summary, and visual indicators for priority and issue type.
+Each card SHALL display the task ID, a truncated title, and visual indicators for priority and agent status.
 
 #### Scenario: Card content display
 
 - **WHEN** a card is rendered within a column
-- **THEN** it SHALL show the issue key (e.g., "REX-1234") on the first line, the summary truncated to fit the column width on the second line, and priority and type indicators on the third line
+- **THEN** it SHALL show the task ID on the first line, the title truncated to fit the column width on the second line, and priority indicator on the third line
 
 #### Scenario: Priority indicator
 
 - **WHEN** a card has a priority value
 - **THEN** the card SHALL display a colored left border matching the priority: red/orange for high, yellow for medium, green for low, and grey for unset
 
-#### Scenario: Summary truncation
+#### Scenario: Title truncation
 
-- **WHEN** a card summary exceeds the available column width minus padding
-- **THEN** the summary SHALL be truncated with an ellipsis to fit within the available space
+- **WHEN** a card title exceeds the available column width minus padding
+- **THEN** the title SHALL be truncated with an ellipsis to fit within the available space
 
-### Requirement: Vim Navigation — Column Movement
+### Requirement: Vim Navigation -- Column Movement
 
 The user SHALL be able to move the cursor between columns using h and l keys.
 
@@ -57,7 +57,7 @@ The user SHALL be able to move the cursor between columns using h and l keys.
 - **WHEN** the user presses `l` on the rightmost column or `h` on the leftmost column
 - **THEN** the cursor SHALL remain in the current position (no wrapping)
 
-### Requirement: Vim Navigation — Card Movement
+### Requirement: Vim Navigation -- Card Movement
 
 The user SHALL be able to move the cursor between cards within a column using j and k keys.
 
@@ -76,7 +76,7 @@ The user SHALL be able to move the cursor between cards within a column using j 
 - **WHEN** the user presses `j` on the last card or `k` on the first card
 - **THEN** the cursor SHALL remain in the current position (no wrapping)
 
-### Requirement: Vim Navigation — Jump to First/Last
+### Requirement: Vim Navigation -- Jump to First/Last
 
 The user SHALL be able to jump to the first or last card in the current column using g and G keys.
 
@@ -145,3 +145,36 @@ The board SHALL handle columns with no cards gracefully.
 
 - **WHEN** the user navigates into a column with no cards
 - **THEN** the cursor SHALL be at card index 0 and no card SHALL be highlighted, and j/k/g/G keypresses SHALL have no effect
+
+### Requirement: Create task keybinding
+
+The user SHALL be able to create a new task from the board view.
+
+#### Scenario: Press n to create task
+
+- **WHEN** the user presses `n` on the board view
+- **THEN** the create-task overlay SHALL open with the current column pre-selected
+
+#### Scenario: New task appears on board
+
+- **WHEN** a task is successfully created via the overlay
+- **THEN** the board SHALL refresh and the cursor SHALL navigate to the newly created task
+
+### Requirement: Spawn agent from board
+
+The user SHALL be able to spawn an agent on the currently selected card directly from the board view.
+
+#### Scenario: Spawning via keybinding
+
+- **WHEN** the user presses `a` while a card is selected on the board
+- **THEN** the board SHALL emit a message requesting an agent spawn for the selected card's task ID, and the root app SHALL handle spawning the agent session
+
+#### Scenario: Spawn on card with existing agent
+
+- **WHEN** the user presses `a` on a card that already has a running agent
+- **THEN** the system SHALL switch to the agent view with that agent selected instead of spawning a duplicate
+
+#### Scenario: Agent indicator on board cards
+
+- **WHEN** a card has an active agent session
+- **THEN** the card SHALL display a small indicator (e.g., `>` prefix) to show an agent is running on it
