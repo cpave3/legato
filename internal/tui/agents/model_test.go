@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/theme"
 )
 
 func testAgents() []service.AgentSession {
@@ -16,7 +17,7 @@ func testAgents() []service.AgentSession {
 }
 
 func newTestModel() Model {
-	m := New()
+	m := New(theme.NewIcons("unicode"))
 	m.SetAgents(testAgents())
 	m.SetSize(120, 40)
 	return m
@@ -83,7 +84,7 @@ func TestKillKeybinding(t *testing.T) {
 }
 
 func TestKillNoAgentNoCmd(t *testing.T) {
-	m := New()
+	m := New(theme.NewIcons("unicode"))
 	m.SetSize(120, 40)
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'X'}})
 	if cmd != nil {
@@ -163,14 +164,14 @@ func TestViewContainsElements(t *testing.T) {
 		t.Error("view should contain keybinding help")
 	}
 
-	// Should contain agent counter when multiple agents
-	if !containsStr(view, "[1/2]") {
-		t.Error("view should contain agent counter [1/2]")
+	// Sidebar should list both agents
+	if !containsStr(view, "REX-1239") {
+		t.Error("view should contain second agent REX-1239 in sidebar")
 	}
 }
 
 func TestViewEmptyState(t *testing.T) {
-	m := New()
+	m := New(theme.NewIcons("unicode"))
 	m.SetSize(120, 40)
 	view := m.View()
 
@@ -198,9 +199,111 @@ func TestSelectedAgentReturnsCorrectAgent(t *testing.T) {
 }
 
 func TestSelectedAgentNilWhenEmpty(t *testing.T) {
-	m := New()
+	m := New(theme.NewIcons("unicode"))
 	if a := m.SelectedAgent(); a != nil {
 		t.Error("expected nil agent when list is empty")
+	}
+}
+
+func TestSidebarActivityIndicators(t *testing.T) {
+	agents := []service.AgentSession{
+		{ID: 1, TaskID: "t1", TmuxSession: "legato-t1", Command: "shell", Status: "running", Activity: "working", StartedAt: time.Now()},
+		{ID: 2, TaskID: "t2", TmuxSession: "legato-t2", Command: "shell", Status: "running", Activity: "waiting", StartedAt: time.Now()},
+		{ID: 3, TaskID: "t3", TmuxSession: "legato-t3", Command: "shell", Status: "running", Activity: "", StartedAt: time.Now()},
+		{ID: 4, TaskID: "t4", TmuxSession: "legato-t4", Command: "shell", Status: "dead", Activity: "", StartedAt: time.Now()},
+	}
+
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents(agents)
+	m.SetSize(120, 40)
+
+	view := m.View()
+
+	// Check activity labels match board card indicators
+	if !containsStr(view, "RUNNING") {
+		t.Error("view should contain RUNNING indicator")
+	}
+	if !containsStr(view, "WAITING") {
+		t.Error("view should contain WAITING indicator")
+	}
+	if !containsStr(view, "IDLE") {
+		t.Error("view should contain IDLE indicator for idle agent")
+	}
+	if !containsStr(view, "DEAD") {
+		t.Error("view should contain DEAD indicator")
+	}
+}
+
+func TestSidebarSelectionHighlighting(t *testing.T) {
+	m := newTestModel()
+	// Selection is on first agent (REX-1238)
+	view1 := m.View()
+
+	// Move selection to second agent
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	view2 := m.View()
+
+	// Both views should show both agents but selection should differ
+	if !containsStr(view1, "REX-1238") || !containsStr(view1, "REX-1239") {
+		t.Error("sidebar should list all agents")
+	}
+	// Views should differ (different selection highlighting)
+	if view1 == view2 {
+		t.Error("view should change when selection moves")
+	}
+}
+
+func TestSidebarWidth(t *testing.T) {
+	m := newTestModel()
+	// The sidebar is SidebarWidth=30, terminal fills the rest
+	tw := m.terminalWidth()
+	expected := 120 - SidebarWidth
+	if tw != expected {
+		t.Errorf("terminalWidth() = %d, want %d", tw, expected)
+	}
+}
+
+func TestSpawnMsgIncludesDimensions(t *testing.T) {
+	m := newTestModel()
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	if cmd == nil {
+		t.Fatal("expected command from 's' key")
+	}
+	msg := cmd()
+	spawn, ok := msg.(SpawnAgentMsg)
+	if !ok {
+		t.Fatalf("expected SpawnAgentMsg, got %T", msg)
+	}
+	expectedW := 120 - SidebarWidth
+	if spawn.Width != expectedW {
+		t.Errorf("Width = %d, want %d", spawn.Width, expectedW)
+	}
+	if spawn.Height != 40 {
+		t.Errorf("Height = %d, want 40", spawn.Height)
+	}
+}
+
+func TestEmptySidebarShowsSpawnHint(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetSize(120, 40)
+	view := m.View()
+
+	if !containsStr(view, "s to spawn") {
+		t.Error("empty sidebar should show spawn hint")
+	}
+}
+
+func TestLongTaskIDTruncated(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents([]service.AgentSession{
+		{ID: 1, TaskID: "VERY-LONG-PROJECT-12345", TmuxSession: "legato-long", Command: "shell", Status: "running", StartedAt: time.Now()},
+	})
+	m.SetSize(120, 40)
+	view := m.View()
+
+	// Should render without panicking; ID should be truncated
+	if view == "" {
+		t.Error("view should not be empty with long task ID")
 	}
 }
 

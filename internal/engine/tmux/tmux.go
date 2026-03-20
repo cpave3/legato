@@ -44,9 +44,13 @@ func New(opts Options) (*Manager, error) {
 }
 
 // Spawn creates a new detached tmux session with the given name and working directory.
+// Width and height set the initial pane geometry via -x/-y flags; zero values omit the flags.
 // Optional env vars are injected via -e flags so the initial shell inherits them.
-func (m *Manager) Spawn(name, workDir string, envVars ...string) error {
+func (m *Manager) Spawn(name, workDir string, width, height int, envVars ...string) error {
 	args := []string{"new-session", "-d", "-s", name, "-c", workDir}
+	if width > 0 && height > 0 {
+		args = append(args, "-x", fmt.Sprintf("%d", width), "-y", fmt.Sprintf("%d", height))
+	}
 	for _, e := range envVars {
 		args = append(args, "-e", e)
 	}

@@ -88,7 +88,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		syncSvc:   syncSvc,
 		agentSvc:  agentSvc,
 		board:     board.New(svc, icons),
-		agentView: agents.New(),
+		agentView: agents.New(icons),
 		statusBar: statusbar.New(),
 		clip:      clip,
 		active:    viewBoard,
@@ -388,6 +388,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case cardUpdateMsg:
 		// IPC triggered a card/agent state change — reload board data.
 		cmds = append(cmds, a.board.Init())
+		// Also refresh agent list if in agent view
+		if a.active == viewAgents && a.agentSvc != nil {
+			svc := a.agentSvc
+			cmds = append(cmds, func() tea.Msg {
+				agentList, _ := svc.ListAgents(context.Background())
+				return agents.AgentsRefreshedMsg{Agents: agentList}
+			})
+		}
 		if a.cardUpdateSub != nil {
 			cmds = append(cmds, a.listenCardUpdates())
 		}
@@ -706,8 +714,9 @@ func (a App) handleSpawnAgent(msg agents.SpawnAgentMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 	svc := a.agentSvc
+	w, h := msg.Width, msg.Height
 	return a, func() tea.Msg {
-		if err := svc.SpawnAgent(context.Background(), taskID); err != nil {
+		if err := svc.SpawnAgent(context.Background(), taskID, w, h); err != nil {
 			return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
 		}
 		agentList, _ := svc.ListAgents(context.Background())
@@ -782,9 +791,15 @@ func (a App) handleBoardSpawnAgent() (tea.Model, tea.Cmd) {
 	// Spawn and switch to agent view
 	a.active = viewAgents
 	a.agentView.StartPolling()
+	// Compute terminal dimensions for tmux: total width minus sidebar
+	termW := a.width - agents.SidebarWidth
+	if termW < 1 {
+		termW = 1
+	}
+	termH := a.height - 1 // reserve for status bar
 	return a, tea.Batch(
 		func() tea.Msg {
-			if err := svc.SpawnAgent(context.Background(), taskID); err != nil {
+			if err := svc.SpawnAgent(context.Background(), taskID, termW, termH); err != nil {
 				return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
 			}
 			agentList, _ := svc.ListAgents(context.Background())

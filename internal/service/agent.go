@@ -11,7 +11,7 @@ import (
 
 // TmuxManager abstracts tmux operations for testability.
 type TmuxManager interface {
-	Spawn(name, workDir string, envVars ...string) error
+	Spawn(name, workDir string, width, height int, envVars ...string) error
 	Kill(name string) error
 	Capture(name string) (string, error)
 	Attach(name string) *exec.Cmd
@@ -34,7 +34,7 @@ type AgentSession struct {
 
 // AgentService manages agent session lifecycle.
 type AgentService interface {
-	SpawnAgent(ctx context.Context, taskID string) error
+	SpawnAgent(ctx context.Context, taskID string, width, height int) error
 	KillAgent(ctx context.Context, taskID string) error
 	ListAgents(ctx context.Context) ([]AgentSession, error)
 	ReconcileSessions(ctx context.Context) error
@@ -66,7 +66,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 	return svc
 }
 
-func (a *agentService) SpawnAgent(ctx context.Context, taskID string) error {
+func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, height int) error {
 	// Check for existing running session
 	existing, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
 	if err == nil {
@@ -94,7 +94,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string) error {
 		}
 	}
 
-	if err := a.tmux.Spawn(sessionName, a.workDir, envVars...); err != nil {
+	if err := a.tmux.Spawn(sessionName, a.workDir, width, height, envVars...); err != nil {
 		return fmt.Errorf("spawning tmux session: %w", err)
 	}
 

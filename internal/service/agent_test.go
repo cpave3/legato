@@ -12,24 +12,27 @@ import (
 )
 
 type mockTmux struct {
-	sessions map[string]bool
-	captures map[string]string
-	envVars  map[string]map[string]string // session -> key -> value
+	sessions   map[string]bool
+	captures   map[string]string
+	envVars    map[string]map[string]string // session -> key -> value
+	spawnDims  map[string][2]int            // session -> [width, height]
 }
 
 func newMockTmux() *mockTmux {
 	return &mockTmux{
-		sessions: make(map[string]bool),
-		captures: make(map[string]string),
-		envVars:  make(map[string]map[string]string),
+		sessions:  make(map[string]bool),
+		captures:  make(map[string]string),
+		envVars:   make(map[string]map[string]string),
+		spawnDims: make(map[string][2]int),
 	}
 }
 
-func (m *mockTmux) Spawn(name, workDir string, envVars ...string) error {
+func (m *mockTmux) Spawn(name, workDir string, width, height int, envVars ...string) error {
 	if m.sessions[name] {
 		return fmt.Errorf("session %s already exists", name)
 	}
 	m.sessions[name] = true
+	m.spawnDims[name] = [2]int{width, height}
 	// Store env vars passed at spawn time.
 	if len(envVars) > 0 {
 		if m.envVars[name] == nil {
@@ -121,7 +124,7 @@ func TestSpawnAgentCreatesSessionAndDBRow(t *testing.T) {
 	ctx := context.Background()
 	createTask(t, s, "REX-1238")
 
-	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -151,10 +154,10 @@ func TestSpawnAgentDuplicateReturnsError(t *testing.T) {
 	ctx := context.Background()
 	createTask(t, s, "REX-1238")
 
-	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SpawnAgent(ctx, "REX-1238"); err == nil {
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err == nil {
 		t.Error("expected error for duplicate spawn, got nil")
 	}
 }
@@ -164,7 +167,7 @@ func TestKillAgentDestroysSessionAndUpdatesDB(t *testing.T) {
 	ctx := context.Background()
 	createTask(t, s, "REX-1238")
 
-	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.KillAgent(ctx, "REX-1238"); err != nil {
@@ -191,7 +194,7 @@ func TestKillAlreadyDeadAgentNoError(t *testing.T) {
 	ctx := context.Background()
 	createTask(t, s, "REX-1238")
 
-	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.KillAgent(ctx, "REX-1238"); err != nil {
@@ -209,10 +212,10 @@ func TestReconcileSessionsMarksDeadSessions(t *testing.T) {
 	createTask(t, s, "REX-1238")
 	createTask(t, s, "REX-1239")
 
-	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.SpawnAgent(ctx, "REX-1239"); err != nil {
+	if err := svc.SpawnAgent(ctx, "REX-1239", 0, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -241,7 +244,7 @@ func TestReconcileSessionsMarksDeadSessions(t *testing.T) {
 
 	// REX-1238 should no longer be spawnable as duplicate (it's dead, will be cleaned on re-spawn)
 	// Verify by re-spawning — should succeed since dead sessions are cleaned up
-	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
 		t.Errorf("re-spawn after reconcile should succeed, got %v", err)
 	}
 	mt.Kill("legato-REX-1238") // cleanup
@@ -253,14 +256,14 @@ func TestSpawnAgentWithStaleDBSession(t *testing.T) {
 	createTask(t, s, "REX-1238")
 
 	// Spawn an agent, then simulate the tmux session dying without reconciliation
-	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
 		t.Fatal(err)
 	}
 	// Kill tmux session externally (DB still says "running")
 	delete(mt.sessions, "legato-REX-1238")
 
 	// Re-spawn should succeed — stale DB record should be cleaned up
-	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
 		t.Errorf("re-spawn with stale DB session should succeed, got %v", err)
 	}
 
@@ -275,7 +278,7 @@ func TestCaptureOutputReturnsContent(t *testing.T) {
 	ctx := context.Background()
 	createTask(t, s, "REX-1238")
 
-	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -318,7 +321,7 @@ func TestSpawnAgentInjectsEnvVarsWhenAdapterConfigured(t *testing.T) {
 	ctx := context.Background()
 	createTask(t, s, "task1")
 
-	if err := svc.SpawnAgent(ctx, "task1"); err != nil {
+	if err := svc.SpawnAgent(ctx, "task1", 0, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -339,7 +342,7 @@ func TestSpawnAgentSkipsEnvVarsWithoutAdapter(t *testing.T) {
 	ctx := context.Background()
 	createTask(t, s, "task2")
 
-	if err := svc.SpawnAgent(ctx, "task2"); err != nil {
+	if err := svc.SpawnAgent(ctx, "task2", 0, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -348,12 +351,30 @@ func TestSpawnAgentSkipsEnvVarsWithoutAdapter(t *testing.T) {
 	}
 }
 
+func TestSpawnAgentPassesDimensionsToTmux(t *testing.T) {
+	svc, s, mt := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-1238")
+
+	if err := svc.SpawnAgent(ctx, "REX-1238", 90, 40); err != nil {
+		t.Fatal(err)
+	}
+
+	dims := mt.spawnDims["legato-REX-1238"]
+	if dims[0] != 90 {
+		t.Errorf("width = %d, want 90", dims[0])
+	}
+	if dims[1] != 40 {
+		t.Errorf("height = %d, want 40", dims[1])
+	}
+}
+
 func TestAttachCmdReturnsCommand(t *testing.T) {
 	svc, s, _ := newTestAgentService(t)
 	ctx := context.Background()
 	createTask(t, s, "REX-1238")
 
-	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
 		t.Fatal(err)
 	}
 

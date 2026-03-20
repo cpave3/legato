@@ -72,7 +72,7 @@ func TestSpawnAndKillIntegration(t *testing.T) {
 	name := "legato-test-spawn"
 	t.Cleanup(func() { m.Kill(name) })
 
-	if err := m.Spawn(name, t.TempDir()); err != nil {
+	if err := m.Spawn(name, t.TempDir(), 0, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -122,7 +122,7 @@ func TestCaptureIntegration(t *testing.T) {
 	name := "legato-test-capture"
 	t.Cleanup(func() { m.Kill(name) })
 
-	if err := m.Spawn(name, t.TempDir()); err != nil {
+	if err := m.Spawn(name, t.TempDir(), 0, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -163,10 +163,10 @@ func TestListSessionsIntegration(t *testing.T) {
 		m.Kill(name2)
 	})
 
-	if err := m.Spawn(name1, t.TempDir()); err != nil {
+	if err := m.Spawn(name1, t.TempDir(), 0, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := m.Spawn(name2, t.TempDir()); err != nil {
+	if err := m.Spawn(name2, t.TempDir(), 0, 0); err != nil {
 		t.Fatal(err)
 	}
 
@@ -184,6 +184,56 @@ func TestListSessionsIntegration(t *testing.T) {
 	}
 	if !found[name2] {
 		t.Errorf("expected %s in sessions list", name2)
+	}
+}
+
+func TestSpawnWithDimensionsIntegration(t *testing.T) {
+	skipWithoutTmux(t)
+
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	name := "legato-test-spawn-dims"
+	t.Cleanup(func() { m.Kill(name) })
+
+	// Spawn with explicit dimensions
+	if err := m.Spawn(name, t.TempDir(), 90, 40); err != nil {
+		t.Fatal(err)
+	}
+
+	alive, err := m.IsAlive(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !alive {
+		t.Error("session should be alive after spawn with dimensions")
+	}
+}
+
+func TestSpawnWithZeroDimensionsOmitsFlags(t *testing.T) {
+	skipWithoutTmux(t)
+
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	name := "legato-test-spawn-zero-dims"
+	t.Cleanup(func() { m.Kill(name) })
+
+	// Zero dimensions = omit -x/-y (backward compat)
+	if err := m.Spawn(name, t.TempDir(), 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	alive, err := m.IsAlive(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !alive {
+		t.Error("session should be alive after spawn without dimensions")
 	}
 }
 
