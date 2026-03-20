@@ -36,7 +36,7 @@ func main() {
 	if err != nil {
 		fatal("sync: %v", err)
 	}
-	fmt.Printf("Synced %d tickets\n", result.TicketsSynced)
+	fmt.Printf("Synced %d tasks\n", result.TasksSynced)
 
 	status := syncSvc.Status()
 	fmt.Printf("Last sync: %s, In progress: %v\n\n", status.LastSync.Format("15:04:05"), status.InProgress)
@@ -61,7 +61,7 @@ func main() {
 		}
 		fmt.Printf("%s (%d cards):\n", col.Name, len(cards))
 		for _, card := range cards {
-			fmt.Printf("  %s  %-50s  [%s] %s\n", card.ID, card.Summary, card.Priority, card.IssueType)
+			fmt.Printf("  %s  %-50s  [%s]\n", card.ID, card.Title, card.Priority)
 		}
 	}
 	fmt.Println()
@@ -72,8 +72,8 @@ func main() {
 	if err != nil {
 		fatal("get card: %v", err)
 	}
-	fmt.Printf("ID: %s\nSummary: %s\nStatus: %s\nPriority: %s\nType: %s\nAssignee: %s\n",
-		detail.ID, detail.Summary, detail.Status, detail.Priority, detail.IssueType, detail.Assignee)
+	fmt.Printf("ID: %s\nTitle: %s\nStatus: %s\nPriority: %s\n",
+		detail.ID, detail.Title, detail.Status, detail.Priority)
 	fmt.Println()
 
 	// 5. Move card
@@ -91,7 +91,7 @@ func main() {
 		fatal("search: %v", err)
 	}
 	for _, card := range results {
-		fmt.Printf("  %s: %s\n", card.ID, card.Summary)
+		fmt.Printf("  %s: %s\n", card.ID, card.Title)
 	}
 	fmt.Println()
 
@@ -110,7 +110,7 @@ func main() {
 	}
 	fmt.Println(fullOut)
 
-	fmt.Println("=== Phase 2 Validation Complete ===")
+	fmt.Println("=== Validation Complete ===")
 }
 
 func fatal(format string, args ...interface{}) {

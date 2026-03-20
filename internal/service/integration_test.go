@@ -34,20 +34,19 @@ func TestIntegration_BoardServiceEndToEnd(t *testing.T) {
 		}
 	}
 
-	// Seed tickets
-	for _, ticket := range []store.Ticket{
-		{ID: "INT-1", Summary: "Alpha task", DescriptionMD: "Alpha description.\n\n## Details\n\nMore info here.",
-			Status: "Backlog", RemoteStatus: "To Do", Priority: "High", IssueType: "Story",
-			Assignee: "dev1", Labels: "backend", EpicKey: "INT-100", EpicName: "Integration Epic",
-			URL: "https://jira.example.com/INT-1", CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now, SortOrder: 0},
-		{ID: "INT-2", Summary: "Beta task", DescriptionMD: "Beta description.",
-			Status: "Backlog", RemoteStatus: "To Do", Priority: "Medium", IssueType: "Bug",
-			CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now, SortOrder: 1},
-		{ID: "INT-3", Summary: "Gamma task", DescriptionMD: "Gamma description.",
-			Status: "Doing", RemoteStatus: "In Progress", Priority: "Low", IssueType: "Task",
-			CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now, SortOrder: 0},
+	// Seed tasks
+	for _, task := range []store.Task{
+		{ID: "INT-1", Title: "Alpha task", DescriptionMD: "Alpha description.\n\n## Details\n\nMore info here.",
+			Status: "Backlog", Priority: "High", SortOrder: 0,
+			CreatedAt: now, UpdatedAt: now},
+		{ID: "INT-2", Title: "Beta task", DescriptionMD: "Beta description.",
+			Status: "Backlog", Priority: "Medium", SortOrder: 1,
+			CreatedAt: now, UpdatedAt: now},
+		{ID: "INT-3", Title: "Gamma task", DescriptionMD: "Gamma description.",
+			Status: "Doing", Priority: "Low", SortOrder: 0,
+			CreatedAt: now, UpdatedAt: now},
 	} {
-		if err := s.CreateTicket(ctx, ticket); err != nil {
+		if err := s.CreateTask(ctx, task); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -75,8 +74,8 @@ func TestIntegration_BoardServiceEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if detail.Summary != "Alpha task" {
-		t.Fatalf("expected 'Alpha task', got %q", detail.Summary)
+	if detail.Title != "Alpha task" {
+		t.Fatalf("expected 'Alpha task', got %q", detail.Title)
 	}
 
 	// 4. MoveCard
@@ -127,6 +126,15 @@ func TestIntegration_BoardServiceEndToEnd(t *testing.T) {
 	if fullOut == "" {
 		t.Error("full export should not be empty")
 	}
+
+	// 9. CreateTask
+	newCard, err := svc.CreateTask(ctx, "New local task", "Backlog", "Low")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newCard.Title != "New local task" {
+		t.Errorf("new card title = %q", newCard.Title)
+	}
 }
 
 func TestIntegration_SyncThenBoard(t *testing.T) {
@@ -147,8 +155,8 @@ func TestIntegration_SyncThenBoard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.TicketsSynced < 8 {
-		t.Fatalf("expected at least 8 synced, got %d", result.TicketsSynced)
+	if result.TasksSynced < 8 {
+		t.Fatalf("expected at least 8 synced, got %d", result.TasksSynced)
 	}
 
 	// Board should see the synced data
@@ -168,8 +176,8 @@ func TestIntegration_SyncThenBoard(t *testing.T) {
 		}
 		total += len(cards)
 	}
-	if total != result.TicketsSynced {
-		t.Errorf("board shows %d cards but sync reported %d", total, result.TicketsSynced)
+	if total != result.TasksSynced {
+		t.Errorf("board shows %d cards but sync reported %d", total, result.TasksSynced)
 	}
 
 	// Can get detail for a synced card

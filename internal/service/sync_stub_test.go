@@ -33,11 +33,11 @@ func TestSync_FirstCall_SeedsData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
-	if result.TicketsSynced < 8 {
-		t.Errorf("expected at least 8 tickets synced, got %d", result.TicketsSynced)
+	if result.TasksSynced < 8 {
+		t.Errorf("expected at least 8 tasks synced, got %d", result.TasksSynced)
 	}
 
-	// Verify tickets queryable through board service
+	// Verify tasks queryable through board service
 	cols, err := board.ListColumns(ctx)
 	if err != nil {
 		t.Fatalf("ListColumns: %v", err)
@@ -73,8 +73,8 @@ func TestSync_SubsequentCall_NoOp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.TicketsSynced != 0 {
-		t.Errorf("expected 0 tickets on second sync, got %d", result.TicketsSynced)
+	if result.TasksSynced != 0 {
+		t.Errorf("expected 0 tasks on second sync, got %d", result.TasksSynced)
 	}
 }
 
@@ -192,16 +192,16 @@ func TestSubscribe_MultipleSubscribers(t *testing.T) {
 
 func TestFakeData_Variety(t *testing.T) {
 	now := time.Now().UTC().Format(time.RFC3339)
-	tickets := fakeTickets(now)
+	tasks := fakeTasks(now)
 
-	if len(tickets) < 8 {
-		t.Errorf("expected at least 8 fake tickets, got %d", len(tickets))
+	if len(tasks) < 8 {
+		t.Errorf("expected at least 8 fake tasks, got %d", len(tasks))
 	}
 
 	// Check at least 3 distinct statuses
 	statuses := map[string]bool{}
-	for _, t := range tickets {
-		statuses[t.Status] = true
+	for _, tk := range tasks {
+		statuses[tk.Status] = true
 	}
 	if len(statuses) < 3 {
 		t.Errorf("expected at least 3 distinct statuses, got %d", len(statuses))
@@ -209,25 +209,25 @@ func TestFakeData_Variety(t *testing.T) {
 
 	// Check at least 1 empty description
 	hasEmpty := false
-	for _, t := range tickets {
-		if t.DescriptionMD == "" {
+	for _, tk := range tasks {
+		if tk.DescriptionMD == "" {
 			hasEmpty = true
 			break
 		}
 	}
 	if !hasEmpty {
-		t.Error("expected at least one ticket with empty description")
+		t.Error("expected at least one task with empty description")
 	}
 
-	// Check at least 1 long summary (>60 chars)
+	// Check at least 1 long title (>60 chars)
 	hasLong := false
-	for _, t := range tickets {
-		if len(t.Summary) > 60 {
+	for _, tk := range tasks {
+		if len(tk.Title) > 60 {
 			hasLong = true
 			break
 		}
 	}
 	if !hasLong {
-		t.Error("expected at least one ticket with summary > 60 chars")
+		t.Error("expected at least one task with title > 60 chars")
 	}
 }

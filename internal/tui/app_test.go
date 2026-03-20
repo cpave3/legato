@@ -25,7 +25,7 @@ func (f *fakeBoardService) ListColumns(_ context.Context) ([]service.Column, err
 func (f *fakeBoardService) ListCards(_ context.Context, column string) ([]service.Card, error) {
 	if column == "Backlog" {
 		return []service.Card{
-			{ID: "REX-1", Summary: "Test", Priority: "High", IssueType: "Bug", Status: "Backlog"},
+			{ID: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug", Status: "Backlog"},
 		}, nil
 	}
 	return nil, nil
@@ -34,12 +34,10 @@ func (f *fakeBoardService) ListCards(_ context.Context, column string) ([]servic
 func (f *fakeBoardService) GetCard(_ context.Context, id string) (*service.CardDetail, error) {
 	return &service.CardDetail{
 		ID:            id,
-		Summary:       "Test ticket",
+		Title:         "Test ticket",
 		DescriptionMD: "Test description",
 		Status:        "Backlog",
 		Priority:      "High",
-		IssueType:     "Bug",
-		URL:           "https://jira.example.com/browse/" + id,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	}, nil
@@ -49,15 +47,15 @@ func (f *fakeBoardService) ReorderCard(_ context.Context, _ string, _ int) error
 func (f *fakeBoardService) SearchCards(_ context.Context, query string) ([]service.Card, error) {
 	// Simple filter for testing
 	all := []service.Card{
-		{ID: "REX-1", Summary: "Refactor auth", Status: "Backlog"},
-		{ID: "REX-2", Summary: "Fix login bug", Status: "Doing"},
+		{ID: "REX-1", Title: "Refactor auth", Status: "Backlog"},
+		{ID: "REX-2", Title: "Fix login bug", Status: "Doing"},
 	}
 	if query == "" {
 		return nil, nil
 	}
 	var results []service.Card
 	for _, c := range all {
-		if strings.Contains(strings.ToLower(c.ID+c.Summary), strings.ToLower(query)) {
+		if strings.Contains(strings.ToLower(c.ID+c.Title), strings.ToLower(query)) {
 			results = append(results, c)
 		}
 	}
@@ -66,9 +64,26 @@ func (f *fakeBoardService) SearchCards(_ context.Context, query string) ([]servi
 func (f *fakeBoardService) ExportCardContext(_ context.Context, _ string, _ service.ExportFormat) (string, error) {
 	return "", nil
 }
+func (f *fakeBoardService) DeleteTask(_ context.Context, _ string) error { return nil }
+func (f *fakeBoardService) CreateTask(_ context.Context, _, _, _ string) (*service.Card, error) {
+	return nil, nil
+}
+
+type fakeSyncService struct{}
+
+func (f *fakeSyncService) Sync(_ context.Context) (*service.SyncResult, error) { return nil, nil }
+func (f *fakeSyncService) Status() service.SyncStatus                          { return service.SyncStatus{} }
+func (f *fakeSyncService) Subscribe() <-chan service.SyncEvent                  { return nil }
+func (f *fakeSyncService) StartScheduler(_ context.Context) func()             { return func() {} }
+func (f *fakeSyncService) SearchRemote(_ context.Context, _ string) ([]service.RemoteSearchResult, error) {
+	return nil, nil
+}
+func (f *fakeSyncService) ImportRemoteTask(_ context.Context, id string) (*service.Card, error) {
+	return &service.Card{ID: id, Title: "Imported", Status: "Backlog"}, nil
+}
 
 func newTestApp() App {
-	return NewApp(&fakeBoardService{}, nil, nil)
+	return NewApp(&fakeBoardService{}, nil, nil, nil)
 }
 
 func updateApp(a App, msg tea.Msg) (App, tea.Cmd) {
@@ -171,7 +186,7 @@ func TestEscReturnsToBoard(t *testing.T) {
 
 	// Handle CardLoadedMsg
 	card := &service.CardDetail{
-		ID: "REX-1", Summary: "Test", DescriptionMD: "desc", Status: "Backlog",
+		ID: "REX-1", Title: "Test", DescriptionMD: "desc", Status: "Backlog",
 	}
 	app, _ = updateApp(app, detail.CardLoadedMsg{Card: card})
 
@@ -217,8 +232,8 @@ func TestMoveOverlayRoutesKeysAndReturnsResult(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected MoveSelectedMsg, got %T", msg)
 	}
-	if selected.TicketID != "REX-1" {
-		t.Errorf("ticketID = %q, want REX-1", selected.TicketID)
+	if selected.TaskID != "REX-1" {
+		t.Errorf("taskID = %q, want REX-1", selected.TaskID)
 	}
 	// Handle the move — overlay should close
 	app, _ = updateApp(app, selected)
@@ -273,6 +288,39 @@ func TestSearchQueryTriggersServiceCall(t *testing.T) {
 				_, _ = updateApp(app, rMsg)
 			}
 		}
+	}
+}
+
+func TestNKeyOpensCreateOverlay(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if app.overlayType != overlayCreate {
+		t.Fatalf("overlayType = %d, want overlayCreate (%d)", app.overlayType, overlayCreate)
+	}
+}
+
+func TestCreateTaskMsgCreatesAndClosesOverlay(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if app.overlayType != overlayCreate {
+		t.Fatal("create overlay should be open")
+	}
+	// Send CreateTaskMsg directly
+	app, _ = updateApp(app, overlay.CreateTaskMsg{Title: "New task", Column: "Backlog", Priority: "High"})
+	if app.overlayType != overlayNone {
+		t.Error("overlay should be closed after create")
+	}
+}
+
+func TestCreateCancelledMsgClosesOverlay(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if app.overlayType != overlayCreate {
+		t.Fatal("create overlay should be open")
+	}
+	app, _ = updateApp(app, overlay.CreateCancelledMsg{})
+	if app.overlayType != overlayNone {
+		t.Error("overlay should be closed after cancel")
 	}
 }
 
@@ -382,6 +430,118 @@ func TestAgentViewRendering(t *testing.T) {
 	view := app.View()
 	if view == "" {
 		t.Error("agent view should not be empty")
+	}
+}
+
+func TestDeleteFromBoardOpensOverlay(t *testing.T) {
+	app := initTestApp()
+	// Board sends OpenDeleteMsg (from 'd' key on selected card)
+	app, _ = updateApp(app, board.OpenDeleteMsg{CardKey: "REX-1"})
+	if app.overlayType != overlayDelete {
+		t.Fatalf("overlayType = %d, want overlayDelete (%d)", app.overlayType, overlayDelete)
+	}
+}
+
+func TestDeleteFromDetailOpensOverlay(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, board.OpenDetailMsg{CardKey: "REX-1"})
+	// Detail sends OpenDeleteOverlay (from 'D' key)
+	app, _ = updateApp(app, detail.OpenDeleteOverlay{TaskID: "REX-1"})
+	if app.overlayType != overlayDelete {
+		t.Fatalf("overlayType = %d, want overlayDelete (%d)", app.overlayType, overlayDelete)
+	}
+}
+
+func TestDeleteConfirmedClosesOverlayAndRefreshes(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, board.OpenDeleteMsg{CardKey: "REX-1"})
+	// Confirm deletion
+	app, cmd := updateApp(app, overlay.DeleteConfirmedMsg{TaskID: "REX-1"})
+	if app.overlayType != overlayNone {
+		t.Error("overlay should be closed after delete confirmed")
+	}
+	// Should produce a board refresh command
+	if cmd == nil {
+		t.Error("expected a board refresh command after delete")
+	}
+}
+
+func TestDeleteConfirmedFromDetailReturnsToBoard(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, board.OpenDetailMsg{CardKey: "REX-1"})
+	app, _ = updateApp(app, detail.OpenDeleteOverlay{TaskID: "REX-1"})
+	// Confirm deletion while in detail view
+	app, _ = updateApp(app, overlay.DeleteConfirmedMsg{TaskID: "REX-1"})
+	if app.active != viewBoard {
+		t.Errorf("should return to board after deleting from detail, got %d", app.active)
+	}
+}
+
+func TestDeleteCancelledClosesOverlay(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, board.OpenDeleteMsg{CardKey: "REX-1"})
+	app, _ = updateApp(app, overlay.DeleteCancelledMsg{})
+	if app.overlayType != overlayNone {
+		t.Error("overlay should be closed after cancel")
+	}
+}
+
+// Import overlay tests
+
+func TestImportKeyOpensOverlayWhenSyncAvailable(t *testing.T) {
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil)
+	cmd := app.Init()
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	app, _ = updateApp(app, board.OpenImportMsg{})
+	if app.overlayType != overlayImport {
+		t.Fatalf("overlayType = %d, want overlayImport (%d)", app.overlayType, overlayImport)
+	}
+}
+
+func TestImportKeyNoOpWithoutSync(t *testing.T) {
+	app := initTestApp() // no syncSvc
+	app, _ = updateApp(app, board.OpenImportMsg{})
+	if app.overlayType != overlayNone {
+		t.Error("import overlay should not open without sync service")
+	}
+}
+
+func TestImportSelectedImportsAndRefreshes(t *testing.T) {
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil)
+	cmd := app.Init()
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, board.OpenImportMsg{})
+	// Select a ticket
+	app, cmd = updateApp(app, overlay.ImportSelectedMsg{TicketID: "REX-42"})
+	if app.overlayType != overlayNone {
+		t.Error("overlay should close after import")
+	}
+	if cmd == nil {
+		t.Error("expected board refresh command")
+	}
+}
+
+func TestImportCancelledClosesOverlay(t *testing.T) {
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil)
+	cmd := app.Init()
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, board.OpenImportMsg{})
+	app, _ = updateApp(app, overlay.ImportCancelledMsg{})
+	if app.overlayType != overlayNone {
+		t.Error("overlay should close after cancel")
 	}
 }
 

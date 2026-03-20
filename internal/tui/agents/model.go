@@ -36,10 +36,10 @@ func (m *Model) SetAgents(agents []service.AgentSession) {
 	}
 }
 
-// SelectByTicketID moves selection to the agent with the given ticket ID.
-func (m *Model) SelectByTicketID(ticketID string) {
+// SelectByTaskID moves selection to the agent with the given ticket ID.
+func (m *Model) SelectByTaskID(ticketID string) {
 	for i, a := range m.agents {
-		if a.TicketID == ticketID {
+		if a.TaskID == ticketID {
 			m.selected = i
 			return
 		}
@@ -96,8 +96,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if m.selected >= len(m.agents) {
 			m.selected = max(0, len(m.agents)-1)
 		}
-		if msg.SelectTicket != "" {
-			m.SelectByTicketID(msg.SelectTicket)
+		if msg.SelectTask != "" {
+			m.SelectByTaskID(msg.SelectTask)
 		}
 		return m, nil
 
@@ -137,7 +137,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, func() tea.Msg { return SpawnAgentMsg{} }
 	case "X":
 		if a := m.SelectedAgent(); a != nil {
-			return m, func() tea.Msg { return KillAgentMsg{TicketID: a.TicketID} }
+			return m, func() tea.Msg { return KillAgentMsg{TaskID: a.TaskID} }
 		}
 		return m, nil
 	case "enter", "tab":
@@ -200,7 +200,7 @@ func (m Model) renderHeader() string {
 
 	left := fmt.Sprintf("%s %s %s %s %s %s",
 		statusDot,
-		ticketStyle.Render(a.TicketID),
+		ticketStyle.Render(a.TaskID),
 		dimStyle.Render("·"),
 		a.Command,
 		dimStyle.Render("·"),

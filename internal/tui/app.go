@@ -31,6 +31,9 @@ const (
 	overlayMove
 	overlaySearch
 	overlayHelp
+	overlayCreate
+	overlayDelete
+	overlayImport
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -46,9 +49,19 @@ type SearchResultsMsg struct {
 	Results []service.Card
 }
 
+// ImportRemoteResultsMsg carries remote search results back to the app.
+type ImportRemoteResultsMsg struct {
+	Results []service.RemoteSearchResult
+	Err     string
+}
+
+// boardRefreshMsg triggers a board data reload.
+type boardRefreshMsg struct{}
+
 // App is the root Bubbletea model.
 type App struct {
 	svc       service.BoardService
+	syncSvc   service.SyncService
 	agentSvc  service.AgentService
 	board     board.Model
 	detail    detail.Model
@@ -58,17 +71,19 @@ type App struct {
 	activeOverlay tea.Model
 	overlayType   overlayKind
 	active        viewType
-	width     int
-	height    int
+	width         int
+	height        int
+	pendingNav    string // card ID to navigate to after next board data load
 	eventBus  *events.Bus
 	eventSub  <-chan events.Event
 }
 
 // NewApp creates a new root application model.
-func NewApp(svc service.BoardService, agentSvc service.AgentService, bus *events.Bus) App {
+func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, bus *events.Bus) App {
 	clip := clipboard.New()
 	app := App{
 		svc:       svc,
+		syncSvc:   syncSvc,
 		agentSvc:  agentSvc,
 		board:     board.New(svc),
 		agentView: agents.New(),
@@ -145,6 +160,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "/":
 			if a.active == viewBoard {
 				return a.openSearchOverlay()
+			}
+			return a.delegateKey(msg)
+		case "n":
+			if a.active == viewBoard {
+				return a.openCreateOverlay()
 			}
 			return a.delegateKey(msg)
 		default:
@@ -229,7 +249,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleAgentTick()
 
 	case detail.OpenMoveOverlay:
-		return a.openMoveOverlay(msg.TicketID)
+		return a.openMoveOverlay(msg.TaskID)
 
 	case board.OpenMoveMsg:
 		return a.openMoveOverlay(msg.CardKey)
@@ -256,6 +276,54 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case overlay.HelpClosedMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
+		return a, nil
+
+	case overlay.CreateTaskMsg:
+		return a.handleCreateTask(msg)
+
+	case overlay.CreateCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
+	case board.OpenDeleteMsg:
+		return a.openDeleteOverlay(msg.CardKey)
+
+	case detail.OpenDeleteOverlay:
+		return a.openDeleteOverlay(msg.TaskID)
+
+	case overlay.DeleteConfirmedMsg:
+		return a.handleDeleteConfirmed(msg)
+
+	case overlay.DeleteCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
+	case board.OpenImportMsg:
+		return a.openImportOverlay()
+
+	case overlay.ImportQueryChangedMsg:
+		return a.handleImportQuery(msg)
+
+	case overlay.ImportSelectedMsg:
+		return a.handleImportSelected(msg)
+
+	case overlay.ImportCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
+	case ImportRemoteResultsMsg:
+		if a.overlayType == overlayImport {
+			io := a.activeOverlay.(overlay.ImportOverlay)
+			if msg.Err != "" {
+				io = io.SetError(msg.Err)
+			} else {
+				io = io.SetResults(msg.Results)
+			}
+			a.activeOverlay = io
+		}
 		return a, nil
 
 	case SearchResultsMsg:
@@ -296,6 +364,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, a.listenEventBus())
 		}
 
+	case boardRefreshMsg:
+		cmd := a.board.Init()
+		return a, cmd
+
 	case statusbar.ErrorMsg:
 		a.statusBar, _ = a.statusBar.Update(msg)
 		return a, nil
@@ -306,6 +378,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.board, cmd = a.board.Update(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+		// Apply pending navigation (e.g. after task creation)
+		if a.pendingNav != "" {
+			a.board.NavigateTo(a.pendingNav)
+			a.pendingNav = ""
 		}
 
 	default:
@@ -331,7 +408,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, tea.Batch(cmds...)
 }
 
-func (a App) openMoveOverlay(ticketID string) (tea.Model, tea.Cmd) {
+func (a App) openMoveOverlay(taskID string) (tea.Model, tea.Cmd) {
 	// Get columns from the board
 	columns, err := a.svc.ListColumns(context.Background())
 	if err != nil {
@@ -342,13 +419,13 @@ func (a App) openMoveOverlay(ticketID string) (tea.Model, tea.Cmd) {
 		colNames[i] = c.Name
 	}
 	// Get current column for the ticket
-	card, _ := a.svc.GetCard(context.Background(), ticketID)
+	card, _ := a.svc.GetCard(context.Background(), taskID)
 	currentCol := ""
 	if card != nil {
 		currentCol = card.Status
 	}
 
-	moveModel := overlay.NewMove(ticketID, colNames, currentCol)
+	moveModel := overlay.NewMove(taskID, colNames, currentCol)
 	// Send size
 	sized, _ := moveModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
@@ -359,7 +436,7 @@ func (a App) openMoveOverlay(ticketID string) (tea.Model, tea.Cmd) {
 func (a App) handleMoveSelected(msg overlay.MoveSelectedMsg) (tea.Model, tea.Cmd) {
 	a.overlayType = overlayNone
 	a.activeOverlay = nil
-	err := a.svc.MoveCard(context.Background(), msg.TicketID, msg.TargetColumn)
+	err := a.svc.MoveCard(context.Background(), msg.TaskID, msg.TargetColumn)
 	if err != nil {
 		return a, nil
 	}
@@ -367,7 +444,7 @@ func (a App) handleMoveSelected(msg overlay.MoveSelectedMsg) (tea.Model, tea.Cmd
 	cmd := a.board.Init()
 	// If in detail view, refresh the card
 	if a.active == viewDetail {
-		card, err := a.svc.GetCard(context.Background(), msg.TicketID)
+		card, err := a.svc.GetCard(context.Background(), msg.TaskID)
 		if err == nil {
 			a.detail.SetCard(card)
 		}
@@ -408,6 +485,120 @@ func (a App) handleSearchSelected(msg overlay.SearchSelectedMsg) (tea.Model, tea
 	return a, nil
 }
 
+func (a App) openCreateOverlay() (tea.Model, tea.Cmd) {
+	cols, err := a.svc.ListColumns(context.Background())
+	if err != nil || len(cols) == 0 {
+		return a, nil
+	}
+	colNames := make([]string, len(cols))
+	for i, c := range cols {
+		colNames[i] = c.Name
+	}
+	// Default to the column the cursor is in
+	currentCol := colNames[0]
+	if selected := a.board.SelectedCard(); selected != nil {
+		for _, col := range colNames {
+			cards, _ := a.svc.ListCards(context.Background(), col)
+			for _, c := range cards {
+				if c.ID == selected.Key {
+					currentCol = col
+				}
+			}
+		}
+	}
+	createModel := overlay.NewCreate(colNames, currentCol)
+	sized, _ := createModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.activeOverlay = sized
+	a.overlayType = overlayCreate
+	return a, nil
+}
+
+func (a App) openDeleteOverlay(taskID string) (tea.Model, tea.Cmd) {
+	card, err := a.svc.GetCard(context.Background(), taskID)
+	if err != nil {
+		return a, nil
+	}
+	isRemote := card.Provider != ""
+	deleteModel := overlay.NewDelete(taskID, card.Title, isRemote)
+	sized, _ := deleteModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.activeOverlay = sized
+	a.overlayType = overlayDelete
+	return a, nil
+}
+
+func (a App) handleDeleteConfirmed(msg overlay.DeleteConfirmedMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	_ = a.svc.DeleteTask(context.Background(), msg.TaskID)
+	// If we were in detail view, return to board
+	if a.active == viewDetail {
+		a.active = viewBoard
+	}
+	// Refresh board
+	cmd := a.board.Init()
+	return a, cmd
+}
+
+func (a App) openImportOverlay() (tea.Model, tea.Cmd) {
+	if a.syncSvc == nil {
+		return a, nil
+	}
+	importModel := overlay.NewImport(a.width, a.height)
+	a.activeOverlay = importModel
+	a.overlayType = overlayImport
+	return a, nil
+}
+
+func (a App) handleImportQuery(msg overlay.ImportQueryChangedMsg) (tea.Model, tea.Cmd) {
+	if a.syncSvc == nil {
+		return a, nil
+	}
+	svc := a.syncSvc
+	query := msg.Query
+	cmd := func() tea.Msg {
+		results, err := svc.SearchRemote(context.Background(), query)
+		if err != nil {
+			return ImportRemoteResultsMsg{Err: err.Error()}
+		}
+		return ImportRemoteResultsMsg{Results: results}
+	}
+	return a, cmd
+}
+
+func (a App) handleImportSelected(msg overlay.ImportSelectedMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	if a.syncSvc == nil {
+		return a, nil
+	}
+	svc := a.syncSvc
+	ticketID := msg.TicketID
+	return a, func() tea.Msg {
+		card, err := svc.ImportRemoteTask(context.Background(), ticketID)
+		if err != nil {
+			return statusbar.ErrorMsg{Text: "import failed: " + err.Error()}
+		}
+		_ = card
+		// Return a board refresh by re-initializing board data
+		return boardRefreshMsg{}
+	}
+}
+
+func (a App) handleCreateTask(msg overlay.CreateTaskMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	card, err := a.svc.CreateTask(context.Background(), msg.Title, msg.Column, msg.Priority)
+	if err != nil {
+		return a, nil
+	}
+	// Refresh board — navigation happens when DataLoadedMsg arrives
+	cmd := a.board.Init()
+	if card != nil {
+		a.pendingNav = card.ID
+	}
+	return a, cmd
+}
+
 // agentTickMsg is an internal tick for agent capture polling.
 type agentTickMsg struct{}
 
@@ -443,10 +634,10 @@ func (a App) handleAgentTick() (tea.Model, tea.Cmd) {
 		return a, agentTickCmd()
 	}
 	svc := a.agentSvc
-	ticketID := selected.TicketID
+	taskID := selected.TaskID
 	return a, tea.Batch(
 		func() tea.Msg {
-			output, _ := svc.CaptureOutput(context.Background(), ticketID)
+			output, _ := svc.CaptureOutput(context.Background(), taskID)
 			return agents.CaptureOutputMsg{Output: output}
 		},
 		agentTickCmd(),
@@ -457,19 +648,19 @@ func (a App) handleSpawnAgent(msg agents.SpawnAgentMsg) (tea.Model, tea.Cmd) {
 	if a.agentSvc == nil {
 		return a, nil
 	}
-	ticketID := msg.TicketID
+	taskID := msg.TaskID
 	// If no ticket ID, use selected board card
-	if ticketID == "" {
+	if taskID == "" {
 		if card := a.board.SelectedCard(); card != nil {
-			ticketID = card.Key
+			taskID = card.Key
 		}
 	}
-	if ticketID == "" {
+	if taskID == "" {
 		return a, nil
 	}
 	svc := a.agentSvc
 	return a, func() tea.Msg {
-		if err := svc.SpawnAgent(context.Background(), ticketID); err != nil {
+		if err := svc.SpawnAgent(context.Background(), taskID); err != nil {
 			return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
 		}
 		agentList, _ := svc.ListAgents(context.Background())
@@ -482,9 +673,9 @@ func (a App) handleKillAgent(msg agents.KillAgentMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 	svc := a.agentSvc
-	ticketID := msg.TicketID
+	taskID := msg.TaskID
 	return a, func() tea.Msg {
-		_ = svc.KillAgent(context.Background(), ticketID)
+		_ = svc.KillAgent(context.Background(), taskID)
 		agentList, _ := svc.ListAgents(context.Background())
 		return agents.AgentsRefreshedMsg{Agents: agentList}
 	}
@@ -500,8 +691,8 @@ func (a App) handleAttachSession(msg agents.AttachSessionMsg) (tea.Model, tea.Cm
 		return a, nil
 	}
 	svc := a.agentSvc
-	ticketID := selected.TicketID
-	cmd, err := svc.AttachCmd(context.Background(), ticketID)
+	taskID := selected.TaskID
+	cmd, err := svc.AttachCmd(context.Background(), taskID)
 	if err != nil {
 		return a, nil
 	}
@@ -521,21 +712,21 @@ func (a App) handleBoardSpawnAgent() (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	ticketID := card.Key
+	taskID := card.Key
 	svc := a.agentSvc
 
 	// Check if agent already exists for this card
-	_, err := svc.CaptureOutput(context.Background(), ticketID)
+	_, err := svc.CaptureOutput(context.Background(), taskID)
 	if err == nil {
 		// Agent already running — switch to agent view with it selected
 		a.active = viewAgents
 		a.agentView.StartPolling()
-		a.agentView.SelectByTicketID(ticketID)
+		a.agentView.SelectByTaskID(taskID)
 		return a, tea.Batch(
 			func() tea.Msg {
 				_ = svc.ReconcileSessions(context.Background())
 				agentList, _ := svc.ListAgents(context.Background())
-				return agents.AgentsRefreshedMsg{Agents: agentList, SelectTicket: ticketID}
+				return agents.AgentsRefreshedMsg{Agents: agentList, SelectTask: taskID}
 			},
 			agentTickCmd(),
 		)
@@ -546,11 +737,11 @@ func (a App) handleBoardSpawnAgent() (tea.Model, tea.Cmd) {
 	a.agentView.StartPolling()
 	return a, tea.Batch(
 		func() tea.Msg {
-			if err := svc.SpawnAgent(context.Background(), ticketID); err != nil {
+			if err := svc.SpawnAgent(context.Background(), taskID); err != nil {
 				return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
 			}
 			agentList, _ := svc.ListAgents(context.Background())
-			return agents.AgentsRefreshedMsg{Agents: agentList, SelectTicket: ticketID}
+			return agents.AgentsRefreshedMsg{Agents: agentList, SelectTask: taskID}
 		},
 		agentTickCmd(),
 	)

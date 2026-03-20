@@ -8,8 +8,8 @@ import (
 
 func (s *Store) InsertAgentSession(ctx context.Context, a AgentSession) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO agent_sessions (ticket_id, tmux_session, command, status)
-		VALUES (:ticket_id, :tmux_session, :command, :status)`, a)
+		INSERT INTO agent_sessions (task_id, tmux_session, command, status)
+		VALUES (:task_id, :tmux_session, :command, :status)`, a)
 	return err
 }
 
@@ -20,12 +20,12 @@ func (s *Store) ListAgentSessions(ctx context.Context) ([]AgentSession, error) {
 	return sessions, err
 }
 
-func (s *Store) GetAgentSessionByTicketID(ctx context.Context, ticketID string) (*AgentSession, error) {
+func (s *Store) GetAgentSessionByTaskID(ctx context.Context, taskID string) (*AgentSession, error) {
 	var a AgentSession
 	err := s.db.GetContext(ctx, &a,
-		"SELECT * FROM agent_sessions WHERE ticket_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1", ticketID)
+		"SELECT * FROM agent_sessions WHERE task_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1", taskID)
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("agent session for ticket %s: %w", ticketID, ErrNotFound)
+		return nil, fmt.Errorf("agent session for task %s: %w", taskID, ErrNotFound)
 	}
 	return &a, err
 }
@@ -40,15 +40,15 @@ func (s *Store) GetAgentSessionByTmuxName(ctx context.Context, tmuxSession strin
 	return &a, err
 }
 
-func (s *Store) UpdateAgentSessionStatus(ctx context.Context, ticketID string, status string) error {
+func (s *Store) UpdateAgentSessionStatus(ctx context.Context, taskID string, status string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE agent_sessions SET status = ?, ended_at = datetime('now')
-		WHERE ticket_id = ? AND status = 'running'`, status, ticketID)
+		WHERE task_id = ? AND status = 'running'`, status, taskID)
 	return err
 }
 
-func (s *Store) DeleteDeadAgentSessions(ctx context.Context, ticketID string) error {
+func (s *Store) DeleteDeadAgentSessions(ctx context.Context, taskID string) error {
 	_, err := s.db.ExecContext(ctx, `
-		DELETE FROM agent_sessions WHERE ticket_id = ? AND status != 'running'`, ticketID)
+		DELETE FROM agent_sessions WHERE task_id = ? AND status != 'running'`, taskID)
 	return err
 }

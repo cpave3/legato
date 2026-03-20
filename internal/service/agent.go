@@ -22,7 +22,7 @@ type TmuxManager interface {
 // AgentSession represents a running or completed agent session.
 type AgentSession struct {
 	ID          int
-	TicketID    string
+	TaskID    string
 	TmuxSession string
 	Command     string
 	Status      string
@@ -32,12 +32,12 @@ type AgentSession struct {
 
 // AgentService manages agent session lifecycle.
 type AgentService interface {
-	SpawnAgent(ctx context.Context, ticketID string) error
-	KillAgent(ctx context.Context, ticketID string) error
+	SpawnAgent(ctx context.Context, taskID string) error
+	KillAgent(ctx context.Context, taskID string) error
 	ListAgents(ctx context.Context) ([]AgentSession, error)
 	ReconcileSessions(ctx context.Context) error
-	CaptureOutput(ctx context.Context, ticketID string) (string, error)
-	AttachCmd(ctx context.Context, ticketID string) (*exec.Cmd, error)
+	CaptureOutput(ctx context.Context, taskID string) (string, error)
+	AttachCmd(ctx context.Context, taskID string) (*exec.Cmd, error)
 }
 
 type agentService struct {
@@ -51,17 +51,23 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string) AgentServ
 	return &agentService{store: s, tmux: tmux, workDir: workDir}
 }
 
-func (a *agentService) SpawnAgent(ctx context.Context, ticketID string) error {
+func (a *agentService) SpawnAgent(ctx context.Context, taskID string) error {
 	// Check for existing running session
-	_, err := a.store.GetAgentSessionByTicketID(ctx, ticketID)
+	existing, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
 	if err == nil {
-		return fmt.Errorf("agent already running for ticket %s", ticketID)
+		// DB says "running" — verify the tmux session is actually alive
+		alive, aliveErr := a.tmux.IsAlive(existing.TmuxSession)
+		if aliveErr == nil && alive {
+			return fmt.Errorf("agent already running for task %s", taskID)
+		}
+		// Tmux session is gone — mark it dead so we can re-spawn
+		_ = a.store.UpdateAgentSessionStatus(ctx, taskID, "dead")
 	}
 
 	// Clean up dead sessions so UNIQUE constraint doesn't block re-spawn
-	_ = a.store.DeleteDeadAgentSessions(ctx, ticketID)
+	_ = a.store.DeleteDeadAgentSessions(ctx, taskID)
 
-	sessionName := "legato-" + ticketID
+	sessionName := "legato-" + taskID
 	// Kill any orphaned tmux session with the same name
 	a.tmux.Kill(sessionName)
 
@@ -70,7 +76,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, ticketID string) error {
 	}
 
 	if err := a.store.InsertAgentSession(ctx, store.AgentSession{
-		TicketID:    ticketID,
+		TaskID:    taskID,
 		TmuxSession: sessionName,
 		Command:     "shell",
 		Status:      "running",
@@ -83,18 +89,18 @@ func (a *agentService) SpawnAgent(ctx context.Context, ticketID string) error {
 	return nil
 }
 
-func (a *agentService) KillAgent(ctx context.Context, ticketID string) error {
-	session, err := a.store.GetAgentSessionByTicketID(ctx, ticketID)
+func (a *agentService) KillAgent(ctx context.Context, taskID string) error {
+	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
 	if err != nil {
 		// No running session — delete dead records
-		return a.store.DeleteDeadAgentSessions(ctx, ticketID)
+		return a.store.DeleteDeadAgentSessions(ctx, taskID)
 	}
 
 	a.tmux.Kill(session.TmuxSession)
-	if err := a.store.UpdateAgentSessionStatus(ctx, ticketID, "dead"); err != nil {
+	if err := a.store.UpdateAgentSessionStatus(ctx, taskID, "dead"); err != nil {
 		return err
 	}
-	return a.store.DeleteDeadAgentSessions(ctx, ticketID)
+	return a.store.DeleteDeadAgentSessions(ctx, taskID)
 }
 
 func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
@@ -116,7 +122,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 		}
 		result[i] = AgentSession{
 			ID:          s.ID,
-			TicketID:    s.TicketID,
+			TaskID:    s.TaskID,
 			TmuxSession: s.TmuxSession,
 			Command:     s.Command,
 			Status:      s.Status,
@@ -145,7 +151,7 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 
 	for _, s := range sessions {
 		if s.Status == "running" && !live[s.TmuxSession] {
-			if err := a.store.UpdateAgentSessionStatus(ctx, s.TicketID, "dead"); err != nil {
+			if err := a.store.UpdateAgentSessionStatus(ctx, s.TaskID, "dead"); err != nil {
 				return err
 			}
 		}
@@ -154,16 +160,16 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 	return nil
 }
 
-func (a *agentService) CaptureOutput(ctx context.Context, ticketID string) (string, error) {
-	session, err := a.store.GetAgentSessionByTicketID(ctx, ticketID)
+func (a *agentService) CaptureOutput(ctx context.Context, taskID string) (string, error) {
+	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
 	if err != nil {
 		return "", err
 	}
 	return a.tmux.Capture(session.TmuxSession)
 }
 
-func (a *agentService) AttachCmd(ctx context.Context, ticketID string) (*exec.Cmd, error) {
-	session, err := a.store.GetAgentSessionByTicketID(ctx, ticketID)
+func (a *agentService) AttachCmd(ctx context.Context, taskID string) (*exec.Cmd, error) {
+	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
 	if err != nil {
 		return nil, err
 	}

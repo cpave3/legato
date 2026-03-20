@@ -22,9 +22,9 @@ func TestSearchOverlayEscDismisses(t *testing.T) {
 func TestSearchOverlayNavigatesResults(t *testing.T) {
 	m := NewSearch(80, 24)
 	m = m.SetResults([]service.Card{
-		{ID: "REX-1", Summary: "First", Status: "Backlog"},
-		{ID: "REX-2", Summary: "Second", Status: "Doing"},
-		{ID: "REX-3", Summary: "Third", Status: "Review"},
+		{ID: "REX-1", Title: "First", Status: "Backlog"},
+		{ID: "REX-2", Title: "Second", Status: "Doing"},
+		{ID: "REX-3", Title: "Third", Status: "Review"},
 	})
 	// Initially at index 0
 	if m.cursor != 0 {
@@ -47,8 +47,8 @@ func TestSearchOverlayNavigatesResults(t *testing.T) {
 func TestSearchOverlaySelectResult(t *testing.T) {
 	m := NewSearch(80, 24)
 	m = m.SetResults([]service.Card{
-		{ID: "REX-1", Summary: "First", Status: "Backlog"},
-		{ID: "REX-2", Summary: "Second", Status: "Doing"},
+		{ID: "REX-1", Title: "First", Status: "Backlog"},
+		{ID: "REX-2", Title: "Second", Status: "Doing"},
 	})
 	// Move to second result and select
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
@@ -86,7 +86,7 @@ func TestSearchOverlayQueryReturned(t *testing.T) {
 func TestSearchOverlayView(t *testing.T) {
 	m := NewSearch(80, 24)
 	m = m.SetResults([]service.Card{
-		{ID: "REX-1", Summary: "First", Status: "Backlog"},
+		{ID: "REX-1", Title: "First", Status: "Backlog"},
 	})
 	view := m.View()
 	if view == "" {

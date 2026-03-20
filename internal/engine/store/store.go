@@ -57,7 +57,7 @@ func (s *Store) migrate() error {
 		return err
 	}
 
-	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql"}
+	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql"}
 
 	for i := version; i < len(migrations); i++ {
 		data, err := migrationsFS.ReadFile("migrations/" + migrations[i])
@@ -88,22 +88,22 @@ func (s *Store) migrate() error {
 	return nil
 }
 
-// Ticket CRUD
+// Task CRUD
 
-func (s *Store) CreateTicket(ctx context.Context, t Ticket) error {
+func (s *Store) CreateTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO tickets (id, summary, description, description_md, status, remote_status,
-			priority, issue_type, assignee, labels, epic_key, epic_name, url,
-			created_at, updated_at, remote_updated_at, sort_order, stale_at, local_move_at)
-		VALUES (:id, :summary, :description, :description_md, :status, :remote_status,
-			:priority, :issue_type, :assignee, :labels, :epic_key, :epic_name, :url,
-			:created_at, :updated_at, :remote_updated_at, :sort_order, :stale_at, :local_move_at)`, t)
+		INSERT INTO tasks (id, title, description, description_md, status,
+			priority, sort_order, provider, remote_id, remote_meta,
+			created_at, updated_at)
+		VALUES (:id, :title, :description, :description_md, :status,
+			:priority, :sort_order, :provider, :remote_id, :remote_meta,
+			:created_at, :updated_at)`, t)
 	return err
 }
 
-func (s *Store) GetTicket(ctx context.Context, id string) (*Ticket, error) {
-	var t Ticket
-	err := s.db.GetContext(ctx, &t, "SELECT * FROM tickets WHERE id = ?", id)
+func (s *Store) GetTask(ctx context.Context, id string) (*Task, error) {
+	var t Task
+	err := s.db.GetContext(ctx, &t, "SELECT * FROM tasks WHERE id = ?", id)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -113,61 +113,57 @@ func (s *Store) GetTicket(ctx context.Context, id string) (*Ticket, error) {
 // ErrNotFound is returned when a record is not found.
 var ErrNotFound = fmt.Errorf("not found")
 
-func (s *Store) ListTicketsByStatus(ctx context.Context, status string) ([]Ticket, error) {
-	var tickets []Ticket
-	err := s.db.SelectContext(ctx, &tickets,
-		"SELECT * FROM tickets WHERE status = ? ORDER BY sort_order ASC", status)
-	return tickets, err
+func (s *Store) ListTasksByStatus(ctx context.Context, status string) ([]Task, error) {
+	var tasks []Task
+	err := s.db.SelectContext(ctx, &tasks,
+		"SELECT * FROM tasks WHERE status = ? ORDER BY sort_order ASC", status)
+	return tasks, err
 }
 
-func (s *Store) UpdateTicket(ctx context.Context, t Ticket) error {
+func (s *Store) UpdateTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		UPDATE tickets SET
-			summary = :summary, description = :description, description_md = :description_md,
-			status = :status, remote_status = :remote_status, priority = :priority,
-			issue_type = :issue_type, assignee = :assignee, labels = :labels,
-			epic_key = :epic_key, epic_name = :epic_name, url = :url,
-			updated_at = :updated_at, remote_updated_at = :remote_updated_at, sort_order = :sort_order,
-			stale_at = :stale_at, local_move_at = :local_move_at
+		UPDATE tasks SET
+			title = :title, description = :description, description_md = :description_md,
+			status = :status, priority = :priority, sort_order = :sort_order,
+			provider = :provider, remote_id = :remote_id, remote_meta = :remote_meta,
+			updated_at = :updated_at
 		WHERE id = :id`, t)
 	return err
 }
 
-func (s *Store) DeleteTicket(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM tickets WHERE id = ?", id)
+func (s *Store) DeleteTask(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
 	return err
 }
 
-// UpsertTicket inserts a ticket or updates it if it already exists.
-func (s *Store) UpsertTicket(ctx context.Context, t Ticket) error {
+// UpsertTask inserts a task or updates it if it already exists.
+func (s *Store) UpsertTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO tickets (id, summary, description, description_md, status, remote_status,
-			priority, issue_type, assignee, labels, epic_key, epic_name, url,
-			created_at, updated_at, remote_updated_at, sort_order, stale_at, local_move_at)
-		VALUES (:id, :summary, :description, :description_md, :status, :remote_status,
-			:priority, :issue_type, :assignee, :labels, :epic_key, :epic_name, :url,
-			:created_at, :updated_at, :remote_updated_at, :sort_order, :stale_at, :local_move_at)
+		INSERT INTO tasks (id, title, description, description_md, status,
+			priority, sort_order, provider, remote_id, remote_meta,
+			created_at, updated_at)
+		VALUES (:id, :title, :description, :description_md, :status,
+			:priority, :sort_order, :provider, :remote_id, :remote_meta,
+			:created_at, :updated_at)
 		ON CONFLICT(id) DO UPDATE SET
-			summary = :summary, description = :description, description_md = :description_md,
-			status = :status, remote_status = :remote_status, priority = :priority,
-			issue_type = :issue_type, assignee = :assignee, labels = :labels,
-			epic_key = :epic_key, epic_name = :epic_name, url = :url,
-			updated_at = :updated_at, remote_updated_at = :remote_updated_at, sort_order = :sort_order,
-			stale_at = :stale_at, local_move_at = :local_move_at`, t)
+			title = :title, description = :description, description_md = :description_md,
+			status = :status, priority = :priority, sort_order = :sort_order,
+			provider = :provider, remote_id = :remote_id, remote_meta = :remote_meta,
+			updated_at = :updated_at`, t)
 	return err
 }
 
-// ListAllTickets returns all tickets in the store.
-func (s *Store) ListAllTickets(ctx context.Context) ([]Ticket, error) {
-	var tickets []Ticket
-	err := s.db.SelectContext(ctx, &tickets, "SELECT * FROM tickets ORDER BY id")
-	return tickets, err
+// ListAllTasks returns all tasks in the store.
+func (s *Store) ListAllTasks(ctx context.Context) ([]Task, error) {
+	var tasks []Task
+	err := s.db.SelectContext(ctx, &tasks, "SELECT * FROM tasks ORDER BY id")
+	return tasks, err
 }
 
-// ListTicketIDs returns all ticket IDs in the store.
-func (s *Store) ListTicketIDs(ctx context.Context) ([]string, error) {
+// ListTaskIDs returns all task IDs in the store.
+func (s *Store) ListTaskIDs(ctx context.Context) ([]string, error) {
 	var ids []string
-	err := s.db.SelectContext(ctx, &ids, "SELECT id FROM tickets ORDER BY id")
+	err := s.db.SelectContext(ctx, &ids, "SELECT id FROM tasks ORDER BY id")
 	return ids, err
 }
 
@@ -205,14 +201,14 @@ func (s *Store) DeleteColumnMapping(ctx context.Context, id int) error {
 
 func (s *Store) InsertSyncLog(ctx context.Context, entry SyncLogEntry) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO sync_log (ticket_id, action, detail)
-		VALUES (:ticket_id, :action, :detail)`, entry)
+		INSERT INTO sync_log (task_id, action, detail)
+		VALUES (:task_id, :action, :detail)`, entry)
 	return err
 }
 
-func (s *Store) ListSyncLogs(ctx context.Context, ticketID string) ([]SyncLogEntry, error) {
+func (s *Store) ListSyncLogs(ctx context.Context, taskID string) ([]SyncLogEntry, error) {
 	var entries []SyncLogEntry
 	err := s.db.SelectContext(ctx, &entries,
-		"SELECT * FROM sync_log WHERE ticket_id = ? ORDER BY created_at DESC, id DESC", ticketID)
+		"SELECT * FROM sync_log WHERE task_id = ? ORDER BY created_at DESC, id DESC", taskID)
 	return entries, err
 }

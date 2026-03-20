@@ -23,16 +23,16 @@ func (f *fakeBoardService) ListColumns(_ context.Context) ([]service.Column, err
 func (f *fakeBoardService) ListCards(_ context.Context, column string) ([]service.Card, error) {
 	cards := map[string][]service.Card{
 		"Backlog": {
-			{ID: "REX-1", Summary: "First", Priority: "High", IssueType: "Bug", Status: "Backlog"},
-			{ID: "REX-2", Summary: "Second", Priority: "Medium", IssueType: "Story", Status: "Backlog"},
-			{ID: "REX-3", Summary: "Third", Priority: "Low", IssueType: "Task", Status: "Backlog"},
+			{ID: "REX-1", Title: "First", Priority: "High", IssueType: "Bug", Status: "Backlog"},
+			{ID: "REX-2", Title: "Second", Priority: "Medium", IssueType: "Story", Status: "Backlog"},
+			{ID: "REX-3", Title: "Third", Priority: "Low", IssueType: "Task", Status: "Backlog"},
 		},
 		"Doing": {
-			{ID: "REX-4", Summary: "In progress", Priority: "High", IssueType: "Bug", Status: "Doing"},
+			{ID: "REX-4", Title: "In progress", Priority: "High", IssueType: "Bug", Status: "Doing"},
 		},
 		"Review": {},
 		"Done": {
-			{ID: "REX-5", Summary: "Finished", Priority: "Low", IssueType: "Story", Status: "Done"},
+			{ID: "REX-5", Title: "Finished", Priority: "Low", IssueType: "Story", Status: "Done"},
 		},
 	}
 	return cards[column], nil
@@ -48,6 +48,10 @@ func (f *fakeBoardService) SearchCards(_ context.Context, _ string) ([]service.C
 }
 func (f *fakeBoardService) ExportCardContext(_ context.Context, _ string, _ service.ExportFormat) (string, error) {
 	return "", nil
+}
+func (f *fakeBoardService) DeleteTask(_ context.Context, _ string) error { return nil }
+func (f *fakeBoardService) CreateTask(_ context.Context, _, _, _ string) (*service.Card, error) {
+	return nil, nil
 }
 
 func newTestModel() Model {
@@ -242,6 +246,44 @@ func TestNavigateToUnknownCardNoChange(t *testing.T) {
 	m.NavigateTo("UNKNOWN-99")
 	if m.cursorCol != 2 {
 		t.Errorf("cursorCol should stay at 2, got %d", m.cursorCol)
+	}
+}
+
+func TestDeleteKeyEmitsOpenDeleteMsg(t *testing.T) {
+	m := newTestModel()
+	// Cursor is on REX-1 in Backlog
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if cmd == nil {
+		t.Fatal("expected cmd from d key")
+	}
+	msg := cmd()
+	result, ok := msg.(OpenDeleteMsg)
+	if !ok {
+		t.Fatalf("expected OpenDeleteMsg, got %T", msg)
+	}
+	if result.CardKey != "REX-1" {
+		t.Errorf("cardKey = %q, want REX-1", result.CardKey)
+	}
+}
+
+func TestDeleteKeyNoCardNoop(t *testing.T) {
+	m := newTestModel()
+	m.cursorCol = 2 // Review (empty)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if cmd != nil {
+		t.Error("d key in empty column should not produce a cmd")
+	}
+}
+
+func TestImportKeyEmitsOpenImportMsg(t *testing.T) {
+	m := newTestModel()
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
+	if cmd == nil {
+		t.Fatal("expected cmd from i key")
+	}
+	msg := cmd()
+	if _, ok := msg.(OpenImportMsg); !ok {
+		t.Fatalf("expected OpenImportMsg, got %T", msg)
 	}
 }
 

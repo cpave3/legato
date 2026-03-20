@@ -4,12 +4,12 @@ import "github.com/cpave3/legato/internal/service"
 
 // SpawnAgentMsg requests spawning an agent for a card.
 type SpawnAgentMsg struct {
-	TicketID string
+	TaskID string
 }
 
 // KillAgentMsg requests killing the selected agent.
 type KillAgentMsg struct {
-	TicketID string
+	TaskID string
 }
 
 // AttachSessionMsg requests attaching to a tmux session.
@@ -28,5 +28,5 @@ type CaptureOutputMsg struct {
 // AgentsRefreshedMsg carries refreshed agent list.
 type AgentsRefreshedMsg struct {
 	Agents       []service.AgentSession
-	SelectTicket string // optional: select this ticket after refresh
+	SelectTask string // optional: select this ticket after refresh
 }

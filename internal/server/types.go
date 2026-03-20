@@ -16,6 +16,6 @@ type ColumnResponse struct {
 // CardResponse represents a card summary in the health response.
 type CardResponse struct {
 	Key     string `json:"key"`
-	Summary string `json:"summary"`
+	Title   string `json:"title"`
 	Status  string `json:"status"`
 }

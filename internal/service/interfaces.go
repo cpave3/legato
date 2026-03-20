@@ -19,10 +19,10 @@ type Column struct {
 	SortOrder int
 }
 
-// Card represents a ticket summary for list views.
+// Card represents a task summary for list views.
 type Card struct {
 	ID         string
-	Summary    string
+	Title      string
 	Priority   string
 	IssueType  string
 	Status     string
@@ -30,26 +30,23 @@ type Card struct {
 	HasWarning bool
 }
 
-// CardDetail contains all metadata for a single ticket.
+// CardDetail contains all metadata for a single task.
 type CardDetail struct {
 	ID            string
-	Summary       string
+	Title         string
 	DescriptionMD string
 	Status        string
 	Priority      string
-	IssueType     string
-	Assignee      string
-	Labels        string
-	EpicKey       string
-	EpicName      string
-	URL           string
+	Provider      string
+	RemoteID      string
+	RemoteMeta    map[string]string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
 
 // SyncResult contains the outcome of a sync operation.
 type SyncResult struct {
-	TicketsSynced int
+	TasksSynced int
 }
 
 // SyncStatus reports the current state of sync.
@@ -73,13 +70,27 @@ type BoardService interface {
 	ReorderCard(ctx context.Context, id string, newPosition int) error
 	SearchCards(ctx context.Context, query string) ([]Card, error)
 	ExportCardContext(ctx context.Context, id string, format ExportFormat) (string, error)
+	CreateTask(ctx context.Context, title, column, priority string) (*Card, error)
+	DeleteTask(ctx context.Context, id string) error
 }
 
 // SyncService manages data synchronization.
+// RemoteSearchResult is a lightweight result from searching remote providers.
+type RemoteSearchResult struct {
+	ID        string
+	Summary   string
+	Status    string
+	Priority  string
+	IssueType string
+}
+
 type SyncService interface {
 	Sync(ctx context.Context) (*SyncResult, error)
 	Status() SyncStatus
 	Subscribe() <-chan SyncEvent
+	StartScheduler(ctx context.Context) func()
+	SearchRemote(ctx context.Context, query string) ([]RemoteSearchResult, error)
+	ImportRemoteTask(ctx context.Context, ticketID string) (*Card, error)
 }
 
 // EventBus abstracts event publishing and subscription.

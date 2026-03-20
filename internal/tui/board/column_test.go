@@ -6,7 +6,7 @@ import (
 )
 
 func TestColumnHeaderContainsName(t *testing.T) {
-	cards := []CardData{{Key: "REX-1", Summary: "Test", Priority: "High", IssueType: "Bug"}}
+	cards := []CardData{{Key: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug"}}
 	out := RenderColumn("Doing", cards, 20, true, 0)
 	if !strings.Contains(strings.ToUpper(out), "DOING") {
 		t.Errorf("column header should contain uppercase name, got: %q", out)
@@ -15,8 +15,8 @@ func TestColumnHeaderContainsName(t *testing.T) {
 
 func TestColumnHeaderContainsCount(t *testing.T) {
 	cards := []CardData{
-		{Key: "REX-1", Summary: "A", Priority: "High", IssueType: "Bug"},
-		{Key: "REX-2", Summary: "B", Priority: "Low", IssueType: "Story"},
+		{Key: "REX-1", Title: "A", Priority: "High", IssueType: "Bug"},
+		{Key: "REX-2", Title: "B", Priority: "Low", IssueType: "Story"},
 	}
 	out := RenderColumn("Ready", cards, 20, false, -1)
 	if !strings.Contains(out, "2") {
@@ -36,8 +36,8 @@ func TestColumnEmptyRendersHeader(t *testing.T) {
 
 func TestColumnRendersCards(t *testing.T) {
 	cards := []CardData{
-		{Key: "REX-1", Summary: "First", Priority: "High", IssueType: "Bug"},
-		{Key: "REX-2", Summary: "Second", Priority: "Low", IssueType: "Story"},
+		{Key: "REX-1", Title: "First", Priority: "High", IssueType: "Bug"},
+		{Key: "REX-2", Title: "Second", Priority: "Low", IssueType: "Story"},
 	}
 	out := RenderColumn("Doing", cards, 30, true, 0)
 	if !strings.Contains(out, "REX-1") {
@@ -49,7 +49,7 @@ func TestColumnRendersCards(t *testing.T) {
 }
 
 func TestColumnActiveVsInactive(t *testing.T) {
-	cards := []CardData{{Key: "REX-1", Summary: "Test", Priority: "High", IssueType: "Bug"}}
+	cards := []CardData{{Key: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug"}}
 	// Both should render without error
 	active := RenderColumn("Doing", cards, 30, true, 0)
 	inactive := RenderColumn("Doing", cards, 30, false, -1)

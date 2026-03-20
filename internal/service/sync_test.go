@@ -15,11 +15,12 @@ import (
 
 // mockProvider implements TicketProvider for testing.
 type mockProvider struct {
-	tickets     []RemoteTicket
-	transitions []RemoteTransition
-	searchErr   error
-	transErr    error
-	doTransErr  error
+	tickets      []RemoteTicket
+	transitions  []RemoteTransition
+	searchErr    error
+	searchFn     func(query string) ([]RemoteTicket, error)
+	transErr     error
+	doTransErr   error
 	doTransCalls []doTransCall
 }
 
@@ -28,7 +29,10 @@ type doTransCall struct {
 	TransitionID string
 }
 
-func (m *mockProvider) Search(_ context.Context, _ string) ([]RemoteTicket, error) {
+func (m *mockProvider) Search(_ context.Context, query string) ([]RemoteTicket, error) {
+	if m.searchFn != nil {
+		return m.searchFn(query)
+	}
 	if m.searchErr != nil {
 		return nil, m.searchErr
 	}
@@ -81,18 +85,57 @@ func newTestSync(t *testing.T) (*syncService, *store.Store, *mockProvider, *even
 		}
 	}
 
-	svc := NewSyncService(s, bus, provider, "project = TEST", 60*time.Second).(*syncService)
+	svc := NewSyncService(s, bus, provider, "project = TEST", []string{"TEST"}, 60*time.Second).(*syncService)
 	return svc, s, provider, bus
 }
 
-// Task 3.1: Pull sync — insert new tickets
+// helper to create a synced task with remote_meta
+func createSyncedTask(t *testing.T, s *store.Store, id, title, status, remoteStatus string, updatedAt time.Time, extras map[string]string) {
+	t.Helper()
+	ctx := context.Background()
+	provider := "jira"
+	meta := map[string]string{
+		"remote_status":     remoteStatus,
+		"remote_updated_at": updatedAt.UTC().Format(time.RFC3339),
+	}
+	for k, v := range extras {
+		meta[k] = v
+	}
+	metaJSON, _ := json.Marshal(meta)
+	metaStr := string(metaJSON)
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	err := s.CreateTask(ctx, store.Task{
+		ID: id, Title: title, Status: status,
+		Provider: &provider, RemoteID: &id, RemoteMeta: &metaStr,
+		CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func getRemoteMeta(t *testing.T, s *store.Store, id string) map[string]string {
+	t.Helper()
+	task, err := s.GetTask(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta map[string]string
+	if task.RemoteMeta != nil {
+		json.Unmarshal([]byte(*task.RemoteMeta), &meta)
+	}
+	return meta
+}
+
+// Pull sync — insert new tasks
 func TestPullSyncInsertNew(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
 
 	provider.tickets = []RemoteTicket{
 		{
-			ID: "TEST-1", Summary: "First ticket",
+			ID: "TEST-1", Summary: "First task",
 			DescriptionMD: "Some description",
 			Status: "To Do", Priority: "High", IssueType: "Task",
 			Assignee: "alice", Labels: []string{"backend"},
@@ -105,26 +148,37 @@ func TestPullSyncInsertNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sync: %v", err)
 	}
-	if result.TicketsSynced != 1 {
-		t.Errorf("synced = %d, want 1", result.TicketsSynced)
+	if result.TasksSynced != 1 {
+		t.Errorf("synced = %d, want 1", result.TasksSynced)
 	}
 
-	ticket, err := s.GetTicket(ctx, "TEST-1")
+	task, err := s.GetTask(ctx, "TEST-1")
 	if err != nil {
-		t.Fatalf("get ticket: %v", err)
+		t.Fatalf("get task: %v", err)
 	}
-	if ticket.Summary != "First ticket" {
-		t.Errorf("summary = %q", ticket.Summary)
+	if task.Title != "First task" {
+		t.Errorf("title = %q", task.Title)
 	}
-	if ticket.DescriptionMD != "Some description" {
-		t.Errorf("description_md = %q", ticket.DescriptionMD)
+	if task.DescriptionMD != "Some description" {
+		t.Errorf("description_md = %q", task.DescriptionMD)
 	}
-	if ticket.Priority != "High" {
-		t.Errorf("priority = %q", ticket.Priority)
+	if task.Priority != "High" {
+		t.Errorf("priority = %q", task.Priority)
+	}
+	if task.Provider == nil || *task.Provider != "jira" {
+		t.Errorf("provider = %v, want jira", task.Provider)
+	}
+
+	meta := getRemoteMeta(t, s, "TEST-1")
+	if meta["issue_type"] != "Task" {
+		t.Errorf("remote_meta.issue_type = %q", meta["issue_type"])
+	}
+	if meta["assignee"] != "alice" {
+		t.Errorf("remote_meta.assignee = %q", meta["assignee"])
 	}
 }
 
-// Task 3.1: Pull sync — update changed ticket
+// Pull sync — update changed task
 func TestPullSyncUpdateExisting(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
@@ -132,19 +186,12 @@ func TestPullSyncUpdateExisting(t *testing.T) {
 	oldTime := time.Now().Add(-1 * time.Hour)
 	newTime := time.Now()
 
-	// Insert existing ticket
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "TEST-1", Summary: "Old summary",
-		Status: "Backlog", RemoteStatus: "To Do",
-		CreatedAt: oldTime.Format(time.RFC3339),
-		UpdatedAt: oldTime.Format(time.RFC3339),
-		RemoteUpdatedAt: oldTime.Format(time.RFC3339),
-	})
+	createSyncedTask(t, s, "TEST-1", "Old title", "Backlog", "To Do", oldTime, nil)
 
 	// Provider returns updated version
 	provider.tickets = []RemoteTicket{
 		{
-			ID: "TEST-1", Summary: "New summary",
+			ID: "TEST-1", Summary: "New title",
 			Status: "To Do", Priority: "High",
 			UpdatedAt: newTime,
 		},
@@ -155,24 +202,24 @@ func TestPullSyncUpdateExisting(t *testing.T) {
 		t.Fatalf("sync: %v", err)
 	}
 
-	ticket, err := s.GetTicket(ctx, "TEST-1")
+	task, err := s.GetTask(ctx, "TEST-1")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if ticket.Summary != "New summary" {
-		t.Errorf("summary = %q, want 'New summary'", ticket.Summary)
+	if task.Title != "New title" {
+		t.Errorf("title = %q, want 'New title'", task.Title)
 	}
 }
 
-// Task 3.2: Status-to-column mapping on insert
+// Status-to-column mapping on insert
 func TestPullSyncColumnMapping(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
 
 	provider.tickets = []RemoteTicket{
-		{ID: "TEST-1", Summary: "Backlog ticket", Status: "To Do", UpdatedAt: time.Now()},
-		{ID: "TEST-2", Summary: "Doing ticket", Status: "In Progress", UpdatedAt: time.Now()},
-		{ID: "TEST-3", Summary: "Done ticket", Status: "Done", UpdatedAt: time.Now()},
+		{ID: "TEST-1", Summary: "Backlog task", Status: "To Do", UpdatedAt: time.Now()},
+		{ID: "TEST-2", Summary: "Doing task", Status: "In Progress", UpdatedAt: time.Now()},
+		{ID: "TEST-3", Summary: "Done task", Status: "Done", UpdatedAt: time.Now()},
 	}
 
 	_, err := svc.Sync(ctx)
@@ -189,17 +236,17 @@ func TestPullSyncColumnMapping(t *testing.T) {
 		{"TEST-3", "Done"},
 	}
 	for _, tt := range tests {
-		ticket, err := s.GetTicket(ctx, tt.id)
+		task, err := s.GetTask(ctx, tt.id)
 		if err != nil {
 			t.Fatalf("get %s: %v", tt.id, err)
 		}
-		if ticket.Status != tt.column {
-			t.Errorf("%s: status = %q, want %q", tt.id, ticket.Status, tt.column)
+		if task.Status != tt.column {
+			t.Errorf("%s: status = %q, want %q", tt.id, task.Status, tt.column)
 		}
 	}
 }
 
-// Task 3.3: Column update when Jira status changed externally
+// Column update when Jira status changed externally
 func TestPullSyncColumnUpdateOnStatusChange(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
@@ -207,14 +254,7 @@ func TestPullSyncColumnUpdateOnStatusChange(t *testing.T) {
 	oldTime := time.Now().Add(-1 * time.Hour)
 	newTime := time.Now()
 
-	// Insert ticket in Backlog column
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "TEST-1", Summary: "Test",
-		Status: "Backlog", RemoteStatus: "To Do",
-		CreatedAt: oldTime.Format(time.RFC3339),
-		UpdatedAt: oldTime.Format(time.RFC3339),
-		RemoteUpdatedAt: oldTime.Format(time.RFC3339),
-	})
+	createSyncedTask(t, s, "TEST-1", "Test", "Backlog", "To Do", oldTime, nil)
 
 	// Provider shows it moved to "In Progress" on Jira side
 	provider.tickets = []RemoteTicket{
@@ -226,30 +266,24 @@ func TestPullSyncColumnUpdateOnStatusChange(t *testing.T) {
 		t.Fatalf("sync: %v", err)
 	}
 
-	ticket, err := s.GetTicket(ctx, "TEST-1")
+	task, err := s.GetTask(ctx, "TEST-1")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if ticket.Status != "Doing" {
-		t.Errorf("status = %q, want 'Doing'", ticket.Status)
+	if task.Status != "Doing" {
+		t.Errorf("status = %q, want 'Doing'", task.Status)
 	}
 }
 
-// Task 3.4: Stale ticket detection
-func TestPullSyncStaleTickets(t *testing.T) {
+// Stale task detection
+func TestPullSyncStaleTasks(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
 
 	now := time.Now()
 
-	// Insert a ticket that won't appear in next sync
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "TEST-OLD", Summary: "Old ticket",
-		Status: "Backlog", RemoteStatus: "To Do",
-		CreatedAt: now.Format(time.RFC3339),
-		UpdatedAt: now.Format(time.RFC3339),
-		RemoteUpdatedAt: now.Format(time.RFC3339),
-	})
+	// Insert a task that won't appear in next sync
+	createSyncedTask(t, s, "TEST-OLD", "Old task", "Backlog", "To Do", now, nil)
 
 	// Provider returns no tickets
 	provider.tickets = []RemoteTicket{}
@@ -259,32 +293,23 @@ func TestPullSyncStaleTickets(t *testing.T) {
 		t.Fatalf("sync: %v", err)
 	}
 
-	// Ticket should be marked stale but still exist
-	ticket, err := s.GetTicket(ctx, "TEST-OLD")
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if ticket.StaleAt == nil || *ticket.StaleAt == "" {
-		t.Error("ticket should be marked stale")
+	// Task should be marked stale via remote_meta
+	meta := getRemoteMeta(t, s, "TEST-OLD")
+	if meta["stale_at"] == "" {
+		t.Error("task should be marked stale in remote_meta")
 	}
 }
 
-// Task 3.3: Column NOT updated when local move is within conflict window
+// Column NOT updated when local move is within conflict window
 func TestPullSyncLocalMoveWithinConflictWindow(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
 
 	now := time.Now()
-
-	// Insert ticket that was moved locally 1 minute ago
 	moveAt := now.Add(-1 * time.Minute).Format(time.RFC3339)
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "TEST-1", Summary: "Test",
-		Status: "Doing", RemoteStatus: "To Do",
-		LocalMoveAt: &moveAt,
-		CreatedAt: now.Add(-1 * time.Hour).Format(time.RFC3339),
-		UpdatedAt: now.Format(time.RFC3339),
-		RemoteUpdatedAt: now.Add(-1 * time.Hour).Format(time.RFC3339),
+
+	createSyncedTask(t, s, "TEST-1", "Test", "Doing", "To Do", now.Add(-1*time.Hour), map[string]string{
+		"local_move_at": moveAt,
 	})
 
 	// Provider still shows it as "To Do" — conflict with local move
@@ -297,31 +322,26 @@ func TestPullSyncLocalMoveWithinConflictWindow(t *testing.T) {
 		t.Fatalf("sync: %v", err)
 	}
 
-	ticket, err := s.GetTicket(ctx, "TEST-1")
+	task, err := s.GetTask(ctx, "TEST-1")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	// Local should win — ticket stays in "Doing"
-	if ticket.Status != "Doing" {
-		t.Errorf("status = %q, want 'Doing' (local wins)", ticket.Status)
+	// Local should win — task stays in "Doing"
+	if task.Status != "Doing" {
+		t.Errorf("status = %q, want 'Doing' (local wins)", task.Status)
 	}
 }
 
-// Task 5.1: Local-wins outside conflict window
+// Local-wins outside conflict window
 func TestConflictResolutionOutsideWindow(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
 	now := time.Now()
 
-	// Ticket was moved locally 10 minutes ago (outside 5-min window)
 	moveAt := now.Add(-10 * time.Minute).Format(time.RFC3339)
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "TEST-1", Summary: "Test",
-		Status: "Doing", RemoteStatus: "To Do",
-		LocalMoveAt:     &moveAt,
-		CreatedAt:       now.Add(-1 * time.Hour).Format(time.RFC3339),
-		UpdatedAt:       now.Format(time.RFC3339),
-		RemoteUpdatedAt: now.Add(-1 * time.Hour).Format(time.RFC3339),
+
+	createSyncedTask(t, s, "TEST-1", "Test", "Doing", "To Do", now.Add(-1*time.Hour), map[string]string{
+		"local_move_at": moveAt,
 	})
 
 	provider.tickets = []RemoteTicket{
@@ -330,28 +350,23 @@ func TestConflictResolutionOutsideWindow(t *testing.T) {
 
 	svc.Sync(ctx)
 
-	ticket, _ := s.GetTicket(ctx, "TEST-1")
-	// Remote should win — ticket goes back to "Backlog"
-	if ticket.Status != "Backlog" {
-		t.Errorf("status = %q, want 'Backlog' (remote wins after window)", ticket.Status)
+	task, _ := s.GetTask(ctx, "TEST-1")
+	// Remote should win — task goes back to "Backlog"
+	if task.Status != "Backlog" {
+		t.Errorf("status = %q, want 'Backlog' (remote wins after window)", task.Status)
 	}
 }
 
-// Task 5.2: Conflict logging
+// Conflict logging
 func TestConflictLogging(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
 	now := time.Now()
 
-	// Ticket moved locally 1 minute ago (inside window)
 	moveAt := now.Add(-1 * time.Minute).Format(time.RFC3339)
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "TEST-1", Summary: "Test",
-		Status: "Doing", RemoteStatus: "To Do",
-		LocalMoveAt:     &moveAt,
-		CreatedAt:       now.Add(-1 * time.Hour).Format(time.RFC3339),
-		UpdatedAt:       now.Format(time.RFC3339),
-		RemoteUpdatedAt: now.Add(-1 * time.Hour).Format(time.RFC3339),
+
+	createSyncedTask(t, s, "TEST-1", "Test", "Doing", "To Do", now.Add(-1*time.Hour), map[string]string{
+		"local_move_at": moveAt,
 	})
 
 	provider.tickets = []RemoteTicket{
@@ -372,7 +387,7 @@ func TestConflictLogging(t *testing.T) {
 	}
 }
 
-// Task 5.3: Periodic sync events
+// Periodic sync events
 func TestSyncPublishesEvents(t *testing.T) {
 	svc, _, provider, bus := newTestSync(t)
 	ctx := context.Background()
@@ -399,20 +414,12 @@ func TestSyncPublishesEvents(t *testing.T) {
 	}
 }
 
-// Task 5.4: Offline resilience
+// Offline resilience
 func TestSyncOfflineResilience(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
-	now := time.Now()
 
-	// Pre-populate with data
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "TEST-1", Summary: "Cached ticket",
-		Status: "Backlog", RemoteStatus: "To Do",
-		CreatedAt:       now.Format(time.RFC3339),
-		UpdatedAt:       now.Format(time.RFC3339),
-		RemoteUpdatedAt: now.Format(time.RFC3339),
-	})
+	createSyncedTask(t, s, "TEST-1", "Cached task", "Backlog", "To Do", time.Now(), nil)
 
 	// Simulate network failure
 	provider.searchErr = fmt.Errorf("network error: connection refused")
@@ -423,16 +430,16 @@ func TestSyncOfflineResilience(t *testing.T) {
 	}
 
 	// Board data should still be accessible from SQLite
-	ticket, getErr := s.GetTicket(ctx, "TEST-1")
+	task, getErr := s.GetTask(ctx, "TEST-1")
 	if getErr != nil {
-		t.Fatalf("ticket should still be accessible: %v", getErr)
+		t.Fatalf("task should still be accessible: %v", getErr)
 	}
-	if ticket.Summary != "Cached ticket" {
+	if task.Title != "Cached task" {
 		t.Error("cached data should be preserved")
 	}
 }
 
-// Phase 6: Error event publishing tests
+// Error event publishing tests
 func TestSyncFailurePublishesSyncErrorEvent(t *testing.T) {
 	svc, _, provider, bus := newTestSync(t)
 	ctx := context.Background()
@@ -463,14 +470,7 @@ func TestPushFailurePublishesTransitionFailedEvent(t *testing.T) {
 	svc, s, provider, bus := newTestSync(t)
 	ctx := context.Background()
 
-	now := time.Now()
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "TEST-1", Summary: "Test",
-		Status: "Backlog", RemoteStatus: "To Do",
-		CreatedAt:       now.Format(time.RFC3339),
-		UpdatedAt:       now.Format(time.RFC3339),
-		RemoteUpdatedAt: now.Format(time.RFC3339),
-	})
+	createSyncedTask(t, s, "TEST-1", "Test", "Backlog", "To Do", time.Now(), nil)
 
 	mappings, _ := s.ListColumnMappings(ctx)
 	for _, m := range mappings {
@@ -503,6 +503,156 @@ func TestPushFailurePublishesTransitionFailedEvent(t *testing.T) {
 	}
 }
 
+// SearchRemote tests
+
+func TestSearchRemoteReturnsMatchingTickets(t *testing.T) {
+	svc, _, provider, _ := newTestSync(t)
+	svc.projectKeys = []string{"TEST"}
+	ctx := context.Background()
+
+	provider.tickets = []RemoteTicket{
+		{ID: "TEST-10", Summary: "Fix login bug", Status: "To Do", Priority: "High", IssueType: "Bug"},
+		{ID: "TEST-11", Summary: "Add search feature", Status: "In Progress", Priority: "Medium", IssueType: "Story"},
+	}
+
+	results, err := svc.SearchRemote(ctx, "login")
+	if err != nil {
+		t.Fatalf("SearchRemote: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results (mock returns all), got %d", len(results))
+	}
+	if results[0].ID != "TEST-10" {
+		t.Errorf("results[0].ID = %q, want TEST-10", results[0].ID)
+	}
+	if results[0].Summary != "Fix login bug" {
+		t.Errorf("results[0].Summary = %q", results[0].Summary)
+	}
+}
+
+func TestSearchRemoteBuildsJQLWithProjectKeys(t *testing.T) {
+	svc, _, provider, _ := newTestSync(t)
+	svc.projectKeys = []string{"REX", "INF"}
+	ctx := context.Background()
+
+	// Capture the query sent to the provider
+	var capturedQuery string
+	provider.searchFn = func(query string) ([]RemoteTicket, error) {
+		capturedQuery = query
+		return nil, nil
+	}
+
+	svc.SearchRemote(ctx, "auth bug")
+
+	if !strings.Contains(capturedQuery, "REX") || !strings.Contains(capturedQuery, "INF") {
+		t.Errorf("JQL should contain project keys, got: %s", capturedQuery)
+	}
+	if !strings.Contains(capturedQuery, "auth bug") {
+		t.Errorf("JQL should contain search text, got: %s", capturedQuery)
+	}
+	if !strings.Contains(capturedQuery, "summary ~") {
+		t.Errorf("JQL should use summary search, got: %s", capturedQuery)
+	}
+	if !strings.Contains(capturedQuery, "ORDER BY") {
+		t.Errorf("JQL should have ORDER BY, got: %s", capturedQuery)
+	}
+}
+
+func TestSearchRemoteSkipsShortQuery(t *testing.T) {
+	svc, _, provider, _ := newTestSync(t)
+	ctx := context.Background()
+
+	called := false
+	provider.searchFn = func(query string) ([]RemoteTicket, error) {
+		called = true
+		return nil, nil
+	}
+
+	results, err := svc.SearchRemote(ctx, "a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Error("expected nil results for short query")
+	}
+	if called {
+		t.Error("should not call provider for single-char query")
+	}
+}
+
+// ImportRemoteTask tests
+
+func TestImportRemoteTaskCreatesLocalTask(t *testing.T) {
+	svc, s, provider, _ := newTestSync(t)
+	ctx := context.Background()
+
+	provider.tickets = []RemoteTicket{
+		{
+			ID: "TEST-42", Summary: "Important feature",
+			DescriptionMD: "## Details\nBuild it.",
+			Status: "In Progress", Priority: "High", IssueType: "Story",
+			Assignee: "bob", Labels: []string{"frontend"},
+			URL: "https://jira.example.com/browse/TEST-42",
+			UpdatedAt: time.Now(),
+		},
+	}
+
+	card, err := svc.ImportRemoteTask(ctx, "TEST-42")
+	if err != nil {
+		t.Fatalf("ImportRemoteTask: %v", err)
+	}
+	if card.ID != "TEST-42" {
+		t.Errorf("card.ID = %q, want TEST-42", card.ID)
+	}
+	if card.Title != "Important feature" {
+		t.Errorf("card.Title = %q", card.Title)
+	}
+
+	// Verify it's in the DB with provider metadata
+	task, err := s.GetTask(ctx, "TEST-42")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Provider == nil || *task.Provider != "jira" {
+		t.Error("expected provider = jira")
+	}
+	if task.Status != "Doing" { // "In Progress" maps to "Doing"
+		t.Errorf("status = %q, want Doing", task.Status)
+	}
+}
+
+func TestImportRemoteTaskAlreadyTracked(t *testing.T) {
+	svc, s, provider, _ := newTestSync(t)
+	ctx := context.Background()
+
+	// Pre-create the task
+	createSyncedTask(t, s, "TEST-42", "Already here", "Backlog", "To Do", time.Now(), nil)
+
+	provider.tickets = []RemoteTicket{
+		{ID: "TEST-42", Summary: "Already here", Status: "To Do", UpdatedAt: time.Now()},
+	}
+
+	card, err := svc.ImportRemoteTask(ctx, "TEST-42")
+	if err != nil {
+		t.Fatalf("ImportRemoteTask: %v", err)
+	}
+	// Should return the existing card without error
+	if card.ID != "TEST-42" {
+		t.Errorf("card.ID = %q", card.ID)
+	}
+}
+
+func TestImportRemoteTaskNotFound(t *testing.T) {
+	svc, _, _, _ := newTestSync(t)
+	ctx := context.Background()
+
+	// Provider returns nil for unknown ticket
+	_, err := svc.ImportRemoteTask(ctx, "NOPE-99")
+	if err == nil {
+		t.Fatal("expected error for unknown ticket")
+	}
+}
+
 func statusToColumn(status string, mappings []store.ColumnMapping) string {
 	for _, m := range mappings {
 		var statuses []string
@@ -516,21 +666,12 @@ func statusToColumn(status string, mappings []store.ColumnMapping) string {
 	return ""
 }
 
-// Task 4.1: Push sync — async transition
+// Push sync — async transition
 func TestPushSyncCardMove(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
 
-	now := time.Now()
-
-	// Create a ticket in Backlog
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "TEST-1", Summary: "Test",
-		Status: "Backlog", RemoteStatus: "To Do",
-		CreatedAt: now.Format(time.RFC3339),
-		UpdatedAt: now.Format(time.RFC3339),
-		RemoteUpdatedAt: now.Format(time.RFC3339),
-	})
+	createSyncedTask(t, s, "TEST-1", "Test", "Backlog", "To Do", time.Now(), nil)
 
 	// Set up transition mapping: Doing column uses transition ID "21"
 	mappings, _ := s.ListColumnMappings(ctx)
@@ -552,31 +693,27 @@ func TestPushSyncCardMove(t *testing.T) {
 	}
 
 	// SQLite should be updated immediately
-	ticket, err := s.GetTicket(ctx, "TEST-1")
+	task, err := s.GetTask(ctx, "TEST-1")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if ticket.Status != "Doing" {
-		t.Errorf("status = %q, want Doing", ticket.Status)
+	if task.Status != "Doing" {
+		t.Errorf("status = %q, want Doing", task.Status)
 	}
-	if ticket.LocalMoveAt == nil {
-		t.Error("local_move_at should be set")
+
+	// local_move_at should be set in remote_meta
+	meta := getRemoteMeta(t, s, "TEST-1")
+	if meta["local_move_at"] == "" {
+		t.Error("local_move_at should be set in remote_meta")
 	}
 }
 
-// Task 4.2: Push success — update jira_status and sync_log
+// Push success — update remote_status in remote_meta and sync_log
 func TestPushSyncSuccess(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
 
-	now := time.Now()
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "TEST-1", Summary: "Test",
-		Status: "Backlog", RemoteStatus: "To Do",
-		CreatedAt: now.Format(time.RFC3339),
-		UpdatedAt: now.Format(time.RFC3339),
-		RemoteUpdatedAt: now.Format(time.RFC3339),
-	})
+	createSyncedTask(t, s, "TEST-1", "Test", "Backlog", "To Do", time.Now(), nil)
 
 	mappings, _ := s.ListColumnMappings(ctx)
 	for _, m := range mappings {
@@ -595,14 +732,10 @@ func TestPushSyncSuccess(t *testing.T) {
 	// Wait for async transition to complete
 	time.Sleep(100 * time.Millisecond)
 
-	ticket, err := s.GetTicket(ctx, "TEST-1")
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-
-	// After successful push, jira_status should update
-	if ticket.RemoteStatus != "In Progress" {
-		t.Errorf("jira_status = %q, want 'In Progress'", ticket.RemoteStatus)
+	// After successful push, remote_status in remote_meta should update
+	meta := getRemoteMeta(t, s, "TEST-1")
+	if meta["remote_status"] != "In Progress" {
+		t.Errorf("remote_status = %q, want 'In Progress'", meta["remote_status"])
 	}
 
 	// Sync log should have a success entry
@@ -618,19 +751,12 @@ func TestPushSyncSuccess(t *testing.T) {
 	}
 }
 
-// Task 4.3: Push failure — preserve column, set warning
+// Push failure — preserve column, set warning
 func TestPushSyncFailure(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
 
-	now := time.Now()
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "TEST-1", Summary: "Test",
-		Status: "Backlog", RemoteStatus: "To Do",
-		CreatedAt: now.Format(time.RFC3339),
-		UpdatedAt: now.Format(time.RFC3339),
-		RemoteUpdatedAt: now.Format(time.RFC3339),
-	})
+	createSyncedTask(t, s, "TEST-1", "Test", "Backlog", "To Do", time.Now(), nil)
 
 	mappings, _ := s.ListColumnMappings(ctx)
 	for _, m := range mappings {
@@ -647,19 +773,20 @@ func TestPushSyncFailure(t *testing.T) {
 	// Wait for async transition to complete
 	time.Sleep(100 * time.Millisecond)
 
-	ticket, err := s.GetTicket(ctx, "TEST-1")
+	task, err := s.GetTask(ctx, "TEST-1")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
 
 	// Card should stay in the moved column (user intent preserved)
-	if ticket.Status != "Doing" {
-		t.Errorf("status = %q, want Doing (preserved)", ticket.Status)
+	if task.Status != "Doing" {
+		t.Errorf("status = %q, want Doing (preserved)", task.Status)
 	}
 
-	// jira_status should NOT be updated
-	if ticket.RemoteStatus != "To Do" {
-		t.Errorf("jira_status = %q, want 'To Do' (unchanged)", ticket.RemoteStatus)
+	// remote_status should NOT be updated
+	meta := getRemoteMeta(t, s, "TEST-1")
+	if meta["remote_status"] != "To Do" {
+		t.Errorf("remote_status = %q, want 'To Do' (unchanged)", meta["remote_status"])
 	}
 
 	// Sync log should have a failure entry
@@ -675,19 +802,13 @@ func TestPushSyncFailure(t *testing.T) {
 	}
 }
 
-// Task 4.4: Retry failed pushes on manual sync
+// Retry failed pushes on manual sync
 func TestPushRetryOnManualSync(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
 
 	now := time.Now()
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "TEST-1", Summary: "Test",
-		Status: "Doing", RemoteStatus: "To Do",
-		CreatedAt: now.Format(time.RFC3339),
-		UpdatedAt: now.Format(time.RFC3339),
-		RemoteUpdatedAt: now.Format(time.RFC3339),
-	})
+	createSyncedTask(t, s, "TEST-1", "Test", "Doing", "To Do", now, nil)
 
 	mappings, _ := s.ListColumnMappings(ctx)
 	for _, m := range mappings {
@@ -713,5 +834,44 @@ func TestPushRetryOnManualSync(t *testing.T) {
 	// Check that retry was attempted
 	if len(provider.doTransCalls) < 2 {
 		t.Errorf("expected at least 2 transition calls (initial + retry), got %d", len(provider.doTransCalls))
+	}
+}
+
+// Local task push — should not trigger remote transition
+func TestPushLocalTaskNoRemoteTransition(t *testing.T) {
+	svc, s, provider, _ := newTestSync(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Create a local task (no provider)
+	s.CreateTask(ctx, store.Task{
+		ID: "local1", Title: "Local task", Status: "Backlog",
+		CreatedAt: now, UpdatedAt: now,
+	})
+
+	mappings, _ := s.ListColumnMappings(ctx)
+	for _, m := range mappings {
+		if m.ColumnName == "Doing" {
+			m.RemoteTransition = "21"
+			s.UpdateColumnMapping(ctx, m)
+		}
+	}
+
+	err := svc.PushMove(ctx, "local1", "Doing")
+	if err != nil {
+		t.Fatalf("push: %v", err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	// No remote transition should have been attempted
+	if len(provider.doTransCalls) != 0 {
+		t.Errorf("expected 0 transition calls for local task, got %d", len(provider.doTransCalls))
+	}
+
+	// Task should still be moved locally
+	task, _ := s.GetTask(ctx, "local1")
+	if task.Status != "Doing" {
+		t.Errorf("status = %q, want Doing", task.Status)
 	}
 }

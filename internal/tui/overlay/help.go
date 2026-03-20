@@ -24,12 +24,15 @@ var (
 		{"1-5", "Jump to column by number"},
 	}
 	actionBindings = []keybinding{
-		{"enter", "Open ticket detail"},
-		{"m", "Move ticket to column"},
+		{"enter", "Open task detail"},
+		{"m", "Move task to column"},
+		{"n", "Create new task"},
+		{"d/D", "Delete task"},
+		{"i", "Import remote ticket"},
 		{"y", "Copy description"},
 		{"Y", "Copy full context"},
 		{"r", "Force sync"},
-		{"/", "Search/filter tickets"},
+		{"/", "Search/filter tasks"},
 		{"esc", "Back / close overlay"},
 	}
 	generalBindings = []keybinding{

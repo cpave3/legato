@@ -35,6 +35,10 @@ func (m *mockBoardService) SearchCards(_ context.Context, _ string) ([]service.C
 func (m *mockBoardService) ExportCardContext(_ context.Context, _ string, _ service.ExportFormat) (string, error) {
 	return "", nil
 }
+func (m *mockBoardService) DeleteTask(_ context.Context, _ string) error { return nil }
+func (m *mockBoardService) CreateTask(_ context.Context, _, _, _ string) (*service.Card, error) {
+	return nil, nil
+}
 
 func TestHealthEndpointReturnsOK(t *testing.T) {
 	svc := &mockBoardService{
@@ -44,11 +48,11 @@ func TestHealthEndpointReturnsOK(t *testing.T) {
 		},
 		cards: map[string][]service.Card{
 			"Backlog": {
-				{ID: "REX-1", Summary: "First", Status: "Backlog"},
-				{ID: "REX-2", Summary: "Second", Status: "Backlog"},
+				{ID: "REX-1", Title: "First", Status: "Backlog"},
+				{ID: "REX-2", Title: "Second", Status: "Backlog"},
 			},
 			"Doing": {
-				{ID: "REX-3", Summary: "In progress", Status: "Doing"},
+				{ID: "REX-3", Title: "In progress", Status: "Doing"},
 			},
 		},
 	}

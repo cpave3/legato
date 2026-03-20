@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
-func seedTicketForExport(t *testing.T, s *store.Store) {
+func seedTaskForExport(t *testing.T, s *store.Store) {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -23,13 +24,27 @@ func seedTicketForExport(t *testing.T, s *store.Store) {
 		t.Fatal(err)
 	}
 
-	if err := s.CreateTicket(ctx, store.Ticket{
-		ID: "REX-1238", Summary: "Refactor user service",
+	provider := "jira"
+	remoteID := "REX-1238"
+	meta, _ := json.Marshal(map[string]string{
+		"remote_status":     "To Do",
+		"remote_updated_at": now,
+		"issue_type":        "Story",
+		"assignee":          "alice",
+		"labels":            "backend",
+		"epic_key":          "REX-100",
+		"epic_name":         "Platform Modernisation",
+		"url":               "https://jira.example.com/browse/REX-1238",
+	})
+	metaStr := string(meta)
+
+	if err := s.CreateTask(ctx, store.Task{
+		ID: "REX-1238", Title: "Refactor user service",
 		Description:   "Refactor the user service to use the new repository pattern.\n\nThis includes updating all endpoints.",
 		DescriptionMD: "Refactor the user service to use the new repository pattern.\n\nThis includes updating all endpoints.",
-		Status: "Backlog", RemoteStatus: "To Do", Priority: "High", IssueType: "Story",
-		Assignee: "alice", Labels: "backend", EpicKey: "REX-100", EpicName: "Platform Modernisation",
-		URL: "https://jira.example.com/browse/REX-1238", CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now,
+		Status: "Backlog", Priority: "High",
+		Provider: &provider, RemoteID: &remoteID, RemoteMeta: &metaStr,
+		CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +52,7 @@ func seedTicketForExport(t *testing.T, s *store.Store) {
 
 func TestFormatDescription_Standard(t *testing.T) {
 	s, _, svc := setupExportBoard(t)
-	seedTicketForExport(t, s)
+	seedTaskForExport(t, s)
 
 	out, err := svc.ExportCardContext(context.Background(), "REX-1238", ExportFormatDescription)
 	if err != nil {
@@ -56,9 +71,9 @@ func TestFormatDescription_EmptyDescription(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
 	s.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: "Backlog", RemoteStatuses: `["To Do"]`, SortOrder: 0})
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "X-1", Summary: "No desc", Status: "Backlog", RemoteStatus: "To Do",
-		CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now,
+	s.CreateTask(ctx, store.Task{
+		ID: "X-1", Title: "No desc", Status: "Backlog",
+		CreatedAt: now, UpdatedAt: now,
 	})
 
 	out, err := svc.ExportCardContext(ctx, "X-1", ExportFormatDescription)
@@ -77,17 +92,17 @@ func TestFormatDescription_EmptyDescription(t *testing.T) {
 
 func TestFormatFull_Standard(t *testing.T) {
 	s, _, svc := setupExportBoard(t)
-	seedTicketForExport(t, s)
+	seedTaskForExport(t, s)
 
 	out, err := svc.ExportCardContext(context.Background(), "REX-1238", ExportFormatFull)
 	if err != nil {
 		t.Fatalf("ExportCardContext: %v", err)
 	}
-	if !strings.Contains(out, "# Ticket: REX-1238") {
-		t.Error("missing ticket heading")
+	if !strings.Contains(out, "# Task: REX-1238") {
+		t.Error("missing task heading")
 	}
-	if !strings.Contains(out, "**Summary:** Refactor user service") {
-		t.Error("missing summary")
+	if !strings.Contains(out, "**Title:** Refactor user service") {
+		t.Error("missing title")
 	}
 	if !strings.Contains(out, "**Type:** Story") {
 		t.Error("missing type")
@@ -117,10 +132,10 @@ func TestFormatFull_MissingOptionalFields(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
 	s.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: "Backlog", RemoteStatuses: `["To Do"]`, SortOrder: 0})
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "X-2", Summary: "Minimal card", DescriptionMD: "Some desc.",
-		Status: "Backlog", RemoteStatus: "To Do",
-		CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now,
+	s.CreateTask(ctx, store.Task{
+		ID: "X-2", Title: "Minimal card", DescriptionMD: "Some desc.",
+		Status: "Backlog",
+		CreatedAt: now, UpdatedAt: now,
 	})
 
 	out, err := svc.ExportCardContext(ctx, "X-2", ExportFormatFull)
@@ -146,10 +161,10 @@ func TestFormatFull_EmptyDescription(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC().Format(time.RFC3339)
 	s.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: "Backlog", RemoteStatuses: `["To Do"]`, SortOrder: 0})
-	s.CreateTicket(ctx, store.Ticket{
-		ID: "X-3", Summary: "No desc full", Status: "Backlog", RemoteStatus: "To Do",
-		Priority: "Low", IssueType: "Bug",
-		CreatedAt: now, UpdatedAt: now, RemoteUpdatedAt: now,
+	s.CreateTask(ctx, store.Task{
+		ID: "X-3", Title: "No desc full", Status: "Backlog",
+		Priority: "Low",
+		CreatedAt: now, UpdatedAt: now,
 	})
 
 	out, err := svc.ExportCardContext(ctx, "X-3", ExportFormatFull)
@@ -163,7 +178,7 @@ func TestFormatFull_EmptyDescription(t *testing.T) {
 
 func TestExportCardContext_UnknownFormat(t *testing.T) {
 	s, _, svc := setupExportBoard(t)
-	seedTicketForExport(t, s)
+	seedTaskForExport(t, s)
 
 	_, err := svc.ExportCardContext(context.Background(), "REX-1238", ExportFormat(99))
 	if err == nil {
@@ -185,7 +200,7 @@ func TestExportCardContext_CardNotFound(t *testing.T) {
 
 func TestExport_NoANSIEscapeSequences(t *testing.T) {
 	s, _, svc := setupExportBoard(t)
-	seedTicketForExport(t, s)
+	seedTaskForExport(t, s)
 
 	for _, format := range []ExportFormat{ExportFormatDescription, ExportFormatFull} {
 		out, err := svc.ExportCardContext(context.Background(), "REX-1238", format)

@@ -17,7 +17,7 @@ func TestClosePreventsFurtherOperations(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = s.GetTicket(context.Background(), "REX-1")
+	_, err = s.GetTask(context.Background(), "REX-1")
 	if err == nil {
 		t.Error("expected error after Close, got nil")
 	}
@@ -42,7 +42,7 @@ func TestMigrationIdempotency(t *testing.T) {
 
 	// Verify tables still work
 	var count int
-	if err := s2.db.Get(&count, "SELECT COUNT(*) FROM tickets"); err != nil {
+	if err := s2.db.Get(&count, "SELECT COUNT(*) FROM tasks"); err != nil {
 		t.Fatal(err)
 	}
 }

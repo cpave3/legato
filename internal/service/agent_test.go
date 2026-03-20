@@ -75,17 +75,15 @@ func newTestAgentService(t *testing.T) (AgentService, *store.Store, *mockTmux) {
 	return svc, s, mt
 }
 
-func createTicket(t *testing.T, s *store.Store, id string) {
+func createTask(t *testing.T, s *store.Store, id string) {
 	t.Helper()
 	ctx := context.Background()
-	err := s.CreateTicket(ctx, store.Ticket{
-		ID:              id,
-		Summary:         "Test " + id,
-		Status:          "Doing",
-		RemoteStatus:    "In Progress",
-		CreatedAt:       "2024-01-01T00:00:00Z",
-		UpdatedAt:       "2024-01-01T00:00:00Z",
-		RemoteUpdatedAt: "2024-01-01T00:00:00Z",
+	err := s.CreateTask(ctx, store.Task{
+		ID:        id,
+		Title:     "Test " + id,
+		Status:    "Doing",
+		CreatedAt: "2024-01-01T00:00:00Z",
+		UpdatedAt: "2024-01-01T00:00:00Z",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +93,7 @@ func createTicket(t *testing.T, s *store.Store, id string) {
 func TestSpawnAgentCreatesSessionAndDBRow(t *testing.T) {
 	svc, s, mt := newTestAgentService(t)
 	ctx := context.Background()
-	createTicket(t, s, "REX-1238")
+	createTask(t, s, "REX-1238")
 
 	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
 		t.Fatal(err)
@@ -114,8 +112,8 @@ func TestSpawnAgentCreatesSessionAndDBRow(t *testing.T) {
 	if len(agents) != 1 {
 		t.Fatalf("got %d agents, want 1", len(agents))
 	}
-	if agents[0].TicketID != "REX-1238" {
-		t.Errorf("TicketID = %q, want %q", agents[0].TicketID, "REX-1238")
+	if agents[0].TaskID != "REX-1238" {
+		t.Errorf("TaskID = %q, want %q", agents[0].TaskID, "REX-1238")
 	}
 	if agents[0].Status != "running" {
 		t.Errorf("Status = %q, want %q", agents[0].Status, "running")
@@ -125,7 +123,7 @@ func TestSpawnAgentCreatesSessionAndDBRow(t *testing.T) {
 func TestSpawnAgentDuplicateReturnsError(t *testing.T) {
 	svc, s, _ := newTestAgentService(t)
 	ctx := context.Background()
-	createTicket(t, s, "REX-1238")
+	createTask(t, s, "REX-1238")
 
 	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
 		t.Fatal(err)
@@ -138,7 +136,7 @@ func TestSpawnAgentDuplicateReturnsError(t *testing.T) {
 func TestKillAgentDestroysSessionAndUpdatesDB(t *testing.T) {
 	svc, s, mt := newTestAgentService(t)
 	ctx := context.Background()
-	createTicket(t, s, "REX-1238")
+	createTask(t, s, "REX-1238")
 
 	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
 		t.Fatal(err)
@@ -165,7 +163,7 @@ func TestKillAgentDestroysSessionAndUpdatesDB(t *testing.T) {
 func TestKillAlreadyDeadAgentNoError(t *testing.T) {
 	svc, s, _ := newTestAgentService(t)
 	ctx := context.Background()
-	createTicket(t, s, "REX-1238")
+	createTask(t, s, "REX-1238")
 
 	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
 		t.Fatal(err)
@@ -182,8 +180,8 @@ func TestKillAlreadyDeadAgentNoError(t *testing.T) {
 func TestReconcileSessionsMarksDeadSessions(t *testing.T) {
 	svc, s, mt := newTestAgentService(t)
 	ctx := context.Background()
-	createTicket(t, s, "REX-1238")
-	createTicket(t, s, "REX-1239")
+	createTask(t, s, "REX-1238")
+	createTask(t, s, "REX-1239")
 
 	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
 		t.Fatal(err)
@@ -208,8 +206,8 @@ func TestReconcileSessionsMarksDeadSessions(t *testing.T) {
 	if len(agents) != 1 {
 		t.Fatalf("got %d agents, want 1 (only running)", len(agents))
 	}
-	if agents[0].TicketID != "REX-1239" {
-		t.Errorf("expected REX-1239 (running), got %s", agents[0].TicketID)
+	if agents[0].TaskID != "REX-1239" {
+		t.Errorf("expected REX-1239 (running), got %s", agents[0].TaskID)
 	}
 	if agents[0].Status != "running" {
 		t.Errorf("REX-1239 status = %q, want running", agents[0].Status)
@@ -223,10 +221,33 @@ func TestReconcileSessionsMarksDeadSessions(t *testing.T) {
 	mt.Kill("legato-REX-1238") // cleanup
 }
 
+func TestSpawnAgentWithStaleDBSession(t *testing.T) {
+	svc, s, mt := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-1238")
+
+	// Spawn an agent, then simulate the tmux session dying without reconciliation
+	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
+		t.Fatal(err)
+	}
+	// Kill tmux session externally (DB still says "running")
+	delete(mt.sessions, "legato-REX-1238")
+
+	// Re-spawn should succeed — stale DB record should be cleaned up
+	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
+		t.Errorf("re-spawn with stale DB session should succeed, got %v", err)
+	}
+
+	// Tmux session should exist again
+	if !mt.sessions["legato-REX-1238"] {
+		t.Error("expected tmux session legato-REX-1238 to exist after re-spawn")
+	}
+}
+
 func TestCaptureOutputReturnsContent(t *testing.T) {
 	svc, s, mt := newTestAgentService(t)
 	ctx := context.Background()
-	createTicket(t, s, "REX-1238")
+	createTask(t, s, "REX-1238")
 
 	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
 		t.Fatal(err)
@@ -246,7 +267,7 @@ func TestCaptureOutputReturnsContent(t *testing.T) {
 func TestAttachCmdReturnsCommand(t *testing.T) {
 	svc, s, _ := newTestAgentService(t)
 	ctx := context.Background()
-	createTicket(t, s, "REX-1238")
+	createTask(t, s, "REX-1238")
 
 	if err := svc.SpawnAgent(ctx, "REX-1238"); err != nil {
 		t.Fatal(err)

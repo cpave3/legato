@@ -49,7 +49,7 @@ func (m Model) loadData() Model {
 		for j, c := range cards {
 			cardData[j] = CardData{
 				Key:       c.ID,
-				Summary:   c.Summary,
+				Title:     c.Title,
 				Priority:  c.Priority,
 				IssueType: c.IssueType,
 				Warning:   c.HasWarning,
@@ -83,6 +83,14 @@ type OpenDetailMsg struct {
 type OpenMoveMsg struct {
 	CardKey string
 }
+
+// OpenDeleteMsg signals the app to open the delete confirmation for a card.
+type OpenDeleteMsg struct {
+	CardKey string
+}
+
+// OpenImportMsg signals the app to open the remote import overlay.
+type OpenImportMsg struct{}
 
 // Update handles messages.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
@@ -142,6 +150,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			key := card.Key
 			return m, func() tea.Msg { return OpenMoveMsg{CardKey: key} }
 		}
+	case "d":
+		if card := m.SelectedCard(); card != nil {
+			key := card.Key
+			return m, func() tea.Msg { return OpenDeleteMsg{CardKey: key} }
+		}
+	case "i":
+		return m, func() tea.Msg { return OpenImportMsg{} }
 	case "1", "2", "3", "4", "5":
 		idx := int(msg.String()[0]-'0') - 1
 		if idx < len(m.columns) {

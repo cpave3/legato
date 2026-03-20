@@ -96,6 +96,7 @@ func (m Model) View() string {
 		{"j/k", "card"},
 		{"enter", "detail"},
 		{"m", "move"},
+		{"n", "new"},
 		{"r", "sync"},
 		{"/", "search"},
 		{"?", "help"},

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -48,17 +49,24 @@ func (b *boardService) ListCards(ctx context.Context, column string) ([]Card, er
 		return nil, fmt.Errorf("column %q not found", column)
 	}
 
-	tickets, err := b.store.ListTicketsByStatus(ctx, column)
+	tasks, err := b.store.ListTasksByStatus(ctx, column)
 	if err != nil {
 		return nil, err
 	}
-	cards := make([]Card, len(tickets))
-	for i, t := range tickets {
+	cards := make([]Card, len(tasks))
+	for i, t := range tasks {
+		issueType := ""
+		if t.RemoteMeta != nil {
+			var meta map[string]string
+			if json.Unmarshal([]byte(*t.RemoteMeta), &meta) == nil {
+				issueType = meta["issue_type"]
+			}
+		}
 		cards[i] = Card{
 			ID:         t.ID,
-			Summary:    t.Summary,
+			Title:      t.Title,
 			Priority:   t.Priority,
-			IssueType:  t.IssueType,
+			IssueType:  issueType,
 			Status:     t.Status,
 			SortOrder:  t.SortOrder,
 			HasWarning: hasPushFailure(ctx, b.store, t.ID),
@@ -68,15 +76,15 @@ func (b *boardService) ListCards(ctx context.Context, column string) ([]Card, er
 }
 
 func (b *boardService) GetCard(ctx context.Context, id string) (*CardDetail, error) {
-	t, err := b.store.GetTicket(ctx, id)
+	t, err := b.store.GetTask(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return ticketToCardDetail(t), nil
+	return taskToCardDetail(t), nil
 }
 
 func (b *boardService) MoveCard(ctx context.Context, id string, targetColumn string) error {
-	t, err := b.store.GetTicket(ctx, id)
+	t, err := b.store.GetTask(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -103,7 +111,7 @@ func (b *boardService) MoveCard(ctx context.Context, id string, targetColumn str
 	}
 
 	// Find max sort_order in target column to place at end
-	targetCards, err := b.store.ListTicketsByStatus(ctx, targetColumn)
+	targetCards, err := b.store.ListTasksByStatus(ctx, targetColumn)
 	if err != nil {
 		return err
 	}
@@ -118,7 +126,7 @@ func (b *boardService) MoveCard(ctx context.Context, id string, targetColumn str
 	t.Status = targetColumn
 	t.SortOrder = newOrder
 	t.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	if err := b.store.UpdateTicket(ctx, *t); err != nil {
+	if err := b.store.UpdateTask(ctx, *t); err != nil {
 		return err
 	}
 
@@ -131,12 +139,12 @@ func (b *boardService) MoveCard(ctx context.Context, id string, targetColumn str
 }
 
 func (b *boardService) ReorderCard(ctx context.Context, id string, newPosition int) error {
-	t, err := b.store.GetTicket(ctx, id)
+	t, err := b.store.GetTask(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	cards, err := b.store.ListTicketsByStatus(ctx, t.Status)
+	cards, err := b.store.ListTasksByStatus(ctx, t.Status)
 	if err != nil {
 		return err
 	}
@@ -150,7 +158,7 @@ func (b *boardService) ReorderCard(ctx context.Context, id string, newPosition i
 	}
 
 	// Rebuild sort order: remove the card, insert at new position
-	filtered := make([]store.Ticket, 0, len(cards)-1)
+	filtered := make([]store.Task, 0, len(cards)-1)
 	for _, c := range cards {
 		if c.ID != id {
 			filtered = append(filtered, c)
@@ -158,7 +166,7 @@ func (b *boardService) ReorderCard(ctx context.Context, id string, newPosition i
 	}
 
 	// Insert at new position
-	reordered := make([]store.Ticket, 0, len(cards))
+	reordered := make([]store.Task, 0, len(cards))
 	for i, c := range filtered {
 		if i == newPosition {
 			reordered = append(reordered, *t)
@@ -174,7 +182,7 @@ func (b *boardService) ReorderCard(ctx context.Context, id string, newPosition i
 	for i, c := range reordered {
 		c.SortOrder = i
 		c.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-		if err := b.store.UpdateTicket(ctx, c); err != nil {
+		if err := b.store.UpdateTask(ctx, c); err != nil {
 			return err
 		}
 	}
@@ -188,7 +196,6 @@ func (b *boardService) ReorderCard(ctx context.Context, id string, newPosition i
 }
 
 func (b *boardService) SearchCards(ctx context.Context, query string) ([]Card, error) {
-	// Get all columns, then search across all tickets
 	mappings, err := b.store.ListColumnMappings(ctx)
 	if err != nil {
 		return nil, err
@@ -196,17 +203,24 @@ func (b *boardService) SearchCards(ctx context.Context, query string) ([]Card, e
 
 	var results []Card
 	for _, m := range mappings {
-		tickets, err := b.store.ListTicketsByStatus(ctx, m.ColumnName)
+		tasks, err := b.store.ListTasksByStatus(ctx, m.ColumnName)
 		if err != nil {
 			return nil, err
 		}
-		for _, t := range tickets {
-			if query == "" || containsInsensitive(t.ID, query) || containsInsensitive(t.Summary, query) {
+		for _, t := range tasks {
+			if query == "" || containsInsensitive(t.ID, query) || containsInsensitive(t.Title, query) {
+				issueType := ""
+				if t.RemoteMeta != nil {
+					var meta map[string]string
+					if json.Unmarshal([]byte(*t.RemoteMeta), &meta) == nil {
+						issueType = meta["issue_type"]
+					}
+				}
 				results = append(results, Card{
 					ID:        t.ID,
-					Summary:   t.Summary,
+					Title:     t.Title,
 					Priority:  t.Priority,
-					IssueType: t.IssueType,
+					IssueType: issueType,
 					Status:    t.Status,
 					SortOrder: t.SortOrder,
 				})
@@ -217,11 +231,11 @@ func (b *boardService) SearchCards(ctx context.Context, query string) ([]Card, e
 }
 
 func (b *boardService) ExportCardContext(ctx context.Context, id string, format ExportFormat) (string, error) {
-	t, err := b.store.GetTicket(ctx, id)
+	t, err := b.store.GetTask(ctx, id)
 	if err != nil {
 		return "", err
 	}
-	detail := ticketToCardDetail(t)
+	detail := taskToCardDetail(t)
 
 	switch format {
 	case ExportFormatDescription:
@@ -233,33 +247,102 @@ func (b *boardService) ExportCardContext(ctx context.Context, id string, format 
 	}
 }
 
-func ticketToCardDetail(t *store.Ticket) *CardDetail {
+func (b *boardService) CreateTask(ctx context.Context, title, column, priority string) (*Card, error) {
+	id := store.GenerateTaskID()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	task := store.Task{
+		ID:        id,
+		Title:     title,
+		Status:    column,
+		Priority:  priority,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	// Place at end of column
+	existing, err := b.store.ListTasksByStatus(ctx, column)
+	if err == nil {
+		maxOrder := 0
+		for _, t := range existing {
+			if t.SortOrder >= maxOrder {
+				maxOrder = t.SortOrder + 1
+			}
+		}
+		task.SortOrder = maxOrder
+	}
+
+	if err := b.store.CreateTask(ctx, task); err != nil {
+		return nil, err
+	}
+
+	b.bus.Publish(events.Event{
+		Type:    events.EventCardsRefreshed,
+		At:      time.Now(),
+	})
+
+	return &Card{
+		ID:        id,
+		Title:     title,
+		Priority:  priority,
+		Status:    column,
+		SortOrder: task.SortOrder,
+	}, nil
+}
+
+func (b *boardService) DeleteTask(ctx context.Context, id string) error {
+	// Verify the task exists
+	if _, err := b.store.GetTask(ctx, id); err != nil {
+		return err
+	}
+
+	if err := b.store.DeleteTask(ctx, id); err != nil {
+		return err
+	}
+
+	b.bus.Publish(events.Event{
+		Type: events.EventCardsRefreshed,
+		At:   time.Now(),
+	})
+	return nil
+}
+
+func taskToCardDetail(t *store.Task) *CardDetail {
 	createdAt, _ := time.Parse(time.RFC3339, t.CreatedAt)
 	updatedAt, _ := time.Parse(time.RFC3339, t.UpdatedAt)
-	return &CardDetail{
+
+	detail := &CardDetail{
 		ID:            t.ID,
-		Summary:       t.Summary,
+		Title:         t.Title,
 		DescriptionMD: t.DescriptionMD,
 		Status:        t.Status,
 		Priority:      t.Priority,
-		IssueType:     t.IssueType,
-		Assignee:      t.Assignee,
-		Labels:        t.Labels,
-		EpicKey:       t.EpicKey,
-		EpicName:      t.EpicName,
-		URL:           t.URL,
 		CreatedAt:     createdAt,
 		UpdatedAt:     updatedAt,
 	}
+
+	if t.Provider != nil {
+		detail.Provider = *t.Provider
+	}
+	if t.RemoteID != nil {
+		detail.RemoteID = *t.RemoteID
+	}
+	if t.RemoteMeta != nil {
+		var meta map[string]string
+		if json.Unmarshal([]byte(*t.RemoteMeta), &meta) == nil {
+			detail.RemoteMeta = meta
+		}
+	}
+
+	return detail
 }
 
-// hasPushFailure checks if the most recent sync_log entry for a ticket is a push_failed.
-func hasPushFailure(ctx context.Context, s *store.Store, ticketID string) bool {
-	logs, err := s.ListSyncLogs(ctx, ticketID)
+// hasPushFailure checks if the most recent sync_log entry for a task is a push_failed.
+func hasPushFailure(ctx context.Context, s *store.Store, taskID string) bool {
+	logs, err := s.ListSyncLogs(ctx, taskID)
 	if err != nil || len(logs) == 0 {
 		return false
 	}
-	// Most recent entry is first (ordered by id DESC)
 	return logs[0].Action == "push_failed"
 }
 

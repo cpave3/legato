@@ -30,20 +30,28 @@ func (f *fakeBoardService) SearchCards(_ context.Context, _ string) ([]service.C
 func (f *fakeBoardService) ExportCardContext(_ context.Context, _ string, _ service.ExportFormat) (string, error) {
 	return "exported context", nil
 }
+func (f *fakeBoardService) DeleteTask(_ context.Context, _ string) error { return nil }
+func (f *fakeBoardService) CreateTask(_ context.Context, _, _, _ string) (*service.Card, error) {
+	return nil, nil
+}
 
 func testCard() *service.CardDetail {
 	return &service.CardDetail{
 		ID:            "REX-1238",
-		Summary:       "Refactor user service",
+		Title:         "Refactor user service",
 		DescriptionMD: "## Overview\n\nThis is a **test** description.\n\n- Item 1\n- Item 2\n\n```go\nfmt.Println(\"hello\")\n```",
 		Status:        "In Progress",
 		Priority:      "High",
-		IssueType:     "Story",
-		Assignee:      "cameron",
-		Labels:        "backend,refactor",
-		EpicKey:       "REX-100",
-		EpicName:      "User Service Overhaul",
-		URL:           "https://jira.example.com/browse/REX-1238",
+		Provider:      "jira",
+		RemoteID:      "REX-1238",
+		RemoteMeta: map[string]string{
+			"issue_type": "Story",
+			"assignee":   "cameron",
+			"labels":     "backend,refactor",
+			"epic_key":   "REX-100",
+			"epic_name":  "User Service Overhaul",
+			"url":        "https://jira.example.com/browse/REX-1238",
+		},
 	}
 }
 
@@ -91,7 +99,7 @@ func TestViewContainsMetadata(t *testing.T) {
 func TestViewMissingOptionalFields(t *testing.T) {
 	card := &service.CardDetail{
 		ID:            "REX-99",
-		Summary:       "Minimal ticket",
+		Title:       "Minimal ticket",
 		DescriptionMD: "Simple desc",
 		Status:        "Open",
 	}
@@ -250,7 +258,7 @@ func TestCopyWithNoClipboard(t *testing.T) {
 func TestOpenURLNoURL(t *testing.T) {
 	card := &service.CardDetail{
 		ID:      "REX-99",
-		Summary: "No URL",
+		Title: "No URL",
 	}
 	m := New(card, nil, nil)
 	m.width = 120
@@ -297,8 +305,30 @@ func TestMoveOverlay(t *testing.T) {
 	if !ok {
 		t.Errorf("expected OpenMoveOverlay msg, got %T", msg)
 	}
-	if overlay.TicketID != "REX-1238" {
-		t.Errorf("ticketID = %q, want REX-1238", overlay.TicketID)
+	if overlay.TaskID != "REX-1238" {
+		t.Errorf("taskID = %q, want REX-1238", overlay.TaskID)
+	}
+}
+
+// Delete keybinding
+func TestDeleteKeyEmitsOpenDeleteOverlay(t *testing.T) {
+	card := testCard()
+	m := New(card, nil, nil)
+	m.width = 120
+	m.height = 40
+	m.renderContent()
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'D'}})
+	if cmd == nil {
+		t.Fatal("expected cmd from D key")
+	}
+	msg := cmd()
+	result, ok := msg.(OpenDeleteOverlay)
+	if !ok {
+		t.Fatalf("expected OpenDeleteOverlay, got %T", msg)
+	}
+	if result.TaskID != "REX-1238" {
+		t.Errorf("taskID = %q, want REX-1238", result.TaskID)
 	}
 }
 

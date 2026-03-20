@@ -10,8 +10,8 @@ import (
 
 func testAgents() []service.AgentSession {
 	return []service.AgentSession{
-		{ID: 1, TicketID: "REX-1238", TmuxSession: "legato-REX-1238", Command: "shell", Status: "running", StartedAt: time.Now().Add(-5 * time.Minute)},
-		{ID: 2, TicketID: "REX-1239", TmuxSession: "legato-REX-1239", Command: "shell", Status: "running", StartedAt: time.Now().Add(-12 * time.Minute)},
+		{ID: 1, TaskID: "REX-1238", TmuxSession: "legato-REX-1238", Command: "shell", Status: "running", StartedAt: time.Now().Add(-5 * time.Minute)},
+		{ID: 2, TaskID: "REX-1239", TmuxSession: "legato-REX-1239", Command: "shell", Status: "running", StartedAt: time.Now().Add(-12 * time.Minute)},
 	}
 }
 
@@ -77,8 +77,8 @@ func TestKillKeybinding(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected KillAgentMsg, got %T", msg)
 	}
-	if kill.TicketID != "REX-1238" {
-		t.Errorf("TicketID = %q, want %q", kill.TicketID, "REX-1238")
+	if kill.TaskID != "REX-1238" {
+		t.Errorf("TaskID = %q, want %q", kill.TaskID, "REX-1238")
 	}
 }
 
@@ -134,7 +134,7 @@ func TestAgentsRefreshedMsgUpdatesAgents(t *testing.T) {
 	// Refresh with only one agent
 	m, _ = m.Update(AgentsRefreshedMsg{
 		Agents: []service.AgentSession{
-			{ID: 1, TicketID: "REX-1238", TmuxSession: "legato-REX-1238", Command: "shell", Status: "running", StartedAt: time.Now()},
+			{ID: 1, TaskID: "REX-1238", TmuxSession: "legato-REX-1238", Command: "shell", Status: "running", StartedAt: time.Now()},
 		},
 	})
 	if len(m.agents) != 1 {
@@ -186,14 +186,14 @@ func TestSelectedAgentReturnsCorrectAgent(t *testing.T) {
 	if a == nil {
 		t.Fatal("expected non-nil agent")
 	}
-	if a.TicketID != "REX-1238" {
-		t.Errorf("TicketID = %q, want %q", a.TicketID, "REX-1238")
+	if a.TaskID != "REX-1238" {
+		t.Errorf("TaskID = %q, want %q", a.TaskID, "REX-1238")
 	}
 
 	m.selected = 1
 	a = m.SelectedAgent()
-	if a.TicketID != "REX-1239" {
-		t.Errorf("TicketID = %q, want %q", a.TicketID, "REX-1239")
+	if a.TaskID != "REX-1239" {
+		t.Errorf("TaskID = %q, want %q", a.TaskID, "REX-1239")
 	}
 }
 

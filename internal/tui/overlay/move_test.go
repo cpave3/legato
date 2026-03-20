@@ -57,8 +57,8 @@ func TestMoveOverlaySelectColumn(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected MoveSelectedMsg, got %T", msg)
 	}
-	if result.TicketID != "REX-1" {
-		t.Errorf("ticketID = %q, want REX-1", result.TicketID)
+	if result.TaskID != "REX-1" {
+		t.Errorf("taskID = %q, want REX-1", result.TaskID)
 	}
 	if result.TargetColumn != "Review" {
 		t.Errorf("targetColumn = %q, want Review", result.TargetColumn)
@@ -115,9 +115,9 @@ func TestMoveOverlayShortcutRendered(t *testing.T) {
 	mustContain(t, view, "r")
 }
 
-func TestMoveOverlayTicketSummaryShown(t *testing.T) {
+func TestMoveOverlayTaskTitleShown(t *testing.T) {
 	m := NewMove("REX-1", []string{"Backlog", "Doing"}, "Doing")
-	m = m.WithSummary("Fix login bug")
+	m = m.WithTitle("Fix login bug")
 	view := m.View()
 	mustContain(t, view, "Fix login bug")
 }

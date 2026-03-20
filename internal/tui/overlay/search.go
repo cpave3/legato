@@ -139,7 +139,7 @@ func (m SearchOverlay) View() string {
 			}
 			colStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
 			line := fmt.Sprintf("%s%s  %s", prefix, card.ID,
-				strings.TrimSpace(card.Summary))
+				strings.TrimSpace(card.Title))
 			lines = append(lines, style.Render(line)+"  "+colStyle.Render(card.Status))
 		}
 	}

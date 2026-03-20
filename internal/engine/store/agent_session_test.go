@@ -21,10 +21,10 @@ func TestAgentSessionsTableExists(t *testing.T) {
 func TestInsertAndListAgentSessions(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	createTestTicket(t, s, "REX-1238")
+	createTestTask(t, s, "REX-1238")
 
 	err := s.InsertAgentSession(ctx, AgentSession{
-		TicketID:    "REX-1238",
+		TaskID:      "REX-1238",
 		TmuxSession: "legato-REX-1238",
 		Command:     "shell",
 		Status:      "running",
@@ -40,8 +40,8 @@ func TestInsertAndListAgentSessions(t *testing.T) {
 	if len(sessions) != 1 {
 		t.Fatalf("got %d sessions, want 1", len(sessions))
 	}
-	if sessions[0].TicketID != "REX-1238" {
-		t.Errorf("TicketID = %q, want %q", sessions[0].TicketID, "REX-1238")
+	if sessions[0].TaskID != "REX-1238" {
+		t.Errorf("TaskID = %q, want %q", sessions[0].TaskID, "REX-1238")
 	}
 	if sessions[0].TmuxSession != "legato-REX-1238" {
 		t.Errorf("TmuxSession = %q, want %q", sessions[0].TmuxSession, "legato-REX-1238")
@@ -51,13 +51,13 @@ func TestInsertAndListAgentSessions(t *testing.T) {
 	}
 }
 
-func TestGetAgentSessionByTicketID(t *testing.T) {
+func TestGetAgentSessionByTaskID(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	createTestTicket(t, s, "REX-1238")
+	createTestTask(t, s, "REX-1238")
 
 	err := s.InsertAgentSession(ctx, AgentSession{
-		TicketID:    "REX-1238",
+		TaskID:      "REX-1238",
 		TmuxSession: "legato-REX-1238",
 		Command:     "shell",
 		Status:      "running",
@@ -66,7 +66,7 @@ func TestGetAgentSessionByTicketID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := s.GetAgentSessionByTicketID(ctx, "REX-1238")
+	got, err := s.GetAgentSessionByTaskID(ctx, "REX-1238")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,19 +74,19 @@ func TestGetAgentSessionByTicketID(t *testing.T) {
 		t.Errorf("TmuxSession = %q, want %q", got.TmuxSession, "legato-REX-1238")
 	}
 
-	_, err = s.GetAgentSessionByTicketID(ctx, "NOPE-999")
+	_, err = s.GetAgentSessionByTaskID(ctx, "NOPE-999")
 	if err == nil {
-		t.Error("expected error for non-existent ticket, got nil")
+		t.Error("expected error for non-existent task, got nil")
 	}
 }
 
 func TestGetAgentSessionByTmuxName(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	createTestTicket(t, s, "REX-1238")
+	createTestTask(t, s, "REX-1238")
 
 	err := s.InsertAgentSession(ctx, AgentSession{
-		TicketID:    "REX-1238",
+		TaskID:      "REX-1238",
 		TmuxSession: "legato-REX-1238",
 		Command:     "shell",
 		Status:      "running",
@@ -99,8 +99,8 @@ func TestGetAgentSessionByTmuxName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.TicketID != "REX-1238" {
-		t.Errorf("TicketID = %q, want %q", got.TicketID, "REX-1238")
+	if got.TaskID != "REX-1238" {
+		t.Errorf("TaskID = %q, want %q", got.TaskID, "REX-1238")
 	}
 
 	_, err = s.GetAgentSessionByTmuxName(ctx, "legato-NOPE")
@@ -112,10 +112,10 @@ func TestGetAgentSessionByTmuxName(t *testing.T) {
 func TestUpdateAgentSessionStatus(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	createTestTicket(t, s, "REX-1238")
+	createTestTask(t, s, "REX-1238")
 
 	err := s.InsertAgentSession(ctx, AgentSession{
-		TicketID:    "REX-1238",
+		TaskID:      "REX-1238",
 		TmuxSession: "legato-REX-1238",
 		Command:     "shell",
 		Status:      "running",
@@ -144,10 +144,10 @@ func TestUpdateAgentSessionStatus(t *testing.T) {
 func TestInsertDuplicateTmuxSessionFails(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	createTestTicket(t, s, "REX-1238")
+	createTestTask(t, s, "REX-1238")
 
 	session := AgentSession{
-		TicketID:    "REX-1238",
+		TaskID:      "REX-1238",
 		TmuxSession: "legato-REX-1238",
 		Command:     "shell",
 		Status:      "running",
@@ -160,17 +160,15 @@ func TestInsertDuplicateTmuxSessionFails(t *testing.T) {
 	}
 }
 
-func createTestTicket(t *testing.T, s *Store, id string) {
+func createTestTask(t *testing.T, s *Store, id string) {
 	t.Helper()
 	ctx := context.Background()
-	err := s.CreateTicket(ctx, Ticket{
-		ID:              id,
-		Summary:         "Test ticket " + id,
-		Status:          "Doing",
-		RemoteStatus:    "In Progress",
-		CreatedAt:       "2024-01-01T00:00:00Z",
-		UpdatedAt:       "2024-01-01T00:00:00Z",
-		RemoteUpdatedAt: "2024-01-01T00:00:00Z",
+	err := s.CreateTask(ctx, Task{
+		ID:        id,
+		Title:     "Test task " + id,
+		Status:    "Doing",
+		CreatedAt: "2024-01-01T00:00:00Z",
+		UpdatedAt: "2024-01-01T00:00:00Z",
 	})
 	if err != nil {
 		t.Fatal(err)

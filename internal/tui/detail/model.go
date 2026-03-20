@@ -36,13 +36,18 @@ type BackToBoard struct{}
 
 // OpenMoveOverlay signals the app to open the move overlay for this ticket.
 type OpenMoveOverlay struct {
-	TicketID string
+	TaskID string
+}
+
+// OpenDeleteOverlay signals the app to open the delete confirmation for this task.
+type OpenDeleteOverlay struct {
+	TaskID string
 }
 
 // Model is the detail view Bubbletea model.
 type Model struct {
 	card      *service.CardDetail
-	ticketID  string
+	taskID  string
 	svc       service.BoardService
 	clip      *clipboard.Clipboard
 	viewport  viewport.Model
@@ -62,15 +67,15 @@ func New(card *service.CardDetail, svc service.BoardService, clip *clipboard.Cli
 		loading: card == nil,
 	}
 	if card != nil {
-		m.ticketID = card.ID
+		m.taskID = card.ID
 	}
 	return m
 }
 
 // NewLoading creates a detail model that will fetch data.
-func NewLoading(ticketID string, svc service.BoardService, clip *clipboard.Clipboard) Model {
+func NewLoading(taskID string, svc service.BoardService, clip *clipboard.Clipboard) Model {
 	return Model{
-		ticketID: ticketID,
+		taskID: taskID,
 		svc:      svc,
 		clip:     clip,
 		loading:  true,
@@ -87,7 +92,7 @@ func (m Model) Init() tea.Cmd {
 
 func (m Model) fetchCard() tea.Cmd {
 	svc := m.svc
-	id := m.ticketID
+	id := m.taskID
 	return func() tea.Msg {
 		card, err := svc.GetCard(context.Background(), id)
 		return CardLoadedMsg{Card: card, Err: err}
@@ -156,7 +161,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openURL()
 	case "m":
 		if m.card != nil {
-			return m, func() tea.Msg { return OpenMoveOverlay{TicketID: m.card.ID} }
+			return m, func() tea.Msg { return OpenMoveOverlay{TaskID: m.card.ID} }
+		}
+	case "D":
+		if m.card != nil {
+			id := m.card.ID
+			return m, func() tea.Msg { return OpenDeleteOverlay{TaskID: id} }
 		}
 	}
 	return m, nil
@@ -184,11 +194,15 @@ func (m Model) copyContext(format service.ExportFormat, successMsg string) (tea.
 }
 
 func (m Model) openURL() (tea.Model, tea.Cmd) {
-	if m.card == nil || m.card.URL == "" {
+	url := ""
+	if m.card != nil && m.card.RemoteMeta != nil {
+		url = m.card.RemoteMeta["url"]
+	}
+	if url == "" {
 		m.feedback = "No URL available"
 		return m, nil
 	}
-	if err := clipboard.OpenURL(m.card.URL); err != nil {
+	if err := clipboard.OpenURL(url); err != nil {
 		m.feedback = fmt.Sprintf("Open failed: %v", err)
 		return m, nil
 	}
@@ -251,7 +265,7 @@ func (m Model) renderHeader() string {
 		Width(contentWidth).
 		Padding(0, 1)
 
-	title := titleStyle.Render(fmt.Sprintf("%s: %s", m.card.ID, m.card.Summary))
+	title := titleStyle.Render(fmt.Sprintf("%s: %s", m.card.ID, m.card.Title))
 
 	// Metadata grid
 	var metaParts []string
@@ -265,14 +279,16 @@ func (m Model) renderHeader() string {
 
 	addMeta("Status", m.card.Status)
 	addMeta("Priority", m.card.Priority)
-	addMeta("Type", m.card.IssueType)
-	if m.card.EpicName != "" {
-		addMeta("Epic", m.card.EpicName)
-	} else if m.card.EpicKey != "" {
-		addMeta("Epic", m.card.EpicKey)
+	if m.card.RemoteMeta != nil {
+		addMeta("Type", m.card.RemoteMeta["issue_type"])
+		if epicName := m.card.RemoteMeta["epic_name"]; epicName != "" {
+			addMeta("Epic", epicName)
+		} else {
+			addMeta("Epic", m.card.RemoteMeta["epic_key"])
+		}
+		addMeta("Labels", m.card.RemoteMeta["labels"])
+		addMeta("URL", m.card.RemoteMeta["url"])
 	}
-	addMeta("Labels", m.card.Labels)
-	addMeta("URL", m.card.URL)
 
 	metaLine := lipgloss.NewStyle().Padding(0, 1).Render(strings.Join(metaParts, "  "))
 	separator := lipgloss.NewStyle().
@@ -314,6 +330,7 @@ func (m Model) renderStatusBar() string {
 		{"y", "copy desc"},
 		{"Y", "copy full"},
 		{"m", "move"},
+		{"D", "delete"},
 		{"o", "open"},
 		{"j/k", "scroll"},
 	}
@@ -327,9 +344,9 @@ func (m Model) renderStatusBar() string {
 	return theme.StatusBar.Width(m.width).Render(strings.Join(parts, "  "))
 }
 
-// TicketID returns the current ticket ID.
-func (m Model) TicketID() string {
-	return m.ticketID
+// TaskID returns the current ticket ID.
+func (m Model) TaskID() string {
+	return m.taskID
 }
 
 // SetCard updates the card data (e.g., after a move).

@@ -8,7 +8,7 @@ import (
 // CardData holds the data needed to render a card.
 type CardData struct {
 	Key         string
-	Summary     string
+	Title     string
 	Priority    string
 	IssueType   string
 	Warning     bool
@@ -26,7 +26,7 @@ func RenderCard(card CardData, width int, selected bool, column string) string {
 	}
 
 	// Truncate summary
-	summary := truncateSummary(card.Summary, contentWidth)
+	summary := truncateTitle(card.Title, contentWidth)
 
 	// Warning indicator for failed transitions
 	warningPrefix := ""
@@ -72,7 +72,7 @@ func RenderCard(card CardData, width int, selected bool, column string) string {
 	return style.Render(content)
 }
 
-func truncateSummary(s string, maxWidth int) string {
+func truncateTitle(s string, maxWidth int) string {
 	if len(s) <= maxWidth {
 		return s
 	}

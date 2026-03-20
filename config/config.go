@@ -105,7 +105,7 @@ func defaults() *Config {
 			SyncIntervalSeconds: 60,
 		},
 		Board: BoardConfig{
-			Columns: defaultColumns(),
+			Columns: DefaultColumns(),
 		},
 		Theme: "default",
 		Keybindings: KeybindingsConfig{
@@ -122,7 +122,7 @@ func applyDefaults(cfg *Config) {
 		cfg.Theme = "default"
 	}
 	if len(cfg.Board.Columns) == 0 {
-		cfg.Board.Columns = defaultColumns()
+		cfg.Board.Columns = DefaultColumns()
 	}
 	if cfg.Agents.EscapeKey == "" {
 		cfg.Agents.EscapeKey = "ctrl+]"
@@ -132,7 +132,8 @@ func applyDefaults(cfg *Config) {
 	// Since yaml zero-value for bool is false, we handle this in defaults().
 }
 
-func defaultColumns() []ColumnConfig {
+// DefaultColumns returns the default board columns.
+func DefaultColumns() []ColumnConfig {
 	return []ColumnConfig{
 		{Name: "Backlog", RemoteStatuses: []string{"To Do", "Open", "Backlog"}},
 		{Name: "Ready", RemoteStatuses: []string{"Ready for Dev", "Selected for Development"}},

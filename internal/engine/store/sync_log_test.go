@@ -11,16 +11,16 @@ func TestSyncLogInsertAndList(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert entries
-	if err := s.InsertSyncLog(ctx, SyncLogEntry{TicketID: "REX-1", Action: "pull", Detail: "first"}); err != nil {
+	if err := s.InsertSyncLog(ctx, SyncLogEntry{TaskID: "REX-1", Action: "pull", Detail: "first"}); err != nil {
 		t.Fatal(err)
 	}
 	// Small delay so created_at differs
 	time.Sleep(10 * time.Millisecond)
-	if err := s.InsertSyncLog(ctx, SyncLogEntry{TicketID: "REX-1", Action: "push_status", Detail: "second"}); err != nil {
+	if err := s.InsertSyncLog(ctx, SyncLogEntry{TaskID: "REX-1", Action: "push_status", Detail: "second"}); err != nil {
 		t.Fatal(err)
 	}
-	// Different ticket
-	if err := s.InsertSyncLog(ctx, SyncLogEntry{TicketID: "REX-2", Action: "pull"}); err != nil {
+	// Different task
+	if err := s.InsertSyncLog(ctx, SyncLogEntry{TaskID: "REX-2", Action: "pull"}); err != nil {
 		t.Fatal(err)
 	}
 

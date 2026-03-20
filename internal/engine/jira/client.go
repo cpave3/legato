@@ -52,7 +52,7 @@ func (c *Client) Search(ctx context.Context, jql string) ([]Issue, error) {
 			"fields":     {"summary,status,priority,issuetype,assignee,labels,description,updated,project,customfield_10014"},
 		}
 
-		body, err := c.doGet(ctx, "/rest/api/3/search?"+params.Encode())
+		body, err := c.doGet(ctx, "/rest/api/3/search/jql?"+params.Encode())
 		if err != nil {
 			return nil, fmt.Errorf("search: %w", err)
 		}
