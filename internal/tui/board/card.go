@@ -8,15 +8,16 @@ import (
 // CardData holds the data needed to render a card.
 type CardData struct {
 	Key         string
-	Title     string
+	Title       string
 	Priority    string
 	IssueType   string
+	Provider    string // "jira", "github", or "" for local
 	Warning     bool
 	AgentActive bool
 }
 
 // RenderCard renders a single card with the given parameters.
-func RenderCard(card CardData, width int, selected bool, column string) string {
+func RenderCard(card CardData, width int, selected bool, column string, icons theme.Icons) string {
 	isDone := column == "Done"
 
 	// Content width = total width minus border (2) minus padding (2)
@@ -25,44 +26,101 @@ func RenderCard(card CardData, width int, selected bool, column string) string {
 		contentWidth = 4
 	}
 
-	// Truncate summary
-	summary := truncateTitle(card.Title, contentWidth)
+	// Truncate title
+	title := truncateTitle(card.Title, contentWidth)
+
+	// Provider icon
+	providerIcon := ""
+	{
+		iconStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
+		switch card.Provider {
+		case "jira":
+			providerIcon = iconStyle.Foreground(theme.ColReady).Render(icons.Jira) + " "
+		case "github":
+			providerIcon = iconStyle.Foreground(theme.TextPrimary).Render(icons.GitHub) + " "
+		default:
+			providerIcon = iconStyle.Render(icons.Local) + " "
+		}
+	}
 
 	// Warning indicator for failed transitions
 	warningPrefix := ""
 	if card.Warning {
 		warningStyle := lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true)
-		warningPrefix = warningStyle.Render("!") + " "
+		warningPrefix = warningStyle.Render(icons.Warning) + " "
 	}
 
 	// Agent running indicator
 	agentPrefix := ""
 	if card.AgentActive {
 		agentStyle := lipgloss.NewStyle().Foreground(theme.SyncOK).Bold(true)
-		agentPrefix = agentStyle.Render("▶") + " "
+		agentPrefix = agentStyle.Render(icons.Terminal) + " "
+	}
+
+	// Key line: styled dimmer than title for hierarchy
+	keyStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
+	titleStyle := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true)
+
+	// Build metadata line: priority + dot + issue type
+	dotStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
+	var metaParts []string
+	if card.Priority != "" {
+		metaParts = append(metaParts, renderPriorityBadge(card.Priority))
+	}
+	if card.IssueType != "" {
+		metaParts = append(metaParts, theme.TypeBadge.Render(card.IssueType))
+	}
+	metaLine := ""
+	if len(metaParts) > 0 {
+		metaLine = lipgloss.JoinHorizontal(lipgloss.Left, joinWithDot(metaParts, dotStyle)...)
 	}
 
 	// Apply done-column muted styling
-	keyLine := agentPrefix + warningPrefix + card.Key
-	typeLine := card.IssueType
 	if isDone {
-		keyLine = theme.DoneMuted.Render(card.Key)
-		summary = theme.DoneMuted.Render(summary)
-		typeLine = theme.DoneMuted.Render(card.IssueType)
+		keyLine := theme.DoneMuted.Render(card.Key)
+		title = theme.DoneMuted.Render(title)
+		metaLine = theme.DoneMuted.Render(card.IssueType)
+		content := keyLine + "\n" + title + "\n" + metaLine
+
+		style := theme.CardBase.
+			Width(contentWidth).
+			BorderLeft(true).
+			BorderForeground(theme.ColDone)
+		return style.Render(content)
 	}
 
-	content := keyLine + "\n" + summary + "\n" + typeLine
-
-	// Pick style
-	var style lipgloss.Style
+	// Selected cards need dark-on-light colors
 	if selected {
-		style = theme.CardSelected.
-			Width(contentWidth)
-	} else {
-		borderColor := theme.PriorityBorderColor(card.Priority)
-		if isDone {
-			borderColor = theme.ColDone
+		darkText := lipgloss.Color("#1E1E2E")
+		dimText := lipgloss.Color("#585878")
+		sKeyStyle := lipgloss.NewStyle().Foreground(dimText)
+		sTitleStyle := lipgloss.NewStyle().Foreground(darkText).Bold(true)
+		sTypeStyle := lipgloss.NewStyle().Foreground(dimText)
+
+		sMetaLine := ""
+		if card.Priority != "" {
+			sMetaLine = sTypeStyle.Render(card.Priority)
+			if card.IssueType != "" {
+				sMetaLine += " " + sTypeStyle.Render(card.IssueType)
+			}
+		} else if card.IssueType != "" {
+			sMetaLine = sTypeStyle.Render(card.IssueType)
 		}
+
+		content := providerIcon + agentPrefix + warningPrefix + sKeyStyle.Render(card.Key) + "\n" +
+			sTitleStyle.Render(title) + "\n" + sMetaLine
+
+		style := theme.CardSelected.Width(contentWidth)
+		return style.Render(content)
+	}
+
+	keyLine := providerIcon + agentPrefix + warningPrefix + keyStyle.Render(card.Key)
+	titleLine := titleStyle.Render(title)
+	content := keyLine + "\n" + titleLine + "\n" + metaLine
+
+	var style lipgloss.Style
+	{
+		borderColor := theme.PriorityBorderColor(card.Priority)
 		style = theme.CardBase.
 			Width(contentWidth).
 			BorderLeft(true).
@@ -70,6 +128,33 @@ func RenderCard(card CardData, width int, selected bool, column string) string {
 	}
 
 	return style.Render(content)
+}
+
+func joinWithDot(parts []string, dotStyle lipgloss.Style) []string {
+	if len(parts) == 0 {
+		return nil
+	}
+	var result []string
+	for i, p := range parts {
+		if i > 0 {
+			result = append(result, dotStyle.Render(" · "))
+		}
+		result = append(result, p)
+	}
+	return result
+}
+
+func renderPriorityBadge(priority string) string {
+	switch priority {
+	case "High", "Highest":
+		return theme.PriorityBadgeHigh.Render(priority)
+	case "Medium":
+		return theme.PriorityBadgeMed.Render(priority)
+	case "Low", "Lowest":
+		return theme.PriorityBadgeLow.Render(priority)
+	default:
+		return ""
+	}
 }
 
 func truncateTitle(s string, maxWidth int) string {

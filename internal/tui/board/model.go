@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/theme"
 )
 
 const minColumnWidth = 20
@@ -13,6 +14,7 @@ const minColumnWidth = 20
 // Model is the board Bubbletea model.
 type Model struct {
 	svc       service.BoardService
+	icons     theme.Icons
 	columns   []string
 	cards     map[string][]CardData
 	cursorCol int
@@ -22,9 +24,10 @@ type Model struct {
 }
 
 // New creates a new board model.
-func New(svc service.BoardService) Model {
+func New(svc service.BoardService, icons theme.Icons) Model {
 	return Model{
 		svc:   svc,
+		icons: icons,
 		cards: make(map[string][]CardData),
 	}
 }
@@ -52,6 +55,7 @@ func (m Model) loadData() Model {
 				Title:     c.Title,
 				Priority:  c.Priority,
 				IssueType: c.IssueType,
+				Provider:  c.Provider,
 				Warning:   c.HasWarning,
 			}
 		}
@@ -181,6 +185,16 @@ func (m Model) SelectedCard() *CardData {
 	return &c
 }
 
+// SetActiveAgents updates which task IDs have running agent sessions.
+func (m *Model) SetActiveAgents(taskIDs map[string]bool) {
+	for colName, cards := range m.cards {
+		for i := range cards {
+			cards[i].AgentActive = taskIDs[cards[i].Key]
+		}
+		m.cards[colName] = cards
+	}
+}
+
 // NavigateTo moves the board cursor to the card with the given ID.
 func (m *Model) NavigateTo(cardID string) {
 	for colIdx, colName := range m.columns {
@@ -216,13 +230,18 @@ func (m Model) View() string {
 		return ""
 	}
 
-	colWidth := m.width / len(m.columns)
+	const colGap = 1
+
+	// Account for gaps between columns in width calculation
+	totalGaps := len(m.columns) - 1
+	availWidth := m.width - (totalGaps * colGap)
+	colWidth := availWidth / len(m.columns)
 	if colWidth < minColumnWidth {
 		colWidth = minColumnWidth
 	}
 
 	// Determine visible columns (centered around cursor)
-	visibleCount := m.width / colWidth
+	visibleCount := (m.width + colGap) / (colWidth + colGap)
 	if visibleCount > len(m.columns) {
 		visibleCount = len(m.columns)
 	}
@@ -238,8 +257,13 @@ func (m Model) View() string {
 		startCol = len(m.columns) - visibleCount
 	}
 
+	gap := lipgloss.NewStyle().Width(colGap).Render(" ")
+
 	var rendered []string
 	for i := startCol; i < startCol+visibleCount; i++ {
+		if i > startCol {
+			rendered = append(rendered, gap)
+		}
 		colName := m.columns[i]
 		cards := m.cards[colName]
 		active := i == m.cursorCol
@@ -247,7 +271,7 @@ func (m Model) View() string {
 		if active {
 			selectedIdx = m.cursorRow
 		}
-		col := RenderColumn(colName, cards, colWidth, active, selectedIdx)
+		col := RenderColumn(colName, cards, colWidth, active, selectedIdx, m.icons)
 		rendered = append(rendered, col)
 	}
 

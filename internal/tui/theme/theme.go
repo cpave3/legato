@@ -38,9 +38,10 @@ var (
 // Styles
 var (
 	CardBase = lipgloss.NewStyle().
-			Background(Background).
+			Background(lipgloss.Color("#252540")).
 			Foreground(TextPrimary).
 			Padding(0, 1).
+			MarginBottom(1).
 			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(TextTertiary)
 
@@ -48,6 +49,7 @@ var (
 			Background(lipgloss.Color("#EEEDFE")).
 			Foreground(lipgloss.Color("#1E1E2E")).
 			Padding(0, 1).
+			MarginBottom(1).
 			BorderStyle(lipgloss.RoundedBorder()).
 			BorderForeground(AccentPurple)
 
@@ -81,21 +83,18 @@ var (
 			Foreground(TextTertiary).
 			Strikethrough(true)
 
-	// Priority badge styles
+	// Priority badge styles — subtle tinted text, no background
 	PriorityBadgeHigh = lipgloss.NewStyle().
-				Background(PriorityHighBg).
-				Foreground(PriorityHighFg).
-				Padding(0, 1)
+				Foreground(lipgloss.Color("#E06C75"))
 
 	PriorityBadgeMed = lipgloss.NewStyle().
-				Background(PriorityMedBg).
-				Foreground(PriorityMedFg).
-				Padding(0, 1)
+				Foreground(lipgloss.Color("#E5C07B"))
 
 	PriorityBadgeLow = lipgloss.NewStyle().
-				Background(PriorityLowBg).
-				Foreground(PriorityLowFg).
-				Padding(0, 1)
+				Foreground(lipgloss.Color("#5DCAA5"))
+
+	TypeBadge = lipgloss.NewStyle().
+			Foreground(TextTertiary)
 )
 
 // ColumnBorderColor returns the border color for a given column name.

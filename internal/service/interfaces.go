@@ -26,6 +26,7 @@ type Card struct {
 	Priority   string
 	IssueType  string
 	Status     string
+	Provider   string // "jira", "github", or "" for local
 	SortOrder  int
 	HasWarning bool
 }

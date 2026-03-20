@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/theme"
 )
 
 // fakeBoardService implements the subset of BoardService needed by the board model.
@@ -55,7 +56,7 @@ func (f *fakeBoardService) CreateTask(_ context.Context, _, _, _ string) (*servi
 }
 
 func newTestModel() Model {
-	m := New(&fakeBoardService{})
+	m := New(&fakeBoardService{}, theme.NewIcons("unicode"))
 	// Simulate Init loading data
 	m = m.loadData()
 	m.width = 120

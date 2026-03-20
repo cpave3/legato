@@ -14,6 +14,7 @@ import (
 	"github.com/cpave3/legato/internal/tui/detail"
 	"github.com/cpave3/legato/internal/tui/overlay"
 	"github.com/cpave3/legato/internal/tui/statusbar"
+	"github.com/cpave3/legato/internal/tui/theme"
 )
 
 type viewType int
@@ -79,13 +80,13 @@ type App struct {
 }
 
 // NewApp creates a new root application model.
-func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, bus *events.Bus) App {
+func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, icons theme.Icons, bus *events.Bus) App {
 	clip := clipboard.New()
 	app := App{
 		svc:       svc,
 		syncSvc:   syncSvc,
 		agentSvc:  agentSvc,
-		board:     board.New(svc),
+		board:     board.New(svc, icons),
 		agentView: agents.New(),
 		statusBar: statusbar.New(),
 		clip:      clip,
@@ -378,6 +379,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.board, cmd = a.board.Update(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+		// Enrich cards with active agent indicators
+		if a.agentSvc != nil {
+			agents, err := a.agentSvc.ListAgents(context.Background())
+			if err == nil {
+				active := make(map[string]bool, len(agents))
+				for _, ag := range agents {
+					if ag.Status == "running" {
+						active[ag.TaskID] = true
+					}
+				}
+				a.board.SetActiveAgents(active)
+			}
 		}
 		// Apply pending navigation (e.g. after task creation)
 		if a.pendingNav != "" {

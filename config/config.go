@@ -12,6 +12,7 @@ type Config struct {
 	Jira        JiraConfig        `yaml:"jira"`
 	Board       BoardConfig       `yaml:"board"`
 	Theme       string            `yaml:"theme"`
+	Icons       string            `yaml:"icons"` // "unicode" (default) or "nerdfonts"
 	Keybindings KeybindingsConfig `yaml:"keybindings"`
 	DB          DBConfig          `yaml:"db"`
 	Agents      AgentsConfig      `yaml:"agents"`

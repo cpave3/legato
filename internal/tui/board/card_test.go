@@ -3,11 +3,15 @@ package board
 import (
 	"strings"
 	"testing"
+
+	"github.com/cpave3/legato/internal/tui/theme"
 )
+
+var testIcons = theme.NewIcons("unicode")
 
 func TestCardRenderContainsKey(t *testing.T) {
 	card := CardData{Key: "REX-1234", Title: "Fix the bug", Priority: "High", IssueType: "Bug"}
-	out := RenderCard(card, 30, false, "Doing")
+	out := RenderCard(card, 30, false, "Doing", testIcons)
 	if !strings.Contains(out, "REX-1234") {
 		t.Errorf("card should contain issue key, got: %q", out)
 	}
@@ -15,7 +19,7 @@ func TestCardRenderContainsKey(t *testing.T) {
 
 func TestCardRenderContainsType(t *testing.T) {
 	card := CardData{Key: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug"}
-	out := RenderCard(card, 30, false, "Doing")
+	out := RenderCard(card, 30, false, "Doing", testIcons)
 	if !strings.Contains(out, "Bug") {
 		t.Errorf("card should contain issue type, got: %q", out)
 	}
@@ -45,7 +49,7 @@ func TestCardRenderNonEmpty(t *testing.T) {
 	for _, p := range priorities {
 		t.Run(p, func(t *testing.T) {
 			card := CardData{Key: "REX-1", Title: "Test", Priority: p, IssueType: "Bug"}
-			out := RenderCard(card, 30, false, "Doing")
+			out := RenderCard(card, 30, false, "Doing", testIcons)
 			if out == "" {
 				t.Error("card should not be empty")
 			}
@@ -60,7 +64,7 @@ func TestCardRenderNonEmpty(t *testing.T) {
 
 func TestCardSelectedRender(t *testing.T) {
 	card := CardData{Key: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug"}
-	out := RenderCard(card, 30, true, "Doing")
+	out := RenderCard(card, 30, true, "Doing", testIcons)
 	if out == "" {
 		t.Error("selected card should not be empty")
 	}
@@ -71,7 +75,7 @@ func TestCardSelectedRender(t *testing.T) {
 
 func TestCardWarningIndicator(t *testing.T) {
 	card := CardData{Key: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug", Warning: true}
-	out := RenderCard(card, 30, false, "Doing")
+	out := RenderCard(card, 30, false, "Doing", testIcons)
 	if !strings.Contains(out, "!") {
 		t.Errorf("warning card should contain '!' indicator, got: %q", out)
 	}
@@ -79,7 +83,7 @@ func TestCardWarningIndicator(t *testing.T) {
 
 func TestCardNoWarningByDefault(t *testing.T) {
 	card := CardData{Key: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug"}
-	out := RenderCard(card, 30, false, "Doing")
+	out := RenderCard(card, 30, false, "Doing", testIcons)
 	// The key line should NOT start with !
 	lines := strings.Split(out, "\n")
 	for _, line := range lines {
@@ -92,7 +96,7 @@ func TestCardNoWarningByDefault(t *testing.T) {
 
 func TestCardAgentActiveIndicator(t *testing.T) {
 	card := CardData{Key: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug", AgentActive: true}
-	out := RenderCard(card, 30, false, "Doing")
+	out := RenderCard(card, 30, false, "Doing", testIcons)
 	if !strings.Contains(out, "▶") {
 		t.Errorf("agent-active card should contain '▶' indicator, got: %q", out)
 	}
@@ -100,7 +104,7 @@ func TestCardAgentActiveIndicator(t *testing.T) {
 
 func TestCardNoAgentIndicatorByDefault(t *testing.T) {
 	card := CardData{Key: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug"}
-	out := RenderCard(card, 30, false, "Doing")
+	out := RenderCard(card, 30, false, "Doing", testIcons)
 	if strings.Contains(out, "▶") {
 		t.Error("card without agent should not have ▶ indicator")
 	}
@@ -108,7 +112,7 @@ func TestCardNoAgentIndicatorByDefault(t *testing.T) {
 
 func TestCardDoneColumnRender(t *testing.T) {
 	card := CardData{Key: "REX-1", Title: "Finished", Priority: "Low", IssueType: "Story"}
-	out := RenderCard(card, 30, false, "Done")
+	out := RenderCard(card, 30, false, "Done", testIcons)
 	if out == "" {
 		t.Error("done card should not be empty")
 	}

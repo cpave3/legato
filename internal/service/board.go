@@ -62,12 +62,17 @@ func (b *boardService) ListCards(ctx context.Context, column string) ([]Card, er
 				issueType = meta["issue_type"]
 			}
 		}
+		provider := ""
+		if t.Provider != nil {
+			provider = *t.Provider
+		}
 		cards[i] = Card{
 			ID:         t.ID,
 			Title:      t.Title,
 			Priority:   t.Priority,
 			IssueType:  issueType,
 			Status:     t.Status,
+			Provider:   provider,
 			SortOrder:  t.SortOrder,
 			HasWarning: hasPushFailure(ctx, b.store, t.ID),
 		}

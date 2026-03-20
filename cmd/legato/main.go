@@ -15,6 +15,7 @@ import (
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/setup"
 	"github.com/cpave3/legato/internal/tui"
+	"github.com/cpave3/legato/internal/tui/theme"
 )
 
 func main() {
@@ -82,7 +83,8 @@ func main() {
 		agentSvc = service.NewAgentService(db, tmuxMgr, wd)
 	}
 
-	app := tui.NewApp(boardSvc, syncSvc, agentSvc, bus)
+	icons := theme.NewIcons(cfg.Icons)
+	app := tui.NewApp(boardSvc, syncSvc, agentSvc, icons, bus)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
