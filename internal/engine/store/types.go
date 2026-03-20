@@ -38,6 +38,7 @@ type AgentSession struct {
 	TmuxSession string  `db:"tmux_session"`
 	Command     string  `db:"command"`
 	Status      string  `db:"status"`
+	Activity    string  `db:"activity"`
 	StartedAt   string  `db:"started_at"`
 	EndedAt     *string `db:"ended_at"`
 }

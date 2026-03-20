@@ -1,0 +1,54 @@
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "command": "/home/cameron/Projects/legato/.claude/hooks/legato-permission-request.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "/home/cameron/Projects/legato/.claude/hooks/legato-post-tool-use.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "/home/cameron/Projects/legato/.claude/hooks/legato-session-end.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "/home/cameron/Projects/legato/.claude/hooks/legato-stop.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "/home/cameron/Projects/legato/.claude/hooks/legato-prompt-submit.sh",
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

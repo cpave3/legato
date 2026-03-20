@@ -11,12 +11,13 @@ import (
 
 // TmuxManager abstracts tmux operations for testability.
 type TmuxManager interface {
-	Spawn(name, workDir string) error
+	Spawn(name, workDir string, envVars ...string) error
 	Kill(name string) error
 	Capture(name string) (string, error)
 	Attach(name string) *exec.Cmd
 	ListSessions() ([]string, error)
 	IsAlive(name string) (bool, error)
+	SetEnv(sessionName, key, value string) error
 }
 
 // AgentSession represents a running or completed agent session.
@@ -26,6 +27,7 @@ type AgentSession struct {
 	TmuxSession string
 	Command     string
 	Status      string
+	Activity    string // "working", "waiting", or "" (idle)
 	StartedAt   time.Time
 	EndedAt     *time.Time
 }
@@ -41,14 +43,27 @@ type AgentService interface {
 }
 
 type agentService struct {
-	store   *store.Store
-	tmux    TmuxManager
-	workDir string
+	store      *store.Store
+	tmux       TmuxManager
+	workDir    string
+	adapter    AIToolAdapter
+	socketPath string
+}
+
+// AgentServiceOptions configures optional AI tool integration for agent sessions.
+type AgentServiceOptions struct {
+	Adapter    AIToolAdapter
+	SocketPath string
 }
 
 // NewAgentService creates an AgentService.
-func NewAgentService(s *store.Store, tmux TmuxManager, workDir string) AgentService {
-	return &agentService{store: s, tmux: tmux, workDir: workDir}
+func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...AgentServiceOptions) AgentService {
+	svc := &agentService{store: s, tmux: tmux, workDir: workDir}
+	if len(opts) > 0 {
+		svc.adapter = opts[0].Adapter
+		svc.socketPath = opts[0].SocketPath
+	}
+	return svc
 }
 
 func (a *agentService) SpawnAgent(ctx context.Context, taskID string) error {
@@ -71,7 +86,15 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string) error {
 	// Kill any orphaned tmux session with the same name
 	a.tmux.Kill(sessionName)
 
-	if err := a.tmux.Spawn(sessionName, a.workDir); err != nil {
+	// Build env vars to inject into the initial shell.
+	var envVars []string
+	if a.adapter != nil {
+		for k, v := range a.adapter.EnvVars(taskID, a.socketPath) {
+			envVars = append(envVars, k+"="+v)
+		}
+	}
+
+	if err := a.tmux.Spawn(sessionName, a.workDir, envVars...); err != nil {
 		return fmt.Errorf("spawning tmux session: %w", err)
 	}
 
@@ -126,6 +149,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			TmuxSession: s.TmuxSession,
 			Command:     s.Command,
 			Status:      s.Status,
+			Activity:    s.Activity,
 			StartedAt:   startedAt,
 			EndedAt:     endedAt,
 		}

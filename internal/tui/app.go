@@ -75,8 +75,9 @@ type App struct {
 	width         int
 	height        int
 	pendingNav    string // card ID to navigate to after next board data load
-	eventBus  *events.Bus
-	eventSub  <-chan events.Event
+	eventBus      *events.Bus
+	eventSub      <-chan events.Event
+	cardUpdateSub <-chan events.Event
 }
 
 // NewApp creates a new root application model.
@@ -95,6 +96,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 	}
 	if bus != nil {
 		app.eventSub = bus.Subscribe(events.EventSyncStarted)
+		app.cardUpdateSub = bus.Subscribe(events.EventCardUpdated)
 	}
 	return app
 }
@@ -104,6 +106,9 @@ func (a App) Init() tea.Cmd {
 	cmds := []tea.Cmd{a.board.Init()}
 	if a.eventSub != nil {
 		cmds = append(cmds, a.listenEventBus())
+	}
+	if a.cardUpdateSub != nil {
+		cmds = append(cmds, a.listenCardUpdates())
 	}
 	// Clipboard availability check
 	if a.clip == nil || !a.clip.Available() {
@@ -123,6 +128,21 @@ func (a App) listenEventBus() tea.Cmd {
 			return nil
 		}
 		return EventBusMsg{Event: event}
+	}
+}
+
+// cardUpdateMsg triggers a board data reload when agent state or card data changes via IPC.
+type cardUpdateMsg struct{}
+
+// listenCardUpdates returns a command that listens for EventCardUpdated and triggers a refresh.
+func (a App) listenCardUpdates() tea.Cmd {
+	ch := a.cardUpdateSub
+	return func() tea.Msg {
+		_, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return cardUpdateMsg{}
 	}
 }
 
@@ -365,6 +385,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, a.listenEventBus())
 		}
 
+	case cardUpdateMsg:
+		// IPC triggered a card/agent state change — reload board data.
+		cmds = append(cmds, a.board.Init())
+		if a.cardUpdateSub != nil {
+			cmds = append(cmds, a.listenCardUpdates())
+		}
+		return a, tea.Batch(cmds...)
+
 	case boardRefreshMsg:
 		cmd := a.board.Init()
 		return a, cmd
@@ -380,17 +408,22 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		// Enrich cards with active agent indicators
+		// Enrich cards with active agent indicators and activity states
 		if a.agentSvc != nil {
 			agents, err := a.agentSvc.ListAgents(context.Background())
 			if err == nil {
 				active := make(map[string]bool, len(agents))
+				states := make(map[string]string, len(agents))
 				for _, ag := range agents {
 					if ag.Status == "running" {
 						active[ag.TaskID] = true
+						if ag.Activity != "" {
+							states[ag.TaskID] = ag.Activity
+						}
 					}
 				}
 				a.board.SetActiveAgents(active)
+				a.board.SetAgentStates(states)
 			}
 		}
 		// Apply pending navigation (e.g. after task creation)

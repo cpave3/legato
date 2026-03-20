@@ -47,6 +47,13 @@ func (s *Store) UpdateAgentSessionStatus(ctx context.Context, taskID string, sta
 	return err
 }
 
+func (s *Store) UpdateAgentActivity(ctx context.Context, taskID string, activity string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE agent_sessions SET activity = ?
+		WHERE task_id = ? AND status = 'running'`, activity, taskID)
+	return err
+}
+
 func (s *Store) DeleteDeadAgentSessions(ctx context.Context, taskID string) error {
 	_, err := s.db.ExecContext(ctx, `
 		DELETE FROM agent_sessions WHERE task_id = ? AND status != 'running'`, taskID)

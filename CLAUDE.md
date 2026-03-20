@@ -45,16 +45,19 @@ task check                 # build + test + vet + lint
 - `internal/engine/events/` — Channel-based event bus with buffered pub/sub (buffer size 64, non-blocking drops on full), error event types (`EventSyncError`, `EventTransitionFailed`, `EventAuthFailed`, `EventRateLimited`) with `ErrorPayload` struct
 - `internal/engine/jira/` — Jira REST API v3 client (types, HTTP client with Basic Auth/backoff, ADF-to-Markdown converter), plus `Provider` adapter
 - `internal/engine/tmux/` — Tmux session manager: spawn, kill, capture-pane, attach, list/filter legato-prefixed sessions. LookPath-injectable for testing.
-- `internal/service/` — BoardService (columns/cards CRUD + CreateTask), SyncService (pull/push with conflict resolution, provider→task conversion), AgentService (tmux session lifecycle + SQLite tracking), `TicketProvider` interface for pluggable backends
-- `internal/setup/` — Setup wizard logic: first-run detection, credential validation, project/status discovery, column mapping heuristics, config writing
+- `internal/service/` — BoardService (columns/cards CRUD + CreateTask + DeleteTask), SyncService (pull/push with conflict resolution, provider→task conversion, SearchRemote + ImportRemoteTask), AgentService (tmux session lifecycle + SQLite tracking), `TicketProvider` interface for pluggable backends
+- `internal/setup/` — Setup wizard logic: first-run column seeding, interactive Jira configuration (credential validation, project/status discovery, column mapping heuristics, config writing), `ColumnSeeder` interface for testability
 - `internal/tui/` — Root Bubbletea app model, view routing (viewBoard/viewDetail/viewAgents), overlay state management (`overlayType` enum + `activeOverlay tea.Model`), EventBus bridge
 - `internal/tui/agents/` — Agent split-view: sidebar with agent list + terminal output panel, j/k navigation, spawn/kill/attach keybindings, capture-pane polling at 200ms
 - `internal/tui/board/` — Kanban board model with vim navigation, card/column rendering, agent indicator (`▶` prefix)
 - `internal/tui/detail/` — Full-screen task detail view with Glamour markdown, metadata header (provider-specific fields from RemoteMeta), viewport scrolling
 - `internal/tui/clipboard/` — OS-native clipboard (pbcopy/wl-copy/xclip/xsel) and browser open (open/xdg-open)
-- `internal/tui/overlay/` — Overlay system: shared `RenderPanel`, move overlay (single-letter shortcuts), search overlay (real-time filtering via `BoardService.SearchCards`), create overlay (inline task creation with title/column/priority), help overlay (keybinding reference)
+- `internal/tui/overlay/` — Overlay system: shared `RenderPanel`, move overlay (single-letter shortcuts), search overlay (real-time filtering via `BoardService.SearchCards`), create overlay (inline task creation with title/column/priority), delete overlay (confirmation with remote/local distinction), import overlay (remote ticket search + import via `SyncService.SearchRemote`), help overlay (keybinding reference)
 - `internal/tui/statusbar/` — Status bar with sync state, relative time, key hints, warnings, error messages (auto-clear on sync success)
-- `internal/tui/theme/` — Lipgloss color palette and style constants
+- `internal/tui/theme/` — Lipgloss color palette, style constants, and icon system (`icons.go`: `NewIcons("unicode"|"nerdfonts")` for provider/agent/warning glyphs)
+- `internal/engine/ipc/` — Unix domain socket IPC: `Server` (listens, parses newline-delimited JSON, calls callback), `Send` (client, silent on missing socket), `Broadcast` (sends to all `*.sock` in `SocketDir()`), `SocketPath()` (PID-based, XDG_RUNTIME_DIR with /tmp fallback), `Message` struct (type/task_id/status/content)
+- `internal/engine/hooks/` — AI tool hook script generation. `ClaudeCodeAdapter` implements `service.AIToolAdapter`: generates shell scripts for `.claude/hooks/`, merges/removes entries in `.claude/settings.json`
+- `internal/cli/` — CLI subcommand handlers: `TaskUpdate` (move task to column, case-insensitive status), `TaskNote` (append timestamped note), `AgentState` (update agent activity). All broadcast IPC to all running instances. Used by `cmd/legato/` subcommand dispatch.
 - `internal/server/` — Minimal HTTP server wrapping `BoardService` with `GET /health` endpoint returning board state as JSON
 - `config/` — YAML config parser with env var expansion (`os.ExpandEnv`) and XDG path resolution
 
@@ -75,6 +78,7 @@ task check                 # build + test + vet + lint
 - Config file location: `$LEGATO_CONFIG` > `$XDG_CONFIG_HOME/legato/config.yaml` > `~/.config/legato/config.yaml`
 - Missing config file returns defaults (no error) — app starts without config for initial setup
 - Env vars expanded before YAML parsing: `${LEGATO_JIRA_TOKEN}` works in config values
+- `icons` field: `"unicode"` (default) or `"nerdfonts"` for Nerd Font glyphs on cards
 
 ## Provider Architecture
 
@@ -91,6 +95,9 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 - **Push**: local SQLite update first (non-blocking), then async remote transition; skipped for local tasks (provider=NULL); failure logs to `sync_log` and preserves local column
 - **Conflict resolution**: local wins within 5-minute window of `local_move_at` (stored in remote_meta); after window, remote state accepted on next pull
 - **Scheduler**: configurable interval (default 60s), publishes SyncStarted/SyncCompleted/SyncFailed events
+- **SearchRemote**: builds JQL (`summary ~ "query" OR key = "query"` scoped to `projectKeys`), min 2-char query, `ORDER BY updated DESC`
+- **ImportRemoteTask**: fetches single ticket via `provider.GetTicket`, creates local task with provider metadata, skips if already tracked
+- **Wiring**: `main.go` creates Jira provider + sync service when config is present, runs initial sync + periodic scheduler, passes `SyncService` to TUI app
 
 ## Development Notes
 
@@ -107,20 +114,29 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 - Glamour: must use `glamour.WithStyles(styles.DarkStyleConfig)`, NOT `WithAutoStyle()` — auto-style probes terminal background via stdin/stdout which deadlocks in bubbletea's alt-screen mode
 - Clipboard: `Copy()` uses `cmd.Start()` + `StdinPipe()`, NOT `cmd.Run()` — `wl-copy` on Wayland stays alive to serve paste requests, so `Run()` blocks forever
 - Detail view loads cards synchronously via `GetCard()` in the `OpenDetailMsg` handler (hits local SQLite, not remote API)
-- Overlay system: only one overlay active at a time — `overlayType` enum (`overlayNone/Move/Search/Help/Create`) + `activeOverlay tea.Model`; `?` opens help from any context (replaces active overlay); `esc` always dismisses
+- Overlay system: only one overlay active at a time — `overlayType` enum (`overlayNone/Move/Search/Help/Create/Delete/Import`) + `activeOverlay tea.Model`; `?` opens help from any context (replaces active overlay); `esc` always dismisses
 - Move overlay shortcuts: first letter of column name lowercased (`b`=Backlog, `r`=Ready, `d`=Doing, `v`=Review, `x`=Done); falls back to number keys on conflict
 - Search overlay: typing appends to query, produces `SearchQueryChangedMsg` → app calls `BoardService.SearchCards` → returns `SearchResultsMsg` → overlay updates results; `enter` closes overlay and calls `board.NavigateTo(cardID)`
 - Create overlay: `n` opens from board view; title input, tab cycles columns, ctrl+p cycles priority (none/low/medium/high); enter submits `CreateTaskMsg`, esc cancels
-- Card warning indicators: `CardData.Warning` bool → renders `!` prefix; sourced from `sync_log` where most recent entry for task is `push_failed`
+- Delete overlay: `d` from board, `D` from detail; shows task title, warns if remote-tracking ("removes local reference only"); `y` confirms, `n`/`esc` cancels. Confirm calls `BoardService.DeleteTask`, returns to board from detail view
+- Import overlay: `i` from board (no-op without SyncService); fixed-size panel (60% width, 10 result rows + scroll indicator); typing triggers `SyncService.SearchRemote` (min 2 chars); j/k navigates, enter imports via `SyncService.ImportRemoteTask`, esc cancels. Errors shown in red instead of silent "no results"
+- Card warning indicators: `CardData.Warning` bool → renders warning icon; sourced from `sync_log` where most recent entry for task is `push_failed`
 - Error event classification: sync service classifies errors by message content (auth/rate-limit/offline) and publishes typed events; app converts to `statusbar.ErrorMsg`
 - Server stub: `internal/server/` consumes `BoardService` interface only — no TUI imports, independently startable; tests use `httptest.NewRecorder`
 - Agent sessions: tmux sessions named `legato-<TASK_ID>`, tracked in `agent_sessions` SQLite table (task_id column). Tmux manager (`internal/engine/tmux/`) uses `exec.LookPath` injection for testability. Integration tests skip when tmux not installed (`skipWithoutTmux`). SpawnAgent verifies tmux session is actually alive before returning "already running" error (prevents stale DB state)
 - Agent service tests use `mockTmux` implementing `TmuxManager` interface + real SQLite — same pattern as sync service with `mockProvider`
 - Agent view: `viewAgents` enum value, toggled via `A` key from board. `agents.Model.Update` returns `(Model, tea.Cmd)` (concrete type, same as board — not `tea.Model`). Polling via `agentTickMsg` at 200ms; capture output forwarded as `CaptureOutputMsg`
 - Agent attach: `tea.ExecProcess` suspends bubbletea, runs `tmux attach-session` with escape key set to `Ctrl+]` (configurable via `agents.escape_key` in config). On detach, refreshes agent list
-- Agent card indicator: `CardData.AgentActive` bool → renders `▶` prefix on board cards with active agents
+- Agent card indicator: `CardData.AgentActive` bool → renders terminal icon on board cards with active agents. Populated by app querying `AgentService.ListAgents()` on `DataLoadedMsg`, not by BoardService
 - Data model: provider-agnostic `tasks` table with nullable `provider`/`remote_id`/`remote_meta` for synced tasks. `Card.Title` (not Summary), `CardDetail.RemoteMeta` map for provider-specific fields. `service.Card.IssueType` extracted from remote_meta at read time
 - Local task creation: `BoardService.CreateTask(title, column, priority)` generates 8-char alphanumeric ID, inserts task, publishes refresh event
+- Task deletion: `BoardService.DeleteTask(id)` verifies existence, deletes from store, publishes `EventCardsRefreshed`. Works for both local and remote-tracking tasks (remote-tracking only removes local ref)
+- Provider icons: cards show provider icon before key (◈ Jira, ◉ GitHub, ● local). Configurable via `icons` config field (`"unicode"` default, `"nerdfonts"` for Nerd Font glyphs). `theme.NewIcons(mode)` returns icon set, passed through `NewApp` → `board.New` → `RenderCard`
+- Board rendering: colored column header bars (column accent colors), cards with priority-colored left borders, subtle card backgrounds (#252540), gap between columns, margin between cards. Selected cards use dark-on-light colors for readability
+- First-run setup: `main.go` checks if `column_mappings` is empty, runs `setup.RunWizard()` which seeds default columns and optionally configures Jira interactively. Uses `ColumnSeeder` interface (backed by `StoreAdapter`) for testability
+- Jira client: uses `/rest/api/3/search/jql` endpoint (not the removed `/rest/api/3/search`)
+- `NewSyncService` takes `projectKeys []string` for scoping remote searches
+- `NewApp` takes `SyncService` (nil-safe) and `theme.Icons`; `board.New` takes `theme.Icons`
 
 ## Build Plan
 
@@ -132,3 +148,37 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 4. ~~Jira Integration~~ (complete)
 5. ~~Detail View & Clipboard~~ (complete)
 6. ~~Polish~~ (complete) — overlays (search/move/help), error handling, server stub
+
+## CLI Subcommands
+
+`legato` binary supports subcommand dispatch alongside the default TUI mode:
+
+- `legato` (no args) — launches TUI (existing behavior)
+- `legato task update <task-id> --status <status>` — move task to column (case-insensitive status matching)
+- `legato task note <task-id> <message>` — append timestamped note to task description
+- `legato agent state <task-id> --activity <working|waiting|"">` — update agent activity state on a card
+- `legato hooks install [--tool claude-code]` — install AI tool hooks in current project
+- `legato hooks uninstall [--tool claude-code]` — remove installed hooks
+
+CLI subcommands load only config+store+IPC client — no TUI, event bus, tmux, or sync service.
+
+## AI Tool Integration (Claude Code)
+
+Abstract adapter interface (`service.AIToolAdapter`) for pluggable AI tool integrations. Claude Code is the first implementation. **Hooks do NOT perform status/column transitions** — they only update visual activity state on cards.
+
+**Flow**: Legato spawns tmux session → injects `LEGATO_TASK_ID` env var via `tmux new-session -e` → Claude Code hooks fire on lifecycle events → hook scripts check `LEGATO_TASK_ID` → call `legato agent state` CLI → CLI updates `agent_sessions.activity` in SQLite + broadcasts IPC to all running instances → TUI event bus publishes `EventCardUpdated` → board refreshes card indicators
+
+**Agent activity states** (stored in `agent_sessions.activity` column):
+- `"working"` — Claude is actively processing (triggered by `UserPromptSubmit` hook)
+- `"waiting"` — Claude finished, waiting for user input (triggered by `Stop` hook)
+- `""` — no activity / cleared (triggered by `SessionEnd` hook)
+
+**Card indicators**: `AgentState` field on `CardData` drives three visual states: green spinning icon (working), blue diamond (waiting), dim terminal icon (agent alive but no activity). Rendered in `board/card.go`, populated via `board.SetAgentStates()` from app.go data loading.
+
+**Hook events mapped**: `UserPromptSubmit` → working, `Stop` → waiting, `SessionEnd` → clear. Scripts generated by `legato hooks install`, written to `.claude/hooks/legato-*.sh` (prompt-submit, stop, session-end), registered in `.claude/settings.json`.
+
+**IPC**: Each TUI instance creates a PID-based Unix domain socket at `$XDG_RUNTIME_DIR/legato/legato-<pid>.sock` (fallback `/tmp/legato-<uid>/legato-<pid>.sock`). Multiple instances coexist — CLI commands `Broadcast()` to all `*.sock` files in the directory. Protocol: newline-delimited JSON. Best-effort — CLI silently skips unreachable sockets. Message types: `task_update`, `task_note`, `agent_state`.
+
+**Adapter registration**: `AdapterRegistry` in service layer. Claude Code adapter in `internal/engine/hooks/claude_code.go`. `AgentServiceOptions` struct passes adapter + socket path to `NewAgentService` for env var injection on spawn.
+
+**Migration**: `006_agent_activity.sql` adds `activity TEXT NOT NULL DEFAULT ''` column to `agent_sessions` table.

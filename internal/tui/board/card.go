@@ -13,7 +13,8 @@ type CardData struct {
 	IssueType   string
 	Provider    string // "jira", "github", or "" for local
 	Warning     bool
-	AgentActive bool
+	AgentActive bool   // true if any agent session is running for this task
+	AgentState  string // "working", "waiting", or "" (idle/no agent)
 }
 
 // RenderCard renders a single card with the given parameters.
@@ -50,11 +51,20 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 		warningPrefix = warningStyle.Render(icons.Warning) + " "
 	}
 
-	// Agent running indicator
+	// Agent activity indicator
 	agentPrefix := ""
-	if card.AgentActive {
+	switch card.AgentState {
+	case "working":
 		agentStyle := lipgloss.NewStyle().Foreground(theme.SyncOK).Bold(true)
-		agentPrefix = agentStyle.Render(icons.Terminal) + " "
+		agentPrefix = agentStyle.Render(icons.AgentWorking+" RUNNING") + " "
+	case "waiting":
+		agentStyle := lipgloss.NewStyle().Foreground(theme.ColReady).Bold(true)
+		agentPrefix = agentStyle.Render(icons.AgentWaiting+" WAITING") + " "
+	default:
+		if card.AgentActive {
+			agentStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
+			agentPrefix = agentStyle.Render(icons.Terminal+" IDLE") + " "
+		}
 	}
 
 	// Key line: styled dimmer than title for hierarchy

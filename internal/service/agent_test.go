@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -13,20 +14,34 @@ import (
 type mockTmux struct {
 	sessions map[string]bool
 	captures map[string]string
+	envVars  map[string]map[string]string // session -> key -> value
 }
 
 func newMockTmux() *mockTmux {
 	return &mockTmux{
 		sessions: make(map[string]bool),
 		captures: make(map[string]string),
+		envVars:  make(map[string]map[string]string),
 	}
 }
 
-func (m *mockTmux) Spawn(name, workDir string) error {
+func (m *mockTmux) Spawn(name, workDir string, envVars ...string) error {
 	if m.sessions[name] {
 		return fmt.Errorf("session %s already exists", name)
 	}
 	m.sessions[name] = true
+	// Store env vars passed at spawn time.
+	if len(envVars) > 0 {
+		if m.envVars[name] == nil {
+			m.envVars[name] = make(map[string]string)
+		}
+		for _, e := range envVars {
+			parts := strings.SplitN(e, "=", 2)
+			if len(parts) == 2 {
+				m.envVars[name][parts[0]] = parts[1]
+			}
+		}
+	}
 	return nil
 }
 
@@ -59,6 +74,17 @@ func (m *mockTmux) ListSessions() ([]string, error) {
 
 func (m *mockTmux) IsAlive(name string) (bool, error) {
 	return m.sessions[name], nil
+}
+
+func (m *mockTmux) SetEnv(sessionName, key, value string) error {
+	if !m.sessions[sessionName] {
+		return fmt.Errorf("session %s not found", sessionName)
+	}
+	if m.envVars[sessionName] == nil {
+		m.envVars[sessionName] = make(map[string]string)
+	}
+	m.envVars[sessionName][key] = value
+	return nil
 }
 
 func newTestAgentService(t *testing.T) (AgentService, *store.Store, *mockTmux) {
@@ -261,6 +287,64 @@ func TestCaptureOutputReturnsContent(t *testing.T) {
 	}
 	if output != "hello world\n$ " {
 		t.Errorf("output = %q, want %q", output, "hello world\n$ ")
+	}
+}
+
+type testAdapter struct{}
+
+func (a *testAdapter) Name() string                                    { return "test-tool" }
+func (a *testAdapter) InstallHooks(projectDir string) error            { return nil }
+func (a *testAdapter) UninstallHooks(projectDir string) error          { return nil }
+func (a *testAdapter) EnvVars(taskID, socketPath string) map[string]string {
+	return map[string]string{
+		"LEGATO_TASK_ID": taskID,
+	}
+}
+
+func TestSpawnAgentInjectsEnvVarsWhenAdapterConfigured(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+		Adapter:    &testAdapter{},
+		SocketPath: "/tmp/legato.sock",
+	})
+
+	ctx := context.Background()
+	createTask(t, s, "task1")
+
+	if err := svc.SpawnAgent(ctx, "task1"); err != nil {
+		t.Fatal(err)
+	}
+
+	envs := mt.envVars["legato-task1"]
+	if envs == nil {
+		t.Fatal("no env vars set on tmux session")
+	}
+	if envs["LEGATO_TASK_ID"] != "task1" {
+		t.Errorf("LEGATO_TASK_ID = %q, want %q", envs["LEGATO_TASK_ID"], "task1")
+	}
+	if _, ok := envs["LEGATO_SOCKET"]; ok {
+		t.Error("LEGATO_SOCKET should not be set (CLI uses broadcast)")
+	}
+}
+
+func TestSpawnAgentSkipsEnvVarsWithoutAdapter(t *testing.T) {
+	svc, s, mt := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "task2")
+
+	if err := svc.SpawnAgent(ctx, "task2"); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(mt.envVars["legato-task2"]) != 0 {
+		t.Errorf("expected no env vars without adapter, got %v", mt.envVars["legato-task2"])
 	}
 }
 

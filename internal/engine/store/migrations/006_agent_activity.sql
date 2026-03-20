@@ -1,0 +1,1 @@
+ALTER TABLE agent_sessions ADD COLUMN activity TEXT NOT NULL DEFAULT '';

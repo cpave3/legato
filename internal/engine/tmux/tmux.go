@@ -44,8 +44,13 @@ func New(opts Options) (*Manager, error) {
 }
 
 // Spawn creates a new detached tmux session with the given name and working directory.
-func (m *Manager) Spawn(name, workDir string) error {
-	cmd := exec.Command(m.tmuxPath, "new-session", "-d", "-s", name, "-c", workDir)
+// Optional env vars are injected via -e flags so the initial shell inherits them.
+func (m *Manager) Spawn(name, workDir string, envVars ...string) error {
+	args := []string{"new-session", "-d", "-s", name, "-c", workDir}
+	for _, e := range envVars {
+		args = append(args, "-e", e)
+	}
+	cmd := exec.Command(m.tmuxPath, args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("tmux new-session: %s: %w", strings.TrimSpace(string(out)), err)
 	}
@@ -123,6 +128,16 @@ func (m *Manager) IsAlive(name string) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("tmux has-session: %w", err)
+}
+
+// SetEnv sets an environment variable in the given tmux session.
+// The variable will be available to new processes started in the session.
+func (m *Manager) SetEnv(sessionName, key, value string) error {
+	cmd := exec.Command(m.tmuxPath, "set-environment", "-t", sessionName, key, value)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("tmux set-environment: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
 }
 
 func (m *Manager) isNotFoundError(name string) bool {
