@@ -118,9 +118,9 @@ When you spawn an agent from Legato (`a` on a card), the tmux session gets a `LE
 
 | Card indicator | Meaning | Triggered by |
 |---|---|---|
-| `⟳ RUNNING` (green) | Claude is working | `UserPromptSubmit` hook |
-| `◆ WAITING` (blue) | Claude is waiting for input | `Stop` hook |
-| `▶ IDLE` (dim) | Agent session running, no activity yet | tmux session alive |
+| `⟳ RUNNING` (green) | Claude is actively working | `UserPromptSubmit` / `PostToolUse` hooks |
+| `◆ WAITING` (blue) | Claude needs your approval | `PermissionRequest` hook |
+| `▶ IDLE` (dim) | Agent session alive, not working | `Stop` hook / default |
 
 Hooks only fire inside Legato-spawned tmux sessions — they're no-ops elsewhere.
 
