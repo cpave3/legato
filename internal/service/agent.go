@@ -59,6 +59,7 @@ type agentService struct {
 	adapter     AIToolAdapter
 	socketPath  string
 	tmuxOptions map[string]string
+	prSvc       PRTrackingService
 }
 
 // AgentServiceOptions configures optional AI tool integration for agent sessions.
@@ -66,6 +67,7 @@ type AgentServiceOptions struct {
 	Adapter     AIToolAdapter
 	SocketPath  string
 	TmuxOptions map[string]string
+	PRService   PRTrackingService
 }
 
 // NewAgentService creates an AgentService.
@@ -75,6 +77,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.adapter = opts[0].Adapter
 		svc.socketPath = opts[0].SocketPath
 		svc.tmuxOptions = opts[0].TmuxOptions
+		svc.prSvc = opts[0].PRService
 	}
 	return svc
 }
@@ -127,6 +130,13 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		// Roll back tmux session on DB failure
 		a.tmux.Kill(sessionName)
 		return fmt.Errorf("recording agent session: %w", err)
+	}
+
+	// Auto-link git branch to task for PR tracking (best-effort)
+	if a.prSvc != nil {
+		if svc, ok := a.prSvc.(*prTrackingService); ok {
+			go svc.AutoLinkBranch(ctx, taskID)
+		}
 	}
 
 	return nil

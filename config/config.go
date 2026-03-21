@@ -17,7 +17,12 @@ type Config struct {
 	Keybindings KeybindingsConfig `yaml:"keybindings"`
 	DB          DBConfig          `yaml:"db"`
 	Agents      AgentsConfig      `yaml:"agents"`
+	GitHub      GitHubConfig      `yaml:"github"`
 	Workspaces  []WorkspaceConfig `yaml:"workspaces"`
+}
+
+type GitHubConfig struct {
+	PollIntervalSeconds int `yaml:"poll_interval_seconds"`
 }
 
 type WorkspaceConfig struct {
@@ -150,6 +155,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Agents.EscapeKey == "" {
 		cfg.Agents.EscapeKey = "ctrl+]"
+	}
+	if cfg.GitHub.PollIntervalSeconds == 0 {
+		cfg.GitHub.PollIntervalSeconds = 60
 	}
 	// VimMode defaults to true — yaml unmarshals missing bool as false,
 	// so we only set it if the entire keybindings section was absent.

@@ -305,7 +305,10 @@ func (m Model) copyContext(format service.ExportFormat, successMsg string) (tea.
 
 func (m Model) openURL() (tea.Model, tea.Cmd) {
 	url := ""
-	if m.card != nil && m.card.RemoteMeta != nil {
+	// Check PR URL first, then remote provider URL
+	if m.card != nil && m.card.PRMeta != nil && m.card.PRMeta.PRURL != "" {
+		url = m.card.PRMeta.PRURL
+	} else if m.card != nil && m.card.RemoteMeta != nil {
 		url = m.card.RemoteMeta["url"]
 	}
 	if url == "" {
@@ -398,6 +401,42 @@ func (m Model) renderHeader() string {
 		}
 		addMeta("Labels", m.card.RemoteMeta["labels"])
 		addMeta("URL", m.card.RemoteMeta["url"])
+	}
+
+	// PR status section
+	if m.card.PRMeta != nil {
+		pr := m.card.PRMeta
+		if pr.PRNumber > 0 {
+			prLabel := fmt.Sprintf("#%d", pr.PRNumber)
+			if pr.IsDraft {
+				prLabel += " Draft"
+			}
+			if pr.State == "MERGED" {
+				prLabel += " Merged"
+			}
+			addMeta("PR", prLabel)
+			switch pr.ReviewDecision {
+			case "APPROVED":
+				addMeta("Review", "Approved")
+			case "CHANGES_REQUESTED":
+				addMeta("Review", "Changes Requested")
+			case "REVIEW_REQUIRED":
+				addMeta("Review", "Review Required")
+			}
+			switch pr.CheckStatus {
+			case "pass":
+				addMeta("CI", "Passing")
+			case "fail":
+				addMeta("CI", "Failing")
+			case "pending":
+				addMeta("CI", "Pending")
+			}
+			if pr.CommentCount > 0 {
+				addMeta("Comments", fmt.Sprintf("%d", pr.CommentCount))
+			}
+		} else if pr.Branch != "" {
+			addMeta("Branch", pr.Branch+" — No PR found")
+		}
 	}
 
 	metaLine := lipgloss.NewStyle().Padding(0, 1).Render(strings.Join(metaParts, "  "))

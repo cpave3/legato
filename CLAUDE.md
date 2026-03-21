@@ -44,20 +44,21 @@ task check                 # build + test + vet + lint
 - `internal/engine/store/` — SQLite store with embedded migrations, task/column mapping/sync log CRUD, task ID generation, state interval tracking (`RecordStateTransition`, `GetStateDurations`, `GetStateDurationsBatch`)
 - `internal/engine/events/` — Channel-based event bus with buffered pub/sub (buffer size 64, non-blocking drops on full), error event types (`EventSyncError`, `EventTransitionFailed`, `EventAuthFailed`, `EventRateLimited`) with `ErrorPayload` struct
 - `internal/engine/jira/` — Jira REST API v3 client (types, HTTP client with Basic Auth/backoff, ADF-to-Markdown converter), plus `Provider` adapter
+- `internal/engine/github/` — GitHub PR status client via `gh` CLI: `FetchPRStatus` (single branch), `BatchFetchPRStatus` (concurrent fan-out with semaphore(5)), `DetectRepo`/`DetectBranch` (git remote/branch detection), `FetchCommentCount` (via `gh api`), `deriveCheckStatus` (CI rollup aggregation). LookPath + ExecCommand injectable for testing.
 - `internal/engine/tmux/` — Tmux session manager: spawn, kill, capture-pane, attach, set-option, list/filter legato-prefixed sessions, `PaneCommands()` (batch query live foreground process names via `tmux list-panes -a -f`). LookPath-injectable for testing.
-- `internal/service/` — BoardService (columns/cards CRUD + CreateTask + DeleteTask + UpdateTaskDescription + UpdateTaskTitle + UpdateTaskWorkspace + ListCardsByWorkspace + ListWorkspaces + ArchiveDoneCards + ArchiveTask + CountDoneCards), SyncService (pull/push with conflict resolution, provider→task conversion, SearchRemote + ImportRemoteTask), AgentService (tmux session lifecycle + SQLite tracking + dynamic pane command population + task title enrichment + state duration queries via `GetTaskDurations`), `TicketProvider` interface for pluggable backends, `SeedWorkspaces` (config→DB workspace seeding)
+- `internal/service/` — BoardService (columns/cards CRUD + CreateTask + DeleteTask + UpdateTaskDescription + UpdateTaskTitle + UpdateTaskWorkspace + ListCardsByWorkspace + ListWorkspaces + ArchiveDoneCards + ArchiveTask + CountDoneCards), SyncService (pull/push with conflict resolution, provider→task conversion, SearchRemote + ImportRemoteTask), AgentService (tmux session lifecycle + SQLite tracking + dynamic pane command population + task title enrichment + state duration queries via `GetTaskDurations`), PRTrackingService (branch-to-task linking, periodic PR status polling via `gh` CLI, auto-link on agent spawn), `TicketProvider` interface for pluggable backends, `SeedWorkspaces` (config→DB workspace seeding)
 - `internal/setup/` — Setup wizard logic: first-run column seeding, interactive Jira configuration (credential validation, project/status discovery, column mapping heuristics, config writing), `ColumnSeeder` interface for testability
 - `internal/tui/` — Root Bubbletea app model, view routing (viewBoard/viewDetail/viewAgents), overlay state management (`overlayType` enum + `activeOverlay tea.Model`), EventBus bridge
 - `internal/tui/agents/` — Agent split-view: sidebar with agent list (status, task ID, title, command per entry) + terminal output panel, j/k navigation, spawn/kill/attach keybindings, capture-pane polling at 200ms
 - `internal/tui/board/` — Kanban board model with vim navigation, card/column rendering, agent status line with duration display
 - `internal/tui/detail/` — Full-screen task detail view with Glamour markdown, metadata header (provider-specific fields from RemoteMeta), viewport scrolling, `e` to edit description via `$EDITOR` (local tasks), `t` to edit title via overlay (local tasks)
 - `internal/tui/clipboard/` — OS-native clipboard (pbcopy/wl-copy/xclip/xsel) and browser open (open/xdg-open)
-- `internal/tui/overlay/` — Overlay system: shared `RenderPanel`, move overlay (single-letter shortcuts, `w` transitions to workspace assignment), search overlay (real-time filtering via `BoardService.SearchCards`), create overlay (inline task creation with title/description/column/priority/workspace), delete overlay (confirmation with remote/local distinction), import overlay (remote ticket search + import via `SyncService.SearchRemote`), title edit overlay (pre-filled text input for local tasks), workspace overlay (board view filter), move-workspace overlay (task workspace assignment), archive overlay (bulk archive done cards with count + confirmation), help overlay (keybinding reference)
+- `internal/tui/overlay/` — Overlay system: shared `RenderPanel`, move overlay (single-letter shortcuts, `w` transitions to workspace assignment), search overlay (real-time filtering via `BoardService.SearchCards`), create overlay (inline task creation with title/description/column/priority/workspace), delete overlay (confirmation with remote/local distinction), import overlay (remote ticket search + import via `SyncService.SearchRemote`), title edit overlay (pre-filled text input for local tasks), workspace overlay (board view filter), move-workspace overlay (task workspace assignment), archive overlay (bulk archive done cards with count + confirmation), link PR overlay (two-phase: repo+number input → preview → confirm), help overlay (keybinding reference)
 - `internal/tui/statusbar/` — Status bar with sync state, relative time, key hints, warnings, error messages (auto-clear on sync success)
 - `internal/tui/theme/` — Lipgloss color palette, style constants, and icon system (`icons.go`: `NewIcons("unicode"|"nerdfonts")` for provider/agent/warning glyphs)
 - `internal/engine/ipc/` — Unix domain socket IPC: `Server` (listens, parses newline-delimited JSON, calls callback), `Send` (client, silent on missing socket), `Broadcast` (sends to all `*.sock` in `SocketDir()`), `SocketPath()` (PID-based, XDG_RUNTIME_DIR with /tmp fallback), `Message` struct (type/task_id/status/content)
-- `internal/engine/hooks/` — AI tool hook script generation. `ClaudeCodeAdapter` implements `service.AIToolAdapter`: generates shell scripts for `.claude/hooks/`, merges/removes entries in `.claude/settings.json`
-- `internal/cli/` — CLI subcommand handlers: `TaskUpdate` (move task to column, case-insensitive status), `TaskNote` (append timestamped note), `AgentState` (update agent activity). All broadcast IPC to all running instances. Used by `cmd/legato/` subcommand dispatch.
+- `internal/engine/hooks/` — AI tool hook script generation. `ClaudeCodeAdapter` implements `service.AIToolAdapter`: generates shell scripts for `.claude/hooks/`, merges/removes entries in `.claude/settings.json`. `StaccatoAdapter`: generates `post-pr-create` hook at `~/.config/staccato/hooks/post-pr-create/legato-pr-link.sh` (directory-based, no config file)
+- `internal/cli/` — CLI subcommand handlers: `TaskUpdate` (move task to column, case-insensitive status), `TaskNote` (append timestamped note), `AgentState` (update agent activity), `TaskLink` (link branch/repo to task for PR tracking), `TaskUnlink` (remove PR association). All broadcast IPC to all running instances. Used by `cmd/legato/` subcommand dispatch.
 - `internal/server/` — Minimal HTTP server wrapping `BoardService` with `GET /health` endpoint returning board state as JSON
 - `config/` — YAML config parser with env var expansion (`os.ExpandEnv`) and XDG path resolution
 
@@ -67,12 +68,12 @@ task check                 # build + test + vet + lint
 - Migrations embedded via `embed.FS`, tracked with `PRAGMA user_version`
 - WAL mode enabled, foreign keys ON
 - Schema: `tasks`, `column_mappings`, `sync_log`, `agent_sessions`, `state_intervals`, `workspaces` tables
-- `tasks` table: core fields (id, title, description, description_md, status, priority, sort_order, workspace_id, archived_at, created_at, updated_at) + nullable provider link (provider, remote_id, remote_meta JSON). `archived_at` is nullable DATETIME — NULL means active, non-NULL means archived (hidden from board but retained in DB)
+- `tasks` table: core fields (id, title, description, description_md, status, priority, sort_order, workspace_id, archived_at, created_at, updated_at) + nullable provider link (provider, remote_id, remote_meta JSON) + nullable `pr_meta` TEXT (JSON with branch, pr_number, pr_url, state, is_draft, review_decision, check_status, comment_count, updated_at). `archived_at` is nullable DATETIME — NULL means active, non-NULL means archived (hidden from board but retained in DB)
 - `workspaces` table: id (INTEGER PRIMARY KEY), name (TEXT UNIQUE), color (TEXT), sort_order (INTEGER)
 - Local tasks: provider/remote_id/remote_meta are NULL. Synced tasks: provider='jira', remote_id=Jira key, remote_meta=JSON with remote_status, issue_type, assignee, labels, etc.
 - Task IDs: 8-char lowercase alphanumeric (crypto/rand) for local tasks, provider IDs (e.g. REX-1234) for synced tasks
 - `agent_sessions` and `sync_log` reference `task_id` (not ticket_id)
-- Migrations: `001_init.sql` (base), `002_stale_and_move_tracking.sql`, `003_rename_jira_to_remote.sql`, `004_agent_sessions.sql`, `005_tasks.sql` (tickets→tasks migration with remote_meta JSON packing), `006_agent_activity.sql`, `007_state_intervals.sql`, `008_workspaces.sql` (workspaces table + tasks.workspace_id FK), `009_archive.sql` (archived_at column on tasks)
+- Migrations: `001_init.sql` (base), `002_stale_and_move_tracking.sql`, `003_rename_jira_to_remote.sql`, `004_agent_sessions.sql`, `005_tasks.sql` (tickets→tasks migration with remote_meta JSON packing), `006_agent_activity.sql`, `007_state_intervals.sql`, `008_workspaces.sql` (workspaces table + tasks.workspace_id FK), `009_archive.sql` (archived_at column on tasks), `010_pr_meta.sql` (pr_meta TEXT column on tasks)
 
 ## Config
 
@@ -83,6 +84,7 @@ task check                 # build + test + vet + lint
 - `editor` field: optional editor override for description editing (used by `config.ResolveEditor`)
 - `agents.tmux_options` field: map of tmux option key→value pairs applied to each spawned agent session via `tmux set-option` (e.g., `mouse: "on"`, `history-limit: "50000"`)
 - `workspaces` field: list of `{name, color}` objects defining workspaces. Seeded to DB on startup via `service.SeedWorkspaces`. Color is hex string (e.g. `"#4A9EEF"`)
+- `github.poll_interval_seconds` field: optional polling interval for PR status checks (default 60s). Requires `gh` CLI installed and authenticated.
 
 ## Provider Architecture
 
@@ -118,7 +120,7 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 - Glamour: must use `glamour.WithStyles(styles.DarkStyleConfig)`, NOT `WithAutoStyle()` — auto-style probes terminal background via stdin/stdout which deadlocks in bubbletea's alt-screen mode
 - Clipboard: `Copy()` uses `cmd.Start()` + `StdinPipe()`, NOT `cmd.Run()` — `wl-copy` on Wayland stays alive to serve paste requests, so `Run()` blocks forever
 - Detail view loads cards synchronously via `GetCard()` in the `OpenDetailMsg` handler (hits local SQLite, not remote API). `e` opens `$EDITOR` for description (local tasks only, via `tea.ExecProcess`), `t` opens title edit overlay (local tasks only). Status bar hints are conditional on `Provider == ""`
-- Overlay system: only one overlay active at a time — `overlayType` enum (`overlayNone/Move/Search/Help/Create/Delete/Import/TitleEdit/Workspace/MoveWorkspace/Archive`) + `activeOverlay tea.Model`; `?` opens help from any context (replaces active overlay); `esc` always dismisses
+- Overlay system: only one overlay active at a time — `overlayType` enum (`overlayNone/Move/Search/Help/Create/Delete/Import/TitleEdit/Workspace/MoveWorkspace/Archive/LinkPR`) + `activeOverlay tea.Model`; `?` opens help from any context (replaces active overlay); `esc` always dismisses
 - Move overlay shortcuts: first letter of column name lowercased (`b`=Backlog, `r`=Ready, `d`=Doing, `v`=Review, `x`=Done); falls back to number keys on conflict. `w` opens workspace assignment overlay (`MoveWorkspaceOverlay`) for the same task — lists "None" + workspaces, marks current, emits `WorkspaceAssignedMsg{TaskID, WorkspaceID}`. App calls `UpdateTaskWorkspace` on selection
 - Search overlay: typing appends to query, produces `SearchQueryChangedMsg` → app calls `BoardService.SearchCards` → returns `SearchResultsMsg` → overlay updates results; `enter` closes overlay and calls `board.NavigateTo(cardID)`
 - Create overlay: `n` opens from board view; title input + description input with `focusField` cycling (tab: title → column → workspace → description); `h`/`l` cycles columns/workspaces when focused, `ctrl+j` inserts newline in description, ctrl+p cycles priority (none/low/medium/high); workspace pre-filled with active workspace (None if All/Unassigned view); enter submits `CreateTaskMsg` (with description + workspaceID), esc cancels
@@ -147,7 +149,21 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 - First-run setup: `main.go` checks if `column_mappings` is empty, runs `setup.RunWizard()` which seeds default columns and optionally configures Jira interactively. Uses `ColumnSeeder` interface (backed by `StoreAdapter`) for testability
 - Jira client: uses `/rest/api/3/search/jql` endpoint (not the removed `/rest/api/3/search`)
 - `NewSyncService` takes `projectKeys []string` for scoping remote searches
-- `NewApp` takes `SyncService` (nil-safe), `theme.Icons`, `editor string` (resolved via `config.ResolveEditor`), and `[]service.Workspace` (loaded from DB); `board.New` takes `theme.Icons`; `detail.New`/`detail.NewLoading` take `editor string`
+- `NewApp` takes `SyncService` (nil-safe), `PRTrackingService` (nil-safe), `theme.Icons`, `editor string` (resolved via `config.ResolveEditor`), and `[]service.Workspace` (loaded from DB); `board.New` takes `theme.Icons`; `detail.New`/`detail.NewLoading` take `editor string`
+
+## GitHub PR Tracking
+
+Read-only PR enrichment orthogonal to ticket providers — any task (local or Jira-synced) can track a PR. Uses `gh` CLI (no token management, leverages existing auth). Graceful degradation if `gh` not installed.
+
+- **PR metadata**: stored as JSON in `tasks.pr_meta` column (separate from `remote_meta`). `store.PRMeta` struct with `MarshalPRMeta`/`ParsePRMeta` helpers. Fields: repo (owner/repo), branch, pr_number, pr_url, state, is_draft, review_decision, check_status, comment_count, updated_at
+- **GitHub client**: `internal/engine/github/` — `FetchPRStatus(branch, repo...)` shells out to `gh pr list --head <branch> [--repo owner/repo] --json ...`. `FetchPRByNumber(owner, repo, number)` fetches single PR via `gh api repos/{owner}/{repo}/pulls/{n}`. `BatchFetchPRStatusWithRepo(queries)` fans out with semaphore(5) and per-branch repo scoping. `Options` struct with injectable `LookPath` and `ExecCommand` for testing. `deriveCheckStatus` aggregates CI rollup (pass/fail/pending/""). `PRStatus.HeadBranch` populated by `FetchPRByNumber`
+- **PR tracking service**: `internal/service/pr_tracking.go` — `PRTrackingService` interface with `LinkBranch`, `LinkPR`, `UnlinkBranch`, `PollOnce`, `StartPolling`, `GetPRStatus`, `DetectRepo`, `FetchPRByNumber`. `LinkBranch` stores branch in `pr_meta` + triggers immediate fetch. `LinkPR(ctx, taskID, owner, repo, prNumber)` fetches full PR data by number and stores complete PRMeta (used by link overlay). `PollOnce` uses stored `PRMeta.Repo` for repo-scoped queries (works even when legato runs from a different directory). `StartPolling` returns stop func (same pattern as `SyncService.StartScheduler`). `AutoLinkBranch` detects git branch on agent spawn
+- **CLI**: `legato task link <id> [--branch <branch>] [--repo <owner/repo>]` and `legato task unlink <id>`. Auto-detects branch via `git rev-parse --abbrev-ref HEAD`. `--repo` stores owner/repo for repo-scoped polling. Broadcasts `pr_linked` IPC message
+- **Link PR overlay**: `p` from board opens two-phase overlay — input phase (repo + PR number fields, tab to cycle) → fetch → confirm phase (shows title/branch/state, `y` confirms, `n` cancels). Repo pre-filled from git remote if detectable. Calls `PRTrackingService.LinkPR` on confirm
+- **Board cards**: `CardData` includes `PRCheckStatus`, `PRReviewDecision`, `PRCommentCount`, `PRIsDraft`, `PRNumber`. `renderPRLine()` shows compact CI/review/comment indicators. `SetPRStates()` populates from `pr_meta` during `DataLoadedMsg`
+- **Detail view**: PR section in header shows PR number, review decision, CI status, comment count. "Branch: <name> — No PR found" when linked but no PR. `o` keybinding opens PR URL (prefers PR URL over provider URL)
+- **Events**: `EventPRStatusUpdated` published after poll detects changes. TUI subscribes and triggers board refresh. IPC `pr_linked` message also triggers refresh
+- **Auto-link**: `AgentService.SpawnAgent` calls `PRTrackingService.AutoLinkBranch` (best-effort, skips if already linked or not in git repo)
 
 ## Build Plan
 
@@ -168,8 +184,10 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 - `legato task update <task-id> --status <status>` — move task to column (case-insensitive status matching)
 - `legato task note <task-id> <message>` — append timestamped note to task description
 - `legato agent state <task-id> --activity <working|waiting|"">` — update agent activity state on a card
-- `legato hooks install [--tool claude-code]` — install AI tool hooks in current project
-- `legato hooks uninstall [--tool claude-code]` — remove installed hooks
+- `legato task link <task-id> [--branch <branch>] [--repo <owner/repo>]` — link a git branch to a task for PR tracking (auto-detects branch if `--branch` omitted, `--repo` enables repo-scoped polling)
+- `legato task unlink <task-id>` — remove branch/PR association from a task
+- `legato hooks install [--tool claude-code|staccato]` — install AI tool hooks (claude-code: `.claude/hooks/`, staccato: `~/.config/staccato/hooks/`)
+- `legato hooks uninstall [--tool claude-code|staccato]` — remove installed hooks
 
 CLI subcommands load only config+store+IPC client — no TUI, event bus, tmux, or sync service.
 
@@ -188,7 +206,7 @@ Abstract adapter interface (`service.AIToolAdapter`) for pluggable AI tool integ
 
 **Hook events mapped**: `UserPromptSubmit` → working, `Stop` → waiting, `SessionEnd` → clear. Scripts generated by `legato hooks install`, written to `.claude/hooks/legato-*.sh` (prompt-submit, stop, session-end), registered in `.claude/settings.json`.
 
-**IPC**: Each TUI instance creates a PID-based Unix domain socket at `$XDG_RUNTIME_DIR/legato/legato-<pid>.sock` (fallback `/tmp/legato-<uid>/legato-<pid>.sock`). Multiple instances coexist — CLI commands `Broadcast()` to all `*.sock` files in the directory. Protocol: newline-delimited JSON. Best-effort — CLI silently skips unreachable sockets. Message types: `task_update`, `task_note`, `agent_state`.
+**IPC**: Each TUI instance creates a PID-based Unix domain socket at `$XDG_RUNTIME_DIR/legato/legato-<pid>.sock` (fallback `/tmp/legato-<uid>/legato-<pid>.sock`). Multiple instances coexist — CLI commands `Broadcast()` to all `*.sock` files in the directory. Protocol: newline-delimited JSON. Best-effort — CLI silently skips unreachable sockets. Message types: `task_update`, `task_note`, `agent_state`, `pr_linked`.
 
 **Adapter registration**: `AdapterRegistry` in service layer. Claude Code adapter in `internal/engine/hooks/claude_code.go`. `AgentServiceOptions` struct passes adapter, socket path, and `TmuxOptions` to `NewAgentService` for env var injection and session configuration on spawn.
 
@@ -197,3 +215,11 @@ Abstract adapter interface (`service.AIToolAdapter`) for pluggable AI tool integ
 **State duration tracking**: `state_intervals` table records timestamped working/waiting intervals per task. `cli.AgentState()` calls both `store.UpdateAgentActivity()` and `store.RecordStateTransition()`. `ReconcileSessions()` closes orphaned intervals for dead agents. Durations computed at query time via SQL aggregation (including open intervals using `datetime('now')`). `Store.DB()` exposes underlying `*sqlx.DB` for advanced queries in tests.
 
 **Duration formatting**: `board.formatDuration(d)` returns `""` (zero), `"<1m"` (under 60s), `"Xm"` (under 1h), `"Xh Ym"` (1h+). `CardData.WorkingDuration`/`WaitingDuration` populated during `DataLoadedMsg` via `AgentService.GetTaskDurations()` batch query.
+
+## Staccato Integration
+
+`StaccatoAdapter` in `internal/engine/hooks/staccato.go` implements `AIToolAdapter`. Installs a `post-pr-create` hook at `~/.config/staccato/hooks/post-pr-create/legato-pr-link.sh` (staccato uses directory-based hooks, not config files).
+
+**Flow**: Staccato `post-pr-create` fires when browser opens to PR creation page (PR may not exist yet) → hook reads `LEGATO_TASK_ID` (injected by legato's tmux session) + `ST_REPO_PATH` + `ST_BRANCH` → detects owner/repo from git remote → calls `legato task link $LEGATO_TASK_ID --branch $ST_BRANCH --repo owner/repo` → IPC broadcast triggers immediate poll → background polling discovers PR when it actually exists.
+
+**Key detail**: staccato's `post-pr-create` fires on PR page open, not on actual PR creation. So the initial link only stores repo+branch (no PR number). The PR tracking service polls `gh pr list --head <branch> --repo <owner/repo>` until the PR materializes. This is why `PRMeta.Repo` is needed — legato may not be running from the same repo directory.

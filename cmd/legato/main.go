@@ -10,6 +10,7 @@ import (
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/events"
+	gh "github.com/cpave3/legato/internal/engine/github"
 	"github.com/cpave3/legato/internal/engine/hooks"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/jira"
@@ -48,7 +49,7 @@ func runCLI(args []string) int {
 
 func runTaskCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "usage: legato task [update|note] ...\n")
+		fmt.Fprintf(os.Stderr, "usage: legato task [update|note|link|unlink] ...\n")
 		return 1
 	}
 
@@ -70,9 +71,13 @@ func runTaskCmd(args []string) int {
 		return runTaskUpdate(db, args[1:])
 	case "note":
 		return runTaskNote(db, args[1:])
+	case "link":
+		return runTaskLink(db, args[1:])
+	case "unlink":
+		return runTaskUnlink(db, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown task command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato task [update|note] ...\n")
+		fmt.Fprintf(os.Stderr, "usage: legato task [update|note|link|unlink] ...\n")
 		return 1
 	}
 }
@@ -118,6 +123,52 @@ func runTaskNote(db *store.Store, args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
+	return 0
+}
+
+func runTaskLink(db *store.Store, args []string) int {
+	// Parse: legato task link <task-id> [--branch <branch>] [--repo <owner/repo>]
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "usage: legato task link <task-id> [--branch <branch>] [--repo <owner/repo>]\n")
+		return 1
+	}
+
+	taskID := args[0]
+	var branch, repo string
+	for i := 1; i < len(args)-1; i++ {
+		switch args[i] {
+		case "--branch":
+			branch = args[i+1]
+		case "--repo":
+			repo = args[i+1]
+		}
+	}
+
+	if err := cli.TaskLink(db, taskID, branch, repo); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	if branch == "" {
+		fmt.Println("Linked current branch to task", taskID)
+	} else {
+		fmt.Printf("Linked branch %q to task %s\n", branch, taskID)
+	}
+	return 0
+}
+
+func runTaskUnlink(db *store.Store, args []string) int {
+	// Parse: legato task unlink <task-id>
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "usage: legato task unlink <task-id>\n")
+		return 1
+	}
+
+	taskID := args[0]
+	if err := cli.TaskUnlink(db, taskID); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	fmt.Println("Unlinked branch from task", taskID)
 	return 0
 }
 
@@ -195,6 +246,7 @@ func runHooksCmd(args []string) int {
 		legatoBin = "legato" // fallback
 	}
 	registry.Register(hooks.NewClaudeCodeAdapter(legatoBin))
+	registry.Register(hooks.NewStaccatoAdapter(legatoBin))
 
 	adapter, err := registry.Get(tool)
 	if err != nil {
@@ -287,6 +339,11 @@ func runTUI() int {
 				Type: events.EventCardUpdated,
 				At:   time.Now(),
 			})
+		case "pr_linked":
+			bus.Publish(events.Event{
+				Type: events.EventPRStatusUpdated,
+				At:   time.Now(),
+			})
 		}
 	})
 	if ipcErr == nil {
@@ -305,6 +362,18 @@ func runTUI() int {
 		go syncSvc.Sync(context.Background())
 		stopSync := syncSvc.StartScheduler(context.Background())
 		defer stopSync()
+	}
+
+	// Set up GitHub PR tracking (gh CLI may not be installed — that's OK)
+	var prSvc service.PRTrackingService
+	ghClient, ghErr := gh.New(gh.Options{})
+	if ghErr == nil {
+		interval := time.Duration(cfg.GitHub.PollIntervalSeconds) * time.Second
+		prSvc = service.NewPRTrackingService(db, bus, ghClient, interval)
+		// Initial poll + periodic scheduler
+		go prSvc.PollOnce(context.Background())
+		stopPR := prSvc.StartPolling(context.Background())
+		defer stopPR()
 	}
 
 	// Set up agent service (tmux may not be installed — that's OK, agent features just won't work)
@@ -327,6 +396,7 @@ func runTUI() int {
 			Adapter:     ccAdapter,
 			SocketPath:  socketPath,
 			TmuxOptions: cfg.Agents.TmuxOptions,
+			PRService:   prSvc,
 		})
 	}
 
@@ -336,7 +406,7 @@ func runTUI() int {
 	// Load workspaces for TUI
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
 
-	app := tui.NewApp(boardSvc, syncSvc, agentSvc, icons, bus, editor, workspaces)
+	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, icons, bus, editor, workspaces)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -90,6 +92,94 @@ func AgentState(s *store.Store, taskID, activity string) error {
 	})
 
 	return nil
+}
+
+// TaskLink associates a git branch with a task's PR metadata.
+// If branch is empty, auto-detects the current git branch.
+// Broadcasts an IPC notification to all running Legato instances.
+func TaskLink(s *store.Store, taskID, branch, repo string) error {
+	ctx := context.Background()
+
+	task, err := s.GetTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("task %q not found", taskID)
+	}
+
+	if branch == "" {
+		var err error
+		branch, err = detectBranch()
+		if err != nil {
+			return fmt.Errorf("could not detect branch (use --branch flag): %w", err)
+		}
+	}
+
+	// Preserve existing PR metadata if already linked (don't overwrite enriched data).
+	meta := &store.PRMeta{Branch: branch, Repo: repo}
+	if task.PRMeta != nil {
+		existing, _ := store.ParsePRMeta(task.PRMeta)
+		if existing != nil && existing.PRNumber > 0 {
+			// Already has PR data — just update repo/branch if provided.
+			if repo != "" {
+				existing.Repo = repo
+			}
+			if branch != "" {
+				existing.Branch = branch
+			}
+			meta = existing
+		}
+	}
+
+	raw, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	rawStr := string(raw)
+
+	if err := s.UpdatePRMeta(ctx, taskID, &rawStr); err != nil {
+		return fmt.Errorf("linking branch: %w", err)
+	}
+
+	ipc.Broadcast(ipc.Message{
+		Type:   "pr_linked",
+		TaskID: taskID,
+		Status: branch,
+	})
+
+	return nil
+}
+
+// TaskUnlink removes the branch/PR association from a task.
+// Broadcasts an IPC notification to all running Legato instances.
+func TaskUnlink(s *store.Store, taskID string) error {
+	ctx := context.Background()
+
+	if _, err := s.GetTask(ctx, taskID); err != nil {
+		return fmt.Errorf("task %q not found", taskID)
+	}
+
+	if err := s.UpdatePRMeta(ctx, taskID, nil); err != nil {
+		return fmt.Errorf("unlinking branch: %w", err)
+	}
+
+	ipc.Broadcast(ipc.Message{
+		Type:   "pr_linked",
+		TaskID: taskID,
+	})
+
+	return nil
+}
+
+// detectBranch returns the current git branch name.
+func detectBranch() (string, error) {
+	out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("not in a git repository: %s", strings.TrimSpace(string(out)))
+	}
+	branch := strings.TrimSpace(string(out))
+	if branch == "" || branch == "HEAD" {
+		return "", fmt.Errorf("detached HEAD — cannot auto-detect branch")
+	}
+	return branch, nil
 }
 
 // resolveColumn finds the column name matching the given status (case-insensitive).

@@ -21,6 +21,7 @@ const (
 	EventTransitionFailed
 	EventAuthFailed
 	EventRateLimited
+	EventPRStatusUpdated
 )
 
 // ErrorPayload carries structured error information for error events.

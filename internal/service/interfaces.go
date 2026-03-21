@@ -7,6 +7,18 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
+// PRMetaView holds parsed PR metadata for display.
+type PRMetaView struct {
+	Branch         string
+	PRNumber       int
+	PRURL          string
+	State          string
+	IsDraft        bool
+	ReviewDecision string
+	CheckStatus    string
+	CommentCount   int
+}
+
 // ExportFormat defines the output format for card context export.
 type ExportFormat int
 
@@ -53,6 +65,7 @@ type CardDetail struct {
 	RemoteID      string
 	RemoteMeta    map[string]string
 	WorkspaceID   *int
+	PRMeta        *PRMetaView
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }

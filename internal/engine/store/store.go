@@ -66,7 +66,7 @@ func (s *Store) migrate() error {
 		return err
 	}
 
-	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql", "008_workspaces.sql", "009_archive.sql"}
+	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql", "008_workspaces.sql", "009_archive.sql", "010_pr_meta.sql"}
 
 	for i := version; i < len(migrations); i++ {
 		data, err := migrationsFS.ReadFile("migrations/" + migrations[i])
@@ -325,6 +325,32 @@ func (s *Store) ArchiveTask(ctx context.Context, id string) error {
 		// Task exists but already archived — no-op
 	}
 	return nil
+}
+
+// UpdatePRMeta sets the pr_meta JSON field for a task.
+func (s *Store) UpdatePRMeta(ctx context.Context, taskID string, prMeta *string) error {
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET pr_meta = ?, updated_at = datetime('now') WHERE id = ?",
+		prMeta, taskID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ListPRTrackedTasks returns all non-archived tasks that have pr_meta set.
+func (s *Store) ListPRTrackedTasks(ctx context.Context) ([]Task, error) {
+	var tasks []Task
+	err := s.db.SelectContext(ctx, &tasks,
+		"SELECT * FROM tasks WHERE pr_meta IS NOT NULL AND archived_at IS NULL ORDER BY id")
+	return tasks, err
 }
 
 // ArchiveTasksByStatus archives all non-archived tasks with the given status.

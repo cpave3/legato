@@ -40,6 +40,7 @@ const (
 	overlayWorkspace
 	overlayMoveWorkspace
 	overlayArchive
+	overlayLinkPR
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -81,13 +82,15 @@ type App struct {
 	width         int
 	height        int
 	pendingNav    string // card ID to navigate to after next board data load
+	prSvc         service.PRTrackingService
 	eventBus      *events.Bus
 	eventSub      <-chan events.Event
 	cardUpdateSub <-chan events.Event
+	prSub         <-chan events.Event
 }
 
 // NewApp creates a new root application model.
-func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace) App {
+func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace) App {
 	clip := clipboard.New()
 	b := board.New(svc, icons)
 	b.SetWorkspaces(workspaces)
@@ -95,6 +98,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		svc:       svc,
 		syncSvc:   syncSvc,
 		agentSvc:  agentSvc,
+		prSvc:     prSvc,
 		board:     b,
 		agentView: agents.New(icons),
 		statusBar: statusbar.New(),
@@ -106,6 +110,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 	if bus != nil {
 		app.eventSub = bus.Subscribe(events.EventSyncStarted)
 		app.cardUpdateSub = bus.Subscribe(events.EventCardUpdated)
+		app.prSub = bus.Subscribe(events.EventPRStatusUpdated)
 	}
 	return app
 }
@@ -118,6 +123,9 @@ func (a App) Init() tea.Cmd {
 	}
 	if a.cardUpdateSub != nil {
 		cmds = append(cmds, a.listenCardUpdates())
+	}
+	if a.prSub != nil {
+		cmds = append(cmds, a.listenPRUpdates())
 	}
 	// Clipboard availability check
 	if a.clip == nil || !a.clip.Available() {
@@ -152,6 +160,24 @@ func (a App) listenCardUpdates() tea.Cmd {
 			return nil
 		}
 		return cardUpdateMsg{}
+	}
+}
+
+// prUpdateMsg triggers a board data reload when PR status changes.
+type prUpdateMsg struct{}
+
+// listenPRUpdates returns a command that listens for EventPRStatusUpdated.
+func (a App) listenPRUpdates() tea.Cmd {
+	ch := a.prSub
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		_, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return prUpdateMsg{}
 	}
 }
 
@@ -363,6 +389,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case board.OpenImportMsg:
 		return a.openImportOverlay()
 
+	case board.OpenLinkPRMsg:
+		return a.openLinkPROverlay(msg.CardKey)
+
 	case overlay.ImportQueryChangedMsg:
 		return a.handleImportQuery(msg)
 
@@ -370,6 +399,29 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleImportSelected(msg)
 
 	case overlay.ImportCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
+	case overlay.LinkPRFetchMsg:
+		return a.handleLinkPRFetch(msg)
+
+	case overlay.LinkPRResultMsg:
+		if a.overlayType == overlayLinkPR {
+			lo := a.activeOverlay.(overlay.LinkPROverlay)
+			if msg.Err != "" {
+				lo = lo.SetError(msg.Err)
+			} else {
+				lo = lo.SetResult(msg.Status)
+			}
+			a.activeOverlay = lo
+		}
+		return a, nil
+
+	case overlay.LinkPRConfirmedMsg:
+		return a.handleLinkPRConfirmed(msg)
+
+	case overlay.LinkPRCancelledMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
 		return a, nil
@@ -451,6 +503,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, tea.Batch(cmds...)
 
+	case prUpdateMsg:
+		// PR status changed — reload board data.
+		cmds = append(cmds, a.board.Init())
+		if a.prSub != nil {
+			cmds = append(cmds, a.listenPRUpdates())
+		}
+		return a, tea.Batch(cmds...)
+
 	case boardRefreshMsg:
 		cmd := a.board.Init()
 		return a, cmd
@@ -495,6 +555,27 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 					a.board.SetDurations(boardDurations)
+				}
+			}
+		}
+		// Enrich cards with PR state indicators
+		if a.prSvc != nil {
+			if taskIDs := a.board.TaskIDs(); len(taskIDs) > 0 {
+				prStates := make(map[string]board.PRStateData)
+				for _, id := range taskIDs {
+					meta, err := a.prSvc.GetPRStatus(context.Background(), id)
+					if err == nil && meta != nil && meta.PRNumber > 0 {
+						prStates[id] = board.PRStateData{
+							CheckStatus:    meta.CheckStatus,
+							ReviewDecision: meta.ReviewDecision,
+							CommentCount:   meta.CommentCount,
+							IsDraft:        meta.IsDraft,
+							PRNumber:       meta.PRNumber,
+						}
+					}
+				}
+				if len(prStates) > 0 {
+					a.board.SetPRStates(prStates)
 				}
 			}
 		}
@@ -786,6 +867,50 @@ func (a App) handleImportSelected(msg overlay.ImportSelectedMsg) (tea.Model, tea
 		}
 		_ = card
 		// Return a board refresh by re-initializing board data
+		return boardRefreshMsg{}
+	}
+}
+
+func (a App) openLinkPROverlay(taskID string) (tea.Model, tea.Cmd) {
+	if a.prSvc == nil {
+		return a, nil
+	}
+	// Try to detect repo for pre-fill
+	defaultRepo := ""
+	if owner, repo, err := a.prSvc.DetectRepo(); err == nil {
+		defaultRepo = owner + "/" + repo
+	}
+	linkModel := overlay.NewLinkPR(taskID, defaultRepo, a.width, a.height)
+	a.activeOverlay = linkModel
+	a.overlayType = overlayLinkPR
+	return a, nil
+}
+
+func (a App) handleLinkPRFetch(msg overlay.LinkPRFetchMsg) (tea.Model, tea.Cmd) {
+	if a.prSvc == nil {
+		return a, nil
+	}
+	prSvc := a.prSvc
+	return a, func() tea.Msg {
+		status, err := prSvc.FetchPRByNumber(msg.Owner, msg.Repo, msg.PRNumber)
+		if err != nil {
+			return overlay.LinkPRResultMsg{Err: err.Error()}
+		}
+		return overlay.LinkPRResultMsg{Status: status}
+	}
+}
+
+func (a App) handleLinkPRConfirmed(msg overlay.LinkPRConfirmedMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	if a.prSvc == nil {
+		return a, nil
+	}
+	prSvc := a.prSvc
+	return a, func() tea.Msg {
+		if err := prSvc.LinkPR(context.Background(), msg.TaskID, msg.Owner, msg.Repo, msg.PRNumber); err != nil {
+			return statusbar.ErrorMsg{Text: "link PR failed: " + err.Error()}
+		}
 		return boardRefreshMsg{}
 	}
 }

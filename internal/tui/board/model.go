@@ -132,6 +132,11 @@ type OpenImportMsg struct{}
 // OpenWorkspaceMsg signals the app to open the workspace switcher overlay.
 type OpenWorkspaceMsg struct{}
 
+// OpenLinkPRMsg signals the app to open the link PR overlay.
+type OpenLinkPRMsg struct {
+	CardKey string
+}
+
 // Update handles messages.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -197,6 +202,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	case "i":
 		return m, func() tea.Msg { return OpenImportMsg{} }
+	case "p":
+		if card := m.SelectedCard(); card != nil {
+			key := card.Key
+			return m, func() tea.Msg { return OpenLinkPRMsg{CardKey: key} }
+		}
 	case "w":
 		return m, func() tea.Msg { return OpenWorkspaceMsg{} }
 	case "1", "2", "3", "4", "5":
@@ -251,6 +261,31 @@ func (m *Model) SetDurations(durations map[string]DurationData) {
 			if d, ok := durations[cards[i].Key]; ok {
 				cards[i].WorkingDuration = d.Working
 				cards[i].WaitingDuration = d.Waiting
+			}
+		}
+		m.cards[colName] = cards
+	}
+}
+
+// PRStateData holds PR status for populating card data.
+type PRStateData struct {
+	CheckStatus    string
+	ReviewDecision string
+	CommentCount   int
+	IsDraft        bool
+	PRNumber       int
+}
+
+// SetPRStates updates the PR status fields for each card.
+func (m *Model) SetPRStates(states map[string]PRStateData) {
+	for colName, cards := range m.cards {
+		for i := range cards {
+			if pr, ok := states[cards[i].Key]; ok {
+				cards[i].PRCheckStatus = pr.CheckStatus
+				cards[i].PRReviewDecision = pr.ReviewDecision
+				cards[i].PRCommentCount = pr.CommentCount
+				cards[i].PRIsDraft = pr.IsDraft
+				cards[i].PRNumber = pr.PRNumber
 			}
 		}
 		m.cards[colName] = cards

@@ -21,6 +21,31 @@ The metadata header MUST display the following fields in a structured grid: stat
 - **WHEN** a ticket has no epic or no labels
 - **THEN** those fields are either omitted or display a dash placeholder, and the layout does not break
 
+#### Scenario: Task with linked PR showing full status
+
+- **WHEN** the detail view opens for a task with `pr_meta` containing a PR
+- **THEN** the header SHALL display a "PR" section showing: `#<number>` as a link/label, review decision (e.g., "Approved", "Changes Requested"), CI status (pass/fail/pending icon), and comment count if non-zero
+
+#### Scenario: Task with linked branch but no PR yet
+
+- **WHEN** the detail view opens for a task with a linked branch but no PR found
+- **THEN** the header SHALL display "Branch: <name>" with a note "No PR found"
+
+#### Scenario: Task with no linked branch
+
+- **WHEN** the detail view opens for a task with no `pr_meta`
+- **THEN** the header SHALL NOT display any PR section (same as current behavior)
+
+#### Scenario: PR is merged
+
+- **WHEN** the detail view shows a task whose linked PR has state MERGED
+- **THEN** the PR section SHALL display "Merged" with appropriate styling
+
+#### Scenario: PR is draft
+
+- **WHEN** the detail view shows a task whose linked PR is a draft
+- **THEN** the PR section SHALL display "Draft" indicator alongside other status fields
+
 ### Requirement: Glamour Markdown Rendering
 
 The ticket description MUST be rendered using Glamour with terminal-appropriate styling. The renderer MUST use word-wrap configured to the available terminal width minus padding.
@@ -86,6 +111,11 @@ The detail view MUST support opening the ticket's Jira URL in the default system
 
 - **WHEN** the user presses `o` and the ticket has no URL
 - **THEN** the status bar displays an error message indicating no URL is available
+
+#### Scenario: Open PR URL
+
+- **WHEN** the user presses `o` while viewing a task with a linked PR
+- **THEN** the PR URL SHALL be opened in the default browser using the existing clipboard/browser-open mechanism
 
 ### Requirement: Detail View Status Bar
 

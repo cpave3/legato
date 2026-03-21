@@ -239,3 +239,71 @@ func TestCardDoneColumnRender(t *testing.T) {
 		t.Errorf("done card should contain key, got: %q", out)
 	}
 }
+
+func TestCardWithPRPassingCI(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRCheckStatus: "pass", PRReviewDecision: "APPROVED"}
+	out := RenderCard(card, 40, false, "Review", testIcons)
+	if !strings.Contains(out, "CI") {
+		t.Errorf("card with passing CI should show CI indicator, got: %q", out)
+	}
+	if !strings.Contains(out, testIcons.CIPass) {
+		t.Errorf("card with passing CI should show pass icon, got: %q", out)
+	}
+}
+
+func TestCardWithPRFailingCI(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRCheckStatus: "fail"}
+	out := RenderCard(card, 40, false, "Review", testIcons)
+	if !strings.Contains(out, testIcons.CIFail) {
+		t.Errorf("card with failing CI should show fail icon, got: %q", out)
+	}
+}
+
+func TestCardWithPRPendingCI(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRCheckStatus: "pending"}
+	out := RenderCard(card, 40, false, "Review", testIcons)
+	if !strings.Contains(out, testIcons.CIPending) {
+		t.Errorf("card with pending CI should show pending icon, got: %q", out)
+	}
+}
+
+func TestCardWithPRChangesRequested(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRCheckStatus: "pass", PRReviewDecision: "CHANGES_REQUESTED"}
+	out := RenderCard(card, 40, false, "Review", testIcons)
+	if !strings.Contains(out, "Changes") {
+		t.Errorf("card with changes requested should show Changes, got: %q", out)
+	}
+}
+
+func TestCardWithPRDraft(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRIsDraft: true}
+	out := RenderCard(card, 40, false, "Doing", testIcons)
+	if !strings.Contains(out, "Draft") {
+		t.Errorf("card with draft PR should show Draft, got: %q", out)
+	}
+}
+
+func TestCardWithPRComments(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRCheckStatus: "pass", PRCommentCount: 5}
+	out := RenderCard(card, 40, false, "Review", testIcons)
+	if !strings.Contains(out, "5") {
+		t.Errorf("card with 5 comments should show 5, got: %q", out)
+	}
+}
+
+func TestCardWithNoPR(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test", Priority: "High"}
+	out := RenderCard(card, 40, false, "Doing", testIcons)
+	// Should NOT contain any PR indicators
+	if strings.Contains(out, "CI") || strings.Contains(out, "Draft") || strings.Contains(out, "Changes") {
+		t.Errorf("card without PR should not show PR indicators, got: %q", out)
+	}
+}
+
+func TestCardWithPRSelectedRender(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRCheckStatus: "fail", PRReviewDecision: "CHANGES_REQUESTED"}
+	out := RenderCard(card, 40, true, "Review", testIcons)
+	if !strings.Contains(out, testIcons.CIFail) {
+		t.Errorf("selected card with failing CI should show fail icon, got: %q", out)
+	}
+}

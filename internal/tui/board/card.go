@@ -23,6 +23,11 @@ type CardData struct {
 	WaitingDuration time.Duration // cumulative waiting time
 	WorkspaceName   string        // workspace name (populated in "All" view)
 	WorkspaceColor  string        // workspace color hex (populated in "All" view)
+	PRCheckStatus   string        // pass, fail, pending, or ""
+	PRReviewDecision string       // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or ""
+	PRCommentCount  int           // total PR comments
+	PRIsDraft       bool          // PR is a draft
+	PRNumber        int           // PR number (0 = no PR linked)
 }
 
 // formatDuration formats a duration as a human-readable string.
@@ -78,6 +83,68 @@ func renderDurationLine(card CardData, icons theme.Icons, selected bool) string 
 	}
 
 	dotStyle := lipgloss.NewStyle().Foreground(dimColor).Background(bg)
+	return strings.Join(parts, dotStyle.Render(" · "))
+}
+
+// renderPRLine builds a compact PR status indicator line.
+// Format: "✓ CI · ✓ Approved · ▪ 3" or "✗ CI · ⚑ Changes" etc.
+// Returns empty string if no PR linked.
+func renderPRLine(card CardData, icons theme.Icons, selected bool) string {
+	if card.PRNumber == 0 {
+		return ""
+	}
+
+	bg := lipgloss.Color("#252540")
+	dimColor := theme.TextTertiary
+	passColor := theme.SyncOK
+	failColor := theme.SyncError
+	pendingColor := theme.ColReady
+	if selected {
+		bg = lipgloss.Color("#EEEDFE")
+		dimColor = lipgloss.Color("#585878")
+		passColor = lipgloss.Color("#287828")
+		failColor = lipgloss.Color("#993C1D")
+		pendingColor = lipgloss.Color("#285878")
+	}
+
+	s := func(fg lipgloss.Color) lipgloss.Style {
+		return lipgloss.NewStyle().Foreground(fg).Background(bg)
+	}
+	dotStyle := s(dimColor)
+
+	var parts []string
+
+	if card.PRIsDraft {
+		parts = append(parts, s(dimColor).Render(icons.PRDraft+" Draft"))
+	} else {
+		// CI status
+		switch card.PRCheckStatus {
+		case "pass":
+			parts = append(parts, s(passColor).Render(icons.CIPass+" CI"))
+		case "fail":
+			parts = append(parts, s(failColor).Render(icons.CIFail+" CI"))
+		case "pending":
+			parts = append(parts, s(pendingColor).Render(icons.CIPending+" CI"))
+		}
+
+		// Review decision
+		switch card.PRReviewDecision {
+		case "APPROVED":
+			parts = append(parts, s(passColor).Render(icons.PRApproved+" OK"))
+		case "CHANGES_REQUESTED":
+			parts = append(parts, s(failColor).Render(icons.PRChanges+" Changes"))
+		}
+	}
+
+	// Comment count
+	if card.PRCommentCount > 0 {
+		parts = append(parts, s(dimColor).Render(fmt.Sprintf("%s %d", icons.PRComments, card.PRCommentCount)))
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
 	return strings.Join(parts, dotStyle.Render(" · "))
 }
 
@@ -160,12 +227,18 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 	// Duration line (bottom row, always shown when durations exist)
 	durationLine := renderDurationLine(card, icons, selected)
 
+	// PR status line
+	prLine := renderPRLine(card, icons, selected)
+
 	// Apply done-column muted styling
 	if isDone {
 		keyLine := theme.DoneMuted.Render(card.Key)
 		title = theme.DoneMuted.Render(title)
 		metaLine = theme.DoneMuted.Render(card.IssueType)
 		content := keyLine + "\n" + title + "\n" + metaLine
+		if prLine != "" {
+			content += "\n" + prLine
+		}
 		if durationLine != "" {
 			content += "\n" + durationLine
 		}
@@ -235,6 +308,9 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 
 		content := sProviderIcon + sAgentPrefix + sWarningPrefix + s(dimText).Render(card.Key) + "\n" +
 			s(darkText).Bold(true).Render(title) + "\n" + sMetaLine
+		if prLine != "" {
+			content += "\n" + prLine
+		}
 		if durationLine != "" {
 			content += "\n" + durationLine
 		}
@@ -246,6 +322,9 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 	keyLine := providerIcon + agentPrefix + warningPrefix + keyStyle.Render(card.Key)
 	titleLine := titleStyle.Render(title)
 	content := keyLine + "\n" + titleLine + "\n" + metaLine
+	if prLine != "" {
+		content += "\n" + prLine
+	}
 	if durationLine != "" {
 		content += "\n" + durationLine
 	}

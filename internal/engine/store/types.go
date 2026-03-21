@@ -1,5 +1,46 @@
 package store
 
+import "encoding/json"
+
+// PRMeta holds PR tracking metadata stored as JSON in the pr_meta column.
+type PRMeta struct {
+	Repo           string `json:"repo,omitempty"`             // owner/repo format
+	Branch         string `json:"branch"`
+	PRNumber       int    `json:"pr_number,omitempty"`
+	PRURL          string `json:"pr_url,omitempty"`
+	State          string `json:"state,omitempty"`           // OPEN, MERGED, CLOSED, or ""
+	IsDraft        bool   `json:"is_draft,omitempty"`
+	ReviewDecision string `json:"review_decision,omitempty"` // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or ""
+	CheckStatus    string `json:"check_status,omitempty"`    // pass, fail, pending, or ""
+	CommentCount   int    `json:"comment_count,omitempty"`
+	UpdatedAt      string `json:"updated_at,omitempty"`      // RFC3339
+}
+
+// MarshalPRMeta serializes PRMeta to a JSON string pointer for storage.
+func MarshalPRMeta(m *PRMeta) (*string, error) {
+	if m == nil {
+		return nil, nil
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	s := string(b)
+	return &s, nil
+}
+
+// ParsePRMeta deserializes a pr_meta JSON string into a PRMeta struct.
+func ParsePRMeta(raw *string) (*PRMeta, error) {
+	if raw == nil || *raw == "" {
+		return nil, nil
+	}
+	var m PRMeta
+	if err := json.Unmarshal([]byte(*raw), &m); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
 type Task struct {
 	ID            string  `db:"id"`
 	Title         string  `db:"title"`
@@ -11,6 +52,7 @@ type Task struct {
 	Provider      *string `db:"provider"`
 	RemoteID      *string `db:"remote_id"`
 	RemoteMeta    *string `db:"remote_meta"`
+	PRMeta        *string `db:"pr_meta"`
 	WorkspaceID   *int    `db:"workspace_id"`
 	ArchivedAt    *string `db:"archived_at"`
 	CreatedAt     string  `db:"created_at"`

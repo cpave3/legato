@@ -32,6 +32,7 @@ var (
 		{"y", "Copy description"},
 		{"Y", "Copy full context"},
 		{"r", "Force sync"},
+		{"p", "Link PR to task"},
 		{"X", "Archive done cards"},
 		{"/", "Search/filter tasks"},
 		{"esc", "Back / close overlay"},

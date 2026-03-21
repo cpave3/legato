@@ -505,6 +505,22 @@ func taskToCardDetail(t *store.Task) *CardDetail {
 		}
 	}
 
+	if t.PRMeta != nil {
+		prMeta, err := store.ParsePRMeta(t.PRMeta)
+		if err == nil && prMeta != nil {
+			detail.PRMeta = &PRMetaView{
+				Branch:         prMeta.Branch,
+				PRNumber:       prMeta.PRNumber,
+				PRURL:          prMeta.PRURL,
+				State:          prMeta.State,
+				IsDraft:        prMeta.IsDraft,
+				ReviewDecision: prMeta.ReviewDecision,
+				CheckStatus:    prMeta.CheckStatus,
+				CommentCount:   prMeta.CommentCount,
+			}
+		}
+	}
+
 	return detail
 }
 
