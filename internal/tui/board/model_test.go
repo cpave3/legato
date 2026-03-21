@@ -70,6 +70,9 @@ func (f *fakeBoardService) UpdateTaskWorkspace(_ context.Context, _ string, _ *i
 func (f *fakeBoardService) ListWorkspaces(_ context.Context) ([]service.Workspace, error) {
 	return nil, nil
 }
+func (f *fakeBoardService) ArchiveDoneCards(_ context.Context) (int, error) { return 0, nil }
+func (f *fakeBoardService) ArchiveTask(_ context.Context, _ string) error   { return nil }
+func (f *fakeBoardService) CountDoneCards(_ context.Context) (int, error)   { return 0, nil }
 
 func newTestModel() Model {
 	m := New(&fakeBoardService{}, theme.NewIcons("unicode"))

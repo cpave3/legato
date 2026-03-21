@@ -16,6 +16,7 @@ type mockTmux struct {
 	captures        map[string]string
 	envVars         map[string]map[string]string // session -> key -> value
 	spawnDims       map[string][2]int            // session -> [width, height]
+	options         map[string]map[string]string // session -> key -> value
 	paneCommands    map[string]string             // session -> command
 	paneCommandsErr error
 }
@@ -26,6 +27,7 @@ func newMockTmux() *mockTmux {
 		captures:  make(map[string]string),
 		envVars:   make(map[string]map[string]string),
 		spawnDims: make(map[string][2]int),
+		options:   make(map[string]map[string]string),
 	}
 }
 
@@ -86,6 +88,17 @@ func (m *mockTmux) PaneCommands() (map[string]string, error) {
 		return m.paneCommands, m.paneCommandsErr
 	}
 	return map[string]string{}, m.paneCommandsErr
+}
+
+func (m *mockTmux) SetOption(sessionName, key, value string) error {
+	if !m.sessions[sessionName] {
+		return fmt.Errorf("session %s not found", sessionName)
+	}
+	if m.options[sessionName] == nil {
+		m.options[sessionName] = make(map[string]string)
+	}
+	m.options[sessionName][key] = value
+	return nil
 }
 
 func (m *mockTmux) SetEnv(sessionName, key, value string) error {
@@ -580,6 +593,55 @@ func TestListAgentsEmptyTitleWhenTaskMissing(t *testing.T) {
 	}
 	if agents[0].Title != "" {
 		t.Errorf("Title = %q, want empty string for missing task", agents[0].Title)
+	}
+}
+
+func TestSpawnAgentAppliesTmuxOptions(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+		TmuxOptions: map[string]string{
+			"mouse":         "on",
+			"history-limit": "50000",
+		},
+	})
+
+	ctx := context.Background()
+	createTask(t, s, "task1")
+
+	if err := svc.SpawnAgent(ctx, "task1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := mt.options["legato-task1"]
+	if opts == nil {
+		t.Fatal("no tmux options set on session")
+	}
+	if opts["mouse"] != "on" {
+		t.Errorf("mouse = %q, want %q", opts["mouse"], "on")
+	}
+	if opts["history-limit"] != "50000" {
+		t.Errorf("history-limit = %q, want %q", opts["history-limit"], "50000")
+	}
+}
+
+func TestSpawnAgentNoOptionsWithoutConfig(t *testing.T) {
+	svc, s, mt := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "task1")
+
+	if err := svc.SpawnAgent(ctx, "task1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(mt.options["legato-task1"]) != 0 {
+		t.Errorf("expected no tmux options without config, got %v", mt.options["legato-task1"])
 	}
 }
 

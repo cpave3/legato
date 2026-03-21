@@ -12,6 +12,7 @@ type Task struct {
 	RemoteID      *string `db:"remote_id"`
 	RemoteMeta    *string `db:"remote_meta"`
 	WorkspaceID   *int    `db:"workspace_id"`
+	ArchivedAt    *string `db:"archived_at"`
 	CreatedAt     string  `db:"created_at"`
 	UpdatedAt     string  `db:"updated_at"`
 }

@@ -66,7 +66,7 @@ func (s *Store) migrate() error {
 		return err
 	}
 
-	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql", "008_workspaces.sql"}
+	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql", "008_workspaces.sql", "009_archive.sql"}
 
 	for i := version; i < len(migrations); i++ {
 		data, err := migrationsFS.ReadFile("migrations/" + migrations[i])
@@ -125,7 +125,7 @@ var ErrNotFound = fmt.Errorf("not found")
 func (s *Store) ListTasksByStatus(ctx context.Context, status string) ([]Task, error) {
 	var tasks []Task
 	err := s.db.SelectContext(ctx, &tasks,
-		"SELECT * FROM tasks WHERE status = ? ORDER BY sort_order ASC", status)
+		"SELECT * FROM tasks WHERE status = ? AND archived_at IS NULL ORDER BY sort_order ASC", status)
 	return tasks, err
 }
 
@@ -198,11 +198,11 @@ func (s *Store) ListTasksByStatusAndWorkspace(ctx context.Context, status string
 		return s.ListTasksByStatus(ctx, status)
 	case ViewUnassigned:
 		err := s.db.SelectContext(ctx, &tasks,
-			"SELECT * FROM tasks WHERE status = ? AND workspace_id IS NULL ORDER BY sort_order ASC", status)
+			"SELECT * FROM tasks WHERE status = ? AND workspace_id IS NULL AND archived_at IS NULL ORDER BY sort_order ASC", status)
 		return tasks, err
 	case ViewWorkspace:
 		err := s.db.SelectContext(ctx, &tasks,
-			"SELECT * FROM tasks WHERE status = ? AND workspace_id = ? ORDER BY sort_order ASC", status, view.WorkspaceID)
+			"SELECT * FROM tasks WHERE status = ? AND workspace_id = ? AND archived_at IS NULL ORDER BY sort_order ASC", status, view.WorkspaceID)
 		return tasks, err
 	default:
 		return s.ListTasksByStatus(ctx, status)
@@ -304,4 +304,35 @@ func (s *Store) ListSyncLogs(ctx context.Context, taskID string) ([]SyncLogEntry
 	err := s.db.SelectContext(ctx, &entries,
 		"SELECT * FROM sync_log WHERE task_id = ? ORDER BY created_at DESC, id DESC", taskID)
 	return entries, err
+}
+
+// ArchiveTask sets archived_at for a single task.
+func (s *Store) ArchiveTask(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET archived_at = datetime('now') WHERE id = ? AND archived_at IS NULL", id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		// Check if task exists at all
+		if _, err := s.GetTask(ctx, id); err != nil {
+			return err
+		}
+		// Task exists but already archived — no-op
+	}
+	return nil
+}
+
+// ArchiveTasksByStatus archives all non-archived tasks with the given status.
+func (s *Store) ArchiveTasksByStatus(ctx context.Context, status string) (int64, error) {
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET archived_at = datetime('now') WHERE status = ? AND archived_at IS NULL", status)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

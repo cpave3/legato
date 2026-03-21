@@ -90,6 +90,9 @@ type BoardService interface {
 	UpdateTaskTitle(ctx context.Context, id, title string) error
 	UpdateTaskWorkspace(ctx context.Context, id string, workspaceID *int) error
 	ListWorkspaces(ctx context.Context) ([]Workspace, error)
+	ArchiveDoneCards(ctx context.Context) (int, error)
+	ArchiveTask(ctx context.Context, id string) error
+	CountDoneCards(ctx context.Context) (int, error)
 }
 
 // SyncService manages data synchronization.

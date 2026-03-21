@@ -174,6 +174,15 @@ func (m *Manager) PaneCommands() (map[string]string, error) {
 	return result, nil
 }
 
+// SetOption sets a tmux option on the given session.
+func (m *Manager) SetOption(sessionName, key, value string) error {
+	cmd := exec.Command(m.tmuxPath, "set-option", "-t", sessionName, key, value)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("tmux set-option: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
 func (m *Manager) isNotFoundError(name string) bool {
 	alive, _ := m.IsAlive(name)
 	return !alive

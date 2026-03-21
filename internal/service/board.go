@@ -413,6 +413,70 @@ func (b *boardService) ListWorkspaces(ctx context.Context) ([]Workspace, error) 
 	return result, nil
 }
 
+// doneColumnName finds the column named "Done" (case-insensitive).
+func (b *boardService) doneColumnName(ctx context.Context) (string, error) {
+	mappings, err := b.store.ListColumnMappings(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, m := range mappings {
+		if toLower(m.ColumnName) == "done" {
+			return m.ColumnName, nil
+		}
+	}
+	return "", fmt.Errorf("no Done column found")
+}
+
+func (b *boardService) ArchiveDoneCards(ctx context.Context) (int, error) {
+	doneCol, err := b.doneColumnName(ctx)
+	if err != nil {
+		return 0, err
+	}
+	count, err := b.store.ArchiveTasksByStatus(ctx, doneCol)
+	if err != nil {
+		return 0, err
+	}
+	b.bus.Publish(events.Event{
+		Type: events.EventCardsRefreshed,
+		At:   time.Now(),
+	})
+	return int(count), nil
+}
+
+func (b *boardService) ArchiveTask(ctx context.Context, id string) error {
+	t, err := b.store.GetTask(ctx, id)
+	if err != nil {
+		return err
+	}
+	doneCol, err := b.doneColumnName(ctx)
+	if err != nil {
+		return err
+	}
+	if t.Status != doneCol {
+		return fmt.Errorf("can only archive tasks in %q column", doneCol)
+	}
+	if err := b.store.ArchiveTask(ctx, id); err != nil {
+		return err
+	}
+	b.bus.Publish(events.Event{
+		Type: events.EventCardsRefreshed,
+		At:   time.Now(),
+	})
+	return nil
+}
+
+func (b *boardService) CountDoneCards(ctx context.Context) (int, error) {
+	doneCol, err := b.doneColumnName(ctx)
+	if err != nil {
+		return 0, err
+	}
+	tasks, err := b.store.ListTasksByStatus(ctx, doneCol)
+	if err != nil {
+		return 0, err
+	}
+	return len(tasks), nil
+}
+
 func taskToCardDetail(t *store.Task) *CardDetail {
 	createdAt, _ := time.Parse(time.RFC3339, t.CreatedAt)
 	updatedAt, _ := time.Parse(time.RFC3339, t.UpdatedAt)

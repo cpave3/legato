@@ -174,6 +174,11 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 			return nil, err
 		}
 
+		// Skip archived tasks — don't resurface them
+		if existing.ArchivedAt != nil {
+			continue
+		}
+
 		// Existing task — check if remote updated
 		existingMeta := parseRemoteMeta(existing.RemoteMeta)
 		existingUpdated, _ := time.Parse(time.RFC3339, existingMeta.RemoteUpdatedAt)

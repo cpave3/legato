@@ -39,6 +39,7 @@ const (
 	overlayTitleEdit
 	overlayWorkspace
 	overlayMoveWorkspace
+	overlayArchive
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -336,6 +337,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleDeleteConfirmed(msg)
 
 	case overlay.DeleteCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
+	case overlay.ArchiveConfirmedMsg:
+		return a.handleArchiveConfirmed()
+
+	case overlay.ArchiveCancelledMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
 		return a, nil
@@ -651,6 +660,26 @@ func (a App) handleDeleteConfirmed(msg overlay.DeleteConfirmedMsg) (tea.Model, t
 		a.active = viewBoard
 	}
 	// Refresh board
+	cmd := a.board.Init()
+	return a, cmd
+}
+
+func (a App) openArchiveOverlay() (tea.Model, tea.Cmd) {
+	count, err := a.svc.CountDoneCards(context.Background())
+	if err != nil || count == 0 {
+		return a, nil
+	}
+	archiveModel := overlay.NewArchive(count)
+	sized, _ := archiveModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.activeOverlay = sized
+	a.overlayType = overlayArchive
+	return a, nil
+}
+
+func (a App) handleArchiveConfirmed() (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	_, _ = a.svc.ArchiveDoneCards(context.Background())
 	cmd := a.board.Init()
 	return a, cmd
 }
@@ -972,6 +1001,10 @@ func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch a.active {
 	case viewBoard:
+		// 'X' opens archive confirmation for done cards
+		if msg.String() == "X" {
+			return a.openArchiveOverlay()
+		}
 		// 'A' switches to agent view
 		if msg.String() == "A" {
 			return a.switchToAgentView()

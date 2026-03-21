@@ -18,6 +18,7 @@ type TmuxManager interface {
 	ListSessions() ([]string, error)
 	IsAlive(name string) (bool, error)
 	SetEnv(sessionName, key, value string) error
+	SetOption(sessionName, key, value string) error
 	PaneCommands() (map[string]string, error)
 }
 
@@ -52,17 +53,19 @@ type AgentService interface {
 }
 
 type agentService struct {
-	store      *store.Store
-	tmux       TmuxManager
-	workDir    string
-	adapter    AIToolAdapter
-	socketPath string
+	store       *store.Store
+	tmux        TmuxManager
+	workDir     string
+	adapter     AIToolAdapter
+	socketPath  string
+	tmuxOptions map[string]string
 }
 
 // AgentServiceOptions configures optional AI tool integration for agent sessions.
 type AgentServiceOptions struct {
-	Adapter    AIToolAdapter
-	SocketPath string
+	Adapter     AIToolAdapter
+	SocketPath  string
+	TmuxOptions map[string]string
 }
 
 // NewAgentService creates an AgentService.
@@ -71,6 +74,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 	if len(opts) > 0 {
 		svc.adapter = opts[0].Adapter
 		svc.socketPath = opts[0].SocketPath
+		svc.tmuxOptions = opts[0].TmuxOptions
 	}
 	return svc
 }
@@ -105,6 +109,13 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 
 	if err := a.tmux.Spawn(sessionName, a.workDir, width, height, envVars...); err != nil {
 		return fmt.Errorf("spawning tmux session: %w", err)
+	}
+
+	for k, v := range a.tmuxOptions {
+		if err := a.tmux.SetOption(sessionName, k, v); err != nil {
+			a.tmux.Kill(sessionName)
+			return fmt.Errorf("setting tmux option %s: %w", k, err)
+		}
 	}
 
 	if err := a.store.InsertAgentSession(ctx, store.AgentSession{
