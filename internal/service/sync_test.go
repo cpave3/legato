@@ -129,17 +129,14 @@ func getRemoteMeta(t *testing.T, s *store.Store, id string) map[string]string {
 }
 
 // Pull sync — insert new tasks
-func TestPullSyncInsertNew(t *testing.T) {
+func TestPullSyncSkipsNewTasks(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
 
 	provider.tickets = []RemoteTicket{
 		{
 			ID: "TEST-1", Summary: "First task",
-			DescriptionMD: "Some description",
-			Status: "To Do", Priority: "High", IssueType: "Task",
-			Assignee: "alice", Labels: []string{"backend"},
-			URL: "https://jira.example.com/browse/TEST-1",
+			Status: "To Do", Priority: "High",
 			UpdatedAt: time.Now(),
 		},
 	}
@@ -148,33 +145,14 @@ func TestPullSyncInsertNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sync: %v", err)
 	}
-	if result.TasksSynced != 1 {
-		t.Errorf("synced = %d, want 1", result.TasksSynced)
+	if result.TasksSynced != 0 {
+		t.Errorf("synced = %d, want 0 (pull should not insert new tasks)", result.TasksSynced)
 	}
 
-	task, err := s.GetTask(ctx, "TEST-1")
-	if err != nil {
-		t.Fatalf("get task: %v", err)
-	}
-	if task.Title != "First task" {
-		t.Errorf("title = %q", task.Title)
-	}
-	if task.DescriptionMD != "Some description" {
-		t.Errorf("description_md = %q", task.DescriptionMD)
-	}
-	if task.Priority != "High" {
-		t.Errorf("priority = %q", task.Priority)
-	}
-	if task.Provider == nil || *task.Provider != "jira" {
-		t.Errorf("provider = %v, want jira", task.Provider)
-	}
-
-	meta := getRemoteMeta(t, s, "TEST-1")
-	if meta["issue_type"] != "Task" {
-		t.Errorf("remote_meta.issue_type = %q", meta["issue_type"])
-	}
-	if meta["assignee"] != "alice" {
-		t.Errorf("remote_meta.assignee = %q", meta["assignee"])
+	// Task should NOT exist locally
+	_, err = s.GetTask(ctx, "TEST-1")
+	if err == nil {
+		t.Error("expected task to not exist — pull sync should skip unknown tasks")
 	}
 }
 
@@ -211,10 +189,16 @@ func TestPullSyncUpdateExisting(t *testing.T) {
 	}
 }
 
-// Status-to-column mapping on insert
+// Status-to-column mapping on update
 func TestPullSyncColumnMapping(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
+
+	// Pre-create tasks so pull sync can update them
+	oldTime := time.Now().Add(-1 * time.Hour)
+	createSyncedTask(t, s, "TEST-1", "Backlog task", "Backlog", "To Do", oldTime, nil)
+	createSyncedTask(t, s, "TEST-2", "Doing task", "Backlog", "To Do", oldTime, nil)
+	createSyncedTask(t, s, "TEST-3", "Done task", "Backlog", "To Do", oldTime, nil)
 
 	provider.tickets = []RemoteTicket{
 		{ID: "TEST-1", Summary: "Backlog task", Status: "To Do", UpdatedAt: time.Now()},

@@ -22,7 +22,8 @@ type Config struct {
 }
 
 type GitHubConfig struct {
-	PollIntervalSeconds int `yaml:"poll_interval_seconds"`
+	PollIntervalSeconds         int `yaml:"poll_interval_seconds"`          // unresolved PRs (branch-only, no PR yet) — default 60s
+	ResolvedPollIntervalSeconds int `yaml:"resolved_poll_interval_seconds"` // resolved PRs (have PR number) — default 600s (10 min)
 }
 
 type WorkspaceConfig struct {
@@ -157,7 +158,10 @@ func applyDefaults(cfg *Config) {
 		cfg.Agents.EscapeKey = "ctrl+]"
 	}
 	if cfg.GitHub.PollIntervalSeconds == 0 {
-		cfg.GitHub.PollIntervalSeconds = 60
+		cfg.GitHub.PollIntervalSeconds = 600
+	}
+	if cfg.GitHub.ResolvedPollIntervalSeconds == 0 {
+		cfg.GitHub.ResolvedPollIntervalSeconds = 600
 	}
 	// VimMode defaults to true — yaml unmarshals missing bool as false,
 	// so we only set it if the entire keybindings section was absent.

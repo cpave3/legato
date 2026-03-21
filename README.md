@@ -180,7 +180,7 @@ legato    # launch the TUI
 | `/` | Search/filter tasks |
 | `a` / `t` | Spawn agent (tmux) on selected card |
 | `A` | Switch to agent view |
-| `r` | Manual sync |
+| `r` | Refresh (sync Jira + poll PRs) |
 | `?` | Help overlay |
 | `q` | Quit |
 

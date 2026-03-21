@@ -108,8 +108,14 @@ func (s *syncService) Sync(ctx context.Context) (*SyncResult, error) {
 }
 
 func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
+	// Build JQL: use configured filter, or scope to project keys if no filter set.
+	jql := s.jql
+	if jql == "" && len(s.projectKeys) > 0 {
+		jql = "project in (" + strings.Join(s.projectKeys, ", ") + ") ORDER BY updated DESC"
+	}
+
 	// Fetch remote tickets
-	remoteTickets, err := s.provider.Search(ctx, s.jql)
+	remoteTickets, err := s.provider.Search(ctx, jql)
 	if err != nil {
 		return nil, err
 	}
@@ -124,8 +130,6 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 	seenIDs := make(map[string]bool, len(remoteTickets))
 	synced := 0
 
-	provider := "jira"
-
 	for _, rt := range remoteTickets {
 		seenIDs[rt.ID] = true
 
@@ -137,38 +141,7 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 
 		existing, err := s.store.GetTask(ctx, rt.ID)
 		if errors.Is(err, store.ErrNotFound) {
-			// New task — insert
-			now := time.Now().UTC().Format(time.RFC3339)
-			labels := strings.Join(rt.Labels, ",")
-			meta := remoteMeta{
-				RemoteStatus:    rt.Status,
-				RemoteUpdatedAt: rt.UpdatedAt.UTC().Format(time.RFC3339),
-				IssueType:       rt.IssueType,
-				Assignee:        rt.Assignee,
-				Labels:          labels,
-				EpicKey:         rt.EpicKey,
-				EpicName:        rt.EpicName,
-				URL:             rt.URL,
-			}
-			remoteID := rt.ID
-			task := store.Task{
-				ID:            rt.ID,
-				Title:         rt.Summary,
-				Description:   "",
-				DescriptionMD: rt.DescriptionMD,
-				Status:        column,
-				Priority:      rt.Priority,
-				SortOrder:     0,
-				Provider:      &provider,
-				RemoteID:      &remoteID,
-				RemoteMeta:    encodeRemoteMeta(meta),
-				CreatedAt:     now,
-				UpdatedAt:     now,
-			}
-			if err := s.store.CreateTask(ctx, task); err != nil {
-				return nil, err
-			}
-			synced++
+			// Not tracked locally — skip. New tasks are only added via manual import.
 			continue
 		} else if err != nil {
 			return nil, err

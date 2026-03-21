@@ -116,7 +116,7 @@ func TestLinkBranch(t *testing.T) {
 			"feature/auth": {HasPR: true, Number: 42, State: "OPEN", URL: "https://github.com/o/r/pull/42"},
 		},
 	}
-	svc := NewPRTrackingService(s, bus, gh, time.Minute)
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
 
 	ctx := context.Background()
 	createPRTask(t, s, "task1")
@@ -147,7 +147,7 @@ func TestUnlinkBranch(t *testing.T) {
 	s := newTestPRStore(t)
 	bus := events.New()
 	gh := &mockGitHub{}
-	svc := NewPRTrackingService(s, bus, gh, time.Minute)
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
 
 	ctx := context.Background()
 	createPRTask(t, s, "task1")
@@ -173,7 +173,7 @@ func TestUnlinkBranchIdempotent(t *testing.T) {
 	s := newTestPRStore(t)
 	bus := events.New()
 	gh := &mockGitHub{}
-	svc := NewPRTrackingService(s, bus, gh, time.Minute)
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
 
 	ctx := context.Background()
 	createPRTask(t, s, "task1")
@@ -194,7 +194,7 @@ func TestPollOnceUpdatesTrackedTasks(t *testing.T) {
 			"feature/auth": {HasPR: true, Number: 42, State: "OPEN", CheckStatus: "pass", ReviewDecision: "APPROVED", URL: "https://github.com/o/r/pull/42"},
 		},
 	}
-	svc := NewPRTrackingService(s, bus, gh, time.Minute)
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
 
 	ctx := context.Background()
 	createPRTask(t, s, "task1")
@@ -241,7 +241,7 @@ func TestPollOnceNoTrackedTasks(t *testing.T) {
 	s := newTestPRStore(t)
 	bus := events.New()
 	gh := &mockGitHub{}
-	svc := NewPRTrackingService(s, bus, gh, time.Minute)
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
 
 	ctx := context.Background()
 	createPRTask(t, s, "task1") // no pr_meta
@@ -256,7 +256,7 @@ func TestPollOnceNoPRFound(t *testing.T) {
 	s := newTestPRStore(t)
 	bus := events.New()
 	gh := &mockGitHub{} // no statuses
-	svc := NewPRTrackingService(s, bus, gh, time.Minute)
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
 
 	ctx := context.Background()
 	createPRTask(t, s, "task1")
@@ -291,7 +291,7 @@ func TestGetPRStatus(t *testing.T) {
 	s := newTestPRStore(t)
 	bus := events.New()
 	gh := &mockGitHub{}
-	svc := NewPRTrackingService(s, bus, gh, time.Minute)
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
 
 	ctx := context.Background()
 	createPRTask(t, s, "task1")
@@ -317,7 +317,7 @@ func TestGetPRStatusNoPRMeta(t *testing.T) {
 	s := newTestPRStore(t)
 	bus := events.New()
 	gh := &mockGitHub{}
-	svc := NewPRTrackingService(s, bus, gh, time.Minute)
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
 
 	ctx := context.Background()
 	createPRTask(t, s, "task1")
@@ -340,7 +340,7 @@ func TestAutoLinkBranch(t *testing.T) {
 			"feature/auto": {HasPR: false},
 		},
 	}
-	svc := NewPRTrackingService(s, bus, gh, time.Minute).(*prTrackingService)
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute).(*prTrackingService)
 
 	ctx := context.Background()
 	createPRTask(t, s, "task1")
@@ -370,7 +370,7 @@ func TestAutoLinkBranchSkipsExisting(t *testing.T) {
 	s := newTestPRStore(t)
 	bus := events.New()
 	gh := &mockGitHub{branch: "feature/new"}
-	svc := NewPRTrackingService(s, bus, gh, time.Minute).(*prTrackingService)
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute).(*prTrackingService)
 
 	ctx := context.Background()
 	createPRTask(t, s, "task1")
@@ -401,7 +401,7 @@ func TestStartPollingAndStop(t *testing.T) {
 	s := newTestPRStore(t)
 	bus := events.New()
 	gh := &mockGitHub{}
-	svc := NewPRTrackingService(s, bus, gh, 10*time.Millisecond)
+	svc := NewPRTrackingService(s, bus, gh, 10*time.Millisecond, 10*time.Millisecond)
 
 	ctx := context.Background()
 	stop := svc.StartPolling(ctx)
@@ -423,7 +423,7 @@ func TestLinkPR(t *testing.T) {
 			42: {HasPR: true, Number: 42, Title: "Add auth", State: "OPEN", URL: "https://github.com/owner/repo/pull/42", HeadBranch: "feature/auth", CommentCount: 3},
 		},
 	}
-	svc := NewPRTrackingService(s, bus, gh, time.Minute)
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
 
 	ctx := context.Background()
 	createPRTask(t, s, "task1")
@@ -468,7 +468,7 @@ func TestLinkPRNotFound(t *testing.T) {
 	s := newTestPRStore(t)
 	bus := events.New()
 	gh := &mockGitHub{}
-	svc := NewPRTrackingService(s, bus, gh, time.Minute)
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
 
 	ctx := context.Background()
 	createPRTask(t, s, "task1")

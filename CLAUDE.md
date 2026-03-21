@@ -84,7 +84,7 @@ task check                 # build + test + vet + lint
 - `editor` field: optional editor override for description editing (used by `config.ResolveEditor`)
 - `agents.tmux_options` field: map of tmux option key→value pairs applied to each spawned agent session via `tmux set-option` (e.g., `mouse: "on"`, `history-limit: "50000"`)
 - `workspaces` field: list of `{name, color}` objects defining workspaces. Seeded to DB on startup via `service.SeedWorkspaces`. Color is hex string (e.g. `"#4A9EEF"`)
-- `github.poll_interval_seconds` field: optional polling interval for PR status checks (default 60s). Requires `gh` CLI installed and authenticated.
+- `github.poll_interval_seconds` field: polling interval for unresolved PRs — branch-only, no PR number yet (default 600s / 10 min). `github.resolved_poll_interval_seconds`: polling interval for resolved PRs — already have PR number (default 600s / 10 min). Both require `gh` CLI installed and authenticated. Manual refresh via `r` key bypasses intervals and polls all PRs immediately.
 
 ## Provider Architecture
 
@@ -97,7 +97,7 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 
 ## Sync Algorithm
 
-- **Pull**: periodic fetch via provider → convert to `store.Task` with provider/remote_id/remote_meta → upsert into SQLite, status-to-column mapping, stale detection via remote_meta. Archived tasks (non-NULL `archived_at`) are skipped during pull — sync won't resurface them
+- **Pull**: periodic fetch via provider → **update existing tracked tasks only** (new tickets must be imported manually via `i` overlay or `ImportRemoteTask`). Status-to-column mapping, stale detection via remote_meta. Archived tasks skipped. Untracked remote tickets are silently ignored — pull never auto-imports
 - **Push**: local SQLite update first (non-blocking), then async remote transition; skipped for local tasks (provider=NULL); failure logs to `sync_log` and preserves local column
 - **Conflict resolution**: local wins within 5-minute window of `local_move_at` (stored in remote_meta); after window, remote state accepted on next pull
 - **Scheduler**: configurable interval (default 60s), publishes SyncStarted/SyncCompleted/SyncFailed events
@@ -162,7 +162,9 @@ Read-only PR enrichment orthogonal to ticket providers — any task (local or Ji
 - **Link PR overlay**: `p` from board opens two-phase overlay — input phase (repo + PR number fields, tab to cycle) → fetch → confirm phase (shows title/branch/state, `y` confirms, `n` cancels). Repo pre-filled from git remote if detectable. Calls `PRTrackingService.LinkPR` on confirm
 - **Board cards**: `CardData` includes `PRCheckStatus`, `PRReviewDecision`, `PRCommentCount`, `PRIsDraft`, `PRNumber`. `renderPRLine()` shows compact CI/review/comment indicators. `SetPRStates()` populates from `pr_meta` during `DataLoadedMsg`
 - **Detail view**: PR section in header shows PR number, review decision, CI status, comment count. "Branch: <name> — No PR found" when linked but no PR. `o` keybinding opens PR URL (prefers PR URL over provider URL)
-- **Events**: `EventPRStatusUpdated` published after poll detects changes. TUI subscribes and triggers board refresh. IPC `pr_linked` message also triggers refresh
+- **Polling cadence**: `PollOnce` (periodic) skips resolved PRs unless `resolvedInterval` has elapsed — unresolved PRs poll faster to discover new PRs. `PollAll` (startup + manual `r`) fetches everything regardless of cadence. `lastResolvedPoll` timestamp tracks when resolved PRs were last checked
+- **Manual refresh**: `r` from board triggers `manualRefresh()` — runs Jira sync + `PollAll` in one goroutine, shows "syncing..." status bar, clears on completion via `manualRefreshDoneMsg`
+- **Events**: `EventPRStatusUpdated` published after poll detects changes. TUI subscribes to all sync event types (`EventSyncStarted/Completed/Failed` + error events) via per-type channels. `EventBusMsg.ch` carries source channel for re-subscribing. IPC `pr_linked` message also triggers refresh
 - **Auto-link**: `AgentService.SpawnAgent` calls `PRTrackingService.AutoLinkBranch` (best-effort, skips if already linked or not in git repo)
 
 ## Build Plan

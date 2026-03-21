@@ -28,6 +28,7 @@ type PRTrackingService interface {
 	LinkPR(ctx context.Context, taskID string, owner, repo string, prNumber int) error
 	UnlinkBranch(ctx context.Context, taskID string) error
 	PollOnce(ctx context.Context) error
+	PollAll(ctx context.Context) error
 	StartPolling(ctx context.Context) func()
 	GetPRStatus(ctx context.Context, taskID string) (*store.PRMeta, error)
 	DetectRepo() (owner, repo string, err error)
@@ -35,22 +36,28 @@ type PRTrackingService interface {
 }
 
 type prTrackingService struct {
-	store    *store.Store
-	bus      *events.Bus
-	gh       GitHubClient
-	interval time.Duration
+	store            *store.Store
+	bus              *events.Bus
+	gh               GitHubClient
+	interval         time.Duration // unresolved PRs (branch-only)
+	resolvedInterval time.Duration // resolved PRs (have PR number)
+	lastResolvedPoll time.Time     // tracks when resolved PRs were last polled
 }
 
 // NewPRTrackingService creates a new PR tracking service.
-func NewPRTrackingService(s *store.Store, bus *events.Bus, gh GitHubClient, interval time.Duration) PRTrackingService {
+func NewPRTrackingService(s *store.Store, bus *events.Bus, gh GitHubClient, interval, resolvedInterval time.Duration) PRTrackingService {
 	if interval == 0 {
-		interval = 60 * time.Second
+		interval = 10 * time.Minute
+	}
+	if resolvedInterval == 0 {
+		resolvedInterval = 10 * time.Minute
 	}
 	return &prTrackingService{
-		store:    s,
-		bus:      bus,
-		gh:       gh,
-		interval: interval,
+		store:            s,
+		bus:              bus,
+		gh:               gh,
+		interval:         interval,
+		resolvedInterval: resolvedInterval,
 	}
 }
 
@@ -109,7 +116,23 @@ func (p *prTrackingService) UnlinkBranch(ctx context.Context, taskID string) err
 	return p.store.UpdatePRMeta(ctx, taskID, nil)
 }
 
+// PollAll fetches PR status for all tracked tasks regardless of resolved state.
+// Used on startup to ensure all data is fresh.
+func (p *prTrackingService) PollAll(ctx context.Context) error {
+	p.lastResolvedPoll = time.Now()
+	return p.pollInternal(ctx, false)
+}
+
 func (p *prTrackingService) PollOnce(ctx context.Context) error {
+	// Check if resolved PRs should be included this cycle.
+	includeResolved := time.Since(p.lastResolvedPoll) >= p.resolvedInterval
+	if includeResolved {
+		p.lastResolvedPoll = time.Now()
+	}
+	return p.pollInternal(ctx, !includeResolved)
+}
+
+func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool) error {
 	tasks, err := p.store.ListPRTrackedTasks(ctx)
 	if err != nil {
 		return err
@@ -119,10 +142,6 @@ func (p *prTrackingService) PollOnce(ctx context.Context) error {
 	}
 
 	// Extract branches with repo info for scoped queries.
-	type branchInfo struct {
-		branch string
-		repo   string
-	}
 	branchToTasks := make(map[string][]string) // branch → task IDs
 	branchRepos := make(map[string]string)     // branch → repo (first seen)
 	for _, t := range tasks {
@@ -130,10 +149,18 @@ func (p *prTrackingService) PollOnce(ctx context.Context) error {
 		if err != nil || meta == nil || meta.Branch == "" {
 			continue
 		}
+		// Skip resolved PRs (already have a PR number) when not due.
+		if skipResolved && meta.PRNumber > 0 {
+			continue
+		}
 		branchToTasks[meta.Branch] = append(branchToTasks[meta.Branch], t.ID)
 		if meta.Repo != "" && branchRepos[meta.Branch] == "" {
 			branchRepos[meta.Branch] = meta.Repo
 		}
+	}
+
+	if len(branchToTasks) == 0 {
+		return nil
 	}
 
 	queries := make([]github.BranchQuery, 0, len(branchToTasks))

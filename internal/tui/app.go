@@ -46,6 +46,7 @@ const (
 // EventBusMsg wraps an event bus event as a Bubbletea message.
 type EventBusMsg struct {
 	Event events.Event
+	ch    <-chan events.Event // source channel, for re-subscribing
 }
 
 // ClipboardWarningMsg signals that clipboard is unavailable.
@@ -64,6 +65,9 @@ type ImportRemoteResultsMsg struct {
 
 // boardRefreshMsg triggers a board data reload.
 type boardRefreshMsg struct{}
+
+// manualRefreshDoneMsg triggers a board reload and clears the sync indicator.
+type manualRefreshDoneMsg struct{}
 
 // App is the root Bubbletea model.
 type App struct {
@@ -84,7 +88,7 @@ type App struct {
 	pendingNav    string // card ID to navigate to after next board data load
 	prSvc         service.PRTrackingService
 	eventBus      *events.Bus
-	eventSub      <-chan events.Event
+	eventSubs     []<-chan events.Event // sync lifecycle events (started/completed/failed/errors)
 	cardUpdateSub <-chan events.Event
 	prSub         <-chan events.Event
 }
@@ -108,7 +112,15 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		eventBus:  bus,
 	}
 	if bus != nil {
-		app.eventSub = bus.Subscribe(events.EventSyncStarted)
+		app.eventSubs = []<-chan events.Event{
+			bus.Subscribe(events.EventSyncStarted),
+			bus.Subscribe(events.EventSyncCompleted),
+			bus.Subscribe(events.EventSyncFailed),
+			bus.Subscribe(events.EventSyncError),
+			bus.Subscribe(events.EventAuthFailed),
+			bus.Subscribe(events.EventRateLimited),
+			bus.Subscribe(events.EventTransitionFailed),
+		}
 		app.cardUpdateSub = bus.Subscribe(events.EventCardUpdated)
 		app.prSub = bus.Subscribe(events.EventPRStatusUpdated)
 	}
@@ -118,8 +130,8 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 // Init returns initial commands.
 func (a App) Init() tea.Cmd {
 	cmds := []tea.Cmd{a.board.Init()}
-	if a.eventSub != nil {
-		cmds = append(cmds, a.listenEventBus())
+	for _, sub := range a.eventSubs {
+		cmds = append(cmds, a.listenEventBusCh(sub))
 	}
 	if a.cardUpdateSub != nil {
 		cmds = append(cmds, a.listenCardUpdates())
@@ -136,15 +148,14 @@ func (a App) Init() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// listenEventBus returns a command that bridges EventBus events into Bubbletea messages.
-func (a App) listenEventBus() tea.Cmd {
-	ch := a.eventSub
+// listenEventBusCh returns a command that bridges a single EventBus channel into Bubbletea messages.
+func (a App) listenEventBusCh(ch <-chan events.Event) tea.Cmd {
 	return func() tea.Msg {
 		event, ok := <-ch
 		if !ok {
 			return nil
 		}
-		return EventBusMsg{Event: event}
+		return EventBusMsg{Event: event, ch: ch}
 	}
 }
 
@@ -216,6 +227,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "/":
 			if a.active == viewBoard {
 				return a.openSearchOverlay()
+			}
+			return a.delegateKey(msg)
+		case "r":
+			if a.active == viewBoard {
+				return a.manualRefresh()
 			}
 			return a.delegateKey(msg)
 		case "n":
@@ -482,9 +498,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.statusBar, _ = a.statusBar.Update(statusbar.ErrorMsg{Text: p.Message})
 			}
 		}
-		// Continue listening
-		if a.eventSub != nil {
-			cmds = append(cmds, a.listenEventBus())
+		// Continue listening on the same channel
+		if msg.ch != nil {
+			cmds = append(cmds, a.listenEventBusCh(msg.ch))
 		}
 
 	case cardUpdateMsg:
@@ -512,6 +528,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmds...)
 
 	case boardRefreshMsg:
+		cmd := a.board.Init()
+		return a, cmd
+
+	case manualRefreshDoneMsg:
+		a.statusBar, _ = a.statusBar.Update(statusbar.SyncCompletedMsg{})
 		cmd := a.board.Init()
 		return a, cmd
 
@@ -868,6 +889,25 @@ func (a App) handleImportSelected(msg overlay.ImportSelectedMsg) (tea.Model, tea
 		_ = card
 		// Return a board refresh by re-initializing board data
 		return boardRefreshMsg{}
+	}
+}
+
+func (a App) manualRefresh() (tea.Model, tea.Cmd) {
+	syncSvc := a.syncSvc
+	prSvc := a.prSvc
+	if syncSvc == nil && prSvc == nil {
+		// No services — just reload board data
+		return a, a.board.Init()
+	}
+	a.statusBar, _ = a.statusBar.Update(statusbar.SyncStartedMsg{})
+	return a, func() tea.Msg {
+		if syncSvc != nil {
+			syncSvc.Sync(context.Background())
+		}
+		if prSvc != nil {
+			prSvc.PollAll(context.Background())
+		}
+		return manualRefreshDoneMsg{}
 	}
 }
 
