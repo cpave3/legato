@@ -538,6 +538,51 @@ func TestGetTaskDurations(t *testing.T) {
 	}
 }
 
+func TestListAgentsPopulatesTaskTitle(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-1238")
+
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	agents, err := svc.ListAgents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("got %d agents, want 1", len(agents))
+	}
+	if agents[0].Title != "Test REX-1238" {
+		t.Errorf("Title = %q, want %q", agents[0].Title, "Test REX-1238")
+	}
+}
+
+func TestListAgentsEmptyTitleWhenTaskMissing(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-1238")
+
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete the task from the store so lookup fails
+	s.DB().ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", "REX-1238")
+
+	agents, err := svc.ListAgents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("got %d agents, want 1", len(agents))
+	}
+	if agents[0].Title != "" {
+		t.Errorf("Title = %q, want empty string for missing task", agents[0].Title)
+	}
+}
+
 func TestListAgentsFallsBackOnPaneCommandsError(t *testing.T) {
 	svc, s, mt := newTestAgentService(t)
 	ctx := context.Background()

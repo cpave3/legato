@@ -210,7 +210,7 @@ func (m Model) renderSidebar() string {
 		if entryRenderedHeight > listHeight {
 			lines := strings.Split(entries, "\n")
 			// Find the selected entry position — approximate by card height
-			cardHeight := 4 // each card is ~4 lines (with margin)
+			cardHeight := 5 // each card is ~5 lines (status+id, command, title, padding/margin)
 			selectedStart := m.selected * cardHeight
 			scrollOffset := selectedStart - listHeight/2
 			if scrollOffset < 0 {
@@ -314,6 +314,12 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 	line2 := dimStyle.Render(a.Command)
 
 	content := line1 + "\n" + line2
+
+	// Add title line if present, truncated to fit
+	if a.Title != "" {
+		titleStr := truncateID(a.Title, cardContentWidth)
+		content += "\n" + dimStyle.Render(titleStr)
+	}
 
 	// Card styling
 	if selected {
@@ -423,14 +429,37 @@ func (m Model) renderTerminalHeader(width int) string {
 	ticketStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple).Bold(true)
 	dimStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
 
-	left := fmt.Sprintf("%s %s %s %s %s %s",
-		statusDot,
-		ticketStyle.Render(a.TaskID),
-		dimStyle.Render("·"),
-		a.Command,
-		dimStyle.Render("·"),
-		elapsed,
-	)
+	// Build left side: status · ID [· title] · command · elapsed
+	var left string
+	if a.Title != "" {
+		// Reserve space for fixed parts, truncate title to fit
+		fixedWidth := lipgloss.Width(statusDot) + lipgloss.Width(ticketStyle.Render(a.TaskID)) +
+			lipgloss.Width(a.Command) + lipgloss.Width(elapsed) + 12 // separators + spaces
+		maxTitleWidth := width - fixedWidth - 20 // leave room for right label
+		if maxTitleWidth < 5 {
+			maxTitleWidth = 5
+		}
+		titleStr := truncateID(a.Title, maxTitleWidth)
+		left = fmt.Sprintf("%s %s %s %s %s %s %s %s",
+			statusDot,
+			ticketStyle.Render(a.TaskID),
+			dimStyle.Render("·"),
+			dimStyle.Render(titleStr),
+			dimStyle.Render("·"),
+			a.Command,
+			dimStyle.Render("·"),
+			elapsed,
+		)
+	} else {
+		left = fmt.Sprintf("%s %s %s %s %s %s",
+			statusDot,
+			ticketStyle.Render(a.TaskID),
+			dimStyle.Render("·"),
+			a.Command,
+			dimStyle.Render("·"),
+			elapsed,
+		)
+	}
 
 	// Right: status indicator — matches board card indicators
 	var liveLabel string

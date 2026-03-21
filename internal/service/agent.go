@@ -24,7 +24,8 @@ type TmuxManager interface {
 // AgentSession represents a running or completed agent session.
 type AgentSession struct {
 	ID          int
-	TaskID    string
+	TaskID      string
+	Title       string
 	TmuxSession string
 	Command     string
 	Status      string
@@ -160,9 +161,16 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			command = liveCmd
 		}
 
+		// Look up task title from store.
+		var title string
+		if task, err := a.store.GetTask(ctx, s.TaskID); err == nil {
+			title = task.Title
+		}
+
 		result[i] = AgentSession{
 			ID:          s.ID,
-			TaskID:    s.TaskID,
+			TaskID:      s.TaskID,
+			Title:       title,
 			TmuxSession: s.TmuxSession,
 			Command:     command,
 			Status:      s.Status,
