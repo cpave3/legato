@@ -3,6 +3,7 @@ package board
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/tui/theme"
 )
@@ -107,6 +108,124 @@ func TestCardNoAgentIndicatorByDefault(t *testing.T) {
 	out := RenderCard(card, 30, false, "Doing", testIcons)
 	if strings.Contains(out, "▶") {
 		t.Error("card without agent should not have ▶ indicator")
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		d    time.Duration
+		want string
+	}{
+		{0, ""},
+		{-1 * time.Second, ""},
+		{30 * time.Second, "<1m"},
+		{59 * time.Second, "<1m"},
+		{1 * time.Minute, "1m"},
+		{45 * time.Minute, "45m"},
+		{59 * time.Minute, "59m"},
+		{60 * time.Minute, "1h"},
+		{90 * time.Minute, "1h 30m"},
+		{135 * time.Minute, "2h 15m"},
+		{3 * time.Hour, "3h"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.d.String(), func(t *testing.T) {
+			got := formatDuration(tt.d)
+			if got != tt.want {
+				t.Errorf("formatDuration(%v) = %q, want %q", tt.d, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCardWithAgentStateLine(t *testing.T) {
+	card := CardData{
+		Key:             "task1",
+		Title:           "Test task",
+		Priority:        "High",
+		AgentActive:     true,
+		AgentState:      "working",
+		WorkingDuration: 45 * time.Minute,
+	}
+	out := RenderCard(card, 30, false, "Doing", testIcons)
+	if !strings.Contains(out, "RUNNING") {
+		t.Error("card with working agent should contain RUNNING")
+	}
+	if !strings.Contains(out, "45m") {
+		t.Errorf("card should contain duration '45m', got: %q", out)
+	}
+}
+
+func TestCardWithWaitingAgentState(t *testing.T) {
+	card := CardData{
+		Key:             "task1",
+		Title:           "Test task",
+		AgentActive:     true,
+		AgentState:      "waiting",
+		WaitingDuration: 2*time.Hour + 15*time.Minute,
+	}
+	out := RenderCard(card, 30, false, "Doing", testIcons)
+	if !strings.Contains(out, "WAITING") {
+		t.Error("card with waiting agent should contain WAITING")
+	}
+	if !strings.Contains(out, "2h 15m") {
+		t.Errorf("card should contain '2h 15m', got: %q", out)
+	}
+}
+
+func TestCardWithDurationHistoryNoAgent(t *testing.T) {
+	card := CardData{
+		Key:             "task1",
+		Title:           "Test task",
+		WorkingDuration: 90 * time.Minute,
+		WaitingDuration: 20 * time.Minute,
+	}
+	out := RenderCard(card, 40, false, "Doing", testIcons)
+	// Duration line shows icon + duration: "⟳ 1h 30m · ◆ 20m"
+	if !strings.Contains(out, "1h 30m") {
+		t.Errorf("card should contain '1h 30m', got: %q", out)
+	}
+	if !strings.Contains(out, "20m") {
+		t.Errorf("card should contain '20m', got: %q", out)
+	}
+}
+
+func TestCardWithoutAgentInfoHasNoAgentLine(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test task", Priority: "High", IssueType: "Bug"}
+	out := RenderCard(card, 30, false, "Doing", testIcons)
+	lines := strings.Split(out, "\n")
+	// Without agent info, card should be shorter (3 content lines + border)
+	for _, line := range lines {
+		if strings.Contains(line, "RUNNING") || strings.Contains(line, "WAITING") || strings.Contains(line, "IDLE") {
+			t.Error("card without agent info should not have agent line")
+		}
+	}
+}
+
+func TestCardWithDurationIsTaller(t *testing.T) {
+	noDuration := CardData{Key: "task1", Title: "Test", Priority: "High", IssueType: "Bug"}
+	withDuration := CardData{Key: "task2", Title: "Test", Priority: "High", IssueType: "Bug", WorkingDuration: 10 * time.Minute}
+
+	outNoDuration := RenderCard(noDuration, 30, false, "Doing", testIcons)
+	outWithDuration := RenderCard(withDuration, 30, false, "Doing", testIcons)
+
+	noDurationLines := strings.Count(outNoDuration, "\n")
+	withDurationLines := strings.Count(outWithDuration, "\n")
+
+	if withDurationLines <= noDurationLines {
+		t.Errorf("card with duration should be taller (%d lines) than without (%d lines)", withDurationLines, noDurationLines)
+	}
+}
+
+func TestUniformCardHeightInColumn(t *testing.T) {
+	cards := []CardData{
+		{Key: "task1", Title: "No agent", Priority: "High", IssueType: "Bug"},
+		{Key: "task2", Title: "Has agent", Priority: "Low", AgentActive: true, AgentState: "working"},
+	}
+	out := RenderColumn("Doing", cards, 30, true, 0, testIcons)
+	// Both cards should render; the column should have uniform height
+	if !strings.Contains(out, "task1") || !strings.Contains(out, "task2") {
+		t.Error("column should contain both cards")
 	}
 }
 

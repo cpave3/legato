@@ -32,6 +32,14 @@ type SyncLogEntry struct {
 	CreatedAt string `db:"created_at"`
 }
 
+type StateInterval struct {
+	ID        int     `db:"id"`
+	TaskID    string  `db:"task_id"`
+	State     string  `db:"state"`
+	StartedAt string  `db:"started_at"`
+	EndedAt   *string `db:"ended_at"`
+}
+
 type AgentSession struct {
 	ID          int     `db:"id"`
 	TaskID      string  `db:"task_id"`

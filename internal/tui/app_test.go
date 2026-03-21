@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -580,6 +581,61 @@ func TestTitleEditSubmitClosesOverlayAndRefreshes(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Error("expected board refresh command")
+	}
+}
+
+type fakeAgentService struct {
+	agents    []service.AgentSession
+	durations map[string]service.DurationData
+}
+
+func (f *fakeAgentService) SpawnAgent(_ context.Context, _ string, _, _ int) error { return nil }
+func (f *fakeAgentService) KillAgent(_ context.Context, _ string) error            { return nil }
+func (f *fakeAgentService) ListAgents(_ context.Context) ([]service.AgentSession, error) {
+	return f.agents, nil
+}
+func (f *fakeAgentService) ReconcileSessions(_ context.Context) error              { return nil }
+func (f *fakeAgentService) CaptureOutput(_ context.Context, _ string) (string, error) {
+	return "", nil
+}
+func (f *fakeAgentService) AttachCmd(_ context.Context, _ string) (*exec.Cmd, error) {
+	return nil, nil
+}
+func (f *fakeAgentService) GetTaskDurations(_ context.Context, _ []string) (map[string]service.DurationData, error) {
+	if f.durations != nil {
+		return f.durations, nil
+	}
+	return map[string]service.DurationData{}, nil
+}
+
+func TestDurationDataFlowsToBoard(t *testing.T) {
+	agentSvc := &fakeAgentService{
+		agents: []service.AgentSession{
+			{TaskID: "REX-1", Status: "running", Activity: "working", StartedAt: time.Now()},
+		},
+		durations: map[string]service.DurationData{
+			"REX-1": {Working: 45 * time.Minute, Waiting: 10 * time.Minute},
+		},
+	}
+
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, theme.NewIcons("unicode"), nil, "")
+	cmd := app.Init()
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	// After DataLoadedMsg, the board should have duration data on cards
+	card := app.board.SelectedCard()
+	if card == nil {
+		t.Fatal("expected a selected card")
+	}
+	if card.WorkingDuration != 45*time.Minute {
+		t.Errorf("WorkingDuration = %v, want 45m", card.WorkingDuration)
+	}
+	if card.WaitingDuration != 10*time.Minute {
+		t.Errorf("WaitingDuration = %v, want 10m", card.WaitingDuration)
 	}
 }
 

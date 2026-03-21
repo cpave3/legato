@@ -78,6 +78,11 @@ func AgentState(s *store.Store, taskID, activity string) error {
 		return fmt.Errorf("updating agent activity: %w", err)
 	}
 
+	// Record state interval for duration tracking
+	if err := s.RecordStateTransition(ctx, taskID, activity); err != nil {
+		return fmt.Errorf("recording state transition: %w", err)
+	}
+
 	ipc.Broadcast(ipc.Message{
 		Type:   "agent_state",
 		TaskID: taskID,

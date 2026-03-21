@@ -33,6 +33,12 @@ type AgentSession struct {
 	EndedAt     *time.Time
 }
 
+// DurationData holds aggregated state durations for a task.
+type DurationData struct {
+	Working time.Duration
+	Waiting time.Duration
+}
+
 // AgentService manages agent session lifecycle.
 type AgentService interface {
 	SpawnAgent(ctx context.Context, taskID string, width, height int) error
@@ -41,6 +47,7 @@ type AgentService interface {
 	ReconcileSessions(ctx context.Context) error
 	CaptureOutput(ctx context.Context, taskID string) (string, error)
 	AttachCmd(ctx context.Context, taskID string) (*exec.Cmd, error)
+	GetTaskDurations(ctx context.Context, taskIDs []string) (map[string]DurationData, error)
 }
 
 type agentService struct {
@@ -188,10 +195,27 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 			if err := a.store.UpdateAgentSessionStatus(ctx, s.TaskID, "dead"); err != nil {
 				return err
 			}
+			// Close any orphaned state intervals for this task
+			_ = a.store.RecordStateTransition(ctx, s.TaskID, "")
 		}
 	}
 
 	return nil
+}
+
+func (a *agentService) GetTaskDurations(ctx context.Context, taskIDs []string) (map[string]DurationData, error) {
+	batch, err := a.store.GetStateDurationsBatch(ctx, taskIDs)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]DurationData, len(batch))
+	for taskID, durations := range batch {
+		result[taskID] = DurationData{
+			Working: durations["working"],
+			Waiting: durations["waiting"],
+		}
+	}
+	return result, nil
 }
 
 func (a *agentService) CaptureOutput(ctx context.Context, taskID string) (string, error) {

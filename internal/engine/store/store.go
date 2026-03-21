@@ -55,13 +55,18 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// DB returns the underlying sqlx.DB for advanced queries.
+func (s *Store) DB() *sqlx.DB {
+	return s.db
+}
+
 func (s *Store) migrate() error {
 	var version int
 	if err := s.db.Get(&version, "PRAGMA user_version"); err != nil {
 		return err
 	}
 
-	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql"}
+	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql"}
 
 	for i := version; i < len(migrations); i++ {
 		data, err := migrationsFS.ReadFile("migrations/" + migrations[i])

@@ -2,12 +2,19 @@ package board
 
 import (
 	"context"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
+
+// DurationData holds aggregated state durations for a card.
+type DurationData struct {
+	Working time.Duration
+	Waiting time.Duration
+}
 
 const minColumnWidth = 20
 
@@ -204,6 +211,30 @@ func (m *Model) SetAgentStates(states map[string]string) {
 		}
 		m.cards[colName] = cards
 	}
+}
+
+// SetDurations updates the working/waiting durations for each card.
+func (m *Model) SetDurations(durations map[string]DurationData) {
+	for colName, cards := range m.cards {
+		for i := range cards {
+			if d, ok := durations[cards[i].Key]; ok {
+				cards[i].WorkingDuration = d.Working
+				cards[i].WaitingDuration = d.Waiting
+			}
+		}
+		m.cards[colName] = cards
+	}
+}
+
+// TaskIDs returns all task IDs currently on the board.
+func (m Model) TaskIDs() []string {
+	var ids []string
+	for _, colName := range m.columns {
+		for _, card := range m.cards[colName] {
+			ids = append(ids, card.Key)
+		}
+	}
+	return ids
 }
 
 // NavigateTo moves the board cursor to the card with the given ID.

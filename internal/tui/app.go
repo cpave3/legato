@@ -447,6 +447,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.board.SetActiveAgents(active)
 				a.board.SetAgentStates(states)
 			}
+			// Populate duration data for all visible cards
+			if taskIDs := a.board.TaskIDs(); len(taskIDs) > 0 {
+				durations, err := a.agentSvc.GetTaskDurations(context.Background(), taskIDs)
+				if err == nil && len(durations) > 0 {
+					boardDurations := make(map[string]board.DurationData, len(durations))
+					for id, d := range durations {
+						boardDurations[id] = board.DurationData{
+							Working: d.Working,
+							Waiting: d.Waiting,
+						}
+					}
+					a.board.SetDurations(boardDurations)
+				}
+			}
 		}
 		// Apply pending navigation (e.g. after task creation)
 		if a.pendingNav != "" {

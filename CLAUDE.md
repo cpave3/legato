@@ -41,15 +41,15 @@ task check                 # build + test + vet + lint
 
 ## Key Packages
 
-- `internal/engine/store/` — SQLite store with embedded migrations, task/column mapping/sync log CRUD, task ID generation
+- `internal/engine/store/` — SQLite store with embedded migrations, task/column mapping/sync log CRUD, task ID generation, state interval tracking (`RecordStateTransition`, `GetStateDurations`, `GetStateDurationsBatch`)
 - `internal/engine/events/` — Channel-based event bus with buffered pub/sub (buffer size 64, non-blocking drops on full), error event types (`EventSyncError`, `EventTransitionFailed`, `EventAuthFailed`, `EventRateLimited`) with `ErrorPayload` struct
 - `internal/engine/jira/` — Jira REST API v3 client (types, HTTP client with Basic Auth/backoff, ADF-to-Markdown converter), plus `Provider` adapter
 - `internal/engine/tmux/` — Tmux session manager: spawn, kill, capture-pane, attach, list/filter legato-prefixed sessions, `PaneCommands()` (batch query live foreground process names via `tmux list-panes -a -f`). LookPath-injectable for testing.
-- `internal/service/` — BoardService (columns/cards CRUD + CreateTask + DeleteTask + UpdateTaskDescription + UpdateTaskTitle), SyncService (pull/push with conflict resolution, provider→task conversion, SearchRemote + ImportRemoteTask), AgentService (tmux session lifecycle + SQLite tracking + dynamic pane command population), `TicketProvider` interface for pluggable backends
+- `internal/service/` — BoardService (columns/cards CRUD + CreateTask + DeleteTask + UpdateTaskDescription + UpdateTaskTitle), SyncService (pull/push with conflict resolution, provider→task conversion, SearchRemote + ImportRemoteTask), AgentService (tmux session lifecycle + SQLite tracking + dynamic pane command population + state duration queries via `GetTaskDurations`), `TicketProvider` interface for pluggable backends
 - `internal/setup/` — Setup wizard logic: first-run column seeding, interactive Jira configuration (credential validation, project/status discovery, column mapping heuristics, config writing), `ColumnSeeder` interface for testability
 - `internal/tui/` — Root Bubbletea app model, view routing (viewBoard/viewDetail/viewAgents), overlay state management (`overlayType` enum + `activeOverlay tea.Model`), EventBus bridge
 - `internal/tui/agents/` — Agent split-view: sidebar with agent list + terminal output panel, j/k navigation, spawn/kill/attach keybindings, capture-pane polling at 200ms
-- `internal/tui/board/` — Kanban board model with vim navigation, card/column rendering, agent indicator (`▶` prefix)
+- `internal/tui/board/` — Kanban board model with vim navigation, card/column rendering, agent status line with duration display
 - `internal/tui/detail/` — Full-screen task detail view with Glamour markdown, metadata header (provider-specific fields from RemoteMeta), viewport scrolling, `e` to edit description via `$EDITOR` (local tasks), `t` to edit title via overlay (local tasks)
 - `internal/tui/clipboard/` — OS-native clipboard (pbcopy/wl-copy/xclip/xsel) and browser open (open/xdg-open)
 - `internal/tui/overlay/` — Overlay system: shared `RenderPanel`, move overlay (single-letter shortcuts), search overlay (real-time filtering via `BoardService.SearchCards`), create overlay (inline task creation with title/description/column/priority), delete overlay (confirmation with remote/local distinction), import overlay (remote ticket search + import via `SyncService.SearchRemote`), title edit overlay (pre-filled text input for local tasks), help overlay (keybinding reference)
@@ -66,12 +66,12 @@ task check                 # build + test + vet + lint
 - SQLite file location: `cfg.DB.Path` > `$XDG_DATA_HOME/legato/legato.db` > `~/.local/share/legato/legato.db`
 - Migrations embedded via `embed.FS`, tracked with `PRAGMA user_version`
 - WAL mode enabled, foreign keys ON
-- Schema: `tasks`, `column_mappings`, `sync_log`, `agent_sessions` tables
+- Schema: `tasks`, `column_mappings`, `sync_log`, `agent_sessions`, `state_intervals` tables
 - `tasks` table: core fields (id, title, description, description_md, status, priority, sort_order, created_at, updated_at) + nullable provider link (provider, remote_id, remote_meta JSON)
 - Local tasks: provider/remote_id/remote_meta are NULL. Synced tasks: provider='jira', remote_id=Jira key, remote_meta=JSON with remote_status, issue_type, assignee, labels, etc.
 - Task IDs: 8-char lowercase alphanumeric (crypto/rand) for local tasks, provider IDs (e.g. REX-1234) for synced tasks
 - `agent_sessions` and `sync_log` reference `task_id` (not ticket_id)
-- Migrations: `001_init.sql` (base), `002_stale_and_move_tracking.sql`, `003_rename_jira_to_remote.sql`, `004_agent_sessions.sql`, `005_tasks.sql` (tickets→tasks migration with remote_meta JSON packing)
+- Migrations: `001_init.sql` (base), `002_stale_and_move_tracking.sql`, `003_rename_jira_to_remote.sql`, `004_agent_sessions.sql`, `005_tasks.sql` (tickets→tasks migration with remote_meta JSON packing), `006_agent_activity.sql`, `007_state_intervals.sql`
 
 ## Config
 
@@ -136,7 +136,7 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 - Editor config: `config.ResolveEditor(cfg)` → config `editor` field → `$VISUAL` → `$EDITOR` → `vi`. Used by detail view `e` keybinding to open external editor for description editing via `tea.ExecProcess`
 - Task deletion: `BoardService.DeleteTask(id)` verifies existence, deletes from store, publishes `EventCardsRefreshed`. Works for both local and remote-tracking tasks (remote-tracking only removes local ref)
 - Provider icons: cards show provider icon before key (◈ Jira, ◉ GitHub, ● local). Configurable via `icons` config field (`"unicode"` default, `"nerdfonts"` for Nerd Font glyphs). `theme.NewIcons(mode)` returns icon set, passed through `NewApp` → `board.New` → `RenderCard`
-- Board rendering: colored column header bars (column accent colors), cards with priority-colored left borders, subtle card backgrounds (#252540), gap between columns, margin between cards. Selected cards use dark-on-light colors for readability
+- Board rendering: colored column header bars (column accent colors), cards with priority-colored left borders, subtle card backgrounds (#252540), gap between columns, margin between cards. Selected cards use dark-on-light colors (`CardSelected` bg `#EEEDFE`) — **any styled text on selected cards must set `.Background(selectedBg)` explicitly**, including spaces between styled spans (render spaces inside the styled span, not as bare `+" "+` concatenation, or they show the terminal's dark default background). Also use dark foreground variants for selected state (e.g. `theme.SyncOK` → `#287828`, `theme.ColReady` → `#285878`)
 - First-run setup: `main.go` checks if `column_mappings` is empty, runs `setup.RunWizard()` which seeds default columns and optionally configures Jira interactively. Uses `ColumnSeeder` interface (backed by `StoreAdapter`) for testability
 - Jira client: uses `/rest/api/3/search/jql` endpoint (not the removed `/rest/api/3/search`)
 - `NewSyncService` takes `projectKeys []string` for scoping remote searches
@@ -177,7 +177,7 @@ Abstract adapter interface (`service.AIToolAdapter`) for pluggable AI tool integ
 - `"waiting"` — Claude finished, waiting for user input (triggered by `Stop` hook)
 - `""` — no activity / cleared (triggered by `SessionEnd` hook)
 
-**Card indicators**: `AgentState` field on `CardData` drives three visual states: green spinning icon (working), blue diamond (waiting), dim terminal icon (agent alive but no activity). Rendered in `board/card.go`, populated via `board.SetAgentStates()` from app.go data loading.
+**Card indicators**: `AgentState` field on `CardData` drives three visual states on a dedicated agent line: green spinning icon + "RUNNING" with cumulative duration (working), blue diamond + "WAITING" with duration (waiting), dim terminal icon + "IDLE" (agent alive but no activity). Cards with no active agent but duration history show "Xh Ym working · Zm waiting". Rendered in `board/card.go` via `renderAgentLine()`, populated via `board.SetAgentStates()` + `board.SetDurations()` from app.go data loading.
 
 **Hook events mapped**: `UserPromptSubmit` → working, `Stop` → waiting, `SessionEnd` → clear. Scripts generated by `legato hooks install`, written to `.claude/hooks/legato-*.sh` (prompt-submit, stop, session-end), registered in `.claude/settings.json`.
 
@@ -186,3 +186,7 @@ Abstract adapter interface (`service.AIToolAdapter`) for pluggable AI tool integ
 **Adapter registration**: `AdapterRegistry` in service layer. Claude Code adapter in `internal/engine/hooks/claude_code.go`. `AgentServiceOptions` struct passes adapter + socket path to `NewAgentService` for env var injection on spawn.
 
 **Migration**: `006_agent_activity.sql` adds `activity TEXT NOT NULL DEFAULT ''` column to `agent_sessions` table.
+
+**State duration tracking**: `state_intervals` table records timestamped working/waiting intervals per task. `cli.AgentState()` calls both `store.UpdateAgentActivity()` and `store.RecordStateTransition()`. `ReconcileSessions()` closes orphaned intervals for dead agents. Durations computed at query time via SQL aggregation (including open intervals using `datetime('now')`). `Store.DB()` exposes underlying `*sqlx.DB` for advanced queries in tests.
+
+**Duration formatting**: `board.formatDuration(d)` returns `""` (zero), `"<1m"` (under 60s), `"Xm"` (under 1h), `"Xh Ym"` (1h+). `CardData.WorkingDuration`/`WaitingDuration` populated during `DataLoadedMsg` via `AgentService.GetTaskDurations()` batch query.

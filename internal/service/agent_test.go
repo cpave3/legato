@@ -454,6 +454,90 @@ func TestListAgentsKeepsDBCommandForDeadSessions(t *testing.T) {
 	}
 }
 
+func TestReconcileClosesOrphanedIntervals(t *testing.T) {
+	svc, s, mt := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-1238")
+
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	// Record a working interval
+	if err := s.RecordStateTransition(ctx, "REX-1238", "working"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate tmux session dying
+	delete(mt.sessions, "legato-REX-1238")
+
+	if err := svc.ReconcileSessions(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// The open interval should be closed
+	durations, err := s.GetStateDurations(ctx, "REX-1238")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Duration should exist and be very small (just created)
+	if _, ok := durations["working"]; !ok {
+		t.Error("expected working duration to exist after reconcile")
+	}
+
+	// Verify no open intervals remain
+	var openCount int
+	if err := s.DB().GetContext(ctx, &openCount,
+		"SELECT COUNT(*) FROM state_intervals WHERE task_id = ? AND ended_at IS NULL", "REX-1238"); err != nil {
+		t.Fatal(err)
+	}
+	if openCount != 0 {
+		t.Errorf("got %d open intervals, want 0 after reconcile", openCount)
+	}
+}
+
+func TestGetTaskDurations(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "task1")
+	createTask(t, s, "task2")
+
+	// Insert intervals with known durations directly
+	s.DB().ExecContext(ctx,
+		"INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, 'working', datetime('now', '-60 seconds'), datetime('now', '-30 seconds'))",
+		"task1")
+	s.DB().ExecContext(ctx,
+		"INSERT INTO state_intervals (task_id, state, started_at) VALUES (?, 'waiting', datetime('now', '-10 seconds'))",
+		"task1")
+	s.DB().ExecContext(ctx,
+		"INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, 'working', datetime('now', '-120 seconds'), datetime('now', '-60 seconds'))",
+		"task2")
+
+	result, err := svc.GetTaskDurations(ctx, []string{"task1", "task2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// task1 should have both working and waiting
+	if _, ok := result["task1"]; !ok {
+		t.Fatal("expected task1 in results")
+	}
+	if result["task1"].Working == 0 {
+		t.Error("expected task1 to have working duration")
+	}
+	if result["task1"].Waiting == 0 {
+		t.Error("expected task1 to have waiting duration")
+	}
+
+	// task2 should have working
+	if _, ok := result["task2"]; !ok {
+		t.Fatal("expected task2 in results")
+	}
+	if result["task2"].Working == 0 {
+		t.Error("expected task2 to have working duration")
+	}
+}
+
 func TestListAgentsFallsBackOnPaneCommandsError(t *testing.T) {
 	svc, s, mt := newTestAgentService(t)
 	ctx := context.Background()

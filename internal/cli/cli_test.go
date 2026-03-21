@@ -152,6 +152,58 @@ func TestAgentState_ClearsActivity(t *testing.T) {
 	}
 }
 
+func TestAgentState_RecordsStateInterval(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Doing")
+
+	ctx := context.Background()
+	s.InsertAgentSession(ctx, store.AgentSession{
+		TaskID:      "abc123",
+		TmuxSession: "legato-abc123",
+		Command:     "shell",
+		Status:      "running",
+	})
+
+	cli.AgentState(s, "abc123", "working")
+
+	durations, err := s.GetStateDurations(ctx, "abc123")
+	if err != nil {
+		t.Fatalf("GetStateDurations: %v", err)
+	}
+	if _, ok := durations["working"]; !ok {
+		t.Error("expected working duration to be recorded")
+	}
+}
+
+func TestAgentState_TransitionClosesAndOpensInterval(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Doing")
+
+	ctx := context.Background()
+	s.InsertAgentSession(ctx, store.AgentSession{
+		TaskID:      "abc123",
+		TmuxSession: "legato-abc123",
+		Command:     "shell",
+		Status:      "running",
+	})
+
+	cli.AgentState(s, "abc123", "working")
+	cli.AgentState(s, "abc123", "waiting")
+
+	durations, err := s.GetStateDurations(ctx, "abc123")
+	if err != nil {
+		t.Fatalf("GetStateDurations: %v", err)
+	}
+	if _, ok := durations["working"]; !ok {
+		t.Error("expected working duration after transition")
+	}
+	if _, ok := durations["waiting"]; !ok {
+		t.Error("expected waiting duration after transition")
+	}
+}
+
 func TestTaskNote_AppendsNote(t *testing.T) {
 	s := newTestStore(t)
 	seedColumns(t, s)

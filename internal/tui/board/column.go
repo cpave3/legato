@@ -39,8 +39,7 @@ func RenderColumn(name string, cards []CardData, width int, active bool, selecte
 	var cardLines []string
 	for i, card := range cards {
 		selected := active && i == selectedIdx
-		rendered := RenderCard(card, width-1, selected, name, icons)
-		cardLines = append(cardLines, rendered)
+		cardLines = append(cardLines, RenderCard(card, width-1, selected, name, icons))
 	}
 
 	body := strings.Join(cardLines, "\n")

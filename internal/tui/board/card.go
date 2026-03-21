@@ -1,20 +1,82 @@
 package board
 
 import (
+	"fmt"
+	"strings"
+	"time"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
 // CardData holds the data needed to render a card.
 type CardData struct {
-	Key         string
-	Title       string
-	Priority    string
-	IssueType   string
-	Provider    string // "jira", "github", or "" for local
-	Warning     bool
-	AgentActive bool   // true if any agent session is running for this task
-	AgentState  string // "working", "waiting", or "" (idle/no agent)
+	Key             string
+	Title           string
+	Priority        string
+	IssueType       string
+	Provider        string        // "jira", "github", or "" for local
+	Warning         bool
+	AgentActive     bool          // true if any agent session is running for this task
+	AgentState      string        // "working", "waiting", or "" (idle/no agent)
+	WorkingDuration time.Duration // cumulative working time
+	WaitingDuration time.Duration // cumulative waiting time
+}
+
+// formatDuration formats a duration as a human-readable string.
+// Returns "", "<1m", "Xm", or "Xh Ym".
+func formatDuration(d time.Duration) string {
+	if d <= 0 {
+		return ""
+	}
+	totalMinutes := int(d.Minutes())
+	if totalMinutes < 1 {
+		return "<1m"
+	}
+	hours := totalMinutes / 60
+	minutes := totalMinutes % 60
+	if hours == 0 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	if minutes == 0 {
+		return fmt.Sprintf("%dh", hours)
+	}
+	return fmt.Sprintf("%dh %dm", hours, minutes)
+}
+
+// renderDurationLine builds a duration summary line showing both working and waiting times.
+// Format: "⟳ 45m · ◆ 10m" using the agent state icons.
+// Returns empty string if no durations to show.
+func renderDurationLine(card CardData, icons theme.Icons, selected bool) string {
+	if card.WorkingDuration <= 0 && card.WaitingDuration <= 0 {
+		return ""
+	}
+
+	dimColor := theme.TextTertiary
+	workingColor := theme.SyncOK
+	waitingColor := theme.ColReady
+	bg := lipgloss.Color("#252540") // CardBase background
+	if selected {
+		dimColor = lipgloss.Color("#585878")
+		workingColor = lipgloss.Color("#287828")
+		waitingColor = lipgloss.Color("#285878")
+		bg = lipgloss.Color("#EEEDFE") // CardSelected background
+	}
+
+	var parts []string
+	if d := formatDuration(card.WorkingDuration); d != "" {
+		wStyle := lipgloss.NewStyle().Foreground(workingColor).Background(bg)
+		dStyle := lipgloss.NewStyle().Foreground(dimColor).Background(bg)
+		parts = append(parts, wStyle.Render(icons.AgentWorking+" ")+dStyle.Render(d))
+	}
+	if d := formatDuration(card.WaitingDuration); d != "" {
+		wStyle := lipgloss.NewStyle().Foreground(waitingColor).Background(bg)
+		dStyle := lipgloss.NewStyle().Foreground(dimColor).Background(bg)
+		parts = append(parts, wStyle.Render(icons.AgentWaiting+" ")+dStyle.Render(d))
+	}
+
+	dotStyle := lipgloss.NewStyle().Foreground(dimColor).Background(bg)
+	return strings.Join(parts, dotStyle.Render(" · "))
 }
 
 // RenderCard renders a single card with the given parameters.
@@ -51,7 +113,7 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 		warningPrefix = warningStyle.Render(icons.Warning) + " "
 	}
 
-	// Agent activity indicator
+	// Agent activity indicator (back on key line)
 	agentPrefix := ""
 	switch card.AgentState {
 	case "working":
@@ -85,12 +147,18 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 		metaLine = lipgloss.JoinHorizontal(lipgloss.Left, joinWithDot(metaParts, dotStyle)...)
 	}
 
+	// Duration line (bottom row, always shown when durations exist)
+	durationLine := renderDurationLine(card, icons, selected)
+
 	// Apply done-column muted styling
 	if isDone {
 		keyLine := theme.DoneMuted.Render(card.Key)
 		title = theme.DoneMuted.Render(title)
 		metaLine = theme.DoneMuted.Render(card.IssueType)
 		content := keyLine + "\n" + title + "\n" + metaLine
+		if durationLine != "" {
+			content += "\n" + durationLine
+		}
 
 		style := theme.CardBase.
 			Width(contentWidth).
@@ -101,24 +169,56 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 
 	// Selected cards need dark-on-light colors
 	if selected {
+		selectedBg := lipgloss.Color("#EEEDFE")
 		darkText := lipgloss.Color("#1E1E2E")
 		dimText := lipgloss.Color("#585878")
-		sKeyStyle := lipgloss.NewStyle().Foreground(dimText)
-		sTitleStyle := lipgloss.NewStyle().Foreground(darkText).Bold(true)
-		sTypeStyle := lipgloss.NewStyle().Foreground(dimText)
+		s := func(fg lipgloss.Color) lipgloss.Style {
+			return lipgloss.NewStyle().Foreground(fg).Background(selectedBg)
+		}
+
+		// Provider icon with selected background
+		sProviderIcon := s(dimText).Render(icons.Local + " ")
+		switch card.Provider {
+		case "jira":
+			sProviderIcon = s(lipgloss.Color("#285878")).Render(icons.Jira + " ")
+		case "github":
+			sProviderIcon = s(darkText).Render(icons.GitHub + " ")
+		}
+
+		// Agent prefix
+		sAgentPrefix := ""
+		switch card.AgentState {
+		case "working":
+			sAgentPrefix = s(lipgloss.Color("#287828")).Bold(true).Render(icons.AgentWorking+" RUNNING ")
+		case "waiting":
+			sAgentPrefix = s(lipgloss.Color("#285878")).Bold(true).Render(icons.AgentWaiting+" WAITING ")
+		default:
+			if card.AgentActive {
+				sAgentPrefix = s(dimText).Render(icons.Terminal+" IDLE ")
+			}
+		}
+
+		// Warning
+		sWarningPrefix := ""
+		if card.Warning {
+			sWarningPrefix = s(theme.SyncError).Bold(true).Render(icons.Warning + " ")
+		}
 
 		sMetaLine := ""
 		if card.Priority != "" {
-			sMetaLine = sTypeStyle.Render(card.Priority)
+			sMetaLine = s(dimText).Render(card.Priority)
 			if card.IssueType != "" {
-				sMetaLine += " " + sTypeStyle.Render(card.IssueType)
+				sMetaLine += s(dimText).Render(" ") + s(dimText).Render(card.IssueType)
 			}
 		} else if card.IssueType != "" {
-			sMetaLine = sTypeStyle.Render(card.IssueType)
+			sMetaLine = s(dimText).Render(card.IssueType)
 		}
 
-		content := providerIcon + agentPrefix + warningPrefix + sKeyStyle.Render(card.Key) + "\n" +
-			sTitleStyle.Render(title) + "\n" + sMetaLine
+		content := sProviderIcon + sAgentPrefix + sWarningPrefix + s(dimText).Render(card.Key) + "\n" +
+			s(darkText).Bold(true).Render(title) + "\n" + sMetaLine
+		if durationLine != "" {
+			content += "\n" + durationLine
+		}
 
 		style := theme.CardSelected.Width(contentWidth)
 		return style.Render(content)
@@ -127,6 +227,9 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 	keyLine := providerIcon + agentPrefix + warningPrefix + keyStyle.Render(card.Key)
 	titleLine := titleStyle.Render(title)
 	content := keyLine + "\n" + titleLine + "\n" + metaLine
+	if durationLine != "" {
+		content += "\n" + durationLine
+	}
 
 	var style lipgloss.Style
 	{
