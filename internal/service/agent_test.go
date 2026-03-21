@@ -12,10 +12,12 @@ import (
 )
 
 type mockTmux struct {
-	sessions   map[string]bool
-	captures   map[string]string
-	envVars    map[string]map[string]string // session -> key -> value
-	spawnDims  map[string][2]int            // session -> [width, height]
+	sessions        map[string]bool
+	captures        map[string]string
+	envVars         map[string]map[string]string // session -> key -> value
+	spawnDims       map[string][2]int            // session -> [width, height]
+	paneCommands    map[string]string             // session -> command
+	paneCommandsErr error
 }
 
 func newMockTmux() *mockTmux {
@@ -77,6 +79,13 @@ func (m *mockTmux) ListSessions() ([]string, error) {
 
 func (m *mockTmux) IsAlive(name string) (bool, error) {
 	return m.sessions[name], nil
+}
+
+func (m *mockTmux) PaneCommands() (map[string]string, error) {
+	if m.paneCommands != nil {
+		return m.paneCommands, m.paneCommandsErr
+	}
+	return map[string]string{}, m.paneCommandsErr
 }
 
 func (m *mockTmux) SetEnv(sessionName, key, value string) error {
@@ -384,5 +393,88 @@ func TestAttachCmdReturnsCommand(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("expected non-nil command")
+	}
+}
+
+func TestListAgentsOverridesCommandWithLiveValue(t *testing.T) {
+	svc, s, mt := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-1238")
+
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set live pane command
+	mt.paneCommands = map[string]string{
+		"legato-REX-1238": "claude",
+	}
+
+	agents, err := svc.ListAgents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("got %d agents, want 1", len(agents))
+	}
+	if agents[0].Command != "claude" {
+		t.Errorf("Command = %q, want %q", agents[0].Command, "claude")
+	}
+}
+
+func TestListAgentsKeepsDBCommandForDeadSessions(t *testing.T) {
+	svc, s, mt := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-1238")
+
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	// Kill tmux session externally and reconcile
+	delete(mt.sessions, "legato-REX-1238")
+	if err := svc.ReconcileSessions(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// PaneCommands returns empty (session is dead)
+	mt.paneCommands = map[string]string{}
+
+	agents, err := svc.ListAgents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Dead sessions still in DB should keep stored command
+	for _, a := range agents {
+		if a.TaskID == "REX-1238" {
+			if a.Command != "shell" {
+				t.Errorf("dead session Command = %q, want %q", a.Command, "shell")
+			}
+		}
+	}
+}
+
+func TestListAgentsFallsBackOnPaneCommandsError(t *testing.T) {
+	svc, s, mt := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-1238")
+
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate PaneCommands failure
+	mt.paneCommandsErr = fmt.Errorf("tmux not available")
+
+	agents, err := svc.ListAgents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("got %d agents, want 1", len(agents))
+	}
+	// Should fall back to DB value
+	if agents[0].Command != "shell" {
+		t.Errorf("Command = %q, want %q (fallback)", agents[0].Command, "shell")
 	}
 }

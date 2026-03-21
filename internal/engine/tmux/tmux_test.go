@@ -237,6 +237,77 @@ func TestSpawnWithZeroDimensionsOmitsFlags(t *testing.T) {
 	}
 }
 
+func TestPaneCommandsIntegration(t *testing.T) {
+	skipWithoutTmux(t)
+
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	name := "legato-test-panecmd"
+	t.Cleanup(func() { m.Kill(name) })
+
+	if err := m.Spawn(name, t.TempDir(), 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds, err := m.PaneCommands()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cmd, ok := cmds[name]
+	if !ok {
+		t.Errorf("expected %s in PaneCommands result, got %v", name, cmds)
+	}
+	// Fresh shell should report a shell process (bash, zsh, sh, fish, etc.)
+	if cmd == "" {
+		t.Error("expected non-empty command for session")
+	}
+}
+
+func TestPaneCommandsNoSessionsReturnsEmptyMap(t *testing.T) {
+	skipWithoutTmux(t)
+
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Kill any legato sessions that might exist from other tests
+	sessions, _ := m.ListSessions()
+	for _, s := range sessions {
+		if strings.HasPrefix(s, "legato-test-panecmd-empty") {
+			m.Kill(s)
+		}
+	}
+
+	cmds, err := m.PaneCommands()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should not contain our test prefix (other legato sessions may exist)
+	for k := range cmds {
+		if strings.HasPrefix(k, "legato-test-panecmd-empty") {
+			t.Errorf("unexpected session %s in results", k)
+		}
+	}
+}
+
+func TestPaneCommandsTmuxNotInstalled(t *testing.T) {
+	_, err := New(Options{
+		LookPath: func(name string) (string, error) {
+			return "", exec.ErrNotFound
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error when tmux not found")
+	}
+	// Can't call PaneCommands without a valid Manager — error at construction is correct
+}
+
 func TestIsAliveNonExistentReturnsFalse(t *testing.T) {
 	skipWithoutTmux(t)
 

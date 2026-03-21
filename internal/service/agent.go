@@ -18,6 +18,7 @@ type TmuxManager interface {
 	ListSessions() ([]string, error)
 	IsAlive(name string) (bool, error)
 	SetEnv(sessionName, key, value string) error
+	PaneCommands() (map[string]string, error)
 }
 
 // AgentSession represents a running or completed agent session.
@@ -132,6 +133,9 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 		return nil, err
 	}
 
+	// Query live pane commands; fall back to DB values on error.
+	liveCmds, _ := a.tmux.PaneCommands()
+
 	result := make([]AgentSession, len(sessions))
 	for i, s := range sessions {
 		startedAt, err := time.Parse("2006-01-02 15:04:05", s.StartedAt)
@@ -143,11 +147,17 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			t, _ := time.Parse("2006-01-02 15:04:05", *s.EndedAt)
 			endedAt = &t
 		}
+
+		command := s.Command
+		if liveCmd, ok := liveCmds[s.TmuxSession]; ok && liveCmd != "" {
+			command = liveCmd
+		}
+
 		result[i] = AgentSession{
 			ID:          s.ID,
 			TaskID:    s.TaskID,
 			TmuxSession: s.TmuxSession,
-			Command:     s.Command,
+			Command:     command,
 			Status:      s.Status,
 			Activity:    s.Activity,
 			StartedAt:   startedAt,

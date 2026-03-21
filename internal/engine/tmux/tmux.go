@@ -144,6 +144,36 @@ func (m *Manager) SetEnv(sessionName, key, value string) error {
 	return nil
 }
 
+// PaneCommands returns a map of legato-prefixed session names to their
+// current foreground process name. Returns an empty map when no sessions match.
+func (m *Manager) PaneCommands() (map[string]string, error) {
+	cmd := exec.Command(m.tmuxPath, "list-panes", "-a",
+		"-F", "#{session_name} #{pane_current_command}",
+		"-f", "#{m:legato-*,#{session_name}}")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// No server running = no sessions
+		if strings.Contains(string(out), "no server running") ||
+			strings.Contains(string(out), "no sessions") {
+			return map[string]string{}, nil
+		}
+		return nil, fmt.Errorf("tmux list-panes: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+
+	result := make(map[string]string)
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) == 2 {
+			result[parts[0]] = parts[1]
+		}
+	}
+	return result, nil
+}
+
 func (m *Manager) isNotFoundError(name string) bool {
 	alive, _ := m.IsAlive(name)
 	return !alive

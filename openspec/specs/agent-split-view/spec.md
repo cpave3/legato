@@ -138,7 +138,7 @@ The terminal panel SHALL have a header bar showing metadata about the selected a
 #### Scenario: Header content
 
 - **WHEN** an agent is selected
-- **THEN** the header SHALL display the ticket ID, ticket summary, command type, elapsed time, and a live/dead status indicator
+- **THEN** the header SHALL display the ticket ID, ticket summary, the live foreground process name, elapsed time, and a live/dead status indicator
 
 ### Requirement: Keybinding help in sidebar
 
