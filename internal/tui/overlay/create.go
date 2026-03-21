@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -14,6 +15,7 @@ type CreateTaskMsg struct {
 	Description string
 	Column      string
 	Priority    string
+	WorkspaceID *int
 }
 
 // CreateCancelledMsg is sent when the user cancels task creation.
@@ -26,24 +28,39 @@ type focusField int
 const (
 	focusTitle focusField = iota
 	focusColumn
+	focusWorkspace
 	focusDescription
+	focusFieldCount = 4
 )
+
+// wsOption represents a workspace choice in the create overlay.
+type wsOption struct {
+	ID   *int
+	Name string
+}
 
 // CreateOverlay lets the user create a new task inline.
 type CreateOverlay struct {
-	title         string
-	description   string
-	focus         focusField
-	columns       []string
-	columnIndex   int
-	priorityIndex int
-	width         int
-	height        int
+	title          string
+	description    string
+	focus          focusField
+	columns        []string
+	columnIndex    int
+	priorityIndex  int
+	workspaces     []wsOption
+	workspaceIndex int
+	width          int
+	height         int
 }
 
 // NewCreate creates a new create-task overlay.
 // currentColumn is pre-selected in the column selector.
 func NewCreate(columns []string, currentColumn string) CreateOverlay {
+	return NewCreateWithWorkspaces(columns, currentColumn, nil, nil)
+}
+
+// NewCreateWithWorkspaces creates a create-task overlay with workspace options.
+func NewCreateWithWorkspaces(columns []string, currentColumn string, workspaces []service.Workspace, activeWorkspaceID *int) CreateOverlay {
 	colIdx := 0
 	for i, c := range columns {
 		if c == currentColumn {
@@ -51,10 +68,24 @@ func NewCreate(columns []string, currentColumn string) CreateOverlay {
 			break
 		}
 	}
+
+	// Build workspace options: "None" + each workspace
+	wsOpts := []wsOption{{ID: nil, Name: "None"}}
+	wsIdx := 0
+	for _, ws := range workspaces {
+		id := ws.ID
+		wsOpts = append(wsOpts, wsOption{ID: &id, Name: ws.Name})
+		if activeWorkspaceID != nil && ws.ID == *activeWorkspaceID {
+			wsIdx = len(wsOpts) - 1
+		}
+	}
+
 	return CreateOverlay{
-		columns:     columns,
-		columnIndex: colIdx,
-		focus:       focusTitle,
+		columns:        columns,
+		columnIndex:    colIdx,
+		focus:          focusTitle,
+		workspaces:     wsOpts,
+		workspaceIndex: wsIdx,
 	}
 }
 
@@ -82,12 +113,13 @@ func (m CreateOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Description: m.description,
 					Column:      m.columns[m.columnIndex],
 					Priority:    priorities[m.priorityIndex],
+					WorkspaceID: m.workspaces[m.workspaceIndex].ID,
 				}
 				return m, func() tea.Msg { return result }
 			}
 			return m, nil
 		case "tab":
-			m.focus = (m.focus + 1) % 3
+			m.focus = (m.focus + 1) % focusFieldCount
 			return m, nil
 		case "ctrl+p":
 			m.priorityIndex = (m.priorityIndex + 1) % len(priorities)
@@ -125,6 +157,16 @@ func (m CreateOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.columnIndex = (m.columnIndex + 1) % len(m.columns)
 					case 'h':
 						m.columnIndex = (m.columnIndex - 1 + len(m.columns)) % len(m.columns)
+					}
+				}
+			case focusWorkspace:
+				// h/l to cycle workspaces
+				if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && len(m.workspaces) > 0 {
+					switch msg.Runes[0] {
+					case 'l':
+						m.workspaceIndex = (m.workspaceIndex + 1) % len(m.workspaces)
+					case 'h':
+						m.workspaceIndex = (m.workspaceIndex - 1 + len(m.workspaces)) % len(m.workspaces)
 					}
 				}
 			case focusDescription:
@@ -184,6 +226,20 @@ func (m CreateOverlay) View() string {
 	}
 	columnLine := colLabel + strings.Join(colParts, valueStyle.Render(" · "))
 
+	// Workspace selector
+	workspaceLine := ""
+	if len(m.workspaces) > 1 { // more than just "None"
+		var wsParts []string
+		for i, ws := range m.workspaces {
+			if i == m.workspaceIndex {
+				wsParts = append(wsParts, inputStyle.Render("["+ws.Name+"]"))
+			} else {
+				wsParts = append(wsParts, valueStyle.Render(ws.Name))
+			}
+		}
+		workspaceLine = labelStyle.Render("Workspace: ") + strings.Join(wsParts, valueStyle.Render(" · "))
+	}
+
 	// Priority selector
 	priLabel := priorities[m.priorityIndex]
 	if priLabel == "" {
@@ -211,11 +267,17 @@ func (m CreateOverlay) View() string {
 		hintText = "tab field · ctrl+j newline · ctrl+p priority · enter submit · esc cancel"
 	} else if m.focus == focusColumn {
 		hintText = "h/l column · tab field · ctrl+p priority · enter submit · esc cancel"
+	} else if m.focus == focusWorkspace {
+		hintText = "h/l workspace · tab field · ctrl+p priority · enter submit · esc cancel"
 	}
 	hints := hintStyle.Render(hintText)
 
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		heading, "", titleLine, "", columnLine, priorityLine, "", descLine, "", hints)
+	lines := []string{heading, "", titleLine, "", columnLine}
+	if workspaceLine != "" {
+		lines = append(lines, workspaceLine)
+	}
+	lines = append(lines, priorityLine, "", descLine, "", hints)
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return RenderPanel(content, m.width, m.height)
 }
 

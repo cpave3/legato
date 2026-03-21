@@ -19,6 +19,11 @@ type MoveSelectedMsg struct {
 // MoveCancelledMsg is sent when the user cancels the move.
 type MoveCancelledMsg struct{}
 
+// OpenMoveWorkspaceMsg is sent when the user presses w in the move overlay to switch workspace.
+type OpenMoveWorkspaceMsg struct {
+	TaskID string
+}
+
 // MoveOverlay lets the user pick a target column.
 type MoveOverlay struct {
 	taskID      string
@@ -119,6 +124,9 @@ func (m MoveOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor > 0 {
 				m.cursor--
 			}
+		case "w":
+			id := m.taskID
+			return m, func() tea.Msg { return OpenMoveWorkspaceMsg{TaskID: id} }
 		case "enter":
 			if m.cursor < len(m.columns) {
 				target := m.columns[m.cursor]
@@ -193,7 +201,12 @@ func (m MoveOverlay) View() string {
 		}
 	}
 
-	content := lipgloss.JoinVertical(lipgloss.Left, append(header, items...)...)
+	hintStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary).Padding(0, 1)
+	hints := hintStyle.Render("w workspace · esc cancel")
+
+	parts := append(header, items...)
+	parts = append(parts, "", hints)
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	return RenderPanel(content, m.width, m.height)
 }
 

@@ -21,6 +21,8 @@ type CardData struct {
 	AgentState      string        // "working", "waiting", or "" (idle/no agent)
 	WorkingDuration time.Duration // cumulative working time
 	WaitingDuration time.Duration // cumulative waiting time
+	WorkspaceName   string        // workspace name (populated in "All" view)
+	WorkspaceColor  string        // workspace color hex (populated in "All" view)
 }
 
 // formatDuration formats a duration as a human-readable string.
@@ -133,7 +135,7 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 	keyStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
 	titleStyle := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true)
 
-	// Build metadata line: priority + dot + issue type
+	// Build metadata line: priority + dot + issue type + workspace tag
 	dotStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
 	var metaParts []string
 	if card.Priority != "" {
@@ -141,6 +143,14 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 	}
 	if card.IssueType != "" {
 		metaParts = append(metaParts, theme.TypeBadge.Render(card.IssueType))
+	}
+	if card.WorkspaceName != "" {
+		wsColor := lipgloss.Color(theme.TextTertiary)
+		if card.WorkspaceColor != "" {
+			wsColor = lipgloss.Color(card.WorkspaceColor)
+		}
+		wsStyle := lipgloss.NewStyle().Foreground(wsColor)
+		metaParts = append(metaParts, wsStyle.Render(card.WorkspaceName))
 	}
 	metaLine := ""
 	if len(metaParts) > 0 {
@@ -204,14 +214,23 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 			sWarningPrefix = s(theme.SyncError).Bold(true).Render(icons.Warning + " ")
 		}
 
-		sMetaLine := ""
+		var sMetaParts []string
 		if card.Priority != "" {
-			sMetaLine = s(dimText).Render(card.Priority)
-			if card.IssueType != "" {
-				sMetaLine += s(dimText).Render(" ") + s(dimText).Render(card.IssueType)
+			sMetaParts = append(sMetaParts, s(dimText).Render(card.Priority))
+		}
+		if card.IssueType != "" {
+			sMetaParts = append(sMetaParts, s(dimText).Render(card.IssueType))
+		}
+		if card.WorkspaceName != "" {
+			wsColor := dimText
+			if card.WorkspaceColor != "" {
+				wsColor = lipgloss.Color(card.WorkspaceColor)
 			}
-		} else if card.IssueType != "" {
-			sMetaLine = s(dimText).Render(card.IssueType)
+			sMetaParts = append(sMetaParts, s(wsColor).Render(card.WorkspaceName))
+		}
+		sMetaLine := ""
+		if len(sMetaParts) > 0 {
+			sMetaLine = strings.Join(sMetaParts, s(dimText).Render(" · "))
 		}
 
 		content := sProviderIcon + sAgentPrefix + sWarningPrefix + s(dimText).Render(card.Key) + "\n" +

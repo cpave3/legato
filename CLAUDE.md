@@ -44,15 +44,15 @@ task check                 # build + test + vet + lint
 - `internal/engine/store/` — SQLite store with embedded migrations, task/column mapping/sync log CRUD, task ID generation, state interval tracking (`RecordStateTransition`, `GetStateDurations`, `GetStateDurationsBatch`)
 - `internal/engine/events/` — Channel-based event bus with buffered pub/sub (buffer size 64, non-blocking drops on full), error event types (`EventSyncError`, `EventTransitionFailed`, `EventAuthFailed`, `EventRateLimited`) with `ErrorPayload` struct
 - `internal/engine/jira/` — Jira REST API v3 client (types, HTTP client with Basic Auth/backoff, ADF-to-Markdown converter), plus `Provider` adapter
-- `internal/engine/tmux/` — Tmux session manager: spawn, kill, capture-pane, attach, list/filter legato-prefixed sessions, `PaneCommands()` (batch query live foreground process names via `tmux list-panes -a -f`). LookPath-injectable for testing.
-- `internal/service/` — BoardService (columns/cards CRUD + CreateTask + DeleteTask + UpdateTaskDescription + UpdateTaskTitle), SyncService (pull/push with conflict resolution, provider→task conversion, SearchRemote + ImportRemoteTask), AgentService (tmux session lifecycle + SQLite tracking + dynamic pane command population + task title enrichment + state duration queries via `GetTaskDurations`), `TicketProvider` interface for pluggable backends
+- `internal/engine/tmux/` — Tmux session manager: spawn, kill, capture-pane, attach, set-option, list/filter legato-prefixed sessions, `PaneCommands()` (batch query live foreground process names via `tmux list-panes -a -f`). LookPath-injectable for testing.
+- `internal/service/` — BoardService (columns/cards CRUD + CreateTask + DeleteTask + UpdateTaskDescription + UpdateTaskTitle + UpdateTaskWorkspace + ListCardsByWorkspace + ListWorkspaces), SyncService (pull/push with conflict resolution, provider→task conversion, SearchRemote + ImportRemoteTask), AgentService (tmux session lifecycle + SQLite tracking + dynamic pane command population + task title enrichment + state duration queries via `GetTaskDurations`), `TicketProvider` interface for pluggable backends, `SeedWorkspaces` (config→DB workspace seeding)
 - `internal/setup/` — Setup wizard logic: first-run column seeding, interactive Jira configuration (credential validation, project/status discovery, column mapping heuristics, config writing), `ColumnSeeder` interface for testability
 - `internal/tui/` — Root Bubbletea app model, view routing (viewBoard/viewDetail/viewAgents), overlay state management (`overlayType` enum + `activeOverlay tea.Model`), EventBus bridge
 - `internal/tui/agents/` — Agent split-view: sidebar with agent list (status, task ID, title, command per entry) + terminal output panel, j/k navigation, spawn/kill/attach keybindings, capture-pane polling at 200ms
 - `internal/tui/board/` — Kanban board model with vim navigation, card/column rendering, agent status line with duration display
 - `internal/tui/detail/` — Full-screen task detail view with Glamour markdown, metadata header (provider-specific fields from RemoteMeta), viewport scrolling, `e` to edit description via `$EDITOR` (local tasks), `t` to edit title via overlay (local tasks)
 - `internal/tui/clipboard/` — OS-native clipboard (pbcopy/wl-copy/xclip/xsel) and browser open (open/xdg-open)
-- `internal/tui/overlay/` — Overlay system: shared `RenderPanel`, move overlay (single-letter shortcuts), search overlay (real-time filtering via `BoardService.SearchCards`), create overlay (inline task creation with title/description/column/priority), delete overlay (confirmation with remote/local distinction), import overlay (remote ticket search + import via `SyncService.SearchRemote`), title edit overlay (pre-filled text input for local tasks), help overlay (keybinding reference)
+- `internal/tui/overlay/` — Overlay system: shared `RenderPanel`, move overlay (single-letter shortcuts, `w` transitions to workspace assignment), search overlay (real-time filtering via `BoardService.SearchCards`), create overlay (inline task creation with title/description/column/priority/workspace), delete overlay (confirmation with remote/local distinction), import overlay (remote ticket search + import via `SyncService.SearchRemote`), title edit overlay (pre-filled text input for local tasks), workspace overlay (board view filter), move-workspace overlay (task workspace assignment), help overlay (keybinding reference)
 - `internal/tui/statusbar/` — Status bar with sync state, relative time, key hints, warnings, error messages (auto-clear on sync success)
 - `internal/tui/theme/` — Lipgloss color palette, style constants, and icon system (`icons.go`: `NewIcons("unicode"|"nerdfonts")` for provider/agent/warning glyphs)
 - `internal/engine/ipc/` — Unix domain socket IPC: `Server` (listens, parses newline-delimited JSON, calls callback), `Send` (client, silent on missing socket), `Broadcast` (sends to all `*.sock` in `SocketDir()`), `SocketPath()` (PID-based, XDG_RUNTIME_DIR with /tmp fallback), `Message` struct (type/task_id/status/content)
@@ -66,12 +66,13 @@ task check                 # build + test + vet + lint
 - SQLite file location: `cfg.DB.Path` > `$XDG_DATA_HOME/legato/legato.db` > `~/.local/share/legato/legato.db`
 - Migrations embedded via `embed.FS`, tracked with `PRAGMA user_version`
 - WAL mode enabled, foreign keys ON
-- Schema: `tasks`, `column_mappings`, `sync_log`, `agent_sessions`, `state_intervals` tables
-- `tasks` table: core fields (id, title, description, description_md, status, priority, sort_order, created_at, updated_at) + nullable provider link (provider, remote_id, remote_meta JSON)
+- Schema: `tasks`, `column_mappings`, `sync_log`, `agent_sessions`, `state_intervals`, `workspaces` tables
+- `tasks` table: core fields (id, title, description, description_md, status, priority, sort_order, workspace_id, created_at, updated_at) + nullable provider link (provider, remote_id, remote_meta JSON)
+- `workspaces` table: id (INTEGER PRIMARY KEY), name (TEXT UNIQUE), color (TEXT), sort_order (INTEGER)
 - Local tasks: provider/remote_id/remote_meta are NULL. Synced tasks: provider='jira', remote_id=Jira key, remote_meta=JSON with remote_status, issue_type, assignee, labels, etc.
 - Task IDs: 8-char lowercase alphanumeric (crypto/rand) for local tasks, provider IDs (e.g. REX-1234) for synced tasks
 - `agent_sessions` and `sync_log` reference `task_id` (not ticket_id)
-- Migrations: `001_init.sql` (base), `002_stale_and_move_tracking.sql`, `003_rename_jira_to_remote.sql`, `004_agent_sessions.sql`, `005_tasks.sql` (tickets→tasks migration with remote_meta JSON packing), `006_agent_activity.sql`, `007_state_intervals.sql`
+- Migrations: `001_init.sql` (base), `002_stale_and_move_tracking.sql`, `003_rename_jira_to_remote.sql`, `004_agent_sessions.sql`, `005_tasks.sql` (tickets→tasks migration with remote_meta JSON packing), `006_agent_activity.sql`, `007_state_intervals.sql`, `008_workspaces.sql` (workspaces table + tasks.workspace_id FK)
 
 ## Config
 
@@ -80,6 +81,8 @@ task check                 # build + test + vet + lint
 - Env vars expanded before YAML parsing: `${LEGATO_JIRA_TOKEN}` works in config values
 - `icons` field: `"unicode"` (default) or `"nerdfonts"` for Nerd Font glyphs on cards
 - `editor` field: optional editor override for description editing (used by `config.ResolveEditor`)
+- `agents.tmux_options` field: map of tmux option key→value pairs applied to each spawned agent session via `tmux set-option` (e.g., `mouse: "on"`, `history-limit: "50000"`)
+- `workspaces` field: list of `{name, color}` objects defining workspaces. Seeded to DB on startup via `service.SeedWorkspaces`. Color is hex string (e.g. `"#4A9EEF"`)
 
 ## Provider Architecture
 
@@ -115,13 +118,15 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 - Glamour: must use `glamour.WithStyles(styles.DarkStyleConfig)`, NOT `WithAutoStyle()` — auto-style probes terminal background via stdin/stdout which deadlocks in bubbletea's alt-screen mode
 - Clipboard: `Copy()` uses `cmd.Start()` + `StdinPipe()`, NOT `cmd.Run()` — `wl-copy` on Wayland stays alive to serve paste requests, so `Run()` blocks forever
 - Detail view loads cards synchronously via `GetCard()` in the `OpenDetailMsg` handler (hits local SQLite, not remote API). `e` opens `$EDITOR` for description (local tasks only, via `tea.ExecProcess`), `t` opens title edit overlay (local tasks only). Status bar hints are conditional on `Provider == ""`
-- Overlay system: only one overlay active at a time — `overlayType` enum (`overlayNone/Move/Search/Help/Create/Delete/Import/TitleEdit`) + `activeOverlay tea.Model`; `?` opens help from any context (replaces active overlay); `esc` always dismisses
-- Move overlay shortcuts: first letter of column name lowercased (`b`=Backlog, `r`=Ready, `d`=Doing, `v`=Review, `x`=Done); falls back to number keys on conflict
+- Overlay system: only one overlay active at a time — `overlayType` enum (`overlayNone/Move/Search/Help/Create/Delete/Import/TitleEdit/Workspace/MoveWorkspace`) + `activeOverlay tea.Model`; `?` opens help from any context (replaces active overlay); `esc` always dismisses
+- Move overlay shortcuts: first letter of column name lowercased (`b`=Backlog, `r`=Ready, `d`=Doing, `v`=Review, `x`=Done); falls back to number keys on conflict. `w` opens workspace assignment overlay (`MoveWorkspaceOverlay`) for the same task — lists "None" + workspaces, marks current, emits `WorkspaceAssignedMsg{TaskID, WorkspaceID}`. App calls `UpdateTaskWorkspace` on selection
 - Search overlay: typing appends to query, produces `SearchQueryChangedMsg` → app calls `BoardService.SearchCards` → returns `SearchResultsMsg` → overlay updates results; `enter` closes overlay and calls `board.NavigateTo(cardID)`
-- Create overlay: `n` opens from board view; title input + description input with `focusField` cycling (tab: title → column → description); `h`/`l` cycles columns when column focused, `ctrl+j` inserts newline in description, ctrl+p cycles priority (none/low/medium/high); enter submits `CreateTaskMsg` (with description), esc cancels
+- Create overlay: `n` opens from board view; title input + description input with `focusField` cycling (tab: title → column → workspace → description); `h`/`l` cycles columns/workspaces when focused, `ctrl+j` inserts newline in description, ctrl+p cycles priority (none/low/medium/high); workspace pre-filled with active workspace (None if All/Unassigned view); enter submits `CreateTaskMsg` (with description + workspaceID), esc cancels
 - Title edit overlay: `t` from detail view (local tasks only); pre-filled text input, enter saves via `BoardService.UpdateTaskTitle`, esc cancels
 - Delete overlay: `d` from board, `D` from detail; shows task title, warns if remote-tracking ("removes local reference only"); `y` confirms, `n`/`esc` cancels. Confirm calls `BoardService.DeleteTask`, returns to board from detail view
 - Import overlay: `i` from board (no-op without SyncService); fixed-size panel (60% width, 10 result rows + scroll indicator); typing triggers `SyncService.SearchRemote` (min 2 chars); j/k navigates, enter imports via `SyncService.ImportRemoteTask`, esc cancels. Errors shown in red instead of silent "no results"
+- Workspace overlay: `w` from board opens workspace switcher listing "All", "Unassigned", and each configured workspace (with color dot). j/k navigates, single-letter shortcuts, enter selects, esc dismisses. Returns `WorkspaceSelectedMsg` with `store.WorkspaceView`. Board filters cards via `ListCardsByWorkspace`. Workspace tags shown on cards in "All" view only. Status bar shows active workspace name in configured color. Create overlay includes workspace picker (h/l cycling, pre-filled with active workspace)
+- Workspace data flow: `workspaces` config → `SeedWorkspaces` at startup → `workspaces` SQLite table → `tasks.workspace_id` FK. `store.WorkspaceView` enum: `ViewAll`/`ViewUnassigned`/`ViewWorkspace(id)`. `ListTasksByStatusAndWorkspace` handles SQL filtering. Board model holds `workspaceView` and `workspaces` state. `NewApp` takes `[]service.Workspace` param. Workspace assignment works for both local and remote tasks (workspaces are a local organizational concept)
 - Card warning indicators: `CardData.Warning` bool → renders warning icon; sourced from `sync_log` where most recent entry for task is `push_failed`
 - Error event classification: sync service classifies errors by message content (auth/rate-limit/offline) and publishes typed events; app converts to `statusbar.ErrorMsg`
 - Server stub: `internal/server/` consumes `BoardService` interface only — no TUI imports, independently startable; tests use `httptest.NewRecorder`
@@ -130,8 +135,8 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 - Agent view: `viewAgents` enum value, toggled via `A` key from board. `agents.Model.Update` returns `(Model, tea.Cmd)` (concrete type, same as board — not `tea.Model`). Polling via `agentTickMsg` at 200ms; capture output forwarded as `CaptureOutputMsg`
 - Agent attach: `tea.ExecProcess` suspends bubbletea, runs `tmux attach-session` with escape key set to `Ctrl+]` (configurable via `agents.escape_key` in config). On detach, refreshes agent list
 - Agent card indicator: `CardData.AgentActive` bool → renders terminal icon on board cards with active agents. Populated by app querying `AgentService.ListAgents()` on `DataLoadedMsg`, not by BoardService
-- Data model: provider-agnostic `tasks` table with nullable `provider`/`remote_id`/`remote_meta` for synced tasks. `Card.Title` (not Summary), `CardDetail.RemoteMeta` map for provider-specific fields. `service.Card.IssueType` extracted from remote_meta at read time
-- Local task creation: `BoardService.CreateTask(title, description, column, priority)` generates 8-char alphanumeric ID, inserts task with description, publishes refresh event
+- Data model: provider-agnostic `tasks` table with nullable `provider`/`remote_id`/`remote_meta` for synced tasks, nullable `workspace_id` FK to `workspaces`. `Card.Title` (not Summary), `Card.WorkspaceName`/`WorkspaceColor` populated in All view. `CardDetail.RemoteMeta` map for provider-specific fields, `CardDetail.WorkspaceID *int`. `service.Card.IssueType` extracted from remote_meta at read time
+- Local task creation: `BoardService.CreateTask(title, description, column, priority, workspaceID)` generates 8-char alphanumeric ID, inserts task with description and optional workspace, publishes refresh event
 - Local task editing: `BoardService.UpdateTaskDescription(id, description)` and `BoardService.UpdateTaskTitle(id, title)` — both reject remote tasks (provider != nil), persist changes, publish `EventCardsRefreshed`
 - Editor config: `config.ResolveEditor(cfg)` → config `editor` field → `$VISUAL` → `$EDITOR` → `vi`. Used by detail view `e` keybinding to open external editor for description editing via `tea.ExecProcess`
 - Task deletion: `BoardService.DeleteTask(id)` verifies existence, deletes from store, publishes `EventCardsRefreshed`. Works for both local and remote-tracking tasks (remote-tracking only removes local ref)
@@ -140,7 +145,7 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 - First-run setup: `main.go` checks if `column_mappings` is empty, runs `setup.RunWizard()` which seeds default columns and optionally configures Jira interactively. Uses `ColumnSeeder` interface (backed by `StoreAdapter`) for testability
 - Jira client: uses `/rest/api/3/search/jql` endpoint (not the removed `/rest/api/3/search`)
 - `NewSyncService` takes `projectKeys []string` for scoping remote searches
-- `NewApp` takes `SyncService` (nil-safe), `theme.Icons`, and `editor string` (resolved via `config.ResolveEditor`); `board.New` takes `theme.Icons`; `detail.New`/`detail.NewLoading` take `editor string`
+- `NewApp` takes `SyncService` (nil-safe), `theme.Icons`, `editor string` (resolved via `config.ResolveEditor`), and `[]service.Workspace` (loaded from DB); `board.New` takes `theme.Icons`; `detail.New`/`detail.NewLoading` take `editor string`
 
 ## Build Plan
 
@@ -183,7 +188,7 @@ Abstract adapter interface (`service.AIToolAdapter`) for pluggable AI tool integ
 
 **IPC**: Each TUI instance creates a PID-based Unix domain socket at `$XDG_RUNTIME_DIR/legato/legato-<pid>.sock` (fallback `/tmp/legato-<uid>/legato-<pid>.sock`). Multiple instances coexist — CLI commands `Broadcast()` to all `*.sock` files in the directory. Protocol: newline-delimited JSON. Best-effort — CLI silently skips unreachable sockets. Message types: `task_update`, `task_note`, `agent_state`.
 
-**Adapter registration**: `AdapterRegistry` in service layer. Claude Code adapter in `internal/engine/hooks/claude_code.go`. `AgentServiceOptions` struct passes adapter + socket path to `NewAgentService` for env var injection on spawn.
+**Adapter registration**: `AdapterRegistry` in service layer. Claude Code adapter in `internal/engine/hooks/claude_code.go`. `AgentServiceOptions` struct passes adapter, socket path, and `TmuxOptions` to `NewAgentService` for env var injection and session configuration on spawn.
 
 **Migration**: `006_agent_activity.sql` adds `activity TEXT NOT NULL DEFAULT ''` column to `agent_sessions` table.
 

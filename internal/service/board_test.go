@@ -381,7 +381,7 @@ func TestCreateTask_Success(t *testing.T) {
 	s, _, svc := setupTestBoard(t)
 	seedColumns(t, s)
 
-	card, err := svc.CreateTask(context.Background(), "New task", "", "Backlog", "High")
+	card, err := svc.CreateTask(context.Background(), "New task", "", "Backlog", "High", nil)
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -493,7 +493,7 @@ func TestCreateTask_WithDescription(t *testing.T) {
 	s, _, svc := setupTestBoard(t)
 	seedColumns(t, s)
 
-	card, err := svc.CreateTask(context.Background(), "New task", "Some description", "Backlog", "High")
+	card, err := svc.CreateTask(context.Background(), "New task", "Some description", "Backlog", "High", nil)
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -575,7 +575,7 @@ func TestCreateTask_PlacedAtEndOfColumn(t *testing.T) {
 	seedColumns(t, s)
 	seedTasks(t, s)
 
-	card, err := svc.CreateTask(context.Background(), "New task", "", "Backlog", "")
+	card, err := svc.CreateTask(context.Background(), "New task", "", "Backlog", "", nil)
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}

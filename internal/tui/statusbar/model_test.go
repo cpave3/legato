@@ -137,6 +137,28 @@ func TestErrorMessageClearsAfterSync(t *testing.T) {
 	}
 }
 
+func TestWorkspaceIndicator(t *testing.T) {
+	m := New()
+	m.width = 120
+	m, _ = m.Update(WorkspaceMsg{Name: "Work", Color: "#4A9EEF"})
+	if m.workspaceName != "Work" {
+		t.Errorf("workspaceName = %q, want Work", m.workspaceName)
+	}
+	view := m.View()
+	if !strings.Contains(view, "Work") {
+		t.Errorf("view should contain workspace name 'Work', got: %q", view)
+	}
+}
+
+func TestWorkspaceHintDisplayed(t *testing.T) {
+	m := New()
+	m.width = 120
+	view := m.View()
+	if !strings.Contains(view, "workspace") {
+		t.Errorf("view should contain 'workspace' key hint, got: %q", view)
+	}
+}
+
 func TestNarrowTerminalTruncatesHints(t *testing.T) {
 	m := New()
 	m.width = 30 // very narrow

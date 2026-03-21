@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/agents"
 	"github.com/cpave3/legato/internal/tui/board"
@@ -36,6 +37,8 @@ const (
 	overlayDelete
 	overlayImport
 	overlayTitleEdit
+	overlayWorkspace
+	overlayMoveWorkspace
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -83,13 +86,15 @@ type App struct {
 }
 
 // NewApp creates a new root application model.
-func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, icons theme.Icons, bus *events.Bus, editor string) App {
+func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace) App {
 	clip := clipboard.New()
+	b := board.New(svc, icons)
+	b.SetWorkspaces(workspaces)
 	app := App{
 		svc:       svc,
 		syncSvc:   syncSvc,
 		agentSvc:  agentSvc,
-		board:     board.New(svc, icons),
+		board:     b,
 		agentView: agents.New(icons),
 		statusBar: statusbar.New(),
 		clip:      clip,
@@ -286,6 +291,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.activeOverlay = nil
 		return a, nil
 
+	case overlay.OpenMoveWorkspaceMsg:
+		return a.openMoveWorkspaceOverlay(msg.TaskID)
+
+	case overlay.WorkspaceAssignedMsg:
+		return a.handleWorkspaceAssigned(msg)
+
+	case overlay.WorkspaceAssignCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
 	case overlay.SearchSelectedMsg:
 		return a.handleSearchSelected(msg)
 
@@ -320,6 +336,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleDeleteConfirmed(msg)
 
 	case overlay.DeleteCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
+	case board.OpenWorkspaceMsg:
+		return a.openWorkspaceOverlay()
+
+	case overlay.WorkspaceSelectedMsg:
+		return a.handleWorkspaceSelected(msg)
+
+	case overlay.WorkspaceCancelledMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
 		return a, nil
@@ -589,7 +616,13 @@ func (a App) openCreateOverlay() (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	createModel := overlay.NewCreate(colNames, currentCol)
+	// Determine active workspace ID for pre-filling
+	var activeWorkspaceID *int
+	wsView := a.board.WorkspaceView()
+	if wsView.Kind == store.ViewWorkspace {
+		activeWorkspaceID = &wsView.WorkspaceID
+	}
+	createModel := overlay.NewCreateWithWorkspaces(colNames, currentCol, a.board.Workspaces(), activeWorkspaceID)
 	sized, _ := createModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
 	a.overlayType = overlayCreate
@@ -618,6 +651,67 @@ func (a App) handleDeleteConfirmed(msg overlay.DeleteConfirmedMsg) (tea.Model, t
 		a.active = viewBoard
 	}
 	// Refresh board
+	cmd := a.board.Init()
+	return a, cmd
+}
+
+func (a App) openMoveWorkspaceOverlay(taskID string) (tea.Model, tea.Cmd) {
+	workspaces := a.board.Workspaces()
+	card, err := a.svc.GetCard(context.Background(), taskID)
+	if err != nil {
+		return a, nil
+	}
+
+	mwModel := overlay.NewMoveWorkspace(taskID, workspaces, card.WorkspaceID)
+	sized, _ := mwModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.activeOverlay = sized
+	a.overlayType = overlayMoveWorkspace
+	return a, nil
+}
+
+func (a App) handleWorkspaceAssigned(msg overlay.WorkspaceAssignedMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	err := a.svc.UpdateTaskWorkspace(context.Background(), msg.TaskID, msg.WorkspaceID)
+	if err != nil {
+		return a, func() tea.Msg {
+			return statusbar.ErrorMsg{Text: "workspace: " + err.Error()}
+		}
+	}
+	cmd := a.board.Init()
+	return a, cmd
+}
+
+func (a App) openWorkspaceOverlay() (tea.Model, tea.Cmd) {
+	workspaces := a.board.Workspaces()
+	current := a.board.WorkspaceView()
+	wsModel := overlay.NewWorkspace(workspaces, current)
+	sized, _ := wsModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.activeOverlay = sized
+	a.overlayType = overlayWorkspace
+	return a, nil
+}
+
+func (a App) handleWorkspaceSelected(msg overlay.WorkspaceSelectedMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	a.board.SetWorkspaceView(msg.View)
+	// Update status bar with workspace indicator
+	wsName := "All"
+	wsColor := ""
+	if msg.View.Kind == store.ViewUnassigned {
+		wsName = "Unassigned"
+	} else if msg.View.Kind == store.ViewWorkspace {
+		for _, ws := range a.board.Workspaces() {
+			if ws.ID == msg.View.WorkspaceID {
+				wsName = ws.Name
+				wsColor = ws.Color
+				break
+			}
+		}
+	}
+	a.statusBar, _ = a.statusBar.Update(statusbar.WorkspaceMsg{Name: wsName, Color: wsColor})
+	// Refresh board data with new filter
 	cmd := a.board.Init()
 	return a, cmd
 }
@@ -707,7 +801,7 @@ func (a App) handleTitleEditSubmit(msg overlay.TitleEditSubmitMsg) (tea.Model, t
 func (a App) handleCreateTask(msg overlay.CreateTaskMsg) (tea.Model, tea.Cmd) {
 	a.overlayType = overlayNone
 	a.activeOverlay = nil
-	card, err := a.svc.CreateTask(context.Background(), msg.Title, msg.Description, msg.Column, msg.Priority)
+	card, err := a.svc.CreateTask(context.Background(), msg.Title, msg.Description, msg.Column, msg.Priority, msg.WorkspaceID)
 	if err != nil {
 		return a, nil
 	}

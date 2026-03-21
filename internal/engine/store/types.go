@@ -11,10 +11,17 @@ type Task struct {
 	Provider      *string `db:"provider"`
 	RemoteID      *string `db:"remote_id"`
 	RemoteMeta    *string `db:"remote_meta"`
+	WorkspaceID   *int    `db:"workspace_id"`
 	CreatedAt     string  `db:"created_at"`
 	UpdatedAt     string  `db:"updated_at"`
 }
 
+type Workspace struct {
+	ID        int     `db:"id"`
+	Name      string  `db:"name"`
+	Color     *string `db:"color"`
+	SortOrder int     `db:"sort_order"`
+}
 
 type ColumnMapping struct {
 	ID               int    `db:"id"`

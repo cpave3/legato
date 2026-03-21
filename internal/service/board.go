@@ -33,6 +33,10 @@ func (b *boardService) ListColumns(ctx context.Context) ([]Column, error) {
 }
 
 func (b *boardService) ListCards(ctx context.Context, column string) ([]Card, error) {
+	return b.ListCardsByWorkspace(ctx, column, store.WorkspaceView{Kind: store.ViewAll})
+}
+
+func (b *boardService) ListCardsByWorkspace(ctx context.Context, column string, view store.WorkspaceView) ([]Card, error) {
 	// Validate column exists
 	mappings, err := b.store.ListColumnMappings(ctx)
 	if err != nil {
@@ -49,10 +53,23 @@ func (b *boardService) ListCards(ctx context.Context, column string) ([]Card, er
 		return nil, fmt.Errorf("column %q not found", column)
 	}
 
-	tasks, err := b.store.ListTasksByStatus(ctx, column)
+	tasks, err := b.store.ListTasksByStatusAndWorkspace(ctx, column, view)
 	if err != nil {
 		return nil, err
 	}
+
+	// Build workspace lookup for populating card workspace names
+	var wsLookup map[int]store.Workspace
+	if view.Kind == store.ViewAll {
+		workspaces, wsErr := b.store.ListWorkspaces(ctx)
+		if wsErr == nil {
+			wsLookup = make(map[int]store.Workspace, len(workspaces))
+			for _, w := range workspaces {
+				wsLookup[w.ID] = w
+			}
+		}
+	}
+
 	cards := make([]Card, len(tasks))
 	for i, t := range tasks {
 		issueType := ""
@@ -75,6 +92,14 @@ func (b *boardService) ListCards(ctx context.Context, column string) ([]Card, er
 			Provider:   provider,
 			SortOrder:  t.SortOrder,
 			HasWarning: hasPushFailure(ctx, b.store, t.ID),
+		}
+		if wsLookup != nil && t.WorkspaceID != nil {
+			if ws, ok := wsLookup[*t.WorkspaceID]; ok {
+				cards[i].WorkspaceName = ws.Name
+				if ws.Color != nil {
+					cards[i].WorkspaceColor = *ws.Color
+				}
+			}
 		}
 	}
 	return cards, nil
@@ -252,7 +277,7 @@ func (b *boardService) ExportCardContext(ctx context.Context, id string, format 
 	}
 }
 
-func (b *boardService) CreateTask(ctx context.Context, title, description, column, priority string) (*Card, error) {
+func (b *boardService) CreateTask(ctx context.Context, title, description, column, priority string, workspaceID *int) (*Card, error) {
 	id := store.GenerateTaskID()
 	now := time.Now().UTC().Format(time.RFC3339)
 
@@ -263,6 +288,7 @@ func (b *boardService) CreateTask(ctx context.Context, title, description, colum
 		DescriptionMD: description,
 		Status:        column,
 		Priority:      priority,
+		WorkspaceID:   workspaceID,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
@@ -358,6 +384,35 @@ func (b *boardService) UpdateTaskTitle(ctx context.Context, id, title string) er
 	return nil
 }
 
+func (b *boardService) UpdateTaskWorkspace(ctx context.Context, id string, workspaceID *int) error {
+	if _, err := b.store.GetTask(ctx, id); err != nil {
+		return err
+	}
+	if err := b.store.UpdateTaskWorkspace(ctx, id, workspaceID); err != nil {
+		return err
+	}
+	b.bus.Publish(events.Event{
+		Type: events.EventCardsRefreshed,
+		At:   time.Now(),
+	})
+	return nil
+}
+
+func (b *boardService) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
+	ws, err := b.store.ListWorkspaces(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Workspace, len(ws))
+	for i, w := range ws {
+		result[i] = Workspace{ID: w.ID, Name: w.Name}
+		if w.Color != nil {
+			result[i].Color = *w.Color
+		}
+	}
+	return result, nil
+}
+
 func taskToCardDetail(t *store.Task) *CardDetail {
 	createdAt, _ := time.Parse(time.RFC3339, t.CreatedAt)
 	updatedAt, _ := time.Parse(time.RFC3339, t.UpdatedAt)
@@ -368,6 +423,7 @@ func taskToCardDetail(t *store.Task) *CardDetail {
 		DescriptionMD: t.DescriptionMD,
 		Status:        t.Status,
 		Priority:      t.Priority,
+		WorkspaceID:   t.WorkspaceID,
 		CreatedAt:     createdAt,
 		UpdatedAt:     updatedAt,
 	}

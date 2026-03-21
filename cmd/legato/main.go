@@ -267,6 +267,14 @@ func runTUI() int {
 		}
 	}
 
+	// Seed workspaces from config
+	if len(cfg.Workspaces) > 0 {
+		if err := service.SeedWorkspaces(context.Background(), db, cfg.Workspaces); err != nil {
+			fmt.Fprintf(os.Stderr, "seeding workspaces: %v\n", err)
+			return 1
+		}
+	}
+
 	bus := events.New()
 	boardSvc := service.NewBoardService(db, bus)
 
@@ -316,14 +324,19 @@ func runTUI() int {
 		}
 		ccAdapter := hooks.NewClaudeCodeAdapter(legatoBin)
 		agentSvc = service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
-			Adapter:    ccAdapter,
-			SocketPath: socketPath,
+			Adapter:     ccAdapter,
+			SocketPath:  socketPath,
+			TmuxOptions: cfg.Agents.TmuxOptions,
 		})
 	}
 
 	icons := theme.NewIcons(cfg.Icons)
 	editor := config.ResolveEditor(cfg)
-	app := tui.NewApp(boardSvc, syncSvc, agentSvc, icons, bus, editor)
+
+	// Load workspaces for TUI
+	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
+
+	app := tui.NewApp(boardSvc, syncSvc, agentSvc, icons, bus, editor, workspaces)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

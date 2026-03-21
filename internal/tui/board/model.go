@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
@@ -20,23 +21,46 @@ const minColumnWidth = 20
 
 // Model is the board Bubbletea model.
 type Model struct {
-	svc       service.BoardService
-	icons     theme.Icons
-	columns   []string
-	cards     map[string][]CardData
-	cursorCol int
-	cursorRow int
-	width     int
-	height    int
+	svc            service.BoardService
+	icons          theme.Icons
+	columns        []string
+	cards          map[string][]CardData
+	cursorCol      int
+	cursorRow      int
+	width          int
+	height         int
+	workspaceView  store.WorkspaceView
+	workspaces     []service.Workspace
 }
 
 // New creates a new board model.
 func New(svc service.BoardService, icons theme.Icons) Model {
 	return Model{
-		svc:   svc,
-		icons: icons,
-		cards: make(map[string][]CardData),
+		svc:           svc,
+		icons:         icons,
+		cards:         make(map[string][]CardData),
+		workspaceView: store.WorkspaceView{Kind: store.ViewAll},
 	}
+}
+
+// SetWorkspaceView sets the active workspace filter.
+func (m *Model) SetWorkspaceView(view store.WorkspaceView) {
+	m.workspaceView = view
+}
+
+// WorkspaceView returns the current workspace filter.
+func (m Model) WorkspaceView() store.WorkspaceView {
+	return m.workspaceView
+}
+
+// SetWorkspaces sets the available workspaces.
+func (m *Model) SetWorkspaces(ws []service.Workspace) {
+	m.workspaces = ws
+}
+
+// Workspaces returns the available workspaces.
+func (m Model) Workspaces() []service.Workspace {
+	return m.workspaces
 }
 
 // loadData fetches columns and cards from the service.
@@ -51,19 +75,21 @@ func (m Model) loadData() Model {
 	m.cards = make(map[string][]CardData)
 	for i, col := range cols {
 		m.columns[i] = col.Name
-		cards, err := m.svc.ListCards(ctx, col.Name)
+		cards, err := m.svc.ListCardsByWorkspace(ctx, col.Name, m.workspaceView)
 		if err != nil {
 			continue
 		}
 		cardData := make([]CardData, len(cards))
 		for j, c := range cards {
 			cardData[j] = CardData{
-				Key:       c.ID,
-				Title:     c.Title,
-				Priority:  c.Priority,
-				IssueType: c.IssueType,
-				Provider:  c.Provider,
-				Warning:   c.HasWarning,
+				Key:            c.ID,
+				Title:          c.Title,
+				Priority:       c.Priority,
+				IssueType:      c.IssueType,
+				Provider:       c.Provider,
+				Warning:        c.HasWarning,
+				WorkspaceName:  c.WorkspaceName,
+				WorkspaceColor: c.WorkspaceColor,
 			}
 		}
 		m.cards[col.Name] = cardData
@@ -102,6 +128,9 @@ type OpenDeleteMsg struct {
 
 // OpenImportMsg signals the app to open the remote import overlay.
 type OpenImportMsg struct{}
+
+// OpenWorkspaceMsg signals the app to open the workspace switcher overlay.
+type OpenWorkspaceMsg struct{}
 
 // Update handles messages.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
@@ -168,6 +197,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	case "i":
 		return m, func() tea.Msg { return OpenImportMsg{} }
+	case "w":
+		return m, func() tea.Msg { return OpenWorkspaceMsg{} }
 	case "1", "2", "3", "4", "5":
 		idx := int(msg.String()[0]-'0') - 1
 		if idx < len(m.columns) {

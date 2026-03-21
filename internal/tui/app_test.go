@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/board"
 	"github.com/cpave3/legato/internal/tui/detail"
@@ -67,7 +68,7 @@ func (f *fakeBoardService) ExportCardContext(_ context.Context, _ string, _ serv
 	return "", nil
 }
 func (f *fakeBoardService) DeleteTask(_ context.Context, _ string) error { return nil }
-func (f *fakeBoardService) CreateTask(_ context.Context, _, _, _, _ string) (*service.Card, error) {
+func (f *fakeBoardService) CreateTask(_ context.Context, _, _, _, _ string, _ *int) (*service.Card, error) {
 	return nil, nil
 }
 func (f *fakeBoardService) UpdateTaskDescription(_ context.Context, _, _ string) error {
@@ -75,6 +76,15 @@ func (f *fakeBoardService) UpdateTaskDescription(_ context.Context, _, _ string)
 }
 func (f *fakeBoardService) UpdateTaskTitle(_ context.Context, _, _ string) error {
 	return nil
+}
+func (f *fakeBoardService) ListCardsByWorkspace(_ context.Context, column string, _ store.WorkspaceView) ([]service.Card, error) {
+	return f.ListCards(context.Background(), column)
+}
+func (f *fakeBoardService) UpdateTaskWorkspace(_ context.Context, _ string, _ *int) error {
+	return nil
+}
+func (f *fakeBoardService) ListWorkspaces(_ context.Context) ([]service.Workspace, error) {
+	return nil, nil
 }
 
 type fakeSyncService struct{}
@@ -91,7 +101,7 @@ func (f *fakeSyncService) ImportRemoteTask(_ context.Context, id string) (*servi
 }
 
 func newTestApp() App {
-	return NewApp(&fakeBoardService{}, nil, nil, theme.NewIcons("unicode"), nil, "")
+	return NewApp(&fakeBoardService{}, nil, nil, theme.NewIcons("unicode"), nil, "", nil)
 }
 
 func updateApp(a App, msg tea.Msg) (App, tea.Cmd) {
@@ -497,7 +507,7 @@ func TestDeleteCancelledClosesOverlay(t *testing.T) {
 // Import overlay tests
 
 func TestImportKeyOpensOverlayWhenSyncAvailable(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, theme.NewIcons("unicode"), nil, "")
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, theme.NewIcons("unicode"), nil, "", nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -520,7 +530,7 @@ func TestImportKeyNoOpWithoutSync(t *testing.T) {
 }
 
 func TestImportSelectedImportsAndRefreshes(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, theme.NewIcons("unicode"), nil, "")
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, theme.NewIcons("unicode"), nil, "", nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -539,7 +549,7 @@ func TestImportSelectedImportsAndRefreshes(t *testing.T) {
 }
 
 func TestImportCancelledClosesOverlay(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, theme.NewIcons("unicode"), nil, "")
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, theme.NewIcons("unicode"), nil, "", nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -618,7 +628,7 @@ func TestDurationDataFlowsToBoard(t *testing.T) {
 		},
 	}
 
-	app := NewApp(&fakeBoardService{}, nil, agentSvc, theme.NewIcons("unicode"), nil, "")
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, theme.NewIcons("unicode"), nil, "", nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()

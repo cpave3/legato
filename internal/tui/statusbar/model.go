@@ -26,15 +26,21 @@ type SyncCompletedMsg struct{ At time.Time }
 type SyncFailedMsg struct{}
 type WarningMsg struct{ Text string }
 type ErrorMsg struct{ Text string }
+type WorkspaceMsg struct {
+	Name  string
+	Color string
+}
 
 // Model is the status bar Bubbletea model.
 type Model struct {
-	state     SyncState
-	lastSync  time.Time
-	warning   string
-	errorText string
-	width     int
-	now       func() time.Time // for testing
+	state         SyncState
+	lastSync      time.Time
+	warning       string
+	errorText     string
+	workspaceName string
+	workspaceColor string
+	width         int
+	now           func() time.Time // for testing
 }
 
 // New creates a new status bar model.
@@ -65,6 +71,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.warning = msg.Text
 	case ErrorMsg:
 		m.errorText = msg.Text
+	case WorkspaceMsg:
+		m.workspaceName = msg.Name
+		m.workspaceColor = msg.Color
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 	}
@@ -79,6 +88,17 @@ func (m Model) View() string {
 
 	// Sync indicator
 	syncDisplay := m.renderSyncState()
+
+	// Workspace indicator
+	wsDisplay := ""
+	if m.workspaceName != "" {
+		wsColor := lipgloss.Color(theme.TextTertiary)
+		if m.workspaceColor != "" {
+			wsColor = lipgloss.Color(m.workspaceColor)
+		}
+		wsStyle := lipgloss.NewStyle().Foreground(wsColor)
+		wsDisplay = "  " + wsStyle.Render(m.workspaceName)
+	}
 
 	// Error display (takes priority over warning)
 	var warningDisplay string
@@ -96,6 +116,7 @@ func (m Model) View() string {
 		{"j/k", "card"},
 		{"enter", "detail"},
 		{"m", "move"},
+		{"w", "workspace"},
 		{"n", "new"},
 		{"r", "sync"},
 		{"/", "search"},
@@ -111,8 +132,8 @@ func (m Model) View() string {
 	// Truncate hints to fit
 	hintsStr := truncateHints(hintParts, m.width-lipgloss.Width(syncDisplay)-4)
 
-	// Compose left (sync + warning) and right (hints)
-	leftPart := syncDisplay + warningDisplay
+	// Compose left (sync + workspace + warning) and right (hints)
+	leftPart := syncDisplay + wsDisplay + warningDisplay
 	gap := m.width - lipgloss.Width(leftPart) - lipgloss.Width(hintsStr)
 	if gap < 1 {
 		gap = 1

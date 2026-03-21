@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -36,7 +37,7 @@ func (m *mockBoardService) ExportCardContext(_ context.Context, _ string, _ serv
 	return "", nil
 }
 func (m *mockBoardService) DeleteTask(_ context.Context, _ string) error { return nil }
-func (m *mockBoardService) CreateTask(_ context.Context, _, _, _, _ string) (*service.Card, error) {
+func (m *mockBoardService) CreateTask(_ context.Context, _, _, _, _ string, _ *int) (*service.Card, error) {
 	return nil, nil
 }
 func (m *mockBoardService) UpdateTaskDescription(_ context.Context, _, _ string) error {
@@ -44,6 +45,15 @@ func (m *mockBoardService) UpdateTaskDescription(_ context.Context, _, _ string)
 }
 func (m *mockBoardService) UpdateTaskTitle(_ context.Context, _, _ string) error {
 	return nil
+}
+func (m *mockBoardService) ListCardsByWorkspace(_ context.Context, column string, _ store.WorkspaceView) ([]service.Card, error) {
+	return m.ListCards(context.Background(), column)
+}
+func (m *mockBoardService) UpdateTaskWorkspace(_ context.Context, _ string, _ *int) error {
+	return nil
+}
+func (m *mockBoardService) ListWorkspaces(_ context.Context) ([]service.Workspace, error) {
+	return nil, nil
 }
 
 func TestHealthEndpointReturnsOK(t *testing.T) {

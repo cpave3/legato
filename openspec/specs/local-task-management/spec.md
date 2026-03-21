@@ -2,7 +2,7 @@
 
 ### Requirement: Task data model
 
-The system SHALL represent all board items as tasks with a core schema: `id` (TEXT PRIMARY KEY), `title`, `description`, `description_md`, `status`, `priority`, `sort_order`, `created_at`, `updated_at`. Tasks optionally link to an external provider via nullable `provider`, `remote_id`, and `remote_meta` (JSON) fields.
+The system SHALL represent all board items as tasks with a core schema: `id` (TEXT PRIMARY KEY), `title`, `description`, `description_md`, `status`, `priority`, `sort_order`, `workspace_id` (nullable INTEGER FK to workspaces), `created_at`, `updated_at`. Tasks optionally link to an external provider via nullable `provider`, `remote_id`, and `remote_meta` (JSON) fields.
 
 #### Scenario: Local task with no provider
 
@@ -13,6 +13,16 @@ The system SHALL represent all board items as tasks with a core schema: `id` (TE
 
 - **WHEN** a task is created via provider sync (e.g. Jira)
 - **THEN** the task SHALL have `provider` set to the provider name (e.g. "jira"), `remote_id` set to the provider's ID (e.g. "REX-1234"), and `remote_meta` containing provider-specific fields as JSON
+
+#### Scenario: Task with workspace
+
+- **WHEN** a task is created with a workspace_id
+- **THEN** the task SHALL be linked to that workspace and appear when that workspace is the active filter
+
+#### Scenario: Task without workspace
+
+- **WHEN** a task is created without a workspace_id
+- **THEN** the task SHALL have `workspace_id` as NULL and appear in "Unassigned" and "All" views
 
 ### Requirement: Task ID generation
 
@@ -40,12 +50,12 @@ The store SHALL provide create, read, update, list, and delete operations for ta
 #### Scenario: Create a task
 
 - **WHEN** a new task is inserted
-- **THEN** it SHALL be persisted with all core fields and `created_at`/`updated_at` set to the current time
+- **THEN** it SHALL be persisted with all core fields including `workspace_id` and `created_at`/`updated_at` set to the current time
 
 #### Scenario: Get a task by ID
 
 - **WHEN** a task is requested by ID and exists
-- **THEN** the full task record SHALL be returned including `remote_meta`
+- **THEN** the full task record SHALL be returned including `workspace_id` and `remote_meta`
 
 #### Scenario: Get a non-existent task
 
@@ -147,3 +157,22 @@ The config struct SHALL include an optional `editor` string field, parsed from t
 
 - **WHEN** the config file does not contain an `editor` key
 - **THEN** `cfg.Editor` SHALL be empty string (zero value)
+
+### Requirement: Task creation with workspace
+
+`BoardService.CreateTask` SHALL accept an optional workspace parameter and assign the new task to that workspace.
+
+#### Scenario: Create task with active workspace
+
+- **WHEN** a task is created while a specific workspace is the active view
+- **THEN** the task SHALL be assigned to that workspace by default
+
+#### Scenario: Create task in "All" view
+
+- **WHEN** a task is created while "All" is the active view
+- **THEN** the task SHALL be created with no workspace (unassigned) unless the user selects one in the create overlay
+
+#### Scenario: Create overlay workspace picker
+
+- **WHEN** the create overlay is opened
+- **THEN** it SHALL include a workspace field (cycling with h/l like column) pre-filled with the active workspace, or "None" if in All/Unassigned view

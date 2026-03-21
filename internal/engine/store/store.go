@@ -66,7 +66,7 @@ func (s *Store) migrate() error {
 		return err
 	}
 
-	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql"}
+	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql", "008_workspaces.sql"}
 
 	for i := version; i < len(migrations); i++ {
 		data, err := migrationsFS.ReadFile("migrations/" + migrations[i])
@@ -103,10 +103,10 @@ func (s *Store) CreateTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO tasks (id, title, description, description_md, status,
 			priority, sort_order, provider, remote_id, remote_meta,
-			created_at, updated_at)
+			workspace_id, created_at, updated_at)
 		VALUES (:id, :title, :description, :description_md, :status,
 			:priority, :sort_order, :provider, :remote_id, :remote_meta,
-			:created_at, :updated_at)`, t)
+			:workspace_id, :created_at, :updated_at)`, t)
 	return err
 }
 
@@ -135,7 +135,7 @@ func (s *Store) UpdateTask(ctx context.Context, t Task) error {
 			title = :title, description = :description, description_md = :description_md,
 			status = :status, priority = :priority, sort_order = :sort_order,
 			provider = :provider, remote_id = :remote_id, remote_meta = :remote_meta,
-			updated_at = :updated_at
+			workspace_id = :workspace_id, updated_at = :updated_at
 		WHERE id = :id`, t)
 	return err
 }
@@ -150,15 +150,15 @@ func (s *Store) UpsertTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO tasks (id, title, description, description_md, status,
 			priority, sort_order, provider, remote_id, remote_meta,
-			created_at, updated_at)
+			workspace_id, created_at, updated_at)
 		VALUES (:id, :title, :description, :description_md, :status,
 			:priority, :sort_order, :provider, :remote_id, :remote_meta,
-			:created_at, :updated_at)
+			:workspace_id, :created_at, :updated_at)
 		ON CONFLICT(id) DO UPDATE SET
 			title = :title, description = :description, description_md = :description_md,
 			status = :status, priority = :priority, sort_order = :sort_order,
 			provider = :provider, remote_id = :remote_id, remote_meta = :remote_meta,
-			updated_at = :updated_at`, t)
+			workspace_id = :workspace_id, updated_at = :updated_at`, t)
 	return err
 }
 
@@ -174,6 +174,90 @@ func (s *Store) ListTaskIDs(ctx context.Context) ([]string, error) {
 	var ids []string
 	err := s.db.SelectContext(ctx, &ids, "SELECT id FROM tasks ORDER BY id")
 	return ids, err
+}
+
+// WorkspaceView represents a workspace filter for task queries.
+type WorkspaceView struct {
+	Kind        WorkspaceViewKind
+	WorkspaceID int // only used when Kind == ViewWorkspace
+}
+
+type WorkspaceViewKind int
+
+const (
+	ViewAll WorkspaceViewKind = iota
+	ViewUnassigned
+	ViewWorkspace
+)
+
+// ListTasksByStatusAndWorkspace returns tasks filtered by status and workspace view.
+func (s *Store) ListTasksByStatusAndWorkspace(ctx context.Context, status string, view WorkspaceView) ([]Task, error) {
+	var tasks []Task
+	switch view.Kind {
+	case ViewAll:
+		return s.ListTasksByStatus(ctx, status)
+	case ViewUnassigned:
+		err := s.db.SelectContext(ctx, &tasks,
+			"SELECT * FROM tasks WHERE status = ? AND workspace_id IS NULL ORDER BY sort_order ASC", status)
+		return tasks, err
+	case ViewWorkspace:
+		err := s.db.SelectContext(ctx, &tasks,
+			"SELECT * FROM tasks WHERE status = ? AND workspace_id = ? ORDER BY sort_order ASC", status, view.WorkspaceID)
+		return tasks, err
+	default:
+		return s.ListTasksByStatus(ctx, status)
+	}
+}
+
+// UpdateTaskWorkspace sets the workspace_id for a task.
+func (s *Store) UpdateTaskWorkspace(ctx context.Context, taskID string, workspaceID *int) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET workspace_id = ?, updated_at = datetime('now') WHERE id = ?",
+		workspaceID, taskID)
+	return err
+}
+
+// Workspace CRUD
+
+func (s *Store) CreateWorkspace(ctx context.Context, w Workspace) (int, error) {
+	result, err := s.db.NamedExecContext(ctx, `
+		INSERT INTO workspaces (name, color, sort_order)
+		VALUES (:name, :color, :sort_order)`, w)
+	if err != nil {
+		return 0, err
+	}
+	id, err := result.LastInsertId()
+	return int(id), err
+}
+
+func (s *Store) GetWorkspace(ctx context.Context, id int) (*Workspace, error) {
+	var w Workspace
+	err := s.db.GetContext(ctx, &w, "SELECT * FROM workspaces WHERE id = ?", id)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	return &w, err
+}
+
+func (s *Store) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
+	var workspaces []Workspace
+	err := s.db.SelectContext(ctx, &workspaces,
+		"SELECT * FROM workspaces ORDER BY sort_order ASC, name ASC")
+	return workspaces, err
+}
+
+// EnsureWorkspace inserts a workspace if it doesn't exist by name, or updates color/sort_order if it does.
+func (s *Store) EnsureWorkspace(ctx context.Context, w Workspace) (int, error) {
+	result, err := s.db.NamedExecContext(ctx, `
+		INSERT INTO workspaces (name, color, sort_order)
+		VALUES (:name, :color, :sort_order)
+		ON CONFLICT(name) DO UPDATE SET
+			color = :color, sort_order = :sort_order`, w)
+	if err != nil {
+		return 0, err
+	}
+	id, err := result.LastInsertId()
+	return int(id), err
 }
 
 // Column Mapping CRUD

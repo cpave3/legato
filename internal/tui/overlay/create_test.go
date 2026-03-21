@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/cpave3/legato/internal/service"
 )
 
 func TestCreateOverlayTitleInput(t *testing.T) {
@@ -171,18 +172,25 @@ func TestCreateOverlayTabCyclesThroughAllFields(t *testing.T) {
 		t.Errorf("after 1st tab: focus = %d, want focusColumn", m.focus)
 	}
 
-	// Tab 2: column → description
+	// Tab 2: column → workspace
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(CreateOverlay)
+	if m.focus != focusWorkspace {
+		t.Errorf("after 2nd tab: focus = %d, want focusWorkspace", m.focus)
+	}
+
+	// Tab 3: workspace → description
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = updated.(CreateOverlay)
 	if m.focus != focusDescription {
-		t.Errorf("after 2nd tab: focus = %d, want focusDescription", m.focus)
+		t.Errorf("after 3rd tab: focus = %d, want focusDescription", m.focus)
 	}
 
-	// Tab 3: description → title (wraps)
+	// Tab 4: description → title (wraps)
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = updated.(CreateOverlay)
 	if m.focus != focusTitle {
-		t.Errorf("after 3rd tab: focus = %d, want focusTitle", m.focus)
+		t.Errorf("after 4th tab: focus = %d, want focusTitle", m.focus)
 	}
 }
 
@@ -191,8 +199,10 @@ func TestCreateOverlayTypingInDescriptionField(t *testing.T) {
 	m.width = 80
 	m.height = 40
 
-	// Tab to column, then to description
+	// Tab to column, workspace, then to description
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(CreateOverlay)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = updated.(CreateOverlay)
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = updated.(CreateOverlay)
@@ -226,8 +236,10 @@ func TestCreateOverlayCtrlJNewline(t *testing.T) {
 	m.width = 80
 	m.height = 40
 
-	// Tab to description
+	// Tab to description (title → column → workspace → description)
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(CreateOverlay)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = updated.(CreateOverlay)
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = updated.(CreateOverlay)
@@ -260,8 +272,10 @@ func TestCreateOverlaySubmitIncludesDescription(t *testing.T) {
 		m = updated.(CreateOverlay)
 	}
 
-	// Tab to column, then to description
+	// Tab to column, workspace, then to description
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(CreateOverlay)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = updated.(CreateOverlay)
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = updated.(CreateOverlay)
@@ -318,6 +332,95 @@ func TestCreateOverlayColumnCyclingOnlyWhenFocused(t *testing.T) {
 	m = updated.(CreateOverlay)
 	if m.Column() != "Backlog" {
 		t.Errorf("column after h = %q, want Backlog", m.Column())
+	}
+}
+
+func TestCreateOverlayWorkspaceCycling(t *testing.T) {
+	ws := []service.Workspace{
+		{ID: 1, Name: "Work"},
+		{ID: 2, Name: "Personal"},
+	}
+	m := NewCreateWithWorkspaces([]string{"Backlog"}, "Backlog", ws, nil)
+	m.width = 80
+	m.height = 40
+
+	// Default should be "None" (index 0)
+	if m.workspaceIndex != 0 {
+		t.Errorf("initial workspace index = %d, want 0", m.workspaceIndex)
+	}
+
+	// Tab to column, then to workspace
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(CreateOverlay)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(CreateOverlay)
+	if m.focus != focusWorkspace {
+		t.Errorf("focus = %d, want focusWorkspace", m.focus)
+	}
+
+	// l to cycle: None → Work
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	m = updated.(CreateOverlay)
+	if m.workspaces[m.workspaceIndex].Name != "Work" {
+		t.Errorf("workspace = %q, want Work", m.workspaces[m.workspaceIndex].Name)
+	}
+
+	// l again: Work → Personal
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	m = updated.(CreateOverlay)
+	if m.workspaces[m.workspaceIndex].Name != "Personal" {
+		t.Errorf("workspace = %q, want Personal", m.workspaces[m.workspaceIndex].Name)
+	}
+
+	// l wraps: Personal → None
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	m = updated.(CreateOverlay)
+	if m.workspaces[m.workspaceIndex].Name != "None" {
+		t.Errorf("workspace = %q, want None", m.workspaces[m.workspaceIndex].Name)
+	}
+}
+
+func TestCreateOverlayWorkspacePrefilledFromActive(t *testing.T) {
+	ws := []service.Workspace{
+		{ID: 1, Name: "Work"},
+		{ID: 2, Name: "Personal"},
+	}
+	activeID := 2
+	m := NewCreateWithWorkspaces([]string{"Backlog"}, "Backlog", ws, &activeID)
+	m.width = 80
+	m.height = 40
+
+	if m.workspaces[m.workspaceIndex].Name != "Personal" {
+		t.Errorf("workspace = %q, want Personal (pre-filled)", m.workspaces[m.workspaceIndex].Name)
+	}
+}
+
+func TestCreateOverlaySubmitIncludesWorkspace(t *testing.T) {
+	ws := []service.Workspace{{ID: 1, Name: "Work"}}
+	m := NewCreateWithWorkspaces([]string{"Backlog"}, "Backlog", ws, nil)
+	m.width = 80
+	m.height = 40
+
+	// Type title
+	for _, r := range "Task" {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(CreateOverlay)
+	}
+
+	// Tab to workspace and select "Work"
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(CreateOverlay)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(CreateOverlay)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	m = updated.(CreateOverlay)
+
+	// Submit
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msg := cmd()
+	create := msg.(CreateTaskMsg)
+	if create.WorkspaceID == nil || *create.WorkspaceID != 1 {
+		t.Errorf("workspaceID = %v, want 1", create.WorkspaceID)
 	}
 }
 

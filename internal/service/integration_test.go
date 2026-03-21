@@ -128,7 +128,7 @@ func TestIntegration_BoardServiceEndToEnd(t *testing.T) {
 	}
 
 	// 9. CreateTask
-	newCard, err := svc.CreateTask(ctx, "New local task", "", "Backlog", "Low")
+	newCard, err := svc.CreateTask(ctx, "New local task", "", "Backlog", "Low", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

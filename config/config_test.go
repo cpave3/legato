@@ -198,6 +198,51 @@ func TestEditorFieldParsedFromConfig(t *testing.T) {
 	}
 }
 
+func TestWorkspacesParsed(t *testing.T) {
+	writeTestConfig(t, `
+workspaces:
+  - name: Work
+    color: "#4A9EEF"
+  - name: Personal
+    color: "#7BC47F"
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Workspaces) != 2 {
+		t.Fatalf("expected 2 workspaces, got %d", len(cfg.Workspaces))
+	}
+	if cfg.Workspaces[0].Name != "Work" || cfg.Workspaces[0].Color != "#4A9EEF" {
+		t.Errorf("workspace 0 = %+v", cfg.Workspaces[0])
+	}
+	if cfg.Workspaces[1].Name != "Personal" || cfg.Workspaces[1].Color != "#7BC47F" {
+		t.Errorf("workspace 1 = %+v", cfg.Workspaces[1])
+	}
+}
+
+func TestWorkspacesAbsent(t *testing.T) {
+	writeTestConfig(t, `theme: default`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Workspaces) != 0 {
+		t.Errorf("expected 0 workspaces, got %d", len(cfg.Workspaces))
+	}
+}
+
+func TestWorkspacesEmpty(t *testing.T) {
+	writeTestConfig(t, `workspaces: []`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Workspaces) != 0 {
+		t.Errorf("expected 0 workspaces, got %d", len(cfg.Workspaces))
+	}
+}
+
 func TestResolveDBPathPrecedence(t *testing.T) {
 	t.Run("from config", func(t *testing.T) {
 		cfg := &Config{DB: DBConfig{Path: "/tmp/legato-test.db"}}

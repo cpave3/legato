@@ -17,10 +17,17 @@ type Config struct {
 	Keybindings KeybindingsConfig `yaml:"keybindings"`
 	DB          DBConfig          `yaml:"db"`
 	Agents      AgentsConfig      `yaml:"agents"`
+	Workspaces  []WorkspaceConfig `yaml:"workspaces"`
+}
+
+type WorkspaceConfig struct {
+	Name  string `yaml:"name"`
+	Color string `yaml:"color"`
 }
 
 type AgentsConfig struct {
-	EscapeKey string `yaml:"escape_key"`
+	EscapeKey   string            `yaml:"escape_key"`
+	TmuxOptions map[string]string `yaml:"tmux_options"`
 }
 
 type JiraConfig struct {

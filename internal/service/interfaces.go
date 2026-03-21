@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"time"
+
+	"github.com/cpave3/legato/internal/engine/store"
 )
 
 // ExportFormat defines the output format for card context export.
@@ -21,14 +23,23 @@ type Column struct {
 
 // Card represents a task summary for list views.
 type Card struct {
-	ID         string
-	Title      string
-	Priority   string
-	IssueType  string
-	Status     string
-	Provider   string // "jira", "github", or "" for local
-	SortOrder  int
-	HasWarning bool
+	ID             string
+	Title          string
+	Priority       string
+	IssueType      string
+	Status         string
+	Provider       string // "jira", "github", or "" for local
+	SortOrder      int
+	HasWarning     bool
+	WorkspaceName  string
+	WorkspaceColor string
+}
+
+// Workspace represents a workspace for grouping tasks.
+type Workspace struct {
+	ID    int
+	Name  string
+	Color string
 }
 
 // CardDetail contains all metadata for a single task.
@@ -41,6 +52,7 @@ type CardDetail struct {
 	Provider      string
 	RemoteID      string
 	RemoteMeta    map[string]string
+	WorkspaceID   *int
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
@@ -66,15 +78,18 @@ type SyncEvent struct {
 type BoardService interface {
 	ListColumns(ctx context.Context) ([]Column, error)
 	ListCards(ctx context.Context, column string) ([]Card, error)
+	ListCardsByWorkspace(ctx context.Context, column string, view store.WorkspaceView) ([]Card, error)
 	GetCard(ctx context.Context, id string) (*CardDetail, error)
 	MoveCard(ctx context.Context, id string, targetColumn string) error
 	ReorderCard(ctx context.Context, id string, newPosition int) error
 	SearchCards(ctx context.Context, query string) ([]Card, error)
 	ExportCardContext(ctx context.Context, id string, format ExportFormat) (string, error)
-	CreateTask(ctx context.Context, title, description, column, priority string) (*Card, error)
+	CreateTask(ctx context.Context, title, description, column, priority string, workspaceID *int) (*Card, error)
 	DeleteTask(ctx context.Context, id string) error
 	UpdateTaskDescription(ctx context.Context, id, description string) error
 	UpdateTaskTitle(ctx context.Context, id, title string) error
+	UpdateTaskWorkspace(ctx context.Context, id string, workspaceID *int) error
+	ListWorkspaces(ctx context.Context) ([]Workspace, error)
 }
 
 // SyncService manages data synchronization.

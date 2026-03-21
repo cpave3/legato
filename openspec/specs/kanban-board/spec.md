@@ -21,7 +21,7 @@ The kanban board SHALL render columns side by side, each with a header showing t
 
 ### Requirement: Card Rendering
 
-Each card SHALL display the task ID, a truncated title, agent status with duration (when applicable), and visual indicators for priority. Cards with agent data SHALL be taller than cards without.
+Each card SHALL display the task ID, a truncated title, agent status with duration (when applicable), visual indicators for priority, and a workspace tag when in "All" view. Cards with agent data SHALL be taller than cards without.
 
 #### Scenario: Card content display — no agent
 
@@ -32,6 +32,21 @@ Each card SHALL display the task ID, a truncated title, agent status with durati
 
 - **WHEN** a card is rendered that has an active agent or has duration history
 - **THEN** it SHALL show the provider icon and task ID on the first line, the title on the second line, the agent status with duration on the third line, and priority/issue type metadata on the fourth line
+
+#### Scenario: Workspace tag in "All" view
+
+- **WHEN** a card is rendered while the "All" workspace view is active and the card has a workspace assigned
+- **THEN** the card SHALL display a workspace tag (workspace name in workspace color) on the metadata line
+
+#### Scenario: Workspace tag omitted in workspace view
+
+- **WHEN** a card is rendered while a specific workspace view is active
+- **THEN** the card SHALL NOT display a workspace tag (the workspace is implicit from the view)
+
+#### Scenario: Unassigned card in "All" view
+
+- **WHEN** a card is rendered in "All" view with no workspace assigned
+- **THEN** the card SHALL NOT display a workspace tag (no tag is better than "Unassigned" clutter)
 
 #### Scenario: Agent status line rendering
 
