@@ -252,17 +252,19 @@ func (b *boardService) ExportCardContext(ctx context.Context, id string, format 
 	}
 }
 
-func (b *boardService) CreateTask(ctx context.Context, title, column, priority string) (*Card, error) {
+func (b *boardService) CreateTask(ctx context.Context, title, description, column, priority string) (*Card, error) {
 	id := store.GenerateTaskID()
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	task := store.Task{
-		ID:        id,
-		Title:     title,
-		Status:    column,
-		Priority:  priority,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:            id,
+		Title:         title,
+		Description:   description,
+		DescriptionMD: description,
+		Status:        column,
+		Priority:      priority,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	// Place at end of column
@@ -305,6 +307,50 @@ func (b *boardService) DeleteTask(ctx context.Context, id string) error {
 		return err
 	}
 
+	b.bus.Publish(events.Event{
+		Type: events.EventCardsRefreshed,
+		At:   time.Now(),
+	})
+	return nil
+}
+
+func (b *boardService) UpdateTaskDescription(ctx context.Context, id, description string) error {
+	t, err := b.store.GetTask(ctx, id)
+	if err != nil {
+		return err
+	}
+	if t.Provider != nil {
+		return fmt.Errorf("cannot edit description of remote task %s", id)
+	}
+	t.Description = description
+	t.DescriptionMD = description
+	t.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := b.store.UpdateTask(ctx, *t); err != nil {
+		return err
+	}
+	b.bus.Publish(events.Event{
+		Type: events.EventCardsRefreshed,
+		At:   time.Now(),
+	})
+	return nil
+}
+
+func (b *boardService) UpdateTaskTitle(ctx context.Context, id, title string) error {
+	if title == "" {
+		return fmt.Errorf("title cannot be empty")
+	}
+	t, err := b.store.GetTask(ctx, id)
+	if err != nil {
+		return err
+	}
+	if t.Provider != nil {
+		return fmt.Errorf("cannot edit title of remote task %s", id)
+	}
+	t.Title = title
+	t.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := b.store.UpdateTask(ctx, *t); err != nil {
+		return err
+	}
 	b.bus.Publish(events.Event{
 		Type: events.EventCardsRefreshed,
 		At:   time.Now(),

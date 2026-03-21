@@ -13,6 +13,7 @@ type Config struct {
 	Board       BoardConfig       `yaml:"board"`
 	Theme       string            `yaml:"theme"`
 	Icons       string            `yaml:"icons"` // "unicode" (default) or "nerdfonts"
+	Editor      string            `yaml:"editor"`
 	Keybindings KeybindingsConfig `yaml:"keybindings"`
 	DB          DBConfig          `yaml:"db"`
 	Agents      AgentsConfig      `yaml:"agents"`
@@ -85,6 +86,21 @@ func Load() (*Config, error) {
 
 	applyDefaults(cfg)
 	return cfg, nil
+}
+
+// ResolveEditor returns the editor command using precedence:
+// 1. cfg.Editor  2. $VISUAL  3. $EDITOR  4. vi
+func ResolveEditor(cfg *Config) string {
+	if cfg.Editor != "" {
+		return cfg.Editor
+	}
+	if v := os.Getenv("VISUAL"); v != "" {
+		return v
+	}
+	if e := os.Getenv("EDITOR"); e != "" {
+		return e
+	}
+	return "vi"
 }
 
 // ResolveDBPath returns the database file path using precedence:

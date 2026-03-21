@@ -36,8 +36,14 @@ func (m *mockBoardService) ExportCardContext(_ context.Context, _ string, _ serv
 	return "", nil
 }
 func (m *mockBoardService) DeleteTask(_ context.Context, _ string) error { return nil }
-func (m *mockBoardService) CreateTask(_ context.Context, _, _, _ string) (*service.Card, error) {
+func (m *mockBoardService) CreateTask(_ context.Context, _, _, _, _ string) (*service.Card, error) {
 	return nil, nil
+}
+func (m *mockBoardService) UpdateTaskDescription(_ context.Context, _, _ string) error {
+	return nil
+}
+func (m *mockBoardService) UpdateTaskTitle(_ context.Context, _, _ string) error {
+	return nil
 }
 
 func TestHealthEndpointReturnsOK(t *testing.T) {

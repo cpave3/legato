@@ -95,11 +95,19 @@ func (f *FakeBoardService) DeleteTask(_ context.Context, _ string) error {
 	return nil
 }
 
-func (f *FakeBoardService) CreateTask(_ context.Context, title, column, priority string) (*service.Card, error) {
+func (f *FakeBoardService) CreateTask(_ context.Context, title, _, column, priority string) (*service.Card, error) {
 	return &service.Card{
 		ID:       "NEW-1",
 		Title:    title,
 		Priority: priority,
 		Status:   column,
 	}, nil
+}
+
+func (f *FakeBoardService) UpdateTaskDescription(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (f *FakeBoardService) UpdateTaskTitle(_ context.Context, _, _ string) error {
+	return nil
 }

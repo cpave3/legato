@@ -9,7 +9,8 @@ A keyboard-driven kanban board TUI for tracking tasks, built for developers who 
 - **Full-screen detail view** with Glamour-rendered markdown
 - **Copy context to clipboard** for AI coding agents (`y` description, `Y` full context)
 - **Move cards** between columns via overlay (`m`)
-- **Create tasks** inline (`n`) with title, column, and priority
+- **Create tasks** inline (`n`) with title, description, column, and priority
+- **Edit local tasks** — rename title (`t` in detail) or edit description in `$EDITOR` (`e` in detail)
 - **Delete tasks** with confirmation (`d` from board, `D` from detail)
 - **Import remote tickets** — search Jira and pull individual tickets (`i`)
 - **Agent sessions** — spawn tmux sessions per task, track active agents on cards
@@ -85,6 +86,7 @@ board:
       remote_statuses: ["Done", "Closed"]
 
 icons: unicode    # "unicode" (default) or "nerdfonts" for Nerd Font glyphs
+editor: ""        # optional: override $VISUAL/$EDITOR for description editing (e.g. "nvim", "code --wait")
 ```
 
 The `${LEGATO_JIRA_TOKEN}` reference is expanded at load time so the token never lives in the config file as plaintext.
@@ -187,6 +189,8 @@ legato    # launch the TUI
 | `o` | Open ticket in browser |
 | `m` | Move card to another column |
 | `D` | Delete task |
+| `e` | Edit description in `$EDITOR` (local tasks only) |
+| `t` | Edit title (local tasks only) |
 | `esc` | Back to board |
 
 #### Agent View

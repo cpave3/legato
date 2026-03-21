@@ -1,7 +1,6 @@
 package overlay
 
 import (
-	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -11,9 +10,10 @@ import (
 
 // CreateTaskMsg is sent when the user submits the create form.
 type CreateTaskMsg struct {
-	Title    string
-	Column   string
-	Priority string
+	Title       string
+	Description string
+	Column      string
+	Priority    string
 }
 
 // CreateCancelledMsg is sent when the user cancels task creation.
@@ -21,9 +21,19 @@ type CreateCancelledMsg struct{}
 
 var priorities = []string{"", "Low", "Medium", "High"}
 
+type focusField int
+
+const (
+	focusTitle focusField = iota
+	focusColumn
+	focusDescription
+)
+
 // CreateOverlay lets the user create a new task inline.
 type CreateOverlay struct {
 	title         string
+	description   string
+	focus         focusField
 	columns       []string
 	columnIndex   int
 	priorityIndex int
@@ -44,6 +54,7 @@ func NewCreate(columns []string, currentColumn string) CreateOverlay {
 	return CreateOverlay{
 		columns:     columns,
 		columnIndex: colIdx,
+		focus:       focusTitle,
 	}
 }
 
@@ -67,27 +78,61 @@ func (m CreateOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if m.title != "" {
 				result := CreateTaskMsg{
-					Title:    m.title,
-					Column:   m.columns[m.columnIndex],
-					Priority: priorities[m.priorityIndex],
+					Title:       m.title,
+					Description: m.description,
+					Column:      m.columns[m.columnIndex],
+					Priority:    priorities[m.priorityIndex],
 				}
 				return m, func() tea.Msg { return result }
 			}
 			return m, nil
 		case "tab":
-			m.columnIndex = (m.columnIndex + 1) % len(m.columns)
+			m.focus = (m.focus + 1) % 3
 			return m, nil
 		case "ctrl+p":
 			m.priorityIndex = (m.priorityIndex + 1) % len(priorities)
 			return m, nil
+		case "ctrl+j":
+			if m.focus == focusDescription {
+				m.description += "\n"
+			}
+			return m, nil
 		case "backspace":
-			if len(m.title) > 0 {
-				m.title = m.title[:len(m.title)-1]
+			switch m.focus {
+			case focusTitle:
+				if len(m.title) > 0 {
+					m.title = m.title[:len(m.title)-1]
+				}
+			case focusDescription:
+				if len(m.description) > 0 {
+					m.description = m.description[:len(m.description)-1]
+				}
 			}
 			return m, nil
 		default:
-			if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-				m.title += string(msg.Runes)
+			switch m.focus {
+			case focusTitle:
+				if msg.Type == tea.KeySpace {
+					m.title += " "
+				} else if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+					m.title += string(msg.Runes)
+				}
+			case focusColumn:
+				// h/l to cycle columns
+				if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+					switch msg.Runes[0] {
+					case 'l':
+						m.columnIndex = (m.columnIndex + 1) % len(m.columns)
+					case 'h':
+						m.columnIndex = (m.columnIndex - 1 + len(m.columns)) % len(m.columns)
+					}
+				}
+			case focusDescription:
+				if msg.Type == tea.KeySpace {
+					m.description += " "
+				} else if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+					m.description += string(msg.Runes)
+				}
 			}
 		}
 	}
@@ -107,13 +152,22 @@ func (m CreateOverlay) View() string {
 		Foreground(theme.AccentPurple).
 		Bold(true)
 
+	dimInputStyle := lipgloss.NewStyle().
+		Foreground(theme.TextSecondary)
+
 	valueStyle := lipgloss.NewStyle().
 		Foreground(theme.TextSecondary)
 
 	heading := titleStyle.Render("New Task")
 
 	// Title input
-	titleLine := labelStyle.Render("Title: ") + inputStyle.Render(m.title+"█")
+	titleCursor := ""
+	titleRender := dimInputStyle
+	if m.focus == focusTitle {
+		titleCursor = "█"
+		titleRender = inputStyle
+	}
+	titleLine := labelStyle.Render("Title: ") + titleRender.Render(m.title+titleCursor)
 
 	// Column selector
 	var colParts []string
@@ -124,7 +178,11 @@ func (m CreateOverlay) View() string {
 			colParts = append(colParts, valueStyle.Render(col))
 		}
 	}
-	columnLine := labelStyle.Render("Column: ") + strings.Join(colParts, valueStyle.Render(" · "))
+	colLabel := labelStyle.Render("Column: ")
+	if m.focus == focusColumn {
+		colLabel = labelStyle.Render("Column: ")
+	}
+	columnLine := colLabel + strings.Join(colParts, valueStyle.Render(" · "))
 
 	// Priority selector
 	priLabel := priorities[m.priorityIndex]
@@ -133,12 +191,31 @@ func (m CreateOverlay) View() string {
 	}
 	priorityLine := labelStyle.Render("Priority: ") + valueStyle.Render(priLabel)
 
+	// Description input
+	descCursor := ""
+	descRender := dimInputStyle
+	if m.focus == focusDescription {
+		descCursor = "█"
+		descRender = inputStyle
+	}
+	descContent := m.description + descCursor
+	if descContent == "" {
+		descContent = descCursor
+	}
+	descLine := labelStyle.Render("Description: ") + descRender.Render(descContent)
+
 	// Hints
 	hintStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
-	hints := hintStyle.Render(fmt.Sprintf("tab column · ctrl+p priority · enter submit · esc cancel"))
+	hintText := "tab field · ctrl+p priority · enter submit · esc cancel"
+	if m.focus == focusDescription {
+		hintText = "tab field · ctrl+j newline · ctrl+p priority · enter submit · esc cancel"
+	} else if m.focus == focusColumn {
+		hintText = "h/l column · tab field · ctrl+p priority · enter submit · esc cancel"
+	}
+	hints := hintStyle.Render(hintText)
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
-		heading, "", titleLine, "", columnLine, priorityLine, "", hints)
+		heading, "", titleLine, "", columnLine, priorityLine, "", descLine, "", hints)
 	return RenderPanel(content, m.width, m.height)
 }
 

@@ -322,7 +322,8 @@ func runTUI() int {
 	}
 
 	icons := theme.NewIcons(cfg.Icons)
-	app := tui.NewApp(boardSvc, syncSvc, agentSvc, icons, bus)
+	editor := config.ResolveEditor(cfg)
+	app := tui.NewApp(boardSvc, syncSvc, agentSvc, icons, bus, editor)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

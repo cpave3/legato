@@ -66,8 +66,14 @@ func (f *fakeBoardService) ExportCardContext(_ context.Context, _ string, _ serv
 	return "", nil
 }
 func (f *fakeBoardService) DeleteTask(_ context.Context, _ string) error { return nil }
-func (f *fakeBoardService) CreateTask(_ context.Context, _, _, _ string) (*service.Card, error) {
+func (f *fakeBoardService) CreateTask(_ context.Context, _, _, _, _ string) (*service.Card, error) {
 	return nil, nil
+}
+func (f *fakeBoardService) UpdateTaskDescription(_ context.Context, _, _ string) error {
+	return nil
+}
+func (f *fakeBoardService) UpdateTaskTitle(_ context.Context, _, _ string) error {
+	return nil
 }
 
 type fakeSyncService struct{}
@@ -84,7 +90,7 @@ func (f *fakeSyncService) ImportRemoteTask(_ context.Context, id string) (*servi
 }
 
 func newTestApp() App {
-	return NewApp(&fakeBoardService{}, nil, nil, theme.NewIcons("unicode"), nil)
+	return NewApp(&fakeBoardService{}, nil, nil, theme.NewIcons("unicode"), nil, "")
 }
 
 func updateApp(a App, msg tea.Msg) (App, tea.Cmd) {
@@ -490,7 +496,7 @@ func TestDeleteCancelledClosesOverlay(t *testing.T) {
 // Import overlay tests
 
 func TestImportKeyOpensOverlayWhenSyncAvailable(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, theme.NewIcons("unicode"), nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, theme.NewIcons("unicode"), nil, "")
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -513,7 +519,7 @@ func TestImportKeyNoOpWithoutSync(t *testing.T) {
 }
 
 func TestImportSelectedImportsAndRefreshes(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, theme.NewIcons("unicode"), nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, theme.NewIcons("unicode"), nil, "")
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -532,7 +538,7 @@ func TestImportSelectedImportsAndRefreshes(t *testing.T) {
 }
 
 func TestImportCancelledClosesOverlay(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, theme.NewIcons("unicode"), nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, theme.NewIcons("unicode"), nil, "")
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -543,6 +549,37 @@ func TestImportCancelledClosesOverlay(t *testing.T) {
 	app, _ = updateApp(app, overlay.ImportCancelledMsg{})
 	if app.overlayType != overlayNone {
 		t.Error("overlay should close after cancel")
+	}
+}
+
+func TestTitleEditOverlayOpenAndClose(t *testing.T) {
+	app := initTestApp()
+	// Open title edit overlay from detail
+	app, _ = updateApp(app, detail.OpenTitleEditOverlay{TaskID: "REX-1", Title: "Test"})
+	if app.overlayType != overlayTitleEdit {
+		t.Fatalf("overlayType = %d, want overlayTitleEdit", app.overlayType)
+	}
+	// Cancel
+	app, cmd := updateApp(app, tea.KeyMsg{Type: tea.KeyEsc})
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	if app.overlayType != overlayNone {
+		t.Error("overlay should be closed after cancel")
+	}
+}
+
+func TestTitleEditSubmitClosesOverlayAndRefreshes(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, detail.OpenTitleEditOverlay{TaskID: "REX-1", Title: "Test"})
+	// Submit
+	app, cmd := updateApp(app, overlay.TitleEditSubmitMsg{TaskID: "REX-1", Title: "New Title"})
+	if app.overlayType != overlayNone {
+		t.Error("overlay should be closed after submit")
+	}
+	if cmd == nil {
+		t.Error("expected board refresh command")
 	}
 }
 

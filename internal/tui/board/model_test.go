@@ -51,8 +51,14 @@ func (f *fakeBoardService) ExportCardContext(_ context.Context, _ string, _ serv
 	return "", nil
 }
 func (f *fakeBoardService) DeleteTask(_ context.Context, _ string) error { return nil }
-func (f *fakeBoardService) CreateTask(_ context.Context, _, _, _ string) (*service.Card, error) {
+func (f *fakeBoardService) CreateTask(_ context.Context, _, _, _, _ string) (*service.Card, error) {
 	return nil, nil
+}
+func (f *fakeBoardService) UpdateTaskDescription(_ context.Context, _, _ string) error {
+	return nil
+}
+func (f *fakeBoardService) UpdateTaskTitle(_ context.Context, _, _ string) error {
+	return nil
 }
 
 func newTestModel() Model {

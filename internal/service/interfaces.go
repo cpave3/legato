@@ -71,8 +71,10 @@ type BoardService interface {
 	ReorderCard(ctx context.Context, id string, newPosition int) error
 	SearchCards(ctx context.Context, query string) ([]Card, error)
 	ExportCardContext(ctx context.Context, id string, format ExportFormat) (string, error)
-	CreateTask(ctx context.Context, title, column, priority string) (*Card, error)
+	CreateTask(ctx context.Context, title, description, column, priority string) (*Card, error)
 	DeleteTask(ctx context.Context, id string) error
+	UpdateTaskDescription(ctx context.Context, id, description string) error
+	UpdateTaskTitle(ctx context.Context, id, title string) error
 }
 
 // SyncService manages data synchronization.

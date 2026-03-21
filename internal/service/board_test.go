@@ -381,7 +381,7 @@ func TestCreateTask_Success(t *testing.T) {
 	s, _, svc := setupTestBoard(t)
 	seedColumns(t, s)
 
-	card, err := svc.CreateTask(context.Background(), "New task", "Backlog", "High")
+	card, err := svc.CreateTask(context.Background(), "New task", "", "Backlog", "High")
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -489,12 +489,93 @@ func TestDeleteTask_NotFound(t *testing.T) {
 	}
 }
 
+func TestCreateTask_WithDescription(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	seedColumns(t, s)
+
+	card, err := svc.CreateTask(context.Background(), "New task", "Some description", "Backlog", "High")
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	detail, err := svc.GetCard(context.Background(), card.ID)
+	if err != nil {
+		t.Fatalf("GetCard: %v", err)
+	}
+	if detail.DescriptionMD != "Some description" {
+		t.Errorf("DescriptionMD = %q, want 'Some description'", detail.DescriptionMD)
+	}
+}
+
+// UpdateTaskDescription tests
+
+func TestUpdateTaskDescription_Success(t *testing.T) {
+	s, bus, svc := setupTestBoard(t)
+	seedColumns(t, s)
+	seedTasks(t, s) // T-1 is a local task
+
+	ch := bus.Subscribe(events.EventCardsRefreshed)
+
+	err := svc.UpdateTaskDescription(context.Background(), "T-1", "Updated description")
+	if err != nil {
+		t.Fatalf("UpdateTaskDescription: %v", err)
+	}
+
+	detail, _ := svc.GetCard(context.Background(), "T-1")
+	if detail.DescriptionMD != "Updated description" {
+		t.Errorf("DescriptionMD = %q, want 'Updated description'", detail.DescriptionMD)
+	}
+
+	select {
+	case evt := <-ch:
+		if evt.Type != events.EventCardsRefreshed {
+			t.Errorf("expected EventCardsRefreshed, got %d", evt.Type)
+		}
+	default:
+		t.Error("expected EventCardsRefreshed event")
+	}
+}
+
+func TestUpdateTaskDescription_RemoteTaskRejected(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	seedColumns(t, s)
+
+	// Create a remote task
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339)
+	provider := "jira"
+	remoteID := "REX-123"
+	meta := `{"remote_status":"In Progress"}`
+	task := store.Task{
+		ID: "REX-123", Title: "Remote", Status: "Backlog",
+		Priority: "High", SortOrder: 0, CreatedAt: now, UpdatedAt: now,
+		Provider: &provider, RemoteID: &remoteID, RemoteMeta: &meta,
+	}
+	if err := s.CreateTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+
+	err := svc.UpdateTaskDescription(ctx, "REX-123", "new desc")
+	if err == nil {
+		t.Fatal("expected error for remote task")
+	}
+}
+
+func TestUpdateTaskDescription_NotFound(t *testing.T) {
+	_, _, svc := setupTestBoard(t)
+
+	err := svc.UpdateTaskDescription(context.Background(), "NOPE-1", "desc")
+	if err == nil {
+		t.Fatal("expected error for missing task")
+	}
+}
+
 func TestCreateTask_PlacedAtEndOfColumn(t *testing.T) {
 	s, _, svc := setupTestBoard(t)
 	seedColumns(t, s)
 	seedTasks(t, s)
 
-	card, err := svc.CreateTask(context.Background(), "New task", "Backlog", "")
+	card, err := svc.CreateTask(context.Background(), "New task", "", "Backlog", "")
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -502,5 +583,78 @@ func TestCreateTask_PlacedAtEndOfColumn(t *testing.T) {
 	cards, _ := svc.ListCards(context.Background(), "Backlog")
 	if cards[len(cards)-1].ID != card.ID {
 		t.Errorf("new task should be at end of column")
+	}
+}
+
+// UpdateTaskTitle tests
+
+func TestUpdateTaskTitle_Success(t *testing.T) {
+	s, bus, svc := setupTestBoard(t)
+	seedColumns(t, s)
+	seedTasks(t, s) // T-1 is a local task
+
+	ch := bus.Subscribe(events.EventCardsRefreshed)
+
+	err := svc.UpdateTaskTitle(context.Background(), "T-1", "Renamed task")
+	if err != nil {
+		t.Fatalf("UpdateTaskTitle: %v", err)
+	}
+
+	detail, _ := svc.GetCard(context.Background(), "T-1")
+	if detail.Title != "Renamed task" {
+		t.Errorf("Title = %q, want 'Renamed task'", detail.Title)
+	}
+
+	select {
+	case evt := <-ch:
+		if evt.Type != events.EventCardsRefreshed {
+			t.Errorf("expected EventCardsRefreshed, got %d", evt.Type)
+		}
+	default:
+		t.Error("expected EventCardsRefreshed event")
+	}
+}
+
+func TestUpdateTaskTitle_RemoteTaskRejected(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	seedColumns(t, s)
+
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339)
+	provider := "jira"
+	remoteID := "REX-99"
+	meta := `{"remote_status":"Open"}`
+	task := store.Task{
+		ID: "REX-99", Title: "Remote", Status: "Backlog",
+		Priority: "High", SortOrder: 0, CreatedAt: now, UpdatedAt: now,
+		Provider: &provider, RemoteID: &remoteID, RemoteMeta: &meta,
+	}
+	if err := s.CreateTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+
+	err := svc.UpdateTaskTitle(ctx, "REX-99", "New name")
+	if err == nil {
+		t.Fatal("expected error for remote task")
+	}
+}
+
+func TestUpdateTaskTitle_NotFound(t *testing.T) {
+	_, _, svc := setupTestBoard(t)
+
+	err := svc.UpdateTaskTitle(context.Background(), "NOPE-1", "title")
+	if err == nil {
+		t.Fatal("expected error for missing task")
+	}
+}
+
+func TestUpdateTaskTitle_EmptyRejected(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	seedColumns(t, s)
+	seedTasks(t, s)
+
+	err := svc.UpdateTaskTitle(context.Background(), "T-1", "")
+	if err == nil {
+		t.Fatal("expected error for empty title")
 	}
 }

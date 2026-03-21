@@ -3,6 +3,8 @@ package detail
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -44,12 +46,30 @@ type OpenDeleteOverlay struct {
 	TaskID string
 }
 
+// OpenTitleEditOverlay signals the app to open the title edit overlay.
+type OpenTitleEditOverlay struct {
+	TaskID string
+	Title  string
+}
+
+// TitleUpdatedMsg signals that the title was updated (sent by app after overlay confirms).
+type TitleUpdatedMsg struct {
+	Title string
+}
+
+// DescriptionEditedMsg carries the result of editing a description in an external editor.
+type DescriptionEditedMsg struct {
+	Content string
+	Err     error
+}
+
 // Model is the detail view Bubbletea model.
 type Model struct {
 	card      *service.CardDetail
-	taskID  string
+	taskID    string
 	svc       service.BoardService
 	clip      *clipboard.Clipboard
+	editor    string
 	viewport  viewport.Model
 	width     int
 	height    int
@@ -59,11 +79,12 @@ type Model struct {
 }
 
 // New creates a detail model with card data already available.
-func New(card *service.CardDetail, svc service.BoardService, clip *clipboard.Clipboard) Model {
+func New(card *service.CardDetail, svc service.BoardService, clip *clipboard.Clipboard, editor string) Model {
 	m := Model{
 		card:    card,
 		svc:     svc,
 		clip:    clip,
+		editor:  editor,
 		loading: card == nil,
 	}
 	if card != nil {
@@ -73,12 +94,13 @@ func New(card *service.CardDetail, svc service.BoardService, clip *clipboard.Cli
 }
 
 // NewLoading creates a detail model that will fetch data.
-func NewLoading(taskID string, svc service.BoardService, clip *clipboard.Clipboard) Model {
+func NewLoading(taskID string, svc service.BoardService, clip *clipboard.Clipboard, editor string) Model {
 	return Model{
-		taskID: taskID,
-		svc:      svc,
-		clip:     clip,
-		loading:  true,
+		taskID:  taskID,
+		svc:     svc,
+		clip:    clip,
+		editor:  editor,
+		loading: true,
 	}
 }
 
@@ -119,6 +141,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ClearFeedbackMsg:
 		m.feedback = ""
+		return m, nil
+
+	case TitleUpdatedMsg:
+		if m.card != nil {
+			m.card.Title = msg.Title
+			m.renderContent()
+		}
+		m.feedback = "Title updated"
+		return m, nil
+
+	case DescriptionEditedMsg:
+		if msg.Err != nil {
+			m.feedback = fmt.Sprintf("Edit failed: %v", msg.Err)
+			return m, nil
+		}
+		if m.card != nil {
+			m.card.DescriptionMD = msg.Content
+			m.renderContent()
+		}
+		m.feedback = "Description updated"
 		return m, nil
 
 	case tea.WindowSizeMsg:
@@ -168,8 +210,76 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			id := m.card.ID
 			return m, func() tea.Msg { return OpenDeleteOverlay{TaskID: id} }
 		}
+	case "e":
+		return m.editDescription()
+	case "t":
+		if m.card != nil {
+			if m.card.Provider != "" {
+				m.feedback = "Cannot edit remote task title"
+				return m, nil
+			}
+			return m, func() tea.Msg {
+				return OpenTitleEditOverlay{TaskID: m.card.ID, Title: m.card.Title}
+			}
+		}
 	}
 	return m, nil
+}
+
+func (m Model) editDescription() (tea.Model, tea.Cmd) {
+	if m.card == nil {
+		return m, nil
+	}
+	if m.card.Provider != "" {
+		m.feedback = "Cannot edit remote task description"
+		return m, nil
+	}
+
+	// Write current description to temp file
+	tmpFile, err := os.CreateTemp("", "legato-desc-*.md")
+	if err != nil {
+		m.feedback = fmt.Sprintf("Error: %v", err)
+		return m, nil
+	}
+	if _, err := tmpFile.WriteString(m.card.DescriptionMD); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		m.feedback = fmt.Sprintf("Error: %v", err)
+		return m, nil
+	}
+	tmpFile.Close()
+
+	tmpPath := tmpFile.Name()
+	editorCmd := m.editor
+	if editorCmd == "" {
+		editorCmd = "vi"
+	}
+
+	// Split editor command for args like "code --wait"
+	parts := strings.Fields(editorCmd)
+	parts = append(parts, tmpPath)
+	c := exec.Command(parts[0], parts[1:]...)
+
+	svc := m.svc
+	taskID := m.card.ID
+
+	return m, tea.ExecProcess(c, func(err error) tea.Msg {
+		defer os.Remove(tmpPath)
+		if err != nil {
+			return DescriptionEditedMsg{Err: err}
+		}
+		content, readErr := os.ReadFile(tmpPath)
+		if readErr != nil {
+			return DescriptionEditedMsg{Err: readErr}
+		}
+		newDesc := string(content)
+		if svc != nil {
+			if updateErr := svc.UpdateTaskDescription(context.Background(), taskID, newDesc); updateErr != nil {
+				return DescriptionEditedMsg{Err: updateErr}
+			}
+		}
+		return DescriptionEditedMsg{Content: newDesc}
+	})
 }
 
 func (m Model) copyContext(format service.ExportFormat, successMsg string) (tea.Model, tea.Cmd) {
@@ -333,6 +443,13 @@ func (m Model) renderStatusBar() string {
 		{"D", "delete"},
 		{"o", "open"},
 		{"j/k", "scroll"},
+	}
+	// Show edit hints only for local tasks
+	if m.card != nil && m.card.Provider == "" {
+		hints = append(hints, struct{ key, label string }{"t", "edit title"})
+		if m.editor != "" {
+			hints = append(hints, struct{ key, label string }{"e", "edit desc"})
+		}
 	}
 
 	var parts []string

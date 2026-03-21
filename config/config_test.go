@@ -145,6 +145,59 @@ agents:
 	}
 }
 
+func TestResolveEditorPrecedence(t *testing.T) {
+	t.Run("config editor takes priority", func(t *testing.T) {
+		t.Setenv("VISUAL", "code --wait")
+		t.Setenv("EDITOR", "nano")
+		cfg := &Config{Editor: "nvim"}
+		got := ResolveEditor(cfg)
+		if got != "nvim" {
+			t.Errorf("got %q, want %q", got, "nvim")
+		}
+	})
+
+	t.Run("VISUAL when no config editor", func(t *testing.T) {
+		t.Setenv("VISUAL", "code --wait")
+		t.Setenv("EDITOR", "nano")
+		cfg := &Config{}
+		got := ResolveEditor(cfg)
+		if got != "code --wait" {
+			t.Errorf("got %q, want %q", got, "code --wait")
+		}
+	})
+
+	t.Run("EDITOR when no config or VISUAL", func(t *testing.T) {
+		t.Setenv("VISUAL", "")
+		t.Setenv("EDITOR", "nano")
+		cfg := &Config{}
+		got := ResolveEditor(cfg)
+		if got != "nano" {
+			t.Errorf("got %q, want %q", got, "nano")
+		}
+	})
+
+	t.Run("defaults to vi", func(t *testing.T) {
+		t.Setenv("VISUAL", "")
+		t.Setenv("EDITOR", "")
+		cfg := &Config{}
+		got := ResolveEditor(cfg)
+		if got != "vi" {
+			t.Errorf("got %q, want %q", got, "vi")
+		}
+	})
+}
+
+func TestEditorFieldParsedFromConfig(t *testing.T) {
+	writeTestConfig(t, `editor: nvim`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Editor != "nvim" {
+		t.Errorf("Editor = %q, want %q", cfg.Editor, "nvim")
+	}
+}
+
 func TestResolveDBPathPrecedence(t *testing.T) {
 	t.Run("from config", func(t *testing.T) {
 		cfg := &Config{DB: DBConfig{Path: "/tmp/legato-test.db"}}

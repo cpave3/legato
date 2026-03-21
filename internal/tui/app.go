@@ -35,6 +35,7 @@ const (
 	overlayCreate
 	overlayDelete
 	overlayImport
+	overlayTitleEdit
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -69,6 +70,7 @@ type App struct {
 	agentView agents.Model
 	statusBar statusbar.Model
 	clip          *clipboard.Clipboard
+	editor        string
 	activeOverlay tea.Model
 	overlayType   overlayKind
 	active        viewType
@@ -81,7 +83,7 @@ type App struct {
 }
 
 // NewApp creates a new root application model.
-func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, icons theme.Icons, bus *events.Bus) App {
+func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, icons theme.Icons, bus *events.Bus, editor string) App {
 	clip := clipboard.New()
 	app := App{
 		svc:       svc,
@@ -91,6 +93,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		agentView: agents.New(icons),
 		statusBar: statusbar.New(),
 		clip:      clip,
+		editor:    editor,
 		active:    viewBoard,
 		eventBus:  bus,
 	}
@@ -225,9 +228,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Load card synchronously — GetCard hits local SQLite, not remote API
 		card, err := a.svc.GetCard(context.Background(), msg.CardKey)
 		if err != nil {
-			a.detail = detail.NewLoading(msg.CardKey, a.svc, a.clip)
+			a.detail = detail.NewLoading(msg.CardKey, a.svc, a.clip, a.editor)
 		} else {
-			a.detail = detail.New(card, a.svc, a.clip)
+			a.detail = detail.New(card, a.svc, a.clip, a.editor)
 		}
 		// Send window size
 		detailModel, cmd := a.detail.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height - 1})
@@ -331,6 +334,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleImportSelected(msg)
 
 	case overlay.ImportCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
+	case detail.OpenTitleEditOverlay:
+		return a.openTitleEditOverlay(msg.TaskID, msg.Title)
+
+	case overlay.TitleEditSubmitMsg:
+		return a.handleTitleEditSubmit(msg)
+
+	case overlay.TitleEditCancelledMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
 		return a, nil
@@ -639,10 +653,47 @@ func (a App) handleImportSelected(msg overlay.ImportSelectedMsg) (tea.Model, tea
 	}
 }
 
+func (a App) openTitleEditOverlay(taskID, currentTitle string) (tea.Model, tea.Cmd) {
+	editModel := overlay.NewTitleEdit(taskID, currentTitle)
+	sized, _ := editModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.activeOverlay = sized
+	a.overlayType = overlayTitleEdit
+	return a, nil
+}
+
+func (a App) handleTitleEditSubmit(msg overlay.TitleEditSubmitMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+
+	err := a.svc.UpdateTaskTitle(context.Background(), msg.TaskID, msg.Title)
+	if err != nil {
+		return a, nil
+	}
+
+	var cmds []tea.Cmd
+	// Refresh board
+	cmds = append(cmds, a.board.Init())
+
+	// If in detail view, update the card title
+	if a.active == viewDetail {
+		card, err := a.svc.GetCard(context.Background(), msg.TaskID)
+		if err == nil {
+			a.detail.SetCard(card)
+		}
+		detailModel, cmd := a.detail.Update(detail.TitleUpdatedMsg{Title: msg.Title})
+		a.detail = detailModel.(detail.Model)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	return a, tea.Batch(cmds...)
+}
+
 func (a App) handleCreateTask(msg overlay.CreateTaskMsg) (tea.Model, tea.Cmd) {
 	a.overlayType = overlayNone
 	a.activeOverlay = nil
-	card, err := a.svc.CreateTask(context.Background(), msg.Title, msg.Column, msg.Priority)
+	card, err := a.svc.CreateTask(context.Background(), msg.Title, msg.Description, msg.Column, msg.Priority)
 	if err != nil {
 		return a, nil
 	}

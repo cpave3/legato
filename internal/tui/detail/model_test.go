@@ -31,8 +31,14 @@ func (f *fakeBoardService) ExportCardContext(_ context.Context, _ string, _ serv
 	return "exported context", nil
 }
 func (f *fakeBoardService) DeleteTask(_ context.Context, _ string) error { return nil }
-func (f *fakeBoardService) CreateTask(_ context.Context, _, _, _ string) (*service.Card, error) {
+func (f *fakeBoardService) CreateTask(_ context.Context, _, _, _, _ string) (*service.Card, error) {
 	return nil, nil
+}
+func (f *fakeBoardService) UpdateTaskDescription(_ context.Context, _, _ string) error {
+	return nil
+}
+func (f *fakeBoardService) UpdateTaskTitle(_ context.Context, _, _ string) error {
+	return nil
 }
 
 func testCard() *service.CardDetail {
@@ -58,7 +64,7 @@ func testCard() *service.CardDetail {
 // Task 2.1: Model can be instantiated with data
 func TestNewWithData(t *testing.T) {
 	card := testCard()
-	m := New(card, nil, nil)
+	m := New(card, nil, nil, "")
 	if m.card == nil {
 		t.Fatal("card should not be nil")
 	}
@@ -71,7 +77,7 @@ func TestNewWithData(t *testing.T) {
 }
 
 func TestNewWithoutData(t *testing.T) {
-	m := New(nil, nil, nil)
+	m := New(nil, nil, nil, "")
 	if m.card != nil {
 		t.Fatal("card should be nil")
 	}
@@ -83,7 +89,7 @@ func TestNewWithoutData(t *testing.T) {
 // Task 2.2: Metadata header rendering
 func TestViewContainsMetadata(t *testing.T) {
 	card := testCard()
-	m := New(card, nil, nil)
+	m := New(card, nil, nil, "")
 	m.width = 120
 	m.height = 40
 	m.renderContent()
@@ -103,7 +109,7 @@ func TestViewMissingOptionalFields(t *testing.T) {
 		DescriptionMD: "Simple desc",
 		Status:        "Open",
 	}
-	m := New(card, nil, nil)
+	m := New(card, nil, nil, "")
 	m.width = 120
 	m.height = 40
 	m.renderContent()
@@ -116,7 +122,7 @@ func TestViewMissingOptionalFields(t *testing.T) {
 // Task 2.4: Resize handling
 func TestWindowResize(t *testing.T) {
 	card := testCard()
-	m := New(card, nil, nil)
+	m := New(card, nil, nil, "")
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
 	m2 := updated.(Model)
 	if m2.width != 100 {
@@ -131,7 +137,7 @@ func TestWindowResize(t *testing.T) {
 func TestScrollKeybindings(t *testing.T) {
 	card := testCard()
 	card.DescriptionMD = longDescription()
-	m := New(card, nil, nil)
+	m := New(card, nil, nil, "")
 	m.width = 80
 	m.height = 20
 	m.renderContent()
@@ -152,7 +158,7 @@ func TestScrollKeybindings(t *testing.T) {
 // Task 2.6: Status bar hints
 func TestStatusBarHints(t *testing.T) {
 	card := testCard()
-	m := New(card, nil, nil)
+	m := New(card, nil, nil, "")
 	m.width = 120
 	m.height = 40
 	m.renderContent()
@@ -167,7 +173,7 @@ func TestStatusBarHints(t *testing.T) {
 // Task 2.7: Loading state
 func TestLoadingState(t *testing.T) {
 	svc := &fakeBoardService{card: testCard()}
-	m := NewLoading("REX-1238", svc, nil)
+	m := NewLoading("REX-1238", svc, nil, "")
 	if !m.loading {
 		t.Error("should be loading")
 	}
@@ -180,7 +186,7 @@ func TestLoadingState(t *testing.T) {
 
 func TestLoadingTransition(t *testing.T) {
 	card := testCard()
-	m := NewLoading("REX-1238", nil, nil)
+	m := NewLoading("REX-1238", nil, nil, "")
 	m.width = 120
 	m.height = 40
 
@@ -198,7 +204,7 @@ func TestLoadingTransition(t *testing.T) {
 // Task 2.6: Feedback message
 func TestFeedbackMessage(t *testing.T) {
 	card := testCard()
-	m := New(card, nil, nil)
+	m := New(card, nil, nil, "")
 	m.width = 120
 	m.height = 40
 	m.renderContent()
@@ -214,7 +220,7 @@ func TestCopyDescriptionYNoClip(t *testing.T) {
 	card := testCard()
 	svc := &fakeBoardService{card: card}
 
-	m := New(card, svc, nil)
+	m := New(card, svc, nil, "")
 	m.width = 120
 	m.height = 40
 	m.renderContent()
@@ -229,7 +235,7 @@ func TestCopyFullContextShiftYNoClip(t *testing.T) {
 	card := testCard()
 	svc := &fakeBoardService{card: card}
 
-	m := New(card, svc, nil)
+	m := New(card, svc, nil, "")
 	m.width = 120
 	m.height = 40
 	m.renderContent()
@@ -244,7 +250,7 @@ func TestCopyWithNoClipboard(t *testing.T) {
 	card := testCard()
 	svc := &fakeBoardService{card: card}
 
-	m := New(card, svc, nil)
+	m := New(card, svc, nil, "")
 	m.width = 120
 	m.height = 40
 	m.renderContent()
@@ -260,7 +266,7 @@ func TestOpenURLNoURL(t *testing.T) {
 		ID:      "REX-99",
 		Title: "No URL",
 	}
-	m := New(card, nil, nil)
+	m := New(card, nil, nil, "")
 	m.width = 120
 	m.height = 40
 	m.renderContent()
@@ -273,7 +279,7 @@ func TestOpenURLNoURL(t *testing.T) {
 // Task 3.3: esc keybinding
 func TestEscReturnsBackToBoard(t *testing.T) {
 	card := testCard()
-	m := New(card, nil, nil)
+	m := New(card, nil, nil, "")
 	m.width = 120
 	m.height = 40
 	m.renderContent()
@@ -291,7 +297,7 @@ func TestEscReturnsBackToBoard(t *testing.T) {
 // Task 3.3: m keybinding opens move overlay
 func TestMoveOverlay(t *testing.T) {
 	card := testCard()
-	m := New(card, nil, nil)
+	m := New(card, nil, nil, "")
 	m.width = 120
 	m.height = 40
 	m.renderContent()
@@ -313,7 +319,7 @@ func TestMoveOverlay(t *testing.T) {
 // Delete keybinding
 func TestDeleteKeyEmitsOpenDeleteOverlay(t *testing.T) {
 	card := testCard()
-	m := New(card, nil, nil)
+	m := New(card, nil, nil, "")
 	m.width = 120
 	m.height = 40
 	m.renderContent()
@@ -329,6 +335,136 @@ func TestDeleteKeyEmitsOpenDeleteOverlay(t *testing.T) {
 	}
 	if result.TaskID != "REX-1238" {
 		t.Errorf("taskID = %q, want REX-1238", result.TaskID)
+	}
+}
+
+// Edit description tests
+
+func localTestCard() *service.CardDetail {
+	return &service.CardDetail{
+		ID:            "abc12345",
+		Title:         "Local task",
+		DescriptionMD: "Some description",
+		Status:        "Backlog",
+		Priority:      "Medium",
+		// Provider is "" (local)
+	}
+}
+
+func TestEditKeyOnLocalTaskProducesExecCmd(t *testing.T) {
+	card := localTestCard()
+	svc := &fakeBoardService{card: card}
+	m := New(card, svc, nil, "")
+	m.editor = "vi"
+	m.width = 120
+	m.height = 40
+	m.renderContent()
+
+	_, cmd := m.Update(keyMsg('e'))
+	if cmd == nil {
+		t.Fatal("expected exec command from 'e' on local task")
+	}
+	// The command should be a tea.ExecProcess — we can't easily type-assert
+	// internal bubbletea types, but we can verify it's non-nil (exec cmds exist).
+	// We also verify the model produces an EditDescriptionMsg when e is pressed.
+	// Actually let's test by checking the msg the cmd produces.
+	// tea.ExecProcess returns a special internal message, so we can't test it directly.
+	// Instead, verify that feedback is NOT set (meaning it didn't reject the edit).
+	updated, _ := m.Update(keyMsg('e'))
+	m2 := updated.(Model)
+	if m2.feedback == "Cannot edit remote task description" {
+		t.Error("local task should not show remote rejection feedback")
+	}
+}
+
+func TestEditKeyOnRemoteTaskShowsFeedback(t *testing.T) {
+	card := testCard() // has Provider="jira"
+	m := New(card, nil, nil, "")
+	m.editor = "vi"
+	m.width = 120
+	m.height = 40
+	m.renderContent()
+
+	updated, _ := m.Update(keyMsg('e'))
+	m2 := updated.(Model)
+	if m2.feedback != "Cannot edit remote task description" {
+		t.Errorf("feedback = %q, want 'Cannot edit remote task description'", m2.feedback)
+	}
+}
+
+func TestStatusBarShowsEditHintForLocalTask(t *testing.T) {
+	card := localTestCard()
+	m := New(card, nil, nil, "")
+	m.editor = "vi"
+	m.width = 120
+	m.height = 40
+	m.renderContent()
+
+	view := m.View()
+	mustContain(t, view, "edit")
+}
+
+func TestTitleEditKeyOnLocalTaskOpensOverlay(t *testing.T) {
+	card := localTestCard()
+	m := New(card, nil, nil, "")
+	m.width = 120
+	m.height = 40
+	m.renderContent()
+
+	_, cmd := m.Update(keyMsg('t'))
+	if cmd == nil {
+		t.Fatal("expected command from 't' on local task")
+	}
+	msg := cmd()
+	result, ok := msg.(OpenTitleEditOverlay)
+	if !ok {
+		t.Fatalf("expected OpenTitleEditOverlay, got %T", msg)
+	}
+	if result.TaskID != "abc12345" {
+		t.Errorf("taskID = %q, want abc12345", result.TaskID)
+	}
+	if result.Title != "Local task" {
+		t.Errorf("title = %q, want 'Local task'", result.Title)
+	}
+}
+
+func TestTitleEditKeyOnRemoteTaskShowsFeedback(t *testing.T) {
+	card := testCard() // remote, provider="jira"
+	m := New(card, nil, nil, "")
+	m.width = 120
+	m.height = 40
+	m.renderContent()
+
+	updated, _ := m.Update(keyMsg('t'))
+	m2 := updated.(Model)
+	if m2.feedback != "Cannot edit remote task title" {
+		t.Errorf("feedback = %q, want 'Cannot edit remote task title'", m2.feedback)
+	}
+}
+
+func TestStatusBarShowsTitleEditHintForLocalTask(t *testing.T) {
+	card := localTestCard()
+	m := New(card, nil, nil, "")
+	m.width = 120
+	m.height = 40
+	m.renderContent()
+
+	bar := m.renderStatusBar()
+	mustContain(t, bar, "edit title")
+}
+
+func TestStatusBarNoEditHintForRemoteTask(t *testing.T) {
+	card := testCard() // remote
+	m := New(card, nil, nil, "")
+	m.editor = "vi"
+	m.width = 120
+	m.height = 40
+	m.renderContent()
+
+	// renderStatusBar should not contain "e edit" for remote tasks
+	bar := m.renderStatusBar()
+	if containsStr(bar, "edit") {
+		t.Error("remote task status bar should not show 'edit' hint")
 	}
 }
 

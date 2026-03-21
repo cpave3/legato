@@ -45,14 +45,14 @@ task check                 # build + test + vet + lint
 - `internal/engine/events/` — Channel-based event bus with buffered pub/sub (buffer size 64, non-blocking drops on full), error event types (`EventSyncError`, `EventTransitionFailed`, `EventAuthFailed`, `EventRateLimited`) with `ErrorPayload` struct
 - `internal/engine/jira/` — Jira REST API v3 client (types, HTTP client with Basic Auth/backoff, ADF-to-Markdown converter), plus `Provider` adapter
 - `internal/engine/tmux/` — Tmux session manager: spawn, kill, capture-pane, attach, list/filter legato-prefixed sessions. LookPath-injectable for testing.
-- `internal/service/` — BoardService (columns/cards CRUD + CreateTask + DeleteTask), SyncService (pull/push with conflict resolution, provider→task conversion, SearchRemote + ImportRemoteTask), AgentService (tmux session lifecycle + SQLite tracking), `TicketProvider` interface for pluggable backends
+- `internal/service/` — BoardService (columns/cards CRUD + CreateTask + DeleteTask + UpdateTaskDescription + UpdateTaskTitle), SyncService (pull/push with conflict resolution, provider→task conversion, SearchRemote + ImportRemoteTask), AgentService (tmux session lifecycle + SQLite tracking), `TicketProvider` interface for pluggable backends
 - `internal/setup/` — Setup wizard logic: first-run column seeding, interactive Jira configuration (credential validation, project/status discovery, column mapping heuristics, config writing), `ColumnSeeder` interface for testability
 - `internal/tui/` — Root Bubbletea app model, view routing (viewBoard/viewDetail/viewAgents), overlay state management (`overlayType` enum + `activeOverlay tea.Model`), EventBus bridge
 - `internal/tui/agents/` — Agent split-view: sidebar with agent list + terminal output panel, j/k navigation, spawn/kill/attach keybindings, capture-pane polling at 200ms
 - `internal/tui/board/` — Kanban board model with vim navigation, card/column rendering, agent indicator (`▶` prefix)
-- `internal/tui/detail/` — Full-screen task detail view with Glamour markdown, metadata header (provider-specific fields from RemoteMeta), viewport scrolling
+- `internal/tui/detail/` — Full-screen task detail view with Glamour markdown, metadata header (provider-specific fields from RemoteMeta), viewport scrolling, `e` to edit description via `$EDITOR` (local tasks), `t` to edit title via overlay (local tasks)
 - `internal/tui/clipboard/` — OS-native clipboard (pbcopy/wl-copy/xclip/xsel) and browser open (open/xdg-open)
-- `internal/tui/overlay/` — Overlay system: shared `RenderPanel`, move overlay (single-letter shortcuts), search overlay (real-time filtering via `BoardService.SearchCards`), create overlay (inline task creation with title/column/priority), delete overlay (confirmation with remote/local distinction), import overlay (remote ticket search + import via `SyncService.SearchRemote`), help overlay (keybinding reference)
+- `internal/tui/overlay/` — Overlay system: shared `RenderPanel`, move overlay (single-letter shortcuts), search overlay (real-time filtering via `BoardService.SearchCards`), create overlay (inline task creation with title/description/column/priority), delete overlay (confirmation with remote/local distinction), import overlay (remote ticket search + import via `SyncService.SearchRemote`), title edit overlay (pre-filled text input for local tasks), help overlay (keybinding reference)
 - `internal/tui/statusbar/` — Status bar with sync state, relative time, key hints, warnings, error messages (auto-clear on sync success)
 - `internal/tui/theme/` — Lipgloss color palette, style constants, and icon system (`icons.go`: `NewIcons("unicode"|"nerdfonts")` for provider/agent/warning glyphs)
 - `internal/engine/ipc/` — Unix domain socket IPC: `Server` (listens, parses newline-delimited JSON, calls callback), `Send` (client, silent on missing socket), `Broadcast` (sends to all `*.sock` in `SocketDir()`), `SocketPath()` (PID-based, XDG_RUNTIME_DIR with /tmp fallback), `Message` struct (type/task_id/status/content)
@@ -79,6 +79,7 @@ task check                 # build + test + vet + lint
 - Missing config file returns defaults (no error) — app starts without config for initial setup
 - Env vars expanded before YAML parsing: `${LEGATO_JIRA_TOKEN}` works in config values
 - `icons` field: `"unicode"` (default) or `"nerdfonts"` for Nerd Font glyphs on cards
+- `editor` field: optional editor override for description editing (used by `config.ResolveEditor`)
 
 ## Provider Architecture
 
@@ -113,11 +114,12 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 - `cmd/validate/service-smoke/` — standalone service layer smoke test (renamed from phase2)
 - Glamour: must use `glamour.WithStyles(styles.DarkStyleConfig)`, NOT `WithAutoStyle()` — auto-style probes terminal background via stdin/stdout which deadlocks in bubbletea's alt-screen mode
 - Clipboard: `Copy()` uses `cmd.Start()` + `StdinPipe()`, NOT `cmd.Run()` — `wl-copy` on Wayland stays alive to serve paste requests, so `Run()` blocks forever
-- Detail view loads cards synchronously via `GetCard()` in the `OpenDetailMsg` handler (hits local SQLite, not remote API)
-- Overlay system: only one overlay active at a time — `overlayType` enum (`overlayNone/Move/Search/Help/Create/Delete/Import`) + `activeOverlay tea.Model`; `?` opens help from any context (replaces active overlay); `esc` always dismisses
+- Detail view loads cards synchronously via `GetCard()` in the `OpenDetailMsg` handler (hits local SQLite, not remote API). `e` opens `$EDITOR` for description (local tasks only, via `tea.ExecProcess`), `t` opens title edit overlay (local tasks only). Status bar hints are conditional on `Provider == ""`
+- Overlay system: only one overlay active at a time — `overlayType` enum (`overlayNone/Move/Search/Help/Create/Delete/Import/TitleEdit`) + `activeOverlay tea.Model`; `?` opens help from any context (replaces active overlay); `esc` always dismisses
 - Move overlay shortcuts: first letter of column name lowercased (`b`=Backlog, `r`=Ready, `d`=Doing, `v`=Review, `x`=Done); falls back to number keys on conflict
 - Search overlay: typing appends to query, produces `SearchQueryChangedMsg` → app calls `BoardService.SearchCards` → returns `SearchResultsMsg` → overlay updates results; `enter` closes overlay and calls `board.NavigateTo(cardID)`
-- Create overlay: `n` opens from board view; title input, tab cycles columns, ctrl+p cycles priority (none/low/medium/high); enter submits `CreateTaskMsg`, esc cancels
+- Create overlay: `n` opens from board view; title input + description input with `focusField` cycling (tab: title → column → description); `h`/`l` cycles columns when column focused, `ctrl+j` inserts newline in description, ctrl+p cycles priority (none/low/medium/high); enter submits `CreateTaskMsg` (with description), esc cancels
+- Title edit overlay: `t` from detail view (local tasks only); pre-filled text input, enter saves via `BoardService.UpdateTaskTitle`, esc cancels
 - Delete overlay: `d` from board, `D` from detail; shows task title, warns if remote-tracking ("removes local reference only"); `y` confirms, `n`/`esc` cancels. Confirm calls `BoardService.DeleteTask`, returns to board from detail view
 - Import overlay: `i` from board (no-op without SyncService); fixed-size panel (60% width, 10 result rows + scroll indicator); typing triggers `SyncService.SearchRemote` (min 2 chars); j/k navigates, enter imports via `SyncService.ImportRemoteTask`, esc cancels. Errors shown in red instead of silent "no results"
 - Card warning indicators: `CardData.Warning` bool → renders warning icon; sourced from `sync_log` where most recent entry for task is `push_failed`
@@ -129,14 +131,16 @@ The ticket source is abstracted behind `service.TicketProvider` — Jira is the 
 - Agent attach: `tea.ExecProcess` suspends bubbletea, runs `tmux attach-session` with escape key set to `Ctrl+]` (configurable via `agents.escape_key` in config). On detach, refreshes agent list
 - Agent card indicator: `CardData.AgentActive` bool → renders terminal icon on board cards with active agents. Populated by app querying `AgentService.ListAgents()` on `DataLoadedMsg`, not by BoardService
 - Data model: provider-agnostic `tasks` table with nullable `provider`/`remote_id`/`remote_meta` for synced tasks. `Card.Title` (not Summary), `CardDetail.RemoteMeta` map for provider-specific fields. `service.Card.IssueType` extracted from remote_meta at read time
-- Local task creation: `BoardService.CreateTask(title, column, priority)` generates 8-char alphanumeric ID, inserts task, publishes refresh event
+- Local task creation: `BoardService.CreateTask(title, description, column, priority)` generates 8-char alphanumeric ID, inserts task with description, publishes refresh event
+- Local task editing: `BoardService.UpdateTaskDescription(id, description)` and `BoardService.UpdateTaskTitle(id, title)` — both reject remote tasks (provider != nil), persist changes, publish `EventCardsRefreshed`
+- Editor config: `config.ResolveEditor(cfg)` → config `editor` field → `$VISUAL` → `$EDITOR` → `vi`. Used by detail view `e` keybinding to open external editor for description editing via `tea.ExecProcess`
 - Task deletion: `BoardService.DeleteTask(id)` verifies existence, deletes from store, publishes `EventCardsRefreshed`. Works for both local and remote-tracking tasks (remote-tracking only removes local ref)
 - Provider icons: cards show provider icon before key (◈ Jira, ◉ GitHub, ● local). Configurable via `icons` config field (`"unicode"` default, `"nerdfonts"` for Nerd Font glyphs). `theme.NewIcons(mode)` returns icon set, passed through `NewApp` → `board.New` → `RenderCard`
 - Board rendering: colored column header bars (column accent colors), cards with priority-colored left borders, subtle card backgrounds (#252540), gap between columns, margin between cards. Selected cards use dark-on-light colors for readability
 - First-run setup: `main.go` checks if `column_mappings` is empty, runs `setup.RunWizard()` which seeds default columns and optionally configures Jira interactively. Uses `ColumnSeeder` interface (backed by `StoreAdapter`) for testability
 - Jira client: uses `/rest/api/3/search/jql` endpoint (not the removed `/rest/api/3/search`)
 - `NewSyncService` takes `projectKeys []string` for scoping remote searches
-- `NewApp` takes `SyncService` (nil-safe) and `theme.Icons`; `board.New` takes `theme.Icons`
+- `NewApp` takes `SyncService` (nil-safe), `theme.Icons`, and `editor string` (resolved via `config.ResolveEditor`); `board.New` takes `theme.Icons`; `detail.New`/`detail.NewLoading` take `editor string`
 
 ## Build Plan
 
