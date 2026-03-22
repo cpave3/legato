@@ -549,11 +549,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Enrich cards with active agent indicators and activity states
 		if a.agentSvc != nil {
-			agents, err := a.agentSvc.ListAgents(context.Background())
+			agentList, err := a.agentSvc.ListAgents(context.Background())
 			if err == nil {
-				active := make(map[string]bool, len(agents))
-				states := make(map[string]string, len(agents))
-				for _, ag := range agents {
+				active := make(map[string]bool, len(agentList))
+				states := make(map[string]string, len(agentList))
+				for _, ag := range agentList {
 					if ag.Status == "running" {
 						active[ag.TaskID] = true
 						if ag.Activity != "" {
@@ -563,6 +563,25 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				a.board.SetActiveAgents(active)
 				a.board.SetAgentStates(states)
+
+				// Populate duration data for agent view
+				agentTaskIDs := make([]string, 0, len(agentList))
+				for _, ag := range agentList {
+					agentTaskIDs = append(agentTaskIDs, ag.TaskID)
+				}
+				if len(agentTaskIDs) > 0 {
+					agentDurations, dErr := a.agentSvc.GetTaskDurations(context.Background(), agentTaskIDs)
+					if dErr == nil && len(agentDurations) > 0 {
+						avDurations := make(map[string]agents.DurationData, len(agentDurations))
+						for id, d := range agentDurations {
+							avDurations[id] = agents.DurationData{
+								Working: d.Working,
+								Waiting: d.Waiting,
+							}
+						}
+						a.agentView.SetDurations(avDurations)
+					}
+				}
 			}
 			// Populate duration data for all visible cards
 			if taskIDs := a.board.TaskIDs(); len(taskIDs) > 0 {

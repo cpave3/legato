@@ -16,9 +16,16 @@ const pollInterval = 200 * time.Millisecond
 // SidebarWidth is the fixed width of the agent sidebar in characters.
 const SidebarWidth = 30
 
+// DurationData holds cumulative working/waiting durations for a task.
+type DurationData struct {
+	Working time.Duration
+	Waiting time.Duration
+}
+
 // Model is the agent view Bubbletea model.
 type Model struct {
 	agents      []service.AgentSession
+	durations   map[string]DurationData
 	selected    int
 	termContent string
 	width       int
@@ -38,6 +45,11 @@ func (m *Model) SetAgents(agents []service.AgentSession) {
 	if m.selected >= len(agents) {
 		m.selected = max(0, len(agents)-1)
 	}
+}
+
+// SetDurations updates the working/waiting durations for agent tasks.
+func (m *Model) SetDurations(durations map[string]DurationData) {
+	m.durations = durations
 }
 
 // SelectByTaskID moves selection to the agent with the given ticket ID.
@@ -424,41 +436,44 @@ func (m Model) renderTerminalHeader(width int) string {
 		}
 	}
 
-	elapsed := formatDuration(time.Since(a.StartedAt).Truncate(time.Second))
+	durationStr := m.renderDurationSummary(a.TaskID)
 
 	ticketStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple).Bold(true)
 	dimStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
 
-	// Build left side: status · ID [· title] · command · elapsed
+	// Build left side: status · ID [· title] · command [· durations]
 	var left string
 	if a.Title != "" {
-		// Reserve space for fixed parts, truncate title to fit
 		fixedWidth := lipgloss.Width(statusDot) + lipgloss.Width(ticketStyle.Render(a.TaskID)) +
-			lipgloss.Width(a.Command) + lipgloss.Width(elapsed) + 12 // separators + spaces
-		maxTitleWidth := width - fixedWidth - 20 // leave room for right label
+			lipgloss.Width(a.Command) + lipgloss.Width(durationStr) + 12
+		maxTitleWidth := width - fixedWidth - 20
 		if maxTitleWidth < 5 {
 			maxTitleWidth = 5
 		}
 		titleStr := truncateID(a.Title, maxTitleWidth)
-		left = fmt.Sprintf("%s %s %s %s %s %s %s %s",
+		parts := []string{
 			statusDot,
 			ticketStyle.Render(a.TaskID),
 			dimStyle.Render("·"),
 			dimStyle.Render(titleStr),
 			dimStyle.Render("·"),
 			a.Command,
-			dimStyle.Render("·"),
-			elapsed,
-		)
+		}
+		if durationStr != "" {
+			parts = append(parts, dimStyle.Render("·"), durationStr)
+		}
+		left = strings.Join(parts, " ")
 	} else {
-		left = fmt.Sprintf("%s %s %s %s %s %s",
+		parts := []string{
 			statusDot,
 			ticketStyle.Render(a.TaskID),
 			dimStyle.Render("·"),
 			a.Command,
-			dimStyle.Render("·"),
-			elapsed,
-		)
+		}
+		if durationStr != "" {
+			parts = append(parts, dimStyle.Render("·"), durationStr)
+		}
+		left = strings.Join(parts, " ")
 	}
 
 	// Right: status indicator — matches board card indicators
@@ -546,19 +561,46 @@ func truncateID(id string, maxWidth int) string {
 }
 
 func formatDuration(d time.Duration) string {
-	if d < 0 {
-		return "0s"
+	if d <= 0 {
+		return ""
 	}
-	h := int(d.Hours())
-	m := int(d.Minutes()) % 60
-	s := int(d.Seconds()) % 60
-	if h > 0 {
-		return fmt.Sprintf("%dh %02dm", h, m)
+	totalMinutes := int(d.Minutes())
+	if totalMinutes < 1 {
+		return "<1m"
 	}
-	if m > 0 {
-		return fmt.Sprintf("%dm %02ds", m, s)
+	hours := totalMinutes / 60
+	minutes := totalMinutes % 60
+	if hours == 0 {
+		return fmt.Sprintf("%dm", minutes)
 	}
-	return fmt.Sprintf("%ds", s)
+	if minutes == 0 {
+		return fmt.Sprintf("%dh", hours)
+	}
+	return fmt.Sprintf("%dh %dm", hours, minutes)
+}
+
+// renderDurationSummary builds a compact working/waiting duration string for the terminal header.
+func (m Model) renderDurationSummary(taskID string) string {
+	dur, ok := m.durations[taskID]
+	if !ok || (dur.Working <= 0 && dur.Waiting <= 0) {
+		return ""
+	}
+
+	workingColor := theme.SyncOK
+	waitingColor := theme.ColReady
+	dimStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
+
+	var parts []string
+	if d := formatDuration(dur.Working); d != "" {
+		wStyle := lipgloss.NewStyle().Foreground(workingColor)
+		parts = append(parts, wStyle.Render(m.icons.AgentWorking+" ")+dimStyle.Render(d))
+	}
+	if d := formatDuration(dur.Waiting); d != "" {
+		wStyle := lipgloss.NewStyle().Foreground(waitingColor)
+		parts = append(parts, wStyle.Render(m.icons.AgentWaiting+" ")+dimStyle.Render(d))
+	}
+
+	return strings.Join(parts, dimStyle.Render(" · "))
 }
 
 func (m Model) terminalWidth() int {
