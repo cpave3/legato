@@ -13,15 +13,16 @@ import (
 )
 
 type mockGitHub struct {
-	statuses      map[string]*github.PRStatus
-	prByNumber    map[int]*github.PRStatus
-	fetchErr      error
-	branch        string
-	branchErr     error
-	owner, repo   string
-	repoErr       error
-	commentCnt    int
-	commentErr    error
+	statuses       map[string]*github.PRStatus
+	prByNumber     map[int]*github.PRStatus
+	fetchErr       error
+	branch         string
+	branchErr      error
+	owner, repo    string
+	repoErr        error
+	commentCnt     int
+	commentErr     error
+	queriedBranches []string // tracks branches passed to BatchFetchPRStatusWithRepo
 }
 
 func (m *mockGitHub) FetchPRStatus(branch string, repo ...string) (*github.PRStatus, error) {
@@ -61,6 +62,7 @@ func (m *mockGitHub) BatchFetchPRStatus(branches []string) (map[string]*github.P
 func (m *mockGitHub) BatchFetchPRStatusWithRepo(queries []github.BranchQuery) (map[string]*github.PRStatus, error) {
 	result := make(map[string]*github.PRStatus)
 	for _, q := range queries {
+		m.queriedBranches = append(m.queriedBranches, q.Branch)
 		s, err := m.FetchPRStatus(q.Branch, q.Repo)
 		if err != nil {
 			return result, err
@@ -493,5 +495,113 @@ func TestPRMetaChanged(t *testing.T) {
 	modified.CheckStatus = "fail"
 	if !prMetaChanged(base, &modified) {
 		t.Error("different check_status should be changed")
+	}
+}
+
+func TestPollAllIncludesResolvedPRs(t *testing.T) {
+	s := newTestPRStore(t)
+	bus := events.New()
+	sub := bus.Subscribe(events.EventPRStatusUpdated)
+
+	gh := &mockGitHub{
+		statuses: map[string]*github.PRStatus{
+			"feature/resolved": {HasPR: true, Number: 99, State: "MERGED", URL: "https://github.com/o/r/pull/99"},
+		},
+	}
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
+
+	ctx := context.Background()
+	createPRTask(t, s, "task1")
+
+	// Set pr_meta with a PR number (resolved PR)
+	prMeta := `{"branch":"feature/resolved","pr_number":99,"state":"OPEN"}`
+	if err := s.UpdatePRMeta(ctx, "task1", &prMeta); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify the resolved branch was queried (not skipped)
+	if len(gh.queriedBranches) == 0 {
+		t.Fatal("PollAll should query resolved PRs, but no branches were queried")
+	}
+	found := false
+	for _, b := range gh.queriedBranches {
+		if b == "feature/resolved" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("PollAll should have queried feature/resolved, queried: %v", gh.queriedBranches)
+	}
+
+	// Verify event was published (state changed from OPEN to MERGED)
+	select {
+	case <-sub:
+		// good
+	case <-time.After(time.Second):
+		t.Error("expected EventPRStatusUpdated event")
+	}
+}
+
+func TestPollOnceSkipsResolvedPRs(t *testing.T) {
+	s := newTestPRStore(t)
+	bus := events.New()
+
+	gh := &mockGitHub{
+		statuses: map[string]*github.PRStatus{
+			"feature/unresolved": {HasPR: false},
+			"feature/resolved":   {HasPR: true, Number: 42, State: "OPEN", URL: "https://github.com/o/r/pull/42"},
+		},
+	}
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute).(*prTrackingService)
+
+	ctx := context.Background()
+
+	// Task with unresolved PR (branch only, no PR number)
+	createPRTask(t, s, "task-unresolved")
+	unresolvedMeta := `{"branch":"feature/unresolved"}`
+	if err := s.UpdatePRMeta(ctx, "task-unresolved", &unresolvedMeta); err != nil {
+		t.Fatal(err)
+	}
+
+	// Task with resolved PR (has PR number)
+	createPRTask(t, s, "task-resolved")
+	resolvedMeta := `{"branch":"feature/resolved","pr_number":42}`
+	if err := s.UpdatePRMeta(ctx, "task-resolved", &resolvedMeta); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set lastResolvedPoll to now — resolved PRs should be skipped
+	svc.mu.Lock()
+	svc.lastResolvedPoll = time.Now()
+	svc.mu.Unlock()
+
+	if err := svc.PollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Only the unresolved branch should have been queried
+	if len(gh.queriedBranches) != 1 {
+		t.Fatalf("expected 1 queried branch, got %d: %v", len(gh.queriedBranches), gh.queriedBranches)
+	}
+	if gh.queriedBranches[0] != "feature/unresolved" {
+		t.Errorf("expected feature/unresolved, got %s", gh.queriedBranches[0])
+	}
+
+	// Now simulate resolvedInterval elapsed — both should be queried
+	gh.queriedBranches = nil
+	svc.mu.Lock()
+	svc.lastResolvedPoll = time.Now().Add(-11 * time.Minute)
+	svc.mu.Unlock()
+
+	if err := svc.PollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(gh.queriedBranches) != 2 {
+		t.Fatalf("expected 2 queried branches after interval elapsed, got %d: %v", len(gh.queriedBranches), gh.queriedBranches)
 	}
 }

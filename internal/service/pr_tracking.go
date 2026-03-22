@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
@@ -41,7 +42,9 @@ type prTrackingService struct {
 	gh               GitHubClient
 	interval         time.Duration // unresolved PRs (branch-only)
 	resolvedInterval time.Duration // resolved PRs (have PR number)
-	lastResolvedPoll time.Time     // tracks when resolved PRs were last polled
+
+	mu               sync.Mutex // protects lastResolvedPoll
+	lastResolvedPoll time.Time  // tracks when resolved PRs were last polled
 }
 
 // NewPRTrackingService creates a new PR tracking service.
@@ -119,16 +122,20 @@ func (p *prTrackingService) UnlinkBranch(ctx context.Context, taskID string) err
 // PollAll fetches PR status for all tracked tasks regardless of resolved state.
 // Used on startup to ensure all data is fresh.
 func (p *prTrackingService) PollAll(ctx context.Context) error {
+	p.mu.Lock()
 	p.lastResolvedPoll = time.Now()
+	p.mu.Unlock()
 	return p.pollInternal(ctx, false)
 }
 
 func (p *prTrackingService) PollOnce(ctx context.Context) error {
 	// Check if resolved PRs should be included this cycle.
+	p.mu.Lock()
 	includeResolved := time.Since(p.lastResolvedPoll) >= p.resolvedInterval
 	if includeResolved {
 		p.lastResolvedPoll = time.Now()
 	}
+	p.mu.Unlock()
 	return p.pollInternal(ctx, !includeResolved)
 }
 

@@ -899,7 +899,12 @@ func (a App) manualRefresh() (tea.Model, tea.Cmd) {
 		// No services — just reload board data
 		return a, a.board.Init()
 	}
-	a.statusBar, _ = a.statusBar.Update(statusbar.SyncStartedMsg{})
+	if syncSvc == nil {
+		// No Jira sync → no bus event will fire, so show indicator manually
+		a.statusBar, _ = a.statusBar.Update(statusbar.SyncStartedMsg{})
+	}
+	// When syncSvc is present, Sync() publishes EventSyncStarted to the bus,
+	// which the TUI already routes to the status bar — no pre-emptive update needed.
 	return a, func() tea.Msg {
 		if syncSvc != nil {
 			syncSvc.Sync(context.Background())

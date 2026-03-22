@@ -128,7 +128,7 @@ func getRemoteMeta(t *testing.T, s *store.Store, id string) map[string]string {
 	return meta
 }
 
-// Pull sync — insert new tasks
+// Pull sync — skips untracked remote tasks
 func TestPullSyncSkipsNewTasks(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
