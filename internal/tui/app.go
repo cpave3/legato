@@ -14,6 +14,7 @@ import (
 	"github.com/cpave3/legato/internal/tui/clipboard"
 	"github.com/cpave3/legato/internal/tui/detail"
 	"github.com/cpave3/legato/internal/tui/overlay"
+	"github.com/cpave3/legato/internal/tui/report"
 	"github.com/cpave3/legato/internal/tui/statusbar"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
@@ -24,6 +25,7 @@ const (
 	viewBoard viewType = iota
 	viewDetail
 	viewAgents
+	viewReport
 )
 
 type overlayKind int
@@ -74,10 +76,11 @@ type App struct {
 	svc       service.BoardService
 	syncSvc   service.SyncService
 	agentSvc  service.AgentService
-	board     board.Model
-	detail    detail.Model
-	agentView agents.Model
-	statusBar statusbar.Model
+	board      board.Model
+	detail     detail.Model
+	agentView  agents.Model
+	reportView report.Model
+	statusBar  statusbar.Model
 	clip          *clipboard.Clipboard
 	editor        string
 	activeOverlay tea.Model
@@ -94,22 +97,23 @@ type App struct {
 }
 
 // NewApp creates a new root application model.
-func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace) App {
+func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace) App {
 	clip := clipboard.New()
 	b := board.New(svc, icons)
 	b.SetWorkspaces(workspaces)
 	app := App{
-		svc:       svc,
-		syncSvc:   syncSvc,
-		agentSvc:  agentSvc,
-		prSvc:     prSvc,
-		board:     b,
-		agentView: agents.New(icons),
-		statusBar: statusbar.New(),
-		clip:      clip,
-		editor:    editor,
-		active:    viewBoard,
-		eventBus:  bus,
+		svc:        svc,
+		syncSvc:    syncSvc,
+		agentSvc:   agentSvc,
+		prSvc:      prSvc,
+		board:      b,
+		agentView:  agents.New(icons),
+		reportView: report.New(reportSvc),
+		statusBar:  statusbar.New(),
+		clip:       clip,
+		editor:     editor,
+		active:     viewBoard,
+		eventBus:   bus,
 	}
 	if bus != nil {
 		app.eventSubs = []<-chan events.Event{
@@ -268,6 +272,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Propagate to agent view
 		a.agentView.SetSize(msg.Width, msg.Height-1)
 
+		// Propagate to report view
+		a.reportView.SetSize(msg.Width, msg.Height-1)
+
 		// Propagate to status bar
 		a.statusBar, _ = a.statusBar.Update(msg)
 
@@ -295,6 +302,22 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agents.ReturnToBoardMsg:
 		a.active = viewBoard
 		a.agentView.StopPolling()
+		return a, nil
+
+	case report.ReturnToBoardMsg:
+		a.active = viewBoard
+		return a, nil
+
+	case report.CopyReportMsg:
+		if a.clip != nil && a.clip.Available() {
+			if err := a.clip.Copy(msg.Markdown); err == nil {
+				a.statusBar, _ = a.statusBar.Update(statusbar.InfoMsg{Text: "Report copied to clipboard"})
+			}
+		}
+		return a, nil
+
+	case report.ReportLoadedMsg:
+		a.reportView, _ = a.reportView.Update(msg)
 		return a, nil
 
 	case agents.SpawnAgentMsg:
@@ -1031,6 +1054,12 @@ func (a App) handleCreateTask(msg overlay.CreateTaskMsg) (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
+func (a App) switchToReportView() (tea.Model, tea.Cmd) {
+	a.active = viewReport
+	cmd := a.reportView.Init()
+	return a, cmd
+}
+
 // agentTickMsg is an internal tick for agent capture polling.
 type agentTickMsg struct{}
 
@@ -1198,6 +1227,10 @@ func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if msg.String() == "A" {
 			return a.switchToAgentView()
 		}
+		// 'S' switches to report view
+		if msg.String() == "S" {
+			return a.switchToReportView()
+		}
 		// 'a' spawns agent on selected card
 		if msg.String() == "a" {
 			return a.handleBoardSpawnAgent()
@@ -1225,6 +1258,12 @@ func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case viewReport:
+		var cmd tea.Cmd
+		a.reportView, cmd = a.reportView.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	return a, tea.Batch(cmds...)
 }
@@ -1244,6 +1283,12 @@ func (a App) View() string {
 		// Set agent view height to fill space above status bar
 		a.agentView.SetSize(a.width, a.height-statusBarHeight)
 		content := a.agentView.View()
+		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
+	case viewReport:
+		statusBar := a.statusBar.View()
+		statusBarHeight := lipgloss.Height(statusBar)
+		a.reportView.SetSize(a.width, a.height-statusBarHeight)
+		content := a.reportView.View()
 		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 	default:
 		content := a.board.View()

@@ -26,6 +26,7 @@ type SyncCompletedMsg struct{ At time.Time }
 type SyncFailedMsg struct{}
 type WarningMsg struct{ Text string }
 type ErrorMsg struct{ Text string }
+type InfoMsg struct{ Text string }
 type WorkspaceMsg struct {
 	Name  string
 	Color string
@@ -37,6 +38,7 @@ type Model struct {
 	lastSync      time.Time
 	warning       string
 	errorText     string
+	infoText      string
 	workspaceName string
 	workspaceColor string
 	width         int
@@ -65,10 +67,13 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.state = StateSynced
 		m.lastSync = msg.At
 		m.errorText = "" // clear errors on successful sync
+		m.infoText = ""  // clear transient info
 	case SyncFailedMsg:
 		m.state = StateError
 	case WarningMsg:
 		m.warning = msg.Text
+	case InfoMsg:
+		m.infoText = msg.Text
 	case ErrorMsg:
 		m.errorText = msg.Text
 	case WorkspaceMsg:
@@ -100,7 +105,7 @@ func (m Model) View() string {
 		wsDisplay = "  " + wsStyle.Render(m.workspaceName)
 	}
 
-	// Error display (takes priority over warning)
+	// Error > warning > info (priority order)
 	var warningDisplay string
 	if m.errorText != "" {
 		errorStyle := lipgloss.NewStyle().Foreground(theme.SyncError)
@@ -108,6 +113,9 @@ func (m Model) View() string {
 	} else if m.warning != "" {
 		warningStyle := lipgloss.NewStyle().Foreground(theme.SyncActive)
 		warningDisplay = "  " + warningStyle.Render(m.warning)
+	} else if m.infoText != "" {
+		infoStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
+		warningDisplay = "  " + infoStyle.Render(m.infoText)
 	}
 
 	// Key hints

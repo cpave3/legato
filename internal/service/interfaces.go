@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/analytics"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -125,6 +126,11 @@ type SyncService interface {
 	StartScheduler(ctx context.Context) func()
 	SearchRemote(ctx context.Context, query string) ([]RemoteSearchResult, error)
 	ImportRemoteTask(ctx context.Context, ticketID string) (*Card, error)
+}
+
+// ReportService generates analytics reports.
+type ReportService interface {
+	GenerateReport(ctx context.Context, period analytics.TimeRange) (*Report, error)
 }
 
 // EventBus abstracts event publishing and subscription.

@@ -37,6 +37,11 @@ var (
 		{"/", "Search/filter tasks"},
 		{"esc", "Back / close overlay"},
 	}
+	viewBindings = []keybinding{
+		{"A", "Agent view"},
+		{"S", "Stats/report view"},
+		{"w", "Workspace filter"},
+	}
 	generalBindings = []keybinding{
 		{"?", "Toggle this help screen"},
 		{"q", "Quit"},
@@ -106,6 +111,7 @@ func (m HelpOverlay) View() string {
 
 	renderSection("Navigation", navigationBindings)
 	renderSection("Actions", actionBindings)
+	renderSection("Views", viewBindings)
 	renderSection("General", generalBindings)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)

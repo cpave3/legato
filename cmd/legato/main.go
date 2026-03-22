@@ -407,7 +407,8 @@ func runTUI() int {
 	// Load workspaces for TUI
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
 
-	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, icons, bus, editor, workspaces)
+	reportSvc := service.NewReportService(db)
+	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

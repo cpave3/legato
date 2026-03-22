@@ -8,11 +8,13 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/cpave3/legato/internal/engine/analytics"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/board"
 	"github.com/cpave3/legato/internal/tui/detail"
 	"github.com/cpave3/legato/internal/tui/overlay"
+	"github.com/cpave3/legato/internal/tui/report"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -103,8 +105,14 @@ func (f *fakeSyncService) ImportRemoteTask(_ context.Context, id string) (*servi
 	return &service.Card{ID: id, Title: "Imported", Status: "Backlog"}, nil
 }
 
+type fakeReportService struct{}
+
+func (f *fakeReportService) GenerateReport(_ context.Context, period analytics.TimeRange) (*service.Report, error) {
+	return &service.Report{Period: period}, nil
+}
+
 func newTestApp() App {
-	return NewApp(&fakeBoardService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil)
+	return NewApp(&fakeBoardService{}, nil, nil, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil)
 }
 
 func updateApp(a App, msg tea.Msg) (App, tea.Cmd) {
@@ -510,7 +518,7 @@ func TestDeleteCancelledClosesOverlay(t *testing.T) {
 // Import overlay tests
 
 func TestImportKeyOpensOverlayWhenSyncAvailable(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, theme.NewIcons("unicode"), nil, "", nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -533,7 +541,7 @@ func TestImportKeyNoOpWithoutSync(t *testing.T) {
 }
 
 func TestImportSelectedImportsAndRefreshes(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, theme.NewIcons("unicode"), nil, "", nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -552,7 +560,7 @@ func TestImportSelectedImportsAndRefreshes(t *testing.T) {
 }
 
 func TestImportCancelledClosesOverlay(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, theme.NewIcons("unicode"), nil, "", nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -631,7 +639,7 @@ func TestDurationDataFlowsToBoard(t *testing.T) {
 		},
 	}
 
-	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, theme.NewIcons("unicode"), nil, "", nil)
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, nil, theme.NewIcons("unicode"), nil, "", nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -665,4 +673,44 @@ func TestBoardSelectionPreservedAfterDetailReturn(t *testing.T) {
 		t.Errorf("should be in viewBoard, got %d", app.active)
 	}
 	// Board model should preserve its state (no re-initialization)
+}
+
+func TestShiftSOpensReportView(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	if app.active != viewReport {
+		t.Errorf("expected viewReport, got %d", app.active)
+	}
+}
+
+func TestReportViewEscReturnsToBoard(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	if app.active != viewReport {
+		t.Fatalf("expected viewReport, got %d", app.active)
+	}
+	// Report view returns ReturnToBoardMsg on esc
+	app, _ = updateApp(app, report.ReturnToBoardMsg{})
+	if app.active != viewBoard {
+		t.Errorf("expected viewBoard after esc, got %d", app.active)
+	}
+}
+
+func TestReportViewCopyReportMsg(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	// CopyReportMsg should not panic even without clipboard
+	app, _ = updateApp(app, report.CopyReportMsg{Markdown: "# Test Report"})
+	if app.active != viewReport {
+		t.Errorf("should still be in report view, got %d", app.active)
+	}
+}
+
+func TestReportLoadedMsgForwardedRegardlessOfView(t *testing.T) {
+	app := initTestApp()
+	// Load report while in board view — should not panic
+	app, _ = updateApp(app, report.ReportLoadedMsg{
+		Report: &service.Report{Period: analytics.Today()},
+	})
+	// No panic = pass
 }
