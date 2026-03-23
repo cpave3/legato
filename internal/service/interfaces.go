@@ -125,7 +125,7 @@ type SyncService interface {
 	Subscribe() <-chan SyncEvent
 	StartScheduler(ctx context.Context) func()
 	SearchRemote(ctx context.Context, query string) ([]RemoteSearchResult, error)
-	ImportRemoteTask(ctx context.Context, ticketID string) (*Card, error)
+	ImportRemoteTask(ctx context.Context, ticketID string, workspaceID *int) (*Card, error)
 }
 
 // ReportService generates analytics reports.

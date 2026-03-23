@@ -289,6 +289,35 @@ func TestOpenURLNoURL(t *testing.T) {
 	mustContain(t, m2.feedback, "No URL")
 }
 
+func TestOpenURLBothURLsEmitsPickerMsg(t *testing.T) {
+	card := &service.CardDetail{
+		ID:         "REX-99",
+		Title:      "Has both URLs",
+		RemoteMeta: map[string]string{"url": "https://jira.example.com/REX-99"},
+		PRMeta:     &service.PRMetaView{PRURL: "https://github.com/o/r/pull/42"},
+	}
+	m := New(card, nil, nil, "")
+	m.width = 120
+	m.height = 40
+	m.renderContent()
+
+	_, cmd := m.Update(keyMsg('o'))
+	if cmd == nil {
+		t.Fatal("expected cmd from o when both URLs exist")
+	}
+	msg := cmd()
+	picker, ok := msg.(OpenURLPickerMsg)
+	if !ok {
+		t.Fatalf("expected OpenURLPickerMsg, got %T", msg)
+	}
+	if picker.ProviderURL != "https://jira.example.com/REX-99" {
+		t.Errorf("ProviderURL = %q", picker.ProviderURL)
+	}
+	if picker.PRURL != "https://github.com/o/r/pull/42" {
+		t.Errorf("PRURL = %q", picker.PRURL)
+	}
+}
+
 // Task 3.3: esc keybinding
 func TestEscReturnsBackToBoard(t *testing.T) {
 	card := testCard()

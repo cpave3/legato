@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -43,6 +44,7 @@ const (
 	overlayMoveWorkspace
 	overlayArchive
 	overlayLinkPR
+	overlayOpenURL
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -461,6 +463,27 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleLinkPRConfirmed(msg)
 
 	case overlay.LinkPRCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
+	case detail.OpenURLPickerMsg:
+		urlOverlay := overlay.NewOpenURL(msg.ProviderURL, msg.PRURL, a.width, a.height)
+		a.activeOverlay = urlOverlay
+		a.overlayType = overlayOpenURL
+		return a, nil
+
+	case overlay.OpenURLSelectedMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		if err := clipboard.OpenURL(msg.URL); err != nil {
+			return a, func() tea.Msg {
+				return statusbar.ErrorMsg{Text: fmt.Sprintf("Open failed: %v", err)}
+			}
+		}
+		return a, nil
+
+	case overlay.OpenURLCancelledMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
 		return a, nil
@@ -893,7 +916,12 @@ func (a App) openImportOverlay() (tea.Model, tea.Cmd) {
 	if a.syncSvc == nil {
 		return a, nil
 	}
-	importModel := overlay.NewImport(a.width, a.height)
+	var activeWorkspaceID *int
+	wsView := a.board.WorkspaceView()
+	if wsView.Kind == store.ViewWorkspace {
+		activeWorkspaceID = &wsView.WorkspaceID
+	}
+	importModel := overlay.NewImport(a.width, a.height, activeWorkspaceID)
 	a.activeOverlay = importModel
 	a.overlayType = overlayImport
 	return a, nil
@@ -923,8 +951,9 @@ func (a App) handleImportSelected(msg overlay.ImportSelectedMsg) (tea.Model, tea
 	}
 	svc := a.syncSvc
 	ticketID := msg.TicketID
+	workspaceID := msg.WorkspaceID
 	return a, func() tea.Msg {
-		card, err := svc.ImportRemoteTask(context.Background(), ticketID)
+		card, err := svc.ImportRemoteTask(context.Background(), ticketID, workspaceID)
 		if err != nil {
 			return statusbar.ErrorMsg{Text: "import failed: " + err.Error()}
 		}

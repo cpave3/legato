@@ -8,7 +8,7 @@ import (
 )
 
 func TestImportOverlayTypingUpdatesQuery(t *testing.T) {
-	m := NewImport(100, 30)
+	m := NewImport(100, 30, nil)
 	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	im := m2.(ImportOverlay)
 	if im.Query() != "a" {
@@ -24,7 +24,7 @@ func TestImportOverlayTypingUpdatesQuery(t *testing.T) {
 }
 
 func TestImportOverlaySetResults(t *testing.T) {
-	m := NewImport(100, 30)
+	m := NewImport(100, 30, nil)
 	results := []service.RemoteSearchResult{
 		{ID: "REX-1", Summary: "Fix bug", Status: "To Do", Priority: "High"},
 		{ID: "REX-2", Summary: "Add feature", Status: "In Progress", Priority: "Medium"},
@@ -37,7 +37,7 @@ func TestImportOverlaySetResults(t *testing.T) {
 }
 
 func TestImportOverlaySelectResult(t *testing.T) {
-	m := NewImport(100, 30)
+	m := NewImport(100, 30, nil)
 	m = m.SetResults([]service.RemoteSearchResult{
 		{ID: "REX-1", Summary: "Fix bug"},
 		{ID: "REX-2", Summary: "Add feature"},
@@ -59,8 +59,28 @@ func TestImportOverlaySelectResult(t *testing.T) {
 	}
 }
 
+func TestImportOverlaySelectCarriesWorkspaceID(t *testing.T) {
+	wsID := 42
+	m := NewImport(100, 30, &wsID)
+	m = m.SetResults([]service.RemoteSearchResult{
+		{ID: "REX-1", Summary: "Fix bug"},
+	})
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected cmd from enter")
+	}
+	msg := cmd()
+	result, ok := msg.(ImportSelectedMsg)
+	if !ok {
+		t.Fatalf("expected ImportSelectedMsg, got %T", msg)
+	}
+	if result.WorkspaceID == nil || *result.WorkspaceID != 42 {
+		t.Errorf("WorkspaceID = %v, want 42", result.WorkspaceID)
+	}
+}
+
 func TestImportOverlayEscCancels(t *testing.T) {
-	m := NewImport(100, 30)
+	m := NewImport(100, 30, nil)
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if cmd == nil {
 		t.Fatal("expected cmd from esc")
@@ -72,7 +92,7 @@ func TestImportOverlayEscCancels(t *testing.T) {
 }
 
 func TestImportOverlayBackspace(t *testing.T) {
-	m := NewImport(100, 30)
+	m := NewImport(100, 30, nil)
 	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	m3, _ := m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
 	m4, cmd := m3.Update(tea.KeyMsg{Type: tea.KeyBackspace})

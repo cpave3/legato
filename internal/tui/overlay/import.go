@@ -14,7 +14,8 @@ const importVisibleRows = 10
 
 // ImportSelectedMsg is sent when the user selects a remote ticket to import.
 type ImportSelectedMsg struct {
-	TicketID string
+	TicketID    string
+	WorkspaceID *int
 }
 
 // ImportCancelledMsg is sent when the user dismisses the import overlay.
@@ -27,20 +28,22 @@ type ImportQueryChangedMsg struct {
 
 // ImportOverlay provides search over remote tickets for importing.
 type ImportOverlay struct {
-	query    string
-	results  []service.RemoteSearchResult
-	errMsg   string
-	cursor   int
-	scrollOff int // first visible index
-	width    int
-	height   int
+	query       string
+	results     []service.RemoteSearchResult
+	errMsg      string
+	cursor      int
+	scrollOff   int // first visible index
+	width       int
+	height      int
+	workspaceID *int
 }
 
 // NewImport creates a new import overlay.
-func NewImport(width, height int) ImportOverlay {
+func NewImport(width, height int, workspaceID *int) ImportOverlay {
 	return ImportOverlay{
-		width:  width,
-		height: height,
+		width:       width,
+		height:      height,
+		workspaceID: workspaceID,
 	}
 }
 
@@ -87,7 +90,8 @@ func (m ImportOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if len(m.results) > 0 && m.cursor < len(m.results) {
 				id := m.results[m.cursor].ID
-				return m, func() tea.Msg { return ImportSelectedMsg{TicketID: id} }
+				wsID := m.workspaceID
+				return m, func() tea.Msg { return ImportSelectedMsg{TicketID: id, WorkspaceID: wsID} }
 			}
 			return m, nil
 		case "j", "down":

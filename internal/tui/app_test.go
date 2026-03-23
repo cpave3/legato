@@ -101,7 +101,7 @@ func (f *fakeSyncService) StartScheduler(_ context.Context) func()             {
 func (f *fakeSyncService) SearchRemote(_ context.Context, _ string) ([]service.RemoteSearchResult, error) {
 	return nil, nil
 }
-func (f *fakeSyncService) ImportRemoteTask(_ context.Context, id string) (*service.Card, error) {
+func (f *fakeSyncService) ImportRemoteTask(_ context.Context, id string, _ *int) (*service.Card, error) {
 	return &service.Card{ID: id, Title: "Imported", Status: "Backlog"}, nil
 }
 

@@ -25,7 +25,7 @@ type GitHubClient interface {
 
 // PRTrackingService manages PR-to-task linking and polling.
 type PRTrackingService interface {
-	LinkBranch(ctx context.Context, taskID, branch string) error
+	LinkBranch(ctx context.Context, taskID, branch, repo string) error
 	LinkPR(ctx context.Context, taskID string, owner, repo string, prNumber int) error
 	UnlinkBranch(ctx context.Context, taskID string) error
 	PollOnce(ctx context.Context) error
@@ -64,8 +64,8 @@ func NewPRTrackingService(s *store.Store, bus *events.Bus, gh GitHubClient, inte
 	}
 }
 
-func (p *prTrackingService) LinkBranch(ctx context.Context, taskID, branch string) error {
-	meta := &store.PRMeta{Branch: branch}
+func (p *prTrackingService) LinkBranch(ctx context.Context, taskID, branch, repo string) error {
+	meta := &store.PRMeta{Branch: branch, Repo: repo}
 	raw, err := store.MarshalPRMeta(meta)
 	if err != nil {
 		return err
@@ -160,8 +160,12 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		if skipResolved && meta.PRNumber > 0 {
 			continue
 		}
+		// Skip branches with no repo — gh needs --repo to work from non-git dirs.
+		if meta.Repo == "" {
+			continue
+		}
 		branchToTasks[meta.Branch] = append(branchToTasks[meta.Branch], t.ID)
-		if meta.Repo != "" && branchRepos[meta.Branch] == "" {
+		if branchRepos[meta.Branch] == "" {
 			branchRepos[meta.Branch] = meta.Repo
 		}
 	}
@@ -268,7 +272,8 @@ func (p *prTrackingService) FetchPRByNumber(owner, repo string, prNumber int) (*
 	return p.gh.FetchPRByNumber(owner, repo, prNumber)
 }
 
-// AutoLinkBranch detects the current branch and links it to a task if not already linked.
+// AutoLinkBranch detects the current branch and repo, then links them to a task if not already linked.
+// Skips silently if not in a git repo or repo detection fails (avoids linking wrong repo context).
 func (p *prTrackingService) AutoLinkBranch(ctx context.Context, taskID string) {
 	task, err := p.store.GetTask(ctx, taskID)
 	if err != nil {
@@ -287,7 +292,12 @@ func (p *prTrackingService) AutoLinkBranch(ctx context.Context, taskID string) {
 		return // detached HEAD
 	}
 
-	p.LinkBranch(ctx, taskID, branch)
+	owner, repo, err := p.gh.DetectRepo()
+	if err != nil {
+		return // can't determine repo — skip to avoid polling without context
+	}
+
+	p.LinkBranch(ctx, taskID, branch, owner+"/"+repo)
 }
 
 func (p *prTrackingService) pollSingleBranch(ctx context.Context, taskID, branch string) {
@@ -297,6 +307,11 @@ func (p *prTrackingService) pollSingleBranch(ctx context.Context, taskID, branch
 		if meta, _ := store.ParsePRMeta(task.PRMeta); meta != nil {
 			repo = meta.Repo
 		}
+	}
+
+	// Skip if no repo — gh needs --repo to work from non-git dirs.
+	if repo == "" {
+		return
 	}
 
 	status, err := p.gh.FetchPRStatus(branch, repo)

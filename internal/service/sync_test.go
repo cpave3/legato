@@ -581,7 +581,7 @@ func TestImportRemoteTaskCreatesLocalTask(t *testing.T) {
 		},
 	}
 
-	card, err := svc.ImportRemoteTask(ctx, "TEST-42")
+	card, err := svc.ImportRemoteTask(ctx, "TEST-42", nil)
 	if err != nil {
 		t.Fatalf("ImportRemoteTask: %v", err)
 	}
@@ -616,7 +616,7 @@ func TestImportRemoteTaskAlreadyTracked(t *testing.T) {
 		{ID: "TEST-42", Summary: "Already here", Status: "To Do", UpdatedAt: time.Now()},
 	}
 
-	card, err := svc.ImportRemoteTask(ctx, "TEST-42")
+	card, err := svc.ImportRemoteTask(ctx, "TEST-42", nil)
 	if err != nil {
 		t.Fatalf("ImportRemoteTask: %v", err)
 	}
@@ -626,12 +626,47 @@ func TestImportRemoteTaskAlreadyTracked(t *testing.T) {
 	}
 }
 
+func TestImportRemoteTaskWithWorkspace(t *testing.T) {
+	svc, s, provider, _ := newTestSync(t)
+	ctx := context.Background()
+
+	// Create workspace so FK constraint is satisfied
+	wsID, err := s.CreateWorkspace(ctx, store.Workspace{Name: "Work", SortOrder: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	provider.tickets = []RemoteTicket{
+		{
+			ID: "TEST-55", Summary: "Workspace ticket",
+			Status: "To Do", Priority: "Medium", IssueType: "Task",
+			UpdatedAt: time.Now(),
+		},
+	}
+
+	card, err := svc.ImportRemoteTask(ctx, "TEST-55", &wsID)
+	if err != nil {
+		t.Fatalf("ImportRemoteTask: %v", err)
+	}
+	if card.ID != "TEST-55" {
+		t.Errorf("card.ID = %q, want TEST-55", card.ID)
+	}
+
+	task, err := s.GetTask(ctx, "TEST-55")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.WorkspaceID == nil || *task.WorkspaceID != wsID {
+		t.Errorf("WorkspaceID = %v, want %d", task.WorkspaceID, wsID)
+	}
+}
+
 func TestImportRemoteTaskNotFound(t *testing.T) {
 	svc, _, _, _ := newTestSync(t)
 	ctx := context.Background()
 
 	// Provider returns nil for unknown ticket
-	_, err := svc.ImportRemoteTask(ctx, "NOPE-99")
+	_, err := svc.ImportRemoteTask(ctx, "NOPE-99", nil)
 	if err == nil {
 		t.Fatal("expected error for unknown ticket")
 	}

@@ -57,6 +57,12 @@ type TitleUpdatedMsg struct {
 	Title string
 }
 
+// OpenURLPickerMsg signals the app to show a URL picker overlay.
+type OpenURLPickerMsg struct {
+	ProviderURL string
+	PRURL       string
+}
+
 // DescriptionEditedMsg carries the result of editing a description in an external editor.
 type DescriptionEditedMsg struct {
 	Content string
@@ -304,12 +310,26 @@ func (m Model) copyContext(format service.ExportFormat, successMsg string) (tea.
 }
 
 func (m Model) openURL() (tea.Model, tea.Cmd) {
-	url := ""
-	// Check PR URL first, then remote provider URL
+	var prURL, providerURL string
 	if m.card != nil && m.card.PRMeta != nil && m.card.PRMeta.PRURL != "" {
-		url = m.card.PRMeta.PRURL
-	} else if m.card != nil && m.card.RemoteMeta != nil {
-		url = m.card.RemoteMeta["url"]
+		prURL = m.card.PRMeta.PRURL
+	}
+	if m.card != nil && m.card.RemoteMeta != nil {
+		providerURL = m.card.RemoteMeta["url"]
+	}
+
+	// Both URLs exist — let user pick
+	if prURL != "" && providerURL != "" {
+		pURL, gURL := providerURL, prURL
+		return m, func() tea.Msg {
+			return OpenURLPickerMsg{ProviderURL: pURL, PRURL: gURL}
+		}
+	}
+
+	// Single URL — open directly
+	url := prURL
+	if url == "" {
+		url = providerURL
 	}
 	if url == "" {
 		m.feedback = "No URL available"

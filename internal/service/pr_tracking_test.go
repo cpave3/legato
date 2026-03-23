@@ -123,7 +123,7 @@ func TestLinkBranch(t *testing.T) {
 	ctx := context.Background()
 	createPRTask(t, s, "task1")
 
-	if err := svc.LinkBranch(ctx, "task1", "feature/auth"); err != nil {
+	if err := svc.LinkBranch(ctx, "task1", "feature/auth", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -155,7 +155,7 @@ func TestUnlinkBranch(t *testing.T) {
 	createPRTask(t, s, "task1")
 
 	// Link then unlink
-	if err := svc.LinkBranch(ctx, "task1", "feature/auth"); err != nil {
+	if err := svc.LinkBranch(ctx, "task1", "feature/auth", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.UnlinkBranch(ctx, "task1"); err != nil {
@@ -201,8 +201,8 @@ func TestPollOnceUpdatesTrackedTasks(t *testing.T) {
 	ctx := context.Background()
 	createPRTask(t, s, "task1")
 
-	// Set initial pr_meta with just branch
-	prMeta := `{"branch":"feature/auth"}`
+	// Set initial pr_meta with branch and repo
+	prMeta := `{"branch":"feature/auth","repo":"o/r"}`
 	if err := s.UpdatePRMeta(ctx, "task1", &prMeta); err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestPollOnceNoPRFound(t *testing.T) {
 	ctx := context.Background()
 	createPRTask(t, s, "task1")
 
-	prMeta := `{"branch":"no-pr-branch"}`
+	prMeta := `{"branch":"no-pr-branch","repo":"o/r"}`
 	if err := s.UpdatePRMeta(ctx, "task1", &prMeta); err != nil {
 		t.Fatal(err)
 	}
@@ -338,6 +338,8 @@ func TestAutoLinkBranch(t *testing.T) {
 	bus := events.New()
 	gh := &mockGitHub{
 		branch: "feature/auto",
+		owner:  "myorg",
+		repo:   "myrepo",
 		statuses: map[string]*github.PRStatus{
 			"feature/auto": {HasPR: false},
 		},
@@ -365,6 +367,33 @@ func TestAutoLinkBranch(t *testing.T) {
 	}
 	if meta.Branch != "feature/auto" {
 		t.Errorf("Branch = %q, want feature/auto", meta.Branch)
+	}
+	if meta.Repo != "myorg/myrepo" {
+		t.Errorf("Repo = %q, want myorg/myrepo", meta.Repo)
+	}
+}
+
+func TestAutoLinkBranchSkipsWhenRepoDetectionFails(t *testing.T) {
+	s := newTestPRStore(t)
+	bus := events.New()
+	gh := &mockGitHub{
+		branch:  "main",
+		repoErr: fmt.Errorf("not a git repository"),
+	}
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute).(*prTrackingService)
+
+	ctx := context.Background()
+	createPRTask(t, s, "task1")
+
+	svc.AutoLinkBranch(ctx, "task1")
+	time.Sleep(50 * time.Millisecond)
+
+	task, err := s.GetTask(ctx, "task1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.PRMeta != nil {
+		t.Error("expected pr_meta to remain nil when repo detection fails")
 	}
 }
 
@@ -396,6 +425,47 @@ func TestAutoLinkBranchSkipsExisting(t *testing.T) {
 	}
 	if meta.Branch != "feature/existing" {
 		t.Errorf("Branch = %q, want feature/existing (should not overwrite)", meta.Branch)
+	}
+}
+
+func TestPollOnceSkipsBranchesWithNoRepo(t *testing.T) {
+	s := newTestPRStore(t)
+	bus := events.New()
+
+	gh := &mockGitHub{
+		statuses: map[string]*github.PRStatus{
+			"feature/no-repo":   {HasPR: true, Number: 1, State: "OPEN", URL: "https://github.com/o/r/pull/1"},
+			"feature/with-repo": {HasPR: true, Number: 2, State: "OPEN", URL: "https://github.com/o/r/pull/2"},
+		},
+	}
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
+
+	ctx := context.Background()
+
+	// Task with branch but no repo — should be skipped
+	createPRTask(t, s, "task-no-repo")
+	noRepoMeta := `{"branch":"feature/no-repo"}`
+	if err := s.UpdatePRMeta(ctx, "task-no-repo", &noRepoMeta); err != nil {
+		t.Fatal(err)
+	}
+
+	// Task with branch and repo — should be polled
+	createPRTask(t, s, "task-with-repo")
+	withRepoMeta := `{"branch":"feature/with-repo","repo":"o/r"}`
+	if err := s.UpdatePRMeta(ctx, "task-with-repo", &withRepoMeta); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.PollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// Only the branch with repo should have been queried
+	if len(gh.queriedBranches) != 1 {
+		t.Fatalf("expected 1 queried branch, got %d: %v", len(gh.queriedBranches), gh.queriedBranches)
+	}
+	if gh.queriedBranches[0] != "feature/with-repo" {
+		t.Errorf("expected feature/with-repo, got %s", gh.queriedBranches[0])
 	}
 }
 
@@ -514,7 +584,7 @@ func TestPollAllIncludesResolvedPRs(t *testing.T) {
 	createPRTask(t, s, "task1")
 
 	// Set pr_meta with a PR number (resolved PR)
-	prMeta := `{"branch":"feature/resolved","pr_number":99,"state":"OPEN"}`
+	prMeta := `{"branch":"feature/resolved","pr_number":99,"state":"OPEN","repo":"o/r"}`
 	if err := s.UpdatePRMeta(ctx, "task1", &prMeta); err != nil {
 		t.Fatal(err)
 	}
@@ -562,14 +632,14 @@ func TestPollOnceSkipsResolvedPRs(t *testing.T) {
 
 	// Task with unresolved PR (branch only, no PR number)
 	createPRTask(t, s, "task-unresolved")
-	unresolvedMeta := `{"branch":"feature/unresolved"}`
+	unresolvedMeta := `{"branch":"feature/unresolved","repo":"o/r"}`
 	if err := s.UpdatePRMeta(ctx, "task-unresolved", &unresolvedMeta); err != nil {
 		t.Fatal(err)
 	}
 
 	// Task with resolved PR (has PR number)
 	createPRTask(t, s, "task-resolved")
-	resolvedMeta := `{"branch":"feature/resolved","pr_number":42}`
+	resolvedMeta := `{"branch":"feature/resolved","pr_number":42,"repo":"o/r"}`
 	if err := s.UpdatePRMeta(ctx, "task-resolved", &resolvedMeta); err != nil {
 		t.Fatal(err)
 	}

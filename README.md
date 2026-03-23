@@ -12,10 +12,10 @@ A keyboard-driven kanban board TUI for tracking tasks, built for developers who 
 - **Create tasks** inline (`n`) with title, description, column, and priority
 - **Edit local tasks** — rename title (`t` in detail) or edit description in `$EDITOR` (`e` in detail)
 - **Delete tasks** with confirmation (`d` from board, `D` from detail)
-- **Import remote tickets** — search Jira and pull individual tickets (`i`)
+- **Import remote tickets** — search Jira and pull individual tickets (`i`), inherits active workspace
 - **Agent sessions** — spawn tmux sessions per task, track active agents on cards
 - **Claude Code integration** — hooks report agent activity (working/waiting) back to the board in real-time
-- **GitHub PR tracking** — link PRs to tasks, see CI/review/comment status on cards (`p` to link, polls via `gh` CLI)
+- **GitHub PR tracking** — link PRs to tasks, see CI/review/comment status on cards (`p` to link, `o` to open with picker when both Jira and PR URLs exist, polls via `gh` CLI)
 - **Staccato integration** — auto-links repo+branch when creating PRs via staccato (`legato hooks install --tool staccato`)
 - **Pluggable AI tool adapters** — abstract interface for tool integrations (Claude Code, Staccato, others planned)
 - **Bidirectional Jira sync**: pull tickets, push card moves as transitions

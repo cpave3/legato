@@ -100,7 +100,7 @@ func (s *stubSyncService) SearchRemote(ctx context.Context, query string) ([]Rem
 	return nil, nil
 }
 
-func (s *stubSyncService) ImportRemoteTask(ctx context.Context, ticketID string) (*Card, error) {
+func (s *stubSyncService) ImportRemoteTask(ctx context.Context, ticketID string, workspaceID *int) (*Card, error) {
 	return nil, nil
 }
 
