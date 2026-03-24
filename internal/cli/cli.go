@@ -94,6 +94,28 @@ func AgentState(s *store.Store, taskID, activity string) error {
 	return nil
 }
 
+// AgentSummary returns a tmux-formatted string showing agent session counts by activity state.
+// If excludeTaskID is non-empty, that task's session is excluded from counts.
+func AgentSummary(s *store.Store, excludeTaskID string) (string, error) {
+	ctx := context.Background()
+
+	working, waiting, idle, err := s.GetAgentActivityCounts(ctx, excludeTaskID)
+	if err != nil {
+		return "", fmt.Errorf("querying agent counts: %w", err)
+	}
+
+	var parts []string
+	if working > 0 {
+		parts = append(parts, fmt.Sprintf("#[fg=green]%d working", working))
+	}
+	if waiting > 0 {
+		parts = append(parts, fmt.Sprintf("#[fg=yellow]%d waiting", waiting))
+	}
+	parts = append(parts, fmt.Sprintf("#[fg=colour245]%d idle", idle))
+
+	return strings.Join(parts, " #[fg=colour240]· "), nil
+}
+
 // TaskLink associates a git branch with a task's PR metadata.
 // If branch is empty, auto-detects the current git branch.
 // Broadcasts an IPC notification to all running Legato instances.

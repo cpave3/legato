@@ -58,7 +58,7 @@ task check                 # build + test + vet + lint
 - `internal/tui/theme/` — Lipgloss color palette, style constants, and icon system (`icons.go`: `NewIcons("unicode"|"nerdfonts")` for provider/agent/warning glyphs)
 - `internal/engine/ipc/` — Unix domain socket IPC: `Server` (listens, parses newline-delimited JSON, calls callback), `Send` (client, silent on missing socket), `Broadcast` (sends to all `*.sock` in `SocketDir()`), `SocketPath()` (PID-based, XDG_RUNTIME_DIR with /tmp fallback), `Message` struct (type/task_id/status/content)
 - `internal/engine/hooks/` — AI tool hook script generation. `ClaudeCodeAdapter` implements `service.AIToolAdapter`: generates shell scripts for `.claude/hooks/`, merges/removes entries in `.claude/settings.json`. `StaccatoAdapter`: generates `post-pr-create` hook at `~/.config/staccato/hooks/post-pr-create/legato-pr-link.sh` (directory-based, no config file)
-- `internal/cli/` — CLI subcommand handlers: `TaskUpdate` (move task to column, case-insensitive status), `TaskNote` (append timestamped note), `AgentState` (update agent activity), `TaskLink` (link branch/repo to task for PR tracking), `TaskUnlink` (remove PR association). All broadcast IPC to all running instances. Used by `cmd/legato/` subcommand dispatch.
+- `internal/cli/` — CLI subcommand handlers: `TaskUpdate` (move task to column, case-insensitive status), `TaskNote` (append timestamped note), `AgentState` (update agent activity), `AgentSummary` (tmux-formatted agent activity counts with `--exclude` flag), `TaskLink` (link branch/repo to task for PR tracking), `TaskUnlink` (remove PR association). All broadcast IPC to all running instances. Used by `cmd/legato/` subcommand dispatch.
 - `internal/server/` — Minimal HTTP server wrapping `BoardService` with `GET /health` endpoint returning board state as JSON
 - `config/` — YAML config parser with env var expansion (`os.ExpandEnv`) and XDG path resolution
 
@@ -186,6 +186,7 @@ Read-only PR enrichment orthogonal to ticket providers — any task (local or Ji
 - `legato task update <task-id> --status <status>` — move task to column (case-insensitive status matching)
 - `legato task note <task-id> <message>` — append timestamped note to task description
 - `legato agent state <task-id> --activity <working|waiting|"">` — update agent activity state on a card
+- `legato agent summary [--exclude <task-id>]` — output tmux-formatted agent session counts (working/waiting/idle) for use in tmux status bar `#()` expansion
 - `legato task link <task-id> [--branch <branch>] [--repo <owner/repo>]` — link a git branch to a task for PR tracking (auto-detects branch if `--branch` omitted, `--repo` enables repo-scoped polling)
 - `legato task unlink <task-id>` — remove branch/PR association from a task
 - `legato hooks install [--tool claude-code|staccato]` — install AI tool hooks (claude-code: `.claude/hooks/`, staccato: `~/.config/staccato/hooks/`)
@@ -217,6 +218,16 @@ Abstract adapter interface (`service.AIToolAdapter`) for pluggable AI tool integ
 **State duration tracking**: `state_intervals` table records timestamped working/waiting intervals per task. `cli.AgentState()` calls both `store.UpdateAgentActivity()` and `store.RecordStateTransition()`. `ReconcileSessions()` closes orphaned intervals for dead agents. Durations computed at query time via SQL aggregation (including open intervals using `datetime('now')`). `Store.DB()` exposes underlying `*sqlx.DB` for advanced queries in tests.
 
 **Duration formatting**: `board.formatDuration(d)` returns `""` (zero), `"<1m"` (under 60s), `"Xm"` (under 1h), `"Xh Ym"` (1h+). `CardData.WorkingDuration`/`WaitingDuration` populated during `DataLoadedMsg` via `AgentService.GetTaskDurations()` batch query.
+
+## Tmux Status Line
+
+Legato-spawned tmux sessions get a custom status bar showing a live summary of other agent sessions. Implemented via tmux `#()` shell expansion calling `legato agent summary`.
+
+- **Injection**: `SpawnAgent` sets `status-right`, `status-interval` (5s), `status-style`, `status-left` on the session *before* user `tmux_options` — user config can override
+- **Binary path**: Resolved once at startup via `os.Executable()`, passed to `AgentServiceOptions.BinaryPath`, embedded as absolute path in `status-right` command
+- **Exclude self**: Each session's `status-right` includes `--exclude <taskID>` so the operator sees counts for *other* sessions only
+- **Output format**: `legato agent summary` outputs tmux-native style markup (`#[fg=green]2 working #[fg=colour240]· #[fg=yellow]1 waiting #[fg=colour240]· #[fg=colour245]0 idle`). Zero-count working/waiting states omitted; idle always shown
+- **Performance**: Opens SQLite, runs single `GROUP BY` aggregate query, exits. Sub-10ms typical execution
 
 ## Staccato Integration
 

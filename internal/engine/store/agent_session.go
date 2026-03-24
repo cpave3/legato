@@ -54,6 +54,41 @@ func (s *Store) UpdateAgentActivity(ctx context.Context, taskID string, activity
 	return err
 }
 
+// GetAgentActivityCounts returns the count of running agent sessions grouped by activity state.
+// If excludeTaskID is non-empty, that task's session is excluded from counts.
+func (s *Store) GetAgentActivityCounts(ctx context.Context, excludeTaskID string) (working, waiting, idle int, err error) {
+	type row struct {
+		Activity string `db:"activity"`
+		Count    int    `db:"cnt"`
+	}
+
+	var query string
+	var rows []row
+
+	if excludeTaskID != "" {
+		query = `SELECT activity, COUNT(*) AS cnt FROM agent_sessions WHERE status = 'running' AND task_id != ? GROUP BY activity`
+		err = s.db.SelectContext(ctx, &rows, query, excludeTaskID)
+	} else {
+		query = `SELECT activity, COUNT(*) AS cnt FROM agent_sessions WHERE status = 'running' GROUP BY activity`
+		err = s.db.SelectContext(ctx, &rows, query)
+	}
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	for _, r := range rows {
+		switch r.Activity {
+		case "working":
+			working = r.Count
+		case "waiting":
+			waiting = r.Count
+		default:
+			idle += r.Count
+		}
+	}
+	return working, waiting, idle, nil
+}
+
 func (s *Store) DeleteDeadAgentSessions(ctx context.Context, taskID string) error {
 	_, err := s.db.ExecContext(ctx, `
 		DELETE FROM agent_sessions WHERE task_id = ? AND status != 'running'`, taskID)

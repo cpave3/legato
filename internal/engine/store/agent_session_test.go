@@ -160,6 +160,103 @@ func TestInsertDuplicateTmuxSessionFails(t *testing.T) {
 	}
 }
 
+func TestGetAgentActivityCounts_MixedStates(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	createTestTask(t, s, "task1")
+	createTestTask(t, s, "task2")
+	createTestTask(t, s, "task3")
+	createTestTask(t, s, "task4")
+
+	// 2 working, 1 waiting, 1 idle
+	for _, sess := range []AgentSession{
+		{TaskID: "task1", TmuxSession: "legato-task1", Command: "shell", Status: "running"},
+		{TaskID: "task2", TmuxSession: "legato-task2", Command: "shell", Status: "running"},
+		{TaskID: "task3", TmuxSession: "legato-task3", Command: "shell", Status: "running"},
+		{TaskID: "task4", TmuxSession: "legato-task4", Command: "shell", Status: "running"},
+	} {
+		if err := s.InsertAgentSession(ctx, sess); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.UpdateAgentActivity(ctx, "task1", "working")
+	s.UpdateAgentActivity(ctx, "task2", "working")
+	s.UpdateAgentActivity(ctx, "task3", "waiting")
+
+	working, waiting, idle, err := s.GetAgentActivityCounts(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if working != 2 {
+		t.Errorf("working = %d, want 2", working)
+	}
+	if waiting != 1 {
+		t.Errorf("waiting = %d, want 1", waiting)
+	}
+	if idle != 1 {
+		t.Errorf("idle = %d, want 1", idle)
+	}
+}
+
+func TestGetAgentActivityCounts_ExcludeTask(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	createTestTask(t, s, "task1")
+	createTestTask(t, s, "task2")
+
+	s.InsertAgentSession(ctx, AgentSession{TaskID: "task1", TmuxSession: "legato-task1", Command: "shell", Status: "running"})
+	s.InsertAgentSession(ctx, AgentSession{TaskID: "task2", TmuxSession: "legato-task2", Command: "shell", Status: "running"})
+	s.UpdateAgentActivity(ctx, "task1", "working")
+	s.UpdateAgentActivity(ctx, "task2", "working")
+
+	working, _, _, err := s.GetAgentActivityCounts(ctx, "task1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if working != 1 {
+		t.Errorf("working = %d, want 1 (task1 excluded)", working)
+	}
+}
+
+func TestGetAgentActivityCounts_NoSessions(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	working, waiting, idle, err := s.GetAgentActivityCounts(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if working != 0 || waiting != 0 || idle != 0 {
+		t.Errorf("got working=%d waiting=%d idle=%d, want all 0", working, waiting, idle)
+	}
+}
+
+func TestGetAgentActivityCounts_IgnoresDeadSessions(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	createTestTask(t, s, "task1")
+	createTestTask(t, s, "task2")
+
+	s.InsertAgentSession(ctx, AgentSession{TaskID: "task1", TmuxSession: "legato-task1", Command: "shell", Status: "running"})
+	s.InsertAgentSession(ctx, AgentSession{TaskID: "task2", TmuxSession: "legato-task2", Command: "shell", Status: "running"})
+	s.UpdateAgentActivity(ctx, "task1", "working")
+	s.UpdateAgentActivity(ctx, "task2", "working")
+
+	// Kill task2
+	s.UpdateAgentSessionStatus(ctx, "task2", "dead")
+
+	working, _, _, err := s.GetAgentActivityCounts(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if working != 1 {
+		t.Errorf("working = %d, want 1 (dead session excluded)", working)
+	}
+}
+
 func createTestTask(t *testing.T, s *Store, id string) {
 	t.Helper()
 	ctx := context.Background()

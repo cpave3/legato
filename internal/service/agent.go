@@ -50,6 +50,7 @@ type AgentService interface {
 	CaptureOutput(ctx context.Context, taskID string) (string, error)
 	AttachCmd(ctx context.Context, taskID string) (*exec.Cmd, error)
 	GetTaskDurations(ctx context.Context, taskIDs []string) (map[string]DurationData, error)
+	GetAgentSummary(ctx context.Context, excludeTaskID string) (working, waiting, idle int, err error)
 }
 
 type agentService struct {
@@ -60,6 +61,7 @@ type agentService struct {
 	socketPath  string
 	tmuxOptions map[string]string
 	prSvc       PRTrackingService
+	binaryPath  string
 }
 
 // AgentServiceOptions configures optional AI tool integration for agent sessions.
@@ -68,6 +70,7 @@ type AgentServiceOptions struct {
 	SocketPath  string
 	TmuxOptions map[string]string
 	PRService   PRTrackingService
+	BinaryPath  string // Absolute path to legato binary for tmux status line
 }
 
 // NewAgentService creates an AgentService.
@@ -78,6 +81,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.socketPath = opts[0].SocketPath
 		svc.tmuxOptions = opts[0].TmuxOptions
 		svc.prSvc = opts[0].PRService
+		svc.binaryPath = opts[0].BinaryPath
 	}
 	return svc
 }
@@ -112,6 +116,23 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 
 	if err := a.tmux.Spawn(sessionName, a.workDir, width, height, envVars...); err != nil {
 		return fmt.Errorf("spawning tmux session: %w", err)
+	}
+
+	// Apply legato status line defaults before user options (user can override).
+	if a.binaryPath != "" {
+		statusRight := fmt.Sprintf("#(%s agent summary --exclude %s)", a.binaryPath, taskID)
+		statusDefaults := map[string]string{
+			"status-right":    statusRight,
+			"status-interval": "5",
+			"status-style":    "bg=colour235,fg=colour245",
+			"status-left":     "",
+		}
+		for k, v := range statusDefaults {
+			if err := a.tmux.SetOption(sessionName, k, v); err != nil {
+				a.tmux.Kill(sessionName)
+				return fmt.Errorf("setting tmux status option %s: %w", k, err)
+			}
+		}
 	}
 
 	for k, v := range a.tmuxOptions {
@@ -245,6 +266,13 @@ func (a *agentService) GetTaskDurations(ctx context.Context, taskIDs []string) (
 		}
 	}
 	return result, nil
+}
+
+func (a *agentService) GetAgentSummary(ctx context.Context, excludeTaskID string) (working, waiting, idle int, err error) {
+	if err := a.ReconcileSessions(ctx); err != nil {
+		return 0, 0, 0, err
+	}
+	return a.store.GetAgentActivityCounts(ctx, excludeTaskID)
 }
 
 func (a *agentService) CaptureOutput(ctx context.Context, taskID string) (string, error) {

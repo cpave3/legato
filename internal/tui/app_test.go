@@ -628,6 +628,9 @@ func (f *fakeAgentService) GetTaskDurations(_ context.Context, _ []string) (map[
 	}
 	return map[string]service.DurationData{}, nil
 }
+func (f *fakeAgentService) GetAgentSummary(_ context.Context, _ string) (int, int, int, error) {
+	return 0, 0, 0, nil
+}
 
 func TestDurationDataFlowsToBoard(t *testing.T) {
 	agentSvc := &fakeAgentService{

@@ -645,6 +645,158 @@ func TestSpawnAgentNoOptionsWithoutConfig(t *testing.T) {
 	}
 }
 
+func TestGetAgentSummary_MixedStates(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "task1")
+	createTask(t, s, "task2")
+	createTask(t, s, "task3")
+
+	svc.SpawnAgent(ctx, "task1", 0, 0)
+	svc.SpawnAgent(ctx, "task2", 0, 0)
+	svc.SpawnAgent(ctx, "task3", 0, 0)
+
+	s.UpdateAgentActivity(ctx, "task1", "working")
+	s.UpdateAgentActivity(ctx, "task2", "waiting")
+	// task3 stays idle
+
+	working, waiting, idle, err := svc.GetAgentSummary(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if working != 1 {
+		t.Errorf("working = %d, want 1", working)
+	}
+	if waiting != 1 {
+		t.Errorf("waiting = %d, want 1", waiting)
+	}
+	if idle != 1 {
+		t.Errorf("idle = %d, want 1", idle)
+	}
+}
+
+func TestGetAgentSummary_ExcludesTask(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "task1")
+	createTask(t, s, "task2")
+
+	svc.SpawnAgent(ctx, "task1", 0, 0)
+	svc.SpawnAgent(ctx, "task2", 0, 0)
+
+	s.UpdateAgentActivity(ctx, "task1", "working")
+	s.UpdateAgentActivity(ctx, "task2", "working")
+
+	working, _, _, err := svc.GetAgentSummary(ctx, "task1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if working != 1 {
+		t.Errorf("working = %d, want 1 (task1 excluded)", working)
+	}
+}
+
+func TestGetAgentSummary_ReconcilesCleansDeadSessions(t *testing.T) {
+	svc, s, mt := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "task1")
+	createTask(t, s, "task2")
+
+	svc.SpawnAgent(ctx, "task1", 0, 0)
+	svc.SpawnAgent(ctx, "task2", 0, 0)
+
+	s.UpdateAgentActivity(ctx, "task1", "working")
+	s.UpdateAgentActivity(ctx, "task2", "working")
+
+	// Simulate task2 tmux session dying
+	delete(mt.sessions, "legato-task2")
+
+	working, _, _, err := svc.GetAgentSummary(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if working != 1 {
+		t.Errorf("working = %d, want 1 (dead session reconciled)", working)
+	}
+}
+
+func TestSpawnAgentInjectsStatusLineOptions(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+		BinaryPath: "/usr/bin/legato",
+	})
+
+	ctx := context.Background()
+	createTask(t, s, "task1")
+
+	if err := svc.SpawnAgent(ctx, "task1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := mt.options["legato-task1"]
+	if opts == nil {
+		t.Fatal("no tmux options set on session")
+	}
+	if opts["status-right"] != "#(/usr/bin/legato agent summary --exclude task1)" {
+		t.Errorf("status-right = %q, want legato agent summary command", opts["status-right"])
+	}
+	if opts["status-interval"] != "5" {
+		t.Errorf("status-interval = %q, want %q", opts["status-interval"], "5")
+	}
+}
+
+func TestSpawnAgentUserOptionsOverrideStatusLine(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+		BinaryPath: "/usr/bin/legato",
+		TmuxOptions: map[string]string{
+			"status-right": "my custom status",
+		},
+	})
+
+	ctx := context.Background()
+	createTask(t, s, "task1")
+
+	if err := svc.SpawnAgent(ctx, "task1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := mt.options["legato-task1"]
+	// User's status-right should override legato's default
+	if opts["status-right"] != "my custom status" {
+		t.Errorf("status-right = %q, want user override %q", opts["status-right"], "my custom status")
+	}
+}
+
+func TestSpawnAgentSkipsStatusLineWithoutBinaryPath(t *testing.T) {
+	svc, s, mt := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "task1")
+
+	if err := svc.SpawnAgent(ctx, "task1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := mt.options["legato-task1"]
+	if _, ok := opts["status-right"]; ok {
+		t.Error("expected no status-right without binary path")
+	}
+}
+
 func TestListAgentsFallsBackOnPaneCommandsError(t *testing.T) {
 	svc, s, mt := newTestAgentService(t)
 	ctx := context.Background()

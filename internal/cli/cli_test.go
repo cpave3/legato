@@ -3,6 +3,7 @@ package cli_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/internal/cli"
@@ -201,6 +202,99 @@ func TestAgentState_TransitionClosesAndOpensInterval(t *testing.T) {
 	}
 	if _, ok := durations["waiting"]; !ok {
 		t.Error("expected waiting duration after transition")
+	}
+}
+
+func TestAgentSummary_MixedStates(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "task1", "Doing")
+	seedTask(t, s, "task2", "Doing")
+	seedTask(t, s, "task3", "Doing")
+
+	ctx := context.Background()
+	s.InsertAgentSession(ctx, store.AgentSession{TaskID: "task1", TmuxSession: "legato-task1", Command: "shell", Status: "running"})
+	s.InsertAgentSession(ctx, store.AgentSession{TaskID: "task2", TmuxSession: "legato-task2", Command: "shell", Status: "running"})
+	s.InsertAgentSession(ctx, store.AgentSession{TaskID: "task3", TmuxSession: "legato-task3", Command: "shell", Status: "running"})
+	s.UpdateAgentActivity(ctx, "task1", "working")
+	s.UpdateAgentActivity(ctx, "task2", "waiting")
+	// task3 idle
+
+	out, err := cli.AgentSummary(s, "")
+	if err != nil {
+		t.Fatalf("AgentSummary: %v", err)
+	}
+	// Should contain tmux style markup and counts
+	if !strings.Contains(out, "1 working") {
+		t.Errorf("output missing working count: %q", out)
+	}
+	if !strings.Contains(out, "1 waiting") {
+		t.Errorf("output missing waiting count: %q", out)
+	}
+	if !strings.Contains(out, "1 idle") {
+		t.Errorf("output missing idle count: %q", out)
+	}
+	if !strings.Contains(out, "#[fg=") {
+		t.Errorf("output missing tmux style markup: %q", out)
+	}
+}
+
+func TestAgentSummary_ZeroCountsOmitted(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "task1", "Doing")
+
+	ctx := context.Background()
+	s.InsertAgentSession(ctx, store.AgentSession{TaskID: "task1", TmuxSession: "legato-task1", Command: "shell", Status: "running"})
+	s.UpdateAgentActivity(ctx, "task1", "working")
+
+	out, err := cli.AgentSummary(s, "")
+	if err != nil {
+		t.Fatalf("AgentSummary: %v", err)
+	}
+	if !strings.Contains(out, "1 working") {
+		t.Errorf("output missing working count: %q", out)
+	}
+	// Zero-count waiting should be omitted
+	if strings.Contains(out, "waiting") {
+		t.Errorf("output should omit zero waiting: %q", out)
+	}
+	// Idle always shown
+	if !strings.Contains(out, "idle") {
+		t.Errorf("output should always show idle: %q", out)
+	}
+}
+
+func TestAgentSummary_NoSessions(t *testing.T) {
+	s := newTestStore(t)
+
+	out, err := cli.AgentSummary(s, "")
+	if err != nil {
+		t.Fatalf("AgentSummary: %v", err)
+	}
+	if out == "" {
+		t.Error("expected non-empty output even with no sessions")
+	}
+}
+
+func TestAgentSummary_ExcludeTask(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "task1", "Doing")
+	seedTask(t, s, "task2", "Doing")
+
+	ctx := context.Background()
+	s.InsertAgentSession(ctx, store.AgentSession{TaskID: "task1", TmuxSession: "legato-task1", Command: "shell", Status: "running"})
+	s.InsertAgentSession(ctx, store.AgentSession{TaskID: "task2", TmuxSession: "legato-task2", Command: "shell", Status: "running"})
+	s.UpdateAgentActivity(ctx, "task1", "working")
+	s.UpdateAgentActivity(ctx, "task2", "working")
+
+	out, err := cli.AgentSummary(s, "task1")
+	if err != nil {
+		t.Fatalf("AgentSummary: %v", err)
+	}
+	if !strings.Contains(out, "1 working") {
+		t.Errorf("output should show 1 working (task1 excluded): %q", out)
 	}
 }
 

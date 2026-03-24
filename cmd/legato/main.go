@@ -174,13 +174,15 @@ func runTaskUnlink(db *store.Store, args []string) int {
 
 func runAgentCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "usage: legato agent [state] ...\n")
+		fmt.Fprintf(os.Stderr, "usage: legato agent [state|summary] ...\n")
 		return 1
 	}
 
 	switch args[0] {
 	case "state":
 		return runAgentState(args[1:])
+	case "summary":
+		return runAgentSummary(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown agent command: %s\n", args[0])
 		return 1
@@ -220,6 +222,38 @@ func runAgentState(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
+	return 0
+}
+
+func runAgentSummary(args []string) int {
+	// Parse: legato agent summary [--exclude <task-id>]
+	var excludeTaskID string
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "--exclude" {
+			excludeTaskID = args[i+1]
+			break
+		}
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
+	dbPath := config.ResolveDBPath(cfg)
+	db, err := store.New(dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "database: %v\n", err)
+		return 1
+	}
+	defer db.Close()
+
+	out, err := cli.AgentSummary(db, excludeTaskID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	fmt.Print(out)
 	return 0
 }
 
@@ -398,6 +432,7 @@ func runTUI() int {
 			SocketPath:  socketPath,
 			TmuxOptions: cfg.Agents.TmuxOptions,
 			PRService:   prSvc,
+			BinaryPath:  legatoBin,
 		})
 	}
 
