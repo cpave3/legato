@@ -127,6 +127,7 @@ func (m Model) View() string {
 		{"w", "workspace"},
 		{"n", "new"},
 		{"r", "sync"},
+		{"X", "archive"},
 		{"/", "search"},
 		{"?", "help"},
 	}
