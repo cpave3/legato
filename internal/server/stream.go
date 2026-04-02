@@ -34,7 +34,6 @@ type agentStream struct {
 	appliedRows int
 }
 
-
 // streamManager tracks active streams per agent, ensuring only one pipe-pane per agent.
 type streamManager struct {
 	mu      sync.Mutex
@@ -91,6 +90,17 @@ func (sm *streamManager) startPipe(s *agentStream) {
 	// Wait briefly for the application to redraw after the resize SIGWINCH,
 	// then capture the pane at the correct width as backfill.
 	time.Sleep(150 * time.Millisecond)
+
+	// Abort if the stream was torn down during the sleep.
+	select {
+	case <-s.cancel:
+		s.mu.Lock()
+		s.piping = false
+		s.mu.Unlock()
+		return
+	default:
+	}
+
 	if snapshot, err := sm.tmux.CaptureWithEscapes(sessionName); err == nil && snapshot != "" {
 		// capture-pane uses \n but xterm.js needs \r\n so each line
 		// starts at column 0 instead of staircase-ing.
@@ -111,7 +121,19 @@ func (sm *streamManager) startPipe(s *agentStream) {
 	reader, cleanup, err := sm.tmux.PipeOutput(sessionName)
 	if err != nil {
 		log.Printf("pipe-pane %s: %v", sessionName, err)
+		s.mu.Lock()
+		s.piping = false
+		s.mu.Unlock()
 		return
+	}
+
+	// Check again — if torn down while PipeOutput was running,
+	// clean up immediately to avoid an orphaned pipe-pane.
+	select {
+	case <-s.cancel:
+		cleanup()
+		return
+	default:
 	}
 
 	s.mu.Lock()
@@ -124,10 +146,10 @@ func (sm *streamManager) startPipe(s *agentStream) {
 // unsubscribe removes a client from an agent's stream. Stops the pipe if no subscribers remain.
 func (sm *streamManager) unsubscribe(agentID string, client *wsClient) {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
 
 	s, ok := sm.streams[agentID]
 	if !ok {
+		sm.mu.Unlock()
 		return
 	}
 
@@ -139,16 +161,19 @@ func (sm *streamManager) unsubscribe(agentID string, client *wsClient) {
 
 	if remaining == 0 {
 		close(s.cancel)
-		if s.cleanup != nil {
-			s.cleanup()
-		}
+		cleanupFn := s.cleanup
 		delete(sm.streams, agentID)
-
-		// No web clients left — revert to tmux auto-sizing so
-		// the terminal resumes its natural dimensions.
 		sessionName := "legato-" + agentID
+		sm.mu.Unlock()
+
+		// Run external commands without holding any locks.
+		if cleanupFn != nil {
+			cleanupFn()
+		}
+		// Revert to tmux auto-sizing so the terminal resumes its natural dimensions.
 		sm.tmux.SetOption(sessionName, "window-size", "latest")
 	} else {
+		sm.mu.Unlock()
 		// Recalculate size without this client.
 		sm.resizePane(s)
 	}

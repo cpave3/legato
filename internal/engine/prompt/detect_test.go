@@ -45,6 +45,17 @@ func TestDetectToolApproval(t *testing.T) {
 			if len(result.Actions) != 3 {
 				t.Errorf("got %d actions, want 3", len(result.Actions))
 			}
+			if len(result.Actions) == 3 {
+				if result.Actions[0].Keys != "Enter" {
+					t.Errorf("Yes keys = %q, want %q", result.Actions[0].Keys, "Enter")
+				}
+				if result.Actions[1].Keys != "Down Enter" {
+					t.Errorf("Always keys = %q, want %q", result.Actions[1].Keys, "Down Enter")
+				}
+				if result.Actions[2].Keys != "Down Down Enter" {
+					t.Errorf("No keys = %q, want %q", result.Actions[2].Keys, "Down Down Enter")
+				}
+			}
 		})
 	}
 }
@@ -75,6 +86,12 @@ func TestDetectPlanApproval(t *testing.T) {
 			}
 			if result.Actions[0].Label != "Accept" {
 				t.Errorf("first action label = %q, want Accept", result.Actions[0].Label)
+			}
+			if result.Actions[0].Keys != "Enter" {
+				t.Errorf("Accept keys = %q, want %q", result.Actions[0].Keys, "Enter")
+			}
+			if len(result.Actions) > 1 && result.Actions[1].Keys != "Escape" {
+				t.Errorf("Reject keys = %q, want %q", result.Actions[1].Keys, "Escape")
 			}
 		})
 	}

@@ -106,7 +106,7 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPr
             {promptState.actions.map((action) => (
               <button
                 key={action.label}
-                onClick={() => onSendKeys(action.keys)}
+                onClick={() => { onSendKeys(action.keys); onDismissPrompt() }}
                 className={cn(
                   "rounded px-3 py-1.5 text-sm font-medium transition-colors",
                   action.label === "Yes"
@@ -134,7 +134,7 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPr
             {promptState.actions.map((action) => (
               <button
                 key={action.label}
-                onClick={() => onSendKeys(action.keys)}
+                onClick={() => { onSendKeys(action.keys); onDismissPrompt() }}
                 className={cn(
                   "rounded px-3 py-1.5 text-sm font-medium transition-colors",
                   action.label === "Accept"

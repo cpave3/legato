@@ -3,8 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -215,5 +219,141 @@ func TestServerStartAndStop(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if err := srv.Stop(context.Background()); err != nil {
 		t.Errorf("stop: %v", err)
+	}
+}
+
+// mockTmuxManager implements service.TmuxManager for server-level tests.
+type mockTmuxManager struct {
+	sentKeys []string
+}
+
+func (m *mockTmuxManager) Spawn(name, workDir string, width, height int, envVars ...string) error {
+	return nil
+}
+func (m *mockTmuxManager) Kill(name string) error                       { return nil }
+func (m *mockTmuxManager) Capture(name string) (string, error)          { return "", nil }
+func (m *mockTmuxManager) CaptureWithEscapes(name string) (string, error) { return "", nil }
+func (m *mockTmuxManager) Attach(name string) *exec.Cmd                 { return exec.Command("echo") }
+func (m *mockTmuxManager) ListSessions() ([]string, error)              { return nil, nil }
+func (m *mockTmuxManager) IsAlive(name string) (bool, error)            { return false, nil }
+func (m *mockTmuxManager) SendKeys(name, keys string) error             { return nil }
+func (m *mockTmuxManager) SendKey(name, key string) error {
+	m.sentKeys = append(m.sentKeys, key)
+	return nil
+}
+func (m *mockTmuxManager) PipeOutput(name string) (io.Reader, func(), error) {
+	return strings.NewReader(""), func() {}, nil
+}
+func (m *mockTmuxManager) SetEnv(sessionName, key, value string) error    { return nil }
+func (m *mockTmuxManager) SetOption(sessionName, key, value string) error { return nil }
+func (m *mockTmuxManager) PaneCommands() (map[string]string, error)       { return nil, nil }
+
+func TestHandleSendKeysNamedSequence(t *testing.T) {
+	mock := &mockTmuxManager{}
+	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+	srv := New(svc, nil, mock, ":0")
+
+	// handleSendKeys doesn't send responses on the success path,
+	// so we only need a client with a valid context.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := &wsClient{ctx: ctx, cancel: cancel}
+
+	srv.handleSendKeys(client, WSMessage{
+		AgentID: "test-agent",
+		Keys:    "Down Down Enter",
+	})
+
+	want := []string{"Down", "Down", "Enter"}
+	if len(mock.sentKeys) != len(want) {
+		t.Fatalf("got %d SendKey calls, want %d", len(mock.sentKeys), len(want))
+	}
+	for i, k := range want {
+		if mock.sentKeys[i] != k {
+			t.Errorf("sentKeys[%d] = %q, want %q", i, mock.sentKeys[i], k)
+		}
+	}
+}
+
+func TestStreamSubscribeUnsubscribe(t *testing.T) {
+	mock := &mockTmuxManager{}
+	sm := newStreamManager(mock)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := &wsClient{ctx: ctx, cancel: cancel}
+
+	sm.subscribe("agent-1", client)
+
+	sm.mu.Lock()
+	_, exists := sm.streams["agent-1"]
+	sm.mu.Unlock()
+	if !exists {
+		t.Fatal("stream should exist after subscribe")
+	}
+
+	sm.unsubscribe("agent-1", client)
+
+	sm.mu.Lock()
+	_, exists = sm.streams["agent-1"]
+	sm.mu.Unlock()
+	if exists {
+		t.Fatal("stream should be removed after last client unsubscribes")
+	}
+}
+
+// failPipeMock is a mockTmuxManager where PipeOutput always fails.
+type failPipeMock struct {
+	mockTmuxManager
+}
+
+func (m *failPipeMock) PipeOutput(name string) (io.Reader, func(), error) {
+	return nil, nil, fmt.Errorf("pipe failed")
+}
+
+func TestStartPipeResetsOnFailure(t *testing.T) {
+	mock := &failPipeMock{}
+	sm := newStreamManager(mock)
+
+	s := &agentStream{
+		clients: make(map[*wsClient]struct{}),
+		sizes:   make(map[*wsClient]*clientSize),
+		agentID: "agent-1",
+		cancel:  make(chan struct{}),
+	}
+
+	sm.startPipe(s)
+
+	s.mu.Lock()
+	piping := s.piping
+	s.mu.Unlock()
+
+	if piping {
+		t.Error("piping should be false after PipeOutput failure")
+	}
+}
+
+func TestStartPipeAbortOnCancel(t *testing.T) {
+	mock := &mockTmuxManager{}
+	sm := newStreamManager(mock)
+
+	s := &agentStream{
+		clients: make(map[*wsClient]struct{}),
+		sizes:   make(map[*wsClient]*clientSize),
+		agentID: "agent-1",
+		cancel:  make(chan struct{}),
+	}
+
+	// Close cancel before calling startPipe so it aborts after sleep.
+	close(s.cancel)
+
+	sm.startPipe(s)
+
+	s.mu.Lock()
+	piping := s.piping
+	s.mu.Unlock()
+
+	if piping {
+		t.Error("piping should be false after cancel")
 	}
 }

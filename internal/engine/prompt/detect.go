@@ -113,7 +113,7 @@ func Detect(output string) PromptState {
 				Actions: []Action{
 					{Label: "Yes", Keys: "Enter"},
 					{Label: "Always", Keys: "Down Enter"},
-					{Label: "No", Keys: "Escape"},
+					{Label: "No", Keys: "Down Down Enter"},
 				},
 			}
 		}
