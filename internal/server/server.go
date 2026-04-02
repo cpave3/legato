@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 
@@ -57,6 +58,9 @@ func New(board service.BoardService, agents service.AgentService, tmux service.T
 	s.server = &http.Server{
 		Addr:    addr,
 		Handler: mux,
+		// Disable HTTP/2 — WebSocket upgrades require the HTTP/1.1
+		// Connection: Upgrade mechanism which doesn't exist in HTTP/2.
+		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
 	}
 	return s
 }
