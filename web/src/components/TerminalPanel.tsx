@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
+import { ArrowDown } from "lucide-react"
 import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
@@ -15,6 +16,7 @@ export function TerminalPanel({ agentId }: TerminalPanelProps) {
   const { send, subscribe } = useWebSocket()
   const agentIdRef = useRef(agentId)
   agentIdRef.current = agentId
+  const [isScrolledUp, setIsScrolledUp] = useState(false)
 
   useEffect(() => {
     const container = containerRef.current
@@ -41,6 +43,12 @@ export function TerminalPanel({ agentId }: TerminalPanelProps) {
 
     termRef.current = term
     fitRef.current = fit
+
+    // Track whether the user has scrolled up from the bottom.
+    term.onScroll(() => {
+      const buf = term.buffer.active
+      setIsScrolledUp(buf.viewportY < buf.baseY)
+    })
 
     const sendSize = () => {
       fit.fit()
@@ -78,6 +86,9 @@ export function TerminalPanel({ agentId }: TerminalPanelProps) {
       const term = termRef.current
       if (!term || !msg.content) return
       term.write(msg.content)
+      // New output may have pushed baseY past viewportY.
+      const buf = term.buffer.active
+      setIsScrolledUp(buf.viewportY < buf.baseY)
     })
   }, [agentId, subscribe])
 
@@ -86,6 +97,7 @@ export function TerminalPanel({ agentId }: TerminalPanelProps) {
     const term = termRef.current
     if (term) {
       term.reset()
+      setIsScrolledUp(false)
       term.write("\x1b[2m[connected]\x1b[0m\r\n")
       send({
         type: "resize",
@@ -96,24 +108,72 @@ export function TerminalPanel({ agentId }: TerminalPanelProps) {
     }
   }, [agentId, send])
 
-  // Prevent pull-to-refresh on mobile; forward touch scrolls to xterm.
+  // Custom touch-to-scroll: mobile browsers don't reliably deliver touch
+  // events to xterm.js's internal viewport. We intercept touches on the
+  // container, calculate swipe delta, and call term.scrollLines() directly.
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
-    const onTouchMove = (e: TouchEvent) => {
-      e.preventDefault()
+    let touchStartY = 0
+    let accumulated = 0
+    const lineHeight = 17 // approximate pixels per terminal line
+
+    const onTouchStart = (e: TouchEvent) => {
+      touchStartY = e.touches[0].clientY
+      accumulated = 0
     }
 
-    // Must be non-passive to allow preventDefault.
+    const onTouchMove = (e: TouchEvent) => {
+      const term = termRef.current
+      if (!term) return
+
+      e.preventDefault() // prevent page scroll / pull-to-refresh
+
+      const deltaY = touchStartY - e.touches[0].clientY
+      touchStartY = e.touches[0].clientY
+      accumulated += deltaY
+
+      // Scroll whole lines once we've accumulated enough pixels.
+      const lines = Math.trunc(accumulated / lineHeight)
+      if (lines !== 0) {
+        term.scrollLines(lines)
+        accumulated -= lines * lineHeight
+      }
+    }
+
+    container.addEventListener("touchstart", onTouchStart, { passive: true })
     container.addEventListener("touchmove", onTouchMove, { passive: false })
-    return () => container.removeEventListener("touchmove", onTouchMove)
+
+    return () => {
+      container.removeEventListener("touchstart", onTouchStart)
+      container.removeEventListener("touchmove", onTouchMove)
+    }
   }, [])
 
+  const scrollToBottom = () => {
+    const term = termRef.current
+    if (term) {
+      term.scrollToBottom()
+      setIsScrolledUp(false)
+    }
+  }
+
   return (
-    <div
-      ref={containerRef}
-      className="absolute inset-0 overflow-hidden bg-[#0a0a0f] touch-none"
-    />
+    <div className="absolute inset-0 bg-[#0a0a0f]">
+      <div
+        ref={containerRef}
+        className="absolute inset-0 overflow-hidden"
+      />
+      {isScrolledUp && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-3 right-3 rounded-full bg-zinc-800 border border-zinc-700 p-2 text-zinc-400 shadow-lg transition-colors hover:bg-zinc-700 hover:text-zinc-200 active:bg-zinc-600"
+          title="Scroll to bottom"
+        >
+          <ArrowDown size={18} />
+        </button>
+      )}
+    </div>
   )
 }

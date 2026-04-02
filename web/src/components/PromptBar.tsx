@@ -1,7 +1,7 @@
-import { useState, type KeyboardEvent } from "react"
+import { useState, useRef, useEffect, type KeyboardEvent } from "react"
 import type { PromptState } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
-import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug } from "lucide-react"
+import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal } from "lucide-react"
 
 interface PromptBarProps {
   promptState: PromptState | null
@@ -9,12 +9,27 @@ interface PromptBarProps {
   onDismissPrompt: () => void
   onDetectPrompt: () => void
   onDisconnect: () => void
+  onKill: () => void
   agentTitle?: string
   agentActivity?: string
 }
 
-export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPrompt, onDisconnect, agentTitle, agentActivity }: PromptBarProps) {
+export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, agentTitle, agentActivity }: PromptBarProps) {
   const [input, setInput] = useState("")
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Close menu on outside click.
+  useEffect(() => {
+    if (!menuOpen) return
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener("click", onClick, true)
+    return () => document.removeEventListener("click", onClick, true)
+  }, [menuOpen])
 
   const handleSubmit = () => {
     const trimmed = input.trim()
@@ -60,7 +75,7 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPr
           <div className="text-xs text-zinc-500 truncate">{agentTitle}</div>
         )}
 
-        {/* Right: persistent action buttons */}
+        {/* Right: action buttons */}
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
           <button
             onClick={() => onSendKeys("BTab")}
@@ -69,22 +84,6 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPr
           >
             <ArrowLeftRight size={12} />
             <span>Mode</span>
-          </button>
-          <button
-            onClick={onDetectPrompt}
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-400 border border-zinc-700 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
-            title="Re-detect prompt buttons"
-          >
-            <ScanSearch size={12} />
-            <span>Detect</span>
-          </button>
-          <button
-            onClick={onDisconnect}
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-400 border border-zinc-700 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
-            title="Disconnect from this agent's terminal (session stays alive)"
-          >
-            <Unplug size={12} />
-            <span>Disconnect</span>
           </button>
           {isWorking && (
             <button
@@ -96,6 +95,47 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPr
               <span>Stop</span>
             </button>
           )}
+          {/* Overflow menu */}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              className={cn(
+                "flex items-center gap-1 rounded px-2 py-1 text-xs border transition-colors",
+                menuOpen
+                  ? "text-zinc-200 bg-zinc-800 border-zinc-600"
+                  : "text-zinc-400 border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200"
+              )}
+              title="More actions"
+            >
+              <MoreHorizontal size={12} />
+            </button>
+            {menuOpen && (
+              <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[160px] z-10">
+                <button
+                  onClick={() => { onDetectPrompt(); setMenuOpen(false) }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                >
+                  <ScanSearch size={12} />
+                  Re-detect prompt
+                </button>
+                <button
+                  onClick={() => { onDisconnect(); setMenuOpen(false) }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                >
+                  <Unplug size={12} />
+                  Disconnect
+                </button>
+                <div className="my-1 border-t border-zinc-800" />
+                <button
+                  onClick={() => { onKill(); setMenuOpen(false) }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-400 hover:bg-red-950 transition-colors"
+                >
+                  <Skull size={12} />
+                  Kill agent
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

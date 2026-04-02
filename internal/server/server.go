@@ -22,17 +22,28 @@ type Server struct {
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
 func New(board service.BoardService, agents service.AgentService, tmux service.TmuxManager, addr string) *Server {
+	sm := newStreamManager(tmux)
 	s := &Server{
 		board:  board,
 		agents: agents,
 		tmux:   tmux,
 		addr:    addr,
 		hub:     newHub(),
-		streams: newStreamManager(tmux),
+		streams: sm,
+	}
+	// When a pipe-pane stream ends (shell exit), reconcile DB state
+	// and notify all web clients so dead agents update in the sidebar.
+	sm.onStreamEnd = func(agentID string) {
+		if agents != nil {
+			_ = agents.ReconcileSessions(context.Background())
+		}
+		s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler(board))
 	mux.HandleFunc("/api/agents", s.agentsHandler())
+	mux.HandleFunc("/api/agents/spawn", s.spawnAgentHandler())
+	mux.HandleFunc("/api/agents/kill", s.killAgentHandler())
 	mux.HandleFunc("/api/tasks", s.tasksHandler())
 	mux.HandleFunc("/ws", s.wsHandler())
 

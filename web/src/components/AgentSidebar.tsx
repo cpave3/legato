@@ -1,10 +1,12 @@
 import type { AgentInfo } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
+import { Plus } from "lucide-react"
 
 interface AgentSidebarProps {
   agents: AgentInfo[]
   selectedId: string | null
   onSelect: (taskId: string) => void
+  onSpawn: () => void
 }
 
 function activityBadge(activity: string) {
@@ -24,11 +26,20 @@ function activityBadge(activity: string) {
   }
 }
 
-export function AgentSidebar({ agents, selectedId, onSelect }: AgentSidebarProps) {
+export function AgentSidebar({ agents, selectedId, onSelect, onSpawn }: AgentSidebarProps) {
   return (
     <div className="flex w-64 flex-col border-r border-zinc-800 bg-zinc-950 overflow-y-auto">
-      <div className="px-3 py-3 text-xs font-medium uppercase tracking-wider text-zinc-500">
-        Agents ({agents.length})
+      <div className="flex items-center justify-between px-3 py-3">
+        <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+          Agents ({agents.length})
+        </span>
+        <button
+          onClick={onSpawn}
+          className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+          title="Spawn new agent"
+        >
+          <Plus size={14} />
+        </button>
       </div>
       {agents.map((agent) => (
         <button

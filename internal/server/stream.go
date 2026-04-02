@@ -36,9 +36,10 @@ type agentStream struct {
 
 // streamManager tracks active streams per agent, ensuring only one pipe-pane per agent.
 type streamManager struct {
-	mu      sync.Mutex
-	streams map[string]*agentStream // keyed by agentID
-	tmux    service.TmuxManager
+	mu          sync.Mutex
+	streams     map[string]*agentStream // keyed by agentID
+	tmux        service.TmuxManager
+	onStreamEnd func(agentID string) // called when a pipe-pane stream ends (e.g. shell exit)
 }
 
 func newStreamManager(tmux service.TmuxManager) *streamManager {
@@ -346,6 +347,9 @@ func (sm *streamManager) readLoop(s *agentStream, reader io.Reader) {
 		}
 		if err != nil {
 			log.Printf("stream %s ended: %v", s.agentID, err)
+			if sm.onStreamEnd != nil {
+				sm.onStreamEnd(s.agentID)
+			}
 			return
 		}
 	}

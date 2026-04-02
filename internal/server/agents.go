@@ -20,6 +20,75 @@ type AgentResponse struct {
 	EndedAt     *time.Time `json:"ended_at,omitempty"`
 }
 
+func (s *Server) spawnAgentHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if s.agents == nil {
+			http.Error(w, "agent service not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		var req struct {
+			Title string `json:"title"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if req.Title == "" {
+			req.Title = "Ephemeral session"
+		}
+
+		if err := s.agents.SpawnEphemeralAgent(context.Background(), req.Title, 0, 0); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Notify all clients so they refresh the agent list.
+		s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}
+}
+
+func (s *Server) killAgentHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if s.agents == nil {
+			http.Error(w, "agent service not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		var req struct {
+			TaskID string `json:"task_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TaskID == "" {
+			http.Error(w, "task_id is required", http.StatusBadRequest)
+			return
+		}
+
+		if err := s.agents.KillAgent(context.Background(), req.TaskID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}
+}
+
 func (s *Server) agentsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
