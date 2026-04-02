@@ -3,11 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/prompt"
 	"nhooyr.io/websocket"
 )
 
@@ -17,6 +18,7 @@ const (
 	MsgUnsubscribeAgent = "unsubscribe_agent"
 	MsgSendKeys         = "send_keys"
 	MsgResize           = "resize"
+	MsgDetectPrompt     = "detect_prompt"
 )
 
 // WebSocket message types (server → client).
@@ -37,6 +39,7 @@ type WSMessage struct {
 	Cols    int             `json:"cols,omitempty"`
 	Rows    int             `json:"rows,omitempty"`
 	Agents  []AgentResponse `json:"agents,omitempty"`
+	Prompt  *prompt.PromptState `json:"prompt,omitempty"`
 	Error   string          `json:"error,omitempty"`
 }
 
@@ -149,6 +152,8 @@ func (s *Server) handleWSMessage(client *wsClient, msg WSMessage) {
 		s.handleSendKeys(client, msg)
 	case MsgResize:
 		s.handleResize(client, msg)
+	case MsgDetectPrompt:
+		s.handleDetectPrompt(client, msg)
 	default:
 		client.send(WSMessage{Type: MsgError, Error: "unknown message type: " + msg.Type})
 	}
@@ -189,22 +194,9 @@ func (s *Server) subscribeAgent(client *wsClient, agentID string) {
 		return
 	}
 
-	sessionName := "legato-" + agentID
-
-	// Send current pane content as initial backfill.
-	if snapshot, err := s.tmux.Capture(sessionName); err == nil && snapshot != "" {
-		client.send(WSMessage{
-			Type:    MsgAgentOutput,
-			AgentID: agentID,
-			Content: snapshot,
-		})
-	}
-
-	// Join the shared stream for this agent.
-	if err := s.streams.subscribe(agentID, client); err != nil {
-		log.Printf("pipe-pane %s: %v", sessionName, err)
-		client.send(WSMessage{Type: MsgError, Error: "failed to stream agent output"})
-	}
+	// Register the client. The pipe-pane starts after the first resize
+	// message so the pane is correctly sized before output flows.
+	s.streams.subscribe(agentID, client)
 }
 
 func (s *Server) unsubscribeAgent(client *wsClient, agentID string) {
@@ -246,9 +238,32 @@ func (s *Server) handleSendKeys(client *wsClient, msg WSMessage) {
 			client.send(WSMessage{Type: MsgError, Error: "send_keys failed: " + err.Error()})
 		}
 	} else {
-		// Named key — send without -- so tmux interprets the key name.
-		if err := s.tmux.SendKey(sessionName, keys); err != nil {
-			client.send(WSMessage{Type: MsgError, Error: "send_keys failed: " + err.Error()})
+		// Named keys — send without -- so tmux interprets key names.
+		// Space-separated keys are sent in sequence (e.g. "Down Enter").
+		for _, key := range strings.Fields(keys) {
+			if err := s.tmux.SendKey(sessionName, key); err != nil {
+				client.send(WSMessage{Type: MsgError, Error: "send_keys failed: " + err.Error()})
+				return
+			}
 		}
 	}
+}
+
+func (s *Server) handleDetectPrompt(client *wsClient, msg WSMessage) {
+	if s.tmux == nil || msg.AgentID == "" {
+		return
+	}
+
+	sessionName := "legato-" + msg.AgentID
+	output, err := s.tmux.Capture(sessionName)
+	if err != nil {
+		return
+	}
+
+	state := prompt.Detect(output)
+	client.send(WSMessage{
+		Type:    MsgPromptState,
+		AgentID: msg.AgentID,
+		Prompt:  &state,
+	})
 }

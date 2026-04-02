@@ -94,22 +94,26 @@ func Detect(output string) PromptState {
 			return PromptState{
 				Type: PlanApproval,
 				Actions: []Action{
-					{Label: "Accept", Keys: "y\n"},
-					{Label: "Reject", Keys: "n\n"},
+					{Label: "Accept", Keys: "Enter"},
+					{Label: "Reject", Keys: "Escape"},
 				},
 			}
 		}
 	}
 
 	// Check tool approval.
+	// Claude Code uses an arrow-key selection list, not single-char shortcuts.
+	// "Enter" confirms the pre-selected first option (Yes).
+	// "Down Enter" navigates to the second option (Always) and confirms.
+	// "Down Down Enter" navigates to the third option (No) and confirms.
 	for _, re := range toolApprovalPatterns {
 		if re.MatchString(tail) {
 			return PromptState{
 				Type: ToolApproval,
 				Actions: []Action{
-					{Label: "Yes", Keys: "y\n"},
-					{Label: "No", Keys: "n\n"},
-					{Label: "Always", Keys: "a\n"},
+					{Label: "Yes", Keys: "Enter"},
+					{Label: "Always", Keys: "Down Enter"},
+					{Label: "No", Keys: "Escape"},
 				},
 			}
 		}

@@ -1,17 +1,19 @@
 import { useState, type KeyboardEvent } from "react"
 import type { PromptState } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
-import { Send, Square, ArrowLeftRight, X } from "lucide-react"
+import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug } from "lucide-react"
 
 interface PromptBarProps {
   promptState: PromptState | null
   onSendKeys: (keys: string) => void
   onDismissPrompt: () => void
+  onDetectPrompt: () => void
+  onDisconnect: () => void
   agentTitle?: string
   agentActivity?: string
 }
 
-export function PromptBar({ promptState, onSendKeys, onDismissPrompt, agentTitle, agentActivity }: PromptBarProps) {
+export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPrompt, onDisconnect, agentTitle, agentActivity }: PromptBarProps) {
   const [input, setInput] = useState("")
 
   const handleSubmit = () => {
@@ -23,6 +25,24 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, agentTitle
   }
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    // When input is empty, pass navigation keys through to the terminal
+    // so the user can arrow through choices and press Enter to select.
+    if (!input) {
+      const passthrough: Record<string, string> = {
+        ArrowUp: "Up",
+        ArrowDown: "Down",
+        Enter: "Enter",
+        Escape: "Escape",
+        Tab: "Tab",
+      }
+      const tmuxKey = passthrough[e.key]
+      if (tmuxKey) {
+        e.preventDefault()
+        onSendKeys(tmuxKey)
+        return
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
@@ -49,6 +69,22 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, agentTitle
           >
             <ArrowLeftRight size={12} />
             <span>Mode</span>
+          </button>
+          <button
+            onClick={onDetectPrompt}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-400 border border-zinc-700 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+            title="Re-detect prompt buttons"
+          >
+            <ScanSearch size={12} />
+            <span>Detect</span>
+          </button>
+          <button
+            onClick={onDisconnect}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-400 border border-zinc-700 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+            title="Disconnect from this agent's terminal (session stays alive)"
+          >
+            <Unplug size={12} />
+            <span>Disconnect</span>
           </button>
           {isWorking && (
             <button

@@ -88,6 +88,18 @@ func (m *Manager) Capture(name string) (string, error) {
 	return string(out), nil
 }
 
+// CaptureWithEscapes returns the pane content including ANSI escape sequences.
+// Suitable for feeding into a terminal emulator (e.g. xterm.js) but not for
+// text processing (use Capture for that).
+func (m *Manager) CaptureWithEscapes(name string) (string, error) {
+	cmd := exec.Command(m.tmuxPath, "capture-pane", "-t", name, "-p", "-e")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("tmux capture-pane: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return string(out), nil
+}
+
 // Attach returns an exec.Cmd that attaches to the named tmux session.
 // The escape key is set as the detach binding for this session.
 // Use with tea.ExecProcess to suspend Bubbletea.

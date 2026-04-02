@@ -68,6 +68,10 @@ func (m *mockTmux) Capture(name string) (string, error) {
 	return "$ ", nil
 }
 
+func (m *mockTmux) CaptureWithEscapes(name string) (string, error) {
+	return m.Capture(name)
+}
+
 func (m *mockTmux) Attach(name string) *exec.Cmd {
 	return exec.Command("echo", "attached to", name)
 }

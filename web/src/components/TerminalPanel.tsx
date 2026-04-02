@@ -42,7 +42,6 @@ export function TerminalPanel({ agentId }: TerminalPanelProps) {
     termRef.current = term
     fitRef.current = fit
 
-    // Send size to server on resize.
     const sendSize = () => {
       fit.fit()
       send({
@@ -59,7 +58,8 @@ export function TerminalPanel({ agentId }: TerminalPanelProps) {
     // Send initial size.
     sendSize()
 
-    // Periodic heartbeat so server knows we're still alive with this size.
+    // Heartbeat keeps the TTL alive so the server doesn't expire
+    // this client's size entry (e.g. phone screen locked).
     const heartbeat = setInterval(sendSize, 5000)
 
     return () => {
@@ -81,11 +81,12 @@ export function TerminalPanel({ agentId }: TerminalPanelProps) {
     })
   }, [agentId, subscribe])
 
-  // Clear terminal and re-send size when agent changes
+  // Clear terminal and re-send size when agent changes.
   useEffect(() => {
-    termRef.current?.reset()
     const term = termRef.current
     if (term) {
+      term.reset()
+      term.write("\x1b[2m[connected]\x1b[0m\r\n")
       send({
         type: "resize",
         agent_id: agentId,
@@ -95,10 +96,24 @@ export function TerminalPanel({ agentId }: TerminalPanelProps) {
     }
   }, [agentId, send])
 
+  // Prevent pull-to-refresh on mobile; forward touch scrolls to xterm.
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const onTouchMove = (e: TouchEvent) => {
+      e.preventDefault()
+    }
+
+    // Must be non-passive to allow preventDefault.
+    container.addEventListener("touchmove", onTouchMove, { passive: false })
+    return () => container.removeEventListener("touchmove", onTouchMove)
+  }, [])
+
   return (
     <div
       ref={containerRef}
-      className="absolute inset-0 overflow-hidden bg-[#0a0a0f]"
+      className="absolute inset-0 overflow-hidden bg-[#0a0a0f] touch-none"
     />
   )
 }

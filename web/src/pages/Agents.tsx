@@ -57,6 +57,22 @@ export function AgentsPage() {
     [selectedId, send]
   )
 
+  const handleDetectPrompt = useCallback(() => {
+    if (selectedId) {
+      send({ type: "detect_prompt", agent_id: selectedId })
+    }
+  }, [selectedId, send])
+
+  const handleDisconnect = useCallback(() => {
+    if (selectedId) {
+      // Unsubscribe removes this client from the stream and size calcs.
+      // Setting selectedId to null unmounts TerminalPanel (stops heartbeat).
+      send({ type: "unsubscribe_agent", agent_id: selectedId })
+    }
+    setSelectedId(null)
+    setPromptState(null)
+  }, [selectedId, send])
+
   // Mobile: use select dropdown on narrow screens
   const [isMobile, setIsMobile] = useState(false)
   useEffect(() => {
@@ -111,6 +127,8 @@ export function AgentsPage() {
               promptState={promptState}
               onSendKeys={handleSendKeys}
               onDismissPrompt={() => setPromptState(null)}
+              onDetectPrompt={handleDetectPrompt}
+              onDisconnect={handleDisconnect}
               agentTitle={selectedAgent?.task_title}
               agentActivity={selectedAgent?.activity}
             />

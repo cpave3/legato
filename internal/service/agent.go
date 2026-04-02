@@ -15,6 +15,7 @@ type TmuxManager interface {
 	Spawn(name, workDir string, width, height int, envVars ...string) error
 	Kill(name string) error
 	Capture(name string) (string, error)
+	CaptureWithEscapes(name string) (string, error)
 	Attach(name string) *exec.Cmd
 	ListSessions() ([]string, error)
 	IsAlive(name string) (bool, error)
