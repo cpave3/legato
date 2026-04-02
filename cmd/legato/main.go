@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -510,6 +511,23 @@ func runTUI() int {
 
 	icons := theme.NewIcons(cfg.Icons)
 	editor := config.ResolveEditor(cfg)
+
+	// Auto-start web server if configured and port is free.
+	if cfg.Web.Enabled {
+		addr := ":" + cfg.Web.Port
+		// Probe the port — if it's already in use, another instance has
+		// the server running. Skip silently.
+		ln, listenErr := net.Listen("tcp", addr)
+		if listenErr == nil {
+			ln.Close()
+			srv := server.New(boardSvc, agentSvc, tmuxMgr, addr)
+			go func() {
+				if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
+					fmt.Fprintf(os.Stderr, "web server: %v\n", err)
+				}
+			}()
+		}
+	}
 
 	// Load workspaces for TUI
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())

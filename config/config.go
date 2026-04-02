@@ -18,7 +18,13 @@ type Config struct {
 	DB          DBConfig          `yaml:"db"`
 	Agents      AgentsConfig      `yaml:"agents"`
 	GitHub      GitHubConfig      `yaml:"github"`
+	Web         WebConfig         `yaml:"web"`
 	Workspaces  []WorkspaceConfig `yaml:"workspaces"`
+}
+
+type WebConfig struct {
+	Enabled bool   `yaml:"enabled"` // auto-start web server alongside TUI
+	Port    string `yaml:"port"`    // default "3080"
 }
 
 type GitHubConfig struct {
@@ -162,6 +168,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.GitHub.ResolvedPollIntervalSeconds == 0 {
 		cfg.GitHub.ResolvedPollIntervalSeconds = 600
+	}
+	if cfg.Web.Port == "" {
+		cfg.Web.Port = "3080"
 	}
 	// VimMode defaults to true — yaml unmarshals missing bool as false,
 	// so we only set it if the entire keybindings section was absent.
