@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
@@ -521,15 +522,15 @@ func (m Model) renderTerminal(width, height int) string {
 	content := m.termContent
 	lines := strings.Split(content, "\n")
 
-	// Truncate/pad each line to terminal width
+	// Truncate each line to terminal width (ANSI-aware)
 	for i, line := range lines {
-		if len(line) > width {
-			lines[i] = line[:width]
+		if ansi.StringWidth(line) > width {
+			lines[i] = ansi.Truncate(line, width, "")
 		}
 	}
 
 	// Strip trailing empty lines (tmux pads the pane to full height)
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+	for len(lines) > 0 && strings.TrimSpace(ansi.Strip(lines[len(lines)-1])) == "" {
 		lines = lines[:len(lines)-1]
 	}
 

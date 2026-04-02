@@ -70,6 +70,12 @@ func (s *Server) Start() error {
 	if err != nil {
 		return err
 	}
+	return s.Serve(ln)
+}
+
+// Serve accepts connections on an existing listener. Use this when the
+// caller has already bound the port (e.g. to probe availability).
+func (s *Server) Serve(ln net.Listener) error {
 	s.addr = ln.Addr().String()
 	return s.server.Serve(ln)
 }

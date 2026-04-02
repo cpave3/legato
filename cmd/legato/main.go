@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -513,17 +514,17 @@ func runTUI() int {
 	editor := config.ResolveEditor(cfg)
 
 	// Auto-start web server if configured and port is free.
+	var webSrv *server.Server
 	if cfg.Web.Enabled {
 		addr := ":" + cfg.Web.Port
-		// Probe the port — if it's already in use, another instance has
-		// the server running. Skip silently.
 		ln, listenErr := net.Listen("tcp", addr)
-		if listenErr == nil {
-			ln.Close()
-			srv := server.New(boardSvc, agentSvc, tmuxMgr, addr)
+		if listenErr != nil {
+			log.Printf("web: port %s unavailable: %v", cfg.Web.Port, listenErr)
+		} else {
+			webSrv = server.New(boardSvc, agentSvc, tmuxMgr, ln.Addr().String())
 			go func() {
-				if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
-					fmt.Fprintf(os.Stderr, "web server: %v\n", err)
+				if err := webSrv.Serve(ln); err != nil && err.Error() != "http: Server closed" {
+					log.Printf("web server: %v", err)
 				}
 			}()
 		}
@@ -535,11 +536,22 @@ func runTUI() int {
 	reportSvc := service.NewReportService(db)
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr)
 
+	// If the web server was auto-started, tell the TUI to show the indicator.
+	if webSrv != nil {
+		app.SetWebServerRunning(cfg.Web.Port)
+	}
+
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
+
+	// Shut down the web server so the process can exit cleanly.
+	if webSrv != nil {
+		webSrv.Stop(context.Background())
+	}
+
 	return 0
 }
 

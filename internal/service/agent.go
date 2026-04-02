@@ -294,7 +294,7 @@ func (a *agentService) CaptureOutput(ctx context.Context, taskID string) (string
 	if err != nil {
 		return "", err
 	}
-	return a.tmux.Capture(session.TmuxSession)
+	return a.tmux.CaptureWithEscapes(session.TmuxSession)
 }
 
 func (a *agentService) AttachCmd(ctx context.Context, taskID string) (*exec.Cmd, error) {

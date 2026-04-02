@@ -104,6 +104,14 @@ type App struct {
 	webServerPort string
 }
 
+// SetWebServerRunning tells the TUI that the web server was auto-started
+// externally, so the status bar shows the indicator without the TUI managing
+// the server lifecycle.
+func (a *App) SetWebServerRunning(port string) {
+	a.webServerPort = port
+	a.statusBar = a.statusBar.SetWebServer(port)
+}
+
 // NewApp creates a new root application model.
 func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager) App {
 	clip := clipboard.New()

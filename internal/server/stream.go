@@ -306,8 +306,75 @@ func splitLines(s string) []string {
 	return lines
 }
 
+// findIncompleteEscape scans backward from the end of data looking for an
+// incomplete ANSI escape sequence. Returns the index where the incomplete
+// sequence starts, or len(data) if the data ends cleanly.
+//
+// Handles CSI sequences (\x1b[...X), OSC sequences (\x1b]...ST), and bare
+// ESC at the end of a chunk.
+func findIncompleteEscape(data []byte) int {
+	n := len(data)
+	if n == 0 {
+		return n
+	}
+
+	// Scan backward to find the last ESC byte, but only within a reasonable
+	// window — escape sequences are rarely longer than 64 bytes.
+	limit := n - 64
+	if limit < 0 {
+		limit = 0
+	}
+
+	for i := n - 1; i >= limit; i-- {
+		if data[i] != 0x1b {
+			continue
+		}
+
+		// Found ESC. Check what follows.
+		seq := data[i:]
+		if len(seq) == 1 {
+			// Bare ESC at end — definitely incomplete.
+			return i
+		}
+
+		switch seq[1] {
+		case '[': // CSI sequence: \x1b[ params intermediate* final
+			// Final byte is in range 0x40-0x7E (@ through ~).
+			for j := 2; j < len(seq); j++ {
+				if seq[j] >= 0x40 && seq[j] <= 0x7E {
+					// Found the terminator — sequence is complete.
+					// Continue scanning in case there's another ESC after this one.
+					goto next
+				}
+			}
+			// No terminator found — incomplete CSI.
+			return i
+
+		case ']': // OSC sequence: \x1b] ... (terminated by BEL \x07 or ST \x1b\\)
+			for j := 2; j < len(seq); j++ {
+				if seq[j] == 0x07 {
+					goto next // terminated by BEL
+				}
+				if seq[j] == 0x1b && j+1 < len(seq) && seq[j+1] == '\\' {
+					goto next // terminated by ST
+				}
+			}
+			// No terminator — incomplete OSC.
+			return i
+
+		default:
+			// Two-byte escape (e.g. \x1b=, \x1b>) — complete.
+			goto next
+		}
+	next:
+	}
+
+	return n
+}
+
 func (sm *streamManager) readLoop(s *agentStream, reader io.Reader) {
-	buf := make([]byte, 4096)
+	buf := make([]byte, 32768) // 32KB — larger buffer reduces mid-sequence splits
+	var held []byte             // bytes held back from previous read (incomplete escape)
 	var detectTimer *time.Timer
 	const detectDelay = 500 * time.Millisecond
 
@@ -326,16 +393,37 @@ func (sm *streamManager) readLoop(s *agentStream, reader io.Reader) {
 
 		n, err := reader.Read(buf)
 		if n > 0 {
-			msg := WSMessage{
-				Type:    MsgAgentOutput,
-				AgentID: s.agentID,
-				Content: string(buf[:n]),
+			// Prepend any held bytes from a previous incomplete escape.
+			var chunk []byte
+			if len(held) > 0 {
+				chunk = make([]byte, len(held)+n)
+				copy(chunk, held)
+				copy(chunk[len(held):], buf[:n])
+				held = nil
+			} else {
+				chunk = buf[:n]
 			}
-			s.mu.Lock()
-			for c := range s.clients {
-				go c.send(msg)
+
+			// Check if the chunk ends with an incomplete escape sequence.
+			split := findIncompleteEscape(chunk)
+			if split < len(chunk) {
+				held = make([]byte, len(chunk)-split)
+				copy(held, chunk[split:])
+				chunk = chunk[:split]
 			}
-			s.mu.Unlock()
+
+			if len(chunk) > 0 {
+				msg := WSMessage{
+					Type:    MsgAgentOutput,
+					AgentID: s.agentID,
+					Content: string(chunk),
+				}
+				s.mu.Lock()
+				for c := range s.clients {
+					go c.send(msg)
+				}
+				s.mu.Unlock()
+			}
 
 			// Debounced prompt detection — run after output settles.
 			if detectTimer != nil {
@@ -346,6 +434,19 @@ func (sm *streamManager) readLoop(s *agentStream, reader io.Reader) {
 			})
 		}
 		if err != nil {
+			// Flush any remaining held bytes before exiting.
+			if len(held) > 0 {
+				msg := WSMessage{
+					Type:    MsgAgentOutput,
+					AgentID: s.agentID,
+					Content: string(held),
+				}
+				s.mu.Lock()
+				for c := range s.clients {
+					go c.send(msg)
+				}
+				s.mu.Unlock()
+			}
 			log.Printf("stream %s ended: %v", s.agentID, err)
 			if sm.onStreamEnd != nil {
 				sm.onStreamEnd(s.agentID)

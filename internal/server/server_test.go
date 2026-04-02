@@ -222,6 +222,35 @@ func TestServerStartAndStop(t *testing.T) {
 	}
 }
 
+func TestFindIncompleteEscape(t *testing.T) {
+	tests := []struct {
+		name  string
+		input []byte
+		want  int // expected split index
+	}{
+		{"empty", []byte{}, 0},
+		{"no escape", []byte("hello world"), 11},
+		{"complete CSI", []byte("hello\x1b[31mred"), 13},
+		{"bare ESC at end", []byte("hello\x1b"), 5},
+		{"incomplete CSI", []byte("hello\x1b[38;2;100"), 5},
+		{"ESC[ at end", []byte("hello\x1b["), 5},
+		{"incomplete OSC", []byte("hello\x1b]0;title"), 5},
+		{"complete OSC with BEL", []byte("hello\x1b]0;title\x07rest"), 19},
+		{"two-byte escape complete", []byte("hello\x1b="), 7},
+		{"complete CSI then text", []byte("\x1b[2Jhello"), 9},
+		{"multiple CSI last incomplete", []byte("\x1b[2Jhello\x1b[38;2"), 9},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := findIncompleteEscape(tt.input)
+			if got != tt.want {
+				t.Errorf("findIncompleteEscape(%q) = %d, want %d", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 // mockTmuxManager implements service.TmuxManager for server-level tests.
 type mockTmuxManager struct {
 	sentKeys []string
