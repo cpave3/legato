@@ -19,6 +19,7 @@ const (
 	MsgSendKeys         = "send_keys"
 	MsgResize           = "resize"
 	MsgDetectPrompt     = "detect_prompt"
+	MsgRefreshPane      = "refresh_pane"
 )
 
 // WebSocket message types (server → client).
@@ -154,6 +155,8 @@ func (s *Server) handleWSMessage(client *wsClient, msg WSMessage) {
 		s.handleResize(client, msg)
 	case MsgDetectPrompt:
 		s.handleDetectPrompt(client, msg)
+	case MsgRefreshPane:
+		s.handleRefreshPane(client, msg)
 	default:
 		client.send(WSMessage{Type: MsgError, Error: "unknown message type: " + msg.Type})
 	}
@@ -265,5 +268,24 @@ func (s *Server) handleDetectPrompt(client *wsClient, msg WSMessage) {
 		Type:    MsgPromptState,
 		AgentID: msg.AgentID,
 		Prompt:  &state,
+	})
+}
+
+func (s *Server) handleRefreshPane(client *wsClient, msg WSMessage) {
+	if s.tmux == nil || msg.AgentID == "" {
+		return
+	}
+
+	sessionName := "legato-" + msg.AgentID
+	snapshot, err := s.tmux.CaptureWithEscapes(sessionName)
+	if err != nil || snapshot == "" {
+		return
+	}
+
+	snapshot = strings.ReplaceAll(snapshot, "\n", "\r\n")
+	client.send(WSMessage{
+		Type:    MsgAgentOutput,
+		AgentID: msg.AgentID,
+		Content: "\x1b[2J\x1b[H" + snapshot,
 	})
 }

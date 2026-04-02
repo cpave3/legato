@@ -63,6 +63,12 @@ export function AgentsPage() {
     }
   }, [selectedId, send])
 
+  const handleRefresh = useCallback(() => {
+    if (selectedId) {
+      send({ type: "refresh_pane", agent_id: selectedId })
+    }
+  }, [selectedId, send])
+
   const handleDisconnect = useCallback(() => {
     if (selectedId) {
       send({ type: "unsubscribe_agent", agent_id: selectedId })
@@ -182,6 +188,7 @@ export function AgentsPage() {
               onDetectPrompt={handleDetectPrompt}
               onDisconnect={handleDisconnect}
               onKill={handleKill}
+              onRefresh={handleRefresh}
               agentTitle={selectedAgent?.task_title}
               agentActivity={selectedAgent?.activity}
             />

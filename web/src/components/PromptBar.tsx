@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from "react"
 import type { PromptState } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
-import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal } from "lucide-react"
+import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw } from "lucide-react"
 
 interface PromptBarProps {
   promptState: PromptState | null
@@ -10,11 +10,12 @@ interface PromptBarProps {
   onDetectPrompt: () => void
   onDisconnect: () => void
   onKill: () => void
+  onRefresh: () => void
   agentTitle?: string
   agentActivity?: string
 }
 
-export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, agentTitle, agentActivity }: PromptBarProps) {
+export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, agentTitle, agentActivity }: PromptBarProps) {
   const [input, setInput] = useState("")
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -111,6 +112,13 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPr
             </button>
             {menuOpen && (
               <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[160px] z-10">
+                <button
+                  onClick={() => { onRefresh(); setMenuOpen(false) }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                >
+                  <RefreshCw size={12} />
+                  Refresh terminal
+                </button>
                 <button
                   onClick={() => { onDetectPrompt(); setMenuOpen(false) }}
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
