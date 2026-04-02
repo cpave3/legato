@@ -111,9 +111,11 @@ func (sm *streamManager) startPipe(s *agentStream) {
 			AgentID: agentID,
 			Content: snapshot,
 		}
+		// Send synchronously — backfill must complete before the live
+		// pipe starts to preserve output ordering.
 		s.mu.Lock()
 		for c := range s.clients {
-			go c.send(msg)
+			c.send(msg)
 		}
 		s.mu.Unlock()
 	}
@@ -418,9 +420,12 @@ func (sm *streamManager) readLoop(s *agentStream, reader io.Reader) {
 					AgentID: s.agentID,
 					Content: string(chunk),
 				}
+				// Send synchronously to preserve chunk ordering.
+				// Each send has a 5s timeout so a slow client won't
+				// block the read loop indefinitely.
 				s.mu.Lock()
 				for c := range s.clients {
-					go c.send(msg)
+					c.send(msg)
 				}
 				s.mu.Unlock()
 			}
@@ -443,7 +448,7 @@ func (sm *streamManager) readLoop(s *agentStream, reader io.Reader) {
 				}
 				s.mu.Lock()
 				for c := range s.clients {
-					go c.send(msg)
+					c.send(msg)
 				}
 				s.mu.Unlock()
 			}

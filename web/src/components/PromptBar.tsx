@@ -66,7 +66,10 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPr
   }
 
   const isWorking = agentActivity === "working"
-  const type = promptState?.type ?? null
+  const isWaiting = agentActivity === "waiting"
+  // Only show detected prompt buttons when the agent is waiting for input.
+  // This avoids false positives from pattern-matching mid-output.
+  const type = isWaiting ? (promptState?.type ?? null) : null
 
   return (
     <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-3">

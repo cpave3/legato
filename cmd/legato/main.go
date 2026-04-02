@@ -454,6 +454,8 @@ func runTUI() int {
 	boardSvc := service.NewBoardService(db, bus)
 
 	// Start IPC server for CLI→TUI communication.
+	// webSrv is set later if web.enabled — the closure captures the pointer.
+	var webSrv *server.Server
 	socketPath := ipc.SocketPath()
 	ipcServer, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
 		switch msg.Type {
@@ -462,11 +464,17 @@ func runTUI() int {
 				Type: events.EventCardUpdated,
 				At:   time.Now(),
 			})
+			if webSrv != nil {
+				webSrv.NotifyAgentsChanged()
+			}
 		case "pr_linked":
 			bus.Publish(events.Event{
 				Type: events.EventPRStatusUpdated,
 				At:   time.Now(),
 			})
+			if webSrv != nil {
+				webSrv.NotifyAgentsChanged()
+			}
 		}
 	})
 	if ipcErr == nil {
@@ -530,7 +538,6 @@ func runTUI() int {
 	editor := config.ResolveEditor(cfg)
 
 	// Auto-start web server if configured and port is free.
-	var webSrv *server.Server
 	if cfg.Web.Enabled {
 		addr := ":" + cfg.Web.Port
 		ln, listenErr := net.Listen("tcp", addr)

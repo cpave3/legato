@@ -13,7 +13,7 @@ export function TerminalPanel({ agentId }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
-  const { send, subscribe } = useWebSocket()
+  const { send, subscribe, connected } = useWebSocket()
   const agentIdRef = useRef(agentId)
   agentIdRef.current = agentId
   const [isScrolledUp, setIsScrolledUp] = useState(false)
@@ -92,10 +92,12 @@ export function TerminalPanel({ agentId }: TerminalPanelProps) {
     })
   }, [agentId, subscribe])
 
-  // Clear terminal and re-send size when agent changes.
+  // Clear terminal and re-send size when agent changes or WebSocket reconnects.
+  // The resize message triggers startPipe on the server — without it, the pipe
+  // never starts and no output flows.
   useEffect(() => {
     const term = termRef.current
-    if (term) {
+    if (term && connected) {
       term.reset()
       setIsScrolledUp(false)
       term.write("\x1b[2m[connected]\x1b[0m\r\n")
@@ -106,7 +108,7 @@ export function TerminalPanel({ agentId }: TerminalPanelProps) {
         rows: term.rows,
       })
     }
-  }, [agentId, send])
+  }, [agentId, connected, send])
 
   // Custom touch-to-scroll: mobile browsers don't reliably deliver touch
   // events to xterm.js's internal viewport. We intercept touches on the

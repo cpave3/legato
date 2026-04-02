@@ -5,7 +5,7 @@ import { TerminalPanel } from "../components/TerminalPanel"
 import { PromptBar } from "../components/PromptBar"
 
 export function AgentsPage() {
-  const { send, subscribe } = useWebSocket()
+  const { send, subscribe, connected } = useWebSocket()
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [promptState, setPromptState] = useState<PromptState | null>(null)
@@ -109,6 +109,14 @@ export function AgentsPage() {
       window.alert("Failed to spawn agent")
     }
   }, [])
+
+  // Re-subscribe to the selected agent after a WebSocket reconnect.
+  // The server-side subscription is lost when the old connection drops.
+  useEffect(() => {
+    if (connected && selectedId) {
+      send({ type: "subscribe_agent", agent_id: selectedId })
+    }
+  }, [connected, selectedId, send])
 
   // Mobile: use select dropdown on narrow screens
   const [isMobile, setIsMobile] = useState(false)
