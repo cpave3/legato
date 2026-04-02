@@ -45,6 +45,7 @@ const (
 	overlayArchive
 	overlayLinkPR
 	overlayOpenURL
+	overlayEphemeralSpawn
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -495,6 +496,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleTitleEditSubmit(msg)
 
 	case overlay.TitleEditCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
+	case agents.OpenEphemeralSpawnMsg:
+		return a.openEphemeralSpawnOverlay()
+
+	case overlay.EphemeralSpawnSubmitMsg:
+		return a.handleEphemeralSpawnSubmit(msg)
+
+	case overlay.EphemeralSpawnCancelledMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
 		return a, nil
@@ -1066,6 +1078,42 @@ func (a App) handleTitleEditSubmit(msg overlay.TitleEditSubmitMsg) (tea.Model, t
 	}
 
 	return a, tea.Batch(cmds...)
+}
+
+func (a App) openEphemeralSpawnOverlay() (tea.Model, tea.Cmd) {
+	spawnModel := overlay.NewEphemeralSpawn()
+	sized, _ := spawnModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.activeOverlay = sized
+	a.overlayType = overlayEphemeralSpawn
+	return a, nil
+}
+
+func (a App) handleEphemeralSpawnSubmit(msg overlay.EphemeralSpawnSubmitMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+
+	if a.agentSvc == nil {
+		return a, nil
+	}
+
+	svc := a.agentSvc
+	title := msg.Title
+	termW := a.width - agents.SidebarWidth
+	if termW < 1 {
+		termW = 1
+	}
+	termH := a.height - 1
+
+	return a, tea.Batch(
+		func() tea.Msg {
+			if err := svc.SpawnEphemeralAgent(context.Background(), title, termW, termH); err != nil {
+				return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
+			}
+			agentList, _ := svc.ListAgents(context.Background())
+			return agents.AgentsRefreshedMsg{Agents: agentList}
+		},
+		agentTickCmd(),
+	)
 }
 
 func (a App) handleCreateTask(msg overlay.CreateTaskMsg) (tea.Model, tea.Cmd) {

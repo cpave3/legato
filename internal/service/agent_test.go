@@ -797,6 +797,51 @@ func TestSpawnAgentSkipsStatusLineWithoutBinaryPath(t *testing.T) {
 	}
 }
 
+func TestSpawnEphemeralAgentCreatesTaskAndSession(t *testing.T) {
+	svc, s, mt := newTestAgentService(t)
+	ctx := context.Background()
+
+	// Seed a column mapping so CreateEphemeralTask finds a status
+	if err := s.CreateColumnMapping(ctx, store.ColumnMapping{
+		ColumnName: "Backlog", SortOrder: 0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.SpawnEphemeralAgent(ctx, "debugging auth", 120, 40); err != nil {
+		t.Fatal(err)
+	}
+
+	// Should have one agent session
+	agents, err := svc.ListAgents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("got %d agents, want 1", len(agents))
+	}
+
+	// Agent should have the ephemeral task's title
+	if agents[0].Title != "debugging auth" {
+		t.Errorf("Title = %q, want %q", agents[0].Title, "debugging auth")
+	}
+
+	// Tmux session should exist with legato- prefix
+	taskID := agents[0].TaskID
+	if !mt.sessions["legato-"+taskID] {
+		t.Errorf("expected tmux session legato-%s to exist", taskID)
+	}
+
+	// The backing task should be ephemeral
+	task, err := s.GetTask(ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !task.Ephemeral {
+		t.Error("expected backing task to be ephemeral")
+	}
+}
+
 func TestListAgentsFallsBackOnPaneCommandsError(t *testing.T) {
 	svc, s, mt := newTestAgentService(t)
 	ctx := context.Background()

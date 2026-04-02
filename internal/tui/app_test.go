@@ -631,6 +631,9 @@ func (f *fakeAgentService) GetTaskDurations(_ context.Context, _ []string) (map[
 func (f *fakeAgentService) GetAgentSummary(_ context.Context, _ string) (int, int, int, error) {
 	return 0, 0, 0, nil
 }
+func (f *fakeAgentService) SpawnEphemeralAgent(_ context.Context, _ string, _, _ int) error {
+	return nil
+}
 
 func TestDurationDataFlowsToBoard(t *testing.T) {
 	agentSvc := &fakeAgentService{

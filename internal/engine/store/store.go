@@ -66,7 +66,7 @@ func (s *Store) migrate() error {
 		return err
 	}
 
-	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql", "008_workspaces.sql", "009_archive.sql", "010_pr_meta.sql"}
+	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql", "008_workspaces.sql", "009_archive.sql", "010_pr_meta.sql", "011_ephemeral.sql"}
 
 	for i := version; i < len(migrations); i++ {
 		data, err := migrationsFS.ReadFile("migrations/" + migrations[i])
@@ -103,10 +103,10 @@ func (s *Store) CreateTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO tasks (id, title, description, description_md, status,
 			priority, sort_order, provider, remote_id, remote_meta,
-			workspace_id, created_at, updated_at)
+			workspace_id, ephemeral, created_at, updated_at)
 		VALUES (:id, :title, :description, :description_md, :status,
 			:priority, :sort_order, :provider, :remote_id, :remote_meta,
-			:workspace_id, :created_at, :updated_at)`, t)
+			:workspace_id, :ephemeral, :created_at, :updated_at)`, t)
 	return err
 }
 
@@ -125,7 +125,7 @@ var ErrNotFound = fmt.Errorf("not found")
 func (s *Store) ListTasksByStatus(ctx context.Context, status string) ([]Task, error) {
 	var tasks []Task
 	err := s.db.SelectContext(ctx, &tasks,
-		"SELECT * FROM tasks WHERE status = ? AND archived_at IS NULL ORDER BY sort_order ASC", status)
+		"SELECT * FROM tasks WHERE status = ? AND archived_at IS NULL AND ephemeral = 0 ORDER BY sort_order ASC", status)
 	return tasks, err
 }
 
@@ -150,10 +150,10 @@ func (s *Store) UpsertTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO tasks (id, title, description, description_md, status,
 			priority, sort_order, provider, remote_id, remote_meta,
-			workspace_id, created_at, updated_at)
+			workspace_id, ephemeral, created_at, updated_at)
 		VALUES (:id, :title, :description, :description_md, :status,
 			:priority, :sort_order, :provider, :remote_id, :remote_meta,
-			:workspace_id, :created_at, :updated_at)
+			:workspace_id, :ephemeral, :created_at, :updated_at)
 		ON CONFLICT(id) DO UPDATE SET
 			title = :title, description = :description, description_md = :description_md,
 			status = :status, priority = :priority, sort_order = :sort_order,
@@ -198,11 +198,11 @@ func (s *Store) ListTasksByStatusAndWorkspace(ctx context.Context, status string
 		return s.ListTasksByStatus(ctx, status)
 	case ViewUnassigned:
 		err := s.db.SelectContext(ctx, &tasks,
-			"SELECT * FROM tasks WHERE status = ? AND workspace_id IS NULL AND archived_at IS NULL ORDER BY sort_order ASC", status)
+			"SELECT * FROM tasks WHERE status = ? AND workspace_id IS NULL AND archived_at IS NULL AND ephemeral = 0 ORDER BY sort_order ASC", status)
 		return tasks, err
 	case ViewWorkspace:
 		err := s.db.SelectContext(ctx, &tasks,
-			"SELECT * FROM tasks WHERE status = ? AND workspace_id = ? AND archived_at IS NULL ORDER BY sort_order ASC", status, view.WorkspaceID)
+			"SELECT * FROM tasks WHERE status = ? AND workspace_id = ? AND archived_at IS NULL AND ephemeral = 0 ORDER BY sort_order ASC", status, view.WorkspaceID)
 		return tasks, err
 	default:
 		return s.ListTasksByStatus(ctx, status)
@@ -215,6 +215,31 @@ func (s *Store) UpdateTaskWorkspace(ctx context.Context, taskID string, workspac
 		"UPDATE tasks SET workspace_id = ?, updated_at = datetime('now') WHERE id = ?",
 		workspaceID, taskID)
 	return err
+}
+
+// CreateEphemeralTask creates a lightweight ephemeral task row for backing an agent session.
+// It generates an 8-char ID, sets ephemeral=1, and uses the first column as status.
+func (s *Store) CreateEphemeralTask(ctx context.Context, title string) (string, error) {
+	// Get first column for default status
+	var status string
+	mappings, err := s.ListColumnMappings(ctx)
+	if err != nil || len(mappings) == 0 {
+		status = "Backlog" // fallback
+	} else {
+		status = mappings[0].ColumnName
+	}
+
+	id := GenerateTaskID()
+	now := "datetime('now')"
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO tasks (id, title, description, description_md, status,
+			priority, sort_order, ephemeral, created_at, updated_at)
+		VALUES (?, ?, '', '', ?, '', 0, 1, `+now+`, `+now+`)`,
+		id, title, status)
+	if err != nil {
+		return "", fmt.Errorf("creating ephemeral task: %w", err)
+	}
+	return id, nil
 }
 
 // Workspace CRUD

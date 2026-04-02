@@ -62,8 +62,8 @@ func TestSpawnKeybinding(t *testing.T) {
 		t.Fatal("expected command from 's' key")
 	}
 	msg := cmd()
-	if _, ok := msg.(SpawnAgentMsg); !ok {
-		t.Errorf("expected SpawnAgentMsg, got %T", msg)
+	if _, ok := msg.(OpenEphemeralSpawnMsg); !ok {
+		t.Errorf("expected OpenEphemeralSpawnMsg, got %T", msg)
 	}
 }
 
@@ -263,23 +263,15 @@ func TestSidebarWidth(t *testing.T) {
 	}
 }
 
-func TestSpawnMsgIncludesDimensions(t *testing.T) {
+func TestSpawnMsgIsEphemeral(t *testing.T) {
 	m := newTestModel()
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	if cmd == nil {
 		t.Fatal("expected command from 's' key")
 	}
 	msg := cmd()
-	spawn, ok := msg.(SpawnAgentMsg)
-	if !ok {
-		t.Fatalf("expected SpawnAgentMsg, got %T", msg)
-	}
-	expectedW := 120 - SidebarWidth
-	if spawn.Width != expectedW {
-		t.Errorf("Width = %d, want %d", spawn.Width, expectedW)
-	}
-	if spawn.Height != 40 {
-		t.Errorf("Height = %d, want 40", spawn.Height)
+	if _, ok := msg.(OpenEphemeralSpawnMsg); !ok {
+		t.Fatalf("expected OpenEphemeralSpawnMsg, got %T", msg)
 	}
 }
 

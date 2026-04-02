@@ -150,8 +150,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	case "s":
-		w, h := m.terminalDims()
-		return m, func() tea.Msg { return SpawnAgentMsg{Width: w, Height: h} }
+		return m, func() tea.Msg { return OpenEphemeralSpawnMsg{} }
 	case "X":
 		if a := m.SelectedAgent(); a != nil {
 			return m, func() tea.Msg { return KillAgentMsg{TaskID: a.TaskID} }
@@ -209,7 +208,7 @@ func (m Model) renderSidebar() string {
 			Foreground(theme.TextTertiary).
 			PaddingLeft(1).
 			Width(sidebarContentWidth)
-		entries = emptyStyle.Render("No agents\n\nPress s to spawn")
+		entries = emptyStyle.Render("No agents\n\nPress s to spawn\nan ephemeral session")
 	} else {
 		var entryLines []string
 		for i, a := range m.agents {

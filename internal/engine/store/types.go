@@ -55,6 +55,7 @@ type Task struct {
 	PRMeta        *string `db:"pr_meta"`
 	WorkspaceID   *int    `db:"workspace_id"`
 	ArchivedAt    *string `db:"archived_at"`
+	Ephemeral     bool    `db:"ephemeral"`
 	CreatedAt     string  `db:"created_at"`
 	UpdatedAt     string  `db:"updated_at"`
 }

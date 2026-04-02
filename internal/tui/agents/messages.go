@@ -19,6 +19,9 @@ type AttachSessionMsg struct {
 	TmuxSession string
 }
 
+// OpenEphemeralSpawnMsg requests opening the ephemeral spawn overlay.
+type OpenEphemeralSpawnMsg struct{}
+
 // ReturnToBoardMsg signals returning to the board view.
 type ReturnToBoardMsg struct{}
 

@@ -51,6 +51,7 @@ type AgentService interface {
 	AttachCmd(ctx context.Context, taskID string) (*exec.Cmd, error)
 	GetTaskDurations(ctx context.Context, taskIDs []string) (map[string]DurationData, error)
 	GetAgentSummary(ctx context.Context, excludeTaskID string) (working, waiting, idle int, err error)
+	SpawnEphemeralAgent(ctx context.Context, title string, width, height int) error
 }
 
 type agentService struct {
@@ -161,6 +162,14 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 
 	return nil
+}
+
+func (a *agentService) SpawnEphemeralAgent(ctx context.Context, title string, width, height int) error {
+	taskID, err := a.store.CreateEphemeralTask(ctx, title)
+	if err != nil {
+		return fmt.Errorf("creating ephemeral task: %w", err)
+	}
+	return a.SpawnAgent(ctx, taskID, width, height)
 }
 
 func (a *agentService) KillAgent(ctx context.Context, taskID string) error {
