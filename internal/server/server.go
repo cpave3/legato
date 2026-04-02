@@ -5,24 +5,42 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/cpave3/legato/internal/server/static"
 	"github.com/cpave3/legato/internal/service"
 )
 
-// Server is a minimal HTTP server wrapping BoardService.
+// Server is the HTTP/WebSocket server for Legato's web UI.
 type Server struct {
-	svc    service.BoardService
-	addr   string
-	server *http.Server
+	board  service.BoardService
+	agents service.AgentService
+	tmux   service.TmuxManager
+	addr    string
+	server  *http.Server
+	hub     *Hub
+	streams *streamManager
 }
 
-// New creates a new server.
-func New(svc service.BoardService, addr string) *Server {
+// New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
+func New(board service.BoardService, agents service.AgentService, tmux service.TmuxManager, addr string) *Server {
 	s := &Server{
-		svc:  svc,
-		addr: addr,
+		board:  board,
+		agents: agents,
+		tmux:   tmux,
+		addr:    addr,
+		hub:     newHub(),
+		streams: newStreamManager(tmux),
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", healthHandler(svc))
+	mux.HandleFunc("/health", healthHandler(board))
+	mux.HandleFunc("/api/agents", s.agentsHandler())
+	mux.HandleFunc("/api/tasks", s.tasksHandler())
+	mux.HandleFunc("/ws", s.wsHandler())
+
+	// SPA fallback — serve embedded frontend for all non-API paths.
+	if fsys := static.DistFS(); fsys != nil {
+		mux.HandleFunc("/", spaHandler(fsys))
+	}
+
 	s.server = &http.Server{
 		Addr:    addr,
 		Handler: mux,
@@ -43,6 +61,17 @@ func (s *Server) Start() error {
 	}
 	s.addr = ln.Addr().String()
 	return s.server.Serve(ln)
+}
+
+// Addr returns the server's listen address (useful after :0 binding).
+func (s *Server) Addr() string {
+	return s.addr
+}
+
+// NotifyAgentsChanged broadcasts an agents_changed message to all WebSocket clients.
+// Call this from IPC message handlers when agent state changes.
+func (s *Server) NotifyAgentsChanged() {
+	s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
 }
 
 // Stop gracefully shuts down the server.

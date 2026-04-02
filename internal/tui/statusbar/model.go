@@ -39,10 +39,11 @@ type Model struct {
 	warning       string
 	errorText     string
 	infoText      string
-	workspaceName string
+	workspaceName  string
 	workspaceColor string
-	width         int
-	now           func() time.Time // for testing
+	webServerPort  string
+	width          int
+	now            func() time.Time // for testing
 }
 
 // New creates a new status bar model.
@@ -85,6 +86,18 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// SetWebServer updates the status bar to show the web server port.
+func (m Model) SetWebServer(port string) Model {
+	m.webServerPort = port
+	return m
+}
+
+// ClearWebServer removes the web server indicator from the status bar.
+func (m Model) ClearWebServer() Model {
+	m.webServerPort = ""
+	return m
+}
+
 // View renders the status bar.
 func (m Model) View() string {
 	if m.width == 0 {
@@ -103,6 +116,13 @@ func (m Model) View() string {
 		}
 		wsStyle := lipgloss.NewStyle().Foreground(wsColor)
 		wsDisplay = "  " + wsStyle.Render(m.workspaceName)
+	}
+
+	// Web server indicator
+	webDisplay := ""
+	if m.webServerPort != "" {
+		webStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa"))
+		webDisplay = "  " + webStyle.Render("Web :"+m.webServerPort)
 	}
 
 	// Error > warning > info (priority order)
@@ -142,7 +162,7 @@ func (m Model) View() string {
 	hintsStr := truncateHints(hintParts, m.width-lipgloss.Width(syncDisplay)-4)
 
 	// Compose left (sync + workspace + warning) and right (hints)
-	leftPart := syncDisplay + wsDisplay + warningDisplay
+	leftPart := syncDisplay + wsDisplay + webDisplay + warningDisplay
 	gap := m.width - lipgloss.Width(leftPart) - lipgloss.Width(hintsStr)
 	if gap < 1 {
 		gap = 1

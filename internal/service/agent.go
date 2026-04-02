@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"time"
 
@@ -17,6 +18,9 @@ type TmuxManager interface {
 	Attach(name string) *exec.Cmd
 	ListSessions() ([]string, error)
 	IsAlive(name string) (bool, error)
+	SendKeys(name, keys string) error
+	SendKey(name, key string) error
+	PipeOutput(name string) (io.Reader, func(), error)
 	SetEnv(sessionName, key, value string) error
 	SetOption(sessionName, key, value string) error
 	PaneCommands() (map[string]string, error)

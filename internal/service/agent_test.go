@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -99,6 +100,27 @@ func (m *mockTmux) SetOption(sessionName, key, value string) error {
 	}
 	m.options[sessionName][key] = value
 	return nil
+}
+
+func (m *mockTmux) SendKeys(name, keys string) error {
+	if !m.sessions[name] {
+		return fmt.Errorf("session %s not found", name)
+	}
+	return nil
+}
+
+func (m *mockTmux) SendKey(name, key string) error {
+	if !m.sessions[name] {
+		return fmt.Errorf("session %s not found", name)
+	}
+	return nil
+}
+
+func (m *mockTmux) PipeOutput(name string) (io.Reader, func(), error) {
+	if !m.sessions[name] {
+		return nil, nil, fmt.Errorf("session %s not found", name)
+	}
+	return strings.NewReader(""), func() {}, nil
 }
 
 func (m *mockTmux) SetEnv(sessionName, key, value string) error {

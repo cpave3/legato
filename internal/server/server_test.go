@@ -76,7 +76,7 @@ func TestHealthEndpointReturnsOK(t *testing.T) {
 		},
 	}
 
-	srv := New(svc, ":0")
+	srv := New(svc, nil, nil, ":0")
 	handler := srv.Handler()
 
 	req := httptest.NewRequest("GET", "/health", nil)
@@ -119,7 +119,7 @@ func TestHealthEndpointEmptyBoard(t *testing.T) {
 		},
 	}
 
-	srv := New(svc, ":0")
+	srv := New(svc, nil, nil, ":0")
 	handler := srv.Handler()
 
 	req := httptest.NewRequest("GET", "/health", nil)
@@ -141,13 +141,76 @@ func TestHealthEndpointEmptyBoard(t *testing.T) {
 	}
 }
 
+func TestAgentsEndpointNoService(t *testing.T) {
+	svc := &mockBoardService{
+		columns: []service.Column{},
+		cards:   map[string][]service.Card{},
+	}
+
+	srv := New(svc, nil, nil, ":0")
+	handler := srv.Handler()
+
+	req := httptest.NewRequest("GET", "/api/agents", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var resp []AgentResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp) != 0 {
+		t.Errorf("got %d agents, want 0", len(resp))
+	}
+}
+
+func TestTasksEndpoint(t *testing.T) {
+	svc := &mockBoardService{
+		columns: []service.Column{
+			{Name: "Backlog", SortOrder: 0},
+			{Name: "Doing", SortOrder: 1},
+		},
+		cards: map[string][]service.Card{
+			"Backlog": {
+				{ID: "t1", Title: "Task one", Status: "Backlog"},
+			},
+			"Doing": {},
+		},
+	}
+
+	srv := New(svc, nil, nil, ":0")
+	handler := srv.Handler()
+
+	req := httptest.NewRequest("GET", "/api/tasks", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	var resp TasksResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp["Backlog"]) != 1 {
+		t.Errorf("backlog cards = %d, want 1", len(resp["Backlog"]))
+	}
+	if len(resp["Doing"]) != 0 {
+		t.Errorf("doing cards = %d, want 0", len(resp["Doing"]))
+	}
+}
+
 func TestServerStartAndStop(t *testing.T) {
 	svc := &mockBoardService{
 		columns: []service.Column{},
 		cards:   map[string][]service.Card{},
 	}
 
-	srv := New(svc, "127.0.0.1:0")
+	srv := New(svc, nil, nil, "127.0.0.1:0")
 	go func() { _ = srv.Start() }()
 	time.Sleep(50 * time.Millisecond)
 	if err := srv.Stop(context.Background()); err != nil {

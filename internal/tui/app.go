@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/agents"
 	"github.com/cpave3/legato/internal/tui/board"
@@ -97,10 +98,14 @@ type App struct {
 	eventSubs     []<-chan events.Event // sync lifecycle events (started/completed/failed/errors)
 	cardUpdateSub <-chan events.Event
 	prSub         <-chan events.Event
+	tmux          service.TmuxManager
+	webServer     *server.Server
+	webServerStop func()
+	webServerPort string
 }
 
 // NewApp creates a new root application model.
-func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace) App {
+func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager) App {
 	clip := clipboard.New()
 	b := board.New(svc, icons)
 	b.SetWorkspaces(workspaces)
@@ -114,9 +119,11 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		reportView: report.New(reportSvc),
 		statusBar:  statusbar.New(),
 		clip:       clip,
-		editor:     editor,
-		active:     viewBoard,
-		eventBus:   bus,
+		editor:        editor,
+		active:        viewBoard,
+		eventBus:      bus,
+		tmux:          tmux,
+		webServerPort: "3080",
 	}
 	if bus != nil {
 		app.eventSubs = []<-chan events.Event{
@@ -1137,6 +1144,63 @@ func (a App) switchToReportView() (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
+// webServerStartedMsg signals that the web server started.
+type webServerStartedMsg struct{ port string }
+
+// webServerStoppedMsg signals that the web server stopped.
+type webServerStoppedMsg struct{}
+
+func (a App) toggleWebServer() (tea.Model, tea.Cmd) {
+	if a.webServer != nil {
+		// Stop the server.
+		srv := a.webServer
+		stopFn := a.webServerStop
+		a.webServer = nil
+		a.webServerStop = nil
+		a.statusBar = a.statusBar.ClearWebServer()
+		return a, func() tea.Msg {
+			if stopFn != nil {
+				stopFn()
+			}
+			srv.Stop(context.Background())
+			return webServerStoppedMsg{}
+		}
+	}
+
+	// Start the server.
+	addr := ":" + a.webServerPort
+	srv := server.New(a.svc, a.agentSvc, a.tmux, addr)
+	a.webServer = srv
+	a.statusBar = a.statusBar.SetWebServer(a.webServerPort)
+
+	// Bridge event bus → web server: notify WebSocket clients on state changes.
+	stopCh := make(chan struct{})
+	a.webServerStop = func() { close(stopCh) }
+	if a.eventBus != nil {
+		cardCh := a.eventBus.Subscribe(events.EventCardUpdated)
+		prCh := a.eventBus.Subscribe(events.EventPRStatusUpdated)
+		go func() {
+			for {
+				select {
+				case <-stopCh:
+					return
+				case <-cardCh:
+					srv.NotifyAgentsChanged()
+				case <-prCh:
+					srv.NotifyAgentsChanged()
+				}
+			}
+		}()
+	}
+
+	return a, func() tea.Msg {
+		if err := srv.Start(); err != nil {
+			return webServerStoppedMsg{}
+		}
+		return nil
+	}
+}
+
 // agentTickMsg is an internal tick for agent capture polling.
 type agentTickMsg struct{}
 
@@ -1307,6 +1371,10 @@ func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// 'S' switches to report view
 		if msg.String() == "S" {
 			return a.switchToReportView()
+		}
+		// 'W' toggles web server
+		if msg.String() == "W" {
+			return a.toggleWebServer()
 		}
 		// 'a' spawns agent on selected card
 		if msg.String() == "a" {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,6 +18,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/jira"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/tmux"
+	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/setup"
 	"github.com/cpave3/legato/internal/tui"
@@ -40,9 +43,11 @@ func runCLI(args []string) int {
 		return runAgentCmd(args[1:])
 	case "hooks":
 		return runHooksCmd(args[1:])
+	case "serve":
+		return runServeCmd(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato [task|agent|hooks]\n")
+		fmt.Fprintf(os.Stderr, "usage: legato [task|agent|hooks|serve]\n")
 		return 1
 	}
 }
@@ -317,6 +322,72 @@ func runHooksCmd(args []string) int {
 	}
 }
 
+func runServeCmd(args []string) int {
+	port := "3080"
+	for i, a := range args {
+		if a == "--port" && i+1 < len(args) {
+			port = args[i+1]
+		}
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
+
+	dbPath := config.ResolveDBPath(cfg)
+	db, err := store.New(dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "database: %v\n", err)
+		return 1
+	}
+	defer db.Close()
+
+	bus := events.New()
+	boardSvc := service.NewBoardService(db, bus)
+
+	// Set up agent service (tmux may not be installed).
+	var agentSvc service.AgentService
+	var tmuxMgr service.TmuxManager
+	if mgr, tmuxErr := tmux.New(tmux.Options{}); tmuxErr == nil {
+		tmuxMgr = mgr
+		wd, _ := os.Getwd()
+		agentSvc = service.NewAgentService(db, mgr, wd)
+	}
+
+	addr := ":" + port
+	srv := server.New(boardSvc, agentSvc, tmuxMgr, addr)
+
+	// IPC server for receiving CLI→web updates.
+	socketPath := ipc.SocketPath()
+	ipcSrv, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
+		switch msg.Type {
+		case "task_update", "task_note", "agent_state", "pr_linked":
+			srv.NotifyAgentsChanged()
+		}
+	})
+	if ipcErr == nil {
+		defer ipcSrv.Close()
+	}
+
+	// Handle SIGINT/SIGTERM.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		fmt.Println("\nShutting down...")
+		srv.Stop(context.Background())
+	}()
+
+	fmt.Printf("Legato web UI: http://localhost:%s\n", port)
+	if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
+		fmt.Fprintf(os.Stderr, "server: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 func runTUI() int {
 	cfg, err := config.Load()
 	if err != nil {
@@ -413,12 +484,13 @@ func runTUI() int {
 
 	// Set up agent service (tmux may not be installed — that's OK, agent features just won't work)
 	var agentSvc service.AgentService
+	var tmuxMgr service.TmuxManager
 	escapeKey := cfg.Agents.EscapeKey
 	if escapeKey == "" {
 		escapeKey = "ctrl+]"
 	}
-	tmuxMgr, tmuxErr := tmux.New(tmux.Options{EscapeKey: tmuxEscapeKey(escapeKey)})
-	if tmuxErr == nil {
+	if mgr, tmuxErr := tmux.New(tmux.Options{EscapeKey: tmuxEscapeKey(escapeKey)}); tmuxErr == nil {
+		tmuxMgr = mgr
 		wd, _ := os.Getwd()
 
 		// Configure AI tool adapter for env var injection.
@@ -443,7 +515,7 @@ func runTUI() int {
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
 
 	reportSvc := service.NewReportService(db)
-	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces)
+	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

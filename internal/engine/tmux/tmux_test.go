@@ -308,6 +308,41 @@ func TestPaneCommandsTmuxNotInstalled(t *testing.T) {
 	// Can't call PaneCommands without a valid Manager — error at construction is correct
 }
 
+func TestSendKeysIntegration(t *testing.T) {
+	skipWithoutTmux(t)
+
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	name := "legato-test-sendkeys"
+	t.Cleanup(func() { m.Kill(name) })
+
+	if err := m.Spawn(name, t.TempDir(), 80, 24); err != nil {
+		t.Fatal(err)
+	}
+
+	// Send some keys and verify no error
+	if err := m.SendKeys(name, "echo hello"); err != nil {
+		t.Fatalf("SendKeys: %v", err)
+	}
+}
+
+func TestSendKeysNonExistentSessionReturnsError(t *testing.T) {
+	skipWithoutTmux(t)
+
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = m.SendKeys("legato-nonexistent-sendkeys-test", "hello")
+	if err == nil {
+		t.Error("expected error sending keys to non-existent session, got nil")
+	}
+}
+
 func TestIsAliveNonExistentReturnsFalse(t *testing.T) {
 	skipWithoutTmux(t)
 

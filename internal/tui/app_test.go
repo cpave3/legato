@@ -112,7 +112,7 @@ func (f *fakeReportService) GenerateReport(_ context.Context, period analytics.T
 }
 
 func newTestApp() App {
-	return NewApp(&fakeBoardService{}, nil, nil, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil)
+	return NewApp(&fakeBoardService{}, nil, nil, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil)
 }
 
 func updateApp(a App, msg tea.Msg) (App, tea.Cmd) {
@@ -518,7 +518,7 @@ func TestDeleteCancelledClosesOverlay(t *testing.T) {
 // Import overlay tests
 
 func TestImportKeyOpensOverlayWhenSyncAvailable(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -541,7 +541,7 @@ func TestImportKeyNoOpWithoutSync(t *testing.T) {
 }
 
 func TestImportSelectedImportsAndRefreshes(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -560,7 +560,7 @@ func TestImportSelectedImportsAndRefreshes(t *testing.T) {
 }
 
 func TestImportCancelledClosesOverlay(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -645,7 +645,7 @@ func TestDurationDataFlowsToBoard(t *testing.T) {
 		},
 	}
 
-	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, nil, theme.NewIcons("unicode"), nil, "", nil)
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()

@@ -2,8 +2,12 @@ package tmux
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // Options configures the tmux Manager.
@@ -132,6 +136,69 @@ func (m *Manager) IsAlive(name string) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("tmux has-session: %w", err)
+}
+
+// SendKeys sends literal text to the named tmux session's active pane.
+// The text is sent verbatim (using -- to prevent key name interpretation).
+func (m *Manager) SendKeys(name, keys string) error {
+	cmd := exec.Command(m.tmuxPath, "send-keys", "-t", name, "--", keys)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("tmux send-keys: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// SendKey sends a named key (e.g. "Enter", "Escape") to the session.
+// Unlike SendKeys, this does NOT use -- so tmux interprets key names.
+func (m *Manager) SendKey(name, key string) error {
+	cmd := exec.Command(m.tmuxPath, "send-keys", "-t", name, key)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("tmux send-keys: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// PipeOutput starts piping the pane's PTY output to a FIFO and returns
+// a reader for that stream. Call the returned close func to stop piping
+// and clean up the FIFO.
+func (m *Manager) PipeOutput(name string) (io.Reader, func(), error) {
+	dir, err := os.MkdirTemp("", "legato-pipe-*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating pipe dir: %w", err)
+	}
+
+	fifoPath := filepath.Join(dir, "pane.fifo")
+	if err := syscall.Mkfifo(fifoPath, 0600); err != nil {
+		os.RemoveAll(dir)
+		return nil, nil, fmt.Errorf("mkfifo: %w", err)
+	}
+
+	// Start pipe-pane — tmux writes pane output to cat which writes to the FIFO.
+	cmd := exec.Command(m.tmuxPath, "pipe-pane", "-o", "-t", name,
+		fmt.Sprintf("cat > %s", fifoPath))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		os.RemoveAll(dir)
+		return nil, nil, fmt.Errorf("tmux pipe-pane: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+
+	// Open FIFO for reading (this blocks until the writer opens it, which
+	// pipe-pane's cat does immediately).
+	f, err := os.Open(fifoPath)
+	if err != nil {
+		// Stop the pipe and clean up.
+		exec.Command(m.tmuxPath, "pipe-pane", "-t", name).Run()
+		os.RemoveAll(dir)
+		return nil, nil, fmt.Errorf("opening fifo: %w", err)
+	}
+
+	cleanup := func() {
+		// Stop pipe-pane (no shell-command arg = close existing pipe).
+		exec.Command(m.tmuxPath, "pipe-pane", "-t", name).Run()
+		f.Close()
+		os.RemoveAll(dir)
+	}
+
+	return f, cleanup, nil
 }
 
 // SetEnv sets an environment variable in the given tmux session.

@@ -55,6 +55,24 @@ tasks:
     cmds:
       - go install ./cmd/legato/
 
+  web:build:
+    desc: Build the frontend
+    dir: web
+    cmds:
+      - pnpm run build
+
+  web:dev:
+    desc: Start the frontend dev server
+    dir: web
+    cmds:
+      - pnpm run dev
+
+  web:test:
+    desc: Run frontend tests
+    dir: web
+    cmds:
+      - pnpm run test
+
   install:tools:
     desc: Install development tools
     cmds:
