@@ -23,6 +23,7 @@ func spaHandler(fsys fs.FS) http.HandlerFunc {
 		if err == nil {
 			f.Close()
 			setCacheHeaders(w, path)
+			setContentType(w, path)
 			fileServer.ServeHTTP(w, r)
 			return
 		}
@@ -31,6 +32,14 @@ func spaHandler(fsys fs.FS) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-cache")
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
+	}
+}
+
+// setContentType overrides Content-Type for file types that Go's
+// http.FileServer doesn't recognize from embed.FS.
+func setContentType(w http.ResponseWriter, path string) {
+	if strings.HasSuffix(path, ".webmanifest") {
+		w.Header().Set("Content-Type", "application/manifest+json")
 	}
 }
 
