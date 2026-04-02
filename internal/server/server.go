@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
 
@@ -12,15 +13,16 @@ import (
 
 // Server is the HTTP/WebSocket server for Legato's web UI.
 type Server struct {
-	board   service.BoardService
-	agents  service.AgentService
-	tmux    service.TmuxManager
-	addr    string
-	server  *http.Server
-	hub     *Hub
-	streams *streamManager
-	tlsCert string
-	tlsKey  string
+	board      service.BoardService
+	agents     service.AgentService
+	tmux       service.TmuxManager
+	addr       string
+	server     *http.Server
+	hub        *Hub
+	streams    *streamManager
+	tlsCert    string
+	tlsKey     string
+	caCertPath string
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -48,6 +50,8 @@ func New(board service.BoardService, agents service.AgentService, tmux service.T
 	mux.HandleFunc("/api/agents/spawn", s.spawnAgentHandler())
 	mux.HandleFunc("/api/agents/kill", s.killAgentHandler())
 	mux.HandleFunc("/api/tasks", s.tasksHandler())
+	mux.HandleFunc("/api/settings", s.settingsHandler())
+	mux.HandleFunc("/api/ca-cert", s.caCertHandler())
 	mux.HandleFunc("/ws", s.wsHandler())
 
 	// SPA fallback — serve embedded frontend for all non-API paths.
@@ -69,6 +73,39 @@ func New(board service.BoardService, agents service.AgentService, tmux service.T
 func (s *Server) SetTLS(certFile, keyFile string) {
 	s.tlsCert = certFile
 	s.tlsKey = keyFile
+}
+
+// SetCACertPath sets the path to the CA certificate for download.
+func (s *Server) SetCACertPath(path string) {
+	s.caCertPath = path
+}
+
+func (s *Server) settingsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		hasCACert := s.caCertPath != ""
+		fmt.Fprintf(w, `{"ca_cert_available":%t}`, hasCACert)
+	}
+}
+
+func (s *Server) caCertHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if s.caCertPath == "" {
+			http.Error(w, "no CA certificate configured", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/x-pem-file")
+		w.Header().Set("Content-Disposition", `attachment; filename="legato-ca.pem"`)
+		http.ServeFile(w, r, s.caCertPath)
+	}
 }
 
 // Handler returns the HTTP handler (useful for testing).

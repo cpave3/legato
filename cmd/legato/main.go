@@ -365,9 +365,12 @@ func runServeCmd(args []string) int {
 	srv := server.New(boardSvc, agentSvc, tmuxMgr, addr)
 
 	// Configure TLS.
-	certFile, keyFile := resolveTLS(cfg)
+	certFile, keyFile, caCertFile := resolveTLS(cfg)
 	if certFile != "" && keyFile != "" {
 		srv.SetTLS(certFile, keyFile)
+	}
+	if caCertFile != "" {
+		srv.SetCACertPath(caCertFile)
 	}
 
 	// IPC server for receiving CLI→web updates.
@@ -535,9 +538,12 @@ func runTUI() int {
 			log.Printf("web: port %s unavailable: %v", cfg.Web.Port, listenErr)
 		} else {
 			webSrv = server.New(boardSvc, agentSvc, tmuxMgr, ln.Addr().String())
-			certFile, keyFile := resolveTLS(cfg)
+			certFile, keyFile, caCertFile := resolveTLS(cfg)
 			if certFile != "" && keyFile != "" {
 				webSrv.SetTLS(certFile, keyFile)
+			}
+			if caCertFile != "" {
+				webSrv.SetCACertPath(caCertFile)
 			}
 			go func() {
 				if err := webSrv.Serve(ln); err != nil && err.Error() != "http: Server closed" {
@@ -584,11 +590,11 @@ func tmuxEscapeKey(key string) string {
 	return key
 }
 
-// resolveTLS returns cert/key paths. Explicit config takes priority;
+// resolveTLS returns cert/key/CA paths. Explicit config takes priority;
 // otherwise auto-generates self-signed certs in the data directory.
-func resolveTLS(cfg *config.Config) (certFile, keyFile string) {
+func resolveTLS(cfg *config.Config) (certFile, keyFile, caCertFile string) {
 	if cfg.Web.TLS.Cert != "" && cfg.Web.TLS.Key != "" {
-		return cfg.Web.TLS.Cert, cfg.Web.TLS.Key
+		return cfg.Web.TLS.Cert, cfg.Web.TLS.Key, ""
 	}
 
 	// Auto-generate self-signed certs.
@@ -596,10 +602,10 @@ func resolveTLS(cfg *config.Config) (certFile, keyFile string) {
 	paths, err := certs.EnsureCerts(dataDir)
 	if err != nil {
 		log.Printf("tls: auto-cert generation failed: %v", err)
-		return "", ""
+		return "", "", ""
 	}
 	log.Printf("tls: using auto-generated certs (install CA on devices: %s)", paths.CACert)
-	return paths.ServerCert, paths.ServerKey
+	return paths.ServerCert, paths.ServerKey, paths.CACert
 }
 
 func resolveDataDir(cfg *config.Config) string {
