@@ -11,13 +11,15 @@ import (
 
 // Server is the HTTP/WebSocket server for Legato's web UI.
 type Server struct {
-	board  service.BoardService
-	agents service.AgentService
-	tmux   service.TmuxManager
+	board   service.BoardService
+	agents  service.AgentService
+	tmux    service.TmuxManager
 	addr    string
 	server  *http.Server
 	hub     *Hub
 	streams *streamManager
+	tlsCert string
+	tlsKey  string
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -59,6 +61,12 @@ func New(board service.BoardService, agents service.AgentService, tmux service.T
 	return s
 }
 
+// SetTLS configures TLS certificate paths. Call before Start/Serve.
+func (s *Server) SetTLS(certFile, keyFile string) {
+	s.tlsCert = certFile
+	s.tlsKey = keyFile
+}
+
 // Handler returns the HTTP handler (useful for testing).
 func (s *Server) Handler() http.Handler {
 	return s.server.Handler
@@ -77,6 +85,9 @@ func (s *Server) Start() error {
 // caller has already bound the port (e.g. to probe availability).
 func (s *Server) Serve(ln net.Listener) error {
 	s.addr = ln.Addr().String()
+	if s.tlsCert != "" && s.tlsKey != "" {
+		return s.server.ServeTLS(ln, s.tlsCert, s.tlsKey)
+	}
 	return s.server.Serve(ln)
 }
 

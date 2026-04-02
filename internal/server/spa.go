@@ -22,12 +22,27 @@ func spaHandler(fsys fs.FS) http.HandlerFunc {
 		f, err := fsys.Open(path)
 		if err == nil {
 			f.Close()
+			setCacheHeaders(w, path)
 			fileServer.ServeHTTP(w, r)
 			return
 		}
 
 		// Fall back to index.html for client-side routing.
+		w.Header().Set("Cache-Control", "no-cache")
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
+	}
+}
+
+func setCacheHeaders(w http.ResponseWriter, path string) {
+	switch {
+	case strings.HasPrefix(path, "assets/"):
+		// Vite hashed assets are immutable.
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	case path == "sw.js" || strings.HasPrefix(path, "workbox-"):
+		// Service worker files must not be cached.
+		w.Header().Set("Cache-Control", "no-cache")
+	case path == "index.html":
+		w.Header().Set("Cache-Control", "no-cache")
 	}
 }

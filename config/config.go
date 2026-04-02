@@ -22,9 +22,15 @@ type Config struct {
 	Workspaces  []WorkspaceConfig `yaml:"workspaces"`
 }
 
+type TLSConfig struct {
+	Cert string `yaml:"cert"` // path to TLS certificate PEM file
+	Key  string `yaml:"key"`  // path to TLS private key PEM file
+}
+
 type WebConfig struct {
-	Enabled bool   `yaml:"enabled"` // auto-start web server alongside TUI
-	Port    string `yaml:"port"`    // default "3080"
+	Enabled bool      `yaml:"enabled"` // auto-start web server alongside TUI
+	Port    string    `yaml:"port"`    // default "3080"
+	TLS     TLSConfig `yaml:"tls"`
 }
 
 type GitHubConfig struct {

@@ -8,12 +8,14 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
+	"github.com/cpave3/legato/internal/engine/certs"
 	"github.com/cpave3/legato/internal/engine/events"
 	gh "github.com/cpave3/legato/internal/engine/github"
 	"github.com/cpave3/legato/internal/engine/hooks"
@@ -362,6 +364,12 @@ func runServeCmd(args []string) int {
 	addr := ":" + port
 	srv := server.New(boardSvc, agentSvc, tmuxMgr, addr)
 
+	// Configure TLS.
+	certFile, keyFile := resolveTLS(cfg)
+	if certFile != "" && keyFile != "" {
+		srv.SetTLS(certFile, keyFile)
+	}
+
 	// IPC server for receiving CLI→web updates.
 	socketPath := ipc.SocketPath()
 	ipcSrv, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
@@ -383,7 +391,11 @@ func runServeCmd(args []string) int {
 		srv.Stop(context.Background())
 	}()
 
-	fmt.Printf("Legato web UI: http://localhost:%s\n", port)
+	scheme := "http"
+	if certFile != "" {
+		scheme = "https"
+	}
+	fmt.Printf("Legato web UI: %s://localhost:%s\n", scheme, port)
 	if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
 		fmt.Fprintf(os.Stderr, "server: %v\n", err)
 		return 1
@@ -523,6 +535,10 @@ func runTUI() int {
 			log.Printf("web: port %s unavailable: %v", cfg.Web.Port, listenErr)
 		} else {
 			webSrv = server.New(boardSvc, agentSvc, tmuxMgr, ln.Addr().String())
+			certFile, keyFile := resolveTLS(cfg)
+			if certFile != "" && keyFile != "" {
+				webSrv.SetTLS(certFile, keyFile)
+			}
 			go func() {
 				if err := webSrv.Serve(ln); err != nil && err.Error() != "http: Server closed" {
 					log.Printf("web server: %v", err)
@@ -566,4 +582,28 @@ func tmuxEscapeKey(key string) string {
 		return "C-" + key[5:]
 	}
 	return key
+}
+
+// resolveTLS returns cert/key paths. Explicit config takes priority;
+// otherwise auto-generates self-signed certs in the data directory.
+func resolveTLS(cfg *config.Config) (certFile, keyFile string) {
+	if cfg.Web.TLS.Cert != "" && cfg.Web.TLS.Key != "" {
+		return cfg.Web.TLS.Cert, cfg.Web.TLS.Key
+	}
+
+	// Auto-generate self-signed certs.
+	dataDir := resolveDataDir(cfg)
+	paths, err := certs.EnsureCerts(dataDir)
+	if err != nil {
+		log.Printf("tls: auto-cert generation failed: %v", err)
+		return "", ""
+	}
+	log.Printf("tls: using auto-generated certs (install CA on devices: %s)", paths.CACert)
+	return paths.ServerCert, paths.ServerKey
+}
+
+func resolveDataDir(cfg *config.Config) string {
+	// Reuse the same base directory as the database.
+	dbPath := config.ResolveDBPath(cfg)
+	return filepath.Dir(dbPath)
 }
