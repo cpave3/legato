@@ -1,0 +1,11 @@
+## Config
+
+- Config file location: `$LEGATO_CONFIG` > `$XDG_CONFIG_HOME/legato/config.yaml` > `~/.config/legato/config.yaml`
+- Missing config file returns defaults (no error) — app starts without config for initial setup
+- Env vars expanded before YAML parsing: `${LEGATO_JIRA_TOKEN}` works in config values
+- `icons` field: `"unicode"` (default) or `"nerdfonts"` for Nerd Font glyphs on cards
+- `editor` field: optional editor override for description editing (used by `config.ResolveEditor`)
+- `agents.tmux_options` field: map of tmux option key→value pairs applied to each spawned agent session via `tmux set-option` (e.g., `mouse: "on"`, `history-limit: "50000"`)
+- `workspaces` field: list of `{name, color}` objects defining workspaces. Seeded to DB on startup via `service.SeedWorkspaces`. Color is hex string (e.g. `"#4A9EEF"`)
+- `web.enabled` field: bool, auto-start web server alongside TUI. On startup, probes the port — if free, starts server in background goroutine sharing the same services. If port in use (another instance), skips silently. Server shuts down cleanly when TUI exits. Status bar shows `Web :<port>` indicator. `web.port` field: string (default `"3080"`). `web.tls.cert` / `web.tls.key` fields: optional paths to TLS certificate and key PEM files. If omitted, auto-generates a self-signed CA + server cert at `$XDG_DATA_HOME/legato/certs/` (or `~/.local/share/legato/certs/`). Auto-generated server certs include SANs for localhost, loopback, and all local network IPs. `web.tls.hostname` field: additional DNS name added to auto-generated server cert SANs (e.g. `"erebus.pavey.network"`). When hostname changes, server cert is regenerated but CA is reused — devices that already trust the CA don't need to reinstall it. CA cert must be installed on mobile devices to trust the connection. Explicit cert/key paths (e.g. from `mkcert`) take priority over auto-generation
+- `github.poll_interval_seconds` field: polling interval for unresolved PRs — branch-only, no PR number yet (default 600s / 10 min). `github.resolved_poll_interval_seconds`: polling interval for resolved PRs — already have PR number (default 600s / 10 min). Both require `gh` CLI installed and authenticated. Manual refresh via `r` key bypasses intervals and polls all PRs immediately.

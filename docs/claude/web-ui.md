@@ -1,0 +1,37 @@
+## Web UI
+
+Remote web interface for monitoring and interacting with agent sessions from any device (mobile, tablet, second screen). Built with React 19 + Vite + xterm.js + TailwindCSS. Compiled to `internal/server/static/dist/` and embedded in the Go binary via `embed.FS`. Installable as a PWA with offline support.
+
+**Starting**: `legato serve [--port 3080]` for standalone, or `web.enabled: true` in config to auto-start alongside TUI. Auto-start probes the port first — skips if another instance already has it. `Server.Serve(ln)` accepts pre-bound listener to avoid close-rebind race. Server shuts down when TUI exits via `webSrv.Stop()`.
+
+**TLS**: Always enabled — auto-generates self-signed certs if `web.tls.cert`/`web.tls.key` not configured. `Server.SetTLS(certFile, keyFile)` configures TLS before `Start()`/`Serve()`. `Serve()` calls `http.Server.ServeTLS` when TLS is set, plain `Serve` otherwise. HTTP/2 disabled via `TLSNextProto` empty map — WebSocket upgrades require HTTP/1.1 `Connection: Upgrade`. WebSocket client in `useWebSocket.ts` auto-detects protocol (`wss:` for HTTPS, `ws:` for HTTP). Auto-generated certs stored at `~/.local/share/legato/certs/` — `ca.pem` (install on devices), `server.pem`/`server-key.pem`. Cert generation in `internal/engine/certs/` uses ECDSA P-256, 1-year server cert validity, 10-year CA validity. Regenerates server cert if: expiring within 30 days, or configured `web.tls.hostname` not present in cert SANs. CA is reused across server cert regenerations (devices don't need to reinstall). `EnsureCerts(dataDir, extraDNS...)` accepts variadic DNS names. `loadOrCreateCA` loads existing CA from disk before falling back to generation. `Server.SetCACertPath(path)` enables the `/api/ca-cert` download endpoint.
+
+**PWA**: Installable progressive web app via `vite-plugin-pwa` (Workbox). Service worker auto-updates (`registerType: 'autoUpdate'`), precaches app shell (HTML/CSS/JS/icons), runtime caches API routes with NetworkFirst strategy. Manifest at `/manifest.webmanifest` (auto-injected by plugin). Icons: `web/public/pwa-192x192.png` and `pwa-512x512.png` (pre-generated from `favicon.svg`). PWA requires HTTPS on non-localhost — hence TLS auto-generation.
+
+**Offline overlay**: `OfflineOverlay` component (`web/src/components/OfflineOverlay.tsx`) renders full-screen overlay when WebSocket disconnects. Uses `connected` state from `useWebSocket()` hook. 2-second delay before showing to avoid flash on slow initial connections. Shows "Connection Lost" with animated reconnecting indicator. Auto-dismisses when connection restores.
+
+**Cache headers**: `spaHandler` in `internal/server/spa.go` sets `Cache-Control` headers — `public, max-age=31536000, immutable` for Vite hashed `assets/*`, `no-cache` for `sw.js`/`workbox-*.js`/`index.html` and SPA fallback responses.
+
+**Terminal streaming**: `pipe-pane` fans output to all subscribed web clients via WebSocket. Pipe start is deferred until the first `resize` message so the tmux pane is correctly sized before output flows. On subscribe, the server waits 150ms for SIGWINCH redraw, then sends a `CaptureWithEscapes` snapshot as backfill (`\n` → `\r\n` for xterm.js). Escape sequence buffering (`findIncompleteEscape`) holds back incomplete CSI/OSC sequences at chunk boundaries to prevent xterm.js state corruption. Read buffer is 32KB.
+
+**Resize protocol**: Web clients send `resize` messages (initial + on container resize + 5s heartbeat for TTL). Server computes min of all web client sizes + attached tmux terminal clients (`tmux list-clients -t <session>`). Only resizes if dimensions actually changed (dedup via `appliedCols`/`appliedRows`). Stale clients expire after 10s TTL. On last client disconnect, resets `window-size` to `latest` so tmux auto-sizes from remaining terminal clients.
+
+**Prompt detection**: `prompt.Detect` runs on captured pane output after 500ms debounce following output. Classifies as `tool_approval` (Yes/Always/No buttons), `plan_approval` (Accept/Reject), or `free_text` (text input). Actions use arrow-key navigation: `Enter` (confirm default), `Down Enter` (second option), `Down Down Enter` (third option), `Escape` (dismiss). On-demand detection via `detect_prompt` WebSocket message (Detect button in overflow menu). Buttons auto-dismiss after clicking an action.
+
+**Key sending**: `send_keys` WebSocket message. Text ending in `\n` → literal text via `tmux send-keys --` then named `Enter`. No `\n` → space-separated named keys sent in sequence (e.g. `"Down Enter"` → two `SendKey` calls). Used by prompt action buttons, Mode (BTab), Stop (Escape), and free text input.
+
+**Settings API**: `GET /api/settings` returns `{"ca_cert_available": true/false}`. `GET /api/ca-cert` serves the auto-generated CA certificate as a PEM download (`Content-Disposition: attachment; filename="legato-ca.pem"`). Returns 404 when using custom TLS config (no auto-generated CA). `Server.SetCACertPath(path)` wired in `main.go` from `resolveTLS` return value.
+
+**Agent management**: `POST /api/agents/spawn` creates ephemeral agent (title input, defaults to "Ephemeral session"). `POST /api/agents/kill` terminates agent tmux session. Both broadcast `agents_changed`. Dead agent detection: `onStreamEnd` callback fires on pipe-pane EOF → `ReconcileSessions` updates DB → `agents_changed` broadcast → web sidebar filters to `status === "running"` only. Auto-disconnect from selected agent if it dies.
+
+**Mobile support**: Custom touch-to-scroll handler intercepts `touchstart`/`touchmove` on terminal container, calculates swipe delta, calls `term.scrollLines()` directly (xterm.js built-in touch doesn't work on mobile browsers). `touchmove` uses `preventDefault` (non-passive) to block pull-to-refresh. `overscroll-behavior: none` on body as fallback. Floating scroll-to-bottom button appears when scrolled up from bottom (tracks `buffer.active.viewportY < baseY`).
+
+**UI components**:
+- `TerminalPanel` — xterm.js terminal with resize reporting, touch scroll, scroll-to-bottom FAB, `[connected]` message on agent switch
+- `PromptBar` — Primary buttons (Mode, Stop when working) + overflow menu (Refresh terminal, Re-detect prompt, Disconnect, Kill agent). Tool/plan approval buttons when detected. Free text input with arrow key passthrough when empty (Up/Down/Enter/Escape/Tab sent to tmux)
+- `AgentSidebar` — Agent list with activity badges (working/waiting/idle), spawn button (`+`). Desktop sidebar + mobile dropdown with spawn button
+- `WebSocketProvider` — Connection management with exponential backoff reconnect
+- `OfflineOverlay` — Full-screen disconnected state overlay with 2s delay, auto-dismiss on reconnect
+- `Settings` — Settings page with CA certificate download button and platform-specific install instructions (iOS/Android). Fetches `/api/settings` to check availability, links to `/api/ca-cert` for download
+
+**Frontend source**: `web/src/` — `pages/Agents.tsx` (main orchestrator), `pages/Settings.tsx`, `components/TerminalPanel.tsx`, `components/PromptBar.tsx`, `components/AgentSidebar.tsx`, `components/OfflineOverlay.tsx`, `hooks/useWebSocket.ts`. Layout sidebar: Agents, Board, Settings (gear icon at bottom), connection status dot. Build: `cd web && pnpm build` → outputs to `../internal/server/static/dist/`. Dist files gitignored except `.gitkeep`. `spaHandler` overrides Content-Type for `.webmanifest` files (Go's `http.FileServer` doesn't recognize the MIME type from `embed.FS`).
