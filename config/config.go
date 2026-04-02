@@ -23,8 +23,9 @@ type Config struct {
 }
 
 type TLSConfig struct {
-	Cert string `yaml:"cert"` // path to TLS certificate PEM file
-	Key  string `yaml:"key"`  // path to TLS private key PEM file
+	Cert     string `yaml:"cert"`     // path to TLS certificate PEM file
+	Key      string `yaml:"key"`      // path to TLS private key PEM file
+	Hostname string `yaml:"hostname"` // additional DNS name for auto-generated certs (e.g. "mybox.local")
 }
 
 type WebConfig struct {

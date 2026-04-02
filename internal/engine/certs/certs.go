@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -24,9 +25,10 @@ type Paths struct {
 }
 
 // EnsureCerts generates a self-signed CA and server certificate if they don't
-// already exist or are expired. Returns the paths to the cert and key files.
+// already exist, are expired, or are missing required SANs. extraDNS names
+// (e.g. "mybox.local") are added alongside "localhost" and local IPs.
 // The CA cert can be installed on mobile devices to trust the server.
-func EnsureCerts(dataDir string) (*Paths, error) {
+func EnsureCerts(dataDir string, extraDNS ...string) (*Paths, error) {
 	certsDir := filepath.Join(dataDir, "certs")
 	if err := os.MkdirAll(certsDir, 0700); err != nil {
 		return nil, fmt.Errorf("creating certs directory: %w", err)
@@ -39,32 +41,38 @@ func EnsureCerts(dataDir string) (*Paths, error) {
 		ServerKey:  filepath.Join(certsDir, "server-key.pem"),
 	}
 
-	// Check if existing certs are valid.
-	if certsValid(paths) {
+	dnsNames := buildDNSNames(extraDNS)
+
+	// Check if existing certs are valid and have required SANs.
+	if certsValid(paths, dnsNames) {
 		return paths, nil
 	}
 
-	// Generate CA.
-	caKey, caCert, caCertPEM, err := generateCA()
+	// Load or generate CA.
+	caKey, caCert, err := loadOrCreateCA(paths)
 	if err != nil {
-		return nil, fmt.Errorf("generating CA: %w", err)
-	}
-	if err := writeKeyFile(paths.CAKey, caKey); err != nil {
-		return nil, err
-	}
-	if err := writePEMFile(paths.CACert, "CERTIFICATE", caCertPEM); err != nil {
 		return nil, err
 	}
 
 	// Generate server cert signed by CA.
-	if err := generateServerCert(paths, caKey, caCert); err != nil {
+	if err := generateServerCert(paths, caKey, caCert, dnsNames); err != nil {
 		return nil, fmt.Errorf("generating server cert: %w", err)
 	}
 
 	return paths, nil
 }
 
-func certsValid(paths *Paths) bool {
+func buildDNSNames(extraDNS []string) []string {
+	names := []string{"localhost"}
+	for _, name := range extraDNS {
+		if name != "" && name != "localhost" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func certsValid(paths *Paths, requiredDNS []string) bool {
 	certData, err := os.ReadFile(paths.ServerCert)
 	if err != nil {
 		return false
@@ -77,8 +85,68 @@ func certsValid(paths *Paths) bool {
 	if err != nil {
 		return false
 	}
-	// Valid if not expiring within the next 30 days.
-	return time.Now().Add(30 * 24 * time.Hour).Before(cert.NotAfter)
+	// Check expiry (30-day buffer).
+	if !time.Now().Add(30 * 24 * time.Hour).Before(cert.NotAfter) {
+		return false
+	}
+	// Check all required DNS names are present.
+	for _, name := range requiredDNS {
+		if !slices.Contains(cert.DNSNames, name) {
+			return false
+		}
+	}
+	return true
+}
+
+func loadOrCreateCA(paths *Paths) (*ecdsa.PrivateKey, *x509.Certificate, error) {
+	// Try loading existing CA.
+	caKey, caCert, err := loadCA(paths)
+	if err == nil {
+		return caKey, caCert, nil
+	}
+
+	// Generate new CA.
+	caKey, caCert, caCertDER, err := generateCA()
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating CA: %w", err)
+	}
+	if err := writeKeyFile(paths.CAKey, caKey); err != nil {
+		return nil, nil, err
+	}
+	if err := writePEMFile(paths.CACert, "CERTIFICATE", caCertDER); err != nil {
+		return nil, nil, err
+	}
+	return caKey, caCert, nil
+}
+
+func loadCA(paths *Paths) (*ecdsa.PrivateKey, *x509.Certificate, error) {
+	keyData, err := os.ReadFile(paths.CAKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	block, _ := pem.Decode(keyData)
+	if block == nil {
+		return nil, nil, fmt.Errorf("no PEM block in CA key")
+	}
+	key, err := x509.ParseECPrivateKey(block.Bytes)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	certData, err := os.ReadFile(paths.CACert)
+	if err != nil {
+		return nil, nil, err
+	}
+	block, _ = pem.Decode(certData)
+	if block == nil {
+		return nil, nil, fmt.Errorf("no PEM block in CA cert")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return key, cert, nil
 }
 
 func generateCA() (*ecdsa.PrivateKey, *x509.Certificate, []byte, error) {
@@ -119,7 +187,7 @@ func generateCA() (*ecdsa.PrivateKey, *x509.Certificate, []byte, error) {
 	return key, cert, certDER, nil
 }
 
-func generateServerCert(paths *Paths, caKey *ecdsa.PrivateKey, caCert *x509.Certificate) error {
+func generateServerCert(paths *Paths, caKey *ecdsa.PrivateKey, caCert *x509.Certificate, dnsNames []string) error {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return err
@@ -142,7 +210,7 @@ func generateServerCert(paths *Paths, caKey *ecdsa.PrivateKey, caCert *x509.Cert
 		ExtKeyUsage: []x509.ExtKeyUsage{
 			x509.ExtKeyUsageServerAuth,
 		},
-		DNSNames:    []string{"localhost"},
+		DNSNames:    dnsNames,
 		IPAddresses: localIPs(),
 	}
 

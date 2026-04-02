@@ -599,7 +599,11 @@ func resolveTLS(cfg *config.Config) (certFile, keyFile, caCertFile string) {
 
 	// Auto-generate self-signed certs.
 	dataDir := resolveDataDir(cfg)
-	paths, err := certs.EnsureCerts(dataDir)
+	var extraDNS []string
+	if cfg.Web.TLS.Hostname != "" {
+		extraDNS = append(extraDNS, cfg.Web.TLS.Hostname)
+	}
+	paths, err := certs.EnsureCerts(dataDir, extraDNS...)
 	if err != nil {
 		log.Printf("tls: auto-cert generation failed: %v", err)
 		return "", "", ""
