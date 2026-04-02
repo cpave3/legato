@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -540,6 +541,10 @@ func runTUI() int {
 	if webSrv != nil {
 		app.SetWebServerRunning(cfg.Web.Port)
 	}
+
+	// Silence log output — bubbletea owns the terminal in alt-screen mode
+	// and stray log writes corrupt the UI.
+	log.SetOutput(io.Discard)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
