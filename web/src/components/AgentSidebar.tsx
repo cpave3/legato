@@ -16,6 +16,7 @@ interface AgentSidebarProps {
   selectedId: string | null
   onSelect: (taskId: string) => void
   onSpawn: () => void
+  modifierHeld?: boolean
 }
 
 function activityBadge(activity: string) {
@@ -35,7 +36,7 @@ function activityBadge(activity: string) {
   }
 }
 
-export function AgentSidebar({ agents, selectedId, onSelect, onSpawn }: AgentSidebarProps) {
+export function AgentSidebar({ agents, selectedId, onSelect, onSpawn, modifierHeld }: AgentSidebarProps) {
   return (
     <div className="flex w-64 flex-col border-r border-zinc-800 bg-zinc-950 overflow-y-auto">
       <div className="flex items-center justify-between px-3 py-3">
@@ -50,17 +51,22 @@ export function AgentSidebar({ agents, selectedId, onSelect, onSpawn }: AgentSid
           <Plus size={14} />
         </button>
       </div>
-      {agents.map((agent) => (
+      {agents.map((agent, index) => (
         <button
           key={agent.task_id}
           onClick={() => onSelect(agent.task_id)}
           className={cn(
-            "flex flex-col gap-0.5 px-3 py-2 text-left transition-colors border-l-2",
+            "relative flex flex-col gap-0.5 px-3 py-2 text-left transition-colors border-l-2",
             selectedId === agent.task_id
               ? "border-l-indigo-500 bg-zinc-900 text-zinc-100"
               : "border-l-transparent text-zinc-400 hover:bg-zinc-900/50 hover:text-zinc-200"
           )}
         >
+          {modifierHeld && index < 9 && (
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded bg-indigo-600 text-[10px] font-bold text-white">
+              {index + 1}
+            </span>
+          )}
           <div className="flex items-center gap-2">
             {activityBadge(agent.activity)}
             <span className="text-sm font-mono truncate">{agent.task_id}</span>

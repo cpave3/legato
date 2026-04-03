@@ -1,25 +1,143 @@
-import { useState, useRef, useEffect, type KeyboardEvent } from "react"
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from "react"
 import type { PromptState } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
-import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw } from "lucide-react"
+import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff } from "lucide-react"
+
+interface ActionListProps {
+  actions: { label: string; keys: string }[]
+  type: string
+  onSelect: (keys: string) => void
+  onDismiss: () => void
+}
+
+function ActionList({ actions, type, onSelect, onDismiss }: ActionListProps) {
+  const [selected, setSelected] = useState(0)
+  const listRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    listRef.current?.focus()
+    setSelected(0)
+  }, [type])
+
+  const handleKey = useCallback((e: KeyboardEvent) => {
+    switch (e.key) {
+      case "ArrowDown":
+      case "j":
+        e.preventDefault()
+        setSelected((s) => Math.min(s + 1, actions.length - 1))
+        break
+      case "ArrowUp":
+      case "k":
+        e.preventDefault()
+        setSelected((s) => Math.max(s - 1, 0))
+        break
+      case "Enter":
+        e.preventDefault()
+        onSelect(actions[selected].keys)
+        break
+      case "Escape":
+        e.preventDefault()
+        onDismiss()
+        break
+    }
+  }, [actions, selected, onSelect, onDismiss])
+
+  const actionColor = (label: string) => {
+    if (label === "Yes" || label === "Accept" || label === "Always") return "text-emerald-400"
+    if (label === "No" || label === "Reject") return "text-red-400"
+    return "text-indigo-400"
+  }
+
+  return (
+    <div
+      ref={listRef}
+      tabIndex={0}
+      onKeyDown={handleKey}
+      className="flex flex-col gap-0.5 outline-none"
+    >
+      {actions.map((action, i) => (
+        <button
+          key={action.label}
+          onClick={() => onSelect(action.keys)}
+          className={cn(
+            "flex items-center gap-2 rounded px-3 py-1.5 text-sm text-left transition-colors",
+            i === selected
+              ? "bg-zinc-800 text-zinc-100"
+              : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+          )}
+        >
+          <span className={cn("font-medium", actionColor(action.label))}>
+            {action.label}
+          </span>
+          {i === selected && (
+            <span className="ml-auto text-[10px] text-zinc-600">↵</span>
+          )}
+        </button>
+      ))}
+      <button
+        onClick={onDismiss}
+        className={cn(
+          "flex items-center gap-2 rounded px-3 py-1.5 text-sm text-left transition-colors text-zinc-600 hover:bg-zinc-800/50 hover:text-zinc-400"
+        )}
+      >
+        <X size={12} />
+        Dismiss
+      </button>
+    </div>
+  )
+}
 
 interface PromptBarProps {
   promptState: PromptState | null
   onSendKeys: (keys: string) => void
+  onSubmitText: (keys: string) => void
   onDismissPrompt: () => void
   onDetectPrompt: () => void
   onDisconnect: () => void
   onKill: () => void
   onRefresh: () => void
+  onTogglePromptDetection: () => void
+  promptDetectionEnabled: boolean
+  agentId: string
   agentTitle?: string
   agentActivity?: string
   connected?: boolean
 }
 
-export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, agentTitle, agentActivity, connected }: PromptBarProps) {
-  const [input, setInput] = useState("")
+function draftKey(id: string) { return `legato:draft:${id}` }
+
+export function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, connected }: PromptBarProps) {
+  const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef(input)
+  const prevAgentIdRef = useRef(agentId)
+
+  // Keep inputRef in sync for use in the agentId change effect.
+  inputRef.current = input
+
+  // On agent switch: save old draft, load new draft.
+  useEffect(() => {
+    if (prevAgentIdRef.current !== agentId) {
+      const old = inputRef.current
+      if (old) {
+        localStorage.setItem(draftKey(prevAgentIdRef.current), old)
+      } else {
+        localStorage.removeItem(draftKey(prevAgentIdRef.current))
+      }
+      prevAgentIdRef.current = agentId
+      setInput(localStorage.getItem(draftKey(agentId)) ?? "")
+    }
+  }, [agentId])
+
+  const handleInputChange = (value: string) => {
+    setInput(value)
+    if (value) {
+      localStorage.setItem(draftKey(agentId), value)
+    } else {
+      localStorage.removeItem(draftKey(agentId))
+    }
+  }
 
   // Close menu on outside click.
   useEffect(() => {
@@ -36,8 +154,9 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPr
   const handleSubmit = () => {
     const trimmed = input.trim()
     if (trimmed) {
-      onSendKeys(trimmed + "\n")
+      onSubmitText(trimmed + "\n")
       setInput("")
+      localStorage.removeItem(draftKey(agentId))
     }
   }
 
@@ -115,7 +234,7 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPr
               <MoreHorizontal size={12} />
             </button>
             {menuOpen && (
-              <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[160px] z-10">
+              <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
                 <button
                   onClick={() => { onRefresh(); setMenuOpen(false) }}
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
@@ -129,6 +248,13 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPr
                 >
                   <ScanSearch size={12} />
                   Re-detect prompt
+                </button>
+                <button
+                  onClick={() => { onTogglePromptDetection(); setMenuOpen(false) }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                >
+                  {promptDetectionEnabled ? <EyeOff size={12} /> : <Eye size={12} />}
+                  {promptDetectionEnabled ? "Disable prompt detection" : "Enable prompt detection"}
                 </button>
                 <button
                   onClick={() => { onDisconnect(); setMenuOpen(false) }}
@@ -153,58 +279,13 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPr
 
       {/* Prompt-specific controls */}
       <div className="mt-2">
-        {type === "tool_approval" && promptState?.actions && (
-          <div className="flex items-center gap-2">
-            {promptState.actions.map((action) => (
-              <button
-                key={action.label}
-                onClick={() => { onSendKeys(action.keys); onDismissPrompt() }}
-                className={cn(
-                  "rounded px-3 py-1.5 text-sm font-medium transition-colors",
-                  action.label === "Yes"
-                    ? "bg-emerald-600 text-white hover:bg-emerald-500"
-                    : action.label === "No"
-                      ? "bg-zinc-700 text-zinc-200 hover:bg-zinc-600"
-                      : "bg-indigo-600 text-white hover:bg-indigo-500"
-                )}
-              >
-                {action.label}
-              </button>
-            ))}
-            <button
-              onClick={onDismissPrompt}
-              className="rounded p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
-              title="Dismiss — show text input instead"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
-
-        {type === "plan_approval" && promptState?.actions && (
-          <div className="flex items-center gap-2">
-            {promptState.actions.map((action) => (
-              <button
-                key={action.label}
-                onClick={() => { onSendKeys(action.keys); onDismissPrompt() }}
-                className={cn(
-                  "rounded px-3 py-1.5 text-sm font-medium transition-colors",
-                  action.label === "Accept"
-                    ? "bg-emerald-600 text-white hover:bg-emerald-500"
-                    : "bg-zinc-700 text-zinc-200 hover:bg-zinc-600"
-                )}
-              >
-                {action.label}
-              </button>
-            ))}
-            <button
-              onClick={onDismissPrompt}
-              className="rounded p-1.5 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
-              title="Dismiss — show text input instead"
-            >
-              <X size={14} />
-            </button>
-          </div>
+        {(type === "tool_approval" || type === "plan_approval") && promptState?.actions && (
+          <ActionList
+            actions={promptState.actions}
+            type={type}
+            onSelect={(keys) => { onSendKeys(keys); onDismissPrompt() }}
+            onDismiss={onDismissPrompt}
+          />
         )}
 
         {(type === "free_text" || type === null) && (
@@ -212,7 +293,7 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPr
             <input
               type="text"
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => handleInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={connected === false ? "Disconnected..." : "Type a message..."}
               disabled={connected === false}

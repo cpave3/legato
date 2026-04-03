@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { ShieldCheck, Download, Zap } from "lucide-react"
+import { ShieldCheck, Download, Zap, ScanSearch, Keyboard } from "lucide-react"
 
 interface SettingsData {
   ca_cert_available: boolean
@@ -9,6 +9,14 @@ export function SettingsPage() {
   const [settings, setSettings] = useState<SettingsData | null>(null)
   const [glitchEnabled, setGlitchEnabled] = useState(() => {
     return localStorage.getItem("legato:glitch-effect") !== "false"
+  })
+  const [promptDetectionEnabled, setPromptDetectionEnabled] = useState(() => {
+    return localStorage.getItem("legato:prompt-detection") !== "false"
+  })
+  const [switchModifier, setSwitchModifier] = useState(() => {
+    const stored = localStorage.getItem("legato:switch-modifier")
+    if (stored) return stored
+    return /Mac|iPhone|iPad/.test(navigator.platform) ? "Alt" : "Control"
   })
 
   useEffect(() => {
@@ -22,6 +30,17 @@ export function SettingsPage() {
     const next = !glitchEnabled
     setGlitchEnabled(next)
     localStorage.setItem("legato:glitch-effect", next ? "true" : "false")
+  }
+
+  const togglePromptDetection = () => {
+    const next = !promptDetectionEnabled
+    setPromptDetectionEnabled(next)
+    localStorage.setItem("legato:prompt-detection", next ? "true" : "false")
+  }
+
+  const handleSwitchModifier = (value: string) => {
+    setSwitchModifier(value)
+    localStorage.setItem("legato:switch-modifier", value)
   }
 
   return (
@@ -51,6 +70,49 @@ export function SettingsPage() {
                 className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${glitchEnabled ? "translate-x-5" : "translate-x-0"}`}
               />
             </button>
+          </div>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4 mt-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <ScanSearch size={20} className="text-indigo-400 shrink-0" />
+              <div>
+                <p className="text-sm text-zinc-300">Prompt detection</p>
+                <p className="text-xs text-zinc-500">
+                  Auto-detect tool approval and plan prompts in agent output
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={togglePromptDetection}
+              className={`relative h-6 w-11 rounded-full transition-colors ${promptDetectionEnabled ? "bg-indigo-600" : "bg-zinc-700"}`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${promptDetectionEnabled ? "translate-x-5" : "translate-x-0"}`}
+              />
+            </button>
+          </div>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4 mt-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Keyboard size={20} className="text-indigo-400 shrink-0" />
+              <div>
+                <p className="text-sm text-zinc-300">Agent switch key</p>
+                <p className="text-xs text-zinc-500">
+                  Hold this key + number to switch agents
+                </p>
+              </div>
+            </div>
+            <select
+              value={switchModifier}
+              onChange={(e) => handleSwitchModifier(e.target.value)}
+              className="rounded bg-zinc-800 border border-zinc-700 px-2 py-1 text-sm text-zinc-200 outline-none"
+            >
+              <option value="Control">Ctrl</option>
+              <option value="Alt">Alt / Option</option>
+              <option value="Meta">Meta / Cmd</option>
+            </select>
           </div>
         </div>
       </section>
