@@ -1,14 +1,25 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "../hooks/useWebSocket"
 import { AgentSidebar } from "../components/AgentSidebar"
 import { TerminalPanel } from "../components/TerminalPanel"
 import { PromptBar } from "../components/PromptBar"
+
+const GLITCH_DURATION_MS = 500
 
 export function AgentsPage() {
   const { send, subscribe, connected } = useWebSocket()
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [promptState, setPromptState] = useState<PromptState | null>(null)
+  const [glitching, setGlitching] = useState(false)
+  const glitchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const triggerGlitch = useCallback(() => {
+    if (localStorage.getItem("legato:glitch-effect") === "false") return
+    if (glitchTimer.current) clearTimeout(glitchTimer.current)
+    setGlitching(true)
+    glitchTimer.current = setTimeout(() => setGlitching(false), GLITCH_DURATION_MS)
+  }, [])
 
   // Fetch agents on mount and on agents_changed
   const fetchAgents = useCallback(async () => {
@@ -187,7 +198,10 @@ export function AgentsPage() {
         {selectedId ? (
           <>
             <div className="relative min-h-0 flex-1">
-              <TerminalPanel agentId={selectedId} />
+              <TerminalPanel agentId={selectedId} onGlitch={triggerGlitch} />
+              {glitching && (
+                <div className="terminal-glitch-overlay" aria-hidden="true" />
+              )}
             </div>
             <PromptBar
               promptState={promptState}
@@ -199,6 +213,7 @@ export function AgentsPage() {
               onRefresh={handleRefresh}
               agentTitle={selectedAgent?.task_title}
               agentActivity={selectedAgent?.activity}
+              connected={connected}
             />
           </>
         ) : (

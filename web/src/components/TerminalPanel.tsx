@@ -7,15 +7,18 @@ import "@xterm/xterm/css/xterm.css"
 
 interface TerminalPanelProps {
   agentId: string
+  onGlitch?: () => void
 }
 
-export function TerminalPanel({ agentId }: TerminalPanelProps) {
+export function TerminalPanel({ agentId, onGlitch }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const { send, subscribe, connected } = useWebSocket()
   const agentIdRef = useRef(agentId)
   agentIdRef.current = agentId
+  const onGlitchRef = useRef(onGlitch)
+  onGlitchRef.current = onGlitch
   const [isScrolledUp, setIsScrolledUp] = useState(false)
 
   useEffect(() => {
@@ -85,6 +88,10 @@ export function TerminalPanel({ agentId }: TerminalPanelProps) {
       if (msg.type !== "agent_output" || msg.agent_id !== agentId) return
       const term = termRef.current
       if (!term || !msg.content) return
+      // Detect full-screen refresh (clear screen + cursor home from handleRefreshPane).
+      if (msg.content.startsWith("\x1b[2J\x1b[H")) {
+        onGlitchRef.current?.()
+      }
       term.write(msg.content)
       // New output may have pushed baseY past viewportY.
       const buf = term.buffer.active
@@ -98,6 +105,7 @@ export function TerminalPanel({ agentId }: TerminalPanelProps) {
   useEffect(() => {
     const term = termRef.current
     if (term && connected) {
+      onGlitchRef.current?.()
       term.reset()
       setIsScrolledUp(false)
       term.write("\x1b[2m[connected]\x1b[0m\r\n")
