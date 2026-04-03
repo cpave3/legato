@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent } from "react"
-import { KeyRound } from "lucide-react"
+import { KeyRound, QrCode } from "lucide-react"
 import { setToken, authHeaders } from "../lib/auth"
+import { QRScanner } from "./QRScanner"
 
 interface TokenPromptProps {
   onAuthenticated: () => void
@@ -10,20 +11,16 @@ export function TokenPrompt({ onAuthenticated }: TokenPromptProps) {
   const [input, setInput] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  const [showScanner, setShowScanner] = useState(false)
 
-  const handleSubmit = async () => {
-    const trimmed = input.trim()
-    if (!trimmed) return
-
+  const verifyToken = async (token: string) => {
     setLoading(true)
     setError("")
-
-    // Temporarily store the token and test it against the API.
-    setToken(trimmed)
+    setToken(token)
     try {
       const res = await fetch("/api/settings", { headers: authHeaders() })
       if (res.status === 401) {
-        setToken("") // clear invalid token
+        setToken("")
         setError("Invalid token")
         setLoading(false)
         return
@@ -35,11 +32,25 @@ export function TokenPrompt({ onAuthenticated }: TokenPromptProps) {
     }
   }
 
+  const handleSubmit = () => {
+    const trimmed = input.trim()
+    if (trimmed) verifyToken(trimmed)
+  }
+
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault()
       handleSubmit()
     }
+  }
+
+  const handleQRScan = (data: { url: string; token: string }) => {
+    setShowScanner(false)
+    verifyToken(data.token)
+  }
+
+  if (showScanner) {
+    return <QRScanner onScan={handleQRScan} onClose={() => setShowScanner(false)} />
   }
 
   return (
@@ -65,13 +76,24 @@ export function TokenPrompt({ onAuthenticated }: TokenPromptProps) {
         {error && (
           <p className="text-sm text-red-400 mb-3">{error}</p>
         )}
-        <button
-          onClick={handleSubmit}
-          disabled={!input.trim() || loading}
-          className="w-full rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
-        >
-          {loading ? "Verifying..." : "Connect"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleSubmit}
+            disabled={!input.trim() || loading}
+            className="flex-1 rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
+          >
+            {loading ? "Verifying..." : "Connect"}
+          </button>
+          <button
+            onClick={() => setShowScanner(true)}
+            disabled={loading}
+            className="flex items-center gap-1.5 rounded border border-zinc-700 px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-40"
+            title="Scan QR code from legato pair"
+          >
+            <QrCode size={16} />
+            Scan
+          </button>
+        </div>
       </div>
     </div>
   )

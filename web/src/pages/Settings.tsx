@@ -64,17 +64,27 @@ export function SettingsPage() {
   }
 
   const handleQRScan = (data: { url: string; token: string }) => {
+    // Validate URL before storing anything.
+    let hostname: string
+    try {
+      const parsed = new URL(data.url)
+      hostname = parsed.hostname
+    } catch {
+      setScanSuccess("")
+      window.alert("Invalid server URL in QR code: " + data.url)
+      return
+    }
+
     // Store token for the scanned server.
+    const isOrigin = new URL(data.url).host === window.location.host
     setToken(data.token, data.url)
-    // Also store for local if it's the origin.
-    if (data.url.includes(window.location.host)) {
+    if (isOrigin) {
       setToken(data.token)
     }
     // Add to server registry if it's a remote server.
-    try {
-      const hostname = new URL(data.url).hostname
+    if (!isOrigin) {
       addServer(hostname, data.url)
-    } catch { /* ignore parse errors */ }
+    }
     setShowScanner(false)
     setScanSuccess(`Paired with ${data.url}`)
     setTimeout(() => setScanSuccess(""), 3000)
@@ -275,7 +285,7 @@ export function SettingsPage() {
               </p>
               {settings?.ca_cert_available ? (
                 <a
-                  href="/api/ca-cert"
+                  href={baseUrl ? `${baseUrl}/api/ca-cert` : "/api/ca-cert"}
                   download="legato-ca.pem"
                   className="mt-2 inline-flex w-fit items-center gap-2 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
                 >

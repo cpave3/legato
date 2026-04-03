@@ -170,7 +170,7 @@ export function AgentsPage() {
     } catch {
       // agents_changed will handle cleanup
     }
-  }, [selectedId])
+  }, [selectedId, baseUrl])
 
   const handleSpawn = useCallback(async () => {
     const title = window.prompt("Agent title:", "Ephemeral session")
@@ -189,7 +189,7 @@ export function AgentsPage() {
     } catch {
       window.alert("Failed to spawn agent")
     }
-  }, [])
+  }, [baseUrl])
 
   const handleTogglePromptDetection = useCallback(() => {
     if (!selectedId) return

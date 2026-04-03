@@ -106,16 +106,19 @@ export function useServerProvider() {
     try { return new URL(activeUrl).hostname } catch { return activeUrl }
   }, [activeUrl, servers])
 
-  const value: ServerContextValue = useMemo(() => ({
-    baseUrl: activeUrl,
-    wsUrl: deriveWsUrl(activeUrl),
-    isRemote: activeUrl !== "",
+  const baseUrl = activeUrl
+  const wsUrl = useMemo(() => deriveWsUrl(activeUrl), [activeUrl])
+  const isRemote = activeUrl !== ""
+
+  return {
+    baseUrl,
+    wsUrl,
+    isRemote,
     activeServerName,
     servers,
     setActiveServer,
     addServer,
     removeServer,
-  }), [activeUrl, activeServerName, servers, setActiveServer, addServer, removeServer])
-
-  return { value, Provider: ServerContext.Provider }
+    Provider: ServerContext.Provider,
+  }
 }
