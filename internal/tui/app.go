@@ -1307,6 +1307,13 @@ func (a App) handleAttachSession(msg agents.AttachSessionMsg) (tea.Model, tea.Cm
 	if err != nil {
 		return a, nil
 	}
+	// Revert to tmux auto-sizing so the terminal gets its natural
+	// dimensions when attached. The web server's resize heartbeat
+	// will re-apply manual sizing if web clients are still connected.
+	sessionName := "legato-" + taskID
+	if a.tmux != nil {
+		a.tmux.SetOption(sessionName, "window-size", "latest")
+	}
 	return a, tea.ExecProcess(cmd, func(err error) tea.Msg {
 		// After detach, refresh agent list
 		agentList, _ := svc.ListAgents(context.Background())
