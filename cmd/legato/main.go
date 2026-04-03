@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
+	"github.com/cpave3/legato/internal/engine/auth"
 	"github.com/cpave3/legato/internal/engine/certs"
 	"github.com/cpave3/legato/internal/engine/events"
 	gh "github.com/cpave3/legato/internal/engine/github"
@@ -373,6 +374,14 @@ func runServeCmd(args []string) int {
 		srv.SetCACertPath(caCertFile)
 	}
 
+	// Auth token — auto-generated on first run.
+	dataDir := filepath.Dir(config.ResolveDBPath(cfg))
+	if token, err := auth.EnsureToken(dataDir); err != nil {
+		log.Printf("auth: %v (web UI will run without auth)", err)
+	} else {
+		srv.SetAuthToken(token)
+	}
+
 	// IPC server for receiving CLI→web updates.
 	socketPath := ipc.SocketPath()
 	ipcSrv, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
@@ -551,6 +560,9 @@ func runTUI() int {
 			}
 			if caCertFile != "" {
 				webSrv.SetCACertPath(caCertFile)
+			}
+			if token, err := auth.EnsureToken(filepath.Dir(dbPath)); err == nil {
+				webSrv.SetAuthToken(token)
 			}
 			go func() {
 				if err := webSrv.Serve(ln); err != nil && err.Error() != "http: Server closed" {

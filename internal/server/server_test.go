@@ -208,6 +208,151 @@ func TestTasksEndpoint(t *testing.T) {
 	}
 }
 
+func TestAuthMiddlewareRejectsWithoutToken(t *testing.T) {
+	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+	srv := New(svc, nil, nil, ":0")
+	srv.SetAuthToken("test-secret-token")
+	handler := srv.Handler()
+
+	req := httptest.NewRequest("GET", "/api/agents", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestAuthMiddlewareRejectsWrongToken(t *testing.T) {
+	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+	srv := New(svc, nil, nil, ":0")
+	srv.SetAuthToken("test-secret-token")
+	handler := srv.Handler()
+
+	req := httptest.NewRequest("GET", "/api/agents", nil)
+	req.Header.Set("Authorization", "Bearer wrong-token")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+func TestAuthMiddlewareAcceptsCorrectToken(t *testing.T) {
+	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+	srv := New(svc, nil, nil, ":0")
+	srv.SetAuthToken("test-secret-token")
+	handler := srv.Handler()
+
+	req := httptest.NewRequest("GET", "/api/agents", nil)
+	req.Header.Set("Authorization", "Bearer test-secret-token")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", w.Code)
+	}
+}
+
+func TestAuthMiddlewareHealthExempt(t *testing.T) {
+	svc := &mockBoardService{
+		columns: []service.Column{{Name: "Backlog", SortOrder: 0}},
+		cards:   map[string][]service.Card{"Backlog": {}},
+	}
+	srv := New(svc, nil, nil, ":0")
+	srv.SetAuthToken("test-secret-token")
+	handler := srv.Handler()
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("health status = %d, want 200", w.Code)
+	}
+}
+
+func TestAuthMiddlewareOptionsExempt(t *testing.T) {
+	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+	srv := New(svc, nil, nil, ":0")
+	srv.SetAuthToken("test-secret-token")
+	handler := srv.Handler()
+
+	req := httptest.NewRequest("OPTIONS", "/api/agents", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("OPTIONS status = %d, want 204", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("CORS origin = %q, want *", got)
+	}
+}
+
+func TestAuthMiddlewareNoTokenConfigured(t *testing.T) {
+	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+	srv := New(svc, nil, nil, ":0")
+	// No SetAuthToken call — auth disabled.
+	handler := srv.Handler()
+
+	req := httptest.NewRequest("GET", "/api/agents", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (auth disabled)", w.Code)
+	}
+}
+
+func TestAuthMiddlewareWSRejectsWithoutToken(t *testing.T) {
+	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+	srv := New(svc, nil, nil, ":0")
+	srv.SetAuthToken("test-secret-token")
+	handler := srv.Handler()
+
+	req := httptest.NewRequest("GET", "/ws", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("WS status = %d, want 401", w.Code)
+	}
+}
+
+func TestAuthMiddlewareWSAcceptsTokenInQuery(t *testing.T) {
+	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+	srv := New(svc, nil, nil, ":0")
+	srv.SetAuthToken("test-secret-token")
+	handler := srv.Handler()
+
+	// The handler will try to upgrade, which fails in tests without a real WS client,
+	// but it should get past auth (not 401).
+	req := httptest.NewRequest("GET", "/ws?token=test-secret-token", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	// WebSocket upgrade fails gracefully (not 401).
+	if w.Code == http.StatusUnauthorized {
+		t.Error("WS with valid token should not return 401")
+	}
+}
+
+func TestCORSHeadersOnResponse(t *testing.T) {
+	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+	srv := New(svc, nil, nil, ":0")
+	handler := srv.Handler()
+
+	req := httptest.NewRequest("GET", "/api/agents", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("CORS origin = %q, want *", got)
+	}
+}
+
 func TestServerStartAndStop(t *testing.T) {
 	svc := &mockBoardService{
 		columns: []service.Column{},
