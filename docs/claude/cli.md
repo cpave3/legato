@@ -11,6 +11,9 @@
 - `legato task unlink <task-id>` — remove branch/PR association from a task
 - `legato hooks install [--tool claude-code|staccato]` — install AI tool hooks (claude-code: `.claude/hooks/`, staccato: `~/.config/staccato/hooks/`)
 - `legato hooks uninstall [--tool claude-code|staccato]` — remove installed hooks
+- `legato auth token` — print the web UI auth token to stdout
+- `legato auth regenerate` — generate a new auth token (invalidates all paired devices)
+- `legato pair [--port <port>]` — render a QR code in the terminal encoding `legato://pair?url=<serverUrl>&token=<token>` for one-step PWA pairing. Prints raw token below QR as fallback. Uses configured hostname or system hostname, auto-detects TLS scheme
 
 CLI subcommands load only config+store+IPC client — no TUI, event bus, tmux, or sync service.
 
