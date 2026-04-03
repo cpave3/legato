@@ -24,6 +24,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/jira"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/tmux"
+	qrterminal "github.com/mdp/qrterminal/v3"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/setup"
@@ -51,9 +52,13 @@ func runCLI(args []string) int {
 		return runHooksCmd(args[1:])
 	case "serve":
 		return runServeCmd(args[1:])
+	case "auth":
+		return runAuthCmd(args[1:])
+	case "pair":
+		return runPairCmd(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato [task|agent|hooks|serve]\n")
+		fmt.Fprintf(os.Stderr, "usage: legato [task|agent|hooks|serve|auth|pair]\n")
 		return 1
 	}
 }
@@ -635,4 +640,108 @@ func resolveDataDir(cfg *config.Config) string {
 	// Reuse the same base directory as the database.
 	dbPath := config.ResolveDBPath(cfg)
 	return filepath.Dir(dbPath)
+}
+
+func runAuthCmd(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "usage: legato auth [token|regenerate]\n")
+		return 1
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
+	dataDir := resolveDataDir(cfg)
+
+	switch args[0] {
+	case "token":
+		token, err := auth.ReadToken(dataDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "hint: start legato once to auto-generate a token\n")
+			return 1
+		}
+		fmt.Println(token)
+		return 0
+
+	case "regenerate":
+		token, err := auth.RegenerateToken(dataDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		fmt.Println(token)
+		fmt.Fprintln(os.Stderr, "Token regenerated. All paired devices must re-authenticate.")
+		return 0
+
+	default:
+		fmt.Fprintf(os.Stderr, "unknown auth command: %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "usage: legato auth [token|regenerate]\n")
+		return 1
+	}
+}
+
+func runPairCmd(args []string) int {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
+	dataDir := resolveDataDir(cfg)
+
+	token, err := auth.ReadToken(dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "hint: start legato once to auto-generate a token\n")
+		return 1
+	}
+
+	// Determine port.
+	port := cfg.Web.Port
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "--port" {
+			port = args[i+1]
+			break
+		}
+	}
+	if port == "" {
+		port = "3080"
+	}
+
+	// Determine scheme.
+	scheme := "https"
+	if cfg.Web.TLS.Cert == "" && cfg.Web.TLS.Key == "" {
+		// Auto-generated certs — still HTTPS.
+		scheme = "https"
+	}
+
+	// Build hostname — try configured hostname, fall back to system hostname.
+	host := cfg.Web.TLS.Hostname
+	if host == "" {
+		host, _ = os.Hostname()
+	}
+	if host == "" {
+		host = "localhost"
+	}
+
+	serverURL := fmt.Sprintf("%s://%s:%s", scheme, host, port)
+	pairURI := fmt.Sprintf("legato://pair?url=%s&token=%s", serverURL, token)
+
+	// Render QR code to terminal.
+	qrterminal.GenerateWithConfig(pairURI, qrterminal.Config{
+		Level:     qrterminal.L,
+		Writer:    os.Stdout,
+		BlackChar: qrterminal.BLACK,
+		WhiteChar: qrterminal.WHITE,
+		QuietZone: 2,
+	})
+
+	fmt.Println()
+	fmt.Printf("Server: %s\n", serverURL)
+	fmt.Printf("Token:  %s\n", token)
+	fmt.Println()
+	fmt.Println("Scan the QR code with the Legato PWA to pair, or copy the token above.")
+	return 0
 }

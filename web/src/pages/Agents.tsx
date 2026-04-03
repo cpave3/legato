@@ -3,6 +3,7 @@ import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "
 import { AgentSidebar } from "../components/AgentSidebar"
 import { TerminalPanel } from "../components/TerminalPanel"
 import { PromptBar } from "../components/PromptBar"
+import { authHeaders } from "../lib/auth"
 
 const GLITCH_DURATION_MS = 500
 
@@ -62,7 +63,12 @@ export function AgentsPage() {
   // Fetch agents on mount and on agents_changed
   const fetchAgents = useCallback(async () => {
     try {
-      const res = await fetch("/api/agents")
+      const res = await fetch("/api/agents", { headers: authHeaders() })
+      if (res.status === 401) {
+        // Token became invalid — reload to trigger auth check.
+        window.location.reload()
+        return
+      }
       const data: AgentInfo[] = await res.json()
       setAgents(data)
     } catch {
@@ -157,7 +163,7 @@ export function AgentsPage() {
     try {
       await fetch("/api/agents/kill", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ task_id: selectedId }),
       })
     } catch {
@@ -171,7 +177,7 @@ export function AgentsPage() {
     try {
       const res = await fetch("/api/agents/spawn", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ title: title || "Ephemeral session" }),
       })
       if (!res.ok) {

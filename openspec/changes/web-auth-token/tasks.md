@@ -18,29 +18,29 @@
 
 ## 4. CLI Commands
 
-- [ ] 4.1 Add `legato auth token` subcommand: loads config, resolves data dir, reads `<dataDir>/auth-token`, prints to stdout.
-- [ ] 4.2 Add `legato auth regenerate` subcommand: calls `auth.RegenerateToken(dataDir)`, prints new token, warns that all paired devices must re-authenticate.
-- [ ] 4.3 Add `legato pair` subcommand: reads token, builds `legato://pair?url=<serverUrl>&token=<token>` URI, renders QR code to terminal using a Go QR library. Print raw token below QR as fallback. Accept `--port` flag (default from config).
-- [ ] 4.4 Add Go dependency for terminal QR rendering (e.g., `mdp/qrterminal` or `skip2/go-qrcode` with custom terminal renderer).
+- [x] 4.1 Add `legato auth token` subcommand: loads config, resolves data dir, reads `<dataDir>/auth-token`, prints to stdout.
+- [x] 4.2 Add `legato auth regenerate` subcommand: calls `auth.RegenerateToken(dataDir)`, prints new token, warns that all paired devices must re-authenticate.
+- [x] 4.3 Add `legato pair` subcommand: reads token, builds `legato://pair?url=<serverUrl>&token=<token>` URI, renders QR code to terminal using a Go QR library. Print raw token below QR as fallback. Accept `--port` flag (default from config).
+- [x] 4.4 Add Go dependency for terminal QR rendering (e.g., `mdp/qrterminal` or `skip2/go-qrcode` with custom terminal renderer).
 
 ## 5. Frontend — Token Storage and Auth Header
 
-- [ ] 5.1 Create token storage helpers: `getToken(serverUrl): string | null`, `setToken(serverUrl, token)`, `clearToken(serverUrl)` using localStorage key `legato:token:<serverUrl>` (use `legato:token:local` for origin).
-- [ ] 5.2 Update all `fetch()` calls (in Agents.tsx, Settings.tsx, and any future `apiFetch` helper) to include `Authorization: Bearer <token>` header when a token is stored for the active server.
-- [ ] 5.3 Update `useWebSocket.ts` to append `?token=<token>` to the WebSocket URL when a token is stored.
+- [x] 5.1 Create token storage helpers: `getToken(serverUrl): string | null`, `setToken(serverUrl, token)`, `clearToken(serverUrl)` using localStorage key `legato:token:<serverUrl>` (use `legato:token:local` for origin).
+- [x] 5.2 Update all `fetch()` calls (in Agents.tsx, Settings.tsx, and any future `apiFetch` helper) to include `Authorization: Bearer <token>` header when a token is stored for the active server.
+- [x] 5.3 Update `useWebSocket.ts` to append `?token=<token>` to the WebSocket URL when a token is stored.
 
 ## 6. Frontend — Token Prompt
 
-- [ ] 6.1 Create `TokenPrompt` component: modal with text input for pasting a token, submit button, error state for invalid tokens. Shown when any API call returns 401.
-- [ ] 6.2 On submit: store token via `setToken()`, retry the failed request. On 401 again: show "Invalid token" error.
-- [ ] 6.3 Handle stored-token-becomes-invalid: when a request with a stored token gets 401, clear the token and show the prompt.
+- [x] 6.1 Create `TokenPrompt` component: modal with text input for pasting a token, submit button, error state for invalid tokens. Shown when any API call returns 401.
+- [x] 6.2 On submit: store token via `setToken()`, retry the failed request. On 401 again: show "Invalid token" error.
+- [x] 6.3 Handle stored-token-becomes-invalid: when a request with a stored token gets 401, clear the token and show the prompt.
 
 ## 7. Frontend — QR Scanner
 
-- [ ] 7.1 Add JS QR scanner dependency (e.g., `html5-qrcode`).
-- [ ] 7.2 Create `QRScanner` component: opens camera, decodes QR codes, parses `legato://pair?url=...&token=...` URIs. Returns parsed `{url, token}` on success.
-- [ ] 7.3 Integrate into the add-server flow (Settings page or server switcher): "Scan QR" button opens the scanner. On successful scan, add server to registry and store token. On camera denied, show fallback message with manual entry.
-- [ ] 7.4 Handle invalid QR codes (non-legato URIs): show error, keep scanning.
+- [x] 7.1 Add JS QR scanner dependency (e.g., `html5-qrcode`).
+- [x] 7.2 Create `QRScanner` component: opens camera, decodes QR codes, parses `legato://pair?url=...&token=...` URIs. Returns parsed `{url, token}` on success.
+- [x] 7.3 Integrate into the add-server flow (Settings page or server switcher): "Scan QR" button opens the scanner. On successful scan, add server to registry and store token. On camera denied, show fallback message with manual entry.
+- [x] 7.4 Handle invalid QR codes (non-legato URIs): show error, keep scanning.
 
 ## 8. TUI Pairing Keybinding
 
@@ -49,7 +49,7 @@
 
 ## 9. Integration Verification
 
-- [ ] 9.1 Manual test: fresh install → start server → token auto-generated → web UI shows token prompt → paste token → authenticated → full access.
+- [ ] 9.1 Manual test (pending): fresh install → start server → token auto-generated → web UI shows token prompt → paste token → authenticated → full access.
 - [ ] 9.2 Manual test: `legato pair` → scan QR from phone PWA → server added + authenticated in one step.
 - [ ] 9.3 Manual test: `legato auth regenerate` → existing web session gets 401 → re-prompted for new token.
 - [ ] 9.4 Manual test: `/health` endpoint accessible without token (monitoring).

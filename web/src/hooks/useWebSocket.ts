@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback, createContext, useContext } from "react"
+import { getToken } from "../lib/auth"
 
 export interface WSMessage {
   type: string
@@ -56,7 +57,11 @@ export function useWebSocketProvider() {
 
   const connect = useCallback(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-    const wsUrl = `${protocol}//${window.location.host}/ws`
+    let wsUrl = `${protocol}//${window.location.host}/ws`
+    const token = getToken()
+    if (token) {
+      wsUrl += `?token=${encodeURIComponent(token)}`
+    }
     const ws = new WebSocket(wsUrl)
 
     ws.onopen = () => {

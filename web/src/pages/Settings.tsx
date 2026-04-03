@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react"
-import { ShieldCheck, Download, Zap, ScanSearch, Keyboard } from "lucide-react"
+import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode } from "lucide-react"
+import { authHeaders, setToken } from "../lib/auth"
+import { QRScanner } from "../components/QRScanner"
 
 interface SettingsData {
   ca_cert_available: boolean
@@ -20,7 +22,7 @@ export function SettingsPage() {
   })
 
   useEffect(() => {
-    fetch("/api/settings")
+    fetch("/api/settings", { headers: authHeaders() })
       .then((r) => r.json())
       .then(setSettings)
       .catch(() => setSettings(null))
@@ -41,6 +43,18 @@ export function SettingsPage() {
   const handleSwitchModifier = (value: string) => {
     setSwitchModifier(value)
     localStorage.setItem("legato:switch-modifier", value)
+  }
+
+  const [showScanner, setShowScanner] = useState(false)
+  const [scanSuccess, setScanSuccess] = useState("")
+
+  const handleQRScan = (data: { url: string; token: string }) => {
+    // For now, store the token for the local server.
+    // Multi-server support will use data.url to add a remote server.
+    setToken(data.token)
+    setShowScanner(false)
+    setScanSuccess(`Paired with ${data.url}`)
+    setTimeout(() => setScanSuccess(""), 3000)
   }
 
   return (
@@ -116,6 +130,39 @@ export function SettingsPage() {
           </div>
         </div>
       </section>
+
+      <section className="max-w-lg mb-8">
+        <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">
+          Pairing
+        </h2>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <div className="flex items-start gap-3">
+            <QrCode size={20} className="text-indigo-400 mt-0.5 shrink-0" />
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-zinc-300">
+                Scan a QR code from another Legato instance to pair with it.
+              </p>
+              <p className="text-xs text-zinc-500">
+                Run <code className="text-zinc-400 bg-zinc-800 px-1 rounded">legato pair</code> on the server to display the QR code.
+              </p>
+              <button
+                onClick={() => setShowScanner(true)}
+                className="mt-1 inline-flex w-fit items-center gap-2 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+              >
+                <QrCode size={14} />
+                Scan QR Code
+              </button>
+              {scanSuccess && (
+                <p className="text-sm text-emerald-400">{scanSuccess}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {showScanner && (
+        <QRScanner onScan={handleQRScan} onClose={() => setShowScanner(false)} />
+      )}
 
       <section className="max-w-lg">
         <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">
