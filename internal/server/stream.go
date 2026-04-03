@@ -143,6 +143,27 @@ func (sm *streamManager) startPipe(s *agentStream) {
 	s.cleanup = cleanup
 	s.mu.Unlock()
 
+	// Force the application to redraw by bouncing the pane size.
+	// This sends SIGWINCH to the foreground process, causing a
+	// complete redraw through the pipe. Without this, the backfill
+	// snapshot state and the live pipe stream can diverge, leaving
+	// stale characters on screen.
+	if tmuxPath, err := exec.LookPath("tmux"); err == nil {
+		// Shrink by 1 column then restore — the two resizes happen
+		// fast enough that the user never sees the flicker.
+		s.mu.Lock()
+		cols, rows := s.appliedCols, s.appliedRows
+		s.mu.Unlock()
+		if cols > 1 && rows > 0 {
+			exec.Command(tmuxPath, "resize-window", "-t", sessionName,
+				"-x", fmt.Sprintf("%d", cols-1),
+				"-y", fmt.Sprintf("%d", rows)).Run()
+			exec.Command(tmuxPath, "resize-window", "-t", sessionName,
+				"-x", fmt.Sprintf("%d", cols),
+				"-y", fmt.Sprintf("%d", rows)).Run()
+		}
+	}
+
 	go sm.readLoop(s, reader)
 }
 

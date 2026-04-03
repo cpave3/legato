@@ -1,6 +1,15 @@
 import type { AgentInfo } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
-import { Plus } from "lucide-react"
+import { Plus, Play, Pause } from "lucide-react"
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return "<1m"
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return `${hours}h ${remainingMinutes}m`
+}
 
 interface AgentSidebarProps {
   agents: AgentInfo[]
@@ -64,6 +73,22 @@ export function AgentSidebar({ agents, selectedId, onSelect, onSpawn }: AgentSid
           <span className="text-xs text-zinc-600 truncate pl-4 font-mono">
             {agent.command}
           </span>
+          {(agent.working_seconds >= 60 || agent.waiting_seconds >= 60) && (
+            <div className="flex items-center gap-2 pl-4 text-[10px]">
+              {agent.working_seconds >= 60 && (
+                <span className="flex items-center gap-0.5 text-emerald-800">
+                  <Play size={8} />
+                  {formatDuration(agent.working_seconds)}
+                </span>
+              )}
+              {agent.waiting_seconds >= 60 && (
+                <span className="flex items-center gap-0.5 text-yellow-800">
+                  <Pause size={8} />
+                  {formatDuration(agent.waiting_seconds)}
+                </span>
+              )}
+            </div>
+          )}
         </button>
       ))}
     </div>

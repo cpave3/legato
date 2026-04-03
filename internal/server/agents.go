@@ -9,15 +9,17 @@ import (
 
 // AgentResponse is the JSON representation of an agent session.
 type AgentResponse struct {
-	ID          int        `json:"id"`
-	TaskID      string     `json:"task_id"`
-	Title       string     `json:"task_title"`
-	TmuxSession string     `json:"tmux_session"`
-	Command     string     `json:"command"`
-	Status      string     `json:"status"`
-	Activity    string     `json:"activity"`
-	StartedAt   time.Time  `json:"started_at"`
-	EndedAt     *time.Time `json:"ended_at,omitempty"`
+	ID              int        `json:"id"`
+	TaskID          string     `json:"task_id"`
+	Title           string     `json:"task_title"`
+	TmuxSession     string     `json:"tmux_session"`
+	Command         string     `json:"command"`
+	Status          string     `json:"status"`
+	Activity        string     `json:"activity"`
+	StartedAt       time.Time  `json:"started_at"`
+	EndedAt         *time.Time `json:"ended_at,omitempty"`
+	WorkingSeconds  float64    `json:"working_seconds"`
+	WaitingSeconds  float64    `json:"waiting_seconds"`
 }
 
 func (s *Server) spawnAgentHandler() http.HandlerFunc {
@@ -109,9 +111,16 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 			return
 		}
 
+		// Fetch durations for all agent tasks.
+		taskIDs := make([]string, len(agents))
+		for i, a := range agents {
+			taskIDs[i] = a.TaskID
+		}
+		durations, _ := s.agents.GetTaskDurations(context.Background(), taskIDs)
+
 		resp := make([]AgentResponse, len(agents))
 		for i, a := range agents {
-			resp[i] = AgentResponse{
+			r := AgentResponse{
 				ID:          a.ID,
 				TaskID:      a.TaskID,
 				Title:       a.Title,
@@ -122,6 +131,11 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 				StartedAt:   a.StartedAt,
 				EndedAt:     a.EndedAt,
 			}
+			if d, ok := durations[a.TaskID]; ok {
+				r.WorkingSeconds = d.Working.Seconds()
+				r.WaitingSeconds = d.Waiting.Seconds()
+			}
+			resp[i] = r
 		}
 
 		json.NewEncoder(w).Encode(resp)

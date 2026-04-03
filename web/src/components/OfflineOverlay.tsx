@@ -30,6 +30,12 @@ export function OfflineOverlay() {
       <div className="mt-6 h-1 w-32 overflow-hidden rounded-full bg-zinc-800">
         <div className="h-full w-1/3 animate-[slide_1.2s_linear_infinite] rounded-full bg-indigo-600" />
       </div>
+      <button
+        onClick={() => window.location.reload()}
+        className="mt-4 rounded px-4 py-2 text-sm text-zinc-400 border border-zinc-700 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+      >
+        Retry
+      </button>
       <style>{`
         @keyframes slide {
           0% { transform: translateX(-100%); }

@@ -23,6 +23,8 @@ export interface AgentInfo {
   activity: string
   started_at: string
   ended_at?: string
+  working_seconds: number
+  waiting_seconds: number
 }
 
 export interface PromptState {

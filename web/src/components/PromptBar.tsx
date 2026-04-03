@@ -13,9 +13,10 @@ interface PromptBarProps {
   onRefresh: () => void
   agentTitle?: string
   agentActivity?: string
+  connected?: boolean
 }
 
-export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, agentTitle, agentActivity }: PromptBarProps) {
+export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, agentTitle, agentActivity, connected }: PromptBarProps) {
   const [input, setInput] = useState("")
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -213,13 +214,14 @@ export function PromptBar({ promptState, onSendKeys, onDismissPrompt, onDetectPr
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Type a message..."
-              className="flex-1 rounded bg-zinc-900 border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500"
+              placeholder={connected === false ? "Disconnected..." : "Type a message..."}
+              disabled={connected === false}
+              className="flex-1 rounded bg-zinc-900 border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500 disabled:opacity-50"
               autoFocus
             />
             <button
               onClick={handleSubmit}
-              disabled={!input.trim()}
+              disabled={!input.trim() || connected === false}
               className="rounded bg-indigo-600 p-1.5 text-white transition-colors hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600"
             >
               <Send size={16} />

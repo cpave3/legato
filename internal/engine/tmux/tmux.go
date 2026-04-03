@@ -185,6 +185,9 @@ func (m *Manager) PipeOutput(name string) (io.Reader, func(), error) {
 		return nil, nil, fmt.Errorf("mkfifo: %w", err)
 	}
 
+	// Clear any stale pipe-pane from a previous process before starting a new one.
+	exec.Command(m.tmuxPath, "pipe-pane", "-t", name).Run()
+
 	// Start pipe-pane — tmux writes pane output to cat which writes to the FIFO.
 	cmd := exec.Command(m.tmuxPath, "pipe-pane", "-o", "-t", name,
 		fmt.Sprintf("cat > %s", fifoPath))

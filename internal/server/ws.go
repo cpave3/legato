@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -174,9 +176,15 @@ func (s *Server) sendAgentList(client *wsClient) {
 		return
 	}
 
+	taskIDs := make([]string, len(agents))
+	for i, a := range agents {
+		taskIDs[i] = a.TaskID
+	}
+	durations, _ := s.agents.GetTaskDurations(context.Background(), taskIDs)
+
 	resp := make([]AgentResponse, len(agents))
 	for i, a := range agents {
-		resp[i] = AgentResponse{
+		r := AgentResponse{
 			ID:          a.ID,
 			TaskID:      a.TaskID,
 			Title:       a.Title,
@@ -187,6 +195,11 @@ func (s *Server) sendAgentList(client *wsClient) {
 			StartedAt:   a.StartedAt,
 			EndedAt:     a.EndedAt,
 		}
+		if d, ok := durations[a.TaskID]; ok {
+			r.WorkingSeconds = d.Working.Seconds()
+			r.WaitingSeconds = d.Waiting.Seconds()
+		}
+		resp[i] = r
 	}
 	client.send(WSMessage{Type: MsgAgentList, Agents: resp})
 }
@@ -282,10 +295,27 @@ func (s *Server) handleRefreshPane(client *wsClient, msg WSMessage) {
 		return
 	}
 
+	// Query tmux for the cursor position so we can restore it after
+	// writing the snapshot.  Without this the snapshot renders from
+	// the top but live pipe output continues at the real cursor,
+	// causing visual artefacts.
+	cursorSuffix := ""
+	if tmuxPath, lookErr := exec.LookPath("tmux"); lookErr == nil {
+		out, err := exec.Command(tmuxPath, "display-message", "-t", sessionName,
+			"-p", "#{cursor_y} #{cursor_x}").CombinedOutput()
+		if err == nil {
+			var row, col int
+			if _, err := fmt.Sscanf(strings.TrimSpace(string(out)), "%d %d", &row, &col); err == nil {
+				// ANSI CUP is 1-based.
+				cursorSuffix = fmt.Sprintf("\x1b[%d;%dH", row+1, col+1)
+			}
+		}
+	}
+
 	snapshot = strings.ReplaceAll(snapshot, "\n", "\r\n")
 	client.send(WSMessage{
 		Type:    MsgAgentOutput,
 		AgentID: msg.AgentID,
-		Content: "\x1b[2J\x1b[H" + snapshot,
+		Content: "\x1b[2J\x1b[H" + snapshot + cursorSuffix,
 	})
 }
