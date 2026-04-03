@@ -48,21 +48,25 @@ export function useWebSocket() {
   return useContext(WebSocketContext)
 }
 
-export function useWebSocketProvider() {
+export function useWebSocketProvider(wsUrl: string) {
   const [connected, setConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const handlersRef = useRef<Set<MessageHandler>>(new Set())
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const attemptRef = useRef(0)
+  const wsUrlRef = useRef(wsUrl)
+  wsUrlRef.current = wsUrl
 
   const connect = useCallback(() => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-    let wsUrl = `${protocol}//${window.location.host}/ws`
-    const token = getToken()
+    let url = wsUrlRef.current
+    // Derive the base URL for token lookup — strip /ws and protocol.
+    const baseUrl = url.replace(/^wss?:\/\//, "https://").replace(/\/ws$/, "")
+    const isOrigin = url.includes(window.location.host)
+    const token = getToken(isOrigin ? undefined : baseUrl)
     if (token) {
-      wsUrl += `?token=${encodeURIComponent(token)}`
+      url += `?token=${encodeURIComponent(token)}`
     }
-    const ws = new WebSocket(wsUrl)
+    const ws = new WebSocket(url)
 
     ws.onopen = () => {
       setConnected(true)
@@ -72,7 +76,6 @@ export function useWebSocketProvider() {
     ws.onclose = () => {
       setConnected(false)
       wsRef.current = null
-      // Exponential backoff: 1s, 2s, 4s, 8s, 16s, max 30s
       const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30000)
       attemptRef.current++
       reconnectTimeoutRef.current = setTimeout(connect, delay)
@@ -90,13 +93,25 @@ export function useWebSocketProvider() {
     wsRef.current = ws
   }, [])
 
+  // Connect on mount and reconnect when wsUrl changes.
   useEffect(() => {
+    // Close existing connection if URL changed.
+    if (reconnectTimeoutRef.current != null) {
+      clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
+    }
+    if (wsRef.current) {
+      wsRef.current.onclose = null // prevent auto-reconnect
+      wsRef.current.close()
+      wsRef.current = null
+    }
+    attemptRef.current = 0
     connect()
     return () => {
       if (reconnectTimeoutRef.current != null) clearTimeout(reconnectTimeoutRef.current)
       wsRef.current?.close()
     }
-  }, [connect])
+  }, [wsUrl, connect])
 
   const send = useCallback((msg: WSMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

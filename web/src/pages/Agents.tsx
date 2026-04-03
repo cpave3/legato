@@ -3,7 +3,8 @@ import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "
 import { AgentSidebar } from "../components/AgentSidebar"
 import { TerminalPanel } from "../components/TerminalPanel"
 import { PromptBar } from "../components/PromptBar"
-import { authHeaders } from "../lib/auth"
+import { useServer } from "../hooks/useServer"
+import { apiFetch } from "../lib/api"
 
 const GLITCH_DURATION_MS = 500
 
@@ -37,6 +38,7 @@ function isModifierKey(e: globalThis.KeyboardEvent, mod: string): boolean {
 
 export function AgentsPage() {
   const { send, subscribe, connected } = useWebSocket()
+  const { baseUrl } = useServer()
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [promptState, setPromptState] = useState<PromptState | null>(null)
@@ -63,9 +65,8 @@ export function AgentsPage() {
   // Fetch agents on mount and on agents_changed
   const fetchAgents = useCallback(async () => {
     try {
-      const res = await fetch("/api/agents", { headers: authHeaders() })
+      const res = await apiFetch(baseUrl, "/api/agents")
       if (res.status === 401) {
-        // Token became invalid — reload to trigger auth check.
         window.location.reload()
         return
       }
@@ -74,7 +75,7 @@ export function AgentsPage() {
     } catch {
       // ignore fetch errors
     }
-  }, [])
+  }, [baseUrl])
 
   useEffect(() => {
     fetchAgents()
@@ -161,9 +162,9 @@ export function AgentsPage() {
     if (!window.confirm("Kill this agent session?")) return
     localStorage.removeItem(`legato:draft:${selectedId}`)
     try {
-      await fetch("/api/agents/kill", {
+      await apiFetch(baseUrl, "/api/agents/kill", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ task_id: selectedId }),
       })
     } catch {
@@ -175,9 +176,9 @@ export function AgentsPage() {
     const title = window.prompt("Agent title:", "Ephemeral session")
     if (title === null) return // cancelled
     try {
-      const res = await fetch("/api/agents/spawn", {
+      const res = await apiFetch(baseUrl, "/api/agents/spawn", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: title || "Ephemeral session" }),
       })
       if (!res.ok) {

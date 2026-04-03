@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react"
 import { WifiOff } from "lucide-react"
 import { useWebSocket } from "../hooks/useWebSocket"
+import { useServer } from "../hooks/useServer"
 
 export function OfflineOverlay() {
   const { connected } = useWebSocket()
+  const { isRemote, activeServerName } = useServer()
   const [visible, setVisible] = useState(false)
 
   // Delay showing the overlay to avoid a flash on slow initial connections.
@@ -25,8 +27,13 @@ export function OfflineOverlay() {
         Connection Lost
       </h2>
       <p className="text-zinc-400 text-sm text-center max-w-xs">
-        Unable to reach the Legato server. Reconnecting automatically&hellip;
+        Unable to reach {isRemote ? activeServerName : "the Legato server"}. Reconnecting automatically&hellip;
       </p>
+      {isRemote && (
+        <p className="text-zinc-500 text-xs text-center max-w-xs mt-2">
+          Check that the server is running and its TLS certificate is trusted on this device.
+        </p>
+      )}
       <div className="mt-6 h-1 w-32 overflow-hidden rounded-full bg-zinc-800">
         <div className="h-full w-1/3 animate-[slide_1.2s_linear_infinite] rounded-full bg-indigo-600" />
       </div>
