@@ -69,6 +69,51 @@ func lastNLines(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
+// numberedLineRe matches lines like "  1. Yes" or "❯ 1. Yes".
+// Allows optional cursor prefix (❯ or >) that Claude Code puts on the selected option.
+var numberedLineRe = regexp.MustCompile(`^\s*[❯>]?\s*(\d+)\.\s+(.+)$`)
+
+// extractNumberedActions finds the last contiguous block of numbered option
+// lines anywhere in s. Non-numbered lines after the block (e.g. hint text)
+// are skipped. Returns nil if no numbered lines found.
+func extractNumberedActions(s string) []Action {
+	lines := strings.Split(s, "\n")
+
+	// Find all numbered lines with their indices.
+	type match struct {
+		index int
+		label string
+		key   string
+	}
+	var matches []match
+	for i, line := range lines {
+		m := numberedLineRe.FindStringSubmatch(line)
+		if m != nil {
+			matches = append(matches, match{index: i, label: strings.TrimSpace(m[2]), key: m[1] + " Enter"})
+		}
+	}
+
+	if len(matches) == 0 {
+		return nil
+	}
+
+	// Walk backwards through matches to find the last contiguous block.
+	end := len(matches) - 1
+	start := end
+	for start > 0 && matches[start].index == matches[start-1].index+1 {
+		start--
+	}
+
+	actions := make([]Action, 0, end-start+1)
+	for i := start; i <= end; i++ {
+		actions = append(actions, Action{
+			Label: matches[i].label,
+			Keys:  matches[i].key,
+		})
+	}
+	return actions
+}
+
 // Detect classifies the terminal output and returns the prompt state.
 // It is a pure function with no side effects, safe for concurrent use.
 func Detect(output string) PromptState {
@@ -92,29 +137,19 @@ func Detect(output string) PromptState {
 	for _, re := range planApprovalPatterns {
 		if re.MatchString(tail) {
 			return PromptState{
-				Type: PlanApproval,
-				Actions: []Action{
-					{Label: "Accept", Keys: "Enter"},
-					{Label: "Reject", Keys: "Escape"},
-				},
+				Type:    PlanApproval,
+				Actions: extractNumberedActions(tail),
 			}
 		}
 	}
 
-	// Check tool approval.
-	// Claude Code uses an arrow-key selection list, not single-char shortcuts.
-	// "Enter" confirms the pre-selected first option (Yes).
-	// "Down Enter" navigates to the second option (Always) and confirms.
-	// "Down Down Enter" navigates to the third option (No) and confirms.
+	// Check tool approval. Only show actions if numbered options are found —
+	// never guess at options that might not be on screen.
 	for _, re := range toolApprovalPatterns {
 		if re.MatchString(tail) {
 			return PromptState{
-				Type: ToolApproval,
-				Actions: []Action{
-					{Label: "Yes", Keys: "Enter"},
-					{Label: "Always", Keys: "Down Enter"},
-					{Label: "No", Keys: "Down Down Enter"},
-				},
+				Type:    ToolApproval,
+				Actions: extractNumberedActions(tail),
 			}
 		}
 	}

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "../hooks/useWebSocket"
 import { AgentSidebar } from "../components/AgentSidebar"
 import { TerminalPanel } from "../components/TerminalPanel"
-import { PromptBar } from "../components/PromptBar"
+import { PromptBar, type PromptBarHandle } from "../components/PromptBar"
 import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
 
@@ -44,6 +44,7 @@ export function AgentsPage() {
   const [promptState, setPromptState] = useState<PromptState | null>(null)
   const [glitching, setGlitching] = useState(false)
   const glitchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const promptBarRef = useRef<PromptBarHandle>(null)
 
   // Per-agent prompt detection override. If not in the map, uses the global default.
   const [promptDetectionOverrides, setPromptDetectionOverrides] = useState<Record<string, boolean>>({})
@@ -320,12 +321,13 @@ export function AgentsPage() {
         {selectedId ? (
           <>
             <div className="relative min-h-0 flex-1">
-              <TerminalPanel agentId={selectedId} onGlitch={triggerGlitch} />
+              <TerminalPanel agentId={selectedId} onGlitch={triggerGlitch} onClickTerminal={() => promptBarRef.current?.focus()} />
               {glitching && (
                 <div className="terminal-glitch-overlay" aria-hidden="true" />
               )}
             </div>
             <PromptBar
+              ref={promptBarRef}
               promptState={isPromptDetectionEnabled ? promptState : null}
               onSendKeys={handleSendKeys}
               onSubmitText={handleSubmitText}

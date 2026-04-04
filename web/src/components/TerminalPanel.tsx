@@ -8,9 +8,10 @@ import "@xterm/xterm/css/xterm.css"
 interface TerminalPanelProps {
   agentId: string
   onGlitch?: () => void
+  onClickTerminal?: () => void
 }
 
-export function TerminalPanel({ agentId, onGlitch }: TerminalPanelProps) {
+export function TerminalPanel({ agentId, onGlitch, onClickTerminal }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -173,6 +174,7 @@ export function TerminalPanel({ agentId, onGlitch }: TerminalPanelProps) {
     <div className="absolute inset-0 bg-[#0a0a0f]">
       <div
         ref={containerRef}
+        onClick={onClickTerminal}
         className="absolute inset-0 overflow-hidden"
       />
       {isScrolledUp && (

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from "react"
+import { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, type KeyboardEvent } from "react"
 import type { PromptState } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
 import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff } from "lucide-react"
@@ -106,12 +106,30 @@ interface PromptBarProps {
 
 function draftKey(id: string) { return `legato:draft:${id}` }
 
-export function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, connected }: PromptBarProps) {
+export interface PromptBarHandle {
+  focus: () => void
+}
+
+export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, connected }, ref) {
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const inputRef = useRef(input)
   const prevAgentIdRef = useRef(agentId)
+
+  useImperativeHandle(ref, () => ({
+    focus: () => textareaRef.current?.focus(),
+  }))
+
+  // Sync textarea height whenever input changes (submit clear, agent switch, typing).
+  useEffect(() => {
+    const el = textareaRef.current
+    if (el) {
+      el.style.height = "auto"
+      el.style.height = Math.min(el.scrollHeight, 5 * 24 + 12) + "px"
+    }
+  }, [input])
 
   // Keep inputRef in sync for use in the agentId change effect.
   inputRef.current = input
@@ -289,21 +307,22 @@ export function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissProm
         )}
 
         {(type === "free_text" || type === null) && (
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
+          <div className="flex items-end gap-2">
+            <textarea
+              ref={textareaRef}
               value={input}
               onChange={(e) => handleInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={connected === false ? "Disconnected..." : "Type a message..."}
               disabled={connected === false}
-              className="flex-1 rounded bg-zinc-900 border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500 disabled:opacity-50"
+              rows={1}
+              className="flex-1 rounded bg-zinc-900 border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500 disabled:opacity-50 resize-none leading-6"
               autoFocus
             />
             <button
               onClick={handleSubmit}
               disabled={!input.trim() || connected === false}
-              className="rounded bg-indigo-600 p-1.5 text-white transition-colors hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600"
+              className="rounded bg-indigo-600 p-1.5 text-white transition-colors hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 mb-0.5"
             >
               <Send size={16} />
             </button>
@@ -312,4 +331,4 @@ export function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissProm
       </div>
     </div>
   )
-}
+})
