@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, type KeyboardEvent } from "react"
 import type { PromptState } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
-import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff } from "lucide-react"
+import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff, Terminal } from "lucide-react"
 
 interface ActionListProps {
   actions: { label: string; keys: string }[]
@@ -101,6 +101,7 @@ interface PromptBarProps {
   agentId: string
   agentTitle?: string
   agentActivity?: string
+  agentCommand?: string
   connected?: boolean
 }
 
@@ -110,7 +111,7 @@ export interface PromptBarHandle {
   focus: () => void
 }
 
-export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, connected }, ref) {
+export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, connected }, ref) {
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -208,6 +209,9 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   // Only show detected prompt buttons when the agent is waiting for input.
   // This avoids false positives from pattern-matching mid-output.
   const type = isWaiting ? (promptState?.type ?? null) : null
+
+  // Claude-specific: "! " prefix runs a bash command.
+  const isBashMode = agentCommand === "claude" && input.startsWith("! ")
 
   return (
     <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-3">
@@ -308,17 +312,30 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
 
         {(type === "free_text" || type === null) && (
           <div className="flex items-end gap-2">
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => handleInputChange(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={connected === false ? "Disconnected..." : "Type a message..."}
-              disabled={connected === false}
-              rows={1}
-              className="flex-1 rounded bg-zinc-900 border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500 disabled:opacity-50 resize-none leading-6"
-              autoFocus
-            />
+            <div className="relative flex-1">
+              {isBashMode && (
+                <div className="absolute left-2.5 top-1.5 flex items-center gap-1 text-amber-400 pointer-events-none">
+                  <Terminal size={13} />
+                  <span className="text-[10px] font-semibold uppercase tracking-wide">bash</span>
+                </div>
+              )}
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => handleInputChange(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={connected === false ? "Disconnected..." : "Type a message..."}
+                disabled={connected === false}
+                rows={1}
+                className={cn(
+                  "w-full rounded bg-zinc-900 border px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none disabled:opacity-50 resize-none leading-6 transition-colors",
+                  isBashMode
+                    ? "border-amber-500/60 focus:border-amber-400 pt-7"
+                    : "border-zinc-700 focus:border-indigo-500"
+                )}
+                autoFocus
+              />
+            </div>
             <button
               onClick={handleSubmit}
               disabled={!input.trim() || connected === false}

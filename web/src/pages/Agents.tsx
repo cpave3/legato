@@ -341,6 +341,7 @@ export function AgentsPage() {
               agentId={selectedId}
               agentTitle={selectedAgent?.task_title}
               agentActivity={selectedAgent?.activity}
+              agentCommand={selectedAgent?.command}
               connected={connected}
             />
           </>
