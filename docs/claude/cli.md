@@ -9,8 +9,8 @@
 - `legato agent summary [--exclude <task-id>]` — output tmux-formatted agent session counts (working/waiting/idle) for use in tmux status bar `#()` expansion
 - `legato task link <task-id> [--branch <branch>] [--repo <owner/repo>]` — link a git branch to a task for PR tracking (auto-detects branch if `--branch` omitted, `--repo` enables repo-scoped polling)
 - `legato task unlink <task-id>` — remove branch/PR association from a task
-- `legato hooks install [--tool claude-code|staccato]` — install AI tool hooks (claude-code: `.claude/hooks/`, staccato: `~/.config/staccato/hooks/`)
-- `legato hooks uninstall [--tool claude-code|staccato]` — remove installed hooks
+- `legato hooks install [--tool claude-code|staccato|chimera]` — install AI tool hooks (claude-code: `.claude/hooks/`, staccato: `~/.config/staccato/hooks/`, chimera: `~/.chimera/hooks/`)
+- `legato hooks uninstall [--tool claude-code|staccato|chimera]` — remove installed hooks
 - `legato auth token` — print the web UI auth token to stdout
 - `legato auth regenerate` — generate a new auth token (invalidates all paired devices)
 - `legato pair [--port <port>]` — render a QR code in the terminal encoding `legato://pair?url=<serverUrl>&token=<token>` for one-step PWA pairing. Prints raw token below QR as fallback. Uses configured hostname or system hostname, auto-detects TLS scheme
@@ -59,3 +59,21 @@ Legato-spawned tmux sessions get a custom status bar showing a live summary of o
 **Flow**: Staccato `post-pr-create` fires when browser opens to PR creation page (PR may not exist yet) → hook reads `LEGATO_TASK_ID` (injected by legato's tmux session) + `ST_REPO_PATH` + `ST_BRANCH` → detects owner/repo from git remote → calls `legato task link $LEGATO_TASK_ID --branch $ST_BRANCH --repo owner/repo` → IPC broadcast triggers immediate poll → background polling discovers PR when it actually exists.
 
 **Key detail**: staccato's `post-pr-create` fires on PR page open, not on actual PR creation. So the initial link only stores repo+branch (no PR number). The PR tracking service polls `gh pr list --head <branch> --repo <owner/repo>` until the PR materializes. This is why `PRMeta.Repo` is needed — legato may not be running from the same repo directory.
+
+## Chimera Integration
+
+`ChimeraAdapter` in `internal/engine/hooks/chimera.go` implements `AIToolAdapter`. Installs five activity-update hooks under `~/.chimera/hooks/<EventName>/legato-*.sh` (Chimera uses directory-based hooks, not a settings file — drop a script and it runs).
+
+**Event → activity mapping** (per Chimera's documented integration recipe):
+
+| Event              | Script                            | Activity   |
+|--------------------|-----------------------------------|------------|
+| `UserPromptSubmit` | `legato-prompt-submit.sh`         | `working`  |
+| `PostToolUse`      | `legato-post-tool-use.sh`         | `working`  |
+| `PermissionRequest`| `legato-permission.sh`            | `waiting`  |
+| `Stop`             | `legato-stop.sh`                  | (clear)    |
+| `SessionEnd`       | `legato-session-end.sh`           | (clear)    |
+
+**Flow**: Each script gates on `LEGATO_TASK_ID` (injected by legato's tmux session) — outside a Legato-spawned session it's a no-op. Inside, it calls `legato agent state $LEGATO_TASK_ID --activity <state>`, which updates `agent_sessions.activity` and broadcasts IPC like Claude Code's hooks.
+
+**Coexistence with Claude Code**: Both adapters can be installed simultaneously. Hooks fire from different processes inside the same tmux session, and only `LEGATO_TASK_ID` (already injected by the agent service) needs to flow through — `ChimeraAdapter.EnvVars` returns nil. Install with `legato hooks install --tool chimera`.

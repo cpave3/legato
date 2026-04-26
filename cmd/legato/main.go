@@ -297,6 +297,7 @@ func runHooksCmd(args []string) int {
 	}
 	registry.Register(hooks.NewClaudeCodeAdapter(legatoBin))
 	registry.Register(hooks.NewStaccatoAdapter(legatoBin))
+	registry.Register(hooks.NewChimeraAdapter(legatoBin))
 
 	adapter, err := registry.Get(tool)
 	if err != nil {
