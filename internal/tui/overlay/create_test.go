@@ -442,3 +442,38 @@ func TestCreateOverlayViewContainsElements(t *testing.T) {
 	// Panel should contain the title text (even if styled)
 	// and column names
 }
+
+func TestCreateOverlayPasteMultiRuneTitle(t *testing.T) {
+	// Simulates paste via Ctrl+Shift+V in title field
+	m := NewCreate([]string{"Backlog"}, "Backlog")
+	m.width = 80
+	m.height = 40
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Pasted title")})
+	m = m2.(CreateOverlay)
+	if m.title != "Pasted title" {
+		t.Errorf("title after paste = %q, want 'Pasted title'", m.title)
+	}
+}
+
+func TestCreateOverlayPasteMultiRuneDescription(t *testing.T) {
+	// Simulates paste via Ctrl+Shift+V in description field
+	m := NewCreate([]string{"Backlog"}, "Backlog")
+	m.width = 80
+	m.height = 40
+
+	// Tab to description (title → column → workspace → description)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = m2.(CreateOverlay)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = m2.(CreateOverlay)
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = m2.(CreateOverlay)
+
+	// Paste in description
+	m2, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Pasted description")})
+	m = m2.(CreateOverlay)
+	if m.description != "Pasted description" {
+		t.Errorf("description after paste = %q, want 'Pasted description'", m.description)
+	}
+}

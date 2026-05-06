@@ -104,3 +104,20 @@ func TestImportOverlayBackspace(t *testing.T) {
 		t.Fatal("backspace should emit query changed")
 	}
 }
+
+func TestImportOverlayPasteMultiRune(t *testing.T) {
+	// Simulates paste via Ctrl+Shift+V which sends all runes at once
+	m := NewImport(100, 30, nil)
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("LEGATO-123")})
+	im := m2.(ImportOverlay)
+	if im.Query() != "LEGATO-123" {
+		t.Errorf("query after paste = %q, want 'LEGATO-123'", im.Query())
+	}
+	if cmd == nil {
+		t.Fatal("expected ImportQueryChangedMsg cmd from multi-rune paste")
+	}
+	msg := cmd()
+	if qm, ok := msg.(ImportQueryChangedMsg); !ok || qm.Query != "LEGATO-123" {
+		t.Errorf("expected ImportQueryChangedMsg with query 'LEGATO-123', got %T", msg)
+	}
+}

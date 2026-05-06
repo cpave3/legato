@@ -114,7 +114,8 @@ func (m ImportOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		default:
-			if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+			// Handle both single character input and multi-rune paste (e.g., Ctrl+Shift+V)
+			if msg.Type == tea.KeyRunes && len(msg.Runes) > 0 {
 				m.query += string(msg.Runes)
 				q := m.query
 				return m, func() tea.Msg { return ImportQueryChangedMsg{Query: q} }

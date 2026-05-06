@@ -158,14 +158,16 @@ func (m LinkPROverlay) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	default:
-		if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-			ch := string(msg.Runes)
+		// Handle both single character input and multi-rune paste (e.g., Ctrl+Shift+V)
+		if msg.Type == tea.KeyRunes && len(msg.Runes) > 0 {
 			if m.focus == fieldRepo {
-				m.repoInput += ch
+				m.repoInput += string(msg.Runes)
 			} else {
-				// Only allow digits for PR number
-				if ch >= "0" && ch <= "9" {
-					m.numInput += ch
+				// Only allow digits for PR number - filter pasted content to digits only
+				for _, r := range msg.Runes {
+					if r >= '0' && r <= '9' {
+						m.numInput += string(r)
+					}
 				}
 			}
 			m.errMsg = ""

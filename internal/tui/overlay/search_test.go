@@ -105,3 +105,20 @@ func containsStr(s, substr string) bool {
 	}
 	return false
 }
+
+func TestSearchOverlayPasteMultiRune(t *testing.T) {
+	// Simulates paste via Ctrl+Shift+V which sends all runes at once
+	m := NewSearch(80, 24)
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("search query")})
+	sm := m2.(SearchOverlay)
+	if sm.Query() != "search query" {
+		t.Errorf("query after paste = %q, want 'search query'", sm.Query())
+	}
+	if cmd == nil {
+		t.Fatal("expected SearchQueryChangedMsg cmd from multi-rune paste")
+	}
+	msg := cmd()
+	if qm, ok := msg.(SearchQueryChangedMsg); !ok || qm.Query != "search query" {
+		t.Errorf("expected SearchQueryChangedMsg with query 'search query', got %T", msg)
+	}
+}

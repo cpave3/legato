@@ -101,3 +101,16 @@ func TestTitleEditCancel(t *testing.T) {
 		t.Fatalf("expected TitleEditCancelledMsg, got %T", msg)
 	}
 }
+
+func TestTitleEditPasteMultiRune(t *testing.T) {
+	// Simulates paste via Ctrl+Shift+V which sends all runes at once
+	m := NewTitleEdit("abc123", "")
+	m.width = 80
+	m.height = 40
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Pasted title")})
+	m = m2.(TitleEditOverlay)
+	if m.title != "Pasted title" {
+		t.Errorf("title after paste = %q, want 'Pasted title'", m.title)
+	}
+}

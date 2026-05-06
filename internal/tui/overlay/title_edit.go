@@ -65,7 +65,8 @@ func (m TitleEditOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			if msg.Type == tea.KeySpace {
 				m.title += " "
-			} else if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+			} else if msg.Type == tea.KeyRunes && len(msg.Runes) > 0 {
+				// Handle both single character input and multi-rune paste
 				m.title += string(msg.Runes)
 			}
 		}
