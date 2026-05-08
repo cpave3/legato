@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // chimeraScripts pairs each Chimera hook event with its installed script name
@@ -22,7 +23,15 @@ var chimeraScripts = []struct {
 
 // ChimeraAdapter implements the AIToolAdapter interface for the Chimera coding agent.
 type ChimeraAdapter struct {
-	legatoBin string
+	legatoBin     string
+	roleOverrides RolePromptOverrides
+	launchArgs    []string
+	// modes maps swarm role labels to Chimera mode names. nil or empty
+	// means "no mode injection" — Chimera launches in its own default
+	// mode. legato does NOT ship default mode files (those would be
+	// project-specific files on the user's filesystem); users opt into
+	// per-role modes explicitly via cfg.Adapters.chimera.modes.
+	modes map[string]string
 }
 
 // NewChimeraAdapter creates a Chimera adapter.
@@ -30,12 +39,141 @@ func NewChimeraAdapter(legatoBin string) *ChimeraAdapter {
 	return &ChimeraAdapter{legatoBin: legatoBin}
 }
 
+// SetRoleOverrides configures user-supplied role prompts.
+func (a *ChimeraAdapter) SetRoleOverrides(overrides RolePromptOverrides) {
+	a.roleOverrides = overrides
+}
+
+// SetLaunchArgs configures extra CLI flags appended to the `chimera` invocation
+// in LaunchCommand. Use to opt into Chimera modes/flags (e.g. --sandbox,
+// --mode agent) consistently across all swarm participants using this adapter.
+func (a *ChimeraAdapter) SetLaunchArgs(args []string) {
+	a.launchArgs = args
+}
+
+// SetModes configures the role → Chimera mode mapping used by LaunchCommand
+// to inject `--mode <name>` based on the agent's role. The user opts in
+// explicitly — legato does not ship default mode files, so unconfigured
+// behavior is "no --mode flag passed" (Chimera uses its own default mode).
+func (a *ChimeraAdapter) SetModes(modes map[string]string) {
+	a.modes = modes
+}
+
+// resolveMode picks the Chimera mode name for the given role from user
+// configuration. Returns empty string when no mapping exists — in that
+// case LaunchCommand omits `--mode`.
+func (a *ChimeraAdapter) resolveMode(role string) string {
+	if a.modes == nil {
+		return ""
+	}
+	if m, ok := a.modes[role]; ok {
+		return m
+	}
+	if role != "conductor" && role != "" {
+		return a.modes["worker"]
+	}
+	return ""
+}
+
+// RoleSystemPrompt returns the system prompt for a swarm role.
+func (a *ChimeraAdapter) RoleSystemPrompt(role string) string {
+	return resolveRolePrompt(a.roleOverrides, role)
+}
+
+// LaunchIsSelfKickoff reports that Chimera's `--prompt` flag treats its value
+// as the initial user turn — so the launch itself starts the agent. The agent
+// service skips the post-launch "read your brief" send-keys for Chimera to
+// avoid a redundant second user turn. The role prompt content already
+// includes the brief-reading instructions.
+func (a *ChimeraAdapter) LaunchIsSelfKickoff() bool { return true }
+
+// RolePromptPreamble returns Chimera-specific guidance prepended to every
+// role prompt. Chimera's sandbox mode isolates tool calls from the host
+// filesystem and PATH, so any attempt to invoke `legato` or read files
+// pointed to by LEGATO_* env vars from a sandboxed tool call will fail.
+// The agent must run those specific tool calls in host mode.
+func (a *ChimeraAdapter) RolePromptPreamble() string {
+	return chimeraSandboxPreamble
+}
+
+const chimeraSandboxPreamble = "## Chimera-specific guidance for legato\n" +
+	"\n" +
+	"You are running inside Chimera. If your session is sandboxed (e.g. " +
+	"started with `--sandbox`), tool calls execute in an isolated environment " +
+	"that does NOT have access to:\n" +
+	"\n" +
+	"- the `legato` binary on the host's PATH\n" +
+	"- files referenced by `$LEGATO_BRIEF_FILE`, `$LEGATO_ROLE_PROMPT_FILE`, " +
+	"or any other host-side path\n" +
+	"- the host's environment variables (LEGATO_TASK_ID, LEGATO_SUBTASK_ID, " +
+	"LEGATO_PARENT_TASK_ID, etc.)\n" +
+	"\n" +
+	"**You MUST run any legato CLI invocation or any read of LEGATO_* paths in " +
+	"host mode**, not sandbox mode. Sandboxed calls to `legato swarm progress`, " +
+	"`legato swarm built`, `cat $LEGATO_BRIEF_FILE`, etc. will silently fail or " +
+	"return \"command not found\" / \"no such file\".\n" +
+	"\n" +
+	"If you see those errors when trying to interact with legato, switch the " +
+	"specific tool call to host mode and retry. Code edits, greps, and other " +
+	"work that's confined to the project directory can stay sandboxed.\n"
+
+
+// LaunchCommand returns the shell command that starts an interactive Chimera
+// session. The role system prompt is read from the file referenced by
+// LEGATO_ROLE_PROMPT_FILE and substituted into the `--prompt` flag at shell-
+// expansion time. The role prompt content (which embeds the read-your-brief
+// instruction via the conductor.md / worker.md templates) becomes Chimera's
+// initial user turn — no separate kickoff send-keys is needed.
+//
+// Returns empty string when no role prompt file is set.
+func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief string) string {
+	if env == nil {
+		return ""
+	}
+	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; !ok {
+		return ""
+	}
+	cmd := `chimera --prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)"`
+
+	// Auto-activate a Chimera mode based on the agent's role. Mapping comes
+	// from cfg.Adapters.chimera.modes (via SetModes) with fallback to the
+	// built-in defaults. Skipped if the user has already specified --mode
+	// in launch_args (their explicit override wins).
+	if !launchArgsContainsMode(a.launchArgs) {
+		if mode := a.resolveMode(env["LEGATO_AGENT_ROLE"]); mode != "" {
+			cmd += " --mode " + shellQuote(mode)
+		}
+	}
+
+	for _, arg := range a.launchArgs {
+		cmd += " " + shellQuote(arg)
+	}
+	return cmd
+}
+
+// launchArgsContainsMode reports whether the user-supplied launch args
+// already include a `--mode` flag. When true, the adapter skips its
+// automatic mode injection so the user override wins.
+func launchArgsContainsMode(args []string) bool {
+	for _, a := range args {
+		if a == "--mode" || strings.HasPrefix(a, "--mode=") {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *ChimeraAdapter) Name() string { return "chimera" }
 
 func (a *ChimeraAdapter) EnvVars(taskID, socketPath string) map[string]string {
-	// LEGATO_TASK_ID is already injected into the tmux session by the active adapter
-	// (currently ClaudeCodeAdapter). Chimera reads it via env passthrough.
-	return nil
+	// LEGATO_TASK_ID is the gating env var for the Chimera hook scripts at
+	// ~/.chimera/hooks/<event>/legato-*.sh — without it, those scripts
+	// exit early and activity never gets reported back to legato. We set
+	// it ourselves so swarms running Chimera as their only adapter still
+	// see RUNNING / WAITING / IDLE state changes on the agents view.
+	return map[string]string{
+		"LEGATO_TASK_ID": taskID,
+	}
 }
 
 // InstallHooks writes the Legato activity-update scripts into Chimera's global

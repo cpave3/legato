@@ -359,3 +359,63 @@ func TestIsAliveNonExistentReturnsFalse(t *testing.T) {
 		t.Error("expected false for non-existent session")
 	}
 }
+
+func TestNeedsBase64(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"plain text", false},
+		{"with 'single quotes'", false},
+		{"with \"double quotes\"", true},
+		{"with newline\n", true},
+		{"with carriage\r", true},
+		{"unicode 你好", false},
+	}
+	for _, tc := range cases {
+		if got := needsBase64(tc.in); got != tc.want {
+			t.Errorf("needsBase64(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestSendKeysLineIntegration(t *testing.T) {
+	skipWithoutTmux(t)
+
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "legato-test-sendkeysline"
+	if err := m.Spawn(name, t.TempDir(), 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer m.Kill(name)
+
+	if err := m.SendKeysLine(name, "echo hello"); err != nil {
+		t.Errorf("SendKeysLine: %v", err)
+	}
+}
+
+func TestSendKeysMultilineIntegration(t *testing.T) {
+	skipWithoutTmux(t)
+
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "legato-test-sendkeysmulti"
+	if err := m.Spawn(name, t.TempDir(), 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer m.Kill(name)
+
+	// Multi-line payload should base64-encode
+	if err := m.SendKeysMultiline(name, "line1\nline2"); err != nil {
+		t.Errorf("SendKeysMultiline multi-line: %v", err)
+	}
+	// Single-line plain payload should pass through
+	if err := m.SendKeysMultiline(name, "plain"); err != nil {
+		t.Errorf("SendKeysMultiline plain: %v", err)
+	}
+}

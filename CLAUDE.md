@@ -60,3 +60,4 @@ task check                 # build + test + vet + lint
 @docs/claude/pr-tracking.md
 @docs/claude/cli.md
 @docs/claude/web-ui.md
+@docs/claude/swarm.md

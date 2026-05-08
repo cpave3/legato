@@ -9,17 +9,67 @@ import (
 )
 
 type Config struct {
-	Jira        JiraConfig        `yaml:"jira"`
-	Board       BoardConfig       `yaml:"board"`
-	Theme       string            `yaml:"theme"`
-	Icons       string            `yaml:"icons"` // "unicode" (default) or "nerdfonts"
-	Editor      string            `yaml:"editor"`
-	Keybindings KeybindingsConfig `yaml:"keybindings"`
-	DB          DBConfig          `yaml:"db"`
-	Agents      AgentsConfig      `yaml:"agents"`
-	GitHub      GitHubConfig      `yaml:"github"`
-	Web         WebConfig         `yaml:"web"`
-	Workspaces  []WorkspaceConfig `yaml:"workspaces"`
+	Jira        JiraConfig                `yaml:"jira"`
+	Board       BoardConfig               `yaml:"board"`
+	Theme       string                    `yaml:"theme"`
+	Icons       string                    `yaml:"icons"` // "unicode" (default) or "nerdfonts"
+	Editor      string                    `yaml:"editor"`
+	Keybindings KeybindingsConfig         `yaml:"keybindings"`
+	DB          DBConfig                  `yaml:"db"`
+	Agents      AgentsConfig              `yaml:"agents"`
+	GitHub      GitHubConfig              `yaml:"github"`
+	Web         WebConfig                 `yaml:"web"`
+	Workspaces  []WorkspaceConfig         `yaml:"workspaces"`
+	Swarm       SwarmConfig               `yaml:"swarm"`
+	Adapters    map[string]AdapterConfig  `yaml:"adapters"`
+}
+
+// AdapterConfig holds per-adapter launch settings (e.g. extra CLI flags
+// passed to `claude` or `chimera` when a swarm participant is auto-launched).
+type AdapterConfig struct {
+	// LaunchArgs are appended to the adapter's auto-launch command, after
+	// the role-prompt flag. Use this to enable adapter-specific modes (e.g.
+	// `["--sandbox"]` for chimera).
+	LaunchArgs []string `yaml:"launch_args"`
+	// Modes maps swarm role labels to adapter-specific mode names that the
+	// adapter activates at launch. The key is the role label
+	// ("conductor" or any free-form worker role like "backend"); the value
+	// is the adapter's mode name. Adapters that don't have a "mode"
+	// concept ignore this field.
+	//
+	// Resolution: exact role match wins; otherwise non-conductor roles fall
+	// back to the "worker" key. When the entire field is unset, adapters
+	// use their built-in defaults (e.g. `legato-orchestrator` /
+	// `legato-worker` for Chimera). To disable mode injection entirely,
+	// set the field to an empty map (`modes: {}`).
+	Modes map[string]string `yaml:"modes"`
+}
+
+// SwarmConfig holds swarm-orchestration settings.
+type SwarmConfig struct {
+	// MaxConcurrentAgents caps the number of live workers per swarm.
+	// Zero or negative falls back to 4 at runtime.
+	MaxConcurrentAgents int `yaml:"max_concurrent_agents"`
+	// MaxSubtasksPerPlan caps the size of a single plan submission.
+	// Zero or negative falls back to 10 at runtime.
+	MaxSubtasksPerPlan int `yaml:"max_subtasks_per_plan"`
+	// DefaultAgent is the adapter used for swarm participants when a plan
+	// entry doesn't specify one (e.g. "claude-code").
+	DefaultAgent string `yaml:"default_agent"`
+	// StrictScope makes scope-overlap conflicts hard-block dispatch instead
+	// of advisory.
+	StrictScope bool `yaml:"strict_scope"`
+	// RequireUserClose adds a HITL gate at every `legato swarm close`.
+	// Reserved for future use; currently a no-op.
+	RequireUserClose bool `yaml:"require_user_close"`
+	// BriefKickoffDelayMs is the delay (in ms) between auto-launch and the
+	// "read your brief" send-keys kickoff. Tune up if your AI tool boots
+	// slowly enough that the kickoff lands during boot. Default 250ms.
+	BriefKickoffDelayMs int `yaml:"brief_kickoff_delay_ms"`
+	// Prompts allows overriding role system prompts per adapter.
+	// Outer key: free-form role label ("conductor", "backend", etc.).
+	// Inner key: adapter name ("claude-code", "chimera").
+	Prompts map[string]map[string]string `yaml:"prompts"`
 }
 
 type TLSConfig struct {
@@ -42,6 +92,10 @@ type GitHubConfig struct {
 type WorkspaceConfig struct {
 	Name  string `yaml:"name"`
 	Color string `yaml:"color"`
+	// Path is the filesystem location associated with this workspace.
+	// When set, the swarm-init overlay pre-fills the working directory from
+	// the selected card's workspace path.
+	Path string `yaml:"path,omitempty"`
 }
 
 type AgentsConfig struct {

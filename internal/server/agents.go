@@ -9,17 +9,20 @@ import (
 
 // AgentResponse is the JSON representation of an agent session.
 type AgentResponse struct {
-	ID              int        `json:"id"`
-	TaskID          string     `json:"task_id"`
-	Title           string     `json:"task_title"`
-	TmuxSession     string     `json:"tmux_session"`
-	Command         string     `json:"command"`
-	Status          string     `json:"status"`
-	Activity        string     `json:"activity"`
-	StartedAt       time.Time  `json:"started_at"`
-	EndedAt         *time.Time `json:"ended_at,omitempty"`
-	WorkingSeconds  float64    `json:"working_seconds"`
-	WaitingSeconds  float64    `json:"waiting_seconds"`
+	ID             int        `json:"id"`
+	TaskID         string     `json:"task_id"`
+	Title          string     `json:"task_title"`
+	TmuxSession    string     `json:"tmux_session"`
+	Command        string     `json:"command"`
+	Status         string     `json:"status"`
+	Activity       string     `json:"activity"`
+	Role           string     `json:"role,omitempty"`
+	ParentTaskID   string     `json:"parent_task_id,omitempty"`
+	SubtaskID      string     `json:"subtask_id,omitempty"`
+	StartedAt      time.Time  `json:"started_at"`
+	EndedAt        *time.Time `json:"ended_at,omitempty"`
+	WorkingSeconds float64    `json:"working_seconds"`
+	WaitingSeconds float64    `json:"waiting_seconds"`
 }
 
 func (s *Server) spawnAgentHandler() http.HandlerFunc {
@@ -121,15 +124,18 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 		resp := make([]AgentResponse, len(agents))
 		for i, a := range agents {
 			r := AgentResponse{
-				ID:          a.ID,
-				TaskID:      a.TaskID,
-				Title:       a.Title,
-				TmuxSession: a.TmuxSession,
-				Command:     a.Command,
-				Status:      a.Status,
-				Activity:    a.Activity,
-				StartedAt:   a.StartedAt,
-				EndedAt:     a.EndedAt,
+				ID:           a.ID,
+				TaskID:       a.TaskID,
+				Title:        a.Title,
+				TmuxSession:  a.TmuxSession,
+				Command:      a.Command,
+				Status:       a.Status,
+				Activity:     a.Activity,
+				Role:         a.Role,
+				ParentTaskID: a.ParentTaskID,
+				SubtaskID:    a.SubtaskID,
+				StartedAt:    a.StartedAt,
+				EndedAt:      a.EndedAt,
 			}
 			if d, ok := durations[a.TaskID]; ok {
 				r.WorkingSeconds = d.Working.Seconds()

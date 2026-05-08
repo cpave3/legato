@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // Options configures the tmux Manager.
@@ -168,6 +170,71 @@ func (m *Manager) SendKey(name, key string) error {
 		return fmt.Errorf("tmux send-keys: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 	return nil
+}
+
+// SendKeysLine sends a line of text followed by Enter as two separate
+// `tmux send-keys` calls with a small delay between them.
+//
+// Why split + delay instead of one call: any TUI receiver with bracketed-paste
+// mode enabled (bash, Chimera, anything using a modern input library) treats
+// text+Enter delivered in one tmux invocation as a paste — and the Enter
+// inside a paste is interpreted as a literal newline rather than a submit.
+// The split, with a brief gap, prevents the receiver from coalescing the
+// keys into a paste envelope. Confirmed broken with single-call delivery
+// against Chimera's input handler.
+//
+// Use this for any send-keys that should result in an executed/submitted
+// input — shell commands, agent prompts, conductor wake-ups, all of it.
+//
+// Higher-level callers that fire multiple SendKeysLine calls in rapid
+// succession to the same target should serialize them (e.g. SwarmService's
+// per-conductor mutex) and add a small inter-message gap so the receiver
+// can process each turn before the next arrives.
+func (m *Manager) SendKeysLine(name, line string) error {
+	if err := m.SendKeys(name, line); err != nil {
+		return err
+	}
+	time.Sleep(sendKeysInterCallGap)
+	return m.SendKey(name, "Enter")
+}
+
+// SendKeysShellCommand is retained as a name-clear alias for SendKeysLine.
+// Both have identical semantics now that SendKeysLine uses the split + gap
+// approach universally — the distinction was never about the receiver, it
+// was about whether bracketed paste would trap the input. All callers should
+// prefer SendKeysLine; this alias exists to avoid churning existing call
+// sites that explicitly chose "Shell" for clarity.
+func (m *Manager) SendKeysShellCommand(name, command string) error {
+	return m.SendKeysLine(name, command)
+}
+
+// sendKeysInterCallGap is the pause between the text and Enter halves of a
+// SendKeysLine. Long enough that any bracketed-paste accumulator at the
+// receiver clears between the two key events; short enough that humans don't
+// notice latency on legato-driven input.
+const sendKeysInterCallGap = 75 * time.Millisecond
+
+// SendKeysMultiline delivers a payload that may contain newlines or quote
+// characters. When the payload is multi-line or contains characters that
+// would otherwise need careful escaping when sent through tmux, the message
+// is base64-encoded and wrapped: `[swarm event b64:<encoded>]\n`. Receiving
+// agents are expected to decode `b64:` envelopes via their role prompt.
+//
+// For single-line payloads with no embedded quotes or newlines, this is
+// equivalent to SendKeysLine.
+func (m *Manager) SendKeysMultiline(name, payload string) error {
+	if needsBase64(payload) {
+		encoded := base64.StdEncoding.EncodeToString([]byte(payload))
+		return m.SendKeysLine(name, "[swarm event b64:"+encoded+"]")
+	}
+	return m.SendKeysLine(name, payload)
+}
+
+// needsBase64 reports whether the payload contains characters that warrant
+// base64 wrapping for safe send-keys delivery (newlines, embedded literal
+// quotes, or carriage returns).
+func needsBase64(s string) bool {
+	return strings.ContainsAny(s, "\n\r\"")
 }
 
 // PipeOutput starts piping the pane's PTY output to a FIFO and returns

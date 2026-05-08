@@ -2,20 +2,25 @@ package ipc
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // Message is the IPC protocol unit between CLI clients and the TUI server.
 type Message struct {
-	Type    string `json:"type"`
-	TaskID  string `json:"task_id"`
-	Status  string `json:"status,omitempty"`
-	Content string `json:"content,omitempty"`
+	Type        string `json:"type"`
+	TaskID      string `json:"task_id"`
+	Status      string `json:"status,omitempty"`
+	Content     string `json:"content,omitempty"`
+	ReplySocket string `json:"reply_socket,omitempty"` // for request/reply requests, the requester's listening socket
+	Notes       string `json:"notes,omitempty"`        // free-form supplementary text (e.g. plan rejection notes)
+	PlanPath    string `json:"plan_path,omitempty"`    // canonical path to the plan file (plan_proposed)
 }
 
 // SocketDir returns the directory for Legato IPC sockets.
@@ -151,5 +156,60 @@ func Broadcast(msg Message) {
 			continue
 		}
 		Send(filepath.Join(dir, e.Name()), msg)
+	}
+}
+
+// BroadcastRequest sends a message that requires a reply. It opens a temporary
+// listening socket, sets msg.ReplySocket to that path, broadcasts to all running
+// instances, and waits up to `timeout` for a reply matching `replyType`. Returns
+// the first matching reply or context.DeadlineExceeded if none arrives.
+//
+// Use this for request/reply patterns like plan approval, where the CLI needs
+// to wait for a verdict from a TUI instance.
+func BroadcastRequest(ctx context.Context, msg Message, replyType string, timeout time.Duration) (Message, error) {
+	// Create a temp socket in the same directory as legato sockets so it
+	// has the right permissions and cleanup conventions.
+	dir := SocketDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return Message{}, fmt.Errorf("create socket dir: %w", err)
+	}
+	socketPath := filepath.Join(dir, fmt.Sprintf("reply-%d-%d.sock", os.Getpid(), time.Now().UnixNano()))
+	os.Remove(socketPath) // best-effort cleanup of any stale file
+
+	replyCh := make(chan Message, 1)
+	server, err := NewServer(socketPath, func(reply Message) {
+		if reply.Type == replyType {
+			select {
+			case replyCh <- reply:
+			default:
+			}
+		}
+	})
+	if err != nil {
+		return Message{}, fmt.Errorf("listen on reply socket: %w", err)
+	}
+	defer server.Close()
+
+	msg.ReplySocket = socketPath
+	Broadcast(msg)
+
+	// Honor both the explicit timeout and the caller's context.
+	if timeout <= 0 {
+		select {
+		case reply := <-replyCh:
+			return reply, nil
+		case <-ctx.Done():
+			return Message{}, ctx.Err()
+		}
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case reply := <-replyCh:
+		return reply, nil
+	case <-timer.C:
+		return Message{}, fmt.Errorf("ipc reply timeout after %s", timeout)
+	case <-ctx.Done():
+		return Message{}, ctx.Err()
 	}
 }

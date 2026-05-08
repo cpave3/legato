@@ -22,13 +22,57 @@ var legatoScriptNames = []string{
 
 // ClaudeCodeAdapter implements the AIToolAdapter interface for Claude Code.
 type ClaudeCodeAdapter struct {
-	legatoBin string // absolute path to the legato binary
+	legatoBin     string // absolute path to the legato binary
+	roleOverrides RolePromptOverrides
+	launchArgs    []string // appended to `claude` invocation in LaunchCommand
 }
 
 // NewClaudeCodeAdapter creates a Claude Code adapter.
 // legatoBin is the absolute path to the legato binary (resolved at install time).
 func NewClaudeCodeAdapter(legatoBin string) *ClaudeCodeAdapter {
 	return &ClaudeCodeAdapter{legatoBin: legatoBin}
+}
+
+// SetRoleOverrides configures user-supplied role prompts that take precedence
+// over the built-in prompts.
+func (a *ClaudeCodeAdapter) SetRoleOverrides(overrides RolePromptOverrides) {
+	a.roleOverrides = overrides
+}
+
+// SetLaunchArgs configures extra CLI flags appended to the `claude` invocation
+// in LaunchCommand. Use to opt into Claude Code modes/flags consistently
+// across all swarm participants using this adapter.
+func (a *ClaudeCodeAdapter) SetLaunchArgs(args []string) {
+	a.launchArgs = args
+}
+
+// RoleSystemPrompt returns the system prompt for a swarm role.
+// Adapters opt into prompt injection by implementing this method.
+func (a *ClaudeCodeAdapter) RoleSystemPrompt(role string) string {
+	return resolveRolePrompt(a.roleOverrides, role)
+}
+
+// LaunchCommand returns the shell command that starts an interactive Claude
+// Code session with the role's system prompt appended. The brief is delivered
+// separately by the agent service via a short send-keys pointer to the brief
+// file — see agentService.SpawnAgent.
+//
+// The command substitutes the role prompt from the LEGATO_ROLE_PROMPT_FILE
+// path at shell-expansion time, sidestepping any quoting or escaping issues
+// that arise when prompts contain newlines or quote characters.
+func (a *ClaudeCodeAdapter) LaunchCommand(env map[string]string, brief string) string {
+	if env == nil {
+		return ""
+	}
+	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; !ok {
+		// No role prompt configured — let the user start the tool themselves.
+		return ""
+	}
+	cmd := `claude --append-system-prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)"`
+	for _, arg := range a.launchArgs {
+		cmd += " " + shellQuote(arg)
+	}
+	return cmd
 }
 
 func (a *ClaudeCodeAdapter) Name() string { return "claude-code" }

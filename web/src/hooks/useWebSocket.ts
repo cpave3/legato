@@ -22,6 +22,9 @@ export interface AgentInfo {
   command: string
   status: string
   activity: string
+  role?: string
+  parent_task_id?: string
+  subtask_id?: string
   started_at: string
   ended_at?: string
   working_seconds: number

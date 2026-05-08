@@ -7,10 +7,33 @@ import (
 )
 
 func (s *Store) InsertAgentSession(ctx context.Context, a AgentSession) error {
-	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO agent_sessions (task_id, tmux_session, command, status)
-		VALUES (:task_id, :tmux_session, :command, :status)`, a)
-	return err
+	result, err := s.db.NamedExecContext(ctx, `
+		INSERT INTO agent_sessions (task_id, tmux_session, command, status, role, parent_task_id, subtask_id)
+		VALUES (:task_id, :tmux_session, :command, :status, :role, :parent_task_id, :subtask_id)`, a)
+	if err != nil {
+		return err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return err
+	}
+	a.ID = int(id)
+	return nil
+}
+
+// InsertAgentSessionReturningID inserts a session and returns the new row's ID.
+func (s *Store) InsertAgentSessionReturningID(ctx context.Context, a AgentSession) (int, error) {
+	result, err := s.db.NamedExecContext(ctx, `
+		INSERT INTO agent_sessions (task_id, tmux_session, command, status, role, parent_task_id, subtask_id)
+		VALUES (:task_id, :tmux_session, :command, :status, :role, :parent_task_id, :subtask_id)`, a)
+	if err != nil {
+		return 0, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	return int(id), nil
 }
 
 func (s *Store) ListAgentSessions(ctx context.Context) ([]AgentSession, error) {

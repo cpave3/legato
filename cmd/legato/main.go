@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -56,9 +57,11 @@ func runCLI(args []string) int {
 		return runAuthCmd(args[1:])
 	case "pair":
 		return runPairCmd(args[1:])
+	case "swarm":
+		return runSwarmCmd(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato [task|agent|hooks|serve|auth|pair]\n")
+		fmt.Fprintf(os.Stderr, "usage: legato [task|agent|hooks|serve|auth|pair|swarm]\n")
 		return 1
 	}
 }
@@ -490,6 +493,26 @@ func runTUI() int {
 			if webSrv != nil {
 				webSrv.NotifyAgentsChanged()
 			}
+		case "swarm_changed":
+			bus.Publish(events.Event{
+				Type: events.EventSwarmChanged,
+				At:   time.Now(),
+				Payload: events.SwarmChangedPayload{
+					ParentTaskID: msg.TaskID,
+					SubtaskID:    msg.Status,
+					NewStatus:    msg.Content,
+				},
+			})
+		case "plan_proposed":
+			bus.Publish(events.Event{
+				Type: events.EventPlanProposed,
+				At:   time.Now(),
+				Payload: events.PlanProposedPayload{
+					ParentTaskID: msg.TaskID,
+					PlanPath:     msg.PlanPath,
+					ReplySocket:  msg.ReplySocket,
+				},
+			})
 		}
 	})
 	if ipcErr == nil {
@@ -526,13 +549,13 @@ func runTUI() int {
 	// Set up agent service (tmux may not be installed — that's OK, agent features just won't work)
 	var agentSvc service.AgentService
 	var tmuxMgr service.TmuxManager
+	wd, _ := os.Getwd()
 	escapeKey := cfg.Agents.EscapeKey
 	if escapeKey == "" {
 		escapeKey = "ctrl+]"
 	}
 	if mgr, tmuxErr := tmux.New(tmux.Options{EscapeKey: tmuxEscapeKey(escapeKey)}); tmuxErr == nil {
 		tmuxMgr = mgr
-		wd, _ := os.Getwd()
 
 		// Configure AI tool adapter for env var injection.
 		legatoBin, binErr := os.Executable()
@@ -540,12 +563,50 @@ func runTUI() int {
 			legatoBin = "legato"
 		}
 		ccAdapter := hooks.NewClaudeCodeAdapter(legatoBin)
+		if overrides := buildAdapterRoleOverrides(cfg, ccAdapter.Name()); overrides != nil {
+			ccAdapter.SetRoleOverrides(overrides)
+		}
+		if a, ok := cfg.Adapters[ccAdapter.Name()]; ok && len(a.LaunchArgs) > 0 {
+			ccAdapter.SetLaunchArgs(a.LaunchArgs)
+		}
+		chimeraAdapter := hooks.NewChimeraAdapter(legatoBin)
+		if overrides := buildAdapterRoleOverrides(cfg, chimeraAdapter.Name()); overrides != nil {
+			chimeraAdapter.SetRoleOverrides(overrides)
+		}
+		if a, ok := cfg.Adapters[chimeraAdapter.Name()]; ok {
+			if len(a.LaunchArgs) > 0 {
+				chimeraAdapter.SetLaunchArgs(a.LaunchArgs)
+			}
+			// SetModes only when the user explicitly configured the field;
+			// nil-Modes means "fall back to defaults" inside the adapter.
+			if a.Modes != nil {
+				chimeraAdapter.SetModes(a.Modes)
+			}
+		}
+
+		// Pick the default adapter from cfg.Swarm.DefaultAgent. The full
+		// registry is passed via Adapters so per-sub-task `agent:` overrides
+		// in the conductor's plan can resolve any registered name.
+		var defaultAdapter service.AIToolAdapter = ccAdapter
+		switch cfg.Swarm.DefaultAgent {
+		case chimeraAdapter.Name():
+			defaultAdapter = chimeraAdapter
+		case ccAdapter.Name(), "":
+			defaultAdapter = ccAdapter
+		}
+		adapters := map[string]service.AIToolAdapter{
+			ccAdapter.Name():      ccAdapter,
+			chimeraAdapter.Name(): chimeraAdapter,
+		}
 		agentSvc = service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
-			Adapter:     ccAdapter,
-			SocketPath:  socketPath,
-			TmuxOptions: cfg.Agents.TmuxOptions,
-			PRService:   prSvc,
-			BinaryPath:  legatoBin,
+			Adapter:           defaultAdapter,
+			Adapters:          adapters,
+			SocketPath:        socketPath,
+			TmuxOptions:       cfg.Agents.TmuxOptions,
+			PRService:         prSvc,
+			BinaryPath:        legatoBin,
+			EventBus:          service.AgentDiedPublisher{Bus: bus},
+			BriefKickoffDelay: time.Duration(cfg.Swarm.BriefKickoffDelayMs) * time.Millisecond,
 		})
 	}
 
@@ -582,7 +643,20 @@ func runTUI() int {
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
 
 	reportSvc := service.NewReportService(db)
-	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr)
+
+	// Construct SwarmService and start its EventAgentDied subscriber.
+	swarmCfg := service.SwarmConfig{
+		MaxConcurrentAgents: cfg.Swarm.MaxConcurrentAgents,
+		MaxSubtasksPerPlan:  cfg.Swarm.MaxSubtasksPerPlan,
+		StrictScope:         cfg.Swarm.StrictScope,
+		RequireUserClose:    cfg.Swarm.RequireUserClose,
+		DefaultAgent:        cfg.Swarm.DefaultAgent,
+	}
+	swarmSvc := service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd)
+	swarmStop := swarmSvc.StartEventLoop(context.Background())
+	defer swarmStop()
+
+	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, swarmSvc)
 
 	// If the web server was auto-started, tell the TUI to show the indicator.
 	if webSrv != nil {
@@ -746,3 +820,396 @@ func runPairCmd(args []string) int {
 	fmt.Println("Scan the QR code with the Legato PWA to pair, or copy the token above.")
 	return 0
 }
+
+// buildAdapterRoleOverrides extracts the role overrides for a specific adapter
+// from cfg.Swarm.Prompts. Returns nil when no overrides apply.
+//
+// Config layout: swarm.prompts.<role>.<adapter> = "<prompt text>".
+func buildAdapterRoleOverrides(cfg *config.Config, adapterName string) hooks.RolePromptOverrides {
+	if cfg == nil || len(cfg.Swarm.Prompts) == 0 {
+		return nil
+	}
+	out := hooks.RolePromptOverrides{}
+	for role, byAdapter := range cfg.Swarm.Prompts {
+		if prompt, ok := byAdapter[adapterName]; ok && prompt != "" {
+			out[role] = prompt
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// runSwarmCmd dispatches to the conductor and worker swarm subcommands.
+func runSwarmCmd(args []string) int {
+	if len(args) == 0 {
+		swarmUsage()
+		return 1
+	}
+	switch args[0] {
+	// Conductor verbs (callable from any context, but conventionally the
+	// conductor is the only delegator).
+	case "propose-plan":
+		return runSwarmProposePlan(args[1:])
+	case "dispatch":
+		return runSwarmDispatch(args[1:])
+	case "message":
+		return runSwarmMessage(args[1:])
+	case "broadcast":
+		return runSwarmBroadcast(args[1:])
+	case "close":
+		return runSwarmClose(args[1:])
+	case "finish":
+		return runSwarmFinish(args[1:])
+	// Worker verbs (callable from any context — workers self-identify by
+	// LEGATO_AGENT_ROLE; the verb itself doesn't enforce caller identity).
+	case "progress":
+		return runSwarmProgress(args[1:])
+	case "question":
+		return runSwarmQuestion(args[1:])
+	case "built":
+		return runSwarmBuilt(args[1:])
+	// Read-only.
+	case "status":
+		return runSwarmStatus(args[1:])
+	case "inbox":
+		return runSwarmInbox(args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "unknown swarm subcommand: %s\n", args[0])
+		swarmUsage()
+		return 1
+	}
+}
+
+func swarmUsage() {
+	fmt.Fprintln(os.Stderr, `usage: legato swarm <verb> [args]
+
+Conductor verbs:
+  propose-plan <plan-file> [--auto-approve] [--timeout 5m]
+  dispatch <subtask-id>
+  message <subtask-id> "<text>"
+  broadcast <parent-id> "<text>"
+  close <subtask-id>
+  finish <parent-id> "<summary>"
+
+Worker verbs:
+  progress <subtask-id> "<text>"
+  question <subtask-id> "<text>"
+  built <subtask-id>
+
+Read-only:
+  status <parent-id>
+  inbox <parent-id>`)
+}
+
+// loadSwarmServiceForCLI builds a SwarmService backed by a real tmux Manager.
+// CLI swarm verbs need a real tmux because they may dispatch agents (which
+// requires creating sessions) or send-keys to live workers/conductor.
+func loadSwarmServiceForCLI() (*service.SwarmService, *store.Store, int) {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return nil, nil, 1
+	}
+	dbPath := config.ResolveDBPath(cfg)
+	db, err := store.New(dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "database: %v\n", err)
+		return nil, nil, 1
+	}
+	wd, _ := os.Getwd()
+
+	// Real tmux required for swarm CLI ops. If unavailable, error fast.
+	tmuxMgr, tmuxErr := tmux.New(tmux.Options{})
+	if tmuxErr != nil {
+		fmt.Fprintf(os.Stderr, "tmux: %v\n", tmuxErr)
+		db.Close()
+		return nil, nil, 1
+	}
+
+	bus := events.New()
+	legatoBin, _ := os.Executable()
+	ccAdapter := hooks.NewClaudeCodeAdapter(legatoBin)
+	if overrides := buildAdapterRoleOverrides(cfg, ccAdapter.Name()); overrides != nil {
+		ccAdapter.SetRoleOverrides(overrides)
+	}
+	if a, ok := cfg.Adapters[ccAdapter.Name()]; ok && len(a.LaunchArgs) > 0 {
+		ccAdapter.SetLaunchArgs(a.LaunchArgs)
+	}
+	chimeraAdapter := hooks.NewChimeraAdapter(legatoBin)
+	if overrides := buildAdapterRoleOverrides(cfg, chimeraAdapter.Name()); overrides != nil {
+		chimeraAdapter.SetRoleOverrides(overrides)
+	}
+	if a, ok := cfg.Adapters[chimeraAdapter.Name()]; ok {
+		if len(a.LaunchArgs) > 0 {
+			chimeraAdapter.SetLaunchArgs(a.LaunchArgs)
+		}
+		if a.Modes != nil {
+			chimeraAdapter.SetModes(a.Modes)
+		}
+	}
+	defaultAdapter := service.AIToolAdapter(ccAdapter)
+	if cfg.Swarm.DefaultAgent == chimeraAdapter.Name() {
+		defaultAdapter = chimeraAdapter
+	}
+	adapters := map[string]service.AIToolAdapter{
+		ccAdapter.Name():      ccAdapter,
+		chimeraAdapter.Name(): chimeraAdapter,
+	}
+	agents := service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
+		Adapter:           defaultAdapter,
+		Adapters:          adapters,
+		EventBus:          service.AgentDiedPublisher{Bus: bus},
+		BriefKickoffDelay: time.Duration(cfg.Swarm.BriefKickoffDelayMs) * time.Millisecond,
+	})
+
+	swCfg := service.SwarmConfig{
+		MaxConcurrentAgents: cfg.Swarm.MaxConcurrentAgents,
+		MaxSubtasksPerPlan:  cfg.Swarm.MaxSubtasksPerPlan,
+		StrictScope:         cfg.Swarm.StrictScope,
+		RequireUserClose:    cfg.Swarm.RequireUserClose,
+		DefaultAgent:        cfg.Swarm.DefaultAgent,
+	}
+	sw := service.NewSwarmService(db, agents, bus, swCfg, wd)
+	return sw, db, 0
+}
+
+func runSwarmProposePlan(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: legato swarm propose-plan <plan-file> [--auto-approve] [--timeout 5m]")
+		return 1
+	}
+	planPath := args[0]
+	autoApprove := false
+	var timeout time.Duration
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--auto-approve":
+			autoApprove = true
+		case "--timeout":
+			if i+1 < len(args) {
+				if d, err := time.ParseDuration(args[i+1]); err == nil {
+					timeout = d
+					i++
+				}
+			}
+		}
+	}
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+
+	registeredAdapters := []string{"claude-code", "chimera"}
+	cfg, _ := config.Load()
+	maxSubtasks := 10
+	if cfg != nil && cfg.Swarm.MaxSubtasksPerPlan > 0 {
+		maxSubtasks = cfg.Swarm.MaxSubtasksPerPlan
+	}
+	if err := cli.SwarmProposePlan(sw, planPath, autoApprove, timeout, registeredAdapters, maxSubtasks); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runSwarmDispatch(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: legato swarm dispatch <subtask-id>")
+		return 1
+	}
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+	if err := cli.SwarmDispatch(sw, args[0]); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	fmt.Printf("dispatched %s\n", args[0])
+	return 0
+}
+
+func runSwarmMessage(args []string) int {
+	if len(args) < 2 {
+		fmt.Fprintln(os.Stderr, `usage: legato swarm message <subtask-id> "<text>"`)
+		return 1
+	}
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+	if err := cli.SwarmMessage(sw, args[0], args[1]); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runSwarmBroadcast(args []string) int {
+	if len(args) < 2 {
+		fmt.Fprintln(os.Stderr, `usage: legato swarm broadcast <parent-id> "<text>"`)
+		return 1
+	}
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+	if err := cli.SwarmBroadcast(sw, args[0], args[1]); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runSwarmClose(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: legato swarm close <subtask-id>")
+		return 1
+	}
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+	if err := cli.SwarmClose(sw, args[0]); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	fmt.Printf("closed %s\n", args[0])
+	return 0
+}
+
+func runSwarmFinish(args []string) int {
+	if len(args) < 2 {
+		fmt.Fprintln(os.Stderr, `usage: legato swarm finish <parent-id> "<summary>"`)
+		return 1
+	}
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+	if err := cli.SwarmFinish(sw, args[0], args[1]); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	fmt.Printf("swarm %s finished\n", args[0])
+	return 0
+}
+
+func runSwarmStatus(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: legato swarm status <parent-id>")
+		return 1
+	}
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+	if err := cli.SwarmStatus(sw, args[0]); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runSwarmInbox(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: legato swarm inbox <parent-id>")
+		return 1
+	}
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+	if err := cli.SwarmInbox(sw, args[0]); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runSwarmProgress(args []string) int {
+	if len(args) < 2 {
+		fmt.Fprintln(os.Stderr, `usage: legato swarm progress <subtask-id> "<text>"`)
+		return 1
+	}
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+	if err := cli.SwarmProgress(sw, args[0], args[1]); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runSwarmQuestion(args []string) int {
+	if len(args) < 2 {
+		fmt.Fprintln(os.Stderr, `usage: legato swarm question <subtask-id> "<text>"`)
+		return 1
+	}
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+	if err := cli.SwarmQuestion(sw, args[0], args[1]); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runSwarmBuilt(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: legato swarm built <subtask-id>")
+		return 1
+	}
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+	if err := cli.SwarmBuilt(sw, args[0]); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	fmt.Printf("sub-task %s marked built\n", args[0])
+	return 0
+}
+
+// cliNoopTmux is a minimal TmuxManager used in CLI mode. CLI commands never
+// spawn agents — sub-task assignment that requires spawning is delegated to
+// running TUI/server instances via IPC broadcast. If AssignNext attempts to
+// spawn here, it fails fast with a clear error.
+type cliNoopTmux struct{}
+
+func (c *cliNoopTmux) Spawn(name, workDir string, width, height int, envVars ...string) error {
+	return fmt.Errorf("cli mode cannot spawn agents — start legato TUI to materialize this sub-task")
+}
+func (c *cliNoopTmux) Kill(name string) error                              { return nil }
+func (c *cliNoopTmux) Capture(name string) (string, error)                 { return "", nil }
+func (c *cliNoopTmux) CaptureWithEscapes(name string) (string, error)      { return "", nil }
+func (c *cliNoopTmux) Attach(name string) *exec.Cmd                        { return exec.Command("true") }
+func (c *cliNoopTmux) ListSessions() ([]string, error)                     { return nil, nil }
+func (c *cliNoopTmux) IsAlive(name string) (bool, error)                   { return false, nil }
+func (c *cliNoopTmux) SendKeys(name, keys string) error                    { return nil }
+func (c *cliNoopTmux) SendKey(name, key string) error                      { return nil }
+func (c *cliNoopTmux) SendKeysLine(name, line string) error                { return nil }
+func (c *cliNoopTmux) SendKeysMultiline(name, payload string) error        { return nil }
+func (c *cliNoopTmux) SendKeysShellCommand(name, command string) error     { return nil }
+func (c *cliNoopTmux) PipeOutput(name string) (io.Reader, func(), error)   { return nil, func() {}, nil }
+func (c *cliNoopTmux) SetEnv(sessionName, key, value string) error         { return nil }
+func (c *cliNoopTmux) SetOption(sessionName, key, value string) error      { return nil }
+func (c *cliNoopTmux) PaneCommands() (map[string]string, error)            { return nil, nil }

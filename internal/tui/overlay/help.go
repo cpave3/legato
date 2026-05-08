@@ -34,8 +34,15 @@ var (
 		{"r", "Force sync"},
 		{"p", "Link PR to task"},
 		{"X", "Archive done cards"},
+		{"s", "Decompose into swarm"},
 		{"/", "Search/filter tasks"},
 		{"esc", "Back / close overlay"},
+	}
+	swarmBindings = []keybinding{
+		{"S", "Start swarm (board): pick working dir, spawn conductor"},
+		{"y", "Approve plan (in plan-approval overlay)"},
+		{"e", "Edit plan in $EDITOR (in plan-approval overlay)"},
+		{"n", "Reject plan with notes (in plan-approval overlay)"},
 	}
 	viewBindings = []keybinding{
 		{"A", "Agent view"},
@@ -111,6 +118,7 @@ func (m HelpOverlay) View() string {
 
 	renderSection("Navigation", navigationBindings)
 	renderSection("Actions", actionBindings)
+	renderSection("Swarm", swarmBindings)
 	renderSection("Views", viewBindings)
 	renderSection("General", generalBindings)
 

@@ -4,10 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/engine/swarm"
 )
 
 // TmuxManager abstracts tmux operations for testability.
@@ -21,6 +25,9 @@ type TmuxManager interface {
 	IsAlive(name string) (bool, error)
 	SendKeys(name, keys string) error
 	SendKey(name, key string) error
+	SendKeysLine(name, line string) error
+	SendKeysMultiline(name, payload string) error
+	SendKeysShellCommand(name, command string) error
 	PipeOutput(name string) (io.Reader, func(), error)
 	SetEnv(sessionName, key, value string) error
 	SetOption(sessionName, key, value string) error
@@ -29,15 +36,18 @@ type TmuxManager interface {
 
 // AgentSession represents a running or completed agent session.
 type AgentSession struct {
-	ID          int
-	TaskID      string
-	Title       string
-	TmuxSession string
-	Command     string
-	Status      string
-	Activity    string // "working", "waiting", or "" (idle)
-	StartedAt   time.Time
-	EndedAt     *time.Time
+	ID           int
+	TaskID       string
+	Title        string
+	TmuxSession  string
+	Command      string
+	Status       string
+	Activity     string // "working", "waiting", or "" (idle)
+	Role         string // "conductor", "" for non-swarm, or worker role label
+	ParentTaskID string // when set, this session belongs to a swarm
+	SubtaskID    string // when set, this session is a swarm worker
+	StartedAt    time.Time
+	EndedAt      *time.Time
 }
 
 // DurationData holds aggregated state durations for a task.
@@ -46,53 +56,186 @@ type DurationData struct {
 	Waiting time.Duration
 }
 
+// AgentSpawnOptions controls per-spawn behavior — used by swarm orchestration
+// to inject role tags, scope-based conflict checks, a role system prompt, and
+// the per-worker initial brief that the launch command delivers.
+type AgentSpawnOptions struct {
+	Role         string   // free-form role label (e.g. "conductor", "backend"); "" for non-swarm
+	ParentTaskID string   // parent task ID when spawning a swarm sub-task
+	SubtaskID    string   // sub-task ID being assigned
+	Scope        []string // scope globs for conflict checks
+	WorkingDir   string   // override for tmux session working directory; falls back to agent service workDir
+	AgentKind    string   // adapter name to use; "" → default adapter
+	Brief        string   // the per-worker initial brief; conductors leave this empty
+	StrictScope  bool     // when true, scope conflicts hard-block the spawn; otherwise advisory
+}
+
+// AgentSpawnConflict describes a scope-overlap warning encountered at spawn time.
+// It is returned alongside a non-error from SpawnAgent when StrictScope is false
+// and the spawn proceeds. Callers (e.g. SwarmService) can use it to deliver an
+// advisory `[swarm event] scope warning` to the conductor.
+type AgentSpawnConflict struct {
+	SiblingSubtaskID string
+	SiblingTitle     string
+	Files            []string
+}
+
 // AgentService manages agent session lifecycle.
 type AgentService interface {
-	SpawnAgent(ctx context.Context, taskID string, width, height int) error
+	SpawnAgent(ctx context.Context, taskID string, width, height int, opts ...AgentSpawnOptions) error
 	KillAgent(ctx context.Context, taskID string) error
 	ListAgents(ctx context.Context) ([]AgentSession, error)
+	ListAgentsByParent(ctx context.Context, parentTaskID string) ([]AgentSession, error)
 	ReconcileSessions(ctx context.Context) error
 	CaptureOutput(ctx context.Context, taskID string) (string, error)
 	AttachCmd(ctx context.Context, taskID string) (*exec.Cmd, error)
 	GetTaskDurations(ctx context.Context, taskIDs []string) (map[string]DurationData, error)
 	GetAgentSummary(ctx context.Context, excludeTaskID string) (working, waiting, idle int, err error)
 	SpawnEphemeralAgent(ctx context.Context, title string, width, height int) error
+	LastSpawnConflicts() []AgentSpawnConflict
 }
 
 type agentService struct {
-	store       *store.Store
-	tmux        TmuxManager
-	workDir     string
-	adapter     AIToolAdapter
-	socketPath  string
-	tmuxOptions map[string]string
-	prSvc       PRTrackingService
-	binaryPath  string
+	store             *store.Store
+	tmux              TmuxManager
+	workDir           string
+	adapter           AIToolAdapter
+	adapters          map[string]AIToolAdapter // optional registry keyed by name; falls back to `adapter`
+	socketPath        string
+	tmuxOptions       map[string]string
+	prSvc             PRTrackingService
+	binaryPath        string
+	bus               EventPublisher
+	briefKickoffDelay time.Duration
+	lastConflicts     []AgentSpawnConflict
+}
+
+// LastSpawnConflicts returns the scope-overlap warnings collected during the
+// most recent SpawnAgent call. Callers (e.g. SwarmService) use this to surface
+// advisory warnings to the conductor.
+func (a *agentService) LastSpawnConflicts() []AgentSpawnConflict {
+	return a.lastConflicts
+}
+
+// Tmux returns the underlying TmuxManager. Used by SwarmService for direct
+// send-keys delivery to swarm participants.
+func (a *agentService) Tmux() TmuxManager {
+	return a.tmux
+}
+
+// briefKickoffDelay is the default pause between the launch command and the
+// "read your brief" send-keys. Override per-process via
+// AgentServiceOptions.BriefKickoffDelay (wired from cfg.Swarm.BriefKickoffDelayMs).
+// 250ms covers claude/chimera boot in practice on local hardware.
+const briefKickoffDelay = 250 * time.Millisecond
+
+// briefKickoffMessage is the short instruction send-keysed to a swarm agent
+// after auto-launch. It is intentionally terse and directive: read the brief
+// file, then begin. The role prompt (worker.md / conductor.md) reinforces the
+// contract that the brief file is authoritative.
+const briefKickoffMessage = `Read $LEGATO_BRIEF_FILE in full — that file is your complete assignment. Then begin work as instructed.`
+
+// writeAgentPromptFiles writes the role system prompt and per-worker brief
+// to per-agent files under <workDir>/.legato/agents/<taskID>/. Returns the
+// canonical paths (empty strings when content is empty), or a non-nil error
+// when the filesystem cannot be written. Files are 0600 to keep prompts off
+// other users on shared machines.
+func writeAgentPromptFiles(workDir, taskID, rolePrompt, brief string) (string, string, error) {
+	if workDir == "" {
+		return "", "", fmt.Errorf("workDir is required")
+	}
+	if taskID == "" {
+		return "", "", fmt.Errorf("taskID is required")
+	}
+	dir := filepath.Join(workDir, ".legato", "agents", taskID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", "", fmt.Errorf("create agent prompt dir: %w", err)
+	}
+	rolePath := ""
+	if rolePrompt != "" {
+		rolePath = filepath.Join(dir, "role-prompt.md")
+		if err := os.WriteFile(rolePath, []byte(rolePrompt), 0o600); err != nil {
+			return "", "", fmt.Errorf("write role prompt: %w", err)
+		}
+	}
+	briefPath := ""
+	if brief != "" {
+		briefPath = filepath.Join(dir, "brief.md")
+		if err := os.WriteFile(briefPath, []byte(brief), 0o600); err != nil {
+			return "", "", fmt.Errorf("write brief: %w", err)
+		}
+	}
+	return rolePath, briefPath, nil
+}
+
+// EventPublisher publishes events. Wraps *events.Bus to keep the service layer
+// loosely coupled.
+type EventPublisher interface {
+	PublishAgentDied(taskID, parentTaskID, subtaskID, role string)
 }
 
 // AgentServiceOptions configures optional AI tool integration for agent sessions.
 type AgentServiceOptions struct {
-	Adapter     AIToolAdapter
-	SocketPath  string
-	TmuxOptions map[string]string
-	PRService   PRTrackingService
-	BinaryPath  string // Absolute path to legato binary for tmux status line
+	// Adapter is the default AI tool adapter used when AgentSpawnOptions
+	// doesn't specify an AgentKind, or when the requested AgentKind isn't
+	// in the Adapters registry.
+	Adapter AIToolAdapter
+	// Adapters is the per-name registry consulted when AgentSpawnOptions.AgentKind
+	// is non-empty. Lets a single agent service support multiple AI tools
+	// (e.g. one swarm using Chimera workers + Claude reviewers).
+	Adapters          map[string]AIToolAdapter
+	SocketPath        string
+	TmuxOptions       map[string]string
+	PRService         PRTrackingService
+	BinaryPath        string // Absolute path to legato binary for tmux status line
+	EventBus          EventPublisher
+	BriefKickoffDelay time.Duration // override the default brief-kickoff send-keys delay
 }
 
 // NewAgentService creates an AgentService.
 func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...AgentServiceOptions) AgentService {
-	svc := &agentService{store: s, tmux: tmux, workDir: workDir}
+	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay}
 	if len(opts) > 0 {
 		svc.adapter = opts[0].Adapter
+		svc.adapters = opts[0].Adapters
 		svc.socketPath = opts[0].SocketPath
 		svc.tmuxOptions = opts[0].TmuxOptions
 		svc.prSvc = opts[0].PRService
 		svc.binaryPath = opts[0].BinaryPath
+		svc.bus = opts[0].EventBus
+		if opts[0].BriefKickoffDelay > 0 {
+			svc.briefKickoffDelay = opts[0].BriefKickoffDelay
+		}
 	}
 	return svc
 }
 
-func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, height int) error {
+func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, height int, opts ...AgentSpawnOptions) error {
+	var opt AgentSpawnOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+
+	workDir := opt.WorkingDir
+	if workDir == "" {
+		workDir = a.workDir
+	}
+
+	// Swarm scope-conflict check: collect overlaps with active siblings (status
+	// `dispatched` or `in_progress`). When StrictScope is set, hard-refuse;
+	// otherwise the conflict is advisory and surfaced to the caller.
+	a.lastConflicts = nil
+	if opt.ParentTaskID != "" && len(opt.Scope) > 0 {
+		conflicts, err := a.collectSiblingConflicts(ctx, opt, workDir)
+		if err != nil {
+			return fmt.Errorf("listing siblings: %w", err)
+		}
+		if len(conflicts) > 0 && opt.StrictScope {
+			return fmt.Errorf("scope conflict with active sibling sub-task %s", conflicts[0].SiblingSubtaskID)
+		}
+		a.lastConflicts = conflicts
+	}
+
 	// Check for existing running session
 	existing, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
 	if err == nil {
@@ -112,15 +255,69 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// Kill any orphaned tmux session with the same name
 	a.tmux.Kill(sessionName)
 
-	// Build env vars to inject into the initial shell.
-	var envVars []string
-	if a.adapter != nil {
-		for k, v := range a.adapter.EnvVars(taskID, a.socketPath) {
-			envVars = append(envVars, k+"="+v)
+	adapter := a.resolveAdapter(opt.AgentKind)
+
+	// Build env vars to inject into the initial shell. Track them as a map
+	// for the adapter LaunchCommand call, then flatten for tmux Spawn.
+	envMap := map[string]string{}
+	if adapter != nil {
+		for k, v := range adapter.EnvVars(taskID, a.socketPath) {
+			envMap[k] = v
+		}
+	}
+	// Swarm-specific env vars.
+	if opt.Role != "" {
+		envMap["LEGATO_AGENT_ROLE"] = opt.Role
+	}
+	if opt.ParentTaskID != "" {
+		envMap["LEGATO_PARENT_TASK_ID"] = opt.ParentTaskID
+	}
+	if opt.SubtaskID != "" {
+		envMap["LEGATO_SUBTASK_ID"] = opt.SubtaskID
+	}
+	// Resolve the role system prompt (string), then write it and any brief
+	// to per-agent files under <workDir>/.legato/agents/<taskID>/. The launch
+	// command receives paths via env vars so multi-line/quoted content never
+	// has to traverse shell escaping. Skipped for non-swarm spawns where no
+	// role or brief is supplied.
+	rolePrompt := ""
+	if rp, ok := adapter.(RolePromptingAdapter); ok && opt.Role != "" {
+		rolePrompt = rp.RoleSystemPrompt(opt.Role)
+	}
+	// Prepend any adapter-specific preamble (e.g. Chimera's host-mode warning
+	// for legato CLI / env access from inside a sandbox).
+	if pp, ok := adapter.(RolePromptPreambleAdapter); ok {
+		if preamble := pp.RolePromptPreamble(); preamble != "" {
+			if rolePrompt != "" {
+				rolePrompt = preamble + "\n\n---\n\n" + rolePrompt
+			} else {
+				rolePrompt = preamble
+			}
+		}
+	}
+	if rolePrompt != "" || opt.Brief != "" {
+		rolePath, briefPath, perr := writeAgentPromptFiles(workDir, taskID, rolePrompt, opt.Brief)
+		if perr != nil {
+			// Non-fatal — fall back to a session without prompt files. The
+			// adapter's LaunchCommand will see no LEGATO_*_FILE env and skip
+			// auto-launch.
+			log.Printf("writing agent prompt files for %s: %v", taskID, perr)
+		} else {
+			if rolePath != "" {
+				envMap["LEGATO_ROLE_PROMPT_FILE"] = rolePath
+			}
+			if briefPath != "" {
+				envMap["LEGATO_BRIEF_FILE"] = briefPath
+			}
 		}
 	}
 
-	if err := a.tmux.Spawn(sessionName, a.workDir, width, height, envVars...); err != nil {
+	envVars := make([]string, 0, len(envMap))
+	for k, v := range envMap {
+		envVars = append(envVars, k+"="+v)
+	}
+
+	if err := a.tmux.Spawn(sessionName, workDir, width, height, envVars...); err != nil {
 		return fmt.Errorf("spawning tmux session: %w", err)
 	}
 
@@ -148,15 +345,68 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 
-	if err := a.store.InsertAgentSession(ctx, store.AgentSession{
-		TaskID:    taskID,
+	sess := store.AgentSession{
+		TaskID:      taskID,
 		TmuxSession: sessionName,
 		Command:     "shell",
 		Status:      "running",
-	}); err != nil {
+		Role:        opt.Role,
+	}
+	if opt.ParentTaskID != "" {
+		p := opt.ParentTaskID
+		sess.ParentTaskID = &p
+	}
+	if opt.SubtaskID != "" {
+		st := opt.SubtaskID
+		sess.SubtaskID = &st
+	}
+	if err := a.store.InsertAgentSession(ctx, sess); err != nil {
 		// Roll back tmux session on DB failure
 		a.tmux.Kill(sessionName)
 		return fmt.Errorf("recording agent session: %w", err)
+	}
+
+	// Auto-launch: if the adapter knows how to start its AI tool, send-keys
+	// the launch command into the freshly-created session. When a brief file
+	// was written, kick the agent off with a short pointer to read it; this
+	// is more robust than streaming the brief content through send-keys
+	// because the brief is in the agent's filesystem and survives any
+	// terminal/shell escaping pitfalls.
+	if launcher, ok := adapter.(LaunchCommandAdapter); ok {
+		if cmd := launcher.LaunchCommand(envMap, opt.Brief); cmd != "" {
+			// Use SendKeysShellCommand because the receiver here is the
+			// freshly-spawned bash shell, not the AI tool. Bash with
+			// bracketed-paste mode treats a single text+Enter send-keys as
+			// a paste and leaves the command sitting in the prompt buffer
+			// instead of executing it.
+			if err := a.tmux.SendKeysShellCommand(sessionName, cmd); err != nil {
+				// Launch failure is best-effort: the session exists, the user
+				// can recover by attaching and running the AI tool manually.
+				log.Printf("auto-launch send-keys failed for %s: %v", sessionName, err)
+			} else if _, hasBrief := envMap["LEGATO_BRIEF_FILE"]; hasBrief {
+				// Skip the kickoff for adapters whose launch command already
+				// constitutes the first user turn (e.g. Chimera's `--prompt`).
+				// The role prompt content already includes "read your brief"
+				// instructions, so a separate kickoff would be a redundant
+				// second user turn.
+				skip := false
+				if k, ok := adapter.(LaunchSelfKickoff); ok && k.LaunchIsSelfKickoff() {
+					skip = true
+				}
+				if !skip {
+					// Deliver the brief pointer on a short delay so the AI tool's
+					// boot sequence has rendered its prompt. The brief itself is
+					// on disk; we only need the agent to notice it.
+					delay := a.briefKickoffDelay
+					go func(session string) {
+						time.Sleep(delay)
+						if err := a.tmux.SendKeysLine(session, briefKickoffMessage); err != nil {
+							log.Printf("auto-launch brief kickoff failed for %s: %v", session, err)
+						}
+					}(sessionName)
+				}
+			}
+		}
 	}
 
 	// Auto-link git branch to task for PR tracking (best-effort)
@@ -167,6 +417,45 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 
 	return nil
+}
+
+// resolveAdapter returns the adapter to use for the given kind, falling back
+// to the default adapter when kind is empty or unknown.
+func (a *agentService) resolveAdapter(kind string) AIToolAdapter {
+	if kind != "" && a.adapters != nil {
+		if found, ok := a.adapters[kind]; ok {
+			return found
+		}
+	}
+	return a.adapter
+}
+
+// collectSiblingConflicts walks active swarm siblings and returns scope
+// overlaps. "Active" is `dispatched`, `in_progress`, or `reporting` — any
+// state where the worker still owns its scope.
+func (a *agentService) collectSiblingConflicts(ctx context.Context, opt AgentSpawnOptions, workDir string) ([]AgentSpawnConflict, error) {
+	var out []AgentSpawnConflict
+	for _, status := range []string{"dispatched", "in_progress", "reporting"} {
+		siblings, err := a.store.ListSubtasksByParentAndStatus(ctx, opt.ParentTaskID, status)
+		if err != nil {
+			return nil, err
+		}
+		for _, sib := range siblings {
+			if sib.ID == opt.SubtaskID {
+				continue
+			}
+			sibScope, _ := store.ParseScopeGlobs(sib.ScopeGlobs)
+			hit, files := swarm.ScopeOverlaps(opt.Scope, sibScope, workDir)
+			if hit {
+				out = append(out, AgentSpawnConflict{
+					SiblingSubtaskID: sib.ID,
+					SiblingTitle:     sib.Title,
+					Files:            files,
+				})
+			}
+		}
+	}
+	return out, nil
 }
 
 func (a *agentService) SpawnEphemeralAgent(ctx context.Context, title string, width, height int) error {
@@ -187,6 +476,20 @@ func (a *agentService) KillAgent(ctx context.Context, taskID string) error {
 	a.tmux.Kill(session.TmuxSession)
 	if err := a.store.UpdateAgentSessionStatus(ctx, taskID, "dead"); err != nil {
 		return err
+	}
+	// Publish AgentDied so the swarm conductor (and any other subscribers)
+	// receive the same notification regardless of whether the kill came from
+	// an explicit user/conductor action or external session termination.
+	if a.bus != nil {
+		parent := ""
+		if session.ParentTaskID != nil {
+			parent = *session.ParentTaskID
+		}
+		subtask := ""
+		if session.SubtaskID != nil {
+			subtask = *session.SubtaskID
+		}
+		a.bus.PublishAgentDied(taskID, parent, subtask, session.Role)
 	}
 	return a.store.DeleteDeadAgentSessions(ctx, taskID)
 }
@@ -223,16 +526,27 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			title = task.Title
 		}
 
+		parentID := ""
+		if s.ParentTaskID != nil {
+			parentID = *s.ParentTaskID
+		}
+		subtaskID := ""
+		if s.SubtaskID != nil {
+			subtaskID = *s.SubtaskID
+		}
 		result[i] = AgentSession{
-			ID:          s.ID,
-			TaskID:      s.TaskID,
-			Title:       title,
-			TmuxSession: s.TmuxSession,
-			Command:     command,
-			Status:      s.Status,
-			Activity:    s.Activity,
-			StartedAt:   startedAt,
-			EndedAt:     endedAt,
+			ID:           s.ID,
+			TaskID:       s.TaskID,
+			Title:        title,
+			TmuxSession:  s.TmuxSession,
+			Command:      command,
+			Status:       s.Status,
+			Activity:     s.Activity,
+			Role:         s.Role,
+			ParentTaskID: parentID,
+			SubtaskID:    subtaskID,
+			StartedAt:    startedAt,
+			EndedAt:      endedAt,
 		}
 	}
 	return result, nil
@@ -261,10 +575,49 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 			}
 			// Close any orphaned state intervals for this task
 			_ = a.store.RecordStateTransition(ctx, s.TaskID, "")
+			// Notify swarm orchestrator that an agent died (best-effort).
+			if a.bus != nil {
+				parent := ""
+				if s.ParentTaskID != nil {
+					parent = *s.ParentTaskID
+				}
+				subtask := ""
+				if s.SubtaskID != nil {
+					subtask = *s.SubtaskID
+				}
+				a.bus.PublishAgentDied(s.TaskID, parent, subtask, s.Role)
+			}
 		}
 	}
 
 	return nil
+}
+
+// ListAgentsByParent returns all agent sessions whose parent_task_id matches.
+// Useful for swarm coordination snapshots.
+func (a *agentService) ListAgentsByParent(ctx context.Context, parentTaskID string) ([]AgentSession, error) {
+	all, err := a.ListAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Hit the DB directly for the filter — agent_sessions doesn't expose parent in ListAgentSessions output.
+	rows, err := a.store.ListAgentSessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	parentByTask := make(map[string]string)
+	for _, r := range rows {
+		if r.ParentTaskID != nil {
+			parentByTask[r.TaskID] = *r.ParentTaskID
+		}
+	}
+	var result []AgentSession
+	for _, s := range all {
+		if parentByTask[s.TaskID] == parentTaskID && parentTaskID != "" {
+			result = append(result, s)
+		}
+	}
+	return result, nil
 }
 
 func (a *agentService) GetTaskDurations(ctx context.Context, taskIDs []string) (map[string]DurationData, error) {

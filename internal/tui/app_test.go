@@ -610,12 +610,17 @@ type fakeAgentService struct {
 	durations map[string]service.DurationData
 }
 
-func (f *fakeAgentService) SpawnAgent(_ context.Context, _ string, _, _ int) error { return nil }
-func (f *fakeAgentService) KillAgent(_ context.Context, _ string) error            { return nil }
+func (f *fakeAgentService) SpawnAgent(_ context.Context, _ string, _, _ int, _ ...service.AgentSpawnOptions) error {
+	return nil
+}
+func (f *fakeAgentService) KillAgent(_ context.Context, _ string) error { return nil }
 func (f *fakeAgentService) ListAgents(_ context.Context) ([]service.AgentSession, error) {
 	return f.agents, nil
 }
-func (f *fakeAgentService) ReconcileSessions(_ context.Context) error              { return nil }
+func (f *fakeAgentService) ListAgentsByParent(_ context.Context, _ string) ([]service.AgentSession, error) {
+	return nil, nil
+}
+func (f *fakeAgentService) ReconcileSessions(_ context.Context) error { return nil }
 func (f *fakeAgentService) CaptureOutput(_ context.Context, _ string) (string, error) {
 	return "", nil
 }
@@ -634,6 +639,7 @@ func (f *fakeAgentService) GetAgentSummary(_ context.Context, _ string) (int, in
 func (f *fakeAgentService) SpawnEphemeralAgent(_ context.Context, _ string, _, _ int) error {
 	return nil
 }
+func (f *fakeAgentService) LastSpawnConflicts() []service.AgentSpawnConflict { return nil }
 
 func TestDurationDataFlowsToBoard(t *testing.T) {
 	agentSvc := &fakeAgentService{

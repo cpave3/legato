@@ -71,17 +71,33 @@ type DescriptionEditedMsg struct {
 
 // Model is the detail view Bubbletea model.
 type Model struct {
-	card      *service.CardDetail
-	taskID    string
-	svc       service.BoardService
-	clip      *clipboard.Clipboard
-	editor    string
-	viewport  viewport.Model
-	width     int
-	height    int
-	loading   bool
-	feedback  string
-	headerStr string
+	card        *service.CardDetail
+	taskID      string
+	svc         service.BoardService
+	clip        *clipboard.Clipboard
+	editor      string
+	viewport    viewport.Model
+	width       int
+	height      int
+	loading     bool
+	feedback    string
+	headerStr   string
+	subtasks    []service.SwarmSubtaskInfo
+	subtaskIdx  int
+}
+
+// SetSubtasks attaches swarm sub-task info to the detail view (read-only render).
+func (m *Model) SetSubtasks(subs []service.SwarmSubtaskInfo) {
+	m.subtasks = subs
+	if m.subtaskIdx >= len(subs) {
+		m.subtaskIdx = 0
+	}
+	m.renderContent()
+}
+
+// Card returns the loaded card, or nil if still loading.
+func (m Model) Card() *service.CardDetail {
+	return m.card
 }
 
 // New creates a detail model with card data already available.
@@ -350,6 +366,9 @@ func (m *Model) renderContent() {
 	}
 
 	m.headerStr = m.renderHeader()
+	if swarmSection := m.renderSwarmSection(); swarmSection != "" {
+		m.headerStr = lipgloss.JoinVertical(lipgloss.Left, m.headerStr, swarmSection)
+	}
 	headerHeight := lipgloss.Height(m.headerStr)
 	statusBarHeight := 1
 
@@ -380,6 +399,74 @@ func (m *Model) renderContent() {
 		}
 	}
 	m.viewport.SetContent(rendered)
+}
+
+// renderSwarmSection renders the sub-task graph for a swarm parent.
+// Returns "" when there are no sub-tasks.
+func (m Model) renderSwarmSection() string {
+	if len(m.subtasks) == 0 {
+		return ""
+	}
+
+	contentWidth := m.width - 4
+	if contentWidth < 20 {
+		contentWidth = 20
+	}
+
+	heading := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(theme.AccentPurple).
+		Padding(0, 1).
+		Render("Swarm")
+
+	labelStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
+	dimStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
+	focusStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple).Bold(true)
+
+	var rows []string
+	for i, st := range m.subtasks {
+		marker := "  "
+		render := dimStyle
+		if i == m.subtaskIdx {
+			marker = "▸ "
+			render = focusStyle
+		}
+		statusIcon := swarmStatusIcon(st.Status)
+		scope := strings.Join(st.Scope, ", ")
+		if scope == "" {
+			scope = "(no scope)"
+		}
+		line := marker + render.Render(statusIcon+" "+st.Status+" · "+st.Role+" · "+st.Title) +
+			labelStyle.Render(" — ") + dimStyle.Render(scope)
+		rows = append(rows, lipgloss.NewStyle().Padding(0, 1).Render(line))
+	}
+
+	separator := lipgloss.NewStyle().
+		Foreground(theme.TextTertiary).
+		Padding(0, 1).
+		Render(strings.Repeat("─", contentWidth-2))
+
+	parts := []string{heading}
+	parts = append(parts, rows...)
+	parts = append(parts, separator)
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+func swarmStatusIcon(status string) string {
+	switch status {
+	case "queued":
+		return "○"
+	case "building":
+		return "◐"
+	case "review":
+		return "◇"
+	case "done":
+		return "●"
+	case "rejected":
+		return "✗"
+	default:
+		return "·"
+	}
 }
 
 func (m Model) renderHeader() string {

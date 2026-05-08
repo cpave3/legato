@@ -28,7 +28,21 @@ type CardData struct {
 	PRCommentCount  int           // total PR comments
 	PRIsDraft       bool          // PR is a draft
 	PRNumber        int           // PR number (0 = no PR linked)
+	SwarmStats      SwarmStats    // sub-task aggregate; zero value = no swarm
 }
+
+// SwarmStats holds aggregate sub-task counts for a swarm parent card.
+type SwarmStats struct {
+	Total     int
+	Done      int
+	InReview  int
+	Building  int
+	Queued    int
+	Rejected  int
+}
+
+// HasSwarm reports whether the card is a swarm parent (has any sub-tasks).
+func (s SwarmStats) HasSwarm() bool { return s.Total > 0 }
 
 // formatDuration formats a duration as a human-readable string.
 // Returns "", "<1m", "Xm", or "Xh Ym".
@@ -84,6 +98,22 @@ func renderDurationLine(card CardData, icons theme.Icons, selected bool) string 
 
 	dotStyle := lipgloss.NewStyle().Foreground(dimColor).Background(bg)
 	return strings.Join(parts, dotStyle.Render(" · "))
+}
+
+// renderSwarmBadge renders a compact swarm progress badge: "1/3 ◊"
+// (done/total + diamond icon). Returns empty if the card is not a swarm parent.
+func renderSwarmBadge(card CardData, selected bool) string {
+	if !card.SwarmStats.HasSwarm() {
+		return ""
+	}
+	bg := lipgloss.Color("#252540")
+	fg := theme.AccentPurple
+	if selected {
+		bg = lipgloss.Color("#EEEDFE")
+		fg = lipgloss.Color("#5b3fa3")
+	}
+	style := lipgloss.NewStyle().Foreground(fg).Background(bg).Bold(true)
+	return style.Render(fmt.Sprintf("%d/%d ◊", card.SwarmStats.Done, card.SwarmStats.Total))
 }
 
 // renderPRLine builds a compact PR status indicator line.
@@ -218,6 +248,9 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 		}
 		wsStyle := lipgloss.NewStyle().Foreground(wsColor)
 		metaParts = append(metaParts, wsStyle.Render(card.WorkspaceName))
+	}
+	if badge := renderSwarmBadge(card, selected); badge != "" {
+		metaParts = append(metaParts, badge)
 	}
 	metaLine := ""
 	if len(metaParts) > 0 {

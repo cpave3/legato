@@ -25,14 +25,21 @@ type DurationData struct {
 
 // Model is the agent view Bubbletea model.
 type Model struct {
-	agents      []service.AgentSession
-	durations   map[string]DurationData
-	selected    int
-	termContent string
-	width       int
-	height      int
-	polling     bool
-	icons       theme.Icons
+	agents             []service.AgentSession
+	durations          map[string]DurationData
+	selected           int
+	termContent        string
+	coordinationPanel  string // pretty-printed swarm snapshot for the focused agent
+	width              int
+	height             int
+	polling            bool
+	icons              theme.Icons
+}
+
+// SetCoordinationPanel sets the rendered coordination snapshot displayed when
+// the focused agent has a parent_task_id. Pass empty string to hide the panel.
+func (m *Model) SetCoordinationPanel(content string) {
+	m.coordinationPanel = content
 }
 
 // New creates a new agent view model.
@@ -40,12 +47,70 @@ func New(icons theme.Icons) Model {
 	return Model{icons: icons}
 }
 
-// SetAgents updates the agent list.
+// SetAgents updates the agent list. Agents are grouped so swarm participants
+// for the same parent_task_id are contiguous (conductor first, then workers
+// alphabetically by sub-task ID), and solo (non-swarm) sessions appear after
+// all swarm groups.
 func (m *Model) SetAgents(agents []service.AgentSession) {
-	m.agents = agents
-	if m.selected >= len(agents) {
-		m.selected = max(0, len(agents)-1)
+	// Preserve selection by ID across re-orderings.
+	prevSelTaskID := ""
+	if m.selected < len(m.agents) {
+		prevSelTaskID = m.agents[m.selected].TaskID
 	}
+
+	m.agents = sortAgentsForGrouping(agents)
+
+	// Re-locate the selection if it still exists.
+	m.selected = 0
+	for i, a := range m.agents {
+		if a.TaskID == prevSelTaskID {
+			m.selected = i
+			break
+		}
+	}
+	if m.selected >= len(m.agents) {
+		m.selected = max(0, len(m.agents)-1)
+	}
+}
+
+// sortAgentsForGrouping returns agents ordered so swarm sessions cluster by
+// parent_task_id (conductor first within each group), with solo sessions at
+// the end.
+func sortAgentsForGrouping(agents []service.AgentSession) []service.AgentSession {
+	swarmsOrder := []string{}
+	swarms := map[string][]service.AgentSession{}
+	var solo []service.AgentSession
+	for _, a := range agents {
+		if a.ParentTaskID == "" {
+			solo = append(solo, a)
+			continue
+		}
+		if _, ok := swarms[a.ParentTaskID]; !ok {
+			swarmsOrder = append(swarmsOrder, a.ParentTaskID)
+		}
+		swarms[a.ParentTaskID] = append(swarms[a.ParentTaskID], a)
+	}
+	out := make([]service.AgentSession, 0, len(agents))
+	for _, parentID := range swarmsOrder {
+		group := swarms[parentID]
+		// Conductor first, then workers ordered by sub-task ID for stability.
+		var conductor *service.AgentSession
+		var workers []service.AgentSession
+		for i := range group {
+			if group[i].Role == "conductor" {
+				c := group[i]
+				conductor = &c
+			} else {
+				workers = append(workers, group[i])
+			}
+		}
+		if conductor != nil {
+			out = append(out, *conductor)
+		}
+		out = append(out, workers...)
+	}
+	out = append(out, solo...)
+	return out
 }
 
 // SetDurations updates the working/waiting durations for agent tasks.
@@ -170,15 +235,64 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 // View renders the agent view: sidebar on the left, terminal panel on the right.
+// When a swarm coordination snapshot is set, a third panel is appended.
 func (m Model) View() string {
 	if m.width == 0 {
 		return ""
 	}
 
 	sidebar := m.renderSidebar()
-	termPanel := m.renderTerminalPanel()
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, termPanel)
+	if m.coordinationPanel == "" {
+		termPanel := m.renderTerminalPanel()
+		return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, termPanel)
+	}
+
+	// 3-panel layout: sidebar | terminal (60% of remaining) | coordination (40%)
+	remaining := m.width - SidebarWidth
+	if remaining < 20 {
+		// Too narrow — fall back to 2-panel layout.
+		termPanel := m.renderTerminalPanel()
+		return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, termPanel)
+	}
+	termWidth := remaining * 6 / 10
+	coordWidth := remaining - termWidth
+	termPanel := m.renderTerminalPanelWithWidth(termWidth)
+	coordPanel := m.renderCoordinationPanel(coordWidth)
+	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, termPanel, coordPanel)
+}
+
+// renderTerminalPanelWithWidth is a width-overridden version of renderTerminalPanel
+// for the 3-panel coordination layout.
+func (m Model) renderTerminalPanelWithWidth(width int) string {
+	original := m.width
+	m.width = SidebarWidth + width
+	out := m.renderTerminalPanel()
+	m.width = original
+	return out
+}
+
+// renderCoordinationPanel renders the swarm coordination snapshot as a side panel.
+func (m Model) renderCoordinationPanel(width int) string {
+	headerStyle := lipgloss.NewStyle().
+		Foreground(theme.AccentPurple).
+		Bold(true).
+		PaddingLeft(1).
+		PaddingBottom(1)
+	header := headerStyle.Render("SWARM")
+	bodyStyle := lipgloss.NewStyle().
+		Foreground(theme.TextSecondary).
+		Padding(0, 1).
+		Width(width - 1)
+	body := bodyStyle.Render(m.coordinationPanel)
+	content := lipgloss.JoinVertical(lipgloss.Left, header, body)
+	return lipgloss.NewStyle().
+		Width(width).
+		Height(m.height).
+		BorderLeft(true).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(theme.TextTertiary).
+		Render(content)
 }
 
 func (m Model) renderSidebar() string {
@@ -212,7 +326,18 @@ func (m Model) renderSidebar() string {
 		entries = emptyStyle.Render("No agents\n\nPress s to spawn\nan ephemeral session")
 	} else {
 		var entryLines []string
+		var prevParent string
 		for i, a := range m.agents {
+			// Emit a small group header before the first session of each swarm.
+			if a.ParentTaskID != "" && a.ParentTaskID != prevParent {
+				entryLines = append(entryLines, m.renderSwarmGroupHeader(a.ParentTaskID, sidebarContentWidth))
+				prevParent = a.ParentTaskID
+			}
+			if a.ParentTaskID == "" && prevParent != "" {
+				// Transitioning from swarm groups to solo sessions — emit a divider.
+				entryLines = append(entryLines, m.renderSoloDivider(sidebarContentWidth))
+				prevParent = ""
+			}
 			entryLines = append(entryLines, m.renderSidebarEntry(a, i == m.selected, sidebarContentWidth))
 		}
 		entries = strings.Join(entryLines, "\n")
@@ -258,6 +383,31 @@ func (m Model) renderSidebar() string {
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(theme.TextTertiary).
 		Render(content)
+}
+
+// renderSwarmGroupHeader returns a single-line header that visually marks the
+// start of a swarm group in the sidebar. The header includes a swarm icon
+// and the parent task ID so the user can tell at a glance which sessions
+// belong together.
+func (m Model) renderSwarmGroupHeader(parentTaskID string, width int) string {
+	style := lipgloss.NewStyle().
+		Foreground(theme.AccentPurple).
+		Bold(true).
+		PaddingLeft(1).
+		PaddingTop(1).
+		Width(width)
+	return style.Render("◆ swarm: " + parentTaskID)
+}
+
+// renderSoloDivider visually separates the swarm groups from solo agent
+// sessions in the sidebar.
+func (m Model) renderSoloDivider(width int) string {
+	style := lipgloss.NewStyle().
+		Foreground(theme.TextTertiary).
+		PaddingLeft(1).
+		PaddingTop(1).
+		Width(width)
+	return style.Render("── solo ──")
 }
 
 func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width int) string {
@@ -322,15 +472,44 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 
 	idStr := truncateID(a.TaskID, cardContentWidth)
 
-	line1 := statusLine + idStyle.Render(" "+idStr)
-	line2 := dimStyle.Render(a.Command)
+	// Conductor and worker labels appear before the ID for at-a-glance role
+	// recognition. Conductor gets a diamond + accent color; workers get a
+	// subtle "└─" branch indicator.
+	rolePrefix := ""
+	if a.Role == "conductor" {
+		bg := lipgloss.Color("#252540")
+		if selected {
+			bg = lipgloss.Color("#EEEDFE")
+		}
+		rolePrefix = lipgloss.NewStyle().Foreground(theme.AccentPurple).Background(bg).Bold(true).Render("◆ ")
+	} else if a.ParentTaskID != "" {
+		bg := lipgloss.Color("#252540")
+		if selected {
+			bg = lipgloss.Color("#EEEDFE")
+		}
+		rolePrefix = lipgloss.NewStyle().Foreground(theme.TextTertiary).Background(bg).Render("└─ ")
+	}
 
-	content := line1 + "\n" + line2
+	// Status on its own line; the role badge + task ID on the next line so
+	// the swarm group structure (`◆` for conductor, `└─` for worker) sits
+	// directly under the status indicator rather than competing with it.
+	line1 := statusLine
+	line2 := rolePrefix + idStyle.Render(idStr)
+	line3 := dimStyle.Render(a.Command)
+
+	content := line1 + "\n" + line2 + "\n" + line3
 
 	// Add title line if present, truncated to fit
 	if a.Title != "" {
 		titleStr := truncateID(a.Title, cardContentWidth)
 		content += "\n" + dimStyle.Render(titleStr)
+	}
+
+	// Add a small role tag below the title for swarm workers (so the user can
+	// see "backend", "frontend" etc. without inspecting the brief).
+	if a.Role != "" && a.Role != "conductor" && a.ParentTaskID != "" {
+		roleTag := lipgloss.NewStyle().Foreground(theme.TextTertiary).Italic(true).Render("role: " + a.Role)
+		content += "\n" + roleTag
 	}
 
 	// Card styling
@@ -350,6 +529,13 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 			Render(content)
 	}
 
+	// Border accent: swarm sessions get the accent purple to visually group
+	// them together; solo sessions keep the muted gray.
+	borderColor := theme.TextTertiary
+	if a.ParentTaskID != "" {
+		borderColor = theme.AccentPurple
+	}
+
 	return lipgloss.NewStyle().
 		Background(lipgloss.Color("#252540")).
 		Foreground(theme.TextPrimary).
@@ -362,7 +548,7 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 		BorderRight(false).
 		BorderTop(false).
 		BorderBottom(false).
-		BorderForeground(theme.TextTertiary).
+		BorderForeground(borderColor).
 		Render(content)
 }
 

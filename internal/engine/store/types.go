@@ -42,22 +42,23 @@ func ParsePRMeta(raw *string) (*PRMeta, error) {
 }
 
 type Task struct {
-	ID            string  `db:"id"`
-	Title         string  `db:"title"`
-	Description   string  `db:"description"`
-	DescriptionMD string  `db:"description_md"`
-	Status        string  `db:"status"`
-	Priority      string  `db:"priority"`
-	SortOrder     int     `db:"sort_order"`
-	Provider      *string `db:"provider"`
-	RemoteID      *string `db:"remote_id"`
-	RemoteMeta    *string `db:"remote_meta"`
-	PRMeta        *string `db:"pr_meta"`
-	WorkspaceID   *int    `db:"workspace_id"`
-	ArchivedAt    *string `db:"archived_at"`
-	Ephemeral     bool    `db:"ephemeral"`
-	CreatedAt     string  `db:"created_at"`
-	UpdatedAt     string  `db:"updated_at"`
+	ID              string  `db:"id"`
+	Title           string  `db:"title"`
+	Description     string  `db:"description"`
+	DescriptionMD   string  `db:"description_md"`
+	Status          string  `db:"status"`
+	Priority        string  `db:"priority"`
+	SortOrder       int     `db:"sort_order"`
+	Provider        *string `db:"provider"`
+	RemoteID        *string `db:"remote_id"`
+	RemoteMeta      *string `db:"remote_meta"`
+	PRMeta          *string `db:"pr_meta"`
+	WorkspaceID     *int    `db:"workspace_id"`
+	ArchivedAt      *string `db:"archived_at"`
+	Ephemeral       bool    `db:"ephemeral"`
+	SwarmWorkingDir *string `db:"swarm_working_dir"`
+	CreatedAt       string  `db:"created_at"`
+	UpdatedAt       string  `db:"updated_at"`
 }
 
 type Workspace struct {
@@ -92,12 +93,54 @@ type StateInterval struct {
 }
 
 type AgentSession struct {
-	ID          int     `db:"id"`
-	TaskID      string  `db:"task_id"`
-	TmuxSession string  `db:"tmux_session"`
-	Command     string  `db:"command"`
-	Status      string  `db:"status"`
-	Activity    string  `db:"activity"`
-	StartedAt   string  `db:"started_at"`
-	EndedAt     *string `db:"ended_at"`
+	ID            int     `db:"id"`
+	TaskID        string  `db:"task_id"`
+	TmuxSession   string  `db:"tmux_session"`
+	Command       string  `db:"command"`
+	Status        string  `db:"status"`
+	Activity      string  `db:"activity"`
+	Role          string  `db:"role"`
+	ParentTaskID  *string `db:"parent_task_id"`
+	SubtaskID     *string `db:"subtask_id"`
+	StartedAt     string  `db:"started_at"`
+	EndedAt       *string `db:"ended_at"`
+}
+
+// SwarmEvent is a single conductor-bound event written to the swarm_events
+// inbox. Events are pulled via `legato swarm inbox <parent-id>`, which marks
+// them acked. See SwarmService for the producer side.
+type SwarmEvent struct {
+	ID           int     `db:"id"`
+	ParentTaskID string  `db:"parent_task_id"`
+	SubtaskID    *string `db:"subtask_id"`
+	Kind         string  `db:"kind"`
+	WorkerTitle  string  `db:"worker_title"`
+	Payload      string  `db:"payload"`
+	CreatedAt    string  `db:"created_at"`
+	AckedAt      *string `db:"acked_at"`
+}
+
+// Subtask represents a swarm sub-task: a unit of work parented to a task,
+// owned by one worker agent, scoped to a set of file globs.
+//
+// Lifecycle: queued → dispatched → in_progress → reporting → done | cancelled.
+// BuilderAgentID/ReviewerAgentID are kept (under their original column names)
+// for migration compatibility — v1 only uses BuilderAgentID, repurposed as the
+// single worker_agent_id slot.
+type Subtask struct {
+	ID              string  `db:"id"`
+	ParentTaskID    string  `db:"parent_task_id"`
+	Title           string  `db:"title"`
+	Description     string  `db:"description"`
+	Prompt          string  `db:"prompt"`
+	ScopeGlobs      string  `db:"scope_globs"`
+	Role            string  `db:"role"`
+	AgentKind       string  `db:"agent_kind"`
+	Status          string  `db:"status"`
+	BuilderAgentID  *int    `db:"builder_agent_id"`
+	ReviewerAgentID *int    `db:"reviewer_agent_id"`
+	CreatedAt       string  `db:"created_at"`
+	DispatchedAt    *string `db:"dispatched_at"`
+	StartedAt       *string `db:"started_at"`
+	CompletedAt     *string `db:"completed_at"`
 }

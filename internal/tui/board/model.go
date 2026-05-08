@@ -276,6 +276,18 @@ type PRStateData struct {
 	PRNumber       int
 }
 
+// SetSwarmStats populates SwarmStats per card.
+func (m *Model) SetSwarmStats(stats map[string]SwarmStats) {
+	for colName, cards := range m.cards {
+		for i := range cards {
+			if s, ok := stats[cards[i].Key]; ok {
+				cards[i].SwarmStats = s
+			}
+		}
+		m.cards[colName] = cards
+	}
+}
+
 // SetPRStates updates the PR status fields for each card.
 func (m *Model) SetPRStates(states map[string]PRStateData) {
 	for colName, cards := range m.cards {

@@ -22,6 +22,9 @@ const (
 	EventAuthFailed
 	EventRateLimited
 	EventPRStatusUpdated
+	EventAgentDied
+	EventSwarmChanged
+	EventPlanProposed
 )
 
 // ErrorPayload carries structured error information for error events.
@@ -29,6 +32,30 @@ type ErrorPayload struct {
 	ErrorType string // "offline", "auth_failed", "transition_failed", "rate_limited"
 	Message   string
 	TicketKey string // affected ticket, empty for general errors
+}
+
+// AgentDiedPayload is published when an agent's tmux session is detected as dead.
+type AgentDiedPayload struct {
+	TaskID       string
+	ParentTaskID string // empty for non-swarm agents
+	SubtaskID    string // empty for non-swarm agents
+	Role         string
+}
+
+// SwarmChangedPayload is published when a swarm sub-task changes state.
+type SwarmChangedPayload struct {
+	ParentTaskID string
+	SubtaskID    string
+	NewStatus    string
+}
+
+// PlanProposedPayload is published when a conductor submits a plan for approval.
+// Carries enough context for the TUI to open the plan-approval overlay and
+// reply to the conductor's CLI when the user verdicts.
+type PlanProposedPayload struct {
+	ParentTaskID string
+	PlanPath     string
+	ReplySocket  string
 }
 
 type Event struct {

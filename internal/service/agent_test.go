@@ -18,17 +18,21 @@ type mockTmux struct {
 	envVars         map[string]map[string]string // session -> key -> value
 	spawnDims       map[string][2]int            // session -> [width, height]
 	options         map[string]map[string]string // session -> key -> value
-	paneCommands    map[string]string             // session -> command
+	paneCommands    map[string]string            // session -> command
 	paneCommandsErr error
+	sentLines       map[string][]string // session -> ordered list of SendKeysLine payloads
+	sentMultiline   map[string][]string // session -> ordered list of SendKeysMultiline payloads
 }
 
 func newMockTmux() *mockTmux {
 	return &mockTmux{
-		sessions:  make(map[string]bool),
-		captures:  make(map[string]string),
-		envVars:   make(map[string]map[string]string),
-		spawnDims: make(map[string][2]int),
-		options:   make(map[string]map[string]string),
+		sessions:      make(map[string]bool),
+		captures:      make(map[string]string),
+		envVars:       make(map[string]map[string]string),
+		spawnDims:     make(map[string][2]int),
+		options:       make(map[string]map[string]string),
+		sentLines:     make(map[string][]string),
+		sentMultiline: make(map[string][]string),
 	}
 }
 
@@ -117,6 +121,33 @@ func (m *mockTmux) SendKey(name, key string) error {
 	if !m.sessions[name] {
 		return fmt.Errorf("session %s not found", name)
 	}
+	return nil
+}
+
+func (m *mockTmux) SendKeysLine(name, line string) error {
+	if !m.sessions[name] {
+		return fmt.Errorf("session %s not found", name)
+	}
+	m.sentLines[name] = append(m.sentLines[name], line)
+	return nil
+}
+
+func (m *mockTmux) SendKeysMultiline(name, payload string) error {
+	if !m.sessions[name] {
+		return fmt.Errorf("session %s not found", name)
+	}
+	m.sentMultiline[name] = append(m.sentMultiline[name], payload)
+	return nil
+}
+
+func (m *mockTmux) SendKeysShellCommand(name, command string) error {
+	if !m.sessions[name] {
+		return fmt.Errorf("session %s not found", name)
+	}
+	// Mock treats this the same as SendKeysLine for simplicity — the
+	// real distinction (split call + delay) is a tmux-level concern that
+	// doesn't matter for service-layer tests.
+	m.sentLines[name] = append(m.sentLines[name], command)
 	return nil
 }
 

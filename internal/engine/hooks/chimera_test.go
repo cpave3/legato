@@ -34,8 +34,10 @@ func TestChimeraAdapter_Name(t *testing.T) {
 func TestChimeraAdapter_EnvVars(t *testing.T) {
 	adapter := hooks.NewChimeraAdapter("/usr/bin/legato")
 	vars := adapter.EnvVars("task123", "/tmp/legato.sock")
-	if len(vars) > 0 {
-		t.Errorf("EnvVars should be nil/empty, got %v", vars)
+	// Chimera must set LEGATO_TASK_ID so the ~/.chimera/hooks scripts
+	// don't exit early on the empty-env-var gate.
+	if got := vars["LEGATO_TASK_ID"]; got != "task123" {
+		t.Errorf("LEGATO_TASK_ID = %q, want task123", got)
 	}
 }
 

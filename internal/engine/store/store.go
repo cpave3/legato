@@ -66,7 +66,7 @@ func (s *Store) migrate() error {
 		return err
 	}
 
-	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql", "008_workspaces.sql", "009_archive.sql", "010_pr_meta.sql", "011_ephemeral.sql"}
+	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql", "008_workspaces.sql", "009_archive.sql", "010_pr_meta.sql", "011_ephemeral.sql", "012_swarm.sql", "013_agent_role.sql", "014_swarm_v1.sql", "015_swarm_events.sql"}
 
 	for i := version; i < len(migrations); i++ {
 		data, err := migrationsFS.ReadFile("migrations/" + migrations[i])
@@ -103,10 +103,10 @@ func (s *Store) CreateTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO tasks (id, title, description, description_md, status,
 			priority, sort_order, provider, remote_id, remote_meta,
-			workspace_id, ephemeral, created_at, updated_at)
+			workspace_id, ephemeral, swarm_working_dir, created_at, updated_at)
 		VALUES (:id, :title, :description, :description_md, :status,
 			:priority, :sort_order, :provider, :remote_id, :remote_meta,
-			:workspace_id, :ephemeral, :created_at, :updated_at)`, t)
+			:workspace_id, :ephemeral, :swarm_working_dir, :created_at, :updated_at)`, t)
 	return err
 }
 
@@ -135,9 +135,29 @@ func (s *Store) UpdateTask(ctx context.Context, t Task) error {
 			title = :title, description = :description, description_md = :description_md,
 			status = :status, priority = :priority, sort_order = :sort_order,
 			provider = :provider, remote_id = :remote_id, remote_meta = :remote_meta,
-			workspace_id = :workspace_id, updated_at = :updated_at
+			workspace_id = :workspace_id, swarm_working_dir = :swarm_working_dir,
+			updated_at = :updated_at
 		WHERE id = :id`, t)
 	return err
+}
+
+// SetTaskSwarmWorkingDir sets the working directory associated with a swarm
+// rooted at this task. Use nil to clear.
+func (s *Store) SetTaskSwarmWorkingDir(ctx context.Context, taskID string, workingDir *string) error {
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET swarm_working_dir = ?, updated_at = datetime('now') WHERE id = ?",
+		workingDir, taskID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) DeleteTask(ctx context.Context, id string) error {
@@ -150,15 +170,16 @@ func (s *Store) UpsertTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO tasks (id, title, description, description_md, status,
 			priority, sort_order, provider, remote_id, remote_meta,
-			workspace_id, ephemeral, created_at, updated_at)
+			workspace_id, ephemeral, swarm_working_dir, created_at, updated_at)
 		VALUES (:id, :title, :description, :description_md, :status,
 			:priority, :sort_order, :provider, :remote_id, :remote_meta,
-			:workspace_id, :ephemeral, :created_at, :updated_at)
+			:workspace_id, :ephemeral, :swarm_working_dir, :created_at, :updated_at)
 		ON CONFLICT(id) DO UPDATE SET
 			title = :title, description = :description, description_md = :description_md,
 			status = :status, priority = :priority, sort_order = :sort_order,
 			provider = :provider, remote_id = :remote_id, remote_meta = :remote_meta,
-			workspace_id = :workspace_id, updated_at = :updated_at`, t)
+			workspace_id = :workspace_id, swarm_working_dir = :swarm_working_dir,
+			updated_at = :updated_at`, t)
 	return err
 }
 

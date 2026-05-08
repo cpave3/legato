@@ -3,11 +3,13 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
@@ -47,6 +49,8 @@ const (
 	overlayLinkPR
 	overlayOpenURL
 	overlayEphemeralSpawn
+	overlaySwarmInit
+	overlayPlanApproval
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -98,7 +102,10 @@ type App struct {
 	eventSubs     []<-chan events.Event // sync lifecycle events (started/completed/failed/errors)
 	cardUpdateSub <-chan events.Event
 	prSub         <-chan events.Event
+	swarmSub      <-chan events.Event
+	planSub       <-chan events.Event
 	tmux          service.TmuxManager
+	swarmSvc      *service.SwarmService
 	webServer     *server.Server
 	webServerStop func()
 	webServerPort string
@@ -113,7 +120,7 @@ func (a *App) SetWebServerRunning(port string) {
 }
 
 // NewApp creates a new root application model.
-func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager) App {
+func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager, swarmSvc ...*service.SwarmService) App {
 	clip := clipboard.New()
 	b := board.New(svc, icons)
 	b.SetWorkspaces(workspaces)
@@ -133,6 +140,9 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		tmux:          tmux,
 		webServerPort: "3080",
 	}
+	if len(swarmSvc) > 0 {
+		app.swarmSvc = swarmSvc[0]
+	}
 	if bus != nil {
 		app.eventSubs = []<-chan events.Event{
 			bus.Subscribe(events.EventSyncStarted),
@@ -145,6 +155,8 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		}
 		app.cardUpdateSub = bus.Subscribe(events.EventCardUpdated)
 		app.prSub = bus.Subscribe(events.EventPRStatusUpdated)
+		app.swarmSub = bus.Subscribe(events.EventSwarmChanged)
+		app.planSub = bus.Subscribe(events.EventPlanProposed)
 	}
 	return app
 }
@@ -160,6 +172,12 @@ func (a App) Init() tea.Cmd {
 	}
 	if a.prSub != nil {
 		cmds = append(cmds, a.listenPRUpdates())
+	}
+	if a.swarmSub != nil {
+		cmds = append(cmds, a.listenSwarmUpdates())
+	}
+	if a.planSub != nil {
+		cmds = append(cmds, a.listenPlanProposals())
 	}
 	// Clipboard availability check
 	if a.clip == nil || !a.clip.Available() {
@@ -199,6 +217,9 @@ func (a App) listenCardUpdates() tea.Cmd {
 // prUpdateMsg triggers a board data reload when PR status changes.
 type prUpdateMsg struct{}
 
+// swarmUpdateMsg triggers a board data reload when swarm state changes.
+type swarmUpdateMsg struct{}
+
 // listenPRUpdates returns a command that listens for EventPRStatusUpdated.
 func (a App) listenPRUpdates() tea.Cmd {
 	ch := a.prSub
@@ -211,6 +232,52 @@ func (a App) listenPRUpdates() tea.Cmd {
 			return nil
 		}
 		return prUpdateMsg{}
+	}
+}
+
+// listenSwarmUpdates returns a command that listens for EventSwarmChanged.
+func (a App) listenSwarmUpdates() tea.Cmd {
+	ch := a.swarmSub
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		_, ok := <-ch
+		if !ok {
+			return nil
+		}
+		return swarmUpdateMsg{}
+	}
+}
+
+// planProposalMsg carries a plan-proposed payload from the IPC server through
+// to the bubbletea Update loop, which opens the approval overlay.
+type planProposalMsg struct {
+	ParentTaskID string
+	PlanPath     string
+	ReplySocket  string
+}
+
+// listenPlanProposals returns a command that listens for EventPlanProposed.
+func (a App) listenPlanProposals() tea.Cmd {
+	ch := a.planSub
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ev, ok := <-ch
+		if !ok {
+			return nil
+		}
+		p, ok := ev.Payload.(events.PlanProposedPayload)
+		if !ok {
+			return nil
+		}
+		return planProposalMsg{
+			ParentTaskID: p.ParentTaskID,
+			PlanPath:     p.PlanPath,
+			ReplySocket:  p.ReplySocket,
+		}
 	}
 }
 
@@ -261,6 +328,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a.openCreateOverlay()
 			}
 			return a.delegateKey(msg)
+		case "S":
+			if a.active == viewBoard && a.swarmSvc != nil {
+				return a.openSwarmInitOverlay()
+			}
+			return a.delegateKey(msg)
 		default:
 			return a.delegateKey(msg)
 		}
@@ -304,6 +376,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.detail = detail.NewLoading(msg.CardKey, a.svc, a.clip, a.editor)
 		} else {
 			a.detail = detail.New(card, a.svc, a.clip, a.editor)
+		}
+		// Populate swarm sub-tasks if applicable.
+		if a.swarmSvc != nil {
+			if subs, err := a.swarmSvc.ListSubtaskInfos(context.Background(), msg.CardKey); err == nil && len(subs) > 0 {
+				a.detail.SetSubtasks(subs)
+			}
 		}
 		// Send window size
 		detailModel, cmd := a.detail.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height - 1})
@@ -515,6 +593,32 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.activeOverlay = nil
 		return a, nil
 
+	case overlay.SwarmStartMsg:
+		return a.handleSwarmStart(msg)
+
+	case overlay.SwarmInitCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
+	case overlay.PlanApproveMsg:
+		return a.handlePlanApprove(msg)
+
+	case overlay.PlanRejectMsg:
+		return a.handlePlanReject(msg)
+
+	case overlay.PlanCancelMsg:
+		return a.handlePlanCancel(msg)
+
+	case overlay.PlanEditedMsg:
+		// Forward to the active plan-approval overlay so it can re-render.
+		if a.overlayType == overlayPlanApproval {
+			next, cmd := a.activeOverlay.Update(msg)
+			a.activeOverlay = next
+			return a, cmd
+		}
+		return a, nil
+
 	case agents.OpenEphemeralSpawnMsg:
 		return a.openEphemeralSpawnOverlay()
 
@@ -599,6 +703,31 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, a.listenPRUpdates())
 		}
 		return a, tea.Batch(cmds...)
+
+	case swarmUpdateMsg:
+		// Swarm state changed — reload the board so badges refresh live and
+		// re-fetch the agent list so newly-dispatched workers show up in
+		// the agents view in real time.
+		cmds = append(cmds, a.board.Init())
+		if a.agentSvc != nil {
+			svc := a.agentSvc
+			cmds = append(cmds, func() tea.Msg {
+				agentList, _ := svc.ListAgents(context.Background())
+				return agents.AgentsRefreshedMsg{Agents: agentList}
+			})
+		}
+		if a.swarmSub != nil {
+			cmds = append(cmds, a.listenSwarmUpdates())
+		}
+		return a, tea.Batch(cmds...)
+
+	case planProposalMsg:
+		// Conductor proposed a plan; surface the approval overlay.
+		next, cmd := a.openPlanApprovalOverlay(msg.ParentTaskID, msg.PlanPath, msg.ReplySocket)
+		if a.planSub != nil {
+			return next, tea.Batch(cmd, a.listenPlanProposals())
+		}
+		return next, cmd
 
 	case boardRefreshMsg:
 		cmd := a.board.Init()
@@ -689,6 +818,38 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if len(prStates) > 0 {
 					a.board.SetPRStates(prStates)
+				}
+			}
+		}
+		// Populate swarm stats per board card.
+		if a.swarmSvc != nil {
+			if taskIDs := a.board.TaskIDs(); len(taskIDs) > 0 {
+				stats := make(map[string]board.SwarmStats)
+				for _, id := range taskIDs {
+					subs, err := a.swarmSvc.ListSubtaskInfos(context.Background(), id)
+					if err != nil || len(subs) == 0 {
+						continue
+					}
+					var s board.SwarmStats
+					s.Total = len(subs)
+					for _, sub := range subs {
+						switch sub.Status {
+						case "done":
+							s.Done++
+						case "review":
+							s.InReview++
+						case "building":
+							s.Building++
+						case "queued":
+							s.Queued++
+						case "rejected":
+							s.Rejected++
+						}
+					}
+					stats[id] = s
+				}
+				if len(stats) > 0 {
+					a.board.SetSwarmStats(stats)
 				}
 			}
 		}
@@ -1066,6 +1227,79 @@ func (a App) openTitleEditOverlay(taskID, currentTitle string) (tea.Model, tea.C
 	return a, nil
 }
 
+func (a App) openSwarmInitOverlay() (tea.Model, tea.Cmd) {
+	selected := a.board.SelectedCard()
+	if selected == nil {
+		return a, nil
+	}
+	suggested, _ := os.Getwd()
+	swModel := overlay.NewSwarmInit(selected.Key, selected.Title, suggested)
+	sized, _ := swModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.activeOverlay = sized
+	a.overlayType = overlaySwarmInit
+	return a, nil
+}
+
+func (a App) openPlanApprovalOverlay(parentTaskID, planPath, replySocket string) (tea.Model, tea.Cmd) {
+	po := overlay.NewPlanApproval(parentTaskID, planPath, replySocket)
+	sized, _ := po.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.activeOverlay = sized
+	a.overlayType = overlayPlanApproval
+	return a, nil
+}
+
+func (a App) handleSwarmStart(msg overlay.SwarmStartMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	if a.swarmSvc == nil {
+		return a, nil
+	}
+	if err := a.swarmSvc.StartSwarm(context.Background(), msg.ParentTaskID, msg.WorkingDir); err != nil {
+		return a, func() tea.Msg {
+			return statusbar.ErrorMsg{Text: fmt.Sprintf("Start swarm failed: %v", err)}
+		}
+	}
+	return a, a.board.Init()
+}
+
+func (a App) handlePlanApprove(msg overlay.PlanApproveMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	if msg.ReplySocket != "" {
+		_ = ipc.Send(msg.ReplySocket, ipc.Message{
+			Type:     "plan_verdict",
+			TaskID:   msg.ParentTaskID,
+			Status:   "approved",
+			PlanPath: msg.PlanPath,
+		})
+	}
+	return a, a.board.Init()
+}
+
+func (a App) handlePlanReject(msg overlay.PlanRejectMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	if msg.ReplySocket != "" {
+		_ = ipc.Send(msg.ReplySocket, ipc.Message{
+			Type:   "plan_verdict",
+			TaskID: msg.ParentTaskID,
+			Status: "rejected",
+			Notes:  msg.Notes,
+		})
+	}
+	return a, nil
+}
+
+func (a App) handlePlanCancel(msg overlay.PlanCancelMsg) (tea.Model, tea.Cmd) {
+	// User dismissed without verdict — leave the conductor blocked. They can
+	// restart the propose-plan call or the conductor's CLI will time out.
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	return a, func() tea.Msg {
+		return statusbar.InfoMsg{Text: "Plan dismissed; the conductor is still waiting on a verdict."}
+	}
+}
+
 func (a App) handleTitleEditSubmit(msg overlay.TitleEditSubmitMsg) (tea.Model, tea.Cmd) {
 	a.overlayType = overlayNone
 	a.activeOverlay = nil
@@ -1243,6 +1477,9 @@ func (a App) handleAgentTick() (tea.Model, tea.Cmd) {
 	if selected == nil || selected.Status != "running" {
 		return a, agentTickCmd()
 	}
+	// Update the coordination panel for swarm agents.
+	a.refreshCoordinationPanel(selected.TaskID)
+
 	svc := a.agentSvc
 	taskID := selected.TaskID
 	return a, tea.Batch(
@@ -1252,6 +1489,40 @@ func (a App) handleAgentTick() (tea.Model, tea.Cmd) {
 		},
 		agentTickCmd(),
 	)
+}
+
+// refreshCoordinationPanel populates the coordination panel for the focused
+// agent's parent swarm, if any. No-op when the agent isn't part of a swarm.
+func (a *App) refreshCoordinationPanel(focusedTaskID string) {
+	if a.swarmSvc == nil {
+		a.agentView.SetCoordinationPanel("")
+		return
+	}
+	all, err := a.agentSvc.ListAgents(context.Background())
+	if err != nil {
+		return
+	}
+	// Find the focused agent's parent_task_id by querying ListAgentsByParent for each candidate parent.
+	// Cheaper: scan parent IDs from sub-task table by looking up agent's stored row directly.
+	// But ListAgents returns the surface form. Instead, walk all sessions stored in DB:
+	parentByTask := make(map[string]string)
+	for _, ag := range all {
+		// We don't have parent_task_id on AgentSession. Fall back to the swarm service:
+		// if there's a sub-task whose id == ag.TaskID, look up its parent.
+		if st, err := a.swarmSvc.GetSubtask(context.Background(), ag.TaskID); err == nil {
+			parentByTask[ag.TaskID] = st.ParentTaskID
+		}
+	}
+	parentID := parentByTask[focusedTaskID]
+	if parentID == "" {
+		a.agentView.SetCoordinationPanel("")
+		return
+	}
+	raw, err := a.swarmSvc.Snapshot(context.Background(), parentID)
+	if err != nil {
+		return
+	}
+	a.agentView.SetCoordinationPanel(string(raw))
 }
 
 func (a App) handleSpawnAgent(msg agents.SpawnAgentMsg) (tea.Model, tea.Cmd) {
