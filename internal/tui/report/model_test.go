@@ -126,7 +126,7 @@ func TestModel_CopyReport(t *testing.T) {
 	// Load report first
 	m, _ = m.Update(ReportLoadedMsg{Report: sampleReport()})
 
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
 	if cmd == nil {
 		t.Fatal("expected CopyReportMsg command")
 	}

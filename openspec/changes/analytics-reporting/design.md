@@ -83,7 +83,7 @@ Service provides helpers: `Today()`, `ThisWeek()`, `ThisMonth()`, `Last7Days()`,
 
 New `viewReport` enum value alongside `viewBoard`/`viewDetail`/`viewAgents`. Full-screen view with its own keybindings and layout.
 
-**Rationale**: Reports need significant screen real estate for charts and tables. An overlay would be too cramped. The existing view-switching pattern (`A` for agents) works well — `S` for stats/reports.
+**Rationale**: Reports need significant screen real estate for charts and tables. An overlay would be too cramped. The existing view-switching pattern (`A` for agents) works well — `R` for reports.
 
 **Alternative considered**: Overlay panel. Rejected — not enough space for meaningful charts, and overlays are designed for quick actions, not browsing.
 
@@ -95,7 +95,7 @@ Bar charts and summary tables rendered with lipgloss styling. Horizontal bars fo
 
 ### 7. Markdown export via clipboard or file
 
-`R` (shift-r) from report view copies markdown to clipboard. Same clipboard abstraction already used for PR URLs.
+`C` (shift-c) from report view copies markdown to clipboard. Same clipboard abstraction already used for PR URLs.
 
 **Rationale**: Clipboard is the fastest path to sharing (paste into Slack, PR description, etc.). File export can be added later but clipboard covers the primary use case.
 
@@ -112,4 +112,4 @@ Bar charts and summary tables rendered with lipgloss styling. Horizontal bars fo
 ## Open Questions
 
 - Should the report view support filtering by workspace (like the board does), or always show all workspaces with a breakdown? Leaning toward: always show all with per-workspace breakdown, since the point is aggregate visibility.
-- What keybinding for the report view? `S` (stats) seems natural and is currently unbound from the board.
+- What keybinding for the report view? `R` (reports) seems natural and is currently unbound from the board.

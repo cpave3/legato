@@ -1,14 +1,14 @@
 ## ADDED Requirements
 
 ### Requirement: Report view accessible from board
-The TUI SHALL provide a keybinding (`S`) from the board view that opens a full-screen report view showing analytics for the current period.
+The TUI SHALL provide a keybinding (`R`) from the board view that opens a full-screen report view showing analytics for the current period.
 
 #### Scenario: Open report view
-- **WHEN** user presses `S` on the board
+- **WHEN** user presses `R` on the board
 - **THEN** the TUI switches to the report view showing today's summary
 
 #### Scenario: Return to board
-- **WHEN** user presses `esc` or `S` in the report view
+- **WHEN** user presses `esc` in the report view
 - **THEN** the TUI returns to the board view
 
 ### Requirement: Period selection and navigation
@@ -70,5 +70,5 @@ The report view SHALL show per-workspace totals when workspaces are configured, 
 The report view SHALL support copying the current report as formatted markdown to the system clipboard.
 
 #### Scenario: Copy report
-- **WHEN** user presses `R` (shift-r) in report view
+- **WHEN** user presses `C` (shift-c) in report view
 - **THEN** the markdown-formatted report is copied to the clipboard and the status bar confirms "Report copied"

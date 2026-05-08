@@ -46,7 +46,7 @@ var (
 	}
 	viewBindings = []keybinding{
 		{"A", "Agent view"},
-		{"S", "Stats/report view"},
+		{"R", "Reports view"},
 		{"w", "Workspace filter"},
 	}
 	generalBindings = []keybinding{

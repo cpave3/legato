@@ -687,9 +687,9 @@ func TestBoardSelectionPreservedAfterDetailReturn(t *testing.T) {
 	// Board model should preserve its state (no re-initialization)
 }
 
-func TestShiftSOpensReportView(t *testing.T) {
+func TestShiftROpensReportView(t *testing.T) {
 	app := initTestApp()
-	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
 	if app.active != viewReport {
 		t.Errorf("expected viewReport, got %d", app.active)
 	}
@@ -697,7 +697,7 @@ func TestShiftSOpensReportView(t *testing.T) {
 
 func TestReportViewEscReturnsToBoard(t *testing.T) {
 	app := initTestApp()
-	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
 	if app.active != viewReport {
 		t.Fatalf("expected viewReport, got %d", app.active)
 	}
@@ -710,7 +710,7 @@ func TestReportViewEscReturnsToBoard(t *testing.T) {
 
 func TestReportViewCopyReportMsg(t *testing.T) {
 	app := initTestApp()
-	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
 	// CopyReportMsg should not panic even without clipboard
 	app, _ = updateApp(app, report.CopyReportMsg{Markdown: "# Test Report"})
 	if app.active != viewReport {

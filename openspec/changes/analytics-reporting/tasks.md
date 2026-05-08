@@ -24,14 +24,14 @@
 - [x] 4.3 Implement daily activity chart — horizontal bar chart with lipgloss. Each day = one row with label (Mon, Tue...), working bar (green), waiting bar (blue), scaled to terminal width. Max value determines scale.
 - [x] 4.4 Implement task breakdown table — styled table with ID, title (truncated to fit), working, waiting columns. Scrollable with j/k when focused. Highlight selected row.
 - [x] 4.5 Implement workspace breakdown section — one row per workspace with colored name dot, working/waiting totals. Include "Unassigned" if present.
-- [x] 4.6 Implement keybindings: `tab` cycles period type, `h`/`l` navigates periods, `j`/`k` scrolls task table, `R` copies markdown, `esc`/`S` returns to board.
+- [x] 4.6 Implement keybindings: `tab` cycles period type, `h`/`l` navigates periods, `j`/`k` scrolls task table, `C` copies markdown, `esc` returns to board.
 
 ## 5. Wire Into App
 
-- [x] 5.1 Add `viewReport` to view enum in `internal/tui/app.go`. Add `report.Model` field to App. Handle `S` keybinding from board to switch to report view. Handle `esc`/`S` from report to return to board. Forward messages to report model when active.
+- [x] 5.1 Add `viewReport` to view enum in `internal/tui/app.go`. Add `report.Model` field to App. Handle `R` keybinding from board to switch to report view. Handle `esc` from report to return to board. Forward messages to report model when active.
 - [x] 5.2 Wire `ReportService` creation in `cmd/legato/main.go` — construct with `store.DB()`, pass to `NewApp`. Report service is always available (no optional provider dependency).
-- [x] 5.3 Connect clipboard export — `R` in report view calls `ExportMarkdown`, pipes to `clipboard.Copy`. Show status bar confirmation.
-- [x] 5.4 Add `S` to help overlay keybinding list.
+- [x] 5.3 Connect clipboard export — `C` in report view calls `ExportMarkdown`, pipes to `clipboard.Copy`. Show status bar confirmation.
+- [x] 5.4 Add `R` to help overlay keybinding list.
 
 ## 6. Polish
 

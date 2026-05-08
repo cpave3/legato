@@ -90,7 +90,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			m.taskScroll--
 		}
 		return m, nil
-	case "R":
+	case "C":
 		if m.report != nil {
 			md := service.ExportReportMarkdown(m.report)
 			return m, func() tea.Msg { return CopyReportMsg{Markdown: md} }
@@ -424,7 +424,7 @@ func (m Model) renderHints(width int) string {
 		keyStyle.Render("tab") + " period  " +
 			keyStyle.Render("h/l") + " navigate  " +
 			keyStyle.Render("j/k") + " scroll  " +
-			keyStyle.Render("R") + " copy markdown  " +
+			keyStyle.Render("C") + " copy markdown  " +
 			keyStyle.Render("esc") + " back")
 }
 

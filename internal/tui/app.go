@@ -333,6 +333,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a.openSwarmInitOverlay()
 			}
 			return a.delegateKey(msg)
+		case "R":
+			if a.active == viewBoard {
+				return a.switchToReportView()
+			}
+			return a.delegateKey(msg)
 		default:
 			return a.delegateKey(msg)
 		}
@@ -1653,10 +1658,6 @@ func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// 'A' switches to agent view
 		if msg.String() == "A" {
 			return a.switchToAgentView()
-		}
-		// 'S' switches to report view
-		if msg.String() == "S" {
-			return a.switchToReportView()
 		}
 		// 'W' toggles web server
 		if msg.String() == "W" {
