@@ -284,10 +284,26 @@ func (m Model) renderCoordinationPanel(width int) string {
 		Foreground(theme.TextSecondary).
 		Padding(0, 1).
 		Width(width - 1)
-	body := bodyStyle.Render(m.coordinationPanel)
+	// Clip the body to the available vertical space. Snapshots can be
+	// hundreds of lines (full JSON of every subtask); without this the panel
+	// grows past m.height and breaks the side-by-side layout — lipgloss
+	// Height pads but never truncates.
+	bodyHeight := m.height - lipgloss.Height(header)
+	if bodyHeight < 1 {
+		bodyHeight = 1
+	}
+	rawBody := m.coordinationPanel
+	if rawLines := strings.Split(rawBody, "\n"); len(rawLines) > bodyHeight {
+		rawBody = strings.Join(rawLines[:bodyHeight], "\n")
+	}
+	body := bodyStyle.Render(rawBody)
+	if bodyLines := strings.Split(body, "\n"); len(bodyLines) > bodyHeight {
+		body = strings.Join(bodyLines[:bodyHeight], "\n")
+	}
 	content := lipgloss.JoinVertical(lipgloss.Left, header, body)
+	// Width(width-1) + BorderLeft = exactly `width` cols total.
 	return lipgloss.NewStyle().
-		Width(width).
+		Width(width - 1).
 		Height(m.height).
 		BorderLeft(true).
 		BorderStyle(lipgloss.NormalBorder()).
@@ -326,6 +342,7 @@ func (m Model) renderSidebar() string {
 		entries = emptyStyle.Render("No agents\n\nPress s to spawn\nan ephemeral session")
 	} else {
 		var entryLines []string
+		selectedEntryIdx := -1
 		var prevParent string
 		for i, a := range m.agents {
 			// Emit a small group header before the first session of each swarm.
@@ -338,21 +355,33 @@ func (m Model) renderSidebar() string {
 				entryLines = append(entryLines, m.renderSoloDivider(sidebarContentWidth))
 				prevParent = ""
 			}
+			if i == m.selected {
+				selectedEntryIdx = len(entryLines)
+			}
 			entryLines = append(entryLines, m.renderSidebarEntry(a, i == m.selected, sidebarContentWidth))
 		}
 		entries = strings.Join(entryLines, "\n")
 
-		// Scroll if entries exceed listHeight
+		// Scroll if entries exceed listHeight, using real per-entry heights so
+		// variable-height cards (titles, role tags, swarm headers) stay aligned.
 		entryRenderedHeight := lipgloss.Height(entries)
 		if entryRenderedHeight > listHeight {
-			lines := strings.Split(entries, "\n")
-			// Find the selected entry position — approximate by card height
-			cardHeight := 5 // each card is ~5 lines (status+id, command, title, padding/margin)
-			selectedStart := m.selected * cardHeight
-			scrollOffset := selectedStart - listHeight/2
-			if scrollOffset < 0 {
-				scrollOffset = 0
+			selectedStart := 0
+			selectedHeight := 0
+			for k, e := range entryLines {
+				h := lipgloss.Height(e)
+				if k == selectedEntryIdx {
+					selectedHeight = h
+					break
+				}
+				selectedStart += h
 			}
+			margin := (listHeight - selectedHeight) / 2
+			if margin < 0 {
+				margin = 0
+			}
+			scrollOffset := selectedStart - margin
+			lines := strings.Split(entries, "\n")
 			if scrollOffset+listHeight > len(lines) {
 				scrollOffset = len(lines) - listHeight
 			}
@@ -365,6 +394,14 @@ func (m Model) renderSidebar() string {
 			}
 			entries = strings.Join(lines[scrollOffset:end], "\n")
 		}
+
+		// Final clamp: lipgloss Height pads but never truncates, so guarantee
+		// the sidebar can't grow past listHeight and break the side-by-side
+		// JoinHorizontal layout with the terminal panel.
+		if lipgloss.Height(entries) > listHeight {
+			lines := strings.Split(entries, "\n")
+			entries = strings.Join(lines[:listHeight], "\n")
+		}
 	}
 
 	// Constrain list to available height
@@ -376,8 +413,12 @@ func (m Model) renderSidebar() string {
 	// Compose sidebar
 	content := lipgloss.JoinVertical(lipgloss.Left, header, list, hints)
 
+	// Width(SidebarWidth-1) + BorderRight = exactly SidebarWidth columns total.
+	// Lipgloss adds borders OUTSIDE the configured Width, so without the -1
+	// the sidebar would render 1 col over and force the terminal panel into
+	// the next line — breaking the side-by-side layout.
 	return lipgloss.NewStyle().
-		Width(SidebarWidth).
+		Width(SidebarWidth - 1).
 		Height(m.height).
 		BorderRight(true).
 		BorderStyle(lipgloss.NormalBorder()).
