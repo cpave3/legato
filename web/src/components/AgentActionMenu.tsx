@@ -97,7 +97,7 @@ export function AgentActionMenu({
           <MoreHorizontal size={14} />
         </button>
         {menuOpen && (
-          <div className="absolute left-full top-0 ml-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-20">
+          <div className="absolute right-0 top-full mt-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-50">
             <button
               onClick={() => { setMenuOpen(false); setSendOpen(true); setError("") }}
               className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"

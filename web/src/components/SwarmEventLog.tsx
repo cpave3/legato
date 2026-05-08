@@ -31,7 +31,7 @@ export function SwarmEventLog({ parentId }: { parentId: string }) {
   }
 
   return (
-    <div className="flex flex-col border-t border-zinc-800 bg-zinc-950">
+    <div className="flex flex-col h-full bg-zinc-950">
       <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800">
         <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
           <Inbox size={12} />
@@ -60,7 +60,7 @@ export function SwarmEventLog({ parentId }: { parentId: string }) {
         </div>
       </div>
 
-      <div className="max-h-48 overflow-y-auto px-4 py-2">
+      <div className="flex-1 overflow-y-auto px-4 py-2">
         {entries.length === 0 ? (
           <p className="text-xs text-zinc-600 italic">No unacked events.</p>
         ) : (
