@@ -26,24 +26,33 @@ const (
 
 // WebSocket message types (server → client).
 const (
-	MsgAgentOutput   = "agent_output"
-	MsgAgentList     = "agent_list"
-	MsgAgentsChanged = "agents_changed"
-	MsgPromptState   = "prompt_state"
-	MsgError         = "error"
+	MsgAgentOutput    = "agent_output"
+	MsgAgentList      = "agent_list"
+	MsgAgentsChanged  = "agents_changed"
+	MsgPromptState    = "prompt_state"
+	MsgPlanProposed   = "plan_proposed"
+	MsgPlanVerdict    = "plan_verdict"
+	MsgSwarmChanged   = "swarm_changed"
+	MsgError          = "error"
 )
 
 // WSMessage is the JSON envelope for all WebSocket messages.
 type WSMessage struct {
-	Type    string          `json:"type"`
-	AgentID string          `json:"agent_id,omitempty"`
-	Content string          `json:"content,omitempty"`
-	Keys    string          `json:"keys,omitempty"`
-	Cols    int             `json:"cols,omitempty"`
-	Rows    int             `json:"rows,omitempty"`
-	Agents  []AgentResponse `json:"agents,omitempty"`
-	Prompt  *prompt.PromptState `json:"prompt,omitempty"`
-	Error   string          `json:"error,omitempty"`
+	Type         string              `json:"type"`
+	AgentID      string              `json:"agent_id,omitempty"`
+	Content      string              `json:"content,omitempty"`
+	Keys         string              `json:"keys,omitempty"`
+	Cols         int                 `json:"cols,omitempty"`
+	Rows         int                 `json:"rows,omitempty"`
+	Agents       []AgentResponse     `json:"agents,omitempty"`
+	Prompt       *prompt.PromptState `json:"prompt,omitempty"`
+	Error        string              `json:"error,omitempty"`
+	PlanPath     string              `json:"plan_path,omitempty"`
+	ReplySocket  string              `json:"reply_socket,omitempty"`
+	ParentTaskID string              `json:"parent_task_id,omitempty"`
+	SubtaskID    string              `json:"subtask_id,omitempty"`
+	Status       string              `json:"status,omitempty"`
+	Notes        string              `json:"notes,omitempty"`
 }
 
 // wsClient represents a connected WebSocket client.
@@ -159,6 +168,8 @@ func (s *Server) handleWSMessage(client *wsClient, msg WSMessage) {
 		s.handleDetectPrompt(client, msg)
 	case MsgRefreshPane:
 		s.handleRefreshPane(client, msg)
+	case MsgPlanVerdict:
+		s.handlePlanVerdict(client, msg)
 	default:
 		client.send(WSMessage{Type: MsgError, Error: "unknown message type: " + msg.Type})
 	}

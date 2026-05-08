@@ -141,6 +141,29 @@ func (s *SwarmService) FetchInbox(ctx context.Context, parentID string) ([]Inbox
 	return out, nil
 }
 
+// PeekInbox returns all unacked swarm events for a parent WITHOUT acking them.
+func (s *SwarmService) PeekInbox(ctx context.Context, parentID string) ([]InboxEntry, error) {
+	rows, err := s.store.ListUnackedSwarmEvents(ctx, parentID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]InboxEntry, len(rows))
+	for i, r := range rows {
+		entry := InboxEntry{
+			ID:          r.ID,
+			Kind:        r.Kind,
+			WorkerTitle: r.WorkerTitle,
+			Payload:     r.Payload,
+			CreatedAt:   r.CreatedAt,
+		}
+		if r.SubtaskID != nil {
+			entry.SubtaskID = *r.SubtaskID
+		}
+		out[i] = entry
+	}
+	return out, nil
+}
+
 // SwarmSubtaskInfo is a UI-friendly view of a sub-task.
 type SwarmSubtaskInfo struct {
 	ID          string
@@ -401,6 +424,15 @@ func (s *SwarmService) Message(ctx context.Context, subtaskID, text string) erro
 	sess, err := s.store.GetAgentSessionByTaskID(ctx, subtaskID)
 	if err != nil {
 		return fmt.Errorf("worker %s is not running", subtaskID)
+	}
+	return s.tmuxSendKeys(sess.TmuxSession, text)
+}
+
+// MessageParent sends text into the conductor's tmux pane via send-keys.
+func (s *SwarmService) MessageParent(ctx context.Context, parentID, text string) error {
+	sess, err := s.store.GetAgentSessionByTaskID(ctx, parentID)
+	if err != nil {
+		return fmt.Errorf("conductor for parent %s is not running", parentID)
 	}
 	return s.tmuxSendKeys(sess.TmuxSession, text)
 }

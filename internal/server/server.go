@@ -9,36 +9,53 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/server/static"
 	"github.com/cpave3/legato/internal/service"
 )
 
 // Server is the HTTP/WebSocket server for Legato's web UI.
 type Server struct {
-	board      service.BoardService
-	agents     service.AgentService
-	tmux       service.TmuxManager
-	addr       string
-	server     *http.Server
-	hub        *Hub
-	streams    *streamManager
-	tlsCert    string
-	tlsKey     string
-	caCertPath string
-	authToken  string
+	board       service.BoardService
+	agents      service.AgentService
+	swarm       SwarmService
+	tmux        service.TmuxManager
+	bus         *events.Bus
+	addr        string
+	server      *http.Server
+	hub         *Hub
+	streams     *streamManager
+	tlsCert     string
+	tlsKey      string
+	caCertPath  string
+	authToken   string
+	pendingMu   sync.RWMutex
+	pendingPlans map[string]*pendingPlanEntry
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
+// For swarm support, use NewWithSwarm.
 func New(board service.BoardService, agents service.AgentService, tmux service.TmuxManager, addr string) *Server {
+	return NewWithSwarm(board, agents, tmux, addr, nil, nil)
+}
+
+// NewWithSwarm creates a new server with swarm and event bus support.
+// agents, tmux, swarm and bus may be nil.
+func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux service.TmuxManager, addr string, swarm SwarmService, bus *events.Bus) *Server {
 	sm := newStreamManager(tmux)
 	s := &Server{
-		board:  board,
-		agents: agents,
-		tmux:   tmux,
-		addr:    addr,
-		hub:     newHub(),
-		streams: sm,
+		board:        board,
+		agents:       agents,
+		swarm:        swarm,
+		tmux:         tmux,
+		bus:          bus,
+		addr:         addr,
+		hub:          newHub(),
+		streams:      sm,
+		pendingPlans: make(map[string]*pendingPlanEntry),
 	}
 	// When a pipe-pane stream ends (shell exit), reconcile DB state
 	// and notify all web clients so dead agents update in the sidebar.
@@ -56,6 +73,16 @@ func New(board service.BoardService, agents service.AgentService, tmux service.T
 	mux.HandleFunc("/api/tasks", s.tasksHandler())
 	mux.HandleFunc("/api/settings", s.settingsHandler())
 	mux.HandleFunc("/api/ca-cert", s.caCertHandler())
+	// Swarm endpoints
+	mux.HandleFunc("/api/swarm/start", s.swarmStartHandler())
+	mux.HandleFunc("/api/swarm/dispatch", s.swarmDispatchHandler())
+	mux.HandleFunc("/api/swarm/message", s.swarmMessageHandler())
+	mux.HandleFunc("/api/swarm/broadcast", s.swarmBroadcastHandler())
+	mux.HandleFunc("/api/swarm/close", s.swarmCloseHandler())
+	mux.HandleFunc("/api/swarm/finish", s.swarmFinishHandler())
+	mux.HandleFunc("/api/swarm/status/", s.swarmStatusHandler())
+	mux.HandleFunc("/api/swarm/inbox/", s.swarmInboxHandler())
+	mux.HandleFunc("/api/swarm/pending-plan/", s.swarmPendingPlanHandler())
 	mux.HandleFunc("/ws", s.wsHandler())
 
 	// SPA fallback — serve embedded frontend for all non-API paths.
@@ -64,8 +91,8 @@ func New(board service.BoardService, agents service.AgentService, tmux service.T
 	}
 
 	s.server = &http.Server{
-		Addr:    addr,
-		Handler: s.authMiddleware(corsMiddleware(mux)),
+		Addr:         addr,
+		Handler:      s.authMiddleware(corsMiddleware(mux)),
 		// Disable HTTP/2 — WebSocket upgrades require the HTTP/1.1
 		// Connection: Upgrade mechanism which doesn't exist in HTTP/2.
 		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
@@ -224,6 +251,75 @@ func (s *Server) Addr() string {
 // Call this from IPC message handlers when agent state changes.
 func (s *Server) NotifyAgentsChanged() {
 	s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
+}
+
+// StartSwarmEvents subscribes to swarm events from the event bus and broadcasts
+// them to all connected WebSocket clients. Call once after server creation.
+func (s *Server) StartSwarmEvents() {
+	if s.bus == nil {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				// prune expired pending plan entries
+				s.pendingMu.Lock()
+				for id, entry := range s.pendingPlans {
+					if time.Since(entry.CreatedAt) > pendingPlanTTL {
+						delete(s.pendingPlans, id)
+					}
+				}
+				s.pendingMu.Unlock()
+			}
+		}
+	}()
+
+	go func() {
+		ch := s.bus.Subscribe(events.EventPlanProposed)
+		for ev := range ch {
+			if p, ok := ev.Payload.(events.PlanProposedPayload); ok {
+				entry := &pendingPlanEntry{
+					PlanPath:    p.PlanPath,
+					ReplySocket: p.ReplySocket,
+					CreatedAt:   time.Now(),
+				}
+				s.pendingMu.Lock()
+				s.pendingPlans[p.ParentTaskID] = entry
+				s.pendingMu.Unlock()
+
+				s.hub.Broadcast(WSMessage{
+					Type:         MsgPlanProposed,
+					ParentTaskID: p.ParentTaskID,
+					PlanPath:     p.PlanPath,
+					ReplySocket:  p.ReplySocket,
+				})
+			}
+		}
+	}()
+
+	go func() {
+		ch := s.bus.Subscribe(events.EventSwarmChanged)
+		for ev := range ch {
+			if p, ok := ev.Payload.(events.SwarmChangedPayload); ok {
+				// clear pending plan on terminal status transitions
+				if p.NewStatus == "plan_applied" || p.NewStatus == "rejected" {
+					s.pendingMu.Lock()
+					delete(s.pendingPlans, p.ParentTaskID)
+					s.pendingMu.Unlock()
+				}
+
+				s.hub.Broadcast(WSMessage{
+					Type:         MsgSwarmChanged,
+					ParentTaskID: p.ParentTaskID,
+					SubtaskID:    p.SubtaskID,
+					Status:       p.NewStatus,
+				})
+			}
+		}
+	}()
 }
 
 // Stop gracefully shuts down the server.

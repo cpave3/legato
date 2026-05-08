@@ -371,8 +371,22 @@ func runServeCmd(args []string) int {
 		agentSvc = service.NewAgentService(db, mgr, wd)
 	}
 
+	// Swarm service for HTTP endpoints.
+	var swarmSvc *service.SwarmService
+	if agentSvc != nil {
+		swarmCfg := service.SwarmConfig{
+			MaxConcurrentAgents: cfg.Swarm.MaxConcurrentAgents,
+			MaxSubtasksPerPlan:  cfg.Swarm.MaxSubtasksPerPlan,
+			StrictScope:         cfg.Swarm.StrictScope,
+			RequireUserClose:    cfg.Swarm.RequireUserClose,
+			DefaultAgent:        cfg.Swarm.DefaultAgent,
+		}
+		wd, _ := os.Getwd()
+		swarmSvc = service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd)
+	}
+
 	addr := ":" + port
-	srv := server.New(boardSvc, agentSvc, tmuxMgr, addr)
+	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus)
 
 	// Configure TLS.
 	certFile, keyFile, caCertFile := resolveTLS(cfg)
@@ -411,6 +425,12 @@ func runServeCmd(args []string) int {
 		fmt.Println("\nShutting down...")
 		srv.Stop(context.Background())
 	}()
+
+	if swarmSvc != nil {
+		swarmStop := swarmSvc.StartEventLoop(context.Background())
+		defer swarmStop()
+	}
+	srv.StartSwarmEvents()
 
 	scheme := "http"
 	if certFile != "" {
@@ -613,6 +633,18 @@ func runTUI() int {
 	icons := theme.NewIcons(cfg.Icons)
 	editor := config.ResolveEditor(cfg)
 
+	// Construct SwarmService before the optional web server.
+	swarmCfg := service.SwarmConfig{
+		MaxConcurrentAgents: cfg.Swarm.MaxConcurrentAgents,
+		MaxSubtasksPerPlan:  cfg.Swarm.MaxSubtasksPerPlan,
+		StrictScope:         cfg.Swarm.StrictScope,
+		RequireUserClose:    cfg.Swarm.RequireUserClose,
+		DefaultAgent:        cfg.Swarm.DefaultAgent,
+	}
+	swarmSvc := service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd)
+	swarmStop := swarmSvc.StartEventLoop(context.Background())
+	defer swarmStop()
+
 	// Auto-start web server if configured and port is free.
 	if cfg.Web.Enabled {
 		addr := ":" + cfg.Web.Port
@@ -620,7 +652,7 @@ func runTUI() int {
 		if listenErr != nil {
 			log.Printf("web: port %s unavailable: %v", cfg.Web.Port, listenErr)
 		} else {
-			webSrv = server.New(boardSvc, agentSvc, tmuxMgr, ln.Addr().String())
+			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus)
 			certFile, keyFile, caCertFile := resolveTLS(cfg)
 			if certFile != "" && keyFile != "" {
 				webSrv.SetTLS(certFile, keyFile)
@@ -631,6 +663,7 @@ func runTUI() int {
 			if token, err := auth.EnsureToken(filepath.Dir(dbPath)); err == nil {
 				webSrv.SetAuthToken(token)
 			}
+			webSrv.StartSwarmEvents()
 			go func() {
 				if err := webSrv.Serve(ln); err != nil && err.Error() != "http: Server closed" {
 					log.Printf("web server: %v", err)
@@ -643,18 +676,6 @@ func runTUI() int {
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
 
 	reportSvc := service.NewReportService(db)
-
-	// Construct SwarmService and start its EventAgentDied subscriber.
-	swarmCfg := service.SwarmConfig{
-		MaxConcurrentAgents: cfg.Swarm.MaxConcurrentAgents,
-		MaxSubtasksPerPlan:  cfg.Swarm.MaxSubtasksPerPlan,
-		StrictScope:         cfg.Swarm.StrictScope,
-		RequireUserClose:    cfg.Swarm.RequireUserClose,
-		DefaultAgent:        cfg.Swarm.DefaultAgent,
-	}
-	swarmSvc := service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd)
-	swarmStop := swarmSvc.StartEventLoop(context.Background())
-	defer swarmStop()
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, swarmSvc)
 
