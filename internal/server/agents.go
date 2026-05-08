@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
+
+	"github.com/cpave3/legato/internal/service"
 )
 
 // AgentResponse is the JSON representation of an agent session.
@@ -38,7 +40,9 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 		}
 
 		var req struct {
-			Title string `json:"title"`
+			Title      string `json:"title"`
+			AgentKind  string `json:"agent_kind"`
+			WorkingDir string `json:"working_dir"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -47,8 +51,15 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 		if req.Title == "" {
 			req.Title = "Ephemeral session"
 		}
+		if req.WorkingDir == "" {
+			req.WorkingDir = s.workDir
+		}
 
-		if err := s.agents.SpawnEphemeralAgent(context.Background(), req.Title, 0, 0); err != nil {
+		opts := service.AgentSpawnOptions{
+			AgentKind:  req.AgentKind,
+			WorkingDir: req.WorkingDir,
+		}
+		if err := s.agents.SpawnEphemeralAgent(context.Background(), req.Title, 0, 0, opts); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

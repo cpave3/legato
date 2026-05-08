@@ -112,7 +112,7 @@ func (f *fakeReportService) GenerateReport(_ context.Context, period analytics.T
 }
 
 func newTestApp() App {
-	return NewApp(&fakeBoardService{}, nil, nil, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil)
+	return NewApp(&fakeBoardService{}, nil, nil, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil)
 }
 
 func updateApp(a App, msg tea.Msg) (App, tea.Cmd) {
@@ -518,7 +518,7 @@ func TestDeleteCancelledClosesOverlay(t *testing.T) {
 // Import overlay tests
 
 func TestImportKeyOpensOverlayWhenSyncAvailable(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -541,7 +541,7 @@ func TestImportKeyNoOpWithoutSync(t *testing.T) {
 }
 
 func TestImportSelectedImportsAndRefreshes(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -560,7 +560,7 @@ func TestImportSelectedImportsAndRefreshes(t *testing.T) {
 }
 
 func TestImportCancelledClosesOverlay(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -636,10 +636,12 @@ func (f *fakeAgentService) GetTaskDurations(_ context.Context, _ []string) (map[
 func (f *fakeAgentService) GetAgentSummary(_ context.Context, _ string) (int, int, int, error) {
 	return 0, 0, 0, nil
 }
-func (f *fakeAgentService) SpawnEphemeralAgent(_ context.Context, _ string, _, _ int) error {
+func (f *fakeAgentService) SpawnEphemeralAgent(_ context.Context, _ string, _, _ int, _ ...service.AgentSpawnOptions) error {
 	return nil
 }
 func (f *fakeAgentService) LastSpawnConflicts() []service.AgentSpawnConflict { return nil }
+func (f *fakeAgentService) RegisteredAdapters() []string { return nil }
+func (f *fakeAgentService) DefaultAdapter() string       { return "" }
 
 func TestDurationDataFlowsToBoard(t *testing.T) {
 	agentSvc := &fakeAgentService{
@@ -651,7 +653,7 @@ func TestDurationDataFlowsToBoard(t *testing.T) {
 		},
 	}
 
-	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil)
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()

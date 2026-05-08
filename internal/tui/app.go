@@ -106,6 +106,7 @@ type App struct {
 	planSub       <-chan events.Event
 	tmux          service.TmuxManager
 	swarmSvc      *service.SwarmService
+	workDir       string
 	webServer     *server.Server
 	webServerStop func()
 	webServerPort string
@@ -120,7 +121,7 @@ func (a *App) SetWebServerRunning(port string) {
 }
 
 // NewApp creates a new root application model.
-func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager, swarmSvc ...*service.SwarmService) App {
+func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager, workDir string, swarmSvc ...*service.SwarmService) App {
 	clip := clipboard.New()
 	b := board.New(svc, icons)
 	b.SetWorkspaces(workspaces)
@@ -138,6 +139,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		active:        viewBoard,
 		eventBus:      bus,
 		tmux:          tmux,
+		workDir:       workDir,
 		webServerPort: "3080",
 	}
 	if len(swarmSvc) > 0 {
@@ -1335,7 +1337,19 @@ func (a App) handleTitleEditSubmit(msg overlay.TitleEditSubmitMsg) (tea.Model, t
 }
 
 func (a App) openEphemeralSpawnOverlay() (tea.Model, tea.Cmd) {
-	spawnModel := overlay.NewEphemeralSpawn()
+	defaultAdapter := ""
+	var adapters, filtered []string
+	if a.agentSvc != nil {
+		defaultAdapter = a.agentSvc.DefaultAdapter()
+		adapters = a.agentSvc.RegisteredAdapters()
+		filtered = make([]string, 0, len(adapters))
+		for _, name := range adapters {
+			if name != defaultAdapter {
+				filtered = append(filtered, name)
+			}
+		}
+	}
+	spawnModel := overlay.NewEphemeralSpawn(filtered, defaultAdapter, a.workDir)
 	sized, _ := spawnModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
 	a.overlayType = overlayEphemeralSpawn
@@ -1358,9 +1372,14 @@ func (a App) handleEphemeralSpawnSubmit(msg overlay.EphemeralSpawnSubmitMsg) (te
 	}
 	termH := a.height - 1
 
+	opts := service.AgentSpawnOptions{
+		AgentKind:  msg.AgentKind,
+		WorkingDir: msg.WorkingDir,
+	}
+
 	return a, tea.Batch(
 		func() tea.Msg {
-			if err := svc.SpawnEphemeralAgent(context.Background(), title, termW, termH); err != nil {
+			if err := svc.SpawnEphemeralAgent(context.Background(), title, termW, termH, opts); err != nil {
 				return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
 			}
 			agentList, _ := svc.ListAgents(context.Background())

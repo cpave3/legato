@@ -5,7 +5,6 @@ import (
 	"crypto/subtle"
 	"crypto/tls"
 	"encoding/json"
-	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -25,6 +24,7 @@ type Server struct {
 	tmux        service.TmuxManager
 	bus         *events.Bus
 	addr        string
+	workDir     string // default CWD for agent spawn
 	server      *http.Server
 	hub         *Hub
 	streams     *streamManager
@@ -39,12 +39,12 @@ type Server struct {
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
 // For swarm support, use NewWithSwarm.
 func New(board service.BoardService, agents service.AgentService, tmux service.TmuxManager, addr string) *Server {
-	return NewWithSwarm(board, agents, tmux, addr, nil, nil)
+	return NewWithSwarm(board, agents, tmux, addr, nil, nil, "")
 }
 
 // NewWithSwarm creates a new server with swarm and event bus support.
 // agents, tmux, swarm and bus may be nil.
-func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux service.TmuxManager, addr string, swarm SwarmService, bus *events.Bus) *Server {
+func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux service.TmuxManager, addr string, swarm SwarmService, bus *events.Bus, workDir string) *Server {
 	sm := newStreamManager(tmux)
 	s := &Server{
 		board:        board,
@@ -53,6 +53,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 		tmux:         tmux,
 		bus:          bus,
 		addr:         addr,
+		workDir:      workDir,
 		hub:          newHub(),
 		streams:      sm,
 		pendingPlans: make(map[string]*pendingPlanEntry),
@@ -73,6 +74,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/tasks", s.tasksHandler())
 	mux.HandleFunc("/api/settings", s.settingsHandler())
 	mux.HandleFunc("/api/ca-cert", s.caCertHandler())
+	mux.HandleFunc("/api/adapters", s.adaptersHandler())
 	// Swarm endpoints
 	mux.HandleFunc("/api/swarm/start", s.swarmStartHandler())
 	mux.HandleFunc("/api/swarm/dispatch", s.swarmDispatchHandler())
@@ -198,7 +200,38 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		hasCACert := s.caCertPath != ""
-		fmt.Fprintf(w, `{"ca_cert_available":%t}`, hasCACert)
+		resp := struct {
+			CaCertAvailable bool   `json:"ca_cert_available"`
+			WorkingDir      string `json:"working_dir"`
+		}{
+			CaCertAvailable: hasCACert,
+			WorkingDir:      s.workDir,
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func (s *Server) adaptersHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		defaultAdapter := ""
+		adapters := []string{}
+		if s.agents != nil {
+			defaultAdapter = s.agents.DefaultAdapter()
+			adapters = s.agents.RegisteredAdapters()
+		}
+		resp := struct {
+			Adapters []string `json:"adapters"`
+			Default  string   `json:"default"`
+		}{
+			Adapters: adapters,
+			Default:  defaultAdapter,
+		}
+		_ = json.NewEncoder(w).Encode(resp)
 	}
 }
 

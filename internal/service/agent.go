@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -91,8 +92,10 @@ type AgentService interface {
 	AttachCmd(ctx context.Context, taskID string) (*exec.Cmd, error)
 	GetTaskDurations(ctx context.Context, taskIDs []string) (map[string]DurationData, error)
 	GetAgentSummary(ctx context.Context, excludeTaskID string) (working, waiting, idle int, err error)
-	SpawnEphemeralAgent(ctx context.Context, title string, width, height int) error
+	SpawnEphemeralAgent(ctx context.Context, title string, width, height int, opts ...AgentSpawnOptions) error
 	LastSpawnConflicts() []AgentSpawnConflict
+	RegisteredAdapters() []string
+	DefaultAdapter() string
 }
 
 type agentService struct {
@@ -421,7 +424,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 
 // resolveAdapter returns the adapter to use for the given kind, falling back
 // to the default adapter when kind is empty or unknown.
+// The special kind "shell" returns nil so the tmux session stays at a
+// plain shell prompt with no auto-launch.
 func (a *agentService) resolveAdapter(kind string) AIToolAdapter {
+	if kind == "shell" {
+		return nil
+	}
 	if kind != "" && a.adapters != nil {
 		if found, ok := a.adapters[kind]; ok {
 			return found
@@ -458,12 +466,35 @@ func (a *agentService) collectSiblingConflicts(ctx context.Context, opt AgentSpa
 	return out, nil
 }
 
-func (a *agentService) SpawnEphemeralAgent(ctx context.Context, title string, width, height int) error {
+func (a *agentService) SpawnEphemeralAgent(ctx context.Context, title string, width, height int, opts ...AgentSpawnOptions) error {
 	taskID, err := a.store.CreateEphemeralTask(ctx, title)
 	if err != nil {
 		return fmt.Errorf("creating ephemeral task: %w", err)
 	}
-	return a.SpawnAgent(ctx, taskID, width, height)
+	return a.SpawnAgent(ctx, taskID, width, height, opts...)
+}
+
+// RegisteredAdapters returns the names of all registered adapters sorted
+// alphabetically.
+func (a *agentService) RegisteredAdapters() []string {
+	if a.adapters == nil {
+		return nil
+	}
+	names := make([]string, 0, len(a.adapters))
+	for name := range a.adapters {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// DefaultAdapter returns the name of the default adapter, or an empty string
+// when none is configured.
+func (a *agentService) DefaultAdapter() string {
+	if a.adapter == nil {
+		return ""
+	}
+	return a.adapter.Name()
 }
 
 func (a *agentService) KillAgent(ctx context.Context, taskID string) error {

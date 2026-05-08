@@ -361,13 +361,13 @@ func runServeCmd(args []string) int {
 
 	bus := events.New()
 	boardSvc := service.NewBoardService(db, bus)
+	wd, _ := os.Getwd()
 
 	// Set up agent service (tmux may not be installed).
 	var agentSvc service.AgentService
 	var tmuxMgr service.TmuxManager
 	if mgr, tmuxErr := tmux.New(tmux.Options{}); tmuxErr == nil {
 		tmuxMgr = mgr
-		wd, _ := os.Getwd()
 		agentSvc = service.NewAgentService(db, mgr, wd)
 	}
 
@@ -381,12 +381,11 @@ func runServeCmd(args []string) int {
 			RequireUserClose:    cfg.Swarm.RequireUserClose,
 			DefaultAgent:        cfg.Swarm.DefaultAgent,
 		}
-		wd, _ := os.Getwd()
 		swarmSvc = service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd)
 	}
 
 	addr := ":" + port
-	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus)
+	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
 
 	// Configure TLS.
 	certFile, keyFile, caCertFile := resolveTLS(cfg)
@@ -652,7 +651,7 @@ func runTUI() int {
 		if listenErr != nil {
 			log.Printf("web: port %s unavailable: %v", cfg.Web.Port, listenErr)
 		} else {
-			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus)
+			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
 			certFile, keyFile, caCertFile := resolveTLS(cfg)
 			if certFile != "" && keyFile != "" {
 				webSrv.SetTLS(certFile, keyFile)
@@ -677,7 +676,7 @@ func runTUI() int {
 
 	reportSvc := service.NewReportService(db)
 
-	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, swarmSvc)
+	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc)
 
 	// If the web server was auto-started, tell the TUI to show the indicator.
 	if webSrv != nil {

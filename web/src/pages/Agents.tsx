@@ -4,6 +4,7 @@ import { AgentSidebar } from "../components/AgentSidebar"
 import { TerminalPanel } from "../components/TerminalPanel"
 import { PromptBar, type PromptBarHandle } from "../components/PromptBar"
 import { StartSwarmModal } from "../components/StartSwarmModal"
+import { SpawnEphemeralModal } from "../components/SpawnEphemeralModal"
 import { PlanApprovalModal } from "../components/PlanApprovalModal"
 import { SwarmEventLog } from "../components/SwarmEventLog"
 import { useServer } from "../hooks/useServer"
@@ -52,6 +53,7 @@ export function AgentsPage() {
   const promptBarRef = useRef<PromptBarHandle>(null)
   const [showStartSwarm, setShowStartSwarm] = useState(false)
   const [startSwarmPreselect, setStartSwarmPreselect] = useState<string | undefined>(undefined)
+  const [showSpawn, setShowSpawn] = useState(false)
 
   // Per-agent prompt detection override. If not in the map, uses the global default.
   const [promptDetectionOverrides, setPromptDetectionOverrides] = useState<Record<string, boolean>>({})
@@ -184,24 +186,9 @@ export function AgentsPage() {
     }
   }, [selectedId, baseUrl])
 
-  const handleSpawn = useCallback(async () => {
-    const title = window.prompt("Agent title:", "Ephemeral session")
-    if (title === null) return // cancelled
-    try {
-      const res = await apiFetch(baseUrl, "/api/agents/spawn", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title || "Ephemeral session" }),
-      })
-      if (!res.ok) {
-        const text = await res.text()
-        window.alert("Failed to spawn agent: " + text)
-      }
-      // agents_changed WebSocket message will trigger a refresh + we can auto-select
-    } catch {
-      window.alert("Failed to spawn agent")
-    }
-  }, [baseUrl])
+  const handleSpawn = useCallback(() => {
+    setShowSpawn(true)
+  }, [])
 
   const handleTogglePromptDetection = useCallback(() => {
     if (!selectedId) return
@@ -313,6 +300,11 @@ export function AgentsPage() {
           Start Swarm
         </button>
         <PlanApprovalModal parentIds={swarmParentIds} />
+        <SpawnEphemeralModal
+          open={showSpawn}
+          onClose={() => setShowSpawn(false)}
+          onSpawned={fetchAgents}
+        />
         <StartSwarmModal
           open={showStartSwarm}
           onClose={() => setShowStartSwarm(false)}
@@ -365,8 +357,6 @@ export function AgentsPage() {
                 <div className="terminal-glitch-overlay" aria-hidden="true" />
               )}
             </div>
-            {/* Swarm event log for swarm participants */}
-            {selectedParentId && <SwarmEventLog parentId={selectedParentId} />}
             <PromptBar
               ref={promptBarRef}
               promptState={isPromptDetectionEnabled ? promptState : null}
@@ -393,7 +383,19 @@ export function AgentsPage() {
         )}
       </div>
 
+      {/* Right sidebar: swarm event log for swarm participants */}
+      {selectedParentId && !isMobile && (
+        <div className="hidden md:flex w-64 flex-col border-l border-zinc-800">
+          <SwarmEventLog parentId={selectedParentId} />
+        </div>
+      )}
+
       <PlanApprovalModal parentIds={swarmParentIds} />
+      <SpawnEphemeralModal
+        open={showSpawn}
+        onClose={() => setShowSpawn(false)}
+        onSpawned={fetchAgents}
+      />
       <StartSwarmModal
         open={showStartSwarm}
         onClose={() => setShowStartSwarm(false)}
