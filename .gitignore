@@ -6,3 +6,10 @@ bin/
 internal/server/static/dist/*
 !internal/server/static/dist/.gitkeep
 web/node_modules/
+
+# Swarm runtime artifacts (per-agent briefs, plan YAMLs)
+.legato/
+
+# Scratch plan files at repo root
+/plan.yaml
+/fix-plan.yaml
