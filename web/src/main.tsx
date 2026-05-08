@@ -4,12 +4,15 @@ import './index.css'
 import App from './App'
 import { ServerProvider } from './components/ServerProvider'
 import { WebSocketProvider } from './components/WebSocketProvider'
+import { ToastProvider } from './hooks/useToast'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ServerProvider>
       <WebSocketProvider>
-        <App />
+        <ToastProvider>
+          <App />
+        </ToastProvider>
       </WebSocketProvider>
     </ServerProvider>
   </StrictMode>,

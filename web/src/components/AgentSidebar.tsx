@@ -1,6 +1,7 @@
 import type { AgentInfo } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
-import { Plus, Play, Pause } from "lucide-react"
+import { Plus, Play, Pause, Layers } from "lucide-react"
+import { AgentActionMenu } from "./AgentActionMenu"
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) return "<1m"
@@ -16,6 +17,7 @@ interface AgentSidebarProps {
   selectedId: string | null
   onSelect: (taskId: string) => void
   onSpawn: () => void
+  onStartSwarm?: () => void
   modifierHeld?: boolean
 }
 
@@ -93,7 +95,7 @@ function groupAndSortAgents(agents: AgentInfo[]): GroupedAgent[] {
   return result
 }
 
-export function AgentSidebar({ agents, selectedId, onSelect, onSpawn, modifierHeld }: AgentSidebarProps) {
+export function AgentSidebar({ agents, selectedId, onSelect, onSpawn, onStartSwarm, modifierHeld }: AgentSidebarProps) {
   const grouped = groupAndSortAgents(agents)
 
   return (
@@ -102,13 +104,24 @@ export function AgentSidebar({ agents, selectedId, onSelect, onSpawn, modifierHe
         <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
           Agents ({agents.length})
         </span>
-        <button
-          onClick={onSpawn}
-          className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
-          title="Spawn new agent"
-        >
-          <Plus size={14} />
-        </button>
+        <div className="flex items-center gap-0.5">
+          {onStartSwarm && (
+            <button
+              onClick={onStartSwarm}
+              className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-indigo-300"
+              title="Start swarm"
+            >
+              <Layers size={14} />
+            </button>
+          )}
+          <button
+            onClick={onSpawn}
+            className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+            title="Spawn new agent"
+          >
+            <Plus size={14} />
+          </button>
+        </div>
       </div>
       {grouped.map(({ agent, groupStart, groupParentId, isSoloDivider }, index) => {
         const isConductor = agent.role === "conductor"
@@ -127,64 +140,76 @@ export function AgentSidebar({ agents, selectedId, onSelect, onSpawn, modifierHe
                 ── solo ──
               </div>
             )}
-            <button
-              onClick={() => onSelect(agent.task_id)}
-              className={cn(
-                "relative flex w-full flex-col gap-0.5 px-3 py-2 text-left transition-colors border-l-2",
-                isSwarm && !isConductor && "ml-2", // worker indent
-                selectedId === agent.task_id
-                  ? isSwarm
-                    ? "border-l-indigo-500 bg-zinc-900 text-zinc-100"
-                    : "border-l-indigo-500 bg-zinc-900 text-zinc-100"
-                  : isSwarm
-                  ? "border-l-indigo-700/60 text-zinc-400 hover:bg-zinc-900/50 hover:text-zinc-200"
-                  : "border-l-transparent text-zinc-400 hover:bg-zinc-900/50 hover:text-zinc-200"
-              )}
-            >
-              {modifierHeld && index < 9 && (
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded bg-indigo-600 text-[10px] font-bold text-white">
-                  {index + 1}
-                </span>
-              )}
-              <div className="flex items-center gap-2">
-                {activityBadge(agent.activity)}
-                {isConductor && (
-                  <span className="inline-flex items-center rounded bg-indigo-600/30 px-1.5 py-0.5 text-[10px] font-medium uppercase text-indigo-300" title="Swarm conductor">
-                    ◆ conductor
+            <div className={cn(
+              "relative flex items-center border-l-2 transition-colors group",
+              isSwarm && !isConductor && "ml-2", // worker indent
+              selectedId === agent.task_id
+                ? isSwarm
+                  ? "border-l-indigo-500 bg-zinc-900 text-zinc-100"
+                  : "border-l-indigo-500 bg-zinc-900 text-zinc-100"
+                : isSwarm
+                ? "border-l-indigo-700/60 text-zinc-400 hover:bg-zinc-900/50 hover:text-zinc-200"
+                : "border-l-transparent text-zinc-400 hover:bg-zinc-900/50 hover:text-zinc-200"
+            )}>
+              <button
+                onClick={() => onSelect(agent.task_id)}
+                className="flex flex-1 flex-col gap-0.5 px-3 py-2 text-left"
+              >
+                {modifierHeld && index < 9 && (
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded bg-indigo-600 text-[10px] font-bold text-white">
+                    {index + 1}
                   </span>
                 )}
-                {isWorker && agent.role && (
-                  <span className="inline-flex items-center rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium uppercase text-zinc-400" title={`Worker role: ${agent.role}`}>
-                    {agent.role}
+                <div className="flex items-center gap-2">
+                  {activityBadge(agent.activity)}
+                  {isConductor && (
+                    <span className="inline-flex items-center rounded bg-indigo-600/30 px-1.5 py-0.5 text-[10px] font-medium uppercase text-indigo-300" title="Swarm conductor">
+                      ◆ conductor
+                    </span>
+                  )}
+                  {isWorker && agent.role && (
+                    <span className="inline-flex items-center rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium uppercase text-zinc-400" title={`Worker role: ${agent.role}`}>
+                      {agent.role}
+                    </span>
+                  )}
+                  <span className="text-sm font-mono truncate">{agent.task_id}</span>
+                </div>
+                {agent.task_title && (
+                  <span className="text-xs text-zinc-500 truncate pl-4">
+                    {agent.task_title}
                   </span>
                 )}
-                <span className="text-sm font-mono truncate">{agent.task_id}</span>
-              </div>
-              {agent.task_title && (
-                <span className="text-xs text-zinc-500 truncate pl-4">
-                  {agent.task_title}
+                <span className="text-xs text-zinc-600 truncate pl-4 font-mono">
+                  {agent.command}
                 </span>
-              )}
-              <span className="text-xs text-zinc-600 truncate pl-4 font-mono">
-                {agent.command}
-              </span>
-              {(agent.working_seconds >= 60 || agent.waiting_seconds >= 60) && (
-                <div className="flex items-center gap-2 pl-4 text-[10px]">
-                  {agent.working_seconds >= 60 && (
-                    <span className="flex items-center gap-0.5 text-emerald-800">
-                      <Play size={8} />
-                      {formatDuration(agent.working_seconds)}
-                    </span>
-                  )}
-                  {agent.waiting_seconds >= 60 && (
-                    <span className="flex items-center gap-0.5 text-yellow-800">
-                      <Pause size={8} />
-                      {formatDuration(agent.waiting_seconds)}
-                    </span>
-                  )}
+                {(agent.working_seconds >= 60 || agent.waiting_seconds >= 60) && (
+                  <div className="flex items-center gap-2 pl-4 text-[10px]">
+                    {agent.working_seconds >= 60 && (
+                      <span className="flex items-center gap-0.5 text-emerald-800">
+                        <Play size={8} />
+                        {formatDuration(agent.working_seconds)}
+                      </span>
+                    )}
+                    {agent.waiting_seconds >= 60 && (
+                      <span className="flex items-center gap-0.5 text-yellow-800">
+                        <Pause size={8} />
+                        {formatDuration(agent.waiting_seconds)}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </button>
+              {isSwarm && (
+                <div className="pr-2">
+                  <AgentActionMenu
+                    agentTaskId={agent.task_id}
+                    parentTaskId={agent.parent_task_id ?? ""}
+                    subtaskId={agent.subtask_id ?? agent.task_id}
+                    role={agent.role ?? "worker"}
+                  />
                 </div>
               )}
-            </button>
+            </div>
           </div>
         )
       })}

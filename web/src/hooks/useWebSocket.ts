@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, useCallback, createContext, useContext } f
 import { getToken } from "../lib/auth"
 
 export interface WSMessage {
-  type: string
+  type: "agent_output" | "agent_list" | "agents_changed" | "prompt_state" | "error"
+    | "subscribe_agent" | "unsubscribe_agent" | "send_keys" | "resize" | "detect_prompt" | "refresh_pane"
+    | "plan_proposed" | "plan_verdict" | "swarm_changed"
   agent_id?: string
   content?: string
   full?: boolean
@@ -12,6 +14,14 @@ export interface WSMessage {
   agents?: AgentInfo[]
   prompt?: PromptState | null
   error?: string
+  // Plan proposal / swarm change fields
+  plan_path?: string
+  reply_socket?: string
+  parent_task_id?: string
+  status?: string
+  notes?: string
+  subtask_id?: string
+  new_status?: string
 }
 
 export interface AgentInfo {

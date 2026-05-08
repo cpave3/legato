@@ -3,7 +3,11 @@ import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "
 import { AgentSidebar } from "../components/AgentSidebar"
 import { TerminalPanel } from "../components/TerminalPanel"
 import { PromptBar, type PromptBarHandle } from "../components/PromptBar"
+import { StartSwarmModal } from "../components/StartSwarmModal"
+import { PlanApprovalModal } from "../components/PlanApprovalModal"
+import { SwarmEventLog } from "../components/SwarmEventLog"
 import { useServer } from "../hooks/useServer"
+import { useSwarmEvents } from "../hooks/useSwarmEvents"
 import { apiFetch } from "../lib/api"
 
 const GLITCH_DURATION_MS = 500
@@ -39,12 +43,15 @@ function isModifierKey(e: globalThis.KeyboardEvent, mod: string): boolean {
 export function AgentsPage() {
   const { send, subscribe, connected } = useWebSocket()
   const { baseUrl } = useServer()
+  const { fetchState } = useSwarmEvents()
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [promptState, setPromptState] = useState<PromptState | null>(null)
   const [glitching, setGlitching] = useState(false)
   const glitchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const promptBarRef = useRef<PromptBarHandle>(null)
+  const [showStartSwarm, setShowStartSwarm] = useState(false)
+  const [startSwarmPreselect, setStartSwarmPreselect] = useState<string | undefined>(undefined)
 
   // Per-agent prompt detection override. If not in the map, uses the global default.
   const [promptDetectionOverrides, setPromptDetectionOverrides] = useState<Record<string, boolean>>({})
@@ -91,6 +98,10 @@ export function AgentsPage() {
         // Suppress if same prompt type was dismissed and detection isn't manually triggered.
         if (dismissedPromptTypeRef.current === msg.prompt.type) return
         setPromptState(msg.prompt)
+      }
+      if (msg.type === "swarm_changed" && msg.parent_task_id) {
+        // Refresh agents list in case new workers appeared.
+        fetchAgents()
       }
     })
   }, [fetchAgents, subscribe, selectedId])
@@ -217,6 +228,18 @@ export function AgentsPage() {
 
   const runningAgents = useMemo(() => agents.filter((a) => a.status === "running"), [agents])
 
+  // Parent IDs for plan approval tracking.
+  const swarmParentIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const a of agents) {
+      if (a.parent_task_id) ids.add(a.parent_task_id)
+    }
+    return Array.from(ids)
+  }, [agents])
+
+  const selectedAgent = agents.find((a) => a.task_id === selectedId)
+  const selectedParentId = selectedAgent?.parent_task_id ?? null
+
   // Keyboard agent switching: modifier + digit
   const [modifierHeld, setModifierHeld] = useState(false)
   useEffect(() => {
@@ -261,14 +284,17 @@ export function AgentsPage() {
     return () => window.removeEventListener("resize", check)
   }, [])
 
-  const selectedAgent = agents.find((a) => a.task_id === selectedId)
-
   // If the selected agent died, deselect it.
   useEffect(() => {
     if (selectedId && selectedAgent && selectedAgent.status !== "running") {
       handleDisconnect()
     }
   }, [selectedId, selectedAgent, handleDisconnect])
+
+  const handleOpenStartSwarm = useCallback(() => {
+    setStartSwarmPreselect(selectedParentId ?? undefined)
+    setShowStartSwarm(true)
+  }, [selectedParentId])
 
   if (runningAgents.length === 0) {
     return (
@@ -280,6 +306,18 @@ export function AgentsPage() {
         >
           Spawn Agent
         </button>
+        <button
+          onClick={handleOpenStartSwarm}
+          className="rounded border border-indigo-900 bg-indigo-950 px-4 py-2 text-sm font-medium text-indigo-300 transition-colors hover:bg-indigo-900"
+        >
+          Start Swarm
+        </button>
+        <PlanApprovalModal parentIds={swarmParentIds} />
+        <StartSwarmModal
+          open={showStartSwarm}
+          onClose={() => setShowStartSwarm(false)}
+          preSelectedParentId={startSwarmPreselect}
+        />
       </div>
     )
   }
@@ -313,6 +351,7 @@ export function AgentsPage() {
           selectedId={selectedId}
           onSelect={handleSelect}
           onSpawn={handleSpawn}
+          onStartSwarm={handleOpenStartSwarm}
           modifierHeld={modifierHeld}
         />
       )}
@@ -326,6 +365,8 @@ export function AgentsPage() {
                 <div className="terminal-glitch-overlay" aria-hidden="true" />
               )}
             </div>
+            {/* Swarm event log for swarm participants */}
+            {selectedParentId && <SwarmEventLog parentId={selectedParentId} />}
             <PromptBar
               ref={promptBarRef}
               promptState={isPromptDetectionEnabled ? promptState : null}
@@ -351,6 +392,18 @@ export function AgentsPage() {
           </div>
         )}
       </div>
+
+      <PlanApprovalModal parentIds={swarmParentIds} />
+      <StartSwarmModal
+        open={showStartSwarm}
+        onClose={() => setShowStartSwarm(false)}
+        preSelectedParentId={startSwarmPreselect}
+        onStarted={() => {
+          if (startSwarmPreselect) {
+            fetchState(startSwarmPreselect)
+          }
+        }}
+      />
     </div>
   )
 }
