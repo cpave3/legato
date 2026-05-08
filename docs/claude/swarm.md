@@ -273,6 +273,10 @@ subtasks:
     role: backend
 ```
 
+### Web UI parity
+
+The web PWA (`docs/claude/web-ui.md`) has full parity for the user-driven swarm verbs: starting a swarm from the agents view, approving/rejecting/dismissing plan proposals via a modal, messaging individual workers, closing workers, and finishing a swarm. Plan proposals arrive over WebSocket (`plan_proposed`) and verdicts travel back on the same socket (`plan_verdict`). A per-parent event log shows unacked swarm events with an explicit drain action. See `docs/claude/web-ui.md` § Swarm controls for details.
+
 ### Risks / known limitations
 
 - **Send-keys is best-effort.** If a message arrives mid-turn, tmux queues at the prompt; the agent processes it next. Latency is bounded by turn duration. No exactly-once guarantees.

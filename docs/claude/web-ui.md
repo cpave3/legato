@@ -42,6 +42,25 @@ Remote web interface for monitoring and interacting with agent sessions from any
 - `QRScanner` — Camera-based QR code scanner using `html5-qrcode`. Parses `legato://pair?url=...&token=...` URIs. Error handling for camera denial, invalid QR codes
 - `Settings` — Settings page with sections: Appearance (glitch effect toggle, prompt detection default, agent switch modifier key picker), Pairing (QR code scanner), TLS Certificate (CA download with platform instructions). All settings use localStorage with `legato:` prefix
 
+### Swarm controls
+
+The web PWA supports the full user-driven swarm control surface:
+
+**Starting a swarm.** The agents view has a "Start Swarm" flow that opens a working-directory input modal, calls `POST /api/swarm/start`, and spawns the conductor tmux session. The conductor appears in the sidebar immediately after spawn; the user can select it to watch its output.
+
+**Plan approval.** When the conductor calls `legato swarm propose-plan`, the server broadcasts a `plan_proposed` WebSocket event to all connected web clients. Each client opens a modal showing the plan summary and sub-task list. The user can:
+- **Approve** (`y`) — sends a `plan_verdict` WebSocket message with status `"approved"`; the conductor proceeds to dispatch workers.
+- **Reject with notes** (`n`) — opens a text input for notes, sends `plan_verdict` with status `"rejected"`; the conductor revises the plan based on the natural-language feedback.
+- **Dismiss** (`Escape`) — closes the modal without sending a verdict; the conductor remains blocked on `BroadcastRequest` and the user can re-trigger proposal from the conductor pane or TUI.
+
+The modal does not include in-browser YAML editing (v1). Users who need surgical edits either reject with detailed notes or fall back to the TUI overlay which supports `e` to open `$EDITOR`.
+
+**Per-worker action menu.** Each agent entry in the sidebar has an overflow `⋯` button that opens a role-appropriate menu:
+- **Worker** → Send message (free-text input → `POST /api/swarm/message`), Close worker (`POST /api/swarm/close`)
+- **Conductor** → Send message, Finish swarm (`POST /api/swarm/finish`)
+
+**Swarm event log.** A collapsible "Swarm events" panel appears below the terminal when the focused agent is part of a swarm. It shows unacked event entries (`#42 [progress] worker "API" — text…`) fetched from `GET /api/swarm/inbox/<parent-id>`. Clicking an entry expands the full payload. A "Drain" button calls the same inbox endpoint (which marks events acked server-side) so the user can clear them after review. Events are not auto-drained on view — multiple clients may be connected and only the active reader should ack.
+
 **Keyboard agent switching**: Modifier key + digit (1-9) switches agents with glitch animation. `getSwitchModifier()` reads `legato:switch-modifier` from localStorage (defaults `"Alt"` on Mac, `"Control"` on Linux). Global `keydown`/`keyup`/`blur` listeners in `Agents.tsx` track `modifierHeld` state. `AgentSidebar` renders number badges when modifier held. Settings page has modifier key picker (Control/Alt/Meta).
 
 **Draft persistence**: Per-agent text input drafts stored in localStorage (`legato:draft:<agentId>`). `PromptBar` saves draft on every keystroke, restores on agent switch, clears on submit or kill. Uses `prevAgentIdRef` + `inputRef` to handle agent switch save/load without stale closures.
