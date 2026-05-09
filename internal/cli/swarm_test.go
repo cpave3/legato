@@ -95,11 +95,13 @@ func TestSwarmProposePlan_AutoApprovePersistsSubtasks(t *testing.T) {
   parent_task_id: parent-1
   working_dir: ` + planDir + `
   summary: test
-subtasks:
-  - title: Backend
-    role: backend
-  - title: Frontend
-    role: frontend
+steps:
+  - name: step1
+    subtasks:
+      - title: Backend
+        role: backend
+      - title: Frontend
+        role: frontend
 `
 	if err := os.WriteFile(planPath, []byte(plan), 0o600); err != nil {
 		t.Fatal(err)
@@ -107,7 +109,7 @@ subtasks:
 
 	// Capture stdout — emitVerdict prints a JSON result.
 	stdout := captureStdout(t, func() {
-		if err := cli.SwarmProposePlan(sw, planPath, true, 0, nil, 10); err != nil {
+		if err := cli.SwarmProposePlan(sw, planPath, true, 0, nil, 10, 10); err != nil {
 			t.Fatalf("SwarmProposePlan: %v", err)
 		}
 	})
@@ -165,6 +167,124 @@ func TestSwarmInbox_PrintsAndAcksEvents(t *testing.T) {
 	}
 	if len(left) != 0 {
 		t.Errorf("after SwarmInbox, %d events still unacked, want 0", len(left))
+	}
+}
+
+func TestSwarmNextStep_HappyPath(t *testing.T) {
+	sw, s := newTestSwarmServiceForCLI(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, store.Task{
+		ID:              "parent-1",
+		Title:           "Parent",
+		Status:          "Doing",
+		SwarmActiveStep: 0,
+		CreatedAt:       "2024-01-01T00:00:00Z",
+		UpdatedAt:       "2024-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Step 0 subtask completed.
+	if err := s.CreateSubtask(ctx, store.Subtask{
+		ID:           "st-a1",
+		ParentTaskID: "parent-1",
+		Title:        "A",
+		Status:       "done",
+		StepIndex:    0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Step 1 subtask queued.
+	if err := s.CreateSubtask(ctx, store.Subtask{
+		ID:           "st-a2",
+		ParentTaskID: "parent-1",
+		Title:        "B",
+		Status:       "queued",
+		StepIndex:    1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cli.SwarmNextStep(sw, "parent-1"); err != nil {
+		t.Fatalf("SwarmNextStep: %v", err)
+	}
+
+	parent, err := s.GetTask(ctx, "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parent.SwarmActiveStep != 1 {
+		t.Errorf("SwarmActiveStep = %d, want 1", parent.SwarmActiveStep)
+	}
+}
+
+func TestSwarmNextStep_Blocked(t *testing.T) {
+	sw, s := newTestSwarmServiceForCLI(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, store.Task{
+		ID:              "parent-1",
+		Title:           "Parent",
+		Status:          "Doing",
+		SwarmActiveStep: 0,
+		CreatedAt:       "2024-01-01T00:00:00Z",
+		UpdatedAt:       "2024-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Step 0 subtask still queued — not terminal.
+	if err := s.CreateSubtask(ctx, store.Subtask{
+		ID:           "st-a1",
+		ParentTaskID: "parent-1",
+		Title:        "A",
+		Status:       "queued",
+		StepIndex:    0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateSubtask(ctx, store.Subtask{
+		ID:           "st-a2",
+		ParentTaskID: "parent-1",
+		Title:        "B",
+		Status:       "queued",
+		StepIndex:    1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cli.SwarmNextStep(sw, "parent-1"); err == nil {
+		t.Fatal("expected error when current step is not terminal")
+	} else if !strings.Contains(err.Error(), "not terminal") {
+		t.Errorf("expected 'not terminal' in error, got %v", err)
+	}
+}
+
+func TestSwarmNextStep_NoMoreSteps(t *testing.T) {
+	sw, s := newTestSwarmServiceForCLI(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, store.Task{
+		ID:              "parent-1",
+		Title:           "Parent",
+		Status:          "Doing",
+		SwarmActiveStep: 0,
+		CreatedAt:       "2024-01-01T00:00:00Z",
+		UpdatedAt:       "2024-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Only step 0, done.
+	if err := s.CreateSubtask(ctx, store.Subtask{
+		ID:           "st-a1",
+		ParentTaskID: "parent-1",
+		Title:        "A",
+		Status:       "done",
+		StepIndex:    0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cli.SwarmNextStep(sw, "parent-1"); err == nil {
+		t.Fatal("expected error when no more steps remain")
+	} else if !strings.Contains(err.Error(), "no more steps") {
+		t.Errorf("expected 'no more steps' in error, got %v", err)
 	}
 }
 

@@ -53,6 +53,9 @@ type SwarmConfig struct {
 	// MaxSubtasksPerPlan caps the size of a single plan submission.
 	// Zero or negative falls back to 10 at runtime.
 	MaxSubtasksPerPlan int `yaml:"max_subtasks_per_plan"`
+	// MaxStepsPerPlan caps the number of steps in a single plan.
+	// Zero or negative falls back to 10 at runtime.
+	MaxStepsPerPlan int `yaml:"max_steps_per_plan"`
 	// DefaultAgent is the adapter used for swarm participants when a plan
 	// entry doesn't specify one (e.g. "claude-code").
 	DefaultAgent string `yaml:"default_agent"`

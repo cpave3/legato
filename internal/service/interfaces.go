@@ -57,18 +57,20 @@ type Workspace struct {
 
 // CardDetail contains all metadata for a single task.
 type CardDetail struct {
-	ID            string
-	Title         string
-	DescriptionMD string
-	Status        string
-	Priority      string
-	Provider      string
-	RemoteID      string
-	RemoteMeta    map[string]string
-	WorkspaceID   *int
-	PRMeta        *PRMetaView
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID              string
+	Title           string
+	DescriptionMD   string
+	Status          string
+	Priority        string
+	Provider        string
+	RemoteID        string
+	RemoteMeta      map[string]string
+	WorkspaceID     *int
+	PRMeta          *PRMetaView
+	SwarmActiveStep int
+	SwarmStepNames  []string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // SyncResult contains the outcome of a sync operation.

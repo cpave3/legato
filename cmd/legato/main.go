@@ -379,6 +379,7 @@ func runServeCmd(args []string) int {
 		swarmCfg := service.SwarmConfig{
 			MaxConcurrentAgents: cfg.Swarm.MaxConcurrentAgents,
 			MaxSubtasksPerPlan:  cfg.Swarm.MaxSubtasksPerPlan,
+			MaxStepsPerPlan:     cfg.Swarm.MaxStepsPerPlan,
 			StrictScope:         cfg.Swarm.StrictScope,
 			RequireUserClose:    cfg.Swarm.RequireUserClose,
 			DefaultAgent:        cfg.Swarm.DefaultAgent,
@@ -638,6 +639,7 @@ func runTUI() int {
 	swarmCfg := service.SwarmConfig{
 		MaxConcurrentAgents: cfg.Swarm.MaxConcurrentAgents,
 		MaxSubtasksPerPlan:  cfg.Swarm.MaxSubtasksPerPlan,
+		MaxStepsPerPlan:     cfg.Swarm.MaxStepsPerPlan,
 		StrictScope:         cfg.Swarm.StrictScope,
 		RequireUserClose:    cfg.Swarm.RequireUserClose,
 		DefaultAgent:        cfg.Swarm.DefaultAgent,
@@ -885,6 +887,8 @@ func runSwarmCmd(args []string) int {
 	case "finish":
 		return runSwarmFinish(args[1:])
 	// Worker verbs (callable from any context — workers self-identify by
+	case "next-step":
+		return runSwarmNextStep(args[1:])
 	// LEGATO_AGENT_ROLE; the verb itself doesn't enforce caller identity).
 	case "progress":
 		return runSwarmProgress(args[1:])
@@ -914,6 +918,7 @@ Conductor verbs:
   broadcast <parent-id> "<text>"
   close <subtask-id>
   finish <parent-id> "<summary>"
+  next-step <parent-id>
 
 Worker verbs:
   progress <subtask-id> "<text>"
@@ -989,6 +994,7 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 	swCfg := service.SwarmConfig{
 		MaxConcurrentAgents: cfg.Swarm.MaxConcurrentAgents,
 		MaxSubtasksPerPlan:  cfg.Swarm.MaxSubtasksPerPlan,
+		MaxStepsPerPlan:     cfg.Swarm.MaxStepsPerPlan,
 		StrictScope:         cfg.Swarm.StrictScope,
 		RequireUserClose:    cfg.Swarm.RequireUserClose,
 		DefaultAgent:        cfg.Swarm.DefaultAgent,
@@ -1030,7 +1036,11 @@ func runSwarmProposePlan(args []string) int {
 	if cfg != nil && cfg.Swarm.MaxSubtasksPerPlan > 0 {
 		maxSubtasks = cfg.Swarm.MaxSubtasksPerPlan
 	}
-	if err := cli.SwarmProposePlan(sw, planPath, autoApprove, timeout, registeredAdapters, maxSubtasks); err != nil {
+	maxSteps := 10
+	if cfg != nil && cfg.Swarm.MaxStepsPerPlan > 0 {
+		maxSteps = cfg.Swarm.MaxStepsPerPlan
+	}
+	if err := cli.SwarmProposePlan(sw, planPath, autoApprove, timeout, registeredAdapters, maxSubtasks, maxSteps); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
@@ -1125,6 +1135,24 @@ func runSwarmFinish(args []string) int {
 	return 0
 }
 
+
+func runSwarmNextStep(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: legato swarm next-step <parent-id>")
+		return 1
+	}
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+	if err := cli.SwarmNextStep(sw, args[0]); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	fmt.Println("advanced to next step")
+	return 0
+}
 func runSwarmStatus(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: legato swarm status <parent-id>")

@@ -57,6 +57,7 @@ type Task struct {
 	ArchivedAt      *string `db:"archived_at"`
 	Ephemeral       bool    `db:"ephemeral"`
 	SwarmWorkingDir *string `db:"swarm_working_dir"`
+	SwarmActiveStep int     `db:"swarm_active_step"`
 	CreatedAt       string  `db:"created_at"`
 	UpdatedAt       string  `db:"updated_at"`
 }
@@ -138,6 +139,7 @@ type Subtask struct {
 	Role            string  `db:"role"`
 	AgentKind       string  `db:"agent_kind"`
 	Status          string  `db:"status"`
+	StepIndex       int     `db:"step_index"`
 	BuilderAgentID  *int    `db:"builder_agent_id"`
 	ReviewerAgentID *int    `db:"reviewer_agent_id"`
 	CreatedAt       string  `db:"created_at"`

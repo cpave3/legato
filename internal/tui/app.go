@@ -675,6 +675,22 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case detail.SwarmNextStepMsg:
+		// Detail view emitted a "next step" request — call the service.
+		if a.swarmSvc != nil {
+			err := a.swarmSvc.NextStep(context.Background(), msg.TaskID)
+			if err != nil {
+				cmds = append(cmds, func() tea.Msg {
+					return statusbar.ErrorMsg{Text: err.Error()}
+				})
+			} else {
+				cmds = append(cmds, func() tea.Msg {
+					return statusbar.InfoMsg{Text: fmt.Sprintf("Advanced swarm for %s", msg.TaskID)}
+				})
+			}
+		}
+		return a, tea.Batch(cmds...)
+
 	case EventBusMsg:
 		// Convert event bus events to status bar messages
 		switch msg.Event.Type {

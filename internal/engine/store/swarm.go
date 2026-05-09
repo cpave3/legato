@@ -42,10 +42,10 @@ func (s *Store) CreateSubtask(ctx context.Context, st Subtask) error {
 	}
 	_, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO swarm_subtasks (id, parent_task_id, title, description, prompt, scope_globs,
-			role, agent_kind, status, builder_agent_id, reviewer_agent_id,
+			role, agent_kind, status, step_index, builder_agent_id, reviewer_agent_id,
 			created_at, dispatched_at, started_at, completed_at)
 		VALUES (:id, :parent_task_id, :title, :description, :prompt, :scope_globs,
-			:role, :agent_kind, :status, :builder_agent_id, :reviewer_agent_id,
+			:role, :agent_kind, :status, :step_index, :builder_agent_id, :reviewer_agent_id,
 			COALESCE(NULLIF(:created_at, ''), datetime('now')),
 			:dispatched_at, :started_at, :completed_at)`, st)
 	return err
@@ -79,6 +79,47 @@ func (s *Store) ListSubtasksByParentAndStatus(ctx context.Context, parentID, sta
 		"SELECT * FROM swarm_subtasks WHERE parent_task_id = ? AND status = ? ORDER BY created_at ASC, id ASC",
 		parentID, status)
 	return subtasks, err
+}
+
+// ListSubtasksByParentAndStep returns sub-tasks for a parent filtered by step index.
+func (s *Store) ListSubtasksByParentAndStep(ctx context.Context, parentID string, stepIndex int) ([]Subtask, error) {
+	var subtasks []Subtask
+	err := s.db.SelectContext(ctx, &subtasks,
+		"SELECT * FROM swarm_subtasks WHERE parent_task_id = ? AND step_index = ? ORDER BY created_at ASC, id ASC",
+		parentID, stepIndex)
+	return subtasks, err
+}
+
+// GetMaxStepIndex returns the highest step_index among subtasks for a parent.
+func (s *Store) GetMaxStepIndex(ctx context.Context, parentID string) (int, error) {
+	var maxStep sql.NullInt64
+	err := s.db.GetContext(ctx, &maxStep,
+		"SELECT MAX(step_index) FROM swarm_subtasks WHERE parent_task_id = ?", parentID)
+	if err != nil {
+		return 0, err
+	}
+	if !maxStep.Valid {
+		return 0, nil
+	}
+	return int(maxStep.Int64), nil
+}
+
+// SetParentActiveStep sets the swarm_active_step on the parent task.
+// Returns ErrNotFound if the parent task does not exist.
+func (s *Store) SetParentActiveStep(ctx context.Context, parentID string, stepIndex int) error {
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET swarm_active_step = ? WHERE id = ?", stepIndex, parentID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // UpdateSubtaskStatus transitions a sub-task to a new status.

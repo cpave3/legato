@@ -1,0 +1,1 @@
+ALTER TABLE tasks ADD COLUMN swarm_active_step INTEGER NOT NULL DEFAULT 0;

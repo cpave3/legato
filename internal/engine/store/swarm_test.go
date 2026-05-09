@@ -443,3 +443,115 @@ func TestAckSwarmEventsEmptyIsNoop(t *testing.T) {
 		t.Fatalf("empty slice returned error: %v", err)
 	}
 }
+
+// TestCreateSubtaskPersistsStepIndex verifies step_index is stored.
+func TestCreateSubtaskPersistsStepIndex(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "parent-1")
+	st := Subtask{ID: "sub-1", ParentTaskID: "parent-1", Title: "x", Role: "builder", Status: "queued", ScopeGlobs: "[]", StepIndex: 2}
+	if err := s.CreateSubtask(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetSubtask(ctx, "sub-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.StepIndex != 2 {
+		t.Errorf("StepIndex = %d, want 2", got.StepIndex)
+	}
+}
+
+// TestListSubtasksByParentAndStep filters by step index.
+func TestListSubtasksByParentAndStep(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "parent-1")
+
+	for _, st := range []Subtask{
+		{ID: "a", ParentTaskID: "parent-1", Title: "A", Role: "builder", Status: "queued", ScopeGlobs: "[]", StepIndex: 0},
+		{ID: "b", ParentTaskID: "parent-1", Title: "B", Role: "builder", Status: "queued", ScopeGlobs: "[]", StepIndex: 0},
+		{ID: "c", ParentTaskID: "parent-1", Title: "C", Role: "builder", Status: "queued", ScopeGlobs: "[]", StepIndex: 1},
+	} {
+		if err := s.CreateSubtask(ctx, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	step0, err := s.ListSubtasksByParentAndStep(ctx, "parent-1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(step0) != 2 {
+		t.Errorf("step0 len = %d, want 2", len(step0))
+	}
+
+	step1, err := s.ListSubtasksByParentAndStep(ctx, "parent-1", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(step1) != 1 {
+		t.Errorf("step1 len = %d, want 1", len(step1))
+	}
+	if step1[0].ID != "c" {
+		t.Errorf("step1[0].ID = %q, want c", step1[0].ID)
+	}
+}
+
+// TestGetMaxStepIndex returns the highest step_index for a parent.
+func TestGetMaxStepIndex(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "parent-1")
+
+	max, err := s.GetMaxStepIndex(ctx, "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if max != 0 {
+		t.Errorf("empty max = %d, want 0", max)
+	}
+
+	for _, st := range []Subtask{
+		{ID: "a", ParentTaskID: "parent-1", Title: "A", Role: "builder", Status: "queued", ScopeGlobs: "[]", StepIndex: 2},
+		{ID: "b", ParentTaskID: "parent-1", Title: "B", Role: "builder", Status: "queued", ScopeGlobs: "[]", StepIndex: 5},
+	} {
+		if err := s.CreateSubtask(ctx, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	max, err = s.GetMaxStepIndex(ctx, "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if max != 5 {
+		t.Errorf("max = %d, want 5", max)
+	}
+}
+
+// TestSetParentActiveStep persists swarm_active_step on the task row.
+func TestSetParentActiveStep(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "parent-1")
+
+	if err := s.SetParentActiveStep(ctx, "parent-1", 3); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetTask(ctx, "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SwarmActiveStep != 3 {
+		t.Errorf("SwarmActiveStep = %d, want 3", got.SwarmActiveStep)
+	}
+}
+
+// TestSetParentActiveStepNotFound returns ErrNotFound for missing task.
+func TestSetParentActiveStepNotFound(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.SetParentActiveStep(context.Background(), "nope", 1); err != ErrNotFound {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}

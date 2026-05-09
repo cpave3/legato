@@ -14,8 +14,13 @@ func validPlan() *Plan {
 			WorkingDir:   "/tmp/work",
 			Summary:      "do the thing",
 		},
-		Subtasks: []PlanSubtask{
-			{Title: "API", Role: "backend", Scope: []string{"api/**"}, Prompt: "build the API"},
+		Steps: []PlanStep{
+			{
+				Name: "Step 1",
+				Subtasks: []PlanSubtask{
+					{Title: "API", Role: "backend", Scope: []string{"api/**"}, Prompt: "build the API"},
+				},
+			},
 		},
 	}
 }
@@ -26,14 +31,16 @@ func TestParsePlanRoundTrip(t *testing.T) {
   working_dir: /tmp/work
   summary: |
     do the thing
-subtasks:
-  - title: API
-    role: backend
-    agent: claude-code
-    scope:
-      - api/**
-    prompt: |
-      build the API
+steps:
+  - name: "Step 1"
+    subtasks:
+      - title: API
+        role: backend
+        agent: claude-code
+        scope:
+          - api/**
+        prompt: |
+          build the API
 `
 	p, err := ParsePlan([]byte(yaml))
 	if err != nil {
@@ -42,10 +49,16 @@ subtasks:
 	if p.Swarm.ParentTaskID != "abc12345" {
 		t.Errorf("parent = %q", p.Swarm.ParentTaskID)
 	}
-	if len(p.Subtasks) != 1 {
-		t.Fatalf("len(subtasks) = %d", len(p.Subtasks))
+	if len(p.Steps) != 1 {
+		t.Fatalf("len(steps) = %d", len(p.Steps))
 	}
-	st := p.Subtasks[0]
+	if p.Steps[0].Name != "Step 1" {
+		t.Errorf("step name = %q", p.Steps[0].Name)
+	}
+	if len(p.Steps[0].Subtasks) != 1 {
+		t.Fatalf("len(subtasks) = %d", len(p.Steps[0].Subtasks))
+	}
+	st := p.Steps[0].Subtasks[0]
 	if st.Title != "API" || st.Role != "backend" || st.Agent != "claude-code" {
 		t.Errorf("unexpected subtask: %+v", st)
 	}
@@ -61,7 +74,7 @@ func TestParsePlanInvalidYAML(t *testing.T) {
 }
 
 func TestValidatePlanHappyPath(t *testing.T) {
-	if err := ValidatePlan(validPlan(), nil, 0); err != nil {
+	if err := ValidatePlan(validPlan(), nil, 0, 0); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -69,7 +82,7 @@ func TestValidatePlanHappyPath(t *testing.T) {
 func TestValidatePlanMissingParent(t *testing.T) {
 	p := validPlan()
 	p.Swarm.ParentTaskID = ""
-	if err := ValidatePlan(p, nil, 0); err == nil {
+	if err := ValidatePlan(p, nil, 0, 0); err == nil {
 		t.Error("expected error for missing parent")
 	}
 }
@@ -77,31 +90,39 @@ func TestValidatePlanMissingParent(t *testing.T) {
 func TestValidatePlanMissingWorkingDir(t *testing.T) {
 	p := validPlan()
 	p.Swarm.WorkingDir = "  "
-	if err := ValidatePlan(p, nil, 0); err == nil {
+	if err := ValidatePlan(p, nil, 0, 0); err == nil {
 		t.Error("expected error for blank working_dir")
 	}
 }
 
-func TestValidatePlanNoSubtasks(t *testing.T) {
+func TestValidatePlanNoSteps(t *testing.T) {
 	p := validPlan()
-	p.Subtasks = nil
-	if err := ValidatePlan(p, nil, 0); err == nil {
-		t.Error("expected error for empty subtasks")
+	p.Steps = nil
+	if err := ValidatePlan(p, nil, 0, 0); err == nil {
+		t.Error("expected error for empty steps")
+	}
+}
+
+func TestValidatePlanEmptyStepSubtasks(t *testing.T) {
+	p := validPlan()
+	p.Steps[0].Subtasks = nil
+	if err := ValidatePlan(p, nil, 0, 0); err == nil {
+		t.Error("expected error for step with empty subtasks")
 	}
 }
 
 func TestValidatePlanMissingTitle(t *testing.T) {
 	p := validPlan()
-	p.Subtasks[0].Title = ""
-	if err := ValidatePlan(p, nil, 0); err == nil {
+	p.Steps[0].Subtasks[0].Title = ""
+	if err := ValidatePlan(p, nil, 0, 0); err == nil {
 		t.Error("expected error for missing title")
 	}
 }
 
 func TestValidatePlanInvalidRole(t *testing.T) {
 	p := validPlan()
-	p.Subtasks[0].Role = "Backend Specialist"
-	err := ValidatePlan(p, nil, 0)
+	p.Steps[0].Subtasks[0].Role = "Backend Specialist"
+	err := ValidatePlan(p, nil, 0, 0)
 	if err == nil {
 		t.Error("expected error for role with spaces")
 	}
@@ -109,16 +130,16 @@ func TestValidatePlanInvalidRole(t *testing.T) {
 
 func TestValidatePlanRoleEmptyAccepted(t *testing.T) {
 	p := validPlan()
-	p.Subtasks[0].Role = ""
-	if err := ValidatePlan(p, nil, 0); err != nil {
+	p.Steps[0].Subtasks[0].Role = ""
+	if err := ValidatePlan(p, nil, 0, 0); err != nil {
 		t.Errorf("empty role should be allowed, got %v", err)
 	}
 }
 
 func TestValidatePlanUnknownAgent(t *testing.T) {
 	p := validPlan()
-	p.Subtasks[0].Agent = "ghost-tool"
-	err := ValidatePlan(p, []string{"claude-code", "chimera"}, 0)
+	p.Steps[0].Subtasks[0].Agent = "ghost-tool"
+	err := ValidatePlan(p, []string{"claude-code", "chimera"}, 0, 0)
 	if err == nil {
 		t.Error("expected error for unknown agent")
 	}
@@ -126,30 +147,74 @@ func TestValidatePlanUnknownAgent(t *testing.T) {
 
 func TestValidatePlanAgentSkippedWhenNoAdapters(t *testing.T) {
 	p := validPlan()
-	p.Subtasks[0].Agent = "ghost-tool"
-	if err := ValidatePlan(p, nil, 0); err != nil {
+	p.Steps[0].Subtasks[0].Agent = "ghost-tool"
+	if err := ValidatePlan(p, nil, 0, 0); err != nil {
 		t.Errorf("agent check should be skipped when adapters empty: %v", err)
 	}
 }
 
 func TestValidatePlanMalformedScope(t *testing.T) {
 	p := validPlan()
-	p.Subtasks[0].Scope = []string{"["}
-	err := ValidatePlan(p, nil, 0)
+	p.Steps[0].Subtasks[0].Scope = []string{"["}
+	err := ValidatePlan(p, nil, 0, 0)
 	if err == nil {
 		t.Error("expected error for malformed glob")
 	}
 }
 
-func TestValidatePlanExceedsCap(t *testing.T) {
+func TestValidatePlanExceedsPerStepCap(t *testing.T) {
 	p := validPlan()
-	p.Subtasks = nil
+	p.Steps[0].Subtasks = nil
 	for i := 0; i < 5; i++ {
-		p.Subtasks = append(p.Subtasks, PlanSubtask{Title: "x"})
+		p.Steps[0].Subtasks = append(p.Steps[0].Subtasks, PlanSubtask{Title: "x"})
 	}
-	err := ValidatePlan(p, nil, 3)
+	err := ValidatePlan(p, nil, 3, 0)
 	if err == nil {
-		t.Error("expected error for plan over cap")
+		t.Error("expected error for step over cap")
+	}
+	if !strings.Contains(err.Error(), "per step") {
+		t.Errorf("expected per-step error, got: %v", err)
+	}
+}
+
+func TestValidatePlanExceedsTotalCap(t *testing.T) {
+	p := validPlan()
+	p.Steps = []PlanStep{
+		{Name: "Step 1", Subtasks: []PlanSubtask{{Title: "a"}, {Title: "b"}}},
+		{Name: "Step 2", Subtasks: []PlanSubtask{{Title: "c"}, {Title: "d"}}},
+	}
+	err := ValidatePlan(p, nil, 3, 0)
+	if err == nil {
+		t.Error("expected error for total subtasks over cap")
+	}
+	if !strings.Contains(err.Error(), "max is") {
+		t.Errorf("expected total cap error, got: %v", err)
+	}
+}
+
+func TestValidatePlanMultiStepHappyPath(t *testing.T) {
+	p := validPlan()
+	p.Steps = []PlanStep{
+		{Name: "Setup", Subtasks: []PlanSubtask{{Title: "Init"}}},
+		{Name: "Build", Subtasks: []PlanSubtask{{Title: "API"}, {Title: "UI"}}},
+	}
+	if err := ValidatePlan(p, nil, 0, 0); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidatePlanExceedsMaxSteps(t *testing.T) {
+	p := validPlan()
+	p.Steps = []PlanStep{
+		{Name: "S1", Subtasks: []PlanSubtask{{Title: "a"}}},
+		{Name: "S2", Subtasks: []PlanSubtask{{Title: "b"}}},
+	}
+	err := ValidatePlan(p, nil, 0, 1)
+	if err == nil {
+		t.Fatal("expected error when steps exceed maxSteps")
+	}
+	if !strings.Contains(err.Error(), "max is 1") {
+		t.Errorf("expected max cap error, got: %v", err)
 	}
 }
 
@@ -176,6 +241,12 @@ func TestPlanWriteToCanonicalPath(t *testing.T) {
 	if loaded.Swarm.ParentTaskID != "abc12345" {
 		t.Errorf("roundtrip parent = %q", loaded.Swarm.ParentTaskID)
 	}
+	if len(loaded.Steps) != 1 || loaded.Steps[0].Name != "Step 1" {
+		t.Errorf("roundtrip steps = %+v", loaded.Steps)
+	}
+	if len(loaded.Steps[0].Subtasks) != 1 {
+		t.Errorf("roundtrip subtask count = %d", len(loaded.Steps[0].Subtasks))
+	}
 }
 
 func TestPlanWriteToRequiresArgs(t *testing.T) {
@@ -199,8 +270,8 @@ func TestLoadPlanFromDisk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Subtasks[0].Title != "API" {
-		t.Errorf("title = %q", loaded.Subtasks[0].Title)
+	if loaded.Steps[0].Subtasks[0].Title != "API" {
+		t.Errorf("title = %q", loaded.Steps[0].Subtasks[0].Title)
 	}
 }
 

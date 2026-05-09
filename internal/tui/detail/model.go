@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -55,6 +56,12 @@ type OpenTitleEditOverlay struct {
 // TitleUpdatedMsg signals that the title was updated (sent by app after overlay confirms).
 type TitleUpdatedMsg struct {
 	Title string
+}
+
+// SwarmNextStepMsg signals the app to advance a swarm parent to its next step.
+// Emitted by the detail view when the user presses the advance keybinding.
+type SwarmNextStepMsg struct {
+	TaskID string
 }
 
 // OpenURLPickerMsg signals the app to show a URL picker overlay.
@@ -244,6 +251,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return OpenTitleEditOverlay{TaskID: m.card.ID, Title: m.card.Title}
 			}
 		}
+	case "s":
+		if m.card != nil && len(m.subtasks) > 0 {
+			var activeSubs []service.SwarmSubtaskInfo
+			for _, st := range m.subtasks {
+				if st.StepIndex == m.card.SwarmActiveStep {
+					activeSubs = append(activeSubs, st)
+				}
+			}
+			if stepIsTerminal(activeSubs) {
+				return m, func() tea.Msg {
+					return SwarmNextStepMsg{TaskID: m.card.ID}
+				}
+			}
+		}
 	}
 	return m, nil
 }
@@ -401,8 +422,21 @@ func (m *Model) renderContent() {
 	m.viewport.SetContent(rendered)
 }
 
-// renderSwarmSection renders the sub-task graph for a swarm parent.
-// Returns "" when there are no sub-tasks.
+func isTerminalStatus(status string) bool {
+	return status == "done" || status == "cancelled"
+}
+
+func stepIsTerminal(subs []service.SwarmSubtaskInfo) bool {
+	for _, st := range subs {
+		if !isTerminalStatus(st.Status) {
+			return false
+		}
+	}
+	return len(subs) > 0
+}
+
+// renderSwarmSection renders the sub-task graph for a swarm parent, grouping
+// sub-tasks by step index and highlighting the active step.
 func (m Model) renderSwarmSection() string {
 	if len(m.subtasks) == 0 {
 		return ""
@@ -423,22 +457,83 @@ func (m Model) renderSwarmSection() string {
 	dimStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
 	focusStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple).Bold(true)
 
-	var rows []string
+	// Group subtasks by step index.
+	steps := make(map[int][]service.SwarmSubtaskInfo)
+	for _, st := range m.subtasks {
+		steps[st.StepIndex] = append(steps[st.StepIndex], st)
+	}
+
+	// Sort step indices.
+	var stepIndices []int
+	for idx := range steps {
+		stepIndices = append(stepIndices, idx)
+	}
+	sort.Ints(stepIndices)
+
+	// Resolve active step and step names from the card.
+	var (
+		activeStep   int
+		stepNamesMap map[int]string
+	)
+	if m.card != nil {
+		activeStep = m.card.SwarmActiveStep
+		stepNamesMap = make(map[int]string, len(m.card.SwarmStepNames))
+		for i, name := range m.card.SwarmStepNames {
+			stepNamesMap[i] = name
+		}
+	}
+
+	// Build flat index lookup: id -> flat index.
+	flatIndexByID := make(map[string]int, len(m.subtasks))
 	for i, st := range m.subtasks {
-		marker := "  "
-		render := dimStyle
-		if i == m.subtaskIdx {
-			marker = "▸ "
-			render = focusStyle
+		flatIndexByID[st.ID] = i
+	}
+
+	var rows []string
+	for _, stepIdx := range stepIndices {
+		subs := steps[stepIdx]
+		done := stepIsTerminal(subs)
+
+		stepName := stepNamesMap[stepIdx]
+		if stepName == "" {
+			stepName = fmt.Sprintf("Step %d", stepIdx)
 		}
-		statusIcon := swarmStatusIcon(st.Status)
-		scope := strings.Join(st.Scope, ", ")
-		if scope == "" {
-			scope = "(no scope)"
+		if done {
+			stepName += " (done)"
 		}
-		line := marker + render.Render(statusIcon+" "+st.Status+" · "+st.Role+" · "+st.Title) +
-			labelStyle.Render(" — ") + dimStyle.Render(scope)
-		rows = append(rows, lipgloss.NewStyle().Padding(0, 1).Render(line))
+
+		var stepHeading string
+		if stepIdx == activeStep {
+			stepHeading = lipgloss.NewStyle().
+				Foreground(theme.AccentPurple).
+				Bold(true).
+				Padding(0, 1).
+				Render("▸ " + stepName)
+		} else {
+			stepHeading = lipgloss.NewStyle().
+				Foreground(theme.TextTertiary).
+				Padding(0, 1).
+				Render("  " + stepName)
+		}
+		rows = append(rows, stepHeading)
+
+		for _, st := range subs {
+			flatIdx, ok := flatIndexByID[st.ID]
+			marker := "  "
+			render := dimStyle
+			if ok && flatIdx == m.subtaskIdx {
+				marker = "▸ "
+				render = focusStyle
+			}
+			statusIcon := swarmStatusIcon(st.Status)
+			scope := strings.Join(st.Scope, ", ")
+			if scope == "" {
+				scope = "(no scope)"
+			}
+			line := marker + render.Render(statusIcon+" "+st.Status+" · "+st.Role+" · "+st.Title) +
+				labelStyle.Render(" — ") + dimStyle.Render(scope)
+			rows = append(rows, lipgloss.NewStyle().Padding(0, 1).Render(line))
+		}
 	}
 
 	separator := lipgloss.NewStyle().
@@ -597,6 +692,20 @@ func (m Model) renderStatusBar() string {
 		hints = append(hints, struct{ key, label string }{"t", "edit title"})
 		if m.editor != "" {
 			hints = append(hints, struct{ key, label string }{"e", "edit desc"})
+		}
+	}
+
+	// Show next-step hint only for swarm parents with a terminal active step
+	if len(m.subtasks) > 0 && m.card != nil {
+		activeStep := m.card.SwarmActiveStep
+		var activeSubs []service.SwarmSubtaskInfo
+		for _, st := range m.subtasks {
+			if st.StepIndex == activeStep {
+				activeSubs = append(activeSubs, st)
+			}
+		}
+		if stepIsTerminal(activeSubs) {
+			hints = append(hints, struct{ key, label string }{"s", "next step"})
 		}
 	}
 

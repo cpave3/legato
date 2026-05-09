@@ -34,12 +34,12 @@ func SwarmIsWorker() bool {
 //
 // autoApprove skips the IPC gate (for headless usage). timeout caps the wait;
 // zero means wait forever.
-func SwarmProposePlan(sw service.SwarmService, planPath string, autoApprove bool, timeout time.Duration, registeredAdapters []string, maxSubtasks int) error {
+func SwarmProposePlan(sw service.SwarmService, planPath string, autoApprove bool, timeout time.Duration, registeredAdapters []string, maxSubtasks, maxSteps int) error {
 	plan, err := swarm.LoadPlan(planPath)
 	if err != nil {
 		return fmt.Errorf("load plan: %w", err)
 	}
-	if err := swarm.ValidatePlan(plan, registeredAdapters, maxSubtasks); err != nil {
+	if err := swarm.ValidatePlan(plan, registeredAdapters, maxSubtasks, maxSteps); err != nil {
 		return fmt.Errorf("validate plan: %w", err)
 	}
 	canonical, err := plan.WriteTo(plan.Swarm.WorkingDir, plan.Swarm.ParentTaskID)
@@ -81,7 +81,7 @@ func SwarmProposePlan(sw service.SwarmService, planPath string, autoApprove bool
 		if lerr != nil {
 			return fmt.Errorf("load edited plan: %w", lerr)
 		}
-		if err := swarm.ValidatePlan(edited, registeredAdapters, maxSubtasks); err != nil {
+		if err := swarm.ValidatePlan(edited, registeredAdapters, maxSubtasks, maxSteps); err != nil {
 			return fmt.Errorf("validate edited plan: %w", err)
 		}
 		if err := sw.ApplyApprovedPlan(context.Background(), edited); err != nil {
@@ -226,6 +226,12 @@ func parentOf(sw service.SwarmService, subtaskID string) string {
 		return ""
 	}
 	return st.ParentTaskID
+}
+
+// SwarmNextStep advances the swarm to the next step after validating the
+// current step is terminal.
+func SwarmNextStep(sw service.SwarmService, parentID string) error {
+	return sw.NextStep(context.Background(), parentID)
 }
 
 // SwarmStartFromCLI is the CLI entry point for `legato swarm start <parent-id> <working-dir>`.

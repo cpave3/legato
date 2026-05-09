@@ -243,6 +243,20 @@ func TestWorkspacesEmpty(t *testing.T) {
 	}
 }
 
+func TestSwarmMaxStepsPerPlanParsed(t *testing.T) {
+	writeTestConfig(t, `
+swarm:
+  max_steps_per_plan: 7
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Swarm.MaxStepsPerPlan != 7 {
+		t.Errorf("MaxStepsPerPlan = %d, want 7", cfg.Swarm.MaxStepsPerPlan)
+	}
+}
+
 func TestResolveDBPathPrecedence(t *testing.T) {
 	t.Run("from config", func(t *testing.T) {
 		cfg := &Config{DB: DBConfig{Path: "/tmp/legato-test.db"}}

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -199,9 +200,11 @@ func TestApplyApprovedPlanPersistsSubtasks(t *testing.T) {
 
 	plan := &swarm.Plan{
 		Swarm: swarm.PlanHeader{ParentTaskID: "parent-1", WorkingDir: t.TempDir()},
-		Subtasks: []swarm.PlanSubtask{
-			{Title: "Backend", Role: "backend"},
-			{Title: "Frontend", Role: "frontend"},
+		Steps: []swarm.PlanStep{
+			{Subtasks: []swarm.PlanSubtask{
+				{Title: "Backend", Role: "backend"},
+				{Title: "Frontend", Role: "frontend"},
+			}},
 		},
 	}
 	if err := sw.ApplyApprovedPlan(context.Background(), plan); err != nil {
@@ -296,4 +299,366 @@ func eventKinds(events []store.SwarmEvent) []string {
 		out[i] = e.Kind
 	}
 	return out
+}
+
+// seedSubtaskWithStep creates a subtask with a specific step index.
+func seedSubtaskWithStep(t *testing.T, st *store.Store, id, parentID, status string, stepIndex int) {
+	t.Helper()
+	err := st.CreateSubtask(context.Background(), store.Subtask{
+		ID:           id,
+		ParentTaskID: parentID,
+		Title:        "sub " + id,
+		Role:         "worker",
+		Status:       status,
+		StepIndex:    stepIndex,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestApplyApprovedPlanSetsStepIndex verifies each subtask gets the correct
+// step_index from the plan's steps.
+func TestApplyApprovedPlanSetsStepIndex(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-1")
+
+	plan := &swarm.Plan{
+		Swarm: swarm.PlanHeader{ParentTaskID: "parent-1", WorkingDir: t.TempDir()},
+		Steps: []swarm.PlanStep{
+			{Subtasks: []swarm.PlanSubtask{{Title: "Step0-A"}, {Title: "Step0-B"}}},
+			{Subtasks: []swarm.PlanSubtask{{Title: "Step1-A"}}},
+		},
+	}
+	if err := sw.ApplyApprovedPlan(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+
+	subs, err := st.ListSubtasksByParent(context.Background(), "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 3 {
+		t.Fatalf("got %d subtasks, want 3", len(subs))
+	}
+	for _, s := range subs {
+		switch s.Title {
+		case "Step0-A", "Step0-B":
+			if s.StepIndex != 0 {
+				t.Errorf("%s step_index = %d, want 0", s.Title, s.StepIndex)
+			}
+		case "Step1-A":
+			if s.StepIndex != 1 {
+				t.Errorf("%s step_index = %d, want 1", s.Title, s.StepIndex)
+			}
+		default:
+			t.Fatalf("unexpected subtask %s", s.Title)
+		}
+	}
+}
+
+// TestDispatchGatedByStep defers dispatch when subtask step > parent's active step.
+func TestDispatchGatedByStep(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-1")
+	seedSubtaskWithStep(t, st, "st-aaaaaaaa10", "parent-1", "queued", 1)
+
+	// active_step defaults to 0
+	if err := sw.Dispatch(context.Background(), "st-aaaaaaaa10"); err == nil {
+		t.Fatal("expected dispatch to be deferred")
+	}
+
+	got, _ := st.GetSubtask(context.Background(), "st-aaaaaaaa10")
+	if got.Status != "queued" {
+		t.Errorf("status = %q, want queued", got.Status)
+	}
+}
+
+// TestDispatchAllowedForCurrentStep dispatches a step-0 subtask when active_step is 0.
+func TestDispatchAllowedForCurrentStep(t *testing.T) {
+	sw, agentSvc, st, _ := newTestSwarmService(t)
+	// Bypass the real agent service by hijacking its SpawnAgent for the subtask.
+	seedParentTask(t, st, "parent-2")
+	seedSubtaskWithStep(t, st, "st-aaaaaaaa11", "parent-2", "queued", 0)
+
+	// Agents can't really spawn in tests (no real tmux), so just check that the
+	// step gate does NOT block it.
+	ctx := context.Background()
+	err := sw.Dispatch(ctx, "st-aaaaaaaa11")
+	// It will likely fail at the agent spawn layer, but the important thing is
+	// it's NOT the "step deferred" error.
+	if err != nil && err.Error() == "dispatch deferred: step 0 is not yet active" {
+		t.Fatalf("step 0 was blocked: %v", err)
+	}
+
+	_ = agentSvc
+}
+
+// TestNextStepAdvancesWhenTerminal moves active_step forward after all current
+// step subtasks are done or cancelled.
+func TestNextStepAdvancesWhenTerminal(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-1")
+	seedSubtaskWithStep(t, st, "st-aaaaaaaa12", "parent-1", "done", 0)
+	seedSubtaskWithStep(t, st, "st-aaaaaaaa13", "parent-1", "cancelled", 0)
+	seedSubtaskWithStep(t, st, "st-aaaaaaaa14", "parent-1", "queued", 1)
+
+	if err := sw.NextStep(context.Background(), "parent-1"); err != nil {
+		t.Fatalf("NextStep: %v", err)
+	}
+
+	parent, _ := st.GetTask(context.Background(), "parent-1")
+	if parent.SwarmActiveStep != 1 {
+		t.Errorf("active_step = %d, want 1", parent.SwarmActiveStep)
+	}
+}
+
+// TestNextStepBlockedWhenNotTerminal refuses advancement if a current-step
+// subtask is still active.
+func TestNextStepBlockedWhenNotTerminal(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-1")
+	seedSubtaskWithStep(t, st, "st-aaaaaaaa15", "parent-1", "done", 0)
+	seedSubtaskWithStep(t, st, "st-aaaaaaaa16", "parent-1", "queued", 0)
+	seedSubtaskWithStep(t, st, "st-aaaaaaaa17", "parent-1", "queued", 1)
+
+	if err := sw.NextStep(context.Background(), "parent-1"); err == nil {
+		t.Fatal("expected NextStep to be blocked")
+	}
+
+	parent, _ := st.GetTask(context.Background(), "parent-1")
+	if parent.SwarmActiveStep != 0 {
+		t.Errorf("active_step = %d, want 0", parent.SwarmActiveStep)
+	}
+}
+
+// TestNextStepBlockedWhenNoMoreSteps refuses advancement if already on the last
+// step.
+func TestNextStepBlockedWhenNoMoreSteps(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-1")
+	seedSubtaskWithStep(t, st, "st-aaaaaaaa18", "parent-1", "done", 0)
+
+	if err := sw.NextStep(context.Background(), "parent-1"); err == nil {
+		t.Fatal("expected NextStep to be blocked (no more steps)")
+	}
+}
+
+// TestListSubtaskInfosIncludesStepIndex verifies the StepIndex field is
+// surfaced in the UI DTO.
+func TestListSubtaskInfosIncludesStepIndex(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-1")
+	seedSubtaskWithStep(t, st, "st-aaaaaaaa19", "parent-1", "queued", 2)
+
+	infos, err := sw.ListSubtaskInfos(context.Background(), "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("got %d infos, want 1", len(infos))
+	}
+	if infos[0].StepIndex != 2 {
+		t.Errorf("StepIndex = %d, want 2", infos[0].StepIndex)
+	}
+}
+
+// TestSnapshotIncludesActiveStepAndStepIndex verifies the parent payload carries
+// active_step and each subtask carries step_index.
+func TestSnapshotIncludesActiveStepAndStepIndex(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-1")
+	seedSubtaskWithStep(t, st, "st-aaaaaaaa20", "parent-1", "queued", 1)
+
+	// Advance active step manually to 1 before snapshotting.
+	_ = st.SetParentActiveStep(context.Background(), "parent-1", 1)
+
+	data, err := sw.Snapshot(context.Background(), "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(data), `"active_step": 1`) {
+		t.Errorf("snapshot missing active_step=1: %s", string(data))
+	}
+	if !strings.Contains(string(data), `"step_index": 1`) {
+		t.Errorf("snapshot missing step_index=1: %s", string(data))
+	}
+}
+
+// TestMaybeNotifyAllIdleEmitsStepCompleted detects when the current step is
+// terminal and more steps remain, and notifies with a step-completed message.
+func TestMaybeNotifyAllIdleEmitsStepCompleted(t *testing.T) {
+	sw, _, st, mt := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-1")
+	seedSubtaskWithStep(t, st, "st-aaaaaaaa21", "parent-1", "done", 0)
+	seedSubtaskWithStep(t, st, "st-aaaaaaaa22", "parent-1", "queued", 1)
+
+	// Spawn a fake conductor session so recordEventForConductor finds a target.
+	if err := mt.Spawn("legato-parent-1", t.TempDir(), 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertAgentSession(context.Background(), store.AgentSession{
+		TaskID:      "parent-1",
+		TmuxSession: "legato-parent-1",
+		Status:      "running",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	concrete := sw.(*swarmService)
+	concrete.maybeNotifyAllIdle(context.Background(), "parent-1")
+
+	events, err := st.ListUnackedSwarmEvents(context.Background(), "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected an all_idle event in inbox")
+	}
+	found := false
+	for _, e := range events {
+		if e.Kind == "all_idle" && strings.Contains(e.Payload, "is complete") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("no step-completed all_idle event found; got %+v", eventKinds(events))
+	}
+}
+
+// TestSingleStepPlanBackwardCompatibility verifies a plan with one step produces
+// subtasks all with step_index=0 and follows the existing lifecycle.
+func TestSingleStepPlanBackwardCompatibility(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-1")
+
+	plan := &swarm.Plan{
+		Swarm: swarm.PlanHeader{ParentTaskID: "parent-1", WorkingDir: t.TempDir()},
+		Steps: []swarm.PlanStep{
+			{Subtasks: []swarm.PlanSubtask{
+				{Title: "Backend", Role: "backend"},
+				{Title: "Frontend", Role: "frontend"},
+			}},
+		},
+	}
+	if err := sw.ApplyApprovedPlan(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+
+	subs, err := st.ListSubtasksByParent(context.Background(), "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 2 {
+		t.Fatalf("got %d subtasks, want 2", len(subs))
+	}
+	for _, s := range subs {
+		if s.StepIndex != 0 {
+			t.Errorf("subtask %s step_index = %d, want 0", s.Title, s.StepIndex)
+		}
+		if s.Status != "queued" {
+			t.Errorf("subtask %s status = %q, want queued", s.Title, s.Status)
+		}
+	}
+
+	// Step 0 subtasks should NOT be gated (active_step defaults to 0).
+	err = sw.Dispatch(context.Background(), subs[0].ID)
+	if err != nil && strings.Contains(err.Error(), "deferred") {
+		t.Fatalf("single-step plan subtask was gated: %v", err)
+	}
+}
+
+// TestTwoStepPlanGatingAndAdvancement verifies a two-step plan assigns correct
+// step indices, gates step-1 dispatch until next-step is called, and notifies
+// the conductor when step 0 completes.
+func TestTwoStepPlanGatingAndAdvancement(t *testing.T) {
+	sw, _, st, mt := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-1")
+
+	plan := &swarm.Plan{
+		Swarm: swarm.PlanHeader{ParentTaskID: "parent-1", WorkingDir: t.TempDir()},
+		Steps: []swarm.PlanStep{
+			{Subtasks: []swarm.PlanSubtask{{Title: "Step0-A", Role: "backend"}}},
+			{Subtasks: []swarm.PlanSubtask{{Title: "Step1-A", Role: "frontend"}}},
+		},
+	}
+	if err := sw.ApplyApprovedPlan(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+
+	subs, err := st.ListSubtasksByParent(context.Background(), "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 2 {
+		t.Fatalf("got %d subtasks, want 2", len(subs))
+	}
+
+	var step0Sub, step1Sub *store.Subtask
+	for i := range subs {
+		s := subs[i]
+		switch s.Title {
+		case "Step0-A":
+			step0Sub = &s
+		case "Step1-A":
+			step1Sub = &s
+		}
+	}
+	if step0Sub == nil || step1Sub == nil {
+		t.Fatalf("missing subtasks: step0=%v step1=%v", step0Sub, step1Sub)
+	}
+	if step0Sub.StepIndex != 0 {
+		t.Errorf("step0 step_index = %d, want 0", step0Sub.StepIndex)
+	}
+	if step1Sub.StepIndex != 1 {
+		t.Errorf("step1 step_index = %d, want 1", step1Sub.StepIndex)
+	}
+
+	// Spawn conductor so notifications have a target.
+	if err := mt.Spawn("legato-parent-1", t.TempDir(), 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertAgentSession(context.Background(), store.AgentSession{
+		TaskID:      "parent-1",
+		TmuxSession: "legato-parent-1",
+		Status:      "running",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Step 0 should dispatch freely.
+	ctx := context.Background()
+	step0Err := sw.Dispatch(ctx, step0Sub.ID)
+	if step0Err != nil && strings.Contains(step0Err.Error(), "deferred") {
+		t.Fatalf("step 0 dispatch was gated: %v", step0Err)
+	}
+
+	// Step 1 should be gated until next-step.
+	step1Err := sw.Dispatch(ctx, step1Sub.ID)
+	if step1Err == nil {
+		t.Fatal("expected step 1 dispatch to be gated")
+	}
+	if !strings.Contains(step1Err.Error(), "deferred") && !strings.Contains(step1Err.Error(), "not yet active") {
+		t.Errorf("expected deferred error, got: %v", step1Err)
+	}
+
+	// Mark step 0 done, advance, then step 1 should be dispatchable.
+	_ = st.UpdateSubtaskStatus(ctx, step0Sub.ID, "done")
+	if err := sw.NextStep(ctx, "parent-1"); err != nil {
+		t.Fatalf("NextStep: %v", err)
+	}
+
+	parent, _ := st.GetTask(ctx, "parent-1")
+	if parent.SwarmActiveStep != 1 {
+		t.Errorf("active_step = %d, want 1", parent.SwarmActiveStep)
+	}
+
+	step1ErrAfter := sw.Dispatch(ctx, step1Sub.ID)
+	if step1ErrAfter != nil && strings.Contains(step1ErrAfter.Error(), "deferred") {
+		t.Fatalf("step 1 dispatch was still gated after next-step: %v", step1ErrAfter)
+	}
 }

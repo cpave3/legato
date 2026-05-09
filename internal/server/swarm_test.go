@@ -27,6 +27,7 @@ type mockSwarmService struct {
 	listSubtaskInfosFunc func(ctx context.Context, parentID string) ([]service.SwarmSubtaskInfo, error)
 	fetchInboxFunc     func(ctx context.Context, parentID string) ([]service.InboxEntry, error)
 	peekInboxFunc      func(ctx context.Context, parentID string) ([]service.InboxEntry, error)
+	nextStepFunc       func(ctx context.Context, parentID string) error
 }
 
 func (m *mockSwarmService) StartSwarm(ctx context.Context, parentID, workingDir string) error {
@@ -104,6 +105,13 @@ func (m *mockSwarmService) PeekInbox(ctx context.Context, parentID string) ([]se
 		return m.peekInboxFunc(ctx, parentID)
 	}
 	return nil, nil
+}
+
+func (m *mockSwarmService) NextStep(ctx context.Context, parentID string) error {
+	if m.nextStepFunc != nil {
+		return m.nextStepFunc(ctx, parentID)
+	}
+	return nil
 }
 
 func newTestServerWithSwarm(token string, swarm SwarmService) *Server {
@@ -633,6 +641,86 @@ func TestStartSwarmEventsPendingPlanNotClearedOnOtherStatus(t *testing.T) {
 	srv.pendingMu.RUnlock()
 	if !ok {
 		t.Error("pendingPlans should NOT be cleared on dispatched")
+	}
+}
+
+func TestSwarmNextStepHappyPath(t *testing.T) {
+	sw := &mockSwarmService{
+		nextStepFunc: func(ctx context.Context, parentID string) error {
+			if parentID != "task-1" {
+				t.Errorf("parentID = %q, want task-1", parentID)
+			}
+			return nil
+		},
+	}
+	srv := newTestServerWithSwarm("", sw)
+	body := `{"parent_task_id":"task-1"}`
+	req := httptest.NewRequest("POST", "/api/swarm/next-step", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp map[string]string
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["status"] != "ok" {
+		t.Errorf("status = %q, want ok", resp["status"])
+	}
+}
+
+func TestSwarmNextStepBlocked(t *testing.T) {
+	sw := &mockSwarmService{
+		nextStepFunc: func(ctx context.Context, parentID string) error {
+			return errors.New("step 0 is not terminal: sub-task st-a (SubA) is in_progress")
+		},
+	}
+	srv := newTestServerWithSwarm("", sw)
+	body := `{"parent_task_id":"task-1"}`
+	req := httptest.NewRequest("POST", "/api/swarm/next-step", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", w.Code)
+	}
+}
+
+func TestSwarmNextStepNoMoreSteps(t *testing.T) {
+	sw := &mockSwarmService{
+		nextStepFunc: func(ctx context.Context, parentID string) error {
+			return errors.New("no more steps (current = 1, max = 1)")
+		},
+	}
+	srv := newTestServerWithSwarm("", sw)
+	body := `{"parent_task_id":"task-1"}`
+	req := httptest.NewRequest("POST", "/api/swarm/next-step", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestSwarmNextStepParentNotFound(t *testing.T) {
+	sw := &mockSwarmService{
+		nextStepFunc: func(ctx context.Context, parentID string) error {
+			return store.ErrNotFound
+		},
+	}
+	srv := newTestServerWithSwarm("", sw)
+	body := `{"parent_task_id":"missing"}`
+	req := httptest.NewRequest("POST", "/api/swarm/next-step", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
 	}
 }
 

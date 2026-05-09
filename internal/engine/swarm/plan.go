@@ -13,8 +13,8 @@ import (
 
 // Plan is the YAML structure the conductor submits via `legato swarm propose-plan`.
 type Plan struct {
-	Swarm    PlanHeader    `yaml:"swarm" json:"swarm"`
-	Subtasks []PlanSubtask `yaml:"subtasks" json:"subtasks"`
+	Swarm PlanHeader `yaml:"swarm" json:"swarm"`
+	Steps []PlanStep `yaml:"steps" json:"steps"`
 }
 
 // PlanHeader carries the swarm-level fields.
@@ -22,6 +22,12 @@ type PlanHeader struct {
 	ParentTaskID string `yaml:"parent_task_id" json:"parent_task_id"`
 	WorkingDir   string `yaml:"working_dir" json:"working_dir"`
 	Summary      string `yaml:"summary" json:"summary"`
+}
+
+// PlanStep is a named group of sub-tasks that execute together.
+type PlanStep struct {
+	Name     string        `yaml:"name" json:"name"`
+	Subtasks []PlanSubtask `yaml:"subtasks" json:"subtasks"`
 }
 
 // PlanSubtask describes one worker the conductor wants to dispatch.
@@ -59,7 +65,8 @@ func LoadPlan(path string) (*Plan, error) {
 // is the set of names accepted for the per-sub-task `agent` field; pass empty
 // to skip the adapter-name check (useful for tests that don't wire adapters).
 // maxSubtasks caps the plan size; pass 0 to skip the cap.
-func ValidatePlan(plan *Plan, registeredAdapters []string, maxSubtasks int) error {
+// maxSteps caps the number of steps; pass 0 to skip the cap.
+func ValidatePlan(plan *Plan, registeredAdapters []string, maxSubtasks, maxSteps int) error {
 	if plan == nil {
 		return fmt.Errorf("plan is nil")
 	}
@@ -69,11 +76,11 @@ func ValidatePlan(plan *Plan, registeredAdapters []string, maxSubtasks int) erro
 	if strings.TrimSpace(plan.Swarm.WorkingDir) == "" {
 		return fmt.Errorf("swarm.working_dir is required")
 	}
-	if len(plan.Subtasks) == 0 {
-		return fmt.Errorf("plan must contain at least one sub-task")
+	if len(plan.Steps) == 0 {
+		return fmt.Errorf("plan must contain at least one step")
 	}
-	if maxSubtasks > 0 && len(plan.Subtasks) > maxSubtasks {
-		return fmt.Errorf("plan has %d sub-tasks; max is %d", len(plan.Subtasks), maxSubtasks)
+	if maxSteps > 0 && len(plan.Steps) > maxSteps {
+		return fmt.Errorf("plan has %d steps; max is %d", len(plan.Steps), maxSteps)
 	}
 
 	adapters := make(map[string]struct{}, len(registeredAdapters))
@@ -81,21 +88,35 @@ func ValidatePlan(plan *Plan, registeredAdapters []string, maxSubtasks int) erro
 		adapters[a] = struct{}{}
 	}
 
-	for i, st := range plan.Subtasks {
-		if strings.TrimSpace(st.Title) == "" {
-			return fmt.Errorf("subtasks[%d]: title is required", i)
+	totalSubtasks := 0
+	for si, step := range plan.Steps {
+		if len(step.Subtasks) == 0 {
+			return fmt.Errorf("step[%d]: must contain at least one sub-task", si)
 		}
-		if st.Role != "" && !roleLabelPattern.MatchString(st.Role) {
-			return fmt.Errorf("subtasks[%d]: role %q must match [a-z0-9-]+", i, st.Role)
+		if maxSubtasks > 0 && len(step.Subtasks) > maxSubtasks {
+			return fmt.Errorf("step[%d] has %d sub-tasks; max per step is %d", si, len(step.Subtasks), maxSubtasks)
 		}
-		if st.Agent != "" && len(adapters) > 0 {
-			if _, ok := adapters[st.Agent]; !ok {
-				return fmt.Errorf("subtasks[%d]: agent %q is not a registered adapter", i, st.Agent)
+		totalSubtasks += len(step.Subtasks)
+		for i, st := range step.Subtasks {
+			if strings.TrimSpace(st.Title) == "" {
+				return fmt.Errorf("step[%d].subtasks[%d]: title is required", si, i)
+			}
+			if st.Role != "" && !roleLabelPattern.MatchString(st.Role) {
+				return fmt.Errorf("step[%d].subtasks[%d]: role %q must match [a-z0-9-]+", si, i, st.Role)
+			}
+			if st.Agent != "" && len(adapters) > 0 {
+				if _, ok := adapters[st.Agent]; !ok {
+					return fmt.Errorf("step[%d].subtasks[%d]: agent %q is not a registered adapter", si, i, st.Agent)
+				}
+			}
+			if err := ValidateScope(st.Scope); err != nil {
+				return fmt.Errorf("step[%d].subtasks[%d]: scope: %w", si, i, err)
 			}
 		}
-		if err := ValidateScope(st.Scope); err != nil {
-			return fmt.Errorf("subtasks[%d]: scope: %w", i, err)
-		}
+	}
+
+	if maxSubtasks > 0 && totalSubtasks > maxSubtasks {
+		return fmt.Errorf("plan has %d sub-tasks; max is %d", totalSubtasks, maxSubtasks)
 	}
 
 	return nil

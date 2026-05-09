@@ -521,6 +521,8 @@ func taskToCardDetail(t *store.Task) *CardDetail {
 		}
 	}
 
+	detail.SwarmActiveStep = t.SwarmActiveStep
+
 	return detail
 }
 

@@ -19,6 +19,7 @@ import (
 type SwarmConfig struct {
 	MaxConcurrentAgents int
 	MaxSubtasksPerPlan  int
+	MaxStepsPerPlan     int
 	StrictScope         bool
 	RequireUserClose    bool
 	DefaultAgent        string
@@ -41,6 +42,7 @@ type SwarmService interface {
 	StartSwarm(ctx context.Context, parentID, workingDir string) error
 	ApplyApprovedPlan(ctx context.Context, plan *swarm.Plan) error
 	Dispatch(ctx context.Context, subtaskID string) error
+	NextStep(ctx context.Context, parentID string) error
 	Message(ctx context.Context, subtaskID, text string) error
 	MessageParent(ctx context.Context, parentID, text string) error
 	Broadcast(ctx context.Context, parentID, text string) (int, error)
@@ -113,6 +115,9 @@ func NewSwarmService(s *store.Store, agents AgentService, bus *events.Bus, cfg S
 	if cfg.MaxSubtasksPerPlan <= 0 {
 		cfg.MaxSubtasksPerPlan = 10
 	}
+	if cfg.MaxStepsPerPlan <= 0 {
+		cfg.MaxStepsPerPlan = 10
+	}
 	return &swarmService{
 		store:           s,
 		agents:          agents,
@@ -139,15 +144,17 @@ func (s *swarmService) LoadPlan(path string) (*SwarmPlan, error) {
 			WorkingDir:   p.Swarm.WorkingDir,
 			Summary:      p.Swarm.Summary,
 		},
-		Subtasks: make([]SwarmPlanSubtask, len(p.Subtasks)),
+		Subtasks: make([]SwarmPlanSubtask, 0),
 	}
-	for i, st := range p.Subtasks {
-		out.Subtasks[i] = SwarmPlanSubtask{
-			Title:  st.Title,
-			Role:   st.Role,
-			Agent:  st.Agent,
-			Scope:  append([]string(nil), st.Scope...),
-			Prompt: st.Prompt,
+	for _, step := range p.Steps {
+		for _, st := range step.Subtasks {
+			out.Subtasks = append(out.Subtasks, SwarmPlanSubtask{
+				Title:  st.Title,
+				Role:   st.Role,
+				Agent:  st.Agent,
+				Scope:  append([]string(nil), st.Scope...),
+				Prompt: st.Prompt,
+			})
 		}
 	}
 	return out, nil
@@ -257,6 +264,7 @@ type SwarmSubtaskInfo struct {
 	Status      string
 	Scope       []string
 	WorkerID    *int
+	StepIndex   int
 	StartedAt   string
 	CompletedAt string
 }
@@ -279,6 +287,7 @@ func (s *swarmService) ListSubtaskInfos(ctx context.Context, parentID string) ([
 			Status:      r.Status,
 			Scope:       globs,
 			WorkerID:    r.BuilderAgentID,
+			StepIndex:   r.StepIndex,
 		}
 		if r.StartedAt != nil {
 			info.StartedAt = *r.StartedAt
@@ -302,6 +311,7 @@ type SnapshotParent struct {
 	Title      string `json:"title"`
 	Status     string `json:"status"`
 	WorkingDir string `json:"working_dir,omitempty"`
+	ActiveStep int    `json:"active_step"`
 }
 
 type SnapshotSubtask struct {
@@ -313,6 +323,7 @@ type SnapshotSubtask struct {
 	ScopeGlobs  []string `json:"scope_globs"`
 	Status      string   `json:"status"`
 	WorkerID    *int     `json:"worker_agent_id,omitempty"`
+	StepIndex   int      `json:"step_index"`
 	StartedAt   string   `json:"started_at,omitempty"`
 	CompletedAt string   `json:"completed_at,omitempty"`
 }
@@ -328,7 +339,7 @@ func (s *swarmService) Snapshot(ctx context.Context, parentID string) ([]byte, e
 		return nil, err
 	}
 	out := SnapshotData{
-		Parent: SnapshotParent{ID: parent.ID, Title: parent.Title, Status: parent.Status},
+		Parent: SnapshotParent{ID: parent.ID, Title: parent.Title, Status: parent.Status, ActiveStep: parent.SwarmActiveStep},
 	}
 	if parent.SwarmWorkingDir != nil {
 		out.Parent.WorkingDir = *parent.SwarmWorkingDir
@@ -344,6 +355,7 @@ func (s *swarmService) Snapshot(ctx context.Context, parentID string) ([]byte, e
 			ScopeGlobs:  globs,
 			Status:      st.Status,
 			WorkerID:    st.BuilderAgentID,
+			StepIndex:   st.StepIndex,
 		}
 		if st.StartedAt != nil {
 			ss.StartedAt = *st.StartedAt
@@ -403,27 +415,73 @@ func (s *swarmService) ApplyApprovedPlan(ctx context.Context, plan *swarm.Plan) 
 	if plan == nil {
 		return fmt.Errorf("plan is nil")
 	}
-	for _, spec := range plan.Subtasks {
-		raw, _ := store.MarshalScopeGlobs(spec.Scope)
-		role := spec.Role
-		if role == "" {
-			role = "worker"
-		}
-		st := store.Subtask{
-			ID:           generateSubtaskID(),
-			ParentTaskID: plan.Swarm.ParentTaskID,
-			Title:        spec.Title,
-			Prompt:       spec.Prompt,
-			ScopeGlobs:   raw,
-			Role:         role,
-			AgentKind:    spec.Agent,
-			Status:       "queued",
-		}
-		if err := s.store.CreateSubtask(ctx, st); err != nil {
-			return fmt.Errorf("create sub-task %q: %w", spec.Title, err)
+	for si, step := range plan.Steps {
+		for _, spec := range step.Subtasks {
+			raw, _ := store.MarshalScopeGlobs(spec.Scope)
+			role := spec.Role
+			if role == "" {
+				role = "worker"
+			}
+			st := store.Subtask{
+				ID:           generateSubtaskID(),
+				ParentTaskID: plan.Swarm.ParentTaskID,
+				Title:        spec.Title,
+				Prompt:       spec.Prompt,
+				ScopeGlobs:   raw,
+				Role:         role,
+				AgentKind:    spec.Agent,
+				Status:       "queued",
+				StepIndex:    si,
+			}
+			if err := s.store.CreateSubtask(ctx, st); err != nil {
+				return fmt.Errorf("create sub-task %q: %w", spec.Title, err)
+			}
 		}
 	}
 	s.publishChanged(plan.Swarm.ParentTaskID, "", "plan_applied")
+	return nil
+}
+
+// NextStep advances the swarm to the next step after validating that the
+// current active step is terminal (all its sub-tasks are done or cancelled).
+// Returns an error if the current step is not terminal or if there are no
+// further steps.
+func (s *swarmService) NextStep(ctx context.Context, parentID string) error {
+	parent, err := s.store.GetTask(ctx, parentID)
+	if err != nil {
+		return fmt.Errorf("parent task %s: %w", parentID, err)
+	}
+
+	subs, err := s.store.ListSubtasksByParent(ctx, parentID)
+	if err != nil {
+		return fmt.Errorf("list subtasks: %w", err)
+	}
+
+	maxStep := parent.SwarmActiveStep
+	for _, st := range subs {
+		if st.StepIndex > maxStep {
+			maxStep = st.StepIndex
+		}
+	}
+	if parent.SwarmActiveStep >= maxStep {
+		return fmt.Errorf("no more steps (current = %d, max = %d)", parent.SwarmActiveStep, maxStep)
+	}
+
+	// Validate current step is terminal.
+	for _, st := range subs {
+		if st.StepIndex == parent.SwarmActiveStep {
+			if st.Status != "done" && st.Status != "cancelled" {
+				return fmt.Errorf("step %d is not terminal: sub-task %s (%s) is %s",
+					parent.SwarmActiveStep, st.ID, st.Title, st.Status)
+			}
+		}
+	}
+
+	if err := s.store.SetParentActiveStep(ctx, parentID, parent.SwarmActiveStep+1); err != nil {
+		return fmt.Errorf("advance active step: %w", err)
+	}
+
+	s.publishChanged(parentID, "", "next_step")
 	return nil
 }
 
@@ -439,6 +497,19 @@ func (s *swarmService) Dispatch(ctx context.Context, subtaskID string) error {
 		return fmt.Errorf("sub-task %s is %s, not queued", subtaskID, st.Status)
 	}
 
+	parent, err := s.store.GetTask(ctx, st.ParentTaskID)
+	if err != nil {
+		return fmt.Errorf("parent task %s: %w", st.ParentTaskID, err)
+	}
+
+	// Step gating: subtasks for future steps are deferred until NextStep is called.
+	if st.StepIndex > parent.SwarmActiveStep {
+		s.recordEventForConductor(st.ParentTaskID, subtaskID, "step_deferred", st.Title,
+			fmt.Sprintf("dispatch of worker %q deferred — step %d is not yet active (active step is %d).",
+				st.Title, st.StepIndex, parent.SwarmActiveStep))
+		return fmt.Errorf("dispatch deferred: step %d is not yet active", st.StepIndex)
+	}
+
 	// Cap check.
 	if s.activeWorkerCount(ctx, st.ParentTaskID) >= s.cfg.MaxConcurrentAgents {
 		s.recordEventForConductor(st.ParentTaskID, subtaskID, "cap_deferred", st.Title,
@@ -447,10 +518,6 @@ func (s *swarmService) Dispatch(ctx context.Context, subtaskID string) error {
 		return fmt.Errorf("dispatch deferred: swarm at concurrent cap (%d)", s.cfg.MaxConcurrentAgents)
 	}
 
-	parent, err := s.store.GetTask(ctx, st.ParentTaskID)
-	if err != nil {
-		return fmt.Errorf("parent task %s: %w", st.ParentTaskID, err)
-	}
 	workingDir := ""
 	if parent.SwarmWorkingDir != nil {
 		workingDir = *parent.SwarmWorkingDir
@@ -866,9 +933,17 @@ func (s *swarmService) flushProgressEvent(subtaskID string) {
 // "workers built, awaiting conductor decision" case and the "all sub-tasks
 // terminal, ready to finish" case. Per-conductor mutex + 250ms gap in
 // recordEventForConductor prevents spam when called from multiple paths.
+//
+// When the current active step is terminal and there are more steps, the
+// notification includes a `step_completed` indicator so the conductor knows it
+// can approve advancement to the next step.
 func (s *swarmService) maybeNotifyAllIdle(ctx context.Context, parentID string) {
 	subs, err := s.store.ListSubtasksByParent(ctx, parentID)
 	if err != nil || len(subs) == 0 {
+		return
+	}
+	parent, err := s.store.GetTask(ctx, parentID)
+	if err != nil {
 		return
 	}
 	for _, st := range subs {
@@ -876,6 +951,27 @@ func (s *swarmService) maybeNotifyAllIdle(ctx context.Context, parentID string) 
 			return
 		}
 	}
+
+	// Check whether the current active step is terminal.
+	currentStepDone := true
+	var maxStep int
+	for _, st := range subs {
+		if st.StepIndex > maxStep {
+			maxStep = st.StepIndex
+		}
+		if st.StepIndex == parent.SwarmActiveStep {
+			if st.Status != "done" && st.Status != "cancelled" {
+				currentStepDone = false
+			}
+		}
+	}
+	if currentStepDone && maxStep > parent.SwarmActiveStep {
+		s.recordEventForConductor(parentID, "", "all_idle", "",
+			fmt.Sprintf("Step %d is complete. Dispatchable sub-tasks in the next step are gated until you approve advancement. Run `legato swarm next-step %s` to proceed.",
+				parent.SwarmActiveStep, parentID))
+		return
+	}
+
 	s.recordEventForConductor(parentID, "", "all_idle", "",
 		"No workers in this swarm are active. Decide: dispatch more queued sub-tasks, ask the user, or call `legato swarm finish` if the parent goal is met.")
 }

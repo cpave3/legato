@@ -82,6 +82,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/swarm/broadcast", s.swarmBroadcastHandler())
 	mux.HandleFunc("/api/swarm/close", s.swarmCloseHandler())
 	mux.HandleFunc("/api/swarm/finish", s.swarmFinishHandler())
+	mux.HandleFunc("/api/swarm/next-step", s.swarmNextStepHandler())
 	mux.HandleFunc("/api/swarm/status/", s.swarmStatusHandler())
 	mux.HandleFunc("/api/swarm/inbox/", s.swarmInboxHandler())
 	mux.HandleFunc("/api/swarm/pending-plan/", s.swarmPendingPlanHandler())

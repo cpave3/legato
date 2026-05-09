@@ -535,6 +535,112 @@ func containsStr(s, sub string) bool {
 	return false
 }
 
+func TestSwarmSectionGroupsByStep(t *testing.T) {
+	card := testCard()
+	card.SwarmActiveStep = 2
+	card.SwarmStepNames = []string{"Planning", "Build", "Review"}
+
+	m := New(card, nil, nil, "")
+	m.subtasks = []service.SwarmSubtaskInfo{
+		{ID: "sub-1", StepIndex: 0, Title: "Design doc", Role: "architect", Status: "done", Scope: []string{"design/"}},
+		{ID: "sub-2", StepIndex: 2, Title: "Test case", Role: "qa", Status: "queued", Scope: []string{"tests/"}},
+		{ID: "sub-3", StepIndex: 2, Title: "Integration", Role: "qa", Status: "in_progress", Scope: nil},
+		{ID: "sub-4", StepIndex: 1, Title: "Feature A", Role: "builder", Status: "done", Scope: []string{"src/a"}},
+	}
+	m.width = 120
+	m.height = 40
+	m.renderContent()
+
+	view := m.View()
+	mustContain(t, view, "Swarm")
+	// Each step heading should appear (using the provided names).
+	mustContain(t, view, "Planning (done)")
+	mustContain(t, view, "Build (done)")
+	mustContain(t, view, "Review")
+	// Subtask titles should appear.
+	mustContain(t, view, "Design doc")
+	mustContain(t, view, "Feature A")
+	mustContain(t, view, "Test case")
+	mustContain(t, view, "Integration")
+}
+
+func TestSwarmSectionWithStepNames(t *testing.T) {
+	card := testCard()
+	card.SwarmActiveStep = 0
+	card.SwarmStepNames = []string{"Discovery", "Delivery"}
+
+	m := New(card, nil, nil, "")
+	m.subtasks = []service.SwarmSubtaskInfo{
+		{ID: "sub-1", StepIndex: 0, Title: "Find patterns", Role: "explorer", Status: "in_progress", Scope: nil},
+	}
+	m.width = 120
+	m.height = 40
+	m.renderContent()
+
+	view := m.View()
+	mustContain(t, view, "Discovery")
+}
+
+func TestSwarmNextStepKeyEmitsMessage(t *testing.T) {
+	card := testCard()
+	card.SwarmActiveStep = 0
+	m := New(card, nil, nil, "")
+	m.subtasks = []service.SwarmSubtaskInfo{
+		{ID: "sub-1", StepIndex: 0, Title: "Done work", Role: "builder", Status: "done"},
+	}
+	m.width = 120
+	m.height = 40
+	m.renderContent()
+
+	_, cmd := m.Update(keyMsg('s'))
+	if cmd == nil {
+		t.Fatal("expected cmd from 's' key")
+	}
+	msg := cmd()
+	next, ok := msg.(SwarmNextStepMsg)
+	if !ok {
+		t.Fatalf("expected SwarmNextStepMsg, got %T", msg)
+	}
+	if next.TaskID != card.ID {
+		t.Errorf("TaskID = %q, want %q", next.TaskID, card.ID)
+	}
+}
+
+func TestSwarmNextStepKeyDoesNothingWithoutSubtasks(t *testing.T) {
+	card := testCard()
+	m := New(card, nil, nil, "")
+	m.width = 120
+	m.height = 40
+	m.renderContent()
+
+	_, cmd := m.Update(keyMsg('s'))
+	if cmd != nil {
+		t.Error("expected nil cmd when no swarm subtasks")
+	}
+}
+
+func TestStepIsTerminal(t *testing.T) {
+	cases := []struct {
+		name string
+		subs []service.SwarmSubtaskInfo
+		want bool
+	}{
+		{"all done", []service.SwarmSubtaskInfo{{Status: "done"}, {Status: "done"}}, true},
+		{"all cancelled", []service.SwarmSubtaskInfo{{Status: "cancelled"}, {Status: "cancelled"}}, true},
+		{"mixed terminal", []service.SwarmSubtaskInfo{{Status: "done"}, {Status: "cancelled"}}, true},
+		{"one in progress", []service.SwarmSubtaskInfo{{Status: "cancelled"}, {Status: "in_progress"}}, false},
+		{"empty", []service.SwarmSubtaskInfo{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := stepIsTerminal(tc.subs)
+			if got != tc.want {
+				t.Errorf("stepIsTerminal() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func longDescription() string {
 	s := ""
 	for i := 0; i < 100; i++ {

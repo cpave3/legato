@@ -22,6 +22,7 @@ type SwarmService interface {
 	Broadcast(ctx context.Context, parentID, text string) (int, error)
 	Close(ctx context.Context, subtaskID string) error
 	Finish(ctx context.Context, parentID, summary string) error
+	NextStep(ctx context.Context, parentID string) error
 	Snapshot(ctx context.Context, parentID string) ([]byte, error)
 	ListSubtaskInfos(ctx context.Context, parentID string) ([]service.SwarmSubtaskInfo, error)
 	FetchInbox(ctx context.Context, parentID string) ([]service.InboxEntry, error)
@@ -243,6 +244,44 @@ func (s *Server) swarmFinishHandler() http.HandlerFunc {
 				return
 			}
 			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+func (s *Server) swarmNextStepHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.swarm == nil {
+			s.writeError(w, http.StatusServiceUnavailable, "swarm service not available")
+			return
+		}
+		var req struct {
+			ParentTaskID string `json:"parent_task_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ParentTaskID == "" {
+			s.writeError(w, http.StatusBadRequest, "parent_task_id is required")
+			return
+		}
+		if err := s.swarm.NextStep(r.Context(), req.ParentTaskID); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				s.writeError(w, http.StatusNotFound, "parent task not found")
+				return
+			}
+			msg := err.Error()
+			if strings.Contains(msg, "not terminal") {
+				s.writeError(w, http.StatusConflict, msg)
+				return
+			}
+			if strings.Contains(msg, "no more steps") {
+				s.writeError(w, http.StatusNotFound, msg)
+				return
+			}
+			s.writeError(w, http.StatusInternalServerError, msg)
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
