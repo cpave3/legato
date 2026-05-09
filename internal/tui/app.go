@@ -48,7 +48,7 @@ const (
 	overlayArchive
 	overlayLinkPR
 	overlayOpenURL
-	overlayEphemeralSpawn
+	overlayAgentSpawn
 	overlaySwarmInit
 	overlayPlanApproval
 )
@@ -105,7 +105,7 @@ type App struct {
 	swarmSub      <-chan events.Event
 	planSub       <-chan events.Event
 	tmux          service.TmuxManager
-	swarmSvc      *service.SwarmService
+	swarmSvc      service.SwarmService
 	workDir       string
 	webServer     *server.Server
 	webServerStop func()
@@ -120,8 +120,9 @@ func (a *App) SetWebServerRunning(port string) {
 	a.statusBar = a.statusBar.SetWebServer(port)
 }
 
-// NewApp creates a new root application model.
-func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager, workDir string, swarmSvc ...*service.SwarmService) App {
+// NewApp creates a new root application model. Pass nil for swarmSvc to
+// disable swarm UI (S keybinding is no-op, swarm panels hidden).
+func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager, workDir string, swarmSvc service.SwarmService) App {
 	clip := clipboard.New()
 	b := board.New(svc, icons)
 	b.SetWorkspaces(workspaces)
@@ -141,9 +142,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		tmux:          tmux,
 		workDir:       workDir,
 		webServerPort: "3080",
-	}
-	if len(swarmSvc) > 0 {
-		app.swarmSvc = swarmSvc[0]
+		swarmSvc:      swarmSvc,
 	}
 	if bus != nil {
 		app.eventSubs = []<-chan events.Event{
@@ -618,21 +617,31 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handlePlanCancel(msg)
 
 	case overlay.PlanEditedMsg:
-		// Forward to the active plan-approval overlay so it can re-render.
-		if a.overlayType == overlayPlanApproval {
-			next, cmd := a.activeOverlay.Update(msg)
-			a.activeOverlay = next
-			return a, cmd
+		// Reload the plan from disk via the service layer, then dispatch
+		// PlanReloadedMsg back to the overlay so it can re-render. This keeps
+		// the engine import out of the TUI overlay package.
+		if a.overlayType != overlayPlanApproval {
+			return a, nil
 		}
-		return a, nil
+		var (
+			plan *service.SwarmPlan
+			err  = msg.Err
+		)
+		if err == nil && a.swarmSvc != nil {
+			plan, err = a.swarmSvc.LoadPlan(msg.PlanPath)
+		}
+		reload := overlay.PlanReloadedMsg{ParentTaskID: msg.ParentTaskID, PlanPath: msg.PlanPath, Plan: plan, Err: err}
+		next, cmd := a.activeOverlay.Update(reload)
+		a.activeOverlay = next
+		return a, cmd
 
-	case agents.OpenEphemeralSpawnMsg:
-		return a.openEphemeralSpawnOverlay()
+	case agents.OpenAgentSpawnMsg:
+		return a.openAgentSpawnOverlay(msg.TaskID, msg.Title)
 
-	case overlay.EphemeralSpawnSubmitMsg:
-		return a.handleEphemeralSpawnSubmit(msg)
+	case overlay.AgentSpawnSubmitMsg:
+		return a.handleAgentSpawnSubmit(msg)
 
-	case overlay.EphemeralSpawnCancelledMsg:
+	case overlay.AgentSpawnCancelledMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
 		return a, nil
@@ -843,13 +852,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						switch sub.Status {
 						case "done":
 							s.Done++
-						case "review":
+						case "reporting":
 							s.InReview++
-						case "building":
+						case "in_progress":
 							s.Building++
 						case "queued":
 							s.Queued++
-						case "rejected":
+						case "cancelled":
 							s.Rejected++
 						}
 					}
@@ -1248,7 +1257,16 @@ func (a App) openSwarmInitOverlay() (tea.Model, tea.Cmd) {
 }
 
 func (a App) openPlanApprovalOverlay(parentTaskID, planPath, replySocket string) (tea.Model, tea.Cmd) {
-	po := overlay.NewPlanApproval(parentTaskID, planPath, replySocket)
+	var (
+		plan    *service.SwarmPlan
+		loadErr error
+	)
+	if a.swarmSvc != nil {
+		plan, loadErr = a.swarmSvc.LoadPlan(planPath)
+	} else {
+		loadErr = fmt.Errorf("swarm service unavailable")
+	}
+	po := overlay.NewPlanApproval(parentTaskID, planPath, replySocket, a.editor, plan, loadErr)
 	sized, _ := po.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
 	a.overlayType = overlayPlanApproval
@@ -1336,7 +1354,7 @@ func (a App) handleTitleEditSubmit(msg overlay.TitleEditSubmitMsg) (tea.Model, t
 	return a, tea.Batch(cmds...)
 }
 
-func (a App) openEphemeralSpawnOverlay() (tea.Model, tea.Cmd) {
+func (a App) openAgentSpawnOverlay(taskID, title string) (tea.Model, tea.Cmd) {
 	defaultAdapter := ""
 	var adapters, filtered []string
 	if a.agentSvc != nil {
@@ -1349,14 +1367,14 @@ func (a App) openEphemeralSpawnOverlay() (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	spawnModel := overlay.NewEphemeralSpawn(filtered, defaultAdapter, a.workDir)
+	spawnModel := overlay.NewAgentSpawn(filtered, defaultAdapter, a.workDir, taskID, title)
 	sized, _ := spawnModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
-	a.overlayType = overlayEphemeralSpawn
+	a.overlayType = overlayAgentSpawn
 	return a, nil
 }
 
-func (a App) handleEphemeralSpawnSubmit(msg overlay.EphemeralSpawnSubmitMsg) (tea.Model, tea.Cmd) {
+func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model, tea.Cmd) {
 	a.overlayType = overlayNone
 	a.activeOverlay = nil
 
@@ -1365,7 +1383,6 @@ func (a App) handleEphemeralSpawnSubmit(msg overlay.EphemeralSpawnSubmitMsg) (te
 	}
 
 	svc := a.agentSvc
-	title := msg.Title
 	termW := a.width - agents.SidebarWidth
 	if termW < 1 {
 		termW = 1
@@ -1377,13 +1394,31 @@ func (a App) handleEphemeralSpawnSubmit(msg overlay.EphemeralSpawnSubmitMsg) (te
 		WorkingDir: msg.WorkingDir,
 	}
 
+	if msg.TaskID == "" {
+		// Ephemeral agent: no task backing
+		title := msg.Title
+		return a, tea.Batch(
+			func() tea.Msg {
+				if err := svc.SpawnEphemeralAgent(context.Background(), title, termW, termH, opts); err != nil {
+					return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
+				}
+				agentList, _ := svc.ListAgents(context.Background())
+				return agents.AgentsRefreshedMsg{Agents: agentList}
+			},
+			agentTickCmd(),
+		)
+	}
+
+	// Task-bound agent: switch to agent view and spawn with options
+	a.active = viewAgents
+	a.agentView.StartPolling()
 	return a, tea.Batch(
 		func() tea.Msg {
-			if err := svc.SpawnEphemeralAgent(context.Background(), title, termW, termH, opts); err != nil {
+			if err := svc.SpawnAgent(context.Background(), msg.TaskID, termW, termH, opts); err != nil {
 				return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
 			}
 			agentList, _ := svc.ListAgents(context.Background())
-			return agents.AgentsRefreshedMsg{Agents: agentList}
+			return agents.AgentsRefreshedMsg{Agents: agentList, SelectTask: msg.TaskID}
 		},
 		agentTickCmd(),
 	)
@@ -1645,25 +1680,8 @@ func (a App) handleBoardSpawnAgent() (tea.Model, tea.Cmd) {
 		)
 	}
 
-	// Spawn and switch to agent view
-	a.active = viewAgents
-	a.agentView.StartPolling()
-	// Compute terminal dimensions for tmux: total width minus sidebar
-	termW := a.width - agents.SidebarWidth
-	if termW < 1 {
-		termW = 1
-	}
-	termH := a.height - 1 // reserve for status bar
-	return a, tea.Batch(
-		func() tea.Msg {
-			if err := svc.SpawnAgent(context.Background(), taskID, termW, termH); err != nil {
-				return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
-			}
-			agentList, _ := svc.ListAgents(context.Background())
-			return agents.AgentsRefreshedMsg{Agents: agentList, SelectTask: taskID}
-		},
-		agentTickCmd(),
-	)
+	// Open spawn overlay so user can pick agent + CWD
+	return a.openAgentSpawnOverlay(taskID, card.Title)
 }
 
 func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

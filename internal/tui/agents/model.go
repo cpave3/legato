@@ -216,7 +216,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 		return m, nil
 	case "s":
-		return m, func() tea.Msg { return OpenEphemeralSpawnMsg{} }
+		return m, func() tea.Msg { return OpenAgentSpawnMsg{} }
 	case "X":
 		if a := m.SelectedAgent(); a != nil {
 			return m, func() tea.Msg { return KillAgentMsg{TaskID: a.TaskID} }

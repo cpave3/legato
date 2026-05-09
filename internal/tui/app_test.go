@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"strings"
 	"testing"
@@ -606,8 +607,9 @@ func TestTitleEditSubmitClosesOverlayAndRefreshes(t *testing.T) {
 }
 
 type fakeAgentService struct {
-	agents    []service.AgentSession
-	durations map[string]service.DurationData
+	agents         []service.AgentSession
+	durations      map[string]service.DurationData
+	captureErr     bool // when true, CaptureOutput returns an error (agent not running)
 }
 
 func (f *fakeAgentService) SpawnAgent(_ context.Context, _ string, _, _ int, _ ...service.AgentSpawnOptions) error {
@@ -622,6 +624,9 @@ func (f *fakeAgentService) ListAgentsByParent(_ context.Context, _ string) ([]se
 }
 func (f *fakeAgentService) ReconcileSessions(_ context.Context) error { return nil }
 func (f *fakeAgentService) CaptureOutput(_ context.Context, _ string) (string, error) {
+	if f.captureErr {
+		return "", errors.New("not running")
+	}
 	return "", nil
 }
 func (f *fakeAgentService) AttachCmd(_ context.Context, _ string) (*exec.Cmd, error) {
@@ -727,4 +732,133 @@ func TestReportLoadedMsgForwardedRegardlessOfView(t *testing.T) {
 		Report: &service.Report{Period: analytics.Today()},
 	})
 	// No panic = pass
+}
+
+func TestAKeyOpensTaskSpawnOverlay(t *testing.T) {
+	// CaptureOutput error means agent is not running; overlay opens instead of spawning
+	agentSvc := &fakeAgentService{captureErr: true}
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil)
+	// Init + load board data
+	cmd := app.Init()
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	// Press 'a' — should open the spawn overlay for the selected card
+	app, cmd = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	if app.overlayType != overlayAgentSpawn {
+		t.Fatalf("expected overlayAgentSpawn, got overlay %d", app.overlayType)
+	}
+	if app.activeOverlay == nil {
+		t.Fatal("expected activeOverlay to be set")
+	}
+	// Active view should still be board until spawn is confirmed
+	if app.active != viewBoard {
+		t.Errorf("expected still in viewBoard, got %d", app.active)
+	}
+	_ = cmd
+}
+
+func TestAKeySwitchesToAgentViewWhenRunning(t *testing.T) {
+	// CaptureOutput succeeds means agent is already running; skip overlay
+	agentSvc := &fakeAgentService{
+		agents: []service.AgentSession{
+			{TaskID: "REX-1", Status: "running"},
+		},
+	}
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil)
+	cmd := app.Init()
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	app, cmd = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	// Should switch to agent view without opening overlay
+	if app.overlayType != overlayNone {
+		t.Errorf("expected no overlay, got %d", app.overlayType)
+	}
+	if app.active != viewAgents {
+		t.Errorf("expected viewAgents, got %d", app.active)
+	}
+	// cmd should refresh agent list
+	if cmd == nil {
+		t.Fatal("expected refresh command")
+	}
+}
+
+func TestAgentSpawnSubmitForTask(t *testing.T) {
+	agentSvc := &fakeAgentService{captureErr: true}
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil)
+	cmd := app.Init()
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	// Open overlay
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	if app.overlayType != overlayAgentSpawn {
+		t.Fatalf("expected overlay open")
+	}
+	// Simulate submit with specific agent kind and CWD
+	submit := overlay.AgentSpawnSubmitMsg{
+		TaskID:     "REX-1",
+		AgentKind:  "chimera",
+		WorkingDir: "/custom",
+	}
+	app, cmd = updateApp(app, submit)
+	if app.overlayType != overlayNone {
+		t.Error("overlay should be closed after submit")
+	}
+	if app.active != viewAgents {
+		t.Errorf("expected viewAgents after task spawn submit, got %d", app.active)
+	}
+	if cmd == nil {
+		t.Fatal("expected spawn command")
+	}
+}
+
+func TestAgentSpawnSubmitEphemeral(t *testing.T) {
+	agentSvc := &fakeAgentService{}
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil)
+	cmd := app.Init()
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	// Switch to agent view, then press 's' to open overlay
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	app, keyCmd := updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	// Execute the command to get OpenAgentSpawnMsg
+	if keyCmd != nil {
+		openMsg := keyCmd()
+		app, _ = updateApp(app, openMsg)
+	}
+	if app.overlayType != overlayAgentSpawn {
+		t.Fatalf("expected overlay open, got overlay %d", app.overlayType)
+	}
+	// Submit ephemeral
+	submit := overlay.AgentSpawnSubmitMsg{
+		Title:      "Test ephemeral",
+		AgentKind:  "shell",
+		WorkingDir: "/tmp",
+	}
+	app, cmd = updateApp(app, submit)
+	if app.overlayType != overlayNone {
+		t.Error("overlay should be closed after submit")
+	}
+	// Active view should stay as agents (already was agents before)
+	if app.active != viewAgents {
+		t.Errorf("expected viewAgents after ephemeral spawn submit, got %d", app.active)
+	}
+	if cmd == nil {
+		t.Fatal("expected spawn command")
+	}
 }

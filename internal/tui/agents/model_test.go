@@ -62,8 +62,8 @@ func TestSpawnKeybinding(t *testing.T) {
 		t.Fatal("expected command from 's' key")
 	}
 	msg := cmd()
-	if _, ok := msg.(OpenEphemeralSpawnMsg); !ok {
-		t.Errorf("expected OpenEphemeralSpawnMsg, got %T", msg)
+	if _, ok := msg.(OpenAgentSpawnMsg); !ok {
+		t.Errorf("expected OpenAgentSpawnMsg, got %T", msg)
 	}
 }
 
@@ -270,8 +270,8 @@ func TestSpawnMsgIsEphemeral(t *testing.T) {
 		t.Fatal("expected command from 's' key")
 	}
 	msg := cmd()
-	if _, ok := msg.(OpenEphemeralSpawnMsg); !ok {
-		t.Fatalf("expected OpenEphemeralSpawnMsg, got %T", msg)
+	if _, ok := msg.(OpenAgentSpawnMsg); !ok {
+		t.Fatalf("expected OpenAgentSpawnMsg, got %T", msg)
 	}
 }
 

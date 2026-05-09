@@ -8,15 +8,16 @@ import (
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
-// EphemeralSpawnSubmitMsg is sent when the user confirms the ephemeral spawn.
-type EphemeralSpawnSubmitMsg struct {
-	Title      string
+// AgentSpawnSubmitMsg is sent when the user confirms the spawn.
+type AgentSpawnSubmitMsg struct {
+	TaskID     string // empty for ephemeral agents
+	Title      string // used when TaskID is empty
 	AgentKind  string
 	WorkingDir string
 }
 
-// EphemeralSpawnCancelledMsg is sent when the user cancels.
-type EphemeralSpawnCancelledMsg struct{}
+// AgentSpawnCancelledMsg is sent when the user cancels.
+type AgentSpawnCancelledMsg struct{}
 
 // spawnField tracks which input is active in the overlay.
 type spawnField int
@@ -27,23 +28,26 @@ const (
 	spawnFocusCwd
 )
 
-// EphemeralSpawnOverlay lets the user configure and spawn an ephemeral agent.
-type EphemeralSpawnOverlay struct {
-	title          string
-	agentIndex     int      // index into agentOptions
-	agentOptions   []string // display labels
-	agentValues    []string // corresponding agent kind values ("", "shell", adapter names)
-	cwd            string
-	focus          spawnField
-	width          int
-	height         int
+// AgentSpawnOverlay lets the user configure and spawn an agent.
+type AgentSpawnOverlay struct {
+	taskID       string   // empty for ephemeral agents
+	title        string
+	agentIndex   int      // index into agentOptions
+	agentOptions []string // display labels
+	agentValues  []string // corresponding agent kind values ("", "shell", adapter names)
+	cwd          string
+	focus        spawnField
+	width        int
+	height       int
 }
 
-// NewEphemeralSpawn creates an ephemeral spawn overlay.
+// NewAgentSpawn creates an agent spawn overlay.
 // adapters is the list of registered adapter names (excluding the default).
 // defaultAdapter is the name shown for the default option.
 // defaultCWD pre-fills the working directory field.
-func NewEphemeralSpawn(adapters []string, defaultAdapter, defaultCWD string) EphemeralSpawnOverlay {
+// taskID is empty for ephemeral agents; non-empty spawns an agent for an existing task.
+// title pre-fills the title field; for ephemeral agents this is editable, for task-bound it is shown as context.
+func NewAgentSpawn(adapters []string, defaultAdapter, defaultCWD, taskID, title string) AgentSpawnOverlay {
 	options := []string{}
 	values := []string{}
 
@@ -62,18 +66,26 @@ func NewEphemeralSpawn(adapters []string, defaultAdapter, defaultCWD string) Eph
 		values = append(values, a)
 	}
 
-	return EphemeralSpawnOverlay{
+	focus := spawnFocusTitle
+	if taskID != "" {
+		// Task-bound: focus the agent selector since title is just context
+		focus = spawnFocusAgent
+	}
+
+	return AgentSpawnOverlay{
+		taskID:       taskID,
 		agentIndex:   0,
 		agentOptions: options,
 		agentValues:  values,
 		cwd:          defaultCWD,
-		focus:        spawnFocusTitle,
+		title:        title,
+		focus:        focus,
 	}
 }
 
-func (m EphemeralSpawnOverlay) Init() tea.Cmd { return nil }
+func (m AgentSpawnOverlay) Init() tea.Cmd { return nil }
 
-func (m EphemeralSpawnOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m AgentSpawnOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -83,14 +95,15 @@ func (m EphemeralSpawnOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc":
-			return m, func() tea.Msg { return EphemeralSpawnCancelledMsg{} }
+			return m, func() tea.Msg { return AgentSpawnCancelledMsg{} }
 		case "enter":
 			title := m.title
-			if title == "" {
+			if m.taskID == "" && title == "" {
 				title = "Ephemeral session"
 			}
 			return m, func() tea.Msg {
-				return EphemeralSpawnSubmitMsg{
+				return AgentSpawnSubmitMsg{
+					TaskID:     m.taskID,
 					Title:      title,
 					AgentKind:  m.agentValues[m.agentIndex],
 					WorkingDir: m.cwd,
@@ -158,14 +171,19 @@ func (m EphemeralSpawnOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m EphemeralSpawnOverlay) View() string {
+func (m AgentSpawnOverlay) View() string {
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(theme.TextPrimary)
 	labelStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
 	inputStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple).Bold(true)
 	hintStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
 	cursor := inputStyle.Render("█")
 
-	heading := titleStyle.Render("Spawn Ephemeral Agent")
+	var heading string
+	if m.taskID == "" {
+		heading = titleStyle.Render("Spawn Ephemeral Agent")
+	} else {
+		heading = titleStyle.Render("Spawn Agent")
+	}
 
 	renderLine := func(label, value string, focused bool) string {
 		prefix := "  "
