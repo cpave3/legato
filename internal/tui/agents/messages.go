@@ -2,13 +2,6 @@ package agents
 
 import "github.com/cpave3/legato/internal/service"
 
-// SpawnAgentMsg requests spawning an agent for a card.
-type SpawnAgentMsg struct {
-	TaskID string
-	Width  int
-	Height int
-}
-
 // KillAgentMsg requests killing the selected agent.
 type KillAgentMsg struct {
 	TaskID string

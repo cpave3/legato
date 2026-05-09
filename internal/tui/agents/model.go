@@ -339,7 +339,7 @@ func (m Model) renderSidebar() string {
 			Foreground(theme.TextTertiary).
 			PaddingLeft(1).
 			Width(sidebarContentWidth)
-		entries = emptyStyle.Render("No agents\n\nPress s to spawn\nan ephemeral session")
+		entries = emptyStyle.Render("No agents\n\nPress s to spawn\nan agent session")
 	} else {
 		var entryLines []string
 		selectedEntryIdx := -1

@@ -156,3 +156,61 @@ func TestAgentSpawnOverlayAgentSelection(t *testing.T) {
 		t.Errorf("AgentKind = %q, want chimera", submit.AgentKind)
 	}
 }
+
+func TestAgentSpawnOverlayHLKeys(t *testing.T) {
+	m := NewAgentSpawn([]string{"chimera"}, "openai", "/tmp", "", "")
+	// Move focus to agent selector, then use h/l
+	tmp, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = tmp.(AgentSpawnOverlay)
+	// l to cycle right twice
+	tmp, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	m = tmp.(AgentSpawnOverlay)
+	tmp, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	m = tmp.(AgentSpawnOverlay)
+	if m.agentIndex != 2 {
+		t.Errorf("agentIndex after l/l = %d, want 2", m.agentIndex)
+	}
+	// h to cycle left
+	tmp, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	m = tmp.(AgentSpawnOverlay)
+	if m.agentIndex != 1 {
+		t.Errorf("agentIndex after h = %d, want 1", m.agentIndex)
+	}
+}
+
+func TestAgentSpawnOverlayTaskBoundTabSkipsTitle(t *testing.T) {
+	m := NewAgentSpawn([]string{"chimera"}, "openai", "/workspace", "REX-1", "Fix login")
+	// Initial focus should be agent
+	if m.focus != spawnFocusAgent {
+		t.Fatalf("initial focus = %d, want agent", m.focus)
+	}
+	// Tab should skip title and go to CWD
+	tmp, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = tmp.(AgentSpawnOverlay)
+	if m.focus != spawnFocusCwd {
+		t.Errorf("after tab: focus = %d, want CWD", m.focus)
+	}
+	// Tab should wrap back to agent, skipping title
+	tmp, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = tmp.(AgentSpawnOverlay)
+	if m.focus != spawnFocusAgent {
+		t.Errorf("after 2nd tab: focus = %d, want agent", m.focus)
+	}
+}
+
+func TestAgentSpawnOverlayTaskBoundIgnoresTitleEdits(t *testing.T) {
+	m := NewAgentSpawn([]string{}, "", "/workspace", "REX-1", "Fix login")
+	// Force focus onto title field to verify edits are blocked
+	m.focus = spawnFocusTitle
+	tmp, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m = tmp.(AgentSpawnOverlay)
+	if m.title != "Fix login" {
+		t.Errorf("title edited despite task-bound: %q", m.title)
+	}
+	// Backspace should also be ignored
+	tmp, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	m = tmp.(AgentSpawnOverlay)
+	if m.title != "Fix login" {
+		t.Errorf("title backspaced despite task-bound: %q", m.title)
+	}
+}

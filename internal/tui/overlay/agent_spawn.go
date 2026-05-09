@@ -26,6 +26,7 @@ const (
 	spawnFocusTitle spawnField = iota
 	spawnFocusAgent
 	spawnFocusCwd
+	spawnFieldCount = 3
 )
 
 // AgentSpawnOverlay lets the user configure and spawn an agent.
@@ -110,19 +111,11 @@ func (m AgentSpawnOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "tab":
-			m.focus = (m.focus + 1) % 3
-			return m, nil
-		case "shift+tab":
-			m.focus = (m.focus + 2) % 3
-			return m, nil
-		case "up":
-			if m.focus > 0 {
-				m.focus--
-			}
-			return m, nil
-		case "down":
-			if m.focus < 2 {
-				m.focus++
+			for {
+				m.focus = (m.focus + 1) % spawnFieldCount
+				if m.taskID == "" || m.focus != spawnFocusTitle {
+					break
+				}
 			}
 			return m, nil
 		case "left":
@@ -138,7 +131,7 @@ func (m AgentSpawnOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "backspace":
 			switch m.focus {
 			case spawnFocusTitle:
-				if len(m.title) > 0 {
+				if m.taskID == "" && len(m.title) > 0 {
 					m.title = m.title[:len(m.title)-1]
 				}
 			case spawnFocusCwd:
@@ -151,16 +144,35 @@ func (m AgentSpawnOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.Type == tea.KeySpace {
 				switch m.focus {
 				case spawnFocusTitle:
-					m.title += " "
+					if m.taskID == "" {
+						m.title += " "
+					}
 				case spawnFocusCwd:
 					m.cwd += " "
 				}
 				return m, nil
 			}
 			if msg.Type == tea.KeyRunes && len(msg.Runes) > 0 {
+				// h/l cycle agent selector when focused
+				if m.focus == spawnFocusAgent && len(msg.Runes) == 1 {
+					switch msg.Runes[0] {
+					case 'h':
+						if m.agentIndex > 0 {
+							m.agentIndex--
+						}
+						return m, nil
+					case 'l':
+						if m.agentIndex < len(m.agentOptions)-1 {
+							m.agentIndex++
+						}
+						return m, nil
+					}
+				}
 				switch m.focus {
 				case spawnFocusTitle:
-					m.title += string(msg.Runes)
+					if m.taskID == "" {
+						m.title += string(msg.Runes)
+					}
 				case spawnFocusCwd:
 					m.cwd += string(msg.Runes)
 				}
@@ -211,7 +223,7 @@ func (m AgentSpawnOverlay) View() string {
 	}
 	cwdLine := renderLine("CWD", cwdVal, m.focus == spawnFocusCwd)
 
-	hints := hintStyle.Render("↑↓ move · ←→ change agent · enter spawn · esc cancel")
+	hints := hintStyle.Render("tab field · h/l or ←→ change agent · enter spawn · esc cancel")
 
 	lines := []string{heading, "", titleLine, agentLine, cwdLine, "", hints}
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)

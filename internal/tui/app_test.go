@@ -12,6 +12,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/analytics"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/agents"
 	"github.com/cpave3/legato/internal/tui/board"
 	"github.com/cpave3/legato/internal/tui/detail"
 	"github.com/cpave3/legato/internal/tui/overlay"
@@ -610,9 +611,13 @@ type fakeAgentService struct {
 	agents         []service.AgentSession
 	durations      map[string]service.DurationData
 	captureErr     bool // when true, CaptureOutput returns an error (agent not running)
+	lastSpawnOpts  *service.AgentSpawnOptions
 }
 
-func (f *fakeAgentService) SpawnAgent(_ context.Context, _ string, _, _ int, _ ...service.AgentSpawnOptions) error {
+func (f *fakeAgentService) SpawnAgent(_ context.Context, _ string, _, _ int, opts ...service.AgentSpawnOptions) error {
+	if len(opts) > 0 {
+		f.lastSpawnOpts = &opts[0]
+	}
 	return nil
 }
 func (f *fakeAgentService) KillAgent(_ context.Context, _ string) error { return nil }
@@ -641,7 +646,10 @@ func (f *fakeAgentService) GetTaskDurations(_ context.Context, _ []string) (map[
 func (f *fakeAgentService) GetAgentSummary(_ context.Context, _ string) (int, int, int, error) {
 	return 0, 0, 0, nil
 }
-func (f *fakeAgentService) SpawnEphemeralAgent(_ context.Context, _ string, _, _ int, _ ...service.AgentSpawnOptions) error {
+func (f *fakeAgentService) SpawnEphemeralAgent(_ context.Context, _ string, _, _ int, opts ...service.AgentSpawnOptions) error {
+	if len(opts) > 0 {
+		f.lastSpawnOpts = &opts[0]
+	}
 	return nil
 }
 func (f *fakeAgentService) LastSpawnConflicts() []service.AgentSpawnConflict { return nil }
@@ -821,6 +829,18 @@ func TestAgentSpawnSubmitForTask(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected spawn command")
 	}
+		for _, c := range cmd().(tea.BatchMsg) {
+			c()
+		}
+	if agentSvc.lastSpawnOpts == nil {
+		t.Fatal("expected opts to be passed to SpawnAgent")
+	}
+	if agentSvc.lastSpawnOpts.AgentKind != "chimera" {
+		t.Errorf("AgentKind = %q, want chimera", agentSvc.lastSpawnOpts.AgentKind)
+	}
+	if agentSvc.lastSpawnOpts.WorkingDir != "/custom" {
+		t.Errorf("WorkingDir = %q, want /custom", agentSvc.lastSpawnOpts.WorkingDir)
+	}
 }
 
 func TestAgentSpawnSubmitEphemeral(t *testing.T) {
@@ -860,5 +880,60 @@ func TestAgentSpawnSubmitEphemeral(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("expected spawn command")
+	}
+	// Execute the batched command to trigger SpawnEphemeralAgent side effects
+	for _, c := range cmd().(tea.BatchMsg) {
+		c()
+	}
+	if agentSvc.lastSpawnOpts == nil {
+		t.Fatal("expected opts to be passed to SpawnEphemeralAgent")
+	}
+	if agentSvc.lastSpawnOpts.AgentKind != "shell" {
+		t.Errorf("AgentKind = %q, want shell", agentSvc.lastSpawnOpts.AgentKind)
+	}
+}
+
+func TestTKeyOpensTaskSpawnOverlay(t *testing.T) {
+	agentSvc := &fakeAgentService{captureErr: true}
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil)
+	cmd := app.Init()
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	app, cmd = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	if app.overlayType != overlayAgentSpawn {
+		t.Fatalf("expected overlayAgentSpawn from 't' key, got overlay %d", app.overlayType)
+	}
+}
+
+func TestAgentSpawnSubmitSetsSelectTask(t *testing.T) {
+	agentSvc := &fakeAgentService{captureErr: true}
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil)
+	cmd := app.Init()
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	app, cmd = updateApp(app, overlay.AgentSpawnSubmitMsg{TaskID: "REX-1"})
+	if cmd == nil {
+		t.Fatal("expected spawn command")
+	}
+	// Execute the batched command to find AgentsRefreshedMsg
+	batch := cmd().(tea.BatchMsg)
+	var foundMsg agents.AgentsRefreshedMsg
+	for _, c := range batch {
+		inner := c()
+		if msg, ok := inner.(agents.AgentsRefreshedMsg); ok {
+			foundMsg = msg
+		}
+	}
+	if foundMsg.SelectTask != "REX-1" {
+		t.Errorf("SelectTask = %q, want REX-1", foundMsg.SelectTask)
 	}
 }

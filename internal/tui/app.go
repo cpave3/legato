@@ -422,8 +422,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.reportView, _ = a.reportView.Update(msg)
 		return a, nil
 
-	case agents.SpawnAgentMsg:
-		return a.handleSpawnAgent(msg)
 
 	case agents.KillAgentMsg:
 		return a.handleKillAgent(msg)
@@ -1584,30 +1582,6 @@ func (a *App) refreshCoordinationPanel(focusedTaskID string) {
 	a.agentView.SetCoordinationPanel(string(raw))
 }
 
-func (a App) handleSpawnAgent(msg agents.SpawnAgentMsg) (tea.Model, tea.Cmd) {
-	if a.agentSvc == nil {
-		return a, nil
-	}
-	taskID := msg.TaskID
-	// If no ticket ID, use selected board card
-	if taskID == "" {
-		if card := a.board.SelectedCard(); card != nil {
-			taskID = card.Key
-		}
-	}
-	if taskID == "" {
-		return a, nil
-	}
-	svc := a.agentSvc
-	w, h := msg.Width, msg.Height
-	return a, func() tea.Msg {
-		if err := svc.SpawnAgent(context.Background(), taskID, w, h); err != nil {
-			return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
-		}
-		agentList, _ := svc.ListAgents(context.Background())
-		return agents.AgentsRefreshedMsg{Agents: agentList}
-	}
-}
 
 func (a App) handleKillAgent(msg agents.KillAgentMsg) (tea.Model, tea.Cmd) {
 	if a.agentSvc == nil {
