@@ -9,11 +9,12 @@ import (
 // Report is the complete analytics report for a time period.
 // It contains only plain data types — no rendering logic.
 type Report struct {
-	Period     analytics.TimeRange
-	Summary    ReportSummary
-	ByDay      []DayBreakdown
-	ByTask     []TaskStats
+	Period      analytics.TimeRange
+	Summary     ReportSummary
+	ByDay       []DayBreakdown
+	ByTask      []TaskStats
 	ByWorkspace []WorkspaceStats
+	ByDirectory []DirectoryStats
 }
 
 // ReportSummary holds top-level aggregate metrics.
@@ -46,10 +47,18 @@ type TaskStats struct {
 
 // WorkspaceStats holds per-workspace analytics.
 type WorkspaceStats struct {
-	WorkspaceID   *int
-	WorkspaceName string
+	WorkspaceID    *int
+	WorkspaceName  string
 	WorkspaceColor string
-	Working       time.Duration
-	Waiting       time.Duration
-	TaskCount     int
+	Working        time.Duration
+	Waiting        time.Duration
+	TaskCount      int
+}
+
+// DirectoryStats holds per-directory analytics.
+type DirectoryStats struct {
+	Directory string
+	Working   time.Duration
+	Waiting   time.Duration
+	TaskCount int
 }

@@ -24,7 +24,7 @@ func TestRecordStateTransitionOpensInterval(t *testing.T) {
 	ctx := context.Background()
 	createTestTask(t, s, "task1")
 
-	if err := s.RecordStateTransition(ctx, "task1", "working"); err != nil {
+	if err := s.RecordStateTransition(ctx, "task1", "working", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -48,10 +48,10 @@ func TestRecordStateTransitionClosesAndOpens(t *testing.T) {
 	ctx := context.Background()
 	createTestTask(t, s, "task1")
 
-	if err := s.RecordStateTransition(ctx, "task1", "working"); err != nil {
+	if err := s.RecordStateTransition(ctx, "task1", "working", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordStateTransition(ctx, "task1", "waiting"); err != nil {
+	if err := s.RecordStateTransition(ctx, "task1", "waiting", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -80,11 +80,11 @@ func TestRecordStateTransitionIdempotent(t *testing.T) {
 	ctx := context.Background()
 	createTestTask(t, s, "task1")
 
-	if err := s.RecordStateTransition(ctx, "task1", "working"); err != nil {
+	if err := s.RecordStateTransition(ctx, "task1", "working", ""); err != nil {
 		t.Fatal(err)
 	}
 	// Same state again — should be a no-op
-	if err := s.RecordStateTransition(ctx, "task1", "working"); err != nil {
+	if err := s.RecordStateTransition(ctx, "task1", "working", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -102,11 +102,11 @@ func TestRecordStateTransitionClearClosesOnly(t *testing.T) {
 	ctx := context.Background()
 	createTestTask(t, s, "task1")
 
-	if err := s.RecordStateTransition(ctx, "task1", "working"); err != nil {
+	if err := s.RecordStateTransition(ctx, "task1", "working", ""); err != nil {
 		t.Fatal(err)
 	}
 	// Clear state — should close but not open new
-	if err := s.RecordStateTransition(ctx, "task1", ""); err != nil {
+	if err := s.RecordStateTransition(ctx, "task1", "", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -128,7 +128,7 @@ func TestRecordStateTransitionNoOpenInterval(t *testing.T) {
 	createTestTask(t, s, "task1")
 
 	// No open interval — clear should be a no-op
-	if err := s.RecordStateTransition(ctx, "task1", ""); err != nil {
+	if err := s.RecordStateTransition(ctx, "task1", "", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -261,5 +261,48 @@ func TestGetStateDurationsBatchEmpty(t *testing.T) {
 	}
 	if len(result) != 0 {
 		t.Errorf("got %d entries, want 0", len(result))
+	}
+}
+
+func TestRecordStateTransitionStoresWorkingDir(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "task1")
+
+	wd := "/projects/frontend"
+	if err := s.RecordStateTransition(ctx, "task1", "working", wd); err != nil {
+		t.Fatal(err)
+	}
+
+	var intervals []StateInterval
+	if err := s.db.SelectContext(ctx, &intervals, "SELECT * FROM state_intervals WHERE task_id = ?", "task1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(intervals) != 1 {
+		t.Fatalf("got %d intervals, want 1", len(intervals))
+	}
+	if intervals[0].WorkingDir == nil || *intervals[0].WorkingDir != wd {
+		t.Errorf("working_dir = %v, want %q", intervals[0].WorkingDir, wd)
+	}
+}
+
+func TestRecordStateTransitionNullWorkingDir(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "task1")
+
+	if err := s.RecordStateTransition(ctx, "task1", "working", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	var intervals []StateInterval
+	if err := s.db.SelectContext(ctx, &intervals, "SELECT * FROM state_intervals WHERE task_id = ?", "task1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(intervals) != 1 {
+		t.Fatalf("got %d intervals, want 1", len(intervals))
+	}
+	if intervals[0].WorkingDir != nil {
+		t.Errorf("working_dir should be nil, got %v", intervals[0].WorkingDir)
 	}
 }

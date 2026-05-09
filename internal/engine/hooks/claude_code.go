@@ -209,7 +209,7 @@ func agentStateScript(legatoBin, activity string) string {
 	b.WriteString("# Called by an AI tool's hook system to update agent activity state.\n\n")
 	b.WriteString("# Only act inside Legato-spawned tmux sessions.\n")
 	b.WriteString("[ -z \"$LEGATO_TASK_ID\" ] && exit 0\n\n")
-	b.WriteString(fmt.Sprintf("%s agent state \"$LEGATO_TASK_ID\" --activity %s\n", legatoBin, activity))
+	b.WriteString(fmt.Sprintf("%s agent state \"$LEGATO_TASK_ID\" --activity \"%s\" --working-dir \"$PWD\"\n", legatoBin, activity))
 	b.WriteString("exit 0\n")
 	return b.String()
 }

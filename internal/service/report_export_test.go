@@ -31,6 +31,9 @@ func TestExportReportMarkdown_Full(t *testing.T) {
 		ByWorkspace: []service.WorkspaceStats{
 			{WorkspaceName: "frontend", Working: 3 * time.Hour, Waiting: 1 * time.Hour, TaskCount: 2},
 		},
+		ByDirectory: []service.DirectoryStats{
+			{Directory: "/projects/app", Working: 3 * time.Hour, Waiting: 1 * time.Hour, TaskCount: 2},
+		},
 	}
 
 	md := service.ExportReportMarkdown(report)
@@ -52,6 +55,12 @@ func TestExportReportMarkdown_Full(t *testing.T) {
 	}
 	if !strings.Contains(md, "76%") {
 		t.Error("missing working ratio")
+	}
+	if !strings.Contains(md, "/projects/app") {
+		t.Error("missing directory")
+	}
+	if !strings.Contains(md, "## Directories") {
+		t.Error("missing directories section")
 	}
 }
 

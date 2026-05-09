@@ -72,8 +72,10 @@ func TaskNote(s *store.Store, taskID, message string) error {
 
 // AgentState updates the activity state of an agent session for a task.
 // Valid activities: "working", "waiting", "" (clear).
+// workingDir, when non-empty, is recorded on the interval to help track
+// time spent in directories as a proxy for project focus.
 // Broadcasts an IPC notification to all running Legato instances.
-func AgentState(s *store.Store, taskID, activity string) error {
+func AgentState(s *store.Store, taskID, activity, workingDir string) error {
 	ctx := context.Background()
 
 	if err := s.UpdateAgentActivity(ctx, taskID, activity); err != nil {
@@ -81,7 +83,7 @@ func AgentState(s *store.Store, taskID, activity string) error {
 	}
 
 	// Record state interval for duration tracking
-	if err := s.RecordStateTransition(ctx, taskID, activity); err != nil {
+	if err := s.RecordStateTransition(ctx, taskID, activity, workingDir); err != nil {
 		return fmt.Errorf("recording state transition: %w", err)
 	}
 

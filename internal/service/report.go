@@ -46,6 +46,11 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 		return nil, err
 	}
 
+	dirBreakdown, err := analytics.QueryDirectoryBreakdown(ctx, r.db, period)
+	if err != nil {
+		return nil, err
+	}
+
 	// Enrich task breakdown with metadata
 	taskIDs := make([]string, len(taskBreakdown))
 	for i, td := range taskBreakdown {
@@ -125,6 +130,17 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 		}
 	}
 
+	// Convert directory breakdown
+	dirStats := make([]DirectoryStats, len(dirBreakdown))
+	for i, d := range dirBreakdown {
+		dirStats[i] = DirectoryStats{
+			Directory: d.Directory,
+			Working:   d.Working,
+			Waiting:   d.Waiting,
+			TaskCount: d.TaskCount,
+		}
+	}
+
 	return &Report{
 		Period: period,
 		Summary: ReportSummary{
@@ -138,5 +154,6 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 		ByDay:       days,
 		ByTask:      taskStats,
 		ByWorkspace: wsStats,
+		ByDirectory: dirStats,
 	}, nil
 }

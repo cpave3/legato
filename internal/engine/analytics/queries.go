@@ -45,6 +45,16 @@ type WorkspaceBreakdown struct {
 	TaskCount     int
 }
 
+// DirectoryBreakdown holds duration and count metrics for a directory.
+// The Directory field is the effective working directory (from the interval or
+// the task's swarm working directory as a fallback), used as a proxy for project.
+type DirectoryBreakdown struct {
+	Directory    string
+	Working      time.Duration
+	Waiting      time.Duration
+	TaskCount    int
+}
+
 // QueryDurations aggregates total working/waiting durations from state_intervals
 // within the given time range. Intervals that span boundaries are clipped.
 // Open intervals use the current time as end.
@@ -333,6 +343,93 @@ func QueryWorkspaceBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]
 	result := make([]WorkspaceBreakdown, 0, len(wsMap))
 	for _, ws := range wsMap {
 		result = append(result, *ws)
+	}
+	return result, nil
+}
+
+// QueryDirectoryBreakdown returns working/waiting durations grouped by working
+// directory within the time range. Per-interval working_dir takes precedence;
+// if NULL for older rows, falls back to the task's swarm_working_dir.
+func QueryDirectoryBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]DirectoryBreakdown, error) {
+	startFmt := tr.StartUTC().Format(sqliteDatetime)
+	endFmt := tr.EndUTC().Format(sqliteDatetime)
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT COALESCE(si.working_dir, t.swarm_working_dir, 'Unknown') as dir,
+			si.state,
+			SUM(
+				CAST(ROUND(
+					MAX(0,
+						(julianday(MIN(COALESCE(si.ended_at, datetime('now')), ?)) -
+						 julianday(MAX(si.started_at, ?))) * 86400
+					)) AS INTEGER
+				)
+			) as total_seconds
+		FROM state_intervals si
+		JOIN tasks t ON si.task_id = t.id
+		WHERE si.started_at < ? AND (si.ended_at IS NULL OR si.ended_at > ?)
+		GROUP BY dir, si.state`,
+		endFmt, startFmt, endFmt, startFmt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	dirMap := make(map[string]*DirectoryBreakdown)
+	for rows.Next() {
+		var dir, state string
+		var totalSeconds int64
+		if err := rows.Scan(&dir, &state, &totalSeconds); err != nil {
+			return nil, err
+		}
+		if dirMap[dir] == nil {
+			dirMap[dir] = &DirectoryBreakdown{Directory: dir}
+		}
+		d := time.Duration(totalSeconds) * time.Second
+		switch state {
+		case "working":
+			dirMap[dir].Working = d
+		case "waiting":
+			dirMap[dir].Waiting = d
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Count distinct tasks per directory in the range
+	countRows, err := db.QueryContext(ctx, `
+		SELECT COALESCE(si.working_dir, t.swarm_working_dir, 'Unknown') as dir,
+			COUNT(DISTINCT si.task_id) as task_count
+		FROM state_intervals si
+		JOIN tasks t ON si.task_id = t.id
+		WHERE si.started_at < ? AND (si.ended_at IS NULL OR si.ended_at > ?)
+		GROUP BY dir`,
+		endFmt, startFmt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer countRows.Close()
+
+	for countRows.Next() {
+		var dir string
+		var count int
+		if err := countRows.Scan(&dir, &count); err != nil {
+			return nil, err
+		}
+		if d := dirMap[dir]; d != nil {
+			d.TaskCount = count
+		}
+	}
+	if err := countRows.Err(); err != nil {
+		return nil, err
+	}
+
+	result := make([]DirectoryBreakdown, 0, len(dirMap))
+	for _, d := range dirMap {
+		result = append(result, *d)
 	}
 	return result, nil
 }

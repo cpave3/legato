@@ -137,10 +137,14 @@ func TestReportService_WithWorkspace(t *testing.T) {
 	}
 
 	// Create task with workspace
+	wd := "/tmp/work"
 	err = s.CreateTask(ctx, store.Task{
-		ID: "t1", Title: "Build UI", Status: "Doing",
-		CreatedAt: base.Format("2006-01-02 15:04:05"),
-		UpdatedAt: base.Format("2006-01-02 15:04:05"),
+		ID:              "t1",
+		Title:           "Build UI",
+		Status:          "Doing",
+		SwarmWorkingDir: &wd,
+		CreatedAt:       base.Format("2006-01-02 15:04:05"),
+		UpdatedAt:       base.Format("2006-01-02 15:04:05"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -188,6 +192,18 @@ func TestReportService_WithWorkspace(t *testing.T) {
 	}
 	if report.ByWorkspace[0].Working != 2*time.Hour {
 		t.Errorf("expected 2h working, got %v", report.ByWorkspace[0].Working)
+	}
+
+	// Directory breakdown falls back to swarm_working_dir
+	if len(report.ByDirectory) != 1 {
+		t.Fatalf("expected 1 directory, got %d", len(report.ByDirectory))
+	}
+	
+	if report.ByDirectory[0].Directory != wd {
+		t.Errorf("expected directory %q, got %q", wd, report.ByDirectory[0].Directory)
+	}
+	if report.ByDirectory[0].Working != 2*time.Hour {
+		t.Errorf("expected 2h directory working, got %v", report.ByDirectory[0].Working)
 	}
 }
 

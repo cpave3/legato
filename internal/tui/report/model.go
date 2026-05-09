@@ -164,6 +164,9 @@ func (m Model) View() string {
 	// Workspace breakdown
 	workspace := m.renderWorkspaces(contentWidth)
 
+	// Directory breakdown
+	directory := m.renderDirectories(contentWidth)
+
 	// Hints
 	hints := m.renderHints(contentWidth)
 
@@ -176,6 +179,9 @@ func (m Model) View() string {
 	}
 	if workspace != "" {
 		sections = append(sections, workspace)
+	}
+	if directory != "" {
+		sections = append(sections, directory)
 	}
 	sections = append(sections, hints)
 
@@ -414,6 +420,39 @@ func (m Model) renderWorkspaces(width int) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderDirectories(width int) string {
+	dirs := m.report.ByDirectory
+	if len(dirs) == 0 {
+		return ""
+	}
+
+	sectionStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary).Bold(true)
+
+	var lines []string
+	lines = append(lines, sectionStyle.Render("DIRECTORIES"))
+
+	for _, d := range dirs {
+		line := fmt.Sprintf("%-30s  Working: %-8s  Waiting: %-8s  Tasks: %d",
+			truncateDir(d.Directory, 30),
+			fmtDuration(d.Working),
+			fmtDuration(d.Waiting),
+			d.TaskCount)
+		lines = append(lines, line)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func truncateDir(dir string, maxLen int) string {
+	if len(dir) <= maxLen {
+		return dir
+	}
+	if maxLen < 3 {
+		return dir[:maxLen]
+	}
+	return "…" + dir[len(dir)-maxLen+1:]
 }
 
 func (m Model) renderHints(width int) string {

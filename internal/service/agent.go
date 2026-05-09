@@ -622,7 +622,7 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 				return err
 			}
 			// Close any orphaned state intervals for this task
-			_ = a.store.RecordStateTransition(ctx, s.TaskID, "")
+			_ = a.store.RecordStateTransition(ctx, s.TaskID, "", "")
 			// Notify swarm orchestrator that an agent died (best-effort).
 			if a.bus != nil {
 				parent := ""

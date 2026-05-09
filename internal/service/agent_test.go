@@ -631,7 +631,7 @@ func TestReconcileClosesOrphanedIntervals(t *testing.T) {
 	}
 
 	// Record a working interval
-	if err := s.RecordStateTransition(ctx, "REX-1238", "working"); err != nil {
+	if err := s.RecordStateTransition(ctx, "REX-1238", "working", ""); err != nil {
 		t.Fatal(err)
 	}
 

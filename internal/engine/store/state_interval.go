@@ -11,7 +11,9 @@ import (
 // RecordStateTransition closes any open interval for the task and opens a new one
 // if state is non-empty. Idempotent: if the current open interval already has the
 // requested state, no changes are made.
-func (s *Store) RecordStateTransition(ctx context.Context, taskID, state string) error {
+// workingDir is captured per-interval to track time spent in directories as a
+// proxy for project focus; pass empty string to leave it NULL.
+func (s *Store) RecordStateTransition(ctx context.Context, taskID, state, workingDir string) error {
 	// Check for an existing open interval
 	var current StateInterval
 	err := s.db.GetContext(ctx, &current,
@@ -38,10 +40,19 @@ func (s *Store) RecordStateTransition(ctx context.Context, taskID, state string)
 
 	// Open a new interval if the new state is non-empty
 	if state != "" {
-		_, err := s.db.ExecContext(ctx,
-			"INSERT INTO state_intervals (task_id, state) VALUES (?, ?)", taskID, state)
-		if err != nil {
-			return err
+		if workingDir != "" {
+			_, err := s.db.ExecContext(ctx,
+				"INSERT INTO state_intervals (task_id, state, working_dir) VALUES (?, ?, ?)",
+				taskID, state, workingDir)
+			if err != nil {
+				return err
+			}
+		} else {
+			_, err := s.db.ExecContext(ctx,
+				"INSERT INTO state_intervals (task_id, state) VALUES (?, ?)", taskID, state)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

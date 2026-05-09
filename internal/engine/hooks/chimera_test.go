@@ -1,6 +1,7 @@
 package hooks_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,7 +65,7 @@ func TestChimeraAdapter_InstallHooks(t *testing.T) {
 		if !strings.Contains(content, "[ -z \"$LEGATO_TASK_ID\" ] && exit 0") {
 			t.Errorf("%s: missing LEGATO_TASK_ID guard", ev.dir)
 		}
-		wantCmd := "/usr/bin/legato agent state \"$LEGATO_TASK_ID\" --activity " + ev.activity
+			wantCmd := fmt.Sprintf("%s agent state \"$LEGATO_TASK_ID\" --activity %q --working-dir \"$PWD\"", "/usr/bin/legato", ev.activity)
 		if !strings.Contains(content, wantCmd) {
 			t.Errorf("%s: expected %q in script, got:\n%s", ev.dir, wantCmd, content)
 		}

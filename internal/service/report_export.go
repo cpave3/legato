@@ -81,6 +81,18 @@ func ExportReportMarkdown(r *Report) string {
 		b.WriteString("\n")
 	}
 
+	// Directory breakdown
+	if len(r.ByDirectory) > 0 {
+		b.WriteString("## Directories\n\n")
+		b.WriteString("| Directory | Working | Waiting | Tasks |\n")
+		b.WriteString("|-----------|---------|---------|-------|\n")
+		for _, d := range r.ByDirectory {
+			b.WriteString(fmt.Sprintf("| %s | %s | %s | %d |\n",
+				d.Directory, fmtDuration(d.Working), fmtDuration(d.Waiting), d.TaskCount))
+		}
+		b.WriteString("\n")
+	}
+
 	return b.String()
 }
 

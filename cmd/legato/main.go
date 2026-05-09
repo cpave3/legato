@@ -209,18 +209,20 @@ func runAgentCmd(args []string) int {
 }
 
 func runAgentState(args []string) int {
-	// Parse: legato agent state <task-id> --activity <working|waiting|"">
+	// Parse: legato agent state <task-id> --activity <working|waiting|""> [--working-dir <dir>]
 	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: legato agent state <task-id> --activity <working|waiting|\"\">\n")
+		fmt.Fprintf(os.Stderr, "usage: legato agent state <task-id> --activity <working|waiting|\"\"> [--working-dir <dir>]\n")
 		return 1
 	}
 
 	taskID := args[0]
 	activity := ""
+	workingDir := ""
 	for i := 1; i < len(args)-1; i++ {
 		if args[i] == "--activity" {
 			activity = args[i+1]
-			break
+		} else if args[i] == "--working-dir" {
+			workingDir = args[i+1]
 		}
 	}
 
@@ -237,7 +239,7 @@ func runAgentState(args []string) int {
 	}
 	defer db.Close()
 
-	if err := cli.AgentState(db, taskID, activity); err != nil {
+	if err := cli.AgentState(db, taskID, activity, workingDir); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}

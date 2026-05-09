@@ -360,3 +360,104 @@ func TestQueryWorkspaceBreakdown(t *testing.T) {
 		t.Errorf("frontend: expected 1 task, got %d", wsMap["frontend"].TaskCount)
 	}
 }
+
+func TestQueryDirectoryBreakdown(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
+
+	seedTask(t, db, "t1", base)
+	seedTask(t, db, "t2", base)
+
+	// Intervals with explicit working dirs
+	_, err := db.Exec(
+		"INSERT INTO state_intervals (task_id, state, started_at, ended_at, working_dir) VALUES (?, ?, ?, ?, ?)",
+		"t1", "working", base.Format("2006-01-02 15:04:05"),
+		base.Add(2*time.Hour).Format("2006-01-02 15:04:05"), "/projects/frontend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(
+		"INSERT INTO state_intervals (task_id, state, started_at, ended_at, working_dir) VALUES (?, ?, ?, ?, ?)",
+		"t2", "working", base.Format("2006-01-02 15:04:05"),
+		base.Add(1*time.Hour).Format("2006-01-02 15:04:05"), "/projects/backend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(
+		"INSERT INTO state_intervals (task_id, state, started_at, ended_at, working_dir) VALUES (?, ?, ?, ?, ?)",
+		"t2", "waiting", base.Add(1*time.Hour).Format("2006-01-02 15:04:05"),
+		base.Add(2*time.Hour).Format("2006-01-02 15:04:05"), "/projects/backend")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tr := analytics.TimeRange{
+		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
+		Period: analytics.PeriodDay,
+	}
+	results, err := analytics.QueryDirectoryBreakdown(ctx, db, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 directory groups, got %d", len(results))
+	}
+
+	dirMap := make(map[string]analytics.DirectoryBreakdown)
+	for _, d := range results {
+		dirMap[d.Directory] = d
+	}
+	if dirMap["/projects/frontend"].Working != 2*time.Hour {
+		t.Errorf("frontend: expected 2h working, got %v", dirMap["/projects/frontend"].Working)
+	}
+	if dirMap["/projects/backend"].Working != 1*time.Hour {
+		t.Errorf("backend working: expected 1h, got %v", dirMap["/projects/backend"].Working)
+	}
+	if dirMap["/projects/backend"].Waiting != 1*time.Hour {
+		t.Errorf("backend waiting: expected 1h, got %v", dirMap["/projects/backend"].Waiting)
+	}
+	if dirMap["/projects/frontend"].TaskCount != 1 {
+		t.Errorf("frontend: expected 1 task, got %d", dirMap["/projects/frontend"].TaskCount)
+	}
+	if dirMap["/projects/backend"].TaskCount != 1 {
+		t.Errorf("backend: expected 1 task, got %d", dirMap["/projects/backend"].TaskCount)
+	}
+}
+
+func TestQueryDirectoryBreakdown_FallsBackToSwarmDir(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
+
+	seedTask(t, db, "t1", base)
+	// Set swarm working dir on the task (no working_dir on interval — old row)
+	_, err := db.Exec("UPDATE tasks SET swarm_working_dir = ? WHERE id = ?", "/projects/api", "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	seedInterval(t, db, "t1", "working", base, base.Add(2*time.Hour))
+
+	tr := analytics.TimeRange{
+		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
+		Period: analytics.PeriodDay,
+	}
+	results, err := analytics.QueryDirectoryBreakdown(ctx, db, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 directory group, got %d", len(results))
+	}
+	if results[0].Directory != "/projects/api" {
+		t.Errorf("expected directory /projects/api, got %q", results[0].Directory)
+	}
+	if results[0].Working != 2*time.Hour {
+		t.Errorf("expected 2h working, got %v", results[0].Working)
+	}
+}

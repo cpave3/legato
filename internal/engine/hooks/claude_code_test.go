@@ -227,11 +227,11 @@ func TestClaudeCodeAdapter_HookScriptActivities(t *testing.T) {
 		script   string
 		activity string
 	}{
-		{"legato-prompt-submit.sh", "--activity working"},
-		{"legato-post-tool-use.sh", "--activity working"},
-		{"legato-stop.sh", "--activity "},
-		{"legato-permission-request.sh", "--activity waiting"},
-		{"legato-session-end.sh", "--activity "},
+		{"legato-prompt-submit.sh", "--activity \"working\""},
+		{"legato-post-tool-use.sh", "--activity \"working\""},
+		{"legato-stop.sh", "--activity \"\""},
+		{"legato-permission-request.sh", "--activity \"waiting\""},
+		{"legato-session-end.sh", "--activity \"\""},
 	}
 
 	for _, tt := range tests {

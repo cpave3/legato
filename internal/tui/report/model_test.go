@@ -2,6 +2,7 @@ package report
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -184,5 +185,29 @@ func TestModel_WindowResize(t *testing.T) {
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
 	if m.width != 200 || m.height != 50 {
 		t.Errorf("expected 200x50, got %dx%d", m.width, m.height)
+	}
+}
+
+func TestModel_DirectorySectionRendered(t *testing.T) {
+	report := sampleReport()
+	report.ByDirectory = []service.DirectoryStats{
+		{Directory: "/projects/app", Working: 2 * time.Hour, Waiting: 30 * time.Minute, TaskCount: 2},
+		{Directory: "/projects/api", Working: 1 * time.Hour, Waiting: 0, TaskCount: 1},
+	}
+	svc := &mockReportService{report: report}
+	m := New(svc)
+	m.width = 120
+	m.height = 40
+	m, _ = m.Update(ReportLoadedMsg{Report: report})
+
+	out := m.View()
+	if !strings.Contains(out, "DIRECTORIES") {
+		t.Error("expected DIRECTORIES section in view")
+	}
+	if !strings.Contains(out, "/projects/app") {
+		t.Error("expected /projects/app in view")
+	}
+	if !strings.Contains(out, "/projects/api") {
+		t.Error("expected /projects/api in view")
 	}
 }

@@ -85,11 +85,12 @@ type SyncLogEntry struct {
 }
 
 type StateInterval struct {
-	ID        int     `db:"id"`
-	TaskID    string  `db:"task_id"`
-	State     string  `db:"state"`
-	StartedAt string  `db:"started_at"`
-	EndedAt   *string `db:"ended_at"`
+	ID         int     `db:"id"`
+	TaskID     string  `db:"task_id"`
+	State      string  `db:"state"`
+	StartedAt  string  `db:"started_at"`
+	EndedAt    *string `db:"ended_at"`
+	WorkingDir *string `db:"working_dir"`
 }
 
 type AgentSession struct {
