@@ -146,6 +146,79 @@ func TestAgentsRefreshedMsgUpdatesAgents(t *testing.T) {
 	}
 }
 
+// TestAgentsRefreshedMsgPreservesSelectionAcrossReorder ensures that when
+// a refresh reorders the slice (e.g. a swarm agent is now grouped ahead of
+// the previously-selected solo), the visual selection follows the same
+// agent by TaskID rather than staying on the same index.
+func TestAgentsRefreshedMsgPreservesSelectionAcrossReorder(t *testing.T) {
+	m := newTestModel()
+	now := time.Now()
+
+	// First refresh: only one solo agent, selected at index 0.
+	m, _ = m.Update(AgentsRefreshedMsg{
+		Agents: []service.AgentSession{
+			{ID: 1, TaskID: "solo-a", TmuxSession: "legato-solo-a", Status: "running", StartedAt: now},
+		},
+	})
+	if m.selected != 0 || m.agents[m.selected].TaskID != "solo-a" {
+		t.Fatalf("setup: selected = %d (%q), want 0 (solo-a)", m.selected, m.agents[m.selected].TaskID)
+	}
+
+	// Second refresh: a swarm group is now ahead of solo-a in the sorted
+	// order. Index 0 will become the conductor; we want selection to follow
+	// solo-a to its new index.
+	m, _ = m.Update(AgentsRefreshedMsg{
+		Agents: []service.AgentSession{
+			{ID: 1, TaskID: "solo-a", TmuxSession: "legato-solo-a", Status: "running", StartedAt: now},
+			{ID: 2, TaskID: "swarm-1", TmuxSession: "legato-swarm-1", Status: "running", Role: "conductor", ParentTaskID: "swarm-1", StartedAt: now.Add(-1 * time.Minute)},
+		},
+	})
+	if got := m.agents[m.selected].TaskID; got != "solo-a" {
+		t.Errorf("selection drifted: m.agents[%d].TaskID = %q, want solo-a (full order: %v)", m.selected, got, taskIDs(m.agents))
+	}
+}
+
+func taskIDs(agents []service.AgentSession) []string {
+	out := make([]string, len(agents))
+	for i, a := range agents {
+		out[i] = a.TaskID
+	}
+	return out
+}
+
+// TestAgentsRefreshedMsgGroupsSwarmsAndSolo guards against the regression
+// where a newly-spawned solo agent appeared above an existing swarm group
+// in the sidebar because AgentsRefreshedMsg bypassed sortAgentsForGrouping.
+func TestAgentsRefreshedMsgGroupsSwarmsAndSolo(t *testing.T) {
+	m := newTestModel()
+	now := time.Now()
+
+	// Order mimics the backend: started_at DESC. Newly-spawned solo first,
+	// then swarm members, then older solos.
+	m, _ = m.Update(AgentsRefreshedMsg{
+		Agents: []service.AgentSession{
+			{ID: 10, TaskID: "new-solo", TmuxSession: "legato-new-solo", Status: "running", StartedAt: now},
+			{ID: 11, TaskID: "st-worker", TmuxSession: "legato-st-worker", Status: "running", Role: "backend", ParentTaskID: "swarm-1", StartedAt: now.Add(-1 * time.Minute)},
+			{ID: 12, TaskID: "swarm-1", TmuxSession: "legato-swarm-1", Status: "running", Role: "conductor", ParentTaskID: "swarm-1", StartedAt: now.Add(-2 * time.Minute)},
+			{ID: 13, TaskID: "old-solo", TmuxSession: "legato-old-solo", Status: "running", StartedAt: now.Add(-3 * time.Minute)},
+		},
+	})
+
+	got := make([]string, len(m.agents))
+	for i, a := range m.agents {
+		got[i] = a.TaskID
+	}
+	want := []string{"swarm-1", "st-worker", "new-solo", "old-solo"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d agents, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("agents[%d] = %q, want %q (full order: %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
 func TestViewContainsElements(t *testing.T) {
 	m := newTestModel()
 	view := m.View()

@@ -174,9 +174,16 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case AgentsRefreshedMsg:
-		m.agents = msg.Agents
+		prevSelTaskID := ""
+		if m.selected < len(m.agents) {
+			prevSelTaskID = m.agents[m.selected].TaskID
+		}
+		m.agents = sortAgentsForGrouping(msg.Agents)
 		if m.selected >= len(m.agents) {
 			m.selected = max(0, len(m.agents)-1)
+		}
+		if prevSelTaskID != "" {
+			m.SelectByTaskID(prevSelTaskID)
 		}
 		if msg.SelectTask != "" {
 			m.SelectByTaskID(msg.SelectTask)
