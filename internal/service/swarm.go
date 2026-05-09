@@ -27,7 +27,61 @@ type SwarmConfig struct {
 // SwarmService is the conductor-driven orchestration surface. The CLI verbs
 // (propose-plan, dispatch, message, broadcast, close, finish, progress,
 // question, built) all route here.
-type SwarmService struct {
+type SwarmService interface {
+	// Read-only views.
+	ListSubtasks(ctx context.Context, parentID string) ([]store.Subtask, error)
+	GetSubtask(ctx context.Context, id string) (*store.Subtask, error)
+	ListSubtaskInfos(ctx context.Context, parentID string) ([]SwarmSubtaskInfo, error)
+	Snapshot(ctx context.Context, parentID string) ([]byte, error)
+	FetchInbox(ctx context.Context, parentID string) ([]InboxEntry, error)
+	PeekInbox(ctx context.Context, parentID string) ([]InboxEntry, error)
+	LoadPlan(path string) (*SwarmPlan, error)
+
+	// Conductor verbs.
+	StartSwarm(ctx context.Context, parentID, workingDir string) error
+	ApplyApprovedPlan(ctx context.Context, plan *swarm.Plan) error
+	Dispatch(ctx context.Context, subtaskID string) error
+	Message(ctx context.Context, subtaskID, text string) error
+	MessageParent(ctx context.Context, parentID, text string) error
+	Broadcast(ctx context.Context, parentID, text string) (int, error)
+	Close(ctx context.Context, subtaskID string) error
+	Finish(ctx context.Context, parentID, summary string) error
+
+	// Worker verbs.
+	Progress(ctx context.Context, subtaskID, text string) error
+	Question(ctx context.Context, subtaskID, text string) error
+	Built(ctx context.Context, subtaskID string) error
+
+	// Lifecycle.
+	HandleAgentDied(ctx context.Context, parentTaskID, subtaskID, role string)
+	StartEventLoop(ctx context.Context) func()
+}
+
+// SwarmPlan is a service-layer DTO mirroring an engine swarm plan. Lets TUI
+// callers render proposed plans without importing the engine package.
+type SwarmPlan struct {
+	Header   SwarmPlanHeader
+	Subtasks []SwarmPlanSubtask
+}
+
+// SwarmPlanHeader carries swarm-level fields from a plan.
+type SwarmPlanHeader struct {
+	ParentTaskID string
+	WorkingDir   string
+	Summary      string
+}
+
+// SwarmPlanSubtask is a service-layer view of one plan entry.
+type SwarmPlanSubtask struct {
+	Title  string
+	Role   string
+	Agent  string
+	Scope  []string
+	Prompt string
+}
+
+// swarmService is the concrete implementation of SwarmService.
+type swarmService struct {
 	store    *store.Store
 	agents   AgentService
 	bus      *events.Bus
@@ -52,27 +106,56 @@ type pendingProgressEntry struct {
 }
 
 // NewSwarmService creates a SwarmService.
-func NewSwarmService(s *store.Store, agents AgentService, bus *events.Bus, cfg SwarmConfig, repoRoot string) *SwarmService {
+func NewSwarmService(s *store.Store, agents AgentService, bus *events.Bus, cfg SwarmConfig, repoRoot string) SwarmService {
 	if cfg.MaxConcurrentAgents <= 0 {
 		cfg.MaxConcurrentAgents = 4
 	}
 	if cfg.MaxSubtasksPerPlan <= 0 {
 		cfg.MaxSubtasksPerPlan = 10
 	}
-	return &SwarmService{
+	return &swarmService{
 		store:           s,
 		agents:          agents,
 		bus:             bus,
 		cfg:             cfg,
 		repoRoot:        repoRoot,
 		pendingProgress: make(map[string]*pendingProgressEntry),
+		pendingMeta:     make(map[string]progressMeta),
 		conductorLocks:  make(map[string]*sync.Mutex),
 	}
 }
 
+// LoadPlan reads a swarm plan from disk and converts it to the service-layer
+// DTO. Lets TUI callers display proposed plans without depending on engine
+// types.
+func (s *swarmService) LoadPlan(path string) (*SwarmPlan, error) {
+	p, err := swarm.LoadPlan(path)
+	if err != nil {
+		return nil, err
+	}
+	out := &SwarmPlan{
+		Header: SwarmPlanHeader{
+			ParentTaskID: p.Swarm.ParentTaskID,
+			WorkingDir:   p.Swarm.WorkingDir,
+			Summary:      p.Swarm.Summary,
+		},
+		Subtasks: make([]SwarmPlanSubtask, len(p.Subtasks)),
+	}
+	for i, st := range p.Subtasks {
+		out.Subtasks[i] = SwarmPlanSubtask{
+			Title:  st.Title,
+			Role:   st.Role,
+			Agent:  st.Agent,
+			Scope:  append([]string(nil), st.Scope...),
+			Prompt: st.Prompt,
+		}
+	}
+	return out, nil
+}
+
 // conductorLock returns the per-parent mutex guarding send-keys delivery to
 // that swarm's conductor. Created on first use.
-func (s *SwarmService) conductorLock(parentID string) *sync.Mutex {
+func (s *swarmService) conductorLock(parentID string) *sync.Mutex {
 	s.conductorLocksMu.Lock()
 	defer s.conductorLocksMu.Unlock()
 	mu, ok := s.conductorLocks[parentID]
@@ -83,7 +166,7 @@ func (s *SwarmService) conductorLock(parentID string) *sync.Mutex {
 	return mu
 }
 
-// generateSubtaskID returns a 12-char id prefixed with "st-".
+// generateSubtaskID returns a 13-char id ("st-" + 10 hex chars).
 func generateSubtaskID() string {
 	b := make([]byte, 5)
 	_, _ = rand.Read(b)
@@ -91,12 +174,12 @@ func generateSubtaskID() string {
 }
 
 // ListSubtasks returns the sub-tasks for a parent task ordered by created_at.
-func (s *SwarmService) ListSubtasks(ctx context.Context, parentID string) ([]store.Subtask, error) {
+func (s *swarmService) ListSubtasks(ctx context.Context, parentID string) ([]store.Subtask, error) {
 	return s.store.ListSubtasksByParent(ctx, parentID)
 }
 
 // GetSubtask returns a single sub-task by ID, or ErrNotFound.
-func (s *SwarmService) GetSubtask(ctx context.Context, id string) (*store.Subtask, error) {
+func (s *swarmService) GetSubtask(ctx context.Context, id string) (*store.Subtask, error) {
 	return s.store.GetSubtask(ctx, id)
 }
 
@@ -112,7 +195,7 @@ type InboxEntry struct {
 
 // FetchInbox returns all unacked swarm events for a parent and marks them
 // acked in a single transaction. Used by `legato swarm inbox <parent-id>`.
-func (s *SwarmService) FetchInbox(ctx context.Context, parentID string) ([]InboxEntry, error) {
+func (s *swarmService) FetchInbox(ctx context.Context, parentID string) ([]InboxEntry, error) {
 	rows, err := s.store.ListUnackedSwarmEvents(ctx, parentID)
 	if err != nil {
 		return nil, err
@@ -142,7 +225,7 @@ func (s *SwarmService) FetchInbox(ctx context.Context, parentID string) ([]Inbox
 }
 
 // PeekInbox returns all unacked swarm events for a parent WITHOUT acking them.
-func (s *SwarmService) PeekInbox(ctx context.Context, parentID string) ([]InboxEntry, error) {
+func (s *swarmService) PeekInbox(ctx context.Context, parentID string) ([]InboxEntry, error) {
 	rows, err := s.store.ListUnackedSwarmEvents(ctx, parentID)
 	if err != nil {
 		return nil, err
@@ -179,7 +262,7 @@ type SwarmSubtaskInfo struct {
 }
 
 // ListSubtaskInfos returns parsed sub-task summaries for a parent.
-func (s *SwarmService) ListSubtaskInfos(ctx context.Context, parentID string) ([]SwarmSubtaskInfo, error) {
+func (s *swarmService) ListSubtaskInfos(ctx context.Context, parentID string) ([]SwarmSubtaskInfo, error) {
 	rows, err := s.store.ListSubtasksByParent(ctx, parentID)
 	if err != nil {
 		return nil, err
@@ -235,7 +318,7 @@ type SnapshotSubtask struct {
 }
 
 // Snapshot returns the JSON coordination surface for the swarm.
-func (s *SwarmService) Snapshot(ctx context.Context, parentID string) ([]byte, error) {
+func (s *swarmService) Snapshot(ctx context.Context, parentID string) ([]byte, error) {
 	parent, err := s.store.GetTask(ctx, parentID)
 	if err != nil {
 		return nil, err
@@ -277,7 +360,7 @@ func (s *SwarmService) Snapshot(ctx context.Context, parentID string) ([]byte, e
 // already has a running agent or if working dir doesn't validate. Persists
 // the working dir on the parent task. The conductor's brief is the parent
 // task title + description + working-dir framing.
-func (s *SwarmService) StartSwarm(ctx context.Context, parentID, workingDir string) error {
+func (s *swarmService) StartSwarm(ctx context.Context, parentID, workingDir string) error {
 	parent, err := s.store.GetTask(ctx, parentID)
 	if err != nil {
 		return fmt.Errorf("parent task %s: %w", parentID, err)
@@ -316,7 +399,7 @@ func (s *SwarmService) StartSwarm(ctx context.Context, parentID, workingDir stri
 // ApplyApprovedPlan persists sub-tasks from a (post-approval) plan. Idempotent
 // per (parent_task_id, title) combination is NOT guaranteed — callers should
 // only call this once per approved plan.
-func (s *SwarmService) ApplyApprovedPlan(ctx context.Context, plan *swarm.Plan) error {
+func (s *swarmService) ApplyApprovedPlan(ctx context.Context, plan *swarm.Plan) error {
 	if plan == nil {
 		return fmt.Errorf("plan is nil")
 	}
@@ -347,7 +430,7 @@ func (s *SwarmService) ApplyApprovedPlan(ctx context.Context, plan *swarm.Plan) 
 // Dispatch spawns the worker for a queued sub-task. Returns nil on success;
 // when the cap is reached or the sub-task is in the wrong state, returns an
 // error and the conductor receives a `[swarm event]` notification explaining.
-func (s *SwarmService) Dispatch(ctx context.Context, subtaskID string) error {
+func (s *swarmService) Dispatch(ctx context.Context, subtaskID string) error {
 	st, err := s.store.GetSubtask(ctx, subtaskID)
 	if err != nil {
 		return err
@@ -417,7 +500,7 @@ func (s *SwarmService) Dispatch(ctx context.Context, subtaskID string) error {
 }
 
 // Message sends text into a worker's tmux pane via send-keys.
-func (s *SwarmService) Message(ctx context.Context, subtaskID, text string) error {
+func (s *swarmService) Message(ctx context.Context, subtaskID, text string) error {
 	if _, err := s.store.GetSubtask(ctx, subtaskID); err != nil {
 		return err
 	}
@@ -425,20 +508,20 @@ func (s *SwarmService) Message(ctx context.Context, subtaskID, text string) erro
 	if err != nil {
 		return fmt.Errorf("worker %s is not running", subtaskID)
 	}
-	return s.tmuxSendKeys(sess.TmuxSession, text)
+	return s.tmuxSendKeysLine(sess.TmuxSession, text)
 }
 
 // MessageParent sends text into the conductor's tmux pane via send-keys.
-func (s *SwarmService) MessageParent(ctx context.Context, parentID, text string) error {
+func (s *swarmService) MessageParent(ctx context.Context, parentID, text string) error {
 	sess, err := s.store.GetAgentSessionByTaskID(ctx, parentID)
 	if err != nil {
 		return fmt.Errorf("conductor for parent %s is not running", parentID)
 	}
-	return s.tmuxSendKeys(sess.TmuxSession, text)
+	return s.tmuxSendKeysLine(sess.TmuxSession, text)
 }
 
 // Broadcast sends text to every live worker in the swarm.
-func (s *SwarmService) Broadcast(ctx context.Context, parentID, text string) (int, error) {
+func (s *swarmService) Broadcast(ctx context.Context, parentID, text string) (int, error) {
 	subs, err := s.store.ListSubtasksByParent(ctx, parentID)
 	if err != nil {
 		return 0, err
@@ -452,7 +535,7 @@ func (s *SwarmService) Broadcast(ctx context.Context, parentID, text string) (in
 		if err != nil {
 			continue
 		}
-		if err := s.tmuxSendKeys(sess.TmuxSession, text); err == nil {
+		if err := s.tmuxSendKeysLine(sess.TmuxSession, text); err == nil {
 			count++
 		}
 	}
@@ -461,7 +544,7 @@ func (s *SwarmService) Broadcast(ctx context.Context, parentID, text string) (in
 
 // Close ratifies a worker's completion (from `reporting`) or terminates it
 // mid-flight (from `dispatched`/`in_progress`).
-func (s *SwarmService) Close(ctx context.Context, subtaskID string) error {
+func (s *swarmService) Close(ctx context.Context, subtaskID string) error {
 	st, err := s.store.GetSubtask(ctx, subtaskID)
 	if err != nil {
 		return err
@@ -489,7 +572,7 @@ func (s *SwarmService) Close(ctx context.Context, subtaskID string) error {
 // of the conductor, etc.) and confirm the work themselves. The user can
 // terminate the conductor manually via the agents view (`K`) or
 // `legato kill` when satisfied.
-func (s *SwarmService) Finish(ctx context.Context, parentID, summary string) error {
+func (s *swarmService) Finish(ctx context.Context, parentID, summary string) error {
 	subs, err := s.store.ListSubtasksByParent(ctx, parentID)
 	if err != nil {
 		return err
@@ -530,7 +613,7 @@ func (s *SwarmService) Finish(ctx context.Context, parentID, summary string) err
 
 // Progress records a worker progress report and forwards a debounced event
 // to the conductor.
-func (s *SwarmService) Progress(ctx context.Context, subtaskID, text string) error {
+func (s *swarmService) Progress(ctx context.Context, subtaskID, text string) error {
 	st, err := s.store.GetSubtask(ctx, subtaskID)
 	if err != nil {
 		return err
@@ -546,7 +629,7 @@ func (s *SwarmService) Progress(ctx context.Context, subtaskID, text string) err
 }
 
 // Question delivers a worker question to the conductor pane immediately.
-func (s *SwarmService) Question(ctx context.Context, subtaskID, text string) error {
+func (s *swarmService) Question(ctx context.Context, subtaskID, text string) error {
 	st, err := s.store.GetSubtask(ctx, subtaskID)
 	if err != nil {
 		return err
@@ -557,7 +640,7 @@ func (s *SwarmService) Question(ctx context.Context, subtaskID, text string) err
 }
 
 // Built marks a sub-task as `reporting` and notifies the conductor.
-func (s *SwarmService) Built(ctx context.Context, subtaskID string) error {
+func (s *swarmService) Built(ctx context.Context, subtaskID string) error {
 	st, err := s.store.GetSubtask(ctx, subtaskID)
 	if err != nil {
 		return err
@@ -583,7 +666,7 @@ func (s *SwarmService) Built(ctx context.Context, subtaskID string) error {
 // For workers in a non-terminal state, transitions to `cancelled` and notifies
 // the conductor. For the conductor itself, no automatic action — the user
 // (or `legato swarm finish`) cleans up.
-func (s *SwarmService) HandleAgentDied(ctx context.Context, parentTaskID, subtaskID, role string) {
+func (s *swarmService) HandleAgentDied(ctx context.Context, parentTaskID, subtaskID, role string) {
 	if subtaskID == "" || role == "conductor" {
 		return
 	}
@@ -603,7 +686,7 @@ func (s *SwarmService) HandleAgentDied(ctx context.Context, parentTaskID, subtas
 }
 
 // StartEventLoop subscribes to EventAgentDied and dispatches to HandleAgentDied.
-func (s *SwarmService) StartEventLoop(ctx context.Context) func() {
+func (s *swarmService) StartEventLoop(ctx context.Context) func() {
 	if s.bus == nil {
 		return func() {}
 	}
@@ -632,7 +715,7 @@ func (s *SwarmService) StartEventLoop(ctx context.Context) func() {
 
 // activeWorkerCount returns the number of live workers in a swarm (counts
 // dispatched, in_progress, reporting).
-func (s *SwarmService) activeWorkerCount(ctx context.Context, parentID string) int {
+func (s *swarmService) activeWorkerCount(ctx context.Context, parentID string) int {
 	subs, err := s.store.ListSubtasksByParent(ctx, parentID)
 	if err != nil {
 		return 0
@@ -650,7 +733,7 @@ func isLiveStatus(s string) bool {
 	return s == "dispatched" || s == "in_progress" || s == "reporting"
 }
 
-func (s *SwarmService) defaultBrief(parent *store.Task, st *store.Subtask) string {
+func (s *swarmService) defaultBrief(parent *store.Task, st *store.Subtask) string {
 	scope, _ := store.ParseScopeGlobs(st.ScopeGlobs)
 	scopeLine := "(no declared scope)"
 	if len(scope) > 0 {
@@ -670,7 +753,7 @@ func (s *SwarmService) defaultBrief(parent *store.Task, st *store.Subtask) strin
 // This pattern avoids embedding multi-line or quoted content in send-keys
 // payloads, which would otherwise need base64 wrapping and could trigger
 // safety filters in some AI tools.
-func (s *SwarmService) recordEventForConductor(parentTaskID, subtaskID, kind, workerTitle, payload string) {
+func (s *swarmService) recordEventForConductor(parentTaskID, subtaskID, kind, workerTitle, payload string) {
 	if parentTaskID == "" {
 		return
 	}
@@ -716,7 +799,7 @@ const conductorEventGap = 250 * time.Millisecond
 // tmuxSendKeysLine reaches the agent service's TmuxManager and sends a single
 // line of text + Enter. Used for short notifications that don't need
 // base64 wrapping.
-func (s *SwarmService) tmuxSendKeysLine(session, text string) error {
+func (s *swarmService) tmuxSendKeysLine(session, text string) error {
 	tmuxer, ok := s.agents.(interface {
 		Tmux() TmuxManager
 	})
@@ -726,25 +809,16 @@ func (s *SwarmService) tmuxSendKeysLine(session, text string) error {
 	return tmuxer.Tmux().SendKeysLine(session, text)
 }
 
-// tmuxSendKeys is a small helper around the agent service's tmux interface.
-// We need this because SwarmService doesn't have a direct TmuxManager handle —
-// it goes through the agent service's adapter pattern. For send-keys we
-// reach into the agent service's tmux indirectly by looking up the session.
-func (s *SwarmService) tmuxSendKeys(session, text string) error {
-	tmuxer, ok := s.agents.(interface {
-		Tmux() TmuxManager
-	})
-	if !ok {
-		return fmt.Errorf("agent service does not expose tmux (cannot send-keys)")
-	}
-	return tmuxer.Tmux().SendKeysLine(session, text)
-}
-
 // scheduleProgressEvent debounces multiple progress reports from the same
 // worker within a 1s window. The most recent text wins.
-func (s *SwarmService) scheduleProgressEvent(parentTaskID, workerTitle, subtaskID, text string) {
+func (s *swarmService) scheduleProgressEvent(parentTaskID, workerTitle, subtaskID, text string) {
 	s.debounceMu.Lock()
 	defer s.debounceMu.Unlock()
+
+	// Capture the parent + title so flushProgressEvent can format the
+	// notification without re-querying the DB. Done under the same lock
+	// that protects pendingProgress, so flush sees a consistent snapshot.
+	s.pendingMeta[subtaskID] = progressMeta{ParentTaskID: parentTaskID, WorkerTitle: workerTitle}
 
 	if entry, ok := s.pendingProgress[subtaskID]; ok {
 		entry.text = text
@@ -756,20 +830,6 @@ func (s *SwarmService) scheduleProgressEvent(parentTaskID, workerTitle, subtaskI
 		s.flushProgressEvent(subtaskID)
 	})
 	s.pendingProgress[subtaskID] = entry
-	// Capture the parent + title so we can format on flush.
-	s.pendingProgressMeta(subtaskID, parentTaskID, workerTitle)
-}
-
-// pendingProgressMeta is a side-channel store for the parent ID and worker
-// title at the moment the progress event was scheduled, so flushProgressEvent
-// can format the notification without re-querying the DB.
-func (s *SwarmService) pendingProgressMeta(subtaskID, parentTaskID, workerTitle string) {
-	s.debounceMu.Lock()
-	defer s.debounceMu.Unlock()
-	if s.pendingMeta == nil {
-		s.pendingMeta = make(map[string]progressMeta)
-	}
-	s.pendingMeta[subtaskID] = progressMeta{ParentTaskID: parentTaskID, WorkerTitle: workerTitle}
 }
 
 type progressMeta struct {
@@ -779,7 +839,7 @@ type progressMeta struct {
 
 // flushProgressEvent immediately emits any pending progress event for the
 // given sub-task, cancelling its timer. Safe to call when no event is pending.
-func (s *SwarmService) flushProgressEvent(subtaskID string) {
+func (s *swarmService) flushProgressEvent(subtaskID string) {
 	s.debounceMu.Lock()
 	entry, ok := s.pendingProgress[subtaskID]
 	if !ok {
@@ -801,31 +861,27 @@ func (s *SwarmService) flushProgressEvent(subtaskID string) {
 
 // maybeNotifyAllIdle delivers an all-idle notification when every sub-task
 // of the parent is in a non-active state (queued, reporting, done, cancelled).
-// Idempotent — only fires when transitioning into "all idle" from "some active".
-func (s *SwarmService) maybeNotifyAllIdle(ctx context.Context, parentID string) {
+// Fires whenever the swarm has no active workers (`dispatched` or
+// `in_progress`) but has at least one sub-task overall. Catches both the
+// "workers built, awaiting conductor decision" case and the "all sub-tasks
+// terminal, ready to finish" case. Per-conductor mutex + 250ms gap in
+// recordEventForConductor prevents spam when called from multiple paths.
+func (s *swarmService) maybeNotifyAllIdle(ctx context.Context, parentID string) {
 	subs, err := s.store.ListSubtasksByParent(ctx, parentID)
-	if err != nil {
+	if err != nil || len(subs) == 0 {
 		return
 	}
-	hasActive := false
-	hasReportingOrQueued := false
 	for _, st := range subs {
-		switch st.Status {
-		case "dispatched", "in_progress":
-			hasActive = true
-		case "reporting", "queued":
-			hasReportingOrQueued = true
+		if st.Status == "dispatched" || st.Status == "in_progress" {
+			return
 		}
 	}
-	if hasActive || !hasReportingOrQueued {
-		return
-	}
 	s.recordEventForConductor(parentID, "", "all_idle", "",
-		"All workers in this swarm are idle (built or queued). Decide: dispatch more queued sub-tasks, ask the user, or call `legato swarm finish` if the parent goal is met.")
+		"No workers in this swarm are active. Decide: dispatch more queued sub-tasks, ask the user, or call `legato swarm finish` if the parent goal is met.")
 }
 
 // publishChanged emits an EventSwarmChanged event for downstream UI refresh.
-func (s *SwarmService) publishChanged(parentID, subtaskID, newStatus string) {
+func (s *swarmService) publishChanged(parentID, subtaskID, newStatus string) {
 	if s.bus == nil {
 		return
 	}

@@ -2,13 +2,12 @@ package overlay
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/cpave3/legato/internal/engine/swarm"
+	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -36,9 +35,20 @@ type PlanCancelMsg struct {
 }
 
 // PlanEditedMsg is emitted after the user finishes editing the plan in $EDITOR.
+// The app handles this by reloading the plan and dispatching PlanReloadedMsg.
 type PlanEditedMsg struct {
 	ParentTaskID string
 	PlanPath     string
+	Err          error
+}
+
+// PlanReloadedMsg carries a freshly-parsed plan back to the overlay after an
+// editor session. Produced by the app (which holds the SwarmService); consumed
+// by the overlay so it can re-render without ever importing engine types.
+type PlanReloadedMsg struct {
+	ParentTaskID string
+	PlanPath     string
+	Plan         *service.SwarmPlan
 	Err          error
 }
 
@@ -55,7 +65,8 @@ type PlanApprovalOverlay struct {
 	parentTaskID string
 	planPath     string
 	replySocket  string
-	plan         *swarm.Plan
+	editor       string
+	plan         *service.SwarmPlan
 	loadErr      error
 	mode         planMode
 	notes        string
@@ -63,20 +74,17 @@ type PlanApprovalOverlay struct {
 	height       int
 }
 
-// NewPlanApproval loads the plan from disk and constructs the overlay.
-func NewPlanApproval(parentTaskID, planPath, replySocket string) PlanApprovalOverlay {
-	o := PlanApprovalOverlay{
+// NewPlanApproval constructs the overlay with a pre-loaded plan. Pass loadErr
+// non-nil if loading failed so the overlay can render the error state.
+func NewPlanApproval(parentTaskID, planPath, replySocket, editor string, plan *service.SwarmPlan, loadErr error) PlanApprovalOverlay {
+	return PlanApprovalOverlay{
 		parentTaskID: parentTaskID,
 		planPath:     planPath,
 		replySocket:  replySocket,
+		editor:       editor,
+		plan:         plan,
+		loadErr:      loadErr,
 	}
-	plan, err := swarm.LoadPlan(planPath)
-	if err != nil {
-		o.loadErr = err
-	} else {
-		o.plan = plan
-	}
-	return o
 }
 
 func (m PlanApprovalOverlay) Init() tea.Cmd { return nil }
@@ -87,16 +95,10 @@ func (m PlanApprovalOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
-	case PlanEditedMsg:
-		// Re-load the plan from disk after editor exit.
+	case PlanReloadedMsg:
 		if msg.Err == nil {
-			plan, err := swarm.LoadPlan(m.planPath)
-			if err != nil {
-				m.loadErr = err
-			} else {
-				m.plan = plan
-				m.loadErr = nil
-			}
+			m.plan = msg.Plan
+			m.loadErr = nil
 		} else {
 			m.loadErr = msg.Err
 		}
@@ -121,11 +123,7 @@ func (m PlanApprovalOverlay) handleReviewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd
 			return PlanApproveMsg{ParentTaskID: parent, PlanPath: path, ReplySocket: sock}
 		}
 	case "e":
-		// Open $EDITOR on the plan path.
-		editor := os.Getenv("VISUAL")
-		if editor == "" {
-			editor = os.Getenv("EDITOR")
-		}
+		editor := m.editor
 		if editor == "" {
 			editor = "vi"
 		}
@@ -202,10 +200,10 @@ func (m PlanApprovalOverlay) View() string {
 	var lines []string
 	lines = append(lines, heading)
 	lines = append(lines, "")
-	lines = append(lines, labelStyle.Render("Working dir:")+" "+bodyStyle.Render(m.plan.Swarm.WorkingDir))
-	if m.plan.Swarm.Summary != "" {
+	lines = append(lines, labelStyle.Render("Working dir:")+" "+bodyStyle.Render(m.plan.Header.WorkingDir))
+	if m.plan.Header.Summary != "" {
 		lines = append(lines, "")
-		lines = append(lines, bodyStyle.Render(strings.TrimSpace(m.plan.Swarm.Summary)))
+		lines = append(lines, bodyStyle.Render(strings.TrimSpace(m.plan.Header.Summary)))
 	}
 	lines = append(lines, "")
 	lines = append(lines, labelStyle.Render(fmt.Sprintf("Sub-tasks (%d):", len(m.plan.Subtasks))))

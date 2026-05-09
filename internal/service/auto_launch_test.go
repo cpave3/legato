@@ -68,7 +68,7 @@ func TestSpawnAgent_AutoLaunchHappyPath(t *testing.T) {
 	}
 
 	sessionName := "legato-parent-1"
-	env := mt.envVars[sessionName]
+	env := mt.envVarsFor(sessionName)
 
 	// Role prompt and brief should be on disk, paths surfaced via env.
 	rolePath := env["LEGATO_ROLE_PROMPT_FILE"]
@@ -86,7 +86,7 @@ func TestSpawnAgent_AutoLaunchHappyPath(t *testing.T) {
 		t.Errorf("brief file = %q (err %v)", string(data), err)
 	}
 
-	lines := mt.sentLines[sessionName]
+	lines := mt.sentLinesFor(sessionName)
 	if len(lines) < 1 {
 		t.Fatalf("sentLines empty, want at least one launch line")
 	}
@@ -97,16 +97,16 @@ func TestSpawnAgent_AutoLaunchHappyPath(t *testing.T) {
 	// Brief kickoff message should arrive asynchronously after the launch.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(mt.sentLines[sessionName]) >= 2 {
+		if len(mt.sentLinesFor(sessionName)) >= 2 {
 			break
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	if len(mt.sentLines[sessionName]) < 2 {
-		t.Fatalf("expected brief kickoff send-keys, got only %v", mt.sentLines[sessionName])
+	if len(mt.sentLinesFor(sessionName)) < 2 {
+		t.Fatalf("expected brief kickoff send-keys, got only %v", mt.sentLinesFor(sessionName))
 	}
-	if mt.sentLines[sessionName][1] != briefKickoffMessage {
-		t.Errorf("kickoff line = %q, want %q", mt.sentLines[sessionName][1], briefKickoffMessage)
+	if mt.sentLinesFor(sessionName)[1] != briefKickoffMessage {
+		t.Errorf("kickoff line = %q, want %q", mt.sentLinesFor(sessionName)[1], briefKickoffMessage)
 	}
 
 	if env["LEGATO_AGENT_ROLE"] != "conductor" {
@@ -125,8 +125,8 @@ func TestSpawnAgent_NoAdapterFallsBackToShell(t *testing.T) {
 	if err := svc.SpawnAgent(ctx, "task-1", 0, 0); err != nil {
 		t.Fatal(err)
 	}
-	if len(mt.sentLines["legato-task-1"]) != 0 {
-		t.Errorf("expected no auto-launch when no adapter, got %v", mt.sentLines["legato-task-1"])
+	if len(mt.sentLinesFor("legato-task-1")) != 0 {
+		t.Errorf("expected no auto-launch when no adapter, got %v", mt.sentLinesFor("legato-task-1"))
 	}
 }
 
@@ -155,8 +155,8 @@ func TestSpawnAgent_AdapterWithoutLaunchCommandSkipsAutoLaunch(t *testing.T) {
 	if err := svc.SpawnAgent(ctx, "task-1", 0, 0); err != nil {
 		t.Fatal(err)
 	}
-	if len(mt.sentLines["legato-task-1"]) != 0 {
-		t.Errorf("expected no auto-launch when adapter doesn't implement LaunchCommand, got %v", mt.sentLines["legato-task-1"])
+	if len(mt.sentLinesFor("legato-task-1")) != 0 {
+		t.Errorf("expected no auto-launch when adapter doesn't implement LaunchCommand, got %v", mt.sentLinesFor("legato-task-1"))
 	}
 }
 
@@ -177,8 +177,8 @@ func TestSpawnAgent_AdapterWithoutRolePromptSkipsLaunch(t *testing.T) {
 	if err := svc.SpawnAgent(ctx, "task-1", 0, 0); err != nil {
 		t.Fatal(err)
 	}
-	if len(mt.sentLines["legato-task-1"]) != 0 {
-		t.Errorf("expected no auto-launch when role prompt empty, got %v", mt.sentLines["legato-task-1"])
+	if len(mt.sentLinesFor("legato-task-1")) != 0 {
+		t.Errorf("expected no auto-launch when role prompt empty, got %v", mt.sentLinesFor("legato-task-1"))
 	}
 }
 
@@ -204,6 +204,109 @@ type recordedDied struct {
 
 func (r *recordingPublisher) PublishAgentDied(taskID, parentTaskID, subtaskID, role string) {
 	r.calls = append(r.calls, recordedDied{taskID, parentTaskID, subtaskID, role})
+}
+
+// selfKickoffAdapter implements LaunchSelfKickoff returning true — i.e. the
+// launch command already is the agent's first user turn (chimera-style).
+type selfKickoffAdapter struct{ *fakeAdapter }
+
+func (selfKickoffAdapter) LaunchIsSelfKickoff() bool { return true }
+
+func TestSpawnAgent_LaunchSelfKickoffSuppressesBriefMessage(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	mt := newMockTmux()
+	adapter := selfKickoffAdapter{&fakeAdapter{
+		name:        "chimera-like",
+		rolePrompts: map[string]string{"conductor": "you are the conductor"},
+	}}
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{Adapter: adapter})
+	ctx := context.Background()
+	createTask(t, s, "parent-1")
+
+	if err := svc.SpawnAgent(ctx, "parent-1", 0, 0, AgentSpawnOptions{
+		Role:         "conductor",
+		ParentTaskID: "parent-1",
+		Brief:        "kick off the swarm",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	sessionName := "legato-parent-1"
+
+	// Wait long enough for the kickoff debounce to fire if it were going to.
+	time.Sleep(500 * time.Millisecond)
+
+	for _, line := range mt.sentLinesFor(sessionName) {
+		if line == briefKickoffMessage {
+			t.Errorf("LaunchSelfKickoff=true should suppress the brief kickoff send-keys; saw %q", line)
+		}
+	}
+}
+
+// preambleAdapter implements RolePromptPreambleAdapter — the preamble must be
+// prepended to the role-prompt file written to disk.
+type preambleAdapter struct {
+	*fakeAdapter
+	preamble string
+}
+
+func (p preambleAdapter) RolePromptPreamble() string { return p.preamble }
+
+func TestSpawnAgent_RolePromptPreambleIsPrepended(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	mt := newMockTmux()
+	adapter := preambleAdapter{
+		fakeAdapter: &fakeAdapter{
+			name:        "chimera-like",
+			rolePrompts: map[string]string{"worker": "ROLE BODY"},
+		},
+		preamble: "SANDBOX-NOTE",
+	}
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{Adapter: adapter})
+	ctx := context.Background()
+	createTask(t, s, "task-1")
+
+	if err := svc.SpawnAgent(ctx, "task-1", 0, 0, AgentSpawnOptions{
+		Role:         "worker",
+		ParentTaskID: "parent-x",
+		SubtaskID:    "st-x",
+		Brief:        "do the thing",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rolePath := mt.envVarsFor("legato-task-1")["LEGATO_ROLE_PROMPT_FILE"]
+	if rolePath == "" {
+		t.Fatal("LEGATO_ROLE_PROMPT_FILE not set")
+	}
+	data, err := os.ReadFile(rolePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	if !strings.Contains(body, "SANDBOX-NOTE") {
+		t.Errorf("role prompt missing preamble: %q", body)
+	}
+	if !strings.Contains(body, "ROLE BODY") {
+		t.Errorf("role prompt missing role body: %q", body)
+	}
+	preIdx := strings.Index(body, "SANDBOX-NOTE")
+	bodyIdx := strings.Index(body, "ROLE BODY")
+	if preIdx >= bodyIdx {
+		t.Errorf("preamble should come before role body; preamble at %d, body at %d", preIdx, bodyIdx)
+	}
 }
 
 func TestKillAgent_PublishesEventAgentDied(t *testing.T) {

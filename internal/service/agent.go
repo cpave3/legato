@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -110,14 +111,30 @@ type agentService struct {
 	binaryPath        string
 	bus               EventPublisher
 	briefKickoffDelay time.Duration
-	lastConflicts     []AgentSpawnConflict
+
+	conflictsMu   sync.Mutex
+	lastConflicts []AgentSpawnConflict
 }
 
-// LastSpawnConflicts returns the scope-overlap warnings collected during the
-// most recent SpawnAgent call. Callers (e.g. SwarmService) use this to surface
-// advisory warnings to the conductor.
+// LastSpawnConflicts returns a copy of the scope-overlap warnings collected
+// during the most recent SpawnAgent call. Callers (e.g. SwarmService) use this
+// to surface advisory warnings to the conductor. Returns a defensive copy so
+// concurrent SpawnAgent calls cannot mutate the slice mid-iteration.
 func (a *agentService) LastSpawnConflicts() []AgentSpawnConflict {
-	return a.lastConflicts
+	a.conflictsMu.Lock()
+	defer a.conflictsMu.Unlock()
+	if len(a.lastConflicts) == 0 {
+		return nil
+	}
+	out := make([]AgentSpawnConflict, len(a.lastConflicts))
+	copy(out, a.lastConflicts)
+	return out
+}
+
+func (a *agentService) setLastConflicts(c []AgentSpawnConflict) {
+	a.conflictsMu.Lock()
+	defer a.conflictsMu.Unlock()
+	a.lastConflicts = c
 }
 
 // Tmux returns the underlying TmuxManager. Used by SwarmService for direct
@@ -227,7 +244,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// Swarm scope-conflict check: collect overlaps with active siblings (status
 	// `dispatched` or `in_progress`). When StrictScope is set, hard-refuse;
 	// otherwise the conflict is advisory and surfaced to the caller.
-	a.lastConflicts = nil
+	a.setLastConflicts(nil)
 	if opt.ParentTaskID != "" && len(opt.Scope) > 0 {
 		conflicts, err := a.collectSiblingConflicts(ctx, opt, workDir)
 		if err != nil {
@@ -236,7 +253,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		if len(conflicts) > 0 && opt.StrictScope {
 			return fmt.Errorf("scope conflict with active sibling sub-task %s", conflicts[0].SiblingSubtaskID)
 		}
-		a.lastConflicts = conflicts
+		a.setLastConflicts(conflicts)
 	}
 
 	// Check for existing running session

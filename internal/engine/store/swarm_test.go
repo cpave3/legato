@@ -343,3 +343,103 @@ func TestAgentSessionRoleColumns(t *testing.T) {
 		t.Errorf("SubtaskID = %v, want sub-1", got.SubtaskID)
 	}
 }
+
+// TestInsertAndListSwarmEvent verifies the inbox round-trip: insert an event,
+// list unacked, see it appear with its assigned ID.
+func TestInsertAndListSwarmEvent(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "parent-1")
+
+	id, err := s.InsertSwarmEvent(ctx, SwarmEvent{
+		ParentTaskID: "parent-1",
+		Kind:         "progress",
+		WorkerTitle:  "API",
+		Payload:      "starting work",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id <= 0 {
+		t.Fatalf("expected positive event ID, got %d", id)
+	}
+
+	events, err := s.ListUnackedSwarmEvents(ctx, "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1", len(events))
+	}
+	if events[0].ID != id {
+		t.Errorf("ID = %d, want %d", events[0].ID, id)
+	}
+	if events[0].Kind != "progress" {
+		t.Errorf("Kind = %q, want progress", events[0].Kind)
+	}
+	if events[0].AckedAt != nil {
+		t.Errorf("AckedAt = %v, want nil for fresh event", events[0].AckedAt)
+	}
+}
+
+// TestAckSwarmEventsRemovesFromUnacked verifies acked rows disappear from the
+// unacked list.
+func TestAckSwarmEventsRemovesFromUnacked(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "parent-1")
+
+	id1, _ := s.InsertSwarmEvent(ctx, SwarmEvent{ParentTaskID: "parent-1", Kind: "a", Payload: "a"})
+	id2, _ := s.InsertSwarmEvent(ctx, SwarmEvent{ParentTaskID: "parent-1", Kind: "b", Payload: "b"})
+
+	if err := s.AckSwarmEvents(ctx, []int{id1}); err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := s.ListUnackedSwarmEvents(ctx, "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("after ack: got %d unacked, want 1", len(events))
+	}
+	if events[0].ID != id2 {
+		t.Errorf("remaining unacked ID = %d, want %d", events[0].ID, id2)
+	}
+}
+
+// TestSwarmEventInboxIsolation verifies events for parent A don't leak into
+// parent B's queue.
+func TestSwarmEventInboxIsolation(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "parent-A")
+	createTestTask(t, s, "parent-B")
+
+	if _, err := s.InsertSwarmEvent(ctx, SwarmEvent{ParentTaskID: "parent-A", Kind: "x", Payload: "for A"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertSwarmEvent(ctx, SwarmEvent{ParentTaskID: "parent-B", Kind: "y", Payload: "for B"}); err != nil {
+		t.Fatal(err)
+	}
+
+	a, _ := s.ListUnackedSwarmEvents(ctx, "parent-A")
+	if len(a) != 1 || a[0].Kind != "x" {
+		t.Errorf("parent-A inbox = %+v, want one event of kind x", a)
+	}
+	b, _ := s.ListUnackedSwarmEvents(ctx, "parent-B")
+	if len(b) != 1 || b[0].Kind != "y" {
+		t.Errorf("parent-B inbox = %+v, want one event of kind y", b)
+	}
+}
+
+// TestAckSwarmEventsEmptyIsNoop covers the empty-slice early return.
+func TestAckSwarmEventsEmptyIsNoop(t *testing.T) {
+	s := newTestStore(t)
+	if err := s.AckSwarmEvents(context.Background(), nil); err != nil {
+		t.Fatalf("nil slice returned error: %v", err)
+	}
+	if err := s.AckSwarmEvents(context.Background(), []int{}); err != nil {
+		t.Fatalf("empty slice returned error: %v", err)
+	}
+}

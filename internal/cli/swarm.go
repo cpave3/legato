@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/ipc"
-	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -35,7 +34,7 @@ func SwarmIsWorker() bool {
 //
 // autoApprove skips the IPC gate (for headless usage). timeout caps the wait;
 // zero means wait forever.
-func SwarmProposePlan(sw *service.SwarmService, planPath string, autoApprove bool, timeout time.Duration, registeredAdapters []string, maxSubtasks int) error {
+func SwarmProposePlan(sw service.SwarmService, planPath string, autoApprove bool, timeout time.Duration, registeredAdapters []string, maxSubtasks int) error {
 	plan, err := swarm.LoadPlan(planPath)
 	if err != nil {
 		return fmt.Errorf("load plan: %w", err)
@@ -98,7 +97,7 @@ func SwarmProposePlan(sw *service.SwarmService, planPath string, autoApprove boo
 }
 
 // SwarmDispatch spawns the worker for a queued sub-task.
-func SwarmDispatch(sw *service.SwarmService, subtaskID string) error {
+func SwarmDispatch(sw service.SwarmService, subtaskID string) error {
 	if err := sw.Dispatch(context.Background(), subtaskID); err != nil {
 		return err
 	}
@@ -112,12 +111,12 @@ func SwarmDispatch(sw *service.SwarmService, subtaskID string) error {
 }
 
 // SwarmMessage delivers text into a worker's tmux pane.
-func SwarmMessage(sw *service.SwarmService, subtaskID, text string) error {
+func SwarmMessage(sw service.SwarmService, subtaskID, text string) error {
 	return sw.Message(context.Background(), subtaskID, text)
 }
 
 // SwarmBroadcast delivers text to every live worker in the swarm.
-func SwarmBroadcast(sw *service.SwarmService, parentID, text string) error {
+func SwarmBroadcast(sw service.SwarmService, parentID, text string) error {
 	count, err := sw.Broadcast(context.Background(), parentID, text)
 	if err != nil {
 		return err
@@ -127,7 +126,7 @@ func SwarmBroadcast(sw *service.SwarmService, parentID, text string) error {
 }
 
 // SwarmClose ratifies completion or terminates a worker.
-func SwarmClose(sw *service.SwarmService, subtaskID string) error {
+func SwarmClose(sw service.SwarmService, subtaskID string) error {
 	parentID := parentOf(sw, subtaskID)
 	if err := sw.Close(context.Background(), subtaskID); err != nil {
 		return err
@@ -143,7 +142,7 @@ func SwarmClose(sw *service.SwarmService, subtaskID string) error {
 
 // SwarmFinish ends the swarm, kills all live workers + the conductor, and
 // appends the summary to the parent task description.
-func SwarmFinish(sw *service.SwarmService, parentID, summary string) error {
+func SwarmFinish(sw service.SwarmService, parentID, summary string) error {
 	if err := sw.Finish(context.Background(), parentID, summary); err != nil {
 		return err
 	}
@@ -156,7 +155,7 @@ func SwarmFinish(sw *service.SwarmService, parentID, summary string) error {
 }
 
 // SwarmStatus prints the JSON snapshot for a swarm parent.
-func SwarmStatus(sw *service.SwarmService, parentID string) error {
+func SwarmStatus(sw service.SwarmService, parentID string) error {
 	raw, err := sw.Snapshot(context.Background(), parentID)
 	if err != nil {
 		return err
@@ -168,7 +167,7 @@ func SwarmStatus(sw *service.SwarmService, parentID string) error {
 // SwarmInbox prints all unacked swarm events for a parent in human-readable
 // form, then marks them acked. Conductors call this when they receive a
 // `[legato] new swarm event #N` send-keys notification.
-func SwarmInbox(sw *service.SwarmService, parentID string) error {
+func SwarmInbox(sw service.SwarmService, parentID string) error {
 	entries, err := sw.FetchInbox(context.Background(), parentID)
 	if err != nil {
 		return err
@@ -193,17 +192,17 @@ func SwarmInbox(sw *service.SwarmService, parentID string) error {
 }
 
 // SwarmProgress is a worker-side report.
-func SwarmProgress(sw *service.SwarmService, subtaskID, text string) error {
+func SwarmProgress(sw service.SwarmService, subtaskID, text string) error {
 	return sw.Progress(context.Background(), subtaskID, text)
 }
 
 // SwarmQuestion is a worker-side question to the conductor.
-func SwarmQuestion(sw *service.SwarmService, subtaskID, text string) error {
+func SwarmQuestion(sw service.SwarmService, subtaskID, text string) error {
 	return sw.Question(context.Background(), subtaskID, text)
 }
 
 // SwarmBuilt is the worker's completion signal.
-func SwarmBuilt(sw *service.SwarmService, subtaskID string) error {
+func SwarmBuilt(sw service.SwarmService, subtaskID string) error {
 	return sw.Built(context.Background(), subtaskID)
 }
 
@@ -221,7 +220,7 @@ func emitVerdict(status, planPath, notes string) {
 }
 
 // parentOf returns the parent_task_id for the given sub-task, or "" if not found.
-func parentOf(sw *service.SwarmService, subtaskID string) string {
+func parentOf(sw service.SwarmService, subtaskID string) string {
 	st, err := sw.GetSubtask(context.Background(), subtaskID)
 	if err != nil {
 		return ""
@@ -232,10 +231,7 @@ func parentOf(sw *service.SwarmService, subtaskID string) string {
 // SwarmStartFromCLI is the CLI entry point for `legato swarm start <parent-id> <working-dir>`.
 // Used by callers that want to start a swarm without going through the TUI overlay
 // (e.g. tests or scripts).
-func SwarmStartFromCLI(sw *service.SwarmService, parentID, workingDir string) error {
+func SwarmStartFromCLI(sw service.SwarmService, parentID, workingDir string) error {
 	return sw.StartSwarm(context.Background(), parentID, workingDir)
 }
 
-// _ used to avoid an "unused import" warning during incremental development —
-// store is referenced in places not visible to a quick scan.
-var _ = store.ErrNotFound

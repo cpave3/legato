@@ -456,13 +456,15 @@ func swarmStatusIcon(status string) string {
 	switch status {
 	case "queued":
 		return "○"
-	case "building":
+	case "dispatched":
+		return "◔"
+	case "in_progress":
 		return "◐"
-	case "review":
+	case "reporting":
 		return "◇"
 	case "done":
 		return "●"
-	case "rejected":
+	case "cancelled":
 		return "✗"
 	default:
 		return "·"

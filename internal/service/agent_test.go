@@ -7,12 +7,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
+// mockTmux is a TmuxManager test double whose internal maps are guarded by a
+// mutex so that goroutines spawned by SpawnAgent (e.g. the deferred brief
+// kickoff send-keys) don't race against the main test goroutine reading the
+// same maps. Test code MUST use the accessor helpers (sessionAlive, sentLinesFor,
+// envVarsFor, …) instead of touching the maps directly.
 type mockTmux struct {
+	mu              sync.Mutex
 	sessions        map[string]bool
 	captures        map[string]string
 	envVars         map[string]map[string]string // session -> key -> value
@@ -37,12 +44,13 @@ func newMockTmux() *mockTmux {
 }
 
 func (m *mockTmux) Spawn(name, workDir string, width, height int, envVars ...string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.sessions[name] {
 		return fmt.Errorf("session %s already exists", name)
 	}
 	m.sessions[name] = true
 	m.spawnDims[name] = [2]int{width, height}
-	// Store env vars passed at spawn time.
 	if len(envVars) > 0 {
 		if m.envVars[name] == nil {
 			m.envVars[name] = make(map[string]string)
@@ -58,11 +66,15 @@ func (m *mockTmux) Spawn(name, workDir string, width, height int, envVars ...str
 }
 
 func (m *mockTmux) Kill(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	delete(m.sessions, name)
 	return nil
 }
 
 func (m *mockTmux) Capture(name string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if !m.sessions[name] {
 		return "", fmt.Errorf("session %s not found", name)
 	}
@@ -81,6 +93,8 @@ func (m *mockTmux) Attach(name string) *exec.Cmd {
 }
 
 func (m *mockTmux) ListSessions() ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var result []string
 	for name := range m.sessions {
 		result = append(result, name)
@@ -89,10 +103,14 @@ func (m *mockTmux) ListSessions() ([]string, error) {
 }
 
 func (m *mockTmux) IsAlive(name string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.sessions[name], nil
 }
 
 func (m *mockTmux) PaneCommands() (map[string]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.paneCommands != nil {
 		return m.paneCommands, m.paneCommandsErr
 	}
@@ -100,6 +118,8 @@ func (m *mockTmux) PaneCommands() (map[string]string, error) {
 }
 
 func (m *mockTmux) SetOption(sessionName, key, value string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if !m.sessions[sessionName] {
 		return fmt.Errorf("session %s not found", sessionName)
 	}
@@ -111,6 +131,8 @@ func (m *mockTmux) SetOption(sessionName, key, value string) error {
 }
 
 func (m *mockTmux) SendKeys(name, keys string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if !m.sessions[name] {
 		return fmt.Errorf("session %s not found", name)
 	}
@@ -118,6 +140,8 @@ func (m *mockTmux) SendKeys(name, keys string) error {
 }
 
 func (m *mockTmux) SendKey(name, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if !m.sessions[name] {
 		return fmt.Errorf("session %s not found", name)
 	}
@@ -125,6 +149,8 @@ func (m *mockTmux) SendKey(name, key string) error {
 }
 
 func (m *mockTmux) SendKeysLine(name, line string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if !m.sessions[name] {
 		return fmt.Errorf("session %s not found", name)
 	}
@@ -133,6 +159,8 @@ func (m *mockTmux) SendKeysLine(name, line string) error {
 }
 
 func (m *mockTmux) SendKeysMultiline(name, payload string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if !m.sessions[name] {
 		return fmt.Errorf("session %s not found", name)
 	}
@@ -141,6 +169,8 @@ func (m *mockTmux) SendKeysMultiline(name, payload string) error {
 }
 
 func (m *mockTmux) SendKeysShellCommand(name, command string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if !m.sessions[name] {
 		return fmt.Errorf("session %s not found", name)
 	}
@@ -152,6 +182,8 @@ func (m *mockTmux) SendKeysShellCommand(name, command string) error {
 }
 
 func (m *mockTmux) PipeOutput(name string) (io.Reader, func(), error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if !m.sessions[name] {
 		return nil, nil, fmt.Errorf("session %s not found", name)
 	}
@@ -159,6 +191,8 @@ func (m *mockTmux) PipeOutput(name string) (io.Reader, func(), error) {
 }
 
 func (m *mockTmux) SetEnv(sessionName, key, value string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if !m.sessions[sessionName] {
 		return fmt.Errorf("session %s not found", sessionName)
 	}
@@ -167,6 +201,69 @@ func (m *mockTmux) SetEnv(sessionName, key, value string) error {
 	}
 	m.envVars[sessionName][key] = value
 	return nil
+}
+
+// --- Test-side accessors. All take the lock and return defensive copies so
+// goroutines spawned by SpawnAgent don't race with reads from the test body.
+
+func (m *mockTmux) sessionAlive(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sessions[name]
+}
+
+func (m *mockTmux) markSessionDead(name string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.sessions, name)
+}
+
+func (m *mockTmux) setCapture(name, value string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.captures[name] = value
+}
+
+func (m *mockTmux) sentLinesFor(name string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.sentLines[name]))
+	copy(out, m.sentLines[name])
+	return out
+}
+
+func (m *mockTmux) envVarsFor(name string) map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	src := m.envVars[name]
+	if src == nil {
+		return nil
+	}
+	out := make(map[string]string, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+func (m *mockTmux) optionsFor(name string) map[string]string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	src := m.options[name]
+	if src == nil {
+		return nil
+	}
+	out := make(map[string]string, len(src))
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+func (m *mockTmux) spawnDimsFor(name string) [2]int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.spawnDims[name]
 }
 
 func newTestAgentService(t *testing.T) (AgentService, *store.Store, *mockTmux) {
@@ -208,7 +305,7 @@ func TestSpawnAgentCreatesSessionAndDBRow(t *testing.T) {
 	}
 
 	// Tmux session should exist
-	if !mt.sessions["legato-REX-1238"] {
+	if !mt.sessionAlive("legato-REX-1238") {
 		t.Error("expected tmux session legato-REX-1238 to exist")
 	}
 
@@ -254,7 +351,7 @@ func TestKillAgentDestroysSessionAndUpdatesDB(t *testing.T) {
 	}
 
 	// Tmux session should be gone
-	if mt.sessions["legato-REX-1238"] {
+	if mt.sessionAlive("legato-REX-1238") {
 		t.Error("expected tmux session to be killed")
 	}
 
@@ -299,7 +396,7 @@ func TestReconcileSessionsMarksDeadSessions(t *testing.T) {
 	}
 
 	// Simulate REX-1238's tmux session dying externally
-	delete(mt.sessions, "legato-REX-1238")
+	mt.markSessionDead("legato-REX-1238")
 
 	if err := svc.ReconcileSessions(ctx); err != nil {
 		t.Fatal(err)
@@ -339,7 +436,7 @@ func TestSpawnAgentWithStaleDBSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Kill tmux session externally (DB still says "running")
-	delete(mt.sessions, "legato-REX-1238")
+	mt.markSessionDead("legato-REX-1238")
 
 	// Re-spawn should succeed — stale DB record should be cleaned up
 	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
@@ -347,7 +444,7 @@ func TestSpawnAgentWithStaleDBSession(t *testing.T) {
 	}
 
 	// Tmux session should exist again
-	if !mt.sessions["legato-REX-1238"] {
+	if !mt.sessionAlive("legato-REX-1238") {
 		t.Error("expected tmux session legato-REX-1238 to exist after re-spawn")
 	}
 }
@@ -361,7 +458,7 @@ func TestCaptureOutputReturnsContent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mt.captures["legato-REX-1238"] = "hello world\n$ "
+	mt.setCapture("legato-REX-1238", "hello world\n$ ")
 
 	output, err := svc.CaptureOutput(ctx, "REX-1238")
 	if err != nil {
@@ -404,7 +501,7 @@ func TestSpawnAgentInjectsEnvVarsWhenAdapterConfigured(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	envs := mt.envVars["legato-task1"]
+	envs := mt.envVarsFor("legato-task1")
 	if envs == nil {
 		t.Fatal("no env vars set on tmux session")
 	}
@@ -425,8 +522,8 @@ func TestSpawnAgentSkipsEnvVarsWithoutAdapter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(mt.envVars["legato-task2"]) != 0 {
-		t.Errorf("expected no env vars without adapter, got %v", mt.envVars["legato-task2"])
+	if len(mt.envVarsFor("legato-task2")) != 0 {
+		t.Errorf("expected no env vars without adapter, got %v", mt.envVarsFor("legato-task2"))
 	}
 }
 
@@ -439,7 +536,7 @@ func TestSpawnAgentPassesDimensionsToTmux(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dims := mt.spawnDims["legato-REX-1238"]
+	dims := mt.spawnDimsFor("legato-REX-1238")
 	if dims[0] != 90 {
 		t.Errorf("width = %d, want 90", dims[0])
 	}
@@ -502,7 +599,7 @@ func TestListAgentsKeepsDBCommandForDeadSessions(t *testing.T) {
 	}
 
 	// Kill tmux session externally and reconcile
-	delete(mt.sessions, "legato-REX-1238")
+	mt.markSessionDead("legato-REX-1238")
 	if err := svc.ReconcileSessions(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -539,7 +636,7 @@ func TestReconcileClosesOrphanedIntervals(t *testing.T) {
 	}
 
 	// Simulate tmux session dying
-	delete(mt.sessions, "legato-REX-1238")
+	mt.markSessionDead("legato-REX-1238")
 
 	if err := svc.ReconcileSessions(ctx); err != nil {
 		t.Fatal(err)
@@ -676,7 +773,7 @@ func TestSpawnAgentAppliesTmuxOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	opts := mt.options["legato-task1"]
+	opts := mt.optionsFor("legato-task1")
 	if opts == nil {
 		t.Fatal("no tmux options set on session")
 	}
@@ -697,8 +794,8 @@ func TestSpawnAgentNoOptionsWithoutConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(mt.options["legato-task1"]) != 0 {
-		t.Errorf("expected no tmux options without config, got %v", mt.options["legato-task1"])
+	if len(mt.optionsFor("legato-task1")) != 0 {
+		t.Errorf("expected no tmux options without config, got %v", mt.optionsFor("legato-task1"))
 	}
 }
 
@@ -766,7 +863,7 @@ func TestGetAgentSummary_ReconcilesCleansDeadSessions(t *testing.T) {
 	s.UpdateAgentActivity(ctx, "task2", "working")
 
 	// Simulate task2 tmux session dying
-	delete(mt.sessions, "legato-task2")
+	mt.markSessionDead("legato-task2")
 
 	working, _, _, err := svc.GetAgentSummary(ctx, "")
 	if err != nil {
@@ -797,7 +894,7 @@ func TestSpawnAgentInjectsStatusLineOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	opts := mt.options["legato-task1"]
+	opts := mt.optionsFor("legato-task1")
 	if opts == nil {
 		t.Fatal("no tmux options set on session")
 	}
@@ -832,7 +929,7 @@ func TestSpawnAgentUserOptionsOverrideStatusLine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	opts := mt.options["legato-task1"]
+	opts := mt.optionsFor("legato-task1")
 	// User's status-right should override legato's default
 	if opts["status-right"] != "my custom status" {
 		t.Errorf("status-right = %q, want user override %q", opts["status-right"], "my custom status")
@@ -848,7 +945,7 @@ func TestSpawnAgentSkipsStatusLineWithoutBinaryPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	opts := mt.options["legato-task1"]
+	opts := mt.optionsFor("legato-task1")
 	if _, ok := opts["status-right"]; ok {
 		t.Error("expected no status-right without binary path")
 	}
@@ -885,7 +982,7 @@ func TestSpawnEphemeralAgentCreatesTaskAndSession(t *testing.T) {
 
 	// Tmux session should exist with legato- prefix
 	taskID := agents[0].TaskID
-	if !mt.sessions["legato-"+taskID] {
+	if !mt.sessionAlive("legato-"+taskID) {
 		t.Errorf("expected tmux session legato-%s to exist", taskID)
 	}
 

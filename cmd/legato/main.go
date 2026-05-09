@@ -372,7 +372,7 @@ func runServeCmd(args []string) int {
 	}
 
 	// Swarm service for HTTP endpoints.
-	var swarmSvc *service.SwarmService
+	var swarmSvc service.SwarmService
 	if agentSvc != nil {
 		swarmCfg := service.SwarmConfig{
 			MaxConcurrentAgents: cfg.Swarm.MaxConcurrentAgents,
@@ -926,7 +926,7 @@ Read-only:
 // loadSwarmServiceForCLI builds a SwarmService backed by a real tmux Manager.
 // CLI swarm verbs need a real tmux because they may dispatch agents (which
 // requires creating sessions) or send-keys to live workers/conductor.
-func loadSwarmServiceForCLI() (*service.SwarmService, *store.Store, int) {
+func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
