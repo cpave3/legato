@@ -48,7 +48,7 @@ func SwarmIsWorker() bool {
 }
 
 // SwarmProposePlan submits a plan for HITL approval. Validates the plan, copies
-// it to its canonical location under <working_dir>/.legato/plans/, broadcasts
+// it to its canonical location under ~/.legato/plans/, broadcasts
 // `plan_proposed` IPC to all running TUI instances, and blocks until a verdict
 // arrives. On approval, persists the (possibly user-edited) sub-tasks to the
 // DB. Prints a JSON result to stdout: {"status":"approved|rejected","plan_path":"...","notes":"..."}.
@@ -131,14 +131,17 @@ func SwarmDispatch(sw service.SwarmService, subtaskID string) error {
 	return nil
 }
 
-// SwarmMessage delivers text into a worker's tmux pane.
-func SwarmMessage(sw service.SwarmService, subtaskID, text string) error {
-	return sw.Message(context.Background(), subtaskID, text)
+// SwarmMessage delivers text into a worker's tmux pane. When urgent is true
+// the adapter's interrupt keys (e.g. Escape) are sent first to abort any
+// active turn.
+func SwarmMessage(sw service.SwarmService, subtaskID, text string, urgent bool) error {
+	return sw.Message(context.Background(), subtaskID, text, urgent)
 }
 
-// SwarmBroadcast delivers text to every live worker in the swarm.
-func SwarmBroadcast(sw service.SwarmService, parentID, text string) error {
-	count, err := sw.Broadcast(context.Background(), parentID, text)
+// SwarmBroadcast delivers text to every live worker in the swarm. When urgent
+// is true interrupt keys are sent per-target before the message.
+func SwarmBroadcast(sw service.SwarmService, parentID, text string, urgent bool) error {
+	count, err := sw.Broadcast(context.Background(), parentID, text, urgent)
 	if err != nil {
 		return err
 	}

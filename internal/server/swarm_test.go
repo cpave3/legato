@@ -19,9 +19,9 @@ import (
 type mockSwarmService struct {
 	startSwarmFunc     func(ctx context.Context, parentID, workingDir string) error
 	dispatchFunc       func(ctx context.Context, subtaskID string) error
-	messageFunc        func(ctx context.Context, subtaskID, text string) error
-	messageParentFunc  func(ctx context.Context, parentID, text string) error
-	broadcastFunc      func(ctx context.Context, parentID, text string) (int, error)
+	messageFunc        func(ctx context.Context, subtaskID, text string, urgent bool) error
+	messageParentFunc  func(ctx context.Context, parentID, text string, urgent bool) error
+	broadcastFunc      func(ctx context.Context, parentID, text string, urgent bool) (int, error)
 	closeFunc          func(ctx context.Context, subtaskID string) error
 	finishFunc         func(ctx context.Context, parentID, summary string) error
 	snapshotFunc       func(ctx context.Context, parentID string) ([]byte, error)
@@ -49,23 +49,23 @@ func (m *mockSwarmService) Dispatch(ctx context.Context, subtaskID string) error
 	return nil
 }
 
-func (m *mockSwarmService) Message(ctx context.Context, subtaskID, text string) error {
+func (m *mockSwarmService) Message(ctx context.Context, subtaskID, text string, urgent bool) error {
 	if m.messageFunc != nil {
-		return m.messageFunc(ctx, subtaskID, text)
+		return m.messageFunc(ctx, subtaskID, text, urgent)
 	}
 	return nil
 }
 
-func (m *mockSwarmService) MessageParent(ctx context.Context, parentID, text string) error {
+func (m *mockSwarmService) MessageParent(ctx context.Context, parentID, text string, urgent bool) error {
 	if m.messageParentFunc != nil {
-		return m.messageParentFunc(ctx, parentID, text)
+		return m.messageParentFunc(ctx, parentID, text, urgent)
 	}
 	return nil
 }
 
-func (m *mockSwarmService) Broadcast(ctx context.Context, parentID, text string) (int, error) {
+func (m *mockSwarmService) Broadcast(ctx context.Context, parentID, text string, urgent bool) (int, error) {
 	if m.broadcastFunc != nil {
-		return m.broadcastFunc(ctx, parentID, text)
+		return m.broadcastFunc(ctx, parentID, text, urgent)
 	}
 	return 0, nil
 }
@@ -290,9 +290,9 @@ func TestSwarmDispatchHappyPath(t *testing.T) {
 
 func TestSwarmMessageHappyPath(t *testing.T) {
 	sw := &mockSwarmService{
-		messageFunc: func(ctx context.Context, subtaskID, text string) error {
-			if subtaskID != "st-abc" || text != "hello" {
-				t.Errorf("unexpected args: %s, %s", subtaskID, text)
+		messageFunc: func(ctx context.Context, subtaskID, text string, urgent bool) error {
+			if subtaskID != "st-abc" || text != "hello" || urgent != false {
+				t.Errorf("unexpected args: %s, %s, urgent=%v", subtaskID, text, urgent)
 			}
 			return nil
 		},
@@ -315,11 +315,11 @@ func TestSwarmMessageFallbackToParent(t *testing.T) {
 	messageCalled := false
 	parentCalled := false
 	sw := &mockSwarmService{
-		messageFunc: func(ctx context.Context, subtaskID, text string) error {
+		messageFunc: func(ctx context.Context, subtaskID, text string, urgent bool) error {
 			messageCalled = true
 			return store.ErrNotFound // subtask lookup fails
 		},
-		messageParentFunc: func(ctx context.Context, parentID, text string) error {
+		messageParentFunc: func(ctx context.Context, parentID, text string, urgent bool) error {
 			parentCalled = true
 			if parentID != "task-parent" || text != "hello" {
 				t.Errorf("unexpected args: %s, %s", parentID, text)
@@ -347,7 +347,7 @@ func TestSwarmMessageFallbackToParent(t *testing.T) {
 
 func TestSwarmBroadcastHappyPath(t *testing.T) {
 	sw := &mockSwarmService{
-		broadcastFunc: func(ctx context.Context, parentID, text string) (int, error) {
+		broadcastFunc: func(ctx context.Context, parentID, text string, urgent bool) (int, error) {
 			if parentID != "task-1" || text != "hello all" {
 				t.Errorf("unexpected args: %s, %s", parentID, text)
 			}
@@ -376,7 +376,7 @@ func TestSwarmBroadcastHappyPath(t *testing.T) {
 
 func TestSwarmBroadcastParentNotFound(t *testing.T) {
 	sw := &mockSwarmService{
-		broadcastFunc: func(ctx context.Context, parentID, text string) (int, error) {
+		broadcastFunc: func(ctx context.Context, parentID, text string, urgent bool) (int, error) {
 			return 0, store.ErrNotFound
 		},
 	}

@@ -61,6 +61,11 @@ func (a *ClaudeCodeAdapter) RoleSystemPrompt(role string) string {
 	return resolveRolePrompt(a.roleOverrides, role)
 }
 
+// InterruptKeys implements the InterruptAdapter interface. Sending Escape
+// to a Claude Code session aborts the agent's current turn so the urgent
+// message can be processed immediately.
+func (a *ClaudeCodeAdapter) InterruptKeys() []string { return []string{"Escape"} }
+
 // LaunchCommand returns the shell command that starts an interactive Claude
 // Code session. When LEGATO_ROLE_PROMPT_FILE is set, the role's system
 // prompt is appended via --append-system-prompt, substituted at shell-

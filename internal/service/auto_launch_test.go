@@ -31,6 +31,8 @@ func (f *fakeAdapter) RoleSystemPrompt(role string) string {
 	}
 	return f.rolePrompts[role]
 }
+func (f *fakeAdapter) InterruptKeys() []string { return []string{"Escape"} }
+
 func (f *fakeAdapter) LaunchCommand(env map[string]string, brief, tier string) string {
 	if f.launchFn != nil {
 		return f.launchFn(env, brief, tier)

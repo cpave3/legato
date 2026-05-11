@@ -220,6 +220,7 @@ func TestValidatePlanExceedsMaxSteps(t *testing.T) {
 
 func TestPlanWriteToCanonicalPath(t *testing.T) {
 	root := t.TempDir()
+	t.Setenv("LEGATO_HOME", root)
 	p := validPlan()
 	p.Swarm.WorkingDir = root
 
@@ -227,8 +228,8 @@ func TestPlanWriteToCanonicalPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(canonical, filepath.Join(root, ".legato", "plans")) {
-		t.Errorf("canonical path %q not under .legato/plans/", canonical)
+	if !strings.HasPrefix(canonical, filepath.Join(root, "plans")) {
+		t.Errorf("canonical path %q not under plans/", canonical)
 	}
 	if _, err := os.Stat(canonical); err != nil {
 		t.Errorf("plan file not on disk: %v", err)
@@ -261,6 +262,7 @@ func TestPlanWriteToRequiresArgs(t *testing.T) {
 
 func TestLoadPlanFromDisk(t *testing.T) {
 	root := t.TempDir()
+	t.Setenv("LEGATO_HOME", root)
 	p := validPlan()
 	canonical, err := p.WriteTo(root, "abc12345")
 	if err != nil {

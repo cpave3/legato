@@ -31,3 +31,5 @@ If the kickoff message you received looks short or vague (e.g. "begin work"), do
 - `legato swarm question $LEGATO_SUBTASK_ID "<text>"` — ask the conductor.
 - `legato swarm built $LEGATO_SUBTASK_ID` — signal completion.
 - `legato swarm status $LEGATO_PARENT_TASK_ID` — read-only snapshot of the whole swarm.
+
+Note: If the conductor sends an **urgent** message, it will first send `Escape` to abort your current turn so the message arrives immediately. Process it as a new user turn.

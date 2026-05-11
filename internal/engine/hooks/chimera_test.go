@@ -106,3 +106,23 @@ func TestChimeraAdapter_UninstallNonExistent(t *testing.T) {
 		t.Errorf("uninstall of non-existent hooks should not error: %v", err)
 	}
 }
+
+func TestChimeraAdapter_InterruptKeys(t *testing.T) {
+	adapter := hooks.NewChimeraAdapter("/usr/bin/legato")
+	keys := adapter.InterruptKeys()
+	if len(keys) != 1 || keys[0] != "Escape" {
+		t.Errorf("InterruptKeys() = %v, want [Escape]", keys)
+	}
+}
+
+func TestChimeraAdapter_ImplementsInterruptAdapter(t *testing.T) {
+	// Compile-time check: ChimeraAdapter must implement service.InterruptAdapter.
+	var _ interface{ InterruptKeys() []string } = hooks.NewChimeraAdapter("/usr/bin/legato")
+
+	// Also verify via the concrete interface from the service package.
+	// We do this with a type switch at runtime to keep the test self-contained.
+	adapter := hooks.NewChimeraAdapter("/usr/bin/legato")
+	if _, ok := interface{}(adapter).(interface{ InterruptKeys() []string }); !ok {
+		t.Error("ChimeraAdapter does not implement InterruptAdapter")
+	}
+}

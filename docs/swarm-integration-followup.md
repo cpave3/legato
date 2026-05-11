@@ -98,11 +98,7 @@ While a conductor is alive on `legato-<parent-id>`, the user can't spawn a regul
 
 ### `.legato/` in working dirs
 
-Plan files at `<working_dir>/.legato/plans/` and per-agent prompt/brief files at `<working_dir>/.legato/agents/<task-id>/` get written every swarm. Most users won't want these in git. Options:
-- Auto-write a `.legato/.gitignore` containing `*` on first use.
-- Document that `<working_dir>/.legato/` should be gitignored.
-
-The auto-write is one line and prevents the issue silently.
+This is now resolved. Swarm runtime files live in `~/.legato/` outside the working tree, and `SwarmService.Finish` cleans up the per-agent directories (`~/.legato/agents/<task-id>/`) and matching plan files (`~/.legato/plans/<parent>-*.yaml`) on completion.
 
 ### Worker `legato` binary on $PATH
 

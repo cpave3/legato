@@ -1034,8 +1034,8 @@ Conductor verbs:
   validate-plan <plan-file>
   propose-plan <plan-file> [--auto-approve] [--timeout 5m]
   dispatch <subtask-id>
-  message <subtask-id> "<text>"
-  broadcast <parent-id> "<text>"
+  message <subtask-id> "<text>" [--urgent]
+  broadcast <parent-id> "<text>" [--urgent]
   close <subtask-id>
   finish <parent-id> "<summary>"
   next-step <parent-id>
@@ -1221,15 +1221,21 @@ func runSwarmDispatch(args []string) int {
 
 func runSwarmMessage(args []string) int {
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, `usage: legato swarm message <subtask-id> "<text>"`)
+		fmt.Fprintln(os.Stderr, `usage: legato swarm message <subtask-id> "<text>" [--urgent]`)
 		return 1
+	}
+	urgent := false
+	for i := 2; i < len(args); i++ {
+		if args[i] == "--urgent" {
+			urgent = true
+		}
 	}
 	sw, db, code := loadSwarmServiceForCLI()
 	if code != 0 {
 		return code
 	}
 	defer db.Close()
-	if err := cli.SwarmMessage(sw, args[0], args[1]); err != nil {
+	if err := cli.SwarmMessage(sw, args[0], args[1], urgent); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
@@ -1238,15 +1244,21 @@ func runSwarmMessage(args []string) int {
 
 func runSwarmBroadcast(args []string) int {
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, `usage: legato swarm broadcast <parent-id> "<text>"`)
+		fmt.Fprintln(os.Stderr, `usage: legato swarm broadcast <parent-id> "<text>" [--urgent]`)
 		return 1
+	}
+	urgent := false
+	for i := 2; i < len(args); i++ {
+		if args[i] == "--urgent" {
+			urgent = true
+		}
 	}
 	sw, db, code := loadSwarmServiceForCLI()
 	if code != 0 {
 		return code
 	}
 	defer db.Close()
-	if err := cli.SwarmBroadcast(sw, args[0], args[1]); err != nil {
+	if err := cli.SwarmBroadcast(sw, args[0], args[1], urgent); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}

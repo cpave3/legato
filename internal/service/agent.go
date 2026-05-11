@@ -98,6 +98,9 @@ type AgentService interface {
 	LastSpawnConflicts() []AgentSpawnConflict
 	RegisteredAdapters() []string
 	DefaultAdapter() string
+	// AdapterFor returns the AIToolAdapter for the given kind, or nil if none
+	// is registered (e.g. kind "shell"). Empty kind resolves to the default.
+	AdapterFor(kind string) AIToolAdapter
 }
 
 type agentService struct {
@@ -157,20 +160,17 @@ const briefKickoffDelay = 250 * time.Millisecond
 const briefKickoffMessage = `Read $LEGATO_BRIEF_FILE in full — that file is your complete assignment. Then begin work as instructed.`
 
 // writeAgentPromptFiles writes the role system prompt and per-worker brief
-// to per-agent files under <workDir>/.legato/agents/<taskID>/. Returns the
+// to per-agent files under ~/.legato/agents/<taskID>/. Returns the
 // canonical paths (empty strings when content is empty), or a non-nil error
 // when the filesystem cannot be written. Files are 0600 to keep prompts off
 // other users on shared machines.
-func writeAgentPromptFiles(workDir, taskID, rolePrompt, brief string) (string, string, error) {
-	if workDir == "" {
-		return "", "", fmt.Errorf("workDir is required")
-	}
+func writeAgentPromptFiles(taskID, rolePrompt, brief string) (string, string, error) {
 	if taskID == "" {
 		return "", "", fmt.Errorf("taskID is required")
 	}
-	dir := filepath.Join(workDir, ".legato", "agents", taskID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", "", fmt.Errorf("create agent prompt dir: %w", err)
+	dir, err := swarm.AgentDir(taskID)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve agent dir: %w", err)
 	}
 	rolePath := ""
 	if rolePrompt != "" {
@@ -297,7 +297,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		envMap["LEGATO_SUBTASK_ID"] = opt.SubtaskID
 	}
 	// Resolve the role system prompt (string), then write it and any brief
-	// to per-agent files under <workDir>/.legato/agents/<taskID>/. The launch
+	// to per-agent files under ~/.legato/agents/<taskID>/. The launch
 	// command receives paths via env vars so multi-line/quoted content never
 	// has to traverse shell escaping. Skipped for non-swarm spawns where no
 	// role or brief is supplied.
@@ -317,7 +317,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 	if rolePrompt != "" || opt.Brief != "" {
-		rolePath, briefPath, perr := writeAgentPromptFiles(workDir, taskID, rolePrompt, opt.Brief)
+		rolePath, briefPath, perr := writeAgentPromptFiles(taskID, rolePrompt, opt.Brief)
 		if perr != nil {
 			// Non-fatal — fall back to a session without prompt files. The
 			// adapter's LaunchCommand will see no LEGATO_*_FILE env and skip
@@ -454,6 +454,14 @@ func (a *agentService) resolveAdapter(kind string) AIToolAdapter {
 		}
 	}
 	return a.adapter
+}
+
+// AdapterFor returns the AIToolAdapter for the given kind. Empty kind
+// resolves to the default adapter. "shell" returns nil. Delegates to
+// resolveAdapter so that callers (e.g. SwarmService) can look up adapters
+// dynamically without importing the adapter resolution logic.
+func (a *agentService) AdapterFor(kind string) AIToolAdapter {
+	return a.resolveAdapter(kind)
 }
 
 // collectSiblingConflicts walks active swarm siblings and returns scope

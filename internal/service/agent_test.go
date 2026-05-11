@@ -29,6 +29,7 @@ type mockTmux struct {
 	paneCommandsErr error
 	sentLines       map[string][]string // session -> ordered list of SendKeysLine payloads
 	sentMultiline   map[string][]string // session -> ordered list of SendKeysMultiline payloads
+	sentKeys        map[string][]string // session -> ordered list of SendKey payloads
 }
 
 func newMockTmux() *mockTmux {
@@ -40,6 +41,7 @@ func newMockTmux() *mockTmux {
 		options:       make(map[string]map[string]string),
 		sentLines:     make(map[string][]string),
 		sentMultiline: make(map[string][]string),
+		sentKeys:      make(map[string][]string),
 	}
 }
 
@@ -145,6 +147,7 @@ func (m *mockTmux) SendKey(name, key string) error {
 	if !m.sessions[name] {
 		return fmt.Errorf("session %s not found", name)
 	}
+	m.sentKeys[name] = append(m.sentKeys[name], key)
 	return nil
 }
 
@@ -243,6 +246,14 @@ func (m *mockTmux) envVarsFor(name string) map[string]string {
 	for k, v := range src {
 		out[k] = v
 	}
+	return out
+}
+
+func (m *mockTmux) sentKeysFor(name string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.sentKeys[name]))
+	copy(out, m.sentKeys[name])
 	return out
 }
 

@@ -174,7 +174,8 @@ func validateTier(st PlanSubtask, opts ValidateOptions, si, i int) error {
 }
 
 // WriteTo serializes the plan to YAML and writes it to a canonical path under
-// the swarm's working directory: `<workingDir>/.legato/plans/<parent>-<unix-ts>.yaml`.
+// ~/.legato/plans/<parent>-<unix-ts>.yaml. The workingDir parameter is still
+// validated but no longer used to derive the output path.
 // Returns the canonical path on success.
 func (p *Plan) WriteTo(workingDir, parentTaskID string) (string, error) {
 	if workingDir == "" {
@@ -184,9 +185,9 @@ func (p *Plan) WriteTo(workingDir, parentTaskID string) (string, error) {
 		return "", fmt.Errorf("parentTaskID is required")
 	}
 
-	dir := filepath.Join(workingDir, ".legato", "plans")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("create plans dir: %w", err)
+	dir, err := PlansDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve plans dir: %w", err)
 	}
 
 	filename := fmt.Sprintf("%s-%d.yaml", parentTaskID, time.Now().Unix())

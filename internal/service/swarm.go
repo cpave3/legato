@@ -6,6 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -62,9 +65,9 @@ type SwarmService interface {
 	ApplyApprovedPlan(ctx context.Context, plan *swarm.Plan) error
 	Dispatch(ctx context.Context, subtaskID string) error
 	NextStep(ctx context.Context, parentID string) error
-	Message(ctx context.Context, subtaskID, text string) error
-	MessageParent(ctx context.Context, parentID, text string) error
-	Broadcast(ctx context.Context, parentID, text string) (int, error)
+	Message(ctx context.Context, subtaskID, text string, urgent bool) error
+	MessageParent(ctx context.Context, parentID, text string, urgent bool) error
+	Broadcast(ctx context.Context, parentID, text string, urgent bool) (int, error)
 	Close(ctx context.Context, subtaskID string) error
 	Finish(ctx context.Context, parentID, summary string) error
 
@@ -633,29 +636,40 @@ func (s *swarmService) Dispatch(ctx context.Context, subtaskID string) error {
 	return nil
 }
 
-// Message sends text into a worker's tmux pane via send-keys.
-func (s *swarmService) Message(ctx context.Context, subtaskID, text string) error {
-	if _, err := s.store.GetSubtask(ctx, subtaskID); err != nil {
+// Message sends text into a worker's tmux pane via send-keys. When urgent is
+// true the adapter's interrupt keys are sent first (e.g. Escape) to abort the
+// agent's current turn before the message is delivered.
+func (s *swarmService) Message(ctx context.Context, subtaskID, text string, urgent bool) error {
+	st, err := s.store.GetSubtask(ctx, subtaskID)
+	if err != nil {
 		return err
 	}
 	sess, err := s.store.GetAgentSessionByTaskID(ctx, subtaskID)
 	if err != nil {
 		return fmt.Errorf("worker %s is not running", subtaskID)
 	}
-	return s.tmuxSendKeysLine(sess.TmuxSession, text)
-}
-
-// MessageParent sends text into the conductor's tmux pane via send-keys.
-func (s *swarmService) MessageParent(ctx context.Context, parentID, text string) error {
-	sess, err := s.store.GetAgentSessionByTaskID(ctx, parentID)
-	if err != nil {
-		return fmt.Errorf("conductor for parent %s is not running", parentID)
+	if err := s.maybeInterrupt(sessionTarget{tmuxSession: sess.TmuxSession, agentKind: st.AgentKind}, urgent); err != nil {
+		return err
 	}
 	return s.tmuxSendKeysLine(sess.TmuxSession, text)
 }
 
-// Broadcast sends text to every live worker in the swarm.
-func (s *swarmService) Broadcast(ctx context.Context, parentID, text string) (int, error) {
+// MessageParent sends text into the conductor's tmux pane via send-keys. When
+// urgent is true the conductor adapter's interrupt keys are sent first.
+func (s *swarmService) MessageParent(ctx context.Context, parentID, text string, urgent bool) error {
+	sess, err := s.store.GetAgentSessionByTaskID(ctx, parentID)
+	if err != nil {
+		return fmt.Errorf("conductor for parent %s is not running", parentID)
+	}
+	if err := s.maybeInterrupt(sessionTarget{tmuxSession: sess.TmuxSession, agentKind: s.cfg.ConductorAgent}, urgent); err != nil {
+		return err
+	}
+	return s.tmuxSendKeysLine(sess.TmuxSession, text)
+}
+
+// Broadcast sends text to every live worker in the swarm. When urgent is true
+// each target's adapter interrupt keys are sent before the message.
+func (s *swarmService) Broadcast(ctx context.Context, parentID, text string, urgent bool) (int, error) {
 	subs, err := s.store.ListSubtasksByParent(ctx, parentID)
 	if err != nil {
 		return 0, err
@@ -669,11 +683,49 @@ func (s *swarmService) Broadcast(ctx context.Context, parentID, text string) (in
 		if err != nil {
 			continue
 		}
+		if err := s.maybeInterrupt(sessionTarget{tmuxSession: sess.TmuxSession, agentKind: st.AgentKind}, urgent); err != nil {
+			continue
+		}
 		if err := s.tmuxSendKeysLine(sess.TmuxSession, text); err == nil {
 			count++
 		}
 	}
 	return count, nil
+}
+
+// sessionTarget bundles the tmux session name and the adapter kind so that
+// maybeInterrupt can resolve the correct adapter for interrupt keys.
+type sessionTarget struct {
+	tmuxSession string
+	agentKind   string
+}
+
+// maybeInterrupt sends the adapter's interrupt keys when urgent is true. If the
+// adapter doesn't implement InterruptAdapter the method is a no-op. Each key is
+// sent with the standard send-keys inter-call gap.
+func (s *swarmService) maybeInterrupt(target sessionTarget, urgent bool) error {
+	if !urgent {
+		return nil
+	}
+	agentKind := target.agentKind
+	if agentKind == "" {
+		agentKind = s.cfg.DefaultAgent
+	}
+	adapter := s.agents.AdapterFor(agentKind)
+	if adapter == nil {
+		return nil
+	}
+	ia, ok := adapter.(InterruptAdapter)
+	if !ok {
+		return nil
+	}
+	for _, key := range ia.InterruptKeys() {
+		if err := s.tmuxSendKey(target.tmuxSession, key); err != nil {
+			return err
+		}
+		time.Sleep(sendKeysInterCallGap)
+	}
+	return nil
 }
 
 // Close ratifies a worker's completion (from `reporting`) or terminates it
@@ -723,6 +775,8 @@ func (s *swarmService) Finish(ctx context.Context, parentID, summary string) err
 		}
 	}
 
+	s.cleanupRuntimeFiles(parentID, subs)
+
 	// Append summary to parent task description.
 	parent, err := s.store.GetTask(ctx, parentID)
 	if err != nil {
@@ -743,6 +797,50 @@ func (s *swarmService) Finish(ctx context.Context, parentID, summary string) err
 
 	s.publishChanged(parentID, "", "finished")
 	return nil
+}
+
+// cleanupRuntimeFiles best-effort removes the ephemeral agent prompt dirs and
+// plan files for a finished swarm. Logs on error but does not abort.
+func (s *swarmService) cleanupRuntimeFiles(parentID string, subs []store.Subtask) {
+	root, err := swarm.LegatoHome()
+	if err != nil {
+		return
+	}
+
+	// Remove agent dirs for parent + each subtask.
+	for _, taskID := range append([]string{parentID}, subtaskIDsFrom(subs)...) {
+		agentDir := filepath.Join(root, "agents", taskID)
+		if err := os.RemoveAll(agentDir); err != nil {
+			log.Printf("cleanupRuntimeFiles: remove agent dir %s: %v", agentDir, err)
+		}
+	}
+
+	// Remove plan files named <parentID>-*.yaml from the plans dir.
+	plansDir, err := swarm.PlansDir()
+	if err != nil {
+		log.Printf("cleanupRuntimeFiles: resolve plans dir: %v", err)
+		return
+	}
+	matches, err := filepath.Glob(filepath.Join(plansDir, parentID+"-*.yaml"))
+	if err != nil {
+		log.Printf("cleanupRuntimeFiles: glob plans: %v", err)
+		return
+	}
+	for _, p := range matches {
+		if err := os.Remove(p); err != nil {
+			log.Printf("cleanupRuntimeFiles: remove plan %s: %v", p, err)
+		}
+	}
+}
+
+func subtaskIDsFrom(subs []store.Subtask) []string {
+	out := make([]string, 0, len(subs))
+	for _, st := range subs {
+		if st.ID != "" {
+			out = append(out, st.ID)
+		}
+	}
+	return out
 }
 
 // Progress records a worker progress report and forwards a debounced event
@@ -930,6 +1028,11 @@ func (s *swarmService) recordEventForConductor(parentTaskID, subtaskID, kind, wo
 // input handler time to absorb one turn before the next arrives.
 const conductorEventGap = 250 * time.Millisecond
 
+// sendKeysInterCallGap is the pause between interrupt key and the subsequent
+// text+Enter in an urgent send. Mirrors the value in tmux.Manager to avoid
+// cross-package coupling for a timing constant.
+const sendKeysInterCallGap = 75 * time.Millisecond
+
 // tmuxSendKeysLine reaches the agent service's TmuxManager and sends a single
 // line of text + Enter. Used for short notifications that don't need
 // base64 wrapping.
@@ -941,6 +1044,19 @@ func (s *swarmService) tmuxSendKeysLine(session, text string) error {
 		return fmt.Errorf("agent service does not expose tmux")
 	}
 	return tmuxer.Tmux().SendKeysLine(session, text)
+}
+
+// tmuxSendKey reaches the agent service's TmuxManager and sends a single named
+// key (e.g. "Escape", "Enter"). Mirrors tmuxSendKeysLine; used for interrupt
+// keys before urgent messages.
+func (s *swarmService) tmuxSendKey(session, key string) error {
+	tmuxer, ok := s.agents.(interface {
+		Tmux() TmuxManager
+	})
+	if !ok {
+		return fmt.Errorf("agent service does not expose tmux")
+	}
+	return tmuxer.Tmux().SendKey(session, key)
 }
 
 // scheduleProgressEvent debounces multiple progress reports from the same

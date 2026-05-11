@@ -12,6 +12,7 @@ export interface SwarmWorkerActionBody {
 export interface SwarmMessageBody {
   task_id: string
   text: string
+  urgent?: boolean
 }
 
 export interface SwarmFinishBody {
@@ -103,13 +104,30 @@ export async function dispatchWorker(baseUrl: string, subtaskID: string): Promis
   if (!res.ok) throw new Error(await parseError(res))
 }
 
-export async function messageWorker(baseUrl: string, taskID: string, text: string): Promise<void> {
+export async function messageWorker(baseUrl: string, taskID: string, text: string, urgent?: boolean): Promise<void> {
   const res = await apiFetch(baseUrl, "/api/swarm/message", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ task_id: taskID, text } satisfies SwarmMessageBody),
+    body: JSON.stringify({ task_id: taskID, text, urgent } satisfies SwarmMessageBody),
   })
   if (!res.ok) throw new Error(await parseError(res))
+}
+
+export interface SwarmBroadcastBody {
+  parent_task_id: string
+  text: string
+  urgent?: boolean
+}
+
+export async function broadcast(baseUrl: string, parentTaskID: string, text: string, urgent?: boolean): Promise<number> {
+  const res = await apiFetch(baseUrl, "/api/swarm/broadcast", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parent_task_id: parentTaskID, text, urgent } satisfies SwarmBroadcastBody),
+  })
+  if (!res.ok) throw new Error(await parseError(res))
+  const data = await res.json()
+  return data.count ?? 0
 }
 
 export async function closeWorker(baseUrl: string, subtaskID: string): Promise<void> {

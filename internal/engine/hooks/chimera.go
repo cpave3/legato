@@ -187,6 +187,11 @@ func launchArgsContainsMode(args []string) bool {
 	return false
 }
 
+// InterruptKeys implements the InterruptAdapter interface. Sending Escape
+// to a Chimera session aborts the agent's current turn so the urgent message
+// can be processed immediately.
+func (a *ChimeraAdapter) InterruptKeys() []string { return []string{"Escape"} }
+
 func (a *ChimeraAdapter) Name() string { return "chimera" }
 
 func (a *ChimeraAdapter) EnvVars(taskID, socketPath string) map[string]string {

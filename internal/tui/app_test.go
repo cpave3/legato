@@ -655,6 +655,7 @@ func (f *fakeAgentService) SpawnEphemeralAgent(_ context.Context, _ string, _, _
 func (f *fakeAgentService) LastSpawnConflicts() []service.AgentSpawnConflict { return nil }
 func (f *fakeAgentService) RegisteredAdapters() []string { return nil }
 func (f *fakeAgentService) DefaultAdapter() string       { return "" }
+func (f *fakeAgentService) AdapterFor(kind string) service.AIToolAdapter { return nil }
 
 func TestDurationDataFlowsToBoard(t *testing.T) {
 	agentSvc := &fakeAgentService{

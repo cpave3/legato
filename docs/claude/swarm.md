@@ -20,7 +20,7 @@ Swarm orchestration in legato is conductor-driven: pressing `S` on a card spawns
    - `n` rejects with notes → notes flow back via send-keys to the conductor pane → conductor revises and re-submits.
    - `esc` dismisses without verdict (the conductor's CLI stays blocked; the user can re-trigger by re-running propose-plan).
 
-4. **Dispatch.** Conductor calls `legato swarm dispatch <subtask-id>` per plan entry. Each worker spawns in its own tmux session (`legato-<subtask-id>`) with role-prompt-file and brief-file written to `<working-dir>/.legato/agents/<task-id>/`.
+4. **Dispatch.** Conductor calls `legato swarm dispatch <subtask-id>` per plan entry. Each worker spawns in its own tmux session (`legato-<subtask-id>`) with role-prompt-file and brief-file written to `~/.legato/agents/<task-id>/`.
 
 5. **Workers report.** Workers call `legato swarm progress|question|built` to relay status. Each call delivers a `[swarm event] ...` line to the conductor's pane via `tmux send-keys`. The conductor receives these as new conversational turns.
 
@@ -44,7 +44,7 @@ Swarm orchestration in legato is conductor-driven: pressing `S` on a card spawns
 When the agent service spawns a swarm participant, it writes:
 
 ```
-<working_dir>/.legato/agents/<task-id>/
+~/.legato/agents/<task-id>/
   role-prompt.md     # the conductor's or worker's role system prompt
   brief.md           # the per-worker initial brief (or conductor's parent-task framing)
 ```
@@ -56,7 +56,9 @@ Env vars on the spawned tmux session:
 
 The launch command (e.g. `claude --append-system-prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)"`) substitutes the prompt content at shell-expansion time, sidestepping any quoting/escaping concerns. The brief is delivered as a separate kickoff send-keys: `Read your brief at $LEGATO_BRIEF_FILE and begin work.`
 
-Plans are persisted to `<working_dir>/.legato/plans/<parent-id>-<unix-ts>.yaml` and retained as a record.
+Plans are persisted to `~/.legato/plans/<parent-id>-<unix-ts>.yaml` and retained as a record.
+
+When `SwarmService.Finish` is called, the swarm's runtime files are removed: per-agent directories (`~/.legato/agents/<task-id>/`) for the conductor and every worker, as well as the matching plan file (`~/.legato/plans/<parent>-*.yaml`). Cleanup is best-effort — failures are logged and ignored. The runtime root defaults to `~/.legato` and can be overridden with the `LEGATO_HOME` environment variable (used by tests and advanced users).
 
 ### IPC: send-keys is the message bus
 

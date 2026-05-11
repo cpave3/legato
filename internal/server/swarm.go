@@ -18,9 +18,9 @@ import (
 type SwarmService interface {
 	StartSwarm(ctx context.Context, parentID, workingDir string) error
 	Dispatch(ctx context.Context, subtaskID string) error
-	Message(ctx context.Context, subtaskID, text string) error
-	MessageParent(ctx context.Context, parentID, text string) error
-	Broadcast(ctx context.Context, parentID, text string) (int, error)
+	Message(ctx context.Context, subtaskID, text string, urgent bool) error
+	MessageParent(ctx context.Context, parentID, text string, urgent bool) error
+	Broadcast(ctx context.Context, parentID, text string, urgent bool) (int, error)
 	Close(ctx context.Context, subtaskID string) error
 	Finish(ctx context.Context, parentID, summary string) error
 	NextStep(ctx context.Context, parentID string) error
@@ -135,15 +135,16 @@ func (s *Server) swarmMessageHandler() http.HandlerFunc {
 		var req struct {
 			TaskID string `json:"task_id"`
 			Text   string `json:"text"`
+			Urgent bool   `json:"urgent"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TaskID == "" || req.Text == "" {
 			s.writeError(w, http.StatusBadRequest, "task_id and text are required")
 			return
 		}
 		// Try subtask first, then parent (conductor).
-		err := s.swarm.Message(r.Context(), req.TaskID, req.Text)
+		err := s.swarm.Message(r.Context(), req.TaskID, req.Text, req.Urgent)
 		if errors.Is(err, store.ErrNotFound) {
-			err = s.swarm.MessageParent(r.Context(), req.TaskID, req.Text)
+			err = s.swarm.MessageParent(r.Context(), req.TaskID, req.Text, req.Urgent)
 		}
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "not running") {
@@ -170,12 +171,13 @@ func (s *Server) swarmBroadcastHandler() http.HandlerFunc {
 		var req struct {
 			ParentTaskID string `json:"parent_task_id"`
 			Text         string `json:"text"`
+			Urgent       bool   `json:"urgent"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ParentTaskID == "" || req.Text == "" {
 			s.writeError(w, http.StatusBadRequest, "parent_task_id and text are required")
 			return
 		}
-		count, err := s.swarm.Broadcast(r.Context(), req.ParentTaskID, req.Text)
+		count, err := s.swarm.Broadcast(r.Context(), req.ParentTaskID, req.Text, req.Urgent)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				s.writeError(w, http.StatusNotFound, "parent task not found")

@@ -78,6 +78,18 @@ type RolePromptPreambleAdapter interface {
 	RolePromptPreamble() string
 }
 
+// InterruptAdapter is an optional capability adapters implement to describe
+// which tmux key names should be sent before an urgent message in order to
+// abort the agent's current turn. Adapters that don't implement this
+// interface or return nil/empty skip the pre-message interrupt; the urgent
+// flag falls back to regular delivery.
+type InterruptAdapter interface {
+	// InterruptKeys returns the tmux key names to send before the message.
+	// Example: []string{"Escape"}. Each key is sent in order with a short
+	// gap between them, matching SendKeysLine timing.
+	InterruptKeys() []string
+}
+
 // AdapterRegistry holds registered AI tool adapters.
 type AdapterRegistry struct {
 	adapters map[string]AIToolAdapter

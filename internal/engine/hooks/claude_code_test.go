@@ -245,3 +245,18 @@ func TestClaudeCodeAdapter_HookScriptActivities(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeCodeAdapter_InterruptKeys(t *testing.T) {
+	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
+	keys := adapter.InterruptKeys()
+	if len(keys) != 1 || keys[0] != "Escape" {
+		t.Errorf("InterruptKeys() = %v, want [Escape]", keys)
+	}
+}
+
+func TestClaudeCodeAdapter_ImplementsInterruptAdapter(t *testing.T) {
+	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
+	if _, ok := interface{}(adapter).(interface{ InterruptKeys() []string }); !ok {
+		t.Error("ClaudeCodeAdapter does not implement InterruptAdapter")
+	}
+}
