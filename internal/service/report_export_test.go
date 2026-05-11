@@ -34,6 +34,9 @@ func TestExportReportMarkdown_Full(t *testing.T) {
 		ByDirectory: []service.DirectoryStats{
 			{Directory: "/projects/app", Working: 3 * time.Hour, Waiting: 1 * time.Hour, TaskCount: 2},
 		},
+		BySwarm: []service.SwarmStats{
+			{ParentTaskID: "swarm-1", Title: "Fix auth flow", Working: 2 * time.Hour, Waiting: 30 * time.Minute, WorkerCount: 3, SubtaskCount: 5},
+		},
 	}
 
 	md := service.ExportReportMarkdown(report)
@@ -61,6 +64,39 @@ func TestExportReportMarkdown_Full(t *testing.T) {
 	}
 	if !strings.Contains(md, "## Directories") {
 		t.Error("missing directories section")
+	}
+	if !strings.Contains(md, "## Swarms") {
+		t.Error("missing swarms section")
+	}
+	if !strings.Contains(md, "Fix auth flow") {
+		t.Error("missing swarm title")
+	}
+	if !strings.Contains(md, "3/5") {
+		t.Error("missing swarm workers count")
+	}
+	if !strings.Contains(md, "2h") {
+		t.Error("missing swarm working duration")
+	}
+	if !strings.Contains(md, "30m") {
+		t.Error("missing swarm waiting duration")
+	}
+}
+
+func TestExportReportMarkdown_NoSwarmSectionWhenEmpty(t *testing.T) {
+	report := &service.Report{
+		Period: analytics.TimeRange{Label: "Today"},
+		Summary: service.ReportSummary{
+			TotalWorking: 1 * time.Hour,
+		},
+		ByTask: []service.TaskStats{
+			{TaskID: "t1", Title: "Task 1", Working: 1 * time.Hour},
+		},
+	}
+
+	md := service.ExportReportMarkdown(report)
+
+	if strings.Contains(md, "## Swarms") {
+		t.Error("expected no ## Swarms section when BySwarm is empty")
 	}
 }
 

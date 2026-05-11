@@ -209,6 +209,107 @@ func TestReportService_WithWorkspace(t *testing.T) {
 
 func strPtr(s string) *string { return &s }
 
+func TestReportService_SwarmBreakdown(t *testing.T) {
+	s := newTestStoreForReport(t)
+	ctx := context.Background()
+	db := s.DB()
+
+	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
+
+	// Seed column (required for task creation)
+	err := s.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: "Doing", SortOrder: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Parent task (conductor)
+	err = s.CreateTask(ctx, store.Task{
+		ID: "parent-1", Title: "Swarm Alpha", Status: "Doing",
+		CreatedAt: base.Format("2006-01-02 15:04:05"),
+		UpdatedAt: base.Format("2006-01-02 15:04:05"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Subtasks (not in tasks table)
+	err = s.CreateSubtask(ctx, store.Subtask{
+		ID:           "st-w1",
+		ParentTaskID: "parent-1",
+		Title:        "Worker One",
+		Role:         "builder",
+		Status:       "queued",
+		ScopeGlobs:   "[]",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.CreateSubtask(ctx, store.Subtask{
+		ID:           "st-w2",
+		ParentTaskID: "parent-1",
+		Title:        "Worker Two",
+		Role:         "builder",
+		Status:       "queued",
+		ScopeGlobs:   "[]",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Intervals: conductor working 1h, worker1 working 2h, worker2 waiting 30m
+	_, err = db.Exec("INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, ?, ?, ?)",
+		"parent-1", "working", base.Format("2006-01-02 15:04:05"), base.Add(1*time.Hour).Format("2006-01-02 15:04:05"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec("INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, ?, ?, ?)",
+		"st-w1", "working", base.Format("2006-01-02 15:04:05"), base.Add(2*time.Hour).Format("2006-01-02 15:04:05"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec("INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, ?, ?, ?)",
+		"st-w2", "waiting", base.Format("2006-01-02 15:04:05"), base.Add(30*time.Minute).Format("2006-01-02 15:04:05"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	period := analytics.TimeRange{
+		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
+		Period: analytics.PeriodDay,
+	}
+
+	svc := service.NewReportService(s)
+	report, err := svc.GenerateReport(ctx, period)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(report.BySwarm) != 1 {
+		t.Fatalf("expected 1 swarm, got %d", len(report.BySwarm))
+	}
+	ss := report.BySwarm[0]
+	if ss.ParentTaskID != "parent-1" {
+		t.Errorf("expected parent-1, got %q", ss.ParentTaskID)
+	}
+	if ss.Title != "Swarm Alpha" {
+		t.Errorf("expected title 'Swarm Alpha', got %q", ss.Title)
+	}
+	if ss.Working != 3*time.Hour {
+		t.Errorf("expected 3h working (1h conductor + 2h worker), got %v", ss.Working)
+	}
+	if ss.Waiting != 30*time.Minute {
+		t.Errorf("expected 30m waiting, got %v", ss.Waiting)
+	}
+	// Both workers count because one contributes via waiting time
+	if ss.WorkerCount != 2 {
+		t.Errorf("expected WorkerCount 2, got %d", ss.WorkerCount)
+	}
+	if ss.SubtaskCount != 2 {
+		t.Errorf("expected SubtaskCount 2, got %d", ss.SubtaskCount)
+	}
+}
+
 func TestReportService_EmptyRange(t *testing.T) {
 	s := newTestStoreForReport(t)
 	ctx := context.Background()

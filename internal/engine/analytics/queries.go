@@ -3,6 +3,7 @@ package analytics
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -53,6 +54,17 @@ type DirectoryBreakdown struct {
 	Working      time.Duration
 	Waiting      time.Duration
 	TaskCount    int
+}
+
+// SwarmBreakdown holds aggregated durations and counts for a swarm (parent task
+// plus all of its workers' sub-tasks) within a time range.
+type SwarmBreakdown struct {
+	ParentTaskID string
+	Title        string
+	Working      time.Duration
+	Waiting      time.Duration
+	WorkerCount  int
+	SubtaskCount int
 }
 
 // QueryDurations aggregates total working/waiting durations from state_intervals
@@ -431,6 +443,110 @@ func QueryDirectoryBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]
 	for _, d := range dirMap {
 		result = append(result, *d)
 	}
+	return result, nil
+}
+
+// QuerySwarmBreakdown returns working/waiting durations aggregated per swarm
+// (parent task plus all of its workers' sub-tasks) within the time range.
+// Open intervals are clipped to the current time. Swarms whose parent task row
+// has been deleted are skipped. Only swarms with non-zero working or waiting
+// time in the range are returned.
+func QuerySwarmBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]SwarmBreakdown, error) {
+	startFmt := tr.StartUTC().Format(sqliteDatetime)
+	endFmt := tr.EndUTC().Format(sqliteDatetime)
+
+	// Identify swarms (parents with >=1 subtask) and collect subtask counts
+	type swarmMeta struct {
+		parentID     string
+		title        string
+		subtaskCount int
+	}
+	var swarms []swarmMeta
+	rows, err := db.QueryContext(ctx, `
+		SELECT s.parent_task_id,
+			COALESCE(t.title, '') as title,
+			COUNT(*) as subtask_count
+		FROM swarm_subtasks s
+		JOIN tasks t ON s.parent_task_id = t.id
+		GROUP BY s.parent_task_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var m swarmMeta
+		if err := rows.Scan(&m.parentID, &m.title, &m.subtaskCount); err != nil {
+			return nil, err
+		}
+		swarms = append(swarms, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(swarms) == 0 {
+		return nil, nil
+	}
+
+	// For each swarm, aggregate durations and worker count in a single
+	// query.  The CTE maps every task_id that belongs to a swarm (parent + its
+	// subtasks) and flags whether it is a subtask so we can count workers
+	// accurately instead of relying on the "st-" prefix heuristic.
+	resRows, err := db.QueryContext(ctx, `
+		WITH swarm_tasks(parent_task_id, task_id, is_subtask) AS (
+			SELECT parent_task_id, id, 1 FROM swarm_subtasks
+			UNION ALL
+			SELECT t.id, t.id, 0 FROM tasks t
+			WHERE t.id IN (SELECT parent_task_id FROM swarm_subtasks)
+		)
+		SELECT
+			st.parent_task_id,
+			SUM(CASE WHEN si.state = 'working' THEN CAST(ROUND(MAX(0, (julianday(MIN(COALESCE(si.ended_at, datetime('now')), ?)) - julianday(MAX(si.started_at, ?))) * 86400)) AS INTEGER) ELSE 0 END) as working_seconds,
+			SUM(CASE WHEN si.state = 'waiting' THEN CAST(ROUND(MAX(0, (julianday(MIN(COALESCE(si.ended_at, datetime('now')), ?)) - julianday(MAX(si.started_at, ?))) * 86400)) AS INTEGER) ELSE 0 END) as waiting_seconds,
+			COUNT(DISTINCT CASE WHEN st.is_subtask = 1 THEN si.task_id END) as worker_count
+		FROM swarm_tasks st
+		JOIN state_intervals si ON si.task_id = st.task_id
+		WHERE si.started_at < ? AND (si.ended_at IS NULL OR si.ended_at > ?)
+		GROUP BY st.parent_task_id`,
+		endFmt, startFmt, endFmt, startFmt, endFmt, startFmt)
+	if err != nil {
+		return nil, err
+	}
+	defer resRows.Close()
+
+	resultMap := make(map[string]*SwarmBreakdown)
+	for resRows.Next() {
+		var pid string
+		var workingSecs, waitingSecs, workerCount int64
+		if err := resRows.Scan(&pid, &workingSecs, &waitingSecs, &workerCount); err != nil {
+			return nil, err
+		}
+		resultMap[pid] = &SwarmBreakdown{
+			ParentTaskID: pid,
+			Working:      time.Duration(workingSecs) * time.Second,
+			Waiting:      time.Duration(waitingSecs) * time.Second,
+			WorkerCount:  int(workerCount),
+		}
+	}
+	if err := resRows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Assemble in swarm order, filling subtask counts.
+	// Only include swarms that had non-zero working or waiting time.
+	result := make([]SwarmBreakdown, 0, len(swarms))
+	for _, sw := range swarms {
+		if sb, ok := resultMap[sw.parentID]; ok && (sb.Working > 0 || sb.Waiting > 0) {
+			sb.Title = sw.title
+			sb.SubtaskCount = sw.subtaskCount
+			result = append(result, *sb)
+		}
+	}
+
+	// Sort by Working descending
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Working > result[j].Working
+	})
 	return result, nil
 }
 

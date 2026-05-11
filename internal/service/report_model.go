@@ -14,6 +14,7 @@ type Report struct {
 	ByDay       []DayBreakdown
 	ByTask      []TaskStats
 	ByWorkspace []WorkspaceStats
+	BySwarm     []SwarmStats
 	ByDirectory []DirectoryStats
 }
 
@@ -61,4 +62,14 @@ type DirectoryStats struct {
 	Working   time.Duration
 	Waiting   time.Duration
 	TaskCount int
+}
+
+// SwarmStats holds per-swarm analytics.
+type SwarmStats struct {
+	ParentTaskID string
+	Title        string
+	Working      time.Duration
+	Waiting      time.Duration
+	WorkerCount  int
+	SubtaskCount int
 }

@@ -164,6 +164,9 @@ func (m Model) View() string {
 	// Workspace breakdown
 	workspace := m.renderWorkspaces(contentWidth)
 
+	// Swarm breakdown
+	swarms := m.renderSwarms(contentWidth)
+
 	// Directory breakdown
 	directory := m.renderDirectories(contentWidth)
 
@@ -179,6 +182,9 @@ func (m Model) View() string {
 	}
 	if workspace != "" {
 		sections = append(sections, workspace)
+	}
+	if swarms != "" {
+		sections = append(sections, swarms)
 	}
 	if directory != "" {
 		sections = append(sections, directory)
@@ -391,6 +397,34 @@ func (m Model) renderTaskTable(width int) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderSwarms(width int) string {
+	swarms := m.report.BySwarm
+	if len(swarms) == 0 {
+		return ""
+	}
+
+	sectionStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary).Bold(true)
+
+	var lines []string
+	lines = append(lines, sectionStyle.Render("SWARMS"))
+
+	for _, s := range swarms {
+		lines = append(lines, fmt.Sprintf("▣ %-30s  Working: %-8s  Waiting: %-8s  Workers: %d/%d", truncateTitle(s.Title, 30), fmtDuration(s.Working), fmtDuration(s.Waiting), s.WorkerCount, s.SubtaskCount))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func truncateTitle(title string, maxLen int) string {
+	if len(title) <= maxLen {
+		return title
+	}
+	if maxLen < 3 {
+		return title[:maxLen]
+	}
+	return title[:maxLen-1] + "…"
 }
 
 func (m Model) renderWorkspaces(width int) string {

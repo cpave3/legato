@@ -60,6 +60,17 @@ func seedOpenInterval(t *testing.T, db *sqlx.DB, taskID, state string, start tim
 	}
 }
 
+// seedSubtask inserts a row into swarm_subtasks.
+func seedSubtask(t *testing.T, db *sqlx.DB, id, parentID, title string) {
+	t.Helper()
+	_, err := db.Exec(
+		"INSERT INTO swarm_subtasks (id, parent_task_id, title, role, status, scope_globs, created_at) VALUES (?, ?, ?, ?, ?, '[]', datetime('now'))",
+		id, parentID, title, "builder", "queued")
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestQueryDurations_FullInRange(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
@@ -459,5 +470,233 @@ func TestQueryDirectoryBreakdown_FallsBackToSwarmDir(t *testing.T) {
 	}
 	if results[0].Working != 2*time.Hour {
 		t.Errorf("expected 2h working, got %v", results[0].Working)
+	}
+}
+
+func TestQuerySwarmBreakdown_ConductorOnly(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
+	seedTask(t, db, "parent-1", base)
+	seedSubtask(t, db, "st-worker01", "parent-1", "Worker 1")
+	// Conductor intervals on parent
+	seedInterval(t, db, "parent-1", "working", base, base.Add(2*time.Hour))
+	seedInterval(t, db, "parent-1", "waiting", base.Add(2*time.Hour), base.Add(3*time.Hour))
+
+	tr := analytics.TimeRange{
+		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
+		Period: analytics.PeriodDay,
+	}
+	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 swarm, got %d", len(results))
+	}
+	s := results[0]
+	if s.ParentTaskID != "parent-1" {
+		t.Errorf("ParentTaskID = %q", s.ParentTaskID)
+	}
+	if s.Working != 2*time.Hour {
+		t.Errorf("expected 2h working, got %v", s.Working)
+	}
+	if s.Waiting != 1*time.Hour {
+		t.Errorf("expected 1h waiting, got %v", s.Waiting)
+	}
+	if s.WorkerCount != 0 {
+		t.Errorf("expected WorkerCount 0 (conductor only), got %d", s.WorkerCount)
+	}
+	if s.SubtaskCount != 1 {
+		t.Errorf("expected SubtaskCount 1, got %d", s.SubtaskCount)
+	}
+}
+
+func TestQuerySwarmBreakdown_WorkerOnly(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
+	seedTask(t, db, "parent-1", base)
+	seedSubtask(t, db, "st-worker01", "parent-1", "W")
+	// Worker intervals only
+	seedInterval(t, db, "st-worker01", "working", base, base.Add(90*time.Minute))
+
+	tr := analytics.TimeRange{
+		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
+		Period: analytics.PeriodDay,
+	}
+	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 swarm, got %d", len(results))
+	}
+	s := results[0]
+	if s.Working != 90*time.Minute {
+		t.Errorf("expected 90m working, got %v", s.Working)
+	}
+	if s.WorkerCount != 1 {
+		t.Errorf("expected WorkerCount 1, got %d", s.WorkerCount)
+	}
+	if s.SubtaskCount != 1 {
+		t.Errorf("expected SubtaskCount 1, got %d", s.SubtaskCount)
+	}
+}
+
+func TestQuerySwarmBreakdown_Mixed(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
+	seedTask(t, db, "parent-1", base)
+	seedSubtask(t, db, "st-w1", "parent-1", "W1")
+	seedSubtask(t, db, "st-w2", "parent-1", "W2")
+
+	seedInterval(t, db, "parent-1", "working", base, base.Add(1*time.Hour))
+	seedInterval(t, db, "st-w1", "working", base.Add(1*time.Hour), base.Add(3*time.Hour))
+	seedInterval(t, db, "st-w2", "waiting", base.Add(2*time.Hour), base.Add(3*time.Hour))
+
+	tr := analytics.TimeRange{
+		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
+		Period: analytics.PeriodDay,
+	}
+	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 swarm, got %d", len(results))
+	}
+	s := results[0]
+	if s.Working != 3*time.Hour {
+		t.Errorf("expected 3h working (1h conductor + 2h w1), got %v", s.Working)
+	}
+	if s.Waiting != 1*time.Hour {
+		t.Errorf("expected 1h waiting (w2), got %v", s.Waiting)
+	}
+	if s.WorkerCount != 2 {
+		t.Errorf("expected WorkerCount 2, got %d", s.WorkerCount)
+	}
+	if s.SubtaskCount != 2 {
+		t.Errorf("expected SubtaskCount 2, got %d", s.SubtaskCount)
+	}
+}
+
+func TestQuerySwarmBreakdown_OutOfRangeExcluded(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
+	seedTask(t, db, "parent-1", base)
+	seedSubtask(t, db, "st-w1", "parent-1", "W1")
+	// Only out-of-range intervals
+	seedInterval(t, db, "parent-1", "working",
+		time.Date(2026, 3, 10, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC))
+	seedInterval(t, db, "st-w1", "working",
+		time.Date(2026, 3, 10, 10, 0, 0, 0, time.UTC),
+		time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC))
+
+	tr := analytics.TimeRange{
+		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
+		Period: analytics.PeriodDay,
+	}
+	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Swarm with only out-of-range intervals is excluded entirely
+	if len(results) != 0 {
+		t.Fatalf("expected 0 swarms (no activity in range), got %d", len(results))
+	}
+}
+
+func TestQuerySwarmBreakdown_WaitingOnlyStillIncluded(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
+	seedTask(t, db, "parent-1", base)
+	seedSubtask(t, db, "st-w1", "parent-1", "W1")
+	// Only waiting activity (no working)
+	seedInterval(t, db, "st-w1", "waiting", base, base.Add(30*time.Minute))
+
+	tr := analytics.TimeRange{
+		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
+		Period: analytics.PeriodDay,
+	}
+	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 swarm, got %d", len(results))
+	}
+	s := results[0]
+	if s.Working != 0 {
+		t.Errorf("expected 0 working, got %v", s.Working)
+	}
+	if s.Waiting != 30*time.Minute {
+		t.Errorf("expected 30m waiting, got %v", s.Waiting)
+	}
+}
+
+func TestQuerySwarmBreakdown_NonSwarmExcluded(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
+	seedTask(t, db, "parent-1", base)
+	seedInterval(t, db, "parent-1", "working", base, base.Add(2*time.Hour))
+	// No swarm_subtasks rows for parent-1
+
+	tr := analytics.TimeRange{
+		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
+		Period: analytics.PeriodDay,
+	}
+	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// parent-1 is not a swarm, so it should not appear despite having intervals
+	if len(results) != 0 {
+		t.Fatalf("expected 0 swarms (parent has no subtasks), got %d", len(results))
+	}
+}
+
+func TestQuerySwarmBreakdown_DeletedParentSkipped(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
+	seedTask(t, db, "parent-1", base)
+	seedSubtask(t, db, "st-w1", "parent-1", "W1")
+	seedInterval(t, db, "st-w1", "working", base, base.Add(2*time.Hour))
+	// Delete the parent task; subtask rows still exist but parent is gone
+	_, err := db.Exec("DELETE FROM tasks WHERE id = 'parent-1'")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tr := analytics.TimeRange{
+		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
+		Period: analytics.PeriodDay,
+	}
+	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected 0 swarms (parent deleted), got %d", len(results))
 	}
 }

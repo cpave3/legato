@@ -188,6 +188,48 @@ func TestModel_WindowResize(t *testing.T) {
 	}
 }
 
+func TestModel_SwarmSectionRendered(t *testing.T) {
+	report := sampleReport()
+	report.BySwarm = []service.SwarmStats{
+		{ParentTaskID: "swarm-1", Title: "Fix auth flow", Working: 2 * time.Hour, Waiting: 30 * time.Minute, WorkerCount: 3, SubtaskCount: 5},
+		{ParentTaskID: "swarm-2", Title: "Refactor API", Working: 1 * time.Hour, Waiting: 0, WorkerCount: 1, SubtaskCount: 2},
+	}
+	svc := &mockReportService{report: report}
+	m := New(svc)
+	m.width = 120
+	m.height = 40
+	m, _ = m.Update(ReportLoadedMsg{Report: report})
+
+	out := m.View()
+	if !strings.Contains(out, "SWARMS") {
+		t.Error("expected SWARMS section in view")
+	}
+	if !strings.Contains(out, "Fix auth flow") {
+		t.Error("expected Fix auth flow in view")
+	}
+	if !strings.Contains(out, "Refactor API") {
+		t.Error("expected Refactor API in view")
+	}
+	if !strings.Contains(out, "3/5") {
+		t.Error("expected 3/5 workers in view")
+	}
+}
+
+func TestModel_SwarmSectionSkippedWhenEmpty(t *testing.T) {
+	report := sampleReport()
+	// BySwarm is nil/empty by default
+	svc := &mockReportService{report: report}
+	m := New(svc)
+	m.width = 120
+	m.height = 40
+	m, _ = m.Update(ReportLoadedMsg{Report: report})
+
+	out := m.View()
+	if strings.Contains(out, "SWARMS") {
+		t.Error("expected no SWARMS section when BySwarm is empty")
+	}
+}
+
 func TestModel_DirectorySectionRendered(t *testing.T) {
 	report := sampleReport()
 	report.ByDirectory = []service.DirectoryStats{

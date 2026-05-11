@@ -51,6 +51,11 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 		return nil, err
 	}
 
+	swarmBreakdown, err := analytics.QuerySwarmBreakdown(ctx, r.db, period)
+	if err != nil {
+		return nil, err
+	}
+
 	// Enrich task breakdown with metadata
 	taskIDs := make([]string, len(taskBreakdown))
 	for i, td := range taskBreakdown {
@@ -141,6 +146,19 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 		}
 	}
 
+	// Convert swarm breakdown
+	swarmStats := make([]SwarmStats, len(swarmBreakdown))
+	for i, s := range swarmBreakdown {
+		swarmStats[i] = SwarmStats{
+			ParentTaskID: s.ParentTaskID,
+			Title:        s.Title,
+			Working:      s.Working,
+			Waiting:      s.Waiting,
+			WorkerCount:  s.WorkerCount,
+			SubtaskCount: s.SubtaskCount,
+		}
+	}
+
 	return &Report{
 		Period: period,
 		Summary: ReportSummary{
@@ -155,5 +173,6 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 		ByTask:      taskStats,
 		ByWorkspace: wsStats,
 		ByDirectory: dirStats,
+		BySwarm:     swarmStats,
 	}, nil
 }

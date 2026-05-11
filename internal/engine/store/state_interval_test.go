@@ -306,3 +306,41 @@ func TestRecordStateTransitionNullWorkingDir(t *testing.T) {
 		t.Errorf("working_dir should be nil, got %v", intervals[0].WorkingDir)
 	}
 }
+
+// TestRecordStateTransitionSubtaskIDNoFKRegression verifies that recording a
+// state interval with a sub-task ID (which does NOT exist in the tasks table)
+// succeeds after the FK on state_intervals.task_id was dropped (migration 021).
+// Before that migration this would fail with FOREIGN KEY constraint failed.
+func TestRecordStateTransitionSubtaskIDNoFKRegression(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Create a swarm parent task and its sub-task, but do NOT insert the sub-task
+	// into the tasks table — just swarm_subtasks.
+	createTestTask(t, s, "parent-1")
+	st := Subtask{
+		ID:           "st-abcd1234",
+		ParentTaskID: "parent-1",
+		Title:        "Worker task",
+		Role:         "builder",
+		Status:       "queued",
+		ScopeGlobs:   "[]",
+	}
+	if err := s.CreateSubtask(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+
+	// This must succeed — the FK no longer requires task_id to exist in tasks.
+	if err := s.RecordStateTransition(ctx, "st-abcd1234", "working", ""); err != nil {
+		t.Fatalf("recording state for sub-task ID should succeed after FK drop: %v", err)
+	}
+
+	var count int
+	if err := s.db.GetContext(ctx, &count,
+		"SELECT COUNT(*) FROM state_intervals WHERE task_id = ?", "st-abcd1234"); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 interval for sub-task, got %d", count)
+	}
+}

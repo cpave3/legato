@@ -193,6 +193,76 @@ func TestDeleteTaskRemovesIt(t *testing.T) {
 	}
 }
 
+func TestDeleteTaskCleansUpStateIntervals(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	// Parent task
+	task := Task{
+		ID: "parent-1", Title: "Swarm Parent", Status: "Backlog",
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := s.CreateTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+
+	// Sub-task row
+	db := s.DB()
+	_, err := db.Exec(
+		"INSERT INTO swarm_subtasks (id, parent_task_id, title, role, status, scope_globs, created_at) VALUES (?, ?, ?, ?, ?, '[]', datetime('now'))",
+		"st-worker1", "parent-1", "Worker One", "builder", "queued")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// State intervals for parent and sub-task
+	_, err = db.Exec(
+		"INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, ?, datetime('now'), datetime('now', '+1 hour'))",
+		"parent-1", "working")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(
+		"INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, ?, datetime('now'), datetime('now', '+1 hour'))",
+		"st-worker1", "working")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Delete task
+	if err := s.DeleteTask(ctx, "parent-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify parent state_intervals are gone
+	var parentCount int
+	if err := db.Get(&parentCount, "SELECT COUNT(*) FROM state_intervals WHERE task_id = ?", "parent-1"); err != nil {
+		t.Fatal(err)
+	}
+	if parentCount != 0 {
+		t.Errorf("expected 0 parent state_intervals, got %d", parentCount)
+	}
+
+	// Verify sub-task state_intervals are gone
+	var subCount int
+	if err := db.Get(&subCount, "SELECT COUNT(*) FROM state_intervals WHERE task_id = ?", "st-worker1"); err != nil {
+		t.Fatal(err)
+	}
+	if subCount != 0 {
+		t.Errorf("expected 0 sub-task state_intervals, got %d", subCount)
+	}
+
+	// Verify swarm_subtasks row was cascade-deleted
+	var swarmCount int
+	if err := db.Get(&swarmCount, "SELECT COUNT(*) FROM swarm_subtasks WHERE parent_task_id = ?", "parent-1"); err != nil {
+		t.Fatal(err)
+	}
+	if swarmCount != 0 {
+		t.Errorf("expected 0 swarm_subtasks rows, got %d", swarmCount)
+	}
+}
+
 func TestDeleteNonExistentTaskIsNoop(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
