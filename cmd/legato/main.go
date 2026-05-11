@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -990,6 +991,8 @@ func runSwarmCmd(args []string) int {
 	switch args[0] {
 	// Conductor verbs (callable from any context, but conventionally the
 	// conductor is the only delegator).
+	case "validate-plan":
+		return runSwarmValidatePlan(args[1:])
 	case "propose-plan":
 		return runSwarmProposePlan(args[1:])
 	case "dispatch":
@@ -1028,6 +1031,7 @@ func swarmUsage() {
 	fmt.Fprintln(os.Stderr, `usage: legato swarm <verb> [args]
 
 Conductor verbs:
+  validate-plan <plan-file>
   propose-plan <plan-file> [--auto-approve] [--timeout 5m]
   dispatch <subtask-id>
   message <subtask-id> "<text>"
@@ -1133,6 +1137,33 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 	}
 	sw := service.NewSwarmService(db, agents, bus, swCfg, wd)
 	return sw, db, 0
+}
+
+func runSwarmValidatePlan(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: legato swarm validate-plan <plan-file>")
+		return 1
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
+	result, err := cli.SwarmValidatePlan(args[0], buildValidateOptions(cfg))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	data, merr := json.Marshal(result)
+	if merr != nil {
+		fmt.Fprintf(os.Stderr, "marshal result: %v\n", merr)
+		return 1
+	}
+	fmt.Println(string(data))
+	if !result.Valid {
+		return 2
+	}
+	return 0
 }
 
 func runSwarmProposePlan(args []string) int {

@@ -76,6 +76,67 @@ func newTestSwarmServiceForCLI(t *testing.T) (service.SwarmService, *store.Store
 	return sw, s
 }
 
+func TestSwarmValidatePlan_Valid(t *testing.T) {
+	planDir := t.TempDir()
+	planPath := filepath.Join(planDir, "plan.yaml")
+	plan := `swarm:
+  parent_task_id: parent-1
+  working_dir: ` + planDir + `
+  summary: test
+steps:
+  - name: step1
+    subtasks:
+      - title: Backend
+        role: backend
+      - title: Frontend
+        role: frontend
+`
+	if err := os.WriteFile(planPath, []byte(plan), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := cli.SwarmValidatePlan(planPath, swarm.ValidateOptions{MaxSubtasks: 10, MaxSteps: 10})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Valid {
+		t.Fatalf("expected valid, got error: %s", result.Error)
+	}
+}
+
+func TestSwarmValidatePlan_Invalid(t *testing.T) {
+	planDir := t.TempDir()
+	planPath := filepath.Join(planDir, "plan.yaml")
+	plan := `swarm:
+  parent_task_id: parent-1
+  working_dir: ` + planDir + `
+  summary: test
+`
+	if err := os.WriteFile(planPath, []byte(plan), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := cli.SwarmValidatePlan(planPath, swarm.ValidateOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Valid {
+		t.Fatal("expected invalid plan")
+	}
+	if !strings.Contains(result.Error, "at least one step") {
+		t.Errorf("expected 'at least one step' in error, got: %s", result.Error)
+	}
+}
+
+func TestSwarmValidatePlan_MalformedYAML(t *testing.T) {
+	planDir := t.TempDir()
+	planPath := filepath.Join(planDir, "plan.yaml")
+	if err := os.WriteFile(planPath, []byte("not: valid: yaml: ::"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cli.SwarmValidatePlan(planPath, swarm.ValidateOptions{}); err == nil {
+		t.Fatal("expected error for malformed YAML")
+	}
+}
+
 func TestSwarmProposePlan_AutoApprovePersistsSubtasks(t *testing.T) {
 	sw, s := newTestSwarmServiceForCLI(t)
 	ctx := context.Background()

@@ -12,6 +12,27 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
+// PlanValidationResult is the JSON shape returned by SwarmValidatePlan.
+type PlanValidationResult struct {
+	Valid bool   `json:"valid"`
+	Error string `json:"error,omitempty"`
+}
+
+// SwarmValidatePlan loads a plan from disk and validates it without any
+// side-effects (no DB writes, no IPC). Returns a structured result suitable
+// for JSON serialization. I/O errors are returned as Go errors; validation
+// failures are expressed inside the result itself.
+func SwarmValidatePlan(planPath string, validateOpts swarm.ValidateOptions) (*PlanValidationResult, error) {
+	plan, err := swarm.LoadPlan(planPath)
+	if err != nil {
+		return nil, fmt.Errorf("load plan: %w", err)
+	}
+	if err := swarm.ValidatePlan(plan, validateOpts); err != nil {
+		return &PlanValidationResult{Valid: false, Error: err.Error()}, nil
+	}
+	return &PlanValidationResult{Valid: true}, nil
+}
+
 // SwarmIsConductor reports whether the calling process is the swarm
 // conductor (LEGATO_AGENT_ROLE=conductor) or the user's own shell. Used to
 // gate conductor-only verbs.

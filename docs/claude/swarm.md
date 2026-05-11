@@ -85,6 +85,7 @@ Plan approval uses request/reply IPC: the CLI opens a temporary listening socket
 
 Conductor verbs:
 ```
+legato swarm validate-plan <plan-file>            # dry-run validation, JSON result
 legato swarm propose-plan <plan-file> [--auto-approve] [--timeout 5m]
 legato swarm dispatch <subtask-id>
 legato swarm message <subtask-id> "<text>"
