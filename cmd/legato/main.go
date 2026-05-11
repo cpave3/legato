@@ -24,6 +24,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/jira"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/engine/swarm"
 	"github.com/cpave3/legato/internal/engine/tmux"
 	qrterminal "github.com/mdp/qrterminal/v3"
 	"github.com/cpave3/legato/internal/server"
@@ -352,6 +353,10 @@ func runServeCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
+	if err := config.ValidateConductorTier(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
 
 	dbPath := config.ResolveDBPath(cfg)
 	db, err := store.New(dbPath)
@@ -383,6 +388,10 @@ func runServeCmd(args []string) int {
 			StrictScope:         cfg.Swarm.StrictScope,
 			RequireUserClose:    cfg.Swarm.RequireUserClose,
 			DefaultAgent:        cfg.Swarm.DefaultAgent,
+			ConductorAgent:      cfg.Swarm.ConductorAgent,
+			ConductorTier:       cfg.Swarm.ConductorTier,
+			TierCatalog:         tierCatalog(cfg.Adapters),
+			ValidateOptions:     buildValidateOptions(cfg),
 		}
 		swarmSvc = service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd)
 	}
@@ -452,6 +461,10 @@ func runTUI() int {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
+	if err := config.ValidateConductorTier(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
 
 	dbPath := config.ResolveDBPath(cfg)
 	db, err := store.New(dbPath)
@@ -478,6 +491,10 @@ func runTUI() int {
 		cfg, err = config.Load()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "config reload: %v\n", err)
+			return 1
+		}
+		if err := config.ValidateConductorTier(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "config: %v\n", err)
 			return 1
 		}
 	}
@@ -588,8 +605,13 @@ func runTUI() int {
 		if overrides := buildAdapterRoleOverrides(cfg, ccAdapter.Name()); overrides != nil {
 			ccAdapter.SetRoleOverrides(overrides)
 		}
-		if a, ok := cfg.Adapters[ccAdapter.Name()]; ok && len(a.LaunchArgs) > 0 {
-			ccAdapter.SetLaunchArgs(a.LaunchArgs)
+		if a, ok := cfg.Adapters[ccAdapter.Name()]; ok {
+			if len(a.LaunchArgs) > 0 {
+				ccAdapter.SetLaunchArgs(a.LaunchArgs)
+			}
+			if tierArgs := adapterTierLaunchArgs(a); tierArgs != nil {
+				ccAdapter.SetTiers(tierArgs)
+			}
 		}
 		chimeraAdapter := hooks.NewChimeraAdapter(legatoBin)
 		if overrides := buildAdapterRoleOverrides(cfg, chimeraAdapter.Name()); overrides != nil {
@@ -603,6 +625,9 @@ func runTUI() int {
 			// nil-Modes means "fall back to defaults" inside the adapter.
 			if a.Modes != nil {
 				chimeraAdapter.SetModes(a.Modes)
+			}
+			if tierArgs := adapterTierLaunchArgs(a); tierArgs != nil {
+				chimeraAdapter.SetTiers(tierArgs)
 			}
 		}
 
@@ -643,6 +668,10 @@ func runTUI() int {
 		StrictScope:         cfg.Swarm.StrictScope,
 		RequireUserClose:    cfg.Swarm.RequireUserClose,
 		DefaultAgent:        cfg.Swarm.DefaultAgent,
+		ConductorAgent:      cfg.Swarm.ConductorAgent,
+		ConductorTier:       cfg.Swarm.ConductorTier,
+		TierCatalog:         tierCatalog(cfg.Adapters),
+		ValidateOptions:     buildValidateOptions(cfg),
 	}
 	swarmSvc := service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd)
 	swarmStop := swarmSvc.StartEventLoop(context.Background())
@@ -865,6 +894,93 @@ func buildAdapterRoleOverrides(cfg *config.Config, adapterName string) hooks.Rol
 	return out
 }
 
+// adapterTiersRegistry projects the user's adapter tier config into the
+// name-set form ValidatePlan expects. Returns nil when no adapter has any
+// tiers configured (signals "tier check disabled" to the validator).
+func adapterTiersRegistry(adapters map[string]config.AdapterConfig) map[string]map[string]struct{} {
+	if len(adapters) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]struct{}, len(adapters))
+	for name, ac := range adapters {
+		if len(ac.Tiers) == 0 {
+			continue
+		}
+		set := make(map[string]struct{}, len(ac.Tiers))
+		for tier := range ac.Tiers {
+			set[tier] = struct{}{}
+		}
+		out[name] = set
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// adapterTierLaunchArgs extracts the per-tier launch_args slices for one
+// adapter, formatted for hooks.{ClaudeCode,Chimera}Adapter.SetTiers.
+func adapterTierLaunchArgs(ac config.AdapterConfig) map[string][]string {
+	if len(ac.Tiers) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(ac.Tiers))
+	for name, tier := range ac.Tiers {
+		out[name] = append([]string(nil), tier.LaunchArgs...)
+	}
+	return out
+}
+
+// buildValidateOptions assembles the swarm.ValidateOptions used by both
+// `legato swarm propose-plan` (CLI guard) and `SwarmService.ApplyApprovedPlan`
+// (defensive re-validation for the TUI/web edit-and-approve path). Reuses
+// the same registered-adapter list legato exposes elsewhere so the two paths
+// can never disagree about which agent names are valid.
+func buildValidateOptions(cfg *config.Config) swarm.ValidateOptions {
+	opts := swarm.ValidateOptions{
+		RegisteredAdapters: []string{"claude-code", "chimera"},
+	}
+	if cfg == nil {
+		return opts
+	}
+	opts.AdapterTiers = adapterTiersRegistry(cfg.Adapters)
+	opts.DefaultAgent = cfg.Swarm.DefaultAgent
+	if cfg.Swarm.MaxSubtasksPerPlan > 0 {
+		opts.MaxSubtasks = cfg.Swarm.MaxSubtasksPerPlan
+	} else {
+		opts.MaxSubtasks = 10
+	}
+	if cfg.Swarm.MaxStepsPerPlan > 0 {
+		opts.MaxSteps = cfg.Swarm.MaxStepsPerPlan
+	} else {
+		opts.MaxSteps = 10
+	}
+	return opts
+}
+
+// tierCatalog projects the user's tier config into the adapter→tier→description
+// shape SwarmService uses to render the conductor brief.
+func tierCatalog(adapters map[string]config.AdapterConfig) map[string]map[string]string {
+	if len(adapters) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]string, len(adapters))
+	for name, ac := range adapters {
+		if len(ac.Tiers) == 0 {
+			continue
+		}
+		descs := make(map[string]string, len(ac.Tiers))
+		for tier, tc := range ac.Tiers {
+			descs[tier] = tc.Description
+		}
+		out[name] = descs
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // runSwarmCmd dispatches to the conductor and worker swarm subcommands.
 func runSwarmCmd(args []string) int {
 	if len(args) == 0 {
@@ -939,6 +1055,10 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return nil, nil, 1
 	}
+	if err := config.ValidateConductorTier(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return nil, nil, 1
+	}
 	dbPath := config.ResolveDBPath(cfg)
 	db, err := store.New(dbPath)
 	if err != nil {
@@ -961,8 +1081,13 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 	if overrides := buildAdapterRoleOverrides(cfg, ccAdapter.Name()); overrides != nil {
 		ccAdapter.SetRoleOverrides(overrides)
 	}
-	if a, ok := cfg.Adapters[ccAdapter.Name()]; ok && len(a.LaunchArgs) > 0 {
-		ccAdapter.SetLaunchArgs(a.LaunchArgs)
+	if a, ok := cfg.Adapters[ccAdapter.Name()]; ok {
+		if len(a.LaunchArgs) > 0 {
+			ccAdapter.SetLaunchArgs(a.LaunchArgs)
+		}
+		if tierArgs := adapterTierLaunchArgs(a); tierArgs != nil {
+			ccAdapter.SetTiers(tierArgs)
+		}
 	}
 	chimeraAdapter := hooks.NewChimeraAdapter(legatoBin)
 	if overrides := buildAdapterRoleOverrides(cfg, chimeraAdapter.Name()); overrides != nil {
@@ -974,6 +1099,9 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		}
 		if a.Modes != nil {
 			chimeraAdapter.SetModes(a.Modes)
+		}
+		if tierArgs := adapterTierLaunchArgs(a); tierArgs != nil {
+			chimeraAdapter.SetTiers(tierArgs)
 		}
 	}
 	defaultAdapter := service.AIToolAdapter(ccAdapter)
@@ -998,6 +1126,10 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		StrictScope:         cfg.Swarm.StrictScope,
 		RequireUserClose:    cfg.Swarm.RequireUserClose,
 		DefaultAgent:        cfg.Swarm.DefaultAgent,
+		ConductorAgent:      cfg.Swarm.ConductorAgent,
+		ConductorTier:       cfg.Swarm.ConductorTier,
+		TierCatalog:         tierCatalog(cfg.Adapters),
+		ValidateOptions:     buildValidateOptions(cfg),
 	}
 	sw := service.NewSwarmService(db, agents, bus, swCfg, wd)
 	return sw, db, 0
@@ -1030,17 +1162,8 @@ func runSwarmProposePlan(args []string) int {
 	}
 	defer db.Close()
 
-	registeredAdapters := []string{"claude-code", "chimera"}
 	cfg, _ := config.Load()
-	maxSubtasks := 10
-	if cfg != nil && cfg.Swarm.MaxSubtasksPerPlan > 0 {
-		maxSubtasks = cfg.Swarm.MaxSubtasksPerPlan
-	}
-	maxSteps := 10
-	if cfg != nil && cfg.Swarm.MaxStepsPerPlan > 0 {
-		maxSteps = cfg.Swarm.MaxStepsPerPlan
-	}
-	if err := cli.SwarmProposePlan(sw, planPath, autoApprove, timeout, registeredAdapters, maxSubtasks, maxSteps); err != nil {
+	if err := cli.SwarmProposePlan(sw, planPath, autoApprove, timeout, buildValidateOptions(cfg)); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}

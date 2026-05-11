@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
@@ -27,16 +28,12 @@ type SwarmService interface {
 	ListSubtaskInfos(ctx context.Context, parentID string) ([]service.SwarmSubtaskInfo, error)
 	FetchInbox(ctx context.Context, parentID string) ([]service.InboxEntry, error)
 	PeekInbox(ctx context.Context, parentID string) ([]service.InboxEntry, error)
+	LoadPlan(path string) (*service.SwarmPlan, error)
+	InsertPendingPlan(ctx context.Context, parentTaskID, planPath, replySocket string) error
+	GetPendingPlan(ctx context.Context, parentTaskID string) (*store.PendingPlanEntry, error)
+	ListAllPendingPlans(ctx context.Context) ([]store.PendingPlanEntry, error)
+	DeletePendingPlan(ctx context.Context, parentTaskID string) error
 }
-
-// pendingPlanEntry holds an in-memory plan proposal for a parent task.
-type pendingPlanEntry struct {
-	PlanPath    string
-	ReplySocket string
-	CreatedAt   time.Time
-}
-
-const pendingPlanTTL = 5 * time.Minute
 
 func (s *Server) writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -399,31 +396,78 @@ func (s *Server) swarmPendingPlanHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
+		if s.swarm == nil {
+			s.writeError(w, http.StatusServiceUnavailable, "swarm service not available")
+			return
+		}
 		id := strings.TrimPrefix(r.URL.Path, "/api/swarm/pending-plan/")
 		if id == "" || id == r.URL.Path {
 			s.writeError(w, http.StatusBadRequest, "parent task ID is required")
 			return
 		}
-		s.pendingMu.RLock()
-		entry, ok := s.pendingPlans[id]
-		if ok && time.Since(entry.CreatedAt) > pendingPlanTTL {
-			ok = false
+		// Read from persistent store (survives server restarts)
+		entry, err := s.swarm.GetPendingPlan(r.Context(), id)
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
-		s.pendingMu.RUnlock()
-		if !ok {
+		if entry == nil {
 			s.writeError(w, http.StatusNotFound, "no pending plan")
 			return
 		}
-		s.writeJSON(w, http.StatusOK, map[string]interface{}{
+		plan, loadErr := s.swarm.LoadPlan(entry.PlanPath)
+		payload := map[string]interface{}{
 			"parent_task_id": id,
 			"plan_path":      entry.PlanPath,
 			"reply_socket":   entry.ReplySocket,
-		})
+		}
+		if plan != nil {
+			payload["plan"] = plan
+		} else if loadErr != nil {
+			payload["load_error"] = loadErr.Error()
+		}
+		s.writeJSON(w, http.StatusOK, payload)
 	}
 }
 
-// handlePlanVerdict receives a plan verdict from a WS client and forwards it
-// to the conductor via IPC.
+// swarmPendingPlansHandler returns all non-resolved pending plans.
+func (s *Server) swarmPendingPlansHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.swarm == nil {
+			s.writeError(w, http.StatusServiceUnavailable, "swarm service not available")
+			return
+		}
+		entries, err := s.swarm.ListAllPendingPlans(r.Context())
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		out := make([]map[string]interface{}, 0, len(entries))
+		for _, entry := range entries {
+			plan, loadErr := s.swarm.LoadPlan(entry.PlanPath)
+			payload := map[string]interface{}{
+				"parent_task_id": entry.ParentTaskID,
+				"plan_path":      entry.PlanPath,
+				"reply_socket":   entry.ReplySocket,
+			}
+			if plan != nil {
+				payload["plan"] = plan
+			} else if loadErr != nil {
+				payload["load_error"] = loadErr.Error()
+			}
+			out = append(out, payload)
+		}
+		s.writeJSON(w, http.StatusOK, out)
+	}
+}
+
+// handlePlanVerdict receives a plan verdict from a WS client. It forwards the
+// verdict to the conductor via IPC, deletes the persistent pending-plan entry,
+// and broadcasts a swarm_changed so all clients dismiss the modal.
 func (s *Server) handlePlanVerdict(client *wsClient, msg WSMessage) {
 	if msg.ReplySocket == "" {
 		return
@@ -434,4 +478,33 @@ func (s *Server) handlePlanVerdict(client *wsClient, msg WSMessage) {
 		Notes:    msg.Notes,
 		PlanPath: msg.PlanPath,
 	})
+	// Remove from persistent store so the plan no longer shows up on fresh loads.
+	if msg.ParentTaskID != "" && s.swarm != nil {
+		_ = s.swarm.DeletePendingPlan(context.Background(), msg.ParentTaskID)
+	}
+	// Notify all connected web clients so they dismiss the modal.
+	var status string
+	switch msg.Status {
+	case "approved":
+		status = "plan_applied"
+	case "rejected":
+		status = "rejected"
+	default:
+		status = msg.Status
+	}
+	s.hub.Broadcast(WSMessage{
+		Type:         MsgSwarmChanged,
+		ParentTaskID: msg.ParentTaskID,
+		Status:       status,
+	})
+	if s.bus != nil {
+		s.bus.Publish(events.Event{
+			Type: events.EventSwarmChanged,
+			Payload: events.SwarmChangedPayload{
+				ParentTaskID: msg.ParentTaskID,
+				NewStatus:    status,
+			},
+			At: time.Now(),
+		})
+	}
 }

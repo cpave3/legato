@@ -219,7 +219,9 @@ func (a App) listenCardUpdates() tea.Cmd {
 type prUpdateMsg struct{}
 
 // swarmUpdateMsg triggers a board data reload when swarm state changes.
-type swarmUpdateMsg struct{}
+type swarmUpdateMsg struct {
+	Payload events.SwarmChangedPayload
+}
 
 // listenPRUpdates returns a command that listens for EventPRStatusUpdated.
 func (a App) listenPRUpdates() tea.Cmd {
@@ -243,11 +245,15 @@ func (a App) listenSwarmUpdates() tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		_, ok := <-ch
+		ev, ok := <-ch
 		if !ok {
 			return nil
 		}
-		return swarmUpdateMsg{}
+		var payload events.SwarmChangedPayload
+		if p, ok2 := ev.Payload.(events.SwarmChangedPayload); ok2 {
+			payload = p
+		}
+		return swarmUpdateMsg{Payload: payload}
 	}
 }
 
@@ -745,6 +751,21 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				agentList, _ := svc.ListAgents(context.Background())
 				return agents.AgentsRefreshedMsg{Agents: agentList}
 			})
+		}
+		// If the plan approval overlay is open for this parent and the plan
+		// was resolved elsewhere (web, another TUI), dismiss the overlay.
+		if a.overlayType == overlayPlanApproval && a.activeOverlay != nil {
+			if po, ok := a.activeOverlay.(overlay.PlanApprovalOverlay); ok {
+				if po.ParentTaskID() == msg.Payload.ParentTaskID {
+					if msg.Payload.NewStatus == "plan_applied" || msg.Payload.NewStatus == "rejected" {
+						a.overlayType = overlayNone
+						a.activeOverlay = nil
+						cmds = append(cmds, func() tea.Msg {
+							return statusbar.InfoMsg{Text: "Plan resolved on another surface"}
+						})
+					}
+				}
+			}
 		}
 		if a.swarmSub != nil {
 			cmds = append(cmds, a.listenSwarmUpdates())
@@ -1312,6 +1333,19 @@ func (a App) handlePlanApprove(msg overlay.PlanApproveMsg) (tea.Model, tea.Cmd) 
 			PlanPath: msg.PlanPath,
 		})
 	}
+	// Notify the rest of the system (web clients, other TUIs) so the modal
+	// disappears everywhere.
+	if a.eventBus != nil && a.swarmSvc != nil {
+		_ = a.swarmSvc.DeletePendingPlan(context.Background(), msg.ParentTaskID)
+		a.eventBus.Publish(events.Event{
+			Type: events.EventSwarmChanged,
+			Payload: events.SwarmChangedPayload{
+				ParentTaskID: msg.ParentTaskID,
+				NewStatus:    "plan_applied",
+			},
+			At: time.Now(),
+		})
+	}
 	return a, a.board.Init()
 }
 
@@ -1324,6 +1358,19 @@ func (a App) handlePlanReject(msg overlay.PlanRejectMsg) (tea.Model, tea.Cmd) {
 			TaskID: msg.ParentTaskID,
 			Status: "rejected",
 			Notes:  msg.Notes,
+		})
+	}
+	// Notify the rest of the system (web clients, other TUIs) so the modal
+	// disappears everywhere.
+	if a.eventBus != nil && a.swarmSvc != nil {
+		_ = a.swarmSvc.DeletePendingPlan(context.Background(), msg.ParentTaskID)
+		a.eventBus.Publish(events.Event{
+			Type: events.EventSwarmChanged,
+			Payload: events.SwarmChangedPayload{
+				ParentTaskID: msg.ParentTaskID,
+				NewStatus:    "rejected",
+			},
+			At: time.Now(),
 		})
 	}
 	return a, nil
@@ -1484,9 +1531,12 @@ func (a App) toggleWebServer() (tea.Model, tea.Cmd) {
 
 	// Start the server.
 	addr := ":" + a.webServerPort
-	srv := server.New(a.svc, a.agentSvc, a.tmux, addr)
+	srv := server.NewWithSwarm(a.svc, a.agentSvc, a.tmux, addr, a.swarmSvc, a.eventBus, a.workDir)
 	a.webServer = srv
 	a.statusBar = a.statusBar.SetWebServer(a.webServerPort)
+	if a.eventBus != nil {
+		srv.StartSwarmEvents()
+	}
 
 	// Bridge event bus → web server: notify WebSocket clients on state changes.
 	stopCh := make(chan struct{})

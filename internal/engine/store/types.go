@@ -122,6 +122,15 @@ type SwarmEvent struct {
 	AckedAt      *string `db:"acked_at"`
 }
 
+// PendingPlanEntry is a persisted proposed plan awaiting HITL approval.
+type PendingPlanEntry struct {
+	ID           int    `db:"id"`
+	ParentTaskID string `db:"parent_task_id"`
+	PlanPath     string `db:"plan_path"`
+	ReplySocket  string `db:"reply_socket"`
+	CreatedAt    string `db:"created_at"`
+}
+
 // Subtask represents a swarm sub-task: a unit of work parented to a task,
 // owned by one worker agent, scoped to a set of file globs.
 //
@@ -138,6 +147,7 @@ type Subtask struct {
 	ScopeGlobs      string  `db:"scope_globs"`
 	Role            string  `db:"role"`
 	AgentKind       string  `db:"agent_kind"`
+	Tier            string  `db:"tier"`
 	Status          string  `db:"status"`
 	StepIndex       int     `db:"step_index"`
 	BuilderAgentID  *int    `db:"builder_agent_id"`

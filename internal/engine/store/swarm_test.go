@@ -232,6 +232,43 @@ func TestCreateSubtaskPersistsAgentKindAndPrompt(t *testing.T) {
 	}
 }
 
+func TestCreateSubtaskPersistsTier(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "parent-1")
+	st := Subtask{
+		ID: "sub-tier", ParentTaskID: "parent-1", Title: "API", Role: "backend",
+		AgentKind: "claude-code", Tier: "small", ScopeGlobs: "[]",
+	}
+	if err := s.CreateSubtask(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetSubtask(ctx, "sub-tier")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Tier != "small" {
+		t.Errorf("Tier = %q, want small", got.Tier)
+	}
+}
+
+func TestCreateSubtaskTierDefaultsEmpty(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "parent-1")
+	st := Subtask{
+		ID: "sub-no-tier", ParentTaskID: "parent-1", Title: "API", Role: "backend",
+		AgentKind: "claude-code", ScopeGlobs: "[]",
+	}
+	if err := s.CreateSubtask(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetSubtask(ctx, "sub-no-tier")
+	if got.Tier != "" {
+		t.Errorf("Tier default = %q, want empty", got.Tier)
+	}
+}
+
 func TestSetTaskSwarmWorkingDir(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
@@ -553,5 +590,117 @@ func TestSetParentActiveStepNotFound(t *testing.T) {
 	s := newTestStore(t)
 	if err := s.SetParentActiveStep(context.Background(), "nope", 1); err != ErrNotFound {
 		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+// TestInsertAndGetPendingPlan covers the basic write/read round-trip on
+// swarm_pending_plans.
+func TestInsertAndGetPendingPlan(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.InsertPendingPlan(ctx, "parent-pp-1", "/tmp/plan.yaml", "/tmp/reply.sock"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetPendingPlan(ctx, "parent-pp-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("GetPendingPlan returned nil after insert")
+	}
+	if got.ParentTaskID != "parent-pp-1" {
+		t.Errorf("ParentTaskID = %q", got.ParentTaskID)
+	}
+	if got.PlanPath != "/tmp/plan.yaml" {
+		t.Errorf("PlanPath = %q", got.PlanPath)
+	}
+	if got.ReplySocket != "/tmp/reply.sock" {
+		t.Errorf("ReplySocket = %q", got.ReplySocket)
+	}
+	if got.CreatedAt == "" {
+		t.Errorf("CreatedAt should be populated")
+	}
+}
+
+// TestInsertPendingPlanUpserts verifies the ON CONFLICT(parent_task_id) DO UPDATE
+// clause: a second insert for the same parent overwrites plan_path/reply_socket.
+func TestInsertPendingPlanUpserts(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.InsertPendingPlan(ctx, "parent-pp-2", "/tmp/old.yaml", "/tmp/old.sock"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertPendingPlan(ctx, "parent-pp-2", "/tmp/new.yaml", "/tmp/new.sock"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetPendingPlan(ctx, "parent-pp-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("expected upserted row")
+	}
+	if got.PlanPath != "/tmp/new.yaml" {
+		t.Errorf("PlanPath after upsert = %q, want /tmp/new.yaml", got.PlanPath)
+	}
+	if got.ReplySocket != "/tmp/new.sock" {
+		t.Errorf("ReplySocket after upsert = %q, want /tmp/new.sock", got.ReplySocket)
+	}
+}
+
+// TestListAllPendingPlans returns every pending plan.
+func TestListAllPendingPlans(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.InsertPendingPlan(ctx, "parent-pp-A", "/tmp/a.yaml", "/tmp/a.sock"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertPendingPlan(ctx, "parent-pp-B", "/tmp/b.yaml", "/tmp/b.sock"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ListAllPendingPlans(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("len(got) = %d, want 2", len(got))
+	}
+	parents := map[string]bool{}
+	for _, e := range got {
+		parents[e.ParentTaskID] = true
+	}
+	if !parents["parent-pp-A"] || !parents["parent-pp-B"] {
+		t.Errorf("missing expected parents: %v", parents)
+	}
+}
+
+// TestDeletePendingPlan removes the row and subsequent Get returns nil.
+func TestDeletePendingPlan(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.InsertPendingPlan(ctx, "parent-pp-D", "/tmp/plan.yaml", "/tmp/reply.sock"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeletePendingPlan(ctx, "parent-pp-D"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetPendingPlan(ctx, "parent-pp-D")
+	if err != nil {
+		t.Fatalf("GetPendingPlan after delete returned error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil entry after delete, got %+v", got)
+	}
+}
+
+// TestGetPendingPlanMissing returns nil, nil — not an error — for unknown IDs.
+func TestGetPendingPlanMissing(t *testing.T) {
+	s := newTestStore(t)
+	got, err := s.GetPendingPlan(context.Background(), "no-such-parent")
+	if err != nil {
+		t.Errorf("unexpected error for missing pending plan: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil for missing pending plan, got %+v", got)
 	}
 }

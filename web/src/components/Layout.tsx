@@ -3,6 +3,7 @@ import { Outlet, NavLink } from "react-router-dom"
 import { Monitor, LayoutGrid, Settings, Server } from "lucide-react"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
+import { PlanApprovalModal } from "./PlanApprovalModal"
 import { cn } from "../lib/utils"
 
 export function Layout() {
@@ -132,6 +133,7 @@ export function Layout() {
       <main className="flex flex-1 flex-col overflow-hidden">
         <Outlet />
       </main>
+      <PlanApprovalModal />
     </div>
   )
 }

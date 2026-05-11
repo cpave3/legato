@@ -74,7 +74,7 @@ func TestParsePlanInvalidYAML(t *testing.T) {
 }
 
 func TestValidatePlanHappyPath(t *testing.T) {
-	if err := ValidatePlan(validPlan(), nil, 0, 0); err != nil {
+	if err := ValidatePlan(validPlan(), ValidateOptions{}); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -82,7 +82,7 @@ func TestValidatePlanHappyPath(t *testing.T) {
 func TestValidatePlanMissingParent(t *testing.T) {
 	p := validPlan()
 	p.Swarm.ParentTaskID = ""
-	if err := ValidatePlan(p, nil, 0, 0); err == nil {
+	if err := ValidatePlan(p, ValidateOptions{}); err == nil {
 		t.Error("expected error for missing parent")
 	}
 }
@@ -90,7 +90,7 @@ func TestValidatePlanMissingParent(t *testing.T) {
 func TestValidatePlanMissingWorkingDir(t *testing.T) {
 	p := validPlan()
 	p.Swarm.WorkingDir = "  "
-	if err := ValidatePlan(p, nil, 0, 0); err == nil {
+	if err := ValidatePlan(p, ValidateOptions{}); err == nil {
 		t.Error("expected error for blank working_dir")
 	}
 }
@@ -98,7 +98,7 @@ func TestValidatePlanMissingWorkingDir(t *testing.T) {
 func TestValidatePlanNoSteps(t *testing.T) {
 	p := validPlan()
 	p.Steps = nil
-	if err := ValidatePlan(p, nil, 0, 0); err == nil {
+	if err := ValidatePlan(p, ValidateOptions{}); err == nil {
 		t.Error("expected error for empty steps")
 	}
 }
@@ -106,7 +106,7 @@ func TestValidatePlanNoSteps(t *testing.T) {
 func TestValidatePlanEmptyStepSubtasks(t *testing.T) {
 	p := validPlan()
 	p.Steps[0].Subtasks = nil
-	if err := ValidatePlan(p, nil, 0, 0); err == nil {
+	if err := ValidatePlan(p, ValidateOptions{}); err == nil {
 		t.Error("expected error for step with empty subtasks")
 	}
 }
@@ -114,7 +114,7 @@ func TestValidatePlanEmptyStepSubtasks(t *testing.T) {
 func TestValidatePlanMissingTitle(t *testing.T) {
 	p := validPlan()
 	p.Steps[0].Subtasks[0].Title = ""
-	if err := ValidatePlan(p, nil, 0, 0); err == nil {
+	if err := ValidatePlan(p, ValidateOptions{}); err == nil {
 		t.Error("expected error for missing title")
 	}
 }
@@ -122,7 +122,7 @@ func TestValidatePlanMissingTitle(t *testing.T) {
 func TestValidatePlanInvalidRole(t *testing.T) {
 	p := validPlan()
 	p.Steps[0].Subtasks[0].Role = "Backend Specialist"
-	err := ValidatePlan(p, nil, 0, 0)
+	err := ValidatePlan(p, ValidateOptions{})
 	if err == nil {
 		t.Error("expected error for role with spaces")
 	}
@@ -131,7 +131,7 @@ func TestValidatePlanInvalidRole(t *testing.T) {
 func TestValidatePlanRoleEmptyAccepted(t *testing.T) {
 	p := validPlan()
 	p.Steps[0].Subtasks[0].Role = ""
-	if err := ValidatePlan(p, nil, 0, 0); err != nil {
+	if err := ValidatePlan(p, ValidateOptions{}); err != nil {
 		t.Errorf("empty role should be allowed, got %v", err)
 	}
 }
@@ -139,7 +139,7 @@ func TestValidatePlanRoleEmptyAccepted(t *testing.T) {
 func TestValidatePlanUnknownAgent(t *testing.T) {
 	p := validPlan()
 	p.Steps[0].Subtasks[0].Agent = "ghost-tool"
-	err := ValidatePlan(p, []string{"claude-code", "chimera"}, 0, 0)
+	err := ValidatePlan(p, ValidateOptions{RegisteredAdapters: []string{"claude-code", "chimera"}})
 	if err == nil {
 		t.Error("expected error for unknown agent")
 	}
@@ -148,7 +148,7 @@ func TestValidatePlanUnknownAgent(t *testing.T) {
 func TestValidatePlanAgentSkippedWhenNoAdapters(t *testing.T) {
 	p := validPlan()
 	p.Steps[0].Subtasks[0].Agent = "ghost-tool"
-	if err := ValidatePlan(p, nil, 0, 0); err != nil {
+	if err := ValidatePlan(p, ValidateOptions{}); err != nil {
 		t.Errorf("agent check should be skipped when adapters empty: %v", err)
 	}
 }
@@ -156,7 +156,7 @@ func TestValidatePlanAgentSkippedWhenNoAdapters(t *testing.T) {
 func TestValidatePlanMalformedScope(t *testing.T) {
 	p := validPlan()
 	p.Steps[0].Subtasks[0].Scope = []string{"["}
-	err := ValidatePlan(p, nil, 0, 0)
+	err := ValidatePlan(p, ValidateOptions{})
 	if err == nil {
 		t.Error("expected error for malformed glob")
 	}
@@ -168,7 +168,7 @@ func TestValidatePlanExceedsPerStepCap(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		p.Steps[0].Subtasks = append(p.Steps[0].Subtasks, PlanSubtask{Title: "x"})
 	}
-	err := ValidatePlan(p, nil, 3, 0)
+	err := ValidatePlan(p, ValidateOptions{MaxSubtasks: 3})
 	if err == nil {
 		t.Error("expected error for step over cap")
 	}
@@ -183,7 +183,7 @@ func TestValidatePlanExceedsTotalCap(t *testing.T) {
 		{Name: "Step 1", Subtasks: []PlanSubtask{{Title: "a"}, {Title: "b"}}},
 		{Name: "Step 2", Subtasks: []PlanSubtask{{Title: "c"}, {Title: "d"}}},
 	}
-	err := ValidatePlan(p, nil, 3, 0)
+	err := ValidatePlan(p, ValidateOptions{MaxSubtasks: 3})
 	if err == nil {
 		t.Error("expected error for total subtasks over cap")
 	}
@@ -198,7 +198,7 @@ func TestValidatePlanMultiStepHappyPath(t *testing.T) {
 		{Name: "Setup", Subtasks: []PlanSubtask{{Title: "Init"}}},
 		{Name: "Build", Subtasks: []PlanSubtask{{Title: "API"}, {Title: "UI"}}},
 	}
-	if err := ValidatePlan(p, nil, 0, 0); err != nil {
+	if err := ValidatePlan(p, ValidateOptions{}); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -209,7 +209,7 @@ func TestValidatePlanExceedsMaxSteps(t *testing.T) {
 		{Name: "S1", Subtasks: []PlanSubtask{{Title: "a"}}},
 		{Name: "S2", Subtasks: []PlanSubtask{{Title: "b"}}},
 	}
-	err := ValidatePlan(p, nil, 0, 1)
+	err := ValidatePlan(p, ValidateOptions{MaxSteps: 1})
 	if err == nil {
 		t.Fatal("expected error when steps exceed maxSteps")
 	}
@@ -278,5 +278,141 @@ func TestLoadPlanFromDisk(t *testing.T) {
 func TestLoadPlanFileMissing(t *testing.T) {
 	if _, err := LoadPlan("/no/such/file"); err == nil {
 		t.Error("expected error for missing file")
+	}
+}
+
+func TestParsePlanIncludesTier(t *testing.T) {
+	yaml := `swarm:
+  parent_task_id: abc12345
+  working_dir: /tmp/work
+steps:
+  - name: "Step 1"
+    subtasks:
+      - title: API
+        agent: claude-code
+        tier: small
+`
+	p, err := ParsePlan([]byte(yaml))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Steps[0].Subtasks[0].Tier; got != "small" {
+		t.Errorf("tier = %q, want small", got)
+	}
+}
+
+func tierRegistry(adapterTiers map[string][]string) map[string]map[string]struct{} {
+	out := make(map[string]map[string]struct{}, len(adapterTiers))
+	for adapter, tiers := range adapterTiers {
+		set := make(map[string]struct{}, len(tiers))
+		for _, t := range tiers {
+			set[t] = struct{}{}
+		}
+		out[adapter] = set
+	}
+	return out
+}
+
+func TestValidatePlanTierKnownAccepted(t *testing.T) {
+	p := validPlan()
+	p.Steps[0].Subtasks[0].Agent = "claude-code"
+	p.Steps[0].Subtasks[0].Tier = "small"
+	opts := ValidateOptions{
+		RegisteredAdapters: []string{"claude-code"},
+		AdapterTiers:       tierRegistry(map[string][]string{"claude-code": {"small", "large"}}),
+	}
+	if err := ValidatePlan(p, opts); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidatePlanTierUnknownRejected(t *testing.T) {
+	p := validPlan()
+	p.Steps[0].Subtasks[0].Agent = "claude-code"
+	p.Steps[0].Subtasks[0].Tier = "ghost"
+	opts := ValidateOptions{
+		RegisteredAdapters: []string{"claude-code"},
+		AdapterTiers:       tierRegistry(map[string][]string{"claude-code": {"small", "large"}}),
+	}
+	err := ValidatePlan(p, opts)
+	if err == nil {
+		t.Fatal("expected error for unknown tier")
+	}
+	if !strings.Contains(err.Error(), "tier \"ghost\"") {
+		t.Errorf("error should mention the bad tier: %v", err)
+	}
+}
+
+func TestValidatePlanTierEmptyAlwaysAccepted(t *testing.T) {
+	p := validPlan()
+	p.Steps[0].Subtasks[0].Agent = "claude-code"
+	p.Steps[0].Subtasks[0].Tier = ""
+	opts := ValidateOptions{
+		RegisteredAdapters: []string{"claude-code"},
+		AdapterTiers:       tierRegistry(map[string][]string{"claude-code": {"small"}}),
+	}
+	if err := ValidatePlan(p, opts); err != nil {
+		t.Errorf("empty tier should always pass, got %v", err)
+	}
+}
+
+func TestValidatePlanTierFallsBackToDefaultAgent(t *testing.T) {
+	p := validPlan()
+	// Sub-task omits agent entirely; tier should be resolved against DefaultAgent.
+	p.Steps[0].Subtasks[0].Agent = ""
+	p.Steps[0].Subtasks[0].Tier = "large"
+	opts := ValidateOptions{
+		RegisteredAdapters: []string{"claude-code"},
+		DefaultAgent:       "claude-code",
+		AdapterTiers:       tierRegistry(map[string][]string{"claude-code": {"small", "large"}}),
+	}
+	if err := ValidatePlan(p, opts); err != nil {
+		t.Errorf("unexpected error when default agent provides the tier: %v", err)
+	}
+}
+
+func TestValidatePlanTierRejectedWhenAdapterHasNoTiers(t *testing.T) {
+	p := validPlan()
+	p.Steps[0].Subtasks[0].Agent = "chimera"
+	p.Steps[0].Subtasks[0].Tier = "small"
+	opts := ValidateOptions{
+		RegisteredAdapters: []string{"claude-code", "chimera"},
+		AdapterTiers:       tierRegistry(map[string][]string{"claude-code": {"small"}}),
+	}
+	err := ValidatePlan(p, opts)
+	if err == nil {
+		t.Fatal("expected error when adapter has no tiers configured")
+	}
+	if !strings.Contains(err.Error(), "no tiers configured") {
+		t.Errorf("expected 'no tiers configured' error, got: %v", err)
+	}
+}
+
+func TestValidatePlanTierNoAgentNoDefault(t *testing.T) {
+	// Tier set, registry non-empty, but neither sub-task `Agent` nor
+	// `DefaultAgent` is provided — validation cannot resolve which adapter's
+	// tier set to consult and must reject.
+	p := validPlan()
+	p.Steps[0].Subtasks[0].Agent = ""
+	p.Steps[0].Subtasks[0].Tier = "small"
+	opts := ValidateOptions{
+		AdapterTiers: tierRegistry(map[string][]string{"claude-code": {"small"}}),
+	}
+	err := ValidatePlan(p, opts)
+	if err == nil {
+		t.Fatal("expected error when tier set but no agent or default_agent")
+	}
+	if !strings.Contains(err.Error(), "no agent or default_agent") {
+		t.Errorf("expected error to mention missing agent/default_agent, got: %v", err)
+	}
+}
+
+func TestValidatePlanTierSkippedWhenRegistryEmpty(t *testing.T) {
+	// Tests that don't wire AdapterTiers can still call ValidatePlan
+	// without tripping over a `tier` field.
+	p := validPlan()
+	p.Steps[0].Subtasks[0].Tier = "anything"
+	if err := ValidatePlan(p, ValidateOptions{}); err != nil {
+		t.Errorf("tier check should be skipped when AdapterTiers empty, got: %v", err)
 	}
 }

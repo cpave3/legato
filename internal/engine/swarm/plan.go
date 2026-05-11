@@ -35,6 +35,7 @@ type PlanSubtask struct {
 	Title  string   `yaml:"title" json:"title"`
 	Role   string   `yaml:"role,omitempty" json:"role,omitempty"`
 	Agent  string   `yaml:"agent,omitempty" json:"agent,omitempty"`
+	Tier   string   `yaml:"tier,omitempty" json:"tier,omitempty"`
 	Scope  []string `yaml:"scope,omitempty" json:"scope,omitempty"`
 	Prompt string   `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 }
@@ -61,12 +62,31 @@ func LoadPlan(path string) (*Plan, error) {
 	return ParsePlan(data)
 }
 
-// ValidatePlan returns an error if the plan is malformed. registeredAdapters
-// is the set of names accepted for the per-sub-task `agent` field; pass empty
-// to skip the adapter-name check (useful for tests that don't wire adapters).
-// maxSubtasks caps the plan size; pass 0 to skip the cap.
-// maxSteps caps the number of steps; pass 0 to skip the cap.
-func ValidatePlan(plan *Plan, registeredAdapters []string, maxSubtasks, maxSteps int) error {
+// ValidateOptions configures the plan validation rules. Zero-valued fields
+// disable their respective check (e.g. an empty RegisteredAdapters skips the
+// adapter-name check; MaxSubtasks == 0 skips the cap).
+type ValidateOptions struct {
+	// RegisteredAdapters is the set of accepted names for the `agent` field.
+	// Empty disables the check (useful for tests that don't wire adapters).
+	RegisteredAdapters []string
+	// AdapterTiers maps adapter name → the set of tier names configured for
+	// that adapter. Used to validate per-sub-task `tier` against the
+	// resolved adapter (sub-task `agent` if set, otherwise DefaultAgent).
+	// Plans referencing an unknown tier are rejected.
+	AdapterTiers map[string]map[string]struct{}
+	// DefaultAgent is the adapter name used to resolve `tier` when a sub-task
+	// omits `agent`. When empty and a sub-task with `tier` also omits
+	// `agent`, validation rejects the sub-task because we can't determine
+	// which adapter's tier set to consult.
+	DefaultAgent string
+	// MaxSubtasks caps the plan size; 0 skips the cap.
+	MaxSubtasks int
+	// MaxSteps caps the number of steps; 0 skips the cap.
+	MaxSteps int
+}
+
+// ValidatePlan returns an error if the plan is malformed.
+func ValidatePlan(plan *Plan, opts ValidateOptions) error {
 	if plan == nil {
 		return fmt.Errorf("plan is nil")
 	}
@@ -79,12 +99,12 @@ func ValidatePlan(plan *Plan, registeredAdapters []string, maxSubtasks, maxSteps
 	if len(plan.Steps) == 0 {
 		return fmt.Errorf("plan must contain at least one step")
 	}
-	if maxSteps > 0 && len(plan.Steps) > maxSteps {
-		return fmt.Errorf("plan has %d steps; max is %d", len(plan.Steps), maxSteps)
+	if opts.MaxSteps > 0 && len(plan.Steps) > opts.MaxSteps {
+		return fmt.Errorf("plan has %d steps; max is %d", len(plan.Steps), opts.MaxSteps)
 	}
 
-	adapters := make(map[string]struct{}, len(registeredAdapters))
-	for _, a := range registeredAdapters {
+	adapters := make(map[string]struct{}, len(opts.RegisteredAdapters))
+	for _, a := range opts.RegisteredAdapters {
 		adapters[a] = struct{}{}
 	}
 
@@ -93,8 +113,8 @@ func ValidatePlan(plan *Plan, registeredAdapters []string, maxSubtasks, maxSteps
 		if len(step.Subtasks) == 0 {
 			return fmt.Errorf("step[%d]: must contain at least one sub-task", si)
 		}
-		if maxSubtasks > 0 && len(step.Subtasks) > maxSubtasks {
-			return fmt.Errorf("step[%d] has %d sub-tasks; max per step is %d", si, len(step.Subtasks), maxSubtasks)
+		if opts.MaxSubtasks > 0 && len(step.Subtasks) > opts.MaxSubtasks {
+			return fmt.Errorf("step[%d] has %d sub-tasks; max per step is %d", si, len(step.Subtasks), opts.MaxSubtasks)
 		}
 		totalSubtasks += len(step.Subtasks)
 		for i, st := range step.Subtasks {
@@ -109,16 +129,47 @@ func ValidatePlan(plan *Plan, registeredAdapters []string, maxSubtasks, maxSteps
 					return fmt.Errorf("step[%d].subtasks[%d]: agent %q is not a registered adapter", si, i, st.Agent)
 				}
 			}
+			if err := validateTier(st, opts, si, i); err != nil {
+				return err
+			}
 			if err := ValidateScope(st.Scope); err != nil {
 				return fmt.Errorf("step[%d].subtasks[%d]: scope: %w", si, i, err)
 			}
 		}
 	}
 
-	if maxSubtasks > 0 && totalSubtasks > maxSubtasks {
-		return fmt.Errorf("plan has %d sub-tasks; max is %d", totalSubtasks, maxSubtasks)
+	if opts.MaxSubtasks > 0 && totalSubtasks > opts.MaxSubtasks {
+		return fmt.Errorf("plan has %d sub-tasks; max is %d", totalSubtasks, opts.MaxSubtasks)
 	}
 
+	return nil
+}
+
+// validateTier ensures a sub-task's `tier` is configured under the adapter
+// that will spawn it. The adapter is resolved as st.Agent → opts.DefaultAgent.
+// Skipped entirely when AdapterTiers is empty (no tier registry wired) or
+// when the sub-task doesn't set `tier`.
+func validateTier(st PlanSubtask, opts ValidateOptions, si, i int) error {
+	if st.Tier == "" {
+		return nil
+	}
+	if len(opts.AdapterTiers) == 0 {
+		return nil
+	}
+	resolved := st.Agent
+	if resolved == "" {
+		resolved = opts.DefaultAgent
+	}
+	if resolved == "" {
+		return fmt.Errorf("step[%d].subtasks[%d]: tier %q set but no agent or default_agent to resolve it against", si, i, st.Tier)
+	}
+	tiers, ok := opts.AdapterTiers[resolved]
+	if !ok || len(tiers) == 0 {
+		return fmt.Errorf("step[%d].subtasks[%d]: tier %q set but adapter %q has no tiers configured", si, i, st.Tier, resolved)
+	}
+	if _, ok := tiers[st.Tier]; !ok {
+		return fmt.Errorf("step[%d].subtasks[%d]: tier %q is not configured for adapter %q", si, i, st.Tier, resolved)
+	}
 	return nil
 }
 

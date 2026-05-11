@@ -28,10 +28,32 @@ export interface InboxEntry {
   created_at: string
 }
 
+export interface PendingPlanHeader {
+  parent_task_id: string
+  working_dir: string
+  summary: string
+}
+
+export interface PendingPlanSubtask {
+  title: string
+  role?: string
+  agent?: string
+  tier?: string
+  scope?: string[]
+  prompt?: string
+}
+
+export interface PendingPlanContent {
+  header: PendingPlanHeader
+  subtasks: PendingPlanSubtask[]
+}
+
 export interface PendingPlanData {
   parent_task_id: string
   plan_path: string
   reply_socket: string
+  plan?: PendingPlanContent | null
+  load_error?: string
 }
 
 export interface SwarmStatusData {
@@ -131,6 +153,12 @@ export async function peekInbox(baseUrl: string, parentID: string): Promise<Inbo
 export async function getPendingPlan(baseUrl: string, parentID: string): Promise<PendingPlanData | null> {
   const res = await apiFetch(baseUrl, `/api/swarm/pending-plan/${encodeURIComponent(parentID)}`)
   if (res.status === 404) return null
+  if (!res.ok) throw new Error(await parseError(res))
+  return res.json()
+}
+
+export async function getAllPendingPlans(baseUrl: string): Promise<PendingPlanData[]> {
+  const res = await apiFetch(baseUrl, "/api/swarm/pending-plans")
   if (!res.ok) throw new Error(await parseError(res))
   return res.json()
 }

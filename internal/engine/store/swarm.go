@@ -42,10 +42,10 @@ func (s *Store) CreateSubtask(ctx context.Context, st Subtask) error {
 	}
 	_, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO swarm_subtasks (id, parent_task_id, title, description, prompt, scope_globs,
-			role, agent_kind, status, step_index, builder_agent_id, reviewer_agent_id,
+			role, agent_kind, tier, status, step_index, builder_agent_id, reviewer_agent_id,
 			created_at, dispatched_at, started_at, completed_at)
 		VALUES (:id, :parent_task_id, :title, :description, :prompt, :scope_globs,
-			:role, :agent_kind, :status, :step_index, :builder_agent_id, :reviewer_agent_id,
+			:role, :agent_kind, :tier, :status, :step_index, :builder_agent_id, :reviewer_agent_id,
 			COALESCE(NULLIF(:created_at, ''), datetime('now')),
 			:dispatched_at, :started_at, :completed_at)`, st)
 	return err
@@ -242,6 +242,45 @@ func (s *Store) ListUnackedSwarmEvents(ctx context.Context, parentID string) ([]
 		WHERE parent_task_id = ? AND acked_at IS NULL
 		ORDER BY id ASC`, parentID)
 	return events, err
+}
+
+// InsertPendingPlan persists a proposed plan into swarm_pending_plans.
+// Replaces any existing entry for the same parent_task_id.
+func (s *Store) InsertPendingPlan(ctx context.Context, parentTaskID, planPath, replySocket string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO swarm_pending_plans (parent_task_id, plan_path, reply_socket)
+		VALUES (?, ?, ?)
+		ON CONFLICT(parent_task_id) DO UPDATE SET
+			plan_path = excluded.plan_path,
+			reply_socket = excluded.reply_socket,
+			created_at = datetime('now')`, parentTaskID, planPath, replySocket)
+	return err
+}
+
+// GetPendingPlan returns the pending plan for a parent, or nil if none.
+func (s *Store) GetPendingPlan(ctx context.Context, parentTaskID string) (*PendingPlanEntry, error) {
+	var e PendingPlanEntry
+	err := s.db.GetContext(ctx, &e, "SELECT * FROM swarm_pending_plans WHERE parent_task_id = ?", parentTaskID)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// ListAllPendingPlans returns every pending plan.
+func (s *Store) ListAllPendingPlans(ctx context.Context) ([]PendingPlanEntry, error) {
+	var entries []PendingPlanEntry
+	err := s.db.SelectContext(ctx, &entries, "SELECT * FROM swarm_pending_plans ORDER BY created_at ASC")
+	return entries, err
+}
+
+// DeletePendingPlan removes a pending plan by parent task ID.
+func (s *Store) DeletePendingPlan(ctx context.Context, parentTaskID string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM swarm_pending_plans WHERE parent_task_id = ?", parentTaskID)
+	return err
 }
 
 // AckSwarmEvents marks the given event IDs as acked (read by the conductor).

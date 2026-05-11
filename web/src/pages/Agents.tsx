@@ -5,7 +5,6 @@ import { TerminalPanel } from "../components/TerminalPanel"
 import { PromptBar, type PromptBarHandle } from "../components/PromptBar"
 import { StartSwarmModal } from "../components/StartSwarmModal"
 import { SpawnEphemeralModal } from "../components/SpawnEphemeralModal"
-import { PlanApprovalModal } from "../components/PlanApprovalModal"
 import { SwarmEventLog } from "../components/SwarmEventLog"
 import { useServer } from "../hooks/useServer"
 import { useSwarmEvents } from "../hooks/useSwarmEvents"
@@ -215,15 +214,6 @@ export function AgentsPage() {
 
   const runningAgents = useMemo(() => agents.filter((a) => a.status === "running"), [agents])
 
-  // Parent IDs for plan approval tracking.
-  const swarmParentIds = useMemo(() => {
-    const ids = new Set<string>()
-    for (const a of agents) {
-      if (a.parent_task_id) ids.add(a.parent_task_id)
-    }
-    return Array.from(ids)
-  }, [agents])
-
   const selectedAgent = agents.find((a) => a.task_id === selectedId)
   const selectedParentId = selectedAgent?.parent_task_id ?? null
 
@@ -299,7 +289,6 @@ export function AgentsPage() {
         >
           Start Swarm
         </button>
-        <PlanApprovalModal parentIds={swarmParentIds} />
         <SpawnEphemeralModal
           open={showSpawn}
           onClose={() => setShowSpawn(false)}
@@ -390,7 +379,6 @@ export function AgentsPage() {
         </div>
       )}
 
-      <PlanApprovalModal parentIds={swarmParentIds} />
       <SpawnEphemeralModal
         open={showSpawn}
         onClose={() => setShowSpawn(false)}

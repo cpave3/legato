@@ -13,6 +13,7 @@ import (
 	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/engine/swarm"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -109,7 +110,7 @@ steps:
 
 	// Capture stdout — emitVerdict prints a JSON result.
 	stdout := captureStdout(t, func() {
-		if err := cli.SwarmProposePlan(sw, planPath, true, 0, nil, 10, 10); err != nil {
+		if err := cli.SwarmProposePlan(sw, planPath, true, 0, swarm.ValidateOptions{MaxSubtasks: 10, MaxSteps: 10}); err != nil {
 			t.Fatalf("SwarmProposePlan: %v", err)
 		}
 	})

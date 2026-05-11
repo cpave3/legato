@@ -34,12 +34,12 @@ func SwarmIsWorker() bool {
 //
 // autoApprove skips the IPC gate (for headless usage). timeout caps the wait;
 // zero means wait forever.
-func SwarmProposePlan(sw service.SwarmService, planPath string, autoApprove bool, timeout time.Duration, registeredAdapters []string, maxSubtasks, maxSteps int) error {
+func SwarmProposePlan(sw service.SwarmService, planPath string, autoApprove bool, timeout time.Duration, validateOpts swarm.ValidateOptions) error {
 	plan, err := swarm.LoadPlan(planPath)
 	if err != nil {
 		return fmt.Errorf("load plan: %w", err)
 	}
-	if err := swarm.ValidatePlan(plan, registeredAdapters, maxSubtasks, maxSteps); err != nil {
+	if err := swarm.ValidatePlan(plan, validateOpts); err != nil {
 		return fmt.Errorf("validate plan: %w", err)
 	}
 	canonical, err := plan.WriteTo(plan.Swarm.WorkingDir, plan.Swarm.ParentTaskID)
@@ -81,7 +81,7 @@ func SwarmProposePlan(sw service.SwarmService, planPath string, autoApprove bool
 		if lerr != nil {
 			return fmt.Errorf("load edited plan: %w", lerr)
 		}
-		if err := swarm.ValidatePlan(edited, registeredAdapters, maxSubtasks, maxSteps); err != nil {
+		if err := swarm.ValidatePlan(edited, validateOpts); err != nil {
 			return fmt.Errorf("validate edited plan: %w", err)
 		}
 		if err := sw.ApplyApprovedPlan(context.Background(), edited); err != nil {

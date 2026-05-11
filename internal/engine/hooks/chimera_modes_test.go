@@ -16,7 +16,7 @@ func TestChimeraLaunchCommandWithModes(t *testing.T) {
 	cmd := a.LaunchCommand(map[string]string{
 		"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md",
 		"LEGATO_AGENT_ROLE":       "conductor",
-	}, "")
+	}, "", "")
 	if !strings.Contains(cmd, "--mode legato-orchestrator") {
 		t.Errorf("conductor cmd missing --mode legato-orchestrator: %q", cmd)
 	}
@@ -25,7 +25,7 @@ func TestChimeraLaunchCommandWithModes(t *testing.T) {
 	cmd = a.LaunchCommand(map[string]string{
 		"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md",
 		"LEGATO_AGENT_ROLE":       "backend",
-	}, "")
+	}, "", "")
 	if !strings.Contains(cmd, "--mode legato-worker") {
 		t.Errorf("worker cmd missing --mode legato-worker: %q", cmd)
 	}
@@ -35,7 +35,7 @@ func TestChimeraLaunchCommandWithModes(t *testing.T) {
 	cmd = a2.LaunchCommand(map[string]string{
 		"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md",
 		"LEGATO_AGENT_ROLE":       "conductor",
-	}, "")
+	}, "", "")
 	if strings.Contains(cmd, "--mode") {
 		t.Errorf("expected no --mode flag with empty modes, got: %q", cmd)
 	}

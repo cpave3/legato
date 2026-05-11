@@ -8,8 +8,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/server/static"
@@ -18,22 +16,20 @@ import (
 
 // Server is the HTTP/WebSocket server for Legato's web UI.
 type Server struct {
-	board       service.BoardService
-	agents      service.AgentService
-	swarm       SwarmService
-	tmux        service.TmuxManager
-	bus         *events.Bus
-	addr        string
-	workDir     string // default CWD for agent spawn
-	server      *http.Server
-	hub         *Hub
-	streams     *streamManager
-	tlsCert     string
-	tlsKey      string
-	caCertPath  string
-	authToken   string
-	pendingMu   sync.RWMutex
-	pendingPlans map[string]*pendingPlanEntry
+	board      service.BoardService
+	agents     service.AgentService
+	swarm      SwarmService
+	tmux       service.TmuxManager
+	bus        *events.Bus
+	addr       string
+	workDir    string // default CWD for agent spawn
+	server     *http.Server
+	hub        *Hub
+	streams    *streamManager
+	tlsCert    string
+	tlsKey     string
+	caCertPath string
+	authToken  string
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -47,16 +43,15 @@ func New(board service.BoardService, agents service.AgentService, tmux service.T
 func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux service.TmuxManager, addr string, swarm SwarmService, bus *events.Bus, workDir string) *Server {
 	sm := newStreamManager(tmux)
 	s := &Server{
-		board:        board,
-		agents:       agents,
-		swarm:        swarm,
-		tmux:         tmux,
-		bus:          bus,
-		addr:         addr,
-		workDir:      workDir,
-		hub:          newHub(),
-		streams:      sm,
-		pendingPlans: make(map[string]*pendingPlanEntry),
+		board:   board,
+		agents:  agents,
+		swarm:   swarm,
+		tmux:    tmux,
+		bus:     bus,
+		addr:    addr,
+		workDir: workDir,
+		hub:     newHub(),
+		streams: sm,
 	}
 	// When a pipe-pane stream ends (shell exit), reconcile DB state
 	// and notify all web clients so dead agents update in the sidebar.
@@ -86,6 +81,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/swarm/status/", s.swarmStatusHandler())
 	mux.HandleFunc("/api/swarm/inbox/", s.swarmInboxHandler())
 	mux.HandleFunc("/api/swarm/pending-plan/", s.swarmPendingPlanHandler())
+	mux.HandleFunc("/api/swarm/pending-plans", s.swarmPendingPlansHandler())
 	mux.HandleFunc("/ws", s.wsHandler())
 
 	// SPA fallback — serve embedded frontend for all non-API paths.
@@ -293,36 +289,15 @@ func (s *Server) StartSwarmEvents() {
 	if s.bus == nil {
 		return
 	}
-	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				// prune expired pending plan entries
-				s.pendingMu.Lock()
-				for id, entry := range s.pendingPlans {
-					if time.Since(entry.CreatedAt) > pendingPlanTTL {
-						delete(s.pendingPlans, id)
-					}
-				}
-				s.pendingMu.Unlock()
-			}
-		}
-	}()
 
 	go func() {
 		ch := s.bus.Subscribe(events.EventPlanProposed)
 		for ev := range ch {
 			if p, ok := ev.Payload.(events.PlanProposedPayload); ok {
-				entry := &pendingPlanEntry{
-					PlanPath:    p.PlanPath,
-					ReplySocket: p.ReplySocket,
-					CreatedAt:   time.Now(),
+				// Persist so web clients can discover the plan after a cold load.
+				if s.swarm != nil {
+					_ = s.swarm.InsertPendingPlan(context.Background(), p.ParentTaskID, p.PlanPath, p.ReplySocket)
 				}
-				s.pendingMu.Lock()
-				s.pendingPlans[p.ParentTaskID] = entry
-				s.pendingMu.Unlock()
 
 				s.hub.Broadcast(WSMessage{
 					Type:         MsgPlanProposed,
@@ -340,9 +315,9 @@ func (s *Server) StartSwarmEvents() {
 			if p, ok := ev.Payload.(events.SwarmChangedPayload); ok {
 				// clear pending plan on terminal status transitions
 				if p.NewStatus == "plan_applied" || p.NewStatus == "rejected" {
-					s.pendingMu.Lock()
-					delete(s.pendingPlans, p.ParentTaskID)
-					s.pendingMu.Unlock()
+					if s.swarm != nil {
+						_ = s.swarm.DeletePendingPlan(context.Background(), p.ParentTaskID)
+					}
 				}
 
 				s.hub.Broadcast(WSMessage{

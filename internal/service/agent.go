@@ -68,6 +68,7 @@ type AgentSpawnOptions struct {
 	Scope        []string // scope globs for conflict checks
 	WorkingDir   string   // override for tmux session working directory; falls back to agent service workDir
 	AgentKind    string   // adapter name to use; "" → default adapter
+	Tier         string   // adapter tier name (selects per-tier launch_args from cfg.Adapters.<kind>.tiers); "" → base launch_args only
 	Brief        string   // the per-worker initial brief; conductors leave this empty
 	StrictScope  bool     // when true, scope conflicts hard-block the spawn; otherwise advisory
 }
@@ -393,7 +394,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// because the brief is in the agent's filesystem and survives any
 	// terminal/shell escaping pitfalls.
 	if launcher, ok := adapter.(LaunchCommandAdapter); ok {
-		if cmd := launcher.LaunchCommand(envMap, opt.Brief); cmd != "" {
+		if cmd := launcher.LaunchCommand(envMap, opt.Brief, opt.Tier); cmd != "" {
 			// Use SendKeysShellCommand because the receiver here is the
 			// freshly-spawned bash shell, not the AI tool. Bash with
 			// bracketed-paste mode treats a single text+Enter send-keys as

@@ -41,8 +41,12 @@ type LaunchCommandAdapter interface {
 	// string here and rely on the agent service delivering the brief as a
 	// separate send-keys call after the tool has booted.
 	//
+	// The tier argument names a launch profile from the adapter's per-tier
+	// configuration (typically a model selector like `--model claude-haiku-4-5`).
+	// Empty tier means "use the adapter's base launch_args only".
+	//
 	// Adapters that don't want to auto-launch SHOULD return an empty string.
-	LaunchCommand(env map[string]string, brief string) string
+	LaunchCommand(env map[string]string, brief, tier string) string
 }
 
 // LaunchSelfKickoff is an optional adapter capability for tools whose launch

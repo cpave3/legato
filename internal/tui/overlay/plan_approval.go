@@ -87,6 +87,9 @@ func NewPlanApproval(parentTaskID, planPath, replySocket, editor string, plan *s
 	}
 }
 
+// ParentTaskID returns the parent task ID being reviewed in this overlay.
+func (m PlanApprovalOverlay) ParentTaskID() string { return m.parentTaskID }
+
 func (m PlanApprovalOverlay) Init() tea.Cmd { return nil }
 
 func (m PlanApprovalOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -221,6 +224,9 @@ func (m PlanApprovalOverlay) View() string {
 			scope = "(no scope)"
 		}
 		header := fmt.Sprintf("  %d. %s — role=%s, agent=%s", i+1, st.Title, role, agent)
+		if st.Tier != "" {
+			header += ", tier=" + st.Tier
+		}
 		lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true).Render(header))
 		lines = append(lines, labelStyle.Render("       scope: ")+bodyStyle.Render(scope))
 		if st.Prompt != "" {

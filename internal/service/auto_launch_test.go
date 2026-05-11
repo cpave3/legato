@@ -16,7 +16,7 @@ import (
 type fakeAdapter struct {
 	name        string
 	rolePrompts map[string]string
-	launchFn    func(env map[string]string, brief string) string
+	launchFn    func(env map[string]string, brief, tier string) string
 }
 
 func (f *fakeAdapter) Name() string                                 { return f.name }
@@ -31,9 +31,9 @@ func (f *fakeAdapter) RoleSystemPrompt(role string) string {
 	}
 	return f.rolePrompts[role]
 }
-func (f *fakeAdapter) LaunchCommand(env map[string]string, brief string) string {
+func (f *fakeAdapter) LaunchCommand(env map[string]string, brief, tier string) string {
 	if f.launchFn != nil {
-		return f.launchFn(env, brief)
+		return f.launchFn(env, brief, tier)
 	}
 	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; !ok {
 		return ""

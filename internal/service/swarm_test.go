@@ -18,6 +18,17 @@ import (
 // production.
 func newTestSwarmService(t *testing.T) (SwarmService, AgentService, *store.Store, *mockTmux) {
 	t.Helper()
+	return newTestSwarmServiceWithAdapter(t, nil, SwarmConfig{MaxConcurrentAgents: 4, MaxSubtasksPerPlan: 10})
+}
+
+// newTestSwarmServiceWithAdapter is the customizable variant used by tests
+// that need to spy on adapter launch calls (e.g. tier propagation tests). When
+// adapter is nil, the agent service runs without an AI tool (same as
+// newTestSwarmService). When provided, it's wired as both the default adapter
+// and the sole entry of the registry under its Name(). Pass cfg to override
+// SwarmConfig fields like DefaultAgent/ConductorTier/TierCatalog.
+func newTestSwarmServiceWithAdapter(t *testing.T, adapter AIToolAdapter, cfg SwarmConfig) (SwarmService, AgentService, *store.Store, *mockTmux) {
+	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "swarm.db")
 	st, err := store.New(dbPath)
 	if err != nil {
@@ -26,9 +37,16 @@ func newTestSwarmService(t *testing.T) (SwarmService, AgentService, *store.Store
 	t.Cleanup(func() { st.Close() })
 
 	mt := newMockTmux()
-	agentSvc := NewAgentService(st, mt, t.TempDir())
+	var agentSvc AgentService
+	if adapter != nil {
+		agentSvc = NewAgentService(st, mt, t.TempDir(), AgentServiceOptions{
+			Adapter:  adapter,
+			Adapters: map[string]AIToolAdapter{adapter.Name(): adapter},
+		})
+	} else {
+		agentSvc = NewAgentService(st, mt, t.TempDir())
+	}
 	bus := events.New()
-	cfg := SwarmConfig{MaxConcurrentAgents: 4, MaxSubtasksPerPlan: 10}
 	sw := NewSwarmService(st, agentSvc, bus, cfg, t.TempDir())
 	return sw, agentSvc, st, mt
 }
@@ -222,6 +240,237 @@ func TestApplyApprovedPlanPersistsSubtasks(t *testing.T) {
 		if s.Status != "queued" {
 			t.Errorf("subtask %s status = %q, want queued", s.ID, s.Status)
 		}
+	}
+}
+
+// TestDispatchPassesTierToAdapter verifies the persisted SwarmSubtask.Tier
+// flows into AgentSpawnOptions.Tier and reaches the adapter's LaunchCommand
+// at spawn time.
+func TestDispatchPassesTierToAdapter(t *testing.T) {
+	var capturedTier string
+	adapter := &fakeAdapter{
+		name:        "fake",
+		rolePrompts: map[string]string{"worker": "be a worker"},
+		launchFn: func(env map[string]string, brief, tier string) string {
+			capturedTier = tier
+			return ""
+		},
+	}
+	sw, _, st, _ := newTestSwarmServiceWithAdapter(t, adapter, SwarmConfig{
+		MaxConcurrentAgents: 4,
+		DefaultAgent:        "fake",
+	})
+
+	seedParentTask(t, st, "parent-tier-dispatch")
+	wd := t.TempDir()
+	if err := st.SetTaskSwarmWorkingDir(context.Background(), "parent-tier-dispatch", &wd); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateSubtask(context.Background(), store.Subtask{
+		ID:           "st-tier-aaaa",
+		ParentTaskID: "parent-tier-dispatch",
+		Title:        "Cheap edit",
+		Role:         "worker",
+		AgentKind:    "fake",
+		Tier:         "small",
+		Status:       "queued",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sw.Dispatch(context.Background(), "st-tier-aaaa"); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if capturedTier != "small" {
+		t.Errorf("adapter saw tier = %q, want small", capturedTier)
+	}
+}
+
+// TestStartSwarmUsesConductorTierAndAppendsCatalog verifies that StartSwarm
+// passes the configured ConductorTier to the adapter and appends the tier
+// catalog to the conductor's brief.
+//
+// The brief is observed by capturing it inside launchFn — agent.go always
+// invokes LaunchCommand even when the return is "", so this side-channel
+// works without a real adapter. If that contract changes, the captures
+// below would silently see empty strings instead of asserting against the
+// real brief; revisit this if either Contains check starts spuriously
+// failing.
+func TestStartSwarmUsesConductorTierAndAppendsCatalog(t *testing.T) {
+	var capturedTier string
+	var capturedBrief string
+	adapter := &fakeAdapter{
+		name:        "fake",
+		rolePrompts: map[string]string{"conductor": "be a conductor"},
+		launchFn: func(env map[string]string, brief, tier string) string {
+			capturedTier = tier
+			capturedBrief = brief
+			return ""
+		},
+	}
+	sw, _, st, _ := newTestSwarmServiceWithAdapter(t, adapter, SwarmConfig{
+		MaxConcurrentAgents: 4,
+		DefaultAgent:        "fake",
+		ConductorTier:       "large",
+		TierCatalog: map[string]map[string]string{
+			"fake": {
+				"small": "fast/cheap",
+				"large": "deep reasoning",
+			},
+		},
+	})
+
+	seedParentTask(t, st, "parent-conductor-tier")
+	if err := sw.StartSwarm(context.Background(), "parent-conductor-tier", t.TempDir()); err != nil {
+		t.Fatalf("StartSwarm: %v", err)
+	}
+	if capturedTier != "large" {
+		t.Errorf("conductor tier = %q, want large", capturedTier)
+	}
+	if !strings.Contains(capturedBrief, "## Available tiers") {
+		t.Errorf("brief missing tier catalog: %q", capturedBrief)
+	}
+	if !strings.Contains(capturedBrief, "small — fast/cheap") {
+		t.Errorf("brief missing tier description: %q", capturedBrief)
+	}
+}
+
+// TestStartSwarmUsesConductorAgentOverride verifies that when
+// ConductorAgent is set, the conductor spawns with that adapter rather than
+// DefaultAgent, while workers without explicit agent: still fall back to
+// DefaultAgent.
+func TestStartSwarmUsesConductorAgentOverride(t *testing.T) {
+	var capturedAgentKind string
+	conductorAdapter := &fakeAdapter{
+		name:        "conductor-fake",
+		rolePrompts: map[string]string{"conductor": "be a conductor"},
+		launchFn: func(env map[string]string, brief, tier string) string {
+			capturedAgentKind = "conductor-fake"
+			return ""
+		},
+	}
+	workerAdapter := &fakeAdapter{
+		name:        "worker-fake",
+		rolePrompts: map[string]string{"worker": "be a worker"},
+		launchFn: func(env map[string]string, brief, tier string) string {
+			return ""
+		},
+	}
+	dbPath := filepath.Join(t.TempDir(), "swarm.db")
+	st, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	mt := newMockTmux()
+	agents := NewAgentService(st, mt, t.TempDir(), AgentServiceOptions{
+		Adapter: workerAdapter,
+		Adapters: map[string]AIToolAdapter{
+			"conductor-fake": conductorAdapter,
+			"worker-fake":    workerAdapter,
+		},
+	})
+	bus := events.New()
+	sw := NewSwarmService(st, agents, bus, SwarmConfig{
+		MaxConcurrentAgents: 4,
+		DefaultAgent:        "worker-fake",
+		ConductorAgent:      "conductor-fake",
+	}, t.TempDir())
+
+	seedParentTask(t, st, "parent-split-agent")
+	if err := sw.StartSwarm(context.Background(), "parent-split-agent", t.TempDir()); err != nil {
+		t.Fatalf("StartSwarm: %v", err)
+	}
+	if capturedAgentKind != "conductor-fake" {
+		t.Errorf("conductor spawned with agent %q, want conductor-fake", capturedAgentKind)
+	}
+}
+
+// TestApplyApprovedPlanRejectsUnknownTier regresses W1: when a plan reaches
+// ApplyApprovedPlan via the TUI/web edit-and-approve path (bypassing the
+// CLI's propose-plan validation), the service must re-validate so an injected
+// bogus tier cannot land sub-tasks in the store.
+func TestApplyApprovedPlanRejectsUnknownTier(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "swarm.db")
+	st, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	mt := newMockTmux()
+	agentSvc := NewAgentService(st, mt, t.TempDir())
+	bus := events.New()
+	cfg := SwarmConfig{
+		MaxConcurrentAgents: 4,
+		DefaultAgent:        "claude-code",
+		ValidateOptions: swarm.ValidateOptions{
+			RegisteredAdapters: []string{"claude-code"},
+			DefaultAgent:       "claude-code",
+			AdapterTiers: map[string]map[string]struct{}{
+				"claude-code": {"small": {}},
+			},
+		},
+	}
+	sw := NewSwarmService(st, agentSvc, bus, cfg, t.TempDir())
+
+	seedParentTask(t, st, "parent-bypass")
+
+	plan := &swarm.Plan{
+		Swarm: swarm.PlanHeader{ParentTaskID: "parent-bypass", WorkingDir: t.TempDir()},
+		Steps: []swarm.PlanStep{
+			{Subtasks: []swarm.PlanSubtask{
+				{Title: "Bogus", Role: "backend", Agent: "claude-code", Tier: "ghost"},
+			}},
+		},
+	}
+
+	if err := sw.ApplyApprovedPlan(context.Background(), plan); err == nil {
+		t.Fatal("expected ApplyApprovedPlan to reject plan with unknown tier")
+	}
+	subs, err := st.ListSubtasksByParent(context.Background(), "parent-bypass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 0 {
+		t.Errorf("no sub-tasks should be persisted after a rejected plan; got %d", len(subs))
+	}
+}
+
+// TestApplyApprovedPlanPersistsTier verifies that the per-sub-task tier from
+// the plan flows into the swarm_subtasks row so Dispatch can later pass it
+// to the adapter's LaunchCommand.
+func TestApplyApprovedPlanPersistsTier(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-tier")
+
+	plan := &swarm.Plan{
+		Swarm: swarm.PlanHeader{ParentTaskID: "parent-tier", WorkingDir: t.TempDir()},
+		Steps: []swarm.PlanStep{
+			{Subtasks: []swarm.PlanSubtask{
+				{Title: "Cheap", Role: "backend", Tier: "small"},
+				{Title: "Expensive", Role: "backend", Tier: "large"},
+				{Title: "Default", Role: "backend"},
+			}},
+		},
+	}
+	if err := sw.ApplyApprovedPlan(context.Background(), plan); err != nil {
+		t.Fatal(err)
+	}
+
+	subs, err := st.ListSubtasksByParent(context.Background(), "parent-tier")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, s := range subs {
+		got[s.Title] = s.Tier
+	}
+	if got["Cheap"] != "small" || got["Expensive"] != "large" {
+		t.Errorf("tier not persisted: %+v", got)
+	}
+	if got["Default"] != "" {
+		t.Errorf("default subtask should have empty tier, got %q", got["Default"])
 	}
 }
 

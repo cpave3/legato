@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,6 +33,10 @@ type ChimeraAdapter struct {
 	// project-specific files on the user's filesystem); users opt into
 	// per-role modes explicitly via cfg.Adapters.chimera.modes.
 	modes map[string]string
+	// tiers maps tier names to extra launch args (typically the model
+	// selector). Layered after launchArgs at LaunchCommand time so tier
+	// args win on conflicts.
+	tiers map[string][]string
 }
 
 // NewChimeraAdapter creates a Chimera adapter.
@@ -57,6 +62,13 @@ func (a *ChimeraAdapter) SetLaunchArgs(args []string) {
 // behavior is "no --mode flag passed" (Chimera uses its own default mode).
 func (a *ChimeraAdapter) SetModes(modes map[string]string) {
 	a.modes = modes
+}
+
+// SetTiers configures named launch profiles that LaunchCommand appends based
+// on the per-spawn tier argument. Args layer after the adapter's base
+// launchArgs so a tier-specified flag (typically `--model`) wins.
+func (a *ChimeraAdapter) SetTiers(tiers map[string][]string) {
+	a.tiers = tiers
 }
 
 // resolveMode picks the Chimera mode name for the given role from user
@@ -126,14 +138,14 @@ const chimeraSandboxPreamble = "## Chimera-specific guidance for legato\n" +
 // initial user turn — no separate kickoff send-keys is needed.
 //
 // Returns empty string when no role prompt file is set.
-func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief string) string {
+func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief, tier string) string {
 	if env == nil {
 		return ""
 	}
-	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; !ok {
-		return ""
+	cmd := "chimera"
+	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; ok {
+		cmd += ` --prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)"`
 	}
-	cmd := `chimera --prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)"`
 
 	// Auto-activate a Chimera mode based on the agent's role. Mapping comes
 	// from cfg.Adapters.chimera.modes (via SetModes) with fallback to the
@@ -147,6 +159,18 @@ func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief string) stri
 
 	for _, arg := range a.launchArgs {
 		cmd += " " + shellQuote(arg)
+	}
+	if tier != "" {
+		args, ok := a.tiers[tier]
+		if !ok || len(args) == 0 {
+			// See claude_code.go for why this branch is logged rather than
+			// errored — config rotations can leave persisted sub-tasks
+			// referencing tiers that no longer exist.
+			log.Printf("warn: adapter %q has no tier %q configured; spawning with base launch_args only", a.Name(), tier)
+		}
+		for _, arg := range args {
+			cmd += " " + shellQuote(arg)
+		}
 	}
 	return cmd
 }

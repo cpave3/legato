@@ -23,6 +23,25 @@ type SwarmConfig struct {
 	StrictScope         bool
 	RequireUserClose    bool
 	DefaultAgent        string
+	// ConductorAgent overrides DefaultAgent for the conductor only. Empty
+	// falls back to DefaultAgent so existing configs keep working.
+	ConductorAgent string
+	// ConductorTier names a tier (configured under the resolved conductor
+	// agent's adapter) at which the conductor itself should launch. Empty
+	// falls back to the adapter's base launch_args.
+	ConductorTier string
+	// TierCatalog is the human-readable map of adapter → tier name →
+	// description. Used to generate the "Available tiers" section appended
+	// to the conductor's brief so it knows which tier names exist and how
+	// each is intended to be used. Adapters with no configured tiers are
+	// omitted; an empty catalog skips the brief section entirely.
+	TierCatalog map[string]map[string]string
+	// ValidateOptions holds the registry used by ApplyApprovedPlan to
+	// re-validate plans submitted via the TUI/web edit-and-approve flow
+	// (which bypasses the CLI's propose-plan validation pass). Wire from
+	// main.go alongside TierCatalog. Zero value disables the in-service
+	// check, leaving CLI-side validation as the only guard.
+	ValidateOptions swarm.ValidateOptions
 }
 
 // SwarmService is the conductor-driven orchestration surface. The CLI verbs
@@ -54,6 +73,12 @@ type SwarmService interface {
 	Question(ctx context.Context, subtaskID, text string) error
 	Built(ctx context.Context, subtaskID string) error
 
+	// Pending-plan persistence (survives server restarts / browser tab suspends).
+	InsertPendingPlan(ctx context.Context, parentTaskID, planPath, replySocket string) error
+	GetPendingPlan(ctx context.Context, parentTaskID string) (*store.PendingPlanEntry, error)
+	ListAllPendingPlans(ctx context.Context) ([]store.PendingPlanEntry, error)
+	DeletePendingPlan(ctx context.Context, parentTaskID string) error
+
 	// Lifecycle.
 	HandleAgentDied(ctx context.Context, parentTaskID, subtaskID, role string)
 	StartEventLoop(ctx context.Context) func()
@@ -62,24 +87,25 @@ type SwarmService interface {
 // SwarmPlan is a service-layer DTO mirroring an engine swarm plan. Lets TUI
 // callers render proposed plans without importing the engine package.
 type SwarmPlan struct {
-	Header   SwarmPlanHeader
-	Subtasks []SwarmPlanSubtask
+	Header   SwarmPlanHeader    `json:"header"`
+	Subtasks []SwarmPlanSubtask `json:"subtasks"`
 }
 
 // SwarmPlanHeader carries swarm-level fields from a plan.
 type SwarmPlanHeader struct {
-	ParentTaskID string
-	WorkingDir   string
-	Summary      string
+	ParentTaskID string `json:"parent_task_id"`
+	WorkingDir   string `json:"working_dir"`
+	Summary      string `json:"summary"`
 }
 
 // SwarmPlanSubtask is a service-layer view of one plan entry.
 type SwarmPlanSubtask struct {
-	Title  string
-	Role   string
-	Agent  string
-	Scope  []string
-	Prompt string
+	Title  string   `json:"title"`
+	Role   string   `json:"role,omitempty"`
+	Agent  string   `json:"agent,omitempty"`
+	Tier   string   `json:"tier,omitempty"`
+	Scope  []string `json:"scope,omitempty"`
+	Prompt string   `json:"prompt,omitempty"`
 }
 
 // swarmService is the concrete implementation of SwarmService.
@@ -152,12 +178,33 @@ func (s *swarmService) LoadPlan(path string) (*SwarmPlan, error) {
 				Title:  st.Title,
 				Role:   st.Role,
 				Agent:  st.Agent,
+				Tier:   st.Tier,
 				Scope:  append([]string(nil), st.Scope...),
 				Prompt: st.Prompt,
 			})
 		}
 	}
 	return out, nil
+}
+
+// InsertPendingPlan delegates to the store's InsertPendingPlan.
+func (s *swarmService) InsertPendingPlan(ctx context.Context, parentTaskID, planPath, replySocket string) error {
+	return s.store.InsertPendingPlan(ctx, parentTaskID, planPath, replySocket)
+}
+
+// GetPendingPlan delegates to the store's GetPendingPlan.
+func (s *swarmService) GetPendingPlan(ctx context.Context, parentTaskID string) (*store.PendingPlanEntry, error) {
+	return s.store.GetPendingPlan(ctx, parentTaskID)
+}
+
+// ListAllPendingPlans delegates to the store's ListAllPendingPlans.
+func (s *swarmService) ListAllPendingPlans(ctx context.Context) ([]store.PendingPlanEntry, error) {
+	return s.store.ListAllPendingPlans(ctx)
+}
+
+// DeletePendingPlan delegates to the store's DeletePendingPlan.
+func (s *swarmService) DeletePendingPlan(ctx context.Context, parentTaskID string) error {
+	return s.store.DeletePendingPlan(ctx, parentTaskID)
 }
 
 // conductorLock returns the per-parent mutex guarding send-keys delivery to
@@ -392,11 +439,21 @@ func (s *swarmService) StartSwarm(ctx context.Context, parentID, workingDir stri
 		parent.ID, parent.Title, workingDir, parent.Description,
 	)
 
+	if catalog := formatTierCatalog(s.cfg.TierCatalog); catalog != "" {
+		brief = brief + "\n\n" + catalog
+	}
+
+	conductorAgent := s.cfg.ConductorAgent
+	if conductorAgent == "" {
+		conductorAgent = s.cfg.DefaultAgent
+	}
+
 	if err := s.agents.SpawnAgent(ctx, parentID, 0, 0, AgentSpawnOptions{
 		Role:         "conductor",
 		ParentTaskID: parentID,
 		WorkingDir:   workingDir,
-		AgentKind:    s.cfg.DefaultAgent,
+		AgentKind:    conductorAgent,
+		Tier:         s.cfg.ConductorTier,
 		Brief:        brief,
 	}); err != nil {
 		// Roll back the working dir on failure.
@@ -411,9 +468,17 @@ func (s *swarmService) StartSwarm(ctx context.Context, parentID, workingDir stri
 // ApplyApprovedPlan persists sub-tasks from a (post-approval) plan. Idempotent
 // per (parent_task_id, title) combination is NOT guaranteed — callers should
 // only call this once per approved plan.
+//
+// Re-runs ValidatePlan defensively: the CLI propose-plan path validates an
+// edited plan before reaching here, but the TUI/web edit-and-approve path
+// calls this method directly with a freshly-loaded plan. Persisting an
+// invalid plan would silently bypass tier/scope checks.
 func (s *swarmService) ApplyApprovedPlan(ctx context.Context, plan *swarm.Plan) error {
 	if plan == nil {
 		return fmt.Errorf("plan is nil")
+	}
+	if err := swarm.ValidatePlan(plan, s.cfg.ValidateOptions); err != nil {
+		return fmt.Errorf("validate plan: %w", err)
 	}
 	for si, step := range plan.Steps {
 		for _, spec := range step.Subtasks {
@@ -430,6 +495,7 @@ func (s *swarmService) ApplyApprovedPlan(ctx context.Context, plan *swarm.Plan) 
 				ScopeGlobs:   raw,
 				Role:         role,
 				AgentKind:    spec.Agent,
+				Tier:         spec.Tier,
 				Status:       "queued",
 				StepIndex:    si,
 			}
@@ -542,6 +608,7 @@ func (s *swarmService) Dispatch(ctx context.Context, subtaskID string) error {
 		Scope:        scope,
 		WorkingDir:   workingDir,
 		AgentKind:    agentKind,
+		Tier:         st.Tier,
 		Brief:        brief,
 		StrictScope:  s.cfg.StrictScope,
 	}); err != nil {

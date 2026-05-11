@@ -287,3 +287,127 @@ func TestResolveDBPathPrecedence(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateConductorTierEmpty(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  *Config
+	}{
+		{"nil cfg", nil},
+		{"empty tier", &Config{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateConductorTier(tc.cfg); err != nil {
+				t.Errorf("expected nil error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateConductorTierKnownPasses(t *testing.T) {
+	cfg := &Config{
+		Swarm: SwarmConfig{DefaultAgent: "claude-code", ConductorTier: "large"},
+		Adapters: map[string]AdapterConfig{
+			"claude-code": {Tiers: map[string]TierConfig{
+				"small": {LaunchArgs: []string{"--model", "haiku"}},
+				"large": {LaunchArgs: []string{"--model", "opus"}},
+			}},
+		},
+	}
+	if err := ValidateConductorTier(cfg); err != nil {
+		t.Errorf("expected nil error, got %v", err)
+	}
+}
+
+func TestValidateConductorTierUnknownRejected(t *testing.T) {
+	cfg := &Config{
+		Swarm: SwarmConfig{DefaultAgent: "claude-code", ConductorTier: "ghost"},
+		Adapters: map[string]AdapterConfig{
+			"claude-code": {Tiers: map[string]TierConfig{
+				"small": {LaunchArgs: []string{"--model", "haiku"}},
+			}},
+		},
+	}
+	err := ValidateConductorTier(cfg)
+	if err == nil {
+		t.Fatal("expected error for unknown tier")
+	}
+	msg := err.Error()
+	if !contains(msg, "ghost") || !contains(msg, "claude-code") {
+		t.Errorf("error should name the bad tier and adapter: %q", msg)
+	}
+}
+
+func TestValidateConductorTierMissingDefaultAgentRejected(t *testing.T) {
+	cfg := &Config{
+		Swarm:    SwarmConfig{ConductorTier: "large"},
+		Adapters: map[string]AdapterConfig{},
+	}
+	err := ValidateConductorTier(cfg)
+	if err == nil {
+		t.Fatal("expected error when default_agent and conductor_agent unset and tier set")
+	}
+	msg := err.Error()
+	if !contains(msg, "conductor_agent") || !contains(msg, "default_agent") {
+		t.Errorf("error should mention both missing fields: %q", msg)
+	}
+}
+
+func TestValidateConductorTierConductorAgentAloneSuffices(t *testing.T) {
+	cfg := &Config{
+		Swarm: SwarmConfig{ConductorAgent: "chimera", ConductorTier: "heavy"},
+		Adapters: map[string]AdapterConfig{
+			"chimera": {Tiers: map[string]TierConfig{
+				"heavy": {LaunchArgs: []string{"--model", "opus"}},
+			}},
+		},
+	}
+	if err := ValidateConductorTier(cfg); err != nil {
+		t.Errorf("expected nil error when conductor_agent is set without default_agent, got %v", err)
+	}
+}
+
+func TestValidateConductorTierConductorAgentPriority(t *testing.T) {
+	cfg := &Config{
+		Swarm: SwarmConfig{
+			DefaultAgent:   "claude-code",
+			ConductorAgent: "chimera",
+			ConductorTier:  "heavy",
+		},
+		Adapters: map[string]AdapterConfig{
+			"claude-code": {Tiers: map[string]TierConfig{
+				"small": {LaunchArgs: []string{"--model", "haiku"}},
+			}},
+			"chimera": {Tiers: map[string]TierConfig{
+				"heavy": {LaunchArgs: []string{"--model", "opus"}},
+			}},
+		},
+	}
+	// Tier "heavy" exists only under chimera — conductor_agent should win
+	if err := ValidateConductorTier(cfg); err != nil {
+		t.Errorf("expected nil error when conductor_agent wins, got %v", err)
+	}
+}
+
+func TestValidateConductorTierAdapterWithoutTiersRejected(t *testing.T) {
+	cfg := &Config{
+		Swarm: SwarmConfig{DefaultAgent: "claude-code", ConductorTier: "large"},
+		Adapters: map[string]AdapterConfig{
+			"claude-code": {LaunchArgs: []string{"--foo"}},
+		},
+	}
+	if err := ValidateConductorTier(cfg); err == nil {
+		t.Fatal("expected error when adapter has no tiers")
+	}
+}
+
+// contains is a helper to avoid importing strings just for this.
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}

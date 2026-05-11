@@ -3,6 +3,7 @@ package hooks
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,8 @@ var legatoScriptNames = []string{
 type ClaudeCodeAdapter struct {
 	legatoBin     string // absolute path to the legato binary
 	roleOverrides RolePromptOverrides
-	launchArgs    []string // appended to `claude` invocation in LaunchCommand
+	launchArgs    []string            // appended to `claude` invocation in LaunchCommand
+	tiers         map[string][]string // tier name → extra launch args (typically `--model <id>`)
 }
 
 // NewClaudeCodeAdapter creates a Claude Code adapter.
@@ -46,6 +48,13 @@ func (a *ClaudeCodeAdapter) SetLaunchArgs(args []string) {
 	a.launchArgs = args
 }
 
+// SetTiers configures named launch profiles that LaunchCommand can append
+// based on the per-spawn tier argument. Each tier's args layer after the
+// base launch_args, so a tier-specified flag (typically `--model`) wins.
+func (a *ClaudeCodeAdapter) SetTiers(tiers map[string][]string) {
+	a.tiers = tiers
+}
+
 // RoleSystemPrompt returns the system prompt for a swarm role.
 // Adapters opt into prompt injection by implementing this method.
 func (a *ClaudeCodeAdapter) RoleSystemPrompt(role string) string {
@@ -53,24 +62,34 @@ func (a *ClaudeCodeAdapter) RoleSystemPrompt(role string) string {
 }
 
 // LaunchCommand returns the shell command that starts an interactive Claude
-// Code session with the role's system prompt appended. The brief is delivered
-// separately by the agent service via a short send-keys pointer to the brief
-// file — see agentService.SpawnAgent.
-//
-// The command substitutes the role prompt from the LEGATO_ROLE_PROMPT_FILE
-// path at shell-expansion time, sidestepping any quoting or escaping issues
-// that arise when prompts contain newlines or quote characters.
-func (a *ClaudeCodeAdapter) LaunchCommand(env map[string]string, brief string) string {
+// Code session. When LEGATO_ROLE_PROMPT_FILE is set, the role's system
+// prompt is appended via --append-system-prompt, substituted at shell-
+// expansion time to sidestep quoting issues. The brief is delivered
+// separately by the agent service via a short send-keys pointer to the
+// brief file — see agentService.SpawnAgent.
+func (a *ClaudeCodeAdapter) LaunchCommand(env map[string]string, brief, tier string) string {
 	if env == nil {
 		return ""
 	}
-	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; !ok {
-		// No role prompt configured — let the user start the tool themselves.
-		return ""
+	cmd := "claude"
+	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; ok {
+		cmd += ` --append-system-prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)"`
 	}
-	cmd := `claude --append-system-prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)"`
 	for _, arg := range a.launchArgs {
 		cmd += " " + shellQuote(arg)
+	}
+	if tier != "" {
+		args, ok := a.tiers[tier]
+		if !ok || len(args) == 0 {
+			// Steady-state validation rejects unknown tiers at propose-plan time;
+			// this branch only triggers if a config rotation removed a tier still
+			// referenced by a queued sub-task. Log so the silent fallback shows up
+			// in operator logs.
+			log.Printf("warn: adapter %q has no tier %q configured; spawning with base launch_args only", a.Name(), tier)
+		}
+		for _, arg := range args {
+			cmd += " " + shellQuote(arg)
+		}
 	}
 	return cmd
 }

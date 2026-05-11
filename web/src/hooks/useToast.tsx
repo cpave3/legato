@@ -4,7 +4,7 @@ import { cn } from "../lib/utils"
 export interface ToastItem {
   id: string
   message: string
-  variant: "success" | "error"
+  variant: "success" | "error" | "info"
   duration: number
 }
 
@@ -53,9 +53,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             key={toast.id}
             className={cn(
               "rounded border px-4 py-2 text-sm shadow-lg transition-all",
-              toast.variant === "success"
-                ? "border-emerald-700 bg-emerald-950 text-emerald-200"
-                : "border-red-700 bg-red-950 text-red-200"
+              toast.variant === "success" && "border-emerald-700 bg-emerald-950 text-emerald-200",
+              toast.variant === "error" && "border-red-700 bg-red-950 text-red-200",
+              toast.variant === "info" && "border-indigo-700 bg-indigo-950 text-indigo-200",
             )}
           >
             {toast.message}

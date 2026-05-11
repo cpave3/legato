@@ -72,7 +72,7 @@ func TestChimeraAdapterImplementsRolePrompts(t *testing.T) {
 func TestClaudeAdapterLaunchCommand(t *testing.T) {
 	a := NewClaudeCodeAdapter("/usr/bin/legato")
 
-	got := a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "")
+	got := a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "")
 	if !strings.Contains(got, "claude") {
 		t.Errorf("expected claude in launch command, got %q", got)
 	}
@@ -86,13 +86,13 @@ func TestClaudeAdapterLaunchCommand(t *testing.T) {
 		t.Errorf("expected `cat` substitution, got %q", got)
 	}
 
-	// Without LEGATO_ROLE_PROMPT_FILE in env, no auto-launch.
-	if got := a.LaunchCommand(map[string]string{}, ""); got != "" {
-		t.Errorf("expected empty command without role prompt file env, got %q", got)
+	// Without LEGATO_ROLE_PROMPT_FILE in env — bare claude launch.
+	if got := a.LaunchCommand(map[string]string{}, "", ""); got != "claude" {
+		t.Errorf("expected bare claude command without role prompt file env, got %q", got)
 	}
 
 	// Nil env returns empty.
-	if got := a.LaunchCommand(nil, ""); got != "" {
+	if got := a.LaunchCommand(nil, "", ""); got != "" {
 		t.Errorf("expected empty command for nil env, got %q", got)
 	}
 }
@@ -100,7 +100,7 @@ func TestClaudeAdapterLaunchCommand(t *testing.T) {
 func TestChimeraAdapterLaunchCommand(t *testing.T) {
 	a := NewChimeraAdapter("/usr/bin/legato")
 
-	got := a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "")
+	got := a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "")
 	if !strings.Contains(got, "chimera") {
 		t.Errorf("expected chimera in launch command, got %q", got)
 	}
@@ -111,7 +111,65 @@ func TestChimeraAdapterLaunchCommand(t *testing.T) {
 		t.Errorf("expected file path env var reference, got %q", got)
 	}
 
-	if got := a.LaunchCommand(map[string]string{}, ""); got != "" {
-		t.Errorf("expected empty without role prompt file env, got %q", got)
+	if got := a.LaunchCommand(map[string]string{}, "", ""); got != "chimera" {
+		t.Errorf("expected bare chimera command without role prompt file env, got %q", got)
+	}
+}
+
+func TestClaudeAdapterLaunchCommandWithTier(t *testing.T) {
+	a := NewClaudeCodeAdapter("/usr/bin/legato")
+	a.SetLaunchArgs([]string{"--dangerously-skip-permissions"})
+	a.SetTiers(map[string][]string{
+		"small": {"--model", "claude-haiku-4-5"},
+		"large": {"--model", "claude-opus-4-7"},
+	})
+
+	got := a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "small")
+	if !strings.Contains(got, "--dangerously-skip-permissions") {
+		t.Errorf("expected base launch_args, got %q", got)
+	}
+	if !strings.Contains(got, "--model claude-haiku-4-5") {
+		t.Errorf("expected tier args, got %q", got)
+	}
+
+	// Tier args must come AFTER base args so a tier-specified flag wins.
+	baseIdx := strings.Index(got, "--dangerously-skip-permissions")
+	tierIdx := strings.Index(got, "--model")
+	if baseIdx == -1 || tierIdx == -1 || tierIdx <= baseIdx {
+		t.Errorf("expected tier args to follow base args, got %q", got)
+	}
+
+	// Empty tier → no tier args.
+	got = a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "")
+	if strings.Contains(got, "--model") {
+		t.Errorf("empty tier should not inject --model, got %q", got)
+	}
+
+	// Unknown tier → no tier args (validation rejects unknown tiers earlier;
+	// the adapter just looks up by name and treats a miss as a no-op).
+	got = a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "ghost")
+	if strings.Contains(got, "--model") {
+		t.Errorf("unknown tier should not inject anything, got %q", got)
+	}
+}
+
+func TestChimeraAdapterLaunchCommandWithTier(t *testing.T) {
+	a := NewChimeraAdapter("/usr/bin/legato")
+	a.SetLaunchArgs([]string{"--sandbox"})
+	a.SetTiers(map[string][]string{
+		"quick": {"--model", "haiku"},
+	})
+
+	got := a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "quick")
+	if !strings.Contains(got, "--sandbox") {
+		t.Errorf("expected base launch_args, got %q", got)
+	}
+	if !strings.Contains(got, "--model haiku") {
+		t.Errorf("expected tier args, got %q", got)
+	}
+
+	got = a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "")
+	if strings.Contains(got, "--model") {
+		t.Errorf("empty tier should not inject --model, got %q", got)
 	}
 }

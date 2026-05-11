@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +29,10 @@ type mockSwarmService struct {
 	fetchInboxFunc     func(ctx context.Context, parentID string) ([]service.InboxEntry, error)
 	peekInboxFunc      func(ctx context.Context, parentID string) ([]service.InboxEntry, error)
 	nextStepFunc       func(ctx context.Context, parentID string) error
+
+	// In-memory pending-plan storage for tests.
+	pendingPlansMu sync.RWMutex
+	pendingPlans   map[string]*store.PendingPlanEntry
 }
 
 func (m *mockSwarmService) StartSwarm(ctx context.Context, parentID, workingDir string) error {
@@ -110,6 +115,56 @@ func (m *mockSwarmService) PeekInbox(ctx context.Context, parentID string) ([]se
 func (m *mockSwarmService) NextStep(ctx context.Context, parentID string) error {
 	if m.nextStepFunc != nil {
 		return m.nextStepFunc(ctx, parentID)
+	}
+	return nil
+}
+
+func (m *mockSwarmService) LoadPlan(path string) (*service.SwarmPlan, error) {
+	return nil, errors.New("load plan not implemented in mock")
+}
+
+func (m *mockSwarmService) InsertPendingPlan(ctx context.Context, parentTaskID, planPath, replySocket string) error {
+	m.pendingPlansMu.Lock()
+	defer m.pendingPlansMu.Unlock()
+	if m.pendingPlans == nil {
+		m.pendingPlans = make(map[string]*store.PendingPlanEntry)
+	}
+	m.pendingPlans[parentTaskID] = &store.PendingPlanEntry{
+		ParentTaskID: parentTaskID,
+		PlanPath:     planPath,
+		ReplySocket:  replySocket,
+		CreatedAt:    time.Now().Format(time.RFC3339),
+	}
+	return nil
+}
+
+func (m *mockSwarmService) GetPendingPlan(ctx context.Context, parentTaskID string) (*store.PendingPlanEntry, error) {
+	m.pendingPlansMu.RLock()
+	defer m.pendingPlansMu.RUnlock()
+	if m.pendingPlans == nil {
+		return nil, nil
+	}
+	return m.pendingPlans[parentTaskID], nil
+}
+
+func (m *mockSwarmService) ListAllPendingPlans(ctx context.Context) ([]store.PendingPlanEntry, error) {
+	m.pendingPlansMu.RLock()
+	defer m.pendingPlansMu.RUnlock()
+	if m.pendingPlans == nil {
+		return nil, nil
+	}
+	out := make([]store.PendingPlanEntry, 0, len(m.pendingPlans))
+	for _, e := range m.pendingPlans {
+		out = append(out, *e)
+	}
+	return out, nil
+}
+
+func (m *mockSwarmService) DeletePendingPlan(ctx context.Context, parentTaskID string) error {
+	m.pendingPlansMu.Lock()
+	defer m.pendingPlansMu.Unlock()
+	if m.pendingPlans != nil {
+		delete(m.pendingPlans, parentTaskID)
 	}
 	return nil
 }
@@ -452,14 +507,9 @@ func TestSwarmInboxPeek(t *testing.T) {
 }
 
 func TestSwarmPendingPlanHappyPath(t *testing.T) {
-	srv := newTestServerWithSwarm("", &mockSwarmService{})
-	srv.pendingMu.Lock()
-	srv.pendingPlans["task-1"] = &pendingPlanEntry{
-		PlanPath:    "/tmp/plan.json",
-		ReplySocket: "/tmp/reply.sock",
-		CreatedAt:   time.Now(),
-	}
-	srv.pendingMu.Unlock()
+	sw := &mockSwarmService{}
+	sw.InsertPendingPlan(context.Background(), "task-1", "/tmp/plan.json", "/tmp/reply.sock")
+	srv := newTestServerWithSwarm("", sw)
 
 	req := httptest.NewRequest("GET", "/api/swarm/pending-plan/task-1", nil)
 	w := httptest.NewRecorder()
@@ -486,23 +536,52 @@ func TestSwarmPendingPlanNotFound(t *testing.T) {
 	}
 }
 
-func TestSwarmPendingPlanExpired(t *testing.T) {
-	srv := newTestServerWithSwarm("", &mockSwarmService{})
-	srv.pendingMu.Lock()
-	srv.pendingPlans["task-1"] = &pendingPlanEntry{
-		PlanPath:    "/tmp/plan.json",
-		ReplySocket: "/tmp/reply.sock",
-		CreatedAt:   time.Now().Add(-10 * time.Minute),
-	}
-	srv.pendingMu.Unlock()
+func TestSwarmAllPendingPlans(t *testing.T) {
+	sw := &mockSwarmService{}
+	sw.InsertPendingPlan(context.Background(), "task-1", "/tmp/plan1.json", "/tmp/r1.sock")
+	sw.InsertPendingPlan(context.Background(), "task-2", "/tmp/plan2.json", "/tmp/r2.sock")
+	srv := newTestServerWithSwarm("", sw)
 
-	req := httptest.NewRequest("GET", "/api/swarm/pending-plan/task-1", nil)
+	req := httptest.NewRequest("GET", "/api/swarm/pending-plans", nil)
 	w := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(w, req)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
 	}
+	var resp []map[string]interface{}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	if len(resp) != 2 {
+		t.Fatalf("len(resp) = %d, want 2", len(resp))
+	}
+	got := map[string]bool{}
+	for _, entry := range resp {
+		if id, ok := entry["parent_task_id"].(string); ok {
+			got[id] = true
+		}
+	}
+	if !got["task-1"] || !got["task-2"] {
+		t.Errorf("response missing expected parent_task_ids; got %v", got)
+	}
+}
+
+// TestHandlePlanVerdictNilSwarmNoPanic regresses C1: a `plan_verdict` message
+// arriving on a server constructed via `New(...)` (without swarm wired) must
+// not crash the process when the verdict carries a parent_task_id.
+func TestHandlePlanVerdictNilSwarmNoPanic(t *testing.T) {
+	board := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+	srv := New(board, nil, nil, ":0") // s.swarm intentionally left nil
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("handlePlanVerdict panicked with nil swarm: %v", r)
+		}
+	}()
+	srv.handlePlanVerdict(nil, WSMessage{
+		Type:         "plan_verdict",
+		ParentTaskID: "task-without-swarm",
+		Status:       "approved",
+		ReplySocket:  "/tmp/no-such-reply.sock",
+	})
 }
 
 func TestSwarmUnauthorized(t *testing.T) {
@@ -541,13 +620,10 @@ func TestSwarmCORSPreflight(t *testing.T) {
 
 func TestStartSwarmEventsBroadcastsPlanProposed(t *testing.T) {
 	bus := events.New()
-	board := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
-	srv := New(board, nil, nil, ":0")
-	srv.bus = bus
-	srv.pendingPlans = make(map[string]*pendingPlanEntry)
-	srv.StartSwarmEvents()
+	sw := &mockSwarmService{}
+	srv := NewWithSwarm(&mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}, nil, nil, ":0", sw, bus, "")
 
-	// Give goroutine time to start.
+	srv.StartSwarmEvents()
 	time.Sleep(50 * time.Millisecond)
 
 	bus.Publish(events.Event{
@@ -559,13 +635,11 @@ func TestStartSwarmEventsBroadcastsPlanProposed(t *testing.T) {
 		},
 	})
 
-	// TODO: verify broadcast via a real websocket client in integration test.
-	// For unit test, verify in-memory map.
 	time.Sleep(50 * time.Millisecond)
 
-	srv.pendingMu.RLock()
-	_, ok := srv.pendingPlans["p1"]
-	srv.pendingMu.RUnlock()
+	sw.pendingPlansMu.RLock()
+	_, ok := sw.pendingPlans["p1"]
+	sw.pendingPlansMu.RUnlock()
 	if !ok {
 		t.Error("pendingPlans should contain p1")
 	}
@@ -573,19 +647,9 @@ func TestStartSwarmEventsBroadcastsPlanProposed(t *testing.T) {
 
 func TestStartSwarmEventsBroadcastsSwarmChanged(t *testing.T) {
 	bus := events.New()
-	board := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
-	srv := New(board, nil, nil, ":0")
-	srv.bus = bus
-	srv.pendingPlans = make(map[string]*pendingPlanEntry)
-
-	// Pre-populate a pending plan.
-	srv.pendingMu.Lock()
-	srv.pendingPlans["p1"] = &pendingPlanEntry{
-		PlanPath:    "/tmp/plan.json",
-		ReplySocket: "/tmp/reply.sock",
-		CreatedAt:   time.Now(),
-	}
-	srv.pendingMu.Unlock()
+	sw := &mockSwarmService{}
+	sw.InsertPendingPlan(context.Background(), "p1", "/tmp/plan.json", "/tmp/reply.sock")
+	srv := NewWithSwarm(&mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}, nil, nil, ":0", sw, bus, "")
 
 	srv.StartSwarmEvents()
 	time.Sleep(50 * time.Millisecond)
@@ -600,9 +664,9 @@ func TestStartSwarmEventsBroadcastsSwarmChanged(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	srv.pendingMu.RLock()
-	_, ok := srv.pendingPlans["p1"]
-	srv.pendingMu.RUnlock()
+	sw.pendingPlansMu.RLock()
+	_, ok := sw.pendingPlans["p1"]
+	sw.pendingPlansMu.RUnlock()
 	if ok {
 		t.Error("pendingPlans should be cleared on plan_applied")
 	}
@@ -610,18 +674,9 @@ func TestStartSwarmEventsBroadcastsSwarmChanged(t *testing.T) {
 
 func TestStartSwarmEventsPendingPlanNotClearedOnOtherStatus(t *testing.T) {
 	bus := events.New()
-	board := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
-	srv := New(board, nil, nil, ":0")
-	srv.bus = bus
-	srv.pendingPlans = make(map[string]*pendingPlanEntry)
-
-	srv.pendingMu.Lock()
-	srv.pendingPlans["p1"] = &pendingPlanEntry{
-		PlanPath:    "/tmp/plan.json",
-		ReplySocket: "/tmp/reply.sock",
-		CreatedAt:   time.Now(),
-	}
-	srv.pendingMu.Unlock()
+	sw := &mockSwarmService{}
+	sw.InsertPendingPlan(context.Background(), "p1", "/tmp/plan.json", "/tmp/reply.sock")
+	srv := NewWithSwarm(&mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}, nil, nil, ":0", sw, bus, "")
 
 	srv.StartSwarmEvents()
 	time.Sleep(50 * time.Millisecond)
@@ -636,9 +691,9 @@ func TestStartSwarmEventsPendingPlanNotClearedOnOtherStatus(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	srv.pendingMu.RLock()
-	_, ok := srv.pendingPlans["p1"]
-	srv.pendingMu.RUnlock()
+	sw.pendingPlansMu.RLock()
+	_, ok := sw.pendingPlans["p1"]
+	sw.pendingPlansMu.RUnlock()
 	if !ok {
 		t.Error("pendingPlans should NOT be cleared on dispatched")
 	}

@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -43,6 +44,21 @@ type AdapterConfig struct {
 	// `legato-worker` for Chimera). To disable mode injection entirely,
 	// set the field to an empty map (`modes: {}`).
 	Modes map[string]string `yaml:"modes"`
+	// Tiers defines named launch profiles per adapter (e.g. small/medium/large
+	// or haiku/sonnet/opus). The conductor picks a tier per sub-task in its
+	// plan, and the agent service appends the tier's launch_args after the
+	// adapter's base launch_args when spawning the worker. Tier args layered
+	// last so a tier-specified flag (typically `--model`) wins on conflicts.
+	Tiers map[string]TierConfig `yaml:"tiers"`
+}
+
+// TierConfig describes a single named launch profile for an adapter — see
+// docs/claude/swarm.md § Tiers for the full ordering and validation rules.
+type TierConfig struct {
+	// Description is the one-liner the conductor sees when picking a tier.
+	Description string `yaml:"description"`
+	// LaunchArgs are appended after the adapter's base LaunchArgs.
+	LaunchArgs []string `yaml:"launch_args"`
 }
 
 // SwarmConfig holds swarm-orchestration settings.
@@ -59,6 +75,10 @@ type SwarmConfig struct {
 	// DefaultAgent is the adapter used for swarm participants when a plan
 	// entry doesn't specify one (e.g. "claude-code").
 	DefaultAgent string `yaml:"default_agent"`
+	// ConductorAgent is an optional override for the adapter used when
+	// spawning the conductor. When unset, the conductor falls back to
+	// DefaultAgent so existing configs keep working.
+	ConductorAgent string `yaml:"conductor_agent"`
 	// StrictScope makes scope-overlap conflicts hard-block dispatch instead
 	// of advisory.
 	StrictScope bool `yaml:"strict_scope"`
@@ -73,6 +93,13 @@ type SwarmConfig struct {
 	// Outer key: free-form role label ("conductor", "backend", etc.).
 	// Inner key: adapter name ("claude-code", "chimera").
 	Prompts map[string]map[string]string `yaml:"prompts"`
+	// ConductorTier names a tier the conductor itself runs at. When unset,
+	// the conductor uses the adapter's base launch_args only. Validated
+	// against the configured tiers of swarm.conductor_agent (or
+	// swarm.default_agent as a fallback) at startup; an unknown name is a
+	// fatal config error so we don't silently launch the conductor on the
+	// wrong model.
+	ConductorTier string `yaml:"conductor_tier"`
 }
 
 type TLSConfig struct {
@@ -169,6 +196,35 @@ func Load() (*Config, error) {
 
 	applyDefaults(cfg)
 	return cfg, nil
+}
+
+// ValidateConductorTier checks that swarm.conductor_tier (when set) names a
+// tier configured under the resolved default agent's adapter. Returns nil
+// when ConductorTier is empty (the conductor falls back to the adapter's
+// base launch_args). Returns an error when the tier name is set but
+// unresolvable, so the caller can refuse to start with an obviously bogus
+// model selector instead of silently launching the conductor on the wrong
+// model.
+func ValidateConductorTier(cfg *Config) error {
+	if cfg == nil || cfg.Swarm.ConductorTier == "" {
+		return nil
+	}
+	tier := cfg.Swarm.ConductorTier
+	agent := cfg.Swarm.ConductorAgent
+	if agent == "" {
+		agent = cfg.Swarm.DefaultAgent
+	}
+	if agent == "" {
+		return fmt.Errorf("swarm.conductor_tier %q set but swarm.conductor_agent and swarm.default_agent are empty; cannot resolve which adapter's tiers to use", tier)
+	}
+	ac, ok := cfg.Adapters[agent]
+	if !ok || len(ac.Tiers) == 0 {
+		return fmt.Errorf("swarm.conductor_tier %q set but adapter %q has no tiers configured", tier, agent)
+	}
+	if _, ok := ac.Tiers[tier]; !ok {
+		return fmt.Errorf("swarm.conductor_tier %q is not configured for adapter %q", tier, agent)
+	}
+	return nil
 }
 
 // ResolveEditor returns the editor command using precedence:

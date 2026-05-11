@@ -2,11 +2,11 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { useToast } from "../hooks/useToast"
-import { getPendingPlan, type PendingPlanData } from "../lib/swarm"
-import { X, CheckCircle, XCircle } from "lucide-react"
+import { getAllPendingPlans, type PendingPlanData } from "../lib/swarm"
+import { X, CheckCircle, XCircle, FileText, Users, HardDrive } from "lucide-react"
 
-export function PlanApprovalModal({ parentIds }: { parentIds: string[] }) {
-  const { subscribe } = useWebSocket()
+export function PlanApprovalModal() {
+  const { subscribe, send, connected } = useWebSocket()
   const { baseUrl } = useServer()
   const { addToast } = useToast()
   const [plan, setPlan] = useState<PendingPlanData | null>(null)
@@ -15,43 +15,74 @@ export function PlanApprovalModal({ parentIds }: { parentIds: string[] }) {
   const [notes, setNotes] = useState("")
   const [sending, setSending] = useState(false)
   const [verdictError, setVerdictError] = useState("")
-  const { send } = useWebSocket()
   const isVerdictedRef = useRef(false)
+  const connectedRef = useRef(true)
+
+  // currentPlanIdRef mirrors the displayed plan's parent_task_id without
+  // creating a render dependency. Used by discoverPlans to skip re-showing
+  // the plan we're already reviewing — otherwise a fresh plan_proposed event
+  // for the same parent would reset rejectMode/notes mid-typing.
+  const currentPlanIdRef = useRef<string | null>(null)
 
   const showPlan = useCallback((p: PendingPlanData) => {
     if (isVerdictedRef.current) return
     setPlan(p)
+    currentPlanIdRef.current = p.parent_task_id
     setIsOpen(true)
     setRejectMode(false)
     setNotes("")
     setVerdictError("")
   }, [])
 
-  // Listen for incoming plan_proposed messages.
-  useEffect(() => {
-    return subscribe((msg) => {
-      if (msg.type === "plan_proposed" && msg.parent_task_id && parentIds.includes(msg.parent_task_id)) {
-        getPendingPlan(baseUrl, msg.parent_task_id).then((fullPlan) => {
-          if (fullPlan) showPlan(fullPlan)
-        })
-      }
-    })
-  }, [subscribe, parentIds, baseUrl, showPlan])
+  const discoverPlans = useCallback(async () => {
+    try {
+      const plans = await getAllPendingPlans(baseUrl)
+      if (plans.length === 0 || isVerdictedRef.current) return
+      // Same plan we're already showing — leave rejectMode/notes alone.
+      if (currentPlanIdRef.current === plans[0].parent_task_id) return
+      // Show the oldest plan first
+      showPlan(plans[0])
+    } catch {
+      // ignore discovery errors
+    }
+  }, [baseUrl, showPlan])
 
-  // On reconnect, check for pending plans for all active parents.
-  const connectedRef = useRef(true)
-  const { connected } = useWebSocket()
+  // Discovery: on mount and every reconnect. Gate on baseUrl so the modal
+  // doesn't fire a spurious request before the server URL is configured.
+  useEffect(() => {
+    if (baseUrl) discoverPlans()
+  }, [baseUrl, discoverPlans])
+
   useEffect(() => {
     if (connected && !connectedRef.current) {
-      // Just reconnected — poll for pending plans.
-      parentIds.forEach((pid) => {
-        getPendingPlan(baseUrl, pid).then((p) => {
-          if (p) showPlan(p)
-        })
-      })
+      // Just reconnected — poll for any plans that arrived while offline
+      discoverPlans()
     }
     connectedRef.current = connected
-  }, [connected, parentIds, baseUrl, showPlan])
+  }, [connected, discoverPlans])
+
+  // Listen for incoming plan_proposed and swarm_changed (cross-surface dismissal)
+  useEffect(() => {
+    return subscribe((msg) => {
+      if (msg.type === "plan_proposed" && msg.parent_task_id) {
+        discoverPlans()
+      }
+      if (msg.type === "swarm_changed" && msg.parent_task_id) {
+        if (
+          plan?.parent_task_id === msg.parent_task_id &&
+          (msg.status === "plan_applied" || msg.status === "rejected")
+        ) {
+          setIsOpen(false)
+          setPlan(null)
+          currentPlanIdRef.current = null
+          isVerdictedRef.current = true
+          const verb = msg.status === "plan_applied" ? "approved" : "rejected"
+          addToast(`Plan ${verb} on another surface`, "info")
+          setTimeout(() => { isVerdictedRef.current = false }, 5000)
+        }
+      }
+    })
+  }, [subscribe, plan, discoverPlans, addToast])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -64,10 +95,14 @@ export function PlanApprovalModal({ parentIds }: { parentIds: string[] }) {
   }, [isOpen])
 
   const handleClose = () => {
+    // Dismissal is local only — the conductor is still blocked waiting
+    // for a verdict. The persistent plan stays in the DB so the user
+    // can rediscover it later.
     setIsOpen(false)
     setRejectMode(false)
     setNotes("")
     setVerdictError("")
+    currentPlanIdRef.current = null
   }
 
   const sendVerdict = async (status: "approved" | "rejected", verdictNotes?: string) => {
@@ -89,6 +124,7 @@ export function PlanApprovalModal({ parentIds }: { parentIds: string[] }) {
       isVerdictedRef.current = true
       setIsOpen(false)
       setPlan(null)
+      currentPlanIdRef.current = null
       addToast(status === "approved" ? "Plan approved" : "Plan rejected with notes", status === "approved" ? "success" : "error")
       setTimeout(() => { isVerdictedRef.current = false }, 5000)
     } catch {
@@ -113,9 +149,11 @@ export function PlanApprovalModal({ parentIds }: { parentIds: string[] }) {
 
   if (!isOpen || !plan) return null
 
+  const planContent = plan.plan
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+      <div className="max-h-[85vh] w-full max-w-xl overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
         <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
           <h2 className="text-sm font-semibold text-zinc-200">Plan Proposed</h2>
           <button
@@ -133,15 +171,79 @@ export function PlanApprovalModal({ parentIds }: { parentIds: string[] }) {
             </div>
           )}
 
+          {/* Parent task */}
           <div className="space-y-1">
             <div className="text-xs text-zinc-500">Parent Task</div>
             <div className="text-sm font-mono text-zinc-300">{plan.parent_task_id}</div>
           </div>
 
-          <div className="space-y-1">
-            <div className="text-xs text-zinc-500">Plan Path</div>
-            <div className="text-sm font-mono text-zinc-300">{plan.plan_path}</div>
-          </div>
+          {/* Plan content */}
+          {planContent ? (
+            <>
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                  <HardDrive size={12} />
+                  Working Directory
+                </div>
+                <div className="text-sm font-mono text-zinc-300">{planContent.header.working_dir}</div>
+              </div>
+
+              {planContent.header.summary && (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                    <FileText size={12} />
+                    Summary
+                  </div>
+                  <div className="text-sm text-zinc-300 whitespace-pre-wrap">{planContent.header.summary}</div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5 text-xs text-zinc-400 font-medium">
+                  <Users size={12} />
+                  Sub-tasks ({planContent.subtasks.length})
+                </div>
+                <div className="space-y-2">
+                  {planContent.subtasks.map((st, i) => (
+                    <div key={i} className="rounded border border-zinc-800 bg-zinc-950/60 px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono text-zinc-500">{i + 1}.</span>
+                        <span className="text-sm font-medium text-zinc-200">{st.title}</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500">
+                        {st.role && (
+                          <span>role: <span className="text-zinc-400">{st.role}</span></span>
+                        )}
+                        {st.agent && (
+                          <span>agent: <span className="text-zinc-400">{st.agent}</span></span>
+                        )}
+                        {st.tier && (
+                          <span>tier: <span className="text-zinc-400">{st.tier}</span></span>
+                        )}
+                        {st.scope && st.scope.length > 0 && (
+                          <span>scope: <span className="text-zinc-400">{st.scope.join(", ")}</span></span>
+                        )}
+                      </div>
+                      {st.prompt && (
+                        <div className="mt-1.5 text-xs text-zinc-500 line-clamp-2">
+                          {st.prompt}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : plan.load_error ? (
+            <div className="rounded border border-red-900/50 bg-red-950/30 px-3 py-2 text-xs text-red-400">
+              Could not load plan: {plan.load_error}
+              <div className="mt-1 text-zinc-500">Path: {plan.plan_path}</div>
+            </div>
+          ) : (
+            <div className="text-xs text-zinc-500">
+              Plan path: <span className="font-mono text-zinc-400">{plan.plan_path}</span>
+            </div>
+          )}
 
           {rejectMode && (
             <div className="space-y-2">
