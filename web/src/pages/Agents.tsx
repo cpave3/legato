@@ -6,6 +6,7 @@ import { PromptBar, type PromptBarHandle } from "../components/PromptBar"
 import { StartSwarmModal } from "../components/StartSwarmModal"
 import { SpawnEphemeralModal } from "../components/SpawnEphemeralModal"
 import { SwarmEventLog } from "../components/SwarmEventLog"
+import { AgentSelect } from "../components/AgentSelect"
 import { useServer } from "../hooks/useServer"
 import { useSwarmEvents } from "../hooks/useSwarmEvents"
 import { apiFetch } from "../lib/api"
@@ -307,18 +308,11 @@ export function AgentsPage() {
     <div className="flex h-full flex-col overflow-hidden md:flex-row">
       {isMobile ? (
         <div className="flex shrink-0 gap-2 border-b border-zinc-800 bg-zinc-950 p-2">
-          <select
-            className="flex-1 rounded bg-zinc-900 px-3 py-2 text-sm text-zinc-200 border border-zinc-700"
-            value={selectedId ?? ""}
-            onChange={(e) => e.target.value && handleSelect(e.target.value)}
-          >
-            <option value="">Select agent...</option>
-            {runningAgents.map((a) => (
-              <option key={a.task_id} value={a.task_id}>
-                {a.task_id} — {a.task_title || a.command}
-              </option>
-            ))}
-          </select>
+          <AgentSelect
+            agents={runningAgents}
+            selectedId={selectedId}
+            onSelect={handleSelect}
+          />
           <button
             onClick={handleSpawn}
             className="rounded bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
