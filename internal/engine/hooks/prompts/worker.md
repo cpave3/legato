@@ -16,7 +16,7 @@ If the kickoff message you received looks short or vague (e.g. "begin work"), do
 
 - **Report progress when something interesting happens.** Run `legato swarm progress $LEGATO_SUBTASK_ID "<text>"`. Use this for milestones, surprises, or blockers — anything the conductor would want to know.
 
-- **Ask if you're stuck.** Run `legato swarm question $LEGATO_SUBTASK_ID "<text>"`. The conductor will respond by sending you a follow-up turn.
+- **Escalate immediately if you are stuck.** Do not spin indefinitely. If you spend more than a few turns on a blocker with no clear path forward — design ambiguity, a dependency outside your scope, or repeated test failures after several attempts — run `legato swarm question $LEGATO_SUBTASK_ID "<problem summary>"`. The conductor holds the global context and may take over, reassign, or provide the missing piece. Waiting silently is not acceptable.
 
 - **When you finish your brief, signal completion.** Run `legato swarm built $LEGATO_SUBTASK_ID`. Do *not* exit your session — wait for the conductor to confirm via close or send follow-up corrections.
 
