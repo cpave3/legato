@@ -27,12 +27,12 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
 	"github.com/cpave3/legato/internal/engine/tmux"
-	qrterminal "github.com/mdp/qrterminal/v3"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/setup"
 	"github.com/cpave3/legato/internal/tui"
 	"github.com/cpave3/legato/internal/tui/theme"
+	qrterminal "github.com/mdp/qrterminal/v3"
 )
 
 func main() {
@@ -204,6 +204,8 @@ func runAgentCmd(args []string) int {
 		return runAgentState(args[1:])
 	case "summary":
 		return runAgentSummary(args[1:])
+	case "status":
+		return runAgentStatus(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown agent command: %s\n", args[0])
 		return 1
@@ -272,6 +274,48 @@ func runAgentSummary(args []string) int {
 	defer db.Close()
 
 	out, err := cli.AgentSummary(db, excludeTaskID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	fmt.Print(out)
+	return 0
+}
+
+func runAgentStatus(args []string) int {
+	// Parse: legato agent status <task-id> --format tmux
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "usage: legato agent status <task-id> --format tmux\n")
+		return 1
+	}
+
+	taskID := args[0]
+	format := ""
+	for i := 1; i < len(args)-1; i++ {
+		if args[i] == "--format" {
+			format = args[i+1]
+			break
+		}
+	}
+	if format == "" {
+		fmt.Fprintf(os.Stderr, "usage: legato agent status <task-id> --format tmux\n")
+		return 1
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
+	dbPath := config.ResolveDBPath(cfg)
+	db, err := store.New(dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "database: %v\n", err)
+		return 1
+	}
+	defer db.Close()
+
+	out, err := cli.AgentStatus(db, taskID, format)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
@@ -399,6 +443,9 @@ func runServeCmd(args []string) int {
 
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
+	srv.SetMacros(cfg.Macros)
+	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
+	srv.SetSparklineWindow(srvWindow, srvBuckets)
 
 	// Configure TLS.
 	certFile, keyFile, caCertFile := resolveTLS(cfg)
@@ -686,6 +733,9 @@ func runTUI() int {
 			log.Printf("web: port %s unavailable: %v", cfg.Web.Port, listenErr)
 		} else {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
+			webSrv.SetMacros(cfg.Macros)
+			webWindow, webBuckets := resolveSparklineWindow(cfg)
+			webSrv.SetSparklineWindow(webWindow, webBuckets)
 			certFile, keyFile, caCertFile := resolveTLS(cfg)
 			if certFile != "" && keyFile != "" {
 				webSrv.SetTLS(certFile, keyFile)
@@ -710,7 +760,9 @@ func runTUI() int {
 
 	reportSvc := service.NewReportService(db)
 
-	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc)
+	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros)
+	appWindow, appBuckets := resolveSparklineWindow(cfg)
+	app.SetSparklineWindow(appWindow, appBuckets)
 
 	// If the web server was auto-started, tell the TUI to show the indicator.
 	if webSrv != nil {
@@ -741,6 +793,18 @@ func tmuxEscapeKey(key string) string {
 		return "C-" + key[5:]
 	}
 	return key
+}
+
+// resolveSparklineWindow parses cfg.Agents.SparklineWindow. Invalid or empty
+// values fall back to 10 minutes / 10 buckets.
+func resolveSparklineWindow(cfg *config.Config) (time.Duration, int) {
+	window := 10 * time.Minute
+	if cfg.Agents.SparklineWindow != "" {
+		if d, err := time.ParseDuration(cfg.Agents.SparklineWindow); err == nil && d > 0 {
+			window = d
+		}
+	}
+	return window, 10
 }
 
 // resolveTLS returns cert/key/CA paths. Explicit config takes priority;
@@ -1301,7 +1365,6 @@ func runSwarmFinish(args []string) int {
 	return 0
 }
 
-
 func runSwarmNextStep(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "usage: legato swarm next-step <parent-id>")
@@ -1414,18 +1477,18 @@ type cliNoopTmux struct{}
 func (c *cliNoopTmux) Spawn(name, workDir string, width, height int, envVars ...string) error {
 	return fmt.Errorf("cli mode cannot spawn agents — start legato TUI to materialize this sub-task")
 }
-func (c *cliNoopTmux) Kill(name string) error                              { return nil }
-func (c *cliNoopTmux) Capture(name string) (string, error)                 { return "", nil }
-func (c *cliNoopTmux) CaptureWithEscapes(name string) (string, error)      { return "", nil }
-func (c *cliNoopTmux) Attach(name string) *exec.Cmd                        { return exec.Command("true") }
-func (c *cliNoopTmux) ListSessions() ([]string, error)                     { return nil, nil }
-func (c *cliNoopTmux) IsAlive(name string) (bool, error)                   { return false, nil }
-func (c *cliNoopTmux) SendKeys(name, keys string) error                    { return nil }
-func (c *cliNoopTmux) SendKey(name, key string) error                      { return nil }
-func (c *cliNoopTmux) SendKeysLine(name, line string) error                { return nil }
-func (c *cliNoopTmux) SendKeysMultiline(name, payload string) error        { return nil }
-func (c *cliNoopTmux) SendKeysShellCommand(name, command string) error     { return nil }
-func (c *cliNoopTmux) PipeOutput(name string) (io.Reader, func(), error)   { return nil, func() {}, nil }
-func (c *cliNoopTmux) SetEnv(sessionName, key, value string) error         { return nil }
-func (c *cliNoopTmux) SetOption(sessionName, key, value string) error      { return nil }
-func (c *cliNoopTmux) PaneCommands() (map[string]string, error)            { return nil, nil }
+func (c *cliNoopTmux) Kill(name string) error                            { return nil }
+func (c *cliNoopTmux) Capture(name string) (string, error)               { return "", nil }
+func (c *cliNoopTmux) CaptureWithEscapes(name string) (string, error)    { return "", nil }
+func (c *cliNoopTmux) Attach(name string) *exec.Cmd                      { return exec.Command("true") }
+func (c *cliNoopTmux) ListSessions() ([]string, error)                   { return nil, nil }
+func (c *cliNoopTmux) IsAlive(name string) (bool, error)                 { return false, nil }
+func (c *cliNoopTmux) SendKeys(name, keys string) error                  { return nil }
+func (c *cliNoopTmux) SendKey(name, key string) error                    { return nil }
+func (c *cliNoopTmux) SendKeysLine(name, line string) error              { return nil }
+func (c *cliNoopTmux) SendKeysMultiline(name, payload string) error      { return nil }
+func (c *cliNoopTmux) SendKeysShellCommand(name, command string) error   { return nil }
+func (c *cliNoopTmux) PipeOutput(name string) (io.Reader, func(), error) { return nil, func() {}, nil }
+func (c *cliNoopTmux) SetEnv(sessionName, key, value string) error       { return nil }
+func (c *cliNoopTmux) SetOption(sessionName, key, value string) error    { return nil }
+func (c *cliNoopTmux) PaneCommands() (map[string]string, error)          { return nil, nil }

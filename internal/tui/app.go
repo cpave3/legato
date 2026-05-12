@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
+	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
@@ -51,6 +52,8 @@ const (
 	overlayAgentSpawn
 	overlaySwarmInit
 	overlayPlanApproval
+	overlayAgentAction
+	overlayMacroPicker
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -81,35 +84,39 @@ type manualRefreshDoneMsg struct{}
 
 // App is the root Bubbletea model.
 type App struct {
-	svc       service.BoardService
-	syncSvc   service.SyncService
-	agentSvc  service.AgentService
-	board      board.Model
-	detail     detail.Model
-	agentView  agents.Model
-	reportView report.Model
-	statusBar  statusbar.Model
-	clip          *clipboard.Clipboard
-	editor        string
-	activeOverlay tea.Model
-	overlayType   overlayKind
-	active        viewType
-	width         int
-	height        int
-	pendingNav    string // card ID to navigate to after next board data load
-	prSvc         service.PRTrackingService
-	eventBus      *events.Bus
-	eventSubs     []<-chan events.Event // sync lifecycle events (started/completed/failed/errors)
-	cardUpdateSub <-chan events.Event
-	prSub         <-chan events.Event
-	swarmSub      <-chan events.Event
-	planSub       <-chan events.Event
-	tmux          service.TmuxManager
-	swarmSvc      service.SwarmService
-	workDir       string
-	webServer     *server.Server
-	webServerStop func()
-	webServerPort string
+	svc                service.BoardService
+	syncSvc            service.SyncService
+	agentSvc           service.AgentService
+	board              board.Model
+	detail             detail.Model
+	agentView          agents.Model
+	reportView         report.Model
+	statusBar          statusbar.Model
+	clip               *clipboard.Clipboard
+	editor             string
+	activeOverlay      tea.Model
+	overlayType        overlayKind
+	active             viewType
+	width              int
+	height             int
+	pendingNav         string // card ID to navigate to after next board data load
+	prSvc              service.PRTrackingService
+	eventBus           *events.Bus
+	eventSubs          []<-chan events.Event // sync lifecycle events (started/completed/failed/errors)
+	cardUpdateSub      <-chan events.Event
+	prSub              <-chan events.Event
+	swarmSub           <-chan events.Event
+	planSub            <-chan events.Event
+	tmux               service.TmuxManager
+	swarmSvc           service.SwarmService
+	workDir            string
+	webServer          *server.Server
+	webServerStop      func()
+	webServerPort      string
+	macros             []macros.Macro
+	lastSparklineFetch time.Time
+	sparklineWindow    time.Duration
+	sparklineBuckets   int
 }
 
 // SetWebServerRunning tells the TUI that the web server was auto-started
@@ -120,22 +127,34 @@ func (a *App) SetWebServerRunning(port string) {
 	a.statusBar = a.statusBar.SetWebServer(port)
 }
 
+// SetSparklineWindow configures the window and bucket count used when
+// fetching state timelines for the agent sidebar. Zero or negative values are
+// ignored (the handler's fallback applies).
+func (a *App) SetSparklineWindow(window time.Duration, buckets int) {
+	if window > 0 {
+		a.sparklineWindow = window
+	}
+	if buckets > 0 {
+		a.sparklineBuckets = buckets
+	}
+}
+
 // NewApp creates a new root application model. Pass nil for swarmSvc to
 // disable swarm UI (S keybinding is no-op, swarm panels hidden).
-func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager, workDir string, swarmSvc service.SwarmService) App {
+func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager, workDir string, swarmSvc service.SwarmService, macrosList []macros.Macro) App {
 	clip := clipboard.New()
 	b := board.New(svc, icons)
 	b.SetWorkspaces(workspaces)
 	app := App{
-		svc:        svc,
-		syncSvc:    syncSvc,
-		agentSvc:   agentSvc,
-		prSvc:      prSvc,
-		board:      b,
-		agentView:  agents.New(icons),
-		reportView: report.New(reportSvc),
-		statusBar:  statusbar.New(),
-		clip:       clip,
+		svc:           svc,
+		syncSvc:       syncSvc,
+		agentSvc:      agentSvc,
+		prSvc:         prSvc,
+		board:         b,
+		agentView:     agents.New(icons),
+		reportView:    report.New(reportSvc),
+		statusBar:     statusbar.New(),
+		clip:          clip,
 		editor:        editor,
 		active:        viewBoard,
 		eventBus:      bus,
@@ -143,6 +162,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		workDir:       workDir,
 		webServerPort: "3080",
 		swarmSvc:      swarmSvc,
+		macros:        macrosList,
 	}
 	if bus != nil {
 		app.eventSubs = []<-chan events.Event{
@@ -428,7 +448,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.reportView, _ = a.reportView.Update(msg)
 		return a, nil
 
-
 	case agents.KillAgentMsg:
 		return a.handleKillAgent(msg)
 
@@ -443,12 +462,21 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.agentView, _ = a.agentView.Update(msg)
 		return a, nil
 
+	case agents.StateTimelinesRefreshedMsg:
+		a.agentView, _ = a.agentView.Update(msg)
+		return a, nil
+
 	case agentTickMsg:
 		if a.active != viewAgents || a.agentSvc == nil {
 			return a, nil
 		}
 		return a.handleAgentTick()
 
+	case sparklineTickMsg:
+		if a.active != viewAgents || a.agentSvc == nil {
+			return a, nil
+		}
+		return a.handleSparklineTick()
 	case detail.OpenMoveOverlay:
 		return a.openMoveOverlay(msg.TaskID)
 
@@ -641,6 +669,34 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agents.OpenAgentSpawnMsg:
 		return a.openAgentSpawnOverlay(msg.TaskID, msg.Title)
+
+	case agents.OpenAgentActionMsg:
+		return a.openAgentActionOverlay(msg.TaskID, msg.ParentTaskID, msg.Role)
+
+	case agents.OpenMacroPickerMsg:
+		return a.openMacroPickerOverlay()
+
+	case overlay.MacroSelectedMsg:
+		return a.handleMacroSelected(msg)
+
+	case overlay.MacroCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
+
+	case overlay.AgentMessageSentMsg:
+		return a.handleAgentMessageSent(msg)
+
+	case overlay.AgentCloseConfirmedMsg:
+		return a.handleAgentCloseConfirmed(msg)
+
+	case overlay.SwarmFinishConfirmedMsg:
+		return a.handleSwarmFinishConfirmed(msg)
+
+	case overlay.AgentActionCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
 
 	case overlay.AgentSpawnSubmitMsg:
 		return a.handleAgentSpawnSubmit(msg)
@@ -1415,6 +1471,80 @@ func (a App) handleTitleEditSubmit(msg overlay.TitleEditSubmitMsg) (tea.Model, t
 	return a, tea.Batch(cmds...)
 }
 
+func (a App) openAgentActionOverlay(taskID, parentTaskID, role string) (tea.Model, tea.Cmd) {
+	if a.swarmSvc == nil {
+		return a, nil
+	}
+	model := overlay.NewAgentAction(taskID, parentTaskID, role)
+	sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.activeOverlay = sized
+	a.overlayType = overlayAgentAction
+	return a, nil
+}
+
+func (a App) handleAgentMessageSent(msg overlay.AgentMessageSentMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	if a.swarmSvc == nil {
+		return a, nil
+	}
+	// If role is conductor, message the parent; otherwise message the worker subtask.
+	var err error
+	if msg.Role == "conductor" {
+		err = a.swarmSvc.MessageParent(context.Background(), msg.ParentTaskID, msg.Text, false)
+	} else {
+		err = a.swarmSvc.Message(context.Background(), msg.TaskID, msg.Text, false)
+	}
+	if err != nil {
+		return a, func() tea.Msg {
+			return statusbar.ErrorMsg{Text: "message failed: " + err.Error()}
+		}
+	}
+	return a, func() tea.Msg {
+		return statusbar.InfoMsg{Text: "Message sent"}
+	}
+}
+
+func (a App) handleAgentCloseConfirmed(msg overlay.AgentCloseConfirmedMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	if a.swarmSvc == nil {
+		return a, nil
+	}
+	err := a.swarmSvc.Close(context.Background(), msg.TaskID)
+	if err != nil {
+		return a, func() tea.Msg {
+			return statusbar.ErrorMsg{Text: "close failed: " + err.Error()}
+		}
+	}
+	return a, tea.Batch(
+		func() tea.Msg {
+			return statusbar.InfoMsg{Text: "Worker closed"}
+		},
+		a.board.Init(),
+	)
+}
+
+func (a App) handleSwarmFinishConfirmed(msg overlay.SwarmFinishConfirmedMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	if a.swarmSvc == nil {
+		return a, nil
+	}
+	err := a.swarmSvc.Finish(context.Background(), msg.ParentTaskID, msg.Summary)
+	if err != nil {
+		return a, func() tea.Msg {
+			return statusbar.ErrorMsg{Text: "finish failed: " + err.Error()}
+		}
+	}
+	return a, tea.Batch(
+		func() tea.Msg {
+			return statusbar.InfoMsg{Text: "Swarm finished"}
+		},
+		a.board.Init(),
+	)
+}
+
 func (a App) openAgentSpawnOverlay(taskID, title string) (tea.Model, tea.Cmd) {
 	defaultAdapter := ""
 	var adapters, filtered []string
@@ -1485,6 +1615,51 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 	)
 }
 
+func (a App) openMacroPickerOverlay() (tea.Model, tea.Cmd) {
+	model := overlay.NewMacroPicker(a.macros)
+	sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.activeOverlay = sized
+	a.overlayType = overlayMacroPicker
+	return a, nil
+}
+
+func (a App) handleMacroSelected(msg overlay.MacroSelectedMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+
+	if a.agentSvc == nil {
+		return a, nil
+	}
+	sel := a.agentView.SelectedAgent()
+	if sel == nil {
+		return a, nil
+	}
+
+	session := sel.TmuxSession
+	if session == "" {
+		session = "legato-" + sel.TaskID
+	}
+	if a.tmux == nil {
+		return a, nil
+	}
+	keys := msg.Macro.Keys
+	tmuxer := a.tmux
+	return a, func() tea.Msg {
+		var err error
+		if len(keys) > 0 && keys[len(keys)-1] == '\n' {
+			err = tmuxer.SendKeysLine(session, keys[:len(keys)-1])
+			if err == nil {
+				err = tmuxer.SendKey(session, "Enter")
+			}
+		} else {
+			err = tmuxer.SendKeysLine(session, keys)
+		}
+		if err != nil {
+			return statusbar.ErrorMsg{Text: "macro send failed: " + err.Error()}
+		}
+		return statusbar.InfoMsg{Text: "Sent macro: " + msg.Macro.Name}
+	}
+}
 func (a App) handleCreateTask(msg overlay.CreateTaskMsg) (tea.Model, tea.Cmd) {
 	a.overlayType = overlayNone
 	a.activeOverlay = nil
@@ -1588,8 +1763,17 @@ func (a App) switchToAgentView() (tea.Model, tea.Cmd) {
 			return agents.AgentsRefreshedMsg{Agents: agentList}
 		})
 	}
-	cmds = append(cmds, agentTickCmd())
+	cmds = append(cmds, agentTickCmd(), sparklineTickCmd())
 	return a, tea.Batch(cmds...)
+}
+
+// sparklineTickMsg is the 5-second tick for fetching sparkline data.
+type sparklineTickMsg struct{}
+
+func sparklineTickCmd() tea.Cmd {
+	return tea.Tick(5*time.Second, func(t time.Time) tea.Msg {
+		return sparklineTickMsg{}
+	})
 }
 
 func (a App) handleAgentTick() (tea.Model, tea.Cmd) {
@@ -1600,6 +1784,7 @@ func (a App) handleAgentTick() (tea.Model, tea.Cmd) {
 	if selected == nil || selected.Status != "running" {
 		return a, agentTickCmd()
 	}
+
 	// Update the coordination panel for swarm agents.
 	a.refreshCoordinationPanel(selected.TaskID)
 
@@ -1614,6 +1799,35 @@ func (a App) handleAgentTick() (tea.Model, tea.Cmd) {
 	)
 }
 
+func (a App) handleSparklineTick() (tea.Model, tea.Cmd) {
+	if a.agentSvc == nil || a.active != viewAgents {
+		return a, sparklineTickCmd()
+	}
+	agentList := a.agentView.Agents()
+	if len(agentList) == 0 {
+		return a, sparklineTickCmd()
+	}
+	window := a.sparklineWindow
+	if window <= 0 {
+		window = 10 * time.Minute
+	}
+	buckets := a.sparklineBuckets
+	if buckets <= 0 {
+		buckets = 10
+	}
+	svc := a.agentSvc
+	cmds := make([]tea.Cmd, 0, len(agentList))
+	for _, ag := range agentList {
+		tid := ag.TaskID
+		cmds = append(cmds, func() tea.Msg {
+			tl, _ := svc.GetStateTimeline(context.Background(), tid, window, buckets)
+			return agents.StateTimelinesRefreshedMsg{Timelines: map[string][]string{tid: tl}}
+		})
+	}
+	cmds = append(cmds, sparklineTickCmd())
+	return a, tea.Batch(cmds...)
+}
+
 // refreshCoordinationPanel populates the coordination panel for the focused
 // agent's parent swarm, if any. No-op when the agent isn't part of a swarm.
 func (a *App) refreshCoordinationPanel(focusedTaskID string) {
@@ -1625,18 +1839,13 @@ func (a *App) refreshCoordinationPanel(focusedTaskID string) {
 	if err != nil {
 		return
 	}
-	// Find the focused agent's parent_task_id by querying ListAgentsByParent for each candidate parent.
-	// Cheaper: scan parent IDs from sub-task table by looking up agent's stored row directly.
-	// But ListAgents returns the surface form. Instead, walk all sessions stored in DB:
-	parentByTask := make(map[string]string)
+	var parentID string
 	for _, ag := range all {
-		// We don't have parent_task_id on AgentSession. Fall back to the swarm service:
-		// if there's a sub-task whose id == ag.TaskID, look up its parent.
-		if st, err := a.swarmSvc.GetSubtask(context.Background(), ag.TaskID); err == nil {
-			parentByTask[ag.TaskID] = st.ParentTaskID
+		if ag.TaskID == focusedTaskID {
+			parentID = ag.ParentTaskID
+			break
 		}
 	}
-	parentID := parentByTask[focusedTaskID]
 	if parentID == "" {
 		a.agentView.SetCoordinationPanel("")
 		return
@@ -1647,7 +1856,6 @@ func (a *App) refreshCoordinationPanel(focusedTaskID string) {
 	}
 	a.agentView.SetCoordinationPanel(string(raw))
 }
-
 
 func (a App) handleKillAgent(msg agents.KillAgentMsg) (tea.Model, tea.Cmd) {
 	if a.agentSvc == nil {

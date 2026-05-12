@@ -101,6 +101,8 @@ type AgentService interface {
 	// AdapterFor returns the AIToolAdapter for the given kind, or nil if none
 	// is registered (e.g. kind "shell"). Empty kind resolves to the default.
 	AdapterFor(kind string) AIToolAdapter
+	// GetStateTimeline returns bucketed state labels for a task over a window.
+	GetStateTimeline(ctx context.Context, taskID string, window time.Duration, buckets int) ([]string, error)
 }
 
 type agentService struct {
@@ -344,7 +346,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 
 	// Apply legato status line defaults before user options (user can override).
 	if a.binaryPath != "" {
-		statusRight := fmt.Sprintf("#(%s agent summary --exclude %s)", a.binaryPath, taskID)
+		var statusRight string
+		if opt.ParentTaskID != "" {
+			statusRight = fmt.Sprintf("#(%s agent status %s --format tmux)", a.binaryPath, taskID)
+		} else {
+			statusRight = fmt.Sprintf("#(%s agent summary --exclude %s)", a.binaryPath, taskID)
+		}
 		statusDefaults := map[string]string{
 			"status-right":    statusRight,
 			"status-interval": "5",
@@ -713,4 +720,9 @@ func (a *agentService) AttachCmd(ctx context.Context, taskID string) (*exec.Cmd,
 		return nil, err
 	}
 	return a.tmux.Attach(session.TmuxSession), nil
+}
+
+// GetStateTimeline delegates to the store query for bucketed state labels.
+func (a *agentService) GetStateTimeline(ctx context.Context, taskID string, window time.Duration, buckets int) ([]string, error) {
+	return a.store.GetStateTimeline(ctx, taskID, window, buckets)
 }

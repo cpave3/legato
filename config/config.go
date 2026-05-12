@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/cpave3/legato/internal/engine/macros"
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,6 +24,7 @@ type Config struct {
 	Workspaces  []WorkspaceConfig         `yaml:"workspaces"`
 	Swarm       SwarmConfig               `yaml:"swarm"`
 	Adapters    map[string]AdapterConfig  `yaml:"adapters"`
+	Macros      []macros.Macro            `yaml:"macros"`
 }
 
 // AdapterConfig holds per-adapter launch settings (e.g. extra CLI flags
@@ -129,8 +131,9 @@ type WorkspaceConfig struct {
 }
 
 type AgentsConfig struct {
-	EscapeKey   string            `yaml:"escape_key"`
-	TmuxOptions map[string]string `yaml:"tmux_options"`
+	EscapeKey       string            `yaml:"escape_key"`
+	TmuxOptions     map[string]string `yaml:"tmux_options"`
+	SparklineWindow string            `yaml:"sparkline_window"` // Go duration string, default "10m"
 }
 
 type JiraConfig struct {
@@ -282,6 +285,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Agents.EscapeKey == "" {
 		cfg.Agents.EscapeKey = "ctrl+]"
+	}
+	if cfg.Agents.SparklineWindow == "" {
+		cfg.Agents.SparklineWindow = "10m"
 	}
 	if cfg.GitHub.PollIntervalSeconds == 0 {
 		cfg.GitHub.PollIntervalSeconds = 600

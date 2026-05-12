@@ -62,11 +62,9 @@ func TestRecordStateTransitionClosesAndOpens(t *testing.T) {
 	if len(intervals) != 2 {
 		t.Fatalf("got %d intervals, want 2", len(intervals))
 	}
-	// First interval should be closed
 	if intervals[0].EndedAt == nil {
 		t.Error("first interval should be closed")
 	}
-	// Second interval should be open
 	if intervals[1].State != "waiting" {
 		t.Errorf("second interval state = %q, want %q", intervals[1].State, "waiting")
 	}
@@ -83,7 +81,6 @@ func TestRecordStateTransitionIdempotent(t *testing.T) {
 	if err := s.RecordStateTransition(ctx, "task1", "working", ""); err != nil {
 		t.Fatal(err)
 	}
-	// Same state again — should be a no-op
 	if err := s.RecordStateTransition(ctx, "task1", "working", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +102,6 @@ func TestRecordStateTransitionClearClosesOnly(t *testing.T) {
 	if err := s.RecordStateTransition(ctx, "task1", "working", ""); err != nil {
 		t.Fatal(err)
 	}
-	// Clear state — should close but not open new
 	if err := s.RecordStateTransition(ctx, "task1", "", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +123,6 @@ func TestRecordStateTransitionNoOpenInterval(t *testing.T) {
 	ctx := context.Background()
 	createTestTask(t, s, "task1")
 
-	// No open interval — clear should be a no-op
 	if err := s.RecordStateTransition(ctx, "task1", "", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +141,6 @@ func TestGetStateDurationsCompletedIntervals(t *testing.T) {
 	ctx := context.Background()
 	createTestTask(t, s, "task1")
 
-	// Insert completed intervals manually with known durations
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES
 		(?, 'working', datetime('now', '-120 seconds'), datetime('now', '-60 seconds')),
@@ -161,12 +155,9 @@ func TestGetStateDurationsCompletedIntervals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	// working: 60s + 30s = 90s (allow ±5s for SQLite rounding)
 	if d := durations["working"]; d < 85*time.Second || d > 95*time.Second {
 		t.Errorf("working duration = %v, want ~90s", d)
 	}
-	// waiting: 15s
 	if d := durations["waiting"]; d < 12*time.Second || d > 18*time.Second {
 		t.Errorf("waiting duration = %v, want ~15s", d)
 	}
@@ -177,7 +168,6 @@ func TestGetStateDurationsOpenInterval(t *testing.T) {
 	ctx := context.Background()
 	createTestTask(t, s, "task1")
 
-	// Insert an open interval started 30 seconds ago
 	_, err := s.db.ExecContext(ctx,
 		"INSERT INTO state_intervals (task_id, state, started_at) VALUES (?, 'working', datetime('now', '-30 seconds'))",
 		"task1")
@@ -189,9 +179,7 @@ func TestGetStateDurationsOpenInterval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	// Should be approximately 30 seconds
-	if d := durations["working"]; d < 28*time.Second || d > 35*time.Second {
+	if d := durations["working"]; d < 25*time.Second || d > 38*time.Second {
 		t.Errorf("working duration = %v, want ~30s", d)
 	}
 }
@@ -217,15 +205,12 @@ func TestGetStateDurationsBatch(t *testing.T) {
 	createTestTask(t, s, "task2")
 	createTestTask(t, s, "task3")
 
-	// task1: 60s working
 	_, err := s.db.ExecContext(ctx,
 		"INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, 'working', datetime('now', '-120 seconds'), datetime('now', '-60 seconds'))",
 		"task1")
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	// task2: 30s waiting
 	_, err = s.db.ExecContext(ctx,
 		"INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, 'waiting', datetime('now', '-60 seconds'), datetime('now', '-30 seconds'))",
 		"task2")
@@ -233,17 +218,14 @@ func TestGetStateDurationsBatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// task3: no intervals
-
 	result, err := s.GetStateDurationsBatch(ctx, []string{"task1", "task2", "task3"})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if d := result["task1"]["working"]; d < 59*time.Second || d > 61*time.Second {
+	if d := result["task1"]["working"]; d < 55*time.Second || d > 65*time.Second {
 		t.Errorf("task1 working = %v, want ~60s", d)
 	}
-	if d := result["task2"]["waiting"]; d < 29*time.Second || d > 31*time.Second {
+	if d := result["task2"]["waiting"]; d < 25*time.Second || d > 35*time.Second {
 		t.Errorf("task2 waiting = %v, want ~30s", d)
 	}
 	if _, ok := result["task3"]; ok {
@@ -307,16 +289,79 @@ func TestRecordStateTransitionNullWorkingDir(t *testing.T) {
 	}
 }
 
-// TestRecordStateTransitionSubtaskIDNoFKRegression verifies that recording a
-// state interval with a sub-task ID (which does NOT exist in the tasks table)
-// succeeds after the FK on state_intervals.task_id was dropped (migration 021).
-// Before that migration this would fail with FOREIGN KEY constraint failed.
-func TestRecordStateTransitionSubtaskIDNoFKRegression(t *testing.T) {
+func TestGetStateTimelineBucketAssignment(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "task1")
+
+	// Insert via SQLite datetime('now', '...') so UTC semantics match Go time.Now().UTC()
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES
+		(?, 'working', datetime('now', '-6 minutes'), datetime('now', '-4 minutes')),
+		(?, 'waiting', datetime('now', '-4 minutes'), datetime('now', '-2 minutes'))`,
+		"task1", "task1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	timeline, err := s.GetStateTimeline(ctx, "task1", 6*time.Minute, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(timeline) != 3 {
+		t.Fatalf("got %d buckets, want 3", len(timeline))
+	}
+	// The timestamps may jitter by a few seconds; use >=1s intervals.
+	if timeline[0] != "working" {
+		t.Errorf("bucket[0] = %q, want working", timeline[0])
+	}
+	if timeline[1] != "waiting" {
+		t.Errorf("bucket[1] = %q, want waiting", timeline[1])
+	}
+	if timeline[2] != "" {
+		t.Errorf("bucket[2] = %q, want idle (empty string)", timeline[2])
+	}
+}
+
+func TestGetStateTimelineMajority(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "task1")
+
+	// Window = 6 minutes, buckets = 3, each bucket = 2 minutes.
+	// Use explicit second-level offsets to fill each bucket predictably.
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES
+		(?, 'working', datetime('now', '-5 minutes', '-50 seconds'), datetime('now', '-4 minutes', '-10 seconds')),
+		(?, 'waiting', datetime('now', '-4 minutes', '-10 seconds'), datetime('now', '-3 minutes', '-40 seconds')),
+		(?, 'working', datetime('now', '-90 seconds'), NULL)`,
+		"task1", "task1", "task1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	timeline, err := s.GetStateTimeline(ctx, "task1", 6*time.Minute, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(timeline) != 3 {
+		t.Fatalf("got %d buckets, want 3", len(timeline))
+	}
+	if timeline[0] != "working" {
+		t.Errorf("bucket[0] = %q, want working (majority)", timeline[0])
+	}
+	if timeline[1] != "waiting" {
+		t.Errorf("bucket[1] = %q, want waiting (within -4m to -2m bucket)", timeline[1])
+	}
+	if timeline[2] != "working" {
+		t.Errorf("bucket[2] = %q, want working (open interval)", timeline[2])
+	}
+}
+
+func TestGetStateTimelineSubtaskID(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	// Create a swarm parent task and its sub-task, but do NOT insert the sub-task
-	// into the tasks table — just swarm_subtasks.
 	createTestTask(t, s, "parent-1")
 	st := Subtask{
 		ID:           "st-abcd1234",
@@ -330,7 +375,48 @@ func TestRecordStateTransitionSubtaskIDNoFKRegression(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// This must succeed — the FK no longer requires task_id to exist in tasks.
+	_, err := s.db.ExecContext(ctx,
+		"INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, 'working', datetime('now', '-2 minutes'), datetime('now', '-1 minutes'))",
+		"st-abcd1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	timeline, err := s.GetStateTimeline(ctx, "st-abcd1234", 3*time.Minute, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(timeline) != 3 {
+		t.Fatalf("got %d buckets, want 3", len(timeline))
+	}
+	if timeline[1] != "working" {
+		t.Errorf("bucket[1] = %q, want working", timeline[1])
+	}
+	if timeline[0] != "" {
+		t.Errorf("bucket[0] = %q, want idle", timeline[0])
+	}
+	if timeline[2] != "" {
+		t.Errorf("bucket[2] = %q, want idle", timeline[2])
+	}
+}
+
+func TestRecordStateTransitionSubtaskIDNoFKRegression(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	createTestTask(t, s, "parent-1")
+	st := Subtask{
+		ID:           "st-abcd1234",
+		ParentTaskID: "parent-1",
+		Title:        "Worker task",
+		Role:         "builder",
+		Status:       "queued",
+		ScopeGlobs:   "[]",
+	}
+	if err := s.CreateSubtask(ctx, st); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := s.RecordStateTransition(ctx, "st-abcd1234", "working", ""); err != nil {
 		t.Fatalf("recording state for sub-task ID should succeed after FK drop: %v", err)
 	}

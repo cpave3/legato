@@ -198,6 +198,22 @@ export function AgentSidebar({ agents, selectedId, onSelect, onSpawn, onStartSwa
                     )}
                   </div>
                 )}
+                {agent.state_timeline && agent.state_timeline.length > 0 && (
+                  <div className="flex items-center gap-0.5 pl-4">
+                    {agent.state_timeline.map((s, idx) => (
+                      <div
+                        key={idx}
+                        className="h-2 flex-1 rounded-sm"
+                        style={{
+                          backgroundColor:
+                            s === "working" ? "#10b981" :
+                            s === "waiting" ? "#eab308" :
+                            "#71717a",
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
               </button>
               {isSwarm && (
                 <div className="pr-2">

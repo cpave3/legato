@@ -348,13 +348,50 @@ func TestSpawnMsgIsEphemeral(t *testing.T) {
 	}
 }
 
-func TestEmptySidebarShowsSpawnHint(t *testing.T) {
+func TestShiftMOnSwarmWorkerEmitsOpenAgentAction(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents([]service.AgentSession{
+		{ID: 1, TaskID: "st-abc", TmuxSession: "legato-st-abc", Command: "shell", Status: "running", Role: "backend", ParentTaskID: "swarm-1"},
+	})
+	m.SetSize(120, 40)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'M'}})
+	if cmd == nil {
+		t.Fatal("expected command from 'M' key for swarm worker")
+	}
+	msg := cmd()
+	action, ok := msg.(OpenAgentActionMsg)
+	if !ok {
+		t.Fatalf("expected OpenAgentActionMsg, got %T", msg)
+	}
+	if action.TaskID != "st-abc" {
+		t.Errorf("TaskID = %q, want st-abc", action.TaskID)
+	}
+	if action.ParentTaskID != "swarm-1" {
+		t.Errorf("ParentTaskID = %q, want swarm-1", action.ParentTaskID)
+	}
+	if action.Role != "backend" {
+		t.Errorf("Role = %q, want backend", action.Role)
+	}
+}
+
+func TestShiftMOnSoloAgentIsNoOp(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents([]service.AgentSession{
+		{ID: 1, TaskID: "solo-1", TmuxSession: "legato-solo-1", Command: "shell", Status: "running"},
+	})
+	m.SetSize(120, 40)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'M'}})
+	if cmd != nil {
+		t.Error("expected nil command for solo agent")
+	}
+}
+
+func TestShiftMWithNoAgentsIsNoOp(t *testing.T) {
 	m := New(theme.NewIcons("unicode"))
 	m.SetSize(120, 40)
-	view := m.View()
-
-	if !containsStr(view, "s to spawn") {
-		t.Error("empty sidebar should show spawn hint")
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'M'}})
+	if cmd != nil {
+		t.Error("expected nil command when no agents")
 	}
 }
 
@@ -383,4 +420,33 @@ func indexOf(s, substr string) int {
 		}
 	}
 	return -1
+}
+
+func TestMacroKeybindingEmitsOpenMacroPickerMsg(t *testing.T) {
+	m := newTestModel()
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	if cmd == nil {
+		t.Fatal("expected command from 'm' key")
+	}
+	if _, ok := cmd().(OpenMacroPickerMsg); !ok {
+		t.Errorf("expected OpenMacroPickerMsg, got %T", cmd())
+	}
+}
+
+func TestStateTimelinesRefreshedMsgMergesEntries(t *testing.T) {
+	m := newTestModel()
+	// First message seeds task1.
+	m, _ = m.Update(StateTimelinesRefreshedMsg{
+		Timelines: map[string][]string{"task1": {"working", "waiting"}},
+	})
+	// Second message seeds task2 — task1 must survive (merge, not replace).
+	m, _ = m.Update(StateTimelinesRefreshedMsg{
+		Timelines: map[string][]string{"task2": {"", "working"}},
+	})
+	if tl, ok := m.timelines["task1"]; !ok || len(tl) != 2 {
+		t.Errorf("task1 timeline lost: %v", m.timelines["task1"])
+	}
+	if tl, ok := m.timelines["task2"]; !ok || len(tl) != 2 {
+		t.Errorf("task2 timeline missing: %v", m.timelines["task2"])
+	}
 }

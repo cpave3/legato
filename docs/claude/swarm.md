@@ -70,13 +70,22 @@ For inter-agent communication, legato relies on `tmux send-keys`:
 
 Plan approval uses request/reply IPC: the CLI opens a temporary listening socket, sends `plan_proposed` with `reply_socket: <path>`, and blocks until `plan_verdict` arrives on that socket. See `internal/engine/ipc/ipc.go::BroadcastRequest`.
 
+### Tmux status line for swarm participants
+
+Swarm participants get a swarm-aware `status-right` instead of the solo-agent summary. `SpawnAgent` selects between two `#()` shell expansions based on `AgentSpawnOptions.ParentTaskID`:
+
+- **Solo** (`ParentTaskID == ""`) → `#(legato agent summary --exclude <task-id>)` — cross-session activity counts (unchanged behavior).
+- **Swarm participant** (`ParentTaskID != ""`) → `#(legato agent status <task-id> --format tmux)` — swarm-local context.
+
+The swarm-aware output shows progress (`x/y done`), the last unacked event kind + age (e.g. `built 2m`), the active sibling worker count, and a red `⚠` icon when the last event is a `scope_warning`. Refresh cadence is the standard tmux `status-interval: 5` seconds. The CLI hits SQLite on every invocation — the in-process `SwarmService.LatestSnapshot` cache is unreachable across process boundaries, so the cache only benefits in-process consumers (TUI/web).
+
 ### Packages
 
 - `internal/engine/swarm/` — `MatchScope`/`ScopeOverlaps`/`ValidateScope` (file-ownership glob detection); `Plan`/`PlanSubtask`/`PlanHeader` types + `ParsePlan`/`LoadPlan`/`ValidatePlan`/`Plan.WriteTo`.
 - `internal/engine/store/swarm.go` — Subtask CRUD with new columns (`agent_kind`, `prompt`, `dispatched_at`); `SetSubtaskDispatched` helper. Migration `014_swarm_v1.sql` rewrites v0 status enum values and adds the new columns plus `tasks.swarm_working_dir`.
 - `internal/engine/hooks/prompts/` — embedded `conductor.md` and `worker.md`. Free-form role labels fall back to `worker.md`. Override per role/adapter via `cfg.swarm.prompts.<role>.<adapter>`.
 - `internal/engine/tmux/` — `SendKeysLine` and `SendKeysMultiline` (with base64 wrapping).
-- `internal/service/swarm.go` — `SwarmService` with conductor methods (`StartSwarm`, `ApplyApprovedPlan`, `Dispatch`, `Message`, `Broadcast`, `Close`, `Finish`) plus worker methods (`Progress`, `Question`, `Built`) plus `HandleAgentDied` and `StartEventLoop`. Per-worker progress debouncer (1s window) collapses chatty workers; `built`/`question`/`died` events bypass the debounce.
+- `internal/service/swarm.go` — `SwarmService` with conductor methods (`StartSwarm`, `ApplyApprovedPlan`, `Dispatch`, `Message`, `MessageParent`, `Broadcast`, `Close`, `Finish`) plus worker methods (`Progress`, `Question`, `Built`) plus `HandleAgentDied` and `StartEventLoop`. Per-worker progress debouncer (1s window) collapses chatty workers; `built`/`question`/`died` events bypass the debounce. `LatestSnapshot(parentID)` exposes an in-memory `*SwarmSnapshot` (Total/Done/Cancelled/Active) maintained incrementally by `bumpSnapshot` on every status change; cold-cache reads lazily rebuild from `ListSubtasksByParent` so post-restart totals are correct.
 - `internal/service/swarm_messages.go` — formatters for every `[swarm event]` line.
 - `internal/service/agent.go` — `LaunchCommandAdapter` interface + per-agent file write + post-spawn auto-launch via `SendKeysLine` + brief kickoff. `KillAgent` publishes `EventAgentDied`. `LastSpawnConflicts()` exposes advisory scope warnings.
 - `internal/cli/swarm.go` + `cmd/legato/main.go::runSwarmCmd` — CLI verb handlers.

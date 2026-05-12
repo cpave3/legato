@@ -28,6 +28,21 @@ type CaptureOutputMsg struct {
 
 // AgentsRefreshedMsg carries refreshed agent list.
 type AgentsRefreshedMsg struct {
-	Agents       []service.AgentSession
+	Agents     []service.AgentSession
 	SelectTask string // optional: select this ticket after refresh
+}
+
+// OpenMacroPickerMsg is sent when the user presses 'm' in the agents view.
+type OpenMacroPickerMsg struct{}
+
+// OpenAgentActionMsg is sent when the user presses Shift+M on a swarm agent.
+type OpenAgentActionMsg struct {
+	TaskID       string
+	ParentTaskID string
+	Role         string
+}
+
+// StateTimelinesRefreshedMsg carries sparkline data per agent task ID.
+type StateTimelinesRefreshedMsg struct {
+	Timelines map[string][]string // taskID -> bucket labels
 }

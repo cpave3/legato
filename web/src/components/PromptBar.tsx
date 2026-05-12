@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, type KeyboardEvent } from "react"
 import type { PromptState } from "../hooks/useWebSocket"
+import { useServer } from "../hooks/useServer"
+import { apiFetch } from "../lib/api"
 import { cn } from "../lib/utils"
-import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff, Terminal } from "lucide-react"
+import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff, Terminal, Zap } from "lucide-react"
 
 interface ActionListProps {
   actions: { label: string; keys: string }[]
@@ -112,12 +114,29 @@ export interface PromptBarHandle {
 }
 
 export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, connected }, ref) {
+  const { baseUrl } = useServer()
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const [macrosOpen, setMacrosOpen] = useState(false)
+  const [macros, setMacros] = useState<{ name: string; keys: string }[]>([])
+  const macrosRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const inputRef = useRef(input)
   const prevAgentIdRef = useRef(agentId)
+
+  // Fetch macros from /api/macros when dropdown opens.
+  useEffect(() => {
+    if (!macrosOpen) return
+    apiFetch(baseUrl, "/api/macros")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.macros)) {
+          setMacros(data.macros)
+        }
+      })
+      .catch(() => setMacros([]))
+  }, [baseUrl, macrosOpen])
 
   useImperativeHandle(ref, () => ({
     focus: () => textareaRef.current?.focus(),
@@ -169,6 +188,18 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
     document.addEventListener("click", onClick, true)
     return () => document.removeEventListener("click", onClick, true)
   }, [menuOpen])
+
+  // Close macros dropdown on outside click.
+  useEffect(() => {
+    if (!macrosOpen) return
+    const onClick = (e: MouseEvent) => {
+      if (macrosRef.current && !macrosRef.current.contains(e.target as Node)) {
+        setMacrosOpen(false)
+      }
+    }
+    document.addEventListener("click", onClick, true)
+    return () => document.removeEventListener("click", onClick, true)
+  }, [macrosOpen])
 
   const handleSubmit = () => {
     const trimmed = input.trim()
@@ -241,6 +272,43 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
               <span>Stop</span>
             </button>
           )}
+          {/* Macros dropdown */}
+          <div className="relative" ref={macrosRef}>
+            <button
+              onClick={() => setMacrosOpen((v) => !v)}
+              className={cn(
+                "flex items-center gap-1 rounded px-2 py-1 text-xs border transition-colors",
+                macrosOpen
+                  ? "text-zinc-200 bg-zinc-800 border-zinc-600"
+                  : "text-zinc-400 border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200"
+              )}
+              title="Macros"
+            >
+              <Zap size={12} />
+              <span>Macros</span>
+            </button>
+            {macrosOpen && (
+              <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
+                {macros.length === 0 ? (
+                  <div className="px-3 py-1.5 text-xs text-zinc-500">(no macros configured)</div>
+                ) : (
+                  macros.map((macro) => (
+                    <button
+                      key={macro.name}
+                      onClick={() => {
+                        onSendKeys(macro.keys)
+                        setMacrosOpen(false)
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                    >
+                      <Zap size={12} />
+                      {macro.name}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
           {/* Overflow menu */}
           <div className="relative" ref={menuRef}>
             <button

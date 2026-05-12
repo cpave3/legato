@@ -10,7 +10,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cpave3/legato/internal/engine/analytics"
+	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/engine/swarm"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/agents"
 	"github.com/cpave3/legato/internal/tui/board"
@@ -113,8 +115,66 @@ func (f *fakeReportService) GenerateReport(_ context.Context, period analytics.T
 	return &service.Report{Period: period}, nil
 }
 
+type swarmCall struct {
+	method string
+	id     string
+	text   string
+}
+
+type fakeSwarmService struct {
+	calls []swarmCall
+}
+
+func (f *fakeSwarmService) ListSubtasks(_ context.Context, _ string) ([]store.Subtask, error)                        { return nil, nil }
+func (f *fakeSwarmService) GetSubtask(_ context.Context, _ string) (*store.Subtask, error)                          { return nil, nil }
+func (f *fakeSwarmService) ListSubtaskInfos(_ context.Context, _ string) ([]service.SwarmSubtaskInfo, error)        { return nil, nil }
+func (f *fakeSwarmService) Snapshot(_ context.Context, _ string) ([]byte, error)                                    { return nil, nil }
+func (f *fakeSwarmService) LatestSnapshot(_ string) *service.SwarmSnapshot                                           { return nil }
+func (f *fakeSwarmService) FetchInbox(_ context.Context, _ string) ([]service.InboxEntry, error)                    { return nil, nil }
+func (f *fakeSwarmService) PeekInbox(_ context.Context, _ string) ([]service.InboxEntry, error)                     { return nil, nil }
+func (f *fakeSwarmService) LoadPlan(_ string) (*service.SwarmPlan, error)                                            { return nil, nil }
+func (f *fakeSwarmService) StartSwarm(_ context.Context, _, _ string) error                                          { return nil }
+func (f *fakeSwarmService) ApplyApprovedPlan(_ context.Context, _ *swarm.Plan) error                                { return nil }
+func (f *fakeSwarmService) Dispatch(_ context.Context, _ string) error                                               { return nil }
+func (f *fakeSwarmService) NextStep(_ context.Context, _ string) error                                               { return nil }
+func (f *fakeSwarmService) Message(_ context.Context, id, text string, _ bool) error {
+	f.calls = append(f.calls, swarmCall{method: "Message", id: id, text: text})
+	return nil
+}
+func (f *fakeSwarmService) MessageParent(_ context.Context, parentID, text string, _ bool) error {
+	f.calls = append(f.calls, swarmCall{method: "MessageParent", id: parentID, text: text})
+	return nil
+}
+func (f *fakeSwarmService) Broadcast(_ context.Context, _, _ string, _ bool) (int, error) { return 0, nil }
+func (f *fakeSwarmService) Close(_ context.Context, id string) error {
+	f.calls = append(f.calls, swarmCall{method: "Close", id: id})
+	return nil
+}
+func (f *fakeSwarmService) Finish(_ context.Context, parentID, summary string) error {
+	f.calls = append(f.calls, swarmCall{method: "Finish", id: parentID, text: summary})
+	return nil
+}
+func (f *fakeSwarmService) Progress(_ context.Context, _, _ string) error                                            { return nil }
+func (f *fakeSwarmService) Question(_ context.Context, _, _ string) error                                            { return nil }
+func (f *fakeSwarmService) Built(_ context.Context, _ string) error                                                  { return nil }
+func (f *fakeSwarmService) InsertPendingPlan(_ context.Context, _, _, _ string) error                               { return nil }
+func (f *fakeSwarmService) GetPendingPlan(_ context.Context, _ string) (*store.PendingPlanEntry, error)             { return nil, nil }
+func (f *fakeSwarmService) ListAllPendingPlans(_ context.Context) ([]store.PendingPlanEntry, error)                 { return nil, nil }
+func (f *fakeSwarmService) DeletePendingPlan(_ context.Context, _ string) error                                     { return nil }
+func (f *fakeSwarmService) HandleAgentDied(_ context.Context, _, _, _ string)                                       {}
+func (f *fakeSwarmService) StartEventLoop(_ context.Context) func()                                                  { return func() {} }
+
 func newTestApp() App {
-	return NewApp(&fakeBoardService{}, nil, nil, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil)
+	return NewApp(&fakeBoardService{}, nil, nil, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
+}
+
+func newTestAppWithSwarm() App {
+	return NewApp(&fakeBoardService{}, nil, nil, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", &fakeSwarmService{}, nil)
+}
+
+func newTestAppWithRecordingSwarm() (App, *fakeSwarmService) {
+	svc := &fakeSwarmService{}
+	return NewApp(&fakeBoardService{}, nil, nil, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", svc, nil), svc
 }
 
 func updateApp(a App, msg tea.Msg) (App, tea.Cmd) {
@@ -520,7 +580,7 @@ func TestDeleteCancelledClosesOverlay(t *testing.T) {
 // Import overlay tests
 
 func TestImportKeyOpensOverlayWhenSyncAvailable(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -543,7 +603,7 @@ func TestImportKeyNoOpWithoutSync(t *testing.T) {
 }
 
 func TestImportSelectedImportsAndRefreshes(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -562,7 +622,7 @@ func TestImportSelectedImportsAndRefreshes(t *testing.T) {
 }
 
 func TestImportCancelledClosesOverlay(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil)
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -656,6 +716,9 @@ func (f *fakeAgentService) LastSpawnConflicts() []service.AgentSpawnConflict { r
 func (f *fakeAgentService) RegisteredAdapters() []string { return nil }
 func (f *fakeAgentService) DefaultAdapter() string       { return "" }
 func (f *fakeAgentService) AdapterFor(kind string) service.AIToolAdapter { return nil }
+func (f *fakeAgentService) GetStateTimeline(_ context.Context, _ string, _ time.Duration, _ int) ([]string, error) {
+	return nil, nil
+}
 
 func TestDurationDataFlowsToBoard(t *testing.T) {
 	agentSvc := &fakeAgentService{
@@ -667,7 +730,7 @@ func TestDurationDataFlowsToBoard(t *testing.T) {
 		},
 	}
 
-	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil)
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -746,7 +809,7 @@ func TestReportLoadedMsgForwardedRegardlessOfView(t *testing.T) {
 func TestAKeyOpensTaskSpawnOverlay(t *testing.T) {
 	// CaptureOutput error means agent is not running; overlay opens instead of spawning
 	agentSvc := &fakeAgentService{captureErr: true}
-	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil)
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil, nil)
 	// Init + load board data
 	cmd := app.Init()
 	if cmd != nil {
@@ -777,7 +840,7 @@ func TestAKeySwitchesToAgentViewWhenRunning(t *testing.T) {
 			{TaskID: "REX-1", Status: "running"},
 		},
 	}
-	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil)
+		app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -801,7 +864,7 @@ func TestAKeySwitchesToAgentViewWhenRunning(t *testing.T) {
 
 func TestAgentSpawnSubmitForTask(t *testing.T) {
 	agentSvc := &fakeAgentService{captureErr: true}
-	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil)
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil, nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -846,7 +909,7 @@ func TestAgentSpawnSubmitForTask(t *testing.T) {
 
 func TestAgentSpawnSubmitEphemeral(t *testing.T) {
 	agentSvc := &fakeAgentService{}
-	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil)
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil, nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -896,7 +959,7 @@ func TestAgentSpawnSubmitEphemeral(t *testing.T) {
 
 func TestTKeyOpensTaskSpawnOverlay(t *testing.T) {
 	agentSvc := &fakeAgentService{captureErr: true}
-	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil)
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil, nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -912,7 +975,7 @@ func TestTKeyOpensTaskSpawnOverlay(t *testing.T) {
 
 func TestAgentSpawnSubmitSetsSelectTask(t *testing.T) {
 	agentSvc := &fakeAgentService{captureErr: true}
-	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil)
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil, nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -936,5 +999,216 @@ func TestAgentSpawnSubmitSetsSelectTask(t *testing.T) {
 	}
 	if foundMsg.SelectTask != "REX-1" {
 		t.Errorf("SelectTask = %q, want REX-1", foundMsg.SelectTask)
+	}
+}
+
+// --- Agent action overlay integration tests ---
+
+func runAgentActionCmd(app App, cmd tea.Cmd) App {
+	if cmd == nil {
+		return app
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			app = runAgentActionCmd(app, c)
+		}
+		return app
+	}
+	if action, ok := msg.(agents.OpenAgentActionMsg); ok {
+		app, _ = updateApp(app, action)
+	}
+	return app
+}
+
+func TestOpenAgentActionOverlay(t *testing.T) {
+	app := newTestAppWithSwarm()
+	cmd := app.Init()
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	// Switch to agent view
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	if app.active != viewAgents {
+		t.Fatalf("expected viewAgents, got %d", app.active)
+	}
+	// Feed swarm agent data
+	app.agentView.SetAgents([]service.AgentSession{
+		{ID: 1, TaskID: "st-abc", TmuxSession: "legato-st-abc", Command: "shell", Status: "running", Role: "backend", ParentTaskID: "swarm-1"},
+	})
+	// Press Shift+M — the agent view produces OpenAgentActionMsg via a command
+	app, cmd = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'M'}})
+	app = runAgentActionCmd(app, cmd)
+	if app.overlayType != overlayAgentAction {
+		t.Fatalf("overlayType = %d, want overlayAgentAction", app.overlayType)
+	}
+	if app.activeOverlay == nil {
+		t.Fatal("expected activeOverlay to be set")
+	}
+}
+
+func TestOpenAgentActionIsNoOpWithoutSwarmService(t *testing.T) {
+	app := initTestApp()
+	app.swarmSvc = nil
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	app.agentView.SetAgents([]service.AgentSession{
+		{ID: 1, TaskID: "st-abc", TmuxSession: "legato-st-abc", Command: "shell", Status: "running", Role: "backend", ParentTaskID: "swarm-1"},
+	})
+	app, cmd := updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'M'}})
+	// Execute the command so OpenAgentActionMsg reaches the app
+	app = runAgentActionCmd(app, cmd)
+	if app.overlayType != overlayNone {
+		t.Errorf("expected no overlay when swarmSvc is nil, got %d", app.overlayType)
+	}
+}
+
+func TestAgentActionCancelledDismissesOverlay(t *testing.T) {
+	app := newTestAppWithSwarm()
+	cmd := app.Init()
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	app.agentView.SetAgents([]service.AgentSession{
+		{ID: 1, TaskID: "st-abc", TmuxSession: "legato-st-abc", Command: "shell", Status: "running", Role: "backend", ParentTaskID: "swarm-1"},
+	})
+	app, cmd = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'M'}})
+	app = runAgentActionCmd(app, cmd)
+	if app.overlayType != overlayAgentAction {
+		t.Fatalf("overlay should be open, got %d", app.overlayType)
+	}
+	app, _ = updateApp(app, overlay.AgentActionCancelledMsg{})
+	if app.overlayType != overlayNone {
+		t.Errorf("overlay should be closed after cancel, got %d", app.overlayType)
+	}
+}
+
+func TestAgentMessageSentRoutesToWorker(t *testing.T) {
+	app, svc := newTestAppWithRecordingSwarm()
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, overlay.AgentMessageSentMsg{
+		TaskID:       "st-abc",
+		ParentTaskID: "swarm-1",
+		Role:         "backend",
+		Text:         "rebase please",
+	})
+	if app.overlayType != overlayNone {
+		t.Errorf("overlay should close after send, got %d", app.overlayType)
+	}
+	if len(svc.calls) != 1 {
+		t.Fatalf("expected 1 swarm call, got %d", len(svc.calls))
+	}
+	c := svc.calls[0]
+	if c.method != "Message" || c.id != "st-abc" || c.text != "rebase please" {
+		t.Errorf("unexpected call: %+v", c)
+	}
+}
+
+func TestAgentMessageSentConductorRoutesToParent(t *testing.T) {
+	app, svc := newTestAppWithRecordingSwarm()
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, overlay.AgentMessageSentMsg{
+		TaskID:       "swarm-1",
+		ParentTaskID: "swarm-1",
+		Role:         "conductor",
+		Text:         "regenerate plan",
+	})
+	if len(svc.calls) != 1 {
+		t.Fatalf("expected 1 swarm call, got %d", len(svc.calls))
+	}
+	c := svc.calls[0]
+	if c.method != "MessageParent" || c.id != "swarm-1" || c.text != "regenerate plan" {
+		t.Errorf("unexpected call: %+v", c)
+	}
+}
+
+func TestAgentCloseConfirmedCallsClose(t *testing.T) {
+	app, svc := newTestAppWithRecordingSwarm()
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, overlay.AgentCloseConfirmedMsg{TaskID: "st-abc"})
+	if app.overlayType != overlayNone {
+		t.Errorf("overlay should close, got %d", app.overlayType)
+	}
+	if len(svc.calls) != 1 || svc.calls[0].method != "Close" || svc.calls[0].id != "st-abc" {
+		t.Errorf("expected Close(st-abc), got %+v", svc.calls)
+	}
+}
+
+func TestSwarmFinishConfirmedCallsFinish(t *testing.T) {
+	app, svc := newTestAppWithRecordingSwarm()
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, overlay.SwarmFinishConfirmedMsg{
+		ParentTaskID: "swarm-1",
+		Summary:      "done",
+	})
+	if app.overlayType != overlayNone {
+		t.Errorf("overlay should close, got %d", app.overlayType)
+	}
+	if len(svc.calls) != 1 {
+		t.Fatalf("expected 1 swarm call, got %d", len(svc.calls))
+	}
+	c := svc.calls[0]
+	if c.method != "Finish" || c.id != "swarm-1" || c.text != "done" {
+		t.Errorf("unexpected call: %+v", c)
+	}
+}
+
+func TestOpenMacroPickerOverlay(t *testing.T) {
+	app := newTestAppWithSwarm()
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, agents.OpenMacroPickerMsg{})
+	if app.overlayType != overlayMacroPicker {
+		t.Errorf("overlayType = %d, want overlayMacroPicker", app.overlayType)
+	}
+	if app.activeOverlay == nil {
+		t.Fatal("expected activeOverlay to be set")
+	}
+}
+
+func TestMacroCancelledDismissesOverlay(t *testing.T) {
+	app := newTestAppWithSwarm()
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, agents.OpenMacroPickerMsg{})
+	if app.overlayType != overlayMacroPicker {
+		t.Fatalf("overlay should be open, got %d", app.overlayType)
+	}
+	app, _ = updateApp(app, overlay.MacroCancelledMsg{})
+	if app.overlayType != overlayNone {
+		t.Errorf("overlay should close after cancel, got %d", app.overlayType)
+	}
+}
+
+func TestMacroSelectedClosesOverlay(t *testing.T) {
+	// We can't easily exercise the tmux send path without a recording tmux
+	// (a.tmux == nil short-circuits). Asserting the overlay closes is the
+	// part app.go owns.
+	app := newTestAppWithSwarm()
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, agents.OpenMacroPickerMsg{})
+	app, _ = updateApp(app, overlay.MacroSelectedMsg{
+		Macro: macros.Macro{Name: "tests", Keys: "task test\n"},
+	})
+	if app.overlayType != overlayNone {
+		t.Errorf("overlay should close after select, got %d", app.overlayType)
+	}
+}
+
+func TestSetSparklineWindowOverridesDefaults(t *testing.T) {
+	app := newTestApp()
+	app.SetSparklineWindow(5*time.Minute, 5)
+	if app.sparklineWindow != 5*time.Minute {
+		t.Errorf("sparklineWindow = %v, want 5m", app.sparklineWindow)
+	}
+	if app.sparklineBuckets != 5 {
+		t.Errorf("sparklineBuckets = %d, want 5", app.sparklineBuckets)
+	}
+	// Zero/negative values are ignored — the previous override stays.
+	app.SetSparklineWindow(0, -1)
+	if app.sparklineWindow != 5*time.Minute || app.sparklineBuckets != 5 {
+		t.Errorf("non-positive args should not override; got %v / %d", app.sparklineWindow, app.sparklineBuckets)
 	}
 }

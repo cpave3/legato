@@ -257,6 +257,43 @@ swarm:
 	}
 }
 
+func TestMacrosParsed(t *testing.T) {
+	writeTestConfig(t, `
+macros:
+  - name: "run tests"
+    keys: "task test\n"
+  - name: "git diff"
+    keys: "! git diff\n"
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Macros) != 2 {
+		t.Fatalf("expected 2 macros, got %d", len(cfg.Macros))
+	}
+	if cfg.Macros[0].Name != "run tests" {
+		t.Errorf("macros[0].Name = %q, want %q", cfg.Macros[0].Name, "run tests")
+	}
+	if cfg.Macros[0].Keys != "task test\n" {
+		t.Errorf("macros[0].Keys = %q, want %q", cfg.Macros[0].Keys, "task test\n")
+	}
+	if cfg.Macros[1].Name != "git diff" {
+		t.Errorf("macros[1].Name = %q, want %q", cfg.Macros[1].Name, "git diff")
+	}
+}
+
+func TestMacrosEmpty(t *testing.T) {
+	writeTestConfig(t, `theme: default`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Macros) != 0 {
+		t.Errorf("expected 0 macros, got %d", len(cfg.Macros))
+	}
+}
+
 func TestResolveDBPathPrecedence(t *testing.T) {
 	t.Run("from config", func(t *testing.T) {
 		cfg := &Config{DB: DBConfig{Path: "/tmp/legato-test.db"}}

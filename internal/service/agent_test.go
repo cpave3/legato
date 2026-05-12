@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -917,6 +918,41 @@ func TestSpawnAgentInjectsStatusLineOptions(t *testing.T) {
 	}
 }
 
+func TestSpawnAgentSwarmParticipantUsesStatusCommand(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+		BinaryPath: "/usr/bin/legato",
+	})
+
+	ctx := context.Background()
+	createTask(t, s, "parent-1")
+	createTask(t, s, "st-01")
+
+	if err := svc.SpawnAgent(ctx, "st-01", 0, 0, AgentSpawnOptions{
+		Role:         "backend",
+		ParentTaskID: "parent-1",
+		SubtaskID:    "st-01",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := mt.optionsFor("legato-st-01")
+	if opts == nil {
+		t.Fatal("no tmux options set on session")
+	}
+	want := "#(/usr/bin/legato agent status st-01 --format tmux)"
+	if opts["status-right"] != want {
+		t.Errorf("status-right = %q, want %q", opts["status-right"], want)
+	}
+}
+
 func TestSpawnAgentUserOptionsOverrideStatusLine(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	s, err := store.New(dbPath)
@@ -1029,5 +1065,40 @@ func TestListAgentsFallsBackOnPaneCommandsError(t *testing.T) {
 	// Should fall back to DB value
 	if agents[0].Command != "shell" {
 		t.Errorf("Command = %q, want %q (fallback)", agents[0].Command, "shell")
+	}
+}
+
+func TestGetStateTimelineReturnsBuckets(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "task1")
+
+	// Seed intervals via the store's direct SQL (same as store tests).
+	_, err := s.DB().ExecContext(ctx, `
+		INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES
+		(?, 'working', datetime('now', '-6 minutes'), datetime('now', '-4 minutes')),
+		(?, 'waiting', datetime('now', '-4 minutes'), datetime('now', '-2 minutes'))`,
+		"task1", "task1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	window := 6 * time.Minute
+	buckets := 3
+	res, err := svc.GetStateTimeline(ctx, "task1", window, buckets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 3 {
+		t.Fatalf("got %d buckets, want 3", len(res))
+	}
+	if res[0] != "working" {
+		t.Errorf("bucket[0] = %q, want working", res[0])
+	}
+	if res[1] != "waiting" {
+		t.Errorf("bucket[1] = %q, want waiting", res[1])
+	}
+	if res[2] != "" {
+		t.Errorf("bucket[2] = %q, want idle", res[2])
 	}
 }

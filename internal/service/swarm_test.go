@@ -911,3 +911,78 @@ func TestTwoStepPlanGatingAndAdvancement(t *testing.T) {
 		t.Fatalf("step 1 dispatch was still gated after next-step: %v", step1ErrAfter)
 	}
 }
+
+func TestLatestSnapshotColdCacheRebuildsFromDB(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-snap")
+	seedSubtask(t, st, "st-snap01", "parent-snap", "queued")
+	seedSubtask(t, st, "st-snap02", "parent-snap", "done")
+	seedSubtask(t, st, "st-snap03", "parent-snap", "in_progress")
+
+	snap := sw.LatestSnapshot("parent-snap")
+	if snap == nil {
+		t.Fatal("expected non-nil snapshot after cold rebuild")
+	}
+	if snap.Total != 3 {
+		t.Errorf("Total = %d, want 3", snap.Total)
+	}
+	if snap.Done != 1 {
+		t.Errorf("Done = %d, want 1", snap.Done)
+	}
+	if snap.Active != 1 {
+		t.Errorf("Active = %d, want 1 (in_progress counts)", snap.Active)
+	}
+	if snap.Cancelled != 0 {
+		t.Errorf("Cancelled = %d, want 0", snap.Cancelled)
+	}
+}
+
+func TestLatestSnapshotEmptyParentReturnsNil(t *testing.T) {
+	sw, _, _, _ := newTestSwarmService(t)
+	if snap := sw.LatestSnapshot(""); snap != nil {
+		t.Errorf("LatestSnapshot(\"\") = %+v, want nil", snap)
+	}
+}
+
+func TestLatestSnapshotMissingParentReturnsNil(t *testing.T) {
+	sw, _, _, _ := newTestSwarmService(t)
+	// No parent task seeded — rebuild from empty subtask list still creates an
+	// empty snapshot in the cache. We just want to confirm no panic and counters
+	// are zero.
+	snap := sw.LatestSnapshot("never-existed")
+	if snap == nil {
+		return // empty parent → nil is fine
+	}
+	if snap.Total != 0 {
+		t.Errorf("Total = %d, want 0 for empty parent", snap.Total)
+	}
+}
+
+// TestBumpSnapshotAfterClose exercises the bumpSnapshot path: dispatch then
+// close a sub-task and assert the in-memory counters move correctly.
+func TestBumpSnapshotAfterClose(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-bump")
+	seedSubtask(t, st, "st-bump01", "parent-bump", "in_progress")
+
+	// Cold rebuild establishes Total=1, Active=1, Done=0.
+	snap := sw.LatestSnapshot("parent-bump")
+	if snap.Total != 1 || snap.Active != 1 || snap.Done != 0 {
+		t.Fatalf("pre-close snapshot wrong: %+v", snap)
+	}
+
+	if err := sw.Built(context.Background(), "st-bump01"); err != nil {
+		t.Fatalf("Built: %v", err)
+	}
+	if err := sw.Close(context.Background(), "st-bump01"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	snap = sw.LatestSnapshot("parent-bump")
+	if snap.Done != 1 {
+		t.Errorf("Done after close = %d, want 1", snap.Done)
+	}
+	if snap.Active != 0 {
+		t.Errorf("Active after close = %d, want 0", snap.Active)
+	}
+}

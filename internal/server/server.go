@@ -8,28 +8,33 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/server/static"
 	"github.com/cpave3/legato/internal/service"
 )
 
 // Server is the HTTP/WebSocket server for Legato's web UI.
 type Server struct {
-	board      service.BoardService
-	agents     service.AgentService
-	swarm      SwarmService
-	tmux       service.TmuxManager
-	bus        *events.Bus
-	addr       string
-	workDir    string // default CWD for agent spawn
-	server     *http.Server
-	hub        *Hub
-	streams    *streamManager
-	tlsCert    string
-	tlsKey     string
-	caCertPath string
-	authToken  string
+	board            service.BoardService
+	agents           service.AgentService
+	swarm            SwarmService
+	tmux             service.TmuxManager
+	bus              *events.Bus
+	addr             string
+	workDir          string // default CWD for agent spawn
+	server           *http.Server
+	hub              *Hub
+	streams          *streamManager
+	tlsCert          string
+	tlsKey           string
+	caCertPath       string
+	authToken        string
+	macros           []macros.Macro
+	sparklineWindow  time.Duration
+	sparklineBuckets int
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -70,6 +75,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/settings", s.settingsHandler())
 	mux.HandleFunc("/api/ca-cert", s.caCertHandler())
 	mux.HandleFunc("/api/adapters", s.adaptersHandler())
+	mux.HandleFunc("/api/macros", s.macrosHandler())
 	// Swarm endpoints
 	mux.HandleFunc("/api/swarm/start", s.swarmStartHandler())
 	mux.HandleFunc("/api/swarm/dispatch", s.swarmDispatchHandler())
@@ -90,8 +96,8 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	}
 
 	s.server = &http.Server{
-		Addr:         addr,
-		Handler:      s.authMiddleware(corsMiddleware(mux)),
+		Addr:    addr,
+		Handler: s.authMiddleware(corsMiddleware(mux)),
 		// Disable HTTP/2 — WebSocket upgrades require the HTTP/1.1
 		// Connection: Upgrade mechanism which doesn't exist in HTTP/2.
 		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),

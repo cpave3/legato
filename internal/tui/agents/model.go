@@ -25,15 +25,16 @@ type DurationData struct {
 
 // Model is the agent view Bubbletea model.
 type Model struct {
-	agents             []service.AgentSession
-	durations          map[string]DurationData
-	selected           int
-	termContent        string
-	coordinationPanel  string // pretty-printed swarm snapshot for the focused agent
-	width              int
-	height             int
-	polling            bool
-	icons              theme.Icons
+	agents            []service.AgentSession
+	durations         map[string]DurationData
+	timelines         map[string][]string
+	selected          int
+	termContent       string
+	coordinationPanel string // pretty-printed swarm snapshot for the focused agent
+	width             int
+	height            int
+	polling           bool
+	icons             theme.Icons
 }
 
 // SetCoordinationPanel sets the rendered coordination snapshot displayed when
@@ -118,6 +119,11 @@ func (m *Model) SetDurations(durations map[string]DurationData) {
 	m.durations = durations
 }
 
+// SetTimelines updates the sparkline timeline data per agent task ID.
+func (m *Model) SetTimelines(timelines map[string][]string) {
+	m.timelines = timelines
+}
+
 // SelectByTaskID moves selection to the agent with the given ticket ID.
 func (m *Model) SelectByTaskID(ticketID string) {
 	for i, a := range m.agents {
@@ -135,6 +141,16 @@ func (m *Model) SetSize(width, height int) {
 }
 
 // SelectedAgent returns the currently selected agent, or nil.
+// Agents returns a copy of the current agent slice.
+func (m Model) Agents() []service.AgentSession {
+	if m.agents == nil {
+		return nil
+	}
+	out := make([]service.AgentSession, len(m.agents))
+	copy(out, m.agents)
+	return out
+}
+
 func (m Model) SelectedAgent() *service.AgentSession {
 	if len(m.agents) == 0 || m.selected >= len(m.agents) {
 		return nil
@@ -194,6 +210,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.termContent = msg.Output
 		return m, nil
 
+	case StateTimelinesRefreshedMsg:
+		if m.timelines == nil {
+			m.timelines = make(map[string][]string)
+		}
+		for k, v := range msg.Timelines {
+			m.timelines[k] = v
+		}
+		return m, nil
+
 	case tickMsg:
 		if !m.polling {
 			return m, nil
@@ -237,6 +262,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, nil
 	case "esc":
 		return m, func() tea.Msg { return ReturnToBoardMsg{} }
+	case "m":
+		return m, func() tea.Msg { return OpenMacroPickerMsg{} }
+	case "M":
+		// Action menu is swarm-only; no-op for solo agents.
+		if a := m.SelectedAgent(); a != nil && a.ParentTaskID != "" {
+			return m, func() tea.Msg {
+				return OpenAgentActionMsg{
+					TaskID:       a.TaskID,
+					ParentTaskID: a.ParentTaskID,
+					Role:         a.Role,
+				}
+			}
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -560,6 +599,24 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 		content += "\n" + roleTag
 	}
 
+	// Sparkline
+	if tl, ok := m.timelines[a.TaskID]; ok && len(tl) > 0 {
+		var bars []string
+		for _, s := range tl {
+			var bar string
+			switch s {
+			case "working":
+				bar = lipgloss.NewStyle().Foreground(theme.SyncOK).Render("█")
+			case "waiting":
+				bar = lipgloss.NewStyle().Foreground(theme.ColReady).Render("█")
+			default:
+				bar = lipgloss.NewStyle().Foreground(theme.TextTertiary).Render("░")
+			}
+			bars = append(bars, bar)
+		}
+		content += "\n" + strings.Join(bars, "")
+	}
+
 	// Card styling
 	if selected {
 		return lipgloss.NewStyle().
@@ -610,11 +667,12 @@ func (m Model) renderSidebarHints(width int) string {
 		BorderForeground(theme.TextTertiary)
 
 	keyStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
-
-	hints := fmt.Sprintf("%s select  %s spawn  %s kill\n%s attach  %s board",
+	hints := fmt.Sprintf("%s select  %s spawn  %s kill  %s macro\n%s action  %s attach  %s board",
 		keyStyle.Render("j/k"),
 		keyStyle.Render("s"),
 		keyStyle.Render("X"),
+		keyStyle.Render("m"),
+		keyStyle.Render("M"),
 		keyStyle.Render("↵"),
 		keyStyle.Render("esc"),
 	)

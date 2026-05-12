@@ -8,13 +8,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// RecordStateTransition closes any open interval for the task and opens a new one
-// if state is non-empty. Idempotent: if the current open interval already has the
-// requested state, no changes are made.
-// workingDir is captured per-interval to track time spent in directories as a
-// proxy for project focus; pass empty string to leave it NULL.
 func (s *Store) RecordStateTransition(ctx context.Context, taskID, state, workingDir string) error {
-	// Check for an existing open interval
 	var current StateInterval
 	err := s.db.GetContext(ctx, &current,
 		"SELECT * FROM state_intervals WHERE task_id = ? AND ended_at IS NULL", taskID)
@@ -24,12 +18,10 @@ func (s *Store) RecordStateTransition(ctx context.Context, taskID, state, workin
 		return err
 	}
 
-	// Idempotent: same state already open, nothing to do
 	if hasOpen && current.State == state {
 		return nil
 	}
 
-	// Close the open interval if one exists
 	if hasOpen {
 		_, err := s.db.ExecContext(ctx,
 			"UPDATE state_intervals SET ended_at = datetime('now') WHERE id = ?", current.ID)
@@ -38,7 +30,6 @@ func (s *Store) RecordStateTransition(ctx context.Context, taskID, state, workin
 		}
 	}
 
-	// Open a new interval if the new state is non-empty
 	if state != "" {
 		if workingDir != "" {
 			_, err := s.db.ExecContext(ctx,
@@ -59,8 +50,6 @@ func (s *Store) RecordStateTransition(ctx context.Context, taskID, state, workin
 	return nil
 }
 
-// GetStateDurations returns aggregated durations per state for a task.
-// Open intervals use the current time for their duration.
 func (s *Store) GetStateDurations(ctx context.Context, taskID string) (map[string]time.Duration, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT state,
@@ -87,8 +76,98 @@ func (s *Store) GetStateDurations(ctx context.Context, taskID string) (map[strin
 	return result, rows.Err()
 }
 
-// GetStateDurationsBatch returns aggregated durations for multiple tasks in a single query.
-// Returns map[taskID]map[state]duration.
+// GetStateTimeline returns a per-bucket state label sequence over the last
+// window. The task ID may be either a tasks.id or a swarm_subtasks.id —
+// state_intervals lost its FK in migration 021 so both are valid lookups.
+func (s *Store) GetStateTimeline(ctx context.Context, taskID string, window time.Duration, buckets int) ([]string, error) {
+	if buckets <= 0 {
+		return []string{}, nil
+	}
+
+	now := time.Now().UTC()
+	slotDuration := window / time.Duration(buckets)
+
+	var rows []struct {
+		State     string `db:"state"`
+		StartedAt int64  `db:"started_at"`
+		EndedAt   *int64 `db:"ended_at"`
+	}
+	err := s.db.SelectContext(ctx, &rows, `
+		SELECT state,
+			CAST(strftime('%s', started_at) AS INTEGER) as started_at,
+			CAST(strftime('%s', ended_at) AS INTEGER) as ended_at
+		FROM state_intervals
+		WHERE task_id = ?
+		ORDER BY started_at ASC`, taskID)
+	if err != nil {
+		return nil, err
+	}
+
+	type slotAcc struct {
+		working time.Duration
+		waiting time.Duration
+	}
+	acc := make([]slotAcc, buckets)
+
+	nowUnix := now.Unix()
+	for _, r := range rows {
+		var ended int64
+		if r.EndedAt != nil {
+			ended = *r.EndedAt
+		} else {
+			ended = nowUnix
+		}
+
+		for b := 0; b < buckets; b++ {
+			windowStart := nowUnix - int64(window.Seconds())
+			slotStart := windowStart + int64(b)*int64(slotDuration.Seconds())
+			slotEnd := slotStart + int64(slotDuration.Seconds())
+
+			// Interval is entirely before window
+			if ended <= windowStart {
+				continue
+			}
+			// Interval is entirely after window
+			if r.StartedAt >= nowUnix {
+				continue
+			}
+
+			interStart := r.StartedAt
+			if interStart < slotStart {
+				interStart = slotStart
+			}
+			interEnd := ended
+			if interEnd > slotEnd {
+				interEnd = slotEnd
+			}
+			if interEnd <= interStart {
+				continue
+			}
+
+			dur := time.Duration(interEnd-interStart) * time.Second
+			switch r.State {
+			case "working":
+				acc[b].working += dur
+			case "waiting":
+				acc[b].waiting += dur
+			}
+		}
+	}
+
+	timeline := make([]string, buckets)
+	for i := 0; i < buckets; i++ {
+		state := ""
+		if acc[i].working > acc[i].waiting {
+			state = "working"
+		} else if acc[i].waiting > acc[i].working {
+			state = "waiting"
+		}
+		timeline[i] = state
+	}
+
+	return timeline, nil
+}
+
 func (s *Store) GetStateDurationsBatch(ctx context.Context, taskIDs []string) (map[string]map[string]time.Duration, error) {
 	if len(taskIDs) == 0 {
 		return make(map[string]map[string]time.Duration), nil

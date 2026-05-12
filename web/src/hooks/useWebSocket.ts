@@ -39,6 +39,7 @@ export interface AgentInfo {
   ended_at?: string
   working_seconds: number
   waiting_seconds: number
+  state_timeline?: string[]
 }
 
 export interface PromptState {

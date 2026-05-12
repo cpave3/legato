@@ -7,6 +7,7 @@
 - `legato task note <task-id> <message>` — append timestamped note to task description
 - `legato agent state <task-id> --activity <working|waiting|"">` — update agent activity state on a card
 - `legato agent summary [--exclude <task-id>]` — output tmux-formatted agent session counts (working/waiting/idle) for use in tmux status bar `#()` expansion
+- `legato agent status <task-id> --format tmux` — output a swarm-aware tmux status-line string for the given task. For swarm participants it shows `x/y done`, the last event kind + age, active sibling count, and a scope-warning icon; for solo agents it falls back to the same output as `agent summary --exclude <task-id>`. Auto-injected into `status-right` by `SpawnAgent` for swarm sessions; solo sessions keep the summary command. The CLI opens a new SQLite connection each call (the in-process `SwarmService.LatestSnapshot` cache is unreachable across process boundaries) so latency is bounded by SQLite open + two aggregate queries
 - `legato task link <task-id> [--branch <branch>] [--repo <owner/repo>]` — link a git branch to a task for PR tracking (auto-detects branch if `--branch` omitted, `--repo` enables repo-scoped polling)
 - `legato task unlink <task-id>` — remove branch/PR association from a task
 - `legato hooks install [--tool claude-code|staccato|chimera]` — install AI tool hooks (claude-code: `.claude/hooks/`, staccato: `~/.config/staccato/hooks/`, chimera: `~/.chimera/hooks/`)
@@ -63,11 +64,11 @@ Abstract adapter interface (`service.AIToolAdapter`) for pluggable AI tool integ
 
 ## Tmux Status Line
 
-Legato-spawned tmux sessions get a custom status bar showing a live summary of other agent sessions. Implemented via tmux `#()` shell expansion calling `legato agent summary`.
+Legato-spawned tmux sessions get a custom status bar showing live context. Solo agents see a summary of other sessions; swarm participants see swarm-local progress. Implemented via tmux `#()` shell expansion.
 
 - **Injection**: `SpawnAgent` sets `status-right`, `status-interval` (5s), `status-style`, `status-left` on the session *before* user `tmux_options` — user config can override
-- **Binary path**: Resolved once at startup via `os.Executable()`, passed to `AgentServiceOptions.BinaryPath`, embedded as absolute path in `status-right` command
-- **Exclude self**: Each session's `status-right` includes `--exclude <taskID>` so the operator sees counts for *other* sessions only
+- **Binary path**: Resolved once at startup via `os.Executable()`, passed to `AgentServiceOptions.BinaryPath`, embedded as absolute path in the `status-right` command
+- **Solo vs swarm**: when `AgentSpawnOptions.ParentTaskID` is empty, `status-right` invokes `legato agent summary --exclude <taskID>` (working/waiting/idle counts for *other* sessions). When `ParentTaskID` is set, `status-right` invokes `legato agent status <taskID> --format tmux`, which prints swarm-local context (`x/y done`, last event + age, active sibling count, scope-warning icon).
 - **Output format**: `legato agent summary` outputs tmux-native style markup (`#[fg=green]2 working #[fg=colour240]· #[fg=yellow]1 waiting #[fg=colour240]· #[fg=colour245]0 idle`). Zero-count working/waiting states omitted; idle always shown
 - **Performance**: Opens SQLite, runs single `GROUP BY` aggregate query, exits. Sub-10ms typical execution
 

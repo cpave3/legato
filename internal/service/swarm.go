@@ -47,6 +47,17 @@ type SwarmConfig struct {
 	ValidateOptions swarm.ValidateOptions
 }
 
+// SwarmSnapshot is a lightweight in-memory view of swarm progress suitable
+// for fast status-line rendering.
+type SwarmSnapshot struct {
+	Total         int
+	Done          int
+	Cancelled     int
+	Active        int
+	LastEventKind string
+	LastEventAt   time.Time
+}
+
 // SwarmService is the conductor-driven orchestration surface. The CLI verbs
 // (propose-plan, dispatch, message, broadcast, close, finish, progress,
 // question, built) all route here.
@@ -56,6 +67,7 @@ type SwarmService interface {
 	GetSubtask(ctx context.Context, id string) (*store.Subtask, error)
 	ListSubtaskInfos(ctx context.Context, parentID string) ([]SwarmSubtaskInfo, error)
 	Snapshot(ctx context.Context, parentID string) ([]byte, error)
+	LatestSnapshot(parentID string) *SwarmSnapshot
 	FetchInbox(ctx context.Context, parentID string) ([]InboxEntry, error)
 	PeekInbox(ctx context.Context, parentID string) ([]InboxEntry, error)
 	LoadPlan(path string) (*SwarmPlan, error)
@@ -129,6 +141,11 @@ type swarmService struct {
 	// claude's input handler may lose the Enter on the first.
 	conductorLocksMu sync.Mutex
 	conductorLocks   map[string]*sync.Mutex
+
+	// Per-parent in-memory snapshot cache. Updated incrementally on
+	// mutation paths so that LatestSnapshot is sub-millisecond.
+	snapshotMu    sync.RWMutex
+	snapshotCache map[string]*SwarmSnapshot
 }
 
 type pendingProgressEntry struct {
@@ -156,6 +173,7 @@ func NewSwarmService(s *store.Store, agents AgentService, bus *events.Bus, cfg S
 		pendingProgress: make(map[string]*pendingProgressEntry),
 		pendingMeta:     make(map[string]progressMeta),
 		conductorLocks:  make(map[string]*sync.Mutex),
+		snapshotCache:   make(map[string]*SwarmSnapshot),
 	}
 }
 
@@ -418,6 +436,109 @@ func (s *swarmService) Snapshot(ctx context.Context, parentID string) ([]byte, e
 	return json.MarshalIndent(out, "", "  ")
 }
 
+// LatestSnapshot returns the cheap in-memory snapshot for a parent task.
+// nil means no swarm data is cached (parent not started). On a cold cache we
+// rebuild from the DB once so Total/Done counters are correct after a server
+// restart; subsequent reads stay in-memory.
+func (s *swarmService) LatestSnapshot(parentID string) *SwarmSnapshot {
+	if parentID == "" {
+		return nil
+	}
+	s.snapshotMu.RLock()
+	snap := s.snapshotCache[parentID]
+	s.snapshotMu.RUnlock()
+	if snap != nil {
+		return snap
+	}
+	s.rebuildSnapshot(context.Background(), parentID)
+	s.snapshotMu.RLock()
+	defer s.snapshotMu.RUnlock()
+	return s.snapshotCache[parentID]
+}
+
+// bumpSnapshot mutates the per-parent cache to reflect a single sub-task
+// status change. Called from the hot paths so it must not block.
+func (s *swarmService) bumpSnapshot(parentID string, oldStatus, newStatus string) {
+	if parentID == "" {
+		return
+	}
+	s.snapshotMu.Lock()
+	defer s.snapshotMu.Unlock()
+
+	snap := s.snapshotCache[parentID]
+	if snap == nil {
+		snap = &SwarmSnapshot{}
+	}
+
+	// Decrement old if it existed.
+	switch oldStatus {
+	case "done":
+		snap.Done--
+	case "cancelled":
+		snap.Cancelled--
+	case "dispatched", "in_progress", "reporting":
+		snap.Active--
+	}
+
+	// Increment new.
+	switch newStatus {
+	case "done":
+		snap.Done++
+	case "cancelled":
+		snap.Cancelled++
+	case "dispatched", "in_progress", "reporting":
+		snap.Active++
+	case "queued":
+		// Total stays the same; it was already counted.
+	}
+
+	s.snapshotCache[parentID] = snap
+}
+
+// setSnapshotEvent updates the cached last-event metadata for a parent.
+func (s *swarmService) setSnapshotEvent(parentID, kind string) {
+	if parentID == "" {
+		return
+	}
+	s.snapshotMu.Lock()
+	defer s.snapshotMu.Unlock()
+
+	snap := s.snapshotCache[parentID]
+	if snap == nil {
+		snap = &SwarmSnapshot{}
+	}
+	snap.LastEventKind = kind
+	snap.LastEventAt = time.Now()
+	s.snapshotCache[parentID] = snap
+}
+
+// rebuildSnapshot recalculates the per-parent cache from DB. Used when we
+// don't know the prior state (plan applied, finish, etc.).
+func (s *swarmService) rebuildSnapshot(ctx context.Context, parentID string) {
+	if parentID == "" {
+		return
+	}
+	var snap SwarmSnapshot
+	subs, err := s.store.ListSubtasksByParent(ctx, parentID)
+	if err != nil {
+		return
+	}
+	for _, st := range subs {
+		snap.Total++
+		switch st.Status {
+		case "done":
+			snap.Done++
+		case "cancelled":
+			snap.Cancelled++
+		case "dispatched", "in_progress", "reporting":
+			snap.Active++
+		}
+	}
+	s.snapshotMu.Lock()
+	defer s.snapshotMu.Unlock()
+	s.snapshotCache[parentID] = &snap
+}
+
 // StartSwarm spawns the conductor for a parent task. Refuses if the parent
 // already has a running agent or if working dir doesn't validate. Persists
 // the working dir on the parent task. The conductor's brief is the parent
@@ -507,6 +628,7 @@ func (s *swarmService) ApplyApprovedPlan(ctx context.Context, plan *swarm.Plan) 
 			}
 		}
 	}
+	s.rebuildSnapshot(ctx, plan.Swarm.ParentTaskID)
 	s.publishChanged(plan.Swarm.ParentTaskID, "", "plan_applied")
 	return nil
 }
@@ -630,8 +752,10 @@ func (s *swarmService) Dispatch(ctx context.Context, subtaskID string) error {
 		payload := fmt.Sprintf("worker %q overlaps with active sibling %q (%s); %d file(s) in conflict",
 			st.Title, conflict.SiblingTitle, conflict.SiblingSubtaskID, len(conflict.Files))
 		s.recordEventForConductor(st.ParentTaskID, subtaskID, "scope_warning", st.Title, payload)
+		s.setSnapshotEvent(st.ParentTaskID, "scope_warning")
 	}
 
+	s.bumpSnapshot(st.ParentTaskID, "queued", "dispatched")
 	s.publishChanged(st.ParentTaskID, subtaskID, "dispatched")
 	return nil
 }
@@ -743,6 +867,7 @@ func (s *swarmService) Close(ctx context.Context, subtaskID string) error {
 	if err := s.store.UpdateSubtaskStatus(ctx, subtaskID, newStatus); err != nil {
 		return err
 	}
+	s.bumpSnapshot(st.ParentTaskID, st.Status, newStatus)
 	s.publishChanged(st.ParentTaskID, subtaskID, newStatus)
 
 	// All-idle check after a closure.
@@ -777,6 +902,8 @@ func (s *swarmService) Finish(ctx context.Context, parentID, summary string) err
 
 	s.cleanupRuntimeFiles(parentID, subs)
 
+	s.rebuildSnapshot(ctx, parentID)
+
 	// Append summary to parent task description.
 	parent, err := s.store.GetTask(ctx, parentID)
 	if err != nil {
@@ -794,6 +921,7 @@ func (s *swarmService) Finish(ctx context.Context, parentID, summary string) err
 	// user dismisses it.
 	s.recordEventForConductor(parentID, "", "finished", "",
 		"Swarm finished. All workers terminated, summary appended to the parent task. This conductor session remains active for any final questions or confirmation; close it manually when you're done.")
+	s.setSnapshotEvent(parentID, "finished")
 
 	s.publishChanged(parentID, "", "finished")
 	return nil
@@ -853,10 +981,12 @@ func (s *swarmService) Progress(ctx context.Context, subtaskID, text string) err
 	// First progress call transitions dispatched → in_progress.
 	if st.Status == "dispatched" {
 		_ = s.store.UpdateSubtaskStatus(ctx, subtaskID, "in_progress")
+		s.bumpSnapshot(st.ParentTaskID, "dispatched", "in_progress")
 		s.publishChanged(st.ParentTaskID, subtaskID, "in_progress")
 		st.Status = "in_progress"
 	}
 	s.scheduleProgressEvent(st.ParentTaskID, st.Title, subtaskID, text)
+	s.setSnapshotEvent(st.ParentTaskID, "progress")
 	return nil
 }
 
@@ -868,6 +998,7 @@ func (s *swarmService) Question(ctx context.Context, subtaskID, text string) err
 	}
 	s.flushProgressEvent(subtaskID)
 	s.recordEventForConductor(st.ParentTaskID, subtaskID, "question", st.Title, text)
+	s.setSnapshotEvent(st.ParentTaskID, "question")
 	return nil
 }
 
@@ -889,6 +1020,8 @@ func (s *swarmService) Built(ctx context.Context, subtaskID string) error {
 		st.Title, subtaskID, subtaskID, subtaskID,
 	)
 	s.recordEventForConductor(st.ParentTaskID, subtaskID, "built", st.Title, payload)
+	s.bumpSnapshot(st.ParentTaskID, st.Status, "reporting")
+	s.setSnapshotEvent(st.ParentTaskID, "built")
 	s.publishChanged(st.ParentTaskID, subtaskID, "reporting")
 	s.maybeNotifyAllIdle(ctx, st.ParentTaskID)
 	return nil
@@ -911,6 +1044,8 @@ func (s *swarmService) HandleAgentDied(ctx context.Context, parentTaskID, subtas
 	}
 	_ = s.store.UpdateSubtaskStatus(ctx, subtaskID, "cancelled")
 	s.flushProgressEvent(subtaskID)
+	s.bumpSnapshot(parentTaskID, st.Status, "cancelled")
+	s.setSnapshotEvent(parentTaskID, "died")
 	payload := fmt.Sprintf("worker %q (%s) died unexpectedly; sub-task transitioned to `cancelled`.", st.Title, subtaskID)
 	s.recordEventForConductor(parentTaskID, subtaskID, "died", st.Title, payload)
 	s.publishChanged(parentTaskID, subtaskID, "cancelled")

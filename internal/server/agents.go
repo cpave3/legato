@@ -9,6 +9,35 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
+const (
+	defaultSparklineWindow  = 10 * time.Minute
+	defaultSparklineBuckets = 10
+)
+
+// SetSparklineWindow configures the window and bucket count used when
+// populating AgentResponse.StateTimeline. Zero or negative values fall back to
+// the defaults (10 minutes, 10 buckets).
+func (s *Server) SetSparklineWindow(window time.Duration, buckets int) {
+	if window > 0 {
+		s.sparklineWindow = window
+	}
+	if buckets > 0 {
+		s.sparklineBuckets = buckets
+	}
+}
+
+func (s *Server) sparklineParams() (time.Duration, int) {
+	window := s.sparklineWindow
+	if window <= 0 {
+		window = defaultSparklineWindow
+	}
+	buckets := s.sparklineBuckets
+	if buckets <= 0 {
+		buckets = defaultSparklineBuckets
+	}
+	return window, buckets
+}
+
 // AgentResponse is the JSON representation of an agent session.
 type AgentResponse struct {
 	ID             int        `json:"id"`
@@ -25,6 +54,7 @@ type AgentResponse struct {
 	EndedAt        *time.Time `json:"ended_at,omitempty"`
 	WorkingSeconds float64    `json:"working_seconds"`
 	WaitingSeconds float64    `json:"waiting_seconds"`
+	StateTimeline  []string   `json:"state_timeline,omitempty"`
 }
 
 func (s *Server) spawnAgentHandler() http.HandlerFunc {
@@ -151,6 +181,11 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 			if d, ok := durations[a.TaskID]; ok {
 				r.WorkingSeconds = d.Working.Seconds()
 				r.WaitingSeconds = d.Waiting.Seconds()
+			}
+			window, buckets := s.sparklineParams()
+			timeline, tlErr := s.agents.GetStateTimeline(context.Background(), a.TaskID, window, buckets)
+			if tlErr == nil {
+				r.StateTimeline = timeline
 			}
 			resp[i] = r
 		}
