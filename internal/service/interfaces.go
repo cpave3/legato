@@ -10,6 +10,7 @@ import (
 
 // PRMetaView holds parsed PR metadata for display.
 type PRMetaView struct {
+	Repo           string // owner/repo
 	Branch         string
 	PRNumber       int
 	PRURL          string

@@ -441,11 +441,11 @@ func runServeCmd(args []string) int {
 		swarmSvc = service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd)
 	}
 
-	addr := ":" + port
-	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
-	srv.SetMacros(cfg.Macros)
-	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
-	srv.SetSparklineWindow(srvWindow, srvBuckets)
+		addr := ":" + port
+		srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
+		srv.SetMacros(cfg.Macros)
+		srvWindow, srvBuckets := resolveSparklineWindow(cfg)
+		srv.SetSparklineWindow(srvWindow, srvBuckets)
 
 	// Configure TLS.
 	certFile, keyFile, caCertFile := resolveTLS(cfg)
@@ -490,6 +490,7 @@ func runServeCmd(args []string) int {
 		defer swarmStop()
 	}
 	srv.StartSwarmEvents()
+	srv.StartBoardEvents()
 
 	scheme := "http"
 	if certFile != "" {
@@ -734,6 +735,8 @@ func runTUI() int {
 		} else {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
 			webSrv.SetMacros(cfg.Macros)
+				webSrv.SetSyncService(syncSvc)
+				webSrv.SetPRTrackingService(prSvc)
 			webWindow, webBuckets := resolveSparklineWindow(cfg)
 			webSrv.SetSparklineWindow(webWindow, webBuckets)
 			certFile, keyFile, caCertFile := resolveTLS(cfg)
@@ -747,6 +750,7 @@ func runTUI() int {
 				webSrv.SetAuthToken(token)
 			}
 			webSrv.StartSwarmEvents()
+			webSrv.StartBoardEvents()
 			go func() {
 				if err := webSrv.Serve(ln); err != nil && err.Error() != "http: Server closed" {
 					log.Printf("web server: %v", err)

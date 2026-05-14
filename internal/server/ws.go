@@ -33,6 +33,7 @@ const (
 	MsgPlanProposed   = "plan_proposed"
 	MsgPlanVerdict    = "plan_verdict"
 	MsgSwarmChanged   = "swarm_changed"
+	MsgCardsChanged   = "cards_changed"
 	MsgError          = "error"
 )
 

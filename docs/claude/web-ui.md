@@ -46,6 +46,18 @@ Remote web interface for monitoring and interacting with agent sessions from any
 - `QRScanner` — Camera-based QR code scanner using `html5-qrcode`. Parses `legato://pair?url=...&token=...` URIs. Error handling for camera denial, invalid QR codes
 - `Settings` — Settings page with sections: Appearance (glitch effect toggle, prompt detection default, agent switch modifier key picker), Pairing (QR code scanner), TLS Certificate (CA download with platform instructions). All settings use localStorage with `legato:` prefix
 
+### Board page
+
+The board page (`BoardPage` in `web/src/components/board/BoardPage.tsx`) is a keyboard-driven kanban view backed by `GET /api/board`. It renders columns left-to-right with cards underneath, maintains a selected-card cursor, and supports workspace filtering via a dropdown.
+
+**Keyboard bindings.** `j`/`k` moves the cursor down/up within a column; `h`/`l` switches columns left/right. `n` opens the Create Task overlay (title, description, column, workspace). `x` archives the selected card if it is in the Done column. `Shift+X` opens the Bulk Archive overlay when the Done column has cards (shows count, `y` confirms). `i` opens the Import Remote Task overlay (live search via `SyncService`, j/k navigation, enter to import). `w` opens the workspace switcher (`GET /api/workspaces`, j/k navigation, enter to filter). `?` opens the Help overlay with keybinding reference.
+
+**Data flow.** `useBoard()` sets up a WebSocket listener for `cards_changed` messages and automatically re-fetches `/api/board` on every event. The hook also exposes `refresh()` for manual refetch (used after create/import/move). Board data includes PR metadata (check status, review decision, comment count, draft indicator) and swarm stats per card when those services are active.
+
+**Per-card indicators.** Each card shows: priority-colored left border, provider icon (Jira, GitHub, local), warning dot if sync failed, workspace tag in "All" view, branch/PR status pill when a PR is linked, and swarm stat dots (total sub-tasks with done/in-progress counts) when the card has an active swarm. Cards with running agents show a terminal icon.
+
+**Overlay set.** Create overlay (`CreateTaskOverlay`), Import overlay (`ImportOverlay`), workspace switcher (`WorkspaceOverlay`), archive confirmation (`ArchiveOverlay`), link-PR modal (`LinkPRModal`), help (`HelpOverlay`), and a detail slide-out (`TaskDetail`) for viewing full card context. Only one overlay is active at a time; Escape dismisses. The detail pane shows description markdown, remote metadata, PR branch info, and swarm step list with active step highlighted.
+
 ### Swarm controls
 
 The web PWA supports the full user-driven swarm control surface:

@@ -4,7 +4,7 @@ import { getToken } from "../lib/auth"
 export interface WSMessage {
   type: "agent_output" | "agent_list" | "agents_changed" | "prompt_state" | "error"
     | "subscribe_agent" | "unsubscribe_agent" | "send_keys" | "resize" | "detect_prompt" | "refresh_pane"
-    | "plan_proposed" | "plan_verdict" | "swarm_changed"
+    | "plan_proposed" | "plan_verdict" | "swarm_changed" | "cards_changed"
   agent_id?: string
   content?: string
   full?: boolean

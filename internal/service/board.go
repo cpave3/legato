@@ -509,6 +509,7 @@ func taskToCardDetail(t *store.Task) *CardDetail {
 		prMeta, err := store.ParsePRMeta(t.PRMeta)
 		if err == nil && prMeta != nil {
 			detail.PRMeta = &PRMetaView{
+				Repo:           prMeta.Repo,
 				Branch:         prMeta.Branch,
 				PRNumber:       prMeta.PRNumber,
 				PRURL:          prMeta.PRURL,

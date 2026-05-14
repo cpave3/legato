@@ -21,6 +21,8 @@ type Server struct {
 	board            service.BoardService
 	agents           service.AgentService
 	swarm            SwarmService
+	sync             service.SyncService
+	prTracking       service.PRTrackingService
 	tmux             service.TmuxManager
 	bus              *events.Bus
 	addr             string
@@ -72,10 +74,22 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/spawn", s.spawnAgentHandler())
 	mux.HandleFunc("/api/agents/kill", s.killAgentHandler())
 	mux.HandleFunc("/api/tasks", s.tasksHandler())
+	mux.HandleFunc("/api/tasks/search", s.searchTasksHandler())
+	mux.HandleFunc("/api/tasks/{id}/archive", s.archiveTaskHandler())
+	mux.HandleFunc("/api/tasks/{id}/link-pr", s.linkPRHandler())
+	mux.HandleFunc("/api/tasks/{id}/pr-preview", s.prPreviewHandler())
+	mux.HandleFunc("/api/tasks/{id}/unlink-pr", s.unlinkPRHandler())
+	mux.HandleFunc("/api/tasks/{id}", s.taskHandler())
+	mux.HandleFunc("/api/board", s.boardHandler())
+	mux.HandleFunc("/api/board/archive-done", s.archiveDoneHandler())
+	mux.HandleFunc("/api/workspaces", s.workspacesHandler())
 	mux.HandleFunc("/api/settings", s.settingsHandler())
 	mux.HandleFunc("/api/ca-cert", s.caCertHandler())
 	mux.HandleFunc("/api/adapters", s.adaptersHandler())
 	mux.HandleFunc("/api/macros", s.macrosHandler())
+	mux.HandleFunc("/api/remote/search", s.remoteSearchHandler())
+	mux.HandleFunc("/api/remote/import", s.remoteImportHandler())
+	mux.HandleFunc("/api/repo/detect", s.detectRepoHandler())
 	// Swarm endpoints
 	mux.HandleFunc("/api/swarm/start", s.swarmStartHandler())
 	mux.HandleFunc("/api/swarm/dispatch", s.swarmDispatchHandler())
@@ -122,6 +136,16 @@ func (s *Server) SetAuthToken(token string) {
 	s.authToken = token
 }
 
+// SetSyncService sets the optional sync service for remote search/import endpoints.
+func (s *Server) SetSyncService(svc service.SyncService) {
+	s.sync = svc
+}
+
+// SetPRTrackingService sets the optional PR tracking service for link-pr endpoints.
+func (s *Server) SetPRTrackingService(svc service.PRTrackingService) {
+	s.prTracking = svc
+}
+
 // corsMiddleware adds CORS headers to all responses so the PWA served from
 // one legato instance can talk to another. Wildcard origin is acceptable
 // because the server runs on a local network with self-signed TLS — the CA
@@ -129,7 +153,7 @@ func (s *Server) SetAuthToken(token string) {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -333,6 +357,32 @@ func (s *Server) StartSwarmEvents() {
 					Status:       p.NewStatus,
 				})
 			}
+		}
+	}()
+}
+
+// StartBoardEvents subscribes to card-related events and broadcasts
+// cards_changed to all connected WebSocket clients.
+func (s *Server) StartBoardEvents() {
+	if s.bus == nil {
+		return
+	}
+	go func() {
+		ch := s.bus.Subscribe(events.EventCardsRefreshed)
+		for range ch {
+			s.hub.Broadcast(WSMessage{Type: MsgCardsChanged})
+		}
+	}()
+	go func() {
+		ch := s.bus.Subscribe(events.EventCardMoved)
+		for range ch {
+			s.hub.Broadcast(WSMessage{Type: MsgCardsChanged})
+		}
+	}()
+	go func() {
+		ch := s.bus.Subscribe(events.EventCardUpdated)
+		for range ch {
+			s.hub.Broadcast(WSMessage{Type: MsgCardsChanged})
 		}
 	}()
 }

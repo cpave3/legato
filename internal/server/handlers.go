@@ -29,9 +29,9 @@ func healthHandler(svc service.BoardService) http.HandlerFunc {
 			cardResponses := make([]CardResponse, len(cards))
 			for i, c := range cards {
 				cardResponses[i] = CardResponse{
-					Key:     c.ID,
-					Title:   c.Title,
-					Status:  c.Status,
+					ID:     c.ID,
+					Title:  c.Title,
+					Status: c.Status,
 				}
 			}
 

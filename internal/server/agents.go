@@ -194,42 +194,63 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 	}
 }
 
-// TasksResponse groups tasks by column.
-type TasksResponse map[string][]CardResponse
-
 func (s *Server) tasksHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		ctx := context.Background()
-		columns, err := s.board.ListColumns(ctx)
-		if err != nil {
-			http.Error(w, "failed to list columns", http.StatusInternalServerError)
-			return
-		}
-
-		resp := make(TasksResponse)
-		for _, col := range columns {
-			cards, err := s.board.ListCards(ctx, col.Name)
+		switch r.Method {
+		case http.MethodGet:
+			ctx := context.Background()
+			columns, err := s.board.ListColumns(ctx)
 			if err != nil {
-				http.Error(w, "failed to list cards", http.StatusInternalServerError)
+				http.Error(w, "failed to list columns", http.StatusInternalServerError)
 				return
 			}
-			cardResp := make([]CardResponse, len(cards))
-			for i, c := range cards {
-				cardResp[i] = CardResponse{
-					Key:    c.ID,
-					Title:  c.Title,
-					Status: c.Status,
+			resp := make(TasksResponse)
+			for _, col := range columns {
+				cards, err := s.board.ListCards(ctx, col.Name)
+				if err != nil {
+					http.Error(w, "failed to list cards", http.StatusInternalServerError)
+					return
 				}
+				cardResp := make([]CardResponse, len(cards))
+				for i, c := range cards {
+					cardResp[i] = CardResponse{
+						ID:     c.ID,
+						Title:  c.Title,
+						Status: c.Status,
+					}
+				}
+				resp[col.Name] = cardResp
 			}
-			resp[col.Name] = cardResp
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+		case http.MethodPost:
+			var req struct {
+				Title       string `json:"title"`
+				Description string `json:"description"`
+				Column      string `json:"column"`
+				Priority    string `json:"priority"`
+				WorkspaceID *int   `json:"workspace_id,omitempty"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid JSON", http.StatusBadRequest)
+				return
+			}
+			if req.Title == "" || req.Column == "" {
+				http.Error(w, "title and column are required", http.StatusBadRequest)
+				return
+			}
+			ctx := context.Background()
+			card, err := s.board.CreateTask(ctx, req.Title, req.Description, req.Column, req.Priority, req.WorkspaceID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			resp := CardResponse{ID: card.ID, Title: card.Title, Priority: card.Priority, Status: card.Status}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(resp)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
 	}
 }
