@@ -1785,9 +1785,6 @@ func (a App) handleAgentTick() (tea.Model, tea.Cmd) {
 		return a, agentTickCmd()
 	}
 
-	// Update the coordination panel for swarm agents.
-	a.refreshCoordinationPanel(selected.TaskID)
-
 	svc := a.agentSvc
 	taskID := selected.TaskID
 	return a, tea.Batch(
@@ -1828,34 +1825,7 @@ func (a App) handleSparklineTick() (tea.Model, tea.Cmd) {
 	return a, tea.Batch(cmds...)
 }
 
-// refreshCoordinationPanel populates the coordination panel for the focused
-// agent's parent swarm, if any. No-op when the agent isn't part of a swarm.
-func (a *App) refreshCoordinationPanel(focusedTaskID string) {
-	if a.swarmSvc == nil {
-		a.agentView.SetCoordinationPanel("")
-		return
-	}
-	all, err := a.agentSvc.ListAgents(context.Background())
-	if err != nil {
-		return
-	}
-	var parentID string
-	for _, ag := range all {
-		if ag.TaskID == focusedTaskID {
-			parentID = ag.ParentTaskID
-			break
-		}
-	}
-	if parentID == "" {
-		a.agentView.SetCoordinationPanel("")
-		return
-	}
-	raw, err := a.swarmSvc.Snapshot(context.Background(), parentID)
-	if err != nil {
-		return
-	}
-	a.agentView.SetCoordinationPanel(string(raw))
-}
+
 
 func (a App) handleKillAgent(msg agents.KillAgentMsg) (tea.Model, tea.Cmd) {
 	if a.agentSvc == nil {

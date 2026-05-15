@@ -50,6 +50,11 @@ type AgentSession struct {
 	SubtaskID    string // when set, this session is a swarm worker
 	StartedAt    time.Time
 	EndedAt      *time.Time
+
+	// Swarm worker metadata, hydrated from the subtask row.
+	Description string
+	Prompt      string   // per-worker instructions (initial brief)
+	Scope       []string // file globs
 }
 
 // DurationData holds aggregated state durations for a task.
@@ -611,6 +616,16 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			SubtaskID:    subtaskID,
 			StartedAt:    startedAt,
 			EndedAt:      endedAt,
+		}
+
+		// Hydrate subtask metadata for swarm workers.
+		if subtaskID != "" {
+			if st, err := a.store.GetSubtask(ctx, subtaskID); err == nil {
+				globs, _ := store.ParseScopeGlobs(st.ScopeGlobs)
+				result[i].Description = st.Description
+				result[i].Prompt = st.Prompt
+				result[i].Scope = globs
+			}
 		}
 	}
 	return result, nil

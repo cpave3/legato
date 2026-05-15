@@ -25,22 +25,15 @@ type DurationData struct {
 
 // Model is the agent view Bubbletea model.
 type Model struct {
-	agents            []service.AgentSession
-	durations         map[string]DurationData
-	timelines         map[string][]string
-	selected          int
-	termContent       string
-	coordinationPanel string // pretty-printed swarm snapshot for the focused agent
-	width             int
-	height            int
-	polling           bool
-	icons             theme.Icons
-}
-
-// SetCoordinationPanel sets the rendered coordination snapshot displayed when
-// the focused agent has a parent_task_id. Pass empty string to hide the panel.
-func (m *Model) SetCoordinationPanel(content string) {
-	m.coordinationPanel = content
+	agents      []service.AgentSession
+	durations   map[string]DurationData
+	timelines   map[string][]string
+	selected    int
+	termContent string
+	width       int
+	height      int
+	polling     bool
+	icons       theme.Icons
 }
 
 // New creates a new agent view model.
@@ -281,7 +274,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 }
 
 // View renders the agent view: sidebar on the left, terminal panel on the right.
-// When a swarm coordination snapshot is set, a third panel is appended.
+// When the selected agent is a swarm worker, a third panel with worker details
+// is appended.
 func (m Model) View() string {
 	if m.width == 0 {
 		return ""
@@ -289,12 +283,13 @@ func (m Model) View() string {
 
 	sidebar := m.renderSidebar()
 
-	if m.coordinationPanel == "" {
+	a := m.SelectedAgent()
+	if a == nil || a.ParentTaskID == "" {
 		termPanel := m.renderTerminalPanel()
 		return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, termPanel)
 	}
 
-	// 3-panel layout: sidebar | terminal (60% of remaining) | coordination (40%)
+	// 3-panel layout: sidebar | terminal (60% of remaining) | worker details (40%)
 	remaining := m.width - SidebarWidth
 	if remaining < 20 {
 		// Too narrow — fall back to 2-panel layout.
@@ -304,7 +299,7 @@ func (m Model) View() string {
 	termWidth := remaining * 6 / 10
 	coordWidth := remaining - termWidth
 	termPanel := m.renderTerminalPanelWithWidth(termWidth)
-	coordPanel := m.renderCoordinationPanel(coordWidth)
+	coordPanel := m.renderWorkerDetailsPanel(coordWidth)
 	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, termPanel, coordPanel)
 }
 
@@ -318,36 +313,87 @@ func (m Model) renderTerminalPanelWithWidth(width int) string {
 	return out
 }
 
-// renderCoordinationPanel renders the swarm coordination snapshot as a side panel.
-func (m Model) renderCoordinationPanel(width int) string {
-	headerStyle := lipgloss.NewStyle().
+// renderWorkerDetailsPanel renders the selected swarm worker's role, scope,
+// and instructions. It replaces the raw JSON swarm snapshot so the user can
+// see the purpose of the focused worker at a glance.
+func (m Model) renderWorkerDetailsPanel(width int) string {
+	a := m.SelectedAgent()
+	if a == nil || a.ParentTaskID == "" {
+		return ""
+	}
+
+	cardW := width - 1 // -1 for border
+	if cardW < 4 {
+		cardW = 4
+	}
+
+	// Header
+	header := lipgloss.NewStyle().
 		Foreground(theme.AccentPurple).
 		Bold(true).
 		PaddingLeft(1).
-		PaddingBottom(1)
-	header := headerStyle.Render("SWARM")
-	bodyStyle := lipgloss.NewStyle().
-		Foreground(theme.TextSecondary).
+		PaddingBottom(1).
+		Render("WORKER")
+
+	// Content lines
+	var parts []string
+	labelStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary).Bold(true)
+	valueStyle := lipgloss.NewStyle().Foreground(theme.TextPrimary)
+	wrapStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
+	dimStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary).Italic(true)
+
+	// Title
+	if a.Title != "" {
+		parts = append(parts, wrapStyle.Render(a.Title))
+	}
+
+	// Role + Subtask
+	if a.Role != "" && a.Role != "conductor" {
+		parts = append(parts, labelStyle.Render("role")+" "+valueStyle.Render(a.Role))
+	}
+	if a.SubtaskID != "" {
+		parts = append(parts, labelStyle.Render("subtask")+" "+dimStyle.Render(a.SubtaskID))
+	}
+
+	// Scope
+	if len(a.Scope) > 0 {
+		scopeText := strings.Join(a.Scope, "\n")
+		parts = append(parts,
+			labelStyle.Render("scope"),
+			wrapStyle.Render(scopeText),
+		)
+	}
+
+	// Prompt / instructions
+	if a.Prompt != "" {
+		parts = append(parts,
+			"",
+			labelStyle.Render("instructions"),
+			wrapStyle.Render(a.Prompt),
+		)
+	} else if a.Description != "" {
+		parts = append(parts,
+			"",
+			labelStyle.Render("instructions"),
+			wrapStyle.Render(a.Description),
+		)
+	}
+
+	body := lipgloss.NewStyle().
 		Padding(0, 1).
-		Width(width - 1)
-	// Clip the body to the available vertical space. Snapshots can be
-	// hundreds of lines (full JSON of every subtask); without this the panel
-	// grows past m.height and breaks the side-by-side layout — lipgloss
-	// Height pads but never truncates.
+		Width(cardW).
+		Render(strings.Join(parts, "\n"))
+
+	// Clip to available vertical space (lipgloss Height pads but never truncates)
 	bodyHeight := m.height - lipgloss.Height(header)
 	if bodyHeight < 1 {
 		bodyHeight = 1
 	}
-	rawBody := m.coordinationPanel
-	if rawLines := strings.Split(rawBody, "\n"); len(rawLines) > bodyHeight {
-		rawBody = strings.Join(rawLines[:bodyHeight], "\n")
-	}
-	body := bodyStyle.Render(rawBody)
 	if bodyLines := strings.Split(body, "\n"); len(bodyLines) > bodyHeight {
 		body = strings.Join(bodyLines[:bodyHeight], "\n")
 	}
+
 	content := lipgloss.JoinVertical(lipgloss.Left, header, body)
-	// Width(width-1) + BorderLeft = exactly `width` cols total.
 	return lipgloss.NewStyle().
 		Width(width - 1).
 		Height(m.height).
