@@ -35,7 +35,7 @@ func TestExportReportMarkdown_Full(t *testing.T) {
 			{Directory: "/projects/app", Working: 3 * time.Hour, Waiting: 1 * time.Hour, TaskCount: 2},
 		},
 		BySwarm: []service.SwarmStats{
-			{ParentTaskID: "swarm-1", Title: "Fix auth flow", Working: 2 * time.Hour, Waiting: 30 * time.Minute, WorkerCount: 3, SubtaskCount: 5},
+			{ParentTaskID: "swarm-1", Title: "Fix auth flow", Working: 2 * time.Hour, Waiting: 30 * time.Minute, WallClock: 1 * time.Hour, ParallelRatio: 2.5, WorkerCount: 3, SubtaskCount: 5},
 		},
 	}
 
@@ -73,6 +73,15 @@ func TestExportReportMarkdown_Full(t *testing.T) {
 	}
 	if !strings.Contains(md, "3/5") {
 		t.Error("missing swarm workers count")
+	}
+	if !strings.Contains(md, "Clock") {
+		t.Error("missing swarm clock column")
+	}
+	if !strings.Contains(md, "Ratio") {
+		t.Error("missing swarm ratio column")
+	}
+	if !strings.Contains(md, "2.5x") {
+		t.Error("missing swarm parallel ratio")
 	}
 	if !strings.Contains(md, "2h") {
 		t.Error("missing swarm working duration")

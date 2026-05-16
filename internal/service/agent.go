@@ -272,7 +272,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		if aliveErr == nil && alive {
 			return fmt.Errorf("agent already running for task %s", taskID)
 		}
-		// Tmux session is gone — mark it dead so we can re-spawn
+		// Tmux session is gone — mark it dead so we can re-spawn.
+		// Close any open interval so duration tracking stops.
+		_ = a.store.RecordStateTransition(ctx, taskID, "", "")
 		_ = a.store.UpdateAgentSessionStatus(ctx, taskID, "dead")
 	}
 
@@ -543,6 +545,11 @@ func (a *agentService) KillAgent(ctx context.Context, taskID string) error {
 	}
 
 	a.tmux.Kill(session.TmuxSession)
+
+	// Close any open state interval so duration tracking stops at the
+	// moment the agent dies rather than leaking until the next report.
+	_ = a.store.RecordStateTransition(ctx, taskID, "", "")
+
 	if err := a.store.UpdateAgentSessionStatus(ctx, taskID, "dead"); err != nil {
 		return err
 	}

@@ -406,12 +406,17 @@ func (m Model) renderSwarms(width int) string {
 	}
 
 	sectionStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary).Bold(true)
+	dimStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
 
 	var lines []string
 	lines = append(lines, sectionStyle.Render("SWARMS"))
 
 	for _, s := range swarms {
-		lines = append(lines, fmt.Sprintf("▣ %-30s  Working: %-8s  Waiting: %-8s  Workers: %d/%d", truncateTitle(s.Title, 30), fmtDuration(s.Working), fmtDuration(s.Waiting), s.WorkerCount, s.SubtaskCount))
+		lines = append(lines, fmt.Sprintf("▣ %s", truncateTitle(s.Title, width-2)))
+		row := fmt.Sprintf("  Work: %s  Wait: %s  Clock: %s  Ratio: %s  Workers: %d/%d",
+			fmtDuration(s.Working), fmtDuration(s.Waiting), fmtDuration(s.WallClock),
+			fmtRatio(s.ParallelRatio), s.WorkerCount, s.SubtaskCount)
+		lines = append(lines, dimStyle.Render(row))
 	}
 
 	return strings.Join(lines, "\n")
@@ -499,6 +504,13 @@ func (m Model) renderHints(width int) string {
 			keyStyle.Render("j/k") + " scroll  " +
 			keyStyle.Render("C") + " copy markdown  " +
 			keyStyle.Render("esc") + " back")
+}
+
+func fmtRatio(r float64) string {
+	if r <= 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%.1fx", r)
 }
 
 func fmtDuration(d time.Duration) string {

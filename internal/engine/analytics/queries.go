@@ -59,12 +59,14 @@ type DirectoryBreakdown struct {
 // SwarmBreakdown holds aggregated durations and counts for a swarm (parent task
 // plus all of its workers' sub-tasks) within a time range.
 type SwarmBreakdown struct {
-	ParentTaskID string
-	Title        string
-	Working      time.Duration
-	Waiting      time.Duration
-	WorkerCount  int
-	SubtaskCount int
+	ParentTaskID  string
+	Title         string
+	Working       time.Duration
+	Waiting       time.Duration
+	WallClock     time.Duration // earliest effective_start → latest effective_end across intervals
+	ParallelRatio float64       // (Working+Waiting) / WallClock; 0 if WallClock==0
+	WorkerCount   int
+	SubtaskCount  int
 }
 
 // QueryDurations aggregates total working/waiting durations from state_intervals
@@ -488,10 +490,9 @@ func QuerySwarmBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]Swar
 		return nil, nil
 	}
 
-	// For each swarm, aggregate durations and worker count in a single
-	// query.  The CTE maps every task_id that belongs to a swarm (parent + its
-	// subtasks) and flags whether it is a subtask so we can count workers
-	// accurately instead of relying on the "st-" prefix heuristic.
+	// Fetch every clipped interval for every swarm, then aggregate in Go.
+	// This lets us compute wall-clock as the *union* of all intervals
+	// rather than simply span(end) - span(start) which includes idle gaps.
 	resRows, err := db.QueryContext(ctx, `
 		WITH swarm_tasks(parent_task_id, task_id, is_subtask) AS (
 			SELECT parent_task_id, id, 1 FROM swarm_subtasks
@@ -501,46 +502,100 @@ func QuerySwarmBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]Swar
 		)
 		SELECT
 			st.parent_task_id,
-			SUM(CASE WHEN si.state = 'working' THEN CAST(ROUND(MAX(0, (julianday(MIN(COALESCE(si.ended_at, datetime('now')), ?)) - julianday(MAX(si.started_at, ?))) * 86400)) AS INTEGER) ELSE 0 END) as working_seconds,
-			SUM(CASE WHEN si.state = 'waiting' THEN CAST(ROUND(MAX(0, (julianday(MIN(COALESCE(si.ended_at, datetime('now')), ?)) - julianday(MAX(si.started_at, ?))) * 86400)) AS INTEGER) ELSE 0 END) as waiting_seconds,
-			COUNT(DISTINCT CASE WHEN st.is_subtask = 1 THEN si.task_id END) as worker_count
+			st.is_subtask,
+			si.task_id,
+			si.state,
+			MAX(si.started_at, ?) as eff_start,
+			MIN(COALESCE(si.ended_at, datetime('now')), ?) as eff_end
 		FROM swarm_tasks st
 		JOIN state_intervals si ON si.task_id = st.task_id
-		WHERE si.started_at < ? AND (si.ended_at IS NULL OR si.ended_at > ?)
-		GROUP BY st.parent_task_id`,
-		endFmt, startFmt, endFmt, startFmt, endFmt, startFmt)
+		WHERE si.started_at < ? AND (si.ended_at IS NULL OR si.ended_at > ?)`,
+		startFmt, endFmt, endFmt, startFmt)
 	if err != nil {
 		return nil, err
 	}
 	defer resRows.Close()
 
-	resultMap := make(map[string]*SwarmBreakdown)
+	var rawIntervals []interval
+
 	for resRows.Next() {
-		var pid string
-		var workingSecs, waitingSecs, workerCount int64
-		if err := resRows.Scan(&pid, &workingSecs, &waitingSecs, &workerCount); err != nil {
+		var iv interval
+		var effStart, effEnd string
+		if err := resRows.Scan(&iv.parentID, &iv.isSubtask, &iv.taskID, &iv.state, &effStart, &effEnd); err != nil {
 			return nil, err
 		}
-		resultMap[pid] = &SwarmBreakdown{
-			ParentTaskID: pid,
-			Working:      time.Duration(workingSecs) * time.Second,
-			Waiting:      time.Duration(waitingSecs) * time.Second,
-			WorkerCount:  int(workerCount),
+
+		start, err := time.Parse(sqliteDatetime, effStart)
+		if err != nil {
+			return nil, fmt.Errorf("parsing eff_start: %w", err)
+		}
+		end, err := time.Parse(sqliteDatetime, effEnd)
+		if err != nil {
+			return nil, fmt.Errorf("parsing eff_end: %w", err)
+		}
+		if end.After(start) {
+			iv.start = start
+			iv.end = end
+			rawIntervals = append(rawIntervals, iv)
 		}
 	}
 	if err := resRows.Err(); err != nil {
 		return nil, err
 	}
 
-	// Assemble in swarm order, filling subtask counts.
-	// Only include swarms that had non-zero working or waiting time.
+	// Aggregate in Go per swarm.
+	type swarmAgg struct {
+		working       time.Duration
+		waiting       time.Duration
+		workerTaskIDs map[string]struct{}
+		intervals     []interval
+	}
+	perSwarm := make(map[string]*swarmAgg)
+	for _, iv := range rawIntervals {
+		agg, ok := perSwarm[iv.parentID]
+		if !ok {
+			agg = &swarmAgg{workerTaskIDs: make(map[string]struct{})}
+			perSwarm[iv.parentID] = agg
+		}
+		d := iv.end.Sub(iv.start)
+		switch iv.state {
+		case "working":
+			agg.working += d
+		case "waiting":
+			agg.waiting += d
+		}
+		if iv.isSubtask {
+			agg.workerTaskIDs[iv.taskID] = struct{}{}
+		}
+		agg.intervals = append(agg.intervals, iv)
+	}
+
+	// Build final SwarmBreakdowns
 	result := make([]SwarmBreakdown, 0, len(swarms))
 	for _, sw := range swarms {
-		if sb, ok := resultMap[sw.parentID]; ok && (sb.Working > 0 || sb.Waiting > 0) {
-			sb.Title = sw.title
-			sb.SubtaskCount = sw.subtaskCount
-			result = append(result, *sb)
+		agg := perSwarm[sw.parentID]
+		if agg == nil {
+			continue
 		}
+		totalDur := agg.working + agg.waiting
+		if totalDur == 0 {
+			continue
+		}
+		wc := unionDuration(agg.intervals)
+		var ratio float64
+		if wc > 0 {
+			ratio = float64(totalDur) / float64(wc)
+		}
+		result = append(result, SwarmBreakdown{
+			ParentTaskID:  sw.parentID,
+			Title:         sw.title,
+			Working:       agg.working,
+			Waiting:       agg.waiting,
+			WallClock:     wc,
+			ParallelRatio: ratio,
+			WorkerCount:   len(agg.workerTaskIDs),
+			SubtaskCount:  sw.subtaskCount,
+		})
 	}
 
 	// Sort by Working descending
@@ -548,6 +603,44 @@ func QuerySwarmBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]Swar
 		return result[i].Working > result[j].Working
 	})
 	return result, nil
+}
+
+// interval is a time span used for swarm aggregation and union calculations.
+type interval struct {
+	parentID  string
+	state     string
+	isSubtask bool
+	taskID    string
+	start     time.Time
+	end       time.Time
+}
+
+// unionDuration merges a collection of intervals and returns the total duration
+// of their union (overlapping and adjacent intervals are coalesced).
+func unionDuration(ivs []interval) time.Duration {
+	if len(ivs) == 0 {
+		return 0
+	}
+	ivs2 := make([]interval, len(ivs))
+	copy(ivs2, ivs)
+	sort.Slice(ivs2, func(i, j int) bool {
+		return ivs2[i].start.Before(ivs2[j].start)
+	})
+	curStart, curEnd := ivs2[0].start, ivs2[0].end
+	var total time.Duration
+	for i := 1; i < len(ivs2); i++ {
+		next := ivs2[i]
+		if next.start.After(curEnd) {
+			// Disjoint — commit current and start new
+			total += curEnd.Sub(curStart)
+			curStart, curEnd = next.start, next.end
+		} else if next.end.After(curEnd) {
+			// Overlapping or adjacent — extend
+			curEnd = next.end
+		}
+	}
+	total += curEnd.Sub(curStart)
+	return total
 }
 
 const sqliteDatetime = "2006-01-02 15:04:05"

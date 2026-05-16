@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"math"
 	"path/filepath"
 	"testing"
 	"time"
@@ -300,6 +301,12 @@ func TestReportService_SwarmBreakdown(t *testing.T) {
 	}
 	if ss.Waiting != 30*time.Minute {
 		t.Errorf("expected 30m waiting, got %v", ss.Waiting)
+	}
+	if ss.WallClock != 2*time.Hour {
+		t.Errorf("expected 2h wall-clock (conductor + worker1), got %v", ss.WallClock)
+	}
+	if math.Abs(ss.ParallelRatio-3.5/2.0) > 0.001 {
+		t.Errorf("expected ParallelRatio %v (3.5h / 2h), got %v", 3.5/2.0, ss.ParallelRatio)
 	}
 	// Both workers count because one contributes via waiting time
 	if ss.WorkerCount != 2 {

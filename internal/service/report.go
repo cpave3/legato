@@ -150,12 +150,14 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 	swarmStats := make([]SwarmStats, len(swarmBreakdown))
 	for i, s := range swarmBreakdown {
 		swarmStats[i] = SwarmStats{
-			ParentTaskID: s.ParentTaskID,
-			Title:        s.Title,
-			Working:      s.Working,
-			Waiting:      s.Waiting,
-			WorkerCount:  s.WorkerCount,
-			SubtaskCount: s.SubtaskCount,
+			ParentTaskID:  s.ParentTaskID,
+			Title:         s.Title,
+			Working:       s.Working,
+			Waiting:       s.Waiting,
+			WallClock:     s.WallClock,
+			ParallelRatio: s.ParallelRatio,
+			WorkerCount:   s.WorkerCount,
+			SubtaskCount:  s.SubtaskCount,
 		}
 	}
 

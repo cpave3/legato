@@ -358,6 +358,11 @@ func TestKillAgentDestroysSessionAndUpdatesDB(t *testing.T) {
 	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
 		t.Fatal(err)
 	}
+	// Record a working interval so we can verify it gets closed on kill
+	if err := s.RecordStateTransition(ctx, "REX-1238", "working", ""); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := svc.KillAgent(ctx, "REX-1238"); err != nil {
 		t.Fatal(err)
 	}
@@ -374,6 +379,16 @@ func TestKillAgentDestroysSessionAndUpdatesDB(t *testing.T) {
 	}
 	if len(agents) != 0 {
 		t.Fatalf("got %d agents, want 0 (dead sessions cleaned up)", len(agents))
+	}
+
+	// Any open intervals for the killed task should now be closed
+	var openCount int
+	if err := s.DB().QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM state_intervals WHERE task_id = ? AND ended_at IS NULL", "REX-1238").Scan(&openCount); err != nil {
+		t.Fatal(err)
+	}
+	if openCount != 0 {
+		t.Errorf("expected 0 open intervals after KillAgent, got %d", openCount)
 	}
 }
 
@@ -447,6 +462,10 @@ func TestSpawnAgentWithStaleDBSession(t *testing.T) {
 	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
 		t.Fatal(err)
 	}
+	// Record a working interval so we can verify it gets closed during stale cleanup
+	if err := s.RecordStateTransition(ctx, "REX-1238", "working", ""); err != nil {
+		t.Fatal(err)
+	}
 	// Kill tmux session externally (DB still says "running")
 	mt.markSessionDead("legato-REX-1238")
 
@@ -458,6 +477,18 @@ func TestSpawnAgentWithStaleDBSession(t *testing.T) {
 	// Tmux session should exist again
 	if !mt.sessionAlive("legato-REX-1238") {
 		t.Error("expected tmux session legato-REX-1238 to exist after re-spawn")
+	}
+
+	// Any open intervals from the stale session should now be closed
+	var openCount int
+	if err := s.DB().QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM state_intervals WHERE task_id = ? AND ended_at IS NULL", "REX-1238").Scan(&openCount); err != nil {
+		t.Fatal(err)
+	}
+	// The stale interval was closed by RecordStateTransition and the re-spawn will have opened
+	// a new one. We just need to verify there aren't multiple open intervals leaking.
+	if openCount > 1 {
+		t.Errorf("expected at most 1 open interval after stale-session re-spawn, got %d", openCount)
 	}
 }
 

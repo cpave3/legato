@@ -3,6 +3,8 @@ package analytics_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
 	"path/filepath"
 	"testing"
 	"time"
@@ -506,6 +508,12 @@ func TestQuerySwarmBreakdown_ConductorOnly(t *testing.T) {
 	if s.Waiting != 1*time.Hour {
 		t.Errorf("expected 1h waiting, got %v", s.Waiting)
 	}
+	if s.WallClock != 3*time.Hour {
+		t.Errorf("expected 3h wall-clock, got %v", s.WallClock)
+	}
+	if s.ParallelRatio != 1.0 {
+		t.Errorf("expected ParallelRatio 1.0, got %v", s.ParallelRatio)
+	}
 	if s.WorkerCount != 0 {
 		t.Errorf("expected WorkerCount 0 (conductor only), got %d", s.WorkerCount)
 	}
@@ -539,6 +547,12 @@ func TestQuerySwarmBreakdown_WorkerOnly(t *testing.T) {
 	s := results[0]
 	if s.Working != 90*time.Minute {
 		t.Errorf("expected 90m working, got %v", s.Working)
+	}
+	if s.WallClock != 90*time.Minute {
+		t.Errorf("expected 90m wall-clock, got %v", s.WallClock)
+	}
+	if s.ParallelRatio != 1.0 {
+		t.Errorf("expected ParallelRatio 1.0, got %v", s.ParallelRatio)
 	}
 	if s.WorkerCount != 1 {
 		t.Errorf("expected WorkerCount 1, got %d", s.WorkerCount)
@@ -579,6 +593,12 @@ func TestQuerySwarmBreakdown_Mixed(t *testing.T) {
 	}
 	if s.Waiting != 1*time.Hour {
 		t.Errorf("expected 1h waiting (w2), got %v", s.Waiting)
+	}
+	if s.WallClock != 3*time.Hour {
+		t.Errorf("expected 3h wall-clock (10:00-13:00), got %v", s.WallClock)
+	}
+	if math.Abs(s.ParallelRatio-4.0/3.0) > 0.001 {
+		t.Errorf("expected ParallelRatio %v (4h / 3h), got %v", 4.0/3.0, s.ParallelRatio)
 	}
 	if s.WorkerCount != 2 {
 		t.Errorf("expected WorkerCount 2, got %d", s.WorkerCount)
@@ -647,6 +667,12 @@ func TestQuerySwarmBreakdown_WaitingOnlyStillIncluded(t *testing.T) {
 	if s.Waiting != 30*time.Minute {
 		t.Errorf("expected 30m waiting, got %v", s.Waiting)
 	}
+	if s.WallClock != 30*time.Minute {
+		t.Errorf("expected 30m wall-clock, got %v", s.WallClock)
+	}
+	if s.ParallelRatio != 1.0 {
+		t.Errorf("expected ParallelRatio 1.0, got %v", s.ParallelRatio)
+	}
 }
 
 func TestQuerySwarmBreakdown_NonSwarmExcluded(t *testing.T) {
@@ -698,5 +724,44 @@ func TestQuerySwarmBreakdown_DeletedParentSkipped(t *testing.T) {
 	}
 	if len(results) != 0 {
 		t.Fatalf("expected 0 swarms (parent deleted), got %d", len(results))
+	}
+}
+
+func TestQuerySwarmBreakdown_ParallelWorkers(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+
+	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
+	seedTask(t, db, "parent-1", base)
+	for i := 1; i <= 4; i++ {
+		seedSubtask(t, db, fmt.Sprintf("st-w%d", i), "parent-1", fmt.Sprintf("W%d", i))
+		// Each worker runs for 5 minutes, all overlapping 10:00-10:05
+		seedInterval(t, db, fmt.Sprintf("st-w%d", i), "working", base, base.Add(5*time.Minute))
+	}
+
+	tr := analytics.TimeRange{
+		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
+		Period: analytics.PeriodDay,
+	}
+	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 swarm, got %d", len(results))
+	}
+	s := results[0]
+	if s.Working != 20*time.Minute {
+		t.Errorf("expected 20m total working, got %v", s.Working)
+	}
+	if s.WallClock != 5*time.Minute {
+		t.Errorf("expected 5m wall-clock, got %v", s.WallClock)
+	}
+	if s.ParallelRatio != 4.0 {
+		t.Errorf("expected ParallelRatio 4.0, got %v", s.ParallelRatio)
+	}
+	if s.WorkerCount != 4 {
+		t.Errorf("expected WorkerCount 4, got %d", s.WorkerCount)
 	}
 }

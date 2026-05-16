@@ -66,10 +66,12 @@ type DirectoryStats struct {
 
 // SwarmStats holds per-swarm analytics.
 type SwarmStats struct {
-	ParentTaskID string
-	Title        string
-	Working      time.Duration
-	Waiting      time.Duration
-	WorkerCount  int
-	SubtaskCount int
+	ParentTaskID  string
+	Title         string
+	Working       time.Duration
+	Waiting       time.Duration
+	WallClock     time.Duration // earliest effective_start → latest effective_end across intervals
+	ParallelRatio float64       // (Working+Waiting) / WallClock; 0 if WallClock==0
+	WorkerCount   int
+	SubtaskCount  int
 }

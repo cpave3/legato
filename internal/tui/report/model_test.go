@@ -191,8 +191,8 @@ func TestModel_WindowResize(t *testing.T) {
 func TestModel_SwarmSectionRendered(t *testing.T) {
 	report := sampleReport()
 	report.BySwarm = []service.SwarmStats{
-		{ParentTaskID: "swarm-1", Title: "Fix auth flow", Working: 2 * time.Hour, Waiting: 30 * time.Minute, WorkerCount: 3, SubtaskCount: 5},
-		{ParentTaskID: "swarm-2", Title: "Refactor API", Working: 1 * time.Hour, Waiting: 0, WorkerCount: 1, SubtaskCount: 2},
+		{ParentTaskID: "swarm-1", Title: "Fix auth flow", Working: 2 * time.Hour, Waiting: 30 * time.Minute, WallClock: 1 * time.Hour, ParallelRatio: 2.5, WorkerCount: 3, SubtaskCount: 5},
+		{ParentTaskID: "swarm-2", Title: "Refactor API", Working: 1 * time.Hour, Waiting: 0, WallClock: 1 * time.Hour, ParallelRatio: 1.0, WorkerCount: 1, SubtaskCount: 2},
 	}
 	svc := &mockReportService{report: report}
 	m := New(svc)
@@ -212,6 +212,15 @@ func TestModel_SwarmSectionRendered(t *testing.T) {
 	}
 	if !strings.Contains(out, "3/5") {
 		t.Error("expected 3/5 workers in view")
+	}
+	if !strings.Contains(out, "Clock:") {
+		t.Error("expected Clock in swarm view")
+	}
+	if !strings.Contains(out, "Ratio:") {
+		t.Error("expected Ratio in swarm view")
+	}
+	if !strings.Contains(out, "2.5x") {
+		t.Error("expected 2.5x ratio in swarm view")
 	}
 }
 

@@ -84,15 +84,21 @@ func ExportReportMarkdown(r *Report) string {
 	// Swarm breakdown
 	if len(r.BySwarm) > 0 {
 		b.WriteString("## Swarms\n\n")
-		b.WriteString("| Swarm | Working | Waiting | Workers |\n")
-		b.WriteString("|-------|---------|---------|--------|\n")
+		b.WriteString("| Swarm | Working | Waiting | Clock | Ratio | Workers |\n")
+		b.WriteString("|-------|---------|---------|-------|-------|--------|\n")
 		for _, s := range r.BySwarm {
 			title := s.Title
 			if len(title) > 50 {
 				title = title[:47] + "..."
 			}
-			b.WriteString(fmt.Sprintf("| %s | %s | %s | %d/%d |\n",
-				title, fmtDuration(s.Working), fmtDuration(s.Waiting), s.WorkerCount, s.SubtaskCount))
+			var ratio string
+			if s.ParallelRatio > 0 {
+				ratio = fmt.Sprintf("%.1fx", s.ParallelRatio)
+			} else {
+				ratio = "-"
+			}
+			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %d/%d |\n",
+				title, fmtDuration(s.Working), fmtDuration(s.Waiting), fmtDuration(s.WallClock), ratio, s.WorkerCount, s.SubtaskCount))
 		}
 		b.WriteString("\n")
 	}
