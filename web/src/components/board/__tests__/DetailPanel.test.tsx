@@ -29,19 +29,34 @@ function makeCard(overrides: Partial<CardDetail> = {}): CardDetail {
 
 describe("DetailPanel", () => {
   it("renders title", () => {
-    render(<DetailPanel card={makeCard()} onClose={() => {}} onEditTitle={() => {}} onEditDescription={() => {}} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} />)
+    render(<DetailPanel card={makeCard()} onClose={() => {}} onEditTitle={() => {}} onEditDescription={() => {}} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />)
     expect(screen.getByText("Test title")).toBeTruthy()
   })
 
   it("shows edit buttons for local task", () => {
-    render(<DetailPanel card={makeCard({ provider: "" })} onClose={() => {}} onEditTitle={() => {}} onEditDescription={() => {}} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} />)
+    render(<DetailPanel card={makeCard({ provider: "" })} onClose={() => {}} onEditTitle={() => {}} onEditDescription={() => {}} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />)
     expect(screen.getByText(/Edit title/)).toBeTruthy()
     expect(screen.getByText(/Edit desc/)).toBeTruthy()
   })
 
   it("hides edit buttons for remote task", () => {
-    render(<DetailPanel card={makeCard({ provider: "jira" })} onClose={() => {}} onEditTitle={() => {}} onEditDescription={() => {}} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} />)
+    render(<DetailPanel card={makeCard({ provider: "jira" })} onClose={() => {}} onEditTitle={() => {}} onEditDescription={() => {}} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />)
     expect(screen.queryByText(/Edit title/)).toBeNull()
     expect(screen.queryByText(/Edit desc/)).toBeNull()
+  })
+
+  it("shows cancel swarm button when swarm_working_dir is present", () => {
+    render(<DetailPanel card={makeCard({ swarm_working_dir: "/tmp/work" })} onClose={() => {}} onEditTitle={() => {}} onEditDescription={() => {}} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />)
+    expect(screen.getByText(/Cancel swarm/)).toBeTruthy()
+  })
+
+  it("shows cancel swarm button when swarm_stats is present", () => {
+    render(<DetailPanel card={makeCard({ swarm_stats: { total: 2, done: 1, in_review: 0, building: 0, queued: 1, rejected: 0 } })} onClose={() => {}} onEditTitle={() => {}} onEditDescription={() => {}} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />)
+    expect(screen.getByText(/Cancel swarm/)).toBeTruthy()
+  })
+
+  it("hides cancel swarm button when no swarm state", () => {
+    render(<DetailPanel card={makeCard()} onClose={() => {}} onEditTitle={() => {}} onEditDescription={() => {}} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />)
+    expect(screen.queryByText(/Cancel swarm/)).toBeNull()
   })
 })

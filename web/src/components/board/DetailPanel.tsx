@@ -12,6 +12,7 @@ interface DetailPanelProps {
   onCopyDescription: () => void
   onCopyFull: () => void
   onOpenURL: () => void
+  onCancelSwarm: () => void
 }
 
 export function DetailPanel({
@@ -25,6 +26,7 @@ export function DetailPanel({
   onCopyDescription,
   onCopyFull,
   onOpenURL,
+  onCancelSwarm,
 }: DetailPanelProps) {
   const isLocal = !card.provider
 
@@ -153,6 +155,14 @@ export function DetailPanel({
           {(card.remote_meta?.url || card.pr_meta?.pr_url) && (
             <button onClick={onOpenURL} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">
               Open URL (o)
+            </button>
+          )}
+          {(card.swarm_stats || card.swarm_working_dir) && (
+            <button
+              onClick={onCancelSwarm}
+              className="rounded px-2 py-1 text-[10px] text-red-400 hover:bg-zinc-800 hover:text-red-300"
+            >
+              Cancel swarm
             </button>
           )}
         </div>

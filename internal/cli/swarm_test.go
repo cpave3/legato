@@ -386,6 +386,105 @@ func TestSwarmInbox_EmptyPrintsNoneMessage(t *testing.T) {
 	}
 }
 
+func TestSwarmCancel_BroadcastsAndPrintsJSON(t *testing.T) {
+	sw, s := newTestSwarmServiceForCLI(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, store.Task{
+		ID:        "parent-cancel",
+		Title:     "Parent",
+		Status:    "Doing",
+		CreatedAt: "2024-01-01T00:00:00Z",
+		UpdatedAt: "2024-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Start the swarm first so there's something to cancel.
+	if err := sw.StartSwarm(ctx, "parent-cancel", "/tmp"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := cli.SwarmCancel(sw, "parent-cancel"); err != nil {
+			t.Fatalf("SwarmCancel: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, `"status":"cancelled"`) {
+		t.Errorf("stdout missing cancelled status: %q", out)
+	}
+	if !strings.Contains(out, `"parent_task_id":"parent-cancel"`) {
+		t.Errorf("stdout missing parent_task_id: %q", out)
+	}
+}
+
+func TestSwarmExtendPlan_AutoApproveExtendsExistingSwarm(t *testing.T) {
+	sw, s := newTestSwarmServiceForCLI(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, store.Task{
+		ID:        "parent-ext",
+		Title:     "Parent",
+		Status:    "Doing",
+		CreatedAt: "2024-01-01T00:00:00Z",
+		UpdatedAt: "2024-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sw.StartSwarm(ctx, "parent-ext", "/tmp"); err != nil {
+		t.Fatal(err)
+	}
+	// Create one existing subtask so the swarm has a step offset > 0.
+	if err := s.CreateSubtask(ctx, store.Subtask{
+		ID:           "st-old",
+		ParentTaskID: "parent-ext",
+		Title:        "Old",
+		Status:       "done",
+		StepIndex:    0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	planDir := t.TempDir()
+	planPath := filepath.Join(planDir, "plan.yaml")
+	plan := `swarm:
+  parent_task_id: parent-ext
+steps:
+  - name: extra
+    subtasks:
+      - title: Extension A
+        role: backend
+`
+	if err := os.WriteFile(planPath, []byte(plan), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := cli.SwarmExtendPlan(sw, planPath, "/tmp", true, 0, swarm.ValidateOptions{MaxSubtasks: 10, MaxSteps: 10}); err != nil {
+			t.Fatalf("SwarmExtendPlan: %v", err)
+		}
+	})
+	if !strings.Contains(out, `"status":"approved"`) {
+		t.Errorf("stdout missing approved status: %q", out)
+	}
+
+	// Verify the new subtask exists.
+	subs, err := s.ListSubtasksByParent(ctx, "parent-ext")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var extFound bool
+	for _, sub := range subs {
+		if sub.Title == "Extension A" {
+			extFound = true
+			if sub.StepIndex != 1 {
+				t.Errorf("extension subtask step = %d, want 1", sub.StepIndex)
+			}
+		}
+	}
+	if !extFound {
+		t.Errorf("extension subtask not found; have %v", subs)
+	}
+}
+
 // captureStdout swaps os.Stdout for a pipe, runs fn, restores, returns
 // captured output. Tests that exercise CLI verbs printing to stdout use this.
 func captureStdout(t *testing.T, fn func()) string {
@@ -434,3 +533,5 @@ func (m *noopTmux) PipeOutput(name string) (io.Reader, func(), error) {
 	return strings.NewReader(""), func() {}, nil
 }
 func (m *noopTmux) SetEnv(s, k, v string) error { return nil }
+
+func strPtr(s string) *string { return &s }

@@ -599,6 +599,7 @@ func runTUI() int {
 					ParentTaskID: msg.TaskID,
 					PlanPath:     msg.PlanPath,
 					ReplySocket:  msg.ReplySocket,
+								Mode:         msg.Mode,
 				},
 			})
 		}
@@ -1063,6 +1064,10 @@ func runSwarmCmd(args []string) int {
 		return runSwarmValidatePlan(args[1:])
 	case "propose-plan":
 		return runSwarmProposePlan(args[1:])
+	case "cancel":
+		return runSwarmCancel(args[1:])
+	case "extend-plan":
+		return runSwarmExtendPlan(args[1:])
 	case "dispatch":
 		return runSwarmDispatch(args[1:])
 	case "message":
@@ -1101,6 +1106,8 @@ func swarmUsage() {
 Conductor verbs:
   validate-plan <plan-file>
   propose-plan <plan-file> [--auto-approve] [--timeout 5m]
+  extend-plan <plan-file> [--auto-approve] [--timeout 5m]
+  cancel <parent-id>
   dispatch <subtask-id>
   message <subtask-id> "<text>" [--urgent]
   broadcast <parent-id> "<text>" [--urgent]
@@ -1263,6 +1270,71 @@ func runSwarmProposePlan(args []string) int {
 
 	cfg, _ := config.Load()
 	if err := cli.SwarmProposePlan(sw, planPath, autoApprove, timeout, buildValidateOptions(cfg)); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runSwarmCancel(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: legato swarm cancel <parent-id>")
+		return 1
+	}
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+	if err := cli.SwarmCancel(sw, args[0]); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runSwarmExtendPlan(args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: legato swarm extend-plan <plan-file> [--auto-approve] [--timeout 5m]")
+		return 1
+	}
+	planPath := args[0]
+	autoApprove := false
+	var timeout time.Duration
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--auto-approve":
+			autoApprove = true
+		case "--timeout":
+			if i+1 < len(args) {
+				if d, err := time.ParseDuration(args[i+1]); err == nil {
+					timeout = d
+					i++
+				}
+			}
+		}
+	}
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+
+	cfg, _ := config.Load()
+
+	// Auto-detect the existing swarm's working directory from the plan's parent
+	// so extension plans can omit working_dir.
+	plan, perr := swarm.LoadPlan(planPath)
+	if perr != nil {
+		fmt.Fprintf(os.Stderr, "load plan: %v\n", perr)
+		return 1
+	}
+	fallbackWD := ""
+	if parent, err := db.GetTask(context.Background(), plan.Swarm.ParentTaskID); err == nil && parent.SwarmWorkingDir != nil {
+		fallbackWD = *parent.SwarmWorkingDir
+	}
+
+	if err := cli.SwarmExtendPlan(sw, planPath, fallbackWD, autoApprove, timeout, buildValidateOptions(cfg)); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}

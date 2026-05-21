@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -19,6 +20,7 @@ import (
 	"github.com/cpave3/legato/internal/tui/detail"
 	"github.com/cpave3/legato/internal/tui/overlay"
 	"github.com/cpave3/legato/internal/tui/report"
+	"github.com/cpave3/legato/internal/tui/statusbar"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -135,6 +137,14 @@ func (f *fakeSwarmService) PeekInbox(_ context.Context, _ string) ([]service.Inb
 func (f *fakeSwarmService) LoadPlan(_ string) (*service.SwarmPlan, error)                                            { return nil, nil }
 func (f *fakeSwarmService) StartSwarm(_ context.Context, _, _ string) error                                          { return nil }
 func (f *fakeSwarmService) ApplyApprovedPlan(_ context.Context, _ *swarm.Plan) error                                { return nil }
+func (f *fakeSwarmService) CancelSwarm(_ context.Context, id string) error {
+	f.calls = append(f.calls, swarmCall{method: "CancelSwarm", id: id})
+	return nil
+}
+func (f *fakeSwarmService) ExtendApprovedPlan(_ context.Context, _ *swarm.Plan) error {
+	f.calls = append(f.calls, swarmCall{method: "ExtendApprovedPlan"})
+	return nil
+}
 func (f *fakeSwarmService) Dispatch(_ context.Context, _ string) error                                               { return nil }
 func (f *fakeSwarmService) NextStep(_ context.Context, _ string) error                                               { return nil }
 func (f *fakeSwarmService) Message(_ context.Context, id, text string, _ bool) error {
@@ -1211,4 +1221,137 @@ func TestSetSparklineWindowOverridesDefaults(t *testing.T) {
 	if app.sparklineWindow != 5*time.Minute || app.sparklineBuckets != 5 {
 		t.Errorf("non-positive args should not override; got %v / %d", app.sparklineWindow, app.sparklineBuckets)
 	}
+}
+
+// --- Swarm cancel overlay tests ---
+
+func TestSwarmCancelOverlayOpensWithShiftC(t *testing.T) {
+	app := initTestAppWithSwarm()
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
+	if app.overlayType != overlaySwarmCancel {
+		t.Fatalf("overlayType = %d, want overlaySwarmCancel (%d)", app.overlayType, overlaySwarmCancel)
+	}
+}
+
+func TestSwarmCancelShiftCNoOpWithoutSwarmService(t *testing.T) {
+	app := initTestApp() // no swarmSvc
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
+	if app.overlayType != overlayNone {
+		t.Errorf("overlay should not open without swarmSvc, got %d", app.overlayType)
+	}
+}
+
+func TestSwarmCancelConfirmedCallsCancelSwarm(t *testing.T) {
+	app, svc := newTestAppWithRecordingSwarm()
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, overlay.SwarmCancelConfirmedMsg{ParentTaskID: "REX-1"})
+	if app.overlayType != overlayNone {
+		t.Errorf("overlay should close after confirm, got %d", app.overlayType)
+	}
+	if len(svc.calls) != 1 || svc.calls[0].method != "CancelSwarm" || svc.calls[0].id != "REX-1" {
+		t.Errorf("expected CancelSwarm(REX-1) call, got %+v", svc.calls)
+	}
+}
+
+func TestSwarmCancelCancelledDismissesOverlay(t *testing.T) {
+	app := initTestAppWithSwarm()
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
+	if app.overlayType != overlaySwarmCancel {
+		t.Fatalf("overlay should be open, got %d", app.overlayType)
+	}
+	app, _ = updateApp(app, overlay.SwarmCancelCancelledMsg{})
+	if app.overlayType != overlayNone {
+		t.Errorf("overlay should close after cancel, got %d", app.overlayType)
+	}
+}
+
+func TestSwarmStartShowsShiftCHintOnExistingSwarmError(t *testing.T) {
+	app := newTestAppWithSwarm()
+	// Wrap the fake so StartSwarm returns an "existing swarm" error.
+	errSvc := &fakeStartSwarmErrorService{existingSwarmErr: true}
+	app.swarmSvc = errSvc
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	app, cmd := updateApp(app, overlay.SwarmStartMsg{ParentTaskID: "REX-1", WorkingDir: "/tmp"})
+	if cmd == nil {
+		t.Fatal("expected error command after StartSwarm failure")
+	}
+	msg := cmd()
+	if sb, ok := msg.(statusbar.ErrorMsg); ok {
+		if !strings.Contains(sb.Text, "Shift+C") {
+			t.Errorf("expected error hint to mention Shift+C, got %q", sb.Text)
+		}
+	} else {
+		t.Fatalf("expected statusbar.ErrorMsg, got %T", msg)
+	}
+}
+
+func TestSwarmStartNoShiftCHintOnOtherError(t *testing.T) {
+	app := newTestAppWithSwarm()
+	errSvc := &fakeStartSwarmErrorService{existingSwarmErr: false}
+	app.swarmSvc = errSvc
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	app, cmd := updateApp(app, overlay.SwarmStartMsg{ParentTaskID: "REX-1", WorkingDir: "/tmp"})
+	if cmd == nil {
+		t.Fatal("expected error command after StartSwarm failure")
+	}
+	msg := cmd()
+	if sb, ok := msg.(statusbar.ErrorMsg); ok {
+		if strings.Contains(sb.Text, "Shift+C") {
+			t.Errorf("non-existing-swarm error should not mention Shift+C, got %q", sb.Text)
+		}
+	} else {
+		t.Fatalf("expected statusbar.ErrorMsg, got %T", msg)
+	}
+}
+
+// fakeStartSwarmErrorService wraps StartSwarm to return a configurable error.
+type fakeStartSwarmErrorService struct {
+	existingSwarmErr bool
+}
+
+func (f *fakeStartSwarmErrorService) ListSubtasks(_ context.Context, _ string) ([]store.Subtask, error)              { return nil, nil }
+func (f *fakeStartSwarmErrorService) GetSubtask(_ context.Context, _ string) (*store.Subtask, error)                { return nil, nil }
+func (f *fakeStartSwarmErrorService) ListSubtaskInfos(_ context.Context, _ string) ([]service.SwarmSubtaskInfo, error) { return nil, nil }
+func (f *fakeStartSwarmErrorService) Snapshot(_ context.Context, _ string) ([]byte, error)                          { return nil, nil }
+func (f *fakeStartSwarmErrorService) LatestSnapshot(_ string) *service.SwarmSnapshot                                     { return nil }
+func (f *fakeStartSwarmErrorService) FetchInbox(_ context.Context, _ string) ([]service.InboxEntry, error)          { return nil, nil }
+func (f *fakeStartSwarmErrorService) PeekInbox(_ context.Context, _ string) ([]service.InboxEntry, error)           { return nil, nil }
+func (f *fakeStartSwarmErrorService) LoadPlan(_ string) (*service.SwarmPlan, error)                                  { return nil, nil }
+func (f *fakeStartSwarmErrorService) StartSwarm(_ context.Context, _, _ string) error {
+	if f.existingSwarmErr {
+		return fmt.Errorf("parent task has leftover swarm sub-tasks — cancel the existing swarm first")
+	}
+	return fmt.Errorf("some other error")
+}
+func (f *fakeStartSwarmErrorService) ApplyApprovedPlan(_ context.Context, _ *swarm.Plan) error                    { return nil }
+func (f *fakeStartSwarmErrorService) CancelSwarm(_ context.Context, _ string) error                                { return nil }
+func (f *fakeStartSwarmErrorService) ExtendApprovedPlan(_ context.Context, _ *swarm.Plan) error                   { return nil }
+func (f *fakeStartSwarmErrorService) Dispatch(_ context.Context, _ string) error                                   { return nil }
+func (f *fakeStartSwarmErrorService) NextStep(_ context.Context, _ string) error                                   { return nil }
+func (f *fakeStartSwarmErrorService) Message(_ context.Context, _, _ string, _ bool) error                        { return nil }
+func (f *fakeStartSwarmErrorService) MessageParent(_ context.Context, _, _ string, _ bool) error                  { return nil }
+func (f *fakeStartSwarmErrorService) Broadcast(_ context.Context, _, _ string, _ bool) (int, error)                { return 0, nil }
+func (f *fakeStartSwarmErrorService) Close(_ context.Context, _ string) error                                      { return nil }
+func (f *fakeStartSwarmErrorService) Finish(_ context.Context, _, _ string) error                                  { return nil }
+func (f *fakeStartSwarmErrorService) Progress(_ context.Context, _, _ string) error                               { return nil }
+func (f *fakeStartSwarmErrorService) Question(_ context.Context, _, _ string) error                               { return nil }
+func (f *fakeStartSwarmErrorService) Built(_ context.Context, _ string) error                                     { return nil }
+func (f *fakeStartSwarmErrorService) InsertPendingPlan(_ context.Context, _, _, _ string) error                   { return nil }
+func (f *fakeStartSwarmErrorService) GetPendingPlan(_ context.Context, _ string) (*store.PendingPlanEntry, error) { return nil, nil }
+func (f *fakeStartSwarmErrorService) ListAllPendingPlans(_ context.Context) ([]store.PendingPlanEntry, error)     { return nil, nil }
+func (f *fakeStartSwarmErrorService) DeletePendingPlan(_ context.Context, _ string) error                        { return nil }
+func (f *fakeStartSwarmErrorService) HandleAgentDied(_ context.Context, _, _, _ string)                           {}
+func (f *fakeStartSwarmErrorService) StartEventLoop(_ context.Context) func()                                      { return func() {} }
+
+func initTestAppWithSwarm() App {
+	app := newTestAppWithSwarm()
+	cmd := app.Init()
+	if cmd != nil {
+		msg := cmd()
+		app, _ = updateApp(app, msg)
+	}
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	return app
 }

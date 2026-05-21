@@ -24,6 +24,7 @@ import { EditTitleModal } from "../components/board/EditTitleModal"
 import { EditDescriptionModal } from "../components/board/EditDescriptionModal"
 import { HelpModal } from "../components/board/HelpModal"
 import { OpenURLPicker } from "../components/board/OpenURLPicker"
+import { CancelSwarmModal } from "../components/board/CancelSwarmModal"
 
 type Overlay =
   | { kind: "none" }
@@ -38,6 +39,7 @@ type Overlay =
   | { kind: "editDescription"; card: BoardCard }
   | { kind: "help" }
   | { kind: "openURL"; providerURL: string; prURL: string }
+  | { kind: "cancelSwarm"; card: BoardCard }
 
 export function BoardPage() {
   const { baseUrl } = useServer()
@@ -657,8 +659,26 @@ export function BoardPage() {
               window.open(providerURL || prURL, "_blank")
             }
           }}
+          onCancelSwarm={() => {
+            if (detailCard) {
+              setOverlay({ kind: "cancelSwarm", card: { id: detailCard.id, title: detailCard.title } as BoardCard })
+            }
+          }}
         />
       )}
+
+      <CancelSwarmModal
+        taskId={overlay.kind === "cancelSwarm" ? overlay.card.id : ""}
+        taskTitle={overlay.kind === "cancelSwarm" ? overlay.card.title : ""}
+        isOpen={overlay.kind === "cancelSwarm"}
+        onClose={() => setOverlay({ kind: "none" })}
+        onConfirm={() => {
+          setOverlay({ kind: "none" })
+          setDetailCard(null)
+          setDetailId(null)
+          refresh()
+        }}
+      />
     </div>
   )
 }

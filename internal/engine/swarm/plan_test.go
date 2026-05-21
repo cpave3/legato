@@ -418,3 +418,23 @@ func TestValidatePlanTierSkippedWhenRegistryEmpty(t *testing.T) {
 		t.Errorf("tier check should be skipped when AdapterTiers empty, got: %v", err)
 	}
 }
+
+func TestValidatePlanMissingWorkingDirRejectedByDefault(t *testing.T) {
+	p := validPlan()
+	p.Swarm.WorkingDir = ""
+	err := ValidatePlan(p, ValidateOptions{})
+	if err == nil {
+		t.Fatal("expected error for missing working_dir without AllowMissingWorkingDir")
+	}
+	if !strings.Contains(err.Error(), "working_dir is required") {
+		t.Errorf("expected 'working_dir is required' error, got: %v", err)
+	}
+}
+
+func TestValidatePlanMissingWorkingDirAllowedWithOption(t *testing.T) {
+	p := validPlan()
+	p.Swarm.WorkingDir = ""
+	if err := ValidatePlan(p, ValidateOptions{AllowMissingWorkingDir: true}); err != nil {
+		t.Fatalf("unexpected error with AllowMissingWorkingDir: %v", err)
+	}
+}

@@ -28,6 +28,23 @@ Swarm orchestration in legato is conductor-driven: pressing `S` on a card spawns
 
 7. **Finish.** When the goal is met, conductor runs `legato swarm finish <parent-id> "<summary>"`. All worker sessions are killed and the summary is appended to the parent task description. **The conductor session is left alive** so the user can still query it for confirmation or follow-up questions. Dismiss the conductor manually via the agents view (`K`) when done.
 
+### Cancellation & recreation
+
+A swarm can be cancelled from any state via `legato swarm cancel <parent-id>` (CLI), the TUI detail panel, or the web PWA detail panel. Cancellation kills the conductor and every live worker, transitions non-terminal sub-tasks to `cancelled`, deletes all sub-tasks, clears the parent's working directory, and removes pending plans and runtime files. The parent task card and its history remain.
+
+`StartSwarm` refuses to spawn a conductor when leftover swarm state is present. It checks three conditions and returns a descriptive error if any of them are true:
+- The parent already has a running agent session.
+- The parent has sub-tasks in non-terminal states (`queued`, `dispatched`, `in_progress`, `reporting`).
+- The parent's `swarm_working_dir` column is already set (even if there are no sub-tasks).
+
+This prevents accidental double-spawning or spawning into a stale swarm. The user must cancel the existing swarm first.
+
+### Plan extensions
+
+After a swarm is running, the conductor (or user) can append more work via `legato swarm extend-plan <plan-file> [--auto-approve] [--timeout 5m]`. The plan is validated with `AllowMissingWorkingDir: true` so the `working_dir` field can be omitted — the existing swarm's working directory is used automatically.
+
+On approval, new sub-tasks are created with step indices starting after the current maximum. This means extension sub-tasks queue behind the existing material and are gated by the same step-advancement logic. If new steps are introduced, the conductor must call `legato swarm next-step <parent-id>` to activate them once the current step is terminal.
+
 ### Sub-task lifecycle
 
 `queued → dispatched → in_progress → reporting → done` (or `→ cancelled` from any prior state).
@@ -36,6 +53,7 @@ Swarm orchestration in legato is conductor-driven: pressing `S` on a card spawns
 - `dispatched` — worker tmux session has been created; status is `dispatched_at = now`.
 - `in_progress` — worker has called `swarm progress` for the first time (or first emitted output).
 - `reporting` — worker has called `swarm built`; awaiting conductor confirmation.
+  - `built` is idempotent from this state: if a worker re-calls `swarm built` after receiving feedback (e.g. `legato swarm message`), the DB write is skipped but a fresh event is emitted so the conductor knows the worker is re-reporting. This enables review loops without creating duplicate sub-tasks.
 - `done` — conductor called `swarm close`. `completed_at` set.
 - `cancelled` — worker died unexpectedly, OR conductor closed it before completion, OR the swarm finished with the worker still mid-flight.
 
@@ -85,7 +103,7 @@ The swarm-aware output shows progress (`x/y done`), the last unacked event kind 
 - `internal/engine/store/swarm.go` — Subtask CRUD with new columns (`agent_kind`, `prompt`, `dispatched_at`); `SetSubtaskDispatched` helper. Migration `014_swarm_v1.sql` rewrites v0 status enum values and adds the new columns plus `tasks.swarm_working_dir`.
 - `internal/engine/hooks/prompts/` — embedded `conductor.md` and `worker.md`. Free-form role labels fall back to `worker.md`. Override per role/adapter via `cfg.swarm.prompts.<role>.<adapter>`.
 - `internal/engine/tmux/` — `SendKeysLine` and `SendKeysMultiline` (with base64 wrapping).
-- `internal/service/swarm.go` — `SwarmService` with conductor methods (`StartSwarm`, `ApplyApprovedPlan`, `Dispatch`, `Message`, `MessageParent`, `Broadcast`, `Close`, `Finish`) plus worker methods (`Progress`, `Question`, `Built`) plus `HandleAgentDied` and `StartEventLoop`. Per-worker progress debouncer (1s window) collapses chatty workers; `built`/`question`/`died` events bypass the debounce. `LatestSnapshot(parentID)` exposes an in-memory `*SwarmSnapshot` (Total/Done/Cancelled/Active) maintained incrementally by `bumpSnapshot` on every status change; cold-cache reads lazily rebuild from `ListSubtasksByParent` so post-restart totals are correct.
+- `internal/service/swarm.go` — `SwarmService` with conductor methods (`StartSwarm`, `ApplyApprovedPlan`, `ExtendApprovedPlan`, `NextStep`, `Dispatch`, `Message`, `MessageParent`, `Broadcast`, `Close`, `Finish`, `CancelSwarm`) plus worker methods (`Progress`, `Question`, `Built`) plus `HandleAgentDied` and `StartEventLoop`. Per-worker progress debouncer (1s window) collapses chatty workers; `built`/`question`/`died` events bypass the debounce. `LatestSnapshot(parentID)` exposes an in-memory `*SwarmSnapshot` (Total/Done/Cancelled/Active) maintained incrementally by `bumpSnapshot` on every status change; cold-cache reads lazily rebuild from `ListSubtasksByParent` so post-restart totals are correct.
 - `internal/service/swarm_messages.go` — formatters for every `[swarm event]` line.
 - `internal/service/agent.go` — `LaunchCommandAdapter` interface + per-agent file write + post-spawn auto-launch via `SendKeysLine` + brief kickoff. `KillAgent` publishes `EventAgentDied`. `LastSpawnConflicts()` exposes advisory scope warnings.
 - `internal/cli/swarm.go` + `cmd/legato/main.go::runSwarmCmd` — CLI verb handlers.
@@ -98,11 +116,14 @@ Conductor verbs:
 ```
 legato swarm validate-plan <plan-file>            # dry-run validation, JSON result
 legato swarm propose-plan <plan-file> [--auto-approve] [--timeout 5m]
+legato swarm extend-plan <plan-file> [--auto-approve] [--timeout 5m]
+legato swarm cancel <parent-id>
 legato swarm dispatch <subtask-id>
 legato swarm message <subtask-id> "<text>"
 legato swarm broadcast <parent-id> "<text>"
 legato swarm close <subtask-id>
 legato swarm finish <parent-id> "<summary>"
+legato swarm next-step <parent-id>
 ```
 
 Worker verbs:

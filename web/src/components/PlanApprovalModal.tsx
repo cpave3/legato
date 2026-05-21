@@ -23,11 +23,15 @@ export function PlanApprovalModal() {
   // the plan we're already reviewing — otherwise a fresh plan_proposed event
   // for the same parent would reset rejectMode/notes mid-typing.
   const currentPlanIdRef = useRef<string | null>(null)
+  const [isExtension, setIsExtension] = useState(false)
+  const pendingModeRef = useRef<string | null>(null)
 
   const showPlan = useCallback((p: PendingPlanData) => {
     if (isVerdictedRef.current) return
     setPlan(p)
     currentPlanIdRef.current = p.parent_task_id
+    setIsExtension(pendingModeRef.current === "extension")
+    pendingModeRef.current = null
     setIsOpen(true)
     setRejectMode(false)
     setNotes("")
@@ -65,6 +69,7 @@ export function PlanApprovalModal() {
   useEffect(() => {
     return subscribe((msg) => {
       if (msg.type === "plan_proposed" && msg.parent_task_id) {
+        pendingModeRef.current = msg.mode ?? null
         discoverPlans()
       }
       if (msg.type === "swarm_changed" && msg.parent_task_id) {
@@ -155,7 +160,9 @@ export function PlanApprovalModal() {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="max-h-[85vh] w-full max-w-xl overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
         <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
-          <h2 className="text-sm font-semibold text-zinc-200">Plan Proposed</h2>
+          <h2 className="text-sm font-semibold text-zinc-200">
+            {isExtension ? "Extension plan — append to existing swarm" : "Plan Proposed"}
+          </h2>
           <button
             onClick={handleClose}
             className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"

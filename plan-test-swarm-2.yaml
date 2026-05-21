@@ -1,0 +1,50 @@
+swarm:
+  parent_task_id: "5sqbp8jl"
+  working_dir: "/home/cameron/Projects/legato"
+  summary: |
+    Addendum to the test swarm: one more worker to summarize the web/
+    React frontend (the area not covered by the first two workers).
+steps:
+  - name: "Summarize web frontend"
+    subtasks:
+      - title: "Summarize web frontend"
+        role: web
+        scope:
+          - "summary-web.md"
+        prompt: |
+          You are part of a test swarm on the legato repo. The parent task
+          is "test swarm — read some files and summarise them." Two prior
+          workers already summarized the top-level docs (summary-docs.md)
+          and the Go source layout (summary-code.md). Your job is to cover
+          the remaining area: the React frontend under `web/`.
+
+          Working dir: /home/cameron/Projects/legato
+
+          Steps:
+
+          1. Look at web/package.json to see the stack (React version,
+             Vite, Tailwind, xterm.js, etc.).
+          2. Look at web/src/ — list the top-level files/folders.
+             Specifically note pages/ (Agents, Settings, etc.),
+             components/ (TerminalPanel, PromptBar, AgentSidebar, etc.),
+             hooks/, lib/.
+          3. Skim a few representative source files to understand the
+             frontend architecture (WebSocket usage, auth flow, PWA setup,
+             routing). docs/claude/web-ui.md has a good cheat-sheet — use
+             it as a guide but verify against actual files.
+
+          Then write a single file `summary-web.md` in the working
+          directory containing:
+            - One paragraph describing the frontend stack (frameworks,
+              build tool, key libraries).
+            - A bulleted breakdown of web/src/ subdirectories with
+              one-line descriptions.
+            - A short note on the key integration points with the Go
+              backend (REST API, WebSocket, auth token).
+
+          Keep the whole summary under ~400 words. Do NOT edit any source
+          files — read-only exploration plus writing the one summary file.
+
+          Stay inside scope: only create/edit `summary-web.md`.
+
+          When done, run: legato swarm built $LEGATO_SUBTASK_ID

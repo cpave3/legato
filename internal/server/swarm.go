@@ -11,6 +11,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/engine/swarm"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -24,6 +25,8 @@ type SwarmService interface {
 	Close(ctx context.Context, subtaskID string) error
 	Finish(ctx context.Context, parentID, summary string) error
 	NextStep(ctx context.Context, parentID string) error
+	CancelSwarm(ctx context.Context, parentID string) error
+	ExtendApprovedPlan(ctx context.Context, plan *swarm.Plan) error
 	Snapshot(ctx context.Context, parentID string) ([]byte, error)
 	ListSubtaskInfos(ctx context.Context, parentID string) ([]service.SwarmSubtaskInfo, error)
 	FetchInbox(ctx context.Context, parentID string) ([]service.InboxEntry, error)
@@ -78,7 +81,7 @@ func (s *Server) swarmStartHandler() http.HandlerFunc {
 				s.writeError(w, http.StatusNotFound, "parent task not found")
 				return
 			}
-			if strings.Contains(err.Error(), "already has a running agent") {
+			if strings.Contains(err.Error(), "already has a running agent") || strings.Contains(err.Error(), "cancel the existing swarm first") {
 				s.writeError(w, http.StatusConflict, err.Error())
 				return
 			}
@@ -281,6 +284,70 @@ func (s *Server) swarmNextStepHandler() http.HandlerFunc {
 				return
 			}
 			s.writeError(w, http.StatusInternalServerError, msg)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+func (s *Server) swarmCancelHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.swarm == nil {
+			s.writeError(w, http.StatusServiceUnavailable, "swarm service not available")
+			return
+		}
+		var req struct {
+			ParentTaskID string `json:"parent_task_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ParentTaskID == "" {
+			s.writeError(w, http.StatusBadRequest, "parent_task_id is required")
+			return
+		}
+		if err := s.swarm.CancelSwarm(r.Context(), req.ParentTaskID); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				s.writeError(w, http.StatusNotFound, "parent task not found")
+				return
+			}
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+func (s *Server) swarmExtendPlanHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.swarm == nil {
+			s.writeError(w, http.StatusServiceUnavailable, "swarm service not available")
+			return
+		}
+		var req struct {
+			ParentTaskID string `json:"parent_task_id"`
+			PlanPath     string `json:"plan_path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ParentTaskID == "" || req.PlanPath == "" {
+			s.writeError(w, http.StatusBadRequest, "parent_task_id and plan_path are required")
+			return
+		}
+		plan, err := swarm.LoadPlan(req.PlanPath)
+		if err != nil {
+			s.writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := swarm.ValidatePlan(plan, swarm.ValidateOptions{AllowMissingWorkingDir: true}); err != nil {
+			s.writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := s.swarm.ExtendApprovedPlan(r.Context(), plan); err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

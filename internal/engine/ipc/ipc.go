@@ -21,6 +21,7 @@ type Message struct {
 	ReplySocket string `json:"reply_socket,omitempty"` // for request/reply requests, the requester's listening socket
 	Notes       string `json:"notes,omitempty"`        // free-form supplementary text (e.g. plan rejection notes)
 	PlanPath    string `json:"plan_path,omitempty"`    // canonical path to the plan file (plan_proposed)
+	Mode        string `json:"mode,omitempty"`         // e.g. "extension" for plan-proposed messages
 }
 
 // SocketDir returns the directory for Legato IPC sockets.

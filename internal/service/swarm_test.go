@@ -958,6 +958,281 @@ func TestLatestSnapshotMissingParentReturnsNil(t *testing.T) {
 	}
 }
 
+// TestBuiltFromReportingReReports verifies that calling Built from reporting
+// status is allowed, stays reporting, emits a fresh built event, and does not
+// double-count in the snapshot.
+func TestBuiltFromReportingReReports(t *testing.T) {
+	sw, _, st, mt := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-1")
+	seedSubtask(t, st, "st-reporting01", "parent-1", "reporting")
+
+	// Spawn a fake conductor so recordEventForConductor has a target.
+	if err := mt.Spawn("legato-parent-1", t.TempDir(), 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertAgentSession(context.Background(), store.AgentSession{
+		TaskID:      "parent-1",
+		TmuxSession: "legato-parent-1",
+		Status:      "running",
+		StartedAt:   "2024-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Establish snapshot baseline: one reporting subtask → Active=1.
+	_ = sw.LatestSnapshot("parent-1")
+
+	if err := sw.Built(context.Background(), "st-reporting01"); err != nil {
+		t.Fatalf("Built from reporting: %v", err)
+	}
+
+	got, err := st.GetSubtask(context.Background(), "st-reporting01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "reporting" {
+		t.Errorf("Status = %q, want reporting", got.Status)
+	}
+
+	// Verify a fresh built event was recorded.
+	events, err := st.ListUnackedSwarmEvents(context.Background(), "parent-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range events {
+		if e.Kind == "built" && e.SubtaskID != nil && *e.SubtaskID == "st-reporting01" {
+			found = true
+			if !strings.Contains(e.Payload, "re-reported") {
+				t.Errorf("expected re-report hint in payload, got: %q", e.Payload)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected a fresh built event for re-report")
+	}
+
+	// Snapshot should still show Active=1 (not 2).
+	snap := sw.LatestSnapshot("parent-1")
+	if snap.Active != 1 {
+		t.Errorf("Active = %d, want 1 (no double-count)", snap.Active)
+	}
+}
+
+// TestCancelSwarmKillsAgentsAndDeletesSubtasks verifies CancelSwarm kills live
+// workers, transitions non-terminal sub-tasks to cancelled, deletes them, clears
+// working dir, and publishes the change event.
+func TestCancelSwarmKillsAgentsAndDeletesSubtasks(t *testing.T) {
+	sw, _, st, mt := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-cancel")
+	wd := t.TempDir()
+	if err := st.SetTaskSwarmWorkingDir(context.Background(), "parent-cancel", &wd); err != nil {
+		t.Fatal(err)
+	}
+	seedSubtask(t, st, "st-cancel01", "parent-cancel", "in_progress")
+	seedSubtask(t, st, "st-cancel02", "parent-cancel", "done")
+	seedSubtask(t, st, "st-cancel03", "parent-cancel", "queued")
+
+	// Spawn fake agent sessions so KillAgent has something to kill.
+	for _, sess := range []string{"legato-parent-cancel", "legato-st-cancel01", "legato-st-cancel03"} {
+		if err := mt.Spawn(sess, t.TempDir(), 80, 24); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := "2024-01-01T00:00:00Z"
+	if err := st.InsertAgentSession(context.Background(), store.AgentSession{
+		TaskID:      "parent-cancel",
+		TmuxSession: "legato-parent-cancel",
+		Status:      "running",
+		StartedAt:   now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertAgentSession(context.Background(), store.AgentSession{
+		TaskID:       "st-cancel01",
+		TmuxSession:  "legato-st-cancel01",
+		Status:       "running",
+		ParentTaskID: strPtr("parent-cancel"),
+		StartedAt:    now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.InsertAgentSession(context.Background(), store.AgentSession{
+		TaskID:       "st-cancel03",
+		TmuxSession:  "legato-st-cancel03",
+		Status:       "running",
+		ParentTaskID: strPtr("parent-cancel"),
+		StartedAt:    now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sw.CancelSwarm(context.Background(), "parent-cancel"); err != nil {
+		t.Fatalf("CancelSwarm: %v", err)
+	}
+
+	// Sub-tasks should be deleted.
+	subs, err := st.ListSubtasksByParent(context.Background(), "parent-cancel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 0 {
+		t.Errorf("expected 0 subtasks after cancel, got %d", len(subs))
+	}
+
+	// Working dir should be cleared.
+	parent, err := st.GetTask(context.Background(), "parent-cancel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parent.SwarmWorkingDir != nil {
+		t.Errorf("swarm_working_dir not cleared")
+	}
+	if parent.SwarmActiveStep != 0 {
+		t.Errorf("swarm_active_step = %d, want 0", parent.SwarmActiveStep)
+	}
+}
+
+// TestCancelSwarmNoSwarmIsNoOp verifies CancelSwarm on a parent with no swarm
+// returns without error.
+func TestCancelSwarmNoSwarmIsNoOp(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-noswarm")
+
+	if err := sw.CancelSwarm(context.Background(), "parent-noswarm"); err != nil {
+		t.Fatalf("CancelSwarm on parent with no swarm: %v", err)
+	}
+}
+
+// TestStartSwarmRefusesLeftoverSubtasks verifies StartSwarm refuses when
+// non-terminal sub-tasks exist.
+func TestStartSwarmRefusesLeftoverSubtasks(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-leftover")
+	seedSubtask(t, st, "st-left01", "parent-leftover", "queued")
+
+	if err := sw.StartSwarm(context.Background(), "parent-leftover", t.TempDir()); err == nil {
+		t.Fatal("expected StartSwarm to refuse when subtasks exist")
+	} else if !strings.Contains(err.Error(), "cancel the existing swarm first") {
+		t.Errorf("error should mention cancelling existing swarm: %v", err)
+	}
+}
+
+// TestStartSwarmRefusesNonNilWorkingDir verifies StartSwarm refuses when
+// swarm_working_dir is already set (even with no subtasks).
+func TestStartSwarmRefusesNonNilWorkingDir(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-wdset")
+	wd := t.TempDir()
+	if err := st.SetTaskSwarmWorkingDir(context.Background(), "parent-wdset", &wd); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sw.StartSwarm(context.Background(), "parent-wdset", t.TempDir()); err == nil {
+		t.Fatal("expected StartSwarm to refuse when working_dir is set")
+	} else if !strings.Contains(err.Error(), "cancel the existing swarm first") {
+		t.Errorf("error should mention cancelling existing swarm: %v", err)
+	}
+}
+
+// TestStartSwarmSucceedsAfterCancel verifies the full cancel → recreate cycle.
+func TestStartSwarmSucceedsAfterCancel(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-cycle")
+	seedSubtask(t, st, "st-cycle01", "parent-cycle", "queued")
+
+	if err := sw.CancelSwarm(context.Background(), "parent-cycle"); err != nil {
+		t.Fatalf("CancelSwarm: %v", err)
+	}
+
+	if err := sw.StartSwarm(context.Background(), "parent-cycle", t.TempDir()); err != nil {
+		t.Fatalf("StartSwarm after cancel: %v", err)
+	}
+}
+
+// TestExtendApprovedPlanAppendsWithOffsets verifies ExtendApprovedPlan adds
+// new sub-tasks with step indices offset after the existing max.
+func TestExtendApprovedPlanAppendsWithOffsets(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-extend")
+	wd := t.TempDir()
+	if err := st.SetTaskSwarmWorkingDir(context.Background(), "parent-extend", &wd); err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed existing subtasks with step index 0 and 1.
+	seedSubtaskWithStep(t, st, "st-ext01", "parent-extend", "done", 0)
+	seedSubtaskWithStep(t, st, "st-ext02", "parent-extend", "done", 1)
+
+	plan := &swarm.Plan{
+		Swarm: swarm.PlanHeader{ParentTaskID: "parent-extend", WorkingDir: wd},
+		Steps: []swarm.PlanStep{
+			{Subtasks: []swarm.PlanSubtask{{Title: "Step2-A"}}},
+			{Subtasks: []swarm.PlanSubtask{{Title: "Step3-A"}}},
+		},
+	}
+	if err := sw.ExtendApprovedPlan(context.Background(), plan); err != nil {
+		t.Fatalf("ExtendApprovedPlan: %v", err)
+	}
+
+	subs, err := st.ListSubtasksByParent(context.Background(), "parent-extend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 4 {
+		t.Fatalf("got %d subtasks, want 4", len(subs))
+	}
+
+	// Map titles to step_index.
+	idxs := map[string]int{}
+	for _, s := range subs {
+		idxs[s.Title] = s.StepIndex
+	}
+	if idxs["Step2-A"] != 2 {
+		t.Errorf("Step2-A step_index = %d, want 2", idxs["Step2-A"])
+	}
+	if idxs["Step3-A"] != 3 {
+		t.Errorf("Step3-A step_index = %d, want 3", idxs["Step3-A"])
+	}
+}
+
+// TestExtendApprovedPlanRefusesNoSwarm verifies ExtendApprovedPlan refuses when
+// the parent has no swarm_working_dir.
+func TestExtendApprovedPlanRefusesNoSwarm(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-noextend")
+
+	plan := &swarm.Plan{
+		Swarm: swarm.PlanHeader{ParentTaskID: "parent-noextend", WorkingDir: "/tmp"},
+		Steps: []swarm.PlanStep{
+			{Subtasks: []swarm.PlanSubtask{{Title: "Orphan"}}},
+		},
+	}
+	if err := sw.ExtendApprovedPlan(context.Background(), plan); err == nil {
+		t.Fatal("expected ExtendApprovedPlan to refuse when no swarm exists")
+	}
+}
+
+// TestExtendApprovedPlanValidatesInput verifies ExtendApprovedPlan runs the
+// same validation as ApplyApprovedPlan.
+func TestExtendApprovedPlanValidatesInput(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-extend-bad")
+	wd := t.TempDir()
+	if err := st.SetTaskSwarmWorkingDir(context.Background(), "parent-extend-bad", &wd); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := &swarm.Plan{
+		Swarm: swarm.PlanHeader{ParentTaskID: "parent-extend-bad", WorkingDir: wd},
+		Steps: []swarm.PlanStep{}, // empty steps → invalid
+	}
+	if err := sw.ExtendApprovedPlan(context.Background(), plan); err == nil {
+		t.Fatal("expected ExtendApprovedPlan to reject invalid plan")
+	}
+}
+
 // TestBumpSnapshotAfterClose exercises the bumpSnapshot path: dispatch then
 // close a sub-task and assert the in-memory counters move correctly.
 func TestBumpSnapshotAfterClose(t *testing.T) {

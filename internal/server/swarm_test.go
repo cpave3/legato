@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/engine/swarm"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -29,6 +31,8 @@ type mockSwarmService struct {
 	fetchInboxFunc     func(ctx context.Context, parentID string) ([]service.InboxEntry, error)
 	peekInboxFunc      func(ctx context.Context, parentID string) ([]service.InboxEntry, error)
 	nextStepFunc       func(ctx context.Context, parentID string) error
+	cancelSwarmFunc    func(ctx context.Context, parentID string) error
+	extendApprovedPlanFunc func(ctx context.Context, plan *swarm.Plan) error
 
 	// In-memory pending-plan storage for tests.
 	pendingPlansMu sync.RWMutex
@@ -115,6 +119,20 @@ func (m *mockSwarmService) PeekInbox(ctx context.Context, parentID string) ([]se
 func (m *mockSwarmService) NextStep(ctx context.Context, parentID string) error {
 	if m.nextStepFunc != nil {
 		return m.nextStepFunc(ctx, parentID)
+	}
+	return nil
+}
+
+func (m *mockSwarmService) CancelSwarm(ctx context.Context, parentID string) error {
+	if m.cancelSwarmFunc != nil {
+		return m.cancelSwarmFunc(ctx, parentID)
+	}
+	return nil
+}
+
+func (m *mockSwarmService) ExtendApprovedPlan(ctx context.Context, plan *swarm.Plan) error {
+	if m.extendApprovedPlanFunc != nil {
+		return m.extendApprovedPlanFunc(ctx, plan)
 	}
 	return nil
 }
@@ -582,6 +600,139 @@ func TestHandlePlanVerdictNilSwarmNoPanic(t *testing.T) {
 		Status:       "approved",
 		ReplySocket:  "/tmp/no-such-reply.sock",
 	})
+}
+
+func TestSwarmCancelHappyPath(t *testing.T) {
+	sw := &mockSwarmService{
+		cancelSwarmFunc: func(ctx context.Context, parentID string) error {
+			if parentID != "task-1" {
+				t.Errorf("parentID = %q, want task-1", parentID)
+			}
+			return nil
+		},
+	}
+	srv := newTestServerWithSwarm("", sw)
+	body := `{"parent_task_id":"task-1"}`
+	req := httptest.NewRequest("POST", "/api/swarm/cancel", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp map[string]string
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["status"] != "ok" {
+		t.Errorf("status = %q, want ok", resp["status"])
+	}
+}
+
+func TestSwarmCancelNotFound(t *testing.T) {
+	sw := &mockSwarmService{
+		cancelSwarmFunc: func(ctx context.Context, parentID string) error {
+			return store.ErrNotFound
+		},
+	}
+	srv := newTestServerWithSwarm("", sw)
+	body := `{"parent_task_id":"missing"}`
+	req := httptest.NewRequest("POST", "/api/swarm/cancel", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+func TestSwarmExtendPlanHappyPath(t *testing.T) {
+	// Write a minimal valid plan file.
+	dir := t.TempDir()
+	planPath := dir + "/plan.yaml"
+	planContent := `swarm:
+  parent_task_id: task-ext
+steps:
+  - name: extra
+    subtasks:
+      - title: More
+        role: backend
+`
+	if err := os.WriteFile(planPath, []byte(planContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var called bool
+	sw := &mockSwarmService{
+		extendApprovedPlanFunc: func(ctx context.Context, plan *swarm.Plan) error {
+			called = true
+			return nil
+		},
+	}
+	srv := newTestServerWithSwarm("", sw)
+	body := `{"parent_task_id":"task-ext","plan_path":"` + planPath + `"}`
+	req := httptest.NewRequest("POST", "/api/swarm/extend-plan", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if !called {
+		t.Error("ExtendApprovedPlan was not called")
+	}
+}
+
+func TestSwarmExtendPlanInvalidPlan(t *testing.T) {
+	// Write an invalid plan (no subtasks).
+	dir := t.TempDir()
+	planPath := dir + "/plan.yaml"
+	planContent := `swarm:
+  parent_task_id: task-ext
+steps:
+  - name: empty
+`
+	if err := os.WriteFile(planPath, []byte(planContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	sw := &mockSwarmService{}
+	srv := newTestServerWithSwarm("", sw)
+	body := `{"parent_task_id":"task-ext","plan_path":"` + planPath + `"}`
+	req := httptest.NewRequest("POST", "/api/swarm/extend-plan", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestSwarmStartConflictCancelExistingSwarm(t *testing.T) {
+	// When StartSwarm returns the "cancel the existing swarm first" error,
+	// the handler should return 409 Conflict.
+	sw := &mockSwarmService{
+		startSwarmFunc: func(ctx context.Context, parentID, workingDir string) error {
+			return errors.New("parent task task-1 already has a swarm working directory — cancel the existing swarm first")
+		},
+	}
+	srv := newTestServerWithSwarm("", sw)
+	body := `{"parent_task_id":"task-1","working_dir":"/tmp/wd"}`
+	req := httptest.NewRequest("POST", "/api/swarm/start", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", w.Code)
+	}
+	var resp map[string]string
+	json.NewDecoder(w.Body).Decode(&resp)
+	if !strings.Contains(resp["error"], "cancel the existing swarm first") {
+		t.Errorf("expected error text about canceling swarm, got %q", resp["error"])
+	}
 }
 
 func TestSwarmUnauthorized(t *testing.T) {

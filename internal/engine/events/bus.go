@@ -56,6 +56,7 @@ type PlanProposedPayload struct {
 	ParentTaskID string
 	PlanPath     string
 	ReplySocket  string
+	Mode         string // "extension" for append-to-existing-swarm plans, empty for normal proposals
 }
 
 type Event struct {

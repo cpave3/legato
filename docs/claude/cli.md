@@ -19,7 +19,10 @@
 ### Swarm verbs
 
 Conductor-only:
+- `legato swarm validate-plan <plan-file>` — dry-run validation, prints JSON `{valid:bool, error?:string}`; exits 2 on invalid but no DB writes
 - `legato swarm propose-plan <plan-file> [--auto-approve] [--timeout 5m]` — submit a YAML plan for HITL approval. Blocks via IPC `BroadcastRequest` until a TUI replies with `plan_verdict` (approved / rejected / edited), or returns immediately when `--auto-approve` is set
+- `legato swarm extend-plan <plan-file> [--auto-approve] [--timeout 5m]` — append a validated plan to an existing swarm. Inherits the swarm's working directory so `working_dir` can be omitted. New sub-tasks receive step indices after the current max. Uses `plan_extension_proposed` IPC instead of `plan_proposed`
+- `legato swarm cancel <parent-id>` — terminate a swarm from any state: kills conductor + workers, deletes sub-tasks, clears working dir, removes runtime files and pending plans
 - `legato swarm dispatch <subtask-id>` — spawn the worker for a queued sub-task; transitions `queued → dispatched`
 - `legato swarm message <subtask-id> "<text>"` — send-keys text into a worker's tmux pane
 - `legato swarm broadcast <parent-id> "<text>"` — send the same text to every live worker in the swarm

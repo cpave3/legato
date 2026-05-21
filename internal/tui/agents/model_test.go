@@ -450,3 +450,89 @@ func TestStateTimelinesRefreshedMsgMergesEntries(t *testing.T) {
 		t.Errorf("task2 timeline missing: %v", m.timelines["task2"])
 	}
 }
+
+func TestToggleWorkerDetailsWithL(t *testing.T) {
+	// sortAgentsForGrouping orders conductor first, then workers, then solos.
+	agents := []service.AgentSession{
+		{ID: 1, TaskID: "REX-1238", TmuxSession: "legato-REX-1238", Command: "shell", Status: "running", StartedAt: time.Now().Add(-5 * time.Minute)},
+		{ID: 2, TaskID: "REX-1239", TmuxSession: "legato-REX-1239", Command: "shell", Status: "running", ParentTaskID: "REX-1238", Role: "backend", SubtaskID: "task-1", StartedAt: time.Now().Add(-5 * time.Minute)},
+		{ID: 3, TaskID: "REX-1240", TmuxSession: "legato-REX-1240", Command: "shell", Status: "running", ParentTaskID: "REX-1238", Role: "conductor", StartedAt: time.Now().Add(-5 * time.Minute)},
+	}
+
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents(agents)
+	m.SetSize(120, 40)
+
+	// Test: "l" toggles worker details for a worker agent (index 1 after sorting)
+	m.selected = 1 // select worker
+	if !m.showWorkerDetails {
+		t.Fatal("expected showWorkerDetails to be true initially")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if m.showWorkerDetails {
+		t.Errorf("expected showWorkerDetails to be false after first 'l', got true")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if !m.showWorkerDetails {
+		t.Errorf("expected showWorkerDetails to be true after second 'l', got false")
+	}
+
+	// Test: "l" is no-op for conductor
+	m.selected = 0 // select conductor (index 0 after sorting)
+	m.showWorkerDetails = true
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if !m.showWorkerDetails {
+		t.Errorf("expected showWorkerDetails to remain true for conductor, got false")
+	}
+
+	// Test: "l" is no-op for solo agent (index 2 after sorting)
+	m.selected = 2 // select solo
+	m.showWorkerDetails = true
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if !m.showWorkerDetails {
+		t.Errorf("expected showWorkerDetails to remain true for solo agent, got false")
+	}
+}
+
+func TestWorkerDetailsPaneConditionallyShown(t *testing.T) {
+	agents := []service.AgentSession{
+		{ID: 1, TaskID: "t1", TmuxSession: "legato-t1", Command: "shell", Status: "running", StartedAt: time.Now()},
+		{ID: 2, TaskID: "t2", TmuxSession: "legato-t2", Command: "shell", Status: "running", ParentTaskID: "t1", Role: "backend", SubtaskID: "st1", StartedAt: time.Now()},
+		{ID: 3, TaskID: "t3", TmuxSession: "legato-t3", Command: "shell", Status: "running", ParentTaskID: "t1", Role: "conductor", StartedAt: time.Now()},
+	}
+
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents(agents)
+	m.SetSize(120, 40)
+
+	// Solo agent selected: 2-panel layout — no "WORKER" header
+	m.selected = 2
+	m.showWorkerDetails = true
+	view := m.View()
+	if containsStr(view, "WORKER") {
+		t.Error("solo agent view should not contain WORKER header")
+	}
+
+	// Conductor selected: 2-panel layout — no "WORKER" header
+	m.selected = 0
+	m.showWorkerDetails = true
+	view = m.View()
+	if containsStr(view, "WORKER") {
+		t.Error("conductor view should not contain WORKER header")
+	}
+
+	// Worker selected with showWorkerDetails=false: 2-panel layout
+	m.selected = 1
+	m.showWorkerDetails = false
+	view = m.View()
+	if containsStr(view, "WORKER") {
+		t.Error("worker view with showWorkerDetails=false should not contain WORKER header")
+	}
+
+	// Worker selected with showWorkerDetails=true: 3-panel layout, "WORKER" header present
+	m.showWorkerDetails = true
+	view = m.View()
+	if !containsStr(view, "WORKER") {
+		t.Error("worker view with showWorkerDetails=true should contain WORKER header")
+	}
+}

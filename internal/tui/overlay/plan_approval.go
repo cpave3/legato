@@ -72,18 +72,30 @@ type PlanApprovalOverlay struct {
 	notes        string
 	width        int
 	height       int
+	isExtension  bool
 }
 
 // NewPlanApproval constructs the overlay with a pre-loaded plan. Pass loadErr
 // non-nil if loading failed so the overlay can render the error state.
-func NewPlanApproval(parentTaskID, planPath, replySocket, editor string, plan *service.SwarmPlan, loadErr error) PlanApprovalOverlay {
-	return PlanApprovalOverlay{
+func NewPlanApproval(parentTaskID, planPath, replySocket, editor string, plan *service.SwarmPlan, loadErr error, opts ...func(*PlanApprovalOverlay)) PlanApprovalOverlay {
+	m := PlanApprovalOverlay{
 		parentTaskID: parentTaskID,
 		planPath:     planPath,
 		replySocket:  replySocket,
 		editor:       editor,
 		plan:         plan,
 		loadErr:      loadErr,
+	}
+	for _, opt := range opts {
+		opt(&m)
+	}
+	return m
+}
+
+// WithExtension marks the overlay as an extension plan approval.
+func WithExtension(isExt bool) func(*PlanApprovalOverlay) {
+	return func(m *PlanApprovalOverlay) {
+		m.isExtension = isExt
 	}
 }
 
@@ -181,7 +193,12 @@ func (m PlanApprovalOverlay) View() string {
 	bodyStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
 	hintStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
 
-	heading := titleStyle.Render("Plan proposed for " + m.parentTaskID)
+	var heading string
+	if m.isExtension {
+		heading = titleStyle.Render("Extension plan: append sub-tasks to existing swarm")
+	} else {
+		heading = titleStyle.Render("Plan proposed for " + m.parentTaskID)
+	}
 
 	if m.loadErr != nil {
 		body := bodyStyle.Render(fmt.Sprintf("Failed to load plan: %v\n\nPath: %s", m.loadErr, m.planPath))

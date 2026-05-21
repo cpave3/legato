@@ -83,6 +83,10 @@ type ValidateOptions struct {
 	MaxSubtasks int
 	// MaxSteps caps the number of steps; 0 skips the cap.
 	MaxSteps int
+	// AllowMissingWorkingDir permits a plan with an empty working_dir. Used by
+	// ExtendApprovedPlan where the working directory is inherited from the
+	// existing swarm.
+	AllowMissingWorkingDir bool
 }
 
 // ValidatePlan returns an error if the plan is malformed.
@@ -93,7 +97,7 @@ func ValidatePlan(plan *Plan, opts ValidateOptions) error {
 	if strings.TrimSpace(plan.Swarm.ParentTaskID) == "" {
 		return fmt.Errorf("swarm.parent_task_id is required")
 	}
-	if strings.TrimSpace(plan.Swarm.WorkingDir) == "" {
+	if strings.TrimSpace(plan.Swarm.WorkingDir) == "" && !opts.AllowMissingWorkingDir {
 		return fmt.Errorf("swarm.working_dir is required")
 	}
 	if len(plan.Steps) == 0 {

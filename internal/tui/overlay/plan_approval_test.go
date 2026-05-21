@@ -28,6 +28,32 @@ func TestPlanApprovalRendersSubtasks(t *testing.T) {
 	mustContainAll(t, view, []string{"Plan proposed for p-1", "Backend", "Frontend", "Wire up frontend"})
 }
 
+func TestPlanApprovalExtensionHeader(t *testing.T) {
+	m := NewPlanApproval("p-1", "/tmp/plan.yaml", "/tmp/sock", "vi", samplePlan(), nil, WithExtension(true))
+	view := m.View()
+	mustContain(t, view, "Extension plan")
+	mustContain(t, view, "append sub-tasks to existing swarm")
+	// Should NOT contain the normal proposal header
+	if contains(view, "Plan proposed for p-1") {
+		t.Error("extension overlay should not render normal proposal header")
+	}
+}
+
+func TestPlanApprovalExtensionKeysSameSemantics(t *testing.T) {
+	m := NewPlanApproval("p-1", "/tmp/plan.yaml", "/tmp/sock", "vi", samplePlan(), nil, WithExtension(true))
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if cmd == nil {
+		t.Fatal("expected command")
+	}
+	got, ok := cmd().(PlanApproveMsg)
+	if !ok {
+		t.Fatalf("got %T, want PlanApproveMsg", cmd())
+	}
+	if got.ParentTaskID != "p-1" {
+		t.Errorf("approve msg ParentTaskID = %q, want p-1", got.ParentTaskID)
+	}
+}
+
 func TestPlanApprovalLoadErrorRenders(t *testing.T) {
 	m := NewPlanApproval("p-1", "/tmp/plan.yaml", "/tmp/sock", "vi", nil, errors.New("boom"))
 	view := m.View()

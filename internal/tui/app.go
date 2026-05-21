@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -54,6 +55,7 @@ const (
 	overlayPlanApproval
 	overlayAgentAction
 	overlayMacroPicker
+	overlaySwarmCancel
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -283,6 +285,7 @@ type planProposalMsg struct {
 	ParentTaskID string
 	PlanPath     string
 	ReplySocket  string
+	Mode         string
 }
 
 // listenPlanProposals returns a command that listens for EventPlanProposed.
@@ -304,6 +307,7 @@ func (a App) listenPlanProposals() tea.Cmd {
 			ParentTaskID: p.ParentTaskID,
 			PlanPath:     p.PlanPath,
 			ReplySocket:  p.ReplySocket,
+			Mode:         p.Mode,
 		}
 	}
 }
@@ -358,6 +362,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "S":
 			if a.active == viewBoard && a.swarmSvc != nil {
 				return a.openSwarmInitOverlay()
+			}
+			return a.delegateKey(msg)
+		case "C":
+			if a.active == viewBoard && a.swarmSvc != nil {
+				return a.openSwarmCancelOverlay()
 			}
 			return a.delegateKey(msg)
 		case "R":
@@ -693,6 +702,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case overlay.SwarmFinishConfirmedMsg:
 		return a.handleSwarmFinishConfirmed(msg)
 
+		case overlay.SwarmCancelConfirmedMsg:
+			return a.handleSwarmCancelConfirmed(msg)
+
+		case overlay.SwarmCancelCancelledMsg:
+			a.overlayType = overlayNone
+			a.activeOverlay = nil
+			return a, nil
+
 	case overlay.AgentActionCancelledMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
@@ -830,7 +847,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case planProposalMsg:
 		// Conductor proposed a plan; surface the approval overlay.
-		next, cmd := a.openPlanApprovalOverlay(msg.ParentTaskID, msg.PlanPath, msg.ReplySocket)
+		next, cmd := a.openPlanApprovalOverlayWithMode(msg.ParentTaskID, msg.PlanPath, msg.ReplySocket, msg.Mode)
 		if a.planSub != nil {
 			return next, tea.Batch(cmd, a.listenPlanProposals())
 		}
@@ -1347,7 +1364,37 @@ func (a App) openSwarmInitOverlay() (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+func (a App) openSwarmCancelOverlay() (tea.Model, tea.Cmd) {
+	selected := a.board.SelectedCard()
+	if selected == nil {
+		return a, nil
+	}
+	cancelModel := overlay.NewSwarmCancel(selected.Key, selected.Title)
+	sized, _ := cancelModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.activeOverlay = sized
+	a.overlayType = overlaySwarmCancel
+	return a, nil
+}
+
+func (a App) handleSwarmCancelConfirmed(msg overlay.SwarmCancelConfirmedMsg) (tea.Model, tea.Cmd) {
+	a.overlayType = overlayNone
+	a.activeOverlay = nil
+	if a.swarmSvc == nil {
+		return a, nil
+	}
+	if err := a.swarmSvc.CancelSwarm(context.Background(), msg.ParentTaskID); err != nil {
+		return a, func() tea.Msg {
+			return statusbar.ErrorMsg{Text: fmt.Sprintf("Cancel swarm failed: %v", err)}
+		}
+	}
+	return a, a.board.Init()
+}
+
 func (a App) openPlanApprovalOverlay(parentTaskID, planPath, replySocket string) (tea.Model, tea.Cmd) {
+	return a.openPlanApprovalOverlayWithMode(parentTaskID, planPath, replySocket, "")
+}
+
+func (a App) openPlanApprovalOverlayWithMode(parentTaskID, planPath, replySocket, mode string) (tea.Model, tea.Cmd) {
 	var (
 		plan    *service.SwarmPlan
 		loadErr error
@@ -1357,7 +1404,8 @@ func (a App) openPlanApprovalOverlay(parentTaskID, planPath, replySocket string)
 	} else {
 		loadErr = fmt.Errorf("swarm service unavailable")
 	}
-	po := overlay.NewPlanApproval(parentTaskID, planPath, replySocket, a.editor, plan, loadErr)
+	isExtension := mode == "extension"
+	po := overlay.NewPlanApproval(parentTaskID, planPath, replySocket, a.editor, plan, loadErr, overlay.WithExtension(isExtension))
 	sized, _ := po.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
 	a.overlayType = overlayPlanApproval
@@ -1371,8 +1419,12 @@ func (a App) handleSwarmStart(msg overlay.SwarmStartMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 	if err := a.swarmSvc.StartSwarm(context.Background(), msg.ParentTaskID, msg.WorkingDir); err != nil {
+		errText := fmt.Sprintf("Start swarm failed: %v", err)
+		if strings.Contains(err.Error(), "cancel the existing swarm first") {
+			errText = errText + " (press Shift+C to cancel the existing swarm)"
+		}
 		return a, func() tea.Msg {
-			return statusbar.ErrorMsg{Text: fmt.Sprintf("Start swarm failed: %v", err)}
+			return statusbar.ErrorMsg{Text: errText}
 		}
 	}
 	return a, a.board.Init()

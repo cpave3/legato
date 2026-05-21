@@ -58,6 +58,8 @@ export interface CardDetail {
   pr_meta: PRMetaView | null
   swarm_active_step: number
   swarm_step_names: string[]
+  swarm_stats?: SwarmStats
+  swarm_working_dir?: string
   created_at: string
   updated_at: string
 }

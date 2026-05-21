@@ -25,20 +25,21 @@ type DurationData struct {
 
 // Model is the agent view Bubbletea model.
 type Model struct {
-	agents      []service.AgentSession
-	durations   map[string]DurationData
-	timelines   map[string][]string
-	selected    int
-	termContent string
-	width       int
-	height      int
-	polling     bool
-	icons       theme.Icons
+	agents            []service.AgentSession
+	durations         map[string]DurationData
+	timelines         map[string][]string
+	selected          int
+	termContent       string
+	width             int
+	height            int
+	polling           bool
+	showWorkerDetails bool
+	icons             theme.Icons
 }
 
 // New creates a new agent view model.
 func New(icons theme.Icons) Model {
-	return Model{icons: icons}
+	return Model{icons: icons, showWorkerDetails: true}
 }
 
 // SetAgents updates the agent list. Agents are grouped so swarm participants
@@ -269,6 +270,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case "l":
+		// Toggle worker details pane (swarm workers only).
+		if a := m.SelectedAgent(); a != nil && a.ParentTaskID != "" && a.Role != "conductor" {
+			m.showWorkerDetails = !m.showWorkerDetails
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -284,7 +291,7 @@ func (m Model) View() string {
 	sidebar := m.renderSidebar()
 
 	a := m.SelectedAgent()
-	if a == nil || a.ParentTaskID == "" {
+	if a == nil || a.ParentTaskID == "" || a.Role == "conductor" || !m.showWorkerDetails {
 		termPanel := m.renderTerminalPanel()
 		return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, termPanel)
 	}
@@ -713,7 +720,7 @@ func (m Model) renderSidebarHints(width int) string {
 		BorderForeground(theme.TextTertiary)
 
 	keyStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
-	hints := fmt.Sprintf("%s select  %s spawn  %s kill  %s macro\n%s action  %s attach  %s board",
+	hints := fmt.Sprintf("%s select  %s spawn  %s kill  %s macro\n%s action  %s attach  %s board  %s detail",
 		keyStyle.Render("j/k"),
 		keyStyle.Render("s"),
 		keyStyle.Render("X"),
@@ -721,6 +728,7 @@ func (m Model) renderSidebarHints(width int) string {
 		keyStyle.Render("M"),
 		keyStyle.Render("↵"),
 		keyStyle.Render("esc"),
+		keyStyle.Render("l"),
 	)
 
 	return hintStyle.Render(hints)

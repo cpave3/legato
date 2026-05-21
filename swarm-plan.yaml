@@ -1,0 +1,456 @@
+swarm:
+  parent_task_id: "zocrgi4f"
+  working_dir: "/home/cameron/Projects/legato"
+  summary: |
+    Three improvements to the swarm subsystem in legato:
+
+    1. Built relaxation — workers that have already reported `built` and then
+       received feedback can call `swarm built` again without an error.
+    2. Cancel + recreate — a new `CancelSwarm` verb that wipes the swarm state
+       on a parent card (kills the conductor + all live workers, clears
+       sub-tasks and `swarm_working_dir`) so the user can start fresh.
+       `StartSwarm` learns to refuse when prior swarm state exists. Exposed
+       via CLI, server API, TUI keybinding and web TaskDetail button.
+    3. Incremental plans — a new conductor verb `swarm extend-plan` that
+       appends sub-tasks to an existing swarm (still going through HITL
+       approval) instead of forcing the conductor to draft a wholly new plan.
+
+    Decomposed into three steps: backend (service + engine), surfaces (CLI/
+    server, TUI, web in parallel), and docs.
+
+steps:
+  - name: "Backend foundations"
+    subtasks:
+      - title: "Service + engine: built relaxation, CancelSwarm, ExtendApprovedPlan, StartSwarm guard"
+        role: backend
+        scope:
+          - internal/service/swarm.go
+          - internal/service/swarm_test.go
+          - internal/service/swarm_testhelpers_test.go
+          - internal/service/swarm_cleanup_test.go
+          - internal/service/swarm_urgent_test.go
+          - internal/service/interfaces.go
+          - internal/engine/swarm/plan.go
+          - internal/engine/swarm/plan_test.go
+        prompt: |
+          You are a backend worker on the **legato swarm improvements** swarm
+          (parent task `zocrgi4f`). The conductor has decomposed the work into
+          three goals; you own the service + engine layer for all three.
+
+          Working directory: /home/cameron/Projects/legato. Use TDD per the
+          project's CLAUDE.md.
+
+          ## What to implement
+
+          ### 1. Built relaxation (`internal/service/swarm.go::Built`)
+
+          Currently:
+          ```go
+          if st.Status != "in_progress" && st.Status != "dispatched" {
+              return fmt.Errorf("sub-task %s is %s, cannot mark built", subtaskID, st.Status)
+          }
+          ```
+
+          Add `"reporting"` to the accepted set so workers that already
+          reported `built`, then received feedback via `swarm message`, can
+          call `built` again without an error. When the status is already
+          `reporting` we skip the `UpdateSubtaskStatus` write but still emit
+          a fresh `built` event to the conductor so the conductor knows the
+          worker is re-reporting (text payload should hint that this is a
+          re-report — e.g. "worker %q re-reported built after feedback").
+          Snapshot/event-bus bookkeeping should not double-decrement when
+          we're already in `reporting`.
+
+          ### 2. Cancel + recreate
+
+          Add a new service method on `SwarmService` (and the concrete
+          `swarmService`):
+
+          ```go
+          CancelSwarm(ctx context.Context, parentID string) error
+          ```
+
+          Semantics:
+          - Idempotent: safe to call when no swarm exists.
+          - Kills the conductor agent session if alive
+            (`s.agents.KillAgent(ctx, parentID)`).
+          - For every sub-task of this parent: kill the worker agent if
+            alive and (when in a non-terminal state) transition status to
+            `cancelled` first, then `DeleteSubtask`. Add a
+            `Store.DeleteSubtask(ctx, subtaskID)` helper if it doesn't
+            already exist (check `internal/engine/store/swarm.go`).
+          - Clear `parent.swarm_working_dir` (set to nil) and reset
+            `parent.swarm_active_step` to 0.
+          - Run `cleanupRuntimeFiles` to remove `~/.legato/agents/<...>` and
+            plan files (you can extract or reuse the helper).
+          - Drop the in-memory snapshot cache entry, drain any pending
+            `pending_plans` entry (`DeletePendingPlan`), and publish
+            `EventSwarmChanged` with status `cancelled`.
+
+          Then tighten `StartSwarm`:
+          - Currently it only refuses if there is a running agent for the
+            parent. Extend it to also refuse if any non-terminal sub-tasks
+            exist (`queued`/`dispatched`/`in_progress`/`reporting`) OR if
+            `parent.swarm_working_dir` is non-nil. The error message must
+            mention "cancel the existing swarm first" so the UI can
+            surface it.
+
+          ### 3. Incremental plans
+
+          Add a new service method:
+
+          ```go
+          ExtendApprovedPlan(ctx context.Context, plan *swarm.Plan) error
+          ```
+
+          Behavior:
+          - Validate the plan using
+            `swarm.ValidatePlan(plan, s.cfg.ValidateOptions)` exactly the
+            same way `ApplyApprovedPlan` does.
+          - Look up the existing parent task. Refuse if there is no
+            existing swarm for that parent (no `swarm_working_dir`).
+          - Determine the step offset: find the current max `step_index`
+            among existing sub-tasks; new plan steps become
+            `max_step + 1, max_step + 2, ...` so they queue after the
+            currently-active material rather than overwriting indices.
+          - Create the new sub-tasks (same code path as
+            `ApplyApprovedPlan`'s inner loop), rebuild the snapshot, and
+            publish `EventSwarmChanged` with status `plan_extended`.
+
+          Also: extend the engine plan validator if needed so an
+          "extension" plan can omit the `working_dir` field (it's
+          inherited from the existing swarm). Keep the change minimal —
+          ideally add a new `ValidateOptions.AllowMissingWorkingDir bool`
+          (default false → existing strict behavior) that the caller flips
+          on for the extend path. Existing tests must still pass.
+
+          ## Tests (TDD — write these first)
+
+          Add cases to `internal/service/swarm_test.go`:
+          - `Built` no-longer-errors when called from `reporting`; status
+            stays `reporting`; a fresh `built` event is recorded for the
+            conductor; no double-counting in the snapshot.
+          - `CancelSwarm` on a swarm with multiple sub-tasks in mixed
+            states kills agents, deletes sub-tasks, clears working dir,
+            and publishes the change event.
+          - `CancelSwarm` on a parent with no swarm is a no-op (no error).
+          - `StartSwarm` refuses when there are leftover sub-tasks; succeeds
+            after a `CancelSwarm`.
+          - `ExtendApprovedPlan` appends sub-tasks with correct step
+            offsets; refuses when no swarm exists; validates the input.
+          - Plan validator: with `AllowMissingWorkingDir: true`, a plan
+            with no `working_dir` is accepted; without the option, the
+            existing "working_dir is required" error still fires.
+
+          ## Out of bounds
+
+          - Do NOT touch the CLI, server, TUI, or web layers — surface
+            workers handle those in step 2. If you must update an
+            interface signature in `internal/service/interfaces.go`, do
+            so minimally and notify the conductor via
+            `legato swarm progress` so the surface workers can align.
+          - Do NOT update docs/ or CLAUDE.md — the docs worker handles
+            that in step 3.
+
+          Stay inside the listed `scope`. When done, run:
+
+              legato swarm built $LEGATO_SUBTASK_ID
+
+  - name: "Surfaces"
+    subtasks:
+      - title: "CLI + server: swarm cancel, swarm extend-plan, StartSwarm guard surfacing"
+        role: cli-server
+        scope:
+          - internal/cli/swarm.go
+          - internal/cli/swarm_test.go
+          - internal/server/swarm.go
+          - internal/server/swarm_test.go
+          - internal/server/server.go
+          - cmd/legato/main.go
+        prompt: |
+          You're working on the **legato swarm improvements** swarm.
+          The backend foundations are landed: `service.SwarmService` now has
+          `CancelSwarm(ctx, parentID)` and `ExtendApprovedPlan(ctx, plan)`,
+          plus a relaxed `Built` and a tightened `StartSwarm`.
+
+          Working directory: /home/cameron/Projects/legato. Use TDD per the
+          project's CLAUDE.md.
+
+          ## What to implement
+
+          ### CLI verbs (internal/cli/swarm.go + cmd/legato/main.go)
+
+          1. `legato swarm cancel <parent-id>` — wraps `SwarmService.CancelSwarm`,
+             broadcasts an IPC `swarm_changed` message (status `cancelled`),
+             prints a JSON `{"status":"cancelled","parent_task_id":"..."}`.
+          2. `legato swarm extend-plan <plan-file> [--auto-approve] [--timeout 5m]` —
+             mirrors `SwarmProposePlan` but routes the approved plan through
+             `ExtendApprovedPlan` instead of `ApplyApprovedPlan`, and uses a
+             distinct IPC message type (e.g. `plan_extension_proposed`) so the
+             approval UI can label the modal as "extending existing plan". The
+             reply still arrives as `plan_verdict`. Validate the plan with
+             `AllowMissingWorkingDir: true` so extension plans can omit
+             `working_dir`.
+
+          Wire both into `cmd/legato/main.go`'s subcommand dispatch (`swarm
+          cancel`, `swarm extend-plan`) alongside the existing handlers, with
+          usage lines.
+
+          ### HTTP API (internal/server/swarm.go + internal/server/server.go)
+
+          1. `POST /api/swarm/cancel` — body `{"parent_task_id":"..."}` →
+             calls `swarm.CancelSwarm`. Return `200 {"status":"ok"}` on success,
+             404 on `ErrNotFound`, 500 otherwise. Also: extend the
+             `SwarmService` interface in `internal/server/swarm.go` to include
+             `CancelSwarm` and `ExtendApprovedPlan`.
+          2. `POST /api/swarm/extend-plan` — body
+             `{"parent_task_id":"...","plan_path":"..."}` → loads the plan via
+             `swarm.LoadPlan`, validates it (with extend options), calls
+             `swarm.ExtendApprovedPlan`. Return `200 {"status":"ok"}` on
+             success. (This endpoint is used by web/CLI clients that already
+             have a plan file on disk; HITL approval can be handled by the
+             caller before they hit this endpoint.)
+
+          Also: when `StartSwarm` returns the new "cancel the existing swarm
+          first" error, return `409 Conflict` with the message preserved (mirror
+          the existing `already has a running agent` handling).
+
+          Register both routes in `internal/server/server.go` alongside the
+          other `/api/swarm/*` handlers.
+
+          ## Tests
+
+          - CLI tests with `stubTmux` (see existing `cli_test.go`/`swarm_test.go`):
+            `legato swarm cancel` exits 0 on a known parent and broadcasts.
+            `legato swarm extend-plan --auto-approve <file>` applies an
+            extension successfully.
+          - Server tests: `POST /api/swarm/cancel` happy path; 404 on missing
+            parent; 409 surfacing for the StartSwarm conflict.
+            `POST /api/swarm/extend-plan` happy path with a temporary plan file.
+
+          ## Out of bounds
+
+          - Do NOT touch the TUI overlays or web UI — separate workers own
+            those. If you change the `service.SwarmService` interface or its
+            shape, coordinate via `legato swarm progress`.
+          - Do NOT touch docs.
+
+          Stay inside `scope`. When done:
+
+              legato swarm built $LEGATO_SUBTASK_ID
+
+      - title: "TUI: cancel-swarm overlay + plan-approval extension labelling"
+        role: tui
+        scope:
+          - internal/tui/overlay/swarm_cancel.go
+          - internal/tui/overlay/swarm_cancel_test.go
+          - internal/tui/overlay/plan_approval.go
+          - internal/tui/overlay/plan_approval_test.go
+          - internal/tui/app.go
+          - internal/tui/app_test.go
+        prompt: |
+          You're working on the **legato swarm improvements** swarm.
+          Backend foundations are already landed (service has `CancelSwarm`,
+          relaxed `Built`, tighter `StartSwarm`); the CLI/server worker is
+          updating those layers in parallel — you do not need their output.
+
+          Working directory: /home/cameron/Projects/legato. Use TDD per the
+          project's CLAUDE.md.
+
+          ## What to implement
+
+          1. **Cancel-swarm overlay** (`internal/tui/overlay/swarm_cancel.go`):
+             A simple confirm overlay shown when the user presses `Shift+C` on
+             a board card that has an active or prior swarm. Pattern after
+             `internal/tui/overlay/archive.go` or `delete.go`:
+             - Title: "Cancel swarm for <task title>?"
+             - Body: "Kills the conductor + all live workers, deletes all
+               sub-tasks, and clears the swarm state on this card. The
+               existing card and its history remain."
+             - `y` confirms → emits `SwarmCancelConfirmedMsg{ParentTaskID}`.
+             - `n` / `esc` dismisses.
+             Unit-test the model in `swarm_cancel_test.go` driving `Update`.
+
+          2. **App wiring** (`internal/tui/app.go`):
+             - Add an `overlaySwarmCancel` enum value.
+             - From the board view, on key `C` (capital C), if a card is
+               selected and the `swarmSvc` is present, open the
+               cancel-swarm overlay (no-op if no swarm service).
+             - Handle `overlay.SwarmCancelConfirmedMsg` by calling
+               `a.swarmSvc.CancelSwarm(ctx, msg.ParentTaskID)` and refreshing
+               the board. On error, surface a `statusbar.ErrorMsg`.
+             - In `handleSwarmStart`, when the error mentions
+               "cancel the existing swarm first", surface a more helpful
+               status-bar hint suggesting `Shift+C`.
+
+             You may need to extend the test-side `fakeSwarmService` in
+             `internal/tui/app_test.go` to satisfy the updated interface
+             (add a no-op `CancelSwarm` method and the new
+             `ExtendApprovedPlan` method even if you don't test extension
+             from the TUI). Keep test coverage at parity with existing
+             swarm overlays.
+
+          3. **Plan-approval extension labelling**
+             (`internal/tui/overlay/plan_approval.go`):
+             - Add an `IsExtension bool` field on `PlanApprovalModel`'s
+               constructor + state, defaulting false.
+             - When true, the header should render "Extension plan: append
+               sub-tasks to existing swarm" instead of the normal
+               proposal header. The y/e/n keys keep their existing
+               semantics.
+             - Update `openPlanApprovalOverlay` in `app.go` to thread
+               through whether this is an extension. The plumbing for
+               "how does app.go know it's an extension" is: when the
+               IPC `plan_proposed` message has a new `Mode` field
+               equal to `"extension"`, treat the modal as extension.
+               (The CLI/server worker is adding a separate IPC type
+               for extensions, but for v1 the simplest TUI path is to
+               also accept a `mode` payload on the existing message; if
+               that field doesn't exist on `ipc.Message` yet, add it
+               as an optional `Mode string `json:",omitempty"`` field
+               or accept its absence gracefully.)
+             - Cover the new branch with a unit test.
+
+          ## Out of bounds
+
+          - Do NOT touch the web UI (separate worker).
+          - Do NOT touch service or engine layers (already landed).
+          - Do NOT touch docs.
+
+          Stay inside `scope`. When done:
+
+              legato swarm built $LEGATO_SUBTASK_ID
+
+      - title: "Web UI: cancel-swarm button + extension plan modal labelling"
+        role: web
+        scope:
+          - web/src/components/board/DetailPanel.tsx
+          - web/src/components/board/CancelSwarmModal.tsx
+          - web/src/components/PlanApprovalModal.tsx
+          - web/src/lib/api.ts
+          - web/src/hooks/useWebSocket.ts
+          - web/src/components/__tests__/**
+          - web/src/components/board/__tests__/**
+          - internal/server/static/dist/**
+        prompt: |
+          You're working on the **legato swarm improvements** swarm.
+          Backend foundations are already landed; the CLI+server worker is
+          adding `POST /api/swarm/cancel` and `POST /api/swarm/extend-plan`
+          in parallel. You should code defensively: if either endpoint isn't
+          returning yet by the time you test, the UI should still degrade
+          gracefully (show the error from the API).
+
+          Working directory: /home/cameron/Projects/legato. Use TDD where
+          possible (Vitest config is `web/vitest.config.ts`).
+
+          ## What to implement
+
+          1. **`CancelSwarmModal.tsx`** (new component):
+             - Props: `{ taskId, taskTitle, isOpen, onClose, onConfirm }`.
+             - Confirmation modal styled like `ArchiveDoneModal.tsx`:
+               "Cancel swarm for <taskTitle>? Kills the conductor + all
+               live workers, deletes all sub-tasks, and clears the swarm
+               state on this card." Buttons: Cancel / Confirm.
+             - On confirm: POST to `/api/swarm/cancel` with
+               `{ parent_task_id: taskId }`. Auth header via
+               `authHeaders`. Surface errors inline.
+
+          2. **`DetailPanel.tsx`**:
+             - Below the existing Swarm section (~line 169), if the card has
+               any swarm state (existence of `swarm_stats` OR the parent
+               has a non-empty `swarm_working_dir`), render a "Cancel
+               swarm" button that opens the new modal. The board page
+               should refetch on success (use the existing
+               `cards_changed` WS path; the server worker is publishing
+               `swarm_changed` and `cards_changed` events on cancel).
+
+          3. **`PlanApprovalModal.tsx`**:
+             - Accept an `isExtension` flag (sourced from the
+               `plan_proposed` WS message — add an optional `mode` field
+               to the message type in `web/src/hooks/useWebSocket.ts` and
+               check for `mode === "extension"`).
+             - When `isExtension`, show "Extension plan — append to
+               existing swarm" in the header instead of the default
+               wording.
+
+          4. **Build the embedded SPA** so the Go binary picks up the
+             changes:
+
+                 cd web && pnpm install --frozen-lockfile && pnpm build
+
+             This writes hashed asset files into
+             `internal/server/static/dist/`. Commit those alongside the
+             source change. Do NOT hand-edit the dist files.
+
+          ## Out of bounds
+
+          - Do NOT touch backend Go code (other workers own it).
+          - Do NOT touch docs (separate worker).
+          - Do not change auth/cert handling.
+
+          Stay inside `scope`. When done:
+
+              legato swarm built $LEGATO_SUBTASK_ID
+
+  - name: "Documentation"
+    subtasks:
+      - title: "Docs: cancel + extend-plan reference"
+        role: docs
+        scope:
+          - docs/claude/swarm.md
+          - docs/claude/cli.md
+          - docs/claude/web-ui.md
+          - CLAUDE.md
+        prompt: |
+          You're working on the **legato swarm improvements** swarm.
+          All implementation is landed in steps 1–2. Your job is to update
+          the project's CLAUDE-facing documentation so future agents (and
+          future-you) understand the new surface.
+
+          Working directory: /home/cameron/Projects/legato.
+
+          ## What to document
+
+          1. `docs/claude/swarm.md`:
+             - Under "Lifecycle" (or a new "Cancellation & recreation"
+               section), explain that the user can cancel a swarm from
+               the task card in any state, and that `StartSwarm` now
+               refuses when leftover swarm state is present.
+             - Add a "Plan extensions" section explaining the
+               `legato swarm extend-plan` verb, how step offsets work,
+               and how to validate an extension plan (the new
+               `AllowMissingWorkingDir: true` validator flag).
+             - Under "Sub-task lifecycle", note that `Built` is now
+               idempotent from the `reporting` state (workers can
+               re-report after feedback).
+
+          2. `docs/claude/cli.md`:
+             - Add `legato swarm cancel <parent-id>` to the conductor
+               verbs section.
+             - Add `legato swarm extend-plan <plan-file> [--auto-approve]
+               [--timeout 5m]` next to `propose-plan`.
+
+          3. `docs/claude/web-ui.md`:
+             - In the "Swarm controls" section, document the new Cancel
+               Swarm button on the board detail panel and the extension
+               labelling on the plan approval modal.
+
+          4. `CLAUDE.md`:
+             - Likely no change needed; only update if a new entry is
+               required by virtue of the docs/ partials being referenced.
+
+          ## Verification
+
+          Read the actual implementation (in `internal/service/swarm.go`,
+          `internal/cli/swarm.go`, `internal/server/swarm.go`,
+          `internal/tui/overlay/`, and `web/src/components/board/`) before
+          writing the docs — do NOT take this brief as gospel; mirror
+          what shipped.
+
+          ## Out of bounds
+
+          - Do NOT touch any code files; only documentation.
+
+          Stay inside `scope`. When done:
+
+              legato swarm built $LEGATO_SUBTASK_ID

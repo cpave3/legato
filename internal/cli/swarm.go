@@ -265,3 +265,96 @@ func SwarmStartFromCLI(sw service.SwarmService, parentID, workingDir string) err
 	return sw.StartSwarm(context.Background(), parentID, workingDir)
 }
 
+// SwarmCancel terminates an entire swarm, kills the conductor and every live
+// worker, deletes all sub-tasks, broadcasts a `swarm_changed` IPC message, and
+// prints a JSON result to stdout.
+func SwarmCancel(sw service.SwarmService, parentID string) error {
+	if err := sw.CancelSwarm(context.Background(), parentID); err != nil {
+		return err
+	}
+	ipc.Broadcast(ipc.Message{
+		Type:   "swarm_changed",
+		TaskID: parentID,
+		Status: "cancelled",
+	})
+	out := map[string]string{
+		"status":         "cancelled",
+		"parent_task_id": parentID,
+	}
+	data, _ := json.Marshal(out)
+	fmt.Println(string(data))
+	return nil
+}
+
+// SwarmExtendPlan submits an extension plan for HITL approval. Validates the
+// plan (with AllowMissingWorkingDir: true), copies it to its canonical
+// location, broadcasts `plan_extension_proposed` IPC, and blocks until a
+// verdict arrives. On approval, calls ExtendApprovedPlan.
+//
+// fallbackWorkingDir is used when the plan omits working_dir (typical for
+// extensions); it should be the existing swarm's working directory.
+func SwarmExtendPlan(sw service.SwarmService, planPath, fallbackWorkingDir string, autoApprove bool, timeout time.Duration, validateOpts swarm.ValidateOptions) error {
+	plan, err := swarm.LoadPlan(planPath)
+	if err != nil {
+		return fmt.Errorf("load plan: %w", err)
+	}
+	validateOpts.AllowMissingWorkingDir = true
+	if err := swarm.ValidatePlan(plan, validateOpts); err != nil {
+		return fmt.Errorf("validate plan: %w", err)
+	}
+	wd := plan.Swarm.WorkingDir
+	if wd == "" {
+		wd = fallbackWorkingDir
+	}
+	canonical, err := plan.WriteTo(wd, plan.Swarm.ParentTaskID)
+	if err != nil {
+		return fmt.Errorf("persist plan: %w", err)
+	}
+
+	if autoApprove {
+		if err := sw.ExtendApprovedPlan(context.Background(), plan); err != nil {
+			return fmt.Errorf("extend plan: %w", err)
+		}
+		emitVerdict("approved", canonical, "")
+		return nil
+	}
+
+	reply, err := ipc.BroadcastRequest(
+		context.Background(),
+		ipc.Message{
+			Type:     "plan_extension_proposed",
+			TaskID:   plan.Swarm.ParentTaskID,
+			PlanPath: canonical,
+		},
+		"plan_verdict",
+		timeout,
+	)
+	if err != nil {
+		return fmt.Errorf("plan approval: %w", err)
+	}
+
+	switch reply.Status {
+	case "approved":
+		path := reply.PlanPath
+		if path == "" {
+			path = canonical
+		}
+		edited, lerr := swarm.LoadPlan(path)
+		if lerr != nil {
+			return fmt.Errorf("load edited plan: %w", lerr)
+		}
+		if err := swarm.ValidatePlan(edited, validateOpts); err != nil {
+			return fmt.Errorf("validate edited plan: %w", err)
+		}
+		if err := sw.ExtendApprovedPlan(context.Background(), edited); err != nil {
+			return fmt.Errorf("extend plan: %w", err)
+		}
+		emitVerdict("approved", path, "")
+	case "rejected":
+		emitVerdict("rejected", canonical, reply.Notes)
+	default:
+		return fmt.Errorf("unexpected verdict status %q", reply.Status)
+	}
+	return nil
+}
+

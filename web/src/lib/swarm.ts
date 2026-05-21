@@ -180,3 +180,16 @@ export async function getAllPendingPlans(baseUrl: string): Promise<PendingPlanDa
   if (!res.ok) throw new Error(await parseError(res))
   return res.json()
 }
+
+export interface SwarmCancelBody {
+  parent_task_id: string
+}
+
+export async function cancelSwarm(baseUrl: string, parentTaskID: string): Promise<void> {
+  const res = await apiFetch(baseUrl, "/api/swarm/cancel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parent_task_id: parentTaskID } satisfies SwarmCancelBody),
+  })
+  if (!res.ok) throw new Error(await parseError(res))
+}

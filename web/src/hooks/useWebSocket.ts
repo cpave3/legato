@@ -22,6 +22,7 @@ export interface WSMessage {
   notes?: string
   subtask_id?: string
   new_status?: string
+  mode?: string
 }
 
 export interface AgentInfo {

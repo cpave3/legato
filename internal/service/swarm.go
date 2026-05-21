@@ -75,6 +75,8 @@ type SwarmService interface {
 	// Conductor verbs.
 	StartSwarm(ctx context.Context, parentID, workingDir string) error
 	ApplyApprovedPlan(ctx context.Context, plan *swarm.Plan) error
+	CancelSwarm(ctx context.Context, parentID string) error
+	ExtendApprovedPlan(ctx context.Context, plan *swarm.Plan) error
 	Dispatch(ctx context.Context, subtaskID string) error
 	NextStep(ctx context.Context, parentID string) error
 	Message(ctx context.Context, subtaskID, text string, urgent bool) error
@@ -540,9 +542,9 @@ func (s *swarmService) rebuildSnapshot(ctx context.Context, parentID string) {
 }
 
 // StartSwarm spawns the conductor for a parent task. Refuses if the parent
-// already has a running agent or if working dir doesn't validate. Persists
-// the working dir on the parent task. The conductor's brief is the parent
-// task title + description + working-dir framing.
+// already has a running agent, non-terminal sub-tasks, or a non-nil working dir.
+// Persists the working dir on the parent task. The conductor's brief is the
+// parent task title + description + working-dir framing.
 func (s *swarmService) StartSwarm(ctx context.Context, parentID, workingDir string) error {
 	parent, err := s.store.GetTask(ctx, parentID)
 	if err != nil {
@@ -552,6 +554,21 @@ func (s *swarmService) StartSwarm(ctx context.Context, parentID, workingDir stri
 	// Refuse double-spawn.
 	if existing, err := s.store.GetAgentSessionByTaskID(ctx, parentID); err == nil && existing.Status == "running" {
 		return fmt.Errorf("parent task %s already has a running agent — kill it before starting a swarm", parentID)
+	}
+
+	// Refuse if there are leftover sub-tasks in non-terminal states.
+	subs, err := s.store.ListSubtasksByParent(ctx, parentID)
+	if err != nil {
+		return fmt.Errorf("list subtasks: %w", err)
+	}
+	for _, st := range subs {
+		if st.Status == "queued" || st.Status == "dispatched" || st.Status == "in_progress" || st.Status == "reporting" {
+			return fmt.Errorf("parent task %s has leftover swarm sub-tasks — cancel the existing swarm first", parentID)
+		}
+	}
+	// Refuse if swarm_working_dir is already set (even without subtasks).
+	if parent.SwarmWorkingDir != nil {
+		return fmt.Errorf("parent task %s already has a swarm working directory — cancel the existing swarm first", parentID)
 	}
 
 	if err := s.store.SetTaskSwarmWorkingDir(ctx, parentID, &workingDir); err != nil {
@@ -630,6 +647,108 @@ func (s *swarmService) ApplyApprovedPlan(ctx context.Context, plan *swarm.Plan) 
 	}
 	s.rebuildSnapshot(ctx, plan.Swarm.ParentTaskID)
 	s.publishChanged(plan.Swarm.ParentTaskID, "", "plan_applied")
+	return nil
+}
+
+// CancelSwarm terminates an entire swarm: kills the conductor and every live
+// worker, transitions non-terminal sub-tasks to cancelled, deletes all
+// sub-tasks, clears the parent's working dir and active step, cleans up runtime
+// files, and publishes a `cancelled` event. Idempotent: safe to call when no
+// swarm exists.
+func (s *swarmService) CancelSwarm(ctx context.Context, parentID string) error {
+	// Kill conductor if alive.
+	_ = s.agents.KillAgent(ctx, parentID)
+
+	// Kill workers and delete sub-tasks.
+	subs, err := s.store.ListSubtasksByParent(ctx, parentID)
+	if err != nil {
+		return fmt.Errorf("list subtasks: %w", err)
+	}
+	for _, st := range subs {
+		_ = s.agents.KillAgent(ctx, st.ID)
+		if st.Status != "done" && st.Status != "cancelled" {
+			_ = s.store.UpdateSubtaskStatus(ctx, st.ID, "cancelled")
+		}
+		_ = s.store.DeleteSubtask(ctx, st.ID)
+	}
+
+	// Clear parent swarm fields.
+	if err := s.store.SetTaskSwarmWorkingDir(ctx, parentID, nil); err != nil {
+		return fmt.Errorf("clear working dir: %w", err)
+	}
+	if err := s.store.SetParentActiveStep(ctx, parentID, 0); err != nil {
+		return fmt.Errorf("reset active step: %w", err)
+	}
+
+	// Clean up runtime files.
+	s.cleanupRuntimeFiles(parentID, subs)
+
+	// Drop in-memory snapshot cache.
+	s.snapshotMu.Lock()
+	delete(s.snapshotCache, parentID)
+	s.snapshotMu.Unlock()
+
+	// Drain any pending plan.
+	_ = s.store.DeletePendingPlan(ctx, parentID)
+
+	s.publishChanged(parentID, "", "cancelled")
+	return nil
+}
+
+// ExtendApprovedPlan appends the steps of a new plan to an existing swarm. The
+// new sub-tasks receive step indices starting after the current max so they
+// queue behind the existing material.
+func (s *swarmService) ExtendApprovedPlan(ctx context.Context, plan *swarm.Plan) error {
+	if plan == nil {
+		return fmt.Errorf("plan is nil")
+	}
+	parent, err := s.store.GetTask(ctx, plan.Swarm.ParentTaskID)
+	if err != nil {
+		return fmt.Errorf("parent task %s: %w", plan.Swarm.ParentTaskID, err)
+	}
+	if parent.SwarmWorkingDir == nil {
+		return fmt.Errorf("parent task %s has no active swarm", plan.Swarm.ParentTaskID)
+	}
+
+	// Validate with inherited working_dir allowed.
+	validateOpts := s.cfg.ValidateOptions
+	validateOpts.AllowMissingWorkingDir = true
+	if err := swarm.ValidatePlan(plan, validateOpts); err != nil {
+		return fmt.Errorf("validate plan: %w", err)
+	}
+
+	// Compute step offset.
+	maxStep, err := s.store.GetMaxStepIndex(ctx, plan.Swarm.ParentTaskID)
+	if err != nil {
+		return fmt.Errorf("get max step index: %w", err)
+	}
+
+	for si, step := range plan.Steps {
+		for _, spec := range step.Subtasks {
+			raw, _ := store.MarshalScopeGlobs(spec.Scope)
+			role := spec.Role
+			if role == "" {
+				role = "worker"
+			}
+			st := store.Subtask{
+				ID:           generateSubtaskID(),
+				ParentTaskID: plan.Swarm.ParentTaskID,
+				Title:        spec.Title,
+				Prompt:       spec.Prompt,
+				ScopeGlobs:   raw,
+				Role:         role,
+				AgentKind:    spec.Agent,
+				Tier:         spec.Tier,
+				Status:       "queued",
+				StepIndex:    maxStep + 1 + si,
+			}
+			if err := s.store.CreateSubtask(ctx, st); err != nil {
+				return fmt.Errorf("create sub-task %q: %w", spec.Title, err)
+			}
+		}
+	}
+	s.rebuildSnapshot(ctx, plan.Swarm.ParentTaskID)
+	s.publishChanged(plan.Swarm.ParentTaskID, "", "plan_extended")
 	return nil
 }
 
@@ -1002,25 +1121,41 @@ func (s *swarmService) Question(ctx context.Context, subtaskID, text string) err
 	return nil
 }
 
-// Built marks a sub-task as `reporting` and notifies the conductor.
+// Built marks a sub-task as `reporting` and notifies the conductor. When the
+// sub-task is already `reporting` (e.g. after feedback via `swarm message`), the
+// DB write is skipped but a fresh event is still emitted so the conductor knows
+// the worker is re-reporting.
 func (s *swarmService) Built(ctx context.Context, subtaskID string) error {
 	st, err := s.store.GetSubtask(ctx, subtaskID)
 	if err != nil {
 		return err
 	}
-	if st.Status != "in_progress" && st.Status != "dispatched" {
+	if st.Status != "in_progress" && st.Status != "dispatched" && st.Status != "reporting" {
 		return fmt.Errorf("sub-task %s is %s, cannot mark built", subtaskID, st.Status)
 	}
-	if err := s.store.UpdateSubtaskStatus(ctx, subtaskID, "reporting"); err != nil {
-		return err
+	isReReport := st.Status == "reporting"
+	if !isReReport {
+		if err := s.store.UpdateSubtaskStatus(ctx, subtaskID, "reporting"); err != nil {
+			return err
+		}
 	}
 	s.flushProgressEvent(subtaskID)
-	payload := fmt.Sprintf(
-		"worker %q (%s) marked itself built. Inspect the worker's diff, then run `legato swarm close %s` to ratify completion, or `legato swarm message %s \"...\"` to send corrections.",
-		st.Title, subtaskID, subtaskID, subtaskID,
-	)
+	var payload string
+	if isReReport {
+		payload = fmt.Sprintf(
+			"worker %q (%s) re-reported built after feedback. Inspect the worker's diff, then run `legato swarm close %s` to ratify completion, or `legato swarm message %s \"...\"` to send corrections.",
+			st.Title, subtaskID, subtaskID, subtaskID,
+		)
+	} else {
+		payload = fmt.Sprintf(
+			"worker %q (%s) marked itself built. Inspect the worker's diff, then run `legato swarm close %s` to ratify completion, or `legato swarm message %s \"...\"` to send corrections.",
+			st.Title, subtaskID, subtaskID, subtaskID,
+		)
+	}
 	s.recordEventForConductor(st.ParentTaskID, subtaskID, "built", st.Title, payload)
-	s.bumpSnapshot(st.ParentTaskID, st.Status, "reporting")
+	if !isReReport {
+		s.bumpSnapshot(st.ParentTaskID, st.Status, "reporting")
+	}
 	s.setSnapshotEvent(st.ParentTaskID, "built")
 	s.publishChanged(st.ParentTaskID, subtaskID, "reporting")
 	s.maybeNotifyAllIdle(ctx, st.ParentTaskID)

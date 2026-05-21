@@ -71,6 +71,10 @@ The web PWA supports the full user-driven swarm control surface:
 
 The modal does not include in-browser YAML editing (v1). Users who need surgical edits either reject with detailed notes or fall back to the TUI overlay which supports `e` to open `$EDITOR`.
 
+**Extension plans.** When a conductor calls `legato swarm extend-plan` (or the server receives `plan_extension_proposed` over WebSocket), the modal title changes to "Extension plan — append to existing swarm". The rest of the approval flow — approve, reject with notes, dismiss — is unchanged. Web clients track whether the current modal is an extension via the `mode` field on `plan_proposed` IPC events.
+
+**Cancel swarm.** The board detail panel (`DetailPanel.tsx`) shows a red "Cancel swarm" button when the card has active swarm stats or a working directory. Clicking it opens `CancelSwarmModal.tsx`, which confirms that the action kills the conductor + all live workers, deletes sub-tasks, and clears swarm state. The card itself and its history remain.
+
 **Per-worker action menu.** Each agent entry in the sidebar has an overflow `⋯` button that opens a role-appropriate menu:
 - **Worker** → Send message (free-text input → `POST /api/swarm/message`), Close worker (`POST /api/swarm/close`)
 - **Conductor** → Send message, Finish swarm (`POST /api/swarm/finish`)
@@ -81,4 +85,4 @@ The modal does not include in-browser YAML editing (v1). Users who need surgical
 
 **Draft persistence**: Per-agent text input drafts stored in localStorage (`legato:draft:<agentId>`). `PromptBar` saves draft on every keystroke, restores on agent switch, clears on submit or kill. Uses `prevAgentIdRef` + `inputRef` to handle agent switch save/load without stale closures.
 
-**Frontend source**: `web/src/` — `pages/Agents.tsx` (main orchestrator), `pages/Settings.tsx`, `components/TerminalPanel.tsx`, `components/PromptBar.tsx`, `components/AgentSidebar.tsx`, `components/OfflineOverlay.tsx`, `components/TokenPrompt.tsx`, `components/QRScanner.tsx`, `hooks/useWebSocket.ts`, `lib/auth.ts` (token helpers), `lib/utils.ts`. Layout sidebar: Agents, Board, Settings (gear icon at bottom), connection status dot. Build: `cd web && pnpm build` → outputs to `../internal/server/static/dist/`. Dist files gitignored except `.gitkeep`. `spaHandler` overrides Content-Type for `.webmanifest` files (Go's `http.FileServer` doesn't recognize the MIME type from `embed.FS`).
+**Frontend source**: `web/src/` — `pages/Agents.tsx` (main orchestrator), `pages/Settings.tsx`, `components/TerminalPanel.tsx`, `components/PromptBar.tsx`, `components/AgentSidebar.tsx`, `components/OfflineOverlay.tsx`, `components/TokenPrompt.tsx`, `components/QRScanner.tsx`, `components/PlanApprovalModal.tsx` (HITL plan + extension approval), `components/board/DetailPanel.tsx`, `components/board/CancelSwarmModal.tsx`, `hooks/useWebSocket.ts`, `lib/auth.ts` (token helpers), `lib/utils.ts`. Layout sidebar: Agents, Board, Settings (gear icon at bottom), connection status dot. Build: `cd web && pnpm build` → outputs to `../internal/server/static/dist/`. Dist files gitignored except `.gitkeep`. `spaHandler` overrides Content-Type for `.webmanifest` files (Go's `http.FileServer` doesn't recognize the MIME type from `embed.FS`).

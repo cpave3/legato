@@ -1,0 +1,81 @@
+swarm:
+  parent_task_id: "5sqbp8jl"
+  working_dir: "/home/cameron/Projects/legato"
+  summary: |
+    Test swarm: two workers each read a different slice of the legato repo
+    and write a short summary file to the working directory. Worker A
+    covers the top-level docs (README, CLAUDE.md, spec.md, docs/claude/*).
+    Worker B covers the Go source layout (cmd/, internal/engine/,
+    internal/service/, internal/tui/). Both write their output to a
+    standalone .md file so the conductor can read it before closing.
+steps:
+  - name: "Summarize repo"
+    subtasks:
+      - title: "Summarize docs"
+        role: docs
+        scope:
+          - "summary-docs.md"
+        prompt: |
+          You are part of a test swarm on the legato repo. The parent task
+          is "test swarm — read some files and summarise them."
+
+          Working dir: /home/cameron/Projects/legato
+
+          Your job: read the top-level documentation and produce a concise
+          markdown summary. Specifically:
+
+          1. Read README.md
+          2. Read CLAUDE.md
+          3. Read spec.md (skim — it's long; focus on the high-level
+             architecture sections, not exhaustive detail)
+          4. Skim docs/claude/*.md (one or two sentences per file)
+
+          Then write a single file `summary-docs.md` in the working
+          directory containing:
+            - One paragraph describing what legato is (from README/CLAUDE)
+            - A short bulleted list of the main architectural layers
+            - One or two sentences on what each docs/claude/*.md file
+              covers (a brief table of contents)
+
+          Keep the whole summary under ~400 words. Do NOT edit any other
+          files. Do NOT modify the source code.
+
+          Stay inside scope: only create/edit `summary-docs.md`.
+
+          When done, run: legato swarm built $LEGATO_SUBTASK_ID
+
+      - title: "Summarize Go code"
+        role: code
+        scope:
+          - "summary-code.md"
+        prompt: |
+          You are part of a test swarm on the legato repo. The parent task
+          is "test swarm — read some files and summarise them."
+
+          Working dir: /home/cameron/Projects/legato
+
+          Your job: explore the Go source tree and produce a concise
+          markdown summary of the code layout. Specifically:
+
+          1. Look at cmd/legato/ — what's the entry point doing?
+          2. Survey internal/engine/ — list the sub-packages and one-line
+             descriptions (read docs/claude/packages.md if you need a
+             cheat-sheet, but verify against the actual directory).
+          3. Survey internal/service/ — list the services and what they do.
+          4. Survey internal/tui/ — list the main views/overlays.
+          5. Note the import-direction rule from CLAUDE.md (engine →
+             service → tui).
+
+          Then write a single file `summary-code.md` in the working
+          directory containing:
+            - A one-paragraph overview of the 3-layer architecture
+            - Three short bulleted sections (engine / service / tui), each
+              listing the sub-packages with one-line descriptions
+            - A note about the import rules
+
+          Keep the whole summary under ~500 words. Do NOT edit any source
+          files. Read-only exploration plus writing the one summary file.
+
+          Stay inside scope: only create/edit `summary-code.md`.
+
+          When done, run: legato swarm built $LEGATO_SUBTASK_ID
