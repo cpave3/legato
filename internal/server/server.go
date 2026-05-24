@@ -336,6 +336,7 @@ func (s *Server) StartSwarmEvents() {
 					ParentTaskID: p.ParentTaskID,
 					PlanPath:     p.PlanPath,
 					ReplySocket:  p.ReplySocket,
+					Mode:         p.Mode,
 				})
 			}
 		}

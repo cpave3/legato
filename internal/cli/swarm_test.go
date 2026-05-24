@@ -516,19 +516,19 @@ func (m *noopTmux) Spawn(name, workDir string, w, h int, env ...string) error {
 	m.sessions[name] = true
 	return nil
 }
-func (m *noopTmux) Kill(name string) error                          { delete(m.sessions, name); return nil }
-func (m *noopTmux) Capture(name string) (string, error)             { return "", nil }
-func (m *noopTmux) CaptureWithEscapes(name string) (string, error)  { return "", nil }
+func (m *noopTmux) Kill(name string) error                         { delete(m.sessions, name); return nil }
+func (m *noopTmux) Capture(name string) (string, error)            { return "", nil }
+func (m *noopTmux) CaptureWithEscapes(name string) (string, error) { return "", nil }
 func (m *noopTmux) Attach(name string) *exec.Cmd                   { return exec.Command("true") }
-func (m *noopTmux) ListSessions() ([]string, error)                 { return nil, nil }
-func (m *noopTmux) IsAlive(name string) (bool, error)               { return m.sessions[name], nil }
-func (m *noopTmux) PaneCommands() (map[string]string, error)        { return nil, nil }
-func (m *noopTmux) SetOption(s, k, v string) error                  { return nil }
-func (m *noopTmux) SendKeys(name, keys string) error                { return nil }
-func (m *noopTmux) SendKey(name, key string) error                  { return nil }
-func (m *noopTmux) SendKeysLine(name, line string) error            { return nil }
-func (m *noopTmux) SendKeysMultiline(name, payload string) error    { return nil }
-func (m *noopTmux) SendKeysShellCommand(name, cmd string) error     { return nil }
+func (m *noopTmux) ListSessions() ([]string, error)                { return nil, nil }
+func (m *noopTmux) IsAlive(name string) (bool, error)              { return m.sessions[name], nil }
+func (m *noopTmux) PaneCommands() (map[string]string, error)       { return nil, nil }
+func (m *noopTmux) SetOption(s, k, v string) error                 { return nil }
+func (m *noopTmux) SendKeys(name, keys string) error               { return nil }
+func (m *noopTmux) SendKey(name, key string) error                 { return nil }
+func (m *noopTmux) SendKeysLine(name, line string) error           { return nil }
+func (m *noopTmux) SendKeysMultiline(name, payload string) error   { return nil }
+func (m *noopTmux) SendKeysShellCommand(name, cmd string) error    { return nil }
 func (m *noopTmux) PipeOutput(name string) (io.Reader, func(), error) {
 	return strings.NewReader(""), func() {}, nil
 }

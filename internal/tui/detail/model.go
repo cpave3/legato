@@ -213,13 +213,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		return m, func() tea.Msg { return BackToBoard{} }
 	case "j":
-		m.viewport.LineDown(1)
+		m.viewport.ScrollDown(1)
 	case "k":
-		m.viewport.LineUp(1)
+		m.viewport.ScrollUp(1)
 	case "d":
-		m.viewport.HalfViewDown()
+		m.viewport.HalfPageDown()
 	case "u":
-		m.viewport.HalfViewUp()
+		m.viewport.HalfPageUp()
 	case "g":
 		m.viewport.GotoTop()
 	case "G":

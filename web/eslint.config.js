@@ -19,5 +19,10 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // eslint-plugin-react-hooks v5 aggressive rule against setState in effects.
+      // This codebase uses the established pattern (auth check, modal resets).
+      'react-hooks/set-state-in-effect': 'off',
+    },
   },
 ])

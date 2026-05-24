@@ -26,15 +26,15 @@ const (
 
 // WebSocket message types (server → client).
 const (
-	MsgAgentOutput    = "agent_output"
-	MsgAgentList      = "agent_list"
-	MsgAgentsChanged  = "agents_changed"
-	MsgPromptState    = "prompt_state"
-	MsgPlanProposed   = "plan_proposed"
-	MsgPlanVerdict    = "plan_verdict"
-	MsgSwarmChanged   = "swarm_changed"
-	MsgCardsChanged   = "cards_changed"
-	MsgError          = "error"
+	MsgAgentOutput   = "agent_output"
+	MsgAgentList     = "agent_list"
+	MsgAgentsChanged = "agents_changed"
+	MsgPromptState   = "prompt_state"
+	MsgPlanProposed  = "plan_proposed"
+	MsgPlanVerdict   = "plan_verdict"
+	MsgSwarmChanged  = "swarm_changed"
+	MsgCardsChanged  = "cards_changed"
+	MsgError         = "error"
 )
 
 // WSMessage is the JSON envelope for all WebSocket messages.
@@ -54,6 +54,7 @@ type WSMessage struct {
 	SubtaskID    string              `json:"subtask_id,omitempty"`
 	Status       string              `json:"status,omitempty"`
 	Notes        string              `json:"notes,omitempty"`
+	Mode         string              `json:"mode,omitempty"`
 }
 
 // wsClient represents a connected WebSocket client.

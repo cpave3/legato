@@ -10,9 +10,9 @@ type fakeAdapter struct {
 	name string
 }
 
-func (f *fakeAdapter) Name() string                                    { return f.name }
-func (f *fakeAdapter) InstallHooks(projectDir string) error            { return nil }
-func (f *fakeAdapter) UninstallHooks(projectDir string) error          { return nil }
+func (f *fakeAdapter) Name() string                           { return f.name }
+func (f *fakeAdapter) InstallHooks(projectDir string) error   { return nil }
+func (f *fakeAdapter) UninstallHooks(projectDir string) error { return nil }
 func (f *fakeAdapter) EnvVars(taskID, socketPath string) map[string]string {
 	return map[string]string{"TASK_ID": taskID}
 }

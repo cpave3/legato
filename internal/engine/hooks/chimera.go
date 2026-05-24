@@ -20,6 +20,8 @@ var chimeraScripts = []struct {
 	{"PermissionRequest", "legato-permission.sh", "waiting"},
 	{"Stop", "legato-stop.sh", ""},
 	{"SessionEnd", "legato-session-end.sh", ""},
+	{"Interrupt", "legato-interrupt.sh", ""},
+	{"Timeout", "legato-timeout.sh", ""},
 }
 
 // ChimeraAdapter implements the AIToolAdapter interface for the Chimera coding agent.
@@ -128,7 +130,6 @@ const chimeraSandboxPreamble = "## Chimera-specific guidance for legato\n" +
 	"If you see those errors when trying to interact with legato, switch the " +
 	"specific tool call to host mode and retry. Code edits, greps, and other " +
 	"work that's confined to the project directory can stay sandboxed.\n"
-
 
 // LaunchCommand returns the shell command that starts an interactive Chimera
 // session. The role system prompt is read from the file referenced by

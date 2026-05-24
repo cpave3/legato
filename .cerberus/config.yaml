@@ -1,0 +1,99 @@
+checks:
+  # TypeScript/frontend — run via wrapper so file paths resolve correctly.
+  - id: ts-lint
+    match: ["web/**/*.ts", "web/**/*.tsx"]
+    cmd: ".cerberus/run-web-check.sh pnpm eslint --format=json {files}"
+    scope: files
+    output_format: eslint-json
+    tags: [lint, typescript, fast]
+
+  - id: ts-typecheck
+    match: ["web/**/*.ts", "web/**/*.tsx"]
+    cmd: ".cerberus/run-web-check.sh pnpm tsc -b"
+    scope: project
+    concurrency_group: ts
+    output_format: tsc
+    tags: [build, typescript]
+
+  - id: ts-test
+    match: ["web/**/*.ts", "web/**/*.tsx"]
+    cmd: ".cerberus/run-web-check.sh pnpm vitest related {files} --run --reporter=json"
+    scope: files
+    output_format: vitest-json
+    tags: [test, typescript, slow]
+
+  - id: ts-build
+    match: ["web/**/*.ts", "web/**/*.tsx"]
+    cmd: ".cerberus/run-web-check.sh pnpm run build"
+    scope: project
+    concurrency_group: ts
+    output_format: raw
+    tags: [build, typescript, slow]
+
+  # Go
+  - id: go-vet
+    match: ["**/*.go"]
+    cmd: "go vet ./..."
+    scope: project
+    concurrency_group: go
+    output_format: raw
+    tags: [lint, build, go, fast]
+
+  - id: go-build
+    match: ["**/*.go"]
+    cmd: "go build ./..."
+    scope: project
+    concurrency_group: go
+    output_format: raw
+    tags: [build, go]
+
+  - id: go-lint
+    match: ["**/*.go"]
+    cmd: "golangci-lint run ./..."
+    scope: project
+    concurrency_group: go
+    output_format: raw
+    tags: [lint, go]
+
+  - id: go-test
+    match: ["**/*.go"]
+    cmd: "go test ./... -count=1"
+    scope: project
+    concurrency_group: go
+    output_format: raw
+    timeout_seconds: 120
+    tags: [test, go, slow]
+
+profiles:
+  quick:
+    description: "Fast checks — eslint (touched files) + go vet"
+    tags:
+      include: [lint, fast]
+      exclude: [slow]
+    timeout_seconds: 60
+    fail_fast: true
+
+  standard:
+    description: "Full gate — lint + typecheck + build + test"
+    include_profiles: [quick]
+    additional_checks:
+      - ts-typecheck
+      - ts-test
+      - ts-build
+      - go-build
+      - go-test
+    timeout_seconds: 300
+
+  strict:
+    description: "Strict lint including golangci-lint (legacy Go issues)."
+    include_profiles: [standard]
+    additional_checks:
+      - go-lint
+    timeout_seconds: 300
+
+settings:
+  max_stop_iterations: 5
+  agent_format:
+    max_issues_per_check: 8
+  max_issues_total: 32
+  max_raw_lines: 40

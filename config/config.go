@@ -11,20 +11,20 @@ import (
 )
 
 type Config struct {
-	Jira        JiraConfig                `yaml:"jira"`
-	Board       BoardConfig               `yaml:"board"`
-	Theme       string                    `yaml:"theme"`
-	Icons       string                    `yaml:"icons"` // "unicode" (default) or "nerdfonts"
-	Editor      string                    `yaml:"editor"`
-	Keybindings KeybindingsConfig         `yaml:"keybindings"`
-	DB          DBConfig                  `yaml:"db"`
-	Agents      AgentsConfig              `yaml:"agents"`
-	GitHub      GitHubConfig              `yaml:"github"`
-	Web         WebConfig                 `yaml:"web"`
-	Workspaces  []WorkspaceConfig         `yaml:"workspaces"`
-	Swarm       SwarmConfig               `yaml:"swarm"`
-	Adapters    map[string]AdapterConfig  `yaml:"adapters"`
-	Macros      []macros.Macro            `yaml:"macros"`
+	Jira        JiraConfig               `yaml:"jira"`
+	Board       BoardConfig              `yaml:"board"`
+	Theme       string                   `yaml:"theme"`
+	Icons       string                   `yaml:"icons"` // "unicode" (default) or "nerdfonts"
+	Editor      string                   `yaml:"editor"`
+	Keybindings KeybindingsConfig        `yaml:"keybindings"`
+	DB          DBConfig                 `yaml:"db"`
+	Agents      AgentsConfig             `yaml:"agents"`
+	GitHub      GitHubConfig             `yaml:"github"`
+	Web         WebConfig                `yaml:"web"`
+	Workspaces  []WorkspaceConfig        `yaml:"workspaces"`
+	Swarm       SwarmConfig              `yaml:"swarm"`
+	Adapters    map[string]AdapterConfig `yaml:"adapters"`
+	Macros      []macros.Macro           `yaml:"macros"`
 }
 
 // AdapterConfig holds per-adapter launch settings (e.g. extra CLI flags
@@ -137,12 +137,12 @@ type AgentsConfig struct {
 }
 
 type JiraConfig struct {
-	BaseURL              string   `yaml:"base_url"`
-	Email                string   `yaml:"email"`
-	APIToken             string   `yaml:"api_token"`
-	ProjectKeys          []string `yaml:"project_keys"`
-	JQLFilter            string   `yaml:"jql_filter"`
-	SyncIntervalSeconds  int      `yaml:"sync_interval_seconds"`
+	BaseURL             string   `yaml:"base_url"`
+	Email               string   `yaml:"email"`
+	APIToken            string   `yaml:"api_token"`
+	ProjectKeys         []string `yaml:"project_keys"`
+	JQLFilter           string   `yaml:"jql_filter"`
+	SyncIntervalSeconds int      `yaml:"sync_interval_seconds"`
 }
 
 type BoardConfig struct {

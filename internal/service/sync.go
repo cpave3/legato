@@ -133,12 +133,6 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 	for _, rt := range remoteTickets {
 		seenIDs[rt.ID] = true
 
-		// Resolve the local column from the remote status
-		column := resolveColumn(rt.Status, mappings)
-		if column == "" {
-			column = "Backlog" // fallback
-		}
-
 		existing, err := s.store.GetTask(ctx, rt.ID)
 		if errors.Is(err, store.ErrNotFound) {
 			// Not tracked locally — skip. New tasks are only added via manual import.
@@ -160,7 +154,7 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 			if existingMeta.StaleAt != "" {
 				existingMeta.StaleAt = ""
 				existing.RemoteMeta = encodeRemoteMeta(existingMeta)
-				s.store.UpdateTask(ctx, *existing)
+				_ = s.store.UpdateTask(ctx, *existing)
 			}
 			continue
 		}

@@ -71,16 +71,16 @@ func (c *Client) CheckAvailable() error {
 
 // ghPR is the JSON shape returned by gh pr list.
 type ghPR struct {
-	Number          int           `json:"number"`
-	HeadRefName     string        `json:"headRefName"`
-	Title           string        `json:"title"`
-	State           string        `json:"state"`
-	IsDraft         bool          `json:"isDraft"`
-	ReviewDecision  string        `json:"reviewDecision"`
-	URL             string        `json:"url"`
-	StatusCheckRollup []ghCheck        `json:"statusCheckRollup"`
-	Comments          json.RawMessage  `json:"comments"`
-	ReviewComments    json.RawMessage  `json:"reviews"`
+	Number            int             `json:"number"`
+	HeadRefName       string          `json:"headRefName"`
+	Title             string          `json:"title"`
+	State             string          `json:"state"`
+	IsDraft           bool            `json:"isDraft"`
+	ReviewDecision    string          `json:"reviewDecision"`
+	URL               string          `json:"url"`
+	StatusCheckRollup []ghCheck       `json:"statusCheckRollup"`
+	Comments          json.RawMessage `json:"comments"`
+	ReviewComments    json.RawMessage `json:"reviews"`
 }
 
 type ghCheck struct {
@@ -138,7 +138,9 @@ func countJSONArray(raw json.RawMessage) int {
 		return len(arr)
 	}
 	// Fallback: might be {totalCount: N} format
-	var obj struct{ TotalCount int `json:"totalCount"` }
+	var obj struct {
+		TotalCount int `json:"totalCount"`
+	}
 	if json.Unmarshal(raw, &obj) == nil {
 		return obj.TotalCount
 	}

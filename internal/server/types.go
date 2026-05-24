@@ -15,24 +15,24 @@ type ColumnResponse struct {
 
 // CardResponse represents a card summary in the board response.
 type CardResponse struct {
-	ID               string            `json:"id"`
-	Title            string            `json:"title"`
-	Priority         string            `json:"priority"`
-	IssueType        string            `json:"issue_type"`
-	Status           string            `json:"status"`
-	Provider         string            `json:"provider"`
-	HasWarning       bool              `json:"has_warning"`
-	WorkspaceName    string            `json:"workspace_name"`
-	WorkspaceColor   string            `json:"workspace_color"`
-	AgentActive      bool              `json:"agent_active"`
-	AgentState       string            `json:"agent_state"`
-	WorkingSeconds   float64           `json:"working_seconds"`
-	WaitingSeconds   float64           `json:"waiting_seconds"`
-	PRNumber         int               `json:"pr_number"`
-	PRCheckStatus    string            `json:"pr_check_status"`
-	PRReviewDecision string            `json:"pr_review_decision"`
-	PRCommentCount   int               `json:"pr_comment_count"`
-	PRIsDraft        bool              `json:"pr_is_draft"`
+	ID               string              `json:"id"`
+	Title            string              `json:"title"`
+	Priority         string              `json:"priority"`
+	IssueType        string              `json:"issue_type"`
+	Status           string              `json:"status"`
+	Provider         string              `json:"provider"`
+	HasWarning       bool                `json:"has_warning"`
+	WorkspaceName    string              `json:"workspace_name"`
+	WorkspaceColor   string              `json:"workspace_color"`
+	AgentActive      bool                `json:"agent_active"`
+	AgentState       string              `json:"agent_state"`
+	WorkingSeconds   float64             `json:"working_seconds"`
+	WaitingSeconds   float64             `json:"waiting_seconds"`
+	PRNumber         int                 `json:"pr_number"`
+	PRCheckStatus    string              `json:"pr_check_status"`
+	PRReviewDecision string              `json:"pr_review_decision"`
+	PRCommentCount   int                 `json:"pr_comment_count"`
+	PRIsDraft        bool                `json:"pr_is_draft"`
 	SwarmStats       *SwarmStatsResponse `json:"swarm_stats,omitempty"`
 }
 
@@ -51,8 +51,8 @@ type TasksResponse map[string][]CardResponse
 
 // BoardResponse is the JSON response for GET /api/board.
 type BoardResponse struct {
-	Columns    []ColumnResponse     `json:"columns"`
-	Workspaces []WorkspaceResponse  `json:"workspaces"`
+	Columns    []ColumnResponse    `json:"columns"`
+	Workspaces []WorkspaceResponse `json:"workspaces"`
 }
 
 // WorkspaceResponse represents a workspace in the JSON response.
@@ -73,7 +73,7 @@ type CardDetailResponse struct {
 	RemoteID        string            `json:"remote_id"`
 	RemoteMeta      map[string]string `json:"remote_meta,omitempty"`
 	WorkspaceID     *int              `json:"workspace_id,omitempty"`
-	PRMeta          *PRMetaResponse    `json:"pr_meta,omitempty"`
+	PRMeta          *PRMetaResponse   `json:"pr_meta,omitempty"`
 	SwarmActiveStep int               `json:"swarm_active_step"`
 	SwarmStepNames  []string          `json:"swarm_step_names,omitempty"`
 	CreatedAt       string            `json:"created_at"`

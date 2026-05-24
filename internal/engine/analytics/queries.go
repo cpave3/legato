@@ -50,10 +50,10 @@ type WorkspaceBreakdown struct {
 // The Directory field is the effective working directory (from the interval or
 // the task's swarm working directory as a fallback), used as a proxy for project.
 type DirectoryBreakdown struct {
-	Directory    string
-	Working      time.Duration
-	Waiting      time.Duration
-	TaskCount    int
+	Directory string
+	Working   time.Duration
+	Waiting   time.Duration
+	TaskCount int
 }
 
 // SwarmBreakdown holds aggregated durations and counts for a swarm (parent task

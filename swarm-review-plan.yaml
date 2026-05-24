@@ -1,0 +1,301 @@
+swarm:
+  parent_task_id: zocrgi4f
+  working_dir: /home/cameron/Projects/legato
+  summary: |
+    Deep read-only review of commit 7dbcfdf "feat: swarm QoL changes" which
+    implemented the three brief items (Built relaxation, CancelSwarm + tightened
+    StartSwarm, ExtendApprovedPlan). Three reviewers run in parallel over
+    disjoint surfaces (service, CLI+server, UI) and write findings to
+    /tmp/swarm-review-<area>.md. The conductor synthesizes the reports and
+    presents them to the user. NO code changes are made by any worker.
+
+steps:
+  - name: Parallel review
+    subtasks:
+      - title: "Review service-layer swarm changes (Built/CancelSwarm/ExtendApprovedPlan/StartSwarm)"
+        role: reviewer
+        scope:
+          - internal/service/swarm.go
+          - internal/service/swarm_test.go
+          - internal/engine/swarm/plan.go
+          - internal/engine/swarm/plan_test.go
+        prompt: |
+          You are a READ-ONLY code reviewer. Do NOT edit, write, or create any
+          source files. Your single deliverable is a markdown report at
+          /tmp/swarm-review-service.md.
+
+          ## Context
+
+          You are part of a swarm reviewing commit 7dbcfdf "feat: swarm QoL
+          changes" (the most recent commit on `main`). The parent task brief is
+          at $LEGATO_BRIEF_FILE — read it first. The commit implemented three
+          subsystem changes; you are reviewing the service-layer portion.
+
+          ## What to review
+
+          Focus on these surfaces in internal/service/swarm.go and adjacent
+          files:
+
+          1. **`Built` relaxation (around line 1128).** The function now
+             accepts `reporting` as an input state and is meant to be
+             idempotent from there: re-reports skip the DB write but emit a
+             fresh event. Verify:
+             - The state-machine guard is correct (no states wrongly
+               admitted/excluded).
+             - `flushProgressEvent`, `bumpSnapshot`, `setSnapshotEvent`,
+               `publishChanged`, and `maybeNotifyAllIdle` are called the
+               right number of times for the re-report case vs the
+               first-report case. Are any side effects accidentally
+               double-fired or skipped on re-report?
+             - The event payload distinguishes re-report from first report
+               (string text), but the event `kind` is still `"built"` in
+               both cases. Is that desirable, or should re-reports surface
+               a distinct kind so UIs can render them differently?
+
+          2. **`CancelSwarm` (around line 658).** Claims idempotency and
+             cleanup of: conductor, workers, sub-tasks (status + delete),
+             working dir, active step, runtime files, in-memory snapshot,
+             pending plans, and emission of a `cancelled` event. Verify:
+             - Idempotency truly holds on a parent with no swarm (no
+               panics, no error on missing rows).
+             - Order of operations is safe (e.g. KillAgent before delete
+               vs after).
+             - Any subtask whose KillAgent fails is still transitioned and
+               deleted (errors swallowed by `_ =`) — is that desirable?
+             - Runtime file cleanup (`cleanupRuntimeFiles`) — what does
+               it actually delete? Is the parent's agent directory cleaned
+               up too, or just workers?
+             - Pending plan deletion — are extension-mode pending plans
+               also covered?
+             - In-flight progress debouncer state for cancelled workers:
+               is any goroutine or timer leaked?
+             - Snapshot cache eviction — is it safe under concurrent reads
+               from the web/TUI?
+             - Event-bus payload (`publishChanged` with status `cancelled`):
+               does the existing TUI/web subscriber actually handle it, or
+               does the message arrive but get ignored?
+
+          3. **`StartSwarm` tightening (around line 548).** Verify the three
+             refusal conditions (running agent, non-terminal subs, non-nil
+             working dir) are correct and the error messages are
+             actionable. Are there edge cases where `swarm_working_dir`
+             could be set but everything else is clean (orphan state)?
+             Is rollback on `SpawnAgent` failure complete (note it only
+             rolls back working_dir, not other state — is anything else
+             persisted before SpawnAgent that should also be rolled back)?
+
+          4. **`ExtendApprovedPlan` (around line 701).** Verify:
+             - Refusal when parent has no active swarm — what defines
+               "active" (only `SwarmWorkingDir != nil`, or should it also
+               check that the conductor is alive)?
+             - `AllowMissingWorkingDir` validation flag — does the plan's
+               `working_dir` get inherited correctly from the parent task,
+               or is it left empty (and does anywhere downstream care)?
+             - Step-index offset computation via `GetMaxStepIndex`. What
+               if the existing swarm has only step 0 and the extension
+               also starts at step 0 in the YAML — are extension subtasks
+               correctly placed in a NEW step beyond the existing
+               material, or do they fold in alongside?
+             - If extension subtasks land in an in-flight step, does
+               step-advancement logic still work?
+
+          5. **Tests** in internal/service/swarm_test.go covering the above.
+             Identify cases NOT covered (especially edge cases you flagged
+             above).
+
+          ## Format of the report
+
+          Write /tmp/swarm-review-service.md with sections:
+
+          - `## Summary` — 3-5 sentences on overall quality.
+          - `## Confirmed correct` — bullet list of things that look right.
+          - `## Concerns / bugs` — bullet list, each entry: severity
+            (low/med/high), file:line if applicable, description, suggested
+            fix. Be specific.
+          - `## Missing tests` — bullet list of cases not covered.
+          - `## Questions for the conductor` — anything you want clarified
+            before recommending a fix.
+
+          ## Boundaries
+
+          Read-only. You may run `go test ./internal/service/...` if you
+          want to confirm tests pass, but DO NOT modify code or tests.
+          Stay inside scope. When the report is written, run:
+
+          legato swarm built $LEGATO_SUBTASK_ID
+
+      - title: "Review CLI + server surfaces (cancel, extend-plan)"
+        role: reviewer
+        scope:
+          - internal/cli/swarm.go
+          - internal/cli/swarm_test.go
+          - internal/server/swarm.go
+          - internal/server/swarm_test.go
+          - internal/server/server.go
+          - cmd/legato/main.go
+          - internal/engine/events/bus.go
+          - internal/engine/ipc/ipc.go
+        prompt: |
+          You are a READ-ONLY code reviewer. Do NOT edit, write, or create
+          any source files. Your single deliverable is a markdown report at
+          /tmp/swarm-review-cli-server.md.
+
+          ## Context
+
+          You are part of a swarm reviewing commit 7dbcfdf "feat: swarm QoL
+          changes". The parent task brief is at $LEGATO_BRIEF_FILE — read it.
+          The commit added CLI verbs (`legato swarm cancel`, `legato swarm
+          extend-plan`) and HTTP routes (`POST /api/swarm/cancel`,
+          `POST /api/swarm/extend-plan`), plus a `Mode` field on
+          `PlanProposedPayload` and a new `plan_extension_proposed` IPC
+          message type.
+
+          ## What to review
+
+          1. **CLI handlers** in internal/cli/swarm.go:
+             - `SwarmCancel`: does it print useful output? Behavior on a
+               non-existent parent ID — silent success, or error?
+             - `SwarmExtendPlan`: matches the propose-plan flow for HITL
+               approval? Does `--auto-approve` bypass approval correctly?
+               Is the IPC message type (`plan_extension_proposed`) actually
+               distinct from `plan_proposed` end-to-end, and does
+               `BroadcastRequest` route the reply correctly?
+             - Error handling: are exit codes consistent with other
+               commands (validate-plan returns 2, etc.)?
+             - Argument parsing: is `--timeout` properly threaded?
+
+          2. **HTTP routes** in internal/server/swarm.go:
+             - `/api/swarm/cancel`: payload shape, validation, response
+               format. Does it 404 on missing parent or just succeed
+               silently?
+             - `/api/swarm/extend-plan`: same — payload shape, how is the
+               plan delivered (YAML string? file path?), error surface.
+             - 409 surface for StartSwarm's "cancel the existing swarm
+               first" error — is the error string-matched in the route
+               handler? If so, is that brittle (any future wording change
+               in the service-layer error would silently revert it to 500)?
+             - Auth middleware: are the new routes covered (or
+               accidentally exempt)?
+
+          3. **Server wiring** in internal/server/server.go — both new
+             routes registered, ordering, conflict with any existing
+             route patterns.
+
+          4. **CLI dispatch** in cmd/legato/main.go::runSwarmCmd — new
+             sub-commands wired up correctly, help text accurate.
+
+          5. **IPC layer** in internal/engine/ipc/ipc.go — the new
+             `plan_extension_proposed` message type is registered, and
+             the `BroadcastRequest`/reply path supports it.
+
+          6. **Event bus** in internal/engine/events/bus.go — the new
+             `Mode` field on `PlanProposedPayload`. Is it set on both the
+             original propose-plan path AND the extend-plan path? Is it
+             defaulted to `"initial"` (or empty) and only set to
+             `"extension"` for extensions? Subscribers downstream — do
+             they read it correctly?
+
+          7. **Tests** in internal/cli/swarm_test.go and
+             internal/server/swarm_test.go — coverage gaps.
+
+          ## Format
+
+          Write /tmp/swarm-review-cli-server.md with the same sections as
+          the service review: Summary / Confirmed correct / Concerns /
+          Missing tests / Questions.
+
+          ## Boundaries
+
+          Read-only. You may run `go test ./internal/cli/... ./internal/server/...`
+          to confirm. Stay inside scope. When done:
+
+          legato swarm built $LEGATO_SUBTASK_ID
+
+      - title: "Review UI surfaces (TUI overlays + web modals)"
+        role: reviewer
+        scope:
+          - internal/tui/overlay/swarm_cancel.go
+          - internal/tui/overlay/swarm_cancel_test.go
+          - internal/tui/overlay/plan_approval.go
+          - internal/tui/overlay/plan_approval_test.go
+          - internal/tui/app.go
+          - internal/tui/app_test.go
+          - internal/tui/agents/model.go
+          - internal/tui/agents/model_test.go
+          - web/src/components/board/CancelSwarmModal.tsx
+          - web/src/components/board/DetailPanel.tsx
+          - web/src/components/board/__tests__/DetailPanel.test.tsx
+          - web/src/components/PlanApprovalModal.tsx
+          - web/src/lib/swarm.ts
+          - web/src/lib/board-types.ts
+          - web/src/hooks/useWebSocket.ts
+          - web/src/pages/Board.tsx
+        prompt: |
+          You are a READ-ONLY code reviewer. Do NOT edit, write, or create
+          any source files. Your single deliverable is a markdown report at
+          /tmp/swarm-review-ui.md.
+
+          ## Context
+
+          You are part of a swarm reviewing commit 7dbcfdf "feat: swarm QoL
+          changes". The parent task brief is at $LEGATO_BRIEF_FILE — read
+          it. The commit added a TUI cancel overlay (Shift+C from board),
+          extension-mode handling in the plan approval overlay, and the
+          parallel web modals (CancelSwarmModal, PlanApprovalModal mode
+          handling).
+
+          ## What to review
+
+          1. **TUI cancel overlay** (`internal/tui/overlay/swarm_cancel.go`)
+             - Is it limited to cards that actually have a swarm? What
+               feedback does the user get pressing Shift+C on a non-swarm
+               card?
+             - Confirmation flow: y/n keys, escape behavior — consistent
+               with other overlays (delete, archive, etc.)?
+             - Does it route through the service or fire a raw store call?
+             - Status-bar messaging on success/error.
+
+          2. **Shift+C wiring** in `internal/tui/app.go` — keybinding
+             registration, help-overlay listing, error path for
+             StartSwarm's "cancel the existing swarm first" message.
+
+          3. **Plan approval extension mode** in
+             `internal/tui/overlay/plan_approval.go` — `WithExtension(true)`
+             option, rendering the heading differently, ensures the mode
+             field on the IPC verdict is correctly threaded.
+
+          4. **Web CancelSwarmModal.tsx** — confirmation UX, error
+             handling, accessibility (focus management, keyboard
+             dismissal), busy state.
+
+          5. **Web DetailPanel.tsx** — when does the Cancel button
+             appear? Is the condition consistent between the TUI and web
+             (both should show the action whenever cancellation is
+             meaningful, e.g. any state with non-zero swarm material)?
+
+          6. **Web PlanApprovalModal.tsx** — extension-mode title change.
+             Is the rest of the modal behavior identical to the initial
+             propose path (approve/reject/dismiss)? Is the `mode` field
+             properly parsed from the WS payload?
+
+          7. **Web WS hook** in `web/src/hooks/useWebSocket.ts` — new
+             message type handling for `plan_extension_proposed` (if any)
+             and cancel-related broadcasts.
+
+          8. **Agents view** (`internal/tui/agents/model.go`) — any
+             behavior changes from this commit and their correctness.
+
+          9. **Tests** — overlay tests, web component tests. Coverage
+             gaps.
+
+          ## Format
+
+          Write /tmp/swarm-review-ui.md with the same sections: Summary /
+          Confirmed correct / Concerns / Missing tests / Questions.
+
+          ## Boundaries
+
+          Read-only. You may run `go test ./internal/tui/...` and
+          `cd web && pnpm test` to confirm. Stay inside scope. When done:
+
+          legato swarm built $LEGATO_SUBTASK_ID

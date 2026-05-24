@@ -388,4 +388,3 @@ func TestDetectRepoSSHNoGitSuffix(t *testing.T) {
 		t.Errorf("repo = %q, want repo", repo)
 	}
 }
-

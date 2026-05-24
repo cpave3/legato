@@ -11,5 +11,7 @@ web/node_modules/
 .legato/
 
 # Scratch plan files at repo root
+.cerberus/cache/
+.cerberus/sessions/
 /plan.yaml
 /fix-plan.yaml

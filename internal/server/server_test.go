@@ -66,7 +66,7 @@ func (m *mockBoardService) MoveCard(_ context.Context, _ string, col string) err
 	m.movedTo = col
 	return nil
 }
-func (m *mockBoardService) ReorderCard(_ context.Context, _ string, _ int) error  { return nil }
+func (m *mockBoardService) ReorderCard(_ context.Context, _ string, _ int) error { return nil }
 func (m *mockBoardService) SearchCards(_ context.Context, query string) ([]service.Card, error) {
 	return m.searchResults, nil
 }
@@ -133,7 +133,9 @@ type mockPRTrackingService struct {
 	fetchPRFunc  func(owner, repo string, prNumber int) (*github.PRStatus, error)
 }
 
-func (m *mockPRTrackingService) LinkBranch(_ context.Context, taskID, branch, repo string) error { return nil }
+func (m *mockPRTrackingService) LinkBranch(_ context.Context, taskID, branch, repo string) error {
+	return nil
+}
 func (m *mockPRTrackingService) LinkPR(_ context.Context, taskID, owner, repo string, prNumber int) error {
 	m.linkedTaskID = taskID
 	if m.linkPRFunc != nil {
@@ -141,12 +143,14 @@ func (m *mockPRTrackingService) LinkPR(_ context.Context, taskID, owner, repo st
 	}
 	return nil
 }
-func (m *mockPRTrackingService) UnlinkBranch(_ context.Context, _ string) error   { return nil }
-func (m *mockPRTrackingService) PollOnce(_ context.Context) error                  { return nil }
-func (m *mockPRTrackingService) PollAll(_ context.Context) error                   { return nil }
-func (m *mockPRTrackingService) StartPolling(_ context.Context) func()             { return func() {} }
-func (m *mockPRTrackingService) GetPRStatus(_ context.Context, _ string) (*store.PRMeta, error) { return nil, nil }
-func (m *mockPRTrackingService) DetectRepo() (owner, repo string, err error)       { return "", "", nil }
+func (m *mockPRTrackingService) UnlinkBranch(_ context.Context, _ string) error { return nil }
+func (m *mockPRTrackingService) PollOnce(_ context.Context) error               { return nil }
+func (m *mockPRTrackingService) PollAll(_ context.Context) error                { return nil }
+func (m *mockPRTrackingService) StartPolling(_ context.Context) func()          { return func() {} }
+func (m *mockPRTrackingService) GetPRStatus(_ context.Context, _ string) (*store.PRMeta, error) {
+	return nil, nil
+}
+func (m *mockPRTrackingService) DetectRepo() (owner, repo string, err error) { return "", "", nil }
 func (m *mockPRTrackingService) FetchPRByNumber(owner, repo string, prNumber int) (*github.PRStatus, error) {
 	if m.fetchPRFunc != nil {
 		return m.fetchPRFunc(owner, repo, prNumber)
@@ -495,19 +499,19 @@ type mockTmuxManager struct {
 func (m *mockTmuxManager) Spawn(name, workDir string, width, height int, envVars ...string) error {
 	return nil
 }
-func (m *mockTmuxManager) Kill(name string) error                       { return nil }
-func (m *mockTmuxManager) Capture(name string) (string, error)          { return "", nil }
+func (m *mockTmuxManager) Kill(name string) error                         { return nil }
+func (m *mockTmuxManager) Capture(name string) (string, error)            { return "", nil }
 func (m *mockTmuxManager) CaptureWithEscapes(name string) (string, error) { return "", nil }
-func (m *mockTmuxManager) Attach(name string) *exec.Cmd                 { return exec.Command("echo") }
-func (m *mockTmuxManager) ListSessions() ([]string, error)              { return nil, nil }
-func (m *mockTmuxManager) IsAlive(name string) (bool, error)            { return false, nil }
-func (m *mockTmuxManager) SendKeys(name, keys string) error             { return nil }
+func (m *mockTmuxManager) Attach(name string) *exec.Cmd                   { return exec.Command("echo") }
+func (m *mockTmuxManager) ListSessions() ([]string, error)                { return nil, nil }
+func (m *mockTmuxManager) IsAlive(name string) (bool, error)              { return false, nil }
+func (m *mockTmuxManager) SendKeys(name, keys string) error               { return nil }
 func (m *mockTmuxManager) SendKey(name, key string) error {
 	m.sentKeys = append(m.sentKeys, key)
 	return nil
 }
-func (m *mockTmuxManager) SendKeysLine(name, line string) error     { return nil }
-func (m *mockTmuxManager) SendKeysMultiline(name, payload string) error { return nil }
+func (m *mockTmuxManager) SendKeysLine(name, line string) error            { return nil }
+func (m *mockTmuxManager) SendKeysMultiline(name, payload string) error    { return nil }
 func (m *mockTmuxManager) SendKeysShellCommand(name, command string) error { return nil }
 func (m *mockTmuxManager) PipeOutput(name string) (io.Reader, func(), error) {
 	return strings.NewReader(""), func() {}, nil
@@ -707,8 +711,8 @@ func TestDeleteTaskMissingReturns404(t *testing.T) {
 
 func TestCreateTaskReturns201(t *testing.T) {
 	svc := &mockBoardService{
-		columns: []service.Column{},
-		cards:   map[string][]service.Card{},
+		columns:     []service.Column{},
+		cards:       map[string][]service.Card{},
 		createdCard: &service.Card{ID: "new-1", Title: "New task", Status: "Backlog", Priority: "Medium"},
 	}
 	srv := New(svc, nil, nil, ":0")
@@ -1164,15 +1168,15 @@ func TestPRPreviewHandler_Returns200(t *testing.T) {
 	srv.SetPRTrackingService(&mockPRTrackingService{
 		fetchPRFunc: func(owner, repo string, prNumber int) (*github.PRStatus, error) {
 			return &github.PRStatus{
-				Number:       prNumber,
-				URL:          "https://github.com/acme/app/pull/42",
-				State:        "OPEN",
-				IsDraft:      false,
-				CheckStatus:  "pass",
+				Number:         prNumber,
+				URL:            "https://github.com/acme/app/pull/42",
+				State:          "OPEN",
+				IsDraft:        false,
+				CheckStatus:    "pass",
 				ReviewDecision: "APPROVED",
-				CommentCount: 3,
-				HeadBranch:   "feat/x",
-				Title:        "Fix the thing",
+				CommentCount:   3,
+				HeadBranch:     "feat/x",
+				Title:          "Fix the thing",
 			}, nil
 		},
 	})

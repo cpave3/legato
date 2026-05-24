@@ -23,6 +23,8 @@ var chimeraEvents = []struct {
 	{"PermissionRequest", "legato-permission.sh", "waiting"},
 	{"Stop", "legato-stop.sh", ""},
 	{"SessionEnd", "legato-session-end.sh", ""},
+	{"Interrupt", "legato-interrupt.sh", ""},
+	{"Timeout", "legato-timeout.sh", ""},
 }
 
 func TestChimeraAdapter_Name(t *testing.T) {
@@ -65,7 +67,7 @@ func TestChimeraAdapter_InstallHooks(t *testing.T) {
 		if !strings.Contains(content, "[ -z \"$LEGATO_TASK_ID\" ] && exit 0") {
 			t.Errorf("%s: missing LEGATO_TASK_ID guard", ev.dir)
 		}
-			wantCmd := fmt.Sprintf("%s agent state \"$LEGATO_TASK_ID\" --activity %q --working-dir \"$PWD\"", "/usr/bin/legato", ev.activity)
+		wantCmd := fmt.Sprintf("%s agent state \"$LEGATO_TASK_ID\" --activity %q --working-dir \"$PWD\"", "/usr/bin/legato", ev.activity)
 		if !strings.Contains(content, wantCmd) {
 			t.Errorf("%s: expected %q in script, got:\n%s", ev.dir, wantCmd, content)
 		}

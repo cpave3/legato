@@ -11,18 +11,18 @@ func TestColumnMappingCRUDCycle(t *testing.T) {
 
 	// Create
 	m := ColumnMapping{
-		ColumnName:   "Backlog",
+		ColumnName:     "Backlog",
 		RemoteStatuses: `["To Do","Open"]`,
-		SortOrder:    0,
+		SortOrder:      0,
 	}
 	if err := s.CreateColumnMapping(ctx, m); err != nil {
 		t.Fatal(err)
 	}
 
 	m2 := ColumnMapping{
-		ColumnName:   "Doing",
+		ColumnName:     "Doing",
 		RemoteStatuses: `["In Progress"]`,
-		SortOrder:    1,
+		SortOrder:      1,
 	}
 	if err := s.CreateColumnMapping(ctx, m2); err != nil {
 		t.Fatal(err)

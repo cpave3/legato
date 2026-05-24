@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	defaultPageSize   = 50
-	maxRetries        = 5
-	initialBackoff    = 1 * time.Second
-	maxBackoff        = 60 * time.Second
+	defaultPageSize = 50
+	maxRetries      = 5
+	initialBackoff  = 1 * time.Second
+	maxBackoff      = 60 * time.Second
 )
 
 // Client is a Jira REST API v3 client with Basic Auth and rate limit handling.

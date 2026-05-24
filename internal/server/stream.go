@@ -15,8 +15,8 @@ import (
 
 // clientSize tracks a client's terminal dimensions and when they last reported.
 type clientSize struct {
-	cols    int
-	rows    int
+	cols     int
+	rows     int
 	lastSeen time.Time
 }
 
@@ -397,7 +397,7 @@ func findIncompleteEscape(data []byte) int {
 
 func (sm *streamManager) readLoop(s *agentStream, reader io.Reader) {
 	buf := make([]byte, 32768) // 32KB — larger buffer reduces mid-sequence splits
-	var held []byte             // bytes held back from previous read (incomplete escape)
+	var held []byte            // bytes held back from previous read (incomplete escape)
 	var detectTimer *time.Timer
 	const detectDelay = 500 * time.Millisecond
 

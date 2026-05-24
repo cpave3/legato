@@ -19,7 +19,7 @@ func TestStaccatoAdapter_Name(t *testing.T) {
 func TestStaccatoAdapter_EnvVars(t *testing.T) {
 	adapter := hooks.NewStaccatoAdapter("/usr/bin/legato")
 	vars := adapter.EnvVars("task123", "/tmp/legato.sock")
-	if vars != nil && len(vars) > 0 {
+	if len(vars) > 0 {
 		t.Errorf("EnvVars should be nil/empty, got %v", vars)
 	}
 }

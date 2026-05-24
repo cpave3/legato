@@ -19,19 +19,19 @@ import (
 )
 
 type mockSwarmService struct {
-	startSwarmFunc     func(ctx context.Context, parentID, workingDir string) error
-	dispatchFunc       func(ctx context.Context, subtaskID string) error
-	messageFunc        func(ctx context.Context, subtaskID, text string, urgent bool) error
-	messageParentFunc  func(ctx context.Context, parentID, text string, urgent bool) error
-	broadcastFunc      func(ctx context.Context, parentID, text string, urgent bool) (int, error)
-	closeFunc          func(ctx context.Context, subtaskID string) error
-	finishFunc         func(ctx context.Context, parentID, summary string) error
-	snapshotFunc       func(ctx context.Context, parentID string) ([]byte, error)
-	listSubtaskInfosFunc func(ctx context.Context, parentID string) ([]service.SwarmSubtaskInfo, error)
-	fetchInboxFunc     func(ctx context.Context, parentID string) ([]service.InboxEntry, error)
-	peekInboxFunc      func(ctx context.Context, parentID string) ([]service.InboxEntry, error)
-	nextStepFunc       func(ctx context.Context, parentID string) error
-	cancelSwarmFunc    func(ctx context.Context, parentID string) error
+	startSwarmFunc         func(ctx context.Context, parentID, workingDir string) error
+	dispatchFunc           func(ctx context.Context, subtaskID string) error
+	messageFunc            func(ctx context.Context, subtaskID, text string, urgent bool) error
+	messageParentFunc      func(ctx context.Context, parentID, text string, urgent bool) error
+	broadcastFunc          func(ctx context.Context, parentID, text string, urgent bool) (int, error)
+	closeFunc              func(ctx context.Context, subtaskID string) error
+	finishFunc             func(ctx context.Context, parentID, summary string) error
+	snapshotFunc           func(ctx context.Context, parentID string) ([]byte, error)
+	listSubtaskInfosFunc   func(ctx context.Context, parentID string) ([]service.SwarmSubtaskInfo, error)
+	fetchInboxFunc         func(ctx context.Context, parentID string) ([]service.InboxEntry, error)
+	peekInboxFunc          func(ctx context.Context, parentID string) ([]service.InboxEntry, error)
+	nextStepFunc           func(ctx context.Context, parentID string) error
+	cancelSwarmFunc        func(ctx context.Context, parentID string) error
 	extendApprovedPlanFunc func(ctx context.Context, plan *swarm.Plan) error
 
 	// In-memory pending-plan storage for tests.
@@ -326,8 +326,6 @@ func TestSwarmMessageHappyPath(t *testing.T) {
 		t.Fatalf("status = %d, want 200", w.Code)
 	}
 }
-
-
 
 func TestSwarmMessageFallbackToParent(t *testing.T) {
 	messageCalled := false

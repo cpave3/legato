@@ -4,16 +4,16 @@ import "encoding/json"
 
 // PRMeta holds PR tracking metadata stored as JSON in the pr_meta column.
 type PRMeta struct {
-	Repo           string `json:"repo,omitempty"`             // owner/repo format
+	Repo           string `json:"repo,omitempty"` // owner/repo format
 	Branch         string `json:"branch"`
 	PRNumber       int    `json:"pr_number,omitempty"`
 	PRURL          string `json:"pr_url,omitempty"`
-	State          string `json:"state,omitempty"`           // OPEN, MERGED, CLOSED, or ""
+	State          string `json:"state,omitempty"` // OPEN, MERGED, CLOSED, or ""
 	IsDraft        bool   `json:"is_draft,omitempty"`
 	ReviewDecision string `json:"review_decision,omitempty"` // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or ""
 	CheckStatus    string `json:"check_status,omitempty"`    // pass, fail, pending, or ""
 	CommentCount   int    `json:"comment_count,omitempty"`
-	UpdatedAt      string `json:"updated_at,omitempty"`      // RFC3339
+	UpdatedAt      string `json:"updated_at,omitempty"` // RFC3339
 }
 
 // MarshalPRMeta serializes PRMeta to a JSON string pointer for storage.
@@ -95,17 +95,17 @@ type StateInterval struct {
 }
 
 type AgentSession struct {
-	ID            int     `db:"id"`
-	TaskID        string  `db:"task_id"`
-	TmuxSession   string  `db:"tmux_session"`
-	Command       string  `db:"command"`
-	Status        string  `db:"status"`
-	Activity      string  `db:"activity"`
-	Role          string  `db:"role"`
-	ParentTaskID  *string `db:"parent_task_id"`
-	SubtaskID     *string `db:"subtask_id"`
-	StartedAt     string  `db:"started_at"`
-	EndedAt       *string `db:"ended_at"`
+	ID           int     `db:"id"`
+	TaskID       string  `db:"task_id"`
+	TmuxSession  string  `db:"tmux_session"`
+	Command      string  `db:"command"`
+	Status       string  `db:"status"`
+	Activity     string  `db:"activity"`
+	Role         string  `db:"role"`
+	ParentTaskID *string `db:"parent_task_id"`
+	SubtaskID    *string `db:"subtask_id"`
+	StartedAt    string  `db:"started_at"`
+	EndedAt      *string `db:"ended_at"`
 }
 
 // SwarmEvent is a single conductor-bound event written to the swarm_events

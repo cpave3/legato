@@ -445,7 +445,7 @@ func (m Model) renderWorkspaces(width int) string {
 	lines = append(lines, sectionStyle.Render("WORKSPACES"))
 
 	for _, ws := range wss {
-		dot := "●"
+		var dot string
 		if ws.WorkspaceColor != "" {
 			dot = lipgloss.NewStyle().Foreground(lipgloss.Color(ws.WorkspaceColor)).Render("●")
 		} else {

@@ -441,11 +441,11 @@ func runServeCmd(args []string) int {
 		swarmSvc = service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd)
 	}
 
-		addr := ":" + port
-		srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
-		srv.SetMacros(cfg.Macros)
-		srvWindow, srvBuckets := resolveSparklineWindow(cfg)
-		srv.SetSparklineWindow(srvWindow, srvBuckets)
+	addr := ":" + port
+	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
+	srv.SetMacros(cfg.Macros)
+	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
+	srv.SetSparklineWindow(srvWindow, srvBuckets)
 
 	// Configure TLS.
 	certFile, keyFile, caCertFile := resolveTLS(cfg)
@@ -564,45 +564,11 @@ func runTUI() int {
 	var webSrv *server.Server
 	socketPath := ipc.SocketPath()
 	ipcServer, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
-		switch msg.Type {
-		case "task_update", "task_note", "agent_state":
-			bus.Publish(events.Event{
-				Type: events.EventCardUpdated,
-				At:   time.Now(),
-			})
-			if webSrv != nil {
-				webSrv.NotifyAgentsChanged()
-			}
-		case "pr_linked":
-			bus.Publish(events.Event{
-				Type: events.EventPRStatusUpdated,
-				At:   time.Now(),
-			})
-			if webSrv != nil {
-				webSrv.NotifyAgentsChanged()
-			}
-		case "swarm_changed":
-			bus.Publish(events.Event{
-				Type: events.EventSwarmChanged,
-				At:   time.Now(),
-				Payload: events.SwarmChangedPayload{
-					ParentTaskID: msg.TaskID,
-					SubtaskID:    msg.Status,
-					NewStatus:    msg.Content,
-				},
-			})
-		case "plan_proposed":
-			bus.Publish(events.Event{
-				Type: events.EventPlanProposed,
-				At:   time.Now(),
-				Payload: events.PlanProposedPayload{
-					ParentTaskID: msg.TaskID,
-					PlanPath:     msg.PlanPath,
-					ReplySocket:  msg.ReplySocket,
-								Mode:         msg.Mode,
-				},
-			})
+		var wn webNotifier
+		if webSrv != nil {
+			wn = webSrv
 		}
+		handleIPCMessage(msg, bus, wn)
 	})
 	if ipcErr == nil {
 		defer ipcServer.Close()
@@ -736,8 +702,8 @@ func runTUI() int {
 		} else {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
 			webSrv.SetMacros(cfg.Macros)
-				webSrv.SetSyncService(syncSvc)
-				webSrv.SetPRTrackingService(prSvc)
+			webSrv.SetSyncService(syncSvc)
+			webSrv.SetPRTrackingService(prSvc)
 			webWindow, webBuckets := resolveSparklineWindow(cfg)
 			webSrv.SetSparklineWindow(webWindow, webBuckets)
 			certFile, keyFile, caCertFile := resolveTLS(cfg)
@@ -1360,22 +1326,17 @@ func runSwarmDispatch(args []string) int {
 }
 
 func runSwarmMessage(args []string) int {
-	if len(args) < 2 {
+	subtaskID, text, urgent, err := parseMessageArgs(args)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, `usage: legato swarm message <subtask-id> "<text>" [--urgent]`)
 		return 1
-	}
-	urgent := false
-	for i := 2; i < len(args); i++ {
-		if args[i] == "--urgent" {
-			urgent = true
-		}
 	}
 	sw, db, code := loadSwarmServiceForCLI()
 	if code != 0 {
 		return code
 	}
 	defer db.Close()
-	if err := cli.SwarmMessage(sw, args[0], args[1], urgent); err != nil {
+	if err := cli.SwarmMessage(sw, subtaskID, text, urgent); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
@@ -1383,22 +1344,17 @@ func runSwarmMessage(args []string) int {
 }
 
 func runSwarmBroadcast(args []string) int {
-	if len(args) < 2 {
+	parentID, text, urgent, err := parseMessageArgs(args)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, `usage: legato swarm broadcast <parent-id> "<text>" [--urgent]`)
 		return 1
-	}
-	urgent := false
-	for i := 2; i < len(args); i++ {
-		if args[i] == "--urgent" {
-			urgent = true
-		}
 	}
 	sw, db, code := loadSwarmServiceForCLI()
 	if code != 0 {
 		return code
 	}
 	defer db.Close()
-	if err := cli.SwarmBroadcast(sw, args[0], args[1], urgent); err != nil {
+	if err := cli.SwarmBroadcast(sw, parentID, text, urgent); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}

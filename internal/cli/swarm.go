@@ -325,6 +325,7 @@ func SwarmExtendPlan(sw service.SwarmService, planPath, fallbackWorkingDir strin
 			Type:     "plan_extension_proposed",
 			TaskID:   plan.Swarm.ParentTaskID,
 			PlanPath: canonical,
+			Mode:     "extension",
 		},
 		"plan_verdict",
 		timeout,
@@ -357,4 +358,3 @@ func SwarmExtendPlan(sw service.SwarmService, planPath, fallbackWorkingDir strin
 	}
 	return nil
 }
-

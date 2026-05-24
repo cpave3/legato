@@ -1,0 +1,37 @@
+linters:
+  disable-all: true
+  enable:
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+issues:
+  exclude:
+    - "SA1019"     # deprecation warnings (websocket lib, bubbletea APIs)
+    - "S1009"      # nil check before len
+    - "SA4005"     # ineffective assignment
+    - "SA4006"     # unused return value
+    - "SA9003"     # empty branch
+  exclude-rules:
+    - path: _test\.go$
+      linters:
+        - unused
+        - ineffassign
+        - staticcheck
+    - path: cmd/legato/main\.go$
+      linters:
+        - unused
+      text: "cliNoopTmux"
+    - path: internal/tui/agents/model\.go$
+      linters:
+        - unused
+      text: "terminalDims"
+    - path: internal/tui/app\.go$
+      linters:
+        - unused
+      text: "lastSparklineFetch|openPlanApprovalOverlay|webServerStartedMsg"
+
+run:
+  timeout: 5m

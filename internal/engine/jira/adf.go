@@ -8,11 +8,11 @@ import (
 
 // adfNode represents a node in an Atlassian Document Format tree.
 type adfNode struct {
-	Type    string            `json:"type"`
-	Text    string            `json:"text,omitempty"`
-	Marks   []adfMark         `json:"marks,omitempty"`
-	Attrs   map[string]any    `json:"attrs,omitempty"`
-	Content []adfNode         `json:"content,omitempty"`
+	Type    string         `json:"type"`
+	Text    string         `json:"text,omitempty"`
+	Marks   []adfMark      `json:"marks,omitempty"`
+	Attrs   map[string]any `json:"attrs,omitempty"`
+	Content []adfNode      `json:"content,omitempty"`
 }
 
 type adfMark struct {
@@ -381,25 +381,25 @@ func intAttr(attrs map[string]any, key string, defaultVal int) int {
 
 // Common emoji shortName to Unicode mappings.
 var emojiMap = map[string]string{
-	":thumbsup:":   "\U0001F44D",
-	":thumbsdown:": "\U0001F44E",
-	":smile:":      "\U0001F604",
-	":heart:":      "\u2764\uFE0F",
-	":star:":       "\u2B50",
-	":check:":      "\u2705",
-	":cross:":      "\u274C",
-	":warning:":    "\u26A0\uFE0F",
-	":fire:":       "\U0001F525",
-	":rocket:":     "\U0001F680",
-	":tada:":       "\U0001F389",
-	":bug:":        "\U0001F41B",
-	":bulb:":       "\U0001F4A1",
-	":memo:":       "\U0001F4DD",
-	":wrench:":     "\U0001F527",
-	":lock:":       "\U0001F512",
-	":eyes:":       "\U0001F440",
-	":question:":   "\u2753",
+	":thumbsup:":    "\U0001F44D",
+	":thumbsdown:":  "\U0001F44E",
+	":smile:":       "\U0001F604",
+	":heart:":       "\u2764\uFE0F",
+	":star:":        "\u2B50",
+	":check:":       "\u2705",
+	":cross:":       "\u274C",
+	":warning:":     "\u26A0\uFE0F",
+	":fire:":        "\U0001F525",
+	":rocket:":      "\U0001F680",
+	":tada:":        "\U0001F389",
+	":bug:":         "\U0001F41B",
+	":bulb:":        "\U0001F4A1",
+	":memo:":        "\U0001F4DD",
+	":wrench:":      "\U0001F527",
+	":lock:":        "\U0001F512",
+	":eyes:":        "\U0001F440",
+	":question:":    "\u2753",
 	":exclamation:": "\u2757",
-	":+1:":         "\U0001F44D",
-	":-1:":         "\U0001F44E",
+	":+1:":          "\U0001F44D",
+	":-1:":          "\U0001F44E",
 }

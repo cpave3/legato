@@ -43,13 +43,13 @@ func spawnSwarmAgent(t *testing.T, s *store.Store, taskID, parentID string) {
 	t.Helper()
 	ctx := context.Background()
 	if err := s.InsertAgentSession(ctx, store.AgentSession{
-		TaskID:        taskID,
-		TmuxSession:   "legato-" + taskID,
-		Command:       "shell",
-		Status:        "running",
-		ParentTaskID:  &parentID,
-		SubtaskID:     &taskID,
-		StartedAt:     time.Now().UTC().Format(time.RFC3339),
+		TaskID:       taskID,
+		TmuxSession:  "legato-" + taskID,
+		Command:      "shell",
+		Status:       "running",
+		ParentTaskID: &parentID,
+		SubtaskID:    &taskID,
+		StartedAt:    time.Now().UTC().Format(time.RFC3339),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -199,10 +199,11 @@ func TestAgentStatus_InvalidFormat(t *testing.T) {
 // BenchmarkLegatoAgentStatus simulates the CLI hot path.
 //
 // Measured on 2026-05-12 (AMD Ryzen 9 7900X, SSD, SQLite):
-//   goos: linux
-//   goarch: amd64
-//   pkg: github.com/cpave3/legato/internal/cli
-//   BenchmarkLegatoAgentStatus-24    ~47000    ~26000 ns/op    (cold, one SQLite query)
+//
+//	goos: linux
+//	goarch: amd64
+//	pkg: github.com/cpave3/legato/internal/cli
+//	BenchmarkLegatoAgentStatus-24    ~47000    ~26000 ns/op    (cold, one SQLite query)
 //
 // The actual `time legato agent status <id> --format tmux` shell invocation
 // adds ~3–4 ms of process spawn overhead, putting real-world latency well

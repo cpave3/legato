@@ -158,9 +158,7 @@ func TestScrollKeybindings(t *testing.T) {
 	// j scrolls down
 	updated, _ := m.Update(keyMsg('j'))
 	m2 := updated.(Model)
-	if m2.viewport.YOffset <= 0 {
-		// viewport may not scroll if content fits - that's ok
-	}
+		_ = m2.viewport.YOffset 		// viewport may not scroll if content fits - that's ok
 
 	// k scrolls up (should stay at or return to 0)
 	updated, _ = m2.Update(keyMsg('k'))
