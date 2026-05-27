@@ -222,7 +222,7 @@ func TestUniformCardHeightInColumn(t *testing.T) {
 		{Key: "task1", Title: "No agent", Priority: "High", IssueType: "Bug"},
 		{Key: "task2", Title: "Has agent", Priority: "Low", AgentActive: true, AgentState: "working"},
 	}
-	out := RenderColumn("Doing", cards, 30, true, 0, testIcons)
+	out := RenderColumn("Doing", cards, 30, true, 0, len(cards), testIcons)
 	// Both cards should render; the column should have uniform height
 	if !strings.Contains(out, "task1") || !strings.Contains(out, "task2") {
 		t.Error("column should contain both cards")

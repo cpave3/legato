@@ -11,7 +11,8 @@ import (
 // RenderColumn renders a column with header and cards.
 // width is the column width in characters.
 // selectedIdx is the selected card index (-1 for no selection).
-func RenderColumn(name string, cards []CardData, width int, active bool, selectedIdx int, icons theme.Icons) string {
+// totalCount is the total cards in the column (for the header, which may differ from len(cards) when windowed).
+func RenderColumn(name string, cards []CardData, width int, active bool, selectedIdx int, totalCount int, icons theme.Icons) string {
 	colColor := theme.ColumnBorderColor(name)
 
 	// Colored top bar
@@ -21,7 +22,7 @@ func RenderColumn(name string, cards []CardData, width int, active bool, selecte
 		Bold(true).
 		Width(width).
 		Align(lipgloss.Center).
-		Render(fmt.Sprintf(" %s  %d ", strings.ToUpper(name), len(cards)))
+		Render(fmt.Sprintf(" %s  %d ", strings.ToUpper(name), totalCount))
 
 	// Thin separator under the header
 	var separatorColor lipgloss.Color

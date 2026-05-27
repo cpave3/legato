@@ -27,6 +27,8 @@ type Model struct {
 	cards          map[string][]CardData
 	cursorCol      int
 	cursorRow      int
+	rowOffset      int // first visible card index in active column
+	maxVisible     int // max cards that fit vertically in terminal
 	width          int
 	height         int
 	workspaceView  store.WorkspaceView
@@ -143,12 +145,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case DataLoadedMsg:
 		m.columns = msg.columns
 		m.cards = msg.cards
+		m.computeMaxVisible()
 		m.clampRow()
 		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.computeMaxVisible()
+		m.syncScrollOffset()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -174,17 +179,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.cursorRow < max {
 			m.cursorRow++
 		}
+		m.syncScrollOffset()
 	case "k":
 		if m.cursorRow > 0 {
 			m.cursorRow--
 		}
+		m.syncScrollOffset()
 	case "g":
 		m.cursorRow = 0
+		m.syncScrollOffset()
 	case "G":
 		max := m.currentColumnCardCount() - 1
 		if max >= 0 {
 			m.cursorRow = max
 		}
+		m.syncScrollOffset()
 	case "enter":
 		if card := m.SelectedCard(); card != nil {
 			key := card.Key
@@ -241,6 +250,7 @@ func (m *Model) SetActiveAgents(taskIDs map[string]bool) {
 		}
 		m.cards[colName] = cards
 	}
+	m.computeMaxVisible()
 }
 
 // SetAgentStates updates the agent activity state for each card.
@@ -252,6 +262,7 @@ func (m *Model) SetAgentStates(states map[string]string) {
 		}
 		m.cards[colName] = cards
 	}
+	m.computeMaxVisible()
 }
 
 // SetDurations updates the working/waiting durations for each card.
@@ -265,6 +276,7 @@ func (m *Model) SetDurations(durations map[string]DurationData) {
 		}
 		m.cards[colName] = cards
 	}
+	m.computeMaxVisible()
 }
 
 // PRStateData holds PR status for populating card data.
@@ -286,6 +298,7 @@ func (m *Model) SetSwarmStats(stats map[string]SwarmStats) {
 		}
 		m.cards[colName] = cards
 	}
+	m.computeMaxVisible()
 }
 
 // SetPRStates updates the PR status fields for each card.
@@ -302,6 +315,7 @@ func (m *Model) SetPRStates(states map[string]PRStateData) {
 		}
 		m.cards[colName] = cards
 	}
+	m.computeMaxVisible()
 }
 
 // TaskIDs returns all task IDs currently on the board.
@@ -322,6 +336,7 @@ func (m *Model) NavigateTo(cardID string) {
 			if card.Key == cardID {
 				m.cursorCol = colIdx
 				m.cursorRow = rowIdx
+				m.syncScrollOffset()
 				return
 			}
 		}
@@ -335,6 +350,7 @@ func (m *Model) clampRow() {
 	} else if m.cursorRow > max {
 		m.cursorRow = max
 	}
+	m.syncScrollOffset()
 }
 
 func (m Model) currentColumnCardCount() int {
@@ -342,6 +358,96 @@ func (m Model) currentColumnCardCount() int {
 		return 0
 	}
 	return len(m.cards[m.columns[m.cursorCol]])
+}
+
+// syncScrollOffset keeps cursorRow inside the visible window [rowOffset, rowOffset+maxVisible-1].
+func (m *Model) syncScrollOffset() {
+	count := m.currentColumnCardCount()
+	if count == 0 || m.maxVisible <= 0 {
+		m.rowOffset = 0
+		m.cursorRow = 0
+		return
+	}
+	if count <= m.maxVisible {
+		m.rowOffset = 0
+		return
+	}
+	if m.cursorRow < m.rowOffset {
+		m.rowOffset = m.cursorRow
+	}
+	if m.cursorRow >= m.rowOffset+m.maxVisible {
+		m.rowOffset = m.cursorRow - m.maxVisible + 1
+	}
+	// Clamp offset to valid range so the window stays anchored at bottom.
+	maxOffset := count - m.maxVisible
+	if m.rowOffset > maxOffset {
+		m.rowOffset = maxOffset
+	}
+	if m.rowOffset < 0 {
+		m.rowOffset = 0
+	}
+}
+
+// computeMaxVisible figures out how many cards fit vertically in the terminal.
+// It measures the tallest rendered card actually on the board, and accounts
+// for the newline separator between cards in the column output.
+func (m *Model) computeMaxVisible() {
+	if m.height <= 0 {
+		m.maxVisible = 0
+		return
+	}
+
+	// Measure the tallest card actually loaded on the board.
+	// This is more accurate than a fabricated max-height sample.
+	maxH := 0
+	for _, colName := range m.columns {
+		for i, card := range m.cards[colName] {
+			selected := i == m.cursorRow && colName == m.columns[m.cursorCol]
+			h := lipgloss.Height(RenderCard(card, 30, selected, colName, m.icons))
+			if h > maxH {
+				maxH = h
+			}
+		}
+	}
+
+	// Fallback to a representative card if the board is empty or all cards
+	// returned zero height.
+	if maxH <= 0 {
+		sample := CardData{
+			Key:              "SAMPLE",
+			Title:            "Sample",
+			Priority:         "High",
+			IssueType:        "Bug",
+			Provider:         "jira",
+			AgentActive:      true,
+			AgentState:       "working",
+			WorkingDuration:  time.Hour,
+			WaitingDuration:  time.Hour,
+			PRCheckStatus:    "pass",
+			PRReviewDecision: "APPROVED",
+			PRCommentCount:   5,
+			PRNumber:         1,
+		}
+		maxH = lipgloss.Height(RenderCard(sample, 30, true, "Doing", m.icons))
+		if maxH <= 0 {
+			maxH = 5
+		}
+	}
+
+	// Each real card in RenderColumn is linked by a newline, so
+	// a column of N cards takes N*maxH + (N-1) lines.
+	headerH := 2 // top bar + separator
+	avail := m.height - headerH
+	if avail <= 0 {
+		m.maxVisible = 1
+		return
+	}
+
+	// Solve N*maxH + (N-1) <= avail  =>  N*(maxH+1) <= avail+1
+	m.maxVisible = (avail + 1) / (maxH + 1)
+	if m.maxVisible < 1 {
+		m.maxVisible = 1
+	}
 }
 
 // View renders the board.
@@ -385,13 +491,21 @@ func (m Model) View() string {
 			rendered = append(rendered, gap)
 		}
 		colName := m.columns[i]
-		cards := m.cards[colName]
+		allCards := m.cards[colName]
 		active := i == m.cursorCol
 		selectedIdx := -1
-		if active {
-			selectedIdx = m.cursorRow
+		var cards []CardData
+		if active && m.maxVisible > 0 && len(allCards) > m.maxVisible {
+			// Slice active column to visible window and adjust selectedIdx relative to the slice
+			cards = allCards[m.rowOffset : m.rowOffset+m.maxVisible]
+			selectedIdx = m.cursorRow - m.rowOffset
+		} else if m.maxVisible > 0 && len(allCards) > m.maxVisible {
+			// Inactive columns: cap to maxVisible from top so they don't blow out the layout
+			cards = allCards[:m.maxVisible]
+		} else {
+			cards = allCards
 		}
-		col := RenderColumn(colName, cards, colWidth, active, selectedIdx, m.icons)
+		col := RenderColumn(colName, cards, colWidth, active, selectedIdx, len(allCards), m.icons)
 		rendered = append(rendered, col)
 	}
 

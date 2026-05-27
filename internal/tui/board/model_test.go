@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -80,6 +81,7 @@ func newTestModel() Model {
 	m = m.loadData()
 	m.width = 120
 	m.height = 40
+	m.maxVisible = 100 // large enough that all cards are visible for existing tests
 	return m
 }
 
@@ -312,5 +314,187 @@ func TestViewNonEmpty(t *testing.T) {
 	view := m.View()
 	if view == "" {
 		t.Error("view should not be empty")
+	}
+}
+
+func TestVerticalScrollScrollingDown(t *testing.T) {
+	m := newTestModel()
+	m.maxVisible = 2 // small viewport
+	// Backlog has 3 cards. With maxVisible=2, only cards [0:2] or [1:3] are visible.
+	// Start at row 0.
+	if m.cursorRow != 0 {
+		t.Fatalf("start row = %d, want 0", m.cursorRow)
+	}
+	if m.rowOffset != 0 {
+		t.Fatalf("start offset = %d, want 0", m.rowOffset)
+	}
+
+	// Move cursor to row 1 — stays within visible window, no scroll needed
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if m.cursorRow != 1 {
+		t.Errorf("after j: cursorRow = %d, want 1", m.cursorRow)
+	}
+	if m.rowOffset != 0 {
+		t.Errorf("after j: rowOffset = %d, want 0", m.rowOffset)
+	}
+
+	// Move cursor to row 2 — falls outside visible window, view scrolls
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if m.cursorRow != 2 {
+		t.Errorf("after second j: cursorRow = %d, want 2", m.cursorRow)
+	}
+	if m.rowOffset != 1 {
+		t.Errorf("after second j: rowOffset = %d, want 1", m.rowOffset)
+	}
+
+	// Verify that View() excludes scrolled-off cards
+	view := m.View()
+	if strings.Contains(view, "REX-1") {
+		t.Error("view should not contain first card (REX-1) after scrolling down")
+	}
+	if !strings.Contains(view, "REX-2") {
+		t.Error("view should contain second card (REX-2)")
+	}
+	if !strings.Contains(view, "REX-3") {
+		t.Error("view should contain third card (REX-3)")
+	}
+}
+
+func TestVerticalScrollScrollingUp(t *testing.T) {
+	m := newTestModel()
+	m.maxVisible = 2
+	// Start scrolled to bottom: window shows cards [1,2], cursor at row 2
+	m.cursorRow = 2
+	m.rowOffset = 1
+
+	// First k moves cursor to row 1 — still inside the visible window,
+	// so the viewport does NOT scroll yet.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	if m.cursorRow != 1 {
+		t.Errorf("after k: cursorRow = %d, want 1", m.cursorRow)
+	}
+	if m.rowOffset != 1 {
+		t.Errorf("after k: rowOffset = %d, want 1 (still inside window)", m.rowOffset)
+	}
+
+	// Second k would move cursor to row 0, which is outside the visible
+	// window [1,2], so the viewport scrolls up.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	if m.cursorRow != 0 {
+		t.Errorf("after second k: cursorRow = %d, want 0", m.cursorRow)
+	}
+	if m.rowOffset != 0 {
+		t.Errorf("after second k: rowOffset = %d, want 0", m.rowOffset)
+	}
+}
+
+func TestVerticalScrollJumpToLast(t *testing.T) {
+	m := newTestModel()
+	m.maxVisible = 2
+	// G jumps to last card (row 2) and scrolls to show it at bottom of window
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if m.cursorRow != 2 {
+		t.Errorf("after G: cursorRow = %d, want 2", m.cursorRow)
+	}
+	if m.rowOffset != 1 {
+		t.Errorf("after G: rowOffset = %d, want 1", m.rowOffset)
+	}
+}
+
+func TestVerticalScrollJumpToFirst(t *testing.T) {
+	m := newTestModel()
+	m.maxVisible = 2
+	m.cursorRow = 2
+	m.rowOffset = 1
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	if m.cursorRow != 0 {
+		t.Errorf("after g: cursorRow = %d, want 0", m.cursorRow)
+	}
+	if m.rowOffset != 0 {
+		t.Errorf("after g: rowOffset = %d, want 0", m.rowOffset)
+	}
+}
+
+func TestVerticalScrollColumnChangeResetsOffset(t *testing.T) {
+	m := newTestModel()
+	m.maxVisible = 1
+	m.cursorRow = 2
+	m.rowOffset = 2
+
+	// Move right to Doing (1 card) — clampRow() should set everything to 0
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if m.cursorCol != 1 {
+		t.Errorf("after l: cursorCol = %d, want 1", m.cursorCol)
+	}
+	if m.cursorRow != 0 {
+		t.Errorf("after l: cursorRow = %d, want 0", m.cursorRow)
+	}
+	if m.rowOffset != 0 {
+		t.Errorf("after l: rowOffset = %d, want 0", m.rowOffset)
+	}
+}
+
+func TestVerticalScrollResetOnDataLoad(t *testing.T) {
+	m := newTestModel()
+	// Use a short terminal so not all Backlog cards fit.
+	// This makes computeMaxVisible() run on real cards instead of the fallback.
+	m.height = 5
+	m, _ = m.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+	if m.maxVisible == 0 {
+		t.Fatal("maxVisible should be computed")
+	}
+
+	// Scroll to the last card — with a small viewport this also scrolls the column.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+	if m.cursorRow != 2 {
+		t.Fatalf("cursorRow = %d, want 2", m.cursorRow)
+	}
+	origOffset := m.rowOffset
+
+	// Re-loading same data should preserve scroll position.
+	m, _ = m.Update(DataLoadedMsg{columns: m.columns, cards: m.cards})
+	if m.cursorRow != 2 {
+		t.Errorf("after data load: cursorRow = %d, want 2", m.cursorRow)
+	}
+	if m.rowOffset != origOffset {
+		t.Errorf("after data load: rowOffset = %d, want %d", m.rowOffset, origOffset)
+	}
+
+	// Now empty the active column: row should clamp to 0, offset should reset.
+	m.cards["Backlog"] = nil
+	m, _ = m.Update(DataLoadedMsg{columns: m.columns, cards: m.cards})
+	if m.cursorRow != 0 {
+		t.Errorf("after empty column: cursorRow = %d, want 0", m.cursorRow)
+	}
+	if m.rowOffset != 0 {
+		t.Errorf("after empty column: rowOffset = %d, want 0", m.rowOffset)
+	}
+}
+
+func TestVerticalScrollSingleCard(t *testing.T) {
+	m := newTestModel()
+	m.maxVisible = 1
+	m.cursorCol = 1 // Doing column has 1 card
+	m.cursorRow = 0
+	m.rowOffset = 0
+
+	// j should not move past the single card
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	if m.cursorRow != 0 {
+		t.Errorf("j in single-card column: cursorRow = %d, want 0", m.cursorRow)
+	}
+	if m.rowOffset != 0 {
+		t.Errorf("j in single-card column: rowOffset = %d, want 0", m.rowOffset)
+	}
+}
+
+func TestWindowSizeSetsMaxVisible(t *testing.T) {
+	m := newTestModel()
+	m.maxVisible = 100 // start large
+	m.height = 5       // short terminal — only 1 card fits after header
+	m, _ = m.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
+	if m.maxVisible != 1 {
+		t.Fatalf("maxVisible = %d, want 1 (only 1 card fits in height=5)", m.maxVisible)
 	}
 }
