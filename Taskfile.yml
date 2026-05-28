@@ -2,9 +2,15 @@ version: "3"
 
 tasks:
   build:
-    desc: Build the legato binary
+    desc: Build the legato binary (TUI only — no web dashboard)
     cmds:
       - go build -o legato ./cmd/legato/
+
+  build:full:
+    desc: Build the frontend and the legato binary (TUI + web dashboard)
+    cmds:
+      - task: web:build
+      - task: build
 
   test:
     desc: Run all tests

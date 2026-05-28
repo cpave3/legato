@@ -28,15 +28,51 @@ A keyboard-driven kanban board TUI for tracking tasks, built for developers who 
 
 ## Install
 
-```bash
-go install github.com/cpave3/legato/cmd/legato@latest
-```
+Legato must be built from source — the web dashboard is a React frontend that gets embedded into the Go binary, so `go install` from a remote module cannot include it.
 
-Or build from source:
+### Prerequisites
+
+- **Go 1.23+**
+- **Task** — [taskfile.dev](https://taskfile.dev)
+- **tmux** (optional) — required only for spawning agents from the board
+- **pnpm** (optional) — required only if you want the web dashboard
+
+### TUI only
 
 ```bash
+git clone https://github.com/cpave3/legato.git
+cd legato
 task build
 ```
+
+Install to `$GOPATH/bin`:
+
+```bash
+task install
+```
+
+### TUI + Web Dashboard
+
+The web dashboard (and PWA) is a React/Vite app in `web/`. It must be compiled before the Go binary is built so the assets can be embedded:
+
+```bash
+git clone https://github.com/cpave3/legato.git
+cd legato
+
+# Build the frontend into internal/server/static/dist/
+cd web && pnpm install && pnpm run build && cd ..
+
+# Build the Go binary with embedded assets
+task build
+```
+
+Or use the combined Task target:
+
+```bash
+task build:full
+```
+
+**Without the frontend build**, `legato serve` only serves API endpoints — the SPA fallback route is omitted when no assets are present. The TUI works identically either way.
 
 ## Setup
 
@@ -102,6 +138,33 @@ Legato looks for config in this order:
 1. `$LEGATO_CONFIG` (env var override)
 2. `$XDG_CONFIG_HOME/legato/config.yaml`
 3. `~/.config/legato/config.yaml`
+
+## Macros
+
+Macros are named send-keys snippets you can fire into an agent's tmux pane from the TUI or web UI. A trailing `\n` in the `keys` field sends Enter.
+
+### Why macros
+
+- Run the same command across multiple agents without retyping
+- Give agents natural-language prompts they execute inline
+- Broadcast quick corrections or status checks to visible panes
+
+### Configuring macros
+
+Add a top-level `macros:` list to your config file:
+
+```yaml
+macros:
+  - name: "run tests"
+    keys: "task test\n"
+  - name: "commit changes"
+    keys: "Please commit all current changes with a descriptive semantic commit message.\n"
+```
+
+- `name` — label shown in the macro picker / web dropdown
+- `keys` — raw text sent verbatim to the focused agent's tmux pane via `send_keys`
+
+No env-var expansion or placeholder substitution — strings are sent exactly as written.
 
 ## Claude Code Integration
 
@@ -207,6 +270,7 @@ legato    # launch the TUI
 | `j` / `k` | Navigate agent list |
 | `s` | Spawn new agent |
 | `x` | Kill selected agent |
+| `m` | Open macro picker |
 | `enter` | Attach to tmux session |
 | `esc` / `q` | Back to board |
 
@@ -225,13 +289,15 @@ The ticket source is abstracted behind a `TicketProvider` interface. Jira is the
 
 ## Development
 
-Requires Go 1.23+ and [Task](https://taskfile.dev/).
+Requires Go 1.23+, [Task](https://taskfile.dev/), and pnpm.
 
 ```bash
+task build:full    # frontend + go binary
 task test          # run all tests
 task test:race     # run with race detector
 task test:cover    # run with coverage
 task check         # build + test + vet + lint
+task web:dev       # start the frontend dev server (hot reload against localhost:3080)
 ```
 
 ## License
