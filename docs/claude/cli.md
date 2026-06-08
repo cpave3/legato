@@ -10,8 +10,8 @@
 - `legato agent status <task-id> --format tmux` — output a swarm-aware tmux status-line string for the given task. For swarm participants it shows `x/y done`, the last event kind + age, active sibling count, and a scope-warning icon; for solo agents it falls back to the same output as `agent summary --exclude <task-id>`. Auto-injected into `status-right` by `SpawnAgent` for swarm sessions; solo sessions keep the summary command. The CLI opens a new SQLite connection each call (the in-process `SwarmService.LatestSnapshot` cache is unreachable across process boundaries) so latency is bounded by SQLite open + two aggregate queries
 - `legato task link <task-id> [--branch <branch>] [--repo <owner/repo>]` — link a git branch to a task for PR tracking (auto-detects branch if `--branch` omitted, `--repo` enables repo-scoped polling)
 - `legato task unlink <task-id>` — remove branch/PR association from a task
-- `legato hooks install [--tool claude-code|staccato|chimera]` — install AI tool hooks (claude-code: `.claude/hooks/`, staccato: `~/.config/staccato/hooks/`, chimera: `~/.chimera/hooks/`)
-- `legato hooks uninstall [--tool claude-code|staccato|chimera]` — remove installed hooks
+- `legato hooks install [--tool claude-code|staccato|chimera|codex]` — install AI tool hooks (claude-code: `.claude/hooks/`, staccato: `~/.config/staccato/hooks/`, chimera: `~/.chimera/hooks/`, codex: `.codex/hooks/`)
+- `legato hooks uninstall [--tool claude-code|staccato|chimera|codex]` — remove installed hooks
 - `legato auth token` — print the web UI auth token to stdout
 - `legato auth regenerate` — generate a new auth token (invalidates all paired devices)
 - `legato pair [--port <port>]` — render a QR code in the terminal encoding `legato://pair?url=<serverUrl>&token=<token>` for one-step PWA pairing. Prints raw token below QR as fallback. Uses configured hostname or system hostname, auto-detects TLS scheme
@@ -100,3 +100,25 @@ Legato-spawned tmux sessions get a custom status bar showing live context. Solo 
 **Flow**: Each script gates on `LEGATO_TASK_ID` (injected by legato's tmux session) — outside a Legato-spawned session it's a no-op. Inside, it calls `legato agent state $LEGATO_TASK_ID --activity <state>`, which updates `agent_sessions.activity` and broadcasts IPC like Claude Code's hooks.
 
 **Coexistence with Claude Code**: Both adapters can be installed simultaneously. Hooks fire from different processes inside the same tmux session, and only `LEGATO_TASK_ID` (already injected by the agent service) needs to flow through — `ChimeraAdapter.EnvVars` returns nil. Install with `legato hooks install --tool chimera`.
+
+## Codex Integration
+
+`CodexAdapter` in `internal/engine/hooks/codex.go` implements `AIToolAdapter`. Installs four activity-update hooks via `.codex/hooks.json` and writes shell scripts to `.codex/hooks/legato-*.sh`. The scope is determined by the current working directory: run `legato hooks install --tool codex` from your home directory for global hooks (`~/.codex/`) or from a project directory for project-local hooks (`<repo>/.codex/`).
+
+**Event → activity mapping** (per Codex's documented hook events):
+
+| Event               | Script                       | Activity  |
+|---------------------|------------------------------|-----------|
+| `UserPromptSubmit`  | `legato-prompt-submit.sh`    | `working` |
+| `PostToolUse`       | `legato-post-tool-use.sh`    | `working` |
+| `PermissionRequest` | `legato-permission-request.sh` | `waiting` |
+| `Stop`              | `legato-stop.sh`             | (clear)   |
+
+**Flow**: Codex hooks read JSON input on `stdin` and write JSON output on `stdout`. Each Legato hook script is a thin wrapper that gates on `LEGATO_TASK_ID` (injected by legato's tmux session) — outside a Legato-spawned session it's a no-op. Inside, it calls `legato agent state $LEGATO_TASK_ID --activity <state>`, which updates `agent_sessions.activity` and broadcasts IPC like Claude Code's hooks.
+
+**Hook trust**: Codex requires users to review and trust non-managed hooks before they run. After installing, open the Codex CLI and run `/hooks` to inspect, review, and trust the Legato hook entries. Alternatively, pass `--dangerously-bypass-hook-trust` for one-off automation.
+
+**Install**: `legato hooks install --tool codex`
+**Uninstall**: `legato hooks uninstall --tool codex` — removes only Legato entries from `hooks.json` and deletes the scripts. Other user hooks in `hooks.json` are preserved.
+
+**Coexistence**: Codex, Claude Code, Chimera, and Staccato adapters can all be installed simultaneously. Each adapter's hooks fire independently; only `LEGATO_TASK_ID` (already injected by the agent service) needs to flow through.

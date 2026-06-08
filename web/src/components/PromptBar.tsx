@@ -152,7 +152,9 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   }, [input])
 
   // Keep inputRef in sync for use in the agentId change effect.
-  inputRef.current = input
+  useEffect(() => {
+    inputRef.current = input
+  }, [input])
 
   // On agent switch: save old draft, load new draft.
   useEffect(() => {
@@ -242,7 +244,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   const type = isWaiting ? (promptState?.type ?? null) : null
 
   // Claude-specific: "! " prefix runs a bash command.
-  const isBashMode = agentCommand === "claude" && input.startsWith("! ")
+  const isBashMode = ["claude", "codex"].includes(agentCommand) && input.startsWith("! ")
 
   return (
     <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-3">

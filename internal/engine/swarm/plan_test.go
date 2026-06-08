@@ -139,7 +139,7 @@ func TestValidatePlanRoleEmptyAccepted(t *testing.T) {
 func TestValidatePlanUnknownAgent(t *testing.T) {
 	p := validPlan()
 	p.Steps[0].Subtasks[0].Agent = "ghost-tool"
-	err := ValidatePlan(p, ValidateOptions{RegisteredAdapters: []string{"claude-code", "chimera"}})
+	err := ValidatePlan(p, ValidateOptions{RegisteredAdapters: []string{"claude-code", "chimera", "codex"}})
 	if err == nil {
 		t.Error("expected error for unknown agent")
 	}
@@ -378,7 +378,7 @@ func TestValidatePlanTierRejectedWhenAdapterHasNoTiers(t *testing.T) {
 	p.Steps[0].Subtasks[0].Agent = "chimera"
 	p.Steps[0].Subtasks[0].Tier = "small"
 	opts := ValidateOptions{
-		RegisteredAdapters: []string{"claude-code", "chimera"},
+		RegisteredAdapters: []string{"claude-code", "chimera", "codex"},
 		AdapterTiers:       tierRegistry(map[string][]string{"claude-code": {"small"}}),
 	}
 	err := ValidatePlan(p, opts)

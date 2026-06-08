@@ -170,6 +170,15 @@ adapters:
     modes:                        # OPTIONAL: per-role mode mapping (you create the mode files)
       conductor: legato-orchestrator
       worker: legato-worker
+  codex:
+    launch_args: []               # extra flags appended to `codex` invocation
+    tiers:
+      small:
+        description: "fast/cheap; routine fixes and refactors"
+        launch_args: ["--model", "gpt-4o-mini"]
+      large:
+        description: "deep reasoning; novel logic and multi-file changes"
+        launch_args: ["--model", "gpt-4o"]
 
 workspaces:
   - name: rex-app
@@ -190,6 +199,9 @@ The swarm picks an AI tool at three layers, in priority order:
      - title: "Frontend"
        agent: claude-code       # this worker uses Claude Code
        role: frontend
+     - title: "Schema migration"
+       agent: codex             # this worker uses Codex
+       role: db
    ```
 
 2. **Conductor override** (`swarm.conductor_agent`, optional): when set, the conductor uses this adapter exclusively while workers still fall back to `default_agent` when no explicit `agent:` is set. This is the clean way to run a mixed-tool swarm (e.g. Claude Code conducts, Chimera workers sandbox).
@@ -366,6 +378,8 @@ adapters:
     launch_args: ["--sandbox"]
     modes:
       worker: legato-worker
+  codex:
+    launch_args: []
 ```
 
 Now every worker falls back to Chimera by default, and the conductor stays on Claude Code. Plan entries can still override per sub-task:

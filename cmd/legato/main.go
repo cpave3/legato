@@ -349,6 +349,7 @@ func runHooksCmd(args []string) int {
 	registry.Register(hooks.NewClaudeCodeAdapter(legatoBin))
 	registry.Register(hooks.NewStaccatoAdapter(legatoBin))
 	registry.Register(hooks.NewChimeraAdapter(legatoBin))
+	registry.Register(hooks.NewCodexAdapter(legatoBin))
 
 	adapter, err := registry.Get(tool)
 	if err != nil {
@@ -646,6 +647,18 @@ func runTUI() int {
 				chimeraAdapter.SetTiers(tierArgs)
 			}
 		}
+		codexAdapter := hooks.NewCodexAdapter(legatoBin)
+		if overrides := buildAdapterRoleOverrides(cfg, codexAdapter.Name()); overrides != nil {
+			codexAdapter.SetRoleOverrides(overrides)
+		}
+		if a, ok := cfg.Adapters[codexAdapter.Name()]; ok {
+			if len(a.LaunchArgs) > 0 {
+				codexAdapter.SetLaunchArgs(a.LaunchArgs)
+			}
+			if tierArgs := adapterTierLaunchArgs(a); tierArgs != nil {
+				codexAdapter.SetTiers(tierArgs)
+			}
+		}
 
 		// Pick the default adapter from cfg.Swarm.DefaultAgent. The full
 		// registry is passed via Adapters so per-sub-task `agent:` overrides
@@ -654,12 +667,15 @@ func runTUI() int {
 		switch cfg.Swarm.DefaultAgent {
 		case chimeraAdapter.Name():
 			defaultAdapter = chimeraAdapter
+		case codexAdapter.Name():
+			defaultAdapter = codexAdapter
 		case ccAdapter.Name(), "":
 			defaultAdapter = ccAdapter
 		}
 		adapters := map[string]service.AIToolAdapter{
 			ccAdapter.Name():      ccAdapter,
 			chimeraAdapter.Name(): chimeraAdapter,
+			codexAdapter.Name():   codexAdapter,
 		}
 		agentSvc = service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
 			Adapter:           defaultAdapter,
@@ -974,7 +990,7 @@ func adapterTierLaunchArgs(ac config.AdapterConfig) map[string][]string {
 // can never disagree about which agent names are valid.
 func buildValidateOptions(cfg *config.Config) swarm.ValidateOptions {
 	opts := swarm.ValidateOptions{
-		RegisteredAdapters: []string{"claude-code", "chimera"},
+		RegisteredAdapters: []string{"claude-code", "chimera", "codex"},
 	}
 	if cfg == nil {
 		return opts
@@ -1149,13 +1165,28 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 			chimeraAdapter.SetTiers(tierArgs)
 		}
 	}
+	codexAdapter := hooks.NewCodexAdapter(legatoBin)
+	if overrides := buildAdapterRoleOverrides(cfg, codexAdapter.Name()); overrides != nil {
+		codexAdapter.SetRoleOverrides(overrides)
+	}
+	if a, ok := cfg.Adapters[codexAdapter.Name()]; ok {
+		if len(a.LaunchArgs) > 0 {
+			codexAdapter.SetLaunchArgs(a.LaunchArgs)
+		}
+		if tierArgs := adapterTierLaunchArgs(a); tierArgs != nil {
+			codexAdapter.SetTiers(tierArgs)
+		}
+	}
 	defaultAdapter := service.AIToolAdapter(ccAdapter)
 	if cfg.Swarm.DefaultAgent == chimeraAdapter.Name() {
 		defaultAdapter = chimeraAdapter
+	} else if cfg.Swarm.DefaultAgent == codexAdapter.Name() {
+		defaultAdapter = codexAdapter
 	}
 	adapters := map[string]service.AIToolAdapter{
 		ccAdapter.Name():      ccAdapter,
 		chimeraAdapter.Name(): chimeraAdapter,
+		codexAdapter.Name():   codexAdapter,
 	}
 	agents := service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
 		Adapter:           defaultAdapter,

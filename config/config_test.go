@@ -427,6 +427,40 @@ func TestValidateConductorTierConductorAgentPriority(t *testing.T) {
 	}
 }
 
+func TestValidateConductorTierCodexPasses(t *testing.T) {
+	cfg := &Config{
+		Swarm: SwarmConfig{ConductorAgent: "codex", ConductorTier: "large"},
+		Adapters: map[string]AdapterConfig{
+			"codex": {Tiers: map[string]TierConfig{
+				"small": {LaunchArgs: []string{"--model", "gpt-4o-mini"}},
+				"large": {LaunchArgs: []string{"--model", "gpt-4o"}},
+			}},
+		},
+	}
+	if err := ValidateConductorTier(cfg); err != nil {
+		t.Errorf("expected nil error for codex tier, got %v", err)
+	}
+}
+
+func TestValidateConductorTierCodexUnknownTierRejected(t *testing.T) {
+	cfg := &Config{
+		Swarm: SwarmConfig{ConductorAgent: "codex", ConductorTier: "ghost"},
+		Adapters: map[string]AdapterConfig{
+			"codex": {Tiers: map[string]TierConfig{
+				"small": {LaunchArgs: []string{"--model", "gpt-4o-mini"}},
+			}},
+		},
+	}
+	err := ValidateConductorTier(cfg)
+	if err == nil {
+		t.Fatal("expected error for unknown codex tier")
+	}
+	msg := err.Error()
+	if !contains(msg, "ghost") || !contains(msg, "codex") {
+		t.Errorf("error should name the bad tier and adapter: %q", msg)
+	}
+}
+
 func TestValidateConductorTierAdapterWithoutTiersRejected(t *testing.T) {
 	cfg := &Config{
 		Swarm: SwarmConfig{DefaultAgent: "claude-code", ConductorTier: "large"},

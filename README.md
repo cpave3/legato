@@ -14,10 +14,10 @@ A keyboard-driven kanban board TUI for tracking tasks, built for developers who 
 - **Delete tasks** with confirmation (`d` from board, `D` from detail)
 - **Import remote tickets** — search Jira and pull individual tickets (`i`), inherits active workspace
 - **Agent sessions** — spawn tmux sessions per task, track active agents on cards
-- **Claude Code integration** — hooks report agent activity (working/waiting) back to the board in real-time
+- **AI coding agent integration** — hooks report agent activity (working/waiting) for Claude Code, Chimera, and Codex back to the board in real-time
 - **GitHub PR tracking** — link PRs to tasks, see CI/review/comment status on cards (`p` to link, `o` to open with picker when both Jira and PR URLs exist, polls via `gh` CLI)
 - **Staccato integration** — auto-links repo+branch when creating PRs via staccato (`legato hooks install --tool staccato`)
-- **Pluggable AI tool adapters** — abstract interface for tool integrations (Claude Code, Staccato, others planned)
+- **Pluggable AI tool adapters** — abstract interface for tool integrations (Claude Code, Chimera, Codex, Staccato)
 - **Bidirectional Jira sync**: pull tickets, push card moves as transitions
 - **Offline-first**: works from local SQLite when the network is down
 - **Conflict resolution**: local moves win within a 5-minute window
@@ -212,8 +212,8 @@ legato task note <task-id> <message>             # append note to task
 legato agent state <task-id> --activity working  # set agent activity state
 legato task link <task-id> [--branch <b>] [--repo <o/r>]  # link PR branch
 legato task unlink <task-id>                     # remove PR link
-legato hooks install [--tool claude-code|staccato]       # install hooks
-legato hooks uninstall [--tool claude-code|staccato]     # remove hooks
+legato hooks install [--tool claude-code|staccato|chimera|codex]       # install hooks
+legato hooks uninstall [--tool claude-code|staccato|chimera|codex]     # remove hooks
 ```
 
 ## Usage

@@ -28,7 +28,7 @@ type Config struct {
 }
 
 // AdapterConfig holds per-adapter launch settings (e.g. extra CLI flags
-// passed to `claude` or `chimera` when a swarm participant is auto-launched).
+// passed to `claude`, `chimera`, or `codex` when a swarm participant is auto-launched).
 type AdapterConfig struct {
 	// LaunchArgs are appended to the adapter's auto-launch command, after
 	// the role-prompt flag. Use this to enable adapter-specific modes (e.g.
@@ -93,7 +93,7 @@ type SwarmConfig struct {
 	BriefKickoffDelayMs int `yaml:"brief_kickoff_delay_ms"`
 	// Prompts allows overriding role system prompts per adapter.
 	// Outer key: free-form role label ("conductor", "backend", etc.).
-	// Inner key: adapter name ("claude-code", "chimera").
+	// Inner key: adapter name ("claude-code", "chimera", "codex").
 	Prompts map[string]map[string]string `yaml:"prompts"`
 	// ConductorTier names a tier the conductor itself runs at. When unset,
 	// the conductor uses the adapter's base launch_args only. Validated
