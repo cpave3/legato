@@ -514,9 +514,9 @@ func TestCaptureOutputReturnsContent(t *testing.T) {
 
 type testAdapter struct{}
 
-func (a *testAdapter) Name() string                                    { return "test-tool" }
-func (a *testAdapter) InstallHooks(projectDir string) error            { return nil }
-func (a *testAdapter) UninstallHooks(projectDir string) error          { return nil }
+func (a *testAdapter) Name() string                           { return "test-tool" }
+func (a *testAdapter) InstallHooks(projectDir string) error   { return nil }
+func (a *testAdapter) UninstallHooks(projectDir string) error { return nil }
 func (a *testAdapter) EnvVars(taskID, socketPath string) map[string]string {
 	return map[string]string{
 		"LEGATO_TASK_ID": taskID,
@@ -629,6 +629,38 @@ func TestListAgentsOverridesCommandWithLiveValue(t *testing.T) {
 	}
 	if agents[0].Command != "claude" {
 		t.Errorf("Command = %q, want %q", agents[0].Command, "claude")
+	}
+	if agents[0].AgentKind != "shell" {
+		t.Errorf("AgentKind = %q, want shell", agents[0].AgentKind)
+	}
+}
+
+func TestSpawnAgentPersistsResolvedAdapterKind(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	mt := newMockTmux()
+	adapter := &fakeAdapter{name: "codex"}
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{Adapter: adapter})
+	ctx := context.Background()
+	createTask(t, s, "REX-1238")
+
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	agents, err := svc.ListAgents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("got %d agents, want 1", len(agents))
+	}
+	if agents[0].AgentKind != "codex" {
+		t.Errorf("AgentKind = %q, want codex", agents[0].AgentKind)
 	}
 }
 
@@ -1060,7 +1092,7 @@ func TestSpawnEphemeralAgentCreatesTaskAndSession(t *testing.T) {
 
 	// Tmux session should exist with legato- prefix
 	taskID := agents[0].TaskID
-	if !mt.sessionAlive("legato-"+taskID) {
+	if !mt.sessionAlive("legato-" + taskID) {
 		t.Errorf("expected tmux session legato-%s to exist", taskID)
 	}
 

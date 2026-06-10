@@ -356,6 +356,7 @@ export function AgentsPage() {
               agentTitle={selectedAgent?.task_title}
               agentActivity={selectedAgent?.activity}
               agentCommand={selectedAgent?.command}
+              agentKind={selectedAgent?.agent_kind}
               connected={connected}
             />
           </>

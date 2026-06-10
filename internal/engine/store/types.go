@@ -99,6 +99,7 @@ type AgentSession struct {
 	TaskID       string  `db:"task_id"`
 	TmuxSession  string  `db:"tmux_session"`
 	Command      string  `db:"command"`
+	AgentKind    string  `db:"agent_kind"`
 	Status       string  `db:"status"`
 	Activity     string  `db:"activity"`
 	Role         string  `db:"role"`

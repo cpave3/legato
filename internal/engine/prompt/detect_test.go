@@ -230,6 +230,56 @@ func TestDetectPlanApprovalNoNumberedLines(t *testing.T) {
 	}
 }
 
+func TestDetectCodexQuestionWithNumberedOptions(t *testing.T) {
+	input := `Question 2/2 (1 unanswered)
+  Do we have real Codex question terminal text/screens to turn into fixtures?
+
+  › 1. I can provide samples (Recommended)  Use actual Codex output fixtures so the detector is accurate from day one.
+    2. Start from known patterns            Implement architecture plus conservative initial patterns, then expand fixtures as samples appear.
+    3. None of the above                    Optionally, add details in notes (tab).
+
+  tab to add notes | enter to submit all | ←/→ to navigate questions | esc to interrupt`
+
+	result := Detect(input)
+	if result.Type != Question {
+		t.Errorf("got type %q, want %q", result.Type, Question)
+	}
+	if len(result.Actions) != 3 {
+		t.Fatalf("got %d actions, want 3", len(result.Actions))
+	}
+	if result.Actions[0].Keys != "1 Enter" {
+		t.Errorf("first action keys = %q, want 1 Enter", result.Actions[0].Keys)
+	}
+	if result.Actions[0].Label == "" || result.Actions[2].Label == "" {
+		t.Errorf("expected non-empty action labels: %+v", result.Actions)
+	}
+}
+
+func TestDetectForAgentCodexQuestionIsBlocking(t *testing.T) {
+	input := `Question 1/1 (1 unanswered)
+  Choose an option?
+
+  › 1. Yes
+    2. No
+
+  tab to add notes | enter to submit all | esc to interrupt`
+
+	result := DetectForAgent("codex", input)
+	if !result.Blocking {
+		t.Fatal("expected Codex question to be blocking")
+	}
+	if result.State.Type != Question {
+		t.Errorf("got type %q, want %q", result.State.Type, Question)
+	}
+}
+
+func TestDetectForAgentCodexIdlePromptIsNotBlocking(t *testing.T) {
+	result := DetectForAgent("codex", "Ready\n› ")
+	if result.Blocking {
+		t.Fatal("idle prompt should not be blocking")
+	}
+}
+
 func TestDetectFreeTextWithNumberedLinesAbove(t *testing.T) {
 	// Free text prompt takes priority — numbered lines above are irrelevant.
 	input := "1. Yes\n2. No\n❯ "

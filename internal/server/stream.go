@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -36,16 +37,25 @@ type agentStream struct {
 
 // streamManager tracks active streams per agent, ensuring only one pipe-pane per agent.
 type streamManager struct {
-	mu          sync.Mutex
-	streams     map[string]*agentStream // keyed by agentID
-	tmux        service.TmuxManager
-	onStreamEnd func(agentID string) // called when a pipe-pane stream ends (e.g. shell exit)
+	mu                     sync.Mutex
+	streams                map[string]*agentStream // keyed by agentID
+	detectorWaiting        map[string]bool
+	tmux                   service.TmuxManager
+	agents                 service.AgentService
+	onStreamEnd            func(agentID string) // called when a pipe-pane stream ends (e.g. shell exit)
+	onAgentActivityChanged func()
 }
 
-func newStreamManager(tmux service.TmuxManager) *streamManager {
+func newStreamManager(tmux service.TmuxManager, agents ...service.AgentService) *streamManager {
+	var agentSvc service.AgentService
+	if len(agents) > 0 {
+		agentSvc = agents[0]
+	}
 	return &streamManager{
-		streams: make(map[string]*agentStream),
-		tmux:    tmux,
+		streams:         make(map[string]*agentStream),
+		detectorWaiting: make(map[string]bool),
+		tmux:            tmux,
+		agents:          agentSvc,
 	}
 }
 
@@ -494,7 +504,8 @@ func (sm *streamManager) detectAndBroadcastPrompt(s *agentStream) {
 		return
 	}
 
-	state := prompt.Detect(output)
+	detection := sm.detectPromptState(s.agentID, output)
+	state := detection.State
 	msg := WSMessage{
 		Type:    MsgPromptState,
 		AgentID: s.agentID,
@@ -506,4 +517,98 @@ func (sm *streamManager) detectAndBroadcastPrompt(s *agentStream) {
 		go c.send(msg)
 	}
 	s.mu.Unlock()
+}
+
+func (sm *streamManager) detectPromptState(agentID, output string) prompt.Detection {
+	agentKind := ""
+	activity := ""
+	if sm.agents != nil {
+		if agent, ok := sm.lookupAgent(agentID); ok {
+			agentKind = agent.AgentKind
+			activity = agent.Activity
+		}
+	}
+
+	detection := prompt.DetectForAgent(agentKind, output)
+	sm.applyPromptActivity(agentID, activity, detection.Blocking)
+	return detection
+}
+
+func (sm *streamManager) lookupAgent(agentID string) (service.AgentSession, bool) {
+	agents, err := sm.agents.ListAgents(context.Background())
+	if err != nil {
+		return service.AgentSession{}, false
+	}
+	for _, agent := range agents {
+		if agent.TaskID == agentID {
+			return agent, true
+		}
+	}
+	return service.AgentSession{}, false
+}
+
+func (sm *streamManager) applyPromptActivity(agentID, currentActivity string, blocking bool) {
+	if sm.agents == nil {
+		return
+	}
+
+	sm.mu.Lock()
+	owned := sm.detectorWaiting[agentID]
+	sm.mu.Unlock()
+
+	if blocking {
+		if currentActivity != "waiting" {
+			if err := sm.agents.SetAgentActivity(context.Background(), agentID, "waiting", ""); err == nil {
+				sm.mu.Lock()
+				sm.detectorWaiting[agentID] = true
+				sm.mu.Unlock()
+				sm.notifyAgentActivityChanged()
+			}
+		}
+		return
+	}
+
+	if !owned {
+		return
+	}
+
+	sm.mu.Lock()
+	delete(sm.detectorWaiting, agentID)
+	sm.mu.Unlock()
+
+	if currentActivity == "waiting" {
+		if err := sm.agents.SetAgentActivity(context.Background(), agentID, "", ""); err == nil {
+			sm.notifyAgentActivityChanged()
+		}
+	}
+}
+
+func (sm *streamManager) clearDetectorWaiting(agentID string) {
+	if sm.agents == nil {
+		return
+	}
+
+	sm.mu.Lock()
+	owned := sm.detectorWaiting[agentID]
+	if owned {
+		delete(sm.detectorWaiting, agentID)
+	}
+	sm.mu.Unlock()
+	if !owned {
+		return
+	}
+
+	agent, ok := sm.lookupAgent(agentID)
+	if !ok || agent.Activity != "waiting" {
+		return
+	}
+	if err := sm.agents.SetAgentActivity(context.Background(), agentID, "", ""); err == nil {
+		sm.notifyAgentActivityChanged()
+	}
+}
+
+func (sm *streamManager) notifyAgentActivityChanged() {
+	if sm.onAgentActivityChanged != nil {
+		sm.onAgentActivityChanged()
+	}
 }

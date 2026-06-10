@@ -203,6 +203,7 @@ func (s *Server) sendAgentList(client *wsClient) {
 			Title:        a.Title,
 			TmuxSession:  a.TmuxSession,
 			Command:      a.Command,
+			AgentKind:    a.AgentKind,
 			Status:       a.Status,
 			Activity:     a.Activity,
 			Role:         a.Role,
@@ -255,6 +256,9 @@ func (s *Server) handleSendKeys(client *wsClient, msg WSMessage) {
 
 	sessionName := "legato-" + msg.AgentID
 	keys := msg.Keys
+	if s.streams != nil {
+		s.streams.clearDetectorWaiting(msg.AgentID)
+	}
 
 	// If keys ends with \n, send text literally (via --) then Enter as a named key.
 	// If keys has no \n, send as a named key (e.g. "Escape", "S-Tab") without --.
@@ -292,7 +296,8 @@ func (s *Server) handleDetectPrompt(client *wsClient, msg WSMessage) {
 		return
 	}
 
-	state := prompt.Detect(output)
+	detection := s.streams.detectPromptState(msg.AgentID, output)
+	state := detection.State
 	client.send(WSMessage{
 		Type:    MsgPromptState,
 		AgentID: msg.AgentID,

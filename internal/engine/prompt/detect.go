@@ -11,6 +11,7 @@ type PromptType string
 const (
 	ToolApproval PromptType = "tool_approval"
 	PlanApproval PromptType = "plan_approval"
+	Question     PromptType = "question"
 	FreeText     PromptType = "free_text"
 	Working      PromptType = "working"
 )
@@ -26,6 +27,13 @@ type PromptState struct {
 	Type    PromptType `json:"type"`
 	Context string     `json:"context,omitempty"`
 	Actions []Action   `json:"actions,omitempty"`
+}
+
+// Detection is a prompt classification plus whether it is safe to treat as
+// agent-blocking activity.
+type Detection struct {
+	State    PromptState
+	Blocking bool
 }
 
 // ansiRe matches ANSI escape sequences.
@@ -44,6 +52,11 @@ var toolApprovalPatterns = []*regexp.Regexp{
 var planApprovalPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)Accept plan\??`),
 	regexp.MustCompile(`(?i)Do you want to proceed with this plan`),
+}
+
+var codexQuestionPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?m)^Question\s+\d+/\d+\s+\(\d+\s+unanswered\)`),
+	regexp.MustCompile(`(?i)tab to add notes\s+\|\s+enter to submit`),
 }
 
 // Free text input prompt patterns — the input cursor at end of output.
@@ -71,7 +84,7 @@ func lastNLines(s string, n int) string {
 
 // numberedLineRe matches lines like "  1. Yes" or "❯ 1. Yes".
 // Allows optional cursor prefix (❯ or >) that Claude Code puts on the selected option.
-var numberedLineRe = regexp.MustCompile(`^\s*[❯>]?\s*(\d+)\.\s+(.+)$`)
+var numberedLineRe = regexp.MustCompile(`^\s*[❯>›]?\s*(\d+)\.\s+(.+)$`)
 
 // extractNumberedActions finds the last contiguous block of numbered option
 // lines anywhere in s. Non-numbered lines after the block (e.g. hint text)
@@ -119,6 +132,10 @@ func extractNumberedActions(s string) []Action {
 func Detect(output string) PromptState {
 	cleaned := stripANSI(output)
 
+	if state, ok := detectCodexQuestion(cleaned); ok {
+		return state
+	}
+
 	// Check free text first — if the cursor prompt is at the end,
 	// any approval prompts above it are stale/resolved.
 	for _, re := range freeTextPatterns {
@@ -158,4 +175,49 @@ func Detect(output string) PromptState {
 	return PromptState{
 		Type: FreeText,
 	}
+}
+
+// DetectForAgent classifies output using adapter-specific strict prompt rules.
+// Blocking is true only for prompts that indicate the agent is waiting for
+// user input, not for generic idle/free-text prompts.
+func DetectForAgent(agentKind, output string) Detection {
+	cleaned := stripANSI(output)
+	if agentKind == "codex" {
+		if state, ok := detectCodexQuestion(cleaned); ok {
+			return Detection{State: state, Blocking: true}
+		}
+	}
+
+	tail := lastNLines(cleaned, 8)
+	for _, re := range planApprovalPatterns {
+		if re.MatchString(tail) {
+			return Detection{State: PromptState{
+				Type:    PlanApproval,
+				Actions: extractNumberedActions(tail),
+			}, Blocking: true}
+		}
+	}
+	for _, re := range toolApprovalPatterns {
+		if re.MatchString(tail) {
+			return Detection{State: PromptState{
+				Type:    ToolApproval,
+				Actions: extractNumberedActions(tail),
+			}, Blocking: true}
+		}
+	}
+
+	return Detection{State: Detect(output)}
+}
+
+func detectCodexQuestion(cleaned string) (PromptState, bool) {
+	tail := lastNLines(cleaned, 12)
+	for _, re := range codexQuestionPatterns {
+		if !re.MatchString(tail) {
+			return PromptState{}, false
+		}
+	}
+	return PromptState{
+		Type:    Question,
+		Actions: extractNumberedActions(tail),
+	}, true
 }

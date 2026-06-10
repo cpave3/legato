@@ -48,7 +48,7 @@ func New(board service.BoardService, agents service.AgentService, tmux service.T
 // NewWithSwarm creates a new server with swarm and event bus support.
 // agents, tmux, swarm and bus may be nil.
 func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux service.TmuxManager, addr string, swarm SwarmService, bus *events.Bus, workDir string) *Server {
-	sm := newStreamManager(tmux)
+	sm := newStreamManager(tmux, agents)
 	s := &Server{
 		board:   board,
 		agents:  agents,
@@ -68,6 +68,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 		}
 		s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
 	}
+	sm.onAgentActivityChanged = s.NotifyAgentsChanged
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler(board))
 	mux.HandleFunc("/api/agents", s.agentsHandler())
@@ -309,10 +310,11 @@ func (s *Server) Addr() string {
 	return s.addr
 }
 
-// NotifyAgentsChanged broadcasts an agents_changed message to all WebSocket clients.
+// NotifyAgentsChanged broadcasts agent and card refresh messages to all WebSocket clients.
 // Call this from IPC message handlers when agent state changes.
 func (s *Server) NotifyAgentsChanged() {
 	s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
+	s.hub.Broadcast(WSMessage{Type: MsgCardsChanged})
 }
 
 // StartSwarmEvents subscribes to swarm events from the event bus and broadcasts

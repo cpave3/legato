@@ -45,6 +45,7 @@ type AgentResponse struct {
 	Title          string     `json:"task_title"`
 	TmuxSession    string     `json:"tmux_session"`
 	Command        string     `json:"command"`
+	AgentKind      string     `json:"agent_kind"`
 	Status         string     `json:"status"`
 	Activity       string     `json:"activity"`
 	Role           string     `json:"role,omitempty"`
@@ -170,6 +171,7 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 				Title:        a.Title,
 				TmuxSession:  a.TmuxSession,
 				Command:      a.Command,
+				AgentKind:    a.AgentKind,
 				Status:       a.Status,
 				Activity:     a.Activity,
 				Role:         a.Role,

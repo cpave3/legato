@@ -43,6 +43,7 @@ type AgentSession struct {
 	Title        string
 	TmuxSession  string
 	Command      string
+	AgentKind    string
 	Status       string
 	Activity     string // "working", "waiting", or "" (idle)
 	Role         string // "conductor", "" for non-swarm, or worker role label
@@ -99,6 +100,7 @@ type AgentService interface {
 	AttachCmd(ctx context.Context, taskID string) (*exec.Cmd, error)
 	GetTaskDurations(ctx context.Context, taskIDs []string) (map[string]DurationData, error)
 	GetAgentSummary(ctx context.Context, excludeTaskID string) (working, waiting, idle int, err error)
+	SetAgentActivity(ctx context.Context, taskID, activity, workingDir string) error
 	SpawnEphemeralAgent(ctx context.Context, title string, width, height int, opts ...AgentSpawnOptions) error
 	LastSpawnConflicts() []AgentSpawnConflict
 	RegisteredAdapters() []string
@@ -286,6 +288,10 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	a.tmux.Kill(sessionName)
 
 	adapter := a.resolveAdapter(opt.AgentKind)
+	agentKind := "shell"
+	if adapter != nil {
+		agentKind = adapter.Name()
+	}
 
 	// Build env vars to inject into the initial shell. Track them as a map
 	// for the adapter LaunchCommand call, then flatten for tmux Spawn.
@@ -384,6 +390,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		TaskID:      taskID,
 		TmuxSession: sessionName,
 		Command:     "shell",
+		AgentKind:   agentKind,
 		Status:      "running",
 		Role:        opt.Role,
 	}
@@ -616,6 +623,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			Title:        title,
 			TmuxSession:  s.TmuxSession,
 			Command:      command,
+			AgentKind:    s.AgentKind,
 			Status:       s.Status,
 			Activity:     s.Activity,
 			Role:         s.Role,
@@ -726,6 +734,16 @@ func (a *agentService) GetAgentSummary(ctx context.Context, excludeTaskID string
 		return 0, 0, 0, err
 	}
 	return a.store.GetAgentActivityCounts(ctx, excludeTaskID)
+}
+
+func (a *agentService) SetAgentActivity(ctx context.Context, taskID, activity, workingDir string) error {
+	if err := a.store.UpdateAgentActivity(ctx, taskID, activity); err != nil {
+		return fmt.Errorf("updating agent activity: %w", err)
+	}
+	if err := a.store.RecordStateTransition(ctx, taskID, activity, workingDir); err != nil {
+		return fmt.Errorf("recording state transition: %w", err)
+	}
+	return nil
 }
 
 func (a *agentService) CaptureOutput(ctx context.Context, taskID string) (string, error) {

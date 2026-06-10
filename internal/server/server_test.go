@@ -118,8 +118,54 @@ type mockSyncService struct {
 
 func (m *mockSyncService) Sync(_ context.Context) (*service.SyncResult, error) { return nil, nil }
 func (m *mockSyncService) Status() service.SyncStatus                          { return service.SyncStatus{} }
-func (m *mockSyncService) Subscribe() <-chan service.SyncEvent                 { return nil }
-func (m *mockSyncService) StartScheduler(_ context.Context) func()             { return func() {} }
+
+type promptAgentService struct {
+	agent          service.AgentSession
+	setActivities  []string
+	setWorkingDirs []string
+}
+
+func (p *promptAgentService) SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error {
+	return nil
+}
+func (p *promptAgentService) KillAgent(context.Context, string) error { return nil }
+func (p *promptAgentService) ListAgents(context.Context) ([]service.AgentSession, error) {
+	return []service.AgentSession{p.agent}, nil
+}
+func (p *promptAgentService) ListAgentsByParent(context.Context, string) ([]service.AgentSession, error) {
+	return nil, nil
+}
+func (p *promptAgentService) ReconcileSessions(context.Context) error { return nil }
+func (p *promptAgentService) CaptureOutput(context.Context, string) (string, error) {
+	return "", nil
+}
+func (p *promptAgentService) AttachCmd(context.Context, string) (*exec.Cmd, error) {
+	return nil, nil
+}
+func (p *promptAgentService) GetTaskDurations(context.Context, []string) (map[string]service.DurationData, error) {
+	return nil, nil
+}
+func (p *promptAgentService) GetAgentSummary(context.Context, string) (int, int, int, error) {
+	return 0, 0, 0, nil
+}
+func (p *promptAgentService) SetAgentActivity(_ context.Context, _ string, activity, workingDir string) error {
+	p.setActivities = append(p.setActivities, activity)
+	p.setWorkingDirs = append(p.setWorkingDirs, workingDir)
+	p.agent.Activity = activity
+	return nil
+}
+func (p *promptAgentService) SpawnEphemeralAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error {
+	return nil
+}
+func (p *promptAgentService) LastSpawnConflicts() []service.AgentSpawnConflict { return nil }
+func (p *promptAgentService) RegisteredAdapters() []string                     { return nil }
+func (p *promptAgentService) DefaultAdapter() string                           { return "" }
+func (p *promptAgentService) AdapterFor(string) service.AIToolAdapter          { return nil }
+func (p *promptAgentService) GetStateTimeline(context.Context, string, time.Duration, int) ([]string, error) {
+	return nil, nil
+}
+func (m *mockSyncService) Subscribe() <-chan service.SyncEvent     { return nil }
+func (m *mockSyncService) StartScheduler(_ context.Context) func() { return func() {} }
 func (m *mockSyncService) SearchRemote(_ context.Context, _ string) ([]service.RemoteSearchResult, error) {
 	return m.searchResults, nil
 }
@@ -627,6 +673,65 @@ func TestStartPipeAbortOnCancel(t *testing.T) {
 
 	if piping {
 		t.Error("piping should be false after cancel")
+	}
+}
+
+func TestPromptDetectionSetsDetectorOwnedWaiting(t *testing.T) {
+	agents := &promptAgentService{
+		agent: service.AgentSession{TaskID: "agent-1", AgentKind: "codex", Activity: ""},
+	}
+	sm := newStreamManager(&mockTmuxManager{}, agents)
+
+	output := `Question 1/1 (1 unanswered)
+  Choose one?
+
+  › 1. Yes
+    2. No
+
+  tab to add notes | enter to submit all | esc to interrupt`
+	detection := sm.detectPromptState("agent-1", output)
+
+	if !detection.Blocking {
+		t.Fatal("expected blocking detection")
+	}
+	if got := agents.setActivities; len(got) != 1 || got[0] != "waiting" {
+		t.Fatalf("setActivities = %#v, want [waiting]", got)
+	}
+	sm.mu.Lock()
+	owned := sm.detectorWaiting["agent-1"]
+	sm.mu.Unlock()
+	if !owned {
+		t.Fatal("expected detector waiting ownership")
+	}
+}
+
+func TestPromptDetectionDoesNotClearHookOwnedWaiting(t *testing.T) {
+	agents := &promptAgentService{
+		agent: service.AgentSession{TaskID: "agent-1", AgentKind: "codex", Activity: "waiting"},
+	}
+	sm := newStreamManager(&mockTmuxManager{}, agents)
+
+	detection := sm.detectPromptState("agent-1", "ordinary output")
+
+	if detection.Blocking {
+		t.Fatal("ordinary output should not be blocking")
+	}
+	if len(agents.setActivities) != 0 {
+		t.Fatalf("setActivities = %#v, want none", agents.setActivities)
+	}
+}
+
+func TestClearDetectorWaitingClearsOnlyOwnedWaiting(t *testing.T) {
+	agents := &promptAgentService{
+		agent: service.AgentSession{TaskID: "agent-1", AgentKind: "codex", Activity: "waiting"},
+	}
+	sm := newStreamManager(&mockTmuxManager{}, agents)
+	sm.detectorWaiting["agent-1"] = true
+
+	sm.clearDetectorWaiting("agent-1")
+
+	if got := agents.setActivities; len(got) != 1 || got[0] != "" {
+		t.Fatalf("setActivities = %#v, want clear", got)
 	}
 }
 

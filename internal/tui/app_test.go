@@ -54,7 +54,7 @@ func (f *fakeBoardService) GetCard(_ context.Context, id string) (*service.CardD
 	}, nil
 }
 func (f *fakeBoardService) MoveCard(_ context.Context, _ string, _ string) error { return nil }
-func (f *fakeBoardService) ReorderCard(_ context.Context, _ string, _ int) error  { return nil }
+func (f *fakeBoardService) ReorderCard(_ context.Context, _ string, _ int) error { return nil }
 func (f *fakeBoardService) SearchCards(_ context.Context, query string) ([]service.Card, error) {
 	// Simple filter for testing
 	all := []service.Card{
@@ -102,7 +102,7 @@ type fakeSyncService struct{}
 
 func (f *fakeSyncService) Sync(_ context.Context) (*service.SyncResult, error) { return nil, nil }
 func (f *fakeSyncService) Status() service.SyncStatus                          { return service.SyncStatus{} }
-func (f *fakeSyncService) Subscribe() <-chan service.SyncEvent                  { return nil }
+func (f *fakeSyncService) Subscribe() <-chan service.SyncEvent                 { return nil }
 func (f *fakeSyncService) StartScheduler(_ context.Context) func()             { return func() {} }
 func (f *fakeSyncService) SearchRemote(_ context.Context, _ string) ([]service.RemoteSearchResult, error) {
 	return nil, nil
@@ -127,16 +127,26 @@ type fakeSwarmService struct {
 	calls []swarmCall
 }
 
-func (f *fakeSwarmService) ListSubtasks(_ context.Context, _ string) ([]store.Subtask, error)                        { return nil, nil }
-func (f *fakeSwarmService) GetSubtask(_ context.Context, _ string) (*store.Subtask, error)                          { return nil, nil }
-func (f *fakeSwarmService) ListSubtaskInfos(_ context.Context, _ string) ([]service.SwarmSubtaskInfo, error)        { return nil, nil }
-func (f *fakeSwarmService) Snapshot(_ context.Context, _ string) ([]byte, error)                                    { return nil, nil }
-func (f *fakeSwarmService) LatestSnapshot(_ string) *service.SwarmSnapshot                                           { return nil }
-func (f *fakeSwarmService) FetchInbox(_ context.Context, _ string) ([]service.InboxEntry, error)                    { return nil, nil }
-func (f *fakeSwarmService) PeekInbox(_ context.Context, _ string) ([]service.InboxEntry, error)                     { return nil, nil }
-func (f *fakeSwarmService) LoadPlan(_ string) (*service.SwarmPlan, error)                                            { return nil, nil }
-func (f *fakeSwarmService) StartSwarm(_ context.Context, _, _ string) error                                          { return nil }
-func (f *fakeSwarmService) ApplyApprovedPlan(_ context.Context, _ *swarm.Plan) error                                { return nil }
+func (f *fakeSwarmService) ListSubtasks(_ context.Context, _ string) ([]store.Subtask, error) {
+	return nil, nil
+}
+func (f *fakeSwarmService) GetSubtask(_ context.Context, _ string) (*store.Subtask, error) {
+	return nil, nil
+}
+func (f *fakeSwarmService) ListSubtaskInfos(_ context.Context, _ string) ([]service.SwarmSubtaskInfo, error) {
+	return nil, nil
+}
+func (f *fakeSwarmService) Snapshot(_ context.Context, _ string) ([]byte, error) { return nil, nil }
+func (f *fakeSwarmService) LatestSnapshot(_ string) *service.SwarmSnapshot       { return nil }
+func (f *fakeSwarmService) FetchInbox(_ context.Context, _ string) ([]service.InboxEntry, error) {
+	return nil, nil
+}
+func (f *fakeSwarmService) PeekInbox(_ context.Context, _ string) ([]service.InboxEntry, error) {
+	return nil, nil
+}
+func (f *fakeSwarmService) LoadPlan(_ string) (*service.SwarmPlan, error)            { return nil, nil }
+func (f *fakeSwarmService) StartSwarm(_ context.Context, _, _ string) error          { return nil }
+func (f *fakeSwarmService) ApplyApprovedPlan(_ context.Context, _ *swarm.Plan) error { return nil }
 func (f *fakeSwarmService) CancelSwarm(_ context.Context, id string) error {
 	f.calls = append(f.calls, swarmCall{method: "CancelSwarm", id: id})
 	return nil
@@ -145,8 +155,8 @@ func (f *fakeSwarmService) ExtendApprovedPlan(_ context.Context, _ *swarm.Plan) 
 	f.calls = append(f.calls, swarmCall{method: "ExtendApprovedPlan"})
 	return nil
 }
-func (f *fakeSwarmService) Dispatch(_ context.Context, _ string) error                                               { return nil }
-func (f *fakeSwarmService) NextStep(_ context.Context, _ string) error                                               { return nil }
+func (f *fakeSwarmService) Dispatch(_ context.Context, _ string) error { return nil }
+func (f *fakeSwarmService) NextStep(_ context.Context, _ string) error { return nil }
 func (f *fakeSwarmService) Message(_ context.Context, id, text string, _ bool) error {
 	f.calls = append(f.calls, swarmCall{method: "Message", id: id, text: text})
 	return nil
@@ -155,7 +165,9 @@ func (f *fakeSwarmService) MessageParent(_ context.Context, parentID, text strin
 	f.calls = append(f.calls, swarmCall{method: "MessageParent", id: parentID, text: text})
 	return nil
 }
-func (f *fakeSwarmService) Broadcast(_ context.Context, _, _ string, _ bool) (int, error) { return 0, nil }
+func (f *fakeSwarmService) Broadcast(_ context.Context, _, _ string, _ bool) (int, error) {
+	return 0, nil
+}
 func (f *fakeSwarmService) Close(_ context.Context, id string) error {
 	f.calls = append(f.calls, swarmCall{method: "Close", id: id})
 	return nil
@@ -164,15 +176,19 @@ func (f *fakeSwarmService) Finish(_ context.Context, parentID, summary string) e
 	f.calls = append(f.calls, swarmCall{method: "Finish", id: parentID, text: summary})
 	return nil
 }
-func (f *fakeSwarmService) Progress(_ context.Context, _, _ string) error                                            { return nil }
-func (f *fakeSwarmService) Question(_ context.Context, _, _ string) error                                            { return nil }
-func (f *fakeSwarmService) Built(_ context.Context, _ string) error                                                  { return nil }
-func (f *fakeSwarmService) InsertPendingPlan(_ context.Context, _, _, _ string) error                               { return nil }
-func (f *fakeSwarmService) GetPendingPlan(_ context.Context, _ string) (*store.PendingPlanEntry, error)             { return nil, nil }
-func (f *fakeSwarmService) ListAllPendingPlans(_ context.Context) ([]store.PendingPlanEntry, error)                 { return nil, nil }
-func (f *fakeSwarmService) DeletePendingPlan(_ context.Context, _ string) error                                     { return nil }
-func (f *fakeSwarmService) HandleAgentDied(_ context.Context, _, _, _ string)                                       {}
-func (f *fakeSwarmService) StartEventLoop(_ context.Context) func()                                                  { return func() {} }
+func (f *fakeSwarmService) Progress(_ context.Context, _, _ string) error             { return nil }
+func (f *fakeSwarmService) Question(_ context.Context, _, _ string) error             { return nil }
+func (f *fakeSwarmService) Built(_ context.Context, _ string) error                   { return nil }
+func (f *fakeSwarmService) InsertPendingPlan(_ context.Context, _, _, _ string) error { return nil }
+func (f *fakeSwarmService) GetPendingPlan(_ context.Context, _ string) (*store.PendingPlanEntry, error) {
+	return nil, nil
+}
+func (f *fakeSwarmService) ListAllPendingPlans(_ context.Context) ([]store.PendingPlanEntry, error) {
+	return nil, nil
+}
+func (f *fakeSwarmService) DeletePendingPlan(_ context.Context, _ string) error { return nil }
+func (f *fakeSwarmService) HandleAgentDied(_ context.Context, _, _, _ string)   {}
+func (f *fakeSwarmService) StartEventLoop(_ context.Context) func()             { return func() {} }
 
 func newTestApp() App {
 	return NewApp(&fakeBoardService{}, nil, nil, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
@@ -678,10 +694,10 @@ func TestTitleEditSubmitClosesOverlayAndRefreshes(t *testing.T) {
 }
 
 type fakeAgentService struct {
-	agents         []service.AgentSession
-	durations      map[string]service.DurationData
-	captureErr     bool // when true, CaptureOutput returns an error (agent not running)
-	lastSpawnOpts  *service.AgentSpawnOptions
+	agents        []service.AgentSession
+	durations     map[string]service.DurationData
+	captureErr    bool // when true, CaptureOutput returns an error (agent not running)
+	lastSpawnOpts *service.AgentSpawnOptions
 }
 
 func (f *fakeAgentService) SpawnAgent(_ context.Context, _ string, _, _ int, opts ...service.AgentSpawnOptions) error {
@@ -716,6 +732,7 @@ func (f *fakeAgentService) GetTaskDurations(_ context.Context, _ []string) (map[
 func (f *fakeAgentService) GetAgentSummary(_ context.Context, _ string) (int, int, int, error) {
 	return 0, 0, 0, nil
 }
+func (f *fakeAgentService) SetAgentActivity(_ context.Context, _, _, _ string) error { return nil }
 func (f *fakeAgentService) SpawnEphemeralAgent(_ context.Context, _ string, _, _ int, opts ...service.AgentSpawnOptions) error {
 	if len(opts) > 0 {
 		f.lastSpawnOpts = &opts[0]
@@ -723,9 +740,9 @@ func (f *fakeAgentService) SpawnEphemeralAgent(_ context.Context, _ string, _, _
 	return nil
 }
 func (f *fakeAgentService) LastSpawnConflicts() []service.AgentSpawnConflict { return nil }
-func (f *fakeAgentService) RegisteredAdapters() []string { return nil }
-func (f *fakeAgentService) DefaultAdapter() string       { return "" }
-func (f *fakeAgentService) AdapterFor(kind string) service.AIToolAdapter { return nil }
+func (f *fakeAgentService) RegisteredAdapters() []string                     { return nil }
+func (f *fakeAgentService) DefaultAdapter() string                           { return "" }
+func (f *fakeAgentService) AdapterFor(kind string) service.AIToolAdapter     { return nil }
 func (f *fakeAgentService) GetStateTimeline(_ context.Context, _ string, _ time.Duration, _ int) ([]string, error) {
 	return nil, nil
 }
@@ -850,7 +867,7 @@ func TestAKeySwitchesToAgentViewWhenRunning(t *testing.T) {
 			{TaskID: "REX-1", Status: "running"},
 		},
 	}
-		app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
 	cmd := app.Init()
 	if cmd != nil {
 		msg := cmd()
@@ -903,9 +920,9 @@ func TestAgentSpawnSubmitForTask(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected spawn command")
 	}
-		for _, c := range cmd().(tea.BatchMsg) {
-			c()
-		}
+	for _, c := range cmd().(tea.BatchMsg) {
+		c()
+	}
 	if agentSvc.lastSpawnOpts == nil {
 		t.Fatal("expected opts to be passed to SpawnAgent")
 	}
@@ -1311,39 +1328,67 @@ type fakeStartSwarmErrorService struct {
 	existingSwarmErr bool
 }
 
-func (f *fakeStartSwarmErrorService) ListSubtasks(_ context.Context, _ string) ([]store.Subtask, error)              { return nil, nil }
-func (f *fakeStartSwarmErrorService) GetSubtask(_ context.Context, _ string) (*store.Subtask, error)                { return nil, nil }
-func (f *fakeStartSwarmErrorService) ListSubtaskInfos(_ context.Context, _ string) ([]service.SwarmSubtaskInfo, error) { return nil, nil }
-func (f *fakeStartSwarmErrorService) Snapshot(_ context.Context, _ string) ([]byte, error)                          { return nil, nil }
-func (f *fakeStartSwarmErrorService) LatestSnapshot(_ string) *service.SwarmSnapshot                                     { return nil }
-func (f *fakeStartSwarmErrorService) FetchInbox(_ context.Context, _ string) ([]service.InboxEntry, error)          { return nil, nil }
-func (f *fakeStartSwarmErrorService) PeekInbox(_ context.Context, _ string) ([]service.InboxEntry, error)           { return nil, nil }
-func (f *fakeStartSwarmErrorService) LoadPlan(_ string) (*service.SwarmPlan, error)                                  { return nil, nil }
+func (f *fakeStartSwarmErrorService) ListSubtasks(_ context.Context, _ string) ([]store.Subtask, error) {
+	return nil, nil
+}
+func (f *fakeStartSwarmErrorService) GetSubtask(_ context.Context, _ string) (*store.Subtask, error) {
+	return nil, nil
+}
+func (f *fakeStartSwarmErrorService) ListSubtaskInfos(_ context.Context, _ string) ([]service.SwarmSubtaskInfo, error) {
+	return nil, nil
+}
+func (f *fakeStartSwarmErrorService) Snapshot(_ context.Context, _ string) ([]byte, error) {
+	return nil, nil
+}
+func (f *fakeStartSwarmErrorService) LatestSnapshot(_ string) *service.SwarmSnapshot { return nil }
+func (f *fakeStartSwarmErrorService) FetchInbox(_ context.Context, _ string) ([]service.InboxEntry, error) {
+	return nil, nil
+}
+func (f *fakeStartSwarmErrorService) PeekInbox(_ context.Context, _ string) ([]service.InboxEntry, error) {
+	return nil, nil
+}
+func (f *fakeStartSwarmErrorService) LoadPlan(_ string) (*service.SwarmPlan, error) { return nil, nil }
 func (f *fakeStartSwarmErrorService) StartSwarm(_ context.Context, _, _ string) error {
 	if f.existingSwarmErr {
 		return fmt.Errorf("parent task has leftover swarm sub-tasks — cancel the existing swarm first")
 	}
 	return fmt.Errorf("some other error")
 }
-func (f *fakeStartSwarmErrorService) ApplyApprovedPlan(_ context.Context, _ *swarm.Plan) error                    { return nil }
-func (f *fakeStartSwarmErrorService) CancelSwarm(_ context.Context, _ string) error                                { return nil }
-func (f *fakeStartSwarmErrorService) ExtendApprovedPlan(_ context.Context, _ *swarm.Plan) error                   { return nil }
-func (f *fakeStartSwarmErrorService) Dispatch(_ context.Context, _ string) error                                   { return nil }
-func (f *fakeStartSwarmErrorService) NextStep(_ context.Context, _ string) error                                   { return nil }
-func (f *fakeStartSwarmErrorService) Message(_ context.Context, _, _ string, _ bool) error                        { return nil }
-func (f *fakeStartSwarmErrorService) MessageParent(_ context.Context, _, _ string, _ bool) error                  { return nil }
-func (f *fakeStartSwarmErrorService) Broadcast(_ context.Context, _, _ string, _ bool) (int, error)                { return 0, nil }
-func (f *fakeStartSwarmErrorService) Close(_ context.Context, _ string) error                                      { return nil }
-func (f *fakeStartSwarmErrorService) Finish(_ context.Context, _, _ string) error                                  { return nil }
-func (f *fakeStartSwarmErrorService) Progress(_ context.Context, _, _ string) error                               { return nil }
-func (f *fakeStartSwarmErrorService) Question(_ context.Context, _, _ string) error                               { return nil }
-func (f *fakeStartSwarmErrorService) Built(_ context.Context, _ string) error                                     { return nil }
-func (f *fakeStartSwarmErrorService) InsertPendingPlan(_ context.Context, _, _, _ string) error                   { return nil }
-func (f *fakeStartSwarmErrorService) GetPendingPlan(_ context.Context, _ string) (*store.PendingPlanEntry, error) { return nil, nil }
-func (f *fakeStartSwarmErrorService) ListAllPendingPlans(_ context.Context) ([]store.PendingPlanEntry, error)     { return nil, nil }
-func (f *fakeStartSwarmErrorService) DeletePendingPlan(_ context.Context, _ string) error                        { return nil }
-func (f *fakeStartSwarmErrorService) HandleAgentDied(_ context.Context, _, _, _ string)                           {}
-func (f *fakeStartSwarmErrorService) StartEventLoop(_ context.Context) func()                                      { return func() {} }
+func (f *fakeStartSwarmErrorService) ApplyApprovedPlan(_ context.Context, _ *swarm.Plan) error {
+	return nil
+}
+func (f *fakeStartSwarmErrorService) CancelSwarm(_ context.Context, _ string) error { return nil }
+func (f *fakeStartSwarmErrorService) ExtendApprovedPlan(_ context.Context, _ *swarm.Plan) error {
+	return nil
+}
+func (f *fakeStartSwarmErrorService) Dispatch(_ context.Context, _ string) error { return nil }
+func (f *fakeStartSwarmErrorService) NextStep(_ context.Context, _ string) error { return nil }
+func (f *fakeStartSwarmErrorService) Message(_ context.Context, _, _ string, _ bool) error {
+	return nil
+}
+func (f *fakeStartSwarmErrorService) MessageParent(_ context.Context, _, _ string, _ bool) error {
+	return nil
+}
+func (f *fakeStartSwarmErrorService) Broadcast(_ context.Context, _, _ string, _ bool) (int, error) {
+	return 0, nil
+}
+func (f *fakeStartSwarmErrorService) Close(_ context.Context, _ string) error       { return nil }
+func (f *fakeStartSwarmErrorService) Finish(_ context.Context, _, _ string) error   { return nil }
+func (f *fakeStartSwarmErrorService) Progress(_ context.Context, _, _ string) error { return nil }
+func (f *fakeStartSwarmErrorService) Question(_ context.Context, _, _ string) error { return nil }
+func (f *fakeStartSwarmErrorService) Built(_ context.Context, _ string) error       { return nil }
+func (f *fakeStartSwarmErrorService) InsertPendingPlan(_ context.Context, _, _, _ string) error {
+	return nil
+}
+func (f *fakeStartSwarmErrorService) GetPendingPlan(_ context.Context, _ string) (*store.PendingPlanEntry, error) {
+	return nil, nil
+}
+func (f *fakeStartSwarmErrorService) ListAllPendingPlans(_ context.Context) ([]store.PendingPlanEntry, error) {
+	return nil, nil
+}
+func (f *fakeStartSwarmErrorService) DeletePendingPlan(_ context.Context, _ string) error { return nil }
+func (f *fakeStartSwarmErrorService) HandleAgentDied(_ context.Context, _, _, _ string)   {}
+func (f *fakeStartSwarmErrorService) StartEventLoop(_ context.Context) func()             { return func() {} }
 
 func initTestAppWithSwarm() App {
 	app := newTestAppWithSwarm()

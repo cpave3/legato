@@ -31,6 +31,7 @@ export interface AgentInfo {
   task_title: string
   tmux_session: string
   command: string
+  agent_kind: string
   status: string
   activity: string
   role?: string
@@ -44,7 +45,7 @@ export interface AgentInfo {
 }
 
 export interface PromptState {
-  type: "tool_approval" | "plan_approval" | "free_text" | "working"
+  type: "tool_approval" | "plan_approval" | "question" | "free_text" | "working"
   context?: string
   actions?: { label: string; keys: string }[]
 }

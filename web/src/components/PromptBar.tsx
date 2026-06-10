@@ -104,6 +104,7 @@ interface PromptBarProps {
   agentTitle?: string
   agentActivity?: string
   agentCommand?: string
+  agentKind?: string
   connected?: boolean
 }
 
@@ -113,7 +114,7 @@ export interface PromptBarHandle {
   focus: () => void
 }
 
-export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, connected }, ref) {
+export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected }, ref) {
   const { baseUrl } = useServer()
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
   const [menuOpen, setMenuOpen] = useState(false)
@@ -244,7 +245,8 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   const type = isWaiting ? (promptState?.type ?? null) : null
 
   // Claude-specific: "! " prefix runs a bash command.
-  const isBashMode = ["claude", "codex"].includes(agentCommand) && input.startsWith("! ")
+  const commandKind = agentKind || agentCommand
+  const isBashMode = ["claude-code", "claude", "codex"].includes(commandKind || "") && input.startsWith("! ")
 
   return (
     <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-3">
@@ -371,7 +373,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
 
       {/* Prompt-specific controls */}
       <div className="mt-2">
-        {(type === "tool_approval" || type === "plan_approval") && promptState?.actions && (
+        {(type === "tool_approval" || type === "plan_approval" || type === "question") && promptState?.actions && (
           <ActionList
             actions={promptState.actions}
             type={type}
