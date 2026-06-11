@@ -11,34 +11,34 @@ import (
 
 // CardData holds the data needed to render a card.
 type CardData struct {
-	Key             string
-	Title           string
-	Priority        string
-	IssueType       string
-	Provider        string        // "jira", "github", or "" for local
-	Warning         bool
-	AgentActive     bool          // true if any agent session is running for this task
-	AgentState      string        // "working", "waiting", or "" (idle/no agent)
-	WorkingDuration time.Duration // cumulative working time
-	WaitingDuration time.Duration // cumulative waiting time
-	WorkspaceName   string        // workspace name (populated in "All" view)
-	WorkspaceColor  string        // workspace color hex (populated in "All" view)
-	PRCheckStatus   string        // pass, fail, pending, or ""
-	PRReviewDecision string       // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or ""
-	PRCommentCount  int           // total PR comments
-	PRIsDraft       bool          // PR is a draft
-	PRNumber        int           // PR number (0 = no PR linked)
-	SwarmStats      SwarmStats    // sub-task aggregate; zero value = no swarm
+	Key              string
+	Title            string
+	Priority         string
+	IssueType        string
+	Provider         string // "jira", "github", or "" for local
+	Warning          bool
+	AgentActive      bool          // true if any agent session is running for this task
+	AgentState       string        // "working", "waiting", or "" (idle/no agent)
+	WorkingDuration  time.Duration // cumulative working time
+	WaitingDuration  time.Duration // cumulative waiting time
+	WorkspaceName    string        // workspace name (populated in "All" view)
+	WorkspaceColor   string        // workspace color hex (populated in "All" view)
+	PRCheckStatus    string        // pass, fail, pending, or ""
+	PRReviewDecision string        // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or ""
+	PRCommentCount   int           // total PR comments
+	PRIsDraft        bool          // PR is a draft
+	PRNumber         int           // PR number (0 = no PR linked)
+	SwarmStats       SwarmStats    // sub-task aggregate; zero value = no swarm
 }
 
 // SwarmStats holds aggregate sub-task counts for a swarm parent card.
 type SwarmStats struct {
-	Total     int
-	Done      int
-	InReview  int
-	Building  int
-	Queued    int
-	Rejected  int
+	Total    int
+	Done     int
+	InReview int
+	Building int
+	Queued   int
+	Rejected int
 }
 
 // HasSwarm reports whether the card is a swarm parent (has any sub-tasks).
@@ -263,26 +263,6 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 	// PR status line
 	prLine := renderPRLine(card, icons, selected)
 
-	// Apply done-column muted styling
-	if isDone {
-		keyLine := theme.DoneMuted.Render(card.Key)
-		title = theme.DoneMuted.Render(title)
-		metaLine = theme.DoneMuted.Render(card.IssueType)
-		content := keyLine + "\n" + title + "\n" + metaLine
-		if prLine != "" {
-			content += "\n" + prLine
-		}
-		if durationLine != "" {
-			content += "\n" + durationLine
-		}
-
-		style := theme.CardBase.
-			Width(contentWidth).
-			BorderLeft(true).
-			BorderForeground(theme.ColDone)
-		return style.Render(content)
-	}
-
 	// Selected cards need dark-on-light colors
 	if selected {
 		selectedBg := lipgloss.Color("#EEEDFE")
@@ -305,12 +285,12 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 		sAgentPrefix := ""
 		switch card.AgentState {
 		case "working":
-			sAgentPrefix = s(lipgloss.Color("#287828")).Bold(true).Render(icons.AgentWorking+" RUNNING ")
+			sAgentPrefix = s(lipgloss.Color("#287828")).Bold(true).Render(icons.AgentWorking + " RUNNING ")
 		case "waiting":
-			sAgentPrefix = s(lipgloss.Color("#285878")).Bold(true).Render(icons.AgentWaiting+" WAITING ")
+			sAgentPrefix = s(lipgloss.Color("#285878")).Bold(true).Render(icons.AgentWaiting + " WAITING ")
 		default:
 			if card.AgentActive {
-				sAgentPrefix = s(dimText).Render(icons.Terminal+" IDLE ")
+				sAgentPrefix = s(dimText).Render(icons.Terminal + " IDLE ")
 			}
 		}
 
@@ -349,6 +329,26 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 		}
 
 		style := theme.CardSelected.Width(contentWidth)
+		return style.Render(content)
+	}
+
+	// Apply done-column muted styling
+	if isDone {
+		keyLine := theme.DoneMuted.Render(card.Key)
+		title = theme.DoneMuted.Render(title)
+		metaLine = theme.DoneMuted.Render(card.IssueType)
+		content := keyLine + "\n" + title + "\n" + metaLine
+		if prLine != "" {
+			content += "\n" + prLine
+		}
+		if durationLine != "" {
+			content += "\n" + durationLine
+		}
+
+		style := theme.CardBase.
+			Width(contentWidth).
+			BorderLeft(true).
+			BorderForeground(theme.ColDone)
 		return style.Render(content)
 	}
 

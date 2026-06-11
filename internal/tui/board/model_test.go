@@ -45,7 +45,7 @@ func (f *fakeBoardService) GetCard(_ context.Context, _ string) (*service.CardDe
 	return nil, nil
 }
 func (f *fakeBoardService) MoveCard(_ context.Context, _ string, _ string) error { return nil }
-func (f *fakeBoardService) ReorderCard(_ context.Context, _ string, _ int) error  { return nil }
+func (f *fakeBoardService) ReorderCard(_ context.Context, _ string, _ int) error { return nil }
 func (f *fakeBoardService) SearchCards(_ context.Context, _ string) ([]service.Card, error) {
 	return nil, nil
 }
@@ -314,6 +314,27 @@ func TestViewNonEmpty(t *testing.T) {
 	view := m.View()
 	if view == "" {
 		t.Error("view should not be empty")
+	}
+}
+
+func TestViewHighlightsSelectedCardWithoutScrolling(t *testing.T) {
+	m := newTestModel()
+	m.maxVisible = 100
+
+	view := m.View()
+	if !hasSelectedFrame(view) {
+		t.Errorf("view should include selected-card styling when active column is not windowed, got: %q", view)
+	}
+}
+
+func TestViewHighlightsSelectedCardWithScrolling(t *testing.T) {
+	m := newTestModel()
+	m.maxVisible = 2
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}})
+
+	view := m.View()
+	if !hasSelectedFrame(view) {
+		t.Errorf("view should include selected-card styling when active column is windowed, got: %q", view)
 	}
 }
 

@@ -21,18 +21,18 @@ const minColumnWidth = 20
 
 // Model is the board Bubbletea model.
 type Model struct {
-	svc            service.BoardService
-	icons          theme.Icons
-	columns        []string
-	cards          map[string][]CardData
-	cursorCol      int
-	cursorRow      int
-	rowOffset      int // first visible card index in active column
-	maxVisible     int // max cards that fit vertically in terminal
-	width          int
-	height         int
-	workspaceView  store.WorkspaceView
-	workspaces     []service.Workspace
+	svc           service.BoardService
+	icons         theme.Icons
+	columns       []string
+	cards         map[string][]CardData
+	cursorCol     int
+	cursorRow     int
+	rowOffset     int // first visible card index in active column
+	maxVisible    int // max cards that fit vertically in terminal
+	width         int
+	height        int
+	workspaceView store.WorkspaceView
+	workspaces    []service.Workspace
 }
 
 // New creates a new board model.
@@ -494,6 +494,9 @@ func (m Model) View() string {
 		allCards := m.cards[colName]
 		active := i == m.cursorCol
 		selectedIdx := -1
+		if active {
+			selectedIdx = m.cursorRow
+		}
 		var cards []CardData
 		if active && m.maxVisible > 0 && len(allCards) > m.maxVisible {
 			// Slice active column to visible window and adjust selectedIdx relative to the slice

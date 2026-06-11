@@ -10,6 +10,10 @@ import (
 
 var testIcons = theme.NewIcons("unicode")
 
+func hasSelectedFrame(out string) bool {
+	return strings.Contains(out, "╭") && strings.Contains(out, "╰")
+}
+
 func TestCardRenderContainsKey(t *testing.T) {
 	card := CardData{Key: "REX-1234", Title: "Fix the bug", Priority: "High", IssueType: "Bug"}
 	out := RenderCard(card, 30, false, "Doing", testIcons)
@@ -237,6 +241,19 @@ func TestCardDoneColumnRender(t *testing.T) {
 	}
 	if !strings.Contains(out, "REX-1") {
 		t.Errorf("done card should contain key, got: %q", out)
+	}
+}
+
+func TestSelectedCardInDoneColumnUsesSelectedStyle(t *testing.T) {
+	card := CardData{Key: "REX-1", Title: "Finished", Priority: "Low", IssueType: "Story"}
+	selected := RenderCard(card, 30, true, "Done", testIcons)
+	unselected := RenderCard(card, 30, false, "Done", testIcons)
+
+	if selected == unselected {
+		t.Fatal("selected done card should render differently from unselected done card")
+	}
+	if !hasSelectedFrame(selected) {
+		t.Errorf("selected done card should use selected frame, got: %q", selected)
 	}
 }
 
