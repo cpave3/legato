@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -45,6 +46,143 @@ func seedTask(t *testing.T, s *store.Store, id, status string) {
 		UpdatedAt: "2024-01-01T00:00:00Z",
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTaskShow_DefaultsToDescription(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, store.Task{
+		ID:            "abc123",
+		Title:         "Fetch task content",
+		DescriptionMD: "Use this content in an agent prompt.",
+		Status:        "Backlog",
+		CreatedAt:     "2024-01-01T00:00:00Z",
+		UpdatedAt:     "2024-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := cli.TaskShow(s, "abc123", "")
+	if err != nil {
+		t.Fatalf("TaskShow: %v", err)
+	}
+	if !strings.Contains(out, "## abc123: Fetch task content") {
+		t.Errorf("output missing heading: %q", out)
+	}
+	if !strings.Contains(out, "Use this content in an agent prompt.") {
+		t.Errorf("output missing description: %q", out)
+	}
+}
+
+func TestTaskShow_FullFormat(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, store.Task{
+		ID:            "abc123",
+		Title:         "Fetch task content",
+		DescriptionMD: "Full context body.",
+		Status:        "Backlog",
+		Priority:      "High",
+		CreatedAt:     "2024-01-01T00:00:00Z",
+		UpdatedAt:     "2024-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := cli.TaskShow(s, "abc123", "full")
+	if err != nil {
+		t.Fatalf("TaskShow: %v", err)
+	}
+	if !strings.Contains(out, "# Task: abc123") {
+		t.Errorf("output missing task heading: %q", out)
+	}
+	if !strings.Contains(out, "**Priority:** High") {
+		t.Errorf("output missing priority: %q", out)
+	}
+	if !strings.Contains(out, "---") {
+		t.Errorf("output missing separator: %q", out)
+	}
+}
+
+func TestTaskShow_JSONFormat(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	ctx := context.Background()
+	remoteMeta := `{"issue_type":"Story","url":"https://example.test/T-1"}`
+	provider := "jira"
+	remoteID := "T-1"
+	if err := s.CreateTask(ctx, store.Task{
+		ID:            "abc123",
+		Title:         "Fetch task content",
+		DescriptionMD: "JSON body.",
+		Status:        "Backlog",
+		Priority:      "Medium",
+		Provider:      &provider,
+		RemoteID:      &remoteID,
+		RemoteMeta:    &remoteMeta,
+		CreatedAt:     "2024-01-01T00:00:00Z",
+		UpdatedAt:     "2024-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := cli.TaskShow(s, "abc123", "json")
+	if err != nil {
+		t.Fatalf("TaskShow: %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("unmarshal output: %v\n%s", err, out)
+	}
+	if got["id"] != "abc123" {
+		t.Errorf("id = %v, want abc123", got["id"])
+	}
+	if got["description_md"] != "JSON body." {
+		t.Errorf("description_md = %v, want JSON body.", got["description_md"])
+	}
+	if got["provider"] != "jira" {
+		t.Errorf("provider = %v, want jira", got["provider"])
+	}
+	meta, ok := got["remote_meta"].(map[string]any)
+	if !ok {
+		t.Fatalf("remote_meta = %T, want object", got["remote_meta"])
+	}
+	if meta["issue_type"] != "Story" {
+		t.Errorf("remote_meta.issue_type = %v, want Story", meta["issue_type"])
+	}
+	if _, ok := got["swarm_step_names"].([]any); !ok {
+		t.Errorf("swarm_step_names = %T, want array", got["swarm_step_names"])
+	}
+}
+
+func TestTaskShow_InvalidFormat(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Backlog")
+
+	err := func() error {
+		_, err := cli.TaskShow(s, "abc123", "xml")
+		return err
+	}()
+	if err == nil {
+		t.Fatal("expected error for invalid format")
+	}
+	if !strings.Contains(err.Error(), "valid formats") {
+		t.Errorf("error = %q, want valid formats", err)
+	}
+}
+
+func TestTaskShow_NonexistentTask(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+
+	_, err := cli.TaskShow(s, "missing", "description")
+	if err == nil {
+		t.Fatal("expected error for nonexistent task")
 	}
 }
 

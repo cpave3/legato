@@ -127,6 +127,11 @@ const chimeraSandboxPreamble = "## Chimera-specific guidance for legato\n" +
 	"`legato swarm built`, `cat $LEGATO_BRIEF_FILE`, etc. will silently fail or " +
 	"return \"command not found\" / \"no such file\".\n" +
 	"\n" +
+	"To fetch the current task context directly, run `legato task show " +
+	"$LEGATO_TASK_ID` in host mode. Use `legato task show $LEGATO_TASK_ID " +
+	"--format full` when you need structured metadata as well as the " +
+	"description.\n" +
+	"\n" +
 	"If you see those errors when trying to interact with legato, switch the " +
 	"specific tool call to host mode and retry. Code edits, greps, and other " +
 	"work that's confined to the project directory can stay sandboxed.\n"

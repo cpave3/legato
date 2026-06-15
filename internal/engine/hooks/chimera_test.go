@@ -44,6 +44,20 @@ func TestChimeraAdapter_EnvVars(t *testing.T) {
 	}
 }
 
+func TestChimeraAdapter_RolePromptPreambleMentionsTaskShow(t *testing.T) {
+	adapter := hooks.NewChimeraAdapter("/usr/bin/legato")
+	preamble := adapter.RolePromptPreamble()
+	for _, want := range []string{
+		"legato task show $LEGATO_TASK_ID",
+		"--format full",
+		"host mode",
+	} {
+		if !strings.Contains(preamble, want) {
+			t.Errorf("preamble missing %q:\n%s", want, preamble)
+		}
+	}
+}
+
 func TestChimeraAdapter_InstallHooks(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

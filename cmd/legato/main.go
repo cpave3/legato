@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -70,7 +71,7 @@ func runCLI(args []string) int {
 
 func runTaskCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "usage: legato task [update|note|link|unlink] ...\n")
+		fmt.Fprintf(os.Stderr, "usage: legato task [show|update|note|link|unlink] ...\n")
 		return 1
 	}
 
@@ -88,6 +89,8 @@ func runTaskCmd(args []string) int {
 	defer db.Close()
 
 	switch args[0] {
+	case "show":
+		return runTaskShow(db, args[1:])
 	case "update":
 		return runTaskUpdate(db, args[1:])
 	case "note":
@@ -98,8 +101,49 @@ func runTaskCmd(args []string) int {
 		return runTaskUnlink(db, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown task command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato task [update|note|link|unlink] ...\n")
+		fmt.Fprintf(os.Stderr, "usage: legato task [show|update|note|link|unlink] ...\n")
 		return 1
+	}
+}
+
+func runTaskShow(db *store.Store, args []string) int {
+	// Parse: legato task show <task-id> [--format description|full|json]
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "usage: legato task show <task-id> [--format description|full|json]\n")
+		return 1
+	}
+
+	taskID := args[0]
+	format := "description"
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--format":
+			if i+1 >= len(args) {
+				fmt.Fprintf(os.Stderr, "usage: legato task show <task-id> [--format description|full|json]\n")
+				return 1
+			}
+			format = args[i+1]
+			i++
+		default:
+			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", args[i])
+			fmt.Fprintf(os.Stderr, "usage: legato task show <task-id> [--format description|full|json]\n")
+			return 1
+		}
+	}
+
+	out, err := cli.TaskShow(db, taskID, format)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	writeCLIOutput(out)
+	return 0
+}
+
+func writeCLIOutput(out string) {
+	fmt.Print(out)
+	if !strings.HasSuffix(out, "\n") {
+		fmt.Println()
 	}
 }
 

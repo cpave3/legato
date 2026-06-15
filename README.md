@@ -207,6 +207,7 @@ Legato also exposes CLI subcommands for scripting and tool integration:
 
 ```bash
 legato                                           # launch TUI (default)
+legato task show <task-id> [--format description|full|json]  # print task context
 legato task update <task-id> --status <column>   # move task to column
 legato task note <task-id> <message>             # append note to task
 legato agent state <task-id> --activity working  # set agent activity state

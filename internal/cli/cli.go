@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -10,7 +11,52 @@ import (
 
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/service"
 )
+
+// TaskShow returns a task's content in a format suitable for agents and scripts.
+// Supported formats are "description" (default), "full", and "json".
+func TaskShow(s *store.Store, taskID, format string) (string, error) {
+	ctx := context.Background()
+	if format == "" {
+		format = "description"
+	}
+
+	board := service.NewBoardService(s, nil)
+	switch format {
+	case "description":
+		out, err := board.ExportCardContext(ctx, taskID, service.ExportFormatDescription)
+		if err != nil {
+			return "", taskShowError(taskID, err)
+		}
+		return out, nil
+	case "full":
+		out, err := board.ExportCardContext(ctx, taskID, service.ExportFormatFull)
+		if err != nil {
+			return "", taskShowError(taskID, err)
+		}
+		return out, nil
+	case "json":
+		detail, err := board.GetCard(ctx, taskID)
+		if err != nil {
+			return "", taskShowError(taskID, err)
+		}
+		out, err := json.Marshal(taskDetailJSONFromService(detail))
+		if err != nil {
+			return "", fmt.Errorf("encoding task: %w", err)
+		}
+		return string(out), nil
+	default:
+		return "", fmt.Errorf("unknown format %q; valid formats: description, full, json", format)
+	}
+}
+
+func taskShowError(taskID string, err error) error {
+	if errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("task %q not found", taskID)
+	}
+	return err
+}
 
 // TaskUpdate moves a task to the column matching the given status name (case-insensitive).
 // Broadcasts an IPC notification to all running Legato instances.
@@ -191,6 +237,73 @@ func TaskUnlink(s *store.Store, taskID string) error {
 	})
 
 	return nil
+}
+
+type taskDetailJSON struct {
+	ID              string            `json:"id"`
+	Title           string            `json:"title"`
+	DescriptionMD   string            `json:"description_md"`
+	Status          string            `json:"status"`
+	Priority        string            `json:"priority"`
+	Provider        string            `json:"provider"`
+	RemoteID        string            `json:"remote_id"`
+	RemoteMeta      map[string]string `json:"remote_meta"`
+	WorkspaceID     *int              `json:"workspace_id"`
+	PRMeta          *prMetaJSON       `json:"pr_meta"`
+	SwarmActiveStep int               `json:"swarm_active_step"`
+	SwarmStepNames  []string          `json:"swarm_step_names"`
+	CreatedAt       time.Time         `json:"created_at"`
+	UpdatedAt       time.Time         `json:"updated_at"`
+}
+
+type prMetaJSON struct {
+	Repo           string `json:"repo"`
+	Branch         string `json:"branch"`
+	PRNumber       int    `json:"pr_number"`
+	PRURL          string `json:"pr_url"`
+	State          string `json:"state"`
+	IsDraft        bool   `json:"is_draft"`
+	ReviewDecision string `json:"review_decision"`
+	CheckStatus    string `json:"check_status"`
+	CommentCount   int    `json:"comment_count"`
+}
+
+func taskDetailJSONFromService(detail *service.CardDetail) taskDetailJSON {
+	resp := taskDetailJSON{
+		ID:              detail.ID,
+		Title:           detail.Title,
+		DescriptionMD:   detail.DescriptionMD,
+		Status:          detail.Status,
+		Priority:        detail.Priority,
+		Provider:        detail.Provider,
+		RemoteID:        detail.RemoteID,
+		RemoteMeta:      detail.RemoteMeta,
+		WorkspaceID:     detail.WorkspaceID,
+		SwarmActiveStep: detail.SwarmActiveStep,
+		SwarmStepNames:  detail.SwarmStepNames,
+		CreatedAt:       detail.CreatedAt,
+		UpdatedAt:       detail.UpdatedAt,
+	}
+	if resp.RemoteMeta == nil {
+		resp.RemoteMeta = map[string]string{}
+	}
+	if resp.SwarmStepNames == nil {
+		resp.SwarmStepNames = []string{}
+	}
+	if detail.PRMeta != nil {
+		resp.PRMeta = &prMetaJSON{
+			Repo:           detail.PRMeta.Repo,
+			Branch:         detail.PRMeta.Branch,
+			PRNumber:       detail.PRMeta.PRNumber,
+			PRURL:          detail.PRMeta.PRURL,
+			State:          detail.PRMeta.State,
+			IsDraft:        detail.PRMeta.IsDraft,
+			ReviewDecision: detail.PRMeta.ReviewDecision,
+			CheckStatus:    detail.PRMeta.CheckStatus,
+			CommentCount:   detail.PRMeta.CommentCount,
+		}
+	}
+	return resp
 }
 
 // detectBranch returns the current git branch name.

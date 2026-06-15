@@ -3,6 +3,7 @@
 `legato` binary supports subcommand dispatch alongside the default TUI mode:
 
 - `legato` (no args) — launches TUI (existing behavior)
+- `legato task show <task-id> [--format description|full|json]` — print task context to stdout for agents/scripts. Defaults to the description-only markdown format used by detail-view copy; `full` includes structured metadata; `json` returns a machine-readable task detail object.
 - `legato task update <task-id> --status <status>` — move task to column (case-insensitive status matching)
 - `legato task note <task-id> <message>` — append timestamped note to task description
 - `legato agent state <task-id> --activity <working|waiting|"">` — update agent activity state on a card
@@ -38,7 +39,7 @@ Read-only:
 - `legato swarm status <parent-id>` — print a JSON snapshot of the swarm's coordination surface to stdout
 - `legato swarm inbox <parent-id>` — drain unacked swarm events from the inbox (FIFO) and print as JSON; events are atomically marked acked
 
-CLI subcommands load only config+store+IPC client — no TUI, event bus, tmux, or sync service.
+CLI subcommands load only the dependencies they need. Read-only task fetches load config+store+board service; mutating commands also use IPC broadcasts. They do not initialize the TUI, tmux, or sync service.
 
 ## AI Tool Integration (Claude Code)
 
@@ -98,6 +99,8 @@ Legato-spawned tmux sessions get a custom status bar showing live context. Solo 
 | `SessionEnd`       | `legato-session-end.sh`           | (clear)    |
 
 **Flow**: Each script gates on `LEGATO_TASK_ID` (injected by legato's tmux session) — outside a Legato-spawned session it's a no-op. Inside, it calls `legato agent state $LEGATO_TASK_ID --activity <state>`, which updates `agent_sessions.activity` and broadcasts IPC like Claude Code's hooks.
+
+**Task context access**: Chimera role prompts include Legato-specific guidance that `legato task show $LEGATO_TASK_ID` fetches the current task description/context, and `--format full` includes structured metadata. In sandboxed Chimera sessions, run that command in host mode, the same as other Legato CLI calls.
 
 **Coexistence with Claude Code**: Both adapters can be installed simultaneously. Hooks fire from different processes inside the same tmux session, and only `LEGATO_TASK_ID` (already injected by the agent service) needs to flow through — `ChimeraAdapter.EnvVars` returns nil. Install with `legato hooks install --tool chimera`.
 

@@ -31,6 +31,35 @@ The system SHALL provide a `legato task update <task-id> --status <status>` subc
 - **AND** `invalid` does not map to any configured column
 - **THEN** the command SHALL print an error listing valid statuses and exit with code 1
 
+### Requirement: task show subcommand
+The system SHALL provide a `legato task show <task-id> [--format description|full|json]` subcommand that prints task content to stdout without mutating state.
+
+#### Scenario: Showing description context
+- **WHEN** `legato task show abc123` is executed
+- **THEN** the command SHALL print the description-only markdown context for task `abc123`
+- **AND** the output SHALL use the same formatting as `BoardService.ExportCardContext` with `ExportFormatDescription`
+- **AND** the command SHALL exit with code 0
+
+#### Scenario: Showing full context
+- **WHEN** `legato task show abc123 --format full` is executed
+- **THEN** the command SHALL print the full structured markdown context for task `abc123`
+- **AND** the output SHALL use the same formatting as `BoardService.ExportCardContext` with `ExportFormatFull`
+- **AND** the command SHALL exit with code 0
+
+#### Scenario: Showing JSON context
+- **WHEN** `legato task show abc123 --format json` is executed
+- **THEN** the command SHALL print a JSON task detail object with snake_case keys
+- **AND** the command SHALL exit with code 0
+
+#### Scenario: Showing a nonexistent task
+- **WHEN** `legato task show nonexistent` is executed
+- **AND** no task with ID `nonexistent` exists
+- **THEN** the command SHALL print an error to stderr and exit with code 1
+
+#### Scenario: Using an invalid show format
+- **WHEN** `legato task show abc123 --format xml` is executed
+- **THEN** the command SHALL print an error listing valid formats and exit with code 1
+
 ### Requirement: task note subcommand
 The system SHALL provide a `legato task note <task-id> <message>` subcommand that appends a timestamped note to a task.
 
