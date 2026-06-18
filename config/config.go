@@ -21,6 +21,7 @@ type Config struct {
 	Agents      AgentsConfig             `yaml:"agents"`
 	GitHub      GitHubConfig             `yaml:"github"`
 	Web         WebConfig                `yaml:"web"`
+	Ntfy        NtfyConfig               `yaml:"ntfy"`
 	Workspaces  []WorkspaceConfig        `yaml:"workspaces"`
 	Swarm       SwarmConfig              `yaml:"swarm"`
 	Adapters    map[string]AdapterConfig `yaml:"adapters"`
@@ -110,6 +111,13 @@ type TLSConfig struct {
 	Hostname string `yaml:"hostname"` // additional DNS name for auto-generated certs (e.g. "mybox.local")
 }
 
+// NtfyConfig holds ntfy.sh push notification settings.
+type NtfyConfig struct {
+	URL   string `yaml:"url"`   // ntfy server URL, e.g. https://ntfy.sh
+	Topic string `yaml:"topic"` // topic name to publish to
+	Token string `yaml:"token"` // optional access token for private topics
+}
+
 type WebConfig struct {
 	Enabled bool      `yaml:"enabled"` // auto-start web server alongside TUI
 	Port    string    `yaml:"port"`    // default "3080"
@@ -191,14 +199,36 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	// Capture macros from the raw file before os.ExpandEnv touches $VARs.
+	// Macros are sent verbatim to agent tmux panes, so env vars inside
+	// macro keys must stay literal.
+	rawMacros, err := extractMacrosRaw(data)
+	if err != nil {
+		return nil, fmt.Errorf("parsing raw macros: %w", err)
+	}
+
 	expanded := os.ExpandEnv(string(data))
 
 	if err := yaml.Unmarshal([]byte(expanded), cfg); err != nil {
 		return nil, err
 	}
 
+	cfg.Macros = rawMacros
+
 	applyDefaults(cfg)
 	return cfg, nil
+}
+
+// extractMacrosRaw unmarshals only the macros field from raw YAML bytes,
+// skipping any env-var expansion so $VAR references stay literal.
+func extractMacrosRaw(data []byte) ([]macros.Macro, error) {
+	var raw struct {
+		Macros []macros.Macro `yaml:"macros"`
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	return raw.Macros, nil
 }
 
 // ValidateConductorTier checks that swarm.conductor_tier (when set) names a
@@ -297,6 +327,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Web.Port == "" {
 		cfg.Web.Port = "3080"
+	}
+	if cfg.Ntfy.URL == "" {
+		cfg.Ntfy.URL = "https://ntfy.sh"
 	}
 	// VimMode defaults to true — yaml unmarshals missing bool as false,
 	// so we only set it if the entire keybindings section was absent.

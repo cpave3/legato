@@ -15,3 +15,15 @@ export function apiFetch(baseUrl: string, path: string, init?: RequestInit): Pro
   }
   return fetch(url, { ...init, headers })
 }
+
+export async function toggleAgentNotify(baseUrl: string, taskId: string, enabled: boolean): Promise<void> {
+  const res = await apiFetch(baseUrl, `/api/agents/${encodeURIComponent(taskId)}/notify`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => "unknown error")
+    throw new Error(text)
+  }
+}

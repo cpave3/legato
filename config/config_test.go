@@ -294,6 +294,51 @@ func TestMacrosEmpty(t *testing.T) {
 	}
 }
 
+func TestMacroEnvVarPreserved(t *testing.T) {
+	// Set an env var that would match the macro pattern so we can detect
+	// if os.ExpandEnv had run over the macro keys.
+	t.Setenv("LEGATO_TASK_ID", "SHOULD_NOT_APPEAR")
+	writeTestConfig(t, `
+macros:
+  - name: "fetch task details"
+    keys: "!legato task show $LEGATO_TASK_ID"
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Macros) != 1 {
+		t.Fatalf("expected 1 macro, got %d", len(cfg.Macros))
+	}
+	want := "!legato task show $LEGATO_TASK_ID"
+	if cfg.Macros[0].Keys != want {
+		t.Errorf("macro keys = %q, want %q", cfg.Macros[0].Keys, want)
+	}
+}
+
+func TestNonMacroFieldsStillExpand(t *testing.T) {
+	// Other fields should still get env expansion.
+	t.Setenv("LEGATO_JIRA_TOKEN", "secret123")
+	writeTestConfig(t, `
+jira:
+  api_token: "${LEGATO_JIRA_TOKEN}"
+macros:
+  - name: "fetch"
+    keys: "$LEGATO_JIRA_TOKEN"
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Jira.APIToken != "secret123" {
+		t.Errorf("jira api_token = %q, want %q", cfg.Jira.APIToken, "secret123")
+	}
+	// Macro must stay literal despite the same env var being set.
+	if cfg.Macros[0].Keys != "$LEGATO_JIRA_TOKEN" {
+		t.Errorf("macro keys = %q, want %q", cfg.Macros[0].Keys, "$LEGATO_JIRA_TOKEN")
+	}
+}
+
 func TestResolveDBPathPrecedence(t *testing.T) {
 	t.Run("from config", func(t *testing.T) {
 		cfg := &Config{DB: DBConfig{Path: "/tmp/legato-test.db"}}

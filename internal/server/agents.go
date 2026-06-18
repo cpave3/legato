@@ -14,6 +14,12 @@ const (
 	defaultSparklineBuckets = 10
 )
 
+// SetNtfyConfigured records whether an ntfy channel is wired so the UI
+// can conditionally show notification toggles.
+func (s *Server) SetNtfyConfigured(v bool) {
+	s.ntfyConfigured = v
+}
+
 // SetSparklineWindow configures the window and bucket count used when
 // populating AgentResponse.StateTimeline. Zero or negative values fall back to
 // the defaults (10 minutes, 10 buckets).
@@ -56,6 +62,7 @@ type AgentResponse struct {
 	WorkingSeconds float64    `json:"working_seconds"`
 	WaitingSeconds float64    `json:"waiting_seconds"`
 	StateTimeline  []string   `json:"state_timeline,omitempty"`
+	NotifyEnabled  bool       `json:"notify_enabled"`
 }
 
 func (s *Server) spawnAgentHandler() http.HandlerFunc {
@@ -189,10 +196,50 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 			if tlErr == nil {
 				r.StateTimeline = timeline
 			}
+			if s.agents != nil {
+				r.NotifyEnabled, _ = s.agents.GetTaskNotifyEnabled(context.Background(), a.TaskID)
+			}
 			resp[i] = r
 		}
 
 		json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func (s *Server) agentNotifyHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if s.agents == nil {
+			http.Error(w, "agent service not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		taskID := r.PathValue("task_id")
+		if taskID == "" {
+			http.Error(w, "task_id is required", http.StatusBadRequest)
+			return
+		}
+
+		var req struct {
+			Enabled bool `json:"enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		if err := s.agents.SetTaskNotifyEnabled(context.Background(), taskID, req.Enabled); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"enabled": req.Enabled})
 	}
 }
 

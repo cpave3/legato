@@ -9,7 +9,7 @@ import { SwarmEventLog } from "../components/SwarmEventLog"
 import { AgentSelect } from "../components/AgentSelect"
 import { useServer } from "../hooks/useServer"
 import { useSwarmEvents } from "../hooks/useSwarmEvents"
-import { apiFetch } from "../lib/api"
+import { apiFetch, toggleAgentNotify } from "../lib/api"
 
 const GLITCH_DURATION_MS = 500
 
@@ -54,6 +54,7 @@ export function AgentsPage() {
   const [showStartSwarm, setShowStartSwarm] = useState(false)
   const [startSwarmPreselect, setStartSwarmPreselect] = useState<string | undefined>(undefined)
   const [showSpawn, setShowSpawn] = useState(false)
+  const [ntfyConfigured, setNtfyConfigured] = useState(false)
 
   // Per-agent prompt detection override. If not in the map, uses the global default.
   const [promptDetectionOverrides, setPromptDetectionOverrides] = useState<Record<string, boolean>>({})
@@ -89,6 +90,10 @@ export function AgentsPage() {
 
   useEffect(() => {
     fetchAgents()
+    apiFetch(baseUrl, "/api/settings")
+      .then((r) => r.json())
+      .then((data) => setNtfyConfigured(!!data.ntfy_configured))
+      .catch(() => setNtfyConfigured(false))
     return subscribe((msg: WSMessage) => {
       if (msg.type === "agent_list" && msg.agents) {
         setAgents(msg.agents)
@@ -106,7 +111,7 @@ export function AgentsPage() {
         fetchAgents()
       }
     })
-  }, [fetchAgents, subscribe, selectedId])
+  }, [fetchAgents, subscribe, selectedId, baseUrl])
 
   const handleSelect = useCallback(
     (taskId: string) => {
@@ -217,6 +222,17 @@ export function AgentsPage() {
 
   const selectedAgent = agents.find((a) => a.task_id === selectedId)
   const selectedParentId = selectedAgent?.parent_task_id ?? null
+
+  const handleToggleNotify = useCallback(async () => {
+    if (!selectedId) return
+    const next = !selectedAgent?.notify_enabled
+    try {
+      await toggleAgentNotify(baseUrl, selectedId, next)
+      fetchAgents()
+    } catch {
+      // ignore
+    }
+  }, [selectedId, selectedAgent, baseUrl, fetchAgents])
 
   // Keyboard agent switching: modifier + digit
   const [modifierHeld, setModifierHeld] = useState(false)
@@ -358,6 +374,9 @@ export function AgentsPage() {
               agentCommand={selectedAgent?.command}
               agentKind={selectedAgent?.agent_kind}
               connected={connected}
+              ntfyConfigured={ntfyConfigured}
+              notifyEnabled={selectedAgent?.notify_enabled}
+              onToggleNotify={handleToggleNotify}
             />
           </>
         ) : (

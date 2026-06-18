@@ -3,7 +3,7 @@ import type { PromptState } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
 import { cn } from "../lib/utils"
-import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff, Terminal, Zap } from "lucide-react"
+import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff, Terminal, Zap, Bell, BellOff } from "lucide-react"
 
 interface ActionListProps {
   actions: { label: string; keys: string }[]
@@ -106,6 +106,9 @@ interface PromptBarProps {
   agentCommand?: string
   agentKind?: string
   connected?: boolean
+  ntfyConfigured?: boolean
+  notifyEnabled?: boolean
+  onToggleNotify?: () => void
 }
 
 function draftKey(id: string) { return `legato:draft:${id}` }
@@ -114,7 +117,7 @@ export interface PromptBarHandle {
   focus: () => void
 }
 
-export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected }, ref) {
+export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify }, ref) {
   const { baseUrl } = useServer()
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
   const [menuOpen, setMenuOpen] = useState(false)
@@ -350,6 +353,15 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
                   {promptDetectionEnabled ? <EyeOff size={12} /> : <Eye size={12} />}
                   {promptDetectionEnabled ? "Disable prompt detection" : "Enable prompt detection"}
                 </button>
+                {ntfyConfigured && onToggleNotify && (
+                  <button
+                    onClick={() => { onToggleNotify(); setMenuOpen(false) }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                  >
+                    {notifyEnabled ? <Bell size={12} /> : <BellOff size={12} />}
+                    {notifyEnabled ? "Disable notify" : "Enable notify"}
+                  </button>
+                )}
                 <button
                   onClick={() => { onDisconnect(); setMenuOpen(false) }}
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"

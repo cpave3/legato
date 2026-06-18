@@ -28,6 +28,7 @@ type Model struct {
 	agents            []service.AgentSession
 	durations         map[string]DurationData
 	timelines         map[string][]string
+	notifyStates      map[string]bool // taskID -> notify enabled
 	selected          int
 	termContent       string
 	width             int
@@ -35,11 +36,17 @@ type Model struct {
 	polling           bool
 	showWorkerDetails bool
 	icons             theme.Icons
+	ntfyConfigured    bool
 }
 
 // New creates a new agent view model.
 func New(icons theme.Icons) Model {
-	return Model{icons: icons, showWorkerDetails: true}
+	return Model{icons: icons, showWorkerDetails: true, notifyStates: make(map[string]bool)}
+}
+
+// SetNtfyConfigured records whether a notification channel is available.
+func (m *Model) SetNtfyConfigured(v bool) {
+	m.ntfyConfigured = v
 }
 
 // SetAgents updates the agent list. Agents are grouped so swarm participants
@@ -213,6 +220,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case NotifyToggledMsg:
+		m.notifyStates[msg.TaskID] = msg.Enabled
+		return m, nil
+
 	case tickMsg:
 		if !m.polling {
 			return m, nil
@@ -274,6 +285,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		// Toggle worker details pane (swarm workers only).
 		if a := m.SelectedAgent(); a != nil && a.ParentTaskID != "" && a.Role != "conductor" {
 			m.showWorkerDetails = !m.showWorkerDetails
+		}
+		return m, nil
+	case "n":
+		if m.ntfyConfigured {
+			if a := m.SelectedAgent(); a != nil {
+				return m, func() tea.Msg { return ToggleNotifyMsg{TaskID: a.TaskID} }
+			}
 		}
 		return m, nil
 	}
@@ -652,6 +670,12 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 		content += "\n" + roleTag
 	}
 
+	// Notify bell indicator
+	if m.ntfyConfigured && m.notifyStates[a.TaskID] {
+		bell := lipgloss.NewStyle().Foreground(theme.AccentPurple).Render("🔔")
+		content += "\n" + bell
+	}
+
 	// Sparkline
 	if tl, ok := m.timelines[a.TaskID]; ok && len(tl) > 0 {
 		var bars []string
@@ -720,16 +744,31 @@ func (m Model) renderSidebarHints(width int) string {
 		BorderForeground(theme.TextTertiary)
 
 	keyStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
-	hints := fmt.Sprintf("%s select  %s spawn  %s kill  %s macro\n%s action  %s attach  %s board  %s detail",
-		keyStyle.Render("j/k"),
-		keyStyle.Render("s"),
-		keyStyle.Render("X"),
-		keyStyle.Render("m"),
-		keyStyle.Render("M"),
-		keyStyle.Render("↵"),
-		keyStyle.Render("esc"),
-		keyStyle.Render("l"),
-	)
+	var hints string
+	if m.ntfyConfigured {
+		hints = fmt.Sprintf("%s select  %s spawn  %s kill  %s macro\n%s action  %s attach  %s board  %s detail  %s notify",
+			keyStyle.Render("j/k"),
+			keyStyle.Render("s"),
+			keyStyle.Render("X"),
+			keyStyle.Render("m"),
+			keyStyle.Render("M"),
+			keyStyle.Render("↵"),
+			keyStyle.Render("esc"),
+			keyStyle.Render("l"),
+			keyStyle.Render("n"),
+		)
+	} else {
+		hints = fmt.Sprintf("%s select  %s spawn  %s kill  %s macro\n%s action  %s attach  %s board  %s detail",
+			keyStyle.Render("j/k"),
+			keyStyle.Render("s"),
+			keyStyle.Render("X"),
+			keyStyle.Render("m"),
+			keyStyle.Render("M"),
+			keyStyle.Render("↵"),
+			keyStyle.Render("esc"),
+			keyStyle.Render("l"),
+		)
+	}
 
 	return hintStyle.Render(hints)
 }

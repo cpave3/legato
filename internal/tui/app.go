@@ -129,6 +129,12 @@ func (a *App) SetWebServerRunning(port string) {
 	a.statusBar = a.statusBar.SetWebServer(port)
 }
 
+// SetNtfyConfigured tells the agent view whether a notification channel
+// is available, so the 'n' keybinding shows conditionally.
+func (a *App) SetNtfyConfigured(v bool) {
+	a.agentView.SetNtfyConfigured(v)
+}
+
 // SetSparklineWindow configures the window and bucket count used when
 // fetching state timelines for the agent sidebar. Zero or negative values are
 // ignored (the handler's fallback applies).
@@ -475,6 +481,34 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.agentView, _ = a.agentView.Update(msg)
 		return a, nil
 
+
+	case agents.ToggleNotifyMsg:
+		if a.agentSvc != nil {
+			svc := a.agentSvc
+			taskID := msg.TaskID
+			return a, func() tea.Msg {
+				cur, _ := svc.GetTaskNotifyEnabled(context.Background(), taskID)
+				next := !cur
+				if err := svc.SetTaskNotifyEnabled(context.Background(), taskID, next); err != nil {
+					return agents.NotifyToggledMsg{TaskID: taskID, Enabled: cur, Err: err.Error()}
+				}
+				return agents.NotifyToggledMsg{TaskID: taskID, Enabled: next}
+			}
+		}
+		return a, nil
+
+	case agents.NotifyToggledMsg:
+		if msg.Err != "" {
+			a.statusBar, _ = a.statusBar.Update(statusbar.InfoMsg{Text: "notify error: " + msg.Err})
+		} else {
+			state := "off"
+			if msg.Enabled {
+				state = "on"
+			}
+			a.statusBar, _ = a.statusBar.Update(statusbar.InfoMsg{Text: "notify " + state + " for " + msg.TaskID})
+		}
+		a.agentView, _ = a.agentView.Update(msg)
+		return a, nil
 	case agentTickMsg:
 		if a.active != viewAgents || a.agentSvc == nil {
 			return a, nil

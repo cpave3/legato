@@ -164,6 +164,8 @@ func (p *promptAgentService) AdapterFor(string) service.AIToolAdapter          {
 func (p *promptAgentService) GetStateTimeline(context.Context, string, time.Duration, int) ([]string, error) {
 	return nil, nil
 }
+func (p *promptAgentService) SetTaskNotifyEnabled(context.Context, string, bool) error { return nil }
+func (p *promptAgentService) GetTaskNotifyEnabled(context.Context, string) (bool, error) { return false, nil }
 func (m *mockSyncService) Subscribe() <-chan service.SyncEvent     { return nil }
 func (m *mockSyncService) StartScheduler(_ context.Context) func() { return func() {} }
 func (m *mockSyncService) SearchRemote(_ context.Context, _ string) ([]service.RemoteSearchResult, error) {

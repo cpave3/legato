@@ -465,7 +465,13 @@ func runServeCmd(args []string) int {
 	var tmuxMgr service.TmuxManager
 	if mgr, tmuxErr := tmux.New(tmux.Options{}); tmuxErr == nil {
 		tmuxMgr = mgr
-		agentSvc = service.NewAgentService(db, mgr, wd)
+		var notifier service.Notifier
+		if cfg.Ntfy.Topic != "" {
+			notifier = service.NewNtfyNotifier(cfg.Ntfy.URL, cfg.Ntfy.Topic, cfg.Ntfy.Token)
+		}
+		agentSvc = service.NewAgentService(db, mgr, wd, service.AgentServiceOptions{
+			Notifier: notifier,
+		})
 	}
 
 	// Swarm service for HTTP endpoints.
@@ -489,6 +495,7 @@ func runServeCmd(args []string) int {
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
 	srv.SetMacros(cfg.Macros)
+	srv.SetNtfyConfigured(cfg.Ntfy.Topic != "")
 	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
 	srv.SetSparklineWindow(srvWindow, srvBuckets)
 
@@ -721,6 +728,10 @@ func runTUI() int {
 			chimeraAdapter.Name(): chimeraAdapter,
 			codexAdapter.Name():   codexAdapter,
 		}
+		var notifier service.Notifier
+		if cfg.Ntfy.Topic != "" {
+			notifier = service.NewNtfyNotifier(cfg.Ntfy.URL, cfg.Ntfy.Topic, cfg.Ntfy.Token)
+		}
 		agentSvc = service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
 			Adapter:           defaultAdapter,
 			Adapters:          adapters,
@@ -730,6 +741,7 @@ func runTUI() int {
 			BinaryPath:        legatoBin,
 			EventBus:          service.AgentDiedPublisher{Bus: bus},
 			BriefKickoffDelay: time.Duration(cfg.Swarm.BriefKickoffDelayMs) * time.Millisecond,
+			Notifier:          notifier,
 		})
 	}
 
@@ -764,6 +776,7 @@ func runTUI() int {
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)
+			webSrv.SetNtfyConfigured(cfg.Ntfy.Topic != "")
 			webWindow, webBuckets := resolveSparklineWindow(cfg)
 			webSrv.SetSparklineWindow(webWindow, webBuckets)
 			certFile, keyFile, caCertFile := resolveTLS(cfg)
@@ -794,6 +807,7 @@ func runTUI() int {
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros)
 	appWindow, appBuckets := resolveSparklineWindow(cfg)
 	app.SetSparklineWindow(appWindow, appBuckets)
+	app.SetNtfyConfigured(cfg.Ntfy.Topic != "")
 
 	// If the web server was auto-started, tell the TUI to show the indicator.
 	if webSrv != nil {

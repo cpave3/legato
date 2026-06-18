@@ -42,6 +42,19 @@ type OpenAgentActionMsg struct {
 	Role         string
 }
 
+// ToggleNotifyMsg is sent when the user presses 'n' to toggle push
+// notifications for the selected agent.
+type ToggleNotifyMsg struct {
+	TaskID string
+}
+
+// NotifyToggledMsg carries the result of a notify toggle action.
+type NotifyToggledMsg struct {
+	TaskID  string
+	Enabled bool
+	Err     string
+}
+
 // StateTimelinesRefreshedMsg carries sparkline data per agent task ID.
 type StateTimelinesRefreshedMsg struct {
 	Timelines map[string][]string // taskID -> bucket labels

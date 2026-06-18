@@ -42,6 +42,7 @@ export interface AgentInfo {
   working_seconds: number
   waiting_seconds: number
   state_timeline?: string[]
+  notify_enabled?: boolean
 }
 
 export interface PromptState {
@@ -94,6 +95,7 @@ export function useWebSocketProvider(wsUrl: string) {
       wsRef.current = null
       const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30000)
       attemptRef.current++
+      // eslint-disable-next-line react-hooks/immutability
       reconnectTimeoutRef.current = setTimeout(connect, delay)
     }
 

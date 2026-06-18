@@ -746,6 +746,8 @@ func (f *fakeAgentService) AdapterFor(kind string) service.AIToolAdapter     { r
 func (f *fakeAgentService) GetStateTimeline(_ context.Context, _ string, _ time.Duration, _ int) ([]string, error) {
 	return nil, nil
 }
+func (f *fakeAgentService) SetTaskNotifyEnabled(_ context.Context, _ string, _ bool) error { return nil }
+func (f *fakeAgentService) GetTaskNotifyEnabled(_ context.Context, _ string) (bool, error) { return false, nil }
 
 func TestDurationDataFlowsToBoard(t *testing.T) {
 	agentSvc := &fakeAgentService{

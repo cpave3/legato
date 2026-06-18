@@ -110,6 +110,10 @@ type AgentService interface {
 	AdapterFor(kind string) AIToolAdapter
 	// GetStateTimeline returns bucketed state labels for a task over a window.
 	GetStateTimeline(ctx context.Context, taskID string, window time.Duration, buckets int) ([]string, error)
+	// SetTaskNotifyEnabled toggles push notifications for a task.
+	SetTaskNotifyEnabled(ctx context.Context, taskID string, enabled bool) error
+	// GetTaskNotifyEnabled returns whether push notifications are enabled for a task.
+	GetTaskNotifyEnabled(ctx context.Context, taskID string) (bool, error)
 }
 
 type agentService struct {
@@ -124,6 +128,7 @@ type agentService struct {
 	binaryPath        string
 	bus               EventPublisher
 	briefKickoffDelay time.Duration
+	notifier          Notifier
 
 	conflictsMu   sync.Mutex
 	lastConflicts []AgentSpawnConflict
@@ -220,6 +225,7 @@ type AgentServiceOptions struct {
 	BinaryPath        string // Absolute path to legato binary for tmux status line
 	EventBus          EventPublisher
 	BriefKickoffDelay time.Duration // override the default brief-kickoff send-keys delay
+	Notifier          Notifier
 }
 
 // NewAgentService creates an AgentService.
@@ -236,6 +242,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		if opts[0].BriefKickoffDelay > 0 {
 			svc.briefKickoffDelay = opts[0].BriefKickoffDelay
 		}
+		svc.notifier = opts[0].Notifier
 	}
 	return svc
 }
@@ -737,13 +744,51 @@ func (a *agentService) GetAgentSummary(ctx context.Context, excludeTaskID string
 }
 
 func (a *agentService) SetAgentActivity(ctx context.Context, taskID, activity, workingDir string) error {
+	oldActivity := ""
+	if sess, err := a.store.GetAgentSessionByTaskID(ctx, taskID); err == nil {
+		oldActivity = sess.Activity
+	}
+
 	if err := a.store.UpdateAgentActivity(ctx, taskID, activity); err != nil {
 		return fmt.Errorf("updating agent activity: %w", err)
 	}
 	if err := a.store.RecordStateTransition(ctx, taskID, activity, workingDir); err != nil {
 		return fmt.Errorf("recording state transition: %w", err)
 	}
+
+	if oldActivity == "working" && (activity == "waiting" || activity == "") {
+		a.maybeNotify(taskID, activity)
+	}
 	return nil
+}
+
+func (a *agentService) maybeNotify(taskID, activity string) {
+	if a.notifier == nil || !a.notifier.Configured() {
+		return
+	}
+	enabled, err := a.store.GetTaskNotifyEnabled(context.Background(), taskID)
+	if err != nil || !enabled {
+		return
+	}
+	if n, ok := a.notifier.(*ntfyNotifier); ok {
+		if !n.CanNotify(taskID) {
+			return
+		}
+	}
+	title := "Agent ready"
+	msg := fmt.Sprintf("Agent %s is now waiting", taskID)
+	if activity == "" {
+		msg = fmt.Sprintf("Agent %s is now idle", taskID)
+	}
+	_ = a.notifier.Notify(title, msg)
+}
+
+func (a *agentService) SetTaskNotifyEnabled(ctx context.Context, taskID string, enabled bool) error {
+	return a.store.UpdateTaskNotifyEnabled(ctx, taskID, enabled)
+}
+
+func (a *agentService) GetTaskNotifyEnabled(ctx context.Context, taskID string) (bool, error) {
+	return a.store.GetTaskNotifyEnabled(ctx, taskID)
 }
 
 func (a *agentService) CaptureOutput(ctx context.Context, taskID string) (string, error) {

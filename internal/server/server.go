@@ -37,6 +37,7 @@ type Server struct {
 	macros           []macros.Macro
 	sparklineWindow  time.Duration
 	sparklineBuckets int
+	ntfyConfigured   bool
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -74,6 +75,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents", s.agentsHandler())
 	mux.HandleFunc("/api/agents/spawn", s.spawnAgentHandler())
 	mux.HandleFunc("/api/agents/kill", s.killAgentHandler())
+	mux.HandleFunc("/api/agents/{task_id}/notify", s.agentNotifyHandler())
 	mux.HandleFunc("/api/tasks", s.tasksHandler())
 	mux.HandleFunc("/api/tasks/search", s.searchTasksHandler())
 	mux.HandleFunc("/api/tasks/{id}/archive", s.archiveTaskHandler())
@@ -233,9 +235,11 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 		resp := struct {
 			CaCertAvailable bool   `json:"ca_cert_available"`
 			WorkingDir      string `json:"working_dir"`
+			NtfyConfigured  bool   `json:"ntfy_configured"`
 		}{
 			CaCertAvailable: hasCACert,
 			WorkingDir:      s.workDir,
+			NtfyConfigured:  s.ntfyConfigured,
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}

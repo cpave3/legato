@@ -292,6 +292,22 @@ func newTestAgentService(t *testing.T) (AgentService, *store.Store, *mockTmux) {
 	return svc, s, mt
 }
 
+func newTestAgentServiceWithNotifier(t *testing.T, notifier Notifier) (AgentService, *store.Store, *mockTmux) {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+		Notifier: notifier,
+	})
+	return svc, s, mt
+}
+
 func createTask(t *testing.T, s *store.Store, id string) {
 	t.Helper()
 	ctx := context.Background()
@@ -1163,5 +1179,98 @@ func TestGetStateTimelineReturnsBuckets(t *testing.T) {
 	}
 	if res[2] != "" {
 		t.Errorf("bucket[2] = %q, want idle", res[2])
+	}
+}
+
+// fakeNotifier records notification calls for testing.
+type fakeNotifier struct {
+	calls []struct{ title, message string }
+	configured bool
+	canNotify bool
+}
+
+func (f *fakeNotifier) Notify(title, message string) error {
+	f.calls = append(f.calls, struct{ title, message string }{title, message})
+	return nil
+}
+
+func (f *fakeNotifier) Configured() bool { return f.configured }
+
+func TestSetAgentActivity_FiresNotification(t *testing.T) {
+	fn := &fakeNotifier{configured: true, canNotify: true}
+	svc, s, _ := newTestAgentServiceWithNotifier(t, fn)
+	ctx := context.Background()
+	createTask(t, s, "REX-1238")
+
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.SetTaskNotifyEnabled(ctx, "REX-1238", true); err != nil {
+		t.Fatal(err)
+	}
+
+	// working -> waiting should fire
+	if err := svc.SetAgentActivity(ctx, "REX-1238", "working", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetAgentActivity(ctx, "REX-1238", "waiting", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(fn.calls) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(fn.calls))
+	}
+	if fn.calls[0].title != "Agent ready" {
+		t.Errorf("title = %q, want %q", fn.calls[0].title, "Agent ready")
+	}
+}
+
+func TestSetAgentActivity_NoNotificationWhenDisabled(t *testing.T) {
+	fn := &fakeNotifier{configured: true, canNotify: true}
+	svc, s, _ := newTestAgentServiceWithNotifier(t, fn)
+	ctx := context.Background()
+	createTask(t, s, "REX-1238")
+
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	// notify is NOT enabled (defaults to false)
+
+	if err := svc.SetAgentActivity(ctx, "REX-1238", "working", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetAgentActivity(ctx, "REX-1238", "waiting", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(fn.calls) != 0 {
+		t.Fatalf("expected 0 notifications, got %d", len(fn.calls))
+	}
+}
+
+func TestSetAgentActivity_NoNotificationForWorkingTransition(t *testing.T) {
+	fn := &fakeNotifier{configured: true, canNotify: true}
+	svc, s, _ := newTestAgentServiceWithNotifier(t, fn)
+	ctx := context.Background()
+	createTask(t, s, "REX-1238")
+
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetTaskNotifyEnabled(ctx, "REX-1238", true); err != nil {
+		t.Fatal(err)
+	}
+
+	// waiting -> working should NOT fire
+	if err := svc.SetAgentActivity(ctx, "REX-1238", "waiting", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetAgentActivity(ctx, "REX-1238", "working", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(fn.calls) != 0 {
+		t.Fatalf("expected 0 notifications, got %d", len(fn.calls))
 	}
 }
