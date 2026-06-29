@@ -72,7 +72,7 @@ Env vars on the spawned tmux session:
 - `LEGATO_ROLE_PROMPT_FILE`, `LEGATO_BRIEF_FILE`
 - `LEGATO_SOCKET` (existing)
 
-The launch command (e.g. `claude --append-system-prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)"`) substitutes the prompt content at shell-expansion time, sidestepping any quoting/escaping concerns. The brief is delivered as a separate kickoff send-keys: `Read your brief at $LEGATO_BRIEF_FILE and begin work.`
+The launch command (e.g. `claude --append-system-prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)"` or `codex -c developer_instructions="$(cat $LEGATO_ROLE_PROMPT_FILE)"`) substitutes the prompt content at shell-expansion time, sidestepping any quoting/escaping concerns. The brief is delivered as a separate kickoff send-keys: `Read your brief at $LEGATO_BRIEF_FILE and begin work.`
 
 Plans are persisted to `~/.legato/plans/<parent-id>-<unix-ts>.yaml` and retained as a record.
 
@@ -295,6 +295,22 @@ The full launch command becomes:
 ```
 claude --append-system-prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)" --dangerously-skip-permissions
 ```
+
+**Codex** — typical flags:
+```yaml
+adapters:
+  codex:
+    launch_args:
+      - "--model"
+      - "gpt-5.4"
+```
+
+The full launch command becomes:
+```
+codex -c developer_instructions="$(cat $LEGATO_ROLE_PROMPT_FILE)" --model gpt-5.4
+```
+
+The `developer_instructions` config carries the role content (`worker.md` or `conductor.md`) as Codex developer-level context. Like Claude Code, Codex still receives a separate kickoff send-keys telling it to read `$LEGATO_BRIEF_FILE`.
 
 **Chimera** — typical flags:
 ```yaml

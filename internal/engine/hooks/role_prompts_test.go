@@ -13,6 +13,9 @@ func TestBuiltinRolePromptConductor(t *testing.T) {
 	if !strings.Contains(got, "conductor") {
 		t.Error("conductor prompt missing expected keyword")
 	}
+	if !strings.Contains(got, "legato task show $LEGATO_TASK_ID") {
+		t.Error("conductor prompt missing task context lookup guidance")
+	}
 }
 
 func TestBuiltinRolePromptWorkerFallback(t *testing.T) {
@@ -24,6 +27,9 @@ func TestBuiltinRolePromptWorkerFallback(t *testing.T) {
 		}
 		if !strings.Contains(got, "worker") {
 			t.Errorf("role %q didn't fall back to worker prompt", role)
+		}
+		if !strings.Contains(got, "legato task show $LEGATO_TASK_ID") {
+			t.Errorf("role %q worker prompt missing task context lookup guidance", role)
 		}
 	}
 }

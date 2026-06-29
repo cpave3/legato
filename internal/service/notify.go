@@ -18,6 +18,10 @@ type Notifier interface {
 	Notify(title, message string) error
 	// Configured returns true when the notifier has enough config to send.
 	Configured() bool
+	// CanNotify checks whether enough time has passed since the last
+	// notification for the given task ID. Must be called before Notify
+	// to avoid rate-limit violations.
+	CanNotify(taskID string) bool
 }
 
 // ntfyNotifier publishes to an ntfy.sh topic via HTTP POST.
@@ -28,8 +32,8 @@ type ntfyNotifier struct {
 	client *http.Client
 
 	// per-agent rate limiting: last notification time by task ID.
-	lastMu  sync.Mutex
-	lastSent map[string]time.Time
+	lastMu      sync.Mutex
+	lastSent    map[string]time.Time
 	minInterval time.Duration
 }
 
@@ -51,10 +55,10 @@ func NewNtfyNotifier(url, topic, token string) Notifier {
 
 func (n *ntfyNotifier) Configured() bool { return true }
 
-// Notify sends the notification asynchronously (fire-and-forget).
-// Errors are logged but not returned to the caller.
+// Notify sends the notification synchronously.
+// Callers that need fire-and-forget should wrap the call in a goroutine.
 func (n *ntfyNotifier) Notify(title, message string) error {
-	go n.doNotify(title, message)
+	n.doNotify(title, message)
 	return nil
 }
 
@@ -95,4 +99,5 @@ func (n *ntfyNotifier) CanNotify(taskID string) bool {
 type noopNotifier struct{}
 
 func (n *noopNotifier) Notify(_, _ string) error { return nil }
-func (n *noopNotifier) Configured() bool          { return false }
+func (n *noopNotifier) Configured() bool         { return false }
+func (n *noopNotifier) CanNotify(_ string) bool  { return false }

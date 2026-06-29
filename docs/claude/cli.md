@@ -108,6 +108,8 @@ Legato-spawned tmux sessions get a custom status bar showing live context. Solo 
 
 `CodexAdapter` in `internal/engine/hooks/codex.go` implements `AIToolAdapter`. Installs four activity-update hooks via `.codex/hooks.json` and writes shell scripts to `.codex/hooks/legato-*.sh`. The scope is determined by the current working directory: run `legato hooks install --tool codex` from your home directory for global hooks (`~/.codex/`) or from a project directory for project-local hooks (`<repo>/.codex/`).
 
+For swarm auto-launch, Legato injects the conductor/worker role prompt as Codex developer instructions with `codex -c developer_instructions="$(cat $LEGATO_ROLE_PROMPT_FILE)"`, then sends the usual kickoff message telling Codex to read `$LEGATO_BRIEF_FILE`.
+
 **Event → activity mapping** (per Codex's documented hook events):
 
 | Event               | Script                       | Activity  |

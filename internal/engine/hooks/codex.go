@@ -69,13 +69,15 @@ func (a *CodexAdapter) RoleSystemPrompt(role string) string {
 func (a *CodexAdapter) InterruptKeys() []string { return []string{"Escape"} }
 
 // LaunchCommand returns the shell command that starts an interactive Codex
-// session. Codex does not document a system-prompt injection flag, so the
-// role prompt file is not referenced here — the brief is delivered via
-// post-launch send-keys by the agent service.
+// session. When LEGATO_ROLE_PROMPT_FILE is set, the role prompt is injected
+// as Codex developer instructions via `-c`. The brief is delivered separately
+// by the agent service via a short send-keys pointer to the brief file.
 func (a *CodexAdapter) LaunchCommand(env map[string]string, brief, tier string) string {
-	_ = env
 	_ = brief
 	cmd := "codex"
+	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; ok {
+		cmd += ` -c developer_instructions="$(cat $LEGATO_ROLE_PROMPT_FILE)"`
+	}
 	for _, arg := range a.launchArgs {
 		cmd += " " + shellQuote(arg)
 	}
@@ -146,8 +148,8 @@ type codexHooksConfig struct {
 }
 
 type codexMatcherGroup struct {
-	Matcher string            `json:"matcher,omitempty"`
-	Hooks   []codexHookEntry  `json:"hooks,omitempty"`
+	Matcher string           `json:"matcher,omitempty"`
+	Hooks   []codexHookEntry `json:"hooks,omitempty"`
 }
 
 type codexHookEntry struct {

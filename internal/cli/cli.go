@@ -121,8 +121,16 @@ func TaskNote(s *store.Store, taskID, message string) error {
 // workingDir, when non-empty, is recorded on the interval to help track
 // time spent in directories as a proxy for project focus.
 // Broadcasts an IPC notification to all running Legato instances.
-func AgentState(s *store.Store, taskID, activity, workingDir string) error {
+// If notifier is non-nil and configured, a push notification is sent when
+// the transition is working -> waiting or working -> idle and the task
+// has notifications enabled.
+func AgentState(s *store.Store, taskID, activity, workingDir string, pushNotifier, osNotifier service.Notifier) error {
 	ctx := context.Background()
+
+	oldActivity := ""
+	if sess, err := s.GetAgentSessionByTaskID(ctx, taskID); err == nil {
+		oldActivity = sess.Activity
+	}
 
 	if err := s.UpdateAgentActivity(ctx, taskID, activity); err != nil {
 		return fmt.Errorf("updating agent activity: %w", err)
@@ -131,6 +139,10 @@ func AgentState(s *store.Store, taskID, activity, workingDir string) error {
 	// Record state interval for duration tracking
 	if err := s.RecordStateTransition(ctx, taskID, activity, workingDir); err != nil {
 		return fmt.Errorf("recording state transition: %w", err)
+	}
+
+	if oldActivity == "working" && (activity == "waiting" || activity == "") {
+		service.MaybeNotify(s, pushNotifier, osNotifier, taskID, activity)
 	}
 
 	ipc.Broadcast(ipc.Message{

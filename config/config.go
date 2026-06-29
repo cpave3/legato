@@ -11,21 +11,21 @@ import (
 )
 
 type Config struct {
-	Jira        JiraConfig               `yaml:"jira"`
-	Board       BoardConfig              `yaml:"board"`
-	Theme       string                   `yaml:"theme"`
-	Icons       string                   `yaml:"icons"` // "unicode" (default) or "nerdfonts"
-	Editor      string                   `yaml:"editor"`
-	Keybindings KeybindingsConfig        `yaml:"keybindings"`
-	DB          DBConfig                 `yaml:"db"`
-	Agents      AgentsConfig             `yaml:"agents"`
-	GitHub      GitHubConfig             `yaml:"github"`
-	Web         WebConfig                `yaml:"web"`
-	Ntfy        NtfyConfig               `yaml:"ntfy"`
-	Workspaces  []WorkspaceConfig        `yaml:"workspaces"`
-	Swarm       SwarmConfig              `yaml:"swarm"`
-	Adapters    map[string]AdapterConfig `yaml:"adapters"`
-	Macros      []macros.Macro           `yaml:"macros"`
+	Jira          JiraConfig               `yaml:"jira"`
+	Board         BoardConfig              `yaml:"board"`
+	Theme         string                   `yaml:"theme"`
+	Icons         string                   `yaml:"icons"` // "unicode" (default) or "nerdfonts"
+	Editor        string                   `yaml:"editor"`
+	Keybindings   KeybindingsConfig        `yaml:"keybindings"`
+	DB            DBConfig                 `yaml:"db"`
+	Agents        AgentsConfig             `yaml:"agents"`
+	GitHub        GitHubConfig             `yaml:"github"`
+	Web           WebConfig                `yaml:"web"`
+	Notifications NotificationsConfig      `yaml:"notifications"`
+	Workspaces    []WorkspaceConfig        `yaml:"workspaces"`
+	Swarm         SwarmConfig              `yaml:"swarm"`
+	Adapters      map[string]AdapterConfig `yaml:"adapters"`
+	Macros        []macros.Macro           `yaml:"macros"`
 }
 
 // AdapterConfig holds per-adapter launch settings (e.g. extra CLI flags
@@ -116,6 +116,17 @@ type NtfyConfig struct {
 	URL   string `yaml:"url"`   // ntfy server URL, e.g. https://ntfy.sh
 	Topic string `yaml:"topic"` // topic name to publish to
 	Token string `yaml:"token"` // optional access token for private topics
+}
+
+// NotificationsConfig holds notification settings.
+type NotificationsConfig struct {
+	Ntfy NtfyConfig            `yaml:"ntfy"`
+	OS   OSNotificationsConfig `yaml:"os"`
+}
+
+// OSNotificationsConfig holds OS-native desktop notification settings.
+type OSNotificationsConfig struct {
+	Enabled bool `yaml:"enabled"` // enable OS desktop notifications (Linux/macOS)
 }
 
 type WebConfig struct {
@@ -328,8 +339,8 @@ func applyDefaults(cfg *Config) {
 	if cfg.Web.Port == "" {
 		cfg.Web.Port = "3080"
 	}
-	if cfg.Ntfy.URL == "" {
-		cfg.Ntfy.URL = "https://ntfy.sh"
+	if cfg.Notifications.Ntfy.URL == "" {
+		cfg.Notifications.Ntfy.URL = "https://ntfy.sh"
 	}
 	// VimMode defaults to true — yaml unmarshals missing bool as false,
 	// so we only set it if the entire keybindings section was absent.

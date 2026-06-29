@@ -196,6 +196,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			prevSelTaskID = m.agents[m.selected].TaskID
 		}
 		m.agents = sortAgentsForGrouping(msg.Agents)
+		for _, a := range m.agents {
+			m.notifyStates[a.TaskID] = a.NotifyEnabled
+		}
 		if m.selected >= len(m.agents) {
 			m.selected = max(0, len(m.agents)-1)
 		}

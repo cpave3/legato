@@ -255,7 +255,7 @@ func TestAgentState_UpdatesActivity(t *testing.T) {
 		Status:      "running",
 	})
 
-	err := cli.AgentState(s, "abc123", "working", "")
+	err := cli.AgentState(s, "abc123", "working", "", nil, nil)
 	if err != nil {
 		t.Fatalf("AgentState: %v", err)
 	}
@@ -282,8 +282,8 @@ func TestAgentState_ClearsActivity(t *testing.T) {
 		Status:      "running",
 	})
 
-	cli.AgentState(s, "abc123", "working", "")
-	cli.AgentState(s, "abc123", "", "")
+	cli.AgentState(s, "abc123", "working", "", nil, nil)
+	cli.AgentState(s, "abc123", "", "", nil, nil)
 
 	session, _ := s.GetAgentSessionByTaskID(ctx, "abc123")
 	if session.Activity != "" {
@@ -304,7 +304,7 @@ func TestAgentState_RecordsStateInterval(t *testing.T) {
 		Status:      "running",
 	})
 
-	cli.AgentState(s, "abc123", "working", "")
+	cli.AgentState(s, "abc123", "working", "", nil, nil)
 
 	durations, err := s.GetStateDurations(ctx, "abc123")
 	if err != nil {
@@ -328,8 +328,8 @@ func TestAgentState_TransitionClosesAndOpensInterval(t *testing.T) {
 		Status:      "running",
 	})
 
-	cli.AgentState(s, "abc123", "working", "")
-	cli.AgentState(s, "abc123", "waiting", "")
+	cli.AgentState(s, "abc123", "working", "", nil, nil)
+	cli.AgentState(s, "abc123", "waiting", "", nil, nil)
 
 	durations, err := s.GetStateDurations(ctx, "abc123")
 	if err != nil {

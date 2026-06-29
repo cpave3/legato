@@ -38,19 +38,20 @@ type TmuxManager interface {
 
 // AgentSession represents a running or completed agent session.
 type AgentSession struct {
-	ID           int
-	TaskID       string
-	Title        string
-	TmuxSession  string
-	Command      string
-	AgentKind    string
-	Status       string
-	Activity     string // "working", "waiting", or "" (idle)
-	Role         string // "conductor", "" for non-swarm, or worker role label
-	ParentTaskID string // when set, this session belongs to a swarm
-	SubtaskID    string // when set, this session is a swarm worker
-	StartedAt    time.Time
-	EndedAt      *time.Time
+	ID            int
+	TaskID        string
+	Title         string
+	TmuxSession   string
+	Command       string
+	AgentKind     string
+	Status        string
+	Activity      string // "working", "waiting", or "" (idle)
+	Role          string // "conductor", "" for non-swarm, or worker role label
+	ParentTaskID  string // when set, this session belongs to a swarm
+	SubtaskID     string // when set, this session is a swarm worker
+	StartedAt     time.Time
+	EndedAt       *time.Time
+	NotifyEnabled bool
 
 	// Swarm worker metadata, hydrated from the subtask row.
 	Description string
@@ -129,6 +130,7 @@ type agentService struct {
 	bus               EventPublisher
 	briefKickoffDelay time.Duration
 	notifier          Notifier
+	osNotifier        Notifier
 
 	conflictsMu   sync.Mutex
 	lastConflicts []AgentSpawnConflict
@@ -226,6 +228,7 @@ type AgentServiceOptions struct {
 	EventBus          EventPublisher
 	BriefKickoffDelay time.Duration // override the default brief-kickoff send-keys delay
 	Notifier          Notifier
+	OSNotifier        Notifier // OS-native desktop notifications (Linux/macOS)
 }
 
 // NewAgentService creates an AgentService.
@@ -243,6 +246,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 			svc.briefKickoffDelay = opts[0].BriefKickoffDelay
 		}
 		svc.notifier = opts[0].Notifier
+		svc.osNotifier = opts[0].OSNotifier
 	}
 	return svc
 }
@@ -624,20 +628,23 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 		if s.SubtaskID != nil {
 			subtaskID = *s.SubtaskID
 		}
+		notifyEnabled, _ := a.store.GetTaskNotifyEnabled(ctx, s.TaskID)
+
 		result[i] = AgentSession{
-			ID:           s.ID,
-			TaskID:       s.TaskID,
-			Title:        title,
-			TmuxSession:  s.TmuxSession,
-			Command:      command,
-			AgentKind:    s.AgentKind,
-			Status:       s.Status,
-			Activity:     s.Activity,
-			Role:         s.Role,
-			ParentTaskID: parentID,
-			SubtaskID:    subtaskID,
-			StartedAt:    startedAt,
-			EndedAt:      endedAt,
+			ID:            s.ID,
+			TaskID:        s.TaskID,
+			Title:         title,
+			TmuxSession:   s.TmuxSession,
+			Command:       command,
+			AgentKind:     s.AgentKind,
+			Status:        s.Status,
+			Activity:      s.Activity,
+			Role:          s.Role,
+			ParentTaskID:  parentID,
+			SubtaskID:     subtaskID,
+			StartedAt:     startedAt,
+			EndedAt:       endedAt,
+			NotifyEnabled: notifyEnabled,
 		}
 
 		// Hydrate subtask metadata for swarm workers.
@@ -762,25 +769,35 @@ func (a *agentService) SetAgentActivity(ctx context.Context, taskID, activity, w
 	return nil
 }
 
-func (a *agentService) maybeNotify(taskID, activity string) {
-	if a.notifier == nil || !a.notifier.Configured() {
-		return
+// MaybeNotify sends notifications when an agent transitions from working to
+// waiting or idle. pushNotifier is gated by per-task notify preference and
+// rate limits; osNotifier fires unconditionally when configured.
+func MaybeNotify(store *store.Store, pushNotifier, osNotifier Notifier, taskID, activity string) {
+	label := taskID
+	if task, err := store.GetTask(context.Background(), taskID); err == nil && task.Title != "" {
+		label = task.Title
 	}
-	enabled, err := a.store.GetTaskNotifyEnabled(context.Background(), taskID)
-	if err != nil || !enabled {
-		return
+
+	title := "Agent ready"
+	msg := fmt.Sprintf("Agent %s is now waiting", label)
+	if activity == "" {
+		msg = fmt.Sprintf("Agent %s is now idle", label)
 	}
-	if n, ok := a.notifier.(*ntfyNotifier); ok {
-		if !n.CanNotify(taskID) {
-			return
+
+	if pushNotifier != nil && pushNotifier.Configured() {
+		enabled, err := store.GetTaskNotifyEnabled(context.Background(), taskID)
+		if err == nil && enabled && pushNotifier.CanNotify(taskID) {
+			_ = pushNotifier.Notify(title, msg)
 		}
 	}
-	title := "Agent ready"
-	msg := fmt.Sprintf("Agent %s is now waiting", taskID)
-	if activity == "" {
-		msg = fmt.Sprintf("Agent %s is now idle", taskID)
+
+	if osNotifier != nil && osNotifier.Configured() {
+		_ = osNotifier.Notify(title, msg)
 	}
-	_ = a.notifier.Notify(title, msg)
+}
+
+func (a *agentService) maybeNotify(taskID, activity string) {
+	MaybeNotify(a.store, a.notifier, a.osNotifier, taskID, activity)
 }
 
 func (a *agentService) SetTaskNotifyEnabled(ctx context.Context, taskID string, enabled bool) error {

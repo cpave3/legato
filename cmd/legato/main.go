@@ -287,7 +287,15 @@ func runAgentState(args []string) int {
 	}
 	defer db.Close()
 
-	if err := cli.AgentState(db, taskID, activity, workingDir); err != nil {
+	var pushNotifier service.Notifier
+	if cfg.Notifications.Ntfy.Topic != "" {
+		pushNotifier = service.NewNtfyNotifier(cfg.Notifications.Ntfy.URL, cfg.Notifications.Ntfy.Topic, cfg.Notifications.Ntfy.Token)
+	}
+	var osNotifier service.Notifier
+	if cfg.Notifications.OS.Enabled {
+		osNotifier = service.NewOSNotifier()
+	}
+	if err := cli.AgentState(db, taskID, activity, workingDir, pushNotifier, osNotifier); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
@@ -466,11 +474,16 @@ func runServeCmd(args []string) int {
 	if mgr, tmuxErr := tmux.New(tmux.Options{}); tmuxErr == nil {
 		tmuxMgr = mgr
 		var notifier service.Notifier
-		if cfg.Ntfy.Topic != "" {
-			notifier = service.NewNtfyNotifier(cfg.Ntfy.URL, cfg.Ntfy.Topic, cfg.Ntfy.Token)
+		if cfg.Notifications.Ntfy.Topic != "" {
+			notifier = service.NewNtfyNotifier(cfg.Notifications.Ntfy.URL, cfg.Notifications.Ntfy.Topic, cfg.Notifications.Ntfy.Token)
+		}
+		var osNotifier service.Notifier
+		if cfg.Notifications.OS.Enabled {
+			osNotifier = service.NewOSNotifier()
 		}
 		agentSvc = service.NewAgentService(db, mgr, wd, service.AgentServiceOptions{
-			Notifier: notifier,
+			Notifier:   notifier,
+			OSNotifier: osNotifier,
 		})
 	}
 
@@ -495,7 +508,7 @@ func runServeCmd(args []string) int {
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
 	srv.SetMacros(cfg.Macros)
-	srv.SetNtfyConfigured(cfg.Ntfy.Topic != "")
+	srv.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
 	srv.SetSparklineWindow(srvWindow, srvBuckets)
 
@@ -729,8 +742,12 @@ func runTUI() int {
 			codexAdapter.Name():   codexAdapter,
 		}
 		var notifier service.Notifier
-		if cfg.Ntfy.Topic != "" {
-			notifier = service.NewNtfyNotifier(cfg.Ntfy.URL, cfg.Ntfy.Topic, cfg.Ntfy.Token)
+		if cfg.Notifications.Ntfy.Topic != "" {
+			notifier = service.NewNtfyNotifier(cfg.Notifications.Ntfy.URL, cfg.Notifications.Ntfy.Topic, cfg.Notifications.Ntfy.Token)
+		}
+		var osNotifier service.Notifier
+		if cfg.Notifications.OS.Enabled {
+			osNotifier = service.NewOSNotifier()
 		}
 		agentSvc = service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
 			Adapter:           defaultAdapter,
@@ -742,6 +759,7 @@ func runTUI() int {
 			EventBus:          service.AgentDiedPublisher{Bus: bus},
 			BriefKickoffDelay: time.Duration(cfg.Swarm.BriefKickoffDelayMs) * time.Millisecond,
 			Notifier:          notifier,
+			OSNotifier:        osNotifier,
 		})
 	}
 
@@ -776,7 +794,7 @@ func runTUI() int {
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)
-			webSrv.SetNtfyConfigured(cfg.Ntfy.Topic != "")
+			webSrv.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 			webWindow, webBuckets := resolveSparklineWindow(cfg)
 			webSrv.SetSparklineWindow(webWindow, webBuckets)
 			certFile, keyFile, caCertFile := resolveTLS(cfg)
@@ -807,7 +825,7 @@ func runTUI() int {
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros)
 	appWindow, appBuckets := resolveSparklineWindow(cfg)
 	app.SetSparklineWindow(appWindow, appBuckets)
-	app.SetNtfyConfigured(cfg.Ntfy.Topic != "")
+	app.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 
 	// If the web server was auto-started, tell the TUI to show the indicator.
 	if webSrv != nil {

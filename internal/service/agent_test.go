@@ -1184,9 +1184,9 @@ func TestGetStateTimelineReturnsBuckets(t *testing.T) {
 
 // fakeNotifier records notification calls for testing.
 type fakeNotifier struct {
-	calls []struct{ title, message string }
+	calls      []struct{ title, message string }
 	configured bool
-	canNotify bool
+	canNotify  bool
 }
 
 func (f *fakeNotifier) Notify(title, message string) error {
@@ -1194,7 +1194,8 @@ func (f *fakeNotifier) Notify(title, message string) error {
 	return nil
 }
 
-func (f *fakeNotifier) Configured() bool { return f.configured }
+func (f *fakeNotifier) Configured() bool        { return f.configured }
+func (f *fakeNotifier) CanNotify(_ string) bool { return f.canNotify }
 
 func TestSetAgentActivity_FiresNotification(t *testing.T) {
 	fn := &fakeNotifier{configured: true, canNotify: true}
@@ -1223,6 +1224,10 @@ func TestSetAgentActivity_FiresNotification(t *testing.T) {
 	}
 	if fn.calls[0].title != "Agent ready" {
 		t.Errorf("title = %q, want %q", fn.calls[0].title, "Agent ready")
+	}
+	wantMsg := "Agent Test REX-1238 is now waiting"
+	if fn.calls[0].message != wantMsg {
+		t.Errorf("message = %q, want %q", fn.calls[0].message, wantMsg)
 	}
 }
 
