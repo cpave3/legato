@@ -205,6 +205,26 @@ func writeAgentPromptFiles(taskID, rolePrompt, brief string) (string, string, er
 	return rolePath, briefPath, nil
 }
 
+func rolePromptForAdapter(adapter AIToolAdapter, role string) string {
+	if adapter == nil || role == "" {
+		return ""
+	}
+	rolePrompt := ""
+	if rp, ok := adapter.(RolePromptingAdapter); ok {
+		rolePrompt = rp.RoleSystemPrompt(role)
+	}
+	if pp, ok := adapter.(RolePromptPreambleAdapter); ok {
+		if preamble := pp.RolePromptPreamble(); preamble != "" {
+			if rolePrompt != "" {
+				rolePrompt = preamble + "\n\n---\n\n" + rolePrompt
+			} else {
+				rolePrompt = preamble
+			}
+		}
+	}
+	return rolePrompt
+}
+
 // EventPublisher publishes events. Wraps *events.Bus to keep the service layer
 // loosely coupled.
 type EventPublisher interface {
@@ -327,21 +347,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// command receives paths via env vars so multi-line/quoted content never
 	// has to traverse shell escaping. Skipped for non-swarm spawns where no
 	// role or brief is supplied.
-	rolePrompt := ""
-	if rp, ok := adapter.(RolePromptingAdapter); ok && opt.Role != "" {
-		rolePrompt = rp.RoleSystemPrompt(opt.Role)
-	}
-	// Prepend any adapter-specific preamble (e.g. Chimera's host-mode warning
-	// for legato CLI / env access from inside a sandbox).
-	if pp, ok := adapter.(RolePromptPreambleAdapter); ok {
-		if preamble := pp.RolePromptPreamble(); preamble != "" {
-			if rolePrompt != "" {
-				rolePrompt = preamble + "\n\n---\n\n" + rolePrompt
-			} else {
-				rolePrompt = preamble
-			}
-		}
-	}
+	rolePrompt := rolePromptForAdapter(adapter, opt.Role)
 	if rolePrompt != "" || opt.Brief != "" {
 		rolePath, briefPath, perr := writeAgentPromptFiles(taskID, rolePrompt, opt.Brief)
 		if perr != nil {

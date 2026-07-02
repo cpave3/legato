@@ -29,3 +29,26 @@ func parseMessageArgs(args []string) (id, text string, urgent bool, err error) {
 	text = strings.Join(pos[1:], " ")
 	return id, text, urgent, nil
 }
+
+// parseSwarmCreateArgs extracts the goal and optional --working-dir flag from
+// `legato swarm create`. The flag can appear before or after goal words; all
+// remaining positional args are joined as the goal.
+func parseSwarmCreateArgs(args []string) (goal, workingDir string, err error) {
+	var pos []string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--working-dir":
+			if i+1 >= len(args) {
+				return "", "", errors.New("--working-dir requires a value")
+			}
+			workingDir = args[i+1]
+			i++
+		default:
+			pos = append(pos, args[i])
+		}
+	}
+	if len(pos) == 0 {
+		return "", "", errors.New("goal is required")
+	}
+	return strings.Join(pos, " "), workingDir, nil
+}

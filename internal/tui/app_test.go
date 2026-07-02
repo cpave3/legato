@@ -146,6 +146,7 @@ func (f *fakeSwarmService) PeekInbox(_ context.Context, _ string) ([]service.Inb
 }
 func (f *fakeSwarmService) LoadPlan(_ string) (*service.SwarmPlan, error)            { return nil, nil }
 func (f *fakeSwarmService) StartSwarm(_ context.Context, _, _ string) error          { return nil }
+func (f *fakeSwarmService) CreateAdhocSwarm(_ context.Context, _, _, _ string) error { return nil }
 func (f *fakeSwarmService) ApplyApprovedPlan(_ context.Context, _ *swarm.Plan) error { return nil }
 func (f *fakeSwarmService) CancelSwarm(_ context.Context, id string) error {
 	f.calls = append(f.calls, swarmCall{method: "CancelSwarm", id: id})
@@ -746,8 +747,12 @@ func (f *fakeAgentService) AdapterFor(kind string) service.AIToolAdapter     { r
 func (f *fakeAgentService) GetStateTimeline(_ context.Context, _ string, _ time.Duration, _ int) ([]string, error) {
 	return nil, nil
 }
-func (f *fakeAgentService) SetTaskNotifyEnabled(_ context.Context, _ string, _ bool) error { return nil }
-func (f *fakeAgentService) GetTaskNotifyEnabled(_ context.Context, _ string) (bool, error) { return false, nil }
+func (f *fakeAgentService) SetTaskNotifyEnabled(_ context.Context, _ string, _ bool) error {
+	return nil
+}
+func (f *fakeAgentService) GetTaskNotifyEnabled(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
 
 func TestDurationDataFlowsToBoard(t *testing.T) {
 	agentSvc := &fakeAgentService{
@@ -1355,6 +1360,9 @@ func (f *fakeStartSwarmErrorService) StartSwarm(_ context.Context, _, _ string) 
 		return fmt.Errorf("parent task has leftover swarm sub-tasks — cancel the existing swarm first")
 	}
 	return fmt.Errorf("some other error")
+}
+func (f *fakeStartSwarmErrorService) CreateAdhocSwarm(_ context.Context, _, _, _ string) error {
+	return nil
 }
 func (f *fakeStartSwarmErrorService) ApplyApprovedPlan(_ context.Context, _ *swarm.Plan) error {
 	return nil

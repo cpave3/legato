@@ -70,6 +70,27 @@ func (s *Store) UpdateAgentSessionStatus(ctx context.Context, taskID string, sta
 	return err
 }
 
+// UpdateAgentSessionSwarmRole updates swarm metadata on the currently running
+// session for taskID. Use nil subtaskID for conductors.
+func (s *Store) UpdateAgentSessionSwarmRole(ctx context.Context, taskID, role, parentTaskID string, subtaskID *string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_sessions
+		SET role = ?, parent_task_id = ?, subtask_id = ?
+		WHERE task_id = ? AND status = 'running'`,
+		role, parentTaskID, subtaskID, taskID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) UpdateAgentActivity(ctx context.Context, taskID string, activity string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE agent_sessions SET activity = ?

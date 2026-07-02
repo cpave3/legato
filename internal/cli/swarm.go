@@ -33,6 +33,13 @@ func SwarmValidatePlan(planPath string, validateOpts swarm.ValidateOptions) (*Pl
 	return &PlanValidationResult{Valid: true}, nil
 }
 
+// SwarmCreate promotes the current agent session into an adhoc swarm
+// conductor. The caller supplies the current LEGATO_TASK_ID; the service
+// refuses missing or non-running sessions.
+func SwarmCreate(sw service.SwarmService, taskID, goal, workingDir string) error {
+	return sw.CreateAdhocSwarm(context.Background(), taskID, goal, workingDir)
+}
+
 // SwarmIsConductor reports whether the calling process is the swarm
 // conductor (LEGATO_AGENT_ROLE=conductor) or the user's own shell. Used to
 // gate conductor-only verbs.

@@ -1120,6 +1120,8 @@ func runSwarmCmd(args []string) int {
 	// conductor is the only delegator).
 	case "validate-plan":
 		return runSwarmValidatePlan(args[1:])
+	case "create":
+		return runSwarmCreate(args[1:])
 	case "propose-plan":
 		return runSwarmProposePlan(args[1:])
 	case "cancel":
@@ -1162,6 +1164,7 @@ func swarmUsage() {
 	fmt.Fprintln(os.Stderr, `usage: legato swarm <verb> [args]
 
 Conductor verbs:
+  create "<goal>" [--working-dir DIR]
   validate-plan <plan-file>
   propose-plan <plan-file> [--auto-approve] [--timeout 5m]
   extend-plan <plan-file> [--auto-approve] [--timeout 5m]
@@ -1311,6 +1314,40 @@ func runSwarmValidatePlan(args []string) int {
 	if !result.Valid {
 		return 2
 	}
+	return 0
+}
+
+func runSwarmCreate(args []string) int {
+	goal, workingDir, err := parseSwarmCreateArgs(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "usage: legato swarm create \"<goal>\" [--working-dir DIR]")
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	taskID := os.Getenv("LEGATO_TASK_ID")
+	if taskID == "" {
+		fmt.Fprintln(os.Stderr, "error: legato swarm create must be run from an existing Legato agent session (LEGATO_TASK_ID is not set)")
+		return 1
+	}
+	if workingDir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "working directory: %v\n", err)
+			return 1
+		}
+		workingDir = wd
+	}
+
+	sw, db, code := loadSwarmServiceForCLI()
+	if code != 0 {
+		return code
+	}
+	defer db.Close()
+	if err := cli.SwarmCreate(sw, taskID, goal, workingDir); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	fmt.Printf("created adhoc swarm %s\n", taskID)
 	return 0
 }
 

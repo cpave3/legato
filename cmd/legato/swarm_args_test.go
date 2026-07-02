@@ -86,3 +86,59 @@ func TestParseMessageArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestParseSwarmCreateArgs(t *testing.T) {
+	tests := []struct {
+		name        string
+		args        []string
+		wantGoal    string
+		wantWorkDir string
+		wantErr     bool
+	}{
+		{
+			name:     "goal only",
+			args:     []string{"build", "the", "thing"},
+			wantGoal: "build the thing",
+		},
+		{
+			name:        "working dir after goal",
+			args:        []string{"build", "it", "--working-dir", "/repo"},
+			wantGoal:    "build it",
+			wantWorkDir: "/repo",
+		},
+		{
+			name:        "working dir before goal",
+			args:        []string{"--working-dir", "/repo", "build", "it"},
+			wantGoal:    "build it",
+			wantWorkDir: "/repo",
+		},
+		{
+			name:    "missing goal",
+			args:    []string{"--working-dir", "/repo"},
+			wantErr: true,
+		},
+		{
+			name:    "missing working dir value",
+			args:    []string{"build", "--working-dir"},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gotGoal, gotWorkDir, err := parseSwarmCreateArgs(tc.args)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("parseSwarmCreateArgs(%v) error = %v, wantErr %v", tc.args, err, tc.wantErr)
+			}
+			if err != nil {
+				return
+			}
+			if gotGoal != tc.wantGoal {
+				t.Errorf("goal = %q, want %q", gotGoal, tc.wantGoal)
+			}
+			if gotWorkDir != tc.wantWorkDir {
+				t.Errorf("workingDir = %q, want %q", gotWorkDir, tc.wantWorkDir)
+			}
+		})
+	}
+}

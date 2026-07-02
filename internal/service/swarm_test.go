@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -332,6 +333,159 @@ func TestStartSwarmUsesConductorTierAndAppendsCatalog(t *testing.T) {
 	}
 	if !strings.Contains(capturedBrief, "small — fast/cheap") {
 		t.Errorf("brief missing tier description: %q", capturedBrief)
+	}
+}
+
+func TestCreateAdhocSwarmPromotesExistingSession(t *testing.T) {
+	adapter := &fakeAdapter{
+		name:        "fake",
+		rolePrompts: map[string]string{"conductor": "be a conductor"},
+	}
+	sw, agentSvc, st, mt := newTestSwarmServiceWithAdapter(t, adapter, SwarmConfig{
+		MaxConcurrentAgents: 4,
+		DefaultAgent:        "fake",
+		TierCatalog: map[string]map[string]string{
+			"fake": {"large": "deep reasoning"},
+		},
+	})
+	ctx := context.Background()
+	seedParentTask(t, st, "adhoc-1")
+	if err := agentSvc.SpawnAgent(ctx, "adhoc-1", 0, 0); err != nil {
+		t.Fatalf("SpawnAgent: %v", err)
+	}
+
+	wd := t.TempDir()
+	if err := sw.CreateAdhocSwarm(ctx, "adhoc-1", "split this work across agents", wd); err != nil {
+		t.Fatalf("CreateAdhocSwarm: %v", err)
+	}
+
+	task, err := st.GetTask(ctx, "adhoc-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.SwarmWorkingDir == nil || *task.SwarmWorkingDir != wd {
+		t.Fatalf("SwarmWorkingDir = %v, want %q", task.SwarmWorkingDir, wd)
+	}
+	sess, err := st.GetAgentSessionByTaskID(ctx, "adhoc-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Role != "conductor" {
+		t.Errorf("Role = %q, want conductor", sess.Role)
+	}
+	if sess.ParentTaskID == nil || *sess.ParentTaskID != "adhoc-1" {
+		t.Errorf("ParentTaskID = %v, want adhoc-1", sess.ParentTaskID)
+	}
+	if sess.TmuxSession != "legato-adhoc-1" {
+		t.Errorf("TmuxSession = %q", sess.TmuxSession)
+	}
+
+	env := mt.envVarsFor("legato-adhoc-1")
+	if env["LEGATO_AGENT_ROLE"] != "conductor" {
+		t.Errorf("LEGATO_AGENT_ROLE = %q", env["LEGATO_AGENT_ROLE"])
+	}
+	if env["LEGATO_PARENT_TASK_ID"] != "adhoc-1" {
+		t.Errorf("LEGATO_PARENT_TASK_ID = %q", env["LEGATO_PARENT_TASK_ID"])
+	}
+	if env["LEGATO_BRIEF_FILE"] == "" {
+		t.Fatal("LEGATO_BRIEF_FILE not set")
+	}
+	brief, err := os.ReadFile(env["LEGATO_BRIEF_FILE"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(brief), "split this work across agents") {
+		t.Errorf("brief missing goal: %q", string(brief))
+	}
+	if !strings.Contains(string(brief), "large — deep reasoning") {
+		t.Errorf("brief missing tier catalog: %q", string(brief))
+	}
+	if env["LEGATO_ROLE_PROMPT_FILE"] == "" {
+		t.Fatal("LEGATO_ROLE_PROMPT_FILE not set")
+	}
+	rolePrompt, err := os.ReadFile(env["LEGATO_ROLE_PROMPT_FILE"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(rolePrompt) != "be a conductor" {
+		t.Errorf("role prompt = %q", string(rolePrompt))
+	}
+	lines := mt.sentLinesFor("legato-adhoc-1")
+	if len(lines) != 1 {
+		t.Fatalf("sent lines = %v, want one kickoff", lines)
+	}
+	if !strings.Contains(lines[0], "now the Legato swarm conductor") {
+		t.Errorf("kickoff line = %q", lines[0])
+	}
+}
+
+func TestCreateAdhocSwarmWorkerQuestionTargetsPromotedConductor(t *testing.T) {
+	sw, agentSvc, st, mt := newTestSwarmService(t)
+	ctx := context.Background()
+	seedParentTask(t, st, "adhoc-questions")
+	if err := agentSvc.SpawnAgent(ctx, "adhoc-questions", 0, 0); err != nil {
+		t.Fatalf("SpawnAgent: %v", err)
+	}
+	wd := t.TempDir()
+	if err := sw.CreateAdhocSwarm(ctx, "adhoc-questions", "coordinate workers", wd); err != nil {
+		t.Fatalf("CreateAdhocSwarm: %v", err)
+	}
+
+	plan := &swarm.Plan{
+		Swarm: swarm.PlanHeader{ParentTaskID: "adhoc-questions", WorkingDir: wd},
+		Steps: []swarm.PlanStep{{Subtasks: []swarm.PlanSubtask{
+			{Title: "Worker one", Role: "worker"},
+		}}},
+	}
+	if err := sw.ApplyApprovedPlan(ctx, plan); err != nil {
+		t.Fatal(err)
+	}
+	subs, err := st.ListSubtasksByParent(ctx, "adhoc-questions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subs) != 1 {
+		t.Fatalf("subtasks len = %d, want 1", len(subs))
+	}
+	if err := sw.Dispatch(ctx, subs[0].ID); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if err := sw.Question(ctx, subs[0].ID, "which direction should I take?"); err != nil {
+		t.Fatalf("Question: %v", err)
+	}
+
+	lines := mt.sentLinesFor("legato-adhoc-questions")
+	if len(lines) < 2 {
+		t.Fatalf("conductor lines = %v, want kickoff plus inbox pointer", lines)
+	}
+	gotPointer := lines[len(lines)-1]
+	if !strings.Contains(gotPointer, "new swarm event") || !strings.Contains(gotPointer, "legato swarm inbox adhoc-questions") {
+		t.Errorf("question pointer = %q", gotPointer)
+	}
+}
+
+func TestCreateAdhocSwarmRejectsWorkerSession(t *testing.T) {
+	sw, agentSvc, st, _ := newTestSwarmService(t)
+	ctx := context.Background()
+	seedParentTask(t, st, "parent-worker")
+	if err := st.CreateSubtask(ctx, store.Subtask{
+		ID:           "st-worker-promote",
+		ParentTaskID: "parent-worker",
+		Title:        "worker",
+		Role:         "worker",
+		Status:       "queued",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := agentSvc.SpawnAgent(ctx, "st-worker-promote", 0, 0, AgentSpawnOptions{
+		Role:         "worker",
+		ParentTaskID: "parent-worker",
+		SubtaskID:    "st-worker-promote",
+	}); err != nil {
+		t.Fatalf("SpawnAgent: %v", err)
+	}
+	if err := sw.CreateAdhocSwarm(ctx, "st-worker-promote", "try to lead", t.TempDir()); err == nil {
+		t.Fatal("CreateAdhocSwarm should reject worker sessions")
 	}
 }
 

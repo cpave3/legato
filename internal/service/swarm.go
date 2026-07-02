@@ -74,6 +74,7 @@ type SwarmService interface {
 
 	// Conductor verbs.
 	StartSwarm(ctx context.Context, parentID, workingDir string) error
+	CreateAdhocSwarm(ctx context.Context, taskID, goal, workingDir string) error
 	ApplyApprovedPlan(ctx context.Context, plan *swarm.Plan) error
 	CancelSwarm(ctx context.Context, parentID string) error
 	ExtendApprovedPlan(ctx context.Context, plan *swarm.Plan) error
@@ -603,6 +604,136 @@ func (s *swarmService) StartSwarm(ctx context.Context, parentID, workingDir stri
 	}
 
 	s.publishChanged(parentID, "", "started")
+	return nil
+}
+
+// CreateAdhocSwarm promotes an existing running agent session into a swarm
+// conductor without spawning a replacement tmux session. The taskID is the
+// current session's backing task; it may be an ephemeral task hidden from the
+// board or a normal task-backed agent session.
+func (s *swarmService) CreateAdhocSwarm(ctx context.Context, taskID, goal, workingDir string) error {
+	taskID = strings.TrimSpace(taskID)
+	goal = strings.TrimSpace(goal)
+	workingDir = strings.TrimSpace(workingDir)
+	if taskID == "" {
+		return fmt.Errorf("taskID is required")
+	}
+	if goal == "" {
+		return fmt.Errorf("goal is required")
+	}
+	if workingDir == "" {
+		return fmt.Errorf("working directory is required")
+	}
+	info, err := os.Stat(workingDir)
+	if err != nil {
+		return fmt.Errorf("working directory not accessible: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("working directory is not a directory")
+	}
+
+	sess, err := s.store.GetAgentSessionByTaskID(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("current agent session for %s is not running", taskID)
+	}
+	if sess.Role != "" {
+		if sess.Role == "conductor" {
+			return fmt.Errorf("agent session %s is already a swarm conductor", taskID)
+		}
+		return fmt.Errorf("agent session %s is already a swarm %s", taskID, sess.Role)
+	}
+	parent, err := s.store.GetTask(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("backing task %s: %w", taskID, err)
+	}
+	if parent.SwarmWorkingDir != nil {
+		return fmt.Errorf("task %s already has a swarm working directory — cancel the existing swarm first", taskID)
+	}
+	subs, err := s.store.ListSubtasksByParent(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("list subtasks: %w", err)
+	}
+	for _, st := range subs {
+		if st.Status == "queued" || st.Status == "dispatched" || st.Status == "in_progress" || st.Status == "reporting" {
+			return fmt.Errorf("task %s has leftover swarm sub-tasks — cancel the existing swarm first", taskID)
+		}
+	}
+
+	if parent.Ephemeral {
+		parent.Title = "Adhoc swarm: " + goal
+		parent.Description = goal
+		parent.DescriptionMD = goal
+		parent.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+		if err := s.store.UpdateTask(ctx, *parent); err != nil {
+			return fmt.Errorf("update adhoc backing task: %w", err)
+		}
+	}
+
+	if err := s.store.SetTaskSwarmWorkingDir(ctx, taskID, &workingDir); err != nil {
+		return fmt.Errorf("persist working dir: %w", err)
+	}
+	if err := s.store.SetParentActiveStep(ctx, taskID, 0); err != nil {
+		_ = s.store.SetTaskSwarmWorkingDir(ctx, taskID, nil)
+		return fmt.Errorf("reset active step: %w", err)
+	}
+	if err := s.store.UpdateAgentSessionSwarmRole(ctx, taskID, "conductor", taskID, nil); err != nil {
+		_ = s.store.SetTaskSwarmWorkingDir(ctx, taskID, nil)
+		return fmt.Errorf("promote session: %w", err)
+	}
+
+	brief := fmt.Sprintf(
+		"You are the swarm conductor for an adhoc request.\n\nParent task ID: %s\nWorking directory: %s\n\n## User request\n\n%s",
+		taskID, workingDir, goal,
+	)
+	if catalog := formatTierCatalog(s.cfg.TierCatalog); catalog != "" {
+		brief = brief + "\n\n" + catalog
+	}
+
+	agentKind := sess.AgentKind
+	if agentKind == "" {
+		agentKind = s.cfg.ConductorAgent
+	}
+	if agentKind == "" {
+		agentKind = s.cfg.DefaultAgent
+	}
+	adapter := s.agents.AdapterFor(agentKind)
+	rolePrompt := rolePromptForAdapter(adapter, "conductor")
+	rolePath, briefPath, err := writeAgentPromptFiles(taskID, rolePrompt, brief)
+	if err != nil {
+		return fmt.Errorf("write conductor prompt files: %w", err)
+	}
+
+	tmuxer, ok := s.agents.(interface {
+		Tmux() TmuxManager
+	})
+	if !ok {
+		return fmt.Errorf("agent service does not expose tmux")
+	}
+	env := map[string]string{
+		"LEGATO_AGENT_ROLE":     "conductor",
+		"LEGATO_PARENT_TASK_ID": taskID,
+	}
+	if rolePath != "" {
+		env["LEGATO_ROLE_PROMPT_FILE"] = rolePath
+	}
+	if briefPath != "" {
+		env["LEGATO_BRIEF_FILE"] = briefPath
+	}
+	for k, v := range env {
+		if err := tmuxer.Tmux().SetEnv(sess.TmuxSession, k, v); err != nil {
+			return fmt.Errorf("set tmux env %s: %w", k, err)
+		}
+	}
+	kickoff := fmt.Sprintf("You are now the Legato swarm conductor for this adhoc request. Parent task ID: %s. Read the conductor role prompt at %s and the full brief at %s, then create, validate, and propose a swarm plan.", taskID, rolePath, briefPath)
+	if rolePath == "" {
+		kickoff = fmt.Sprintf("You are now the Legato swarm conductor for this adhoc request. Parent task ID: %s. Read the full brief at %s, then create, validate, and propose a swarm plan.", taskID, briefPath)
+	}
+	if err := tmuxer.Tmux().SendKeysLine(sess.TmuxSession, kickoff); err != nil {
+		return fmt.Errorf("send conductor kickoff: %w", err)
+	}
+
+	s.rebuildSnapshot(ctx, taskID)
+	s.publishChanged(taskID, "", "started")
 	return nil
 }
 
