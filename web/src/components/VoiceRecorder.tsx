@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react"
+import { useState, useRef, useCallback, forwardRef, useImperativeHandle } from "react"
 import { apiFetch } from "../lib/api"
 import { Mic, Loader2, X, Check } from "lucide-react"
 
@@ -8,9 +8,16 @@ interface VoiceRecorderProps {
   baseUrl: string
 }
 
+export interface VoiceRecorderHandle {
+  start: () => void
+  send: () => void
+  cancel: () => void
+  isRecording: () => boolean
+}
+
 type RecordingState = "idle" | "recording" | "transcribing" | "sent" | "error"
 
-export function VoiceRecorder({ agentId, agentKind, baseUrl }: VoiceRecorderProps) {
+export const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>(function VoiceRecorder({ agentId, agentKind, baseUrl }, ref) {
   const [state, setState] = useState<RecordingState>("idle")
   const [errorMsg, setErrorMsg] = useState("")
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -18,6 +25,8 @@ export function VoiceRecorder({ agentId, agentKind, baseUrl }: VoiceRecorderProp
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
   const pcmBufferRef = useRef<Int16Array[]>([])
+  const stateRef = useRef<RecordingState>("idle")
+  stateRef.current = state
 
   const cleanup = useCallback(() => {
     if (processorRef.current) {
@@ -41,6 +50,7 @@ export function VoiceRecorder({ agentId, agentKind, baseUrl }: VoiceRecorderProp
   }, [])
 
   const startRecording = useCallback(async () => {
+    if (stateRef.current !== "idle") return
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -89,6 +99,7 @@ export function VoiceRecorder({ agentId, agentKind, baseUrl }: VoiceRecorderProp
   }, [cleanup])
 
   const stopAndSend = useCallback(async () => {
+    if (stateRef.current !== "recording") return
     setState("transcribing")
 
     // Merge all PCM chunks into a single buffer.
@@ -141,12 +152,19 @@ export function VoiceRecorder({ agentId, agentKind, baseUrl }: VoiceRecorderProp
     setErrorMsg("")
   }, [cleanup])
 
+  useImperativeHandle(ref, () => ({
+    start: () => startRecording(),
+    send: () => stopAndSend(),
+    cancel,
+    isRecording: () => stateRef.current === "recording",
+  }), [startRecording, stopAndSend, cancel])
+
   if (state === "idle") {
     return (
       <button
         onClick={startRecording}
         className="rounded p-1.5 text-zinc-400 border border-zinc-700 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
-        title="Voice dictation"
+        title="Voice dictation (V)"
       >
         <Mic size={16} />
       </button>
@@ -159,7 +177,7 @@ export function VoiceRecorder({ agentId, agentKind, baseUrl }: VoiceRecorderProp
         <button
           onClick={stopAndSend}
           className="flex items-center gap-1 rounded px-2 py-1.5 text-xs text-red-400 border border-red-900 transition-colors hover:bg-red-950 hover:text-red-300 animate-pulse"
-          title="Click to transcribe and send"
+          title="Click to transcribe and send (V)"
         >
           <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
           <span>Send</span>
@@ -167,7 +185,7 @@ export function VoiceRecorder({ agentId, agentKind, baseUrl }: VoiceRecorderProp
         <button
           onClick={cancel}
           className="rounded p-1.5 text-zinc-500 border border-zinc-700 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
-          title="Cancel recording"
+          title="Cancel recording (Esc)"
         >
           <X size={16} />
         </button>
@@ -204,4 +222,4 @@ export function VoiceRecorder({ agentId, agentKind, baseUrl }: VoiceRecorderProp
       <span>Error</span>
     </div>
   )
-}
+})

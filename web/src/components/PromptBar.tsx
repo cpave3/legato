@@ -4,7 +4,7 @@ import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
 import { cn } from "../lib/utils"
 import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff, Terminal, Zap, Bell, BellOff } from "lucide-react"
-import { VoiceRecorder } from "./VoiceRecorder"
+import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
 
 interface ActionListProps {
   actions: { label: string; keys: string }[]
@@ -117,6 +117,10 @@ function draftKey(id: string) { return `legato:draft:${id}` }
 
 export interface PromptBarHandle {
   focus: () => void
+  voiceStart: () => void
+  voiceSend: () => void
+  voiceCancel: () => void
+  voiceIsRecording: () => boolean
 }
 
 export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled }, ref) {
@@ -130,6 +134,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const inputRef = useRef(input)
   const prevAgentIdRef = useRef(agentId)
+  const voiceRef = useRef<VoiceRecorderHandle>(null)
 
   // Fetch macros from /api/macros when dropdown opens.
   useEffect(() => {
@@ -146,6 +151,10 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
 
   useImperativeHandle(ref, () => ({
     focus: () => textareaRef.current?.focus(),
+    voiceStart: () => voiceRef.current?.start(),
+    voiceSend: () => voiceRef.current?.send(),
+    voiceCancel: () => voiceRef.current?.cancel(),
+    voiceIsRecording: () => voiceRef.current?.isRecording() ?? false,
   }))
 
   // Sync textarea height whenever input changes (submit clear, agent switch, typing).
@@ -431,6 +440,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
             </button>
             {voiceEnabled && connected !== false && (
               <VoiceRecorder
+                ref={voiceRef}
                 agentId={agentId}
                 agentKind={agentKind}
                 baseUrl={baseUrl}

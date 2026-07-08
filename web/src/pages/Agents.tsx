@@ -56,6 +56,11 @@ export function AgentsPage() {
   const [showSpawn, setShowSpawn] = useState(false)
   const [ntfyConfigured, setNtfyConfigured] = useState(false)
   const [voiceEnabled, setVoiceEnabled] = useState(false)
+  const voiceEnabledRef = useRef(false)
+
+  useEffect(() => {
+    voiceEnabledRef.current = voiceEnabled
+  }, [voiceEnabled])
 
   // Per-agent prompt detection override. If not in the map, uses the global default.
   const [promptDetectionOverrides, setPromptDetectionOverrides] = useState<Record<string, boolean>>({})
@@ -119,6 +124,32 @@ export function AgentsPage() {
       }
     })
   }, [fetchAgents, subscribe, selectedId, baseUrl])
+
+  // Global keyboard handler for voice dictation: 'v' toggles record/send,
+  // Escape cancels recording. Only active when the textarea is not focused
+  // and voice is enabled.
+  useEffect(() => {
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (!voiceEnabledRef.current || !selectedId) return
+      const target = e.target as HTMLElement
+      const isTyping = target.tagName === "TEXTAREA" || target.tagName === "INPUT" || target.isContentEditable
+      if (isTyping) return
+
+      if (e.key === "v" || e.key === "V") {
+        e.preventDefault()
+        if (promptBarRef.current?.voiceIsRecording()) {
+          promptBarRef.current.voiceSend()
+        } else {
+          promptBarRef.current?.voiceStart()
+        }
+      } else if (e.key === "Escape" && promptBarRef.current?.voiceIsRecording()) {
+        e.preventDefault()
+        promptBarRef.current.voiceCancel()
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [selectedId])
 
   const handleSelect = useCallback(
     (taskId: string) => {
