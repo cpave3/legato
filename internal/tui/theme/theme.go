@@ -69,8 +69,7 @@ var (
 			BorderTop(true).
 			BorderStyle(lipgloss.NormalBorder()).
 			BorderForeground(TextTertiary).
-			PaddingLeft(1).
-			PaddingRight(1)
+			PaddingLeft(1)
 
 	KeyHintKey = lipgloss.NewStyle().
 			Foreground(AccentPurple).

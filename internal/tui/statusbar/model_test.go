@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestInitialState(t *testing.T) {
@@ -99,8 +100,86 @@ func TestViewContainsKeyHints(t *testing.T) {
 	m := New()
 	m.width = 120
 	view := m.View()
-	if !strings.Contains(view, "h/l") {
-		t.Errorf("view should contain key hint h/l, got: %q", view)
+	// Board mode (default) should contain the "keys" hint for ?
+	if !strings.Contains(view, "keys") {
+		t.Errorf("view should contain 'keys' hint for ?, got: %q", view)
+	}
+}
+
+func TestBoardModeHints(t *testing.T) {
+	m := New()
+	m.width = 120
+	view := m.View()
+	// Board mode should show these compact hints
+	for _, expected := range []string{"detail", "move", "new", "search", "sync", "keys"} {
+		if !strings.Contains(view, expected) {
+			t.Errorf("board mode should contain %q, got: %q", expected, view)
+		}
+	}
+}
+
+func TestDetailModeHints(t *testing.T) {
+	m := New()
+	m.width = 120
+	m, _ = m.Update(ModeMsg{Mode: ModeDetail})
+	view := m.View()
+	for _, expected := range []string{"back", "edit", "delete", "copy", "keys"} {
+		if !strings.Contains(view, expected) {
+			t.Errorf("detail mode should contain %q, got: %q", expected, view)
+		}
+	}
+}
+
+func TestAgentsModeHints(t *testing.T) {
+	m := New()
+	m.width = 120
+	m, _ = m.Update(ModeMsg{Mode: ModeAgents})
+	view := m.View()
+	for _, expected := range []string{"select", "spawn", "kill", "macro", "attach", "board", "keys"} {
+		if !strings.Contains(view, expected) {
+			t.Errorf("agents mode should contain %q, got: %q", expected, view)
+		}
+	}
+	// Without ntfy/voice, those hints should not appear
+	if strings.Contains(view, "notify") {
+		t.Errorf("agents mode should not contain 'notify' without ntfy, got: %q", view)
+	}
+	if strings.Contains(view, "voice") {
+		t.Errorf("agents mode should not contain 'voice' without voice enabled, got: %q", view)
+	}
+}
+
+func TestAgentsModeNtfyHint(t *testing.T) {
+	m := New()
+	m.width = 120
+	m, _ = m.Update(ModeMsg{Mode: ModeAgents})
+	m, _ = m.Update(NtfyMsg{Configured: true})
+	view := m.View()
+	if !strings.Contains(view, "notify") {
+		t.Errorf("agents mode should contain 'notify' when ntfy configured, got: %q", view)
+	}
+}
+
+func TestAgentsModeVoiceHint(t *testing.T) {
+	m := New()
+	m.width = 120
+	m, _ = m.Update(ModeMsg{Mode: ModeAgents})
+	m, _ = m.Update(VoiceMsg{Enabled: true})
+	view := m.View()
+	if !strings.Contains(view, "voice") {
+		t.Errorf("agents mode should contain 'voice' when voice enabled, got: %q", view)
+	}
+}
+
+func TestReportModeHints(t *testing.T) {
+	m := New()
+	m.width = 120
+	m, _ = m.Update(ModeMsg{Mode: ModeReport})
+	view := m.View()
+	for _, expected := range []string{"back", "copy", "keys"} {
+		if !strings.Contains(view, expected) {
+			t.Errorf("report mode should contain %q, got: %q", expected, view)
+		}
 	}
 }
 
@@ -150,15 +229,6 @@ func TestWorkspaceIndicator(t *testing.T) {
 	}
 }
 
-func TestWorkspaceHintDisplayed(t *testing.T) {
-	m := New()
-	m.width = 120
-	view := m.View()
-	if !strings.Contains(view, "workspace") {
-		t.Errorf("view should contain 'workspace' key hint, got: %q", view)
-	}
-}
-
 func TestNarrowTerminalTruncatesHints(t *testing.T) {
 	m := New()
 	m.width = 30 // very narrow
@@ -166,5 +236,37 @@ func TestNarrowTerminalTruncatesHints(t *testing.T) {
 	// Should still show sync state
 	if !strings.Contains(view, "offline") {
 		t.Errorf("narrow view should still show sync state, got: %q", view)
+	}
+}
+
+func TestStatusBarContentStaysSingleLine(t *testing.T) {
+	m := New()
+	m.width = 120
+	m, _ = m.Update(ModeMsg{Mode: ModeAgents})
+	m, _ = m.Update(NtfyMsg{Configured: true})
+	m, _ = m.Update(VoiceMsg{Enabled: true})
+	view := m.View()
+	// The status bar renders a top border plus one content line. Wrapping the
+	// content would produce more than 2 total lines.
+	lines := strings.Split(view, "\n")
+	if len(lines) > 2 {
+		t.Errorf("status bar should be border + one content line, got %d lines: %q", len(lines), view)
+	}
+}
+
+func TestStatusBarDoesNotOverflow(t *testing.T) {
+	m := New()
+	m.width = 80
+	m, _ = m.Update(ModeMsg{Mode: ModeAgents})
+	m, _ = m.Update(NtfyMsg{Configured: true})
+	m, _ = m.Update(VoiceMsg{Enabled: true})
+	m, _ = m.Update(WorkspaceMsg{Name: "Acme", Color: "#4A9EEF"})
+	view := m.View()
+	// The last rendered line is the content; ensure it fits within the terminal.
+	lines := strings.Split(view, "\n")
+	for i, line := range lines {
+		if lipgloss.Width(line) > m.width {
+			t.Errorf("status bar line %d wider than terminal: got %d, want <= %d: %q", i, lipgloss.Width(line), m.width, line)
+		}
 	}
 }

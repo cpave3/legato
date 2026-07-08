@@ -2,6 +2,7 @@ package overlay
 
 import (
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -65,17 +66,62 @@ var (
 		{"?", "Toggle this help screen"},
 		{"q", "Quit"},
 	}
+
+	// Per-mode shortlists shown at the top of the help overlay so the user can
+	// quickly see the most relevant keys for the view they're in.
+	boardShortlist = []keybinding{
+		{"↵", "detail"},
+		{"m", "move"},
+		{"n", "new"},
+		{"/", "search"},
+		{"r", "sync"},
+	}
+	detailShortlist = []keybinding{
+		{"esc", "back"},
+		{"e", "edit"},
+		{"m", "move"},
+		{"d", "delete"},
+		{"y", "copy"},
+	}
+	agentsShortlist = []keybinding{
+		{"j/k", "select"},
+		{"s", "spawn"},
+		{"X", "kill"},
+		{"m", "macro"},
+		{"↵", "attach"},
+	}
+	reportShortlist = []keybinding{
+		{"esc", "back"},
+		{"y", "copy"},
+	}
+)
+
+// HelpMode identifies which view the user was in when they opened help.
+type HelpMode int
+
+const (
+	HelpModeBoard HelpMode = iota
+	HelpModeDetail
+	HelpModeAgents
+	HelpModeReport
 )
 
 // HelpOverlay displays a keyboard reference screen.
 type HelpOverlay struct {
 	width  int
 	height int
+	mode   HelpMode
 }
 
 // NewHelp creates a new help overlay.
 func NewHelp(width, height int) HelpOverlay {
 	return HelpOverlay{width: width, height: height}
+}
+
+// NewHelpWithMode creates a help overlay that highlights the shortlist for the
+// active view at the top of the screen.
+func NewHelpWithMode(width, height int, mode HelpMode) HelpOverlay {
+	return HelpOverlay{width: width, height: height, mode: mode}
 }
 
 // Init returns no command.
@@ -118,8 +164,31 @@ func (m HelpOverlay) View() string {
 	descStyle := lipgloss.NewStyle().
 		Foreground(theme.TextSecondary)
 
+	shortlistKeyStyle := lipgloss.NewStyle().
+		Foreground(theme.AccentPurpleAlt).
+		Bold(true)
+
+	shortlistDescStyle := lipgloss.NewStyle().
+		Foreground(theme.TextSecondary)
+
 	var lines []string
 	lines = append(lines, titleStyle.Render("Legato -- Keyboard Reference"))
+
+	// Per-mode shortlist at the top
+	shortlist := m.shortlist()
+	if len(shortlist) > 0 {
+		shortlistStyle := lipgloss.NewStyle().
+			Foreground(theme.AccentPurpleAlt).
+			Bold(true).
+			MarginTop(1)
+		lines = append(lines, shortlistStyle.Render(m.shortlistTitle()))
+		var parts []string
+		for _, b := range shortlist {
+			parts = append(parts,
+				shortlistKeyStyle.Render(b.key)+" "+shortlistDescStyle.Render(b.desc))
+		}
+		lines = append(lines, strings.Join(parts, "  "))
+	}
 
 	renderSection := func(name string, bindings []keybinding) {
 		lines = append(lines, sectionStyle.Render(name))
@@ -137,4 +206,30 @@ func (m HelpOverlay) View() string {
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return RenderPanel(content, m.width, m.height)
+}
+
+func (m HelpOverlay) shortlist() []keybinding {
+	switch m.mode {
+	case HelpModeDetail:
+		return detailShortlist
+	case HelpModeAgents:
+		return agentsShortlist
+	case HelpModeReport:
+		return reportShortlist
+	default:
+		return boardShortlist
+	}
+}
+
+func (m HelpOverlay) shortlistTitle() string {
+	switch m.mode {
+	case HelpModeDetail:
+		return "Detail — Quick Reference"
+	case HelpModeAgents:
+		return "Agents — Quick Reference"
+	case HelpModeReport:
+		return "Report — Quick Reference"
+	default:
+		return "Board — Quick Reference"
+	}
 }

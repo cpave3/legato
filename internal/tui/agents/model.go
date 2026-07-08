@@ -484,13 +484,10 @@ func (m Model) renderSidebar() string {
 		PaddingBottom(1)
 	header := headerStyle.Render("ACTIVE AGENTS")
 
-	// Keybinding hints at the bottom
-	hints := m.renderSidebarHints(sidebarContentWidth)
-	hintsHeight := lipgloss.Height(hints)
 	headerHeight := lipgloss.Height(header)
 
 	// Available height for the agent list
-	listHeight := m.height - headerHeight - hintsHeight
+	listHeight := m.height - headerHeight
 	if listHeight < 1 {
 		listHeight = 1
 	}
@@ -574,7 +571,7 @@ func (m Model) renderSidebar() string {
 	list := listStyle.Render(entries)
 
 	// Compose sidebar
-	content := lipgloss.JoinVertical(lipgloss.Left, header, list, hints)
+	content := lipgloss.JoinVertical(lipgloss.Left, header, list)
 
 	// Width(SidebarWidth-1) + BorderRight = exactly SidebarWidth columns total.
 	// Lipgloss adds borders OUTSIDE the configured Width, so without the -1
@@ -778,70 +775,6 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 		BorderBottom(false).
 		BorderForeground(borderColor).
 		Render(content)
-}
-
-func (m Model) renderSidebarHints(width int) string {
-	hintStyle := lipgloss.NewStyle().
-		Foreground(theme.TextTertiary).
-		PaddingLeft(1).
-		Width(width).
-		BorderTop(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(theme.TextTertiary)
-
-	keyStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
-	var hints string
-	if m.ntfyConfigured && m.voiceEnabled {
-		hints = fmt.Sprintf("%s select  %s spawn  %s kill  %s macro\n%s action  %s attach  %s board  %s detail  %s notify  %s voice",
-			keyStyle.Render("j/k"),
-			keyStyle.Render("s"),
-			keyStyle.Render("X"),
-			keyStyle.Render("m"),
-			keyStyle.Render("M"),
-			keyStyle.Render("↵"),
-			keyStyle.Render("esc"),
-			keyStyle.Render("l"),
-			keyStyle.Render("n"),
-			keyStyle.Render("v"),
-		)
-	} else if m.voiceEnabled {
-		hints = fmt.Sprintf("%s select  %s spawn  %s kill  %s macro\n%s action  %s attach  %s board  %s detail  %s voice",
-			keyStyle.Render("j/k"),
-			keyStyle.Render("s"),
-			keyStyle.Render("X"),
-			keyStyle.Render("m"),
-			keyStyle.Render("M"),
-			keyStyle.Render("↵"),
-			keyStyle.Render("esc"),
-			keyStyle.Render("l"),
-			keyStyle.Render("v"),
-		)
-	} else if m.ntfyConfigured {
-		hints = fmt.Sprintf("%s select  %s spawn  %s kill  %s macro\n%s action  %s attach  %s board  %s detail  %s notify",
-			keyStyle.Render("j/k"),
-			keyStyle.Render("s"),
-			keyStyle.Render("X"),
-			keyStyle.Render("m"),
-			keyStyle.Render("M"),
-			keyStyle.Render("↵"),
-			keyStyle.Render("esc"),
-			keyStyle.Render("l"),
-			keyStyle.Render("n"),
-		)
-	} else {
-		hints = fmt.Sprintf("%s select  %s spawn  %s kill  %s macro\n%s action  %s attach  %s board  %s detail",
-			keyStyle.Render("j/k"),
-			keyStyle.Render("s"),
-			keyStyle.Render("X"),
-			keyStyle.Render("m"),
-			keyStyle.Render("M"),
-			keyStyle.Render("↵"),
-			keyStyle.Render("esc"),
-			keyStyle.Render("l"),
-		)
-	}
-
-	return hintStyle.Render(hints)
 }
 
 func (m Model) renderTerminalPanel() string {

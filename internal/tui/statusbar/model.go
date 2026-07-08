@@ -20,6 +20,17 @@ const (
 	StateError
 )
 
+// Mode identifies which top-level view is active so the status bar can show
+// only the hints relevant to that view.
+type Mode int
+
+const (
+	ModeBoard Mode = iota
+	ModeDetail
+	ModeAgents
+	ModeReport
+)
+
 // Messages
 type SyncStartedMsg struct{}
 type SyncCompletedMsg struct{ At time.Time }
@@ -31,17 +42,29 @@ type WorkspaceMsg struct {
 	Name  string
 	Color string
 }
+type ModeMsg struct{ Mode Mode }
+
+// NtfyMsg tells the status bar whether ntfy notifications are configured,
+// so the 'n' (notify) hint shows conditionally in agent mode.
+type NtfyMsg struct{ Configured bool }
+
+// VoiceMsg tells the status bar whether voice dictation is enabled, so the
+// 'v' (voice) hint shows conditionally in agent mode.
+type VoiceMsg struct{ Enabled bool }
 
 // Model is the status bar Bubbletea model.
 type Model struct {
-	state         SyncState
-	lastSync      time.Time
-	warning       string
-	errorText     string
-	infoText      string
+	state          SyncState
+	mode           Mode
+	lastSync       time.Time
+	warning        string
+	errorText      string
+	infoText       string
 	workspaceName  string
 	workspaceColor string
 	webServerPort  string
+	ntfyConfigured bool
+	voiceEnabled   bool
 	width          int
 	now            func() time.Time // for testing
 }
@@ -50,6 +73,7 @@ type Model struct {
 func New() Model {
 	return Model{
 		state: StateOffline,
+		mode:  ModeBoard,
 		now:   time.Now,
 	}
 }
@@ -80,6 +104,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case WorkspaceMsg:
 		m.workspaceName = msg.Name
 		m.workspaceColor = msg.Color
+	case ModeMsg:
+		m.mode = msg.Mode
+	case NtfyMsg:
+		m.ntfyConfigured = msg.Configured
+	case VoiceMsg:
+		m.voiceEnabled = msg.Enabled
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 	}
@@ -138,32 +168,33 @@ func (m Model) View() string {
 		warningDisplay = "  " + infoStyle.Render(m.infoText)
 	}
 
-	// Key hints
-	hints := []struct{ key, label string }{
-		{"h/l", "column"},
-		{"j/k", "card"},
-		{"enter", "detail"},
-		{"m", "move"},
-		{"w", "workspace"},
-		{"n", "new"},
-		{"r", "sync"},
-		{"X", "archive"},
-		{"/", "search"},
-		{"?", "help"},
-	}
+	// Key hints — context-aware per active view, trimmed to essentials.
+	hints := m.hintsForMode()
 
+	// Render each hint as a single unit so key+label can't be broken apart.
 	var hintParts []string
 	for _, h := range hints {
-		hintParts = append(hintParts,
-			theme.KeyHintKey.Render(h.key)+" "+theme.KeyHintLabel.Render(h.label))
+		part := lipgloss.NewStyle().
+			Render(theme.KeyHintKey.Render(h.key) + " " + theme.KeyHintLabel.Render(h.label))
+		hintParts = append(hintParts, part)
+	}
+
+	// The status bar style adds 1 char of left padding, so the inner
+	// content width is m.width - 1. Budget the gap + hints from that.
+	const padding = 1
+	contentMax := m.width - padding
+	leftPart := syncDisplay + wsDisplay + webDisplay + warningDisplay
+	leftW := lipgloss.Width(leftPart)
+	maxHintsW := contentMax - leftW - 1 // at least 1-space gap
+	if maxHintsW < 0 {
+		maxHintsW = 0
 	}
 
 	// Truncate hints to fit
-	hintsStr := truncateHints(hintParts, m.width-lipgloss.Width(syncDisplay)-4)
+	hintsStr := truncateHints(hintParts, maxHintsW)
 
-	// Compose left (sync + workspace + warning) and right (hints)
-	leftPart := syncDisplay + wsDisplay + webDisplay + warningDisplay
-	gap := m.width - lipgloss.Width(leftPart) - lipgloss.Width(hintsStr)
+	// Recalculate gap with the final hint width so the line is exactly full.
+	gap := contentMax - leftW - lipgloss.Width(hintsStr)
 	if gap < 1 {
 		gap = 1
 	}
@@ -224,4 +255,53 @@ func truncateHints(hints []string, maxWidth int) string {
 		result = candidate
 	}
 	return result
+}
+
+// hintsForMode returns the compact key-hint set for the active view. The full
+// reference is always available via the ? overlay.
+func (m Model) hintsForMode() []struct{ key, label string } {
+	switch m.mode {
+	case ModeDetail:
+		return []struct{ key, label string }{
+			{"esc", "back"},
+			{"e", "edit"},
+			{"m", "move"},
+			{"d", "delete"},
+			{"y", "copy"},
+			{"?", "keys"},
+		}
+	case ModeAgents:
+		hints := []struct{ key, label string }{
+			{"j/k", "select"},
+			{"s", "spawn"},
+			{"X", "kill"},
+			{"m", "macro"},
+			{"↵", "attach"},
+			{"esc", "board"},
+		}
+		// Conditional agent keys — only shown when the feature is configured.
+		if m.ntfyConfigured {
+			hints = append(hints, struct{ key, label string }{"n", "notify"})
+		}
+		if m.voiceEnabled {
+			hints = append(hints, struct{ key, label string }{"v", "voice"})
+		}
+		hints = append(hints, struct{ key, label string }{"?", "keys"})
+		return hints
+	case ModeReport:
+		return []struct{ key, label string }{
+			{"esc", "back"},
+			{"y", "copy"},
+			{"?", "keys"},
+		}
+	default: // ModeBoard
+		return []struct{ key, label string }{
+			{"↵", "detail"},
+			{"m", "move"},
+			{"n", "new"},
+			{"/", "search"},
+			{"r", "sync"},
+			{"?", "keys"},
+		}
+	}
 }

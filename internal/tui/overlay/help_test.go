@@ -73,3 +73,31 @@ func TestHelpOverlayShowsSections(t *testing.T) {
 		}
 	}
 }
+
+func TestHelpOverlayShowsShortlistForMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		mode     HelpMode
+		title    string
+		expected []string
+	}{
+		{"board", HelpModeBoard, "Board — Quick Reference", []string{"detail", "move", "new"}},
+		{"detail", HelpModeDetail, "Detail — Quick Reference", []string{"back", "edit", "copy"}},
+		{"agents", HelpModeAgents, "Agents — Quick Reference", []string{"select", "spawn", "kill"}},
+		{"report", HelpModeReport, "Report — Quick Reference", []string{"back", "copy"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := NewHelpWithMode(80, 24, tt.mode)
+			view := m.View()
+			if !strings.Contains(view, tt.title) {
+				t.Errorf("view should contain shortlist title %q, got: %q", tt.title, view)
+			}
+			for _, expected := range tt.expected {
+				if !strings.Contains(view, expected) {
+					t.Errorf("view should contain %q in shortlist, got: %q", expected, view)
+				}
+			}
+		})
+	}
+}

@@ -307,11 +307,6 @@ func TestViewContainsElements(t *testing.T) {
 		t.Error("view should contain selected agent REX-1238")
 	}
 
-	// Should contain keybinding hints
-	if !containsStr(view, "spawn") {
-		t.Error("view should contain keybinding help")
-	}
-
 	// Sidebar should list both agents
 	if !containsStr(view, "REX-1239") {
 		t.Error("view should contain second agent REX-1239 in sidebar")

@@ -150,21 +150,23 @@ func (a *App) SetWebServerRunning(port string) {
 	a.statusBar = a.statusBar.SetWebServer(port)
 }
 
-// SetNtfyConfigured tells the agent view whether a notification channel
-// is available, so the 'n' keybinding shows conditionally.
+// SetNtfyConfigured tells the agent view and status bar whether a
+// notification channel is available, so the 'n' keybinding shows conditionally.
 func (a *App) SetNtfyConfigured(v bool) {
 	a.agentView.SetNtfyConfigured(v)
+	a.statusBar, _ = a.statusBar.Update(statusbar.NtfyMsg{Configured: v})
 }
 
 // SetVoiceService wires the voice dictation service into the TUI. When svc
-// is non-nil, the 'v' keybinding is enabled in the agents view. autoSend and
-// micDevice are forwarded from config.
+// is non-nil, the 'v' keybinding is enabled in the agents view and status bar.
+// autoSend and micDevice are forwarded from config.
 func (a *App) SetVoiceService(svc VoiceService, autoSend bool, micDevice string) {
 	a.voiceSvc = svc
 	a.voiceEnabled = svc != nil
 	a.voiceAutoSend = autoSend
 	a.voiceMicDevice = micDevice
 	a.agentView.SetVoiceEnabled(a.voiceEnabled)
+	a.statusBar, _ = a.statusBar.Update(statusbar.VoiceMsg{Enabled: a.voiceEnabled})
 }
 
 // SetSparklineWindow configures the window and bucket count used when
@@ -393,7 +395,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.active == viewAgents {
 				a.agentView.StopPolling()
 			}
-			a.active = viewBoard
+			a = a.setMode(viewBoard)
 			return a, nil
 		case "/":
 			if a.active == viewBoard {
@@ -461,7 +463,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.statusBar, _ = a.statusBar.Update(msg)
 
 	case board.OpenDetailMsg:
-		a.active = viewDetail
+		a = a.setMode(viewDetail)
 		// Load card synchronously — GetCard hits local SQLite, not remote API
 		card, err := a.svc.GetCard(context.Background(), msg.CardKey)
 		if err != nil {
@@ -484,16 +486,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmds...)
 
 	case detail.BackToBoard:
-		a.active = viewBoard
+		a = a.setMode(viewBoard)
 		return a, nil
 
 	case agents.ReturnToBoardMsg:
-		a.active = viewBoard
+		a = a.setMode(viewBoard)
 		a.agentView.StopPolling()
 		return a, nil
 
 	case report.ReturnToBoardMsg:
-		a.active = viewBoard
+		a = a.setMode(viewBoard)
 		return a, nil
 
 	case report.CopyReportMsg:
@@ -1118,6 +1120,27 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, tea.Batch(cmds...)
 }
 
+// setMode switches the active view and notifies the status bar so its key
+// hints match the current context.
+func (a App) setMode(v viewType) App {
+	a.active = v
+	a.statusBar, _ = a.statusBar.Update(statusbar.ModeMsg{Mode: viewToStatusMode(v)})
+	return a
+}
+
+func viewToStatusMode(v viewType) statusbar.Mode {
+	switch v {
+	case viewDetail:
+		return statusbar.ModeDetail
+	case viewAgents:
+		return statusbar.ModeAgents
+	case viewReport:
+		return statusbar.ModeReport
+	default:
+		return statusbar.ModeBoard
+	}
+}
+
 func (a App) openMoveOverlay(taskID string) (tea.Model, tea.Cmd) {
 	// Get columns from the board
 	columns, err := a.svc.ListColumns(context.Background())
@@ -1163,9 +1186,22 @@ func (a App) handleMoveSelected(msg overlay.MoveSelectedMsg) (tea.Model, tea.Cmd
 }
 
 func (a App) openHelpOverlay() (tea.Model, tea.Cmd) {
-	a.activeOverlay = overlay.NewHelp(a.width, a.height)
+	a.activeOverlay = overlay.NewHelpWithMode(a.width, a.height, appViewToHelpMode(a.active))
 	a.overlayType = overlayHelp
 	return a, nil
+}
+
+func appViewToHelpMode(v viewType) overlay.HelpMode {
+	switch v {
+	case viewDetail:
+		return overlay.HelpModeDetail
+	case viewAgents:
+		return overlay.HelpModeAgents
+	case viewReport:
+		return overlay.HelpModeReport
+	default:
+		return overlay.HelpModeBoard
+	}
 }
 
 func (a App) openSearchOverlay() (tea.Model, tea.Cmd) {
@@ -1248,7 +1284,7 @@ func (a App) handleDeleteConfirmed(msg overlay.DeleteConfirmedMsg) (tea.Model, t
 	_ = a.svc.DeleteTask(context.Background(), msg.TaskID)
 	// If we were in detail view, return to board
 	if a.active == viewDetail {
-		a.active = viewBoard
+		a = a.setMode(viewBoard)
 	}
 	// Refresh board
 	cmd := a.board.Init()
@@ -1765,7 +1801,7 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 	}
 
 	// Task-bound agent: switch to agent view and spawn with options
-	a.active = viewAgents
+	a = a.setMode(viewAgents)
 	a.agentView.StartPolling()
 	return a, tea.Batch(
 		func() tea.Msg {
@@ -1840,7 +1876,7 @@ func (a App) handleCreateTask(msg overlay.CreateTaskMsg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) switchToReportView() (tea.Model, tea.Cmd) {
-	a.active = viewReport
+	a = a.setMode(viewReport)
 	cmd := a.reportView.Init()
 	return a, cmd
 }
@@ -1915,7 +1951,7 @@ func agentTickCmd() tea.Cmd {
 }
 
 func (a App) switchToAgentView() (tea.Model, tea.Cmd) {
-	a.active = viewAgents
+	a = a.setMode(viewAgents)
 	a.agentView.StartPolling()
 
 	var cmds []tea.Cmd
@@ -2121,7 +2157,7 @@ func (a App) handleBoardSpawnAgent() (tea.Model, tea.Cmd) {
 	_, err := svc.CaptureOutput(context.Background(), taskID)
 	if err == nil {
 		// Agent already running — switch to agent view with it selected
-		a.active = viewAgents
+		a = a.setMode(viewAgents)
 		a.agentView.StartPolling()
 		a.agentView.SelectByTaskID(taskID)
 		return a, tea.Batch(
