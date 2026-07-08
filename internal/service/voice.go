@@ -97,11 +97,17 @@ func (v *VoiceService) Transcribe(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("reading audio file: %w", err)
 	}
 
-	text, err := v.whisper.Transcribe(ctx, pcmData, 16000)
+	return v.TranscribePCM(ctx, pcmData, 16000)
+}
+
+// TranscribePCM transcribes raw 16-bit PCM audio directly (without the
+// recorder). Used by the web UI path where the browser captures audio and
+// sends it as raw PCM bytes.
+func (v *VoiceService) TranscribePCM(ctx context.Context, pcmData []byte, sampleRate int) (string, error) {
+	text, err := v.whisper.Transcribe(ctx, pcmData, sampleRate)
 	if err != nil {
 		return "", fmt.Errorf("transcribing: %w", err)
 	}
-
 	return text, nil
 }
 

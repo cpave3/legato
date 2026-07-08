@@ -55,6 +55,7 @@ export function AgentsPage() {
   const [startSwarmPreselect, setStartSwarmPreselect] = useState<string | undefined>(undefined)
   const [showSpawn, setShowSpawn] = useState(false)
   const [ntfyConfigured, setNtfyConfigured] = useState(false)
+  const [voiceEnabled, setVoiceEnabled] = useState(false)
 
   // Per-agent prompt detection override. If not in the map, uses the global default.
   const [promptDetectionOverrides, setPromptDetectionOverrides] = useState<Record<string, boolean>>({})
@@ -92,8 +93,14 @@ export function AgentsPage() {
     fetchAgents()
     apiFetch(baseUrl, "/api/settings")
       .then((r) => r.json())
-      .then((data) => setNtfyConfigured(!!data.ntfy_configured))
-      .catch(() => setNtfyConfigured(false))
+      .then((data) => {
+        setNtfyConfigured(!!data.ntfy_configured)
+        setVoiceEnabled(!!data.voice_enabled)
+      })
+      .catch(() => {
+        setNtfyConfigured(false)
+        setVoiceEnabled(false)
+      })
     return subscribe((msg: WSMessage) => {
       if (msg.type === "agent_list" && msg.agents) {
         setAgents(msg.agents)
@@ -377,6 +384,7 @@ export function AgentsPage() {
               ntfyConfigured={ntfyConfigured}
               notifyEnabled={selectedAgent?.notify_enabled}
               onToggleNotify={handleToggleNotify}
+              voiceEnabled={voiceEnabled}
             />
           </>
         ) : (

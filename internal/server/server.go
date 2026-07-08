@@ -38,6 +38,8 @@ type Server struct {
 	sparklineWindow  time.Duration
 	sparklineBuckets int
 	ntfyConfigured   bool
+	voiceSvc         VoiceService
+	voiceAutoSend    bool
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -90,6 +92,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/ca-cert", s.caCertHandler())
 	mux.HandleFunc("/api/adapters", s.adaptersHandler())
 	mux.HandleFunc("/api/macros", s.macrosHandler())
+	mux.HandleFunc("/api/voice/transcribe", s.voiceTranscribeHandler())
 	mux.HandleFunc("/api/remote/search", s.remoteSearchHandler())
 	mux.HandleFunc("/api/remote/import", s.remoteImportHandler())
 	mux.HandleFunc("/api/repo/detect", s.detectRepoHandler())
@@ -144,6 +147,14 @@ func (s *Server) SetAuthToken(token string) {
 // SetSyncService sets the optional sync service for remote search/import endpoints.
 func (s *Server) SetSyncService(svc service.SyncService) {
 	s.sync = svc
+}
+
+// SetVoiceService wires the voice dictation service into the server. When svc
+// is non-nil, the /api/voice/transcribe endpoint is active and voice_enabled
+// is reported as true in /api/settings.
+func (s *Server) SetVoiceService(svc VoiceService, autoSend bool) {
+	s.voiceSvc = svc
+	s.voiceAutoSend = autoSend
 }
 
 // SetPRTrackingService sets the optional PR tracking service for link-pr endpoints.
@@ -236,10 +247,12 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			CaCertAvailable bool   `json:"ca_cert_available"`
 			WorkingDir      string `json:"working_dir"`
 			NtfyConfigured  bool   `json:"ntfy_configured"`
+			VoiceEnabled    bool   `json:"voice_enabled"`
 		}{
 			CaCertAvailable: hasCACert,
 			WorkingDir:      s.workDir,
 			NtfyConfigured:  s.ntfyConfigured,
+			VoiceEnabled:    s.voiceSvc != nil,
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}

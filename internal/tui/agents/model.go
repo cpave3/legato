@@ -1042,7 +1042,7 @@ func (m Model) renderVoiceBar(width, height int) string {
 		line1 = recLabel + " " + waveform
 		line2 = lipgloss.NewStyle().
 			Foreground(theme.TextTertiary).
-			Render("press v to stop")
+			Render("press v to stop  ·  esc to cancel")
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, line1, line2)

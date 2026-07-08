@@ -827,9 +827,11 @@ func runTUI() int {
 	app.SetSparklineWindow(appWindow, appBuckets)
 	app.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 
-	// Wire voice dictation when enabled in config.
+	// Wire voice dictation when enabled in config. The same service instance
+	// is shared between the TUI (recorder-based) and web (PCM-based) paths.
+	var voiceSvc *service.VoiceService
 	if cfg.Voice.Enabled && cfg.Voice.WhisperURL != "" {
-		voiceSvc := service.NewVoiceService(cfg.Voice.WhisperURL, tmuxMgr, agentSvc, service.VoiceServiceOptions{
+		voiceSvc = service.NewVoiceService(cfg.Voice.WhisperURL, tmuxMgr, agentSvc, service.VoiceServiceOptions{
 			AutoSend:  cfg.Voice.AutoSend,
 			MicDevice: cfg.Voice.MicDevice,
 		})
@@ -839,6 +841,10 @@ func runTUI() int {
 	// If the web server was auto-started, tell the TUI to show the indicator.
 	if webSrv != nil {
 		app.SetWebServerRunning(cfg.Web.Port)
+		// Wire voice service into the web server for the web UI voice button.
+		if voiceSvc != nil {
+			webSrv.SetVoiceService(voiceSvc, cfg.Voice.AutoSend)
+		}
 	}
 
 	// Silence log output — bubbletea owns the terminal in alt-screen mode

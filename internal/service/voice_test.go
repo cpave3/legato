@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -200,6 +201,37 @@ func TestVoiceService_DeliverEmptyTextNoOp(t *testing.T) {
 	}
 	if len(mt.sentRawFor("legato-TASK-1")) != 0 {
 		t.Error("should not send anything for empty text")
+	}
+}
+
+func TestVoiceService_TranscribePCM(t *testing.T) {
+	wc := &stubWhisperClient{text: "hello from web"}
+
+	vs := &VoiceService{
+		whisper:  wc,
+		autoSend: false,
+	}
+
+	text, err := vs.TranscribePCM(context.Background(), fakeWAVData(), 16000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "hello from web" {
+		t.Errorf("got %q, want %q", text, "hello from web")
+	}
+}
+
+func TestVoiceService_TranscribePCMError(t *testing.T) {
+	wc := &stubWhisperClient{err: fmt.Errorf("connection refused")}
+
+	vs := &VoiceService{
+		whisper:  wc,
+		autoSend: false,
+	}
+
+	_, err := vs.TranscribePCM(context.Background(), fakeWAVData(), 16000)
+	if err == nil {
+		t.Fatal("expected error from whisper client")
 	}
 }
 

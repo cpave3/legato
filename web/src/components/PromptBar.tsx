@@ -4,6 +4,7 @@ import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
 import { cn } from "../lib/utils"
 import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff, Terminal, Zap, Bell, BellOff } from "lucide-react"
+import { VoiceRecorder } from "./VoiceRecorder"
 
 interface ActionListProps {
   actions: { label: string; keys: string }[]
@@ -109,6 +110,7 @@ interface PromptBarProps {
   ntfyConfigured?: boolean
   notifyEnabled?: boolean
   onToggleNotify?: () => void
+  voiceEnabled?: boolean
 }
 
 function draftKey(id: string) { return `legato:draft:${id}` }
@@ -117,7 +119,7 @@ export interface PromptBarHandle {
   focus: () => void
 }
 
-export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify }, ref) {
+export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled }, ref) {
   const { baseUrl } = useServer()
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
   const [menuOpen, setMenuOpen] = useState(false)
@@ -427,6 +429,13 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
             >
               <Send size={16} />
             </button>
+            {voiceEnabled && connected !== false && (
+              <VoiceRecorder
+                agentId={agentId}
+                agentKind={agentKind}
+                baseUrl={baseUrl}
+              />
+            )}
           </div>
         )}
       </div>
