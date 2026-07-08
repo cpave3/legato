@@ -108,6 +108,81 @@ func TestEnterAttachKeybinding(t *testing.T) {
 	}
 }
 
+func TestVoiceKeyDisabledNoOp(t *testing.T) {
+	m := newTestModel()
+	// voiceEnabled defaults to false — 'v' should be a no-op
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	if cmd != nil {
+		msg := cmd()
+		if _, ok := msg.(VoiceToggleMsg); ok {
+			t.Error("expected no VoiceToggleMsg when voice disabled")
+		}
+	}
+}
+
+func TestVoiceKeyEnabledEmitsToggle(t *testing.T) {
+	m := newTestModel()
+	m.SetVoiceEnabled(true)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	if cmd == nil {
+		t.Fatal("expected command from 'v' key when voice enabled")
+	}
+	msg := cmd()
+	vt, ok := msg.(VoiceToggleMsg)
+	if !ok {
+		t.Fatalf("expected VoiceToggleMsg, got %T", msg)
+	}
+	if vt.TaskID != "REX-1238" {
+		t.Errorf("TaskID = %q, want %q", vt.TaskID, "REX-1238")
+	}
+	if vt.TmuxSession != "legato-REX-1238" {
+		t.Errorf("TmuxSession = %q, want %q", vt.TmuxSession, "legato-REX-1238")
+	}
+}
+
+func TestVoiceKeyNoAgentNoOp(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetVoiceEnabled(true)
+	m.SetSize(120, 40)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	if cmd != nil {
+		msg := cmd()
+		if _, ok := msg.(VoiceToggleMsg); ok {
+			t.Error("expected no VoiceToggleMsg when no agent selected")
+		}
+	}
+}
+
+func TestRecordingStateUpdates(t *testing.T) {
+	m := newTestModel()
+	m.SetVoiceEnabled(true)
+
+	m, _ = m.Update(VoiceRecordingMsg{Recording: true})
+	if !m.recording {
+		t.Error("expected recording=true after VoiceRecordingMsg")
+	}
+
+	m, _ = m.Update(VoiceLevelMsg{Levels: []float64{0.1, 0.5, 0.9}})
+	if len(m.audioLevels) != 3 || m.audioLevels[2] != 0.9 {
+		t.Errorf("audioLevels = %v, want [0.1 0.5 0.9]", m.audioLevels)
+	}
+
+	m, _ = m.Update(VoiceRecordingMsg{Recording: false})
+	if m.recording {
+		t.Error("expected recording=false after VoiceRecordingMsg{false}")
+	}
+}
+
+func TestTranscribingStateUpdates(t *testing.T) {
+	m := newTestModel()
+	m.SetVoiceEnabled(true)
+
+	m, _ = m.Update(VoiceTranscriptionMsg{Text: "hello"})
+	if m.transcribing {
+		t.Error("transcribing should be false after receiving transcription result")
+	}
+}
+
 func TestEscReturnsToBoard(t *testing.T) {
 	m := newTestModel()
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})

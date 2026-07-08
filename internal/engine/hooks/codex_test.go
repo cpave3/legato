@@ -394,6 +394,26 @@ func TestCodexAdapter_InterruptKeys(t *testing.T) {
 	}
 }
 
+func TestCodexAdapter_VoiceTrailingEnters(t *testing.T) {
+	adapter := hooks.NewCodexAdapter("/usr/bin/legato")
+	va, ok := any(adapter).(interface{ VoiceTrailingEnters() int })
+	if !ok {
+		t.Fatal("CodexAdapter should implement VoiceTrailingEnters")
+	}
+	if got := va.VoiceTrailingEnters(); got != 2 {
+		t.Errorf("VoiceTrailingEnters() = %d, want 2 (codex needs double Enter)", got)
+	}
+}
+
+func TestClaudeCodeAdapter_NoVoiceTrailingEnters(t *testing.T) {
+	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
+	// Claude Code should NOT implement VoiceDeliveryAdapter — it uses the
+	// default of 1 Enter, so no override is needed.
+	if _, ok := any(adapter).(interface{ VoiceTrailingEnters() int }); ok {
+		t.Error("ClaudeCodeAdapter should not implement VoiceTrailingEnters (uses default 1)")
+	}
+}
+
 func TestCodexAdapter_InstallHooks_ScriptActivities(t *testing.T) {
 	projectDir := t.TempDir()
 	adapter := hooks.NewCodexAdapter("/usr/bin/legato")

@@ -59,3 +59,30 @@ type NotifyToggledMsg struct {
 type StateTimelinesRefreshedMsg struct {
 	Timelines map[string][]string // taskID -> bucket labels
 }
+
+// VoiceToggleMsg is sent when the user presses 'v' in the agents view. The
+// app-level handler starts or stops recording based on the current state.
+type VoiceToggleMsg struct {
+	TaskID      string
+	TmuxSession string
+	AgentKind   string
+}
+
+// VoiceRecordingMsg signals that recording state changed.
+type VoiceRecordingMsg struct {
+	Recording bool
+}
+
+// VoiceLevelMsg carries amplitude levels for the waveform display.
+type VoiceLevelMsg struct {
+	Levels []float64
+}
+
+// VoiceTranscriptionMsg carries the transcription result (or error).
+type VoiceTranscriptionMsg struct {
+	Text string
+	Err  string
+}
+
+// VoiceTranscribingMsg signals that transcription is in progress.
+type VoiceTranscribingMsg struct{}

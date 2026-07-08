@@ -17,6 +17,54 @@ func writeTestConfig(t *testing.T, content string) string {
 	return path
 }
 
+func TestVoiceConfigParsed(t *testing.T) {
+	writeTestConfig(t, `
+voice:
+  enabled: true
+  whisper_url: "http://192.168.1.50:8000/v1/audio/transcriptions"
+  autosend: true
+  mic_device: "hw:1,0"
+`)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Voice.Enabled {
+		t.Error("Voice.Enabled = false, want true")
+	}
+	if cfg.Voice.WhisperURL != "http://192.168.1.50:8000/v1/audio/transcriptions" {
+		t.Errorf("Voice.WhisperURL = %q, want the configured URL", cfg.Voice.WhisperURL)
+	}
+	if !cfg.Voice.AutoSend {
+		t.Error("Voice.AutoSend = false, want true")
+	}
+	if cfg.Voice.MicDevice != "hw:1,0" {
+		t.Errorf("Voice.MicDevice = %q, want %q", cfg.Voice.MicDevice, "hw:1,0")
+	}
+}
+
+func TestVoiceConfigAbsentDefaultsToDisabled(t *testing.T) {
+	writeTestConfig(t, `theme: default`)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Voice.Enabled {
+		t.Error("Voice.Enabled should default to false")
+	}
+	if cfg.Voice.WhisperURL != "" {
+		t.Errorf("Voice.WhisperURL = %q, want empty", cfg.Voice.WhisperURL)
+	}
+	if cfg.Voice.AutoSend {
+		t.Error("Voice.AutoSend should default to false")
+	}
+	if cfg.Voice.MicDevice != "" {
+		t.Errorf("Voice.MicDevice = %q, want empty", cfg.Voice.MicDevice)
+	}
+}
+
 func TestResolveConfigPathUsesLEGATO_CONFIG(t *testing.T) {
 	t.Setenv("LEGATO_CONFIG", "/tmp/my-legato.yaml")
 	t.Setenv("XDG_CONFIG_HOME", "/should/not/use")

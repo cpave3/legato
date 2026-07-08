@@ -26,6 +26,7 @@ type Config struct {
 	Swarm         SwarmConfig              `yaml:"swarm"`
 	Adapters      map[string]AdapterConfig `yaml:"adapters"`
 	Macros        []macros.Macro           `yaml:"macros"`
+	Voice         VoiceConfig              `yaml:"voice"`
 }
 
 // AdapterConfig holds per-adapter launch settings (e.g. extra CLI flags
@@ -172,6 +173,24 @@ type ColumnConfig struct {
 	Name               string   `yaml:"name"`
 	RemoteStatuses     []string `yaml:"remote_statuses"`
 	RemoteTransitionID string   `yaml:"remote_transition_id"`
+}
+
+// VoiceConfig holds optional voice-to-tmux dictation settings. When Enabled
+// is false (the default), the voice feature is entirely hidden from the TUI.
+type VoiceConfig struct {
+	// Enabled gates the voice feature. When false the 'v' keybinding is
+	// hidden and the voice service is not constructed.
+	Enabled bool `yaml:"enabled"`
+	// WhisperURL is the full URL of the faster-whisper (OpenAI-compatible)
+	// transcription endpoint, e.g. "http://192.168.1.50:8000/v1/audio/transcriptions".
+	WhisperURL string `yaml:"whisper_url"`
+	// AutoSend sends the Enter key after the transcribed text so the agent
+	// immediately processes the message. When false the text is typed into
+	// the pane but not submitted.
+	AutoSend bool `yaml:"autosend"`
+	// MicDevice is the ALSA device name for audio capture (e.g. "hw:1,0"
+	// or "default"). Empty falls back to "default" at runtime.
+	MicDevice string `yaml:"mic_device"`
 }
 
 type KeybindingsConfig struct {

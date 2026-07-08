@@ -37,6 +37,10 @@ type Model struct {
 	showWorkerDetails bool
 	icons             theme.Icons
 	ntfyConfigured    bool
+	voiceEnabled      bool
+	recording         bool
+	transcribing      bool
+	audioLevels       []float64
 }
 
 // New creates a new agent view model.
@@ -47,6 +51,11 @@ func New(icons theme.Icons) Model {
 // SetNtfyConfigured records whether a notification channel is available.
 func (m *Model) SetNtfyConfigured(v bool) {
 	m.ntfyConfigured = v
+}
+
+// SetVoiceEnabled controls whether the 'v' voice dictation keybinding is active.
+func (m *Model) SetVoiceEnabled(v bool) {
+	m.voiceEnabled = v
 }
 
 // SetAgents updates the agent list. Agents are grouped so swarm participants
@@ -227,6 +236,27 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.notifyStates[msg.TaskID] = msg.Enabled
 		return m, nil
 
+	case VoiceRecordingMsg:
+		m.recording = msg.Recording
+		if msg.Recording {
+			m.audioLevels = nil
+		}
+		return m, nil
+
+	case VoiceLevelMsg:
+		m.audioLevels = msg.Levels
+		return m, nil
+
+	case VoiceTranscriptionMsg:
+		m.transcribing = false
+		m.audioLevels = nil
+		return m, nil
+
+	case VoiceTranscribingMsg:
+		m.transcribing = true
+		m.recording = false
+		return m, nil
+
 	case tickMsg:
 		if !m.polling {
 			return m, nil
@@ -294,6 +324,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if m.ntfyConfigured {
 			if a := m.SelectedAgent(); a != nil {
 				return m, func() tea.Msg { return ToggleNotifyMsg{TaskID: a.TaskID} }
+			}
+		}
+		return m, nil
+	case "v":
+		if m.voiceEnabled {
+			if a := m.SelectedAgent(); a != nil && a.Status == "running" {
+				return m, func() tea.Msg {
+					return VoiceToggleMsg{
+						TaskID:      a.TaskID,
+						TmuxSession: a.TmuxSession,
+						AgentKind:   a.AgentKind,
+					}
+				}
 			}
 		}
 		return m, nil
@@ -748,7 +791,32 @@ func (m Model) renderSidebarHints(width int) string {
 
 	keyStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
 	var hints string
-	if m.ntfyConfigured {
+	if m.ntfyConfigured && m.voiceEnabled {
+		hints = fmt.Sprintf("%s select  %s spawn  %s kill  %s macro\n%s action  %s attach  %s board  %s detail  %s notify  %s voice",
+			keyStyle.Render("j/k"),
+			keyStyle.Render("s"),
+			keyStyle.Render("X"),
+			keyStyle.Render("m"),
+			keyStyle.Render("M"),
+			keyStyle.Render("↵"),
+			keyStyle.Render("esc"),
+			keyStyle.Render("l"),
+			keyStyle.Render("n"),
+			keyStyle.Render("v"),
+		)
+	} else if m.voiceEnabled {
+		hints = fmt.Sprintf("%s select  %s spawn  %s kill  %s macro\n%s action  %s attach  %s board  %s detail  %s voice",
+			keyStyle.Render("j/k"),
+			keyStyle.Render("s"),
+			keyStyle.Render("X"),
+			keyStyle.Render("m"),
+			keyStyle.Render("M"),
+			keyStyle.Render("↵"),
+			keyStyle.Render("esc"),
+			keyStyle.Render("l"),
+			keyStyle.Render("v"),
+		)
+	} else if m.ntfyConfigured {
 		hints = fmt.Sprintf("%s select  %s spawn  %s kill  %s macro\n%s action  %s attach  %s board  %s detail  %s notify",
 			keyStyle.Render("j/k"),
 			keyStyle.Render("s"),
@@ -783,12 +851,24 @@ func (m Model) renderTerminalPanel() string {
 	header := m.renderTerminalHeader(termW)
 	headerHeight := lipgloss.Height(header)
 
+	// Voice overlay bar height (1-2 lines)
+	overlayHeight := 0
+	if m.recording || m.transcribing {
+		overlayHeight = 2
+	}
+
 	// Terminal content
-	termHeight := m.height - headerHeight
+	termHeight := m.height - headerHeight - overlayHeight
 	if termHeight < 1 {
 		termHeight = 1
 	}
+
 	terminal := m.renderTerminal(termW, termHeight)
+
+	if overlayHeight > 0 {
+		overlay := m.renderVoiceBar(termW, overlayHeight)
+		return lipgloss.JoinVertical(lipgloss.Left, header, terminal, overlay)
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, terminal)
 }
@@ -936,6 +1016,93 @@ func (m Model) renderTerminal(width, height int) string {
 		Width(width).
 		MaxHeight(height).
 		Render(strings.Join(lines, "\n"))
+}
+
+// renderVoiceBar renders a compact recording/transcribing bar at the bottom
+// of the terminal panel. Shows a REC indicator + waveform on one line and
+// the hint on the second line. During transcription, shows a spinner.
+func (m Model) renderVoiceBar(width, height int) string {
+	if height < 1 || width < 10 {
+		return ""
+	}
+
+	var line1, line2 string
+	if m.transcribing {
+		line1 = lipgloss.NewStyle().
+			Foreground(theme.AccentPurple).
+			Bold(true).
+			Render("⏳ Transcribing...")
+	} else {
+		recLabel := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF5555")).
+			Bold(true).
+			Render("● REC")
+
+		waveform := m.renderWaveform(width - 10) // leave room for "● REC " prefix
+		line1 = recLabel + " " + waveform
+		line2 = lipgloss.NewStyle().
+			Foreground(theme.TextTertiary).
+			Render("press v to stop")
+	}
+
+	content := lipgloss.JoinVertical(lipgloss.Left, line1, line2)
+
+	return lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		BorderTop(true).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(theme.TextTertiary).
+		Padding(0, 1).
+		Foreground(theme.TextPrimary).
+		Render(content)
+}
+
+// renderWaveform renders amplitude levels as bar characters. Levels are
+// normalized to the peak in the current window so the waveform shows relative
+// dynamics (up and down) rather than a flat line.
+func (m Model) renderWaveform(width int) string {
+	bars := []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
+
+	// Find the peak in the current window for normalization.
+	peak := 0.0
+	for _, l := range m.audioLevels {
+		if l > peak {
+			peak = l
+		}
+	}
+	// Floor: if everything is near-silent, show flatline at minimum bar.
+	if peak < 0.0001 {
+		peak = 0.0001
+	}
+
+	var sb strings.Builder
+	for _, level := range m.audioLevels {
+		normalized := level / peak
+		if normalized > 1.0 {
+			normalized = 1.0
+		}
+
+		idx := int(normalized * float64(len(bars)))
+		if idx >= len(bars) {
+			idx = len(bars) - 1
+		}
+		if idx < 0 {
+			idx = 0
+		}
+
+		color := theme.SyncOK
+		if normalized < 0.15 {
+			color = theme.TextTertiary
+		}
+		sb.WriteString(lipgloss.NewStyle().Foreground(color).Render(string(bars[idx])))
+	}
+	// Pad with spaces to fill width
+	result := sb.String()
+	if w := lipgloss.Width(result); w < width {
+		result += strings.Repeat(" ", width-w)
+	}
+	return result
 }
 
 func truncateID(id string, maxWidth int) string {

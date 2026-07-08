@@ -68,6 +68,11 @@ func (a *CodexAdapter) RoleSystemPrompt(role string) string {
 // can be processed immediately.
 func (a *CodexAdapter) InterruptKeys() []string { return []string{"Escape"} }
 
+// VoiceTrailingEnters implements the VoiceDeliveryAdapter interface. Codex
+// requires a double Enter to submit input — a single Enter inserts a newline
+// in the prompt buffer instead of dispatching the message.
+func (a *CodexAdapter) VoiceTrailingEnters() int { return 2 }
+
 // LaunchCommand returns the shell command that starts an interactive Codex
 // session. When LEGATO_ROLE_PROMPT_FILE is set, the role prompt is injected
 // as Codex developer instructions via `-c`. The brief is delivered separately

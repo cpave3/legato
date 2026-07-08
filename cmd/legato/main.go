@@ -827,6 +827,15 @@ func runTUI() int {
 	app.SetSparklineWindow(appWindow, appBuckets)
 	app.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 
+	// Wire voice dictation when enabled in config.
+	if cfg.Voice.Enabled && cfg.Voice.WhisperURL != "" {
+		voiceSvc := service.NewVoiceService(cfg.Voice.WhisperURL, tmuxMgr, agentSvc, service.VoiceServiceOptions{
+			AutoSend:  cfg.Voice.AutoSend,
+			MicDevice: cfg.Voice.MicDevice,
+		})
+		app.SetVoiceService(voiceSvc, cfg.Voice.AutoSend, cfg.Voice.MicDevice)
+	}
+
 	// If the web server was auto-started, tell the TUI to show the indicator.
 	if webSrv != nil {
 		app.SetWebServerRunning(cfg.Web.Port)

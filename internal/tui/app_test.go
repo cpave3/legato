@@ -1410,3 +1410,121 @@ func initTestAppWithSwarm() App {
 	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
 	return app
 }
+
+// fakeVoiceService is a test double for the voice service interface.
+type fakeVoiceService struct {
+	startedRecording bool
+	stoppedRecording  bool
+	transcribed      bool
+	delivered        bool
+	deliverText      string
+	deliverSession   string
+	deliverAutoSend  bool
+	transcribeText   string
+	transcribeErr    error
+	levels           []float64
+}
+
+func (f *fakeVoiceService) StartRecording(device string) error {
+	f.startedRecording = true
+	return nil
+}
+func (f *fakeVoiceService) IsRecording() bool { return f.startedRecording && !f.stoppedRecording }
+func (f *fakeVoiceService) Stop() (string, error) {
+	f.stoppedRecording = true
+	return "", nil
+}
+func (f *fakeVoiceService) Transcribe(ctx context.Context) (string, error) {
+	f.transcribed = true
+	return f.transcribeText, f.transcribeErr
+}
+func (f *fakeVoiceService) Deliver(ctx context.Context, tmuxSession, agentKind, text string, autoSend bool) error {
+	f.delivered = true
+	f.deliverText = text
+	f.deliverSession = tmuxSession
+	f.deliverAutoSend = autoSend
+	return nil
+}
+func (f *fakeVoiceService) Levels() []float64 { return f.levels }
+func (f *fakeVoiceService) Cleanup()            {}
+func (f *fakeVoiceService) AutoSend() bool       { return true }
+func (f *fakeVoiceService) MicDevice() string    { return "default" }
+
+func TestVoiceToggleStartsRecording(t *testing.T) {
+	app := initTestApp()
+	vs := &fakeVoiceService{}
+	app.SetVoiceService(vs, true, "default")
+	app.agentView.SetVoiceEnabled(true)
+	app.active = viewAgents
+
+	// Set up a selected running agent
+	app.agentView.SetAgents([]service.AgentSession{
+		{TaskID: "REX-1", TmuxSession: "legato-REX-1", Status: "running", AgentKind: "claude-code"},
+	})
+
+	_, cmd := updateApp(app, agents.VoiceToggleMsg{
+		TaskID:      "REX-1",
+		TmuxSession: "legato-REX-1",
+		AgentKind:   "claude-code",
+	})
+	if cmd == nil {
+		t.Fatal("expected command from VoiceToggleMsg")
+	}
+	msg := cmd()
+	if _, ok := msg.(agents.VoiceRecordingMsg); !ok {
+		t.Errorf("expected VoiceRecordingMsg, got %T", msg)
+	}
+	if !vs.startedRecording {
+		t.Error("expected StartRecording to be called")
+	}
+}
+
+func TestVoiceTranscriptionDeliversText(t *testing.T) {
+	app := initTestApp()
+	vs := &fakeVoiceService{transcribeText: "hello from voice"}
+	app.SetVoiceService(vs, true, "default")
+	app.agentView.SetVoiceEnabled(true)
+	app.active = viewAgents
+
+	app.agentView.SetAgents([]service.AgentSession{
+		{TaskID: "REX-1", TmuxSession: "legato-REX-1", Status: "running", AgentKind: "claude-code"},
+	})
+
+	// 1. Press v to start recording
+	app, cmd := updateApp(app, agents.VoiceToggleMsg{
+		TaskID:      "REX-1",
+		TmuxSession: "legato-REX-1",
+		AgentKind:   "claude-code",
+	})
+	// Execute the VoiceRecordingMsg{true}
+	if cmd != nil {
+		app, _ = updateApp(app, cmd())
+	}
+
+	// 2. Press v again to stop → transcribe → deliver
+	app, cmd = updateApp(app, agents.VoiceToggleMsg{
+		TaskID:      "REX-1",
+		TmuxSession: "legato-REX-1",
+		AgentKind:   "claude-code",
+	})
+	// The batch should contain the transcription goroutine among others.
+	// Execute all commands to let the goroutine run.
+	if cmd != nil {
+		// tea.Batch returns a command that runs all sub-commands concurrently.
+		// In the test harness, executing it runs them synchronously.
+		msg := cmd()
+		// The transcription goroutine's VoiceTranscriptionMsg should arrive.
+		// It may be batched with other messages; execute them all.
+		app, _ = updateApp(app, msg)
+	}
+
+	if !vs.transcribed {
+		t.Error("expected Transcribe to be called")
+	}
+	if !vs.delivered {
+		t.Error("expected Deliver to be called")
+	}
+	if vs.deliverText != "hello from voice" {
+		t.Errorf("deliverText = %q, want %q", vs.deliverText, "hello from voice")
+	}
+}

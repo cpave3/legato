@@ -34,6 +34,20 @@ const (
 	viewReport
 )
 
+// VoiceService is the interface the TUI uses for voice dictation. The
+// concrete implementation is service.VoiceService.
+type VoiceService interface {
+	StartRecording(device string) error
+	IsRecording() bool
+	Stop() (string, error)
+	Transcribe(ctx context.Context) (string, error)
+	Deliver(ctx context.Context, tmuxSession, agentKind, text string, autoSend bool) error
+	Levels() []float64
+	Cleanup()
+	AutoSend() bool
+	MicDevice() string
+}
+
 type overlayKind int
 
 const (
@@ -119,6 +133,13 @@ type App struct {
 	lastSparklineFetch time.Time
 	sparklineWindow    time.Duration
 	sparklineBuckets   int
+	voiceSvc           VoiceService
+	voiceEnabled        bool
+	voiceAutoSend      bool
+	voiceMicDevice     string
+	voiceRecording     bool
+	voiceTargetSession string
+	voiceTargetKind    string
 }
 
 // SetWebServerRunning tells the TUI that the web server was auto-started
@@ -133,6 +154,17 @@ func (a *App) SetWebServerRunning(port string) {
 // is available, so the 'n' keybinding shows conditionally.
 func (a *App) SetNtfyConfigured(v bool) {
 	a.agentView.SetNtfyConfigured(v)
+}
+
+// SetVoiceService wires the voice dictation service into the TUI. When svc
+// is non-nil, the 'v' keybinding is enabled in the agents view. autoSend and
+// micDevice are forwarded from config.
+func (a *App) SetVoiceService(svc VoiceService, autoSend bool, micDevice string) {
+	a.voiceSvc = svc
+	a.voiceEnabled = svc != nil
+	a.voiceAutoSend = autoSend
+	a.voiceMicDevice = micDevice
+	a.agentView.SetVoiceEnabled(a.voiceEnabled)
 }
 
 // SetSparklineWindow configures the window and bucket count used when
@@ -340,6 +372,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
+		case "esc":
+			// Escape during recording cancels the recording without
+			// transcribing — stops arecord and discards the audio.
+			if a.voiceRecording {
+				a.voiceRecording = false
+				a.voiceSvc.Stop()
+				a.voiceSvc.Cleanup()
+				a.agentView, _ = a.agentView.Update(agents.VoiceRecordingMsg{Recording: false})
+				return a, func() tea.Msg {
+					return statusbar.InfoMsg{Text: "voice: cancelled"}
+				}
+			}
+			return a.delegateKey(msg)
 		case "q", "ctrl+c":
 			if a.active == viewBoard {
 				return a, tea.Quit
@@ -718,6 +763,39 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agents.OpenMacroPickerMsg:
 		return a.openMacroPickerOverlay()
+
+	case agents.VoiceToggleMsg:
+		return a.handleVoiceToggle(msg)
+
+	case agents.VoiceRecordingMsg:
+		a.voiceRecording = msg.Recording
+		a.agentView, _ = a.agentView.Update(msg)
+		if msg.Recording {
+			return a, voiceLevelTickCmd()
+		}
+		return a, nil
+
+	case agents.VoiceLevelMsg:
+		a.agentView, _ = a.agentView.Update(msg)
+		if a.voiceRecording {
+			return a, voiceLevelTickCmd()
+		}
+		return a, nil
+
+	case agents.VoiceTranscribingMsg:
+		a.agentView, _ = a.agentView.Update(msg)
+		return a, nil
+
+	case agents.VoiceTranscriptionMsg:
+		return a.handleVoiceTranscription(msg)
+
+	case voiceLevelTickMsg:
+		if !a.voiceRecording || a.voiceSvc == nil {
+			return a, nil
+		}
+		levels := a.voiceSvc.Levels()
+		a.agentView, _ = a.agentView.Update(agents.VoiceLevelMsg{Levels: levels})
+		return a, voiceLevelTickCmd()
 
 	case overlay.MacroSelectedMsg:
 		return a.handleMacroSelected(msg)
@@ -1952,6 +2030,78 @@ func (a App) handleAttachSession(msg agents.AttachSessionMsg) (tea.Model, tea.Cm
 		// After detach, refresh agent list
 		agentList, _ := svc.ListAgents(context.Background())
 		return agents.AgentsRefreshedMsg{Agents: agentList}
+	})
+}
+
+// handleVoiceToggle starts or stops recording. When starting, it records the
+// target session/kind for later delivery. When stopping, it kicks off
+// transcription and then delivery in a goroutine.
+func (a App) handleVoiceToggle(msg agents.VoiceToggleMsg) (tea.Model, tea.Cmd) {
+	if a.voiceSvc == nil {
+		return a, nil
+	}
+
+	if !a.voiceRecording {
+		// Start recording
+		if err := a.voiceSvc.StartRecording(a.voiceMicDevice); err != nil {
+			return a, func() tea.Msg {
+				return statusbar.ErrorMsg{Text: "voice: " + err.Error()}
+			}
+		}
+		a.voiceRecording = true
+		a.voiceTargetSession = msg.TmuxSession
+		a.voiceTargetKind = msg.AgentKind
+		if a.voiceTargetSession == "" {
+			a.voiceTargetSession = "legato-" + msg.TaskID
+		}
+		return a, func() tea.Msg {
+			return agents.VoiceRecordingMsg{Recording: true}
+		}
+	}
+
+	// Stop recording → transcribe → deliver.
+	// Update model state directly so the UI transitions immediately.
+	a.voiceRecording = false
+	a.agentView, _ = a.agentView.Update(agents.VoiceRecordingMsg{Recording: false})
+	a.agentView, _ = a.agentView.Update(agents.VoiceTranscribingMsg{})
+
+	svc := a.voiceSvc
+	session := a.voiceTargetSession
+	agentKind := a.voiceTargetKind
+	autoSend := a.voiceAutoSend
+
+	return a, func() tea.Msg {
+		text, err := svc.Transcribe(context.Background())
+		if err != nil {
+			return agents.VoiceTranscriptionMsg{Err: err.Error()}
+		}
+		if err := svc.Deliver(context.Background(), session, agentKind, text, autoSend); err != nil {
+			return agents.VoiceTranscriptionMsg{Err: err.Error()}
+		}
+		return agents.VoiceTranscriptionMsg{Text: text}
+	}
+}
+
+// handleVoiceTranscription delivers the transcribed text and shows a
+// status bar message.
+func (a App) handleVoiceTranscription(msg agents.VoiceTranscriptionMsg) (tea.Model, tea.Cmd) {
+	a.agentView, _ = a.agentView.Update(msg)
+	if msg.Err != "" {
+		return a, func() tea.Msg {
+			return statusbar.ErrorMsg{Text: "voice: " + msg.Err}
+		}
+	}
+	return a, func() tea.Msg {
+		return statusbar.InfoMsg{Text: "Sent voice: " + msg.Text}
+	}
+}
+
+// voiceLevelTickMsg is the fast tick for polling audio levels during recording.
+type voiceLevelTickMsg struct{}
+
+func voiceLevelTickCmd() tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+		return voiceLevelTickMsg{}
 	})
 }
 

@@ -100,6 +100,18 @@ type InterruptAdapter interface {
 	InterruptKeys() []string
 }
 
+// VoiceDeliveryAdapter is an optional capability adapters implement to
+// specify how many Enter key presses should follow transcribed text when
+// voice dictation delivers a message to the agent's tmux pane. Adapters
+// that don't implement this interface use the default of 1 Enter. Use this
+// for agents like Codex that require a double Enter to submit input.
+type VoiceDeliveryAdapter interface {
+	// VoiceTrailingEnters returns the number of Enter key presses to send
+	// after the transcribed text body. 1 is the default; 2 is used by
+	// adapters where a single Enter inserts a newline rather than submitting.
+	VoiceTrailingEnters() int
+}
+
 // AdapterRegistry holds registered AI tool adapters.
 type AdapterRegistry struct {
 	adapters map[string]AIToolAdapter

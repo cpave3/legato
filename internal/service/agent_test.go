@@ -31,6 +31,7 @@ type mockTmux struct {
 	sentLines       map[string][]string // session -> ordered list of SendKeysLine payloads
 	sentMultiline   map[string][]string // session -> ordered list of SendKeysMultiline payloads
 	sentKeys        map[string][]string // session -> ordered list of SendKey payloads
+	sentRaw         map[string][]string // session -> ordered list of SendKeys (literal text) payloads
 }
 
 func newMockTmux() *mockTmux {
@@ -43,6 +44,7 @@ func newMockTmux() *mockTmux {
 		sentLines:     make(map[string][]string),
 		sentMultiline: make(map[string][]string),
 		sentKeys:      make(map[string][]string),
+		sentRaw:       make(map[string][]string),
 	}
 }
 
@@ -139,6 +141,7 @@ func (m *mockTmux) SendKeys(name, keys string) error {
 	if !m.sessions[name] {
 		return fmt.Errorf("session %s not found", name)
 	}
+	m.sentRaw[name] = append(m.sentRaw[name], keys)
 	return nil
 }
 
@@ -255,6 +258,14 @@ func (m *mockTmux) sentKeysFor(name string) []string {
 	defer m.mu.Unlock()
 	out := make([]string, len(m.sentKeys[name]))
 	copy(out, m.sentKeys[name])
+	return out
+}
+
+func (m *mockTmux) sentRawFor(name string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.sentRaw[name]))
+	copy(out, m.sentRaw[name])
 	return out
 }
 

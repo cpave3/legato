@@ -49,6 +49,18 @@ var (
 		{"R", "Reports view"},
 		{"w", "Workspace filter"},
 	}
+	agentBindings = []keybinding{
+		{"j/k", "Select agent"},
+		{"s", "Spawn agent"},
+		{"X", "Kill agent"},
+		{"m", "Send macro"},
+		{"M", "Agent actions (swarm)"},
+		{"↵", "Attach to session"},
+		{"l", "Toggle worker details"},
+		{"n", "Toggle notifications"},
+		{"v", "Voice dictation (when enabled)"},
+		{"esc", "Back to board"},
+	}
 	generalBindings = []keybinding{
 		{"?", "Toggle this help screen"},
 		{"q", "Quit"},
@@ -120,6 +132,7 @@ func (m HelpOverlay) View() string {
 	renderSection("Actions", actionBindings)
 	renderSection("Swarm", swarmBindings)
 	renderSection("Views", viewBindings)
+	renderSection("Agents", agentBindings)
 	renderSection("General", generalBindings)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
