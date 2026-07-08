@@ -311,6 +311,98 @@ func TestSpawnAgent_RolePromptPreambleIsPrepended(t *testing.T) {
 	}
 }
 
+// generalPromptAdapter implements GeneralPromptAdapter — the returned prompt
+// becomes the first user turn for a plain (non-swarm) spawn.
+type generalPromptAdapter struct {
+	*fakeAdapter
+	general string
+}
+
+func (g generalPromptAdapter) GeneralPrompt() string { return g.general }
+
+// TestSpawnAgent_GeneralPromptDrivesLaunchForPlainSpawn verifies that a plain
+// (non-swarm) spawn receives the adapter's general prompt as its first user
+// turn, not the swarm-specific preamble. Chimera's LaunchCommand emits bare
+// `chimera` when LEGATO_ROLE_PROMPT_FILE is absent; without a general prompt
+// the session boots to an empty prompt (the b9b1d0d regression).
+func TestSpawnAgent_GeneralPromptDrivesLaunchForPlainSpawn(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	mt := newMockTmux()
+	adapter := generalPromptAdapter{
+		fakeAdapter: &fakeAdapter{name: "chimera-like"},
+		general:     "GENERAL-PROMPT-MARKER",
+	}
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{Adapter: adapter})
+	ctx := context.Background()
+	createTask(t, s, "task-1")
+
+	if err := svc.SpawnAgent(ctx, "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	sessionName := "legato-task-1"
+	env := mt.envVarsFor(sessionName)
+	rolePath := env["LEGATO_ROLE_PROMPT_FILE"]
+	if rolePath == "" {
+		t.Fatal("LEGATO_ROLE_PROMPT_FILE not set; general prompt should drive the prompt file for a plain spawn")
+	}
+	data, err := os.ReadFile(rolePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := string(data); body != "GENERAL-PROMPT-MARKER" {
+		t.Errorf("role prompt file = %q, want %q", body, "GENERAL-PROMPT-MARKER")
+	}
+	lines := mt.sentLinesFor(sessionName)
+	if len(lines) < 1 {
+		t.Fatalf("expected auto-launch line, got none")
+	}
+	if !strings.Contains(lines[0], `fake-tool --prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)"`) {
+		t.Errorf("launch line = %q, want --prompt form", lines[0])
+	}
+}
+
+// TestSpawnAgent_PreambleNotInjectedForPlainSpawn verifies the swarm preamble
+// is NOT injected for a plain spawn, even when the adapter implements
+// RolePromptPreambleAdapter. An ephemeral agent that sees the swarm preamble
+// mistakes itself for a swarm worker and looks for a brief/sub-task that
+// doesn't exist.
+func TestSpawnAgent_PreambleNotInjectedForPlainSpawn(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	mt := newMockTmux()
+	// Preamble but no general prompt and no role prompts.
+	adapter := preambleAdapter{
+		fakeAdapter: &fakeAdapter{name: "chimera-like"},
+		preamble:    "SWARM-SANDBOX-NOTE",
+	}
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{Adapter: adapter})
+	ctx := context.Background()
+	createTask(t, s, "task-1")
+
+	if err := svc.SpawnAgent(ctx, "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	rolePath := mt.envVarsFor("legato-task-1")["LEGATO_ROLE_PROMPT_FILE"]
+	if rolePath != "" {
+		data, _ := os.ReadFile(rolePath)
+		t.Errorf("LEGATO_ROLE_PROMPT_FILE set to %q with swarm content %q; preamble must not reach a plain spawn",
+			rolePath, string(data))
+	}
+}
+
 func TestKillAgent_PublishesEventAgentDied(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	s, err := store.New(dbPath)

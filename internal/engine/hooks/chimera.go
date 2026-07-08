@@ -110,6 +110,20 @@ func (a *ChimeraAdapter) RolePromptPreamble() string {
 	return chimeraSandboxPreamble
 }
 
+// GeneralPrompt returns the first user turn for a plain (non-swarm) Chimera
+// spawn. It is intentionally short and swarm-free: the agent is a standalone
+// legato-spawned session, not a swarm participant, so it must not look for a
+// brief or sub-task context that doesn't exist.
+func (a *ChimeraAdapter) GeneralPrompt() string {
+	return chimeraGeneralPrompt
+}
+
+const chimeraGeneralPrompt = "You are a standalone coding agent launched by Legato. " +
+	"No task brief, sub-task, or swarm context was provided — work on whatever " +
+	"the user asks directly. If your session is sandboxed and you need to run the " +
+	"`legato` CLI or read host-side paths, switch that tool call to host mode; " +
+	"otherwise sandboxed calls will return \"command not found\" / \"no such file\".\n"
+
 const chimeraSandboxPreamble = "## Chimera-specific guidance for legato\n" +
 	"\n" +
 	"You are running inside Chimera. If your session is sandboxed (e.g. " +

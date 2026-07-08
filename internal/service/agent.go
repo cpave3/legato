@@ -205,6 +205,10 @@ func writeAgentPromptFiles(taskID, rolePrompt, brief string) (string, string, er
 	return rolePath, briefPath, nil
 }
 
+// rolePromptForAdapter resolves the role system prompt for a swarm
+// participant, prepending any adapter preamble. Returns empty when there is
+// no role — plain (non-swarm) spawns use generalPromptForAdapter instead, so
+// the swarm-specific preamble never reaches an ephemeral agent.
 func rolePromptForAdapter(adapter AIToolAdapter, role string) string {
 	if adapter == nil || role == "" {
 		return ""
@@ -223,6 +227,21 @@ func rolePromptForAdapter(adapter AIToolAdapter, role string) string {
 		}
 	}
 	return rolePrompt
+}
+
+// generalPromptForAdapter returns a standalone prompt for a plain (non-swarm)
+// agent spawn. Adapters opt in via GeneralPromptAdapter; the prompt is used as
+// the initial user turn for tools whose launch is self-kickoff (e.g. Chimera's
+// --prompt). Returns empty when the adapter doesn't supply one, in which case
+// the session launches with no injected first message.
+func generalPromptForAdapter(adapter AIToolAdapter) string {
+	if adapter == nil {
+		return ""
+	}
+	if gp, ok := adapter.(GeneralPromptAdapter); ok {
+		return gp.GeneralPrompt()
+	}
+	return ""
 }
 
 // EventPublisher publishes events. Wraps *events.Bus to keep the service layer
@@ -342,12 +361,20 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if opt.SubtaskID != "" {
 		envMap["LEGATO_SUBTASK_ID"] = opt.SubtaskID
 	}
-	// Resolve the role system prompt (string), then write it and any brief
-	// to per-agent files under ~/.legato/agents/<taskID>/. The launch
-	// command receives paths via env vars so multi-line/quoted content never
-	// has to traverse shell escaping. Skipped for non-swarm spawns where no
-	// role or brief is supplied.
-	rolePrompt := rolePromptForAdapter(adapter, opt.Role)
+	// Resolve the prompt content for the launch. Swarm participants (a role
+	// or parent task is set) get the role system prompt with the adapter
+	// preamble; plain/ephemeral spawns get a general standalone prompt so the
+	// agent doesn't mistake itself for a swarm worker. The result and any
+	// brief are written to per-agent files under ~/.legato/agents/<taskID>/.
+	// The launch command receives paths via env vars so multi-line/quoted
+	// content never has to traverse shell escaping.
+	isSwarm := opt.Role != "" || opt.ParentTaskID != ""
+	rolePrompt := ""
+	if isSwarm {
+		rolePrompt = rolePromptForAdapter(adapter, opt.Role)
+	} else {
+		rolePrompt = generalPromptForAdapter(adapter)
+	}
 	if rolePrompt != "" || opt.Brief != "" {
 		rolePath, briefPath, perr := writeAgentPromptFiles(taskID, rolePrompt, opt.Brief)
 		if perr != nil {

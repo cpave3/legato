@@ -78,6 +78,16 @@ type RolePromptPreambleAdapter interface {
 	RolePromptPreamble() string
 }
 
+// GeneralPromptAdapter is an optional adapter capability for tools whose
+// launch is self-kickoff (e.g. Chimera's --prompt) but which need an initial
+// user turn even for plain, non-swarm spawns. The returned prompt becomes the
+// agent's first message; it must NOT reference swarm-only concepts (briefs,
+// sub-task IDs, `legato swarm` verbs) since a plain spawn has none of those.
+// Return empty string to launch with no injected first message.
+type GeneralPromptAdapter interface {
+	GeneralPrompt() string
+}
+
 // InterruptAdapter is an optional capability adapters implement to describe
 // which tmux key names should be sent before an urgent message in order to
 // abort the agent's current turn. Adapters that don't implement this
