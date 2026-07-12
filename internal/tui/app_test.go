@@ -695,10 +695,11 @@ func TestTitleEditSubmitClosesOverlayAndRefreshes(t *testing.T) {
 }
 
 type fakeAgentService struct {
-	agents        []service.AgentSession
-	durations     map[string]service.DurationData
-	captureErr    bool // when true, CaptureOutput returns an error (agent not running)
-	lastSpawnOpts *service.AgentSpawnOptions
+	agents         []service.AgentSession
+	durations      map[string]service.DurationData
+	captureErr     bool // when true, CaptureOutput returns an error (agent not running)
+	lastSpawnOpts  *service.AgentSpawnOptions
+	chimeraSession string
 }
 
 func (f *fakeAgentService) SpawnAgent(_ context.Context, _ string, _, _ int, opts ...service.AgentSpawnOptions) error {
@@ -752,6 +753,38 @@ func (f *fakeAgentService) SetTaskNotifyEnabled(_ context.Context, _ string, _ b
 }
 func (f *fakeAgentService) GetTaskNotifyEnabled(_ context.Context, _ string) (bool, error) {
 	return false, nil
+}
+func (f *fakeAgentService) GetTaskChimeraSessionID(_ context.Context, _ string) (string, error) {
+	return f.chimeraSession, nil
+}
+
+func TestChimeraSpawnWithStoredSessionPromptsAndResumes(t *testing.T) {
+	agentSvc := &fakeAgentService{chimeraSession: "old-session"}
+	app := newTestApp()
+	app.agentSvc = agentSvc
+	app.width, app.height = 100, 40
+
+	model, _ := app.handleAgentSpawnSubmit(overlay.AgentSpawnSubmitMsg{TaskID: "TASK-1", AgentKind: "chimera"})
+	app = model.(App)
+	if app.overlayType != overlayChimeraSession {
+		t.Fatalf("overlayType = %v, want Chimera session prompt", app.overlayType)
+	}
+	model, cmd := app.Update(overlay.ChimeraSessionChoiceMsg{Spawn: overlay.AgentSpawnSubmitMsg{TaskID: "TASK-1", AgentKind: "chimera"}, SessionID: "old-session", Resume: true})
+	app = model.(App)
+	if cmd == nil {
+		t.Fatal("expected spawn command")
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, c := range batch {
+			if c != nil {
+				c()
+			}
+		}
+	}
+	if agentSvc.lastSpawnOpts == nil || agentSvc.lastSpawnOpts.ChimeraSessionID != "old-session" || agentSvc.lastSpawnOpts.ChimeraSessionExists != "resume" {
+		t.Fatalf("spawn options = %+v", agentSvc.lastSpawnOpts)
+	}
 }
 
 func TestDurationDataFlowsToBoard(t *testing.T) {
@@ -1414,7 +1447,7 @@ func initTestAppWithSwarm() App {
 // fakeVoiceService is a test double for the voice service interface.
 type fakeVoiceService struct {
 	startedRecording bool
-	stoppedRecording  bool
+	stoppedRecording bool
 	transcribed      bool
 	delivered        bool
 	deliverText      string
@@ -1446,9 +1479,9 @@ func (f *fakeVoiceService) Deliver(ctx context.Context, tmuxSession, agentKind, 
 	return nil
 }
 func (f *fakeVoiceService) Levels() []float64 { return f.levels }
-func (f *fakeVoiceService) Cleanup()            {}
-func (f *fakeVoiceService) AutoSend() bool       { return true }
-func (f *fakeVoiceService) MicDevice() string    { return "default" }
+func (f *fakeVoiceService) Cleanup()          {}
+func (f *fakeVoiceService) AutoSend() bool    { return true }
+func (f *fakeVoiceService) MicDevice() string { return "default" }
 
 func TestVoiceToggleStartsRecording(t *testing.T) {
 	app := initTestApp()

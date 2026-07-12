@@ -250,10 +250,35 @@ func runAgentCmd(args []string) int {
 		return runAgentSummary(args[1:])
 	case "status":
 		return runAgentStatus(args[1:])
+	case "session-created":
+		return runAgentSessionCreated(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown agent command: %s\n", args[0])
 		return 1
 	}
+}
+
+func runAgentSessionCreated(args []string) int {
+	if len(args) != 2 {
+		fmt.Fprintln(os.Stderr, "usage: legato agent session-created <task-id> <session-id>")
+		return 1
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
+	db, err := store.New(config.ResolveDBPath(cfg))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "database: %v\n", err)
+		return 1
+	}
+	defer db.Close()
+	if err := cli.AgentSessionCreated(db, args[0], args[1]); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func runAgentState(args []string) int {

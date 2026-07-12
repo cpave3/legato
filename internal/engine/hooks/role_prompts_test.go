@@ -122,6 +122,26 @@ func TestChimeraAdapterLaunchCommand(t *testing.T) {
 	}
 }
 
+func TestChimeraAdapterLaunchCommandResumeOmitsPrompt(t *testing.T) {
+	a := NewChimeraAdapter("/usr/bin/legato")
+
+	got := a.LaunchCommand(map[string]string{
+		"LEGATO_CHIMERA_SESSION_ID":     "existing-session",
+		"LEGATO_CHIMERA_SESSION_EXISTS": "resume",
+		"LEGATO_ROLE_PROMPT_FILE":       "/tmp/role.md",
+	}, "", "")
+
+	if !strings.Contains(got, "--session-id existing-session") {
+		t.Errorf("expected existing session ID in launch command, got %q", got)
+	}
+	if !strings.Contains(got, "--session-exists resume") {
+		t.Errorf("expected resume policy in launch command, got %q", got)
+	}
+	if strings.Contains(got, "--prompt") {
+		t.Errorf("resume launch command must not include --prompt, got %q", got)
+	}
+}
+
 func TestClaudeAdapterLaunchCommandWithTier(t *testing.T) {
 	a := NewClaudeCodeAdapter("/usr/bin/legato")
 	a.SetLaunchArgs([]string{"--dangerously-skip-permissions"})
@@ -156,6 +176,21 @@ func TestClaudeAdapterLaunchCommandWithTier(t *testing.T) {
 	got = a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "ghost")
 	if strings.Contains(got, "--model") {
 		t.Errorf("unknown tier should not inject anything, got %q", got)
+	}
+}
+
+func TestChimeraAdapterLaunchCommandWithTaskSession(t *testing.T) {
+	a := NewChimeraAdapter("legato")
+	got := a.LaunchCommand(map[string]string{
+		"LEGATO_TASK_ID":                "TASK-42",
+		"LEGATO_CHIMERA_SESSION_ID":     "TASK-42",
+		"LEGATO_CHIMERA_SESSION_NAME":   "TASK-42",
+		"LEGATO_CHIMERA_SESSION_EXISTS": "resume",
+	}, "", "")
+	for _, want := range []string{"--session-name TASK-42", "--session-id TASK-42", "--session-exists resume"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("LaunchCommand() = %q, missing %q", got, want)
+		}
 	}
 }
 

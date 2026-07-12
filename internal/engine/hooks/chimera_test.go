@@ -18,6 +18,7 @@ var chimeraEvents = []struct {
 	script   string
 	activity string // "" means clear
 }{
+	{"SessionCreated", "legato-session-created.sh", "capture"},
 	{"UserPromptSubmit", "legato-prompt-submit.sh", "working"},
 	{"PostToolUse", "legato-post-tool-use.sh", "working"},
 	{"PermissionRequest", "legato-permission.sh", "waiting"},
@@ -82,6 +83,9 @@ func TestChimeraAdapter_InstallHooks(t *testing.T) {
 			t.Errorf("%s: missing LEGATO_TASK_ID guard", ev.dir)
 		}
 		wantCmd := fmt.Sprintf("%s agent state \"$LEGATO_TASK_ID\" --activity %q --working-dir \"$PWD\"", "/usr/bin/legato", ev.activity)
+		if ev.dir == "SessionCreated" {
+			wantCmd = `/usr/bin/legato agent session-created "$LEGATO_TASK_ID" "$CHIMERA_SESSION_ID"`
+		}
 		if !strings.Contains(content, wantCmd) {
 			t.Errorf("%s: expected %q in script, got:\n%s", ev.dir, wantCmd, content)
 		}

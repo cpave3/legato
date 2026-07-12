@@ -65,6 +65,7 @@ const (
 	overlayLinkPR
 	overlayOpenURL
 	overlayAgentSpawn
+	overlayChimeraSession
 	overlaySwarmInit
 	overlayPlanApproval
 	overlayAgentAction
@@ -134,7 +135,7 @@ type App struct {
 	sparklineWindow    time.Duration
 	sparklineBuckets   int
 	voiceSvc           VoiceService
-	voiceEnabled        bool
+	voiceEnabled       bool
 	voiceAutoSend      bool
 	voiceMicDevice     string
 	voiceRecording     bool
@@ -528,7 +529,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.agentView, _ = a.agentView.Update(msg)
 		return a, nil
 
-
 	case agents.ToggleNotifyMsg:
 		if a.agentSvc != nil {
 			svc := a.agentSvc
@@ -816,13 +816,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case overlay.SwarmFinishConfirmedMsg:
 		return a.handleSwarmFinishConfirmed(msg)
 
-		case overlay.SwarmCancelConfirmedMsg:
-			return a.handleSwarmCancelConfirmed(msg)
+	case overlay.SwarmCancelConfirmedMsg:
+		return a.handleSwarmCancelConfirmed(msg)
 
-		case overlay.SwarmCancelCancelledMsg:
-			a.overlayType = overlayNone
-			a.activeOverlay = nil
-			return a, nil
+	case overlay.SwarmCancelCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
 
 	case overlay.AgentActionCancelledMsg:
 		a.overlayType = overlayNone
@@ -831,6 +831,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case overlay.AgentSpawnSubmitMsg:
 		return a.handleAgentSpawnSubmit(msg)
+
+	case overlay.ChimeraSessionChoiceMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		policy := "new"
+		if msg.Resume {
+			policy = "resume"
+		}
+		return a.spawnTaskAgent(msg.Spawn, msg.SessionID, policy)
+
+	case overlay.ChimeraSessionCancelledMsg:
+		a.overlayType = overlayNone
+		a.activeOverlay = nil
+		return a, nil
 
 	case overlay.AgentSpawnCancelledMsg:
 		a.overlayType = overlayNone
@@ -1800,6 +1814,27 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 		)
 	}
 
+	if msg.AgentKind == "chimera" || (msg.AgentKind == "" && svc.DefaultAdapter() == "chimera") {
+		if sessionID, err := svc.GetTaskChimeraSessionID(context.Background(), msg.TaskID); err == nil && sessionID != "" {
+			model := overlay.NewChimeraSession(msg, sessionID)
+			sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+			a.activeOverlay = sized
+			a.overlayType = overlayChimeraSession
+			return a, nil
+		}
+	}
+	return a.spawnTaskAgent(msg, "", "")
+}
+
+func (a App) spawnTaskAgent(msg overlay.AgentSpawnSubmitMsg, chimeraSessionID, chimeraPolicy string) (tea.Model, tea.Cmd) {
+	svc := a.agentSvc
+	termW := a.width - agents.SidebarWidth
+	if termW < 1 {
+		termW = 1
+	}
+	termH := a.height - 1
+	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, WorkingDir: msg.WorkingDir, ChimeraSessionID: chimeraSessionID, ChimeraSessionExists: chimeraPolicy}
+
 	// Task-bound agent: switch to agent view and spawn with options
 	a = a.setMode(viewAgents)
 	a.agentView.StartPolling()
@@ -2024,8 +2059,6 @@ func (a App) handleSparklineTick() (tea.Model, tea.Cmd) {
 	cmds = append(cmds, sparklineTickCmd())
 	return a, tea.Batch(cmds...)
 }
-
-
 
 func (a App) handleKillAgent(msg agents.KillAgentMsg) (tea.Model, tea.Cmd) {
 	if a.agentSvc == nil {

@@ -82,6 +82,27 @@ func TestCreateAndGetTask(t *testing.T) {
 	}
 }
 
+func TestSetTaskChimeraSessionIDPersistsAndReplaces(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, Task{ID: "TASK-1", Title: "Task", Status: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, sessionID := range []string{"TASK-1", "TASK-1-01"} {
+		if err := s.SetTaskChimeraSessionID(ctx, "TASK-1", sessionID); err != nil {
+			t.Fatal(err)
+		}
+		task, err := s.GetTask(ctx, "TASK-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if task.ChimeraSessionID == nil || *task.ChimeraSessionID != sessionID {
+			t.Fatalf("ChimeraSessionID = %v, want %q", task.ChimeraSessionID, sessionID)
+		}
+	}
+}
+
 func TestCreateDuplicateTaskReturnsError(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

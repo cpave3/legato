@@ -69,15 +69,18 @@ type DurationData struct {
 // to inject role tags, scope-based conflict checks, a role system prompt, and
 // the per-worker initial brief that the launch command delivers.
 type AgentSpawnOptions struct {
-	Role         string   // free-form role label (e.g. "conductor", "backend"); "" for non-swarm
-	ParentTaskID string   // parent task ID when spawning a swarm sub-task
-	SubtaskID    string   // sub-task ID being assigned
-	Scope        []string // scope globs for conflict checks
-	WorkingDir   string   // override for tmux session working directory; falls back to agent service workDir
-	AgentKind    string   // adapter name to use; "" → default adapter
-	Tier         string   // adapter tier name (selects per-tier launch_args from cfg.Adapters.<kind>.tiers); "" → base launch_args only
-	Brief        string   // the per-worker initial brief; conductors leave this empty
-	StrictScope  bool     // when true, scope conflicts hard-block the spawn; otherwise advisory
+	Role                 string   // free-form role label (e.g. "conductor", "backend"); "" for non-swarm
+	ParentTaskID         string   // parent task ID when spawning a swarm sub-task
+	SubtaskID            string   // sub-task ID being assigned
+	Scope                []string // scope globs for conflict checks
+	WorkingDir           string   // override for tmux session working directory; falls back to agent service workDir
+	AgentKind            string   // adapter name to use; "" → default adapter
+	Tier                 string   // adapter tier name (selects per-tier launch_args from cfg.Adapters.<kind>.tiers); "" → base launch_args only
+	Brief                string   // the per-worker initial brief; conductors leave this empty
+	StrictScope          bool     // when true, scope conflicts hard-block the spawn; otherwise advisory
+	ChimeraSessionID     string   // requested or previously stored Chimera session ID
+	ChimeraSessionExists string   // Chimera collision policy: new, resume, or error
+	Ephemeral            bool     // internal: omit task-linked session identity
 }
 
 // AgentSpawnConflict describes a scope-overlap warning encountered at spawn time.
@@ -115,6 +118,7 @@ type AgentService interface {
 	SetTaskNotifyEnabled(ctx context.Context, taskID string, enabled bool) error
 	// GetTaskNotifyEnabled returns whether push notifications are enabled for a task.
 	GetTaskNotifyEnabled(ctx context.Context, taskID string) (bool, error)
+	GetTaskChimeraSessionID(ctx context.Context, taskID string) (string, error)
 }
 
 type agentService struct {
@@ -290,6 +294,17 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 	return svc
 }
 
+func (a *agentService) GetTaskChimeraSessionID(ctx context.Context, taskID string) (string, error) {
+	task, err := a.store.GetTask(ctx, taskID)
+	if err != nil {
+		return "", err
+	}
+	if task.ChimeraSessionID == nil {
+		return "", nil
+	}
+	return *task.ChimeraSessionID, nil
+}
+
 func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, height int, opts ...AgentSpawnOptions) error {
 	var opt AgentSpawnOptions
 	if len(opts) > 0 {
@@ -350,6 +365,19 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		for k, v := range adapter.EnvVars(taskID, a.socketPath) {
 			envMap[k] = v
 		}
+	}
+	if adapter != nil && adapter.Name() == "chimera" && !opt.Ephemeral {
+		sessionID := opt.ChimeraSessionID
+		if sessionID == "" {
+			sessionID = taskID
+		}
+		policy := opt.ChimeraSessionExists
+		if policy == "" {
+			policy = "resume"
+		}
+		envMap["LEGATO_CHIMERA_SESSION_NAME"] = taskID
+		envMap["LEGATO_CHIMERA_SESSION_ID"] = sessionID
+		envMap["LEGATO_CHIMERA_SESSION_EXISTS"] = policy
 	}
 	// Swarm-specific env vars.
 	if opt.Role != "" {
@@ -562,7 +590,12 @@ func (a *agentService) SpawnEphemeralAgent(ctx context.Context, title string, wi
 	if err != nil {
 		return fmt.Errorf("creating ephemeral task: %w", err)
 	}
-	return a.SpawnAgent(ctx, taskID, width, height, opts...)
+	var opt AgentSpawnOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+	opt.Ephemeral = true
+	return a.SpawnAgent(ctx, taskID, width, height, opt)
 }
 
 // RegisteredAdapters returns the names of all registered adapters sorted

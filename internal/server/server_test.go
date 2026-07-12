@@ -165,7 +165,12 @@ func (p *promptAgentService) GetStateTimeline(context.Context, string, time.Dura
 	return nil, nil
 }
 func (p *promptAgentService) SetTaskNotifyEnabled(context.Context, string, bool) error { return nil }
-func (p *promptAgentService) GetTaskNotifyEnabled(context.Context, string) (bool, error) { return false, nil }
+func (p *promptAgentService) GetTaskNotifyEnabled(context.Context, string) (bool, error) {
+	return false, nil
+}
+func (p *promptAgentService) GetTaskChimeraSessionID(context.Context, string) (string, error) {
+	return "", nil
+}
 func (m *mockSyncService) Subscribe() <-chan service.SyncEvent     { return nil }
 func (m *mockSyncService) StartScheduler(_ context.Context) func() { return func() {} }
 func (m *mockSyncService) SearchRemote(_ context.Context, _ string) ([]service.RemoteSearchResult, error) {
