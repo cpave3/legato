@@ -41,6 +41,7 @@ type AgentSession struct {
 	ID            int
 	TaskID        string
 	Title         string
+	Group         string
 	TmuxSession   string
 	Command       string
 	AgentKind     string
@@ -97,6 +98,7 @@ type AgentSpawnConflict struct {
 type AgentService interface {
 	SpawnAgent(ctx context.Context, taskID string, width, height int, opts ...AgentSpawnOptions) error
 	KillAgent(ctx context.Context, taskID string) error
+	SetTaskGroup(ctx context.Context, taskID string, group *string) error
 	ListAgents(ctx context.Context) ([]AgentSession, error)
 	ListAgentsByParent(ctx context.Context, parentTaskID string) ([]AgentSession, error)
 	ReconcileSessions(ctx context.Context) error
@@ -373,7 +375,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 		policy := opt.ChimeraSessionExists
 		if policy == "" {
-			policy = "resume"
+			policy = "new"
 		}
 		envMap["LEGATO_CHIMERA_SESSION_NAME"] = taskID
 		envMap["LEGATO_CHIMERA_SESSION_ID"] = sessionID
@@ -654,6 +656,15 @@ func (a *agentService) KillAgent(ctx context.Context, taskID string) error {
 	return a.store.DeleteDeadAgentSessions(ctx, taskID)
 }
 
+func (a *agentService) SetTaskGroup(ctx context.Context, taskID string, group *string) error {
+	task, err := a.store.GetTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	task.Group = group
+	return a.store.UpdateTask(ctx, *task)
+}
+
 func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 	sessions, err := a.store.ListAgentSessions(ctx)
 	if err != nil {
@@ -680,10 +691,13 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			command = liveCmd
 		}
 
-		// Look up task title from store.
-		var title string
+		// Look up task presentation fields from store.
+		var title, group string
 		if task, err := a.store.GetTask(ctx, s.TaskID); err == nil {
 			title = task.Title
+			if task.Group != nil {
+				group = *task.Group
+			}
 		}
 
 		parentID := ""
@@ -700,6 +714,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			ID:            s.ID,
 			TaskID:        s.TaskID,
 			Title:         title,
+			Group:         group,
 			TmuxSession:   s.TmuxSession,
 			Command:       command,
 			AgentKind:     s.AgentKind,

@@ -14,6 +14,23 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
+// TaskWorktreeSet associates durable worktree metadata with a task.
+func TaskWorktreeSet(s *store.Store, taskID string, meta store.TaskWorktree) error {
+	if strings.TrimSpace(taskID) == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	if strings.TrimSpace(meta.Path) == "" {
+		return fmt.Errorf("worktree path is required")
+	}
+	if strings.Contains(meta.Path, "\n") || (meta.PrimaryDir != "" && strings.Contains(meta.PrimaryDir, "\n")) {
+		return fmt.Errorf("worktree path and primary directory must not contain newlines")
+	}
+	if err := s.SetTaskWorktree(context.Background(), taskID, &meta); err != nil {
+		return fmt.Errorf("set worktree for task %s: %w", taskID, err)
+	}
+	return nil
+}
+
 // TaskShow returns a task's content in a format suitable for agents and scripts.
 // Supported formats are "description" (default), "full", and "json".
 func TaskShow(s *store.Store, taskID, format string) (string, error) {

@@ -55,6 +55,7 @@ var (
 		{"s", "Spawn agent"},
 		{"X", "Kill agent"},
 		{"m", "Send macro"},
+		{"g", "Set task group"},
 		{"M", "Agent actions (swarm)"},
 		{"↵", "Attach to session"},
 		{"l", "Toggle worker details"},
@@ -108,9 +109,10 @@ const (
 
 // HelpOverlay displays a keyboard reference screen.
 type HelpOverlay struct {
-	width  int
-	height int
-	mode   HelpMode
+	width     int
+	height    int
+	mode      HelpMode
+	worktrees bool
 }
 
 // NewHelp creates a new help overlay.
@@ -123,6 +125,8 @@ func NewHelp(width, height int) HelpOverlay {
 func NewHelpWithMode(width, height int, mode HelpMode) HelpOverlay {
 	return HelpOverlay{width: width, height: height, mode: mode}
 }
+
+func (m HelpOverlay) WithWorktrees(enabled bool) HelpOverlay { m.worktrees = enabled; return m }
 
 // Init returns no command.
 func (m HelpOverlay) Init() tea.Cmd {
@@ -198,7 +202,11 @@ func (m HelpOverlay) View() string {
 	}
 
 	renderSection("Navigation", navigationBindings)
-	renderSection("Actions", actionBindings)
+	actions := actionBindings
+	if m.worktrees {
+		actions = append(append([]keybinding{}, actions...), keybinding{"b", "Create task worktree"})
+	}
+	renderSection("Actions", actions)
 	renderSection("Swarm", swarmBindings)
 	renderSection("Views", viewBindings)
 	renderSection("Agents", agentBindings)

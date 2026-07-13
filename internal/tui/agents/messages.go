@@ -35,6 +35,12 @@ type AgentsRefreshedMsg struct {
 // OpenMacroPickerMsg is sent when the user presses 'm' in the agents view.
 type OpenMacroPickerMsg struct{}
 
+// OpenGroupMsg is sent when the user presses 'g' for the selected agent.
+type OpenGroupMsg struct {
+	TaskID string
+	Group  string
+}
+
 // OpenAgentActionMsg is sent when the user presses Shift+M on a swarm agent.
 type OpenAgentActionMsg struct {
 	TaskID       string

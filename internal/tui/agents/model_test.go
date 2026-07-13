@@ -1,6 +1,8 @@
 package agents
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -8,6 +10,24 @@ import (
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
+
+func TestGroupKeyRequestsGroupForSelectedAgent(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents([]service.AgentSession{{TaskID: "task-1", Group: "backend"}})
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	if cmd == nil {
+		t.Fatal("expected group command")
+	}
+	got := cmd()
+	msg, ok := got.(OpenGroupMsg)
+	if !ok {
+		t.Fatalf("message = %T, want OpenGroupMsg", got)
+	}
+	if msg.TaskID != "task-1" || msg.Group != "backend" {
+		t.Fatalf("message = %#v", msg)
+	}
+}
 
 func testAgents() []service.AgentSession {
 	return []service.AgentSession{
@@ -261,9 +281,76 @@ func taskIDs(agents []service.AgentSession) []string {
 	return out
 }
 
+func TestSetAgentsGroupsSoloAgentsAfterSwarms(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents([]service.AgentSession{
+		{TaskID: "ungrouped-first"},
+		{TaskID: "alpha-1", Group: "alpha"},
+		{TaskID: "swarm-worker", ParentTaskID: "swarm", Role: "worker"},
+		{TaskID: "beta-1", Group: "beta"},
+		{TaskID: "alpha-2", Group: "alpha"},
+		{TaskID: "ungrouped-last"},
+		{TaskID: "beta-2", Group: "beta"},
+		{TaskID: "swarm", ParentTaskID: "swarm", Role: "conductor"},
+	})
+
+	got := taskIDs(m.Agents())
+	want := []string{"swarm", "swarm-worker", "alpha-1", "alpha-2", "beta-1", "beta-2", "ungrouped-first", "ungrouped-last"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("agent order = %v, want %v", got, want)
+	}
+}
+
+func TestGroupColorIsDeterministicAndFromAccessiblePalette(t *testing.T) {
+	first := groupColor("platform")
+	if first != groupColor("platform") {
+		t.Fatal("same group name produced different colors")
+	}
+	found := false
+	for _, color := range groupColorPalette {
+		if first == color {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("group color %q is not from the fixed palette", first)
+	}
+}
+
+func TestViewRendersSoloGroupHeadersOnceAndUngroupedLast(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents([]service.AgentSession{
+		{TaskID: "plain"},
+		{TaskID: "api-1", Group: "api"},
+		{TaskID: "web-1", Group: "web"},
+		{TaskID: "api-2", Group: "api"},
+	})
+	m.SetSize(120, 40)
+
+	view := m.View()
+	if strings.Count(view, "\n ● api ") != 1 || strings.Count(view, "\n ● web ") != 1 {
+		t.Fatalf("expected one colored header per group in view: %q", view)
+	}
+	apiHeader, webHeader := strings.Index(view, "● api"), strings.Index(view, "● web")
+	ungroupedHeader, plain := strings.Index(view, "Ungrouped"), strings.Index(view, "plain")
+	if !(apiHeader >= 0 && webHeader > apiHeader && ungroupedHeader > webHeader && plain > ungroupedHeader) {
+		t.Fatalf("group headers, Ungrouped header, and ungrouped agent rendered out of order")
+	}
+}
+
+func TestViewOmitsUngroupedHeaderWhenEverythingIsUngrouped(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents([]service.AgentSession{{TaskID: "plain-1"}, {TaskID: "plain-2"}})
+	m.SetSize(120, 40)
+
+	if view := m.View(); strings.Contains(view, "Ungrouped") {
+		t.Fatalf("all-ungrouped view should not have a group header: %q", view)
+	}
+}
+
 // TestAgentsRefreshedMsgGroupsSwarmsAndSolo guards against the regression
-// where a newly-spawned solo agent appeared above an existing swarm group
-// in the sidebar because AgentsRefreshedMsg bypassed sortAgentsForGrouping.
+// where a newly-spawned solo agent appeared above an existing swarm group.
 func TestAgentsRefreshedMsgGroupsSwarmsAndSolo(t *testing.T) {
 	m := newTestModel()
 	now := time.Now()

@@ -700,6 +700,8 @@ type fakeAgentService struct {
 	captureErr     bool // when true, CaptureOutput returns an error (agent not running)
 	lastSpawnOpts  *service.AgentSpawnOptions
 	chimeraSession string
+	groupTaskID    string
+	group          *string
 }
 
 func (f *fakeAgentService) SpawnAgent(_ context.Context, _ string, _, _ int, opts ...service.AgentSpawnOptions) error {
@@ -709,6 +711,10 @@ func (f *fakeAgentService) SpawnAgent(_ context.Context, _ string, _, _ int, opt
 	return nil
 }
 func (f *fakeAgentService) KillAgent(_ context.Context, _ string) error { return nil }
+func (f *fakeAgentService) SetTaskGroup(_ context.Context, taskID string, group *string) error {
+	f.groupTaskID, f.group = taskID, group
+	return nil
+}
 func (f *fakeAgentService) ListAgents(_ context.Context) ([]service.AgentSession, error) {
 	return f.agents, nil
 }
@@ -756,6 +762,34 @@ func (f *fakeAgentService) GetTaskNotifyEnabled(_ context.Context, _ string) (bo
 }
 func (f *fakeAgentService) GetTaskChimeraSessionID(_ context.Context, _ string) (string, error) {
 	return f.chimeraSession, nil
+}
+
+func TestAgentGroupSelectionPersistsAndRefreshes(t *testing.T) {
+	agentSvc := &fakeAgentService{agents: []service.AgentSession{{TaskID: "TASK-1", Group: "backend"}}}
+	app := newTestApp()
+	app.agentSvc = agentSvc
+	app.agentView.SetAgents(agentSvc.agents)
+	app.SetGroupDefaults([]string{"frontend", "backend"})
+	app.width, app.height = 100, 40
+
+	model, _ := app.Update(agents.OpenGroupMsg{TaskID: "TASK-1", Group: "backend"})
+	app = model.(App)
+	if app.overlayType != overlayGroup {
+		t.Fatalf("overlayType = %v, want group", app.overlayType)
+	}
+
+	model, cmd := app.Update(overlay.GroupSelectedMsg{TaskID: "TASK-1", Group: nil})
+	app = model.(App)
+	if cmd == nil {
+		t.Fatal("expected persist command")
+	}
+	msg := cmd()
+	if _, ok := msg.(agents.AgentsRefreshedMsg); !ok {
+		t.Fatalf("message = %T, want AgentsRefreshedMsg", msg)
+	}
+	if agentSvc.groupTaskID != "TASK-1" || agentSvc.group != nil {
+		t.Fatalf("persisted task/group = %q/%v", agentSvc.groupTaskID, agentSvc.group)
+	}
 }
 
 func TestChimeraSpawnWithStoredSessionPromptsAndResumes(t *testing.T) {

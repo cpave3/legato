@@ -828,6 +828,46 @@ func TestListAgentsPopulatesTaskTitle(t *testing.T) {
 	}
 }
 
+func TestSetTaskGroupIsReflectedByListAgentsAndCanBeCleared(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	const taskID = "REX-GROUP"
+	createTask(t, s, taskID)
+	if err := svc.SpawnAgent(ctx, taskID, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	group := "backend"
+	if err := svc.SetTaskGroup(ctx, taskID, &group); err != nil {
+		t.Fatal(err)
+	}
+	agents, err := svc.ListAgents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 || agents[0].Group != group {
+		t.Fatalf("agent Group = %q, want %q", agents[0].Group, group)
+	}
+	task, err := s.GetTask(ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Group == nil || *task.Group != group {
+		t.Fatalf("persisted Group = %v, want %q", task.Group, group)
+	}
+
+	if err := svc.SetTaskGroup(ctx, taskID, nil); err != nil {
+		t.Fatal(err)
+	}
+	agents, err = svc.ListAgents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agents[0].Group != "" {
+		t.Fatalf("agent Group after clear = %q, want empty", agents[0].Group)
+	}
+}
+
 func TestListAgentsEmptyTitleWhenTaskMissing(t *testing.T) {
 	svc, s, _ := newTestAgentService(t)
 	ctx := context.Background()

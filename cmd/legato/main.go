@@ -28,6 +28,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
 	"github.com/cpave3/legato/internal/engine/tmux"
+	"github.com/cpave3/legato/internal/engine/worktree"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/setup"
@@ -99,11 +100,73 @@ func runTaskCmd(args []string) int {
 		return runTaskLink(db, args[1:])
 	case "unlink":
 		return runTaskUnlink(db, args[1:])
+	case "worktree":
+		return runTaskWorktree(db, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown task command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato task [show|update|note|link|unlink] ...\n")
+		fmt.Fprintf(os.Stderr, "usage: legato task [show|update|note|link|unlink|worktree] ...\n")
 		return 1
 	}
+}
+
+func runTaskWorktree(db *store.Store, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: legato task worktree [set|clear] <task-id> ...")
+		return 1
+	}
+	switch args[0] {
+	case "set":
+		return runTaskWorktreeSet(db, args[1:])
+	case "clear":
+		return runTaskWorktreeClear(db, args[1:])
+	default:
+		fmt.Fprintf(os.Stderr, "unknown worktree command: %s\n", args[0])
+		fmt.Fprintln(os.Stderr, "usage: legato task worktree [set|clear] <task-id> ...")
+		return 1
+	}
+}
+
+func runTaskWorktreeSet(db *store.Store, args []string) int {
+	values := map[string]string{
+		"--path": os.Getenv("YG_WORKTREE"), "--primary-dir": os.Getenv("YG_PRIMARY"),
+		"--branch": os.Getenv("YG_BRANCH"), "--base-branch": os.Getenv("YG_BASE"),
+	}
+	taskID := os.Getenv("LEGATO_TASK_ID")
+	start := 1
+	if len(args) > 0 && !strings.HasPrefix(args[0], "--") {
+		taskID = args[0]
+		start = 2
+	}
+	for i := start - 1; i < len(args); i += 2 {
+		if i+1 >= len(args) {
+			fmt.Fprintf(os.Stderr, "missing value for %s\n", args[i])
+			return 1
+		}
+		if _, ok := values[args[i]]; !ok {
+			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", args[i])
+			return 1
+		}
+		values[args[i]] = args[i+1]
+	}
+	meta := store.TaskWorktree{Path: values["--path"], PrimaryDir: values["--primary-dir"], Branch: values["--branch"], BaseBranch: values["--base-branch"]}
+	if err := cli.TaskWorktreeSet(db, taskID, meta); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runTaskWorktreeClear(db *store.Store, args []string) int {
+	taskID := os.Getenv("LEGATO_TASK_ID")
+	if len(args) > 0 && !strings.HasPrefix(args[0], "--") {
+		taskID = args[0]
+	}
+	if err := db.SetTaskWorktree(context.Background(), taskID, nil); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	fmt.Printf("Cleared worktree metadata for task %s\n", taskID)
+	return 0
 }
 
 func runTaskShow(db *store.Store, args []string) int {
@@ -429,6 +492,7 @@ func runHooksCmd(args []string) int {
 	registry.Register(hooks.NewStaccatoAdapter(legatoBin))
 	registry.Register(hooks.NewChimeraAdapter(legatoBin))
 	registry.Register(hooks.NewCodexAdapter(legatoBin))
+	registry.Register(hooks.NewYggdrasilAdapter(legatoBin))
 
 	adapter, err := registry.Get(tool)
 	if err != nil {
@@ -850,6 +914,10 @@ func runTUI() int {
 	reportSvc := service.NewReportService(db)
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros)
+	app.SetGroupDefaults(cfg.Groups.Defaults)
+	if cfg.Worktrees.Yggdrasil.Enabled {
+		app.SetWorktreeService(service.NewWorktreeWorkflow(db, worktree.NewRunner("yg")))
+	}
 	appWindow, appBuckets := resolveSparklineWindow(cfg)
 	app.SetSparklineWindow(appWindow, appBuckets)
 	app.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")

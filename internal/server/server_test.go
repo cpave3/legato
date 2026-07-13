@@ -128,7 +128,8 @@ type promptAgentService struct {
 func (p *promptAgentService) SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error {
 	return nil
 }
-func (p *promptAgentService) KillAgent(context.Context, string) error { return nil }
+func (p *promptAgentService) KillAgent(context.Context, string) error             { return nil }
+func (p *promptAgentService) SetTaskGroup(context.Context, string, *string) error { return nil }
 func (p *promptAgentService) ListAgents(context.Context) ([]service.AgentSession, error) {
 	return []service.AgentSession{p.agent}, nil
 }

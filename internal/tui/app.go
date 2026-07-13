@@ -36,6 +36,11 @@ const (
 
 // VoiceService is the interface the TUI uses for voice dictation. The
 // concrete implementation is service.VoiceService.
+type WorktreeService interface {
+	Create(ctx context.Context, taskID, primaryDir, branch, baseBranch string) (*store.TaskWorktree, error)
+	Path(ctx context.Context, taskID string) (string, error)
+}
+
 type VoiceService interface {
 	StartRecording(device string) error
 	IsRecording() bool
@@ -71,6 +76,8 @@ const (
 	overlayAgentAction
 	overlayMacroPicker
 	overlaySwarmCancel
+	overlayWorktree
+	overlayGroup
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -141,11 +148,25 @@ type App struct {
 	voiceRecording     bool
 	voiceTargetSession string
 	voiceTargetKind    string
+	worktreeSvc        WorktreeService
+	worktreesEnabled   bool
+	groupDefaults      []string
 }
 
 // SetWebServerRunning tells the TUI that the web server was auto-started
 // externally, so the status bar shows the indicator without the TUI managing
 // the server lifecycle.
+// SetWorktreeService enables task worktree actions.
+func (a *App) SetWorktreeService(svc WorktreeService) {
+	a.worktreeSvc = svc
+	a.worktreesEnabled = svc != nil
+}
+
+// SetGroupDefaults configures the group choices always shown in the group modal.
+func (a *App) SetGroupDefaults(defaults []string) {
+	a.groupDefaults = append([]string(nil), defaults...)
+}
+
 func (a *App) SetWebServerRunning(port string) {
 	a.webServerPort = port
 	a.statusBar = a.statusBar.SetWebServer(port)
@@ -766,6 +787,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agents.OpenMacroPickerMsg:
 		return a.openMacroPickerOverlay()
 
+	case agents.OpenGroupMsg:
+		return a.openGroupOverlay(msg.TaskID, msg.Group)
+
 	case agents.VoiceToggleMsg:
 		return a.handleVoiceToggle(msg)
 
@@ -832,6 +856,36 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case overlay.AgentSpawnSubmitMsg:
 		return a.handleAgentSpawnSubmit(msg)
 
+	case overlay.GroupSelectedMsg:
+		a.overlayType, a.activeOverlay = overlayNone, nil
+		if a.agentSvc == nil {
+			return a, nil
+		}
+		svc := a.agentSvc
+		return a, func() tea.Msg {
+			if err := svc.SetTaskGroup(context.Background(), msg.TaskID, msg.Group); err != nil {
+				return statusbar.ErrorMsg{Text: "group failed: " + err.Error()}
+			}
+			agentList, err := svc.ListAgents(context.Background())
+			if err != nil {
+				return statusbar.ErrorMsg{Text: "refresh agents: " + err.Error()}
+			}
+			return agents.AgentsRefreshedMsg{Agents: agentList, SelectTask: msg.TaskID}
+		}
+
+	case overlay.GroupCancelledMsg:
+		a.overlayType, a.activeOverlay = overlayNone, nil
+		return a, nil
+	case overlay.WorktreeSubmitMsg:
+		a.overlayType, a.activeOverlay = overlayNone, nil
+		svc := a.worktreeSvc
+		return a, func() tea.Msg {
+			if _, err := svc.Create(context.Background(), msg.TaskID, msg.PrimaryDir, msg.Branch, msg.BaseBranch); err != nil {
+				return statusbar.ErrorMsg{Text: "worktree failed: " + err.Error()}
+			}
+			return statusbar.InfoMsg{Text: "worktree created"}
+		}
+
 	case overlay.ChimeraSessionChoiceMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
@@ -846,7 +900,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.activeOverlay = nil
 		return a, nil
 
-	case overlay.AgentSpawnCancelledMsg:
+	case overlay.AgentSpawnCancelledMsg, overlay.WorktreeCancelledMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
 		return a, nil
@@ -1200,7 +1254,7 @@ func (a App) handleMoveSelected(msg overlay.MoveSelectedMsg) (tea.Model, tea.Cmd
 }
 
 func (a App) openHelpOverlay() (tea.Model, tea.Cmd) {
-	a.activeOverlay = overlay.NewHelpWithMode(a.width, a.height, appViewToHelpMode(a.active))
+	a.activeOverlay = overlay.NewHelpWithMode(a.width, a.height, appViewToHelpMode(a.active)).WithWorktrees(a.worktreesEnabled)
 	a.overlayType = overlayHelp
 	return a, nil
 }
@@ -1759,6 +1813,29 @@ func (a App) handleSwarmFinishConfirmed(msg overlay.SwarmFinishConfirmedMsg) (te
 	)
 }
 
+func (a App) openGroupOverlay(taskID, current string) (tea.Model, tea.Cmd) {
+	seen := make(map[string]bool)
+	options := make([]string, 0, len(a.groupDefaults))
+	add := func(group string) {
+		group = strings.TrimSpace(group)
+		if group != "" && !seen[group] {
+			seen[group] = true
+			options = append(options, group)
+		}
+	}
+	for _, group := range a.groupDefaults {
+		add(group)
+	}
+	for _, agent := range a.agentView.Agents() {
+		add(agent.Group)
+	}
+	add(current)
+	model := overlay.NewGroup(taskID, current, options)
+	sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+	a.activeOverlay, a.overlayType = sized, overlayGroup
+	return a, nil
+}
+
 func (a App) openAgentSpawnOverlay(taskID, title string) (tea.Model, tea.Cmd) {
 	defaultAdapter := ""
 	var adapters, filtered []string
@@ -1772,7 +1849,16 @@ func (a App) openAgentSpawnOverlay(taskID, title string) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	spawnModel := overlay.NewAgentSpawn(filtered, defaultAdapter, a.workDir, taskID, title)
+	defaultDir := a.workDir
+	if taskID != "" && a.worktreeSvc != nil {
+		if path, err := a.worktreeSvc.Path(context.Background(), taskID); err == nil && path != "" {
+			defaultDir = path
+			if idx := strings.IndexAny(defaultDir, "\n\r"); idx >= 0 {
+				defaultDir = strings.TrimSpace(defaultDir[:idx])
+			}
+		}
+	}
+	spawnModel := overlay.NewAgentSpawn(filtered, defaultAdapter, defaultDir, taskID, title)
 	sized, _ := spawnModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
 	a.overlayType = overlayAgentSpawn
@@ -2222,6 +2308,17 @@ func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// 'W' toggles web server
 		if msg.String() == "W" {
 			return a.toggleWebServer()
+		}
+		if msg.String() == "b" && a.worktreesEnabled {
+			card := a.board.SelectedCard()
+			if card == nil {
+				return a, nil
+			}
+			branch := strings.ToLower(strings.ReplaceAll(card.Key, "_", "-"))
+			model := overlay.NewWorktree(card.Key, a.workDir, branch)
+			sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+			a.activeOverlay, a.overlayType = sized, overlayWorktree
+			return a, nil
 		}
 		// 'a' spawns agent on selected card
 		if msg.String() == "a" {

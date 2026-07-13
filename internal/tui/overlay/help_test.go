@@ -64,6 +64,15 @@ func TestHelpOverlayShowsKeybindings(t *testing.T) {
 	}
 }
 
+func TestHelpOverlayShowsWorktreeBindingOnlyWhenEnabled(t *testing.T) {
+	if strings.Contains(NewHelpWithMode(80, 24, HelpModeBoard).View(), "Create task worktree") {
+		t.Fatal("disabled help shows worktree binding")
+	}
+	if !strings.Contains(NewHelpWithMode(80, 24, HelpModeBoard).WithWorktrees(true).View(), "Create task worktree") {
+		t.Fatal("enabled help omits worktree binding")
+	}
+}
+
 func TestHelpOverlayShowsSections(t *testing.T) {
 	m := NewHelp(80, 24)
 	view := m.View()

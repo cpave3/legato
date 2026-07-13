@@ -17,6 +17,7 @@ A keyboard-driven kanban board TUI for tracking tasks, built for developers who 
 - **AI coding agent integration** — hooks report agent activity (working/waiting) for Claude Code, Chimera, and Codex back to the board in real-time
 - **GitHub PR tracking** — link PRs to tasks, see CI/review/comment status on cards (`p` to link, `o` to open with picker when both Jira and PR URLs exist, polls via `gh` CLI)
 - **Staccato integration** — auto-links repo+branch when creating PRs via staccato (`legato hooks install --tool staccato`)
+- **Yggdrasil worktrees** — create a task branch/worktree with `b` and automatically use it when spawning task agents
 - **Pluggable AI tool adapters** — abstract interface for tool integrations (Claude Code, Chimera, Codex, Staccato)
 - **Bidirectional Jira sync**: pull tickets, push card moves as transitions
 - **Offline-first**: works from local SQLite when the network is down
@@ -25,6 +26,18 @@ A keyboard-driven kanban board TUI for tracking tasks, built for developers who 
 - **Provider icons**: visual indicators for Jira/GitHub/local/agent on cards
 - **Nerd Fonts support**: `icons: nerdfonts` in config for glyph icons
 - **Provider-agnostic architecture**: swap Jira for Linear, GitHub Issues, etc.
+
+## Yggdrasil worktrees
+
+Set `worktrees.yggdrasil.enabled: true` and ensure `yg` is on `PATH`. Select a task and press `b` to choose the primary repository, worktree branch, and base branch. Legato remembers the resulting path and preselects it when spawning agents for that task.
+
+For worktrees created through other Yggdrasil invocations, install the project hook from the repository containing `.yggdrasil.toml`:
+
+```bash
+legato hooks install --tool yggdrasil
+```
+
+The managed `post_create` hook preserves unrelated hooks, does nothing when `legato` is not on `PATH` or `LEGATO_TASK_ID` is unset, and records Yggdrasil's `YG_*` metadata when invoked with a task ID. Remove only Legato's managed callback with `legato hooks uninstall --tool yggdrasil`.
 
 ## Install
 
@@ -108,6 +121,13 @@ jira:
     - PROJ
   jql_filter: ""                # optional: additional JQL filter
   sync_interval_seconds: 60     # how often to pull from Jira
+
+worktrees:
+  yggdrasil:
+    enabled: false              # enable task worktree creation with `b`
+
+groups:
+  defaults: [backend, urgent]
 
 board:
   columns:

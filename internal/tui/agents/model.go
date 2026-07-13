@@ -2,6 +2,7 @@ package agents
 
 import (
 	"fmt"
+	"hash/fnv"
 	"strings"
 	"time"
 
@@ -16,6 +17,21 @@ const pollInterval = 200 * time.Millisecond
 
 // SidebarWidth is the fixed width of the agent sidebar in characters.
 const SidebarWidth = 30
+
+var groupColorPalette = []lipgloss.Color{
+	"#0072B2", // blue
+	"#009E73", // green
+	"#D55E00", // vermilion
+	"#CC79A7", // reddish purple
+	"#E69F00", // orange
+}
+
+// groupColor maps a group name to the fixed color-blind-accessible palette.
+func groupColor(name string) lipgloss.Color {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(name))
+	return groupColorPalette[int(h.Sum32())%len(groupColorPalette)]
+}
 
 // DurationData holds cumulative working/waiting durations for a task.
 type DurationData struct {
@@ -120,7 +136,23 @@ func sortAgentsForGrouping(agents []service.AgentSession) []service.AgentSession
 		}
 		out = append(out, workers...)
 	}
-	out = append(out, solo...)
+	groupOrder := []string{}
+	grouped := map[string][]service.AgentSession{}
+	var ungrouped []service.AgentSession
+	for _, a := range solo {
+		if a.Group == "" {
+			ungrouped = append(ungrouped, a)
+			continue
+		}
+		if _, ok := grouped[a.Group]; !ok {
+			groupOrder = append(groupOrder, a.Group)
+		}
+		grouped[a.Group] = append(grouped[a.Group], a)
+	}
+	for _, name := range groupOrder {
+		out = append(out, grouped[name]...)
+	}
+	out = append(out, ungrouped...)
 	return out
 }
 
@@ -302,6 +334,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		return m, func() tea.Msg { return ReturnToBoardMsg{} }
 	case "m":
 		return m, func() tea.Msg { return OpenMacroPickerMsg{} }
+	case "g":
+		if a := m.SelectedAgent(); a != nil {
+			return m, func() tea.Msg { return OpenGroupMsg{TaskID: a.TaskID, Group: a.Group} }
+		}
+		return m, nil
 	case "M":
 		// Action menu is swarm-only; no-op for solo agents.
 		if a := m.SelectedAgent(); a != nil && a.ParentTaskID != "" {
@@ -504,6 +541,14 @@ func (m Model) renderSidebar() string {
 		var entryLines []string
 		selectedEntryIdx := -1
 		var prevParent string
+		var prevGroup string
+		hasSoloGroups := false
+		for _, agent := range m.agents {
+			if agent.ParentTaskID == "" && agent.Group != "" {
+				hasSoloGroups = true
+				break
+			}
+		}
 		for i, a := range m.agents {
 			// Emit a small group header before the first session of each swarm.
 			if a.ParentTaskID != "" && a.ParentTaskID != prevParent {
@@ -514,6 +559,14 @@ func (m Model) renderSidebar() string {
 				// Transitioning from swarm groups to solo sessions — emit a divider.
 				entryLines = append(entryLines, m.renderSoloDivider(sidebarContentWidth))
 				prevParent = ""
+			}
+			if a.ParentTaskID == "" {
+				if a.Group != "" && a.Group != prevGroup {
+					entryLines = append(entryLines, m.renderSoloGroupHeader(a.Group, sidebarContentWidth))
+				} else if a.Group == "" && prevGroup != "" && hasSoloGroups {
+					entryLines = append(entryLines, m.renderUngroupedHeader(sidebarContentWidth))
+				}
+				prevGroup = a.Group
 			}
 			if i == m.selected {
 				selectedEntryIdx = len(entryLines)
@@ -602,6 +655,14 @@ func (m Model) renderSwarmGroupHeader(parentTaskID string, width int) string {
 
 // renderSoloDivider visually separates the swarm groups from solo agent
 // sessions in the sidebar.
+func (m Model) renderSoloGroupHeader(group string, width int) string {
+	return lipgloss.NewStyle().Foreground(groupColor(group)).Bold(true).PaddingLeft(1).PaddingTop(1).Width(width).Render("● " + group)
+}
+
+func (m Model) renderUngroupedHeader(width int) string {
+	return lipgloss.NewStyle().Foreground(theme.TextTertiary).Bold(true).PaddingLeft(1).PaddingTop(1).Width(width).Render("○ Ungrouped")
+}
+
 func (m Model) renderSoloDivider(width int) string {
 	style := lipgloss.NewStyle().
 		Foreground(theme.TextTertiary).

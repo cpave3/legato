@@ -17,6 +17,35 @@ func writeTestConfig(t *testing.T, content string) string {
 	return path
 }
 
+func TestGroupsDefaultsParsed(t *testing.T) {
+	writeTestConfig(t, `
+groups:
+  defaults:
+    - backend
+    - urgent
+`)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Groups.Defaults) != 2 || cfg.Groups.Defaults[0] != "backend" || cfg.Groups.Defaults[1] != "urgent" {
+		t.Errorf("Groups.Defaults = %v, want [backend urgent]", cfg.Groups.Defaults)
+	}
+}
+
+func TestGroupsDefaultsAbsentIsEmpty(t *testing.T) {
+	writeTestConfig(t, `theme: default`)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Groups.Defaults) != 0 {
+		t.Errorf("Groups.Defaults = %v, want empty or nil", cfg.Groups.Defaults)
+	}
+}
+
 func TestVoiceConfigParsed(t *testing.T) {
 	writeTestConfig(t, `
 voice:
@@ -62,6 +91,34 @@ func TestVoiceConfigAbsentDefaultsToDisabled(t *testing.T) {
 	}
 	if cfg.Voice.MicDevice != "" {
 		t.Errorf("Voice.MicDevice = %q, want empty", cfg.Voice.MicDevice)
+	}
+}
+
+func TestYggdrasilWorktreeConfigParsed(t *testing.T) {
+	writeTestConfig(t, `
+worktrees:
+  yggdrasil:
+    enabled: true
+`)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Worktrees.Yggdrasil.Enabled {
+		t.Error("Worktrees.Yggdrasil.Enabled = false, want true")
+	}
+}
+
+func TestYggdrasilWorktreeConfigAbsentDefaultsToDisabled(t *testing.T) {
+	writeTestConfig(t, `theme: default`)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Worktrees.Yggdrasil.Enabled {
+		t.Error("Worktrees.Yggdrasil.Enabled should default to false")
 	}
 }
 

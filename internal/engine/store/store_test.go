@@ -18,6 +18,46 @@ func newTestStore(t *testing.T) *Store {
 	return s
 }
 
+func TestSetTaskWorktreePersistsAndClearsMetadata(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "worktree-task")
+
+	meta := TaskWorktree{PrimaryDir: "/projects/legato", Path: "/projects/legato.feature", Branch: "feature", BaseBranch: "main"}
+	if err := s.SetTaskWorktree(ctx, "worktree-task", &meta); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetTask(ctx, "worktree-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WorktreePath == nil || *got.WorktreePath != meta.Path || got.WorktreeBranch == nil || *got.WorktreeBranch != meta.Branch {
+		t.Fatalf("stored worktree = %#v, want %#v", got, meta)
+	}
+	if got.WorktreePrimaryDir == nil || *got.WorktreePrimaryDir != meta.PrimaryDir || got.WorktreeBaseBranch == nil || *got.WorktreeBaseBranch != meta.BaseBranch {
+		t.Fatalf("stored worktree directories/base = %#v, want %#v", got, meta)
+	}
+
+	if err := s.SetTaskWorktree(ctx, "worktree-task", nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetTask(ctx, "worktree-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WorktreePath != nil || got.WorktreePrimaryDir != nil || got.WorktreeBranch != nil || got.WorktreeBaseBranch != nil {
+		t.Fatalf("worktree metadata not cleared: %#v", got)
+	}
+}
+
+func TestSetTaskWorktreeReturnsNotFound(t *testing.T) {
+	s := newTestStore(t)
+	meta := TaskWorktree{Path: "/tmp/wt"}
+	if err := s.SetTaskWorktree(context.Background(), "missing", &meta); err != ErrNotFound {
+		t.Fatalf("error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestNewSetsBusyTimeout(t *testing.T) {
 	s := newTestStore(t)
 
@@ -79,6 +119,49 @@ func TestCreateAndGetTask(t *testing.T) {
 	}
 	if got.Status != "Backlog" {
 		t.Errorf("Status = %q, want %q", got.Status, "Backlog")
+	}
+}
+
+func TestTaskGroupSurvivesCRUD(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	group := "backend"
+	task := Task{ID: "GROUP-1", Title: "Grouped", Status: "Doing", Group: &group}
+
+	if err := s.CreateTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Group == nil || *got.Group != group {
+		t.Fatalf("Group after create = %v, want %q", got.Group, group)
+	}
+
+	group = "frontend"
+	got.Group = &group
+	if err := s.UpdateTask(ctx, *got); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := s.ListTasksByStatus(ctx, "Doing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Group == nil || *listed[0].Group != group {
+		t.Fatalf("listed Group = %v, want %q", listed[0].Group, group)
+	}
+
+	got.Group = nil
+	if err := s.UpdateTask(ctx, *got); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Group != nil {
+		t.Fatalf("Group after clear = %q, want nil", *got.Group)
 	}
 }
 

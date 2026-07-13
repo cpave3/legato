@@ -44,25 +44,38 @@ func ParsePRMeta(raw *string) (*PRMeta, error) {
 }
 
 type Task struct {
-	ID               string  `db:"id"`
-	Title            string  `db:"title"`
-	Description      string  `db:"description"`
-	DescriptionMD    string  `db:"description_md"`
-	Status           string  `db:"status"`
-	Priority         string  `db:"priority"`
-	SortOrder        int     `db:"sort_order"`
-	Provider         *string `db:"provider"`
-	RemoteID         *string `db:"remote_id"`
-	RemoteMeta       *string `db:"remote_meta"`
-	PRMeta           *string `db:"pr_meta"`
-	WorkspaceID      *int    `db:"workspace_id"`
-	ArchivedAt       *string `db:"archived_at"`
-	Ephemeral        bool    `db:"ephemeral"`
-	SwarmWorkingDir  *string `db:"swarm_working_dir"`
-	SwarmActiveStep  int     `db:"swarm_active_step"`
-	ChimeraSessionID *string `db:"chimera_session_id"`
-	CreatedAt        string  `db:"created_at"`
-	UpdatedAt        string  `db:"updated_at"`
+	ID                 string  `db:"id"`
+	Title              string  `db:"title"`
+	Description        string  `db:"description"`
+	DescriptionMD      string  `db:"description_md"`
+	Status             string  `db:"status"`
+	Priority           string  `db:"priority"`
+	SortOrder          int     `db:"sort_order"`
+	Provider           *string `db:"provider"`
+	RemoteID           *string `db:"remote_id"`
+	RemoteMeta         *string `db:"remote_meta"`
+	PRMeta             *string `db:"pr_meta"`
+	WorkspaceID        *int    `db:"workspace_id"`
+	ArchivedAt         *string `db:"archived_at"`
+	Ephemeral          bool    `db:"ephemeral"`
+	SwarmWorkingDir    *string `db:"swarm_working_dir"`
+	SwarmActiveStep    int     `db:"swarm_active_step"`
+	ChimeraSessionID   *string `db:"chimera_session_id"`
+	Group              *string `db:"task_group"`
+	WorktreePrimaryDir *string `db:"worktree_primary_dir"`
+	WorktreePath       *string `db:"worktree_path"`
+	WorktreeBranch     *string `db:"worktree_branch"`
+	WorktreeBaseBranch *string `db:"worktree_base_branch"`
+	CreatedAt          string  `db:"created_at"`
+	UpdatedAt          string  `db:"updated_at"`
+}
+
+// TaskWorktree is the durable worktree associated with a task.
+type TaskWorktree struct {
+	PrimaryDir string
+	Path       string
+	Branch     string
+	BaseBranch string
 }
 
 type Workspace struct {

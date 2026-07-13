@@ -19,9 +19,9 @@ type fakeAdapter struct {
 	launchFn    func(env map[string]string, brief, tier string) string
 }
 
-func (f *fakeAdapter) Name() string                                 { return f.name }
-func (f *fakeAdapter) InstallHooks(string) error                    { return nil }
-func (f *fakeAdapter) UninstallHooks(string) error                  { return nil }
+func (f *fakeAdapter) Name() string                { return f.name }
+func (f *fakeAdapter) InstallHooks(string) error   { return nil }
+func (f *fakeAdapter) UninstallHooks(string) error { return nil }
 func (f *fakeAdapter) EnvVars(taskID, socket string) map[string]string {
 	return map[string]string{"LEGATO_TASK_ID": taskID}
 }
@@ -188,9 +188,9 @@ func TestSpawnAgent_AdapterWithoutRolePromptSkipsLaunch(t *testing.T) {
 // implement RolePromptingAdapter or LaunchCommandAdapter.
 type simpleAdapter struct{ name string }
 
-func (s simpleAdapter) Name() string                                 { return s.name }
-func (s simpleAdapter) InstallHooks(string) error                    { return nil }
-func (s simpleAdapter) UninstallHooks(string) error                  { return nil }
+func (s simpleAdapter) Name() string                { return s.name }
+func (s simpleAdapter) InstallHooks(string) error   { return nil }
+func (s simpleAdapter) UninstallHooks(string) error { return nil }
 func (s simpleAdapter) EnvVars(taskID, socket string) map[string]string {
 	return map[string]string{"LEGATO_TASK_ID": taskID}
 }
@@ -325,6 +325,37 @@ func (g generalPromptAdapter) GeneralPrompt() string { return g.general }
 // turn, not the swarm-specific preamble. Chimera's LaunchCommand emits bare
 // `chimera` when LEGATO_ROLE_PROMPT_FILE is absent; without a general prompt
 // the session boots to an empty prompt (the b9b1d0d regression).
+func TestSpawnAgent_NewTaskChimeraSessionIncludesInitialPrompt(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	mt := newMockTmux()
+	adapter := generalPromptAdapter{
+		fakeAdapter: &fakeAdapter{name: "chimera", launchFn: func(env map[string]string, _, _ string) string {
+			cmd := "chimera"
+			if env["LEGATO_CHIMERA_SESSION_EXISTS"] != "resume" {
+				cmd += " --prompt initial"
+			}
+			return cmd
+		}},
+		general: "GENERAL-PROMPT-MARKER",
+	}
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{Adapter: adapter})
+	createTask(t, s, "task-new")
+
+	if err := svc.SpawnAgent(context.Background(), "task-new", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	lines := mt.sentLinesFor("legato-task-new")
+	if len(lines) != 1 || !strings.Contains(lines[0], "--prompt") {
+		t.Fatalf("launch lines = %q, want initial --prompt", lines)
+	}
+}
+
 func TestSpawnAgent_GeneralPromptDrivesLaunchForPlainSpawn(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	s, err := store.New(dbPath)

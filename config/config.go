@@ -27,6 +27,23 @@ type Config struct {
 	Adapters      map[string]AdapterConfig `yaml:"adapters"`
 	Macros        []macros.Macro           `yaml:"macros"`
 	Voice         VoiceConfig              `yaml:"voice"`
+	Worktrees     WorktreesConfig          `yaml:"worktrees"`
+	Groups        GroupsConfig             `yaml:"groups"`
+}
+
+// GroupsConfig holds task grouping defaults.
+type GroupsConfig struct {
+	Defaults []string `yaml:"defaults"`
+}
+
+// WorktreesConfig holds optional integrations for creating task worktrees.
+type WorktreesConfig struct {
+	Yggdrasil YggdrasilConfig `yaml:"yggdrasil"`
+}
+
+// YggdrasilConfig controls the optional Yggdrasil worktree integration.
+type YggdrasilConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // AdapterConfig holds per-adapter launch settings (e.g. extra CLI flags
