@@ -15,6 +15,8 @@ import (
 type mockGitHub struct {
 	statuses       map[string]*github.PRStatus
 	prByNumber     map[int]*github.PRStatus
+	prsByCommit    map[string]*github.PRStatus // sha → status
+	commitErr      error
 	fetchErr       error
 	branch         string
 	branchErr      error
@@ -23,6 +25,18 @@ type mockGitHub struct {
 	commentCnt     int
 	commentErr     error
 	queriedBranches []string // tracks branches passed to BatchFetchPRStatusWithRepo
+	queriedSHAs     []string // tracks SHAs passed to FetchPRsForCommit
+}
+
+func (m *mockGitHub) FetchPRsForCommit(owner, repo, sha string) (*github.PRStatus, error) {
+	m.queriedSHAs = append(m.queriedSHAs, sha)
+	if m.commitErr != nil {
+		return nil, m.commitErr
+	}
+	if s, ok := m.prsByCommit[sha]; ok {
+		return s, nil
+	}
+	return &github.PRStatus{HasPR: false}, nil
 }
 
 func (m *mockGitHub) FetchPRStatus(branch string, repo ...string) (*github.PRStatus, error) {
@@ -673,5 +687,202 @@ func TestPollOnceSkipsResolvedPRs(t *testing.T) {
 
 	if len(gh.queriedBranches) != 2 {
 		t.Fatalf("expected 2 queried branches after interval elapsed, got %d: %v", len(gh.queriedBranches), gh.queriedBranches)
+	}
+}
+
+func TestPollDiscoversPRByCommitSHA(t *testing.T) {
+	s := newTestPRStore(t)
+	bus := events.New()
+
+	// The branch query returns the WRONG PR (an old one with a reused branch
+	// name); the commit lookup returns the right one. SHA discovery must win.
+	gh := &mockGitHub{
+		statuses: map[string]*github.PRStatus{
+			"fix-tests": {HasPR: true, Number: 17, State: "MERGED", URL: "https://github.com/o/r/pull/17", CreatedAt: "2025-01-10T00:00:00Z"},
+		},
+		prsByCommit: map[string]*github.PRStatus{
+			"abc123": {HasPR: true, Number: 42, State: "OPEN", URL: "https://github.com/o/r/pull/42", CreatedAt: "2026-07-13T00:00:00Z"},
+		},
+	}
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
+
+	ctx := context.Background()
+	createPRTask(t, s, "task1")
+
+	prMeta := `{"branch":"fix-tests","repo":"o/r","head_sha":"abc123","linked_at":"2026-07-13T00:00:00Z"}`
+	if err := s.UpdatePRMeta(ctx, "task1", &prMeta); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.PollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	task, err := s.GetTask(ctx, "task1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := store.ParsePRMeta(task.PRMeta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.PRNumber != 42 {
+		t.Errorf("PRNumber = %d, want 42 (SHA discovery should win over branch match)", meta.PRNumber)
+	}
+	if len(gh.queriedSHAs) != 1 || gh.queriedSHAs[0] != "abc123" {
+		t.Errorf("queriedSHAs = %v, want [abc123]", gh.queriedSHAs)
+	}
+	if meta.HeadSHA != "abc123" {
+		t.Errorf("HeadSHA = %q, want abc123 (must be preserved)", meta.HeadSHA)
+	}
+	if meta.LinkedAt != "2026-07-13T00:00:00Z" {
+		t.Errorf("LinkedAt = %q, want preserved", meta.LinkedAt)
+	}
+}
+
+func TestPollSHAFallbackRejectsPRCreatedBeforeLink(t *testing.T) {
+	s := newTestPRStore(t)
+	bus := events.New()
+
+	// SHA lookup finds nothing (PR not created yet). Branch fallback returns
+	// an old PR created long before the link — it must be rejected.
+	gh := &mockGitHub{
+		statuses: map[string]*github.PRStatus{
+			"fix-tests": {HasPR: true, Number: 17, State: "CLOSED", URL: "https://github.com/o/r/pull/17", CreatedAt: "2025-01-10T00:00:00Z"},
+		},
+	}
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
+
+	ctx := context.Background()
+	createPRTask(t, s, "task1")
+
+	prMeta := `{"branch":"fix-tests","repo":"o/r","head_sha":"abc123","linked_at":"2026-07-13T00:00:00Z"}`
+	if err := s.UpdatePRMeta(ctx, "task1", &prMeta); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.PollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	task, err := s.GetTask(ctx, "task1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := store.ParsePRMeta(task.PRMeta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.PRNumber != 0 {
+		t.Errorf("PRNumber = %d, want 0 (stale PR predates link, must be rejected)", meta.PRNumber)
+	}
+	if meta.HeadSHA != "abc123" {
+		t.Errorf("HeadSHA = %q, want abc123 (must be preserved)", meta.HeadSHA)
+	}
+}
+
+func TestPollBranchFilterRejectsStalePRWithoutSHA(t *testing.T) {
+	s := newTestPRStore(t)
+	bus := events.New()
+
+	// No SHA recorded, but linked_at is set — the batch branch path must
+	// still reject candidates created before the link.
+	gh := &mockGitHub{
+		statuses: map[string]*github.PRStatus{
+			"fix-tests": {HasPR: true, Number: 17, State: "CLOSED", URL: "https://github.com/o/r/pull/17", CreatedAt: "2025-01-10T00:00:00Z"},
+		},
+	}
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
+
+	ctx := context.Background()
+	createPRTask(t, s, "task1")
+
+	prMeta := `{"branch":"fix-tests","repo":"o/r","linked_at":"2026-07-13T00:00:00Z"}`
+	if err := s.UpdatePRMeta(ctx, "task1", &prMeta); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.PollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	task, err := s.GetTask(ctx, "task1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := store.ParsePRMeta(task.PRMeta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.PRNumber != 0 {
+		t.Errorf("PRNumber = %d, want 0 (stale PR predates link)", meta.PRNumber)
+	}
+}
+
+func TestPollBranchFilterAcceptsPRCreatedAfterLink(t *testing.T) {
+	s := newTestPRStore(t)
+	bus := events.New()
+
+	gh := &mockGitHub{
+		statuses: map[string]*github.PRStatus{
+			"fix-tests": {HasPR: true, Number: 42, State: "OPEN", URL: "https://github.com/o/r/pull/42", CreatedAt: "2026-07-13T01:00:00Z"},
+		},
+	}
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute)
+
+	ctx := context.Background()
+	createPRTask(t, s, "task1")
+
+	prMeta := `{"branch":"fix-tests","repo":"o/r","linked_at":"2026-07-13T00:00:00Z"}`
+	if err := s.UpdatePRMeta(ctx, "task1", &prMeta); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.PollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	task, err := s.GetTask(ctx, "task1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := store.ParsePRMeta(task.PRMeta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.PRNumber != 42 {
+		t.Errorf("PRNumber = %d, want 42 (PR created after link must be accepted)", meta.PRNumber)
+	}
+	if meta.LinkedAt != "2026-07-13T00:00:00Z" {
+		t.Errorf("LinkedAt = %q, want preserved", meta.LinkedAt)
+	}
+}
+
+func TestAutoLinkBranchSkipsDefaultBranch(t *testing.T) {
+	for _, branch := range []string{"main", "master"} {
+		t.Run(branch, func(t *testing.T) {
+			s := newTestPRStore(t)
+			bus := events.New()
+			gh := &mockGitHub{
+				branch: branch,
+				owner:  "myorg",
+				repo:   "myrepo",
+			}
+			svc := NewPRTrackingService(s, bus, gh, time.Minute, 10*time.Minute).(*prTrackingService)
+
+			ctx := context.Background()
+			createPRTask(t, s, "task1")
+
+			svc.AutoLinkBranch(ctx, "task1")
+			time.Sleep(50 * time.Millisecond)
+
+			task, err := s.GetTask(ctx, "task1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if task.PRMeta != nil {
+				t.Errorf("expected pr_meta to remain nil for default branch %q", branch)
+			}
+		})
 	}
 }

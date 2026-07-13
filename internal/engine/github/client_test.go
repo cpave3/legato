@@ -139,6 +139,119 @@ func TestFetchPRStatusDraft(t *testing.T) {
 	}
 }
 
+func TestFetchPRStatusPrefersOpenOverClosed(t *testing.T) {
+	// A reused branch name can match an old closed/merged PR. The open PR
+	// must win even when the closed one appears first in gh's output.
+	output := `[
+		{"number":17,"headRefName":"fix-tests","title":"Old fix","state":"CLOSED","isDraft":false,"reviewDecision":"","url":"https://github.com/o/r/pull/17","createdAt":"2025-01-10T00:00:00Z","statusCheckRollup":[],"comments":[],"reviews":[]},
+		{"number":42,"headRefName":"fix-tests","title":"New fix","state":"OPEN","isDraft":false,"reviewDecision":"","url":"https://github.com/o/r/pull/42","createdAt":"2026-07-01T00:00:00Z","statusCheckRollup":[],"comments":[],"reviews":[]}
+	]`
+	c := newTestClient(output, 0)
+
+	status, err := c.FetchPRStatus("fix-tests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Number != 42 {
+		t.Errorf("Number = %d, want 42 (open PR should win over closed)", status.Number)
+	}
+	if status.CreatedAt != "2026-07-01T00:00:00Z" {
+		t.Errorf("CreatedAt = %q, want 2026-07-01T00:00:00Z", status.CreatedAt)
+	}
+}
+
+func TestFetchPRStatusPrefersNewestWhenSameState(t *testing.T) {
+	output := `[
+		{"number":17,"headRefName":"fix-tests","title":"Old","state":"MERGED","isDraft":false,"reviewDecision":"","url":"https://github.com/o/r/pull/17","createdAt":"2025-01-10T00:00:00Z","statusCheckRollup":[],"comments":[],"reviews":[]},
+		{"number":42,"headRefName":"fix-tests","title":"New","state":"MERGED","isDraft":false,"reviewDecision":"","url":"https://github.com/o/r/pull/42","createdAt":"2026-07-01T00:00:00Z","statusCheckRollup":[],"comments":[],"reviews":[]}
+	]`
+	c := newTestClient(output, 0)
+
+	status, err := c.FetchPRStatus("fix-tests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Number != 42 {
+		t.Errorf("Number = %d, want 42 (newest should win)", status.Number)
+	}
+}
+
+func TestFetchPRsForCommit(t *testing.T) {
+	// REST repos/{o}/{r}/commits/{sha}/pulls response shape.
+	output := `[{"number":42,"title":"Add auth","state":"open","draft":false,"merged_at":null,"html_url":"https://github.com/owner/repo/pull/42","created_at":"2026-07-01T00:00:00Z","head":{"ref":"feature/auth"}}]`
+	c := newTestClient(output, 0)
+
+	status, err := c.FetchPRsForCommit("owner", "repo", "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.HasPR {
+		t.Fatal("expected HasPR=true")
+	}
+	if status.Number != 42 {
+		t.Errorf("Number = %d, want 42", status.Number)
+	}
+	if status.State != "OPEN" {
+		t.Errorf("State = %q, want OPEN", status.State)
+	}
+	if status.HeadBranch != "feature/auth" {
+		t.Errorf("HeadBranch = %q, want feature/auth", status.HeadBranch)
+	}
+	if status.CreatedAt != "2026-07-01T00:00:00Z" {
+		t.Errorf("CreatedAt = %q, want 2026-07-01T00:00:00Z", status.CreatedAt)
+	}
+	if status.URL != "https://github.com/owner/repo/pull/42" {
+		t.Errorf("URL = %q", status.URL)
+	}
+}
+
+func TestFetchPRsForCommitPrefersOpen(t *testing.T) {
+	output := `[
+		{"number":17,"title":"Old","state":"closed","draft":false,"merged_at":"2025-02-01T00:00:00Z","html_url":"https://github.com/o/r/pull/17","created_at":"2025-01-10T00:00:00Z","head":{"ref":"fix-tests"}},
+		{"number":42,"title":"New","state":"open","draft":false,"merged_at":null,"html_url":"https://github.com/o/r/pull/42","created_at":"2026-07-01T00:00:00Z","head":{"ref":"fix-tests"}}
+	]`
+	c := newTestClient(output, 0)
+
+	status, err := c.FetchPRsForCommit("o", "r", "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Number != 42 {
+		t.Errorf("Number = %d, want 42", status.Number)
+	}
+}
+
+func TestFetchPRsForCommitMerged(t *testing.T) {
+	output := `[{"number":10,"title":"Done","state":"closed","draft":false,"merged_at":"2026-07-02T00:00:00Z","html_url":"https://github.com/o/r/pull/10","created_at":"2026-07-01T00:00:00Z","head":{"ref":"feature/done"}}]`
+	c := newTestClient(output, 0)
+
+	status, err := c.FetchPRsForCommit("o", "r", "def456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != "MERGED" {
+		t.Errorf("State = %q, want MERGED", status.State)
+	}
+}
+
+func TestFetchPRsForCommitNone(t *testing.T) {
+	c := newTestClient("[]", 0)
+	status, err := c.FetchPRsForCommit("o", "r", "nope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.HasPR {
+		t.Error("expected HasPR=false")
+	}
+}
+
+func TestFetchPRsForCommitError(t *testing.T) {
+	c := newTestClient("Not Found\n", 1)
+	if _, err := c.FetchPRsForCommit("o", "r", "bad"); err == nil {
+		t.Error("expected error")
+	}
+}
+
 func TestDeriveCheckStatus(t *testing.T) {
 	tests := []struct {
 		name   string

@@ -14,6 +14,8 @@ type PRMeta struct {
 	CheckStatus    string `json:"check_status,omitempty"`    // pass, fail, pending, or ""
 	CommentCount   int    `json:"comment_count,omitempty"`
 	UpdatedAt      string `json:"updated_at,omitempty"` // RFC3339
+	HeadSHA        string `json:"head_sha,omitempty"`   // commit SHA recorded at link time — anchors PR discovery
+	LinkedAt       string `json:"linked_at,omitempty"`  // RFC3339 time the link was created — PRs created before this are rejected during discovery
 }
 
 // MarshalPRMeta serializes PRMeta to a JSON string pointer for storage.

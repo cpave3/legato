@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -449,5 +450,122 @@ func TestTaskNote_AppendsNote(t *testing.T) {
 	task, _ := s.GetTask(context.Background(), "abc123")
 	if task.Description == "" {
 		t.Error("expected task description to be updated with note")
+	}
+}
+
+func TestTaskLink_WithSHARecordsAnchor(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "task1", "Doing")
+
+	before := time.Now().UTC().Add(-time.Second)
+	if err := cli.TaskLink(s, "task1", "fix-tests", "o/r", "abc123"); err != nil {
+		t.Fatal(err)
+	}
+
+	task, err := s.GetTask(context.Background(), "task1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := store.ParsePRMeta(task.PRMeta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Branch != "fix-tests" {
+		t.Errorf("Branch = %q, want fix-tests", meta.Branch)
+	}
+	if meta.HeadSHA != "abc123" {
+		t.Errorf("HeadSHA = %q, want abc123", meta.HeadSHA)
+	}
+	if meta.LinkedAt == "" {
+		t.Fatal("LinkedAt should be set when SHA is provided")
+	}
+	linked, err := time.Parse(time.RFC3339, meta.LinkedAt)
+	if err != nil {
+		t.Fatalf("LinkedAt %q not RFC3339: %v", meta.LinkedAt, err)
+	}
+	if linked.Before(before) || linked.After(time.Now().UTC().Add(time.Second)) {
+		t.Errorf("LinkedAt = %v, want ~now", linked)
+	}
+}
+
+func TestTaskLink_WithoutSHALeavesAnchorEmpty(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "task1", "Doing")
+
+	if err := cli.TaskLink(s, "task1", "fix-tests", "o/r", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	task, _ := s.GetTask(context.Background(), "task1")
+	meta, err := store.ParsePRMeta(task.PRMeta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.HeadSHA != "" || meta.LinkedAt != "" {
+		t.Errorf("HeadSHA/LinkedAt should be empty without --sha, got %q/%q", meta.HeadSHA, meta.LinkedAt)
+	}
+}
+
+func TestTaskLink_NewBranchResetsStalePRData(t *testing.T) {
+	// An agent spawned on a stack parent branch may have auto-linked its PR.
+	// When the staccato hook links a NEW branch for the same task, the stale
+	// PR fields must be cleared so discovery finds the right PR.
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "task1", "Doing")
+
+	ctx := context.Background()
+	stale := `{"branch":"parent-branch","repo":"o/r","pr_number":17,"pr_url":"https://github.com/o/r/pull/17","state":"OPEN"}`
+	if err := s.UpdatePRMeta(ctx, "task1", &stale); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cli.TaskLink(s, "task1", "new-branch", "o/r", "abc123"); err != nil {
+		t.Fatal(err)
+	}
+
+	task, _ := s.GetTask(ctx, "task1")
+	meta, err := store.ParsePRMeta(task.PRMeta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Branch != "new-branch" {
+		t.Errorf("Branch = %q, want new-branch", meta.Branch)
+	}
+	if meta.PRNumber != 0 {
+		t.Errorf("PRNumber = %d, want 0 (stale PR data must be reset on branch change)", meta.PRNumber)
+	}
+	if meta.HeadSHA != "abc123" {
+		t.Errorf("HeadSHA = %q, want abc123", meta.HeadSHA)
+	}
+}
+
+func TestTaskLink_SameBranchKeepsPRData(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "task1", "Doing")
+
+	ctx := context.Background()
+	existing := `{"branch":"fix-tests","repo":"o/r","pr_number":42,"pr_url":"https://github.com/o/r/pull/42","state":"OPEN"}`
+	if err := s.UpdatePRMeta(ctx, "task1", &existing); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cli.TaskLink(s, "task1", "fix-tests", "o/r", "def456"); err != nil {
+		t.Fatal(err)
+	}
+
+	task, _ := s.GetTask(ctx, "task1")
+	meta, err := store.ParsePRMeta(task.PRMeta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.PRNumber != 42 {
+		t.Errorf("PRNumber = %d, want 42 (same-branch re-link must keep PR data)", meta.PRNumber)
+	}
+	if meta.HeadSHA != "def456" {
+		t.Errorf("HeadSHA = %q, want def456", meta.HeadSHA)
 	}
 }

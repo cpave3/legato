@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +19,7 @@ type GitHubClient interface {
 	BatchFetchPRStatus(branches []string) (map[string]*github.PRStatus, error)
 	BatchFetchPRStatusWithRepo(queries []github.BranchQuery) (map[string]*github.PRStatus, error)
 	FetchPRByNumber(owner, repo string, prNumber int) (*github.PRStatus, error)
+	FetchPRsForCommit(owner, repo, sha string) (*github.PRStatus, error)
 	DetectBranch() (string, error)
 	DetectRepo() (owner, repo string, err error)
 	FetchCommentCount(owner, repo string, prNumber int) (int, error)
@@ -148,7 +150,14 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		return nil
 	}
 
-	// Extract branches with repo info for scoped queries.
+	// Unresolved tasks with a recorded head SHA get exact commit-based
+	// discovery (immune to branch-name reuse); everything else goes through
+	// the branch batch query.
+	type shaTarget struct {
+		taskID string
+		meta   *store.PRMeta
+	}
+	var shaTargets []shaTarget
 	branchToTasks := make(map[string][]string) // branch → task IDs
 	branchRepos := make(map[string]string)     // branch → repo (first seen)
 	for _, t := range tasks {
@@ -164,67 +173,46 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		if meta.Repo == "" {
 			continue
 		}
+		if meta.PRNumber == 0 && meta.HeadSHA != "" {
+			shaTargets = append(shaTargets, shaTarget{taskID: t.ID, meta: meta})
+			continue
+		}
 		branchToTasks[meta.Branch] = append(branchToTasks[meta.Branch], t.ID)
 		if branchRepos[meta.Branch] == "" {
 			branchRepos[meta.Branch] = meta.Repo
 		}
 	}
 
-	if len(branchToTasks) == 0 {
+	if len(branchToTasks) == 0 && len(shaTargets) == 0 {
 		return nil
 	}
 
-	queries := make([]github.BranchQuery, 0, len(branchToTasks))
-	for b := range branchToTasks {
-		queries = append(queries, github.BranchQuery{Branch: b, Repo: branchRepos[b]})
-	}
-
-	statuses, err := p.gh.BatchFetchPRStatusWithRepo(queries)
-	if err != nil {
-		log.Printf("PR poll error: %v", err)
-		// Continue with partial results
-	}
-
 	changed := false
-	now := time.Now().UTC().Format(time.RFC3339)
 
-	for branch, status := range statuses {
-		taskIDs := branchToTasks[branch]
-		for _, taskID := range taskIDs {
-			task, err := p.store.GetTask(ctx, taskID)
-			if err != nil {
-				continue
-			}
-			oldMeta, _ := store.ParsePRMeta(task.PRMeta)
+	for _, st := range shaTargets {
+		status := p.discoverPR(st.meta)
+		if p.applyStatus(ctx, st.taskID, st.meta.Branch, status) {
+			changed = true
+		}
+	}
 
-			repo := ""
-			if oldMeta != nil {
-				repo = oldMeta.Repo
-			}
-			newMeta := &store.PRMeta{
-				Repo:      repo,
-				Branch:    branch,
-				UpdatedAt: now,
-			}
-			if status.HasPR {
-				newMeta.PRNumber = status.Number
-				newMeta.PRURL = status.URL
-				newMeta.State = status.State
-				newMeta.IsDraft = status.IsDraft
-				newMeta.ReviewDecision = status.ReviewDecision
-				newMeta.CheckStatus = status.CheckStatus
-				newMeta.CommentCount = status.CommentCount
-			}
+	if len(branchToTasks) > 0 {
+		queries := make([]github.BranchQuery, 0, len(branchToTasks))
+		for b := range branchToTasks {
+			queries = append(queries, github.BranchQuery{Branch: b, Repo: branchRepos[b]})
+		}
 
-			if prMetaChanged(oldMeta, newMeta) {
-				raw, err := store.MarshalPRMeta(newMeta)
-				if err != nil {
-					continue
+		statuses, err := p.gh.BatchFetchPRStatusWithRepo(queries)
+		if err != nil {
+			log.Printf("PR poll error: %v", err)
+			// Continue with partial results
+		}
+
+		for branch, status := range statuses {
+			for _, taskID := range branchToTasks[branch] {
+				if p.applyStatus(ctx, taskID, branch, status) {
+					changed = true
 				}
-				if err := p.store.UpdatePRMeta(ctx, taskID, raw); err != nil {
-					continue
-				}
-				changed = true
 			}
 		}
 	}
@@ -237,6 +225,98 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 	}
 
 	return nil
+}
+
+// discoverPR resolves the PR for an unresolved link. When a head SHA was
+// recorded at link time, the commit→pulls lookup is tried first — it's an
+// exact match on commit identity. Falls back to the branch-name query.
+func (p *prTrackingService) discoverPR(meta *store.PRMeta) *github.PRStatus {
+	if meta.HeadSHA != "" {
+		if owner, name, ok := splitRepo(meta.Repo); ok {
+			if status, err := p.gh.FetchPRsForCommit(owner, name, meta.HeadSHA); err == nil && status.HasPR {
+				return status
+			}
+		}
+	}
+	status, err := p.gh.FetchPRStatus(meta.Branch, meta.Repo)
+	if err != nil {
+		return &github.PRStatus{HasPR: false}
+	}
+	return status
+}
+
+// applyStatus writes a fetched PR status onto a task's pr_meta, preserving
+// link-time fields (repo, head SHA, linked-at). For unresolved links, a
+// candidate PR created before the link time fails the filter and is treated
+// as "no PR yet" — a reused branch name must not resurrect an old PR.
+// Returns true when the stored meta changed.
+func (p *prTrackingService) applyStatus(ctx context.Context, taskID, branch string, status *github.PRStatus) bool {
+	task, err := p.store.GetTask(ctx, taskID)
+	if err != nil {
+		return false
+	}
+	oldMeta, _ := store.ParsePRMeta(task.PRMeta)
+
+	newMeta := &store.PRMeta{
+		Branch:    branch,
+		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	if oldMeta != nil {
+		newMeta.Repo = oldMeta.Repo
+		newMeta.HeadSHA = oldMeta.HeadSHA
+		newMeta.LinkedAt = oldMeta.LinkedAt
+	}
+
+	unresolved := oldMeta == nil || oldMeta.PRNumber == 0
+	if status != nil && status.HasPR && (!unresolved || passesLinkFilter(newMeta.LinkedAt, status.CreatedAt)) {
+		newMeta.PRNumber = status.Number
+		newMeta.PRURL = status.URL
+		newMeta.State = status.State
+		newMeta.IsDraft = status.IsDraft
+		newMeta.ReviewDecision = status.ReviewDecision
+		newMeta.CheckStatus = status.CheckStatus
+		newMeta.CommentCount = status.CommentCount
+	}
+
+	if !prMetaChanged(oldMeta, newMeta) {
+		return false
+	}
+	raw, err := store.MarshalPRMeta(newMeta)
+	if err != nil {
+		return false
+	}
+	if err := p.store.UpdatePRMeta(ctx, taskID, raw); err != nil {
+		return false
+	}
+	return true
+}
+
+// passesLinkFilter reports whether a candidate PR is plausibly the one the
+// link anticipated: it must not have been created before the link time
+// (minus a small slack for clock skew). Missing or unparseable timestamps
+// pass through — the filter only rejects on positive evidence.
+func passesLinkFilter(linkedAt, prCreatedAt string) bool {
+	if linkedAt == "" || prCreatedAt == "" {
+		return true
+	}
+	linked, err := time.Parse(time.RFC3339, linkedAt)
+	if err != nil {
+		return true
+	}
+	created, err := time.Parse(time.RFC3339, prCreatedAt)
+	if err != nil {
+		return true
+	}
+	return !created.Before(linked.Add(-5 * time.Minute))
+}
+
+// splitRepo splits an "owner/repo" string into its parts.
+func splitRepo(repo string) (owner, name string, ok bool) {
+	i := strings.IndexByte(repo, '/')
+	if i <= 0 || i == len(repo)-1 {
+		return "", "", false
+	}
+	return repo[:i], repo[i+1:], true
 }
 
 func (p *prTrackingService) StartPolling(ctx context.Context) func() {
@@ -291,6 +371,9 @@ func (p *prTrackingService) AutoLinkBranch(ctx context.Context, taskID string) {
 	if branch == "" || branch == "HEAD" {
 		return // detached HEAD
 	}
+	if branch == "main" || branch == "master" {
+		return // default branch is never the PR branch — avoid mislinks
+	}
 
 	owner, repo, err := p.gh.DetectRepo()
 	if err != nil {
@@ -301,45 +384,19 @@ func (p *prTrackingService) AutoLinkBranch(ctx context.Context, taskID string) {
 }
 
 func (p *prTrackingService) pollSingleBranch(ctx context.Context, taskID, branch string) {
-	// Look up existing repo for scoped query.
-	var repo string
-	if task, err := p.store.GetTask(ctx, taskID); err == nil {
-		if meta, _ := store.ParsePRMeta(task.PRMeta); meta != nil {
-			repo = meta.Repo
-		}
+	task, err := p.store.GetTask(ctx, taskID)
+	if err != nil {
+		return
 	}
+	meta, _ := store.ParsePRMeta(task.PRMeta)
 
 	// Skip if no repo — gh needs --repo to work from non-git dirs.
-	if repo == "" {
+	if meta == nil || meta.Repo == "" {
 		return
 	}
 
-	status, err := p.gh.FetchPRStatus(branch, repo)
-	if err != nil {
-		return
-	}
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	newMeta := &store.PRMeta{
-		Repo:      repo,
-		Branch:    branch,
-		UpdatedAt: now,
-	}
-	if status.HasPR {
-		newMeta.PRNumber = status.Number
-		newMeta.PRURL = status.URL
-		newMeta.State = status.State
-		newMeta.IsDraft = status.IsDraft
-		newMeta.ReviewDecision = status.ReviewDecision
-		newMeta.CheckStatus = status.CheckStatus
-		newMeta.CommentCount = status.CommentCount
-	}
-
-	raw, err := store.MarshalPRMeta(newMeta)
-	if err != nil {
-		return
-	}
-	if err := p.store.UpdatePRMeta(ctx, taskID, raw); err != nil {
+	status := p.discoverPR(meta)
+	if !p.applyStatus(ctx, taskID, branch, status) {
 		return
 	}
 

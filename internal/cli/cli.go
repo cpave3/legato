@@ -178,8 +178,11 @@ func AgentSummary(s *store.Store, excludeTaskID string) (string, error) {
 
 // TaskLink associates a git branch with a task's PR metadata.
 // If branch is empty, auto-detects the current git branch.
+// A non-empty sha records the head commit as a discovery anchor: PR polling
+// resolves it via the exact commits/{sha}/pulls lookup, and the recorded
+// link time rejects stale PRs from reused branch names.
 // Broadcasts an IPC notification to all running Legato instances.
-func TaskLink(s *store.Store, taskID, branch, repo string) error {
+func TaskLink(s *store.Store, taskID, branch, repo, sha string) error {
 	ctx := context.Background()
 
 	task, err := s.GetTask(ctx, taskID)
@@ -199,16 +202,19 @@ func TaskLink(s *store.Store, taskID, branch, repo string) error {
 	meta := &store.PRMeta{Branch: branch, Repo: repo}
 	if task.PRMeta != nil {
 		existing, _ := store.ParsePRMeta(task.PRMeta)
-		if existing != nil && existing.PRNumber > 0 {
-			// Already has PR data — just update repo/branch if provided.
+		if existing != nil && existing.PRNumber > 0 && existing.Branch == branch {
+			// Same branch, already has PR data — just update repo if provided.
 			if repo != "" {
 				existing.Repo = repo
 			}
-			if branch != "" {
-				existing.Branch = branch
-			}
 			meta = existing
 		}
+		// A different branch means a different PR: fall through to the fresh
+		// meta so stale PR data (e.g. from spawn-time auto-link) is reset.
+	}
+	if sha != "" {
+		meta.HeadSHA = sha
+		meta.LinkedAt = time.Now().UTC().Format(time.RFC3339)
 	}
 
 	raw, err := json.Marshal(meta)

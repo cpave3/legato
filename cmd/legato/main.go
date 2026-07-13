@@ -192,24 +192,26 @@ func runTaskNote(db *store.Store, args []string) int {
 }
 
 func runTaskLink(db *store.Store, args []string) int {
-	// Parse: legato task link <task-id> [--branch <branch>] [--repo <owner/repo>]
+	// Parse: legato task link <task-id> [--branch <branch>] [--repo <owner/repo>] [--sha <commit-sha>]
 	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: legato task link <task-id> [--branch <branch>] [--repo <owner/repo>]\n")
+		fmt.Fprintf(os.Stderr, "usage: legato task link <task-id> [--branch <branch>] [--repo <owner/repo>] [--sha <commit-sha>]\n")
 		return 1
 	}
 
 	taskID := args[0]
-	var branch, repo string
+	var branch, repo, sha string
 	for i := 1; i < len(args)-1; i++ {
 		switch args[i] {
 		case "--branch":
 			branch = args[i+1]
 		case "--repo":
 			repo = args[i+1]
+		case "--sha":
+			sha = args[i+1]
 		}
 	}
 
-	if err := cli.TaskLink(db, taskID, branch, repo); err != nil {
+	if err := cli.TaskLink(db, taskID, branch, repo, sha); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}

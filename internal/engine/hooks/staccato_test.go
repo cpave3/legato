@@ -62,6 +62,12 @@ func TestStaccatoAdapter_InstallHooks(t *testing.T) {
 		if !strings.Contains(content, "--repo") {
 			t.Errorf("%s: script should pass --repo flag", event)
 		}
+		if !strings.Contains(content, "git rev-parse HEAD") {
+			t.Errorf("%s: script should capture the head commit SHA", event)
+		}
+		if !strings.Contains(content, "--sha") {
+			t.Errorf("%s: script should pass --sha flag to anchor PR discovery", event)
+		}
 
 		info, _ := os.Stat(scriptPath)
 		if info.Mode()&0o111 == 0 {

@@ -9,7 +9,7 @@
 - `legato agent state <task-id> --activity <working|waiting|"">` — update agent activity state on a card
 - `legato agent summary [--exclude <task-id>]` — output tmux-formatted agent session counts (working/waiting/idle) for use in tmux status bar `#()` expansion
 - `legato agent status <task-id> --format tmux` — output a swarm-aware tmux status-line string for the given task. For swarm participants it shows `x/y done`, the last event kind + age, active sibling count, and a scope-warning icon; for solo agents it falls back to the same output as `agent summary --exclude <task-id>`. Auto-injected into `status-right` by `SpawnAgent` for swarm sessions; solo sessions keep the summary command. The CLI opens a new SQLite connection each call (the in-process `SwarmService.LatestSnapshot` cache is unreachable across process boundaries) so latency is bounded by SQLite open + two aggregate queries
-- `legato task link <task-id> [--branch <branch>] [--repo <owner/repo>]` — link a git branch to a task for PR tracking (auto-detects branch if `--branch` omitted, `--repo` enables repo-scoped polling)
+- `legato task link <task-id> [--branch <branch>] [--repo <owner/repo>] [--sha <commit-sha>]` — link a git branch to a task for PR tracking (auto-detects branch if `--branch` omitted, `--repo` enables repo-scoped polling, `--sha` anchors PR discovery to the exact head commit)
 - `legato task unlink <task-id>` — remove branch/PR association from a task
 - `legato hooks install [--tool claude-code|staccato|chimera|codex]` — install AI tool hooks (claude-code: `.claude/hooks/`, staccato: `~/.config/staccato/hooks/`, chimera: `~/.chimera/hooks/`, codex: `.codex/hooks/`)
 - `legato hooks uninstall [--tool claude-code|staccato|chimera|codex]` — remove installed hooks
@@ -80,9 +80,9 @@ Legato-spawned tmux sessions get a custom status bar showing live context. Solo 
 
 `StaccatoAdapter` in `internal/engine/hooks/staccato.go` implements `AIToolAdapter`. Installs a `post-pr-create` hook at `~/.config/staccato/hooks/post-pr-create/legato-pr-link.sh` (staccato uses directory-based hooks, not config files).
 
-**Flow**: Staccato `post-pr-create` fires when browser opens to PR creation page (PR may not exist yet) → hook reads `LEGATO_TASK_ID` (injected by legato's tmux session) + `ST_REPO_PATH` + `ST_BRANCH` → detects owner/repo from git remote → calls `legato task link $LEGATO_TASK_ID --branch $ST_BRANCH --repo owner/repo` → IPC broadcast triggers immediate poll → background polling discovers PR when it actually exists.
+**Flow**: Staccato `post-pr-create` fires when browser opens to PR creation page (PR may not exist yet) → hook reads `LEGATO_TASK_ID` (injected by legato's tmux session) + `ST_REPO_PATH` + `ST_BRANCH` → detects owner/repo from git remote + captures head commit SHA via `git rev-parse HEAD` → calls `legato task link $LEGATO_TASK_ID --branch $ST_BRANCH --repo owner/repo --sha $SHA` → IPC broadcast triggers immediate poll → background polling discovers PR when it actually exists.
 
-**Key detail**: staccato's `post-pr-create` fires on PR page open, not on actual PR creation. So the initial link only stores repo+branch (no PR number). The PR tracking service polls `gh pr list --head <branch> --repo <owner/repo>` until the PR materializes. This is why `PRMeta.Repo` is needed — legato may not be running from the same repo directory.
+**Key detail**: staccato's `post-pr-create` fires on PR page open, not on actual PR creation. So the initial link only stores repo+branch+sha (no PR number). The PR tracking service resolves the PR via `gh api repos/{owner}/{repo}/commits/{sha}/pulls` — an exact match on commit identity, immune to reused branch names and fork collisions — falling back to `gh pr list --head <branch> --repo <owner/repo>` filtered by link time (PRs created before the link are rejected as stale). This is why `PRMeta.Repo` is needed — legato may not be running from the same repo directory.
 
 ## Chimera Integration
 

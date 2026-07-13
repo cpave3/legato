@@ -79,7 +79,10 @@ func prLinkScript(legatoBin string) string {
 	b.WriteString("REMOTE=$(cd \"$ST_REPO_PATH\" && git remote get-url origin 2>/dev/null)\n")
 	b.WriteString("OWNER_REPO=$(echo \"$REMOTE\" | sed -E 's|.*github\\.com[:/]([^/]+/[^/.]+)(\\.git)?$|\\1|')\n")
 	b.WriteString("[ -z \"$OWNER_REPO\" ] && exit 0\n\n")
-	b.WriteString(fmt.Sprintf("%s task link \"$LEGATO_TASK_ID\" --branch \"$ST_BRANCH\" --repo \"$OWNER_REPO\"\n", legatoBin))
+	b.WriteString("# Record the head commit SHA — legato uses it to discover the exact PR\n")
+	b.WriteString("# via GitHub's commits/{sha}/pulls endpoint (immune to branch-name reuse).\n")
+	b.WriteString("SHA=$(cd \"$ST_REPO_PATH\" && git rev-parse HEAD 2>/dev/null)\n\n")
+	b.WriteString(fmt.Sprintf("%s task link \"$LEGATO_TASK_ID\" --branch \"$ST_BRANCH\" --repo \"$OWNER_REPO\" --sha \"$SHA\"\n", legatoBin))
 	b.WriteString("exit 0\n")
 	return b.String()
 }

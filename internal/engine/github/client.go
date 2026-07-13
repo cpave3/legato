@@ -21,6 +21,7 @@ type PRStatus struct {
 	CheckStatus    string // pass, fail, pending, ""
 	CommentCount   int
 	HeadBranch     string // branch name (populated by FetchPRByNumber)
+	CreatedAt      string // RFC3339 PR creation time (populated by list/commit queries)
 }
 
 // Options configures the GitHub Client.
@@ -78,6 +79,7 @@ type ghPR struct {
 	IsDraft           bool            `json:"isDraft"`
 	ReviewDecision    string          `json:"reviewDecision"`
 	URL               string          `json:"url"`
+	CreatedAt         string          `json:"createdAt"`
 	StatusCheckRollup []ghCheck       `json:"statusCheckRollup"`
 	Comments          json.RawMessage `json:"comments"`
 	ReviewComments    json.RawMessage `json:"reviews"`
@@ -90,12 +92,14 @@ type ghCheck struct {
 
 // FetchPRStatus queries GitHub for the PR associated with a branch.
 // If repo is non-empty (owner/repo format), it scopes the query to that repo.
+// When multiple PRs match the branch name (reused branch names), the open PR
+// wins; ties are broken by newest creation time.
 func (c *Client) FetchPRStatus(branch string, repo ...string) (*PRStatus, error) {
 	args := []string{"pr", "list",
 		"--head", branch,
 		"--state", "all",
-		"--limit", "1",
-		"--json", "number,headRefName,title,state,isDraft,reviewDecision,url,statusCheckRollup,comments,reviews"}
+		"--limit", "10",
+		"--json", "number,headRefName,title,state,isDraft,reviewDecision,url,createdAt,statusCheckRollup,comments,reviews"}
 	if len(repo) > 0 && repo[0] != "" {
 		args = append(args, "--repo", repo[0])
 	}
@@ -114,7 +118,7 @@ func (c *Client) FetchPRStatus(branch string, repo ...string) (*PRStatus, error)
 		return &PRStatus{HasPR: false}, nil
 	}
 
-	pr := prs[0]
+	pr := pickBestPR(prs)
 	return &PRStatus{
 		HasPR:          true,
 		Number:         pr.Number,
@@ -125,7 +129,29 @@ func (c *Client) FetchPRStatus(branch string, repo ...string) (*PRStatus, error)
 		ReviewDecision: pr.ReviewDecision,
 		CheckStatus:    deriveCheckStatus(pr.StatusCheckRollup),
 		CommentCount:   countJSONArray(pr.Comments) + countJSONArray(pr.ReviewComments),
+		CreatedAt:      pr.CreatedAt,
 	}, nil
+}
+
+// pickBestPR ranks candidate PRs for a branch: open beats closed/merged,
+// and within the same openness the newest creation time wins. RFC3339
+// timestamps compare correctly as strings.
+func pickBestPR(prs []ghPR) ghPR {
+	best := prs[0]
+	for _, pr := range prs[1:] {
+		bestOpen := strings.EqualFold(best.State, "OPEN")
+		prOpen := strings.EqualFold(pr.State, "OPEN")
+		if prOpen != bestOpen {
+			if prOpen {
+				best = pr
+			}
+			continue
+		}
+		if pr.CreatedAt > best.CreatedAt {
+			best = pr
+		}
+	}
+	return best
 }
 
 // countJSONArray returns the length of a JSON array, or 0 if not an array.
@@ -275,6 +301,74 @@ func (c *Client) FetchPRByNumber(owner, repo string, prNumber int) (*PRStatus, e
 		CheckStatus:  "",
 		CommentCount: raw.Comments + raw.ReviewComments,
 		HeadBranch:   raw.Head.Ref,
+	}, nil
+}
+
+// restPR is the JSON shape of a pull request in GitHub REST list responses.
+type restPR struct {
+	Number    int     `json:"number"`
+	Title     string  `json:"title"`
+	State     string  `json:"state"` // open, closed
+	Draft     bool    `json:"draft"`
+	MergedAt  *string `json:"merged_at"`
+	HTMLURL   string  `json:"html_url"`
+	CreatedAt string  `json:"created_at"`
+	Head      struct {
+		Ref string `json:"ref"`
+	} `json:"head"`
+}
+
+// FetchPRsForCommit queries GitHub for pull requests containing the given
+// commit via the repos/{owner}/{repo}/commits/{sha}/pulls REST endpoint.
+// This is an exact match on commit identity — immune to branch-name reuse
+// and fork branch-name collisions. When multiple PRs contain the commit,
+// the open PR wins; ties are broken by newest creation time.
+func (c *Client) FetchPRsForCommit(owner, repo, sha string) (*PRStatus, error) {
+	cmd := c.execCommand(c.ghPath, "api",
+		fmt.Sprintf("repos/%s/%s/commits/%s/pulls", owner, repo, sha))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("gh api commits/pulls: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+
+	var prs []restPR
+	if err := json.Unmarshal(out, &prs); err != nil {
+		return nil, fmt.Errorf("parsing commit pulls response: %w", err)
+	}
+
+	if len(prs) == 0 {
+		return &PRStatus{HasPR: false}, nil
+	}
+
+	best := prs[0]
+	for _, pr := range prs[1:] {
+		bestOpen := strings.EqualFold(best.State, "open")
+		prOpen := strings.EqualFold(pr.State, "open")
+		if prOpen != bestOpen {
+			if prOpen {
+				best = pr
+			}
+			continue
+		}
+		if pr.CreatedAt > best.CreatedAt {
+			best = pr
+		}
+	}
+
+	state := strings.ToUpper(best.State)
+	if best.MergedAt != nil && *best.MergedAt != "" {
+		state = "MERGED"
+	}
+
+	return &PRStatus{
+		HasPR:      true,
+		Number:     best.Number,
+		Title:      best.Title,
+		URL:        best.HTMLURL,
+		State:      state,
+		IsDraft:    best.Draft,
+		HeadBranch: best.Head.Ref,
+		CreatedAt:  best.CreatedAt,
 	}, nil
 }
 
