@@ -25,6 +25,7 @@ type reviewServerFixture struct {
 	server *Server
 	store  *store.Store
 	svc    *service.ReviewService
+	tourID string
 }
 
 func newReviewServerFixture(t *testing.T) *reviewServerFixture {
@@ -74,28 +75,32 @@ func newReviewServerFixture(t *testing.T) *reviewServerFixture {
 	git("commit", "-m", "add API\n\nExpose the review endpoint.")
 
 	svc := service.NewReviewService(s, nil, nil)
-	if err := svc.Ready(ctx, "task-1", "ready for review"); err != nil {
+	tour, err := svc.EnsureReviewTour(ctx, "task-1", "implementation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Ready(ctx, tour.ID, "ready for review"); err != nil {
 		t.Fatal(err)
 	}
 	server := New(nil, nil, nil, "")
 	server.SetReviewService(svc)
-	return &reviewServerFixture{server: server, store: s, svc: svc}
+	return &reviewServerFixture{server: server, store: s, svc: svc, tourID: tour.ID}
 }
 
 func TestReviewTourAndStepDiff(t *testing.T) {
 	f := newReviewServerFixture(t)
-	tourView, err := f.svc.Tour(context.Background(), "task-1")
+	tourView, err := f.svc.Tour(context.Background(), f.tourID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := f.store.InsertReviewHunkNote(context.Background(), store.ReviewHunkNote{
-		ID: "note-1", TaskID: "task-1", StepID: tourView.Steps[0].ID,
+		ID: "note-1", TaskID: "task-1", TourID: f.tourID, StepID: tourView.Steps[0].ID,
 		FilePath: "api.go", HunkAnchor: "saved-anchor", Body: "Explain this hunk.",
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	tourReq := httptest.NewRequest(http.MethodGet, "/api/tasks/task-1/review", nil)
+	tourReq := httptest.NewRequest(http.MethodGet, "/api/review/tours/"+f.tourID, nil)
 	tourRes := httptest.NewRecorder()
 	f.server.Handler().ServeHTTP(tourRes, tourReq)
 	if tourRes.Code != http.StatusOK {
@@ -112,7 +117,7 @@ func TestReviewTourAndStepDiff(t *testing.T) {
 		t.Fatalf("unexpected hunk_notes: %+v", tour.HunkNotes)
 	}
 
-	diffReq := httptest.NewRequest(http.MethodGet, "/api/tasks/task-1/review/steps/"+tour.Steps[0].ID+"/diff", nil)
+	diffReq := httptest.NewRequest(http.MethodGet, "/api/review/tours/"+f.tourID+"/steps/"+tour.Steps[0].ID+"/diff", nil)
 	diffRes := httptest.NewRecorder()
 	f.server.Handler().ServeHTTP(diffRes, diffReq)
 	if diffRes.Code != http.StatusOK {
@@ -138,7 +143,7 @@ func TestReviewTourAndStepDiff(t *testing.T) {
 func TestDeleteReviewRemovesTourAndRetainsTask(t *testing.T) {
 	f := newReviewServerFixture(t)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/tasks/task-1/review", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/review/tours/"+f.tourID, nil)
 	res := httptest.NewRecorder()
 	f.server.Handler().ServeHTTP(res, req)
 
@@ -149,7 +154,7 @@ func TestDeleteReviewRemovesTourAndRetainsTask(t *testing.T) {
 		t.Fatalf("DELETE body = %q, want empty", res.Body.String())
 	}
 
-	if _, err := f.store.GetReviewTour(context.Background(), "task-1"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := f.store.GetReviewTour(context.Background(), f.tourID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("deleted tour err = %v, want %v", err, store.ErrNotFound)
 	}
 
@@ -164,7 +169,7 @@ func TestDeleteReviewRemovesTourAndRetainsTask(t *testing.T) {
 
 func TestReviewMutationsUpdateTour(t *testing.T) {
 	f := newReviewServerFixture(t)
-	tour, err := f.svc.Tour(context.Background(), "task-1")
+	tour, err := f.svc.Tour(context.Background(), f.tourID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,9 +180,9 @@ func TestReviewMutationsUpdateTour(t *testing.T) {
 		body   string
 		status int
 	}{
-		{"/api/tasks/task-1/review/steps/" + stepID + "/reviewed", `{"reviewed":true}`, http.StatusOK},
-		{"/api/tasks/task-1/review/steps/" + stepID + "/question", `{"text":"Why this shape?"}`, http.StatusAccepted},
-		{"/api/tasks/task-1/review/complete", ``, http.StatusOK},
+		{"/api/review/tours/" + f.tourID + "/steps/" + stepID + "/reviewed", `{"reviewed":true}`, http.StatusOK},
+		{"/api/review/tours/" + f.tourID + "/steps/" + stepID + "/question", `{"text":"Why this shape?"}`, http.StatusAccepted},
+		{"/api/review/tours/" + f.tourID + "/complete", ``, http.StatusOK},
 	}
 	for _, tc := range requests {
 		req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
@@ -188,7 +193,7 @@ func TestReviewMutationsUpdateTour(t *testing.T) {
 		}
 	}
 
-	updated, err := f.svc.Tour(context.Background(), "task-1")
+	updated, err := f.svc.Tour(context.Background(), f.tourID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +207,7 @@ func TestReviewMutationsUpdateTour(t *testing.T) {
 
 func TestReviewAPIRejectsInvalidRequests(t *testing.T) {
 	f := newReviewServerFixture(t)
-	tour, err := f.svc.Tour(context.Background(), "task-1")
+	tour, err := f.svc.Tour(context.Background(), f.tourID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,13 +221,13 @@ func TestReviewAPIRejectsInvalidRequests(t *testing.T) {
 		status int
 	}{
 		{"wrong queue method", http.MethodPost, "/api/review/queue", "", http.StatusMethodNotAllowed},
-		{"wrong review method", http.MethodPost, "/api/tasks/task-1/review", "", http.StatusMethodNotAllowed},
-		{"malformed JSON", http.MethodPost, "/api/tasks/task-1/review/steps/" + stepID + "/question", `{`, http.StatusBadRequest},
-		{"missing text", http.MethodPost, "/api/tasks/task-1/review/steps/" + stepID + "/question", `{}`, http.StatusBadRequest},
-		{"missing reviewed", http.MethodPost, "/api/tasks/task-1/review/steps/" + stepID + "/reviewed", `{}`, http.StatusBadRequest},
-		{"missing tour", http.MethodGet, "/api/tasks/missing/review", "", http.StatusNotFound},
-		{"delete missing tour", http.MethodDelete, "/api/tasks/missing/review", "", http.StatusNotFound},
-		{"missing step", http.MethodGet, "/api/tasks/task-1/review/steps/missing/diff", "", http.StatusNotFound},
+		{"wrong review method", http.MethodPost, "/api/review/tours/" + f.tourID, "", http.StatusMethodNotAllowed},
+		{"malformed JSON", http.MethodPost, "/api/review/tours/" + f.tourID + "/steps/" + stepID + "/question", `{`, http.StatusBadRequest},
+		{"missing text", http.MethodPost, "/api/review/tours/" + f.tourID + "/steps/" + stepID + "/question", `{}`, http.StatusBadRequest},
+		{"missing reviewed", http.MethodPost, "/api/review/tours/" + f.tourID + "/steps/" + stepID + "/reviewed", `{}`, http.StatusBadRequest},
+		{"missing tour", http.MethodGet, "/api/review/tours/missing", "", http.StatusNotFound},
+		{"delete missing tour", http.MethodDelete, "/api/review/tours/missing", "", http.StatusNotFound},
+		{"missing step", http.MethodGet, "/api/review/tours/" + f.tourID + "/steps/missing/diff", "", http.StatusNotFound},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -269,7 +274,7 @@ func TestStartReviewEventsBroadcastsReviewChanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	bus.Publish(events.Event{Type: events.EventReviewChanged, Payload: events.ReviewChangedPayload{
-		TaskID: "task-1", StepID: "rs-123", Kind: "question",
+		TaskID: "task-1", TourID: "rt-123", StepID: "rs-123", Kind: "question",
 	}})
 
 	_, data, err := conn.Read(ctx)
@@ -280,8 +285,33 @@ func TestStartReviewEventsBroadcastsReviewChanged(t *testing.T) {
 	if err := json.Unmarshal(data, &msg); err != nil {
 		t.Fatal(err)
 	}
-	if msg.Type != MsgReviewChanged || msg.TaskID != "task-1" || msg.StepID != "rs-123" || msg.Kind != "question" {
+	if msg.Type != MsgReviewChanged || msg.TaskID != "task-1" || msg.TourID != "rt-123" || msg.StepID != "rs-123" || msg.Kind != "question" {
 		t.Fatalf("unexpected message: %+v", msg)
+	}
+}
+
+func TestBoardIncludesAggregatedReviewBadgeTarget(t *testing.T) {
+	f := newReviewServerFixture(t)
+	f.server.board = &mockBoardService{
+		columns: []service.Column{{Name: "Doing"}},
+		cards: map[string][]service.Card{
+			"Doing": {{ID: "task-1", Title: "Review API", Status: "Doing"}},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/board", nil)
+	res := httptest.NewRecorder()
+	f.server.Handler().ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var board BoardResponse
+	if err := json.NewDecoder(res.Body).Decode(&board); err != nil {
+		t.Fatal(err)
+	}
+	card := board.Columns[0].Cards[0]
+	if card.ReviewTourID != f.tourID || card.ReviewName != "implementation" || !card.ReviewReady || card.ReviewUnreviewed != 1 {
+		t.Fatalf("unexpected review badge: %+v", card)
 	}
 }
 
@@ -309,7 +339,7 @@ func TestReviewQueueReturnsReviewableTours(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&items); err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].TaskID != "task-1" || items[0].Unreviewed != 1 {
+	if len(items) != 1 || items[0].TourID != f.tourID || items[0].TaskID != "task-1" || items[0].Name != "implementation" || items[0].Unreviewed != 1 {
 		t.Fatalf("unexpected queue: %+v", items)
 	}
 }

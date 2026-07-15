@@ -98,11 +98,11 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/remote/import", s.remoteImportHandler())
 	mux.HandleFunc("/api/repo/detect", s.detectRepoHandler())
 	mux.HandleFunc("/api/review/queue", s.reviewQueueHandler())
-	mux.HandleFunc("/api/tasks/{task_id}/review", s.reviewHandler())
-	mux.HandleFunc("/api/tasks/{task_id}/review/steps/{step_id}/diff", s.reviewStepDiffHandler())
-	mux.HandleFunc("/api/tasks/{task_id}/review/steps/{step_id}/reviewed", s.reviewStepReviewedHandler())
-	mux.HandleFunc("/api/tasks/{task_id}/review/steps/{step_id}/question", s.reviewQuestionHandler())
-	mux.HandleFunc("/api/tasks/{task_id}/review/complete", s.reviewCompleteHandler())
+	mux.HandleFunc("/api/review/tours/{tour_id}", s.reviewHandler())
+	mux.HandleFunc("/api/review/tours/{tour_id}/steps/{step_id}/diff", s.reviewStepDiffHandler())
+	mux.HandleFunc("/api/review/tours/{tour_id}/steps/{step_id}/reviewed", s.reviewStepReviewedHandler())
+	mux.HandleFunc("/api/review/tours/{tour_id}/steps/{step_id}/question", s.reviewQuestionHandler())
+	mux.HandleFunc("/api/review/tours/{tour_id}/complete", s.reviewCompleteHandler())
 	// Swarm endpoints
 	mux.HandleFunc("/api/swarm/start", s.swarmStartHandler())
 	mux.HandleFunc("/api/swarm/cancel", s.swarmCancelHandler())
@@ -400,7 +400,7 @@ func (s *Server) StartReviewEvents() {
 		for ev := range ch {
 			if p, ok := ev.Payload.(events.ReviewChangedPayload); ok {
 				s.hub.Broadcast(WSMessage{
-					Type: MsgReviewChanged, TaskID: p.TaskID, StepID: p.StepID, Kind: p.Kind,
+					Type: MsgReviewChanged, TaskID: p.TaskID, TourID: p.TourID, StepID: p.StepID, Kind: p.Kind,
 				})
 			}
 		}

@@ -16,12 +16,12 @@ import (
 // ReviewService is the subset of review operations exposed over HTTP.
 type ReviewService interface {
 	Queue(context.Context) ([]service.ReviewQueueItem, error)
-	Tour(context.Context, string) (*service.ReviewTourView, error)
-	StepDiff(context.Context, string, string) ([]gitpkg.FileDiff, error)
-	SetReviewed(context.Context, string, string, bool) error
-	AskQuestion(context.Context, string, string, string) error
-	Complete(context.Context, string) error
-	Delete(context.Context, string) error
+	Tour(ctx context.Context, tourID string) (*service.ReviewTourView, error)
+	StepDiff(ctx context.Context, tourID, stepID string) ([]gitpkg.FileDiff, error)
+	SetReviewed(ctx context.Context, tourID, stepID string, reviewed bool) error
+	AskQuestion(ctx context.Context, tourID, stepID, text string) error
+	Complete(ctx context.Context, tourID string) error
+	Delete(ctx context.Context, tourID string) error
 }
 
 // SetReviewService sets the optional service used by review endpoints.
@@ -39,14 +39,14 @@ func (s *Server) reviewHandler() http.HandlerFunc {
 			return
 		}
 		if r.Method == http.MethodDelete {
-			if err := s.reviews.Delete(r.Context(), r.PathValue("task_id")); err != nil {
+			if err := s.reviews.Delete(r.Context(), r.PathValue("tour_id")); err != nil {
 				s.writeReviewError(w, err)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		tour, err := s.reviews.Tour(r.Context(), r.PathValue("task_id"))
+		tour, err := s.reviews.Tour(r.Context(), r.PathValue("tour_id"))
 		if err != nil {
 			s.writeReviewError(w, err)
 			return
@@ -64,7 +64,7 @@ func (s *Server) reviewStepDiffHandler() http.HandlerFunc {
 		if !s.requireReviewService(w) {
 			return
 		}
-		files, err := s.reviews.StepDiff(r.Context(), r.PathValue("task_id"), r.PathValue("step_id"))
+		files, err := s.reviews.StepDiff(r.Context(), r.PathValue("tour_id"), r.PathValue("step_id"))
 		if err != nil {
 			s.writeReviewError(w, err)
 			return
@@ -96,7 +96,7 @@ func (s *Server) reviewStepReviewedHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusBadRequest, "reviewed is required")
 			return
 		}
-		if err := s.reviews.SetReviewed(r.Context(), r.PathValue("task_id"), r.PathValue("step_id"), *req.Reviewed); err != nil {
+		if err := s.reviews.SetReviewed(r.Context(), r.PathValue("tour_id"), r.PathValue("step_id"), *req.Reviewed); err != nil {
 			s.writeReviewError(w, err)
 			return
 		}
@@ -125,7 +125,7 @@ func (s *Server) reviewQuestionHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusBadRequest, "text is required")
 			return
 		}
-		err := s.reviews.AskQuestion(r.Context(), r.PathValue("task_id"), r.PathValue("step_id"), req.Text)
+		err := s.reviews.AskQuestion(r.Context(), r.PathValue("tour_id"), r.PathValue("step_id"), req.Text)
 		if errors.Is(err, service.ErrAgentOffline) {
 			s.writeJSON(w, http.StatusAccepted, map[string]string{
 				"status": "saved", "warning": err.Error(),
@@ -149,7 +149,7 @@ func (s *Server) reviewCompleteHandler() http.HandlerFunc {
 		if !s.requireReviewService(w) {
 			return
 		}
-		if err := s.reviews.Complete(r.Context(), r.PathValue("task_id")); err != nil {
+		if err := s.reviews.Complete(r.Context(), r.PathValue("tour_id")); err != nil {
 			s.writeReviewError(w, err)
 			return
 		}

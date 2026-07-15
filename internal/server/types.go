@@ -34,6 +34,8 @@ type CardResponse struct {
 	PRCommentCount   int                 `json:"pr_comment_count"`
 	PRIsDraft        bool                `json:"pr_is_draft"`
 	SwarmStats       *SwarmStatsResponse `json:"swarm_stats,omitempty"`
+	ReviewTourID     string              `json:"review_tour_id,omitempty"`
+	ReviewName       string              `json:"review_name,omitempty"`
 	ReviewReady      bool                `json:"review_ready"`
 	ReviewUnreviewed int                 `json:"review_unreviewed"`
 }

@@ -57,6 +57,7 @@ type WSMessage struct {
 	Notes        string              `json:"notes,omitempty"`
 	Mode         string              `json:"mode,omitempty"`
 	TaskID       string              `json:"task_id,omitempty"`
+	TourID       string              `json:"tour_id,omitempty"`
 	StepID       string              `json:"step_id,omitempty"`
 	Kind         string              `json:"kind,omitempty"`
 }

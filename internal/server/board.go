@@ -100,6 +100,8 @@ func (s *Server) boardHandler() http.HandlerFunc {
 			if states, stateErr := reviews.ReviewBadgeStates(ctx); stateErr == nil {
 				for id, state := range states {
 					if ref, exists := cardRefs[id]; exists {
+						resp.Columns[ref.col].Cards[ref.card].ReviewTourID = state.TourID
+						resp.Columns[ref.col].Cards[ref.card].ReviewName = state.Name
 						resp.Columns[ref.col].Cards[ref.card].ReviewReady = state.Ready
 						resp.Columns[ref.col].Cards[ref.card].ReviewUnreviewed = state.Unreviewed
 					}
