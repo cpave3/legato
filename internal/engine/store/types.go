@@ -151,37 +151,37 @@ type PendingPlanEntry struct {
 // ReviewTour is the per-task review packet header. Status lifecycle:
 // capturing → ready (agent signalled) → reviewed (human completed).
 type ReviewTour struct {
-	TaskID          string  `db:"task_id"`
-	Status          string  `db:"status"`
-	Summary         string  `db:"summary"`
-	BaseSHA         string  `db:"base_sha"`
-	RepositoryPath  string  `db:"repository_path"`
-	LastReviewedSHA string  `db:"last_reviewed_sha"`
-	ReadyAt         *string `db:"ready_at"`
-	CreatedAt       string  `db:"created_at"`
-	UpdatedAt       string  `db:"updated_at"`
+	TaskID          string  `db:"task_id" json:"task_id"`
+	Status          string  `db:"status" json:"status"`
+	Summary         string  `db:"summary" json:"summary"`
+	BaseSHA         string  `db:"base_sha" json:"base_sha"`
+	RepositoryPath  string  `db:"repository_path" json:"repository_path"`
+	LastReviewedSHA string  `db:"last_reviewed_sha" json:"last_reviewed_sha"`
+	ReadyAt         *string `db:"ready_at" json:"ready_at,omitempty"`
+	CreatedAt       string  `db:"created_at" json:"created_at"`
+	UpdatedAt       string  `db:"updated_at" json:"updated_at"`
 }
 
 // ReviewStep is one reviewable unit of a tour: a commit, the synthetic dirty
 // step, or a file-anchored note. Identity is the generated ID — never the SHA —
 // so annotations and transcript survive re-syncs.
 type ReviewStep struct {
-	ID               string  `db:"id"`
-	TaskID           string  `db:"task_id"`
-	Kind             string  `db:"kind"` // commit|dirty|note
-	CommitSHA        string  `db:"commit_sha"`
-	Files            string  `db:"files"` // JSON array of paths
-	Title            string  `db:"title"`
-	Narration        string  `db:"narration"`
-	Risk             string  `db:"risk"` // ''|low|medium|high|unsure
-	OrderHint        *int    `db:"order_hint"`
-	Seq              int     `db:"seq"`
-	SubtaskID        string  `db:"subtask_id"`
-	DirtyFingerprint string  `db:"dirty_fingerprint"`
-	ReviewedAt       *string `db:"reviewed_at"`
-	OrphanedAt       *string `db:"orphaned_at"`
-	CreatedAt        string  `db:"created_at"`
-	UpdatedAt        string  `db:"updated_at"`
+	ID               string  `db:"id" json:"id"`
+	TaskID           string  `db:"task_id" json:"task_id"`
+	Kind             string  `db:"kind" json:"kind"` // commit|dirty|note
+	CommitSHA        string  `db:"commit_sha" json:"commit_sha"`
+	Files            string  `db:"files" json:"files"` // JSON array of paths
+	Title            string  `db:"title" json:"title"`
+	Narration        string  `db:"narration" json:"narration"`
+	Risk             string  `db:"risk" json:"risk"` // ''|low|medium|high|unsure
+	OrderHint        *int    `db:"order_hint" json:"order_hint,omitempty"`
+	Seq              int     `db:"seq" json:"seq"`
+	SubtaskID        string  `db:"subtask_id" json:"subtask_id"`
+	DirtyFingerprint string  `db:"dirty_fingerprint" json:"dirty_fingerprint"`
+	ReviewedAt       *string `db:"reviewed_at" json:"reviewed_at,omitempty"`
+	OrphanedAt       *string `db:"orphaned_at" json:"orphaned_at,omitempty"`
+	CreatedAt        string  `db:"created_at" json:"created_at"`
+	UpdatedAt        string  `db:"updated_at" json:"updated_at"`
 }
 
 // ReviewHunkNote is a durable annotation attached to hunk content within a
@@ -198,14 +198,14 @@ type ReviewHunkNote struct {
 
 // ReviewMessage is one Q&A transcript entry attached to a review step.
 type ReviewMessage struct {
-	ID          int     `db:"id"`
-	TaskID      string  `db:"task_id"`
-	StepID      string  `db:"step_id"`
-	Kind        string  `db:"kind"`   // question|answer
-	Author      string  `db:"author"` // user|agent
-	Body        string  `db:"body"`
-	DeliveredAt *string `db:"delivered_at"`
-	CreatedAt   string  `db:"created_at"`
+	ID          int     `db:"id" json:"id"`
+	TaskID      string  `db:"task_id" json:"task_id"`
+	StepID      string  `db:"step_id" json:"step_id"`
+	Kind        string  `db:"kind" json:"kind"`     // question|answer
+	Author      string  `db:"author" json:"author"` // user|agent
+	Body        string  `db:"body" json:"body"`
+	DeliveredAt *string `db:"delivered_at" json:"delivered_at,omitempty"`
+	CreatedAt   string  `db:"created_at" json:"created_at"`
 }
 
 // Subtask represents a swarm sub-task: a unit of work parented to a task,
