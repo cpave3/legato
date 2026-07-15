@@ -113,6 +113,12 @@ func (sm *streamManager) startPipe(s *agentStream) {
 	}
 
 	if snapshot, err := sm.tmux.CaptureWithEscapes(sessionName); err == nil && snapshot != "" {
+		// Trim trailing blank lines that capture-pane pads the pane with.
+		// Without this, xterm.js renders dozens of empty rows between the
+		// scrollback and the prompt, forcing the user to scroll through
+		// blank space to reach the history.
+		snapshot = trimTrailingBlankLines(snapshot)
+		snapshot = collapseBlankRuns(snapshot)
 		// capture-pane uses \n but xterm.js needs \r\n so each line
 		// starts at column 0 instead of staircase-ing.
 		snapshot = strings.ReplaceAll(snapshot, "\n", "\r\n")
@@ -611,4 +617,82 @@ func (sm *streamManager) notifyAgentActivityChanged() {
 	if sm.onAgentActivityChanged != nil {
 		sm.onAgentActivityChanged()
 	}
+}
+
+// trimTrailingBlankLines removes trailing lines that contain no visible text.
+// capture-pane pads its output to the full pane height, producing many empty
+// rows that create a large blank gap between scrollback and the prompt in
+// xterm.js. A line is "blank" if, after stripping ANSI escape sequences, it
+// contains only whitespace or is empty.
+func trimTrailingBlankLines(s string) string {
+	lines := strings.Split(s, "\n")
+	for len(lines) > 0 {
+		stripped := stripAnsi(lines[len(lines)-1])
+		if strings.TrimSpace(stripped) != "" {
+			break
+		}
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
+}
+
+// collapseBlankRuns limits consecutive blank lines to maxConsecutiveBlanks.
+// TUI applications (e.g. Chimera) can produce hundreds of consecutive blank
+// lines in tmux scrollback during spinner frames and screen clears. Without
+// collapsing, mobile users must scroll through hundreds of empty lines to
+// reach content.
+func collapseBlankRuns(s string) string {
+	const maxConsecutiveBlanks = 3
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	blankRun := 0
+	for _, line := range lines {
+		stripped := stripAnsi(line)
+		if strings.TrimSpace(stripped) == "" {
+			blankRun++
+			if blankRun <= maxConsecutiveBlanks {
+				out = append(out, line)
+			}
+			continue
+		}
+		blankRun = 0
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
+// stripAnsi removes ANSI escape sequences from a string.
+func stripAnsi(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			// Skip CSI sequence: ESC [ ... letter
+			j := i + 2
+			for j < len(s) && !isFinalCSIByte(s[j]) {
+				j++
+			}
+			if j < len(s) {
+				j++ // include the final byte
+			}
+			i = j
+			continue
+		}
+		if s[i] == '\x1b' && i+1 < len(s) {
+			// Skip other 2-byte escape sequences (ESC X)
+			i += 2
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
+func isFinalCSIByte(b byte) bool {
+	return (b >= 0x40 && b <= 0x7e)
 }

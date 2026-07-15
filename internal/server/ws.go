@@ -337,6 +337,8 @@ func (s *Server) handleRefreshPane(client *wsClient, msg WSMessage) {
 		}
 	}
 
+	snapshot = trimTrailingBlankLines(snapshot)
+	snapshot = collapseBlankRuns(snapshot)
 	snapshot = strings.ReplaceAll(snapshot, "\n", "\r\n")
 	client.send(WSMessage{
 		Type:    MsgAgentOutput,
