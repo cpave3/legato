@@ -129,6 +129,61 @@ func TestQueueLoadsAndOpensTour(t *testing.T) {
 	}
 }
 
+func TestQueueDeleteRequiresConfirmation(t *testing.T) {
+	svc, s := newFixture(t)
+	m := New(svc)
+	m.SetSize(120, 40)
+	m = drive(t, m, m.Init())
+
+	m, cmd := m.Update(key("x"))
+	if cmd != nil {
+		t.Fatal("first x must not delete the review")
+	}
+	if !strings.Contains(m.View(), "Delete review for task-1?") {
+		t.Fatalf("delete confirmation prompt missing:\n%s", m.View())
+	}
+	if _, err := s.GetReviewTour(context.Background(), "task-1"); err != nil {
+		t.Fatalf("first x deleted review: %v", err)
+	}
+
+	m, cmd = m.Update(key("y"))
+	m = drive(t, m, cmd)
+	if len(m.queue) != 0 {
+		t.Fatalf("queue after delete = %+v, want empty", m.queue)
+	}
+	if !strings.Contains(m.View(), "review deleted") {
+		t.Fatalf("delete info missing:\n%s", m.View())
+	}
+	if _, err := s.GetReviewTour(context.Background(), "task-1"); err == nil {
+		t.Fatal("y should delete the review")
+	}
+}
+
+func TestTourDeleteCanBeCancelledThenConfirmed(t *testing.T) {
+	svc, s := newFixture(t)
+	m := New(svc)
+	m.SetSize(120, 40)
+	m = drive(t, m, m.Init())
+	m, cmd := m.Update(key("enter"))
+	m = drive(t, m, cmd)
+
+	m, _ = m.Update(key("x"))
+	m, _ = m.Update(key("n"))
+	if m.mode != modeTour || strings.Contains(m.View(), "Delete review for") {
+		t.Fatalf("n should cancel and keep the tour open:\n%s", m.View())
+	}
+	if _, err := s.GetReviewTour(context.Background(), "task-1"); err != nil {
+		t.Fatalf("cancel deleted review: %v", err)
+	}
+
+	m, _ = m.Update(key("x"))
+	m, cmd = m.Update(key("y"))
+	m = drive(t, m, cmd)
+	if m.mode != modeQueue || len(m.queue) != 0 {
+		t.Fatalf("confirmed tour delete should return to empty queue: mode=%v queue=%+v", m.mode, m.queue)
+	}
+}
+
 func TestTourToggleReviewedAndComplete(t *testing.T) {
 	svc, s := newFixture(t)
 	m := New(svc)
@@ -303,13 +358,18 @@ func TestStepCardsKeepRiskVisibleForLongTitles(t *testing.T) {
 	}
 }
 
-func TestQuestionInputAcceptsQuestionMark(t *testing.T) {
+func TestQuestionInputAcceptsPrintableShortcutKeys(t *testing.T) {
 	m := New(nil)
 	m.mode = modeTour
 	m.asking = true
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
-	if m.input != "?" {
-		t.Fatalf("input = %q, want question mark", m.input)
+	for _, r := range "x?" {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	if m.input != "x?" {
+		t.Fatalf("input = %q, want printable shortcut keys", m.input)
+	}
+	if m.confirmingDelete {
+		t.Fatal("x in question input must not initiate delete")
 	}
 }
 

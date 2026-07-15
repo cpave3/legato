@@ -94,6 +94,7 @@ func TestHelpOverlayShowsShortlistForMode(t *testing.T) {
 		{"detail", HelpModeDetail, "Detail — Quick Reference", []string{"back", "edit", "copy"}},
 		{"agents", HelpModeAgents, "Agents — Quick Reference", []string{"select", "spawn", "kill"}},
 		{"report", HelpModeReport, "Report — Quick Reference", []string{"back", "copy"}},
+		{"review", HelpModeReview, "Review — Quick Reference", []string{"open tour", "toggle reviewed", "delete review"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

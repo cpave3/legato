@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -134,6 +135,33 @@ func TestReviewTourAndStepDiff(t *testing.T) {
 	}
 }
 
+func TestDeleteReviewRemovesTourAndRetainsTask(t *testing.T) {
+	f := newReviewServerFixture(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/tasks/task-1/review", nil)
+	res := httptest.NewRecorder()
+	f.server.Handler().ServeHTTP(res, req)
+
+	if res.Code != http.StatusNoContent {
+		t.Fatalf("DELETE status = %d, want %d, body = %s", res.Code, http.StatusNoContent, res.Body.String())
+	}
+	if res.Body.Len() != 0 {
+		t.Fatalf("DELETE body = %q, want empty", res.Body.String())
+	}
+
+	if _, err := f.store.GetReviewTour(context.Background(), "task-1"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("deleted tour err = %v, want %v", err, store.ErrNotFound)
+	}
+
+	task, err := f.store.GetTask(context.Background(), "task-1")
+	if err != nil {
+		t.Fatalf("task removed with review: %v", err)
+	}
+	if task.ID != "task-1" {
+		t.Fatalf("retained task ID = %q, want task-1", task.ID)
+	}
+}
+
 func TestReviewMutationsUpdateTour(t *testing.T) {
 	f := newReviewServerFixture(t)
 	tour, err := f.svc.Tour(context.Background(), "task-1")
@@ -187,11 +215,13 @@ func TestReviewAPIRejectsInvalidRequests(t *testing.T) {
 		body   string
 		status int
 	}{
-		{"wrong method", http.MethodPost, "/api/review/queue", "", http.StatusMethodNotAllowed},
+		{"wrong queue method", http.MethodPost, "/api/review/queue", "", http.StatusMethodNotAllowed},
+		{"wrong review method", http.MethodPost, "/api/tasks/task-1/review", "", http.StatusMethodNotAllowed},
 		{"malformed JSON", http.MethodPost, "/api/tasks/task-1/review/steps/" + stepID + "/question", `{`, http.StatusBadRequest},
 		{"missing text", http.MethodPost, "/api/tasks/task-1/review/steps/" + stepID + "/question", `{}`, http.StatusBadRequest},
 		{"missing reviewed", http.MethodPost, "/api/tasks/task-1/review/steps/" + stepID + "/reviewed", `{}`, http.StatusBadRequest},
 		{"missing tour", http.MethodGet, "/api/tasks/missing/review", "", http.StatusNotFound},
+		{"delete missing tour", http.MethodDelete, "/api/tasks/missing/review", "", http.StatusNotFound},
 		{"missing step", http.MethodGet, "/api/tasks/task-1/review/steps/missing/diff", "", http.StatusNotFound},
 	}
 	for _, tc := range tests {

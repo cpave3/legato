@@ -102,6 +102,7 @@ var (
 		{"space", "toggle reviewed"},
 		{"a", "ask question"},
 		{"c", "complete"},
+		{"x", "delete review"},
 		{"esc", "back"},
 	}
 )

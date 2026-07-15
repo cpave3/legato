@@ -527,6 +527,19 @@ func (r *ReviewService) rebuildRemainingChapter(ctx context.Context, taskID, rep
 	return r.store.InsertReviewChapter(ctx, store.ReviewStep{ID: stepID, TaskID: taskID, Kind: "chapter", Files: "[]", Title: "Remaining changes", Narration: "Changes not assigned to an authored review chapter.", Risk: "unsure", Seq: reviewSeqNoteBase - 1}, members)
 }
 
+// Delete discards a task's complete review packet. Git history and task state
+// are untouched; the next capture starts a fresh tour.
+func (r *ReviewService) Delete(ctx context.Context, taskID string) error {
+	if _, err := r.store.GetReviewTour(ctx, taskID); err != nil {
+		return err
+	}
+	if err := r.store.DeleteReviewTour(ctx, taskID); err != nil {
+		return err
+	}
+	r.publish(taskID, "", "deleted")
+	return nil
+}
+
 // Complete finishes the human review: stamps every step reviewed, records the
 // newest commit SHA as the watermark, and closes the tour.
 func (r *ReviewService) Complete(ctx context.Context, taskID string) error {

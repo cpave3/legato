@@ -301,6 +301,7 @@ func (m Model) hintsForMode() []struct{ key, label string } {
 			{"↵", "open"},
 			{"space", "reviewed"},
 			{"a", "ask"},
+			{"x", "delete"},
 			{"esc", "back"},
 			{"?", "keys"},
 		}

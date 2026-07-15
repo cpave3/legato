@@ -280,6 +280,28 @@ func (s *Store) UnreviewedReviewCounts(ctx context.Context) (map[string]int, err
 	return counts, rows.Err()
 }
 
+// DeleteReviewTour atomically removes every review artifact for a task while
+// leaving the task, repository, worktree, and agent records untouched.
+func (s *Store) DeleteReviewTour(ctx context.Context, taskID string) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, query := range []string{
+		"DELETE FROM review_chapter_hunks WHERE task_id = ?",
+		"DELETE FROM review_hunk_notes WHERE task_id = ?",
+		"DELETE FROM review_transcript WHERE task_id = ?",
+		"DELETE FROM review_steps WHERE task_id = ?",
+		"DELETE FROM review_tours WHERE task_id = ?",
+	} {
+		if _, err := tx.ExecContext(ctx, query, taskID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // UpdateReviewTour applies mutate to the current tour row and persists the
 // result, returning the updated tour.
 func (s *Store) UpdateReviewTour(ctx context.Context, taskID string, mutate func(*ReviewTour)) (*ReviewTour, error) {

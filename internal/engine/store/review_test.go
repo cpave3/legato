@@ -6,6 +6,51 @@ import (
 	"testing"
 )
 
+func TestDeleteReviewTourRemovesAllReviewArtifacts(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, Task{ID: "t1", Title: "Keep me", Status: "Doing", CreatedAt: "2024-01-01", UpdatedAt: "2024-01-01"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EnsureReviewTour(ctx, "t1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertReviewStep(ctx, ReviewStep{ID: "rs-1", TaskID: "t1", Kind: "commit", CommitSHA: "abc", Seq: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertReviewHunkNote(ctx, ReviewHunkNote{ID: "rhn-1", TaskID: "t1", StepID: "rs-1", FilePath: "a.go", HunkAnchor: "h1", Body: "note"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", StepID: "rs-1", Kind: "question", Author: "user", Body: "why"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertReviewChapter(ctx, ReviewStep{ID: "rc-1", TaskID: "t1", Kind: "chapter", Files: "[]", Title: "Chapter", Seq: 1}, []ReviewChapterHunk{{ID: "rch-1", TaskID: "t1", StepID: "rc-1", FilePath: "a.go", HunkAnchor: "h1"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteReviewTour(ctx, "t1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetReviewTour(ctx, "t1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("tour err = %v", err)
+	}
+	if steps, _ := s.ListReviewSteps(ctx, "t1"); len(steps) != 0 {
+		t.Fatalf("steps = %+v", steps)
+	}
+	if notes, _ := s.ListReviewHunkNotes(ctx, "t1"); len(notes) != 0 {
+		t.Fatalf("notes = %+v", notes)
+	}
+	if msgs, _ := s.ListReviewMessages(ctx, "t1"); len(msgs) != 0 {
+		t.Fatalf("messages = %+v", msgs)
+	}
+	if hunks, _ := s.ListReviewChapterHunks(ctx, "rc-1"); len(hunks) != 0 {
+		t.Fatalf("chapter hunks = %+v", hunks)
+	}
+	if _, err := s.GetTask(ctx, "t1"); err != nil {
+		t.Fatalf("task was deleted: %v", err)
+	}
+}
+
 func TestInsertReviewStepDedupesOnCommitSHA(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

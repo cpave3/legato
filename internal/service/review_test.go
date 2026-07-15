@@ -87,6 +87,27 @@ func gitCommitAll(t *testing.T, dir, message string) string {
 	return gitRun(t, dir, "rev-parse", "HEAD")
 }
 
+func TestDeleteReviewRemovesPacketAndPublishesChange(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	if err := f.svc.Sync(ctx, "task-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.Delete(ctx, "task-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.GetReviewTour(ctx, "task-1"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("tour err = %v", err)
+	}
+	queue, err := f.svc.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queue) != 0 {
+		t.Fatalf("queue = %+v", queue)
+	}
+}
+
 func TestUnreviewedCountsPreferChaptersOverHiddenCommitSteps(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()

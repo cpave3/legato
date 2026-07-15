@@ -227,6 +227,7 @@ func (f *fakeReviewService) StepDiff(context.Context, string, string) ([]gitpkg.
 func (f *fakeReviewService) SetReviewed(context.Context, string, string, bool) error   { return nil }
 func (f *fakeReviewService) AskQuestion(context.Context, string, string, string) error { return nil }
 func (f *fakeReviewService) Complete(context.Context, string) error                    { return nil }
+func (f *fakeReviewService) Delete(context.Context, string) error                      { return nil }
 func (f *fakeReviewService) ReviewBadgeStates(context.Context) (map[string]service.ReviewBadgeState, error) {
 	return map[string]service.ReviewBadgeState{}, nil
 }

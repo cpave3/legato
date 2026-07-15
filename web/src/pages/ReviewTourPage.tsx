@@ -7,6 +7,7 @@ import { useServer } from "../hooks/useServer"
 import {
   askReviewQuestion,
   completeReview,
+  deleteReview,
   fetchStepDiff,
   setStepReviewed,
   type FileDiff,
@@ -34,6 +35,7 @@ export function ReviewTourPage() {
   const [actionInfo, setActionInfo] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [question, setQuestion] = useState("")
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const steps = useMemo(() => data?.steps ?? [], [data?.steps])
   const selectedStep = steps.find((step) => step.id === selectedStepId) ?? steps[0]
@@ -86,6 +88,19 @@ export function ReviewTourPage() {
     })
   }
 
+  async function removeReview() {
+    setBusy(true)
+    setActionError(null)
+    try {
+      await deleteReview(baseUrl, decodedTaskId)
+      navigate("/review")
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : String(cause))
+      setConfirmingDelete(false)
+      setBusy(false)
+    }
+  }
+
   async function complete() {
     setBusy(true)
     setActionError(null)
@@ -124,11 +139,29 @@ export function ReviewTourPage() {
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <span className="text-xs text-zinc-400">{reviewedCount}/{steps.length} reviewed</span>
+          <button disabled={busy} onClick={() => setConfirmingDelete(true)} className="rounded border border-red-900 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-950/50 disabled:opacity-50">
+            Delete review
+          </button>
           <button disabled={busy || steps.length === 0} onClick={() => void complete()} className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
             Complete review
           </button>
         </div>
       </header>
+
+      {confirmingDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="delete-review-title" className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+            <div className="border-b border-zinc-800 px-5 py-3">
+              <h2 id="delete-review-title" className="text-sm font-semibold text-zinc-200">Delete review</h2>
+            </div>
+            <div className="px-5 py-4 text-sm text-zinc-400">Delete the review and all of its steps, questions, and notes?</div>
+            <div className="flex justify-end gap-2 border-t border-zinc-800 px-5 py-3">
+              <button disabled={busy} onClick={() => setConfirmingDelete(false)} className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-50">Cancel</button>
+              <button disabled={busy} onClick={() => void removeReview()} className="rounded bg-red-600 px-3 py-1.5 text-xs text-white hover:bg-red-500 disabled:opacity-50">Delete review</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {actionError && <div role="alert" className="border-b border-red-900 bg-red-950/50 px-5 py-2 text-xs text-red-300">{actionError}</div>}
       {actionInfo && <div role="status" className="border-b border-amber-900 bg-amber-950/40 px-5 py-2 text-xs text-amber-200">{actionInfo}</div>}

@@ -34,6 +34,7 @@ type Service interface {
 	SetReviewed(context.Context, string, string, bool) error
 	AskQuestion(context.Context, string, string, string) error
 	Complete(context.Context, string) error
+	Delete(context.Context, string) error
 }
 
 type Model struct {
@@ -51,8 +52,9 @@ type Model struct {
 
 	viewport viewport.Model
 
-	asking bool
-	input  string
+	asking           bool
+	input            string
+	confirmingDelete bool
 
 	info   string
 	err    error
@@ -122,11 +124,14 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case ActionDoneMsg:
 		m.err = msg.Err
 		m.info = msg.Info
+		if msg.Err != nil {
+			return m, nil
+		}
 		if msg.TaskID != "" {
 			cmd := m.loadTour(msg.TaskID)
 			return m, cmd
 		}
-		return m, nil
+		return m, m.loadQueue()
 	case ReviewChangedMsg:
 		// Live update: reload whatever is on screen.
 		if m.mode == modeTour && msg.TaskID == m.taskID {
@@ -141,6 +146,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if m.asking {
 		return m.handleQuestionKey(msg)
+	}
+	if m.confirmingDelete {
+		return m.handleDeleteKey(msg)
 	}
 	switch m.mode {
 	case modeTour:
@@ -167,6 +175,10 @@ func (m Model) handleQueueKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	case "r":
 		return m, m.loadQueue()
+	case "x":
+		if len(m.queue) > 0 {
+			m.confirmingDelete = true
+		}
 	case "esc", "q":
 		return m, func() tea.Msg { return ReturnToBoardMsg{} }
 	}
@@ -208,11 +220,24 @@ func (m Model) handleTourKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	case "c":
 		return m, m.complete()
+	case "x":
+		m.confirmingDelete = true
 	case "esc", "q":
 		m.mode = modeQueue
 		m.view = nil
 		m.diff = nil
 		return m, m.loadQueue()
+	}
+	return m, nil
+}
+
+func (m Model) handleDeleteKey(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "y":
+		m.confirmingDelete = false
+		return m, m.deleteReview()
+	case "n", "esc":
+		m.confirmingDelete = false
 	}
 	return m, nil
 }
@@ -311,6 +336,25 @@ func (m Model) complete() tea.Cmd {
 	}
 }
 
+func (m *Model) deleteReview() tea.Cmd {
+	taskID := m.taskID
+	if m.mode == modeQueue {
+		taskID = m.queue[m.queueCursor].TaskID
+	}
+	m.mode = modeQueue
+	m.view = nil
+	m.diff = nil
+	svc := m.svc
+	return func() tea.Msg {
+		err := svc.Delete(context.Background(), taskID)
+		info := "review deleted"
+		if err != nil {
+			info = ""
+		}
+		return ActionDoneMsg{Info: info, Err: err}
+	}
+}
+
 // Rendering
 
 func (m Model) leftPaneWidth() int  { return min(44, m.width*2/5) }
@@ -356,7 +400,19 @@ func (m Model) viewQueue() string {
 			lines = append(lines, "  "+dimStyle.Render(item.TaskID)+" "+row)
 		}
 	}
-	lines = append(lines, "", dimStyle.Render("j/k move · enter open · r refresh · esc back"))
+	if m.confirmingDelete {
+		lines = append(lines, "", lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).
+			Render(fmt.Sprintf("Delete review for %s? y confirm · n/esc cancel", m.queue[m.queueCursor].TaskID)))
+	} else {
+		line := "j/k move · enter open · x delete · r refresh · esc back"
+		if m.info != "" {
+			line = m.info + " · " + line
+		}
+		if m.err != nil {
+			line = m.err.Error() + " · " + line
+		}
+		lines = append(lines, "", dimStyle.Render(line))
+	}
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).Padding(1, 2).
 		Render(strings.Join(lines, "\n"))
 }
@@ -454,7 +510,11 @@ func (m Model) renderTourFooter() string {
 		return lipgloss.NewStyle().Foreground(theme.TextPrimary).
 			Render("Question: "+m.input) + dimStyle.Render(" (enter send · esc cancel)")
 	}
-	line := "j/k step · d/u scroll · space reviewed · a ask · c complete · esc queue"
+	if m.confirmingDelete {
+		return lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).
+			Render(fmt.Sprintf("Delete review for %s? y confirm · n/esc cancel", m.taskID))
+	}
+	line := "j/k step · d/u scroll · space reviewed · a ask · c complete · x delete · esc queue"
 	if m.info != "" {
 		line = m.info + " · " + line
 	}

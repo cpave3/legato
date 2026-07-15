@@ -183,6 +183,18 @@ func TestReportModeHints(t *testing.T) {
 	}
 }
 
+func TestReviewModeHintsIncludeDelete(t *testing.T) {
+	m := New()
+	m.width = 120
+	m, _ = m.Update(ModeMsg{Mode: ModeReview})
+	view := m.View()
+	for _, expected := range []string{"open", "reviewed", "ask", "delete"} {
+		if !strings.Contains(view, expected) {
+			t.Errorf("review mode should contain %q, got: %q", expected, view)
+		}
+	}
+}
+
 func TestWarningMessage(t *testing.T) {
 	m := New()
 	m.width = 120

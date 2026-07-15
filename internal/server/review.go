@@ -21,6 +21,7 @@ type ReviewService interface {
 	SetReviewed(context.Context, string, string, bool) error
 	AskQuestion(context.Context, string, string, string) error
 	Complete(context.Context, string) error
+	Delete(context.Context, string) error
 }
 
 // SetReviewService sets the optional service used by review endpoints.
@@ -30,11 +31,19 @@ func (s *Server) SetReviewService(svc ReviewService) {
 
 func (s *Server) reviewHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
+		if r.Method != http.MethodGet && r.Method != http.MethodDelete {
 			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
 		if !s.requireReviewService(w) {
+			return
+		}
+		if r.Method == http.MethodDelete {
+			if err := s.reviews.Delete(r.Context(), r.PathValue("task_id")); err != nil {
+				s.writeReviewError(w, err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		tour, err := s.reviews.Tour(r.Context(), r.PathValue("task_id"))

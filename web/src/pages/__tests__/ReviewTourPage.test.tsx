@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ReviewTourPage } from "../ReviewTourPage"
@@ -74,6 +74,51 @@ describe("ReviewTourPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Complete review" }))
     await waitFor(() => expect(screen.getByText("Queue destination")).toBeTruthy())
     expect(mockFetch).toHaveBeenCalledWith("/api/tasks/T-1/review/complete", expect.objectContaining({ method: "POST" }))
+  })
+
+  it("asks for confirmation before deleting a review", async () => {
+    renderPage()
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete review" }))
+
+    expect(screen.getByRole("dialog", { name: "Delete review" })).toBeTruthy()
+    expect(mockFetch.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(false)
+  })
+
+  it("cancels review deletion without sending a request", async () => {
+    renderPage()
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete review" }))
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+
+    expect(screen.queryByRole("dialog", { name: "Delete review" })).toBeNull()
+    expect(mockFetch.mock.calls.some(([, options]) => options?.method === "DELETE")).toBe(false)
+  })
+
+  it("deletes a confirmed review and returns to the queue", async () => {
+    renderPage()
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+    mockFetch.mockResolvedValueOnce({ ok: true })
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete review" }))
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Delete review" })).getByRole("button", { name: "Delete review" }))
+
+    await waitFor(() => expect(screen.getByText("Queue destination")).toBeTruthy())
+    expect(mockFetch).toHaveBeenCalledWith("/api/tasks/T-1/review", expect.objectContaining({ method: "DELETE" }))
+  })
+
+  it("shows an error and stays on the tour when deletion fails", async () => {
+    renderPage()
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+    mockFetch.mockResolvedValueOnce({ ok: false, statusText: "Conflict", text: async () => "review is still capturing" })
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete review" }))
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Delete review" })).getByRole("button", { name: "Delete review" }))
+
+    expect((await screen.findByText("review is still capturing")).getAttribute("role")).toBe("alert")
+    expect(screen.getByRole("heading", { name: "Review the authentication changes" })).toBeTruthy()
   })
 
   it("shows unmatched hunk notes for only the selected step outside Q&A", async () => {

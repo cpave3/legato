@@ -150,3 +150,7 @@ export async function askReviewQuestion(baseUrl: string, taskId: string, stepId:
 export async function completeReview(baseUrl: string, taskId: string): Promise<void> {
   await expectOK(await postJSON(baseUrl, `${taskPath(taskId)}/complete`))
 }
+
+export async function deleteReview(baseUrl: string, taskId: string): Promise<void> {
+  await expectOK(await apiFetch(baseUrl, taskPath(taskId), { method: "DELETE" }))
+}
