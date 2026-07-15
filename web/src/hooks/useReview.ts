@@ -40,7 +40,7 @@ export function useReviewQueue(): AsyncReviewState<ReviewQueueItem[]> {
   return { data, loading, error, refresh }
 }
 
-export function useReviewTour(taskId: string): AsyncReviewState<ReviewTourView> {
+export function useReviewTour(tourId: string): AsyncReviewState<ReviewTourView> {
   const { baseUrl } = useServer()
   const { subscribe } = useWebSocket()
   const [data, setData] = useState<ReviewTourView | null>(null)
@@ -48,21 +48,21 @@ export function useReviewTour(taskId: string): AsyncReviewState<ReviewTourView> 
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
-    if (!taskId) return
+    if (!tourId) return
     try {
       setError(null)
-      setData(await fetchReviewTour(baseUrl, taskId))
+      setData(await fetchReviewTour(baseUrl, tourId))
     } catch (cause) {
       setError(errorMessage(cause))
     } finally {
       setLoading(false)
     }
-  }, [baseUrl, taskId])
+  }, [baseUrl, tourId])
 
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => subscribe((message) => {
-    if (message.type === "review_changed" && message.task_id === taskId) void refresh()
-  }), [refresh, subscribe, taskId])
+    if (message.type === "review_changed" && message.tour_id === tourId) void refresh()
+  }), [refresh, subscribe, tourId])
 
   return { data, loading, error, refresh }
 }

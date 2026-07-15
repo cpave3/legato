@@ -25,6 +25,7 @@ export interface WSMessage {
   mode?: string
   // Review change fields
   task_id?: string
+  tour_id?: string
   step_id?: string
   kind?: string
 }

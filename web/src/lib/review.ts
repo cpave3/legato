@@ -6,6 +6,8 @@ export type ReviewStepKind = "commit" | "dirty" | "note" | "chapter"
 
 export interface ReviewQueueItem {
   task_id: string
+  tour_id: string
+  name: string
   title: string
   status: ReviewStatus
   summary: string
@@ -13,7 +15,9 @@ export interface ReviewQueueItem {
 }
 
 export interface ReviewTour {
+  id: string
   task_id: string
+  name: string
   status: ReviewStatus
   summary: string
   base_sha: string
@@ -108,19 +112,19 @@ async function expectOK(response: Response): Promise<void> {
   }
 }
 
-const taskPath = (taskId: string) => `/api/tasks/${encodeURIComponent(taskId)}/review`
-const stepPath = (taskId: string, stepId: string) => `${taskPath(taskId)}/steps/${encodeURIComponent(stepId)}`
+const tourPath = (tourId: string) => `/api/review/tours/${encodeURIComponent(tourId)}`
+const stepPath = (tourId: string, stepId: string) => `${tourPath(tourId)}/steps/${encodeURIComponent(stepId)}`
 
 export async function fetchReviewQueue(baseUrl: string): Promise<ReviewQueueItem[]> {
   return expectJSON<ReviewQueueItem[]>(await apiFetch(baseUrl, "/api/review/queue"))
 }
 
-export async function fetchReviewTour(baseUrl: string, taskId: string): Promise<ReviewTourView> {
-  return expectJSON<ReviewTourView>(await apiFetch(baseUrl, taskPath(taskId)))
+export async function fetchReviewTour(baseUrl: string, tourId: string): Promise<ReviewTourView> {
+  return expectJSON<ReviewTourView>(await apiFetch(baseUrl, tourPath(tourId)))
 }
 
-export async function fetchStepDiff(baseUrl: string, taskId: string, stepId: string): Promise<FileDiff[]> {
-  return expectJSON<FileDiff[]>(await apiFetch(baseUrl, `${stepPath(taskId, stepId)}/diff`))
+export async function fetchStepDiff(baseUrl: string, tourId: string, stepId: string): Promise<FileDiff[]> {
+  return expectJSON<FileDiff[]>(await apiFetch(baseUrl, `${stepPath(tourId, stepId)}/diff`))
 }
 
 function postJSON(baseUrl: string, path: string, body?: unknown): Promise<Response> {
@@ -133,12 +137,12 @@ function postJSON(baseUrl: string, path: string, body?: unknown): Promise<Respon
   })
 }
 
-export async function setStepReviewed(baseUrl: string, taskId: string, stepId: string, reviewed: boolean): Promise<void> {
-  await expectOK(await postJSON(baseUrl, `${stepPath(taskId, stepId)}/reviewed`, { reviewed }))
+export async function setStepReviewed(baseUrl: string, tourId: string, stepId: string, reviewed: boolean): Promise<void> {
+  await expectOK(await postJSON(baseUrl, `${stepPath(tourId, stepId)}/reviewed`, { reviewed }))
 }
 
-export async function askReviewQuestion(baseUrl: string, taskId: string, stepId: string, text: string): Promise<string | undefined> {
-  const response = await postJSON(baseUrl, `${stepPath(taskId, stepId)}/question`, { text })
+export async function askReviewQuestion(baseUrl: string, tourId: string, stepId: string, text: string): Promise<string | undefined> {
+  const response = await postJSON(baseUrl, `${stepPath(tourId, stepId)}/question`, { text })
   if (!response.ok) {
     await expectOK(response)
     return undefined
@@ -147,10 +151,10 @@ export async function askReviewQuestion(baseUrl: string, taskId: string, stepId:
   return result.warning
 }
 
-export async function completeReview(baseUrl: string, taskId: string): Promise<void> {
-  await expectOK(await postJSON(baseUrl, `${taskPath(taskId)}/complete`))
+export async function completeReview(baseUrl: string, tourId: string): Promise<void> {
+  await expectOK(await postJSON(baseUrl, `${tourPath(tourId)}/complete`))
 }
 
-export async function deleteReview(baseUrl: string, taskId: string): Promise<void> {
-  await expectOK(await apiFetch(baseUrl, taskPath(taskId), { method: "DELETE" }))
+export async function deleteReview(baseUrl: string, tourId: string): Promise<void> {
+  await expectOK(await apiFetch(baseUrl, tourPath(tourId), { method: "DELETE" }))
 }

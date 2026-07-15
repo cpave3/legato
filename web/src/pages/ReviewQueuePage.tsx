@@ -28,14 +28,14 @@ export function ReviewQueuePage() {
         )}
         <div className="mx-auto grid max-w-4xl gap-3">
           {data?.map((item) => (
-            <Link key={item.task_id} to={`/review/${encodeURIComponent(item.task_id)}`} className="group rounded border border-zinc-800 bg-zinc-950 p-4 transition-colors hover:border-indigo-700 hover:bg-zinc-900">
+            <Link key={item.tour_id} to={`/review/${encodeURIComponent(item.tour_id)}`} className="group rounded border border-zinc-800 bg-zinc-950 p-4 transition-colors hover:border-indigo-700 hover:bg-zinc-900">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs text-zinc-500">{item.task_id}</span>
                     <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">{item.status}</span>
                   </div>
-                  <h2 className="mt-1 font-semibold text-zinc-100">{item.title}</h2>
+                  <h2 className="mt-1 font-semibold text-zinc-100">{item.name || item.title}</h2>
                   {item.summary && <p className="mt-2 text-sm text-zinc-400">{item.summary}</p>}
                 </div>
                 <div className="flex shrink-0 items-center gap-3">

@@ -23,10 +23,10 @@ const riskColor: Record<string, string> = {
 }
 
 export function ReviewTourPage() {
-  const { taskId = "" } = useParams()
-  const decodedTaskId = decodeURIComponent(taskId)
+  const { tourId = "" } = useParams()
+  const decodedTourId = decodeURIComponent(tourId)
   const { baseUrl } = useServer()
-  const { data, loading, error, refresh } = useReviewTour(decodedTaskId)
+  const { data, loading, error, refresh } = useReviewTour(decodedTourId)
   const navigate = useNavigate()
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
   const [diff, setDiff] = useState<FileDiff[]>([])
@@ -53,12 +53,12 @@ export function ReviewTourPage() {
     let current = true
     setDiffLoading(true)
     setActionError(null)
-    fetchStepDiff(baseUrl, decodedTaskId, selectedStepId)
+    fetchStepDiff(baseUrl, decodedTourId, selectedStepId)
       .then((files) => { if (current) setDiff(files) })
       .catch((cause) => { if (current) setActionError(cause instanceof Error ? cause.message : String(cause)) })
       .finally(() => { if (current) setDiffLoading(false) })
     return () => { current = false }
-  }, [baseUrl, decodedTaskId, selectedStepId])
+  }, [baseUrl, decodedTourId, selectedStepId])
 
   async function runAction(action: () => Promise<void>) {
     setBusy(true)
@@ -75,14 +75,14 @@ export function ReviewTourPage() {
   }
 
   async function toggleReviewed(step: ReviewStep) {
-    await runAction(() => setStepReviewed(baseUrl, decodedTaskId, step.id, !step.reviewed_at))
+    await runAction(() => setStepReviewed(baseUrl, decodedTourId, step.id, !step.reviewed_at))
   }
 
   async function askQuestion() {
     if (!selectedStep || !question.trim()) return
     const text = question.trim()
     await runAction(async () => {
-      const warning = await askReviewQuestion(baseUrl, decodedTaskId, selectedStep.id, text)
+      const warning = await askReviewQuestion(baseUrl, decodedTourId, selectedStep.id, text)
       setQuestion("")
       setActionInfo(warning ?? "Question sent")
     })
@@ -92,7 +92,7 @@ export function ReviewTourPage() {
     setBusy(true)
     setActionError(null)
     try {
-      await deleteReview(baseUrl, decodedTaskId)
+      await deleteReview(baseUrl, decodedTourId)
       navigate("/review")
     } catch (cause) {
       setActionError(cause instanceof Error ? cause.message : String(cause))
@@ -106,7 +106,7 @@ export function ReviewTourPage() {
     setActionError(null)
     setActionInfo(null)
     try {
-      await completeReview(baseUrl, decodedTaskId)
+      await completeReview(baseUrl, decodedTourId)
       navigate("/review")
     } catch (cause) {
       setActionError(cause instanceof Error ? cause.message : String(cause))
@@ -133,9 +133,9 @@ export function ReviewTourPage() {
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs text-zinc-500">
             <Link to="/review" className="flex items-center gap-1 hover:text-zinc-200"><ArrowLeft size={13} /> Queue</Link>
-            <span>·</span><span className="font-mono">{decodedTaskId}</span>
+            <span>·</span><span className="font-mono">{decodedTourId}</span>
           </div>
-          <h1 className="mt-1 truncate text-lg font-semibold">{data.tour.summary || decodedTaskId}</h1>
+          <h1 className="mt-1 truncate text-lg font-semibold">{data.tour.name || data.tour.summary || decodedTourId}</h1>
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <span className="text-xs text-zinc-400">{reviewedCount}/{steps.length} reviewed</span>

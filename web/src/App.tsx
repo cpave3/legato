@@ -48,7 +48,7 @@ export default function App() {
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/board" element={<BoardPage />} />
           <Route path="/review" element={<ReviewQueuePage />} />
-          <Route path="/review/:taskId" element={<ReviewTourPage />} />
+          <Route path="/review/:tourId" element={<ReviewTourPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/agents" replace />} />
         </Route>
