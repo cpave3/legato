@@ -5,6 +5,16 @@ import (
 	"testing"
 )
 
+func TestParseReviewArgsAcceptsReviewName(t *testing.T) {
+	positional, flags, _ := parseReviewArgs([]string{"summary", "--name=security"})
+	if len(positional) != 1 || positional[0] != "summary" {
+		t.Fatalf("positionals = %v, want [summary]", positional)
+	}
+	if flags["name"] != "security" {
+		t.Fatalf("name = %q, want security", flags["name"])
+	}
+}
+
 func TestParseReviewChapterArgs(t *testing.T) {
 	positional, flags, listFlags := parseReviewArgs([]string{
 		"Auth flow", "Read validation before persistence",

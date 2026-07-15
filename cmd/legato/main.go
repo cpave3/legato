@@ -104,16 +104,32 @@ func runReviewCmd(args []string) int {
 		fmt.Fprintln(os.Stderr, "error: no task — pass --task <id> or run inside a legato agent session (LEGATO_TASK_ID)")
 		return 1
 	}
+	name := flags["name"]
+	if name == "" {
+		name = os.Getenv("LEGATO_REVIEW_NAME")
+	}
+	resolveTourID := func() (string, error) {
+		tour, err := svc.EnsureReviewTour(context.Background(), taskID, name)
+		if err != nil {
+			return "", err
+		}
+		return tour.ID, nil
+	}
 
 	switch verb {
 	case "chapter":
 		a, err := parseReviewChapterArgs(positional, flags, listFlags)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			fmt.Fprintln(os.Stderr, `usage: legato review chapter "title" ["narration"] --include <path>:<1-based-hunk> [--include ...] [--risk high|medium|low|unsure] [--order N] [--task <id>]`)
+			fmt.Fprintln(os.Stderr, `usage: legato review chapter "title" ["narration"] --include <path>:<1-based-hunk> [--include ...] [--risk high|medium|low|unsure] [--order N] [--task <id>] [--name <name>]`)
 			return 1
 		}
-		stepID, err := cli.ReviewChapter(svc, taskID, a)
+		tourID, err := resolveTourID()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		stepID, err := cli.ReviewChapter(svc, tourID, a)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
@@ -124,11 +140,16 @@ func runReviewCmd(args []string) int {
 		a, err := parseReviewAnnotateArgs(positional, flags, listFlags)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			fmt.Fprintln(os.Stderr, `usage: legato review annotate [<sha>] "text" --file <path> [--hunk N] [--risk high|medium|low|unsure] [--order N] [--task <id>]`)
+			fmt.Fprintln(os.Stderr, `usage: legato review annotate [<sha>] "text" --file <path> [--hunk N] [--risk high|medium|low|unsure] [--order N] [--task <id>] [--name <name>]`)
 			return 1
 		}
 		a.SubtaskID = os.Getenv("LEGATO_SUBTASK_ID")
-		stepID, err := cli.ReviewAnnotate(svc, taskID, a)
+		tourID, err := resolveTourID()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		stepID, err := cli.ReviewAnnotate(svc, tourID, a)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
@@ -137,10 +158,15 @@ func runReviewCmd(args []string) int {
 		return 0
 	case "answer":
 		if len(positional) != 2 {
-			fmt.Fprintln(os.Stderr, `usage: legato review answer <step-id> "text" [--task <id>]`)
+			fmt.Fprintln(os.Stderr, `usage: legato review answer <step-id> "text" [--task <id>] [--name <name>]`)
 			return 1
 		}
-		if err := cli.ReviewAnswer(svc, taskID, positional[0], positional[1]); err != nil {
+		tourID, err := resolveTourID()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		if err := cli.ReviewAnswer(svc, tourID, positional[0], positional[1]); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
@@ -150,20 +176,35 @@ func runReviewCmd(args []string) int {
 		if len(positional) > 0 {
 			summary = positional[0]
 		}
-		if err := cli.ReviewReady(svc, taskID, summary); err != nil {
+		tourID, err := resolveTourID()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		if err := cli.ReviewReady(svc, tourID, summary); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
 		return 0
 	case "show":
 		_, asJSON := flags["json"]
-		if err := cli.ReviewShow(svc, taskID, asJSON, os.Stdout); err != nil {
+		tourID, err := resolveTourID()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		if err := cli.ReviewShow(svc, tourID, asJSON, os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
 		return 0
 	case "sync":
-		if err := cli.ReviewSync(svc, taskID); err != nil {
+		tourID, err := resolveTourID()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		if err := cli.ReviewSync(svc, tourID); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
@@ -255,6 +296,12 @@ func parseReviewArgs(args []string) (positional []string, flags map[string]strin
 			continue
 		}
 		name := strings.TrimPrefix(arg, "--")
+		if flagName, value, ok := strings.Cut(name, "="); ok {
+			if flagName == "name" {
+				flags[flagName] = value
+				continue
+			}
+		}
 		switch name {
 		case "json":
 			flags[name] = ""

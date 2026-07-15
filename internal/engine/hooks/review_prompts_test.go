@@ -22,6 +22,10 @@ func TestChimeraGeneralPromptTeachesReviewCapture(t *testing.T) {
 		"legato review ready",
 		"legato review answer",
 		"[legato review]",
+		// Named review tours
+		"--name <review-name>",
+		"LEGATO_REVIEW_NAME",
+		"single-feature session",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("GeneralPrompt missing %q", want)
@@ -54,6 +58,10 @@ func TestConductorPromptTeachesReviewPacket(t *testing.T) {
 		"legato review ready",
 		"legato review answer",
 		"[legato review]",
+		// Named review tours
+		"--name <review-name>",
+		"LEGATO_REVIEW_NAME",
+		"single-feature swarm",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("conductor prompt missing %q", want)

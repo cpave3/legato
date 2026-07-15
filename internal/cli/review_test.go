@@ -12,7 +12,7 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
-func newReviewCLIFixture(t *testing.T) (*service.ReviewService, string) {
+func newReviewCLIFixture(t *testing.T) (*service.ReviewService, string, string) {
 	t.Helper()
 	s, err := store.New(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -54,17 +54,21 @@ func newReviewCLIFixture(t *testing.T) (*service.ReviewService, string) {
 	git("add", "-A")
 	git("commit", "-m", "add a\n\nbecause reasons")
 
-	return service.NewReviewService(s, nil, nil), repo
+	tour, err := s.EnsureReviewTour(ctx, "task-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service.NewReviewService(s, nil, nil), repo, tour.ID
 }
 
 func TestReviewShowHumanReadable(t *testing.T) {
-	svc, _ := newReviewCLIFixture(t)
+	svc, _, tourID := newReviewCLIFixture(t)
 
-	if err := ReviewReady(svc, "task-1", "all done"); err != nil {
+	if err := ReviewReady(svc, tourID, "all done"); err != nil {
 		t.Fatal(err)
 	}
 	var out strings.Builder
-	if err := ReviewShow(svc, "task-1", false, &out); err != nil {
+	if err := ReviewShow(svc, tourID, false, &out); err != nil {
 		t.Fatal(err)
 	}
 	text := out.String()
@@ -76,10 +80,10 @@ func TestReviewShowHumanReadable(t *testing.T) {
 }
 
 func TestReviewShowJSON(t *testing.T) {
-	svc, _ := newReviewCLIFixture(t)
+	svc, _, tourID := newReviewCLIFixture(t)
 
 	var out strings.Builder
-	if err := ReviewShow(svc, "task-1", true, &out); err != nil {
+	if err := ReviewShow(svc, tourID, true, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), `"steps"`) || !strings.Contains(out.String(), `"add a"`) {
@@ -88,9 +92,9 @@ func TestReviewShowJSON(t *testing.T) {
 }
 
 func TestReviewChapterCreatesVisibleChapter(t *testing.T) {
-	svc, _ := newReviewCLIFixture(t)
+	svc, _, tourID := newReviewCLIFixture(t)
 
-	stepID, err := ReviewChapter(svc, "task-1", service.ChapterArgs{
+	stepID, err := ReviewChapter(svc, tourID, service.ChapterArgs{
 		Title: "Package A", Narration: "Start with the new package", Risk: "medium",
 		Includes: []service.ChapterInclude{{FilePath: "a.go", Hunk: 1}},
 	})
@@ -101,7 +105,7 @@ func TestReviewChapterCreatesVisibleChapter(t *testing.T) {
 		t.Fatalf("stepID = %q", stepID)
 	}
 	var out strings.Builder
-	if err := ReviewShow(svc, "task-1", false, &out); err != nil {
+	if err := ReviewShow(svc, tourID, false, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"Package A", "Start with the new package", "!medium"} {
@@ -112,9 +116,9 @@ func TestReviewChapterCreatesVisibleChapter(t *testing.T) {
 }
 
 func TestReviewAnnotateReturnsStepID(t *testing.T) {
-	svc, _ := newReviewCLIFixture(t)
+	svc, _, tourID := newReviewCLIFixture(t)
 
-	stepID, err := ReviewAnnotate(svc, "task-1", service.AnnotateArgs{Text: "careful here", Risk: "high"})
+	stepID, err := ReviewAnnotate(svc, tourID, service.AnnotateArgs{Text: "careful here", Risk: "high"})
 	if err != nil {
 		t.Fatal(err)
 	}

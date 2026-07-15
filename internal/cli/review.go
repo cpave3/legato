@@ -12,57 +12,57 @@ import (
 )
 
 // ReviewChapter creates an authored review chapter and notifies running instances.
-func ReviewChapter(svc *service.ReviewService, taskID string, args service.ChapterArgs) (string, error) {
-	stepID, err := svc.CreateChapter(context.Background(), taskID, args)
+func ReviewChapter(svc *service.ReviewService, tourID string, args service.ChapterArgs) (string, error) {
+	stepID, err := svc.CreateChapter(context.Background(), tourID, args)
 	if err != nil {
 		return "", err
 	}
-	broadcastReviewChanged(taskID, stepID, "chapter")
+	broadcastReviewChanged(tourID, stepID, "chapter")
 	return stepID, nil
 }
 
 // ReviewAnnotate records an agent annotation and notifies running instances.
 // Returns the annotated/created step ID.
-func ReviewAnnotate(svc *service.ReviewService, taskID string, args service.AnnotateArgs) (string, error) {
-	stepID, err := svc.Annotate(context.Background(), taskID, args)
+func ReviewAnnotate(svc *service.ReviewService, tourID string, args service.AnnotateArgs) (string, error) {
+	stepID, err := svc.Annotate(context.Background(), tourID, args)
 	if err != nil {
 		return "", err
 	}
-	broadcastReviewChanged(taskID, stepID, "annotated")
+	broadcastReviewChanged(tourID, stepID, "annotated")
 	return stepID, nil
 }
 
 // ReviewAnswer records an agent's reply to a reviewer question.
-func ReviewAnswer(svc *service.ReviewService, taskID, stepPrefix, text string) error {
-	if err := svc.Answer(context.Background(), taskID, stepPrefix, text); err != nil {
+func ReviewAnswer(svc *service.ReviewService, tourID, stepPrefix, text string) error {
+	if err := svc.Answer(context.Background(), tourID, stepPrefix, text); err != nil {
 		return err
 	}
-	broadcastReviewChanged(taskID, stepPrefix, "answer")
+	broadcastReviewChanged(tourID, stepPrefix, "answer")
 	return nil
 }
 
 // ReviewReady marks the tour ready for human review.
-func ReviewReady(svc *service.ReviewService, taskID, summary string) error {
-	if err := svc.Ready(context.Background(), taskID, summary); err != nil {
+func ReviewReady(svc *service.ReviewService, tourID, summary string) error {
+	if err := svc.Ready(context.Background(), tourID, summary); err != nil {
 		return err
 	}
-	broadcastReviewChanged(taskID, "", "ready")
+	broadcastReviewChanged(tourID, "", "ready")
 	return nil
 }
 
 // ReviewSync imports worktree commits into the tour.
-func ReviewSync(svc *service.ReviewService, taskID string) error {
-	if err := svc.Sync(context.Background(), taskID); err != nil {
+func ReviewSync(svc *service.ReviewService, tourID string) error {
+	if err := svc.Sync(context.Background(), tourID); err != nil {
 		return err
 	}
-	broadcastReviewChanged(taskID, "", "synced")
+	broadcastReviewChanged(tourID, "", "synced")
 	return nil
 }
 
 // ReviewShow writes the tour to w — human-readable by default, JSON with
 // asJSON.
-func ReviewShow(svc *service.ReviewService, taskID string, asJSON bool, w io.Writer) error {
-	view, err := svc.Tour(context.Background(), taskID)
+func ReviewShow(svc *service.ReviewService, tourID string, asJSON bool, w io.Writer) error {
+	view, err := svc.Tour(context.Background(), tourID)
 	if err != nil {
 		return err
 	}
@@ -97,6 +97,6 @@ func ReviewShow(svc *service.ReviewService, taskID string, asJSON bool, w io.Wri
 	return nil
 }
 
-func broadcastReviewChanged(taskID, stepID, kind string) {
-	ipc.Broadcast(ipc.Message{Type: "review_changed", TaskID: taskID, Status: stepID, Content: kind})
+func broadcastReviewChanged(tourID, stepID, kind string) {
+	ipc.Broadcast(ipc.Message{Type: "review_changed", TaskID: tourID, Status: stepID, Content: kind})
 }

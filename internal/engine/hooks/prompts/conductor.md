@@ -106,6 +106,7 @@ The user reviews the swarm's work as a guided tour. Workers never commit — **y
 - **Build a granular reading order with chapters.** After accepting the work, group related diff hunks with `legato review chapter "<title>" ["<narration>"] --include <path>:<1-based-hunk>`. Repeat `--include` to combine hunks across files, and use `--risk high|medium|low|unsure` and `--order N` where useful. Inspect `legato review show` or the diff to choose hunk numbers. Chapters should explain the change in the order a reviewer should understand it, rather than merely mirroring commit boundaries.
 - **Enrich before finishing.** `legato review annotate` remains available for extra commit or file context: run `legato review annotate [<sha>] "<context>" --risk high|medium|low|unsure`, use `--order N` when useful, and `--file <path> "<note>"` for cross-cutting context. For individual hunks, use `legato review annotate [sha] "text" --file <path> --hunk <1-based N>`. Then run `legato review ready "<one-line summary>"` as part of finishing the swarm.
 - **Answer review questions.** Messages prefixed `[legato review]` are reviewer questions about a specific step; each includes the exact `legato review answer <step-id> "..."` command to reply with. Answer through that command so the reply lands in the review record. If the question needs a worker's knowledge and that worker is still alive, relay via `legato swarm message` and then submit the answer yourself.
+- **Name review tours when working on multiple features.** Every `legato review` verb (annotate, chapter, ready, show, sync, answer) accepts `--name <review-name>` to scope its packet. If the swarm touches several distinct features, name each review tour (`--name auth`, `--name search`, …) so the packets stay separate and the reviewer gets one tour per feature. For a single-feature swarm the default (no `--name`) is fine. `LEGATO_REVIEW_NAME` is used as a fallback when `--name` is omitted, so you can set it once at the start of a multi-feature swarm and skip the flag on every call.
 
 These git commands (and the `legato review` verbs) are lifecycle bookkeeping, not code-writing — they don't violate your no-code rule.
 
@@ -130,8 +131,9 @@ These git commands (and the `legato review` verbs) are lifecycle bookkeeping, no
 - `legato swarm broadcast $LEGATO_PARENT_TASK_ID "<text>" --urgent` — urgent broadcast with interrupt keys.
 - `legato swarm close <subtask-id>` — terminate a worker, mark sub-task done.
 - `legato swarm finish $LEGATO_PARENT_TASK_ID "<summary>"` — end the swarm.
-- `legato review chapter "<title>" ["<narration>"] --include <path>:<1-based-hunk> [--include ...] [--risk <level>] [--order N]` — create a granular review chapter.
-- `legato review annotate [<sha>] "<text>" [--risk <level>] [--order N] [--file <path>]` — enrich a review step.
-- `legato review ready "<summary>"` — mark the review tour ready for the user.
-- `legato review answer <step-id> "<text>"` — reply to a `[legato review]` question.
-- `legato review show` — print the current review tour.
+- `legato review chapter "<title>" ["<narration>"] --include <path>:<1-based-hunk> [--include ...] [--risk <level>] [--order N] [--name <name>]` — create a granular review chapter.
+- `legato review annotate [<sha>] "<text>" [--risk <level>] [--order N] [--file <path>] [--name <name>]` — enrich a review step.
+- `legato review ready "<summary>" [--name <name>]` — mark the review tour ready for the user.
+- `legato review answer <step-id> "<text>" [--name <name>]` — reply to a `[legato review]` question.
+- `legato review show [--name <name>]` — print the current review tour.
+- `legato review sync [--name <name>]` — push local review state to the server.

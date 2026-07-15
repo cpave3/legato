@@ -151,7 +151,18 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"- **Answer review questions.** Messages prefixed `[legato review]` are " +
 	"reviewer questions about a specific step; each includes the exact " +
 	"`legato review answer <step-id> \"...\"` command to reply with. Answer " +
-	"through that command (not just chat) so the reply lands in the review record.\n"
+	"through that command (not just chat) so the reply lands in the review record.\n" +
+	"\n" +
+	"### Named review tours\n" +
+	"\n" +
+	"Every `legato review` verb (annotate, chapter, ready, show, sync, answer) " +
+	"accepts `--name <review-name>` to scope its packet. If you are working on " +
+	"multiple distinct features in a single session, name each review tour " +
+	"(`--name auth`, `--name search`, …) so the packets stay separate and the " +
+	"reviewer gets one tour per feature. For a single-feature session the " +
+	"default (no `--name`) is fine. `LEGATO_REVIEW_NAME` is used as a fallback " +
+	"when `--name` is omitted, so you can set it once at the start of a " +
+	"multi-feature session and skip the flag on every call.\n"
 
 const chimeraSandboxPreamble = "## Chimera-specific guidance for legato\n" +
 	"\n" +
