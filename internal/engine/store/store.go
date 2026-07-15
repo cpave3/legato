@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 	_ "modernc.org/sqlite"
@@ -80,8 +81,12 @@ func (s *Store) migrate() error {
 		}
 
 		if _, err := tx.Exec(string(data)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("executing migration %s: %w", migrations[i], err)
+			// Tolerate "duplicate column name" errors from ALTER TABLE ADD COLUMN
+			// so that migrations adding columns can be re-run after a partial failure.
+			if !strings.Contains(err.Error(), "duplicate column name") {
+				tx.Rollback()
+				return fmt.Errorf("executing migration %s: %w", migrations[i], err)
+			}
 		}
 
 		if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", i+1)); err != nil {

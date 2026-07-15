@@ -1,30 +1,46 @@
--- Add surrogate ID and name to review_tours, shift PK from task_id to id.
-ALTER TABLE review_tours ADD COLUMN id TEXT NOT NULL DEFAULT '';
-ALTER TABLE review_tours ADD COLUMN name TEXT NOT NULL DEFAULT '';
+-- Recreate review_tours with surrogate id as primary key and a name column.
+-- SQLite cannot ALTER TABLE DROP PRIMARY KEY, so we recreate the table.
 
--- Backfill id for existing rows (one per task, since task_id was the PK).
-UPDATE review_tours SET id = 'rt-' || task_id WHERE id = '';
+CREATE TABLE review_tours_new (
+    id               TEXT PRIMARY KEY,
+    task_id          TEXT NOT NULL,
+    name             TEXT NOT NULL DEFAULT '',
+    status           TEXT NOT NULL DEFAULT 'capturing',
+    summary          TEXT NOT NULL DEFAULT '',
+    base_sha         TEXT NOT NULL DEFAULT '',
+    head_sha         TEXT NOT NULL DEFAULT '',
+    repository_path  TEXT NOT NULL DEFAULT '',
+    last_reviewed_sha TEXT NOT NULL DEFAULT '',
+    ready_at         DATETIME,
+    created_at       DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at       DATETIME NOT NULL DEFAULT (datetime('now'))
+);
 
--- Create the unique index on the new id column and drop the old PK.
--- SQLite doesn't support ALTER TABLE DROP PRIMARY KEY directly, so we
--- recreate via the index: the id column becomes the de facto key.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_review_tours_id ON review_tours(id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_review_tours_task_name ON review_tours(task_id, name) WHERE name != '';
-CREATE INDEX IF NOT EXISTS idx_review_tours_task ON review_tours(task_id);
+INSERT INTO review_tours_new (id, task_id, name, status, summary, base_sha, head_sha,
+    repository_path, last_reviewed_sha, ready_at, created_at, updated_at)
+SELECT 'rt-' || task_id, task_id, '', status, summary, base_sha, head_sha,
+    repository_path, last_reviewed_sha, ready_at, created_at, updated_at
+FROM review_tours;
 
--- Add tour_id to child tables for efficient scoping.
+DROP TABLE review_tours;
+ALTER TABLE review_tours_new RENAME TO review_tours;
+
+CREATE UNIQUE INDEX idx_review_tours_task_name ON review_tours(task_id, name) WHERE name != '';
+CREATE INDEX idx_review_tours_task ON review_tours(task_id);
+
+-- Add tour_id to child tables for tour-scoped queries.
 ALTER TABLE review_steps ADD COLUMN tour_id TEXT NOT NULL DEFAULT '';
-UPDATE review_steps SET tour_id = (SELECT id FROM review_tours WHERE review_tours.task_id = review_steps.task_id);
-CREATE INDEX IF NOT EXISTS idx_review_steps_tour ON review_steps(tour_id);
-
 ALTER TABLE review_transcript ADD COLUMN tour_id TEXT NOT NULL DEFAULT '';
-UPDATE review_transcript SET tour_id = (SELECT id FROM review_tours WHERE review_tours.task_id = review_transcript.task_id);
-CREATE INDEX IF NOT EXISTS idx_review_transcript_tour ON review_transcript(tour_id);
-
 ALTER TABLE review_hunk_notes ADD COLUMN tour_id TEXT NOT NULL DEFAULT '';
-UPDATE review_hunk_notes SET tour_id = (SELECT id FROM review_tours WHERE review_tours.task_id = review_hunk_notes.task_id);
-CREATE INDEX IF NOT EXISTS idx_review_hunk_notes_tour ON review_hunk_notes(tour_id);
-
 ALTER TABLE review_chapter_hunks ADD COLUMN tour_id TEXT NOT NULL DEFAULT '';
-UPDATE review_chapter_hunks SET tour_id = (SELECT id FROM review_tours WHERE review_tours.task_id = review_chapter_hunks.task_id);
+
+-- Backfill tour_id from task_id.
+UPDATE review_steps SET tour_id = 'rt-' || task_id WHERE tour_id = '';
+UPDATE review_transcript SET tour_id = 'rt-' || task_id WHERE tour_id = '';
+UPDATE review_hunk_notes SET tour_id = 'rt-' || task_id WHERE tour_id = '';
+UPDATE review_chapter_hunks SET tour_id = 'rt-' || task_id WHERE tour_id = '';
+
+CREATE INDEX IF NOT EXISTS idx_review_steps_tour ON review_steps(tour_id);
+CREATE INDEX IF NOT EXISTS idx_review_transcript_tour ON review_transcript(tour_id);
+CREATE INDEX IF NOT EXISTS idx_review_hunk_notes_tour ON review_hunk_notes(tour_id);
 CREATE INDEX IF NOT EXISTS idx_review_chapter_hunks_tour ON review_chapter_hunks(tour_id);
