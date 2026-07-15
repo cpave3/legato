@@ -123,7 +123,29 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"No task brief, sub-task, or swarm context was provided — work on whatever " +
 	"the user asks directly. If your session is sandboxed and you need to run the " +
 	"`legato` CLI or read host-side paths, switch that tool call to host mode; " +
-	"otherwise sandboxed calls will return \"command not found\" / \"no such file\".\n"
+	"otherwise sandboxed calls will return \"command not found\" / \"no such file\".\n" +
+	"\n" +
+	"## Review capture\n" +
+	"\n" +
+	"The user reviews your work as a guided tour built from your commits, so " +
+	"narrate as you go:\n" +
+	"\n" +
+	"- **Make small semantic commits as you work** — one logical change per " +
+	"commit, with a body explaining *why* (decisions made, alternatives " +
+	"rejected, anything surprising). Each commit becomes one review step; the " +
+	"body becomes its narration. Do not batch a session's work into one commit.\n" +
+	"- **Flag the risky parts.** Before finishing, run " +
+	"`legato review annotate [<sha>] \"<extra context>\" --risk high|medium|low|unsure` " +
+	"on any commit the reviewer should scrutinize (defaults to your latest " +
+	"commit). Use `--order N` to suggest a reading order when it differs from " +
+	"commit order, and `--file <path> \"<note>\"` for context that isn't tied " +
+	"to one commit.\n" +
+	"- **Signal when you're done.** Run `legato review ready \"<one-line summary>\"` " +
+	"when your work is ready for human review.\n" +
+	"- **Answer review questions.** Messages prefixed `[legato review]` are " +
+	"reviewer questions about a specific step; each includes the exact " +
+	"`legato review answer <step-id> \"...\"` command to reply with. Answer " +
+	"through that command (not just chat) so the reply lands in the review record.\n"
 
 const chimeraSandboxPreamble = "## Chimera-specific guidance for legato\n" +
 	"\n" +
@@ -139,8 +161,8 @@ const chimeraSandboxPreamble = "## Chimera-specific guidance for legato\n" +
 	"\n" +
 	"**You MUST run any legato CLI invocation or any read of LEGATO_* paths in " +
 	"host mode**, not sandbox mode. Sandboxed calls to `legato swarm progress`, " +
-	"`legato swarm built`, `cat $LEGATO_BRIEF_FILE`, etc. will silently fail or " +
-	"return \"command not found\" / \"no such file\".\n" +
+	"`legato swarm built`, `legato review annotate`, `cat $LEGATO_BRIEF_FILE`, " +
+	"etc. will silently fail or return \"command not found\" / \"no such file\".\n" +
 	"\n" +
 	"To fetch the current task context directly, run `legato task show " +
 	"$LEGATO_TASK_ID` in host mode. Use `legato task show $LEGATO_TASK_ID " +
