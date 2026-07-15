@@ -1096,7 +1096,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case reviewUpdateMsg:
 		if a.active == viewReview {
 			var cmd tea.Cmd
-			a.reviewView, cmd = a.reviewView.Update(review.ReviewChangedMsg{TaskID: msg.Payload.TaskID})
+			a.reviewView, cmd = a.reviewView.Update(review.ReviewChangedMsg{TourID: msg.Payload.TourID})
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}

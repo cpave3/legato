@@ -44,7 +44,7 @@ type Model struct {
 	queue       []service.ReviewQueueItem
 	queueCursor int
 
-	taskID  string
+	tourID  string
 	view    *service.ReviewTourView
 	stepIdx int
 	diff    []gitpkg.FileDiff
@@ -127,15 +127,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if msg.Err != nil {
 			return m, nil
 		}
-		if msg.TaskID != "" {
-			cmd := m.loadTour(msg.TaskID)
+		if msg.TourID != "" {
+			cmd := m.loadTour(msg.TourID)
 			return m, cmd
 		}
 		return m, m.loadQueue()
 	case ReviewChangedMsg:
 		// Live update: reload whatever is on screen.
-		if m.mode == modeTour && msg.TaskID == m.taskID {
-			cmd := m.loadTour(m.taskID)
+		if m.mode == modeTour && msg.TourID == m.tourID {
+			cmd := m.loadTour(m.tourID)
 			return m, cmd
 		}
 		return m, m.loadQueue()
@@ -170,7 +170,7 @@ func (m Model) handleQueueKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		}
 	case "enter":
 		if len(m.queue) > 0 {
-			cmd := m.loadTour(m.queue[m.queueCursor].TaskID)
+			cmd := m.loadTour(m.queue[m.queueCursor].TourID)
 			return m, cmd
 		}
 	case "r":
@@ -284,11 +284,11 @@ func (m Model) loadQueue() tea.Cmd {
 	}
 }
 
-func (m *Model) loadTour(taskID string) tea.Cmd {
-	m.taskID = taskID
+func (m *Model) loadTour(tourID string) tea.Cmd {
+	m.tourID = tourID
 	svc := m.svc
 	return func() tea.Msg {
-		view, err := svc.Tour(context.Background(), taskID)
+		view, err := svc.Tour(context.Background(), tourID)
 		return TourLoadedMsg{View: view, Err: err}
 	}
 }
@@ -298,25 +298,25 @@ func (m Model) loadDiff() tea.Cmd {
 	if step == nil {
 		return nil
 	}
-	svc, taskID, stepID := m.svc, m.taskID, step.ID
+	svc, tourID, stepID := m.svc, m.tourID, step.ID
 	return func() tea.Msg {
-		files, err := svc.StepDiff(context.Background(), taskID, stepID)
+		files, err := svc.StepDiff(context.Background(), tourID, stepID)
 		return DiffLoadedMsg{StepID: stepID, Files: files, Err: err}
 	}
 }
 
 func (m Model) toggleReviewed(stepID string, reviewed bool) tea.Cmd {
-	svc, taskID := m.svc, m.taskID
+	svc, tourID := m.svc, m.tourID
 	return func() tea.Msg {
-		err := svc.SetReviewed(context.Background(), taskID, stepID, reviewed)
-		return ActionDoneMsg{TaskID: taskID, Err: err}
+		err := svc.SetReviewed(context.Background(), tourID, stepID, reviewed)
+		return ActionDoneMsg{TourID: tourID, Err: err}
 	}
 }
 
 func (m Model) askQuestion(stepID, text string) tea.Cmd {
-	svc, taskID := m.svc, m.taskID
+	svc, tourID := m.svc, m.tourID
 	return func() tea.Msg {
-		err := svc.AskQuestion(context.Background(), taskID, stepID, text)
+		err := svc.AskQuestion(context.Background(), tourID, stepID, text)
 		info := "question sent"
 		if err != nil {
 			// The question is stored even when the agent is offline; keep
@@ -324,29 +324,29 @@ func (m Model) askQuestion(stepID, text string) tea.Cmd {
 			info = err.Error()
 			err = nil
 		}
-		return ActionDoneMsg{TaskID: taskID, Info: info, Err: err}
+		return ActionDoneMsg{TourID: tourID, Info: info, Err: err}
 	}
 }
 
 func (m Model) complete() tea.Cmd {
-	svc, taskID := m.svc, m.taskID
+	svc, tourID := m.svc, m.tourID
 	return func() tea.Msg {
-		err := svc.Complete(context.Background(), taskID)
-		return ActionDoneMsg{TaskID: taskID, Info: "review completed", Err: err}
+		err := svc.Complete(context.Background(), tourID)
+		return ActionDoneMsg{TourID: tourID, Info: "review completed", Err: err}
 	}
 }
 
 func (m *Model) deleteReview() tea.Cmd {
-	taskID := m.taskID
+	tourID := m.tourID
 	if m.mode == modeQueue {
-		taskID = m.queue[m.queueCursor].TaskID
+		tourID = m.queue[m.queueCursor].TourID
 	}
 	m.mode = modeQueue
 	m.view = nil
 	m.diff = nil
 	svc := m.svc
 	return func() tea.Msg {
-		err := svc.Delete(context.Background(), taskID)
+		err := svc.Delete(context.Background(), tourID)
 		info := "review deleted"
 		if err != nil {
 			info = ""
@@ -390,7 +390,11 @@ func (m Model) viewQueue() string {
 		lines = append(lines, dimStyle.Render("Nothing to review. Agents appear here when they signal `legato review ready`."))
 	}
 	for i, item := range m.queue {
-		row := fmt.Sprintf("%s — %d unreviewed [%s]", item.Title, item.Unreviewed, item.Status)
+		label := item.Title
+		if item.Name != "" {
+			label = item.Name
+		}
+		row := fmt.Sprintf("%s — %d unreviewed [%s]", label, item.Unreviewed, item.Status)
 		if item.Summary != "" {
 			row += dimStyle.Render("  " + item.Summary)
 		}
@@ -402,7 +406,7 @@ func (m Model) viewQueue() string {
 	}
 	if m.confirmingDelete {
 		lines = append(lines, "", lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).
-			Render(fmt.Sprintf("Delete review for %s? y confirm · n/esc cancel", m.queue[m.queueCursor].TaskID)))
+			Render(fmt.Sprintf("Delete review for %s? y confirm · n/esc cancel", m.queue[m.queueCursor].TourID)))
 	} else {
 		line := "j/k move · enter open · x delete · r refresh · esc back"
 		if m.info != "" {
@@ -449,7 +453,10 @@ func (m Model) renderTourHeader() string {
 			reviewed++
 		}
 	}
-	title := titleStyle.Render("REVIEW ") + m.view.Tour.TaskID
+	title := titleStyle.Render("REVIEW ") + m.view.Tour.Name
+	if m.view.Tour.Name == "" {
+		title += m.view.Tour.TaskID
+	}
 	progress := dimStyle.Render(fmt.Sprintf("  %d/%d reviewed · %s", reviewed, len(m.view.Steps), m.view.Tour.Status))
 	summary := ""
 	if m.view.Tour.Summary != "" {
@@ -512,7 +519,7 @@ func (m Model) renderTourFooter() string {
 	}
 	if m.confirmingDelete {
 		return lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).
-			Render(fmt.Sprintf("Delete review for %s? y confirm · n/esc cancel", m.taskID))
+			Render(fmt.Sprintf("Delete review for %s? y confirm · n/esc cancel", m.tourID))
 	}
 	line := "j/k step · d/u scroll · space reviewed · a ask · c complete · x delete · esc queue"
 	if m.info != "" {

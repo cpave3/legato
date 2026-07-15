@@ -27,7 +27,7 @@ type DiffLoadedMsg struct {
 // ActionDoneMsg signals a mutation (reviewed toggle, question, complete)
 // finished; the tour should reload.
 type ActionDoneMsg struct {
-	TaskID string
+	TourID string
 	Info   string
 	Err    error
 }
@@ -38,5 +38,5 @@ type ReturnToBoardMsg struct{}
 // ReviewChangedMsg is forwarded by the app when a review_changed event
 // arrives on the bus (e.g. an agent answered a question).
 type ReviewChangedMsg struct {
-	TaskID string
+	TourID string
 }

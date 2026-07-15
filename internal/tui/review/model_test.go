@@ -58,7 +58,11 @@ func newFixture(t *testing.T) (*service.ReviewService, *store.Store) {
 	git("commit", "-m", "add a\n\nbecause reasons")
 
 	svc := service.NewReviewService(s, nil, nil)
-	if err := svc.Ready(ctx, "task-1", "done"); err != nil {
+	tour, err := svc.EnsureReviewTour(ctx, "task-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Ready(ctx, tour.ID, "done"); err != nil {
 		t.Fatal(err)
 	}
 	return svc, s
@@ -139,10 +143,10 @@ func TestQueueDeleteRequiresConfirmation(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("first x must not delete the review")
 	}
-	if !strings.Contains(m.View(), "Delete review for task-1?") {
+	if !strings.Contains(m.View(), "Delete review for rt-task-1?") {
 		t.Fatalf("delete confirmation prompt missing:\n%s", m.View())
 	}
-	if _, err := s.GetReviewTour(context.Background(), "task-1"); err != nil {
+	if _, err := s.GetReviewTour(context.Background(), "rt-task-1"); err != nil {
 		t.Fatalf("first x deleted review: %v", err)
 	}
 
@@ -154,7 +158,7 @@ func TestQueueDeleteRequiresConfirmation(t *testing.T) {
 	if !strings.Contains(m.View(), "review deleted") {
 		t.Fatalf("delete info missing:\n%s", m.View())
 	}
-	if _, err := s.GetReviewTour(context.Background(), "task-1"); err == nil {
+	if _, err := s.GetReviewTour(context.Background(), "rt-task-1"); err == nil {
 		t.Fatal("y should delete the review")
 	}
 }
@@ -172,7 +176,7 @@ func TestTourDeleteCanBeCancelledThenConfirmed(t *testing.T) {
 	if m.mode != modeTour || strings.Contains(m.View(), "Delete review for") {
 		t.Fatalf("n should cancel and keep the tour open:\n%s", m.View())
 	}
-	if _, err := s.GetReviewTour(context.Background(), "task-1"); err != nil {
+	if _, err := s.GetReviewTour(context.Background(), "rt-task-1"); err != nil {
 		t.Fatalf("cancel deleted review: %v", err)
 	}
 
@@ -196,7 +200,7 @@ func TestTourToggleReviewedAndComplete(t *testing.T) {
 	// Space toggles reviewed on the focused step.
 	m, cmd = m.Update(key("space"))
 	m = drive(t, m, cmd)
-	steps, _ := s.ListReviewSteps(context.Background(), "task-1")
+	steps, _ := s.ListReviewSteps(context.Background(), "rt-task-1")
 	if steps[0].ReviewedAt == nil {
 		t.Fatal("space should mark the step reviewed")
 	}
@@ -204,7 +208,7 @@ func TestTourToggleReviewedAndComplete(t *testing.T) {
 	// c completes the review.
 	m, cmd = m.Update(key("c"))
 	m = drive(t, m, cmd)
-	tour, _ := s.GetReviewTour(context.Background(), "task-1")
+	tour, _ := s.GetReviewTour(context.Background(), "rt-task-1")
 	if tour.Status != "reviewed" {
 		t.Fatalf("tour status = %q, want reviewed", tour.Status)
 	}
@@ -236,7 +240,7 @@ func TestTourQuestionInput(t *testing.T) {
 	if m.asking {
 		t.Fatal("enter should close the question input")
 	}
-	msgs, _ := s.ListReviewMessages(context.Background(), "task-1")
+	msgs, _ := s.ListReviewMessages(context.Background(), "rt-task-1")
 	if len(msgs) != 1 || msgs[0].Body != "why?" {
 		t.Fatalf("transcript = %+v", msgs)
 	}
