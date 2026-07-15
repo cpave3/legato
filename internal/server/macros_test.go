@@ -29,6 +29,27 @@ func TestMacrosHandlerEmpty(t *testing.T) {
 	}
 }
 
+func TestMacrosHandlerUsesLowercaseJSONFields(t *testing.T) {
+	s := New(nil, nil, nil, ":0")
+	s.SetMacros([]macros.Macro{{Name: "run tests", Keys: "task test"}})
+	rec := httptest.NewRecorder()
+	s.macrosHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/macros", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var body map[string][]map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	item := body["macros"][0]
+	if item["name"] != "run tests" || item["keys"] != "task test" {
+		t.Fatalf("macro JSON = %s", rec.Body.String())
+	}
+	if _, exists := item["Name"]; exists {
+		t.Fatalf("Go-style field leaked: %s", rec.Body.String())
+	}
+}
+
 func TestMacrosHandlerPopulated(t *testing.T) {
 	s := &Server{macros: []macros.Macro{
 		{Name: "run tests", Keys: "task test\n"},

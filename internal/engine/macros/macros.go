@@ -4,8 +4,8 @@ package macros
 
 // Macro is a named send-keys payload stored in config.
 type Macro struct {
-	Name string `yaml:"name"`
-	Keys string `yaml:"keys"`
+	Name string `yaml:"name" json:"name"`
+	Keys string `yaml:"keys" json:"keys"`
 }
 
 // ListResult is the JSON shape returned by GET /api/macros.
