@@ -48,6 +48,7 @@ var (
 	viewBindings = []keybinding{
 		{"A", "Agent view"},
 		{"R", "Reports view"},
+		{"V", "Review tours"},
 		{"w", "Workspace filter"},
 	}
 	agentBindings = []keybinding{
@@ -95,6 +96,14 @@ var (
 		{"esc", "back"},
 		{"y", "copy"},
 	}
+	reviewShortlist = []keybinding{
+		{"j/k", "select step"},
+		{"enter", "open tour"},
+		{"space", "toggle reviewed"},
+		{"a", "ask question"},
+		{"c", "complete"},
+		{"esc", "back"},
+	}
 )
 
 // HelpMode identifies which view the user was in when they opened help.
@@ -105,6 +114,7 @@ const (
 	HelpModeDetail
 	HelpModeAgents
 	HelpModeReport
+	HelpModeReview
 )
 
 // HelpOverlay displays a keyboard reference screen.
@@ -224,6 +234,8 @@ func (m HelpOverlay) shortlist() []keybinding {
 		return agentsShortlist
 	case HelpModeReport:
 		return reportShortlist
+	case HelpModeReview:
+		return reviewShortlist
 	default:
 		return boardShortlist
 	}
@@ -237,6 +249,8 @@ func (m HelpOverlay) shortlistTitle() string {
 		return "Agents — Quick Reference"
 	case HelpModeReport:
 		return "Report — Quick Reference"
+	case HelpModeReview:
+		return "Review — Quick Reference"
 	default:
 		return "Board — Quick Reference"
 	}

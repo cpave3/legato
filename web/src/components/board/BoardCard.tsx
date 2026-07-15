@@ -14,6 +14,7 @@ import {
   Diamond,
   Play,
   Pause,
+  ListChecks,
 } from "lucide-react"
 
 interface BoardCardProps {
@@ -158,6 +159,14 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick }: Bo
           </>
         )}
       </div>
+
+      {/* Review line */}
+      {(card.review_ready || Boolean(card.review_unreviewed)) && (
+        <div className={cn("mt-1 flex items-center gap-1 text-[10px] font-medium", card.review_unreviewed ? "text-amber-300" : "text-emerald-400")}>
+          <ListChecks size={10} />
+          {card.review_unreviewed ? `Review ${card.review_unreviewed}` : "Reviewed"}
+        </div>
+      )}
 
       {/* PR line */}
       {card.pr_number > 0 && (

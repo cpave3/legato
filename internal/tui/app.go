@@ -21,6 +21,7 @@ import (
 	"github.com/cpave3/legato/internal/tui/detail"
 	"github.com/cpave3/legato/internal/tui/overlay"
 	"github.com/cpave3/legato/internal/tui/report"
+	"github.com/cpave3/legato/internal/tui/review"
 	"github.com/cpave3/legato/internal/tui/statusbar"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
@@ -32,6 +33,7 @@ const (
 	viewDetail
 	viewAgents
 	viewReport
+	viewReview
 )
 
 // VoiceService is the interface the TUI uses for voice dictation. The
@@ -115,6 +117,8 @@ type App struct {
 	detail             detail.Model
 	agentView          agents.Model
 	reportView         report.Model
+	reviewView         review.Model
+	reviewSvc          review.Service
 	statusBar          statusbar.Model
 	clip               *clipboard.Clipboard
 	editor             string
@@ -131,6 +135,7 @@ type App struct {
 	prSub              <-chan events.Event
 	swarmSub           <-chan events.Event
 	planSub            <-chan events.Event
+	reviewSub          <-chan events.Event
 	tmux               service.TmuxManager
 	swarmSvc           service.SwarmService
 	workDir            string
@@ -165,6 +170,12 @@ func (a *App) SetWorktreeService(svc WorktreeService) {
 // SetGroupDefaults configures the group choices always shown in the group modal.
 func (a *App) SetGroupDefaults(defaults []string) {
 	a.groupDefaults = append([]string(nil), defaults...)
+}
+
+// SetReviewService enables the review queue and tour view.
+func (a *App) SetReviewService(svc review.Service) {
+	a.reviewSvc = svc
+	a.reviewView = review.New(svc)
 }
 
 func (a *App) SetWebServerRunning(port string) {
@@ -205,7 +216,7 @@ func (a *App) SetSparklineWindow(window time.Duration, buckets int) {
 
 // NewApp creates a new root application model. Pass nil for swarmSvc to
 // disable swarm UI (S keybinding is no-op, swarm panels hidden).
-func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager, workDir string, swarmSvc service.SwarmService, macrosList []macros.Macro) App {
+func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc service.AgentService, prSvc service.PRTrackingService, reportSvc service.ReportService, icons theme.Icons, bus *events.Bus, editor string, workspaces []service.Workspace, tmux service.TmuxManager, workDir string, swarmSvc service.SwarmService, macrosList []macros.Macro, reviewServices ...review.Service) App {
 	clip := clipboard.New()
 	b := board.New(svc, icons)
 	b.SetWorkspaces(workspaces)
@@ -228,6 +239,9 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		swarmSvc:      swarmSvc,
 		macros:        macrosList,
 	}
+	if len(reviewServices) > 0 && reviewServices[0] != nil {
+		app.SetReviewService(reviewServices[0])
+	}
 	if bus != nil {
 		app.eventSubs = []<-chan events.Event{
 			bus.Subscribe(events.EventSyncStarted),
@@ -242,6 +256,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		app.prSub = bus.Subscribe(events.EventPRStatusUpdated)
 		app.swarmSub = bus.Subscribe(events.EventSwarmChanged)
 		app.planSub = bus.Subscribe(events.EventPlanProposed)
+		app.reviewSub = bus.Subscribe(events.EventReviewChanged)
 	}
 	return app
 }
@@ -263,6 +278,12 @@ func (a App) Init() tea.Cmd {
 	}
 	if a.planSub != nil {
 		cmds = append(cmds, a.listenPlanProposals())
+	}
+	if a.reviewSub != nil {
+		cmds = append(cmds, a.listenReviewUpdates())
+	}
+	if a.reviewSvc != nil {
+		cmds = append(cmds, a.loadReviewBadges())
 	}
 	// Clipboard availability check
 	if a.clip == nil || !a.clip.Available() {
@@ -305,6 +326,39 @@ type prUpdateMsg struct{}
 // swarmUpdateMsg triggers a board data reload when swarm state changes.
 type swarmUpdateMsg struct {
 	Payload events.SwarmChangedPayload
+}
+
+type reviewUpdateMsg struct {
+	Payload events.ReviewChangedPayload
+}
+
+type reviewBadgesMsg struct {
+	States map[string]service.ReviewBadgeState
+}
+
+func (a App) listenReviewUpdates() tea.Cmd {
+	ch := a.reviewSub
+	return func() tea.Msg {
+		ev, ok := <-ch
+		if !ok {
+			return nil
+		}
+		payload, _ := ev.Payload.(events.ReviewChangedPayload)
+		return reviewUpdateMsg{Payload: payload}
+	}
+}
+
+func (a App) loadReviewBadges() tea.Cmd {
+	svc, ok := a.reviewSvc.(interface {
+		ReviewBadgeStates(context.Context) (map[string]service.ReviewBadgeState, error)
+	})
+	if !ok {
+		return nil
+	}
+	return func() tea.Msg {
+		states, _ := svc.ReviewBadgeStates(context.Background())
+		return reviewBadgesMsg{States: states}
+	}
 }
 
 // listenPRUpdates returns a command that listens for EventPRStatusUpdated.
@@ -449,6 +503,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a.switchToReportView()
 			}
 			return a.delegateKey(msg)
+		case "V":
+			if a.active == viewBoard && a.reviewSvc != nil {
+				a = a.setMode(viewReview)
+				return a, a.reviewView.Init()
+			}
+			return a.delegateKey(msg)
 		default:
 			return a.delegateKey(msg)
 		}
@@ -478,8 +538,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Propagate to agent view
 		a.agentView.SetSize(msg.Width, msg.Height-1)
 
-		// Propagate to report view
+		// Propagate to report and review views
 		a.reportView.SetSize(msg.Width, msg.Height-1)
+		a.reviewView.SetSize(msg.Width, msg.Height-1)
 
 		// Propagate to status bar
 		a.statusBar, _ = a.statusBar.Update(msg)
@@ -516,7 +577,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.agentView.StopPolling()
 		return a, nil
 
-	case report.ReturnToBoardMsg:
+	case report.ReturnToBoardMsg, review.ReturnToBoardMsg:
 		a = a.setMode(viewBoard)
 		return a, nil
 
@@ -531,6 +592,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case report.ReportLoadedMsg:
 		a.reportView, _ = a.reportView.Update(msg)
 		return a, nil
+
+	case review.QueueLoadedMsg, review.TourLoadedMsg, review.DiffLoadedMsg, review.ActionDoneMsg:
+		var cmd tea.Cmd
+		a.reviewView, cmd = a.reviewView.Update(msg)
+		return a, cmd
 
 	case agents.KillAgentMsg:
 		return a.handleKillAgent(msg)
@@ -1027,6 +1093,26 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, tea.Batch(cmds...)
 
+	case reviewUpdateMsg:
+		if a.active == viewReview {
+			var cmd tea.Cmd
+			a.reviewView, cmd = a.reviewView.Update(review.ReviewChangedMsg{TaskID: msg.Payload.TaskID})
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if cmd := a.loadReviewBadges(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		if a.reviewSub != nil {
+			cmds = append(cmds, a.listenReviewUpdates())
+		}
+		return a, tea.Batch(cmds...)
+
+	case reviewBadgesMsg:
+		a.board.SetReviewStates(msg.States)
+		return a, nil
+
 	case planProposalMsg:
 		// Conductor proposed a plan; surface the approval overlay.
 		next, cmd := a.openPlanApprovalOverlayWithMode(msg.ParentTaskID, msg.PlanPath, msg.ReplySocket, msg.Mode)
@@ -1159,6 +1245,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		if cmd := a.loadReviewBadges(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 		// Apply pending navigation (e.g. after task creation)
 		if a.pendingNav != "" {
 			a.board.NavigateTo(a.pendingNav)
@@ -1204,6 +1293,8 @@ func viewToStatusMode(v viewType) statusbar.Mode {
 		return statusbar.ModeAgents
 	case viewReport:
 		return statusbar.ModeReport
+	case viewReview:
+		return statusbar.ModeReview
 	default:
 		return statusbar.ModeBoard
 	}
@@ -1267,6 +1358,8 @@ func appViewToHelpMode(v viewType) overlay.HelpMode {
 		return overlay.HelpModeAgents
 	case viewReport:
 		return overlay.HelpModeReport
+	case viewReview:
+		return overlay.HelpModeReview
 	default:
 		return overlay.HelpModeBoard
 	}
@@ -2353,6 +2446,12 @@ func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case viewReview:
+		var cmd tea.Cmd
+		a.reviewView, cmd = a.reviewView.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	return a, tea.Batch(cmds...)
 }
@@ -2378,6 +2477,12 @@ func (a App) View() string {
 		statusBarHeight := lipgloss.Height(statusBar)
 		a.reportView.SetSize(a.width, a.height-statusBarHeight)
 		content := a.reportView.View()
+		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
+	case viewReview:
+		statusBar := a.statusBar.View()
+		statusBarHeight := lipgloss.Height(statusBar)
+		a.reviewView.SetSize(a.width, a.height-statusBarHeight)
+		content := a.reviewView.View()
 		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 	default:
 		content := a.board.View()

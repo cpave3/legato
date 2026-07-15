@@ -1,14 +1,17 @@
 import { useState, useRef, useEffect } from "react"
 import { Outlet, NavLink } from "react-router-dom"
-import { Monitor, LayoutGrid, Settings, Server } from "lucide-react"
+import { Monitor, LayoutGrid, Settings, Server, ListChecks } from "lucide-react"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
 import { cn } from "../lib/utils"
+import { useReviewQueue } from "../hooks/useReview"
 
 export function Layout() {
   const { connected } = useWebSocket()
   const { servers, activeServerName, baseUrl, setActiveServer } = useServer()
+  const { data: reviewQueue } = useReviewQueue()
+  const reviewCount = reviewQueue?.length ?? 0
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const switcherRef = useRef<HTMLDivElement>(null)
 
@@ -56,6 +59,25 @@ export function Layout() {
           title="Board"
         >
           <LayoutGrid size={20} />
+        </NavLink>
+        <NavLink
+          to="/review"
+          className={({ isActive }) =>
+            cn(
+              "relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+              isActive
+                ? "bg-zinc-800 text-zinc-100"
+                : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+            )
+          }
+          title={reviewCount > 0 ? `Review queue: ${reviewCount} tasks` : "Review queue"}
+        >
+          <ListChecks size={20} />
+          {reviewCount > 0 && (
+            <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-amber-500 px-1 text-center text-[9px] font-bold leading-4 text-zinc-950">
+              {reviewCount > 99 ? "99+" : reviewCount}
+            </span>
+          )}
         </NavLink>
 
         {/* Settings + server switcher + connection status at bottom */}

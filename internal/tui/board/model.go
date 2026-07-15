@@ -301,6 +301,27 @@ func (m *Model) SetSwarmStats(stats map[string]SwarmStats) {
 	m.computeMaxVisible()
 }
 
+// SetReviewStates updates review-tour badges for each card.
+func (m *Model) SetReviewStates(states map[string]service.ReviewBadgeState) {
+	for colName, cards := range m.cards {
+		for i := range cards {
+			state := states[cards[i].Key]
+			cards[i].ReviewUnreviewed = state.Unreviewed
+			cards[i].ReviewReady = state.Ready
+		}
+		m.cards[colName] = cards
+	}
+}
+
+// SetReviewCounts preserves the count-only update used by older callers.
+func (m *Model) SetReviewCounts(counts map[string]int) {
+	states := make(map[string]service.ReviewBadgeState, len(counts))
+	for taskID, count := range counts {
+		states[taskID] = service.ReviewBadgeState{Unreviewed: count}
+	}
+	m.SetReviewStates(states)
+}
+
 // SetPRStates updates the PR status fields for each card.
 func (m *Model) SetPRStates(states map[string]PRStateData) {
 	for colName, cards := range m.cards {

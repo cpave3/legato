@@ -27,6 +27,8 @@ export interface BoardCard {
   pr_comment_count: number
   pr_is_draft: boolean
   pr_number: number
+  review_ready?: boolean
+  review_unreviewed?: number
   swarm_stats?: SwarmStats
 }
 

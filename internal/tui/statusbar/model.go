@@ -29,6 +29,7 @@ const (
 	ModeDetail
 	ModeAgents
 	ModeReport
+	ModeReview
 )
 
 // Messages
@@ -292,6 +293,15 @@ func (m Model) hintsForMode() []struct{ key, label string } {
 		return []struct{ key, label string }{
 			{"esc", "back"},
 			{"y", "copy"},
+			{"?", "keys"},
+		}
+	case ModeReview:
+		return []struct{ key, label string }{
+			{"j/k", "select"},
+			{"↵", "open"},
+			{"space", "reviewed"},
+			{"a", "ask"},
+			{"esc", "back"},
 			{"?", "keys"},
 		}
 	default: // ModeBoard

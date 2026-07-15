@@ -6,6 +6,8 @@ import { TokenPrompt } from "./components/TokenPrompt"
 import { AgentsPage } from "./pages/Agents"
 import { BoardPage } from "./pages/Board"
 import { SettingsPage } from "./pages/Settings"
+import { ReviewQueuePage } from "./pages/ReviewQueuePage"
+import { ReviewTourPage } from "./pages/ReviewTourPage"
 import { authHeaders, clearToken } from "./lib/auth"
 
 export default function App() {
@@ -45,6 +47,8 @@ export default function App() {
         <Route element={<Layout />}>
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/board" element={<BoardPage />} />
+          <Route path="/review" element={<ReviewQueuePage />} />
+          <Route path="/review/:taskId" element={<ReviewTourPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/agents" replace />} />
         </Route>

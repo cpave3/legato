@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cpave3/legato/internal/engine/analytics"
+	gitpkg "github.com/cpave3/legato/internal/engine/git"
 	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
@@ -207,6 +208,51 @@ func newTestAppWithRecordingSwarm() (App, *fakeSwarmService) {
 func updateApp(a App, msg tea.Msg) (App, tea.Cmd) {
 	m, cmd := a.Update(msg)
 	return m.(App), cmd
+}
+
+type fakeReviewService struct {
+	queue []service.ReviewQueueItem
+}
+
+func (f *fakeReviewService) Queue(context.Context) ([]service.ReviewQueueItem, error) {
+	return f.queue, nil
+}
+func (f *fakeReviewService) Tour(context.Context, string) (*service.ReviewTourView, error) {
+	return nil, nil
+}
+func (f *fakeReviewService) StepDiff(context.Context, string, string) ([]gitpkg.FileDiff, error) {
+	return nil, nil
+}
+func (f *fakeReviewService) SetReviewed(context.Context, string, string, bool) error   { return nil }
+func (f *fakeReviewService) AskQuestion(context.Context, string, string, string) error { return nil }
+func (f *fakeReviewService) Complete(context.Context, string) error                    { return nil }
+func (f *fakeReviewService) ReviewBadgeStates(context.Context) (map[string]service.ReviewBadgeState, error) {
+	return map[string]service.ReviewBadgeState{}, nil
+}
+
+func TestReviewViewOpensLoadsAndReturnsToBoard(t *testing.T) {
+	reviews := &fakeReviewService{queue: []service.ReviewQueueItem{{TaskID: "REX-1", Title: "Test", Unreviewed: 2, Status: "ready"}}}
+	app := newTestApp()
+	app.SetReviewService(reviews)
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	app, cmd := updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'V'}})
+	if cmd == nil {
+		t.Fatal("V should load the review queue")
+	}
+	app, _ = updateApp(app, cmd())
+	view := app.View()
+	if !strings.Contains(view, "REVIEW QUEUE") || !strings.Contains(view, "2 unreviewed") {
+		t.Fatalf("review queue not rendered:\n%s", view)
+	}
+	if !strings.Contains(view, "open") || !strings.Contains(view, "back") {
+		t.Fatalf("review status hints not rendered:\n%s", view)
+	}
+
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if strings.Contains(app.View(), "REVIEW QUEUE") {
+		t.Fatal("q should return from review queue to board")
+	}
 }
 
 func TestQuitOnQ(t *testing.T) {

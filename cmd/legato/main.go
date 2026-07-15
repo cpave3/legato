@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -64,11 +65,146 @@ func runCLI(args []string) int {
 		return runPairCmd(args[1:])
 	case "swarm":
 		return runSwarmCmd(args[1:])
+	case "review":
+		return runReviewCmd(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato [task|agent|hooks|serve|auth|pair|swarm]\n")
+		fmt.Fprintf(os.Stderr, "usage: legato [task|agent|hooks|serve|auth|pair|swarm|review]\n")
 		return 1
 	}
+}
+
+func runReviewCmd(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: legato review [annotate|answer|ready|show|sync] ...")
+		return 1
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
+	db, err := store.New(config.ResolveDBPath(cfg))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "database: %v\n", err)
+		return 1
+	}
+	defer db.Close()
+	svc := service.NewReviewService(db, nil, nil)
+
+	verb := args[0]
+	positional, flags, listFlags := parseReviewArgs(args[1:])
+
+	taskID := flags["task"]
+	if taskID == "" {
+		taskID = os.Getenv("LEGATO_TASK_ID")
+	}
+	if taskID == "" {
+		fmt.Fprintln(os.Stderr, "error: no task — pass --task <id> or run inside a legato agent session (LEGATO_TASK_ID)")
+		return 1
+	}
+
+	switch verb {
+	case "annotate":
+		a := service.AnnotateArgs{
+			Risk:      flags["risk"],
+			Files:     listFlags["file"],
+			SubtaskID: os.Getenv("LEGATO_SUBTASK_ID"),
+		}
+		if v, ok := flags["order"]; ok {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error: --order must be a number, got %q\n", v)
+				return 1
+			}
+			a.OrderHint = &n
+		}
+		// Positional forms: [<sha>] "text" — a lone arg is the text.
+		switch len(positional) {
+		case 1:
+			a.Text = positional[0]
+		case 2:
+			a.SHA, a.Text = positional[0], positional[1]
+		default:
+			fmt.Fprintln(os.Stderr, `usage: legato review annotate [<sha>] "text" [--file <path>]... [--risk high|medium|low|unsure] [--order N] [--task <id>]`)
+			return 1
+		}
+		stepID, err := cli.ReviewAnnotate(svc, taskID, a)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		fmt.Println(stepID)
+		return 0
+	case "answer":
+		if len(positional) != 2 {
+			fmt.Fprintln(os.Stderr, `usage: legato review answer <step-id> "text" [--task <id>]`)
+			return 1
+		}
+		if err := cli.ReviewAnswer(svc, taskID, positional[0], positional[1]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		return 0
+	case "ready":
+		summary := ""
+		if len(positional) > 0 {
+			summary = positional[0]
+		}
+		if err := cli.ReviewReady(svc, taskID, summary); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		return 0
+	case "show":
+		_, asJSON := flags["json"]
+		if err := cli.ReviewShow(svc, taskID, asJSON, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		return 0
+	case "sync":
+		if err := cli.ReviewSync(svc, taskID); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		return 0
+	default:
+		fmt.Fprintf(os.Stderr, "unknown review command: %s\n", verb)
+		fmt.Fprintln(os.Stderr, "usage: legato review [annotate|answer|ready|show|sync] ...")
+		return 1
+	}
+}
+
+// parseReviewArgs splits args into positionals, single-value flags, and
+// repeatable list flags (--file). Boolean flags (--json) map to "".
+func parseReviewArgs(args []string) (positional []string, flags map[string]string, listFlags map[string][]string) {
+	flags = map[string]string{}
+	listFlags = map[string][]string{}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if !strings.HasPrefix(arg, "--") {
+			positional = append(positional, arg)
+			continue
+		}
+		name := strings.TrimPrefix(arg, "--")
+		switch name {
+		case "json":
+			flags[name] = ""
+		case "file":
+			if i+1 < len(args) {
+				listFlags[name] = append(listFlags[name], args[i+1])
+				i++
+			}
+		default:
+			if i+1 < len(args) {
+				flags[name] = args[i+1]
+				i++
+			}
+		}
+	}
+	return positional, flags, listFlags
 }
 
 func runTaskCmd(args []string) int {
@@ -598,8 +734,10 @@ func runServeCmd(args []string) int {
 		swarmSvc = service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd, attachmentCache)
 	}
 
+	reviewSvc := service.NewReviewService(db, tmuxMgr, bus)
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
+	srv.SetReviewService(reviewSvc)
 	srv.SetMacros(cfg.Macros)
 	srv.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
@@ -628,6 +766,8 @@ func runServeCmd(args []string) int {
 		switch msg.Type {
 		case "task_update", "task_note", "agent_state", "pr_linked":
 			srv.NotifyAgentsChanged()
+		case "review_changed":
+			handleIPCMessage(msg, bus, nil)
 		}
 	})
 	if ipcErr == nil {
@@ -648,6 +788,7 @@ func runServeCmd(args []string) int {
 		defer swarmStop()
 	}
 	srv.StartSwarmEvents()
+	srv.StartReviewEvents()
 	srv.StartBoardEvents()
 
 	scheme := "http"
@@ -877,6 +1018,8 @@ func runTUI() int {
 	swarmStop := swarmSvc.StartEventLoop(context.Background())
 	defer swarmStop()
 
+	reviewSvc := service.NewReviewService(db, tmuxMgr, bus)
+
 	// Auto-start web server if configured and port is free.
 	if cfg.Web.Enabled {
 		addr := ":" + cfg.Web.Port
@@ -885,6 +1028,7 @@ func runTUI() int {
 			log.Printf("web: port %s unavailable: %v", cfg.Web.Port, listenErr)
 		} else {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
+			webSrv.SetReviewService(reviewSvc)
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)
@@ -902,6 +1046,7 @@ func runTUI() int {
 				webSrv.SetAuthToken(token)
 			}
 			webSrv.StartSwarmEvents()
+			webSrv.StartReviewEvents()
 			webSrv.StartBoardEvents()
 			go func() {
 				if err := webSrv.Serve(ln); err != nil && err.Error() != "http: Server closed" {
@@ -916,7 +1061,7 @@ func runTUI() int {
 
 	reportSvc := service.NewReportService(db)
 
-	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros)
+	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
 	app.SetGroupDefaults(cfg.Groups.Defaults)
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		app.SetWorktreeService(service.NewWorktreeWorkflow(db, worktree.NewRunner("yg")))

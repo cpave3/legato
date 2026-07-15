@@ -62,6 +62,18 @@ describe("BoardCard", () => {
     expect(screen.getByText(/IDLE/)).toBeTruthy()
   })
 
+  it("shows review state and unreviewed count", () => {
+    const card = makeCard({ review_ready: true, review_unreviewed: 3 })
+    render(<BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
+    expect(screen.getByText("Review 3")).toBeTruthy()
+  })
+
+  it("shows a reviewed badge when a ready tour has no remaining steps", () => {
+    const card = makeCard({ review_ready: true, review_unreviewed: 0 })
+    render(<BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
+    expect(screen.getByText("Reviewed")).toBeTruthy()
+  })
+
   it("applies muted style in Done column", () => {
     const card = makeCard()
     const { container } = render(

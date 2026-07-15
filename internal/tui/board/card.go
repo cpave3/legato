@@ -29,6 +29,8 @@ type CardData struct {
 	PRIsDraft        bool          // PR is a draft
 	PRNumber         int           // PR number (0 = no PR linked)
 	SwarmStats       SwarmStats    // sub-task aggregate; zero value = no swarm
+	ReviewUnreviewed int           // unreviewed review-tour steps
+	ReviewReady      bool          // agent marked the tour ready for review
 }
 
 // SwarmStats holds aggregate sub-task counts for a swarm parent card.
@@ -114,6 +116,22 @@ func renderSwarmBadge(card CardData, selected bool) string {
 	}
 	style := lipgloss.NewStyle().Foreground(fg).Background(bg).Bold(true)
 	return style.Render(fmt.Sprintf("%d/%d ◊", card.SwarmStats.Done, card.SwarmStats.Total))
+}
+
+// renderReviewBadge renders a compact "needs review" badge: "⏵2" (unreviewed
+// step count). Returns empty when the task has no reviewable work.
+func renderReviewBadge(card CardData, selected bool) string {
+	if card.ReviewUnreviewed == 0 && !card.ReviewReady {
+		return ""
+	}
+	bg := lipgloss.Color("#252540")
+	fg := theme.SyncActive
+	if selected {
+		bg = lipgloss.Color("#EEEDFE")
+		fg = lipgloss.Color("#854F0B")
+	}
+	style := lipgloss.NewStyle().Foreground(fg).Background(bg).Bold(true)
+	return style.Render(fmt.Sprintf("⏵%d", card.ReviewUnreviewed))
 }
 
 // renderPRLine builds a compact PR status indicator line.
@@ -250,6 +268,9 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 		metaParts = append(metaParts, wsStyle.Render(card.WorkspaceName))
 	}
 	if badge := renderSwarmBadge(card, selected); badge != "" {
+		metaParts = append(metaParts, badge)
+	}
+	if badge := renderReviewBadge(card, selected); badge != "" {
 		metaParts = append(metaParts, badge)
 	}
 	metaLine := ""
