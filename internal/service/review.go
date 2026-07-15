@@ -1,0 +1,658 @@
+package service
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/cpave3/legato/internal/engine/events"
+	gitpkg "github.com/cpave3/legato/internal/engine/git"
+	"github.com/cpave3/legato/internal/engine/store"
+)
+
+// ErrNoWorktree is returned when a task has no linked worktree — review tours
+// are computed from worktree history, so the feature is unavailable without one.
+var ErrNoWorktree = fmt.Errorf("task has no worktree; review tours need one (create it via the task worktree flow)")
+
+// subtaskTrailerPrefix marks conductor checkpoint commits with the swarm
+// sub-task they ratify, e.g. "Legato-Subtask: st-0123456789".
+const subtaskTrailerPrefix = "Legato-Subtask:"
+
+const (
+	reviewSeqNoteBase = 1 << 20 // note steps sort after commits
+	reviewSeqDirty    = 1 << 30 // the dirty step always sorts last
+)
+
+// ReviewService maintains review tours: commit-skeleton sync, agent
+// annotations, the reviewed watermark, and the Q&A transcript.
+type ReviewService struct {
+	store *store.Store
+	tmux  TmuxManager // nil-safe: questions are stored but undeliverable
+	bus   *events.Bus // nil-safe
+}
+
+func NewReviewService(s *store.Store, tmux TmuxManager, bus *events.Bus) *ReviewService {
+	return &ReviewService{store: s, tmux: tmux, bus: bus}
+}
+
+// Sync imports worktree commits into tour steps and refreshes the synthetic
+// dirty step. It is idempotent and runs before every read or mutation so the
+// tour always reflects the worktree.
+func (r *ReviewService) Sync(ctx context.Context, taskID string) error {
+	task, err := r.store.GetTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if task.WorktreePath == nil || task.WorktreeBaseBranch == nil {
+		return ErrNoWorktree
+	}
+	wt := *task.WorktreePath
+
+	base, err := gitpkg.MergeBase(ctx, wt, *task.WorktreeBaseBranch)
+	if err != nil {
+		return err
+	}
+	commits, err := gitpkg.CommitsAhead(ctx, wt, base)
+	if err != nil {
+		return err
+	}
+
+	if _, err := r.store.EnsureReviewTour(ctx, taskID); err != nil {
+		return err
+	}
+	if _, err := r.store.UpdateReviewTour(ctx, taskID, func(rt *store.ReviewTour) {
+		rt.BaseSHA = base
+	}); err != nil {
+		return err
+	}
+
+	changed := false
+	for i, c := range commits {
+		subtaskID, narration := extractSubtaskTrailer(c.Body)
+		inserted, err := r.store.InsertReviewStep(ctx, store.ReviewStep{
+			ID:        generateReviewStepID(),
+			TaskID:    taskID,
+			Kind:      "commit",
+			CommitSHA: c.SHA,
+			Files:     "[]",
+			Title:     c.Subject,
+			Narration: narration,
+			Seq:       i,
+			SubtaskID: subtaskID,
+		})
+		if err != nil {
+			return err
+		}
+		changed = changed || inserted
+	}
+
+	liveSHAs := make([]string, len(commits))
+	for i, c := range commits {
+		liveSHAs[i] = c.SHA
+	}
+	if err := r.store.MarkReviewStepsOrphaned(ctx, taskID, liveSHAs); err != nil {
+		return err
+	}
+
+	dirtyChanged, err := r.syncDirtyStep(ctx, taskID, wt)
+	if err != nil {
+		return err
+	}
+	changed = changed || dirtyChanged
+
+	// New work past the watermark re-enters the review queue.
+	if changed {
+		tour, err := r.store.GetReviewTour(ctx, taskID)
+		if err != nil {
+			return err
+		}
+		if tour.Status == "reviewed" {
+			if _, err := r.store.UpdateReviewTour(ctx, taskID, func(rt *store.ReviewTour) {
+				rt.Status = "ready"
+			}); err != nil {
+				return err
+			}
+		}
+		r.publish(taskID, "", "synced")
+	}
+	return nil
+}
+
+// AnnotateArgs carries an agent annotation. SHA anchors to a commit step
+// (default: the newest commit). Files with no SHA creates a file-anchored
+// note step instead.
+type AnnotateArgs struct {
+	SHA       string
+	Text      string
+	Files     []string
+	Risk      string
+	OrderHint *int
+	SubtaskID string
+}
+
+// Annotate enriches the tour: appends narration, sets risk and reading order
+// on a commit step, or records a file-anchored note.
+func (r *ReviewService) Annotate(ctx context.Context, taskID string, a AnnotateArgs) (string, error) {
+	if err := r.Sync(ctx, taskID); err != nil {
+		return "", err
+	}
+
+	if a.SHA == "" && len(a.Files) > 0 {
+		return r.insertNoteStep(ctx, taskID, a)
+	}
+
+	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	if err != nil {
+		return "", err
+	}
+	target, err := resolveAnnotateTarget(steps, a.SHA)
+	if err != nil {
+		return "", err
+	}
+	updated, err := r.store.UpdateReviewStep(ctx, target.ID, func(st *store.ReviewStep) {
+		st.Narration = appendNarration(st.Narration, a.Text)
+		if a.Risk != "" {
+			st.Risk = a.Risk
+		}
+		if a.OrderHint != nil {
+			st.OrderHint = a.OrderHint
+		}
+		if a.SubtaskID != "" {
+			st.SubtaskID = a.SubtaskID
+		}
+	})
+	if err != nil {
+		return "", err
+	}
+	r.publish(taskID, updated.ID, "annotated")
+	return updated.ID, nil
+}
+
+func (r *ReviewService) insertNoteStep(ctx context.Context, taskID string, a AnnotateArgs) (string, error) {
+	filesJSON, err := json.Marshal(a.Files)
+	if err != nil {
+		return "", err
+	}
+	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	if err != nil {
+		return "", err
+	}
+	noteCount := 0
+	for _, s := range steps {
+		if s.Kind == "note" {
+			noteCount++
+		}
+	}
+	id := generateReviewStepID()
+	if _, err := r.store.InsertReviewStep(ctx, store.ReviewStep{
+		ID:        id,
+		TaskID:    taskID,
+		Kind:      "note",
+		Files:     string(filesJSON),
+		Title:     noteTitle(a.Files),
+		Narration: a.Text,
+		Risk:      a.Risk,
+		OrderHint: a.OrderHint,
+		Seq:       reviewSeqNoteBase + noteCount,
+		SubtaskID: a.SubtaskID,
+	}); err != nil {
+		return "", err
+	}
+	r.publish(taskID, id, "annotated")
+	return id, nil
+}
+
+// resolveAnnotateTarget picks the commit step an annotation lands on: the
+// exact SHA (full or abbreviated) when given, otherwise the newest commit.
+func resolveAnnotateTarget(steps []store.ReviewStep, sha string) (*store.ReviewStep, error) {
+	var newest *store.ReviewStep
+	for i := range steps {
+		s := &steps[i]
+		if s.Kind != "commit" || s.OrphanedAt != nil {
+			continue
+		}
+		if sha != "" && strings.HasPrefix(s.CommitSHA, sha) {
+			return s, nil
+		}
+		if newest == nil || s.Seq > newest.Seq {
+			newest = s
+		}
+	}
+	if sha != "" {
+		return nil, fmt.Errorf("no review step for commit %q (is it committed in the task worktree?)", sha)
+	}
+	if newest == nil {
+		return nil, fmt.Errorf("no commit steps to annotate; commit your work first or use --file for a note")
+	}
+	return newest, nil
+}
+
+func appendNarration(existing, text string) string {
+	if strings.TrimSpace(existing) == "" {
+		return text
+	}
+	if strings.TrimSpace(text) == "" {
+		return existing
+	}
+	return existing + "\n\n" + text
+}
+
+func noteTitle(files []string) string {
+	if len(files) == 1 {
+		return "Note: " + files[0]
+	}
+	return fmt.Sprintf("Note: %s (+%d more)", files[0], len(files)-1)
+}
+
+// Ready marks the tour as awaiting human review. Called by the agent when it
+// considers its work complete.
+func (r *ReviewService) Ready(ctx context.Context, taskID, summary string) error {
+	if err := r.Sync(ctx, taskID); err != nil {
+		return err
+	}
+	_, err := r.store.UpdateReviewTour(ctx, taskID, func(rt *store.ReviewTour) {
+		rt.Status = "ready"
+		if summary != "" {
+			rt.Summary = summary
+		}
+		now := time.Now().UTC().Format("2006-01-02 15:04:05")
+		rt.ReadyAt = &now
+	})
+	if err != nil {
+		return err
+	}
+	r.publish(taskID, "", "ready")
+	return nil
+}
+
+// Complete finishes the human review: stamps every step reviewed, records the
+// newest commit SHA as the watermark, and closes the tour.
+func (r *ReviewService) Complete(ctx context.Context, taskID string) error {
+	if err := r.Sync(ctx, taskID); err != nil {
+		return err
+	}
+	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	watermark := ""
+	maxSeq := -1
+	for _, s := range steps {
+		if s.ReviewedAt == nil {
+			if _, err := r.store.UpdateReviewStep(ctx, s.ID, func(st *store.ReviewStep) {
+				st.ReviewedAt = &now
+			}); err != nil {
+				return err
+			}
+		}
+		if s.Kind == "commit" && s.OrphanedAt == nil && s.Seq > maxSeq {
+			maxSeq = s.Seq
+			watermark = s.CommitSHA
+		}
+	}
+	if _, err := r.store.UpdateReviewTour(ctx, taskID, func(rt *store.ReviewTour) {
+		rt.Status = "reviewed"
+		if watermark != "" {
+			rt.LastReviewedSHA = watermark
+		}
+	}); err != nil {
+		return err
+	}
+	r.publish(taskID, "", "reviewed")
+	return nil
+}
+
+// syncDirtyStep maintains the synthetic step representing uncommitted work:
+// created when the worktree is dirty, re-flagged unreviewed when its content
+// changes, removed when the worktree is clean. Returns whether anything changed.
+func (r *ReviewService) syncDirtyStep(ctx context.Context, taskID, wt string) (bool, error) {
+	diff, err := gitpkg.DiffWorktree(ctx, wt)
+	if err != nil {
+		return false, err
+	}
+	status, err := gitpkg.StatusPorcelain(ctx, wt)
+	if err != nil {
+		return false, err
+	}
+	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	if err != nil {
+		return false, err
+	}
+	var existing *store.ReviewStep
+	for i := range steps {
+		if steps[i].Kind == "dirty" {
+			existing = &steps[i]
+			break
+		}
+	}
+
+	if strings.TrimSpace(status) == "" {
+		if existing != nil {
+			return true, r.store.DeleteReviewStep(ctx, existing.ID)
+		}
+		return false, nil
+	}
+
+	fingerprint := dirtyFingerprint(status, diff)
+	if existing == nil {
+		_, err := r.store.InsertReviewStep(ctx, store.ReviewStep{
+			ID:               generateReviewStepID(),
+			TaskID:           taskID,
+			Kind:             "dirty",
+			Files:            "[]",
+			Title:            "Uncommitted changes",
+			Seq:              reviewSeqDirty,
+			DirtyFingerprint: fingerprint,
+		})
+		return true, err
+	}
+	if existing.DirtyFingerprint != fingerprint {
+		_, err := r.store.UpdateReviewStep(ctx, existing.ID, func(st *store.ReviewStep) {
+			st.DirtyFingerprint = fingerprint
+			st.ReviewedAt = nil
+		})
+		return true, err
+	}
+	return false, nil
+}
+
+// ReviewTourView is the assembled read model for the review UIs.
+type ReviewTourView struct {
+	Tour     store.ReviewTour      `json:"tour"`
+	Steps    []store.ReviewStep    `json:"steps"`
+	Messages []store.ReviewMessage `json:"messages"`
+}
+
+// Tour syncs and returns the full tour: header, ordered steps, transcript.
+func (r *ReviewService) Tour(ctx context.Context, taskID string) (*ReviewTourView, error) {
+	if err := r.Sync(ctx, taskID); err != nil {
+		return nil, err
+	}
+	tour, err := r.store.GetReviewTour(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	msgs, err := r.store.ListReviewMessages(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return &ReviewTourView{Tour: *tour, Steps: steps, Messages: msgs}, nil
+}
+
+// StepDiff computes the diff a step anchors to, parsed into the interchange
+// format both UIs render.
+func (r *ReviewService) StepDiff(ctx context.Context, taskID, stepID string) ([]gitpkg.FileDiff, error) {
+	task, err := r.store.GetTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task.WorktreePath == nil {
+		return nil, ErrNoWorktree
+	}
+	wt := *task.WorktreePath
+
+	step, err := r.store.GetReviewStepByPrefix(ctx, taskID, stepID)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw string
+	switch step.Kind {
+	case "commit":
+		if !gitpkg.CommitExists(ctx, wt, step.CommitSHA) {
+			return nil, fmt.Errorf("commit %s no longer exists (history was rewritten)", step.CommitSHA)
+		}
+		raw, err = gitpkg.ShowCommit(ctx, wt, step.CommitSHA)
+	case "dirty":
+		raw, err = gitpkg.DiffWorktree(ctx, wt)
+	case "note":
+		var files []string
+		if jsonErr := json.Unmarshal([]byte(step.Files), &files); jsonErr != nil {
+			return nil, jsonErr
+		}
+		tour, tourErr := r.store.GetReviewTour(ctx, taskID)
+		if tourErr != nil {
+			return nil, tourErr
+		}
+		raw, err = gitpkg.DiffFiles(ctx, wt, tour.BaseSHA, files)
+	default:
+		return nil, fmt.Errorf("unknown step kind %q", step.Kind)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return gitpkg.ParseUnifiedDiff(raw), nil
+}
+
+// ReviewBadgeState is the review summary attached to a task card.
+type ReviewBadgeState struct {
+	Unreviewed int  `json:"unreviewed"`
+	Ready      bool `json:"ready"`
+}
+
+// ReviewBadgeStates returns review badge data keyed by task ID. Ready tours
+// are included even when they have no unreviewed steps.
+func (r *ReviewService) ReviewBadgeStates(ctx context.Context) (map[string]ReviewBadgeState, error) {
+	tours, err := r.store.ListReviewTours(ctx)
+	if err != nil {
+		return nil, err
+	}
+	counts, err := r.store.UnreviewedReviewCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	states := make(map[string]ReviewBadgeState, len(tours))
+	for _, tour := range tours {
+		states[tour.TaskID] = ReviewBadgeState{
+			Unreviewed: counts[tour.TaskID],
+			Ready:      tour.Status == "ready",
+		}
+	}
+	return states, nil
+}
+
+// ReviewQueueItem is one entry in the "needs your review" queue.
+type ReviewQueueItem struct {
+	TaskID     string `json:"task_id"`
+	Title      string `json:"title"`
+	Status     string `json:"status"`
+	Summary    string `json:"summary"`
+	Unreviewed int    `json:"unreviewed"`
+}
+
+// Queue lists tasks with reviewable work: tours the agent marked ready,
+// completed reviews that gained new steps, and capturing tours whose agent
+// died before signalling ready.
+func (r *ReviewService) Queue(ctx context.Context) ([]ReviewQueueItem, error) {
+	tours, err := r.store.ListReviewTours(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, tour := range tours {
+		// A stale or missing worktree makes only that tour unavailable; it must
+		// not hide reviewable work from other tasks.
+		_ = r.Sync(ctx, tour.TaskID)
+	}
+	tours, err = r.store.ListReviewTours(ctx)
+	if err != nil {
+		return nil, err
+	}
+	counts, err := r.store.UnreviewedReviewCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var items []ReviewQueueItem
+	for _, tour := range tours {
+		unreviewed := counts[tour.TaskID]
+		include := false
+		switch tour.Status {
+		case "ready":
+			include = true
+		case "reviewed":
+			include = unreviewed > 0
+		case "capturing":
+			include = unreviewed > 0 && !r.agentAlive(ctx, tour.TaskID)
+		}
+		if !include {
+			continue
+		}
+		title := tour.TaskID
+		if task, err := r.store.GetTask(ctx, tour.TaskID); err == nil {
+			title = task.Title
+		}
+		items = append(items, ReviewQueueItem{
+			TaskID: tour.TaskID, Title: title, Status: tour.Status,
+			Summary: tour.Summary, Unreviewed: unreviewed,
+		})
+	}
+	return items, nil
+}
+
+func (r *ReviewService) agentAlive(ctx context.Context, taskID string) bool {
+	if r.tmux == nil {
+		return false
+	}
+	sess, err := r.store.GetAgentSessionByTaskID(ctx, taskID)
+	if err != nil {
+		return false
+	}
+	alive, _ := r.tmux.IsAlive(sess.TmuxSession)
+	return alive
+}
+
+// ErrAgentOffline is returned by AskQuestion when the task has no live agent
+// session. The question is still stored (undelivered) so it isn't lost.
+var ErrAgentOffline = fmt.Errorf("agent session is not running; question saved but not delivered")
+
+// AskQuestion stores a reviewer question on a step and delivers it into the
+// task's agent pane (solo agent, or the conductor for swarm tasks — the
+// conductor authored the packet and can relay to workers itself).
+func (r *ReviewService) AskQuestion(ctx context.Context, taskID, stepID, text string) error {
+	if err := r.Sync(ctx, taskID); err != nil {
+		return err
+	}
+	step, err := r.store.GetReviewStepByPrefix(ctx, taskID, stepID)
+	if err != nil {
+		return err
+	}
+
+	line := fmt.Sprintf(
+		"[legato review] Question on step %s (%q): %s — reply by running: legato review answer %s \"<your answer>\"",
+		step.ID, step.Title, text, step.ID)
+
+	delivered := false
+	if r.tmux != nil {
+		if sess, err := r.store.GetAgentSessionByTaskID(ctx, taskID); err == nil {
+			if alive, _ := r.tmux.IsAlive(sess.TmuxSession); alive {
+				if err := r.tmux.SendKeysLine(sess.TmuxSession, line); err == nil {
+					delivered = true
+				}
+			}
+		}
+	}
+
+	if _, err := r.store.InsertReviewMessage(ctx, store.ReviewMessage{
+		TaskID: taskID, StepID: step.ID, Kind: "question", Author: "user", Body: text,
+	}, delivered); err != nil {
+		return err
+	}
+	r.publish(taskID, step.ID, "question")
+	if !delivered {
+		return ErrAgentOffline
+	}
+	return nil
+}
+
+// Answer records an agent's reply to a reviewer question. stepID may be an
+// ID prefix (as printed in the delivered question line).
+func (r *ReviewService) Answer(ctx context.Context, taskID, stepID, text string) error {
+	if err := r.Sync(ctx, taskID); err != nil {
+		return err
+	}
+	step, err := r.store.GetReviewStepByPrefix(ctx, taskID, stepID)
+	if err != nil {
+		return err
+	}
+	if _, err := r.store.InsertReviewMessage(ctx, store.ReviewMessage{
+		TaskID: taskID, StepID: step.ID, Kind: "answer", Author: "agent", Body: text,
+	}, true); err != nil {
+		return err
+	}
+	r.publish(taskID, step.ID, "answer")
+	return nil
+}
+
+// SetReviewed toggles the per-step reviewed mark.
+func (r *ReviewService) SetReviewed(ctx context.Context, taskID, stepID string, reviewed bool) error {
+	if err := r.Sync(ctx, taskID); err != nil {
+		return err
+	}
+	step, err := r.store.GetReviewStepByPrefix(ctx, taskID, stepID)
+	if err != nil {
+		return err
+	}
+	_, err = r.store.UpdateReviewStep(ctx, step.ID, func(st *store.ReviewStep) {
+		if reviewed {
+			now := time.Now().UTC().Format("2006-01-02 15:04:05")
+			st.ReviewedAt = &now
+		} else {
+			st.ReviewedAt = nil
+		}
+	})
+	if err != nil {
+		return err
+	}
+	r.publish(taskID, step.ID, "reviewed")
+	return nil
+}
+
+// extractSubtaskTrailer strips a "Legato-Subtask: <id>" trailer line from a
+// commit body, returning the sub-task ID and the remaining narration.
+func extractSubtaskTrailer(body string) (subtaskID, narration string) {
+	var kept []string
+	for _, line := range strings.Split(body, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, subtaskTrailerPrefix) {
+			subtaskID = strings.TrimSpace(strings.TrimPrefix(trimmed, subtaskTrailerPrefix))
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return subtaskID, strings.TrimSpace(strings.Join(kept, "\n"))
+}
+
+// generateReviewStepID returns a 13-char id ("rs-" + 10 hex chars).
+func generateReviewStepID() string {
+	b := make([]byte, 5)
+	_, _ = rand.Read(b)
+	return "rs-" + hex.EncodeToString(b)
+}
+
+// dirtyFingerprint identifies the current uncommitted state, including index
+// and worktree metadata that may not alter the rendered patch.
+func dirtyFingerprint(status, diff string) string {
+	sum := sha256.Sum256([]byte(status + "\x00" + diff))
+	return hex.EncodeToString(sum[:])
+}
+
+func (r *ReviewService) publish(taskID, stepID, kind string) {
+	if r.bus == nil {
+		return
+	}
+	r.bus.Publish(events.Event{
+		Type:    events.EventReviewChanged,
+		Payload: events.ReviewChangedPayload{TaskID: taskID, StepID: stepID, Kind: kind},
+		At:      time.Now(),
+	})
+}

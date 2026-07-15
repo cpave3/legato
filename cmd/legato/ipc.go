@@ -34,6 +34,16 @@ func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 				NewStatus:    msg.Content,
 			},
 		})
+	case "review_changed":
+		bus.Publish(events.Event{
+			Type: events.EventReviewChanged,
+			At:   time.Now(),
+			Payload: events.ReviewChangedPayload{
+				TaskID: msg.TaskID,
+				StepID: msg.Status,
+				Kind:   msg.Content,
+			},
+		})
 	case "plan_proposed", "plan_extension_proposed":
 		bus.Publish(events.Event{
 			Type: events.EventPlanProposed,

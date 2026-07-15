@@ -25,6 +25,7 @@ const (
 	EventAgentDied
 	EventSwarmChanged
 	EventPlanProposed
+	EventReviewChanged
 )
 
 // ErrorPayload carries structured error information for error events.
@@ -57,6 +58,14 @@ type PlanProposedPayload struct {
 	PlanPath     string
 	ReplySocket  string
 	Mode         string // "extension" for append-to-existing-swarm plans, empty for normal proposals
+}
+
+// ReviewChangedPayload is published when a review tour mutates: steps synced,
+// annotation added, transcript entry appended, or status changed.
+type ReviewChangedPayload struct {
+	TaskID string
+	StepID string // empty when the change is tour-wide
+	Kind   string // "synced", "annotated", "question", "answer", "ready", "reviewed"
 }
 
 type Event struct {

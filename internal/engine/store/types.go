@@ -148,6 +148,53 @@ type PendingPlanEntry struct {
 	CreatedAt    string `db:"created_at"`
 }
 
+// ReviewTour is the per-task review packet header. Status lifecycle:
+// capturing → ready (agent signalled) → reviewed (human completed).
+type ReviewTour struct {
+	TaskID          string  `db:"task_id"`
+	Status          string  `db:"status"`
+	Summary         string  `db:"summary"`
+	BaseSHA         string  `db:"base_sha"`
+	LastReviewedSHA string  `db:"last_reviewed_sha"`
+	ReadyAt         *string `db:"ready_at"`
+	CreatedAt       string  `db:"created_at"`
+	UpdatedAt       string  `db:"updated_at"`
+}
+
+// ReviewStep is one reviewable unit of a tour: a commit, the synthetic dirty
+// step, or a file-anchored note. Identity is the generated ID — never the SHA —
+// so annotations and transcript survive re-syncs.
+type ReviewStep struct {
+	ID               string  `db:"id"`
+	TaskID           string  `db:"task_id"`
+	Kind             string  `db:"kind"` // commit|dirty|note
+	CommitSHA        string  `db:"commit_sha"`
+	Files            string  `db:"files"` // JSON array of paths
+	Title            string  `db:"title"`
+	Narration        string  `db:"narration"`
+	Risk             string  `db:"risk"` // ''|low|medium|high|unsure
+	OrderHint        *int    `db:"order_hint"`
+	Seq              int     `db:"seq"`
+	SubtaskID        string  `db:"subtask_id"`
+	DirtyFingerprint string  `db:"dirty_fingerprint"`
+	ReviewedAt       *string `db:"reviewed_at"`
+	OrphanedAt       *string `db:"orphaned_at"`
+	CreatedAt        string  `db:"created_at"`
+	UpdatedAt        string  `db:"updated_at"`
+}
+
+// ReviewMessage is one Q&A transcript entry attached to a review step.
+type ReviewMessage struct {
+	ID          int     `db:"id"`
+	TaskID      string  `db:"task_id"`
+	StepID      string  `db:"step_id"`
+	Kind        string  `db:"kind"`   // question|answer
+	Author      string  `db:"author"` // user|agent
+	Body        string  `db:"body"`
+	DeliveredAt *string `db:"delivered_at"`
+	CreatedAt   string  `db:"created_at"`
+}
+
 // Subtask represents a swarm sub-task: a unit of work parented to a task,
 // owned by one worker agent, scoped to a set of file globs.
 //

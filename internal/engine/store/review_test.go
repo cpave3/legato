@@ -1,0 +1,209 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"testing"
+)
+
+func TestInsertReviewStepDedupesOnCommitSHA(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	inserted, err := s.InsertReviewStep(ctx, ReviewStep{ID: "rs-1", TaskID: "t1", Kind: "commit", CommitSHA: "abc", Seq: 0})
+	if err != nil || !inserted {
+		t.Fatalf("first insert: inserted=%v err=%v", inserted, err)
+	}
+	inserted, err = s.InsertReviewStep(ctx, ReviewStep{ID: "rs-2", TaskID: "t1", Kind: "commit", CommitSHA: "abc", Seq: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inserted {
+		t.Fatal("duplicate commit SHA must not insert a second step")
+	}
+	// Same SHA on a different task is a distinct step.
+	inserted, err = s.InsertReviewStep(ctx, ReviewStep{ID: "rs-3", TaskID: "t2", Kind: "commit", CommitSHA: "abc", Seq: 0})
+	if err != nil || !inserted {
+		t.Fatalf("other-task insert: inserted=%v err=%v", inserted, err)
+	}
+}
+
+func TestListReviewStepsHonorsOrderHintThenSeq(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	two := 1
+	mustInsertStep(t, s, ReviewStep{ID: "rs-a", TaskID: "t1", Kind: "commit", CommitSHA: "a", Seq: 0})
+	mustInsertStep(t, s, ReviewStep{ID: "rs-b", TaskID: "t1", Kind: "commit", CommitSHA: "b", Seq: 1})
+	mustInsertStep(t, s, ReviewStep{ID: "rs-c", TaskID: "t1", Kind: "commit", CommitSHA: "c", Seq: 2, OrderHint: &two})
+
+	steps, err := s.ListReviewSteps(ctx, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{steps[0].ID, steps[1].ID, steps[2].ID}
+	// rs-c has an explicit order hint so it reads first; the rest follow seq.
+	want := []string{"rs-c", "rs-a", "rs-b"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order = %v, want %v", got, want)
+		}
+	}
+}
+
+func mustInsertStep(t *testing.T, s *Store, step ReviewStep) {
+	t.Helper()
+	if _, err := s.InsertReviewStep(context.Background(), step); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUpdateReviewStepAndPrefixLookup(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	mustInsertStep(t, s, ReviewStep{ID: "rs-abc12345", TaskID: "t1", Kind: "commit", CommitSHA: "a", Seq: 0})
+
+	if _, err := s.UpdateReviewStep(ctx, "rs-abc12345", func(st *ReviewStep) {
+		st.Narration = "why I did this"
+		st.Risk = "high"
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetReviewStepByPrefix(ctx, "t1", "rs-abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Narration != "why I did this" || got.Risk != "high" {
+		t.Fatalf("step = %+v", got)
+	}
+
+	if _, err := s.GetReviewStepByPrefix(ctx, "t1", "rs-zzz"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing prefix err = %v, want ErrNotFound", err)
+	}
+
+	// Ambiguous prefixes must be rejected, not silently resolved.
+	mustInsertStep(t, s, ReviewStep{ID: "rs-abc99999", TaskID: "t1", Kind: "commit", CommitSHA: "b", Seq: 1})
+	if _, err := s.GetReviewStepByPrefix(ctx, "t1", "rs-abc"); err == nil {
+		t.Fatal("ambiguous prefix must error")
+	}
+}
+
+func TestMarkReviewStepsOrphaned(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	mustInsertStep(t, s, ReviewStep{ID: "rs-live", TaskID: "t1", Kind: "commit", CommitSHA: "aaa", Seq: 0})
+	mustInsertStep(t, s, ReviewStep{ID: "rs-gone", TaskID: "t1", Kind: "commit", CommitSHA: "bbb", Seq: 1})
+	mustInsertStep(t, s, ReviewStep{ID: "rs-dirty", TaskID: "t1", Kind: "dirty", Seq: 999999})
+
+	if err := s.MarkReviewStepsOrphaned(ctx, "t1", []string{"aaa"}); err != nil {
+		t.Fatal(err)
+	}
+
+	gone, _ := s.GetReviewStep(ctx, "rs-gone")
+	if gone.OrphanedAt == nil {
+		t.Fatal("rs-gone should be orphaned")
+	}
+	live, _ := s.GetReviewStep(ctx, "rs-live")
+	if live.OrphanedAt != nil {
+		t.Fatal("rs-live should not be orphaned")
+	}
+	dirty, _ := s.GetReviewStep(ctx, "rs-dirty")
+	if dirty.OrphanedAt != nil {
+		t.Fatal("non-commit steps are never orphaned")
+	}
+
+	// A SHA that reappears (e.g. branch reset back) heals its step.
+	if err := s.MarkReviewStepsOrphaned(ctx, "t1", []string{"aaa", "bbb"}); err != nil {
+		t.Fatal(err)
+	}
+	healed, _ := s.GetReviewStep(ctx, "rs-gone")
+	if healed.OrphanedAt != nil {
+		t.Fatal("rs-gone should be healed when its SHA is live again")
+	}
+}
+
+func TestReviewTranscriptAppendAndList(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	delivered := true
+	q, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", StepID: "rs-1", Kind: "question", Author: "user", Body: "why this?"}, delivered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.DeliveredAt == nil {
+		t.Fatal("delivered question must have delivered_at set")
+	}
+	undelivered, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", StepID: "rs-1", Kind: "question", Author: "user", Body: "agent offline"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if undelivered.DeliveredAt != nil {
+		t.Fatal("undelivered question must have NULL delivered_at")
+	}
+	if _, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", StepID: "rs-1", Kind: "answer", Author: "agent", Body: "because"}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	msgs, err := s.ListReviewMessages(ctx, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 3 {
+		t.Fatalf("len(msgs) = %d, want 3", len(msgs))
+	}
+	if msgs[0].Body != "why this?" || msgs[2].Kind != "answer" {
+		t.Fatalf("order/content wrong: %+v", msgs)
+	}
+}
+
+func TestUnreviewedReviewCounts(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	mustInsertStep(t, s, ReviewStep{ID: "rs-1", TaskID: "t1", Kind: "commit", CommitSHA: "a", Seq: 0})
+	mustInsertStep(t, s, ReviewStep{ID: "rs-2", TaskID: "t1", Kind: "commit", CommitSHA: "b", Seq: 1})
+	mustInsertStep(t, s, ReviewStep{ID: "rs-3", TaskID: "t2", Kind: "commit", CommitSHA: "a", Seq: 0})
+
+	if _, err := s.UpdateReviewStep(ctx, "rs-2", func(st *ReviewStep) {
+		now := "2026-07-15 00:00:00"
+		st.ReviewedAt = &now
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	counts, err := s.UnreviewedReviewCounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts["t1"] != 1 || counts["t2"] != 1 {
+		t.Fatalf("counts = %v", counts)
+	}
+}
+
+func TestEnsureReviewTourCreatesAndIsIdempotent(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	tour, err := s.EnsureReviewTour(ctx, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tour.Status != "capturing" {
+		t.Fatalf("Status = %q, want capturing", tour.Status)
+	}
+
+	if _, err := s.UpdateReviewTour(ctx, "task-1", func(rt *ReviewTour) {
+		rt.Status = "ready"
+		rt.Summary = "did the thing"
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := s.EnsureReviewTour(ctx, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Status != "ready" || again.Summary != "did the thing" {
+		t.Fatalf("Ensure clobbered existing tour: %+v", again)
+	}
+}
