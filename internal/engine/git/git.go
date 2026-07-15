@@ -23,6 +23,21 @@ type Commit struct {
 	When    time.Time
 }
 
+// IsRepository reports whether dir belongs to a Git working tree.
+func IsRepository(ctx context.Context, dir string) bool {
+	out, err := runGit(ctx, dir, "rev-parse", "--is-inside-work-tree")
+	return err == nil && strings.TrimSpace(out) == "true"
+}
+
+// Head returns the full SHA currently checked out in dir.
+func Head(ctx context.Context, dir string) (string, error) {
+	out, err := runGit(ctx, dir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // MergeBase returns the fork point between HEAD and the given base branch.
 func MergeBase(ctx context.Context, dir, base string) (string, error) {
 	out, err := runGit(ctx, dir, "merge-base", base, "HEAD")

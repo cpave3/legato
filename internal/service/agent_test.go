@@ -303,6 +303,31 @@ func newTestAgentService(t *testing.T) (AgentService, *store.Store, *mockTmux) {
 	return svc, s, mt
 }
 
+func TestSpawnAgentBeginsReviewCaptureInOrdinaryRepository(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	createTask(t, s, "task-review")
+	repo := initTestRepo(t)
+	base := gitRun(t, repo, "rev-parse", "HEAD")
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, repo)
+
+	if err := svc.SpawnAgent(context.Background(), "task-review", 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	tour, err := s.GetReviewTour(context.Background(), "task-review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tour.BaseSHA != base || tour.RepositoryPath != repo {
+		t.Fatalf("tour = %+v, want base %s and repo %s", tour, base, repo)
+	}
+}
+
 func newTestAgentServiceWithNotifier(t *testing.T, notifier Notifier) (AgentService, *store.Store, *mockTmux) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")

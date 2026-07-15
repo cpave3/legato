@@ -8,6 +8,20 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+// LatestTaskWorkingDir returns the newest non-empty repository directory
+// recorded for a task's agent activity.
+func (s *Store) LatestTaskWorkingDir(ctx context.Context, taskID string) (string, error) {
+	var dir string
+	err := s.db.GetContext(ctx, &dir, `
+		SELECT working_dir FROM state_intervals
+		WHERE task_id = ? AND working_dir IS NOT NULL AND working_dir != ''
+		ORDER BY id DESC LIMIT 1`, taskID)
+	if err == sql.ErrNoRows {
+		return "", ErrNotFound
+	}
+	return dir, err
+}
+
 func (s *Store) RecordStateTransition(ctx context.Context, taskID, state, workingDir string) error {
 	var current StateInterval
 	err := s.db.GetContext(ctx, &current,

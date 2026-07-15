@@ -155,6 +155,7 @@ type ReviewTour struct {
 	Status          string  `db:"status"`
 	Summary         string  `db:"summary"`
 	BaseSHA         string  `db:"base_sha"`
+	RepositoryPath  string  `db:"repository_path"`
 	LastReviewedSHA string  `db:"last_reviewed_sha"`
 	ReadyAt         *string `db:"ready_at"`
 	CreatedAt       string  `db:"created_at"`

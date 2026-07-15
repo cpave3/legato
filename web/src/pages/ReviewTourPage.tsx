@@ -126,7 +126,7 @@ export function ReviewTourPage() {
       {actionError && <div role="alert" className="border-b border-red-900 bg-red-950/50 px-5 py-2 text-xs text-red-300">{actionError}</div>}
       {actionInfo && <div role="status" className="border-b border-amber-900 bg-amber-950/40 px-5 py-2 text-xs text-amber-200">{actionInfo}</div>}
 
-      <div className="grid min-h-0 flex-1 grid-cols-[18rem_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[18rem_minmax(0,1fr)_20rem]">
         <aside className="overflow-y-auto border-r border-zinc-800 bg-zinc-950 p-3">
           <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Review steps</div>
           <div className="space-y-1">
@@ -166,21 +166,25 @@ export function ReviewTourPage() {
 
               {diffLoading ? <div className="flex justify-center py-10 text-zinc-600"><Loader2 className="animate-spin" size={20} /></div> : <DiffView files={diff} />}
 
-              <section className="rounded border border-zinc-800 bg-zinc-950 p-4">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Questions & answers</h3>
-                {messages.length > 0 && <div className="mt-3 space-y-2">{messages.map((message) => (
-                  <div key={message.id} className={cn("rounded p-2 text-sm", message.author === "user" ? "bg-indigo-950/40 text-indigo-200" : "bg-zinc-900 text-zinc-300")}>
-                    <div className="mb-1 text-[10px] uppercase text-zinc-600">{message.author}</div>{message.body}
-                  </div>
-                ))}</div>}
-                <div className="mt-3 flex gap-2">
-                  <input aria-label="Question for agent" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void askQuestion() }} placeholder="Ask about this step…" className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-600" />
-                  <button aria-label="Ask agent" disabled={busy || !question.trim()} onClick={() => void askQuestion()} className="rounded bg-zinc-800 px-3 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40"><Send size={15} /></button>
-                </div>
-              </section>
             </div>
           )}
         </main>
+
+        <aside className="flex min-h-0 flex-col border-l border-zinc-800 bg-zinc-950 p-3">
+          <h3 className="px-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Questions & answers</h3>
+          <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto">
+            {messages.length === 0 && <p className="px-1 text-xs text-zinc-600">No questions on this step yet.</p>}
+            {messages.map((message) => (
+              <div key={message.id} className={cn("rounded p-2 text-sm", message.author === "user" ? "bg-indigo-950/40 text-indigo-200" : "bg-zinc-900 text-zinc-300")}>
+                <div className="mb-1 text-[10px] uppercase text-zinc-600">{message.author}</div>{message.body}
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex shrink-0 gap-2 border-t border-zinc-800 pt-3">
+            <input aria-label="Question for agent" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void askQuestion() }} placeholder="Ask about this step…" className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-600" />
+            <button aria-label="Ask agent" disabled={busy || !question.trim()} onClick={() => void askQuestion()} className="rounded bg-zinc-800 px-3 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40"><Send size={15} /></button>
+          </div>
+        </aside>
       </div>
     </div>
   )

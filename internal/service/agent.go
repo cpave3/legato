@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	gitpkg "github.com/cpave3/legato/internal/engine/git"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
 )
@@ -425,6 +426,14 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	envVars := make([]string, 0, len(envMap))
 	for k, v := range envMap {
 		envVars = append(envVars, k+"="+v)
+	}
+
+	// Snapshot ordinary repository HEAD before the agent starts. Review sync can
+	// then import only this session's commits even when no task worktree exists.
+	if gitpkg.IsRepository(ctx, workDir) {
+		if err := NewReviewService(a.store, nil, nil).BeginCapture(ctx, taskID, workDir); err != nil && opt.ParentTaskID == "" {
+			log.Printf("starting review capture for %s: %v", taskID, err)
+		}
 	}
 
 	if err := a.tmux.Spawn(sessionName, workDir, width, height, envVars...); err != nil {

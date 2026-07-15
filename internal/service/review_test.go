@@ -87,6 +87,37 @@ func gitCommitAll(t *testing.T, dir, message string) string {
 	return gitRun(t, dir, "rev-parse", "HEAD")
 }
 
+func TestReviewSyncWithoutWorktreeUsesRecordedRepository(t *testing.T) {
+	s := newReviewTestStore(t)
+	repo := initTestRepo(t)
+	createTask(t, s, "task-1")
+	base := gitRun(t, repo, "rev-parse", "HEAD")
+	if _, err := s.EnsureReviewTour(context.Background(), "task-1"); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewReviewService(s, nil, nil)
+	if err := svc.BeginCapture(context.Background(), "task-1", repo); err != nil {
+		t.Fatal(err)
+	}
+	tour, err := s.GetReviewTour(context.Background(), "task-1")
+	if err != nil || tour.BaseSHA != base || tour.RepositoryPath != repo {
+		t.Fatalf("tour = %+v, err = %v", tour, err)
+	}
+	writeRepoFile(t, repo, "plain.go", "package plain\n")
+	gitCommitAll(t, repo, "plain repository commit")
+
+	view, err := svc.Tour(context.Background(), "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Steps) != 1 || view.Steps[0].Title != "plain repository commit" {
+		t.Fatalf("steps = %+v", view.Steps)
+	}
+	if view.Messages == nil {
+		t.Fatal("empty transcript must be an empty slice, not nil")
+	}
+}
+
 func TestReviewSyncDirtyStepLifecycle(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()

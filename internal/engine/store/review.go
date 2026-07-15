@@ -219,7 +219,7 @@ func (s *Store) UpdateReviewTour(ctx context.Context, taskID string, mutate func
 	_, err = s.db.NamedExecContext(ctx, `
 		UPDATE review_tours SET
 			status = :status, summary = :summary, base_sha = :base_sha,
-			last_reviewed_sha = :last_reviewed_sha, ready_at = :ready_at,
+			repository_path = :repository_path, last_reviewed_sha = :last_reviewed_sha, ready_at = :ready_at,
 			updated_at = datetime('now')
 		WHERE task_id = :task_id`, rt)
 	if err != nil {

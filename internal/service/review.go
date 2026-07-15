@@ -15,9 +15,10 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
-// ErrNoWorktree is returned when a task has no linked worktree — review tours
-// are computed from worktree history, so the feature is unavailable without one.
-var ErrNoWorktree = fmt.Errorf("task has no worktree; review tours need one (create it via the task worktree flow)")
+// ErrNoRepository is returned when Legato has no repository directory recorded
+// for a task. Linked worktrees, swarm directories, and ordinary agent working
+// directories are all supported.
+var ErrNoRepository = fmt.Errorf("task has no recorded Git repository; launch an agent in a repository or link a worktree")
 
 // subtaskTrailerPrefix marks conductor checkpoint commits with the swarm
 // sub-task they ratify, e.g. "Legato-Subtask: st-0123456789".
@@ -43,28 +44,78 @@ func NewReviewService(s *store.Store, tmux TmuxManager, bus *events.Bus) *Review
 // Sync imports worktree commits into tour steps and refreshes the synthetic
 // dirty step. It is idempotent and runs before every read or mutation so the
 // tour always reflects the worktree.
+func (r *ReviewService) repositoryForTask(ctx context.Context, task *store.Task) (string, error) {
+	if task.WorktreePath != nil && *task.WorktreePath != "" {
+		return *task.WorktreePath, nil
+	}
+	if task.SwarmWorkingDir != nil && *task.SwarmWorkingDir != "" {
+		return *task.SwarmWorkingDir, nil
+	}
+	if tour, err := r.store.GetReviewTour(ctx, task.ID); err == nil && tour.RepositoryPath != "" {
+		return tour.RepositoryPath, nil
+	}
+	if dir, err := r.store.LatestTaskWorkingDir(ctx, task.ID); err == nil && dir != "" {
+		return dir, nil
+	}
+	return "", ErrNoRepository
+}
+
+// BeginCapture records the current HEAD as the baseline for an ordinary
+// repository session before the agent starts changing files. Linked worktrees
+// continue to derive their base from the configured base branch during Sync.
+func (r *ReviewService) BeginCapture(ctx context.Context, taskID, repo string) error {
+	if repo == "" {
+		return ErrNoRepository
+	}
+	base, err := gitpkg.Head(ctx, repo)
+	if err != nil {
+		return err
+	}
+	if _, err := r.store.EnsureReviewTour(ctx, taskID); err != nil {
+		return err
+	}
+	_, err = r.store.UpdateReviewTour(ctx, taskID, func(tour *store.ReviewTour) {
+		if tour.BaseSHA == "" {
+			tour.BaseSHA = base
+		}
+		tour.RepositoryPath = repo
+	})
+	return err
+}
+
 func (r *ReviewService) Sync(ctx context.Context, taskID string) error {
 	task, err := r.store.GetTask(ctx, taskID)
 	if err != nil {
 		return err
 	}
-	if task.WorktreePath == nil || task.WorktreeBaseBranch == nil {
-		return ErrNoWorktree
-	}
-	wt := *task.WorktreePath
-
-	base, err := gitpkg.MergeBase(ctx, wt, *task.WorktreeBaseBranch)
-	if err != nil {
-		return err
-	}
-	commits, err := gitpkg.CommitsAhead(ctx, wt, base)
+	repo, err := r.repositoryForTask(ctx, task)
 	if err != nil {
 		return err
 	}
 
-	if _, err := r.store.EnsureReviewTour(ctx, taskID); err != nil {
+	tour, tourErr := r.store.EnsureReviewTour(ctx, taskID)
+	if tourErr != nil {
+		return tourErr
+	}
+	base := tour.BaseSHA
+	if task.WorktreeBaseBranch != nil && *task.WorktreeBaseBranch != "" {
+		base, err = gitpkg.MergeBase(ctx, repo, *task.WorktreeBaseBranch)
+		if err != nil {
+			return err
+		}
+	} else if base == "" {
+		// This only occurs for legacy ordinary sessions created before spawn-time
+		// baseline capture. Starting at HEAD still permits dirty-step review.
+		base, err = gitpkg.Head(ctx, repo)
+		if err != nil {
+			return err
+		}
+	}
+	commits, err := gitpkg.CommitsAhead(ctx, repo, base)
+	if err != nil {
 		return err
 	}
+
 	if _, err := r.store.UpdateReviewTour(ctx, taskID, func(rt *store.ReviewTour) {
 		rt.BaseSHA = base
 	}); err != nil {
@@ -99,7 +150,7 @@ func (r *ReviewService) Sync(ctx context.Context, taskID string) error {
 		return err
 	}
 
-	dirtyChanged, err := r.syncDirtyStep(ctx, taskID, wt)
+	dirtyChanged, err := r.syncDirtyStep(ctx, taskID, repo)
 	if err != nil {
 		return err
 	}
@@ -311,12 +362,12 @@ func (r *ReviewService) Complete(ctx context.Context, taskID string) error {
 // syncDirtyStep maintains the synthetic step representing uncommitted work:
 // created when the worktree is dirty, re-flagged unreviewed when its content
 // changes, removed when the worktree is clean. Returns whether anything changed.
-func (r *ReviewService) syncDirtyStep(ctx context.Context, taskID, wt string) (bool, error) {
-	diff, err := gitpkg.DiffWorktree(ctx, wt)
+func (r *ReviewService) syncDirtyStep(ctx context.Context, taskID, repo string) (bool, error) {
+	diff, err := gitpkg.DiffWorktree(ctx, repo)
 	if err != nil {
 		return false, err
 	}
-	status, err := gitpkg.StatusPorcelain(ctx, wt)
+	status, err := gitpkg.StatusPorcelain(ctx, repo)
 	if err != nil {
 		return false, err
 	}
@@ -386,6 +437,12 @@ func (r *ReviewService) Tour(ctx context.Context, taskID string) (*ReviewTourVie
 	if err != nil {
 		return nil, err
 	}
+	if steps == nil {
+		steps = []store.ReviewStep{}
+	}
+	if msgs == nil {
+		msgs = []store.ReviewMessage{}
+	}
 	return &ReviewTourView{Tour: *tour, Steps: steps, Messages: msgs}, nil
 }
 
@@ -396,10 +453,10 @@ func (r *ReviewService) StepDiff(ctx context.Context, taskID, stepID string) ([]
 	if err != nil {
 		return nil, err
 	}
-	if task.WorktreePath == nil {
-		return nil, ErrNoWorktree
+	repo, err := r.repositoryForTask(ctx, task)
+	if err != nil {
+		return nil, err
 	}
-	wt := *task.WorktreePath
 
 	step, err := r.store.GetReviewStepByPrefix(ctx, taskID, stepID)
 	if err != nil {
@@ -409,12 +466,12 @@ func (r *ReviewService) StepDiff(ctx context.Context, taskID, stepID string) ([]
 	var raw string
 	switch step.Kind {
 	case "commit":
-		if !gitpkg.CommitExists(ctx, wt, step.CommitSHA) {
+		if !gitpkg.CommitExists(ctx, repo, step.CommitSHA) {
 			return nil, fmt.Errorf("commit %s no longer exists (history was rewritten)", step.CommitSHA)
 		}
-		raw, err = gitpkg.ShowCommit(ctx, wt, step.CommitSHA)
+		raw, err = gitpkg.ShowCommit(ctx, repo, step.CommitSHA)
 	case "dirty":
-		raw, err = gitpkg.DiffWorktree(ctx, wt)
+		raw, err = gitpkg.DiffWorktree(ctx, repo)
 	case "note":
 		var files []string
 		if jsonErr := json.Unmarshal([]byte(step.Files), &files); jsonErr != nil {
@@ -424,7 +481,7 @@ func (r *ReviewService) StepDiff(ctx context.Context, taskID, stepID string) ([]
 		if tourErr != nil {
 			return nil, tourErr
 		}
-		raw, err = gitpkg.DiffFiles(ctx, wt, tour.BaseSHA, files)
+		raw, err = gitpkg.DiffFiles(ctx, repo, tour.BaseSHA, files)
 	default:
 		return nil, fmt.Errorf("unknown step kind %q", step.Kind)
 	}

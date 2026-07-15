@@ -368,9 +368,13 @@ func (m Model) viewTour() string {
 	)
 
 	header := m.renderTourHeader()
+	thread := ""
+	if step := m.currentStep(); step != nil {
+		thread = m.renderThread(step.ID)
+	}
 	footer := m.renderTourFooter()
 	return lipgloss.NewStyle().Width(m.width).Height(m.height).Padding(0, 1).
-		Render(lipgloss.JoinVertical(lipgloss.Left, header, body, footer))
+		Render(lipgloss.JoinVertical(lipgloss.Left, header, body, thread, footer))
 }
 
 func (m Model) renderTourHeader() string {
@@ -478,10 +482,6 @@ func (m *Model) refreshViewport() {
 		sections = append(sections, dimStyle.Render("(loading diff...)"))
 	} else {
 		sections = append(sections, renderDiff(m.diff, m.rightPaneWidth()))
-	}
-
-	if thread := m.renderThread(step.ID); thread != "" {
-		sections = append(sections, thread)
 	}
 
 	m.viewport.SetContent(strings.Join(sections, "\n\n"))
