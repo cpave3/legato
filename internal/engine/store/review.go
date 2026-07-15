@@ -147,6 +147,54 @@ func buildInClause(format, taskID string, values []string) (string, []any) {
 	return fmt.Sprintf(format, placeholders), args
 }
 
+// InsertReviewChapter creates a chapter step and its hunk memberships atomically.
+func (s *Store) InsertReviewChapter(ctx context.Context, step ReviewStep, hunks []ReviewChapterHunk) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.NamedExecContext(ctx, `
+		INSERT INTO review_steps (id, task_id, kind, commit_sha, files, title,
+			narration, risk, order_hint, seq, subtask_id, dirty_fingerprint)
+		VALUES (:id, :task_id, :kind, :commit_sha, :files, :title,
+			:narration, :risk, :order_hint, :seq, :subtask_id, :dirty_fingerprint)`, step); err != nil {
+		return err
+	}
+	for _, hunk := range hunks {
+		if _, err := tx.NamedExecContext(ctx, `
+			INSERT INTO review_chapter_hunks (id, task_id, step_id, file_path, hunk_anchor, seq, generated)
+			VALUES (:id, :task_id, :step_id, :file_path, :hunk_anchor, :seq, :generated)`, hunk); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ListReviewChapterHunks returns memberships in authored reading order.
+func (s *Store) ListReviewChapterHunks(ctx context.Context, stepID string) ([]ReviewChapterHunk, error) {
+	var hunks []ReviewChapterHunk
+	err := s.db.SelectContext(ctx, &hunks,
+		"SELECT * FROM review_chapter_hunks WHERE step_id = ? ORDER BY seq ASC", stepID)
+	return hunks, err
+}
+
+// DeleteReviewChapter removes a chapter and its memberships atomically.
+func (s *Store) DeleteReviewChapter(ctx context.Context, stepID string) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, "DELETE FROM review_chapter_hunks WHERE step_id = ?", stepID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM review_steps WHERE id = ? AND kind = 'chapter'", stepID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // ListReviewTours returns all tours, most recently updated first.
 func (s *Store) ListReviewTours(ctx context.Context) ([]ReviewTour, error) {
 	var tours []ReviewTour
@@ -206,9 +254,16 @@ func (s *Store) ListReviewMessages(ctx context.Context, taskID string) ([]Review
 // not yet marked reviewed. Drives the board badge.
 func (s *Store) UnreviewedReviewCounts(ctx context.Context) (map[string]int, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT task_id, COUNT(*) FROM review_steps
-		WHERE reviewed_at IS NULL AND orphaned_at IS NULL
-		GROUP BY task_id`)
+		SELECT s.task_id, COUNT(*) FROM review_steps s
+		WHERE s.reviewed_at IS NULL AND s.orphaned_at IS NULL
+		  AND (
+		    s.kind = 'chapter'
+		    OR NOT EXISTS (
+		      SELECT 1 FROM review_steps c
+		      WHERE c.task_id = s.task_id AND c.kind = 'chapter'
+		    )
+		  )
+		GROUP BY s.task_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +290,7 @@ func (s *Store) UpdateReviewTour(ctx context.Context, taskID string, mutate func
 	mutate(rt)
 	_, err = s.db.NamedExecContext(ctx, `
 		UPDATE review_tours SET
-			status = :status, summary = :summary, base_sha = :base_sha,
+			status = :status, summary = :summary, base_sha = :base_sha, head_sha = :head_sha,
 			repository_path = :repository_path, last_reviewed_sha = :last_reviewed_sha, ready_at = :ready_at,
 			updated_at = datetime('now')
 		WHERE task_id = :task_id`, rt)

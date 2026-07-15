@@ -87,6 +87,99 @@ func gitCommitAll(t *testing.T, dir, message string) string {
 	return gitRun(t, dir, "rev-parse", "HEAD")
 }
 
+func TestUnreviewedCountsPreferChaptersOverHiddenCommitSteps(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "a.go", "package a\n")
+	gitCommitAll(t, f.repo, "add a")
+	if _, err := f.svc.CreateChapter(ctx, "task-1", ChapterArgs{Title: "Package A", Includes: []ChapterInclude{{FilePath: "a.go", Hunk: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	counts, err := f.store.UnreviewedReviewCounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts["task-1"] != 1 {
+		t.Fatalf("count = %d, want chapter only", counts["task-1"])
+	}
+}
+
+func TestReadyFreezesHeadAndCreatesRemainingChangesChapter(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "a.go", "package a\n")
+	gitCommitAll(t, f.repo, "add a")
+	writeRepoFile(t, f.repo, "b.go", "package b\n")
+	head := gitCommitAll(t, f.repo, "add b")
+
+	_, err := f.svc.CreateChapter(ctx, "task-1", ChapterArgs{Title: "Package A", Includes: []ChapterInclude{{FilePath: "a.go", Hunk: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.Ready(ctx, "task-1", "ready"); err != nil {
+		t.Fatal(err)
+	}
+	view, err := f.svc.Tour(ctx, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Tour.HeadSHA != head {
+		t.Fatalf("head = %q, want %q", view.Tour.HeadSHA, head)
+	}
+	if len(view.Steps) != 2 || view.Steps[1].Title != "Remaining changes" {
+		t.Fatalf("steps = %+v", view.Steps)
+	}
+	files, err := f.svc.StepDiff(ctx, "task-1", view.Steps[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].NewPath != "b.go" {
+		t.Fatalf("remaining = %+v", files)
+	}
+
+	writeRepoFile(t, f.repo, "c.go", "package c\n")
+	gitCommitAll(t, f.repo, "add c after ready")
+	files, err = f.svc.StepDiff(ctx, "task-1", view.Steps[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].NewPath != "a.go" {
+		t.Fatalf("frozen chapter changed = %+v", files)
+	}
+}
+
+func TestCreateChapterGroupsSelectedHunksAcrossCommits(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+
+	writeRepoFile(t, f.repo, "a.go", "package a\n")
+	gitCommitAll(t, f.repo, "add a")
+	writeRepoFile(t, f.repo, "b.go", "package b\n")
+	gitCommitAll(t, f.repo, "add b")
+
+	stepID, err := f.svc.CreateChapter(ctx, "task-1", ChapterArgs{
+		Title: "Packages", Narration: "Review these together",
+		Includes: []ChapterInclude{{FilePath: "a.go", Hunk: 1}, {FilePath: "b.go", Hunk: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := f.svc.Tour(ctx, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Steps) != 1 || view.Steps[0].ID != stepID || view.Steps[0].Kind != "chapter" {
+		t.Fatalf("steps = %+v, want authored chapter only", view.Steps)
+	}
+	files, err := f.svc.StepDiff(ctx, "task-1", stepID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 || files[0].NewPath != "a.go" || files[1].NewPath != "b.go" {
+		t.Fatalf("chapter diff = %+v", files)
+	}
+}
+
 func TestReviewSyncWithoutWorktreeUsesRecordedRepository(t *testing.T) {
 	s := newReviewTestStore(t)
 	repo := initTestRepo(t)

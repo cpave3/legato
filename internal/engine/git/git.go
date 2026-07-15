@@ -130,6 +130,11 @@ func CommitExists(ctx context.Context, dir, sha string) bool {
 	return err == nil
 }
 
+// DiffRange returns the unified diff between two revisions.
+func DiffRange(ctx context.Context, dir, base, head string) (string, error) {
+	return runGit(ctx, dir, "diff", base+".."+head)
+}
+
 // DiffFiles returns the diff between base and the current worktree limited to
 // the given paths. Used to render note steps that anchor to files rather than
 // a commit.

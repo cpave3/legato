@@ -177,6 +177,88 @@ func (r *ReviewService) Sync(ctx context.Context, taskID string) error {
 // AnnotateArgs carries an agent annotation. SHA anchors to a commit step
 // (default: the newest commit). Files with no SHA creates a file-anchored
 // note step instead.
+type ChapterInclude struct {
+	FilePath string
+	Hunk     int
+}
+
+type ChapterArgs struct {
+	Title     string
+	Narration string
+	Risk      string
+	OrderHint *int
+	Includes  []ChapterInclude
+}
+
+// CreateChapter groups arbitrary base-to-HEAD hunks into one authored review step.
+func (r *ReviewService) CreateChapter(ctx context.Context, taskID string, a ChapterArgs) (string, error) {
+	if strings.TrimSpace(a.Title) == "" {
+		return "", fmt.Errorf("chapter title is required")
+	}
+	if len(a.Includes) == 0 {
+		return "", fmt.Errorf("chapter requires at least one included hunk")
+	}
+	if err := r.Sync(ctx, taskID); err != nil {
+		return "", err
+	}
+	task, err := r.store.GetTask(ctx, taskID)
+	if err != nil {
+		return "", err
+	}
+	repo, err := r.repositoryForTask(ctx, task)
+	if err != nil {
+		return "", err
+	}
+	tour, err := r.store.GetReviewTour(ctx, taskID)
+	if err != nil {
+		return "", err
+	}
+	raw, err := gitpkg.DiffRange(ctx, repo, tour.BaseSHA, "HEAD")
+	if err != nil {
+		return "", err
+	}
+	files := gitpkg.ParseUnifiedDiff(raw)
+	stepID := generateReviewStepID()
+	members := make([]store.ReviewChapterHunk, 0, len(a.Includes))
+	for i, include := range a.Includes {
+		if include.Hunk < 1 {
+			return "", fmt.Errorf("hunk must be a 1-based positive number")
+		}
+		var selected *gitpkg.FileDiff
+		for j := range files {
+			if files[j].OldPath == include.FilePath || files[j].NewPath == include.FilePath {
+				selected = &files[j]
+				break
+			}
+		}
+		if selected == nil {
+			return "", fmt.Errorf("file %q is not in the review diff", include.FilePath)
+		}
+		if include.Hunk > len(selected.Hunks) {
+			return "", fmt.Errorf("file %q has %d hunks; cannot select hunk %d", include.FilePath, len(selected.Hunks), include.Hunk)
+		}
+		members = append(members, store.ReviewChapterHunk{ID: generateReviewID("rch-"), TaskID: taskID,
+			StepID: stepID, FilePath: include.FilePath, HunkAnchor: selected.Hunks[include.Hunk-1].Anchor, Seq: i})
+	}
+	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	if err != nil {
+		return "", err
+	}
+	chapterSeq := 0
+	for _, step := range steps {
+		if step.Kind == "chapter" && step.Seq >= chapterSeq {
+			chapterSeq = step.Seq + 1
+		}
+	}
+	err = r.store.InsertReviewChapter(ctx, store.ReviewStep{ID: stepID, TaskID: taskID, Kind: "chapter", Files: "[]",
+		Title: a.Title, Narration: a.Narration, Risk: a.Risk, OrderHint: a.OrderHint, Seq: chapterSeq}, members)
+	if err != nil {
+		return "", err
+	}
+	r.publish(taskID, stepID, "chapter")
+	return stepID, nil
+}
+
 type AnnotateArgs struct {
 	SHA       string
 	Text      string
@@ -354,8 +436,24 @@ func (r *ReviewService) Ready(ctx context.Context, taskID, summary string) error
 	if err := r.Sync(ctx, taskID); err != nil {
 		return err
 	}
-	_, err := r.store.UpdateReviewTour(ctx, taskID, func(rt *store.ReviewTour) {
+	task, err := r.store.GetTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	repo, err := r.repositoryForTask(ctx, task)
+	if err != nil {
+		return err
+	}
+	head, err := gitpkg.Head(ctx, repo)
+	if err != nil {
+		return err
+	}
+	if err := r.rebuildRemainingChapter(ctx, taskID, repo, head); err != nil {
+		return err
+	}
+	_, err = r.store.UpdateReviewTour(ctx, taskID, func(rt *store.ReviewTour) {
 		rt.Status = "ready"
+		rt.HeadSHA = head
 		if summary != "" {
 			rt.Summary = summary
 		}
@@ -367,6 +465,66 @@ func (r *ReviewService) Ready(ctx context.Context, taskID, summary string) error
 	}
 	r.publish(taskID, "", "ready")
 	return nil
+}
+
+func (r *ReviewService) rebuildRemainingChapter(ctx context.Context, taskID, repo, head string) error {
+	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	covered := map[string]bool{}
+	hasAuthored := false
+	for _, step := range steps {
+		if step.Kind != "chapter" {
+			continue
+		}
+		members, err := r.store.ListReviewChapterHunks(ctx, step.ID)
+		if err != nil {
+			return err
+		}
+		generated := len(members) > 0 && members[0].Generated
+		if generated {
+			if err := r.store.DeleteReviewChapter(ctx, step.ID); err != nil {
+				return err
+			}
+			continue
+		}
+		hasAuthored = true
+		for _, member := range members {
+			covered[member.FilePath+"\x00"+member.HunkAnchor] = true
+		}
+	}
+	if !hasAuthored {
+		return nil
+	}
+	tour, err := r.store.GetReviewTour(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	raw, err := gitpkg.DiffRange(ctx, repo, tour.BaseSHA, head)
+	if err != nil {
+		return err
+	}
+	stepID := generateReviewStepID()
+	var members []store.ReviewChapterHunk
+	seq := 0
+	for _, file := range gitpkg.ParseUnifiedDiff(raw) {
+		path := file.NewPath
+		if path == "" || path == "/dev/null" {
+			path = file.OldPath
+		}
+		for _, hunk := range file.Hunks {
+			if covered[path+"\x00"+hunk.Anchor] || covered[file.OldPath+"\x00"+hunk.Anchor] || covered[file.NewPath+"\x00"+hunk.Anchor] {
+				continue
+			}
+			members = append(members, store.ReviewChapterHunk{ID: generateReviewID("rch-"), TaskID: taskID, StepID: stepID, FilePath: path, HunkAnchor: hunk.Anchor, Seq: seq, Generated: true})
+			seq++
+		}
+	}
+	if len(members) == 0 {
+		return nil
+	}
+	return r.store.InsertReviewChapter(ctx, store.ReviewStep{ID: stepID, TaskID: taskID, Kind: "chapter", Files: "[]", Title: "Remaining changes", Narration: "Changes not assigned to an authored review chapter.", Risk: "unsure", Seq: reviewSeqNoteBase - 1}, members)
 }
 
 // Complete finishes the human review: stamps every step reviewed, records the
@@ -397,7 +555,9 @@ func (r *ReviewService) Complete(ctx context.Context, taskID string) error {
 	}
 	if _, err := r.store.UpdateReviewTour(ctx, taskID, func(rt *store.ReviewTour) {
 		rt.Status = "reviewed"
-		if watermark != "" {
+		if rt.HeadSHA != "" {
+			rt.LastReviewedSHA = rt.HeadSHA
+		} else if watermark != "" {
 			rt.LastReviewedSHA = watermark
 		}
 	}); err != nil {
@@ -482,6 +642,15 @@ func (r *ReviewService) Tour(ctx context.Context, taskID string) (*ReviewTourVie
 	if err != nil {
 		return nil, err
 	}
+	if hasAuthoredChapter(ctx, r.store, steps) {
+		filtered := make([]store.ReviewStep, 0, len(steps))
+		for _, step := range steps {
+			if step.Kind == "chapter" {
+				filtered = append(filtered, step)
+			}
+		}
+		steps = filtered
+	}
 	msgs, err := r.store.ListReviewMessages(ctx, taskID)
 	if err != nil {
 		return nil, err
@@ -500,6 +669,23 @@ func (r *ReviewService) Tour(ctx context.Context, taskID string) (*ReviewTourVie
 		hunkNotes = []store.ReviewHunkNote{}
 	}
 	return &ReviewTourView{Tour: *tour, Steps: steps, Messages: msgs, HunkNotes: hunkNotes}, nil
+}
+
+func hasAuthoredChapter(ctx context.Context, s *store.Store, steps []store.ReviewStep) bool {
+	for _, step := range steps {
+		if step.Kind != "chapter" {
+			continue
+		}
+		members, err := s.ListReviewChapterHunks(ctx, step.ID)
+		if err == nil {
+			for _, member := range members {
+				if !member.Generated {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // StepDiff computes the diff a step anchors to, parsed into the interchange
@@ -528,6 +714,24 @@ func (r *ReviewService) StepDiff(ctx context.Context, taskID, stepID string) ([]
 		raw, err = gitpkg.ShowCommit(ctx, repo, step.CommitSHA)
 	case "dirty":
 		raw, err = gitpkg.DiffWorktree(ctx, repo)
+	case "chapter":
+		tour, tourErr := r.store.GetReviewTour(ctx, taskID)
+		if tourErr != nil {
+			return nil, tourErr
+		}
+		head := tour.HeadSHA
+		if head == "" {
+			head = "HEAD"
+		}
+		raw, err = gitpkg.DiffRange(ctx, repo, tour.BaseSHA, head)
+		if err != nil {
+			break
+		}
+		members, memberErr := r.store.ListReviewChapterHunks(ctx, step.ID)
+		if memberErr != nil {
+			return nil, memberErr
+		}
+		return filterChapterDiff(gitpkg.ParseUnifiedDiff(raw), members), nil
 	case "note":
 		var files []string
 		if jsonErr := json.Unmarshal([]byte(step.Files), &files); jsonErr != nil {
@@ -545,6 +749,40 @@ func (r *ReviewService) StepDiff(ctx context.Context, taskID, stepID string) ([]
 		return nil, err
 	}
 	return gitpkg.ParseUnifiedDiff(raw), nil
+}
+
+func filterChapterDiff(files []gitpkg.FileDiff, members []store.ReviewChapterHunk) []gitpkg.FileDiff {
+	byPath := make(map[string]gitpkg.FileDiff, len(files))
+	for _, file := range files {
+		byPath[file.NewPath] = file
+		byPath[file.OldPath] = file
+	}
+	out := make([]gitpkg.FileDiff, 0)
+	indexes := map[string]int{}
+	for _, member := range members {
+		file, ok := byPath[member.FilePath]
+		if !ok {
+			continue
+		}
+		for _, hunk := range file.Hunks {
+			if hunk.Anchor != member.HunkAnchor {
+				continue
+			}
+			idx, exists := indexes[member.FilePath]
+			if !exists {
+				file.Hunks = []gitpkg.Hunk{}
+				out = append(out, file)
+				idx = len(out) - 1
+				indexes[member.FilePath] = idx
+			}
+			out[idx].Hunks = append(out[idx].Hunks, hunk)
+			break
+		}
+	}
+	if out == nil {
+		return []gitpkg.FileDiff{}
+	}
+	return out
 }
 
 // ReviewBadgeState is the review summary attached to a task card.

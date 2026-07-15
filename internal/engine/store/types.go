@@ -155,6 +155,7 @@ type ReviewTour struct {
 	Status          string  `db:"status" json:"status"`
 	Summary         string  `db:"summary" json:"summary"`
 	BaseSHA         string  `db:"base_sha" json:"base_sha"`
+	HeadSHA         string  `db:"head_sha" json:"head_sha"`
 	RepositoryPath  string  `db:"repository_path" json:"repository_path"`
 	LastReviewedSHA string  `db:"last_reviewed_sha" json:"last_reviewed_sha"`
 	ReadyAt         *string `db:"ready_at" json:"ready_at,omitempty"`
@@ -194,6 +195,19 @@ type ReviewHunkNote struct {
 	HunkAnchor string `db:"hunk_anchor" json:"hunk_anchor"`
 	Body       string `db:"body" json:"body"`
 	CreatedAt  string `db:"created_at" json:"created_at"`
+}
+
+// ReviewChapterHunk assigns one base-to-head diff hunk to a chapter step.
+type ReviewChapterHunk struct {
+	ID         string `db:"id" json:"id"`
+	TaskID     string `db:"task_id" json:"task_id"`
+	StepID     string `db:"step_id" json:"step_id"`
+	FilePath   string `db:"file_path" json:"file_path"`
+	HunkAnchor string `db:"hunk_anchor" json:"hunk_anchor"`
+	Seq        int    `db:"seq" json:"seq"`
+	Generated  bool   `db:"generated" json:"generated"`
+	CreatedAt  string `db:"created_at" json:"created_at"`
+	UpdatedAt  string `db:"updated_at" json:"updated_at"`
 }
 
 // ReviewMessage is one Q&A transcript entry attached to a review step.
