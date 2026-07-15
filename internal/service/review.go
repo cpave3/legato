@@ -41,6 +41,31 @@ func NewReviewService(s *store.Store, tmux TmuxManager, bus *events.Bus) *Review
 	return &ReviewService{store: s, tmux: tmux, bus: bus}
 }
 
+// EnsureReviewTour returns the named tour for a task, creating it when absent.
+func (r *ReviewService) EnsureReviewTour(ctx context.Context, taskID, name string) (*store.ReviewTour, error) {
+	return r.store.EnsureReviewTour(ctx, taskID, name)
+}
+
+func (r *ReviewService) resolveTourID(ctx context.Context, taskID, name string) (string, error) {
+	tour, err := r.store.EnsureReviewTour(ctx, taskID, name)
+	if err != nil {
+		return "", err
+	}
+	return tour.ID, nil
+}
+
+func (r *ReviewService) tourTask(ctx context.Context, tourID string) (*store.ReviewTour, *store.Task, error) {
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return nil, nil, err
+	}
+	task, err := r.store.GetTask(ctx, tour.TaskID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return tour, task, nil
+}
+
 // Sync imports worktree commits into tour steps and refreshes the synthetic
 // dirty step. It is idempotent and runs before every read or mutation so the
 // tour always reflects the worktree.
@@ -51,7 +76,7 @@ func (r *ReviewService) repositoryForTask(ctx context.Context, task *store.Task)
 	if task.SwarmWorkingDir != nil && *task.SwarmWorkingDir != "" {
 		return *task.SwarmWorkingDir, nil
 	}
-	if tour, err := r.store.GetReviewTour(ctx, task.ID); err == nil && tour.RepositoryPath != "" {
+	if tour, err := r.store.GetDefaultReviewTour(ctx, task.ID); err == nil && tour.RepositoryPath != "" {
 		return tour.RepositoryPath, nil
 	}
 	if dir, err := r.store.LatestTaskWorkingDir(ctx, task.ID); err == nil && dir != "" {
@@ -71,10 +96,11 @@ func (r *ReviewService) BeginCapture(ctx context.Context, taskID, repo string) e
 	if err != nil {
 		return err
 	}
-	if _, err := r.store.EnsureReviewTour(ctx, taskID); err != nil {
+	tourID, err := r.resolveTourID(ctx, taskID, "")
+	if err != nil {
 		return err
 	}
-	_, err = r.store.UpdateReviewTour(ctx, taskID, func(tour *store.ReviewTour) {
+	_, err = r.store.UpdateReviewTour(ctx, tourID, func(tour *store.ReviewTour) {
 		if tour.BaseSHA == "" {
 			tour.BaseSHA = base
 		}
@@ -83,7 +109,12 @@ func (r *ReviewService) BeginCapture(ctx context.Context, taskID, repo string) e
 	return err
 }
 
-func (r *ReviewService) Sync(ctx context.Context, taskID string) error {
+func (r *ReviewService) Sync(ctx context.Context, tourID string) error {
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return err
+	}
+	taskID := tour.TaskID
 	task, err := r.store.GetTask(ctx, taskID)
 	if err != nil {
 		return err
@@ -93,10 +124,6 @@ func (r *ReviewService) Sync(ctx context.Context, taskID string) error {
 		return err
 	}
 
-	tour, tourErr := r.store.EnsureReviewTour(ctx, taskID)
-	if tourErr != nil {
-		return tourErr
-	}
 	base := tour.BaseSHA
 	if task.WorktreeBaseBranch != nil && *task.WorktreeBaseBranch != "" {
 		base, err = gitpkg.MergeBase(ctx, repo, *task.WorktreeBaseBranch)
@@ -116,7 +143,7 @@ func (r *ReviewService) Sync(ctx context.Context, taskID string) error {
 		return err
 	}
 
-	if _, err := r.store.UpdateReviewTour(ctx, taskID, func(rt *store.ReviewTour) {
+	if _, err := r.store.UpdateReviewTour(ctx, tourID, func(rt *store.ReviewTour) {
 		rt.BaseSHA = base
 	}); err != nil {
 		return err
@@ -128,6 +155,7 @@ func (r *ReviewService) Sync(ctx context.Context, taskID string) error {
 		inserted, err := r.store.InsertReviewStep(ctx, store.ReviewStep{
 			ID:        generateReviewStepID(),
 			TaskID:    taskID,
+			TourID:    tourID,
 			Kind:      "commit",
 			CommitSHA: c.SHA,
 			Files:     "[]",
@@ -150,7 +178,7 @@ func (r *ReviewService) Sync(ctx context.Context, taskID string) error {
 		return err
 	}
 
-	dirtyChanged, err := r.syncDirtyStep(ctx, taskID, repo)
+	dirtyChanged, err := r.syncDirtyStep(ctx, tourID, taskID, repo)
 	if err != nil {
 		return err
 	}
@@ -158,18 +186,18 @@ func (r *ReviewService) Sync(ctx context.Context, taskID string) error {
 
 	// New work past the watermark re-enters the review queue.
 	if changed {
-		tour, err := r.store.GetReviewTour(ctx, taskID)
+		tour, err := r.store.GetReviewTour(ctx, tourID)
 		if err != nil {
 			return err
 		}
 		if tour.Status == "reviewed" {
-			if _, err := r.store.UpdateReviewTour(ctx, taskID, func(rt *store.ReviewTour) {
+			if _, err := r.store.UpdateReviewTour(ctx, tourID, func(rt *store.ReviewTour) {
 				rt.Status = "ready"
 			}); err != nil {
 				return err
 			}
 		}
-		r.publish(taskID, "", "synced")
+		r.publish(tourID, "", "synced")
 	}
 	return nil
 }
@@ -191,17 +219,17 @@ type ChapterArgs struct {
 }
 
 // CreateChapter groups arbitrary base-to-HEAD hunks into one authored review step.
-func (r *ReviewService) CreateChapter(ctx context.Context, taskID string, a ChapterArgs) (string, error) {
+func (r *ReviewService) CreateChapter(ctx context.Context, tourID string, a ChapterArgs) (string, error) {
 	if strings.TrimSpace(a.Title) == "" {
 		return "", fmt.Errorf("chapter title is required")
 	}
 	if len(a.Includes) == 0 {
 		return "", fmt.Errorf("chapter requires at least one included hunk")
 	}
-	if err := r.Sync(ctx, taskID); err != nil {
+	if err := r.Sync(ctx, tourID); err != nil {
 		return "", err
 	}
-	task, err := r.store.GetTask(ctx, taskID)
+	tour, task, err := r.tourTask(ctx, tourID)
 	if err != nil {
 		return "", err
 	}
@@ -209,10 +237,7 @@ func (r *ReviewService) CreateChapter(ctx context.Context, taskID string, a Chap
 	if err != nil {
 		return "", err
 	}
-	tour, err := r.store.GetReviewTour(ctx, taskID)
-	if err != nil {
-		return "", err
-	}
+	taskID := tour.TaskID
 	raw, err := gitpkg.DiffRange(ctx, repo, tour.BaseSHA, "HEAD")
 	if err != nil {
 		return "", err
@@ -237,10 +262,10 @@ func (r *ReviewService) CreateChapter(ctx context.Context, taskID string, a Chap
 		if include.Hunk > len(selected.Hunks) {
 			return "", fmt.Errorf("file %q has %d hunks; cannot select hunk %d", include.FilePath, len(selected.Hunks), include.Hunk)
 		}
-		members = append(members, store.ReviewChapterHunk{ID: generateReviewID("rch-"), TaskID: taskID,
+		members = append(members, store.ReviewChapterHunk{ID: generateReviewID("rch-"), TaskID: taskID, TourID: tourID,
 			StepID: stepID, FilePath: include.FilePath, HunkAnchor: selected.Hunks[include.Hunk-1].Anchor, Seq: i})
 	}
-	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	steps, err := r.store.ListReviewSteps(ctx, tourID)
 	if err != nil {
 		return "", err
 	}
@@ -250,12 +275,12 @@ func (r *ReviewService) CreateChapter(ctx context.Context, taskID string, a Chap
 			chapterSeq = step.Seq + 1
 		}
 	}
-	err = r.store.InsertReviewChapter(ctx, store.ReviewStep{ID: stepID, TaskID: taskID, Kind: "chapter", Files: "[]",
+	err = r.store.InsertReviewChapter(ctx, store.ReviewStep{ID: stepID, TaskID: taskID, TourID: tourID, Kind: "chapter", Files: "[]",
 		Title: a.Title, Narration: a.Narration, Risk: a.Risk, OrderHint: a.OrderHint, Seq: chapterSeq}, members)
 	if err != nil {
 		return "", err
 	}
-	r.publish(taskID, stepID, "chapter")
+	r.publish(tourID, stepID, "chapter")
 	return stepID, nil
 }
 
@@ -271,19 +296,24 @@ type AnnotateArgs struct {
 
 // Annotate enriches the tour: appends narration, sets risk and reading order
 // on a commit step, or records a file-anchored note.
-func (r *ReviewService) Annotate(ctx context.Context, taskID string, a AnnotateArgs) (string, error) {
-	if err := r.Sync(ctx, taskID); err != nil {
+func (r *ReviewService) Annotate(ctx context.Context, tourID string, a AnnotateArgs) (string, error) {
+	if err := r.Sync(ctx, tourID); err != nil {
 		return "", err
 	}
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return "", err
+	}
+	taskID := tour.TaskID
 
 	if a.Hunk != nil {
-		return r.insertHunkNote(ctx, taskID, a)
+		return r.insertHunkNote(ctx, tourID, taskID, a)
 	}
 	if a.SHA == "" && len(a.Files) > 0 {
-		return r.insertNoteStep(ctx, taskID, a)
+		return r.insertNoteStep(ctx, tourID, taskID, a)
 	}
 
-	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	steps, err := r.store.ListReviewSteps(ctx, tourID)
 	if err != nil {
 		return "", err
 	}
@@ -306,18 +336,18 @@ func (r *ReviewService) Annotate(ctx context.Context, taskID string, a AnnotateA
 	if err != nil {
 		return "", err
 	}
-	r.publish(taskID, updated.ID, "annotated")
+	r.publish(tourID, updated.ID, "annotated")
 	return updated.ID, nil
 }
 
-func (r *ReviewService) insertHunkNote(ctx context.Context, taskID string, a AnnotateArgs) (string, error) {
+func (r *ReviewService) insertHunkNote(ctx context.Context, tourID, taskID string, a AnnotateArgs) (string, error) {
 	if len(a.Files) != 1 {
 		return "", fmt.Errorf("--hunk requires exactly one --file path")
 	}
 	if *a.Hunk < 1 {
 		return "", fmt.Errorf("--hunk must be a 1-based positive number")
 	}
-	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	steps, err := r.store.ListReviewSteps(ctx, tourID)
 	if err != nil {
 		return "", err
 	}
@@ -325,7 +355,7 @@ func (r *ReviewService) insertHunkNote(ctx context.Context, taskID string, a Ann
 	if err != nil {
 		return "", err
 	}
-	files, err := r.StepDiff(ctx, taskID, target.ID)
+	files, err := r.StepDiff(ctx, tourID, target.ID)
 	if err != nil {
 		return "", err
 	}
@@ -345,21 +375,21 @@ func (r *ReviewService) insertHunkNote(ctx context.Context, taskID string, a Ann
 	}
 	id := generateReviewHunkNoteID()
 	if err := r.store.InsertReviewHunkNote(ctx, store.ReviewHunkNote{
-		ID: id, TaskID: taskID, StepID: target.ID, FilePath: path,
+		ID: id, TaskID: taskID, TourID: tourID, StepID: target.ID, FilePath: path,
 		HunkAnchor: file.Hunks[*a.Hunk-1].Anchor, Body: a.Text,
 	}); err != nil {
 		return "", err
 	}
-	r.publish(taskID, target.ID, "annotated")
+	r.publish(tourID, target.ID, "annotated")
 	return id, nil
 }
 
-func (r *ReviewService) insertNoteStep(ctx context.Context, taskID string, a AnnotateArgs) (string, error) {
+func (r *ReviewService) insertNoteStep(ctx context.Context, tourID, taskID string, a AnnotateArgs) (string, error) {
 	filesJSON, err := json.Marshal(a.Files)
 	if err != nil {
 		return "", err
 	}
-	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	steps, err := r.store.ListReviewSteps(ctx, tourID)
 	if err != nil {
 		return "", err
 	}
@@ -373,6 +403,7 @@ func (r *ReviewService) insertNoteStep(ctx context.Context, taskID string, a Ann
 	if _, err := r.store.InsertReviewStep(ctx, store.ReviewStep{
 		ID:        id,
 		TaskID:    taskID,
+		TourID:    tourID,
 		Kind:      "note",
 		Files:     string(filesJSON),
 		Title:     noteTitle(a.Files),
@@ -384,7 +415,7 @@ func (r *ReviewService) insertNoteStep(ctx context.Context, taskID string, a Ann
 	}); err != nil {
 		return "", err
 	}
-	r.publish(taskID, id, "annotated")
+	r.publish(tourID, id, "annotated")
 	return id, nil
 }
 
@@ -432,14 +463,15 @@ func noteTitle(files []string) string {
 
 // Ready marks the tour as awaiting human review. Called by the agent when it
 // considers its work complete.
-func (r *ReviewService) Ready(ctx context.Context, taskID, summary string) error {
-	if err := r.Sync(ctx, taskID); err != nil {
+func (r *ReviewService) Ready(ctx context.Context, tourID, summary string) error {
+	if err := r.Sync(ctx, tourID); err != nil {
 		return err
 	}
-	task, err := r.store.GetTask(ctx, taskID)
+	tour, task, err := r.tourTask(ctx, tourID)
 	if err != nil {
 		return err
 	}
+	taskID := tour.TaskID
 	repo, err := r.repositoryForTask(ctx, task)
 	if err != nil {
 		return err
@@ -448,10 +480,10 @@ func (r *ReviewService) Ready(ctx context.Context, taskID, summary string) error
 	if err != nil {
 		return err
 	}
-	if err := r.rebuildRemainingChapter(ctx, taskID, repo, head); err != nil {
+	if err := r.rebuildRemainingChapter(ctx, tourID, taskID, repo, head); err != nil {
 		return err
 	}
-	_, err = r.store.UpdateReviewTour(ctx, taskID, func(rt *store.ReviewTour) {
+	_, err = r.store.UpdateReviewTour(ctx, tourID, func(rt *store.ReviewTour) {
 		rt.Status = "ready"
 		rt.HeadSHA = head
 		if summary != "" {
@@ -463,12 +495,12 @@ func (r *ReviewService) Ready(ctx context.Context, taskID, summary string) error
 	if err != nil {
 		return err
 	}
-	r.publish(taskID, "", "ready")
+	r.publish(tourID, "", "ready")
 	return nil
 }
 
-func (r *ReviewService) rebuildRemainingChapter(ctx context.Context, taskID, repo, head string) error {
-	steps, err := r.store.ListReviewSteps(ctx, taskID)
+func (r *ReviewService) rebuildRemainingChapter(ctx context.Context, tourID, taskID, repo, head string) error {
+	steps, err := r.store.ListReviewSteps(ctx, tourID)
 	if err != nil {
 		return err
 	}
@@ -497,7 +529,7 @@ func (r *ReviewService) rebuildRemainingChapter(ctx context.Context, taskID, rep
 	if !hasAuthored {
 		return nil
 	}
-	tour, err := r.store.GetReviewTour(ctx, taskID)
+	tour, err := r.store.GetReviewTour(ctx, tourID)
 	if err != nil {
 		return err
 	}
@@ -517,36 +549,37 @@ func (r *ReviewService) rebuildRemainingChapter(ctx context.Context, taskID, rep
 			if covered[path+"\x00"+hunk.Anchor] || covered[file.OldPath+"\x00"+hunk.Anchor] || covered[file.NewPath+"\x00"+hunk.Anchor] {
 				continue
 			}
-			members = append(members, store.ReviewChapterHunk{ID: generateReviewID("rch-"), TaskID: taskID, StepID: stepID, FilePath: path, HunkAnchor: hunk.Anchor, Seq: seq, Generated: true})
+			members = append(members, store.ReviewChapterHunk{ID: generateReviewID("rch-"), TaskID: taskID, TourID: tourID, StepID: stepID, FilePath: path, HunkAnchor: hunk.Anchor, Seq: seq, Generated: true})
 			seq++
 		}
 	}
 	if len(members) == 0 {
 		return nil
 	}
-	return r.store.InsertReviewChapter(ctx, store.ReviewStep{ID: stepID, TaskID: taskID, Kind: "chapter", Files: "[]", Title: "Remaining changes", Narration: "Changes not assigned to an authored review chapter.", Risk: "unsure", Seq: reviewSeqNoteBase - 1}, members)
+	return r.store.InsertReviewChapter(ctx, store.ReviewStep{ID: stepID, TaskID: taskID, TourID: tourID, Kind: "chapter", Files: "[]", Title: "Remaining changes", Narration: "Changes not assigned to an authored review chapter.", Risk: "unsure", Seq: reviewSeqNoteBase - 1}, members)
 }
 
 // Delete discards a task's complete review packet. Git history and task state
 // are untouched; the next capture starts a fresh tour.
-func (r *ReviewService) Delete(ctx context.Context, taskID string) error {
-	if _, err := r.store.GetReviewTour(ctx, taskID); err != nil {
+func (r *ReviewService) Delete(ctx context.Context, tourID string) error {
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
 		return err
 	}
-	if err := r.store.DeleteReviewTour(ctx, taskID); err != nil {
+	if err := r.store.DeleteReviewTour(ctx, tourID); err != nil {
 		return err
 	}
-	r.publish(taskID, "", "deleted")
+	r.publishDeleted(tour.ID, tour.TaskID)
 	return nil
 }
 
 // Complete finishes the human review: stamps every step reviewed, records the
 // newest commit SHA as the watermark, and closes the tour.
-func (r *ReviewService) Complete(ctx context.Context, taskID string) error {
-	if err := r.Sync(ctx, taskID); err != nil {
+func (r *ReviewService) Complete(ctx context.Context, tourID string) error {
+	if err := r.Sync(ctx, tourID); err != nil {
 		return err
 	}
-	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	steps, err := r.store.ListReviewSteps(ctx, tourID)
 	if err != nil {
 		return err
 	}
@@ -566,7 +599,7 @@ func (r *ReviewService) Complete(ctx context.Context, taskID string) error {
 			watermark = s.CommitSHA
 		}
 	}
-	if _, err := r.store.UpdateReviewTour(ctx, taskID, func(rt *store.ReviewTour) {
+	if _, err := r.store.UpdateReviewTour(ctx, tourID, func(rt *store.ReviewTour) {
 		rt.Status = "reviewed"
 		if rt.HeadSHA != "" {
 			rt.LastReviewedSHA = rt.HeadSHA
@@ -576,14 +609,14 @@ func (r *ReviewService) Complete(ctx context.Context, taskID string) error {
 	}); err != nil {
 		return err
 	}
-	r.publish(taskID, "", "reviewed")
+	r.publish(tourID, "", "reviewed")
 	return nil
 }
 
 // syncDirtyStep maintains the synthetic step representing uncommitted work:
 // created when the worktree is dirty, re-flagged unreviewed when its content
 // changes, removed when the worktree is clean. Returns whether anything changed.
-func (r *ReviewService) syncDirtyStep(ctx context.Context, taskID, repo string) (bool, error) {
+func (r *ReviewService) syncDirtyStep(ctx context.Context, tourID, taskID, repo string) (bool, error) {
 	diff, err := gitpkg.DiffWorktree(ctx, repo)
 	if err != nil {
 		return false, err
@@ -592,7 +625,7 @@ func (r *ReviewService) syncDirtyStep(ctx context.Context, taskID, repo string) 
 	if err != nil {
 		return false, err
 	}
-	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	steps, err := r.store.ListReviewSteps(ctx, tourID)
 	if err != nil {
 		return false, err
 	}
@@ -616,6 +649,7 @@ func (r *ReviewService) syncDirtyStep(ctx context.Context, taskID, repo string) 
 		_, err := r.store.InsertReviewStep(ctx, store.ReviewStep{
 			ID:               generateReviewStepID(),
 			TaskID:           taskID,
+			TourID:           tourID,
 			Kind:             "dirty",
 			Files:            "[]",
 			Title:            "Uncommitted changes",
@@ -643,15 +677,15 @@ type ReviewTourView struct {
 }
 
 // Tour syncs and returns the full tour: header, ordered steps, transcript.
-func (r *ReviewService) Tour(ctx context.Context, taskID string) (*ReviewTourView, error) {
-	if err := r.Sync(ctx, taskID); err != nil {
+func (r *ReviewService) Tour(ctx context.Context, tourID string) (*ReviewTourView, error) {
+	if err := r.Sync(ctx, tourID); err != nil {
 		return nil, err
 	}
-	tour, err := r.store.GetReviewTour(ctx, taskID)
+	tour, err := r.store.GetReviewTour(ctx, tourID)
 	if err != nil {
 		return nil, err
 	}
-	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	steps, err := r.store.ListReviewSteps(ctx, tourID)
 	if err != nil {
 		return nil, err
 	}
@@ -664,11 +698,11 @@ func (r *ReviewService) Tour(ctx context.Context, taskID string) (*ReviewTourVie
 		}
 		steps = filtered
 	}
-	msgs, err := r.store.ListReviewMessages(ctx, taskID)
+	msgs, err := r.store.ListReviewMessages(ctx, tourID)
 	if err != nil {
 		return nil, err
 	}
-	hunkNotes, err := r.store.ListReviewHunkNotes(ctx, taskID)
+	hunkNotes, err := r.store.ListReviewHunkNotes(ctx, tourID)
 	if err != nil {
 		return nil, err
 	}
@@ -703,11 +737,12 @@ func hasAuthoredChapter(ctx context.Context, s *store.Store, steps []store.Revie
 
 // StepDiff computes the diff a step anchors to, parsed into the interchange
 // format both UIs render.
-func (r *ReviewService) StepDiff(ctx context.Context, taskID, stepID string) ([]gitpkg.FileDiff, error) {
-	task, err := r.store.GetTask(ctx, taskID)
+func (r *ReviewService) StepDiff(ctx context.Context, tourID, stepID string) ([]gitpkg.FileDiff, error) {
+	tour, task, err := r.tourTask(ctx, tourID)
 	if err != nil {
 		return nil, err
 	}
+	taskID := tour.TaskID
 	repo, err := r.repositoryForTask(ctx, task)
 	if err != nil {
 		return nil, err
@@ -716,6 +751,9 @@ func (r *ReviewService) StepDiff(ctx context.Context, taskID, stepID string) ([]
 	step, err := r.store.GetReviewStepByPrefix(ctx, taskID, stepID)
 	if err != nil {
 		return nil, err
+	}
+	if step.TourID != tourID {
+		return nil, store.ErrNotFound
 	}
 
 	var raw string
@@ -728,7 +766,7 @@ func (r *ReviewService) StepDiff(ctx context.Context, taskID, stepID string) ([]
 	case "dirty":
 		raw, err = gitpkg.DiffWorktree(ctx, repo)
 	case "chapter":
-		tour, tourErr := r.store.GetReviewTour(ctx, taskID)
+		tour, tourErr := r.store.GetReviewTour(ctx, tourID)
 		if tourErr != nil {
 			return nil, tourErr
 		}
@@ -750,7 +788,7 @@ func (r *ReviewService) StepDiff(ctx context.Context, taskID, stepID string) ([]
 		if jsonErr := json.Unmarshal([]byte(step.Files), &files); jsonErr != nil {
 			return nil, jsonErr
 		}
-		tour, tourErr := r.store.GetReviewTour(ctx, taskID)
+		tour, tourErr := r.store.GetReviewTour(ctx, tourID)
 		if tourErr != nil {
 			return nil, tourErr
 		}
@@ -800,8 +838,10 @@ func filterChapterDiff(files []gitpkg.FileDiff, members []store.ReviewChapterHun
 
 // ReviewBadgeState is the review summary attached to a task card.
 type ReviewBadgeState struct {
-	Unreviewed int  `json:"unreviewed"`
-	Ready      bool `json:"ready"`
+	TourID     string `json:"tour_id"`
+	Name       string `json:"name"`
+	Unreviewed int    `json:"unreviewed"`
+	Ready      bool   `json:"ready"`
 }
 
 // ReviewBadgeStates returns review badge data keyed by task ID. Ready tours
@@ -811,23 +851,58 @@ func (r *ReviewService) ReviewBadgeStates(ctx context.Context) (map[string]Revie
 	if err != nil {
 		return nil, err
 	}
-	counts, err := r.store.UnreviewedReviewCounts(ctx)
-	if err != nil {
-		return nil, err
-	}
 	states := make(map[string]ReviewBadgeState, len(tours))
-	for _, tour := range tours {
-		states[tour.TaskID] = ReviewBadgeState{
-			Unreviewed: counts[tour.TaskID],
-			Ready:      tour.Status == "ready",
+	seenTasks := make(map[string]bool, len(tours))
+	for _, listedTour := range tours {
+		if seenTasks[listedTour.TaskID] {
+			continue
 		}
+		seenTasks[listedTour.TaskID] = true
+		taskTours, err := r.store.ListReviewToursByTask(ctx, listedTour.TaskID)
+		if err != nil {
+			return nil, err
+		}
+		state := ReviewBadgeState{}
+		for _, tour := range taskTours {
+			unreviewed, err := r.unreviewedCount(ctx, tour.ID)
+			if err != nil {
+				return nil, err
+			}
+			state.Unreviewed += unreviewed
+			if state.TourID == "" || (tour.Status == "ready" && !state.Ready) {
+				state.TourID = tour.ID
+				state.Name = tour.Name
+			}
+			state.Ready = state.Ready || tour.Status == "ready"
+		}
+		states[listedTour.TaskID] = state
 	}
 	return states, nil
 }
 
+func (r *ReviewService) unreviewedCount(ctx context.Context, tourID string) (int, error) {
+	steps, err := r.store.ListReviewSteps(ctx, tourID)
+	if err != nil {
+		return 0, err
+	}
+	hasChapter := false
+	for _, step := range steps {
+		hasChapter = hasChapter || step.Kind == "chapter"
+	}
+	count := 0
+	for _, step := range steps {
+		if step.ReviewedAt == nil && step.OrphanedAt == nil && (!hasChapter || step.Kind == "chapter") {
+			count++
+		}
+	}
+	return count, nil
+}
+
 // ReviewQueueItem is one entry in the "needs your review" queue.
 type ReviewQueueItem struct {
+	TourID     string `json:"tour_id"`
 	TaskID     string `json:"task_id"`
+	Name       string `json:"name"`
 	Title      string `json:"title"`
 	Status     string `json:"status"`
 	Summary    string `json:"summary"`
@@ -845,20 +920,18 @@ func (r *ReviewService) Queue(ctx context.Context) ([]ReviewQueueItem, error) {
 	for _, tour := range tours {
 		// A stale or missing worktree makes only that tour unavailable; it must
 		// not hide reviewable work from other tasks.
-		_ = r.Sync(ctx, tour.TaskID)
+		_ = r.Sync(ctx, tour.ID)
 	}
 	tours, err = r.store.ListReviewTours(ctx)
 	if err != nil {
 		return nil, err
 	}
-	counts, err := r.store.UnreviewedReviewCounts(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	var items []ReviewQueueItem
 	for _, tour := range tours {
-		unreviewed := counts[tour.TaskID]
+		unreviewed, err := r.unreviewedCount(ctx, tour.ID)
+		if err != nil {
+			return nil, err
+		}
 		include := false
 		switch tour.Status {
 		case "ready":
@@ -876,8 +949,8 @@ func (r *ReviewService) Queue(ctx context.Context) ([]ReviewQueueItem, error) {
 			title = task.Title
 		}
 		items = append(items, ReviewQueueItem{
-			TaskID: tour.TaskID, Title: title, Status: tour.Status,
-			Summary: tour.Summary, Unreviewed: unreviewed,
+			TourID: tour.ID, TaskID: tour.TaskID, Name: tour.Name,
+			Title: title, Status: tour.Status, Summary: tour.Summary, Unreviewed: unreviewed,
 		})
 	}
 	return items, nil
@@ -902,13 +975,21 @@ var ErrAgentOffline = fmt.Errorf("agent session is not running; question saved b
 // AskQuestion stores a reviewer question on a step and delivers it into the
 // task's agent pane (solo agent, or the conductor for swarm tasks — the
 // conductor authored the packet and can relay to workers itself).
-func (r *ReviewService) AskQuestion(ctx context.Context, taskID, stepID, text string) error {
-	if err := r.Sync(ctx, taskID); err != nil {
+func (r *ReviewService) AskQuestion(ctx context.Context, tourID, stepID, text string) error {
+	if err := r.Sync(ctx, tourID); err != nil {
 		return err
 	}
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return err
+	}
+	taskID := tour.TaskID
 	step, err := r.store.GetReviewStepByPrefix(ctx, taskID, stepID)
 	if err != nil {
 		return err
+	}
+	if step.TourID != tourID {
+		return store.ErrNotFound
 	}
 
 	line := fmt.Sprintf(
@@ -927,11 +1008,11 @@ func (r *ReviewService) AskQuestion(ctx context.Context, taskID, stepID, text st
 	}
 
 	if _, err := r.store.InsertReviewMessage(ctx, store.ReviewMessage{
-		TaskID: taskID, StepID: step.ID, Kind: "question", Author: "user", Body: text,
+		TaskID: taskID, TourID: tourID, StepID: step.ID, Kind: "question", Author: "user", Body: text,
 	}, delivered); err != nil {
 		return err
 	}
-	r.publish(taskID, step.ID, "question")
+	r.publish(tourID, step.ID, "question")
 	if !delivered {
 		return ErrAgentOffline
 	}
@@ -940,31 +1021,47 @@ func (r *ReviewService) AskQuestion(ctx context.Context, taskID, stepID, text st
 
 // Answer records an agent's reply to a reviewer question. stepID may be an
 // ID prefix (as printed in the delivered question line).
-func (r *ReviewService) Answer(ctx context.Context, taskID, stepID, text string) error {
-	if err := r.Sync(ctx, taskID); err != nil {
+func (r *ReviewService) Answer(ctx context.Context, tourID, stepID, text string) error {
+	if err := r.Sync(ctx, tourID); err != nil {
 		return err
 	}
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return err
+	}
+	taskID := tour.TaskID
 	step, err := r.store.GetReviewStepByPrefix(ctx, taskID, stepID)
 	if err != nil {
 		return err
 	}
+	if step.TourID != tourID {
+		return store.ErrNotFound
+	}
 	if _, err := r.store.InsertReviewMessage(ctx, store.ReviewMessage{
-		TaskID: taskID, StepID: step.ID, Kind: "answer", Author: "agent", Body: text,
+		TaskID: taskID, TourID: tourID, StepID: step.ID, Kind: "answer", Author: "agent", Body: text,
 	}, true); err != nil {
 		return err
 	}
-	r.publish(taskID, step.ID, "answer")
+	r.publish(tourID, step.ID, "answer")
 	return nil
 }
 
 // SetReviewed toggles the per-step reviewed mark.
-func (r *ReviewService) SetReviewed(ctx context.Context, taskID, stepID string, reviewed bool) error {
-	if err := r.Sync(ctx, taskID); err != nil {
+func (r *ReviewService) SetReviewed(ctx context.Context, tourID, stepID string, reviewed bool) error {
+	if err := r.Sync(ctx, tourID); err != nil {
 		return err
 	}
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return err
+	}
+	taskID := tour.TaskID
 	step, err := r.store.GetReviewStepByPrefix(ctx, taskID, stepID)
 	if err != nil {
 		return err
+	}
+	if step.TourID != tourID {
+		return store.ErrNotFound
 	}
 	_, err = r.store.UpdateReviewStep(ctx, step.ID, func(st *store.ReviewStep) {
 		if reviewed {
@@ -977,7 +1074,7 @@ func (r *ReviewService) SetReviewed(ctx context.Context, taskID, stepID string, 
 	if err != nil {
 		return err
 	}
-	r.publish(taskID, step.ID, "reviewed")
+	r.publish(tourID, step.ID, "reviewed")
 	return nil
 }
 
@@ -1018,13 +1115,27 @@ func dirtyFingerprint(status, diff string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (r *ReviewService) publish(taskID, stepID, kind string) {
+func (r *ReviewService) publish(tourID, stepID, kind string) {
 	if r.bus == nil {
 		return
 	}
+	tour, err := r.store.GetReviewTour(context.Background(), tourID)
+	if err != nil {
+		return
+	}
+	r.publishEvent(tourID, tour.TaskID, stepID, kind)
+}
+
+func (r *ReviewService) publishDeleted(tourID, taskID string) {
+	if r.bus != nil {
+		r.publishEvent(tourID, taskID, "", "deleted")
+	}
+}
+
+func (r *ReviewService) publishEvent(tourID, taskID, stepID, kind string) {
 	r.bus.Publish(events.Event{
 		Type:    events.EventReviewChanged,
-		Payload: events.ReviewChangedPayload{TaskID: taskID, StepID: stepID, Kind: kind},
+		Payload: events.ReviewChangedPayload{TaskID: taskID, TourID: tourID, StepID: stepID, Kind: kind},
 		At:      time.Now(),
 	})
 }

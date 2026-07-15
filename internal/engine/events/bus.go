@@ -63,6 +63,7 @@ type PlanProposedPayload struct {
 // ReviewChangedPayload is published when a review tour mutates: steps synced,
 // annotation added, transcript entry appended, or status changed.
 type ReviewChangedPayload struct {
+	TourID string
 	TaskID string
 	StepID string // empty when the change is tour-wide
 	Kind   string // "synced", "annotated", "question", "answer", "ready", "reviewed"

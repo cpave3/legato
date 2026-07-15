@@ -319,7 +319,7 @@ func TestSpawnAgentBeginsReviewCaptureInOrdinaryRepository(t *testing.T) {
 	if err := svc.SpawnAgent(context.Background(), "task-review", 80, 24); err != nil {
 		t.Fatal(err)
 	}
-	tour, err := s.GetReviewTour(context.Background(), "task-review")
+	tour, err := s.GetDefaultReviewTour(context.Background(), "task-review")
 	if err != nil {
 		t.Fatal(err)
 	}

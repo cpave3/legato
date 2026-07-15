@@ -8,33 +8,60 @@ import (
 	"strings"
 )
 
-// EnsureReviewTour returns the tour for a task, creating it in the default
-// 'capturing' state when absent.
-func (s *Store) EnsureReviewTour(ctx context.Context, taskID string) (*ReviewTour, error) {
+// EnsureReviewTour returns the tour for a task + name, creating it in the
+// default 'capturing' state when absent. An empty name selects the default tour.
+func (s *Store) EnsureReviewTour(ctx context.Context, taskID, name string) (*ReviewTour, error) {
+	id := reviewTourID(taskID, name)
 	if _, err := s.db.ExecContext(ctx,
-		"INSERT OR IGNORE INTO review_tours (task_id) VALUES (?)", taskID); err != nil {
+		"INSERT OR IGNORE INTO review_tours (id, task_id, name) VALUES (?, ?, ?)", id, taskID, name); err != nil {
 		return nil, err
 	}
-	return s.GetReviewTour(ctx, taskID)
+	return s.GetReviewTour(ctx, id)
 }
 
-// GetReviewTour returns the tour for a task, or ErrNotFound.
-func (s *Store) GetReviewTour(ctx context.Context, taskID string) (*ReviewTour, error) {
+// GetReviewTour returns a tour by its surrogate ID, or ErrNotFound.
+func (s *Store) GetReviewTour(ctx context.Context, id string) (*ReviewTour, error) {
 	var rt ReviewTour
-	err := s.db.GetContext(ctx, &rt, "SELECT * FROM review_tours WHERE task_id = ?", taskID)
+	err := s.db.GetContext(ctx, &rt, "SELECT * FROM review_tours WHERE id = ?", id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	return &rt, err
 }
 
+// GetDefaultReviewTour returns the tour with an empty name for a task.
+func (s *Store) GetDefaultReviewTour(ctx context.Context, taskID string) (*ReviewTour, error) {
+	var rt ReviewTour
+	err := s.db.GetContext(ctx, &rt, "SELECT * FROM review_tours WHERE task_id = ? AND name = ''", taskID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return &rt, err
+}
+
+// ListReviewToursByTask returns all tours for a task, most recently updated first.
+func (s *Store) ListReviewToursByTask(ctx context.Context, taskID string) ([]ReviewTour, error) {
+	var tours []ReviewTour
+	err := s.db.SelectContext(ctx, &tours,
+		"SELECT * FROM review_tours WHERE task_id = ? ORDER BY updated_at DESC", taskID)
+	return tours, err
+}
+
+// reviewTourID derives a deterministic surrogate ID from task + name.
+func reviewTourID(taskID, name string) string {
+	if name == "" {
+		return "rt-" + taskID
+	}
+	return "rt-" + taskID + "-" + name
+}
+
 // InsertReviewStep adds a step to a tour. Commit steps are deduped per task
 // on their SHA; the returned bool reports whether a row was actually inserted.
 func (s *Store) InsertReviewStep(ctx context.Context, step ReviewStep) (bool, error) {
 	res, err := s.db.NamedExecContext(ctx, `
-		INSERT OR IGNORE INTO review_steps (id, task_id, kind, commit_sha, files,
+		INSERT OR IGNORE INTO review_steps (id, task_id, tour_id, kind, commit_sha, files,
 			title, narration, risk, order_hint, seq, subtask_id, dirty_fingerprint)
-		VALUES (:id, :task_id, :kind, :commit_sha, :files,
+		VALUES (:id, :task_id, :tour_id, :kind, :commit_sha, :files,
 			:title, :narration, :risk, :order_hint, :seq, :subtask_id, :dirty_fingerprint)`, step)
 	if err != nil {
 		return false, err
@@ -48,11 +75,11 @@ func (s *Store) InsertReviewStep(ctx context.Context, step ReviewStep) (bool, er
 
 // ListReviewSteps returns a tour's steps in reading order: explicit agent
 // order hints first, then commit topology.
-func (s *Store) ListReviewSteps(ctx context.Context, taskID string) ([]ReviewStep, error) {
+func (s *Store) ListReviewSteps(ctx context.Context, tourID string) ([]ReviewStep, error) {
 	var steps []ReviewStep
 	err := s.db.SelectContext(ctx, &steps, `
-		SELECT * FROM review_steps WHERE task_id = ?
-		ORDER BY (order_hint IS NULL), order_hint ASC, seq ASC`, taskID)
+		SELECT * FROM review_steps WHERE tour_id = ?
+		ORDER BY (order_hint IS NULL), order_hint ASC, seq ASC`, tourID)
 	return steps, err
 }
 
@@ -155,16 +182,16 @@ func (s *Store) InsertReviewChapter(ctx context.Context, step ReviewStep, hunks 
 	}
 	defer tx.Rollback()
 	if _, err := tx.NamedExecContext(ctx, `
-		INSERT INTO review_steps (id, task_id, kind, commit_sha, files, title,
+		INSERT INTO review_steps (id, task_id, tour_id, kind, commit_sha, files, title,
 			narration, risk, order_hint, seq, subtask_id, dirty_fingerprint)
-		VALUES (:id, :task_id, :kind, :commit_sha, :files, :title,
+		VALUES (:id, :task_id, :tour_id, :kind, :commit_sha, :files, :title,
 			:narration, :risk, :order_hint, :seq, :subtask_id, :dirty_fingerprint)`, step); err != nil {
 		return err
 	}
 	for _, hunk := range hunks {
 		if _, err := tx.NamedExecContext(ctx, `
-			INSERT INTO review_chapter_hunks (id, task_id, step_id, file_path, hunk_anchor, seq, generated)
-			VALUES (:id, :task_id, :step_id, :file_path, :hunk_anchor, :seq, :generated)`, hunk); err != nil {
+			INSERT INTO review_chapter_hunks (id, task_id, tour_id, step_id, file_path, hunk_anchor, seq, generated)
+			VALUES (:id, :task_id, :tour_id, :step_id, :file_path, :hunk_anchor, :seq, :generated)`, hunk); err != nil {
 			return err
 		}
 	}
@@ -207,16 +234,16 @@ func (s *Store) ListReviewTours(ctx context.Context) ([]ReviewTour, error) {
 // generated so the service can return the durable note identity.
 func (s *Store) InsertReviewHunkNote(ctx context.Context, note ReviewHunkNote) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO review_hunk_notes (id, task_id, step_id, file_path, hunk_anchor, body)
-		VALUES (:id, :task_id, :step_id, :file_path, :hunk_anchor, :body)`, note)
+		INSERT INTO review_hunk_notes (id, task_id, tour_id, step_id, file_path, hunk_anchor, body)
+		VALUES (:id, :task_id, :tour_id, :step_id, :file_path, :hunk_anchor, :body)`, note)
 	return err
 }
 
-// ListReviewHunkNotes returns a task's hunk notes oldest first.
-func (s *Store) ListReviewHunkNotes(ctx context.Context, taskID string) ([]ReviewHunkNote, error) {
+// ListReviewHunkNotes returns a tour's hunk notes oldest first.
+func (s *Store) ListReviewHunkNotes(ctx context.Context, tourID string) ([]ReviewHunkNote, error) {
 	var notes []ReviewHunkNote
 	err := s.db.SelectContext(ctx, &notes, `
-		SELECT * FROM review_hunk_notes WHERE task_id = ? ORDER BY created_at ASC, id ASC`, taskID)
+		SELECT * FROM review_hunk_notes WHERE tour_id = ? ORDER BY created_at ASC, id ASC`, tourID)
 	return notes, err
 }
 
@@ -225,9 +252,9 @@ func (s *Store) ListReviewHunkNotes(ctx context.Context, taskID string) ([]Revie
 // the agent session is dead are stored with a NULL delivered_at).
 func (s *Store) InsertReviewMessage(ctx context.Context, m ReviewMessage, delivered bool) (*ReviewMessage, error) {
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO review_transcript (task_id, step_id, kind, author, body, delivered_at)
-		VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN datetime('now') ELSE NULL END)`,
-		m.TaskID, m.StepID, m.Kind, m.Author, m.Body, delivered)
+		INSERT INTO review_transcript (task_id, tour_id, step_id, kind, author, body, delivered_at)
+		VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? THEN datetime('now') ELSE NULL END)`,
+		m.TaskID, m.TourID, m.StepID, m.Kind, m.Author, m.Body, delivered)
 	if err != nil {
 		return nil, err
 	}
@@ -242,11 +269,11 @@ func (s *Store) InsertReviewMessage(ctx context.Context, m ReviewMessage, delive
 	return &out, nil
 }
 
-// ListReviewMessages returns a task's Q&A transcript, oldest first.
-func (s *Store) ListReviewMessages(ctx context.Context, taskID string) ([]ReviewMessage, error) {
+// ListReviewMessages returns a tour's Q&A transcript, oldest first.
+func (s *Store) ListReviewMessages(ctx context.Context, tourID string) ([]ReviewMessage, error) {
 	var msgs []ReviewMessage
 	err := s.db.SelectContext(ctx, &msgs,
-		"SELECT * FROM review_transcript WHERE task_id = ? ORDER BY id ASC", taskID)
+		"SELECT * FROM review_transcript WHERE tour_id = ? ORDER BY id ASC", tourID)
 	return msgs, err
 }
 
@@ -280,32 +307,31 @@ func (s *Store) UnreviewedReviewCounts(ctx context.Context) (map[string]int, err
 	return counts, rows.Err()
 }
 
-// DeleteReviewTour atomically removes every review artifact for a task while
+// DeleteReviewTour atomically removes every review artifact for a tour while
 // leaving the task, repository, worktree, and agent records untouched.
-func (s *Store) DeleteReviewTour(ctx context.Context, taskID string) error {
+func (s *Store) DeleteReviewTour(ctx context.Context, id string) error {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	for _, query := range []string{
-		"DELETE FROM review_chapter_hunks WHERE task_id = ?",
-		"DELETE FROM review_hunk_notes WHERE task_id = ?",
-		"DELETE FROM review_transcript WHERE task_id = ?",
-		"DELETE FROM review_steps WHERE task_id = ?",
-		"DELETE FROM review_tours WHERE task_id = ?",
+		"DELETE FROM review_chapter_hunks WHERE tour_id = ?",
+		"DELETE FROM review_hunk_notes WHERE tour_id = ?",
+		"DELETE FROM review_transcript WHERE tour_id = ?",
+		"DELETE FROM review_steps WHERE tour_id = ?",
+		"DELETE FROM review_tours WHERE id = ?",
 	} {
-		if _, err := tx.ExecContext(ctx, query, taskID); err != nil {
+		if _, err := tx.ExecContext(ctx, query, id); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
 }
 
-// UpdateReviewTour applies mutate to the current tour row and persists the
-// result, returning the updated tour.
-func (s *Store) UpdateReviewTour(ctx context.Context, taskID string, mutate func(*ReviewTour)) (*ReviewTour, error) {
-	rt, err := s.GetReviewTour(ctx, taskID)
+// UpdateReviewTour applies mutate to the tour row and persists the result.
+func (s *Store) UpdateReviewTour(ctx context.Context, id string, mutate func(*ReviewTour)) (*ReviewTour, error) {
+	rt, err := s.GetReviewTour(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -315,9 +341,9 @@ func (s *Store) UpdateReviewTour(ctx context.Context, taskID string, mutate func
 			status = :status, summary = :summary, base_sha = :base_sha, head_sha = :head_sha,
 			repository_path = :repository_path, last_reviewed_sha = :last_reviewed_sha, ready_at = :ready_at,
 			updated_at = datetime('now')
-		WHERE task_id = :task_id`, rt)
+		WHERE id = :id`, rt)
 	if err != nil {
 		return nil, err
 	}
-	return s.GetReviewTour(ctx, taskID)
+	return s.GetReviewTour(ctx, id)
 }

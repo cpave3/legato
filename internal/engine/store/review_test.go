@@ -12,35 +12,35 @@ func TestDeleteReviewTourRemovesAllReviewArtifacts(t *testing.T) {
 	if err := s.CreateTask(ctx, Task{ID: "t1", Title: "Keep me", Status: "Doing", CreatedAt: "2024-01-01", UpdatedAt: "2024-01-01"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.EnsureReviewTour(ctx, "t1"); err != nil {
+	if _, err := s.EnsureReviewTour(ctx, "t1", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.InsertReviewStep(ctx, ReviewStep{ID: "rs-1", TaskID: "t1", Kind: "commit", CommitSHA: "abc", Seq: 0}); err != nil {
+	if _, err := s.InsertReviewStep(ctx, ReviewStep{ID: "rs-1", TaskID: "t1", TourID: "rt-t1", Kind: "commit", CommitSHA: "abc", Seq: 0}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.InsertReviewHunkNote(ctx, ReviewHunkNote{ID: "rhn-1", TaskID: "t1", StepID: "rs-1", FilePath: "a.go", HunkAnchor: "h1", Body: "note"}); err != nil {
+	if err := s.InsertReviewHunkNote(ctx, ReviewHunkNote{ID: "rhn-1", TaskID: "t1", TourID: "rt-t1", StepID: "rs-1", FilePath: "a.go", HunkAnchor: "h1", Body: "note"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", StepID: "rs-1", Kind: "question", Author: "user", Body: "why"}, false); err != nil {
+	if _, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", TourID: "rt-t1", StepID: "rs-1", Kind: "question", Author: "user", Body: "why"}, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.InsertReviewChapter(ctx, ReviewStep{ID: "rc-1", TaskID: "t1", Kind: "chapter", Files: "[]", Title: "Chapter", Seq: 1}, []ReviewChapterHunk{{ID: "rch-1", TaskID: "t1", StepID: "rc-1", FilePath: "a.go", HunkAnchor: "h1"}}); err != nil {
+	if err := s.InsertReviewChapter(ctx, ReviewStep{ID: "rc-1", TaskID: "t1", TourID: "rt-t1", Kind: "chapter", Files: "[]", Title: "Chapter", Seq: 1}, []ReviewChapterHunk{{ID: "rch-1", TaskID: "t1", TourID: "rt-t1", StepID: "rc-1", FilePath: "a.go", HunkAnchor: "h1"}}); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := s.DeleteReviewTour(ctx, "t1"); err != nil {
+	if err := s.DeleteReviewTour(ctx, "rt-t1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.GetReviewTour(ctx, "t1"); !errors.Is(err, ErrNotFound) {
+	if _, err := s.GetReviewTour(ctx, "rt-t1"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("tour err = %v", err)
 	}
-	if steps, _ := s.ListReviewSteps(ctx, "t1"); len(steps) != 0 {
+	if steps, _ := s.ListReviewSteps(ctx, "rt-t1"); len(steps) != 0 {
 		t.Fatalf("steps = %+v", steps)
 	}
-	if notes, _ := s.ListReviewHunkNotes(ctx, "t1"); len(notes) != 0 {
+	if notes, _ := s.ListReviewHunkNotes(ctx, "rt-t1"); len(notes) != 0 {
 		t.Fatalf("notes = %+v", notes)
 	}
-	if msgs, _ := s.ListReviewMessages(ctx, "t1"); len(msgs) != 0 {
+	if msgs, _ := s.ListReviewMessages(ctx, "rt-t1"); len(msgs) != 0 {
 		t.Fatalf("messages = %+v", msgs)
 	}
 	if hunks, _ := s.ListReviewChapterHunks(ctx, "rc-1"); len(hunks) != 0 {
@@ -55,11 +55,11 @@ func TestInsertReviewStepDedupesOnCommitSHA(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	inserted, err := s.InsertReviewStep(ctx, ReviewStep{ID: "rs-1", TaskID: "t1", Kind: "commit", CommitSHA: "abc", Seq: 0})
+	inserted, err := s.InsertReviewStep(ctx, ReviewStep{ID: "rs-1", TaskID: "t1", TourID: "rt-t1", Kind: "commit", CommitSHA: "abc", Seq: 0})
 	if err != nil || !inserted {
 		t.Fatalf("first insert: inserted=%v err=%v", inserted, err)
 	}
-	inserted, err = s.InsertReviewStep(ctx, ReviewStep{ID: "rs-2", TaskID: "t1", Kind: "commit", CommitSHA: "abc", Seq: 1})
+	inserted, err = s.InsertReviewStep(ctx, ReviewStep{ID: "rs-2", TaskID: "t1", TourID: "rt-t1", Kind: "commit", CommitSHA: "abc", Seq: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestInsertReviewStepDedupesOnCommitSHA(t *testing.T) {
 		t.Fatal("duplicate commit SHA must not insert a second step")
 	}
 	// Same SHA on a different task is a distinct step.
-	inserted, err = s.InsertReviewStep(ctx, ReviewStep{ID: "rs-3", TaskID: "t2", Kind: "commit", CommitSHA: "abc", Seq: 0})
+	inserted, err = s.InsertReviewStep(ctx, ReviewStep{ID: "rs-3", TaskID: "t2", TourID: "rt-t2", Kind: "commit", CommitSHA: "abc", Seq: 0})
 	if err != nil || !inserted {
 		t.Fatalf("other-task insert: inserted=%v err=%v", inserted, err)
 	}
@@ -77,11 +77,11 @@ func TestListReviewStepsHonorsOrderHintThenSeq(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	two := 1
-	mustInsertStep(t, s, ReviewStep{ID: "rs-a", TaskID: "t1", Kind: "commit", CommitSHA: "a", Seq: 0})
-	mustInsertStep(t, s, ReviewStep{ID: "rs-b", TaskID: "t1", Kind: "commit", CommitSHA: "b", Seq: 1})
-	mustInsertStep(t, s, ReviewStep{ID: "rs-c", TaskID: "t1", Kind: "commit", CommitSHA: "c", Seq: 2, OrderHint: &two})
+	mustInsertStep(t, s, ReviewStep{ID: "rs-a", TaskID: "t1", TourID: "rt-t1", Kind: "commit", CommitSHA: "a", Seq: 0})
+	mustInsertStep(t, s, ReviewStep{ID: "rs-b", TaskID: "t1", TourID: "rt-t1", Kind: "commit", CommitSHA: "b", Seq: 1})
+	mustInsertStep(t, s, ReviewStep{ID: "rs-c", TaskID: "t1", TourID: "rt-t1", Kind: "commit", CommitSHA: "c", Seq: 2, OrderHint: &two})
 
-	steps, err := s.ListReviewSteps(ctx, "t1")
+	steps, err := s.ListReviewSteps(ctx, "rt-t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,8 +171,8 @@ func TestReviewHunkNotesPersistAndAllowMultiplePerHunk(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	notes := []ReviewHunkNote{
-		{ID: "rhn-1", TaskID: "t1", StepID: "rs-1", FilePath: "main.go", HunkAnchor: "anchor", Body: "first"},
-		{ID: "rhn-2", TaskID: "t1", StepID: "rs-1", FilePath: "main.go", HunkAnchor: "anchor", Body: "second"},
+		{ID: "rhn-1", TaskID: "t1", TourID: "rt-t1", StepID: "rs-1", FilePath: "main.go", HunkAnchor: "anchor", Body: "first"},
+		{ID: "rhn-2", TaskID: "t1", TourID: "rt-t1", StepID: "rs-1", FilePath: "main.go", HunkAnchor: "anchor", Body: "second"},
 	}
 	for _, note := range notes {
 		if err := s.InsertReviewHunkNote(ctx, note); err != nil {
@@ -180,7 +180,7 @@ func TestReviewHunkNotesPersistAndAllowMultiplePerHunk(t *testing.T) {
 		}
 	}
 
-	got, err := s.ListReviewHunkNotes(ctx, "t1")
+	got, err := s.ListReviewHunkNotes(ctx, "rt-t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,25 +197,25 @@ func TestReviewTranscriptAppendAndList(t *testing.T) {
 	ctx := context.Background()
 
 	delivered := true
-	q, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", StepID: "rs-1", Kind: "question", Author: "user", Body: "why this?"}, delivered)
+	q, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", TourID: "rt-t1", StepID: "rs-1", Kind: "question", Author: "user", Body: "why this?"}, delivered)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if q.DeliveredAt == nil {
 		t.Fatal("delivered question must have delivered_at set")
 	}
-	undelivered, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", StepID: "rs-1", Kind: "question", Author: "user", Body: "agent offline"}, false)
+	undelivered, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", TourID: "rt-t1", StepID: "rs-1", Kind: "question", Author: "user", Body: "agent offline"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if undelivered.DeliveredAt != nil {
 		t.Fatal("undelivered question must have NULL delivered_at")
 	}
-	if _, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", StepID: "rs-1", Kind: "answer", Author: "agent", Body: "because"}, true); err != nil {
+	if _, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", TourID: "rt-t1", StepID: "rs-1", Kind: "answer", Author: "agent", Body: "because"}, true); err != nil {
 		t.Fatal(err)
 	}
 
-	msgs, err := s.ListReviewMessages(ctx, "t1")
+	msgs, err := s.ListReviewMessages(ctx, "rt-t1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,9 +230,9 @@ func TestReviewTranscriptAppendAndList(t *testing.T) {
 func TestUnreviewedReviewCounts(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	mustInsertStep(t, s, ReviewStep{ID: "rs-1", TaskID: "t1", Kind: "commit", CommitSHA: "a", Seq: 0})
-	mustInsertStep(t, s, ReviewStep{ID: "rs-2", TaskID: "t1", Kind: "commit", CommitSHA: "b", Seq: 1})
-	mustInsertStep(t, s, ReviewStep{ID: "rs-3", TaskID: "t2", Kind: "commit", CommitSHA: "a", Seq: 0})
+	mustInsertStep(t, s, ReviewStep{ID: "rs-1", TaskID: "t1", TourID: "rt-t1", Kind: "commit", CommitSHA: "a", Seq: 0})
+	mustInsertStep(t, s, ReviewStep{ID: "rs-2", TaskID: "t1", TourID: "rt-t1", Kind: "commit", CommitSHA: "b", Seq: 1})
+	mustInsertStep(t, s, ReviewStep{ID: "rs-3", TaskID: "t2", TourID: "rt-t2", Kind: "commit", CommitSHA: "a", Seq: 0})
 
 	if _, err := s.UpdateReviewStep(ctx, "rs-2", func(st *ReviewStep) {
 		now := "2026-07-15 00:00:00"
@@ -254,7 +254,7 @@ func TestEnsureReviewTourCreatesAndIsIdempotent(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	tour, err := s.EnsureReviewTour(ctx, "task-1")
+	tour, err := s.EnsureReviewTour(ctx, "task-1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,14 +262,14 @@ func TestEnsureReviewTourCreatesAndIsIdempotent(t *testing.T) {
 		t.Fatalf("Status = %q, want capturing", tour.Status)
 	}
 
-	if _, err := s.UpdateReviewTour(ctx, "task-1", func(rt *ReviewTour) {
+	if _, err := s.UpdateReviewTour(ctx, "rt-task-1", func(rt *ReviewTour) {
 		rt.Status = "ready"
 		rt.Summary = "did the thing"
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	again, err := s.EnsureReviewTour(ctx, "task-1")
+	again, err := s.EnsureReviewTour(ctx, "task-1", "")
 	if err != nil {
 		t.Fatal(err)
 	}

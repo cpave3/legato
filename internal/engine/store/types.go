@@ -148,10 +148,12 @@ type PendingPlanEntry struct {
 	CreatedAt    string `db:"created_at"`
 }
 
-// ReviewTour is the per-task review packet header. Status lifecycle:
-// capturing → ready (agent signalled) → reviewed (human completed).
+// ReviewTour is a per-task review packet header. A task may have multiple
+// named tours. Status lifecycle: capturing → ready → reviewed.
 type ReviewTour struct {
+	ID              string  `db:"id" json:"id"`
 	TaskID          string  `db:"task_id" json:"task_id"`
+	Name            string  `db:"name" json:"name"`
 	Status          string  `db:"status" json:"status"`
 	Summary         string  `db:"summary" json:"summary"`
 	BaseSHA         string  `db:"base_sha" json:"base_sha"`
@@ -169,7 +171,8 @@ type ReviewTour struct {
 type ReviewStep struct {
 	ID               string  `db:"id" json:"id"`
 	TaskID           string  `db:"task_id" json:"task_id"`
-	Kind             string  `db:"kind" json:"kind"` // commit|dirty|note
+	TourID           string  `db:"tour_id" json:"tour_id"`
+	Kind             string  `db:"kind" json:"kind"` // commit|dirty|note|chapter
 	CommitSHA        string  `db:"commit_sha" json:"commit_sha"`
 	Files            string  `db:"files" json:"files"` // JSON array of paths
 	Title            string  `db:"title" json:"title"`
@@ -190,6 +193,7 @@ type ReviewStep struct {
 type ReviewHunkNote struct {
 	ID         string `db:"id" json:"id"`
 	TaskID     string `db:"task_id" json:"task_id"`
+	TourID     string `db:"tour_id" json:"tour_id"`
 	StepID     string `db:"step_id" json:"step_id"`
 	FilePath   string `db:"file_path" json:"file_path"`
 	HunkAnchor string `db:"hunk_anchor" json:"hunk_anchor"`
@@ -201,6 +205,7 @@ type ReviewHunkNote struct {
 type ReviewChapterHunk struct {
 	ID         string `db:"id" json:"id"`
 	TaskID     string `db:"task_id" json:"task_id"`
+	TourID     string `db:"tour_id" json:"tour_id"`
 	StepID     string `db:"step_id" json:"step_id"`
 	FilePath   string `db:"file_path" json:"file_path"`
 	HunkAnchor string `db:"hunk_anchor" json:"hunk_anchor"`
@@ -214,6 +219,7 @@ type ReviewChapterHunk struct {
 type ReviewMessage struct {
 	ID          int     `db:"id" json:"id"`
 	TaskID      string  `db:"task_id" json:"task_id"`
+	TourID      string  `db:"tour_id" json:"tour_id"`
 	StepID      string  `db:"step_id" json:"step_id"`
 	Kind        string  `db:"kind" json:"kind"`     // question|answer
 	Author      string  `db:"author" json:"author"` // user|agent

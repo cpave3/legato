@@ -15,10 +15,11 @@ import (
 // reviewFixture wires a ReviewService against a real SQLite store and a real
 // git repo acting as the task's worktree.
 type reviewFixture struct {
-	svc   *ReviewService
-	store *store.Store
-	tmux  *mockTmux
-	repo  string
+	svc    *ReviewService
+	store  *store.Store
+	tmux   *mockTmux
+	repo   string
+	tourID string
 }
 
 func newReviewFixture(t *testing.T) *reviewFixture {
@@ -34,7 +35,11 @@ func newReviewFixture(t *testing.T) *reviewFixture {
 	}
 
 	tmux := newMockTmux()
-	return &reviewFixture{svc: NewReviewService(s, tmux, nil), store: s, tmux: tmux, repo: repo}
+	tour, err := s.EnsureReviewTour(context.Background(), "task-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &reviewFixture{svc: NewReviewService(s, tmux, nil), store: s, tmux: tmux, repo: repo, tourID: tour.ID}
 }
 
 func newReviewTestStore(t *testing.T) *store.Store {
@@ -90,13 +95,13 @@ func gitCommitAll(t *testing.T, dir, message string) string {
 func TestDeleteReviewRemovesPacketAndPublishesChange(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
-	if err := f.svc.Sync(ctx, "task-1"); err != nil {
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.svc.Delete(ctx, "task-1"); err != nil {
+	if err := f.svc.Delete(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.store.GetReviewTour(ctx, "task-1"); !errors.Is(err, store.ErrNotFound) {
+	if _, err := f.store.GetReviewTour(ctx, f.tourID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("tour err = %v", err)
 	}
 	queue, err := f.svc.Queue(ctx)
@@ -113,7 +118,7 @@ func TestUnreviewedCountsPreferChaptersOverHiddenCommitSteps(t *testing.T) {
 	ctx := context.Background()
 	writeRepoFile(t, f.repo, "a.go", "package a\n")
 	gitCommitAll(t, f.repo, "add a")
-	if _, err := f.svc.CreateChapter(ctx, "task-1", ChapterArgs{Title: "Package A", Includes: []ChapterInclude{{FilePath: "a.go", Hunk: 1}}}); err != nil {
+	if _, err := f.svc.CreateChapter(ctx, f.tourID, ChapterArgs{Title: "Package A", Includes: []ChapterInclude{{FilePath: "a.go", Hunk: 1}}}); err != nil {
 		t.Fatal(err)
 	}
 	counts, err := f.store.UnreviewedReviewCounts(ctx)
@@ -133,14 +138,14 @@ func TestReadyFreezesHeadAndCreatesRemainingChangesChapter(t *testing.T) {
 	writeRepoFile(t, f.repo, "b.go", "package b\n")
 	head := gitCommitAll(t, f.repo, "add b")
 
-	_, err := f.svc.CreateChapter(ctx, "task-1", ChapterArgs{Title: "Package A", Includes: []ChapterInclude{{FilePath: "a.go", Hunk: 1}}})
+	_, err := f.svc.CreateChapter(ctx, f.tourID, ChapterArgs{Title: "Package A", Includes: []ChapterInclude{{FilePath: "a.go", Hunk: 1}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.svc.Ready(ctx, "task-1", "ready"); err != nil {
+	if err := f.svc.Ready(ctx, f.tourID, "ready"); err != nil {
 		t.Fatal(err)
 	}
-	view, err := f.svc.Tour(ctx, "task-1")
+	view, err := f.svc.Tour(ctx, f.tourID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +155,7 @@ func TestReadyFreezesHeadAndCreatesRemainingChangesChapter(t *testing.T) {
 	if len(view.Steps) != 2 || view.Steps[1].Title != "Remaining changes" {
 		t.Fatalf("steps = %+v", view.Steps)
 	}
-	files, err := f.svc.StepDiff(ctx, "task-1", view.Steps[1].ID)
+	files, err := f.svc.StepDiff(ctx, f.tourID, view.Steps[1].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +165,7 @@ func TestReadyFreezesHeadAndCreatesRemainingChangesChapter(t *testing.T) {
 
 	writeRepoFile(t, f.repo, "c.go", "package c\n")
 	gitCommitAll(t, f.repo, "add c after ready")
-	files, err = f.svc.StepDiff(ctx, "task-1", view.Steps[0].ID)
+	files, err = f.svc.StepDiff(ctx, f.tourID, view.Steps[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,21 +183,21 @@ func TestCreateChapterGroupsSelectedHunksAcrossCommits(t *testing.T) {
 	writeRepoFile(t, f.repo, "b.go", "package b\n")
 	gitCommitAll(t, f.repo, "add b")
 
-	stepID, err := f.svc.CreateChapter(ctx, "task-1", ChapterArgs{
+	stepID, err := f.svc.CreateChapter(ctx, f.tourID, ChapterArgs{
 		Title: "Packages", Narration: "Review these together",
 		Includes: []ChapterInclude{{FilePath: "a.go", Hunk: 1}, {FilePath: "b.go", Hunk: 1}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := f.svc.Tour(ctx, "task-1")
+	view, err := f.svc.Tour(ctx, f.tourID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(view.Steps) != 1 || view.Steps[0].ID != stepID || view.Steps[0].Kind != "chapter" {
 		t.Fatalf("steps = %+v, want authored chapter only", view.Steps)
 	}
-	files, err := f.svc.StepDiff(ctx, "task-1", stepID)
+	files, err := f.svc.StepDiff(ctx, f.tourID, stepID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,21 +211,22 @@ func TestReviewSyncWithoutWorktreeUsesRecordedRepository(t *testing.T) {
 	repo := initTestRepo(t)
 	createTask(t, s, "task-1")
 	base := gitRun(t, repo, "rev-parse", "HEAD")
-	if _, err := s.EnsureReviewTour(context.Background(), "task-1"); err != nil {
+	tour, err := s.EnsureReviewTour(context.Background(), "task-1", "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	svc := NewReviewService(s, nil, nil)
 	if err := svc.BeginCapture(context.Background(), "task-1", repo); err != nil {
 		t.Fatal(err)
 	}
-	tour, err := s.GetReviewTour(context.Background(), "task-1")
+	tour, err = s.GetReviewTour(context.Background(), tour.ID)
 	if err != nil || tour.BaseSHA != base || tour.RepositoryPath != repo {
 		t.Fatalf("tour = %+v, err = %v", tour, err)
 	}
 	writeRepoFile(t, repo, "plain.go", "package plain\n")
 	gitCommitAll(t, repo, "plain repository commit")
 
-	view, err := svc.Tour(context.Background(), "task-1")
+	view, err := svc.Tour(context.Background(), tour.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,10 +244,10 @@ func TestReviewSyncDirtyStepLifecycle(t *testing.T) {
 
 	// Uncommitted work produces a dirty step, sorted last.
 	writeRepoFile(t, f.repo, "wip.go", "package wip\n")
-	if err := f.svc.Sync(ctx, "task-1"); err != nil {
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
-	steps, _ := f.store.ListReviewSteps(ctx, "task-1")
+	steps, _ := f.store.ListReviewSteps(ctx, f.tourID)
 	if len(steps) != 1 || steps[0].Kind != "dirty" {
 		t.Fatalf("steps = %+v, want single dirty step", steps)
 	}
@@ -249,11 +255,11 @@ func TestReviewSyncDirtyStepLifecycle(t *testing.T) {
 	firstFingerprint := steps[0].DirtyFingerprint
 
 	// Reviewing it, then changing the worktree, clears the reviewed mark.
-	if err := f.svc.SetReviewed(ctx, "task-1", dirtyID, true); err != nil {
+	if err := f.svc.SetReviewed(ctx, f.tourID, dirtyID, true); err != nil {
 		t.Fatal(err)
 	}
 	writeRepoFile(t, f.repo, "wip.go", "package wip // changed\n")
-	if err := f.svc.Sync(ctx, "task-1"); err != nil {
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
 	step, _ := f.store.GetReviewStep(ctx, dirtyID)
@@ -266,10 +272,10 @@ func TestReviewSyncDirtyStepLifecycle(t *testing.T) {
 
 	// Committing everything removes the dirty step.
 	gitCommitAll(t, f.repo, "commit the wip")
-	if err := f.svc.Sync(ctx, "task-1"); err != nil {
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
-	steps, _ = f.store.ListReviewSteps(ctx, "task-1")
+	steps, _ = f.store.ListReviewSteps(ctx, f.tourID)
 	for _, s := range steps {
 		if s.Kind == "dirty" {
 			t.Fatalf("dirty step should be removed when worktree is clean: %+v", s)
@@ -282,17 +288,17 @@ func TestSetReviewedSyncsDirtyFingerprintBeforeMutation(t *testing.T) {
 	ctx := context.Background()
 
 	writeRepoFile(t, f.repo, "README.md", "changed\n")
-	if err := f.svc.Sync(ctx, "task-1"); err != nil {
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
-	steps, err := f.store.ListReviewSteps(ctx, "task-1")
+	steps, err := f.store.ListReviewSteps(ctx, f.tourID)
 	if err != nil || len(steps) != 1 {
 		t.Fatalf("steps = %+v, err = %v", steps, err)
 	}
 	initialFingerprint := steps[0].DirtyFingerprint
 
 	gitRun(t, f.repo, "add", "README.md")
-	if err := f.svc.SetReviewed(ctx, "task-1", steps[0].ID, true); err != nil {
+	if err := f.svc.SetReviewed(ctx, f.tourID, steps[0].ID, true); err != nil {
 		t.Fatal(err)
 	}
 	step, err := f.store.GetReviewStep(ctx, steps[0].ID)
@@ -313,17 +319,17 @@ func TestReviewSyncOrphansRewrittenCommits(t *testing.T) {
 
 	writeRepoFile(t, f.repo, "a.go", "package a\n")
 	oldSHA := gitCommitAll(t, f.repo, "add a")
-	if err := f.svc.Sync(ctx, "task-1"); err != nil {
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
 
 	gitRun(t, f.repo, "commit", "--amend", "-m", "add a (amended)")
 	newSHA := gitRun(t, f.repo, "rev-parse", "HEAD")
-	if err := f.svc.Sync(ctx, "task-1"); err != nil {
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
 
-	steps, _ := f.store.ListReviewSteps(ctx, "task-1")
+	steps, _ := f.store.ListReviewSteps(ctx, f.tourID)
 	bySHA := map[string]store.ReviewStep{}
 	for _, s := range steps {
 		bySHA[s.CommitSHA] = s
@@ -348,25 +354,25 @@ func TestReviewReadyCompleteAndWatermarkReentry(t *testing.T) {
 	writeRepoFile(t, f.repo, "b.go", "package b\n")
 	lastSHA := gitCommitAll(t, f.repo, "add b")
 
-	if err := f.svc.Ready(ctx, "task-1", "feature done"); err != nil {
+	if err := f.svc.Ready(ctx, f.tourID, "feature done"); err != nil {
 		t.Fatal(err)
 	}
-	tour, _ := f.store.GetReviewTour(ctx, "task-1")
+	tour, _ := f.store.GetReviewTour(ctx, f.tourID)
 	if tour.Status != "ready" || tour.Summary != "feature done" || tour.ReadyAt == nil {
 		t.Fatalf("tour after Ready = %+v", tour)
 	}
 
-	if err := f.svc.Complete(ctx, "task-1"); err != nil {
+	if err := f.svc.Complete(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
-	tour, _ = f.store.GetReviewTour(ctx, "task-1")
+	tour, _ = f.store.GetReviewTour(ctx, f.tourID)
 	if tour.Status != "reviewed" {
 		t.Fatalf("Status = %q, want reviewed", tour.Status)
 	}
 	if tour.LastReviewedSHA != lastSHA {
 		t.Fatalf("watermark = %q, want %q", tour.LastReviewedSHA, lastSHA)
 	}
-	steps, _ := f.store.ListReviewSteps(ctx, "task-1")
+	steps, _ := f.store.ListReviewSteps(ctx, f.tourID)
 	for _, s := range steps {
 		if s.ReviewedAt == nil {
 			t.Fatalf("Complete must stamp all steps reviewed: %+v", s)
@@ -376,10 +382,10 @@ func TestReviewReadyCompleteAndWatermarkReentry(t *testing.T) {
 	// New work past the watermark re-queues the tour.
 	writeRepoFile(t, f.repo, "c.go", "package c\n")
 	gitCommitAll(t, f.repo, "add c")
-	if err := f.svc.Sync(ctx, "task-1"); err != nil {
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
-	tour, _ = f.store.GetReviewTour(ctx, "task-1")
+	tour, _ = f.store.GetReviewTour(ctx, f.tourID)
 	if tour.Status != "ready" {
 		t.Fatalf("Status after new commit = %q, want ready (re-entry)", tour.Status)
 	}
@@ -396,7 +402,7 @@ func TestReviewAnnotate(t *testing.T) {
 
 	// Default anchor is HEAD; risk and order hint stick.
 	two := 2
-	stepID, err := f.svc.Annotate(ctx, "task-1", AnnotateArgs{Text: "tricky bit, review carefully", Risk: "high", OrderHint: &two})
+	stepID, err := f.svc.Annotate(ctx, f.tourID, AnnotateArgs{Text: "tricky bit, review carefully", Risk: "high", OrderHint: &two})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,10 +415,10 @@ func TestReviewAnnotate(t *testing.T) {
 	}
 
 	// Explicit SHA anchor appends to seeded narration.
-	if _, err := f.svc.Annotate(ctx, "task-1", AnnotateArgs{SHA: sha1, Text: "extra context"}); err != nil {
+	if _, err := f.svc.Annotate(ctx, f.tourID, AnnotateArgs{SHA: sha1, Text: "extra context"}); err != nil {
 		t.Fatal(err)
 	}
-	steps, _ := f.store.ListReviewSteps(ctx, "task-1")
+	steps, _ := f.store.ListReviewSteps(ctx, f.tourID)
 	var first store.ReviewStep
 	for _, s := range steps {
 		if s.CommitSHA == sha1 {
@@ -424,7 +430,7 @@ func TestReviewAnnotate(t *testing.T) {
 	}
 
 	// --file with no SHA creates a note step.
-	noteID, err := f.svc.Annotate(ctx, "task-1", AnnotateArgs{Text: "shared helper touched", Files: []string{"a.go", "b.go"}})
+	noteID, err := f.svc.Annotate(ctx, f.tourID, AnnotateArgs{Text: "shared helper touched", Files: []string{"a.go", "b.go"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +440,7 @@ func TestReviewAnnotate(t *testing.T) {
 	}
 
 	// Unknown SHA errors clearly.
-	if _, err := f.svc.Annotate(ctx, "task-1", AnnotateArgs{SHA: "deadbeef", Text: "x"}); err == nil {
+	if _, err := f.svc.Annotate(ctx, f.tourID, AnnotateArgs{SHA: "deadbeef", Text: "x"}); err == nil {
 		t.Fatal("unknown sha must error")
 	}
 }
@@ -449,13 +455,13 @@ func TestReviewAnnotateHunkPersistsDurableNote(t *testing.T) {
 	sha := gitCommitAll(t, f.repo, "rename and change")
 
 	hunk := 1
-	noteID, err := f.svc.Annotate(ctx, "task-1", AnnotateArgs{
+	noteID, err := f.svc.Annotate(ctx, f.tourID, AnnotateArgs{
 		SHA: sha, Text: "check this hunk", Files: []string{"old.go"}, Hunk: &hunk,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := f.svc.Tour(ctx, "task-1")
+	view, err := f.svc.Tour(ctx, f.tourID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,7 +486,7 @@ func TestReviewAnnotateHunkRejectsInvalidSelection(t *testing.T) {
 		{Text: "x", Files: []string{"a.go"}, Hunk: &two},
 		{Text: "x", Files: []string{"a.go", "b.go"}, Hunk: &one},
 	} {
-		if _, err := f.svc.Annotate(ctx, "task-1", tc); err == nil {
+		if _, err := f.svc.Annotate(ctx, f.tourID, tc); err == nil {
 			t.Fatalf("Annotate(%+v) should fail", tc)
 		}
 	}
@@ -488,7 +494,7 @@ func TestReviewAnnotateHunkRejectsInvalidSelection(t *testing.T) {
 
 func TestReviewTourHunkNotesIsNonNil(t *testing.T) {
 	f := newReviewFixture(t)
-	view, err := f.svc.Tour(context.Background(), "task-1")
+	view, err := f.svc.Tour(context.Background(), f.tourID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -503,10 +509,10 @@ func TestReviewQuestionAndAnswerLoop(t *testing.T) {
 
 	writeRepoFile(t, f.repo, "a.go", "package a\n")
 	gitCommitAll(t, f.repo, "add a")
-	if err := f.svc.Sync(ctx, "task-1"); err != nil {
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
-	steps, _ := f.store.ListReviewSteps(ctx, "task-1")
+	steps, _ := f.store.ListReviewSteps(ctx, f.tourID)
 	stepID := steps[0].ID
 
 	// Live agent session: question is delivered into its pane.
@@ -520,7 +526,7 @@ func TestReviewQuestionAndAnswerLoop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := f.svc.AskQuestion(ctx, "task-1", stepID, "why not reuse the helper?"); err != nil {
+	if err := f.svc.AskQuestion(ctx, f.tourID, stepID, "why not reuse the helper?"); err != nil {
 		t.Fatal(err)
 	}
 	lines := f.tmux.sentLines["legato-task-1"]
@@ -533,16 +539,16 @@ func TestReviewQuestionAndAnswerLoop(t *testing.T) {
 		!strings.Contains(lines[0], "why not reuse the helper?") {
 		t.Fatalf("question line = %q", lines[0])
 	}
-	msgs, _ := f.store.ListReviewMessages(ctx, "task-1")
+	msgs, _ := f.store.ListReviewMessages(ctx, f.tourID)
 	if len(msgs) != 1 || msgs[0].Kind != "question" || msgs[0].DeliveredAt == nil {
 		t.Fatalf("transcript = %+v", msgs)
 	}
 
 	// Agent answers via the CLI verb path (prefix resolution included).
-	if err := f.svc.Answer(ctx, "task-1", stepID[:6], "the helper assumes X"); err != nil {
+	if err := f.svc.Answer(ctx, f.tourID, stepID[:6], "the helper assumes X"); err != nil {
 		t.Fatal(err)
 	}
-	msgs, _ = f.store.ListReviewMessages(ctx, "task-1")
+	msgs, _ = f.store.ListReviewMessages(ctx, f.tourID)
 	if len(msgs) != 2 || msgs[1].Kind != "answer" || msgs[1].Author != "agent" {
 		t.Fatalf("transcript after answer = %+v", msgs)
 	}
@@ -551,11 +557,11 @@ func TestReviewQuestionAndAnswerLoop(t *testing.T) {
 	if err := f.tmux.Kill("legato-task-1"); err != nil {
 		t.Fatal(err)
 	}
-	err := f.svc.AskQuestion(ctx, "task-1", stepID, "still there?")
+	err := f.svc.AskQuestion(ctx, f.tourID, stepID, "still there?")
 	if !errors.Is(err, ErrAgentOffline) {
 		t.Fatalf("err = %v, want ErrAgentOffline", err)
 	}
-	msgs, _ = f.store.ListReviewMessages(ctx, "task-1")
+	msgs, _ = f.store.ListReviewMessages(ctx, f.tourID)
 	if len(msgs) != 3 || msgs[2].DeliveredAt != nil {
 		t.Fatalf("offline question should be stored undelivered: %+v", msgs)
 	}
@@ -567,28 +573,28 @@ func TestReviewMessagesSyncBeforeMutatingTranscript(t *testing.T) {
 
 	writeRepoFile(t, f.repo, "a.go", "package a\n")
 	gitCommitAll(t, f.repo, "add a")
-	if err := f.svc.Sync(ctx, "task-1"); err != nil {
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
-	steps, _ := f.store.ListReviewSteps(ctx, "task-1")
+	steps, _ := f.store.ListReviewSteps(ctx, f.tourID)
 	anchorID := steps[0].ID
 
 	writeRepoFile(t, f.repo, "b.go", "package b\n")
 	gitCommitAll(t, f.repo, "add b")
-	if err := f.svc.AskQuestion(ctx, "task-1", anchorID, "question"); !errors.Is(err, ErrAgentOffline) {
+	if err := f.svc.AskQuestion(ctx, f.tourID, anchorID, "question"); !errors.Is(err, ErrAgentOffline) {
 		t.Fatalf("AskQuestion err = %v, want ErrAgentOffline", err)
 	}
-	steps, _ = f.store.ListReviewSteps(ctx, "task-1")
+	steps, _ = f.store.ListReviewSteps(ctx, f.tourID)
 	if len(steps) != 2 {
 		t.Fatalf("AskQuestion must sync first; steps = %+v", steps)
 	}
 
 	writeRepoFile(t, f.repo, "c.go", "package c\n")
 	gitCommitAll(t, f.repo, "add c")
-	if err := f.svc.Answer(ctx, "task-1", anchorID, "answer"); err != nil {
+	if err := f.svc.Answer(ctx, f.tourID, anchorID, "answer"); err != nil {
 		t.Fatal(err)
 	}
-	steps, _ = f.store.ListReviewSteps(ctx, "task-1")
+	steps, _ = f.store.ListReviewSteps(ctx, f.tourID)
 	if len(steps) != 3 {
 		t.Fatalf("Answer must sync first; steps = %+v", steps)
 	}
@@ -602,7 +608,7 @@ func TestReviewTourAndStepDiff(t *testing.T) {
 	gitCommitAll(t, f.repo, "add a")
 	writeRepoFile(t, f.repo, "wip.go", "package wip\n")
 
-	view, err := f.svc.Tour(ctx, "task-1")
+	view, err := f.svc.Tour(ctx, f.tourID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,7 +617,7 @@ func TestReviewTourAndStepDiff(t *testing.T) {
 	}
 
 	// Commit step diff parses to the committed file.
-	commitDiff, err := f.svc.StepDiff(ctx, "task-1", view.Steps[0].ID)
+	commitDiff, err := f.svc.StepDiff(ctx, f.tourID, view.Steps[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -620,7 +626,7 @@ func TestReviewTourAndStepDiff(t *testing.T) {
 	}
 
 	// Dirty step diff shows the uncommitted file.
-	dirtyDiff, err := f.svc.StepDiff(ctx, "task-1", view.Steps[1].ID)
+	dirtyDiff, err := f.svc.StepDiff(ctx, f.tourID, view.Steps[1].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -635,7 +641,7 @@ func TestReviewQueue(t *testing.T) {
 
 	writeRepoFile(t, f.repo, "a.go", "package a\n")
 	gitCommitAll(t, f.repo, "add a")
-	if err := f.svc.Ready(ctx, "task-1", "done"); err != nil {
+	if err := f.svc.Ready(ctx, f.tourID, "done"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -651,7 +657,7 @@ func TestReviewQueue(t *testing.T) {
 	}
 
 	// Completing the review empties the queue.
-	if err := f.svc.Complete(ctx, "task-1"); err != nil {
+	if err := f.svc.Complete(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
 	items, _ = f.svc.Queue(ctx)
@@ -666,7 +672,7 @@ func TestReviewQueueSyncsToursAndSkipsBrokenWorktrees(t *testing.T) {
 
 	writeRepoFile(t, f.repo, "a.go", "package a\n")
 	gitCommitAll(t, f.repo, "add a")
-	if err := f.svc.Complete(ctx, "task-1"); err != nil {
+	if err := f.svc.Complete(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
 	writeRepoFile(t, f.repo, "b.go", "package b\n")
@@ -679,7 +685,7 @@ func TestReviewQueueSyncsToursAndSkipsBrokenWorktrees(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.store.EnsureReviewTour(ctx, "task-broken"); err != nil {
+	if _, err := f.store.EnsureReviewTour(ctx, "task-broken", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -699,7 +705,7 @@ func TestReviewQueueSurfacesAbandonedCapturingTours(t *testing.T) {
 	writeRepoFile(t, f.repo, "a.go", "package a\n")
 	gitCommitAll(t, f.repo, "add a")
 	// Agent synced steps but died before running `review ready`.
-	if err := f.svc.Sync(ctx, "task-1"); err != nil {
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.store.InsertAgentSession(ctx, store.AgentSession{
@@ -732,10 +738,10 @@ func TestReviewBadgeStatesIncludesReadyTourWithZeroUnreviewed(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
 
-	if _, err := f.store.EnsureReviewTour(ctx, "task-1"); err != nil {
+	if _, err := f.store.EnsureReviewTour(ctx, "task-1", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.store.UpdateReviewTour(ctx, "task-1", func(rt *store.ReviewTour) {
+	if _, err := f.store.UpdateReviewTour(ctx, f.tourID, func(rt *store.ReviewTour) {
 		rt.Status = "ready"
 	}); err != nil {
 		t.Fatal(err)
@@ -760,11 +766,11 @@ func TestReviewSyncSeedsStepsFromCommits(t *testing.T) {
 	writeRepoFile(t, f.repo, "b.go", "package b\n")
 	sha2 := gitCommitAll(t, f.repo, "add feature b")
 
-	if err := f.svc.Sync(ctx, "task-1"); err != nil {
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
 
-	steps, err := f.store.ListReviewSteps(ctx, "task-1")
+	steps, err := f.store.ListReviewSteps(ctx, f.tourID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -785,10 +791,10 @@ func TestReviewSyncSeedsStepsFromCommits(t *testing.T) {
 	}
 
 	// Re-sync is idempotent.
-	if err := f.svc.Sync(ctx, "task-1"); err != nil {
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
-	steps, _ = f.store.ListReviewSteps(ctx, "task-1")
+	steps, _ = f.store.ListReviewSteps(ctx, f.tourID)
 	if len(steps) != 2 {
 		t.Fatalf("re-sync duplicated steps: %d", len(steps))
 	}
