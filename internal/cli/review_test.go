@@ -87,6 +87,30 @@ func TestReviewShowJSON(t *testing.T) {
 	}
 }
 
+func TestReviewChapterCreatesVisibleChapter(t *testing.T) {
+	svc, _ := newReviewCLIFixture(t)
+
+	stepID, err := ReviewChapter(svc, "task-1", service.ChapterArgs{
+		Title: "Package A", Narration: "Start with the new package", Risk: "medium",
+		Includes: []service.ChapterInclude{{FilePath: "a.go", Hunk: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(stepID, "rs-") {
+		t.Fatalf("stepID = %q", stepID)
+	}
+	var out strings.Builder
+	if err := ReviewShow(svc, "task-1", false, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Package A", "Start with the new package", "!medium"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("output missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestReviewAnnotateReturnsStepID(t *testing.T) {
 	svc, _ := newReviewCLIFixture(t)
 

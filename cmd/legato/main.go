@@ -76,7 +76,7 @@ func runCLI(args []string) int {
 
 func runReviewCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: legato review [annotate|answer|ready|show|sync] ...")
+		fmt.Fprintln(os.Stderr, "usage: legato review [chapter|annotate|answer|ready|show|sync] ...")
 		return 1
 	}
 
@@ -106,6 +106,20 @@ func runReviewCmd(args []string) int {
 	}
 
 	switch verb {
+	case "chapter":
+		a, err := parseReviewChapterArgs(positional, flags, listFlags)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			fmt.Fprintln(os.Stderr, `usage: legato review chapter "title" ["narration"] --include <path>:<1-based-hunk> [--include ...] [--risk high|medium|low|unsure] [--order N] [--task <id>]`)
+			return 1
+		}
+		stepID, err := cli.ReviewChapter(svc, taskID, a)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		fmt.Println(stepID)
+		return 0
 	case "annotate":
 		a, err := parseReviewAnnotateArgs(positional, flags, listFlags)
 		if err != nil {
@@ -156,7 +170,7 @@ func runReviewCmd(args []string) int {
 		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "unknown review command: %s\n", verb)
-		fmt.Fprintln(os.Stderr, "usage: legato review [annotate|answer|ready|show|sync] ...")
+		fmt.Fprintln(os.Stderr, "usage: legato review [chapter|annotate|answer|ready|show|sync] ...")
 		return 1
 	}
 }
@@ -191,8 +205,46 @@ func parseReviewAnnotateArgs(positional []string, flags map[string]string, listF
 	return a, nil
 }
 
+func parseReviewChapterArgs(positional []string, flags map[string]string, listFlags map[string][]string) (service.ChapterArgs, error) {
+	a := service.ChapterArgs{Risk: flags["risk"]}
+	if len(positional) < 1 || len(positional) > 2 {
+		return a, fmt.Errorf("expected a title and optional narration")
+	}
+	a.Title = positional[0]
+	if len(positional) == 2 {
+		a.Narration = positional[1]
+	}
+	if v, ok := flags["order"]; ok {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return a, fmt.Errorf("--order must be a number, got %q", v)
+		}
+		a.OrderHint = &n
+	}
+	includes := listFlags["include"]
+	if len(includes) == 0 {
+		return a, fmt.Errorf("chapter requires at least one --include <path>:<1-based-hunk>")
+	}
+	for _, value := range includes {
+		colon := strings.LastIndex(value, ":")
+		if colon < 0 {
+			return a, fmt.Errorf("--include %q must use <path>:<1-based-hunk>", value)
+		}
+		path, hunkText := value[:colon], value[colon+1:]
+		if path == "" {
+			return a, fmt.Errorf("--include %q path cannot be empty", value)
+		}
+		hunk, err := strconv.Atoi(hunkText)
+		if err != nil || hunk < 1 {
+			return a, fmt.Errorf("--include %q must end with a 1-based hunk number", value)
+		}
+		a.Includes = append(a.Includes, service.ChapterInclude{FilePath: path, Hunk: hunk})
+	}
+	return a, nil
+}
+
 // parseReviewArgs splits args into positionals, single-value flags, and
-// repeatable list flags (--file). Boolean flags (--json) map to "".
+// repeatable list flags (--file and --include). Boolean flags (--json) map to "".
 func parseReviewArgs(args []string) (positional []string, flags map[string]string, listFlags map[string][]string) {
 	flags = map[string]string{}
 	listFlags = map[string][]string{}
@@ -206,7 +258,7 @@ func parseReviewArgs(args []string) (positional []string, flags map[string]strin
 		switch name {
 		case "json":
 			flags[name] = ""
-		case "file":
+		case "file", "include":
 			if i+1 < len(args) {
 				listFlags[name] = append(listFlags[name], args[i+1])
 				i++

@@ -6,12 +6,15 @@ import (
 )
 
 // The solo Chimera agent is the primary review-capture path: its general
-// prompt must teach semantic commits and the three review verbs.
+// prompt must teach reasonable semantic commits and chapter-based review order.
 func TestChimeraGeneralPromptTeachesReviewCapture(t *testing.T) {
 	prompt := NewChimeraAdapter("legato").GeneralPrompt()
 
 	for _, want := range []string{
-		"semantic commit",
+		"reasonable semantic commits",
+		"granular reading order",
+		"legato review chapter",
+		"--include <path>:<1-based-hunk>",
 		"legato review annotate",
 		"--file <path> --hunk <1-based N>",
 		"legato review show",
@@ -40,6 +43,10 @@ func TestConductorPromptTeachesReviewPacket(t *testing.T) {
 
 	for _, want := range []string{
 		"Legato-Subtask:",
+		"reasonable semantic commit",
+		"granular reading order",
+		"legato review chapter",
+		"--include <path>:<1-based-hunk>",
 		"legato review annotate",
 		"--file <path> --hunk <1-based N>",
 		"legato review show",

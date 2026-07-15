@@ -127,14 +127,18 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"\n" +
 	"## Review capture\n" +
 	"\n" +
-	"The user reviews your work as a guided tour built from your commits, so " +
-	"narrate as you go:\n" +
+	"The user reviews your work as a guided tour. Narrate as you go:\n" +
 	"\n" +
-	"- **Make small semantic commits as you work** — one logical change per " +
-	"commit, with a body explaining *why* (decisions made, alternatives " +
-	"rejected, anything surprising). Each commit becomes one review step; the " +
-	"body becomes its narration. Do not batch a session's work into one commit.\n" +
-	"- **Flag the risky parts.** Before finishing, run " +
+	"- **Make reasonable semantic commits as you work** — keep commits logically " +
+	"coherent, with bodies explaining *why* when decisions or tradeoffs need context.\n" +
+	"- **Build a granular reading order with chapters.** Group related hunks with " +
+	"`legato review chapter \"<title>\" [\"<narration>\"] --include <path>:<1-based-hunk>` " +
+	"and repeat `--include` for every hunk in that chapter. Use `--risk " +
+	"high|medium|low|unsure` and `--order N` where useful; inspect `legato review " +
+	"show` or the diff to choose hunk numbers. Chapters should guide the reviewer " +
+	"through the change more precisely than commit boundaries.\n" +
+	"- **Flag the risky parts.** Keep `legato review annotate` compatibility for " +
+	"extra commit or file context. Run " +
 	"`legato review annotate [<sha>] \"<extra context>\" --risk high|medium|low|unsure` " +
 	"on any commit the reviewer should scrutinize (defaults to your latest " +
 	"commit). Use `--order N` to suggest a reading order when it differs from " +

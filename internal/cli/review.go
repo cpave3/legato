@@ -11,6 +11,16 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
+// ReviewChapter creates an authored review chapter and notifies running instances.
+func ReviewChapter(svc *service.ReviewService, taskID string, args service.ChapterArgs) (string, error) {
+	stepID, err := svc.CreateChapter(context.Background(), taskID, args)
+	if err != nil {
+		return "", err
+	}
+	broadcastReviewChanged(taskID, stepID, "chapter")
+	return stepID, nil
+}
+
 // ReviewAnnotate records an agent annotation and notifies running instances.
 // Returns the annotated/created step ID.
 func ReviewAnnotate(svc *service.ReviewService, taskID string, args service.AnnotateArgs) (string, error) {

@@ -2,7 +2,7 @@ import { apiFetch } from "./api"
 
 export type ReviewStatus = "capturing" | "ready" | "reviewed"
 export type ReviewRisk = "" | "low" | "medium" | "high" | "unsure"
-export type ReviewStepKind = "commit" | "dirty" | "note"
+export type ReviewStepKind = "commit" | "dirty" | "note" | "chapter"
 
 export interface ReviewQueueItem {
   task_id: string
@@ -17,6 +17,7 @@ export interface ReviewTour {
   status: ReviewStatus
   summary: string
   base_sha: string
+  head_sha: string
   last_reviewed_sha: string
   ready_at: string | null
   created_at: string
