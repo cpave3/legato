@@ -317,6 +317,10 @@ func (m Model) leftPaneWidth() int  { return min(44, m.width*2/5) }
 func (m Model) rightPaneWidth() int { return max(20, m.width-m.leftPaneWidth()-3) }
 func (m Model) paneHeight() int     { return max(4, m.height-4) }
 
+// InputFocused reports whether printable keys belong to the question editor.
+// The root app uses this to yield global shortcuts such as ? to the input.
+func (m Model) InputFocused() bool { return m.asking }
+
 // View renders the review view.
 func (m Model) View() string {
 	if m.width == 0 {
@@ -358,23 +362,25 @@ func (m Model) viewQueue() string {
 }
 
 func (m Model) viewTour() string {
-	left := m.renderStepList()
-	right := m.viewport.View()
-
-	body := lipgloss.JoinHorizontal(lipgloss.Top,
-		lipgloss.NewStyle().Width(m.leftPaneWidth()).Render(left),
-		lipgloss.NewStyle().Width(1).Render(" "),
-		lipgloss.NewStyle().Width(m.rightPaneWidth()).Render(right),
-	)
-
 	header := m.renderTourHeader()
+	footer := m.renderTourFooter()
 	thread := ""
 	if step := m.currentStep(); step != nil {
-		thread = m.renderThread(step.ID)
+		thread = m.renderThread(step.ID, max(0, min(6, m.height/4)))
 	}
-	footer := m.renderTourFooter()
-	return lipgloss.NewStyle().Width(m.width).Height(m.height).Padding(0, 1).
-		Render(lipgloss.JoinVertical(lipgloss.Left, header, body, thread, footer))
+	bodyHeight := max(4, m.height-lipgloss.Height(header)-lipgloss.Height(thread)-lipgloss.Height(footer))
+	m.viewport.Height = bodyHeight
+
+	left := m.renderStepList(bodyHeight)
+	right := m.viewport.View()
+	body := lipgloss.JoinHorizontal(lipgloss.Top,
+		lipgloss.NewStyle().Width(m.leftPaneWidth()).Height(bodyHeight).Render(left),
+		lipgloss.NewStyle().Width(1).Height(bodyHeight).Render(" "),
+		lipgloss.NewStyle().Width(m.rightPaneWidth()).Height(bodyHeight).Render(right),
+	)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, header, body, thread, footer)
+	return lipgloss.NewStyle().Width(m.width).Padding(0, 1).Render(cropLines(content, m.height))
 }
 
 func (m Model) renderTourHeader() string {
@@ -396,33 +402,50 @@ func (m Model) renderTourHeader() string {
 	return title + progress + summary
 }
 
-func (m Model) renderStepList() string {
-	dimStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
-	selStyle := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true)
+func (m Model) renderStepList(height int) string {
+	if m.view == nil || len(m.view.Steps) == 0 || height <= 0 {
+		return ""
+	}
+	const cardHeight = 3
+	visible := max(1, height/cardHeight)
+	start := max(0, m.stepIdx-visible/2)
+	if end := start + visible; end > len(m.view.Steps) {
+		start = max(0, len(m.view.Steps)-visible)
+	}
+	end := min(len(m.view.Steps), start+visible)
 
-	var lines []string
-	for i, s := range m.view.Steps {
+	cards := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		s := m.view.Steps[i]
 		mark := "○"
 		if s.ReviewedAt != nil {
-			mark = lipgloss.NewStyle().Foreground(theme.SyncOK).Render("✓")
+			mark = "✓"
 		}
-		risk := ""
+		meta := mark
 		if s.Risk != "" {
-			risk = " " + riskStyle(s.Risk).Render("!"+s.Risk)
+			meta += "  " + riskStyle(s.Risk).Render("!"+s.Risk)
 		}
-		orphan := ""
 		if s.OrphanedAt != nil {
-			orphan = dimStyle.Render(" (rewritten)")
+			meta += "  rewritten"
 		}
-		title := truncate(s.Title, m.leftPaneWidth()-8)
-		row := fmt.Sprintf("%s %s%s%s", mark, title, risk, orphan)
+		cardWidth := max(8, m.leftPaneWidth()-6)
+		title := truncate(s.Title, cardWidth-2)
+		prefix := "  "
+		border := theme.TextTertiary
 		if i == m.stepIdx {
-			lines = append(lines, selStyle.Render("▸ "+row))
-		} else {
-			lines = append(lines, "  "+row)
+			prefix = "▸ "
+			border = theme.AccentPurple
 		}
+		card := lipgloss.NewStyle().
+			Width(cardWidth).
+			Height(2).
+			Padding(0, 1).
+			BorderLeft(true).
+			BorderForeground(border).
+			Render(title + "\n" + meta)
+		cards = append(cards, prefix+card)
 	}
-	return strings.Join(lines, "\n")
+	return cropLines(strings.Join(cards, "\n"), height)
 }
 
 func (m Model) renderTourFooter() string {
@@ -495,7 +518,10 @@ func (m *Model) refreshViewport() {
 	m.viewport.GotoTop()
 }
 
-func (m Model) renderThread(stepID string) string {
+func (m Model) renderThread(stepID string, maxHeight int) string {
+	if maxHeight <= 0 {
+		return ""
+	}
 	dimStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
 	qStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple)
 	aStyle := lipgloss.NewStyle().Foreground(theme.SyncOK)
@@ -518,7 +544,9 @@ func (m Model) renderThread(stepID string) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	return dimStyle.Render("— thread —") + "\n" + strings.Join(lines, "\n")
+	thread := dimStyle.Render("— thread —") + "\n" + strings.Join(lines, "\n")
+	thread = lipgloss.NewStyle().Width(max(20, m.width-2)).Render(thread)
+	return tailLines(thread, maxHeight)
 }
 
 func (m Model) hunkNotesForStep(stepID string) []store.ReviewHunkNote {
@@ -608,6 +636,28 @@ func shortSHA(sha string) string {
 		return sha[:8]
 	}
 	return sha
+}
+
+func cropLines(s string, height int) string {
+	if height <= 0 {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	return strings.Join(lines, "\n")
+}
+
+func tailLines(s string, height int) string {
+	if height <= 0 {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > height {
+		lines = append([]string{"— thread (latest) —"}, lines[len(lines)-height+1:]...)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func truncate(s string, maxLen int) string {

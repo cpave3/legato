@@ -2,6 +2,7 @@ package review
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	gitpkg "github.com/cpave3/legato/internal/engine/git"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
@@ -255,6 +257,59 @@ func TestViewportRendersUnmatchedNotesForSelectedStepWhenDiffIsEmpty(t *testing.
 	}
 	if strings.Contains(out, "Wrong step note.") {
 		t.Fatalf("note from another step should not render:\n%s", out)
+	}
+}
+
+func TestTourLayoutKeepsSelectedStepVisibleWithLongThread(t *testing.T) {
+	m := New(nil)
+	m.SetSize(90, 24)
+	m.mode = modeTour
+	m.stepIdx = 7
+	steps := make([]store.ReviewStep, 8)
+	for i := range steps {
+		steps[i] = store.ReviewStep{ID: fmt.Sprintf("step-%d", i), Title: fmt.Sprintf("Review step %d", i), Risk: "high"}
+	}
+	messages := make([]store.ReviewMessage, 10)
+	for i := range messages {
+		messages[i] = store.ReviewMessage{StepID: "step-7", Kind: "answer", Body: strings.Repeat("thread text ", 8)}
+	}
+	m.view = &service.ReviewTourView{Steps: steps, Messages: messages}
+	m.refreshViewport()
+
+	out := m.View()
+	if lipgloss.Height(out) > 24 {
+		t.Fatalf("tour height = %d, want <= 24:\n%s", lipgloss.Height(out), out)
+	}
+	if !strings.Contains(out, "Review step 7") {
+		t.Fatalf("selected step was clipped by thread:\n%s", out)
+	}
+}
+
+func TestStepCardsKeepRiskVisibleForLongTitles(t *testing.T) {
+	m := New(nil)
+	m.SetSize(80, 24)
+	m.mode = modeTour
+	m.view = &service.ReviewTourView{Steps: []store.ReviewStep{{
+		ID: "step-1", Title: strings.Repeat("A very long review title ", 8), Risk: "high",
+	}}}
+	m.refreshViewport()
+
+	out := m.View()
+	if !strings.Contains(out, "!high") {
+		t.Fatalf("risk indicator missing from long-title card:\n%s", out)
+	}
+	if !strings.Contains(out, "A very long review") {
+		t.Fatalf("step card missing title:\n%s", out)
+	}
+}
+
+func TestQuestionInputAcceptsQuestionMark(t *testing.T) {
+	m := New(nil)
+	m.mode = modeTour
+	m.asking = true
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	if m.input != "?" {
+		t.Fatalf("input = %q, want question mark", m.input)
 	}
 }
 

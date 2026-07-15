@@ -21,6 +21,7 @@ import (
 	"github.com/cpave3/legato/internal/tui/detail"
 	"github.com/cpave3/legato/internal/tui/overlay"
 	"github.com/cpave3/legato/internal/tui/report"
+	"github.com/cpave3/legato/internal/tui/review"
 	"github.com/cpave3/legato/internal/tui/statusbar"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
@@ -252,6 +253,25 @@ func TestReviewViewOpensLoadsAndReturnsToBoard(t *testing.T) {
 	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if strings.Contains(app.View(), "REVIEW QUEUE") {
 		t.Fatal("q should return from review queue to board")
+	}
+}
+
+func TestReviewQuestionInputTakesGlobalHelpKey(t *testing.T) {
+	app := newTestApp()
+	app.active = viewReview
+	app.reviewView = review.New(nil)
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, review.TourLoadedMsg{View: &service.ReviewTourView{
+		Tour:  store.ReviewTour{TaskID: "task-1"},
+		Steps: []store.ReviewStep{{ID: "step-1", Title: "Test step"}},
+	}})
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	if app.overlayType != overlayNone {
+		t.Fatal("question mark should type into review question, not open global help")
+	}
+	if !app.reviewView.InputFocused() || !strings.Contains(app.View(), "Question: ?") {
+		t.Fatalf("question input did not receive ?: %s", app.View())
 	}
 }
 

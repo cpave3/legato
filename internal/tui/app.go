@@ -434,8 +434,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// ? opens help from any context (replaces active overlay if any)
-		if msg.String() == "?" {
+		// ? opens help unless an active text input owns printable keys.
+		if msg.String() == "?" && !(a.active == viewReview && a.reviewView.InputFocused()) {
 			return a.openHelpOverlay()
 		}
 
