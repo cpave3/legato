@@ -93,6 +93,20 @@ func (s *Server) boardHandler() http.HandlerFunc {
 			}
 		}
 
+		// Review tour badges.
+		if reviews, ok := s.reviews.(interface {
+			ReviewBadgeStates(context.Context) (map[string]service.ReviewBadgeState, error)
+		}); ok {
+			if states, stateErr := reviews.ReviewBadgeStates(ctx); stateErr == nil {
+				for id, state := range states {
+					if ref, exists := cardRefs[id]; exists {
+						resp.Columns[ref.col].Cards[ref.card].ReviewReady = state.Ready
+						resp.Columns[ref.col].Cards[ref.card].ReviewUnreviewed = state.Unreviewed
+					}
+				}
+			}
+		}
+
 		// PR metadata
 		for _, id := range allTaskIDs {
 			if r, ok := cardRefs[id]; ok {

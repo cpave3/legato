@@ -40,6 +40,7 @@ type Server struct {
 	ntfyConfigured   bool
 	voiceSvc         VoiceService
 	voiceAutoSend    bool
+	reviews          ReviewService
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -96,6 +97,12 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/remote/search", s.remoteSearchHandler())
 	mux.HandleFunc("/api/remote/import", s.remoteImportHandler())
 	mux.HandleFunc("/api/repo/detect", s.detectRepoHandler())
+	mux.HandleFunc("/api/review/queue", s.reviewQueueHandler())
+	mux.HandleFunc("/api/tasks/{task_id}/review", s.reviewHandler())
+	mux.HandleFunc("/api/tasks/{task_id}/review/steps/{step_id}/diff", s.reviewStepDiffHandler())
+	mux.HandleFunc("/api/tasks/{task_id}/review/steps/{step_id}/reviewed", s.reviewStepReviewedHandler())
+	mux.HandleFunc("/api/tasks/{task_id}/review/steps/{step_id}/question", s.reviewQuestionHandler())
+	mux.HandleFunc("/api/tasks/{task_id}/review/complete", s.reviewCompleteHandler())
 	// Swarm endpoints
 	mux.HandleFunc("/api/swarm/start", s.swarmStartHandler())
 	mux.HandleFunc("/api/swarm/cancel", s.swarmCancelHandler())
@@ -377,6 +384,23 @@ func (s *Server) StartSwarmEvents() {
 					ParentTaskID: p.ParentTaskID,
 					SubtaskID:    p.SubtaskID,
 					Status:       p.NewStatus,
+				})
+			}
+		}
+	}()
+}
+
+// StartReviewEvents subscribes to review mutations and broadcasts them to web clients.
+func (s *Server) StartReviewEvents() {
+	if s.bus == nil {
+		return
+	}
+	ch := s.bus.Subscribe(events.EventReviewChanged)
+	go func() {
+		for ev := range ch {
+			if p, ok := ev.Payload.(events.ReviewChangedPayload); ok {
+				s.hub.Broadcast(WSMessage{
+					Type: MsgReviewChanged, TaskID: p.TaskID, StepID: p.StepID, Kind: p.Kind,
 				})
 			}
 		}

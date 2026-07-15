@@ -34,6 +34,7 @@ const (
 	MsgPlanVerdict   = "plan_verdict"
 	MsgSwarmChanged  = "swarm_changed"
 	MsgCardsChanged  = "cards_changed"
+	MsgReviewChanged = "review_changed"
 	MsgError         = "error"
 )
 
@@ -55,6 +56,9 @@ type WSMessage struct {
 	Status       string              `json:"status,omitempty"`
 	Notes        string              `json:"notes,omitempty"`
 	Mode         string              `json:"mode,omitempty"`
+	TaskID       string              `json:"task_id,omitempty"`
+	StepID       string              `json:"step_id,omitempty"`
+	Kind         string              `json:"kind,omitempty"`
 }
 
 // wsClient represents a connected WebSocket client.
