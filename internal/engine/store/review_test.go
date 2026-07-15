@@ -122,6 +122,31 @@ func TestMarkReviewStepsOrphaned(t *testing.T) {
 	}
 }
 
+func TestReviewHunkNotesPersistAndAllowMultiplePerHunk(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	notes := []ReviewHunkNote{
+		{ID: "rhn-1", TaskID: "t1", StepID: "rs-1", FilePath: "main.go", HunkAnchor: "anchor", Body: "first"},
+		{ID: "rhn-2", TaskID: "t1", StepID: "rs-1", FilePath: "main.go", HunkAnchor: "anchor", Body: "second"},
+	}
+	for _, note := range notes {
+		if err := s.InsertReviewHunkNote(ctx, note); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := s.ListReviewHunkNotes(ctx, "t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Body != "first" || got[1].Body != "second" {
+		t.Fatalf("notes = %+v", got)
+	}
+	if got[0].CreatedAt == "" {
+		t.Fatal("CreatedAt was not populated")
+	}
+}
+
 func TestReviewTranscriptAppendAndList(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

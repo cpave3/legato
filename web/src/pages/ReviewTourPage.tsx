@@ -104,6 +104,13 @@ export function ReviewTourPage() {
   if (!data) return null
 
   const messages = selectedStep ? data.messages.filter((message) => message.step_id === selectedStep.id) : []
+  const hunkNotes = selectedStep ? data.hunk_notes.filter((note) => note.step_id === selectedStep.id) : []
+  const matchedNoteIDs = new Set(diff.flatMap((file) => file.hunks.flatMap((hunk) =>
+    hunkNotes
+      .filter((note) => note.hunk_anchor === hunk.anchor && (note.file_path === file.new_path || note.file_path === file.old_path))
+      .map((note) => note.id),
+  )))
+  const unmatchedHunkNotes = hunkNotes.filter((note) => !matchedNoteIDs.has(note.id))
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#0a0a0f] text-zinc-200">
@@ -164,8 +171,22 @@ export function ReviewTourPage() {
                 </div>
               </section>
 
-              {diffLoading ? <div className="flex justify-center py-10 text-zinc-600"><Loader2 className="animate-spin" size={20} /></div> : <DiffView files={diff} />}
+              {diffLoading ? <div className="flex justify-center py-10 text-zinc-600"><Loader2 className="animate-spin" size={20} /></div> : <DiffView files={diff} hunkNotes={hunkNotes} />}
 
+              {!diffLoading && unmatchedHunkNotes.length > 0 && (
+                <section role="alert" aria-label="Unmatched hunk notes" className="rounded border border-amber-800 bg-amber-950/30 p-4 text-amber-100">
+                  <h3 className="text-sm font-semibold">Unmatched hunk notes</h3>
+                  <p className="mt-1 text-xs text-amber-300">These notes no longer match a hunk in the selected step.</p>
+                  <div className="mt-3 space-y-2">
+                    {unmatchedHunkNotes.map((note) => (
+                      <div key={note.id} className="rounded bg-amber-950/50 px-3 py-2 text-sm">
+                        <div className="mb-1 font-mono text-[10px] text-amber-400">{note.file_path}</div>
+                        {note.body}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
             </div>
           )}
         </main>

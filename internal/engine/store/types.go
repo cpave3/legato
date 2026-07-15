@@ -184,6 +184,18 @@ type ReviewStep struct {
 	UpdatedAt        string  `db:"updated_at"`
 }
 
+// ReviewHunkNote is a durable annotation attached to hunk content within a
+// review step's file diff.
+type ReviewHunkNote struct {
+	ID         string `db:"id" json:"id"`
+	TaskID     string `db:"task_id" json:"task_id"`
+	StepID     string `db:"step_id" json:"step_id"`
+	FilePath   string `db:"file_path" json:"file_path"`
+	HunkAnchor string `db:"hunk_anchor" json:"hunk_anchor"`
+	Body       string `db:"body" json:"body"`
+	CreatedAt  string `db:"created_at" json:"created_at"`
+}
+
 // ReviewMessage is one Q&A transcript entry attached to a review step.
 type ReviewMessage struct {
 	ID          int     `db:"id"`

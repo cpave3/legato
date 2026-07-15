@@ -1,7 +1,12 @@
 import { cn } from "../lib/utils"
-import type { FileDiff } from "../lib/review"
+import type { FileDiff, ReviewHunkNote } from "../lib/review"
 
-export function DiffView({ files }: { files: FileDiff[] }) {
+interface DiffViewProps {
+  files: FileDiff[]
+  hunkNotes?: ReviewHunkNote[]
+}
+
+export function DiffView({ files, hunkNotes = [] }: DiffViewProps) {
   if (files.length === 0) {
     return <div className="rounded border border-zinc-800 p-6 text-center text-sm text-zinc-500">No file changes in this step.</div>
   }
@@ -19,7 +24,14 @@ export function DiffView({ files }: { files: FileDiff[] }) {
               <span className="ml-3 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">{file.status}</span>
             </header>
             {file.hunks.map((hunk, hunkIndex) => (
-              <div key={`${hunk.header}-${hunkIndex}`}>
+              <div key={`${hunk.header}-${hunkIndex}`} data-hunk-anchor={hunk.anchor}>
+                {hunkNotes
+                  .filter((note) => note.hunk_anchor === hunk.anchor && (note.file_path === file.new_path || note.file_path === file.old_path))
+                  .map((note) => (
+                    <div key={note.id} className="border-b border-amber-800 bg-amber-950/40 px-3 py-2 font-sans text-sm text-amber-100">
+                      {note.body}
+                    </div>
+                  ))}
                 <div className="border-y border-zinc-800 bg-indigo-950/40 px-3 py-1 text-indigo-300">{hunk.header}</div>
                 {hunk.lines.map((line, lineIndex) => (
                   <div

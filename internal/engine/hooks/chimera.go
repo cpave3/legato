@@ -139,7 +139,9 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"on any commit the reviewer should scrutinize (defaults to your latest " +
 	"commit). Use `--order N` to suggest a reading order when it differs from " +
 	"commit order, and `--file <path> \"<note>\"` for context that isn't tied " +
-	"to one commit.\n" +
+	"to one commit. When individual hunks need context, use " +
+	"`legato review annotate [sha] \"text\" --file <path> --hunk <1-based N>`; " +
+	"inspect `legato review show` or the diff to choose the hunk number.\n" +
 	"- **Signal when you're done.** Run `legato review ready \"<one-line summary>\"` " +
 	"when your work is ready for human review.\n" +
 	"- **Answer review questions.** Messages prefixed `[legato review]` are " +

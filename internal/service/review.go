@@ -184,6 +184,7 @@ type AnnotateArgs struct {
 	Risk      string
 	OrderHint *int
 	SubtaskID string
+	Hunk      *int
 }
 
 // Annotate enriches the tour: appends narration, sets risk and reading order
@@ -193,6 +194,9 @@ func (r *ReviewService) Annotate(ctx context.Context, taskID string, a AnnotateA
 		return "", err
 	}
 
+	if a.Hunk != nil {
+		return r.insertHunkNote(ctx, taskID, a)
+	}
 	if a.SHA == "" && len(a.Files) > 0 {
 		return r.insertNoteStep(ctx, taskID, a)
 	}
@@ -222,6 +226,50 @@ func (r *ReviewService) Annotate(ctx context.Context, taskID string, a AnnotateA
 	}
 	r.publish(taskID, updated.ID, "annotated")
 	return updated.ID, nil
+}
+
+func (r *ReviewService) insertHunkNote(ctx context.Context, taskID string, a AnnotateArgs) (string, error) {
+	if len(a.Files) != 1 {
+		return "", fmt.Errorf("--hunk requires exactly one --file path")
+	}
+	if *a.Hunk < 1 {
+		return "", fmt.Errorf("--hunk must be a 1-based positive number")
+	}
+	steps, err := r.store.ListReviewSteps(ctx, taskID)
+	if err != nil {
+		return "", err
+	}
+	target, err := resolveAnnotateTarget(steps, a.SHA)
+	if err != nil {
+		return "", err
+	}
+	files, err := r.StepDiff(ctx, taskID, target.ID)
+	if err != nil {
+		return "", err
+	}
+	path := a.Files[0]
+	var file *gitpkg.FileDiff
+	for i := range files {
+		if files[i].OldPath == path || files[i].NewPath == path {
+			file = &files[i]
+			break
+		}
+	}
+	if file == nil {
+		return "", fmt.Errorf("file %q is not in commit %s", path, target.CommitSHA)
+	}
+	if *a.Hunk > len(file.Hunks) {
+		return "", fmt.Errorf("file %q has %d hunks; cannot select hunk %d", path, len(file.Hunks), *a.Hunk)
+	}
+	id := generateReviewHunkNoteID()
+	if err := r.store.InsertReviewHunkNote(ctx, store.ReviewHunkNote{
+		ID: id, TaskID: taskID, StepID: target.ID, FilePath: path,
+		HunkAnchor: file.Hunks[*a.Hunk-1].Anchor, Body: a.Text,
+	}); err != nil {
+		return "", err
+	}
+	r.publish(taskID, target.ID, "annotated")
+	return id, nil
 }
 
 func (r *ReviewService) insertNoteStep(ctx context.Context, taskID string, a AnnotateArgs) (string, error) {
@@ -415,9 +463,10 @@ func (r *ReviewService) syncDirtyStep(ctx context.Context, taskID, repo string) 
 
 // ReviewTourView is the assembled read model for the review UIs.
 type ReviewTourView struct {
-	Tour     store.ReviewTour      `json:"tour"`
-	Steps    []store.ReviewStep    `json:"steps"`
-	Messages []store.ReviewMessage `json:"messages"`
+	Tour      store.ReviewTour       `json:"tour"`
+	Steps     []store.ReviewStep     `json:"steps"`
+	Messages  []store.ReviewMessage  `json:"messages"`
+	HunkNotes []store.ReviewHunkNote `json:"hunk_notes"`
 }
 
 // Tour syncs and returns the full tour: header, ordered steps, transcript.
@@ -437,13 +486,20 @@ func (r *ReviewService) Tour(ctx context.Context, taskID string) (*ReviewTourVie
 	if err != nil {
 		return nil, err
 	}
+	hunkNotes, err := r.store.ListReviewHunkNotes(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
 	if steps == nil {
 		steps = []store.ReviewStep{}
 	}
 	if msgs == nil {
 		msgs = []store.ReviewMessage{}
 	}
-	return &ReviewTourView{Tour: *tour, Steps: steps, Messages: msgs}, nil
+	if hunkNotes == nil {
+		hunkNotes = []store.ReviewHunkNote{}
+	}
+	return &ReviewTourView{Tour: *tour, Steps: steps, Messages: msgs, HunkNotes: hunkNotes}, nil
 }
 
 // StepDiff computes the diff a step anchors to, parsed into the interchange
@@ -691,9 +747,17 @@ func extractSubtaskTrailer(body string) (subtaskID, narration string) {
 
 // generateReviewStepID returns a 13-char id ("rs-" + 10 hex chars).
 func generateReviewStepID() string {
+	return generateReviewID("rs-")
+}
+
+func generateReviewHunkNoteID() string {
+	return generateReviewID("rhn-")
+}
+
+func generateReviewID(prefix string) string {
 	b := make([]byte, 5)
 	_, _ = rand.Read(b)
-	return "rs-" + hex.EncodeToString(b)
+	return prefix + hex.EncodeToString(b)
 }
 
 // dirtyFingerprint identifies the current uncommitted state, including index

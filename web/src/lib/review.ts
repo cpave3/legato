@@ -53,10 +53,21 @@ export interface ReviewMessage {
   created_at: string
 }
 
+export interface ReviewHunkNote {
+  id: string
+  task_id: string
+  step_id: string
+  file_path: string
+  hunk_anchor: string
+  body: string
+  created_at: string
+}
+
 export interface ReviewTourView {
   tour: ReviewTour
   steps: ReviewStep[]
   messages: ReviewMessage[]
+  hunk_notes: ReviewHunkNote[]
 }
 
 export type DiffLineKind = "ctx" | "add" | "del"
@@ -70,6 +81,7 @@ export interface DiffLine {
 
 export interface DiffHunk {
   header: string
+  anchor: string
   lines: DiffLine[]
 }
 

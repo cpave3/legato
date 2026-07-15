@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	gitpkg "github.com/cpave3/legato/internal/engine/git"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -207,6 +208,54 @@ func TestTourEscReturnsToQueueThenBoard(t *testing.T) {
 		t.Fatal("expected ReturnToBoardMsg")
 	}
 	_ = m
+}
+
+func TestRenderDiffPlacesMatchedHunkNoteImmediatelyBeforeHunk(t *testing.T) {
+	files := []gitpkg.FileDiff{{
+		NewPath: "a.go",
+		Status:  gitpkg.FileModified,
+		Hunks: []gitpkg.Hunk{{
+			Header: "@@ -1 +1 @@",
+			Anchor: "anchor-1",
+			Lines:  []gitpkg.Line{{Kind: gitpkg.LineAdded, Text: "new line"}},
+		}},
+	}}
+	notes := []store.ReviewHunkNote{{
+		StepID: "step-1", FilePath: "a.go", HunkAnchor: "anchor-1", Body: "Check this edge case.",
+	}}
+
+	out, unmatched := renderDiff(files, notes, 80)
+	fileAt := strings.Index(out, "── a.go")
+	noteAt := strings.Index(out, "Check this edge case.")
+	hunkAt := strings.Index(out, "@@ -1 +1 @@")
+	if fileAt < 0 || noteAt < fileAt || hunkAt < noteAt {
+		t.Fatalf("matched note should render immediately before its hunk:\n%s", out)
+	}
+	if len(unmatched) != 0 {
+		t.Fatalf("unmatched = %+v, want none", unmatched)
+	}
+}
+
+func TestViewportRendersUnmatchedNotesForSelectedStepWhenDiffIsEmpty(t *testing.T) {
+	m := New(nil)
+	m.SetSize(120, 40)
+	m.mode = modeTour
+	m.view = &service.ReviewTourView{
+		Steps: []store.ReviewStep{{ID: "selected", Title: "Selected step"}},
+		HunkNotes: []store.ReviewHunkNote{
+			{StepID: "selected", FilePath: "gone.go", HunkAnchor: "old", Body: "Still needs attention."},
+			{StepID: "other", FilePath: "other.go", HunkAnchor: "other", Body: "Wrong step note."},
+		},
+	}
+
+	m.refreshViewport()
+	out := m.viewport.View()
+	if !strings.Contains(out, "UNMATCHED HUNK NOTES") || !strings.Contains(out, "Still needs attention.") {
+		t.Fatalf("selected step's unmatched note should be visible:\n%s", out)
+	}
+	if strings.Contains(out, "Wrong step note.") {
+		t.Fatalf("note from another step should not render:\n%s", out)
+	}
 }
 
 func TestViewRendersWithoutPanic(t *testing.T) {

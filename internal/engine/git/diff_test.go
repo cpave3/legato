@@ -186,6 +186,39 @@ func TestParseUnifiedDiffOnRealGitOutput(t *testing.T) {
 	}
 }
 
+func TestHunkAnchorStableAcrossLineNumberChanges(t *testing.T) {
+	original := Hunk{Header: "@@ -1,2 +1,2 @@", Lines: []Line{
+		{Kind: LineContext, OldNo: 1, NewNo: 1, Text: "same"},
+		{Kind: LineDeleted, OldNo: 2, Text: "old"},
+		{Kind: LineAdded, NewNo: 2, Text: "new"},
+	}}
+	shifted := Hunk{Header: "@@ -101,2 +201,2 @@", Lines: []Line{
+		{Kind: LineContext, OldNo: 101, NewNo: 201, Text: "same"},
+		{Kind: LineDeleted, OldNo: 102, Text: "old"},
+		{Kind: LineAdded, NewNo: 202, Text: "new"},
+	}}
+	changed := shifted
+	changed.Lines = append([]Line(nil), shifted.Lines...)
+	changed.Lines[2].Text = "different"
+
+	if got, want := HunkAnchor(original), HunkAnchor(shifted); got != want {
+		t.Fatalf("anchor changed with line ranges: %q != %q", got, want)
+	}
+	if HunkAnchor(original) == HunkAnchor(changed) {
+		t.Fatal("anchor must change with hunk content")
+	}
+}
+
+func TestParseUnifiedDiffPopulatesHunkAnchor(t *testing.T) {
+	hunk := ParseUnifiedDiff(simpleDiff)[0].Hunks[0]
+	if hunk.Anchor == "" {
+		t.Fatal("parsed hunk anchor is empty")
+	}
+	if hunk.Anchor != HunkAnchor(hunk) {
+		t.Fatalf("Anchor = %q, want %q", hunk.Anchor, HunkAnchor(hunk))
+	}
+}
+
 func TestParseUnifiedDiffSingleFileSingleHunk(t *testing.T) {
 	files := ParseUnifiedDiff(simpleDiff)
 	if len(files) != 1 {

@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ReviewTourPage } from "../ReviewTourPage"
 
 const mockFetch = vi.fn()
@@ -19,12 +19,18 @@ vi.mock("../../hooks/useReview", () => ({
       messages: [
         { id: 1, step_id: "S-1", author: "agent", kind: "answer", body: "The refresh is single-flight." },
       ],
+      hunk_notes: [
+        { id: "N-1", task_id: "T-1", step_id: "S-1", file_path: "src/auth.ts", hunk_anchor: "missing-anchor", body: "This note lost its hunk.", created_at: "2026-01-01" },
+        { id: "N-2", task_id: "T-1", step_id: "S-2", file_path: "src/other.ts", hunk_anchor: "other-anchor", body: "Other step note.", created_at: "2026-01-01" },
+      ],
     },
     loading: false,
     error: null,
     refresh: mockRefresh,
   }),
 }))
+
+afterEach(cleanup)
 
 beforeEach(() => {
   mockFetch.mockReset()
@@ -68,6 +74,15 @@ describe("ReviewTourPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Complete review" }))
     await waitFor(() => expect(screen.getByText("Queue destination")).toBeTruthy())
     expect(mockFetch).toHaveBeenCalledWith("/api/tasks/T-1/review/complete", expect.objectContaining({ method: "POST" }))
+  })
+
+  it("shows unmatched hunk notes for only the selected step outside Q&A", async () => {
+    renderPage()
+
+    const warning = await screen.findByRole("alert", { name: "Unmatched hunk notes" })
+    expect(warning.textContent).toContain("This note lost its hunk.")
+    expect(screen.queryByText("Other step note.")).toBeNull()
+    expect(screen.getByText("The refresh is single-flight.").closest("aside")?.textContent).toContain("Questions & answers")
   })
 
   it("loads the selected step's diff", async () => {

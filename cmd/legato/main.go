@@ -107,29 +107,13 @@ func runReviewCmd(args []string) int {
 
 	switch verb {
 	case "annotate":
-		a := service.AnnotateArgs{
-			Risk:      flags["risk"],
-			Files:     listFlags["file"],
-			SubtaskID: os.Getenv("LEGATO_SUBTASK_ID"),
-		}
-		if v, ok := flags["order"]; ok {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "error: --order must be a number, got %q\n", v)
-				return 1
-			}
-			a.OrderHint = &n
-		}
-		// Positional forms: [<sha>] "text" — a lone arg is the text.
-		switch len(positional) {
-		case 1:
-			a.Text = positional[0]
-		case 2:
-			a.SHA, a.Text = positional[0], positional[1]
-		default:
-			fmt.Fprintln(os.Stderr, `usage: legato review annotate [<sha>] "text" [--file <path>]... [--risk high|medium|low|unsure] [--order N] [--task <id>]`)
+		a, err := parseReviewAnnotateArgs(positional, flags, listFlags)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			fmt.Fprintln(os.Stderr, `usage: legato review annotate [<sha>] "text" --file <path> [--hunk N] [--risk high|medium|low|unsure] [--order N] [--task <id>]`)
 			return 1
 		}
+		a.SubtaskID = os.Getenv("LEGATO_SUBTASK_ID")
 		stepID, err := cli.ReviewAnnotate(svc, taskID, a)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -175,6 +159,36 @@ func runReviewCmd(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: legato review [annotate|answer|ready|show|sync] ...")
 		return 1
 	}
+}
+
+func parseReviewAnnotateArgs(positional []string, flags map[string]string, listFlags map[string][]string) (service.AnnotateArgs, error) {
+	a := service.AnnotateArgs{Risk: flags["risk"], Files: listFlags["file"]}
+	if v, ok := flags["order"]; ok {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return a, fmt.Errorf("--order must be a number, got %q", v)
+		}
+		a.OrderHint = &n
+	}
+	if v, ok := flags["hunk"]; ok {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return a, fmt.Errorf("--hunk must be a 1-based number, got %q", v)
+		}
+		a.Hunk = &n
+		if len(a.Files) != 1 {
+			return a, fmt.Errorf("--hunk requires exactly one --file path")
+		}
+	}
+	switch len(positional) {
+	case 1:
+		a.Text = positional[0]
+	case 2:
+		a.SHA, a.Text = positional[0], positional[1]
+	default:
+		return a, fmt.Errorf("expected text with an optional commit SHA")
+	}
+	return a, nil
 }
 
 // parseReviewArgs splits args into positionals, single-value flags, and

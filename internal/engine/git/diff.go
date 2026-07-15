@@ -1,6 +1,8 @@
 package git
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strconv"
 	"strings"
 )
@@ -37,7 +39,21 @@ type Line struct {
 // Hunk is one @@-delimited region of a file diff.
 type Hunk struct {
 	Header string `json:"header"`
+	Anchor string `json:"anchor"`
 	Lines  []Line `json:"lines"`
+}
+
+// HunkAnchor returns a stable content identity for a hunk. Line numbers and
+// header ranges are excluded so the anchor survives unrelated edits above it.
+func HunkAnchor(h Hunk) string {
+	hash := sha256.New()
+	for _, line := range h.Lines {
+		hash.Write([]byte(line.Kind))
+		hash.Write([]byte{0})
+		hash.Write([]byte(line.Text))
+		hash.Write([]byte{'\n'})
+	}
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 // FileDiff is the parsed diff of a single file. It is the interchange format
@@ -60,6 +76,7 @@ func ParseUnifiedDiff(text string) []FileDiff {
 
 	flushHunk := func() {
 		if cur != nil && hunk != nil {
+			hunk.Anchor = HunkAnchor(*hunk)
 			cur.Hunks = append(cur.Hunks, *hunk)
 		}
 		hunk = nil

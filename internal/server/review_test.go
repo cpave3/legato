@@ -22,6 +22,7 @@ import (
 
 type reviewServerFixture struct {
 	server *Server
+	store  *store.Store
 	svc    *service.ReviewService
 }
 
@@ -77,11 +78,21 @@ func newReviewServerFixture(t *testing.T) *reviewServerFixture {
 	}
 	server := New(nil, nil, nil, "")
 	server.SetReviewService(svc)
-	return &reviewServerFixture{server: server, svc: svc}
+	return &reviewServerFixture{server: server, store: s, svc: svc}
 }
 
 func TestReviewTourAndStepDiff(t *testing.T) {
 	f := newReviewServerFixture(t)
+	tourView, err := f.svc.Tour(context.Background(), "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.InsertReviewHunkNote(context.Background(), store.ReviewHunkNote{
+		ID: "note-1", TaskID: "task-1", StepID: tourView.Steps[0].ID,
+		FilePath: "api.go", HunkAnchor: "saved-anchor", Body: "Explain this hunk.",
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	tourReq := httptest.NewRequest(http.MethodGet, "/api/tasks/task-1/review", nil)
 	tourRes := httptest.NewRecorder()
@@ -96,6 +107,9 @@ func TestReviewTourAndStepDiff(t *testing.T) {
 	if tour.Tour.TaskID != "task-1" || len(tour.Steps) != 1 {
 		t.Fatalf("unexpected tour: %+v", tour)
 	}
+	if len(tour.HunkNotes) != 1 || tour.HunkNotes[0].Body != "Explain this hunk." || tour.HunkNotes[0].HunkAnchor != "saved-anchor" {
+		t.Fatalf("unexpected hunk_notes: %+v", tour.HunkNotes)
+	}
 
 	diffReq := httptest.NewRequest(http.MethodGet, "/api/tasks/task-1/review/steps/"+tour.Steps[0].ID+"/diff", nil)
 	diffRes := httptest.NewRecorder()
@@ -109,6 +123,14 @@ func TestReviewTourAndStepDiff(t *testing.T) {
 	}
 	if len(files) != 1 {
 		t.Fatalf("unexpected diff: %+v", files)
+	}
+	hunks, ok := files[0]["hunks"].([]any)
+	if !ok || len(hunks) != 1 {
+		t.Fatalf("unexpected hunks: %+v", files[0]["hunks"])
+	}
+	hunk, ok := hunks[0].(map[string]any)
+	if !ok || strings.TrimSpace(fmt.Sprint(hunk["anchor"])) == "" {
+		t.Fatalf("diff hunk missing anchor: %+v", hunks[0])
 	}
 }
 

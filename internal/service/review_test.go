@@ -325,6 +325,64 @@ func TestReviewAnnotate(t *testing.T) {
 	}
 }
 
+func TestReviewAnnotateHunkPersistsDurableNote(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "old.go", "package old\n\nfunc value() int { return 1 }\n")
+	gitCommitAll(t, f.repo, "add old")
+	gitRun(t, f.repo, "mv", "old.go", "new.go")
+	writeRepoFile(t, f.repo, "new.go", "package old\n\nfunc value() int { return 2 }\n")
+	sha := gitCommitAll(t, f.repo, "rename and change")
+
+	hunk := 1
+	noteID, err := f.svc.Annotate(ctx, "task-1", AnnotateArgs{
+		SHA: sha, Text: "check this hunk", Files: []string{"old.go"}, Hunk: &hunk,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := f.svc.Tour(ctx, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.HunkNotes) != 1 {
+		t.Fatalf("HunkNotes = %+v", view.HunkNotes)
+	}
+	note := view.HunkNotes[0]
+	if note.ID != noteID || note.FilePath != "old.go" || note.HunkAnchor == "" || note.Body != "check this hunk" {
+		t.Fatalf("note = %+v", note)
+	}
+}
+
+func TestReviewAnnotateHunkRejectsInvalidSelection(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "a.go", "package a\n")
+	gitCommitAll(t, f.repo, "add a")
+
+	one, two := 1, 2
+	for _, tc := range []AnnotateArgs{
+		{Text: "x", Files: []string{"missing.go"}, Hunk: &one},
+		{Text: "x", Files: []string{"a.go"}, Hunk: &two},
+		{Text: "x", Files: []string{"a.go", "b.go"}, Hunk: &one},
+	} {
+		if _, err := f.svc.Annotate(ctx, "task-1", tc); err == nil {
+			t.Fatalf("Annotate(%+v) should fail", tc)
+		}
+	}
+}
+
+func TestReviewTourHunkNotesIsNonNil(t *testing.T) {
+	f := newReviewFixture(t)
+	view, err := f.svc.Tour(context.Background(), "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.HunkNotes == nil {
+		t.Fatal("empty hunk notes must be an empty slice, not nil")
+	}
+}
+
 func TestReviewQuestionAndAnswerLoop(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()

@@ -103,7 +103,7 @@ The user reviews the swarm's work as a guided tour built from commits. Workers n
   ```
 
   (Use the actual sub-task ID, e.g. `Legato-Subtask: st-0a1b2c3d4e`.) Each checkpoint commit becomes one review step; the body becomes its narration.
-- **Enrich before finishing.** Run `legato review annotate [<sha>] "<context>" --risk high|medium|low|unsure` on commits the reviewer should scrutinize, `--order N` to suggest a reading order, and `--file <path> "<note>"` for cross-cutting context. Then, as part of finishing the swarm, run `legato review ready "<one-line summary>"`.
+- **Enrich before finishing.** Run `legato review annotate [<sha>] "<context>" --risk high|medium|low|unsure` on commits the reviewer should scrutinize, `--order N` to suggest a reading order, and `--file <path> "<note>"` for cross-cutting context. When individual hunks need context, use `legato review annotate [sha] "text" --file <path> --hunk <1-based N>`; inspect `legato review show` or the diff to choose the hunk number. Then, as part of finishing the swarm, run `legato review ready "<one-line summary>"`.
 - **Answer review questions.** Messages prefixed `[legato review]` are reviewer questions about a specific step; each includes the exact `legato review answer <step-id> "..."` command to reply with. Answer through that command so the reply lands in the review record. If the question needs a worker's knowledge and that worker is still alive, relay via `legato swarm message` and then submit the answer yourself.
 
 These git commands (and the `legato review` verbs) are lifecycle bookkeeping, not code-writing — they don't violate your no-code rule.

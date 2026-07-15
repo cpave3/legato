@@ -66,7 +66,7 @@ func (s *Store) migrate() error {
 		return err
 	}
 
-	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql", "008_workspaces.sql", "009_archive.sql", "010_pr_meta.sql", "011_ephemeral.sql", "012_swarm.sql", "013_agent_role.sql", "014_swarm_v1.sql", "015_swarm_events.sql", "016_state_interval_working_dir.sql", "017_swarm_step_index.sql", "018_swarm_active_step.sql", "019_swarm_pending_plans.sql", "020_swarm_tier.sql", "021_state_intervals_drop_fk.sql", "022_agent_kind.sql", "023_task_prefs.sql", "024_chimera_session.sql", "025_task_worktree.sql", "026_task_group.sql", "027_review_tours.sql", "028_review_repository.sql"}
+	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql", "008_workspaces.sql", "009_archive.sql", "010_pr_meta.sql", "011_ephemeral.sql", "012_swarm.sql", "013_agent_role.sql", "014_swarm_v1.sql", "015_swarm_events.sql", "016_state_interval_working_dir.sql", "017_swarm_step_index.sql", "018_swarm_active_step.sql", "019_swarm_pending_plans.sql", "020_swarm_tier.sql", "021_state_intervals_drop_fk.sql", "022_agent_kind.sql", "023_task_prefs.sql", "024_chimera_session.sql", "025_task_worktree.sql", "026_task_group.sql", "027_review_tours.sql", "028_review_repository.sql", "029_review_hunk_notes.sql"}
 
 	for i := version; i < len(migrations); i++ {
 		data, err := migrationsFS.ReadFile("migrations/" + migrations[i])

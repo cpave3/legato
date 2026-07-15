@@ -476,12 +476,19 @@ func (m *Model) refreshViewport() {
 		sections = append(sections, narration)
 	}
 
+	notes := m.hunkNotesForStep(step.ID)
+	unmatched := notes
 	if m.diffErr != "" {
 		sections = append(sections, lipgloss.NewStyle().Foreground(theme.SyncError).Render(m.diffErr))
 	} else if len(m.diff) == 0 {
 		sections = append(sections, dimStyle.Render("(loading diff...)"))
 	} else {
-		sections = append(sections, renderDiff(m.diff, m.rightPaneWidth()))
+		var diff string
+		diff, unmatched = renderDiff(m.diff, notes, m.rightPaneWidth())
+		sections = append(sections, diff)
+	}
+	if len(unmatched) > 0 {
+		sections = append(sections, renderUnmatchedHunkNotes(unmatched))
 	}
 
 	m.viewport.SetContent(strings.Join(sections, "\n\n"))
@@ -514,13 +521,25 @@ func (m Model) renderThread(stepID string) string {
 	return dimStyle.Render("— thread —") + "\n" + strings.Join(lines, "\n")
 }
 
-// renderDiff colorizes parsed FileDiffs for the terminal.
-func renderDiff(files []gitpkg.FileDiff, width int) string {
+func (m Model) hunkNotesForStep(stepID string) []store.ReviewHunkNote {
+	var notes []store.ReviewHunkNote
+	for _, note := range m.view.HunkNotes {
+		if note.StepID == stepID {
+			notes = append(notes, note)
+		}
+	}
+	return notes
+}
+
+// renderDiff colorizes parsed FileDiffs and places notes beside their hunks.
+func renderDiff(files []gitpkg.FileDiff, notes []store.ReviewHunkNote, width int) (string, []store.ReviewHunkNote) {
 	fileStyle := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true)
 	hunkStyle := lipgloss.NewStyle().Foreground(theme.ColReady)
 	addStyle := lipgloss.NewStyle().Foreground(theme.SyncOK)
 	delStyle := lipgloss.NewStyle().Foreground(theme.SyncError)
 	ctxStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
+	noteStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple).Bold(true)
+	matched := make([]bool, len(notes))
 
 	var lines []string
 	for _, f := range files {
@@ -534,6 +553,12 @@ func renderDiff(files []gitpkg.FileDiff, width int) string {
 			continue
 		}
 		for _, h := range f.Hunks {
+			for i, note := range notes {
+				if note.FilePath == f.NewPath && note.HunkAnchor == h.Anchor {
+					lines = append(lines, noteStyle.Render("◆ Note: "+note.Body))
+					matched[i] = true
+				}
+			}
 			lines = append(lines, hunkStyle.Render(h.Header))
 			for _, l := range h.Lines {
 				text := truncate(l.Text, width-2)
@@ -547,6 +572,22 @@ func renderDiff(files []gitpkg.FileDiff, width int) string {
 				}
 			}
 		}
+	}
+	var unmatched []store.ReviewHunkNote
+	for i, note := range notes {
+		if !matched[i] {
+			unmatched = append(unmatched, note)
+		}
+	}
+	return strings.Join(lines, "\n"), unmatched
+}
+
+func renderUnmatchedHunkNotes(notes []store.ReviewHunkNote) string {
+	headerStyle := lipgloss.NewStyle().Foreground(theme.SyncActive).Bold(true)
+	noteStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple)
+	lines := []string{headerStyle.Render("UNMATCHED HUNK NOTES")}
+	for _, note := range notes {
+		lines = append(lines, noteStyle.Render(fmt.Sprintf("◆ %s: %s", note.FilePath, note.Body)))
 	}
 	return strings.Join(lines, "\n")
 }

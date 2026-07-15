@@ -13,6 +13,9 @@ func TestChimeraGeneralPromptTeachesReviewCapture(t *testing.T) {
 	for _, want := range []string{
 		"semantic commit",
 		"legato review annotate",
+		"--file <path> --hunk <1-based N>",
+		"legato review show",
+		"diff",
 		"legato review ready",
 		"legato review answer",
 		"[legato review]",
@@ -38,6 +41,9 @@ func TestConductorPromptTeachesReviewPacket(t *testing.T) {
 	for _, want := range []string{
 		"Legato-Subtask:",
 		"legato review annotate",
+		"--file <path> --hunk <1-based N>",
+		"legato review show",
+		"diff",
 		"legato review ready",
 		"legato review answer",
 		"[legato review]",

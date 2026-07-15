@@ -155,6 +155,23 @@ func (s *Store) ListReviewTours(ctx context.Context) ([]ReviewTour, error) {
 	return tours, err
 }
 
+// InsertReviewHunkNote persists a content-anchored note. IDs are caller
+// generated so the service can return the durable note identity.
+func (s *Store) InsertReviewHunkNote(ctx context.Context, note ReviewHunkNote) error {
+	_, err := s.db.NamedExecContext(ctx, `
+		INSERT INTO review_hunk_notes (id, task_id, step_id, file_path, hunk_anchor, body)
+		VALUES (:id, :task_id, :step_id, :file_path, :hunk_anchor, :body)`, note)
+	return err
+}
+
+// ListReviewHunkNotes returns a task's hunk notes oldest first.
+func (s *Store) ListReviewHunkNotes(ctx context.Context, taskID string) ([]ReviewHunkNote, error) {
+	var notes []ReviewHunkNote
+	err := s.db.SelectContext(ctx, &notes, `
+		SELECT * FROM review_hunk_notes WHERE task_id = ? ORDER BY created_at ASC, id ASC`, taskID)
+	return notes, err
+}
+
 // InsertReviewMessage appends a Q&A transcript entry. delivered records
 // whether the message actually reached the agent's pane (questions sent while
 // the agent session is dead are stored with a NULL delivered_at).
