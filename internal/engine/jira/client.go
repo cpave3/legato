@@ -43,13 +43,19 @@ func NewClient(baseURL, email, apiToken string, timeout time.Duration) *Client {
 func (c *Client) Search(ctx context.Context, jql string) ([]Issue, error) {
 	var allIssues []Issue
 	startAt := 0
+	nextPageToken := ""
 
 	for {
 		params := url.Values{
 			"jql":        {jql},
-			"startAt":    {strconv.Itoa(startAt)},
 			"maxResults": {strconv.Itoa(defaultPageSize)},
-			"fields":     {"summary,status,priority,issuetype,assignee,labels,description,updated,project,customfield_10014"},
+			"fields":     {"summary,status,priority,issuetype,assignee,labels,description,updated,project,customfield_10014,attachment"},
+		}
+
+		if nextPageToken != "" {
+			params.Set("nextPageToken", nextPageToken)
+		} else {
+			params.Set("startAt", strconv.Itoa(startAt))
 		}
 
 		body, err := c.doGet(ctx, "/rest/api/3/search/jql?"+params.Encode())
@@ -64,10 +70,17 @@ func (c *Client) Search(ctx context.Context, jql string) ([]Issue, error) {
 
 		allIssues = append(allIssues, result.Issues...)
 
-		if startAt+len(result.Issues) >= result.Total {
+		if result.Total > 0 {
+			if startAt+len(result.Issues) >= result.Total || len(result.Issues) == 0 {
+				break
+			}
+			startAt += len(result.Issues)
+			continue
+		}
+		if result.IsLast || result.NextPageToken == "" {
 			break
 		}
-		startAt += len(result.Issues)
+		nextPageToken = result.NextPageToken
 	}
 
 	return allIssues, nil
@@ -86,6 +99,26 @@ func (c *Client) GetIssue(ctx context.Context, key string) (*Issue, error) {
 	}
 
 	return &issue, nil
+}
+
+// DownloadAttachment returns an authenticated stream for an attachment.
+func (c *Client) DownloadAttachment(ctx context.Context, id string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/rest/api/3/attachment/content/"+url.PathEscape(id)+"?redirect=false", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(c.email, c.apiToken)
+	req.Header.Set("Accept", "*/*")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("download attachment: API error (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+	return resp.Body, nil
 }
 
 // GetTransitions returns available transitions for an issue.

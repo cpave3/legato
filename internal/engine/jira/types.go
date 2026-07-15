@@ -20,6 +20,15 @@ type IssueFields struct {
 	Updated     string          `json:"updated"`
 	Project     ProjectField    `json:"project"`
 	EpicKey     string          `json:"customfield_10014"` // Epic Link
+	Attachments []Attachment    `json:"attachment"`
+}
+
+// Attachment describes a file attached to a Jira issue.
+type Attachment struct {
+	ID       string `json:"id"`
+	Filename string `json:"filename"`
+	MimeType string `json:"mimeType"`
+	Size     int64  `json:"size"`
 }
 
 // StatusField represents the status of a Jira issue.
@@ -64,10 +73,12 @@ type TransitionsResponse struct {
 
 // SearchResult represents the response from the Jira search API.
 type SearchResult struct {
-	StartAt    int     `json:"startAt"`
-	MaxResults int     `json:"maxResults"`
-	Total      int     `json:"total"`
-	Issues     []Issue `json:"issues"`
+	StartAt       int     `json:"startAt"`
+	MaxResults    int     `json:"maxResults"`
+	Total         int     `json:"total"`
+	Issues        []Issue `json:"issues"`
+	IsLast        bool    `json:"isLast"`
+	NextPageToken string  `json:"nextPageToken"`
 }
 
 // JiraProject represents a project from the Jira API.

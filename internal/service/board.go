@@ -6,18 +6,24 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/attachments"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
 type boardService struct {
-	store *store.Store
-	bus   *events.Bus
+	store       *store.Store
+	bus         *events.Bus
+	attachments *attachments.Cache
 }
 
 // NewBoardService creates a BoardService backed by the given store and event bus.
-func NewBoardService(s *store.Store, bus *events.Bus) BoardService {
-	return &boardService{store: s, bus: bus}
+func NewBoardService(s *store.Store, bus *events.Bus, attachmentCache ...*attachments.Cache) BoardService {
+	cache := attachments.NewCache(attachments.DefaultRoot(), 0)
+	if len(attachmentCache) > 0 && attachmentCache[0] != nil {
+		cache = attachmentCache[0]
+	}
+	return &boardService{store: s, bus: bus, attachments: cache}
 }
 
 func (b *boardService) ListColumns(ctx context.Context) ([]Column, error) {
@@ -110,7 +116,11 @@ func (b *boardService) GetCard(ctx context.Context, id string) (*CardDetail, err
 	if err != nil {
 		return nil, err
 	}
-	return taskToCardDetail(t), nil
+	detail := taskToCardDetail(t)
+	if err := b.addAttachments(detail); err != nil {
+		return nil, err
+	}
+	return detail, nil
 }
 
 func (b *boardService) MoveCard(ctx context.Context, id string, targetColumn string) error {
@@ -266,6 +276,9 @@ func (b *boardService) ExportCardContext(ctx context.Context, id string, format 
 		return "", err
 	}
 	detail := taskToCardDetail(t)
+	if err := b.addAttachments(detail); err != nil {
+		return "", err
+	}
 
 	switch format {
 	case ExportFormatDescription:
@@ -310,8 +323,8 @@ func (b *boardService) CreateTask(ctx context.Context, title, description, colum
 	}
 
 	b.bus.Publish(events.Event{
-		Type:    events.EventCardsRefreshed,
-		At:      time.Now(),
+		Type: events.EventCardsRefreshed,
+		At:   time.Now(),
 	})
 
 	return &Card{
@@ -432,9 +445,18 @@ func (b *boardService) ArchiveDoneCards(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	tasks, err := b.store.ListTasksByStatus(ctx, doneCol)
+	if err != nil {
+		return 0, err
+	}
 	count, err := b.store.ArchiveTasksByStatus(ctx, doneCol)
 	if err != nil {
 		return 0, err
+	}
+	for _, task := range tasks {
+		if err := b.attachments.Remove(task.ID); err != nil {
+			return int(count), err
+		}
 	}
 	b.bus.Publish(events.Event{
 		Type: events.EventCardsRefreshed,
@@ -458,6 +480,9 @@ func (b *boardService) ArchiveTask(ctx context.Context, id string) error {
 	if err := b.store.ArchiveTask(ctx, id); err != nil {
 		return err
 	}
+	if err := b.attachments.Remove(id); err != nil {
+		return err
+	}
 	b.bus.Publish(events.Event{
 		Type: events.EventCardsRefreshed,
 		At:   time.Now(),
@@ -475,6 +500,17 @@ func (b *boardService) CountDoneCards(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	return len(tasks), nil
+}
+
+func (b *boardService) addAttachments(detail *CardDetail) error {
+	items, err := b.attachments.List(detail.ID)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		detail.Attachments = append(detail.Attachments, LocalAttachment{Filename: item.Filename, MimeType: item.MimeType, Path: item.Path})
+	}
+	return nil
 }
 
 func taskToCardDetail(t *store.Task) *CardDetail {

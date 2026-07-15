@@ -36,6 +36,15 @@ type RemoteTicket struct {
 	EpicName      string
 	URL           string
 	UpdatedAt     time.Time
+	Attachments   []RemoteAttachment
+}
+
+// RemoteAttachment is provider-neutral attachment metadata.
+type RemoteAttachment struct {
+	ID       string
+	Filename string
+	MimeType string
+	Size     int64
 }
 
 // RemoteTransition represents an available state transition from the remote provider.

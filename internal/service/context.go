@@ -1,6 +1,9 @@
 package service
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // formatDescription produces a description-only export: heading + description body.
 func formatDescription(card *CardDetail) string {
@@ -8,7 +11,7 @@ func formatDescription(card *CardDetail) string {
 	if card.DescriptionMD != "" {
 		out += "\n" + card.DescriptionMD + "\n"
 	}
-	return out
+	return out + formatAttachments(card.Attachments)
 }
 
 // formatFull produces a full structured block with metadata and description.
@@ -42,5 +45,17 @@ func formatFull(card *CardDetail) string {
 		out += "\n" + card.DescriptionMD + "\n"
 	}
 
-	return out
+	return out + formatAttachments(card.Attachments)
+}
+
+func formatAttachments(items []LocalAttachment) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var out strings.Builder
+	out.WriteString("\n## Local attachments\n\n")
+	for _, item := range items {
+		fmt.Fprintf(&out, "- %s: `%s`\n", item.Filename, item.Path)
+	}
+	return out.String()
 }

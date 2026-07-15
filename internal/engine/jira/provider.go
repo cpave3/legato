@@ -2,6 +2,7 @@ package jira
 
 import (
 	"context"
+	"io"
 	"strings"
 	"time"
 )
@@ -21,6 +22,7 @@ type ProviderTicket struct {
 	EpicName      string
 	URL           string
 	UpdatedAt     time.Time
+	Attachments   []Attachment
 }
 
 // ProviderTransition represents an available state transition.
@@ -92,6 +94,11 @@ func (p *Provider) DoTransition(ctx context.Context, id string, transitionID str
 	return p.client.DoTransition(ctx, id, transitionID)
 }
 
+// DownloadAttachment opens an authenticated attachment stream.
+func (p *Provider) DownloadAttachment(ctx context.Context, id string) (io.ReadCloser, error) {
+	return p.client.DownloadAttachment(ctx, id)
+}
+
 func (p *Provider) issueToTicket(issue Issue) ProviderTicket {
 	assignee := ""
 	if issue.Fields.Assignee != nil {
@@ -117,5 +124,6 @@ func (p *Provider) issueToTicket(issue Issue) ProviderTicket {
 		EpicKey:       issue.Fields.EpicKey,
 		URL:           browseURL,
 		UpdatedAt:     updatedAt,
+		Attachments:   issue.Fields.Attachments,
 	}
 }

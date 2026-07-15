@@ -2,9 +2,13 @@ package service
 
 import (
 	"context"
+	"io"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/attachments"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -53,6 +57,44 @@ func TestArchiveDoneCards(t *testing.T) {
 	}
 }
 
+func TestArchiveDoneCardsRemovesOnlyArchivedAttachmentCaches(t *testing.T) {
+	s, bus, _ := setupTestBoard(t)
+	seedColumns(t, s)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, task := range []store.Task{{ID: "done", Title: "Done", Status: "Done", CreatedAt: now, UpdatedAt: now}, {ID: "active", Title: "Active", Status: "In Progress", CreatedAt: now, UpdatedAt: now}} {
+		if err := s.CreateTask(ctx, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cache := attachments.NewCache(t.TempDir(), 1024)
+	dl := &archiveDownloader{}
+	for _, id := range []string{"done", "active"} {
+		if err := cache.Reconcile(ctx, id, []attachments.Metadata{{ID: "1", Filename: "screen.png", MimeType: "image/png", Size: 3}}, dl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	doneItems, _ := cache.List("done")
+	activeItems, _ := cache.List("active")
+
+	svc := NewBoardService(s, bus, cache)
+	if _, err := svc.ArchiveDoneCards(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(doneItems[0].Path); !os.IsNotExist(err) {
+		t.Fatalf("done cache remains: %v", err)
+	}
+	if _, err := os.Stat(activeItems[0].Path); err != nil {
+		t.Fatalf("active cache removed: %v", err)
+	}
+}
+
+type archiveDownloader struct{}
+
+func (*archiveDownloader) DownloadAttachment(context.Context, string) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("PNG")), nil
+}
+
 func TestArchiveDoneCards_NoDone(t *testing.T) {
 	s, _, svc := setupTestBoard(t)
 	seedColumns(t, s)
@@ -63,6 +105,28 @@ func TestArchiveDoneCards_NoDone(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("expected 0, got %d", count)
+	}
+}
+
+func TestArchiveTaskRemovesAttachmentCache(t *testing.T) {
+	s, bus, _ := setupTestBoard(t)
+	seedColumns(t, s)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := s.CreateTask(ctx, store.Task{ID: "done", Title: "Done", Status: "Done", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	cache := attachments.NewCache(t.TempDir(), 1024)
+	if err := cache.Reconcile(ctx, "done", []attachments.Metadata{{ID: "1", Filename: "screen.png", MimeType: "image/png", Size: 3}}, &archiveDownloader{}); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := cache.List("done")
+
+	if err := NewBoardService(s, bus, cache).ArchiveTask(ctx, "done"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(items[0].Path); !os.IsNotExist(err) {
+		t.Fatalf("attachment remains: %v", err)
 	}
 }
 

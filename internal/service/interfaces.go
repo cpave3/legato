@@ -72,6 +72,14 @@ type CardDetail struct {
 	SwarmStepNames  []string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	Attachments     []LocalAttachment
+}
+
+// LocalAttachment describes a cached attachment available to agents.
+type LocalAttachment struct {
+	Filename string
+	MimeType string
+	Path     string
 }
 
 // SyncResult contains the outcome of a sync operation.

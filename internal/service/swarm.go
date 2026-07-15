@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/attachments"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
@@ -128,11 +129,12 @@ type SwarmPlanSubtask struct {
 
 // swarmService is the concrete implementation of SwarmService.
 type swarmService struct {
-	store    *store.Store
-	agents   AgentService
-	bus      *events.Bus
-	cfg      SwarmConfig
-	repoRoot string
+	store       *store.Store
+	agents      AgentService
+	bus         *events.Bus
+	cfg         SwarmConfig
+	repoRoot    string
+	attachments *attachments.Cache
 
 	// Per-worker progress debouncer state. Keyed by subtask_id.
 	debounceMu      sync.Mutex
@@ -157,7 +159,7 @@ type pendingProgressEntry struct {
 }
 
 // NewSwarmService creates a SwarmService.
-func NewSwarmService(s *store.Store, agents AgentService, bus *events.Bus, cfg SwarmConfig, repoRoot string) SwarmService {
+func NewSwarmService(s *store.Store, agents AgentService, bus *events.Bus, cfg SwarmConfig, repoRoot string, attachmentCache ...*attachments.Cache) SwarmService {
 	if cfg.MaxConcurrentAgents <= 0 {
 		cfg.MaxConcurrentAgents = 4
 	}
@@ -167,8 +169,13 @@ func NewSwarmService(s *store.Store, agents AgentService, bus *events.Bus, cfg S
 	if cfg.MaxStepsPerPlan <= 0 {
 		cfg.MaxStepsPerPlan = 10
 	}
+	cache := attachments.NewCache(attachments.DefaultRoot(), 0)
+	if len(attachmentCache) > 0 && attachmentCache[0] != nil {
+		cache = attachmentCache[0]
+	}
 	return &swarmService{
 		store:           s,
+		attachments:     cache,
 		agents:          agents,
 		bus:             bus,
 		cfg:             cfg,
@@ -579,7 +586,7 @@ func (s *swarmService) StartSwarm(ctx context.Context, parentID, workingDir stri
 	brief := fmt.Sprintf(
 		"You are the swarm conductor for task **%s — %s**.\n\nWorking directory: %s\n\n## Parent task description\n\n%s",
 		parent.ID, parent.Title, workingDir, parent.Description,
-	)
+	) + s.attachmentBrief(parent.ID)
 
 	if catalog := formatTierCatalog(s.cfg.TierCatalog); catalog != "" {
 		brief = brief + "\n\n" + catalog
@@ -968,6 +975,8 @@ func (s *swarmService) Dispatch(ctx context.Context, subtaskID string) error {
 	brief := st.Prompt
 	if brief == "" {
 		brief = s.defaultBrief(parent, st)
+	} else {
+		brief += s.attachmentBrief(parent.ID)
 	}
 
 	scope, _ := store.ParseScopeGlobs(st.ScopeGlobs)
@@ -1375,7 +1384,20 @@ func (s *swarmService) defaultBrief(parent *store.Task, st *store.Subtask) strin
 	return fmt.Sprintf(
 		"## Sub-task: %s\n\nParent task: %s — %s\n\n## Parent task description\n\n%s\n\n## Your scope\n\n%s\n\n## When done\n\nRun: legato swarm built $LEGATO_SUBTASK_ID",
 		st.Title, parent.ID, parent.Title, parent.Description, scopeLine,
-	)
+	) + s.attachmentBrief(parent.ID)
+}
+
+func (s *swarmService) attachmentBrief(taskID string) string {
+	items, err := s.attachments.List(taskID)
+	if err != nil || len(items) == 0 {
+		return ""
+	}
+	var out strings.Builder
+	out.WriteString("\n\n## Local attachments\n\n")
+	for _, item := range items {
+		fmt.Fprintf(&out, "- %s: `%s`\n", item.Filename, item.Path)
+	}
+	return out.String()
 }
 
 // recordEventForConductor writes an event to the swarm_events inbox and sends

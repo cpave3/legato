@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"io"
 
 	"github.com/cpave3/legato/internal/engine/jira"
 )
@@ -14,6 +15,14 @@ type JiraProviderAdapter struct {
 // NewJiraProvider creates a TicketProvider backed by Jira.
 func NewJiraProvider(p *jira.Provider) TicketProvider {
 	return &JiraProviderAdapter{p: p}
+}
+
+func jiraAttachments(items []jira.Attachment) []RemoteAttachment {
+	result := make([]RemoteAttachment, len(items))
+	for i, item := range items {
+		result[i] = RemoteAttachment{ID: item.ID, Filename: item.Filename, MimeType: item.MimeType, Size: item.Size}
+	}
+	return result
 }
 
 func (a *JiraProviderAdapter) Search(ctx context.Context, query string) ([]RemoteTicket, error) {
@@ -36,6 +45,7 @@ func (a *JiraProviderAdapter) Search(ctx context.Context, query string) ([]Remot
 			EpicName:      t.EpicName,
 			URL:           t.URL,
 			UpdatedAt:     t.UpdatedAt,
+			Attachments:   jiraAttachments(t.Attachments),
 		}
 	}
 	return result, nil
@@ -59,6 +69,7 @@ func (a *JiraProviderAdapter) GetTicket(ctx context.Context, id string) (*Remote
 		EpicName:      t.EpicName,
 		URL:           t.URL,
 		UpdatedAt:     t.UpdatedAt,
+		Attachments:   jiraAttachments(t.Attachments),
 	}, nil
 }
 
@@ -80,4 +91,8 @@ func (a *JiraProviderAdapter) ListTransitions(ctx context.Context, id string) ([
 
 func (a *JiraProviderAdapter) DoTransition(ctx context.Context, id string, transitionID string) error {
 	return a.p.DoTransition(ctx, id, transitionID)
+}
+
+func (a *JiraProviderAdapter) DownloadAttachment(ctx context.Context, id string) (io.ReadCloser, error) {
+	return a.p.DownloadAttachment(ctx, id)
 }

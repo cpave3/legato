@@ -18,6 +18,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
+	"github.com/cpave3/legato/internal/engine/attachments"
 	"github.com/cpave3/legato/internal/engine/auth"
 	"github.com/cpave3/legato/internal/engine/certs"
 	"github.com/cpave3/legato/internal/engine/events"
@@ -556,7 +557,8 @@ func runServeCmd(args []string) int {
 	defer db.Close()
 
 	bus := events.New()
-	boardSvc := service.NewBoardService(db, bus)
+	attachmentCache := attachments.NewCache(attachments.DefaultRoot(), cfg.Jira.AttachmentMaxSizeBytes)
+	boardSvc := service.NewBoardService(db, bus, attachmentCache)
 	wd, _ := os.Getwd()
 
 	// Set up agent service (tmux may not be installed).
@@ -593,7 +595,7 @@ func runServeCmd(args []string) int {
 			TierCatalog:         tierCatalog(cfg.Adapters),
 			ValidateOptions:     buildValidateOptions(cfg),
 		}
-		swarmSvc = service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd)
+		swarmSvc = service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd, attachmentCache)
 	}
 
 	addr := ":" + port
@@ -713,7 +715,8 @@ func runTUI() int {
 	}
 
 	bus := events.New()
-	boardSvc := service.NewBoardService(db, bus)
+	attachmentCache := attachments.NewCache(attachments.DefaultRoot(), cfg.Jira.AttachmentMaxSizeBytes)
+	boardSvc := service.NewBoardService(db, bus, attachmentCache)
 
 	// Start IPC server for CLI→TUI communication.
 	// webSrv is set later if web.enabled — the closure captures the pointer.
@@ -736,7 +739,7 @@ func runTUI() int {
 		jiraProvider := jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second)
 		provider := service.NewJiraProvider(jiraProvider)
 		interval := time.Duration(cfg.Jira.SyncIntervalSeconds) * time.Second
-		syncSvc = service.NewSyncService(db, bus, provider, cfg.Jira.JQLFilter, cfg.Jira.ProjectKeys, interval)
+		syncSvc = service.NewSyncService(db, bus, provider, cfg.Jira.JQLFilter, cfg.Jira.ProjectKeys, interval, attachmentCache)
 
 		// Run initial sync, then start periodic scheduler
 		go syncSvc.Sync(context.Background())
@@ -870,7 +873,7 @@ func runTUI() int {
 		TierCatalog:         tierCatalog(cfg.Adapters),
 		ValidateOptions:     buildValidateOptions(cfg),
 	}
-	swarmSvc := service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd)
+	swarmSvc := service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd, attachmentCache)
 	swarmStop := swarmSvc.StartEventLoop(context.Background())
 	defer swarmStop()
 

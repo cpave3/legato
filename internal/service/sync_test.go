@@ -4,24 +4,29 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/attachments"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
 // mockProvider implements TicketProvider for testing.
 type mockProvider struct {
-	tickets      []RemoteTicket
-	transitions  []RemoteTransition
-	searchErr    error
-	searchFn     func(query string) ([]RemoteTicket, error)
-	transErr     error
-	doTransErr   error
-	doTransCalls []doTransCall
+	tickets       []RemoteTicket
+	transitions   []RemoteTransition
+	searchErr     error
+	searchFn      func(query string) ([]RemoteTicket, error)
+	searchQueries []string
+	transErr      error
+	doTransErr    error
+	doTransCalls  []doTransCall
+	downloads     map[string]string
+	downloadCalls []string
 }
 
 type doTransCall struct {
@@ -30,6 +35,7 @@ type doTransCall struct {
 }
 
 func (m *mockProvider) Search(_ context.Context, query string) ([]RemoteTicket, error) {
+	m.searchQueries = append(m.searchQueries, query)
 	if m.searchFn != nil {
 		return m.searchFn(query)
 	}
@@ -58,6 +64,11 @@ func (m *mockProvider) ListTransitions(_ context.Context, _ string) ([]RemoteTra
 func (m *mockProvider) DoTransition(_ context.Context, id string, transitionID string) error {
 	m.doTransCalls = append(m.doTransCalls, doTransCall{ID: id, TransitionID: transitionID})
 	return m.doTransErr
+}
+
+func (m *mockProvider) DownloadAttachment(_ context.Context, id string) (io.ReadCloser, error) {
+	m.downloadCalls = append(m.downloadCalls, id)
+	return io.NopCloser(strings.NewReader(m.downloads[id])), nil
 }
 
 func newTestSync(t *testing.T) (*syncService, *store.Store, *mockProvider, *events.Bus) {
@@ -128,6 +139,66 @@ func getRemoteMeta(t *testing.T, s *store.Store, id string) map[string]string {
 	return meta
 }
 
+func TestPullSyncQueriesOnlyActiveTrackedJiraIDs(t *testing.T) {
+	svc, s, provider, _ := newTestSync(t)
+	now := time.Now().UTC()
+	createSyncedTask(t, s, "TEST-1", "Tracked", "Backlog", "To Do", now, nil)
+	createSyncedTask(t, s, "TEST-ARCHIVED", "Archived", "Backlog", "To Do", now, nil)
+	if err := s.ArchiveTask(context.Background(), "TEST-ARCHIVED"); err != nil {
+		t.Fatal(err)
+	}
+	localNow := now.Format(time.RFC3339)
+	if err := s.CreateTask(context.Background(), store.Task{ID: "local", Title: "Local", Status: "Backlog", CreatedAt: localNow, UpdatedAt: localNow}); err != nil {
+		t.Fatal(err)
+	}
+	provider.tickets = []RemoteTicket{{ID: "TEST-1", Summary: "Tracked", Status: "To Do", UpdatedAt: now}}
+
+	if _, err := svc.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.searchQueries) != 1 {
+		t.Fatalf("search queries = %v", provider.searchQueries)
+	}
+	query := provider.searchQueries[0]
+	if !strings.Contains(query, `key in ("TEST-1")`) {
+		t.Fatalf("query does not target tracked ticket: %s", query)
+	}
+	if strings.Contains(query, "TEST-ARCHIVED") || strings.Contains(query, "local") {
+		t.Fatalf("query includes inactive/untracked ticket: %s", query)
+	}
+}
+
+func TestPullSyncBatchesTrackedJiraIDs(t *testing.T) {
+	svc, s, provider, _ := newTestSync(t)
+	now := time.Now().UTC()
+	for i := 0; i < trackedTicketBatchSize+1; i++ {
+		id := fmt.Sprintf("TEST-%03d", i)
+		createSyncedTask(t, s, id, id, "Backlog", "To Do", now, nil)
+		provider.tickets = append(provider.tickets, RemoteTicket{ID: id, Summary: id, Status: "To Do", UpdatedAt: now})
+	}
+
+	if _, err := svc.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.searchQueries) != 2 {
+		t.Fatalf("search queries = %d, want 2 batches", len(provider.searchQueries))
+	}
+}
+
+func TestPullSyncSkipsRemoteRequestWhenNoTicketsTracked(t *testing.T) {
+	svc, _, provider, _ := newTestSync(t)
+	result, err := svc.Sync(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.searchQueries) != 0 {
+		t.Fatalf("unexpected searches: %v", provider.searchQueries)
+	}
+	if result.TasksSynced != 0 {
+		t.Fatalf("synced = %d", result.TasksSynced)
+	}
+}
+
 // Pull sync — skips untracked remote tasks
 func TestPullSyncSkipsNewTasks(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
@@ -157,6 +228,30 @@ func TestPullSyncSkipsNewTasks(t *testing.T) {
 }
 
 // Pull sync — update changed task
+func TestPullSyncDownloadsAttachmentsForUnchangedExistingTicket(t *testing.T) {
+	svc, s, provider, _ := newTestSync(t)
+	cacheRoot := t.TempDir()
+	svc.attachments = attachments.NewCache(cacheRoot, 1024)
+	now := time.Now().UTC().Truncate(time.Second)
+	createSyncedTask(t, s, "TEST-1", "Existing", "Backlog", "To Do", now, nil)
+	provider.downloads = map[string]string{"100": "PNG"}
+	provider.tickets = []RemoteTicket{{
+		ID: "TEST-1", Summary: "Existing", Status: "To Do", UpdatedAt: now,
+		Attachments: []RemoteAttachment{{ID: "100", Filename: "screen.png", MimeType: "image/png", Size: 3}},
+	}}
+
+	if _, err := svc.Sync(context.Background()); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	items, err := svc.attachments.List("TEST-1")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("cached attachments = %+v, err = %v", items, err)
+	}
+	if len(provider.downloadCalls) != 1 {
+		t.Fatalf("download calls = %v, want one", provider.downloadCalls)
+	}
+}
+
 func TestPullSyncUpdateExisting(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()
@@ -425,8 +520,9 @@ func TestSyncOfflineResilience(t *testing.T) {
 
 // Error event publishing tests
 func TestSyncFailurePublishesSyncErrorEvent(t *testing.T) {
-	svc, _, provider, bus := newTestSync(t)
+	svc, s, provider, bus := newTestSync(t)
 	ctx := context.Background()
+	createSyncedTask(t, s, "TEST-1", "Cached task", "Backlog", "To Do", time.Now(), nil)
 
 	errCh := bus.Subscribe(events.EventSyncError)
 	provider.searchErr = fmt.Errorf("network error: connection refused")
@@ -574,9 +670,9 @@ func TestImportRemoteTaskCreatesLocalTask(t *testing.T) {
 		{
 			ID: "TEST-42", Summary: "Important feature",
 			DescriptionMD: "## Details\nBuild it.",
-			Status: "In Progress", Priority: "High", IssueType: "Story",
+			Status:        "In Progress", Priority: "High", IssueType: "Story",
 			Assignee: "bob", Labels: []string{"frontend"},
-			URL: "https://jira.example.com/browse/TEST-42",
+			URL:       "https://jira.example.com/browse/TEST-42",
 			UpdatedAt: time.Now(),
 		},
 	}
@@ -683,6 +779,24 @@ func statusToColumn(status string, mappings []store.ColumnMapping) string {
 		}
 	}
 	return ""
+}
+
+func TestImportRemoteTaskDownloadsAttachments(t *testing.T) {
+	svc, _, provider, _ := newTestSync(t)
+	svc.attachments = attachments.NewCache(t.TempDir(), 1024)
+	provider.downloads = map[string]string{"100": "PNG"}
+	provider.tickets = []RemoteTicket{{
+		ID: "TEST-100", Summary: "Import me", Status: "To Do", UpdatedAt: time.Now(),
+		Attachments: []RemoteAttachment{{ID: "100", Filename: "screen.png", MimeType: "image/png", Size: 3}},
+	}}
+
+	if _, err := svc.ImportRemoteTask(context.Background(), "TEST-100", nil); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	items, err := svc.attachments.List("TEST-100")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("cached attachments = %+v, err = %v", items, err)
+	}
 }
 
 // Push sync — async transition

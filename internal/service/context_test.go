@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 	"unicode"
 
+	"github.com/cpave3/legato/internal/engine/attachments"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -42,7 +44,7 @@ func seedTaskForExport(t *testing.T, s *store.Store) {
 		ID: "REX-1238", Title: "Refactor user service",
 		Description:   "Refactor the user service to use the new repository pattern.\n\nThis includes updating all endpoints.",
 		DescriptionMD: "Refactor the user service to use the new repository pattern.\n\nThis includes updating all endpoints.",
-		Status: "Backlog", Priority: "High",
+		Status:        "Backlog", Priority: "High",
 		Provider: &provider, RemoteID: &remoteID, RemoteMeta: &metaStr,
 		CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
@@ -134,7 +136,7 @@ func TestFormatFull_MissingOptionalFields(t *testing.T) {
 	s.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: "Backlog", RemoteStatuses: `["To Do"]`, SortOrder: 0})
 	s.CreateTask(ctx, store.Task{
 		ID: "X-2", Title: "Minimal card", DescriptionMD: "Some desc.",
-		Status: "Backlog",
+		Status:    "Backlog",
 		CreatedAt: now, UpdatedAt: now,
 	})
 
@@ -163,7 +165,7 @@ func TestFormatFull_EmptyDescription(t *testing.T) {
 	s.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: "Backlog", RemoteStatuses: `["To Do"]`, SortOrder: 0})
 	s.CreateTask(ctx, store.Task{
 		ID: "X-3", Title: "No desc full", Status: "Backlog",
-		Priority: "Low",
+		Priority:  "Low",
 		CreatedAt: now, UpdatedAt: now,
 	})
 
@@ -174,6 +176,30 @@ func TestFormatFull_EmptyDescription(t *testing.T) {
 	if !strings.Contains(out, "---") {
 		t.Error("separator should still appear")
 	}
+}
+
+func TestExportCardContextIncludesCachedAttachments(t *testing.T) {
+	s, bus, _ := setupExportBoard(t)
+	seedTaskForExport(t, s)
+	cache := attachments.NewCache(t.TempDir(), 1024)
+	dl := &contextAttachmentDownloader{data: "PNG"}
+	if err := cache.Reconcile(context.Background(), "REX-1238", []attachments.Metadata{{ID: "1", Filename: "screen.png", MimeType: "image/png", Size: 3}}, dl); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewBoardService(s, bus, cache)
+	out, err := svc.ExportCardContext(context.Background(), "REX-1238", ExportFormatDescription)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "## Local attachments") || !strings.Contains(out, "screen.png") {
+		t.Fatalf("missing attachment context:\n%s", out)
+	}
+}
+
+type contextAttachmentDownloader struct{ data string }
+
+func (d *contextAttachmentDownloader) DownloadAttachment(context.Context, string) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader(d.data)), nil
 }
 
 func TestExportCardContext_UnknownFormat(t *testing.T) {

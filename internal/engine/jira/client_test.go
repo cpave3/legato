@@ -3,6 +3,7 @@ package jira
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -103,6 +104,34 @@ func TestSearchPagination(t *testing.T) {
 	}
 }
 
+func TestSearchNextPageTokenPagination(t *testing.T) {
+	var callCount int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Query().Get("nextPageToken") {
+		case "":
+			fmt.Fprint(w, `{"isLast":false,"nextPageToken":"page-2","issues":[{"key":"P-1","fields":{"summary":"One"}}]}`)
+		case "page-2":
+			fmt.Fprint(w, `{"isLast":true,"issues":[{"key":"P-2","fields":{"summary":"Two"}}]}`)
+		default:
+			t.Errorf("unexpected nextPageToken: %q", r.URL.Query().Get("nextPageToken"))
+		}
+	}))
+	defer srv.Close()
+
+	issues, err := NewClient(srv.URL, "a@b.com", "tok", 30*time.Second).Search(context.Background(), "project = P")
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(issues) != 2 || issues[1].Key != "P-2" {
+		t.Fatalf("issues = %+v, want both token-paginated pages", issues)
+	}
+	if callCount != 2 {
+		t.Fatalf("calls = %d, want 2", callCount)
+	}
+}
+
 func TestSearchEmpty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -179,6 +208,54 @@ func TestGetIssue(t *testing.T) {
 	}
 	if issue.Fields.Assignee.DisplayName != "Alice" {
 		t.Errorf("assignee = %q", issue.Fields.Assignee.DisplayName)
+	}
+}
+
+func TestGetIssueIncludesAttachments(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"key":"PROJ-123","fields":{"summary":"With image","attachment":[{"id":"10001","filename":"screen.png","mimeType":"image/png","size":23123}]}}`)
+	}))
+	defer srv.Close()
+
+	issue, err := NewClient(srv.URL, "a@b.com", "tok", 30*time.Second).GetIssue(context.Background(), "PROJ-123")
+	if err != nil {
+		t.Fatalf("get issue: %v", err)
+	}
+	if len(issue.Fields.Attachments) != 1 {
+		t.Fatalf("attachments = %d, want 1", len(issue.Fields.Attachments))
+	}
+	got := issue.Fields.Attachments[0]
+	if got.ID != "10001" || got.Filename != "screen.png" || got.MimeType != "image/png" || got.Size != 23123 {
+		t.Fatalf("attachment = %+v", got)
+	}
+}
+
+func TestDownloadAttachmentAuthenticatesAndReturnsBinary(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		if r.URL.Path != "/rest/api/3/attachment/content/10001" || r.URL.Query().Get("redirect") != "false" {
+			t.Errorf("unexpected URL: %s", r.URL.String())
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Write([]byte("PNG DATA"))
+	}))
+	defer srv.Close()
+
+	body, err := NewClient(srv.URL, "a@b.com", "tok", 30*time.Second).DownloadAttachment(context.Background(), "10001")
+	if err != nil {
+		t.Fatalf("download: %v", err)
+	}
+	defer body.Close()
+	data := make([]byte, 8)
+	if _, err := io.ReadFull(body, data); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(data) != "PNG DATA" {
+		t.Fatalf("body = %q", data)
+	}
+	if gotAuth == "" {
+		t.Fatal("missing authorization header")
 	}
 }
 

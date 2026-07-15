@@ -174,12 +174,13 @@ type AgentsConfig struct {
 }
 
 type JiraConfig struct {
-	BaseURL             string   `yaml:"base_url"`
-	Email               string   `yaml:"email"`
-	APIToken            string   `yaml:"api_token"`
-	ProjectKeys         []string `yaml:"project_keys"`
-	JQLFilter           string   `yaml:"jql_filter"`
-	SyncIntervalSeconds int      `yaml:"sync_interval_seconds"`
+	BaseURL                string   `yaml:"base_url"`
+	Email                  string   `yaml:"email"`
+	APIToken               string   `yaml:"api_token"`
+	ProjectKeys            []string `yaml:"project_keys"`
+	JQLFilter              string   `yaml:"jql_filter"`
+	SyncIntervalSeconds    int      `yaml:"sync_interval_seconds"`
+	AttachmentMaxSizeBytes int64    `yaml:"attachment_max_size_bytes"`
 }
 
 type BoardConfig struct {
@@ -338,7 +339,8 @@ func ResolveDBPath(cfg *Config) string {
 func defaults() *Config {
 	return &Config{
 		Jira: JiraConfig{
-			SyncIntervalSeconds: 60,
+			SyncIntervalSeconds:    60,
+			AttachmentMaxSizeBytes: 25 * 1024 * 1024,
 		},
 		Board: BoardConfig{
 			Columns: DefaultColumns(),
@@ -353,6 +355,9 @@ func defaults() *Config {
 func applyDefaults(cfg *Config) {
 	if cfg.Jira.SyncIntervalSeconds == 0 {
 		cfg.Jira.SyncIntervalSeconds = 60
+	}
+	if cfg.Jira.AttachmentMaxSizeBytes == 0 {
+		cfg.Jira.AttachmentMaxSizeBytes = 25 * 1024 * 1024
 	}
 	if cfg.Theme == "" {
 		cfg.Theme = "default"

@@ -5,15 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/attachments"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
-const conflictWindow = 5 * time.Minute
+const (
+	conflictWindow         = 5 * time.Minute
+	trackedTicketBatchSize = 50
+)
 
 type syncService struct {
 	store       *store.Store
@@ -22,6 +27,7 @@ type syncService struct {
 	jql         string
 	projectKeys []string
 	interval    time.Duration
+	attachments *attachments.Cache
 
 	mu   sync.Mutex
 	last time.Time
@@ -58,9 +64,14 @@ func encodeRemoteMeta(m remoteMeta) *string {
 }
 
 // NewSyncService creates a SyncService backed by a TicketProvider.
-func NewSyncService(s *store.Store, bus *events.Bus, provider TicketProvider, jql string, projectKeys []string, interval time.Duration) SyncService {
+func NewSyncService(s *store.Store, bus *events.Bus, provider TicketProvider, jql string, projectKeys []string, interval time.Duration, attachmentCache ...*attachments.Cache) SyncService {
+	var cache *attachments.Cache
+	if len(attachmentCache) > 0 {
+		cache = attachmentCache[0]
+	}
 	return &syncService{
 		store:       s,
+		attachments: cache,
 		bus:         bus,
 		provider:    provider,
 		jql:         jql,
@@ -108,16 +119,32 @@ func (s *syncService) Sync(ctx context.Context) (*SyncResult, error) {
 }
 
 func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
-	// Build JQL: use configured filter, or scope to project keys if no filter set.
-	jql := s.jql
-	if jql == "" && len(s.projectKeys) > 0 {
-		jql = "project in (" + strings.Join(s.projectKeys, ", ") + ") ORDER BY updated DESC"
-	}
-
-	// Fetch remote tickets
-	remoteTickets, err := s.provider.Search(ctx, jql)
+	allTasks, err := s.store.ListAllTasks(ctx)
 	if err != nil {
 		return nil, err
+	}
+	trackedTasks := make([]store.Task, 0, len(allTasks))
+	for _, task := range allTasks {
+		if task.ArchivedAt == nil && task.Provider != nil && *task.Provider == "jira" {
+			trackedTasks = append(trackedTasks, task)
+		}
+	}
+	if len(trackedTasks) == 0 {
+		return &SyncResult{}, nil
+	}
+
+	remoteTickets := make([]RemoteTicket, 0, len(trackedTasks))
+	for start := 0; start < len(trackedTasks); start += trackedTicketBatchSize {
+		end := start + trackedTicketBatchSize
+		if end > len(trackedTasks) {
+			end = len(trackedTasks)
+		}
+		jql := s.trackedTicketsJQL(trackedTasks[start:end])
+		batch, err := s.provider.Search(ctx, jql)
+		if err != nil {
+			return nil, err
+		}
+		remoteTickets = append(remoteTickets, batch...)
 	}
 
 	// Load column mappings for status-to-column resolution
@@ -144,6 +171,10 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 		// Skip archived tasks — don't resurface them
 		if existing.ArchivedAt != nil {
 			continue
+		}
+
+		if err := s.reconcileAttachments(ctx, rt); err != nil {
+			return nil, err
 		}
 
 		// Existing task — check if remote updated
@@ -198,14 +229,10 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 		synced++
 	}
 
-	// Mark stale tasks (synced tasks present locally but absent from remote results)
-	allTasks, err := s.store.ListAllTasks(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, task := range allTasks {
-		if task.Provider == nil || seenIDs[task.ID] {
-			continue // skip local tasks and seen tasks
+	// Mark active Jira tasks absent from the targeted remote results as stale.
+	for _, task := range trackedTasks {
+		if seenIDs[task.ID] {
+			continue
 		}
 		meta := parseRemoteMeta(task.RemoteMeta)
 		if meta.StaleAt == "" {
@@ -216,6 +243,41 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 	}
 
 	return &SyncResult{TasksSynced: synced}, nil
+}
+
+func (s *syncService) trackedTicketsJQL(tasks []store.Task) string {
+	keys := make([]string, len(tasks))
+	for i, task := range tasks {
+		key := task.ID
+		if task.RemoteID != nil && *task.RemoteID != "" {
+			key = *task.RemoteID
+		}
+		keys[i] = `"` + strings.ReplaceAll(key, `"`, `\"`) + `"`
+	}
+	keyFilter := "key in (" + strings.Join(keys, ", ") + ")"
+	if strings.TrimSpace(s.jql) != "" {
+		return "(" + s.jql + ") AND " + keyFilter
+	}
+	return keyFilter
+}
+
+type attachmentDownloader interface {
+	DownloadAttachment(ctx context.Context, id string) (io.ReadCloser, error)
+}
+
+func (s *syncService) reconcileAttachments(ctx context.Context, ticket RemoteTicket) error {
+	if s.attachments == nil {
+		return nil
+	}
+	downloader, ok := s.provider.(attachmentDownloader)
+	if !ok {
+		return nil
+	}
+	items := make([]attachments.Metadata, len(ticket.Attachments))
+	for i, item := range ticket.Attachments {
+		items[i] = attachments.Metadata{ID: item.ID, Filename: item.Filename, MimeType: item.MimeType, Size: item.Size}
+	}
+	return s.attachments.Reconcile(ctx, ticket.ID, items, downloader)
 }
 
 func (s *syncService) isWithinConflictWindow(meta remoteMeta) bool {
@@ -527,7 +589,13 @@ func (s *syncService) ImportRemoteTask(ctx context.Context, ticketID string, wor
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
+	if err := s.reconcileAttachments(ctx, *rt); err != nil {
+		return nil, err
+	}
 	if err := s.store.CreateTask(ctx, task); err != nil {
+		if s.attachments != nil {
+			_ = s.attachments.Remove(rt.ID)
+		}
 		return nil, err
 	}
 
