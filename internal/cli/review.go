@@ -98,5 +98,5 @@ func ReviewShow(svc *service.ReviewService, tourID string, asJSON bool, w io.Wri
 }
 
 func broadcastReviewChanged(tourID, stepID, kind string) {
-	ipc.Broadcast(ipc.Message{Type: "review_changed", TaskID: tourID, Status: stepID, Content: kind})
+	ipc.Broadcast(ipc.Message{Type: "review_changed", TourID: tourID, StepID: stepID, Kind: kind})
 }

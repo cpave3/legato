@@ -87,6 +87,28 @@ func TestIPCMessage_PlanProposed(t *testing.T) {
 	}
 }
 
+func TestIPCMessage_ReviewChangedPreservesTourIdentity(t *testing.T) {
+	bus := events.New()
+	ch := bus.Subscribe(events.EventReviewChanged)
+
+	msg := ipc.Message{
+		Type:   "review_changed",
+		TourID: "rt-task-1-security",
+		StepID: "rs-123",
+		Kind:   "answer",
+	}
+	handleIPCMessage(msg, bus, nil)
+
+	ev := drainEvent(t, ch)
+	payload, ok := ev.Payload.(events.ReviewChangedPayload)
+	if !ok {
+		t.Fatalf("expected ReviewChangedPayload, got %T", ev.Payload)
+	}
+	if payload.TourID != "rt-task-1-security" || payload.StepID != "rs-123" || payload.Kind != "answer" {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
 func TestIPCMessage_CardEvents(t *testing.T) {
 	bus := events.New()
 	ch := bus.Subscribe(events.EventCardUpdated)

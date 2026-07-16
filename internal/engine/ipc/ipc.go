@@ -22,6 +22,9 @@ type Message struct {
 	Notes       string `json:"notes,omitempty"`        // free-form supplementary text (e.g. plan rejection notes)
 	PlanPath    string `json:"plan_path,omitempty"`    // canonical path to the plan file (plan_proposed)
 	Mode        string `json:"mode,omitempty"`         // e.g. "extension" for plan-proposed messages
+	TourID      string `json:"tour_id,omitempty"`      // review tour identity for review_changed
+	StepID      string `json:"step_id,omitempty"`      // review step identity for review_changed
+	Kind        string `json:"kind,omitempty"`         // review mutation kind for review_changed
 }
 
 // SocketDir returns the directory for Legato IPC sockets.
