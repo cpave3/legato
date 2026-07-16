@@ -208,7 +208,7 @@ export function ReviewTourPage() {
                 </div>
               </section>
 
-              {diffLoading ? <div className="flex justify-center py-10 text-zinc-600"><Loader2 className="animate-spin" size={20} /></div> : <DiffView files={diff} hunkNotes={hunkNotes} selection={selection} onSelectionChange={setSelection} />}
+              {diffLoading ? <div className="flex justify-center py-10 text-zinc-600"><Loader2 className="animate-spin" size={20} /></div> : <DiffView key={selectedStep.id} files={diff} hunkNotes={hunkNotes} selection={selection} onSelectionChange={setSelection} />}
 
               {!diffLoading && unmatchedHunkNotes.length > 0 && (
                 <section role="alert" aria-label="Unmatched hunk notes" className="rounded border border-amber-800 bg-amber-950/30 p-4 text-amber-100">

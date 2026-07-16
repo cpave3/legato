@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { cn } from "../lib/utils"
 import type { DiffSelection, FileDiff, ReviewHunkNote } from "../lib/review"
 
@@ -9,6 +10,7 @@ interface DiffViewProps {
 }
 
 export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }: DiffViewProps) {
+  const [viewedHunks, setViewedHunks] = useState<Set<string>>(() => new Set())
   if (files.length === 0) {
     return <div className="rounded border border-zinc-800 p-6 text-center text-sm text-zinc-500">No file changes in this step.</div>
   }
@@ -26,7 +28,21 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
               <span className="truncate text-zinc-200">{path}</span>
               <span className="ml-3 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">{file.status}</span>
             </header>
-            {file.hunks.map((hunk, hunkIndex) => (
+            {file.hunks.map((hunk, hunkIndex) => {
+              const hunkKey = `${selectionPath}:${hunk.anchor}`
+              const viewed = viewedHunks.has(hunkKey)
+              const toggleViewed = () => {
+                setViewedHunks((current) => {
+                  const next = new Set(current)
+                  if (viewed) next.delete(hunkKey)
+                  else next.add(hunkKey)
+                  return next
+                })
+                if (!viewed && selection?.file_path === selectionPath && selection.hunk_anchor === hunk.anchor) {
+                  onSelectionChange?.(null)
+                }
+              }
+              return (
               <div key={`${hunk.header}-${hunkIndex}`} data-hunk-anchor={hunk.anchor}>
                 {hunkNotes
                   .filter((note) => note.hunk_anchor === hunk.anchor && (note.file_path === file.new_path || note.file_path === file.old_path))
@@ -35,8 +51,14 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
                       {note.body}
                     </div>
                   ))}
-                <div className="border-y border-zinc-800 bg-indigo-950/40 px-3 py-1 text-indigo-300">{hunk.header}</div>
-                {hunk.lines.map((line, lineIndex) => {
+                <div className="flex items-center justify-between border-y border-zinc-800 bg-indigo-950/40 px-3 py-1 text-indigo-300">
+                  <span>{hunk.header}</span>
+                  <label className="flex cursor-pointer items-center gap-1.5 font-sans text-[10px] text-zinc-400 hover:text-zinc-200">
+                    <input type="checkbox" checked={viewed} onChange={toggleViewed} aria-label={`Viewed ${hunk.header}`} className="accent-indigo-500" />
+                    Viewed
+                  </label>
+                </div>
+                {!viewed && hunk.lines.map((line, lineIndex) => {
                   const selected = selection?.file_path === selectionPath
                     && selection.hunk_anchor === hunk.anchor
                     && lineIndex >= selection.start && lineIndex <= selection.end
@@ -78,7 +100,8 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
                   )
                 })}
               </div>
-            ))}
+              )
+            })}
           </section>
         )
       })}

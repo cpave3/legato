@@ -81,6 +81,27 @@ describe("DiffView", () => {
     expect(screen.getByText("return value").closest("[data-diff-line]")?.getAttribute("data-selected")).toBe("true")
   })
 
+  it("collapses and restores a hunk with its Viewed checkbox", () => {
+    render(<DiffView files={files} />)
+
+    const viewed = screen.getByRole("checkbox", { name: "Viewed @@ -1,2 +1,2 @@" })
+    fireEvent.click(viewed)
+    expect(screen.queryByText("const oldName = true")).toBeNull()
+    expect(screen.getByText("@@ -1,2 +1,2 @@")).toBeTruthy()
+
+    fireEvent.click(viewed)
+    expect(screen.getByText("const oldName = true")).toBeTruthy()
+  })
+
+  it("clears a selected range when its hunk is collapsed", () => {
+    let selection = { file_path: "src/new.ts", hunk_anchor: "auth-refresh-anchor", start: 0, end: 1 }
+    render(<DiffView files={files} selection={selection} onSelectionChange={(next) => { selection = next! }} />)
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Viewed @@ -1,2 +1,2 @@" }))
+
+    expect(selection).toBeNull()
+  })
+
   it("shows an empty state when a step has no diff", () => {
     render(<DiffView files={[]} />)
     expect(screen.getByText("No file changes in this step.")).toBeTruthy()
