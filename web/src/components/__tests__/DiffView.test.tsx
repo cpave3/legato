@@ -65,6 +65,22 @@ describe("DiffView", () => {
     })
   })
 
+  it("selects a line range by dragging across diff rows", () => {
+    const selections: unknown[] = []
+    render(<DiffView files={files} onSelectionChange={(selection) => selections.push(selection)} />)
+
+    const firstGutter = screen.getByRole("button", { name: "Select old line 1" })
+    const secondRow = screen.getByText("const newName = true").closest("[data-diff-line]")!
+    fireEvent.pointerDown(firstGutter, { pointerId: 1, button: 0 })
+    fireEvent.pointerEnter(secondRow, { pointerId: 1, buttons: 1 })
+    fireEvent.pointerUp(secondRow, { pointerId: 1 })
+    fireEvent.click(firstGutter)
+
+    expect(selections.at(-1)).toEqual({
+      file_path: "src/new.ts", hunk_anchor: "auth-refresh-anchor", start: 0, end: 1,
+    })
+  })
+
   it("replaces the selection when a line in another hunk is clicked", () => {
     const twoHunks = [{ ...files[0], hunks: [...files[0].hunks, {
       anchor: "second-anchor",

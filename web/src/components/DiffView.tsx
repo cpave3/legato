@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { cn } from "../lib/utils"
 import type { DiffSelection, FileDiff, ReviewHunkNote } from "../lib/review"
 
@@ -11,6 +11,22 @@ interface DiffViewProps {
 
 export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }: DiffViewProps) {
   const [viewedHunks, setViewedHunks] = useState<Set<string>>(() => new Set())
+  const dragOriginRef = useRef<{ filePath: string; hunkAnchor: string; lineIndex: number; moved: boolean } | null>(null)
+  const suppressClickRef = useRef(false)
+
+  useEffect(() => {
+    const endDrag = () => {
+      suppressClickRef.current = dragOriginRef.current?.moved ?? false
+      dragOriginRef.current = null
+    }
+    window.addEventListener("pointerup", endDrag)
+    window.addEventListener("pointercancel", endDrag)
+    return () => {
+      window.removeEventListener("pointerup", endDrag)
+      window.removeEventListener("pointercancel", endDrag)
+    }
+  }, [])
+
   if (files.length === 0) {
     return <div className="rounded border border-zinc-800 p-6 text-center text-sm text-zinc-500">No file changes in this step.</div>
   }
@@ -63,6 +79,10 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
                     && selection.hunk_anchor === hunk.anchor
                     && lineIndex >= selection.start && lineIndex <= selection.end
                   const selectLine = () => {
+                    if (suppressClickRef.current) {
+                      suppressClickRef.current = false
+                      return
+                    }
                     if (!onSelectionChange) return
                     if (selection?.file_path === selectionPath && selection.hunk_anchor === hunk.anchor) {
                       onSelectionChange({ ...selection, start: Math.min(selection.start, lineIndex), end: Math.max(selection.end, lineIndex) })
@@ -70,12 +90,29 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
                       onSelectionChange({ file_path: selectionPath, hunk_anchor: hunk.anchor, start: lineIndex, end: lineIndex })
                     }
                   }
+                  const startDrag = (event: React.PointerEvent) => {
+                    if (event.button !== 0 || !onSelectionChange) return
+                    dragOriginRef.current = { filePath: selectionPath, hunkAnchor: hunk.anchor, lineIndex, moved: false }
+                    onSelectionChange({ file_path: selectionPath, hunk_anchor: hunk.anchor, start: lineIndex, end: lineIndex })
+                  }
+                  const extendDrag = () => {
+                    const origin = dragOriginRef.current
+                    if (!origin || origin.filePath !== selectionPath || origin.hunkAnchor !== hunk.anchor) return
+                    origin.moved ||= origin.lineIndex !== lineIndex
+                    onSelectionChange?.({
+                      file_path: selectionPath,
+                      hunk_anchor: hunk.anchor,
+                      start: Math.min(origin.lineIndex, lineIndex),
+                      end: Math.max(origin.lineIndex, lineIndex),
+                    })
+                  }
                   const gutter = (side: "old" | "new", lineNo: number) => lineNo ? (
                     <button
                       type="button"
                       aria-label={`Select ${side} line ${lineNo}`}
                       onClick={selectLine}
-                      className="select-none border-r border-zinc-800 px-2 text-right text-zinc-600 hover:bg-indigo-900/50 hover:text-indigo-200"
+                      onPointerDown={startDrag}
+                      className="select-none touch-none border-r border-zinc-800 px-2 text-right text-zinc-600 hover:bg-indigo-900/50 hover:text-indigo-200"
                     >
                       {lineNo}
                     </button>
@@ -85,6 +122,7 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
                       key={lineIndex}
                       data-diff-line
                       data-selected={selected ? "true" : undefined}
+                      onPointerEnter={extendDrag}
                       className={cn(
                         "grid grid-cols-[3rem_3rem_1fr] leading-5",
                         line.kind === "add" && "bg-emerald-950/40 text-emerald-200",
