@@ -554,10 +554,26 @@ func (r *ReviewService) rebuildRemainingChapter(ctx context.Context, tourID, tas
 			seq++
 		}
 	}
+	members = uniqueReviewChapterHunks(members)
 	if len(members) == 0 {
 		return nil
 	}
 	return r.store.InsertReviewChapter(ctx, store.ReviewStep{ID: stepID, TaskID: taskID, TourID: tourID, Kind: "chapter", Files: "[]", Title: "Remaining changes", Narration: "Changes not assigned to an authored review chapter.", Risk: "unsure", Seq: reviewSeqNoteBase - 1}, members)
+}
+
+func uniqueReviewChapterHunks(hunks []store.ReviewChapterHunk) []store.ReviewChapterHunk {
+	seen := make(map[string]bool, len(hunks))
+	unique := hunks[:0]
+	for _, hunk := range hunks {
+		key := hunk.FilePath + "\x00" + hunk.HunkAnchor
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		hunk.Seq = len(unique)
+		unique = append(unique, hunk)
+	}
+	return unique
 }
 
 // Delete discards a task's complete review packet. Git history and task state

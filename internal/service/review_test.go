@@ -567,6 +567,20 @@ func TestReviewQuestionAndAnswerLoop(t *testing.T) {
 	}
 }
 
+func TestUniqueReviewChapterHunksKeepsFirstMembershipOrder(t *testing.T) {
+	hunks := []store.ReviewChapterHunk{
+		{ID: "first", FilePath: "pnpm-lock.yaml", HunkAnchor: "same", Seq: 0},
+		{ID: "other", FilePath: "pnpm-lock.yaml", HunkAnchor: "other", Seq: 1},
+		{ID: "duplicate", FilePath: "pnpm-lock.yaml", HunkAnchor: "same", Seq: 2},
+	}
+
+	got := uniqueReviewChapterHunks(hunks)
+
+	if len(got) != 2 || got[0].ID != "first" || got[1].ID != "other" {
+		t.Fatalf("unique hunks = %+v", got)
+	}
+}
+
 func TestReviewQuestionIncludesValidatedLineSelection(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
