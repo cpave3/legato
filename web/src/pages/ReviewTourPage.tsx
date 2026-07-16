@@ -194,6 +194,11 @@ export function ReviewTourPage() {
         <main className="min-w-0 overflow-y-auto p-5">
           {selectedStep && (
             <div className="mx-auto max-w-6xl space-y-4">
+              <div data-sticky-review-action className="sticky top-0 z-20 flex justify-end border-b border-zinc-800/80 bg-[#0a0a0f]/95 py-2 backdrop-blur">
+                <button disabled={busy} onClick={() => void toggleReviewed(selectedStep)} className={cn("rounded border px-3 py-1.5 text-xs shadow-lg", selectedStep.reviewed_at ? "border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-zinc-200" : "border-emerald-800 bg-emerald-950 text-emerald-300 hover:bg-emerald-900")}>
+                  {selectedStep.reviewed_at ? "Mark unreviewed" : "Mark step reviewed"}
+                </button>
+              </div>
               <section className="rounded border border-zinc-800 bg-zinc-950 p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -202,9 +207,6 @@ export function ReviewTourPage() {
                     {selectedStep.orphaned_at && <div className="mt-3 rounded border border-amber-800 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">History rewritten — this step is no longer on the current branch.</div>}
                     {selectedStep.narration && <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-zinc-400">{selectedStep.narration}</p>}
                   </div>
-                  <button disabled={busy} onClick={() => void toggleReviewed(selectedStep)} className={cn("shrink-0 rounded border px-3 py-1.5 text-xs", selectedStep.reviewed_at ? "border-zinc-700 text-zinc-400 hover:text-zinc-200" : "border-emerald-800 bg-emerald-950/30 text-emerald-300 hover:bg-emerald-950/60")}>
-                    {selectedStep.reviewed_at ? "Mark unreviewed" : "Mark step reviewed"}
-                  </button>
                 </div>
               </section>
 

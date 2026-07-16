@@ -162,6 +162,14 @@ describe("ReviewTourPage", () => {
     expect(screen.getByText("The refresh is single-flight.").closest("aside")?.textContent).toContain("Questions & answers")
   })
 
+  it("keeps the mark-reviewed action in a sticky diff-pane bar", () => {
+    renderPage()
+
+    const button = screen.getByRole("button", { name: "Mark step reviewed" })
+    expect(button.closest("[data-sticky-review-action]")?.className).toContain("sticky")
+    expect(button.closest("main")).toBeTruthy()
+  })
+
   it("loads the selected step's diff", async () => {
     renderPage()
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
