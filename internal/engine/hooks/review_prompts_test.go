@@ -21,6 +21,7 @@ func TestChimeraGeneralPromptTeachesReviewCapture(t *testing.T) {
 		"diff",
 		"legato review ready",
 		"legato review answer",
+		"Format review answers as Markdown",
 		"[legato review]",
 		// Named review tours
 		"--name <review-name>",
@@ -57,6 +58,7 @@ func TestConductorPromptTeachesReviewPacket(t *testing.T) {
 		"diff",
 		"legato review ready",
 		"legato review answer",
+		"Format review answers as Markdown",
 		"[legato review]",
 		// Named review tours
 		"--name <review-name>",

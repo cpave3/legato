@@ -151,7 +151,9 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"- **Answer review questions.** Messages prefixed `[legato review]` are " +
 	"reviewer questions about a specific step; each includes the exact " +
 	"`legato review answer <step-id> \"...\"` command to reply with. Answer " +
-	"through that command (not just chat) so the reply lands in the review record.\n" +
+	"through that command (not just chat) so the reply lands in the review record. " +
+	"Format review answers as Markdown, using lists, inline code, and fenced code " +
+	"blocks where they improve clarity.\n" +
 	"\n" +
 	"### Named review tours\n" +
 	"\n" +
