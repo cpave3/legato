@@ -324,6 +324,7 @@ func (r *ReviewService) Annotate(ctx context.Context, tourID string, a AnnotateA
 	}
 	updated, err := r.store.UpdateReviewStep(ctx, target.ID, func(st *store.ReviewStep) {
 		st.Narration = appendNarration(st.Narration, a.Text)
+		st.ReviewedAt = nil
 		if a.Risk != "" {
 			st.Risk = a.Risk
 		}
@@ -335,6 +336,9 @@ func (r *ReviewService) Annotate(ctx context.Context, tourID string, a AnnotateA
 		}
 	})
 	if err != nil {
+		return "", err
+	}
+	if err := r.reopenReviewedTour(ctx, tour); err != nil {
 		return "", err
 	}
 	r.publish(tourID, updated.ID, "annotated")
@@ -381,8 +385,30 @@ func (r *ReviewService) insertHunkNote(ctx context.Context, tourID, taskID strin
 	}); err != nil {
 		return "", err
 	}
+	if _, err := r.store.UpdateReviewStep(ctx, target.ID, func(st *store.ReviewStep) {
+		st.ReviewedAt = nil
+	}); err != nil {
+		return "", err
+	}
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return "", err
+	}
+	if err := r.reopenReviewedTour(ctx, tour); err != nil {
+		return "", err
+	}
 	r.publish(tourID, target.ID, "annotated")
 	return id, nil
+}
+
+func (r *ReviewService) reopenReviewedTour(ctx context.Context, tour *store.ReviewTour) error {
+	if tour.Status != "reviewed" {
+		return nil
+	}
+	_, err := r.store.UpdateReviewTour(ctx, tour.ID, func(rt *store.ReviewTour) {
+		rt.Status = "ready"
+	})
+	return err
 }
 
 func (r *ReviewService) insertNoteStep(ctx context.Context, tourID, taskID string, a AnnotateArgs) (string, error) {
@@ -471,6 +497,15 @@ func (r *ReviewService) Ready(ctx context.Context, tourID, summary string) error
 	tour, task, err := r.tourTask(ctx, tourID)
 	if err != nil {
 		return err
+	}
+	if tour.Status == "reviewed" {
+		unreviewed, err := r.unreviewedCount(ctx, tourID)
+		if err != nil {
+			return err
+		}
+		if unreviewed == 0 {
+			return nil
+		}
 	}
 	taskID := tour.TaskID
 	repo, err := r.repositoryForTask(ctx, task)
@@ -706,15 +741,7 @@ func (r *ReviewService) Tour(ctx context.Context, tourID string) (*ReviewTourVie
 	if err != nil {
 		return nil, err
 	}
-	if hasAuthoredChapter(ctx, r.store, steps) {
-		filtered := make([]store.ReviewStep, 0, len(steps))
-		for _, step := range steps {
-			if step.Kind == "chapter" {
-				filtered = append(filtered, step)
-			}
-		}
-		steps = filtered
-	}
+	steps = reviewableSteps(ctx, r.store, steps, tour.LastReviewedSHA != "")
 	msgs, err := r.store.ListReviewMessages(ctx, tourID)
 	if err != nil {
 		return nil, err
@@ -733,6 +760,19 @@ func (r *ReviewService) Tour(ctx context.Context, tourID string) (*ReviewTourVie
 		hunkNotes = []store.ReviewHunkNote{}
 	}
 	return &ReviewTourView{Tour: *tour, Steps: steps, Messages: msgs, HunkNotes: hunkNotes}, nil
+}
+
+func reviewableSteps(ctx context.Context, s *store.Store, steps []store.ReviewStep, includeFollowUps bool) []store.ReviewStep {
+	if !hasAuthoredChapter(ctx, s, steps) {
+		return steps
+	}
+	visible := make([]store.ReviewStep, 0, len(steps))
+	for _, step := range steps {
+		if step.Kind == "chapter" || (includeFollowUps && step.ReviewedAt == nil && step.OrphanedAt == nil) {
+			visible = append(visible, step)
+		}
+	}
+	return visible
 }
 
 func hasAuthoredChapter(ctx context.Context, s *store.Store, steps []store.ReviewStep) bool {
@@ -861,8 +901,8 @@ type ReviewBadgeState struct {
 	Ready      bool   `json:"ready"`
 }
 
-// ReviewBadgeStates returns review badge data keyed by task ID. Ready tours
-// are included even when they have no unreviewed steps.
+// ReviewBadgeStates returns review badge data keyed by task ID. A tour is ready
+// only while it has visible unreviewed work.
 func (r *ReviewService) ReviewBadgeStates(ctx context.Context) (map[string]ReviewBadgeState, error) {
 	tours, err := r.store.ListReviewTours(ctx)
 	if err != nil {
@@ -886,11 +926,12 @@ func (r *ReviewService) ReviewBadgeStates(ctx context.Context) (map[string]Revie
 				return nil, err
 			}
 			state.Unreviewed += unreviewed
-			if state.TourID == "" || (tour.Status == "ready" && !state.Ready) {
+			ready := tour.Status == "ready" && unreviewed > 0
+			if state.TourID == "" || (ready && !state.Ready) {
 				state.TourID = tour.ID
 				state.Name = tour.Name
 			}
-			state.Ready = state.Ready || tour.Status == "ready"
+			state.Ready = state.Ready || ready
 		}
 		states[listedTour.TaskID] = state
 	}
@@ -902,13 +943,13 @@ func (r *ReviewService) unreviewedCount(ctx context.Context, tourID string) (int
 	if err != nil {
 		return 0, err
 	}
-	hasChapter := false
-	for _, step := range steps {
-		hasChapter = hasChapter || step.Kind == "chapter"
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return 0, err
 	}
 	count := 0
-	for _, step := range steps {
-		if step.ReviewedAt == nil && step.OrphanedAt == nil && (!hasChapter || step.Kind == "chapter") {
+	for _, step := range reviewableSteps(ctx, r.store, steps, tour.LastReviewedSHA != "") {
+		if step.ReviewedAt == nil && step.OrphanedAt == nil {
 			count++
 		}
 	}
@@ -952,7 +993,7 @@ func (r *ReviewService) Queue(ctx context.Context) ([]ReviewQueueItem, error) {
 		include := false
 		switch tour.Status {
 		case "ready":
-			include = true
+			include = unreviewed > 0
 		case "reviewed":
 			include = unreviewed > 0
 		case "capturing":
