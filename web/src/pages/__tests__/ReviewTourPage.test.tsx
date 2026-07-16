@@ -8,6 +8,12 @@ const mockRefresh = vi.fn()
 vi.stubGlobal("fetch", mockFetch)
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
+vi.mock("../../hooks/useVoiceEnabled", () => ({ useVoiceEnabled: () => true }))
+vi.mock("../../components/VoiceRecorder", () => ({
+  VoiceRecorder: ({ onTranscription }: { onTranscription?: (text: string) => void }) => (
+    <button type="button" aria-label="Dictate review question" onClick={() => onTranscription?.("Dictated follow-up")}>Dictate</button>
+  ),
+}))
 vi.mock("../../hooks/useReview", () => ({
   useReviewTour: () => ({
     data: {
@@ -17,7 +23,7 @@ vi.mock("../../hooks/useReview", () => ({
         { id: "S-2", task_id: "T-1", kind: "dirty", commit_sha: "", title: "Uncommitted changes", narration: "", risk: "", reviewed_at: "2026-01-01", orphaned_at: null },
       ],
       messages: [
-        { id: 1, step_id: "S-1", author: "agent", kind: "answer", body: "The refresh is single-flight." },
+        { id: 1, step_id: "S-1", author: "agent", kind: "answer", body: "The refresh is **single-flight**." },
       ],
       hunk_notes: [
         { id: "N-1", task_id: "T-1", step_id: "S-1", file_path: "src/auth.ts", hunk_anchor: "missing-anchor", body: "This note lost its hunk.", created_at: "2026-01-01" },
@@ -159,7 +165,32 @@ describe("ReviewTourPage", () => {
     const warning = await screen.findByRole("alert", { name: "Unmatched hunk notes" })
     expect(warning.textContent).toContain("This note lost its hunk.")
     expect(screen.queryByText("Other step note.")).toBeNull()
-    expect(screen.getByText("The refresh is single-flight.").closest("aside")?.textContent).toContain("Questions & answers")
+    const emphasizedAnswer = screen.getByText("single-flight")
+    expect(emphasizedAnswer.tagName).toBe("STRONG")
+    expect(emphasizedAnswer.closest("aside")?.textContent).toContain("Questions & answers")
+  })
+
+  it("uses a multiline question draft and appends configured voice transcription", async () => {
+    renderPage()
+
+    const composer = screen.getByRole("textbox", { name: "Question for agent" })
+    expect(composer.tagName).toBe("TEXTAREA")
+    fireEvent.change(composer, { target: { value: "First line\nSecond line" } })
+    fireEvent.click(await screen.findByRole("button", { name: "Dictate review question" }))
+    expect((composer as HTMLTextAreaElement).value).toBe("First line\nSecond line\nDictated follow-up")
+  })
+
+  it("starts with a wider Q&A pane and lets the reviewer resize it", () => {
+    const { container } = renderPage()
+
+    const layout = container.querySelector("[data-review-layout]") as HTMLElement
+    const resizeHandle = screen.getByRole("separator", { name: "Resize questions and answers" })
+    expect(layout.style.getPropertyValue("--qa-width")).toBe("28rem")
+    expect(resizeHandle.getAttribute("aria-valuenow")).toBe("448")
+
+    fireEvent.keyDown(resizeHandle, { key: "ArrowRight" })
+    expect(layout.style.getPropertyValue("--qa-width")).toBe("30rem")
+    expect(resizeHandle.getAttribute("aria-valuenow")).toBe("480")
   })
 
   it("keeps the mark-reviewed action in a sticky diff-pane bar", () => {

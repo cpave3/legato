@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
 import { ArrowLeft, Check, Circle, Loader2, Send } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { DiffView } from "../components/DiffView"
+import { ReviewMessageBody } from "../components/ReviewMessageBody"
+import { VoiceRecorder } from "../components/VoiceRecorder"
 import { useReviewTour } from "../hooks/useReview"
 import { useServer } from "../hooks/useServer"
+import { useVoiceEnabled } from "../hooks/useVoiceEnabled"
 import {
   askReviewQuestion,
   completeReview,
@@ -37,7 +40,9 @@ export function ReviewTourPage() {
   const [busy, setBusy] = useState(false)
   const [question, setQuestion] = useState("")
   const [selection, setSelection] = useState<DiffSelection | null>(null)
+  const [qaWidthRem, setQAWidthRem] = useState(28)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const voiceEnabled = useVoiceEnabled(baseUrl)
 
   const steps = useMemo(() => data?.steps ?? [], [data?.steps])
   const selectedStep = steps.find((step) => step.id === selectedStepId) ?? steps[0]
@@ -90,6 +95,28 @@ export function ReviewTourPage() {
       setSelection(null)
       setActionInfo(warning ?? "Question sent")
     })
+  }
+
+  function resizeQAFromPointer(event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault()
+    const startX = event.clientX
+    const startWidth = qaWidthRem
+    const rootSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+    const move = (moveEvent: PointerEvent) => {
+      setQAWidthRem(Math.min(40, Math.max(22, startWidth + (startX - moveEvent.clientX) / rootSize)))
+    }
+    const stop = () => {
+      window.removeEventListener("pointermove", move)
+      window.removeEventListener("pointerup", stop)
+    }
+    window.addEventListener("pointermove", move)
+    window.addEventListener("pointerup", stop)
+  }
+
+  function resizeQAFromKeyboard(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
+    event.preventDefault()
+    setQAWidthRem((width) => Math.min(40, Math.max(22, width + (event.key === "ArrowRight" ? 2 : -2))))
   }
 
   async function removeReview() {
@@ -170,7 +197,11 @@ export function ReviewTourPage() {
       {actionError && <div role="alert" className="border-b border-red-900 bg-red-950/50 px-5 py-2 text-xs text-red-300">{actionError}</div>}
       {actionInfo && <div role="status" className="border-b border-amber-900 bg-amber-950/40 px-5 py-2 text-xs text-amber-200">{actionInfo}</div>}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[18rem_minmax(0,1fr)_20rem]">
+      <div
+        data-review-layout
+        style={{ "--qa-width": `${qaWidthRem}rem` } as CSSProperties}
+        className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[18rem_minmax(0,1fr)_var(--qa-width)]"
+      >
         <aside className="overflow-y-auto border-r border-zinc-800 bg-zinc-950 p-3">
           <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Review steps</div>
           <div className="space-y-1">
@@ -230,13 +261,25 @@ export function ReviewTourPage() {
           )}
         </main>
 
-        <aside className="flex min-h-0 flex-col border-l border-zinc-800 bg-zinc-950 p-3">
+        <aside className="relative flex min-h-0 flex-col border-l border-zinc-800 bg-zinc-950 p-3">
+          <div
+            role="separator"
+            aria-label="Resize questions and answers"
+            aria-orientation="vertical"
+            aria-valuemin={352}
+            aria-valuemax={640}
+            aria-valuenow={Math.round(qaWidthRem * 16)}
+            tabIndex={0}
+            onPointerDown={resizeQAFromPointer}
+            onKeyDown={resizeQAFromKeyboard}
+            className="absolute inset-y-0 -left-1.5 z-30 hidden w-3 cursor-col-resize touch-none focus:bg-indigo-500/30 focus:outline-none lg:block"
+          />
           <h3 className="px-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Questions & answers</h3>
           <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto">
             {messages.length === 0 && <p className="px-1 text-xs text-zinc-600">No questions on this step yet.</p>}
             {messages.map((message) => (
               <div key={message.id} className={cn("rounded p-2 text-sm", message.author === "user" ? "bg-indigo-950/40 text-indigo-200" : "bg-zinc-900 text-zinc-300")}>
-                <div className="mb-1 text-[10px] uppercase text-zinc-600">{message.author}</div><div className="whitespace-pre-wrap">{message.body}</div>
+                <div className="mb-1 text-[10px] uppercase text-zinc-600">{message.author}</div><ReviewMessageBody body={message.body} />
               </div>
             ))}
           </div>
@@ -246,9 +289,25 @@ export function ReviewTourPage() {
               <button type="button" onClick={() => setSelection(null)} className="shrink-0 text-indigo-400 hover:text-indigo-200">Clear</button>
             </div>
           )}
-          <div className="mt-3 flex shrink-0 gap-2 border-t border-zinc-800 pt-3">
-            <input aria-label="Question for agent" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void askQuestion() }} placeholder={selection ? "Ask about selected lines…" : "Ask about this step…"} className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-600" />
-            <button aria-label="Ask agent" disabled={busy || !question.trim()} onClick={() => void askQuestion()} className="rounded bg-zinc-800 px-3 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40"><Send size={15} /></button>
+          <div className="mt-3 flex shrink-0 items-end gap-2 border-t border-zinc-800 pt-3">
+            <textarea
+              aria-label="Question for agent"
+              rows={3}
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault()
+                  void askQuestion()
+                }
+              }}
+              placeholder={selection ? "Ask about selected lines…" : "Ask about this step…"}
+              className="min-h-20 min-w-0 flex-1 resize-y rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-600"
+            />
+            <div className="flex shrink-0 flex-col gap-2">
+              {voiceEnabled && <VoiceRecorder baseUrl={baseUrl} transcriptionOnly onTranscription={(text) => setQuestion((current) => current ? `${current}\n${text}` : text)} />}
+              <button aria-label="Ask agent" title="Send question (Ctrl+Enter)" disabled={busy || !question.trim()} onClick={() => void askQuestion()} className="rounded bg-zinc-800 p-2 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40"><Send size={15} /></button>
+            </div>
           </div>
         </aside>
       </div>

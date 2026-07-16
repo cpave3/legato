@@ -1021,7 +1021,7 @@ func (r *ReviewService) AskQuestion(ctx context.Context, tourID, stepID string, 
 	}
 
 	line := fmt.Sprintf(
-		"[legato review] Question on step %s (%q): %s — reply by running: legato review answer %s \"<your answer>\"",
+		"[legato review] Question on step %s (%q): %s — reply by running: legato review answer %s \"<your answer>\". Reply in Markdown, using fenced code blocks where useful.",
 		step.ID, step.Title, body, step.ID)
 
 	delivered := false
@@ -1064,7 +1064,7 @@ func (r *ReviewService) reviewSelectionExcerpt(ctx context.Context, tourID, step
 				return "", fmt.Errorf("%w: line range is outside the selected hunk", ErrInvalidLineSelection)
 			}
 			var excerpt strings.Builder
-			fmt.Fprintf(&excerpt, "Selected lines from %s %s:\n", selection.FilePath, hunk.Header)
+			fmt.Fprintf(&excerpt, "**Selected lines from `%s` (`%s`):**\n\n```diff\n", selection.FilePath, hunk.Header)
 			for _, line := range hunk.Lines[selection.Start : selection.End+1] {
 				marker := " "
 				lineNo := line.NewNo
@@ -1076,7 +1076,8 @@ func (r *ReviewService) reviewSelectionExcerpt(ctx context.Context, tourID, step
 				}
 				fmt.Fprintf(&excerpt, "%s%d %s\n", marker, lineNo, line.Text)
 			}
-			return strings.TrimSuffix(excerpt.String(), "\n"), nil
+			excerpt.WriteString("```")
+			return excerpt.String(), nil
 		}
 	}
 	return "", fmt.Errorf("%w: file or hunk no longer matches the step diff", ErrInvalidLineSelection)

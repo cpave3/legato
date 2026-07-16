@@ -16,8 +16,9 @@ type VoiceService interface {
 
 // voiceTranscribeRequest is the JSON body for POST /api/voice/transcribe.
 type voiceTranscribeRequest struct {
-	AgentID   string `json:"agent_id"`
-	AgentKind string `json:"agent_kind"`
+	AgentID           string `json:"agent_id"`
+	AgentKind         string `json:"agent_kind"`
+	TranscriptionOnly bool   `json:"transcription_only"`
 	// PCM is the raw 16-bit little-endian PCM audio (base64-encoded in JSON).
 	PCM []byte `json:"pcm"`
 }
@@ -46,7 +47,7 @@ func (s *Server) voiceTranscribeHandler() http.HandlerFunc {
 			return
 		}
 
-		if req.AgentID == "" {
+		if req.AgentID == "" && !req.TranscriptionOnly {
 			http.Error(w, "agent_id is required", http.StatusBadRequest)
 			return
 		}
@@ -67,6 +68,10 @@ func (s *Server) voiceTranscribeHandler() http.HandlerFunc {
 		}
 
 		resp.Text = text
+		if req.TranscriptionOnly {
+			s.writeJSON(w, http.StatusOK, resp)
+			return
+		}
 
 		session := "legato-" + req.AgentID
 		if err := s.voiceSvc.Deliver(r.Context(), session, req.AgentKind, text, s.voiceAutoSend); err != nil {

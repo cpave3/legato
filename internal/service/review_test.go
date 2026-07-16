@@ -604,7 +604,7 @@ func TestReviewQuestionIncludesValidatedLineSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantParts := []string{"Why return this value?", "a.go", hunk.Header, "+3 func answer() int {", "+4 \treturn 42"}
+	wantParts := []string{"Why return this value?", "**Selected lines from `a.go`", hunk.Header, "```diff", "+3 func answer() int {", "+4 \treturn 42", "```"}
 	lines := f.tmux.sentLines["legato-task-1"]
 	if len(lines) != 1 {
 		t.Fatalf("sent lines = %v", lines)
@@ -612,6 +612,9 @@ func TestReviewQuestionIncludesValidatedLineSelection(t *testing.T) {
 	msgs, err := f.store.ListReviewMessages(ctx, f.tourID)
 	if err != nil || len(msgs) != 1 {
 		t.Fatalf("messages = %+v, err = %v", msgs, err)
+	}
+	if !strings.Contains(lines[0], "Reply in Markdown") {
+		t.Errorf("delivered question missing Markdown guidance:\n%s", lines[0])
 	}
 	for _, want := range wantParts {
 		if !strings.Contains(lines[0], want) {

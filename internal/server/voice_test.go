@@ -87,6 +87,28 @@ func TestVoiceTranscribe_Success(t *testing.T) {
 	}
 }
 
+func TestVoiceTranscribe_TranscriptionOnlyDoesNotDeliver(t *testing.T) {
+	vs := &stubVoiceService{transcribeText: "editable review question"}
+	srv := newTestServerWithVoice(vs)
+	bodyJSON, _ := json.Marshal(voiceTranscribeRequest{
+		PCM: []byte{0, 1, 2, 3}, TranscriptionOnly: true,
+	})
+
+	resp := srv.postJSON("/api/voice/transcribe", bodyJSON)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	var result voiceTranscribeResponse
+	json.NewDecoder(resp.Body).Decode(&result)
+	if result.Text != "editable review question" {
+		t.Fatalf("text = %q", result.Text)
+	}
+	if vs.delivered {
+		t.Fatal("transcription-only request must not deliver into an agent pane")
+	}
+}
+
 func TestVoiceTranscribe_TranscriptionError(t *testing.T) {
 	vs := &stubVoiceService{transcribeErr: errVoiceTest}
 	srv := newTestServerWithVoice(vs)

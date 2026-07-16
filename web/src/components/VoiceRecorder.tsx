@@ -3,9 +3,11 @@ import { apiFetch } from "../lib/api"
 import { Mic, Loader2, X, Check } from "lucide-react"
 
 interface VoiceRecorderProps {
-  agentId: string
+  agentId?: string
   agentKind?: string
   baseUrl: string
+  transcriptionOnly?: boolean
+  onTranscription?: (text: string) => void
 }
 
 export interface VoiceRecorderHandle {
@@ -17,7 +19,7 @@ export interface VoiceRecorderHandle {
 
 type RecordingState = "idle" | "recording" | "transcribing" | "sent" | "error"
 
-export const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>(function VoiceRecorder({ agentId, agentKind, baseUrl }, ref) {
+export const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>(function VoiceRecorder({ agentId, agentKind, baseUrl, transcriptionOnly = false, onTranscription }, ref) {
   const [state, setState] = useState<RecordingState>("idle")
   const [errorMsg, setErrorMsg] = useState("")
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -122,8 +124,9 @@ export const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          agent_id: agentId,
+          agent_id: agentId || "",
           agent_kind: agentKind || "",
+          transcription_only: transcriptionOnly,
           pcm: Array.from(bytes),
         }),
       })
@@ -137,6 +140,7 @@ export const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>
         throw new Error(data.error)
       }
 
+      onTranscription?.(data.text)
       setState("sent")
       setTimeout(() => setState("idle"), 2000)
     } catch (err) {
@@ -144,7 +148,7 @@ export const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>
       setErrorMsg(err instanceof Error ? err.message : "Transcription failed")
       setTimeout(() => setState("idle"), 3000)
     }
-  }, [agentId, agentKind, baseUrl, cleanup])
+  }, [agentId, agentKind, baseUrl, cleanup, onTranscription, transcriptionOnly])
 
   const cancel = useCallback(() => {
     cleanup()
@@ -177,10 +181,10 @@ export const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>
         <button
           onClick={stopAndSend}
           className="flex items-center gap-1 rounded px-2 py-1.5 text-xs text-red-400 border border-red-900 transition-colors hover:bg-red-950 hover:text-red-300 animate-pulse"
-          title="Click to transcribe and send (V)"
+          title={transcriptionOnly ? "Click to add transcription" : "Click to transcribe and send (V)"}
         >
           <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
-          <span>Send</span>
+          <span>{transcriptionOnly ? "Add" : "Send"}</span>
         </button>
         <button
           onClick={cancel}
@@ -206,7 +210,7 @@ export const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>
     return (
       <div className="flex items-center gap-1 rounded px-2 py-1.5 text-xs text-emerald-400 border border-emerald-900">
         <Check size={16} />
-        <span>Sent</span>
+        <span>{transcriptionOnly ? "Added" : "Sent"}</span>
       </div>
     )
   }
