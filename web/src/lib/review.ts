@@ -77,6 +77,13 @@ export interface ReviewTourView {
 
 export type DiffLineKind = "ctx" | "add" | "del"
 
+export interface DiffSelection {
+  file_path: string
+  hunk_anchor: string
+  start: number
+  end: number
+}
+
 export interface DiffLine {
   kind: DiffLineKind
   old_no: number
@@ -141,8 +148,11 @@ export async function setStepReviewed(baseUrl: string, tourId: string, stepId: s
   await expectOK(await postJSON(baseUrl, `${stepPath(tourId, stepId)}/reviewed`, { reviewed }))
 }
 
-export async function askReviewQuestion(baseUrl: string, tourId: string, stepId: string, text: string): Promise<string | undefined> {
-  const response = await postJSON(baseUrl, `${stepPath(tourId, stepId)}/question`, { text })
+export async function askReviewQuestion(baseUrl: string, tourId: string, stepId: string, text: string, selection?: DiffSelection | null): Promise<string | undefined> {
+  const response = await postJSON(baseUrl, `${stepPath(tourId, stepId)}/question`, {
+    text,
+    ...(selection ? { selection } : {}),
+  })
   if (!response.ok) {
     await expectOK(response)
     return undefined

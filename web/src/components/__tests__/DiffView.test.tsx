@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
 import { DiffView } from "../DiffView"
 
@@ -27,8 +27,8 @@ describe("DiffView", () => {
     expect(screen.getByText("@@ -1,2 +1,2 @@")).toBeTruthy()
     expect(screen.getByText("const oldName = true")).toBeTruthy()
     expect(screen.getByText("const newName = true")).toBeTruthy()
-    expect(screen.getByLabelText("old line 1")).toBeTruthy()
-    expect(screen.getByLabelText("new line 1")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Select old line 1" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Select new line 1" })).toBeTruthy()
   })
 
   it("renders matching hunk notes immediately above their hunk", () => {
@@ -46,6 +46,39 @@ describe("DiffView", () => {
     const header = screen.getByText("@@ -1,2 +1,2 @@")
     expect(note.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(container.querySelector('[data-hunk-anchor="auth-refresh-anchor"]')?.contains(note)).toBe(true)
+  })
+
+  it("selects and extends a contiguous line range from the gutter", () => {
+    const selections: unknown[] = []
+    const { rerender } = render(<DiffView files={files} onSelectionChange={(selection) => selections.push(selection)} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Select old line 1" }))
+    expect(selections.at(-1)).toEqual({
+      file_path: "src/new.ts", hunk_anchor: "auth-refresh-anchor", start: 0, end: 0,
+    })
+
+    const selection = selections.at(-1) as { file_path: string; hunk_anchor: string; start: number; end: number }
+    rerender(<DiffView files={files} selection={selection} onSelectionChange={(next) => selections.push(next)} />)
+    fireEvent.click(screen.getByRole("button", { name: "Select new line 1" }))
+    expect(selections.at(-1)).toEqual({
+      file_path: "src/new.ts", hunk_anchor: "auth-refresh-anchor", start: 0, end: 1,
+    })
+  })
+
+  it("replaces the selection when a line in another hunk is clicked", () => {
+    const twoHunks = [{ ...files[0], hunks: [...files[0].hunks, {
+      anchor: "second-anchor",
+      header: "@@ -10 +10 @@",
+      lines: [{ kind: "ctx" as const, old_no: 10, new_no: 10, text: "return value" }],
+    }] }]
+    let selection = { file_path: "src/new.ts", hunk_anchor: "auth-refresh-anchor", start: 0, end: 1 }
+    const { rerender } = render(<DiffView files={twoHunks} selection={selection} onSelectionChange={(next) => { selection = next! }} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Select new line 10" }))
+    rerender(<DiffView files={twoHunks} selection={selection} onSelectionChange={(next) => { selection = next! }} />)
+
+    expect(selection).toEqual({ file_path: "src/new.ts", hunk_anchor: "second-anchor", start: 0, end: 0 })
+    expect(screen.getByText("return value").closest("[data-diff-line]")?.getAttribute("data-selected")).toBe("true")
   })
 
   it("shows an empty state when a step has no diff", () => {

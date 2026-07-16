@@ -10,6 +10,7 @@ import {
   deleteReview,
   fetchStepDiff,
   setStepReviewed,
+  type DiffSelection,
   type FileDiff,
   type ReviewStep,
 } from "../lib/review"
@@ -35,6 +36,7 @@ export function ReviewTourPage() {
   const [actionInfo, setActionInfo] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [question, setQuestion] = useState("")
+  const [selection, setSelection] = useState<DiffSelection | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const steps = useMemo(() => data?.steps ?? [], [data?.steps])
@@ -49,6 +51,7 @@ export function ReviewTourPage() {
   }, [selectedStepId, steps])
 
   useEffect(() => {
+    setSelection(null)
     if (!selectedStepId) return
     let current = true
     setDiffLoading(true)
@@ -82,8 +85,9 @@ export function ReviewTourPage() {
     if (!selectedStep || !question.trim()) return
     const text = question.trim()
     await runAction(async () => {
-      const warning = await askReviewQuestion(baseUrl, decodedTourId, selectedStep.id, text)
+      const warning = await askReviewQuestion(baseUrl, decodedTourId, selectedStep.id, text, selection)
       setQuestion("")
+      setSelection(null)
       setActionInfo(warning ?? "Question sent")
     })
   }
@@ -204,7 +208,7 @@ export function ReviewTourPage() {
                 </div>
               </section>
 
-              {diffLoading ? <div className="flex justify-center py-10 text-zinc-600"><Loader2 className="animate-spin" size={20} /></div> : <DiffView files={diff} hunkNotes={hunkNotes} />}
+              {diffLoading ? <div className="flex justify-center py-10 text-zinc-600"><Loader2 className="animate-spin" size={20} /></div> : <DiffView files={diff} hunkNotes={hunkNotes} selection={selection} onSelectionChange={setSelection} />}
 
               {!diffLoading && unmatchedHunkNotes.length > 0 && (
                 <section role="alert" aria-label="Unmatched hunk notes" className="rounded border border-amber-800 bg-amber-950/30 p-4 text-amber-100">
@@ -230,12 +234,18 @@ export function ReviewTourPage() {
             {messages.length === 0 && <p className="px-1 text-xs text-zinc-600">No questions on this step yet.</p>}
             {messages.map((message) => (
               <div key={message.id} className={cn("rounded p-2 text-sm", message.author === "user" ? "bg-indigo-950/40 text-indigo-200" : "bg-zinc-900 text-zinc-300")}>
-                <div className="mb-1 text-[10px] uppercase text-zinc-600">{message.author}</div>{message.body}
+                <div className="mb-1 text-[10px] uppercase text-zinc-600">{message.author}</div><div className="whitespace-pre-wrap">{message.body}</div>
               </div>
             ))}
           </div>
+          {selection && (
+            <div className="mt-3 flex items-center justify-between gap-2 rounded border border-indigo-800 bg-indigo-950/30 px-2 py-1.5 text-xs text-indigo-200">
+              <span className="truncate">{selection.file_path} · {selection.end - selection.start + 1} selected {selection.end === selection.start ? "line" : "lines"}</span>
+              <button type="button" onClick={() => setSelection(null)} className="shrink-0 text-indigo-400 hover:text-indigo-200">Clear</button>
+            </div>
+          )}
           <div className="mt-3 flex shrink-0 gap-2 border-t border-zinc-800 pt-3">
-            <input aria-label="Question for agent" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void askQuestion() }} placeholder="Ask about this step…" className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-600" />
+            <input aria-label="Question for agent" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void askQuestion() }} placeholder={selection ? "Ask about selected lines…" : "Ask about this step…"} className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-indigo-600" />
             <button aria-label="Ask agent" disabled={busy || !question.trim()} onClick={() => void askQuestion()} className="rounded bg-zinc-800 px-3 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40"><Send size={15} /></button>
           </div>
         </aside>

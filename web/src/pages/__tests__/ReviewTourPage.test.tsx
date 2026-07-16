@@ -76,6 +76,38 @@ describe("ReviewTourPage", () => {
     expect(mockFetch).toHaveBeenCalledWith("/api/review/tours/rt-task-1/complete", expect.objectContaining({ method: "POST" }))
   })
 
+  it("sends selected diff lines with a question and clears the selection", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => [{
+        old_path: "src/auth.ts", new_path: "src/auth.ts", status: "modified",
+        hunks: [{ anchor: "auth-hunk", header: "@@ -7,2 +7,2 @@", lines: [
+          { kind: "del", old_no: 7, new_no: 0, text: "return oldToken" },
+          { kind: "add", old_no: 0, new_no: 7, text: "return refreshedToken" },
+        ] }],
+      }],
+    })
+    renderPage()
+    await screen.findByRole("button", { name: "Select old line 7" })
+
+    fireEvent.click(screen.getByRole("button", { name: "Select old line 7" }))
+    fireEvent.click(screen.getByRole("button", { name: "Select new line 7" }))
+    expect(screen.getByText("src/auth.ts · 2 selected lines")).toBeTruthy()
+
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "ok" }) })
+    fireEvent.change(screen.getByLabelText("Question for agent"), { target: { value: "Is this refresh safe?" } })
+    fireEvent.click(screen.getByRole("button", { name: "Ask agent" }))
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(
+      "/api/review/tours/rt-task-1/steps/S-1/question",
+      expect.objectContaining({ body: JSON.stringify({
+        text: "Is this refresh safe?",
+        selection: { file_path: "src/auth.ts", hunk_anchor: "auth-hunk", start: 0, end: 1 },
+      }) }),
+    ))
+    await waitFor(() => expect(screen.queryByText("src/auth.ts · 2 selected lines")).toBeNull())
+  })
+
   it("asks for confirmation before deleting a review", async () => {
     renderPage()
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
