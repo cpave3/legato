@@ -19,7 +19,7 @@ type ReviewService interface {
 	Tour(ctx context.Context, tourID string) (*service.ReviewTourView, error)
 	StepDiff(ctx context.Context, tourID, stepID string) ([]gitpkg.FileDiff, error)
 	SetReviewed(ctx context.Context, tourID, stepID string, reviewed bool) error
-	AskQuestion(ctx context.Context, tourID, stepID, text string) error
+	AskQuestion(ctx context.Context, tourID, stepID string, question service.ReviewQuestion) error
 	Complete(ctx context.Context, tourID string) error
 	Delete(ctx context.Context, tourID string) error
 }
@@ -114,7 +114,8 @@ func (s *Server) reviewQuestionHandler() http.HandlerFunc {
 			return
 		}
 		var req struct {
-			Text string `json:"text"`
+			Text      string                       `json:"text"`
+			Selection *service.ReviewLineSelection `json:"selection"`
 		}
 		if err := decodeJSON(r, &req); err != nil {
 			s.writeError(w, http.StatusBadRequest, err.Error())
@@ -125,7 +126,13 @@ func (s *Server) reviewQuestionHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusBadRequest, "text is required")
 			return
 		}
-		err := s.reviews.AskQuestion(r.Context(), r.PathValue("tour_id"), r.PathValue("step_id"), req.Text)
+		err := s.reviews.AskQuestion(r.Context(), r.PathValue("tour_id"), r.PathValue("step_id"), service.ReviewQuestion{
+			Text: req.Text, Selection: req.Selection,
+		})
+		if errors.Is(err, service.ErrInvalidLineSelection) {
+			s.writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if errors.Is(err, service.ErrAgentOffline) {
 			s.writeJSON(w, http.StatusAccepted, map[string]string{
 				"status": "saved", "warning": err.Error(),

@@ -224,10 +224,12 @@ func (f *fakeReviewService) Tour(context.Context, string) (*service.ReviewTourVi
 func (f *fakeReviewService) StepDiff(context.Context, string, string) ([]gitpkg.FileDiff, error) {
 	return nil, nil
 }
-func (f *fakeReviewService) SetReviewed(context.Context, string, string, bool) error   { return nil }
-func (f *fakeReviewService) AskQuestion(context.Context, string, string, string) error { return nil }
-func (f *fakeReviewService) Complete(context.Context, string) error                    { return nil }
-func (f *fakeReviewService) Delete(context.Context, string) error                      { return nil }
+func (f *fakeReviewService) SetReviewed(context.Context, string, string, bool) error { return nil }
+func (f *fakeReviewService) AskQuestion(context.Context, string, string, service.ReviewQuestion) error {
+	return nil
+}
+func (f *fakeReviewService) Complete(context.Context, string) error { return nil }
+func (f *fakeReviewService) Delete(context.Context, string) error   { return nil }
 func (f *fakeReviewService) ReviewBadgeStates(context.Context) (map[string]service.ReviewBadgeState, error) {
 	return map[string]service.ReviewBadgeState{}, nil
 }

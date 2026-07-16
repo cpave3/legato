@@ -32,7 +32,7 @@ type Service interface {
 	Tour(context.Context, string) (*service.ReviewTourView, error)
 	StepDiff(context.Context, string, string) ([]gitpkg.FileDiff, error)
 	SetReviewed(context.Context, string, string, bool) error
-	AskQuestion(context.Context, string, string, string) error
+	AskQuestion(context.Context, string, string, service.ReviewQuestion) error
 	Complete(context.Context, string) error
 	Delete(context.Context, string) error
 }
@@ -316,7 +316,7 @@ func (m Model) toggleReviewed(stepID string, reviewed bool) tea.Cmd {
 func (m Model) askQuestion(stepID, text string) tea.Cmd {
 	svc, tourID := m.svc, m.tourID
 	return func() tea.Msg {
-		err := svc.AskQuestion(context.Background(), tourID, stepID, text)
+		err := svc.AskQuestion(context.Background(), tourID, stepID, service.ReviewQuestion{Text: text})
 		info := "question sent"
 		if err != nil {
 			// The question is stored even when the agent is offline; keep

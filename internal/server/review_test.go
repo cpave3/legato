@@ -205,6 +205,31 @@ func TestReviewMutationsUpdateTour(t *testing.T) {
 	}
 }
 
+func TestReviewQuestionRejectsStaleLineSelection(t *testing.T) {
+	f := newReviewServerFixture(t)
+	tour, err := f.svc.Tour(context.Background(), f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stepID := tour.Steps[0].ID
+	body := `{"text":"Why?","selection":{"file_path":"missing.go","hunk_anchor":"stale","start":0,"end":0}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/review/tours/"+f.tourID+"/steps/"+stepID+"/question", strings.NewReader(body))
+	res := httptest.NewRecorder()
+
+	f.server.Handler().ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "invalid review line selection") {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	updated, err := f.svc.Tour(context.Background(), f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Messages) != 0 {
+		t.Fatalf("invalid question was stored: %+v", updated.Messages)
+	}
+}
+
 func TestReviewAPIRejectsInvalidRequests(t *testing.T) {
 	f := newReviewServerFixture(t)
 	tour, err := f.svc.Tour(context.Background(), f.tourID)

@@ -526,7 +526,7 @@ func TestReviewQuestionAndAnswerLoop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := f.svc.AskQuestion(ctx, f.tourID, stepID, "why not reuse the helper?"); err != nil {
+	if err := f.svc.AskQuestion(ctx, f.tourID, stepID, ReviewQuestion{Text: "why not reuse the helper?"}); err != nil {
 		t.Fatal(err)
 	}
 	lines := f.tmux.sentLines["legato-task-1"]
@@ -557,13 +557,69 @@ func TestReviewQuestionAndAnswerLoop(t *testing.T) {
 	if err := f.tmux.Kill("legato-task-1"); err != nil {
 		t.Fatal(err)
 	}
-	err := f.svc.AskQuestion(ctx, f.tourID, stepID, "still there?")
+	err := f.svc.AskQuestion(ctx, f.tourID, stepID, ReviewQuestion{Text: "still there?"})
 	if !errors.Is(err, ErrAgentOffline) {
 		t.Fatalf("err = %v, want ErrAgentOffline", err)
 	}
 	msgs, _ = f.store.ListReviewMessages(ctx, f.tourID)
 	if len(msgs) != 3 || msgs[2].DeliveredAt != nil {
 		t.Fatalf("offline question should be stored undelivered: %+v", msgs)
+	}
+}
+
+func TestReviewQuestionIncludesValidatedLineSelection(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+
+	writeRepoFile(t, f.repo, "a.go", "package a\n\nfunc answer() int {\n\treturn 42\n}\n")
+	gitCommitAll(t, f.repo, "add answer")
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
+		t.Fatal(err)
+	}
+	steps, _ := f.store.ListReviewSteps(ctx, f.tourID)
+	stepID := steps[0].ID
+	files, err := f.svc.StepDiff(ctx, f.tourID, stepID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hunk := files[0].Hunks[0]
+
+	if err := f.tmux.Spawn("legato-task-1", f.repo, 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.InsertAgentSession(ctx, store.AgentSession{
+		TaskID: "task-1", TmuxSession: "legato-task-1", Command: "chimera",
+		Status: "running", StartedAt: "2026-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := ReviewQuestion{
+		Text: "Why return this value?",
+		Selection: &ReviewLineSelection{
+			FilePath: "a.go", HunkAnchor: hunk.Anchor, Start: 2, End: 3,
+		},
+	}
+	if err := f.svc.AskQuestion(ctx, f.tourID, stepID, req); err != nil {
+		t.Fatal(err)
+	}
+
+	wantParts := []string{"Why return this value?", "a.go", hunk.Header, "+3 func answer() int {", "+4 \treturn 42"}
+	lines := f.tmux.sentLines["legato-task-1"]
+	if len(lines) != 1 {
+		t.Fatalf("sent lines = %v", lines)
+	}
+	msgs, err := f.store.ListReviewMessages(ctx, f.tourID)
+	if err != nil || len(msgs) != 1 {
+		t.Fatalf("messages = %+v, err = %v", msgs, err)
+	}
+	for _, want := range wantParts {
+		if !strings.Contains(lines[0], want) {
+			t.Errorf("delivered question missing %q:\n%s", want, lines[0])
+		}
+		if !strings.Contains(msgs[0].Body, want) {
+			t.Errorf("stored question missing %q:\n%s", want, msgs[0].Body)
+		}
 	}
 }
 
@@ -581,7 +637,7 @@ func TestReviewMessagesSyncBeforeMutatingTranscript(t *testing.T) {
 
 	writeRepoFile(t, f.repo, "b.go", "package b\n")
 	gitCommitAll(t, f.repo, "add b")
-	if err := f.svc.AskQuestion(ctx, f.tourID, anchorID, "question"); !errors.Is(err, ErrAgentOffline) {
+	if err := f.svc.AskQuestion(ctx, f.tourID, anchorID, ReviewQuestion{Text: "question"}); !errors.Is(err, ErrAgentOffline) {
 		t.Fatalf("AskQuestion err = %v, want ErrAgentOffline", err)
 	}
 	steps, _ = f.store.ListReviewSteps(ctx, f.tourID)

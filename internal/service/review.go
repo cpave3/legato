@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -972,10 +973,28 @@ func (r *ReviewService) agentAlive(ctx context.Context, taskID string) bool {
 // session. The question is still stored (undelivered) so it isn't lost.
 var ErrAgentOffline = fmt.Errorf("agent session is not running; question saved but not delivered")
 
+// ErrInvalidLineSelection indicates that selected browser lines no longer
+// identify a valid contiguous range in the current step diff.
+var ErrInvalidLineSelection = errors.New("invalid review line selection")
+
+// ReviewQuestion is a reviewer message with optional source context.
+type ReviewQuestion struct {
+	Text      string               `json:"text"`
+	Selection *ReviewLineSelection `json:"selection,omitempty"`
+}
+
+// ReviewLineSelection identifies a contiguous range by canonical diff identity.
+type ReviewLineSelection struct {
+	FilePath   string `json:"file_path"`
+	HunkAnchor string `json:"hunk_anchor"`
+	Start      int    `json:"start"`
+	End        int    `json:"end"`
+}
+
 // AskQuestion stores a reviewer question on a step and delivers it into the
 // task's agent pane (solo agent, or the conductor for swarm tasks — the
 // conductor authored the packet and can relay to workers itself).
-func (r *ReviewService) AskQuestion(ctx context.Context, tourID, stepID, text string) error {
+func (r *ReviewService) AskQuestion(ctx context.Context, tourID, stepID string, question ReviewQuestion) error {
 	if err := r.Sync(ctx, tourID); err != nil {
 		return err
 	}
@@ -992,9 +1011,18 @@ func (r *ReviewService) AskQuestion(ctx context.Context, tourID, stepID, text st
 		return store.ErrNotFound
 	}
 
+	body := question.Text
+	if question.Selection != nil {
+		excerpt, err := r.reviewSelectionExcerpt(ctx, tourID, step.ID, *question.Selection)
+		if err != nil {
+			return err
+		}
+		body += "\n\n" + excerpt
+	}
+
 	line := fmt.Sprintf(
 		"[legato review] Question on step %s (%q): %s — reply by running: legato review answer %s \"<your answer>\"",
-		step.ID, step.Title, text, step.ID)
+		step.ID, step.Title, body, step.ID)
 
 	delivered := false
 	if r.tmux != nil {
@@ -1008,7 +1036,7 @@ func (r *ReviewService) AskQuestion(ctx context.Context, tourID, stepID, text st
 	}
 
 	if _, err := r.store.InsertReviewMessage(ctx, store.ReviewMessage{
-		TaskID: taskID, TourID: tourID, StepID: step.ID, Kind: "question", Author: "user", Body: text,
+		TaskID: taskID, TourID: tourID, StepID: step.ID, Kind: "question", Author: "user", Body: body,
 	}, delivered); err != nil {
 		return err
 	}
@@ -1017,6 +1045,41 @@ func (r *ReviewService) AskQuestion(ctx context.Context, tourID, stepID, text st
 		return ErrAgentOffline
 	}
 	return nil
+}
+
+func (r *ReviewService) reviewSelectionExcerpt(ctx context.Context, tourID, stepID string, selection ReviewLineSelection) (string, error) {
+	files, err := r.StepDiff(ctx, tourID, stepID)
+	if err != nil {
+		return "", err
+	}
+	for _, file := range files {
+		if selection.FilePath != file.NewPath && selection.FilePath != file.OldPath {
+			continue
+		}
+		for _, hunk := range file.Hunks {
+			if selection.HunkAnchor != hunk.Anchor {
+				continue
+			}
+			if selection.Start < 0 || selection.End < selection.Start || selection.End >= len(hunk.Lines) {
+				return "", fmt.Errorf("%w: line range is outside the selected hunk", ErrInvalidLineSelection)
+			}
+			var excerpt strings.Builder
+			fmt.Fprintf(&excerpt, "Selected lines from %s %s:\n", selection.FilePath, hunk.Header)
+			for _, line := range hunk.Lines[selection.Start : selection.End+1] {
+				marker := " "
+				lineNo := line.NewNo
+				if line.Kind == gitpkg.LineAdded {
+					marker = "+"
+				} else if line.Kind == gitpkg.LineDeleted {
+					marker = "-"
+					lineNo = line.OldNo
+				}
+				fmt.Fprintf(&excerpt, "%s%d %s\n", marker, lineNo, line.Text)
+			}
+			return strings.TrimSuffix(excerpt.String(), "\n"), nil
+		}
+	}
+	return "", fmt.Errorf("%w: file or hunk no longer matches the step diff", ErrInvalidLineSelection)
 }
 
 // Answer records an agent's reply to a reviewer question. stepID may be an
