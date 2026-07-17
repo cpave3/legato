@@ -125,10 +125,32 @@ function groupRangeNotes(notes: ReviewHunkNote[]): NoteGroup[] {
 
 function HunkLines({ lines, hunkAnchor, selectionPath, selection, onSelectionChange, notesForHunk, dragOriginRef, suppressClickRef }: HunkLinesProps) {
   const groups = groupRangeNotes(notesForHunk)
+  const selectedRange =
+    selection?.file_path === selectionPath && selection.hunk_anchor === hunkAnchor
+      ? { start: selection.start, end: selection.end }
+      : null
   const result: React.ReactNode[] = []
   let processed = 0
 
   while (processed < lines.length) {
+    if (selectedRange && selectedRange.start === processed) {
+      result.push(
+        <SelectionBlock
+          key={`sel-${processed}`}
+          lines={lines}
+          startIndex={selectedRange.start}
+          endIndex={selectedRange.end}
+          hunkAnchor={hunkAnchor}
+          selectionPath={selectionPath}
+          selection={selection}
+          onSelectionChange={onSelectionChange}
+          dragOriginRef={dragOriginRef}
+          suppressClickRef={suppressClickRef}
+        />
+      )
+      processed = selectedRange.end + 1
+      continue
+    }
     const group = groups.find((g) => g.startIndex === processed)
     if (!group) {
       result.push(
@@ -242,7 +264,7 @@ function DiffLine({ lineIndex, line, hunkAnchor, selectionPath, selection, onSel
         inRange && !selected && line.kind === "del" && "range-tinted-del bg-red-950/[0.25] text-red-100",
         inRange && !selected && line.kind === "ctx" && "bg-amber-950/20 text-amber-100",
         line.kind === "ctx" && !inRange && "text-zinc-400",
-        selected && "bg-indigo-900/60 text-indigo-100 ring-1 ring-inset ring-indigo-600",
+        selected && !inRange && "bg-indigo-900/60 text-indigo-100",
       )}
     >
       {gutter("old", line.old_no)}
@@ -252,8 +274,7 @@ function DiffLine({ lineIndex, line, hunkAnchor, selectionPath, selection, onSel
   )
 }
 
-interface RangeBlockProps {
-  note: ReviewHunkNote
+interface BaseBlockProps {
   lines: FileDiff["hunks"][number]["lines"]
   startIndex: number
   endIndex: number
@@ -263,6 +284,36 @@ interface RangeBlockProps {
   onSelectionChange?: (selection: DiffSelection | null) => void
   dragOriginRef: React.MutableRefObject<{ filePath: string; hunkAnchor: string; lineIndex: number; moved: boolean } | null>
   suppressClickRef: React.MutableRefObject<boolean>
+}
+
+type SelectionBlockProps = BaseBlockProps
+
+function SelectionBlock({ lines, startIndex, endIndex, hunkAnchor, selectionPath, selection, onSelectionChange, dragOriginRef, suppressClickRef }: SelectionBlockProps) {
+  return (
+    <div data-diff-block="selection" className="border-x border-y border-indigo-600 bg-indigo-900/40">
+      {lines.slice(startIndex, endIndex + 1).map((line, offset) => {
+        const lineIndex = startIndex + offset
+        return (
+          <DiffLine
+            key={lineIndex}
+            lineIndex={lineIndex}
+            line={line}
+            hunkAnchor={hunkAnchor}
+            selectionPath={selectionPath}
+            selection={selection}
+            onSelectionChange={onSelectionChange}
+            dragOriginRef={dragOriginRef}
+            suppressClickRef={suppressClickRef}
+            inRange
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+interface RangeBlockProps extends BaseBlockProps {
+  note: ReviewHunkNote
 }
 
 function RangeBlock({ note, lines, startIndex, endIndex, hunkAnchor, selectionPath, selection, onSelectionChange, dragOriginRef, suppressClickRef }: RangeBlockProps) {
