@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -110,6 +111,51 @@ func TestDeleteReviewRemovesPacketAndPublishesChange(t *testing.T) {
 	}
 	if len(queue) != 0 {
 		t.Fatalf("queue = %+v", queue)
+	}
+}
+
+func TestRestartReviewClearsPacketPreservesCaptureAndPublishesChange(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	bus := events.New()
+	changes := bus.Subscribe(events.EventReviewChanged)
+	f.svc = NewReviewService(f.store, f.tmux, bus)
+	if _, err := f.store.UpdateReviewTour(ctx, f.tourID, func(tour *store.ReviewTour) {
+		tour.BaseSHA = "original-base"
+		tour.RepositoryPath = f.repo
+		tour.Status = "ready"
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.InsertReviewStep(ctx, store.ReviewStep{ID: "stale", TaskID: "task-1", TourID: f.tourID, Kind: "file", Files: "[]"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.svc.Restart(ctx, f.tourID); err != nil {
+		t.Fatal(err)
+	}
+	tour, err := f.store.GetReviewTour(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tour.Status != "capturing" || tour.BaseSHA != "original-base" || tour.RepositoryPath != f.repo {
+		t.Fatalf("restarted tour = %+v", tour)
+	}
+	steps, err := f.store.ListReviewSteps(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 0 {
+		t.Fatalf("steps = %+v, want none", steps)
+	}
+	select {
+	case event := <-changes:
+		payload := event.Payload.(events.ReviewChangedPayload)
+		if payload.TourID != f.tourID || payload.Kind != "restarted" {
+			t.Fatalf("event payload = %+v", payload)
+		}
+	default:
+		t.Fatal("restart did not publish review change")
 	}
 }
 

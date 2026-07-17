@@ -41,6 +41,24 @@ func ReviewAnswer(svc *service.ReviewService, tourID, stepPrefix, text string) e
 	return nil
 }
 
+// ReviewDiscard removes a stale review packet and notifies running instances.
+func ReviewDiscard(svc *service.ReviewService, tourID string) error {
+	if err := svc.Delete(context.Background(), tourID); err != nil {
+		return err
+	}
+	broadcastReviewChanged(tourID, "", "deleted")
+	return nil
+}
+
+// ReviewRestart replaces a stale packet while retaining its capture boundary.
+func ReviewRestart(svc *service.ReviewService, tourID string) error {
+	if err := svc.Restart(context.Background(), tourID); err != nil {
+		return err
+	}
+	broadcastReviewChanged(tourID, "", "restarted")
+	return nil
+}
+
 // ReviewReady marks the tour ready for human review.
 func ReviewReady(svc *service.ReviewService, tourID, summary string) error {
 	if err := svc.Ready(context.Background(), tourID, summary); err != nil {

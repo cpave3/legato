@@ -329,6 +329,41 @@ func (s *Store) DeleteReviewTour(ctx context.Context, id string) error {
 	return tx.Commit()
 }
 
+// RestartReviewTour atomically removes review artifacts and resets lifecycle
+// state while retaining the repository and base SHA that define the capture.
+func (s *Store) RestartReviewTour(ctx context.Context, id string) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, query := range []string{
+		"DELETE FROM review_chapter_hunks WHERE tour_id = ?",
+		"DELETE FROM review_hunk_notes WHERE tour_id = ?",
+		"DELETE FROM review_transcript WHERE tour_id = ?",
+		"DELETE FROM review_steps WHERE tour_id = ?",
+	} {
+		if _, err := tx.ExecContext(ctx, query, id); err != nil {
+			return err
+		}
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE review_tours SET status = 'capturing', summary = '', head_sha = '',
+			last_reviewed_sha = '', ready_at = NULL, updated_at = datetime('now')
+		WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit()
+}
+
 // UpdateReviewTour applies mutate to the tour row and persists the result.
 func (s *Store) UpdateReviewTour(ctx context.Context, id string, mutate func(*ReviewTour)) (*ReviewTour, error) {
 	rt, err := s.GetReviewTour(ctx, id)

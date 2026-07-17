@@ -76,7 +76,7 @@ func runCLI(args []string) int {
 
 func runReviewCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: legato review [chapter|annotate|answer|ready|show|sync] ...")
+		fmt.Fprintln(os.Stderr, "usage: legato review [chapter|annotate|answer|ready|show|sync|discard|restart] ...")
 		return 1
 	}
 
@@ -209,9 +209,25 @@ func runReviewCmd(args []string) int {
 			return 1
 		}
 		return 0
+	case "discard", "restart":
+		tourID, err := resolveTourID()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		if verb == "discard" {
+			err = cli.ReviewDiscard(svc, tourID)
+		} else {
+			err = cli.ReviewRestart(svc, tourID)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "unknown review command: %s\n", verb)
-		fmt.Fprintln(os.Stderr, "usage: legato review [chapter|annotate|answer|ready|show|sync] ...")
+		fmt.Fprintln(os.Stderr, "usage: legato review [chapter|annotate|answer|ready|show|sync|discard|restart] ...")
 		return 1
 	}
 }

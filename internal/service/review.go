@@ -625,6 +625,20 @@ func (r *ReviewService) Delete(ctx context.Context, tourID string) error {
 	return nil
 }
 
+// Restart discards all authored and generated artifacts while preserving the
+// capture boundary needed to rebuild the tour after a rebase or substantial rework.
+func (r *ReviewService) Restart(ctx context.Context, tourID string) error {
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return err
+	}
+	if err := r.store.RestartReviewTour(ctx, tourID); err != nil {
+		return err
+	}
+	r.publishEvent(tour.ID, tour.TaskID, "", "restarted")
+	return nil
+}
+
 // Complete finishes the human review: stamps every step reviewed, records the
 // newest commit SHA as the watermark, and closes the tour.
 func (r *ReviewService) Complete(ctx context.Context, tourID string) error {
@@ -1254,6 +1268,9 @@ func (r *ReviewService) publishDeleted(tourID, taskID string) {
 }
 
 func (r *ReviewService) publishEvent(tourID, taskID, stepID, kind string) {
+	if r.bus == nil {
+		return
+	}
 	r.bus.Publish(events.Event{
 		Type:    events.EventReviewChanged,
 		Payload: events.ReviewChangedPayload{TaskID: taskID, TourID: tourID, StepID: stepID, Kind: kind},

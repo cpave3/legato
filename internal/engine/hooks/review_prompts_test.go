@@ -23,6 +23,10 @@ func TestChimeraGeneralPromptTeachesReviewCapture(t *testing.T) {
 		"legato review answer",
 		"Format review answers as Markdown",
 		"[legato review]",
+		"LEGATO_TASK_ID is unset",
+		"explicitly asks for a review",
+		"legato review restart",
+		"legato review discard",
 		// Named review tours
 		"--name <review-name>",
 		"LEGATO_REVIEW_NAME",
