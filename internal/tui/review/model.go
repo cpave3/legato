@@ -700,31 +700,6 @@ func renderRangeBlockEnd() string {
 	return lipgloss.NewStyle().Foreground(theme.AccentPurple).Render("└")
 }
 
-func renderDiffLineWithBackground(l gitpkg.Line, width int, background string, foreground *lipgloss.Color) string {
-	text := truncate(l.Text, width-2)
-	prefix := " "
-	switch l.Kind {
-	case gitpkg.LineAdded:
-		prefix = "+"
-	case gitpkg.LineDeleted:
-		prefix = "-"
-	}
-	var color lipgloss.Color
-	if foreground != nil {
-		color = *foreground
-	} else {
-		switch l.Kind {
-		case gitpkg.LineAdded:
-			color = theme.SyncOK
-		case gitpkg.LineDeleted:
-			color = theme.SyncError
-		default:
-			color = theme.TextTertiary
-		}
-	}
-	return lipgloss.NewStyle().Background(lipgloss.Color(background)).Foreground(color).Render(prefix + text)
-}
-
 func renderDiff(files []gitpkg.FileDiff, notes []store.ReviewHunkNote, width int) (string, []store.ReviewHunkNote) {
 	fileStyle := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true)
 	hunkStyle := lipgloss.NewStyle().Foreground(theme.ColReady)

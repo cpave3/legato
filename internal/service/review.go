@@ -963,6 +963,7 @@ func (r *ReviewService) Chapter(ctx context.Context, tourID, stepPrefix string) 
 		return nil, err
 	}
 	notes = projectHunkNotesToChapter(notes, chapter)
+	notes = reanchorLineNotes(notes, diff)
 	return &ReviewChapterDetail{ReviewChapterView: chapter, Diff: diff, HunkNotes: notes}, nil
 }
 
@@ -1102,6 +1103,40 @@ func chapterMatchesForNote(note store.ReviewHunkNote, chapters []ReviewChapterVi
 		return sameFile
 	}
 	return nil
+}
+
+func reanchorLineNotes(notes []store.ReviewHunkNote, diff []gitpkg.FileDiff) []store.ReviewHunkNote {
+	for i := range notes {
+		note := &notes[i]
+		if note.LineStart == nil || note.LineEnd == nil || note.LineAnchor == "" {
+			continue
+		}
+		type match struct {
+			hunkAnchor string
+			start      int
+			end        int
+		}
+		var matches []match
+		for _, file := range diff {
+			if note.FilePath != file.NewPath && note.FilePath != file.OldPath {
+				continue
+			}
+			span := *note.LineEnd - *note.LineStart + 1
+			for _, hunk := range file.Hunks {
+				for start := 0; start+span <= len(hunk.Lines); start++ {
+					if reviewLineAnchor(hunk.Lines[start:start+span]) == note.LineAnchor {
+						matches = append(matches, match{hunkAnchor: hunk.Anchor, start: start + 1, end: start + span})
+					}
+				}
+			}
+		}
+		if len(matches) == 1 {
+			note.HunkAnchor = matches[0].hunkAnchor
+			note.LineStart = &matches[0].start
+			note.LineEnd = &matches[0].end
+		}
+	}
+	return notes
 }
 
 func reviewableSteps(ctx context.Context, s *store.Store, steps []store.ReviewStep, includeFollowUps bool) []store.ReviewStep {

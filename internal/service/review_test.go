@@ -841,6 +841,44 @@ func TestReviewAnnotateLineRangeRejectsLinesOutsideHunk(t *testing.T) {
 	}
 }
 
+func TestReviewChapterReanchorsCommitLineNoteByContent(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "lines.go", "package lines\n\nfunc First() {}\nfunc Second() {}\n")
+	sha := gitCommitAll(t, f.repo, "add lines")
+	hunk, start, end := 1, 2, 3
+	noteID, err := f.svc.Annotate(ctx, f.tourID, AnnotateArgs{
+		SHA: sha, Text: "line intent", Files: []string{"lines.go"}, Hunk: &hunk,
+		LineStart: &start, LineEnd: &end,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRepoFile(t, f.repo, "lines.go", "package lines\n\nfunc First() {}\nfunc Second() {}\nfunc Third() {}\n")
+	gitCommitAll(t, f.repo, "extend same hunk")
+	chapterID, err := f.svc.CreateChapter(ctx, f.tourID, ChapterArgs{
+		Title: "Line chapter", Includes: []ChapterInclude{{FilePath: "lines.go", Hunk: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	detail, err := f.svc.Chapter(ctx, f.tourID, chapterID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.HunkNotes) != 1 {
+		t.Fatalf("HunkNotes = %+v", detail.HunkNotes)
+	}
+	note := detail.HunkNotes[0]
+	if note.ID != noteID || note.HunkAnchor != detail.Diff[0].Hunks[0].Anchor || note.LineStart == nil || note.LineEnd == nil {
+		t.Fatalf("reanchored note = %+v, diff = %+v", note, detail.Diff)
+	}
+	if reviewLineAnchor(detail.Diff[0].Hunks[0].Lines[*note.LineStart-1:*note.LineEnd]) != note.LineAnchor {
+		t.Fatalf("line range %d-%d does not match anchor", *note.LineStart, *note.LineEnd)
+	}
+}
+
 func TestReviewTourProjectsCommitHunkNotesOntoVisibleChapters(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
