@@ -116,6 +116,9 @@ func (r *ReviewService) Sync(ctx context.Context, tourID string) error {
 	if err != nil {
 		return err
 	}
+	if tour.Status == "reviewed" {
+		return nil
+	}
 	taskID := tour.TaskID
 	task, err := r.store.GetTask(ctx, taskID)
 	if err != nil {
@@ -145,10 +148,12 @@ func (r *ReviewService) Sync(ctx context.Context, tourID string) error {
 		return err
 	}
 
-	if _, err := r.store.UpdateReviewTour(ctx, tourID, func(rt *store.ReviewTour) {
-		rt.BaseSHA = base
-	}); err != nil {
-		return err
+	if tour.BaseSHA != base {
+		if _, err := r.store.UpdateReviewTour(ctx, tourID, func(rt *store.ReviewTour) {
+			rt.BaseSHA = base
+		}); err != nil {
+			return err
+		}
 	}
 
 	changed := false
@@ -1342,6 +1347,7 @@ type ReviewQueueItem struct {
 	Unreviewed int    `json:"unreviewed"`
 	UpdatedAt  string `json:"updated_at"`
 	ReadyAt    string `json:"ready_at"`
+	ActivityAt string `json:"activity_at"`
 }
 
 // Queue lists tasks with reviewable work: tours the agent marked ready,
@@ -1383,14 +1389,18 @@ func (r *ReviewService) Queue(ctx context.Context) ([]ReviewQueueItem, error) {
 		if task, err := r.store.GetTask(ctx, tour.TaskID); err == nil {
 			title = task.Title
 		}
+		activityAt := tour.UpdatedAt
+		if tour.Status == "ready" && tour.ReadyAt != nil && *tour.ReadyAt != "" {
+			activityAt = *tour.ReadyAt
+		}
 		items = append(items, ReviewQueueItem{
 			TourID: tour.ID, TaskID: tour.TaskID, Name: tour.Name,
 			Title: title, Status: tour.Status, Summary: tour.Summary, Unreviewed: unreviewed,
-			UpdatedAt: tour.UpdatedAt, ReadyAt: strValue(tour.ReadyAt),
+			UpdatedAt: tour.UpdatedAt, ReadyAt: strValue(tour.ReadyAt), ActivityAt: activityAt,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
-		return items[i].UpdatedAt > items[j].UpdatedAt
+		return items[i].ActivityAt > items[j].ActivityAt
 	})
 	return items, nil
 }

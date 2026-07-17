@@ -464,7 +464,7 @@ func TestReviewSyncOrphansRewrittenCommits(t *testing.T) {
 	}
 }
 
-func TestCompletedChapterReviewShowsNewCommitWhenItReentersQueue(t *testing.T) {
+func TestCompletedReviewIsExcludedFromSyncAndQueue(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
 
@@ -485,22 +485,22 @@ func TestCompletedChapterReviewShowsNewCommitWhenItReentersQueue(t *testing.T) {
 	writeRepoFile(t, f.repo, "b.go", "package b\n")
 	gitCommitAll(t, f.repo, "follow-up fix")
 
-	view, err := f.svc.Tour(ctx, f.tourID)
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
+		t.Fatal(err)
+	}
+	steps, err := f.store.ListReviewSteps(ctx, f.tourID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(view.Steps) != 2 || view.Steps[0].Kind != "chapter" || view.Steps[1].Title != "follow-up fix" {
-		t.Fatalf("steps = %+v, want reviewed chapter plus follow-up commit", view.Steps)
-	}
-	if view.Steps[0].ReviewedAt == nil || view.Steps[1].ReviewedAt != nil {
-		t.Fatalf("review state = %+v", view.Steps)
+	if len(steps) != 2 { // authored chapter plus its hidden original commit
+		t.Fatalf("completed review imported follow-up work: %+v", steps)
 	}
 	items, err := f.svc.Queue(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].Unreviewed != 1 {
-		t.Fatalf("queue = %+v, want one visible follow-up", items)
+	if len(items) != 0 {
+		t.Fatalf("completed review returned to queue: %+v", items)
 	}
 }
 
@@ -582,7 +582,7 @@ func TestAddingChapterToCompletedTourMakesItVisibleAndReviewable(t *testing.T) {
 	}
 }
 
-func TestReviewReadyCompleteAndWatermarkReentry(t *testing.T) {
+func TestReviewReadyCompleteAndTerminalWatermark(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
 
@@ -616,15 +616,15 @@ func TestReviewReadyCompleteAndWatermarkReentry(t *testing.T) {
 		}
 	}
 
-	// New work past the watermark re-queues the tour.
+	// New work does not revive a completed tour.
 	writeRepoFile(t, f.repo, "c.go", "package c\n")
 	gitCommitAll(t, f.repo, "add c")
 	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
 	tour, _ = f.store.GetReviewTour(ctx, f.tourID)
-	if tour.Status != "ready" {
-		t.Fatalf("Status after new commit = %q, want ready (re-entry)", tour.Status)
+	if tour.Status != "reviewed" {
+		t.Fatalf("Status after new commit = %q, want reviewed (terminal)", tour.Status)
 	}
 }
 
@@ -1216,17 +1216,39 @@ func TestReviewQueue(t *testing.T) {
 	}
 }
 
+func TestReviewQueueDoesNotRefreshUnchangedTourTimestamp(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "a.go", "package a\n")
+	gitCommitAll(t, f.repo, "add a")
+	if err := f.svc.Ready(ctx, f.tourID, "done"); err != nil {
+		t.Fatal(err)
+	}
+	before, err := f.store.GetReviewTour(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.Queue(ctx); err != nil {
+		t.Fatal(err)
+	}
+	after, err := f.store.GetReviewTour(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.UpdatedAt != before.UpdatedAt {
+		t.Fatalf("queue refresh changed updated_at: before=%s after=%s", before.UpdatedAt, after.UpdatedAt)
+	}
+}
+
 func TestReviewQueueSyncsToursAndSkipsBrokenWorktrees(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
 
 	writeRepoFile(t, f.repo, "a.go", "package a\n")
 	gitCommitAll(t, f.repo, "add a")
-	if err := f.svc.Complete(ctx, f.tourID); err != nil {
+	if err := f.svc.Ready(ctx, f.tourID, "ready"); err != nil {
 		t.Fatal(err)
 	}
-	writeRepoFile(t, f.repo, "b.go", "package b\n")
-	gitCommitAll(t, f.repo, "add b")
 
 	createTask(t, f.store, "task-broken")
 	missing := filepath.Join(t.TempDir(), "missing")

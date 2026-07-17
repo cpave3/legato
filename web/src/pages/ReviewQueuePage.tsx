@@ -31,7 +31,7 @@ function formatAbsoluteTime(iso: string): string {
 }
 
 function sortQueueItems(items: ReviewQueueItem[]): ReviewQueueItem[] {
-  return [...items].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+  return [...items].sort((a, b) => new Date(b.activity_at).getTime() - new Date(a.activity_at).getTime())
 }
 
 export function ReviewQueuePage() {
@@ -70,11 +70,11 @@ export function ReviewQueuePage() {
                   <h2 className="mt-1 font-semibold text-zinc-100">{item.name || item.title}</h2>
                   {item.summary && <p className="mt-2 text-sm text-zinc-400">{item.summary}</p>}
                   <time
-                    dateTime={item.updated_at}
-                    title={formatAbsoluteTime(item.updated_at)}
+                    dateTime={item.activity_at}
+                    title={formatAbsoluteTime(item.activity_at)}
                     className="mt-1 block text-xs text-zinc-500"
                   >
-                    {formatRelativeTime(item.updated_at)}
+                    {formatRelativeTime(item.activity_at)}
                   </time>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
