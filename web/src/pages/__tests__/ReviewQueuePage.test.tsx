@@ -6,8 +6,8 @@ import { ReviewQueuePage } from "../ReviewQueuePage"
 vi.mock("../../hooks/useReview", () => ({
   useReviewQueue: () => ({
     data: [
-      { task_id: "T-1", tour_id: "rt-task-1", name: "Review auth flow", title: "Review auth flow", status: "ready", summary: "Adds token refresh", unreviewed: 2 },
-      { task_id: "T-2", tour_id: "rt-task-2", name: "Already checked", title: "Already checked", status: "ready", summary: "Ready to complete", unreviewed: 0 },
+      { task_id: "T-1", tour_id: "rt-task-1", name: "Review auth flow", title: "Review auth flow", status: "ready", summary: "Adds token refresh", unreviewed: 2, updated_at: "2026-07-17T00:00:00Z" },
+      { task_id: "T-2", tour_id: "rt-task-2", name: "Already checked", title: "Already checked", status: "ready", summary: "Ready to complete", unreviewed: 0, updated_at: "2026-07-17T02:00:00Z" },
     ],
     loading: false,
     error: null,

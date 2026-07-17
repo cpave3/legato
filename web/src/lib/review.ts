@@ -12,6 +12,8 @@ export interface ReviewQueueItem {
   status: ReviewStatus
   summary: string
   unreviewed: number
+  updated_at: string
+  ready_at: string | null
 }
 
 export interface ReviewTour {

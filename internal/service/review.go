@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -477,6 +478,13 @@ func (r *ReviewService) insertHunkNote(ctx context.Context, tourID, taskID strin
 func intValue(value *int) int {
 	if value == nil {
 		return 0
+	}
+	return *value
+}
+
+func strValue(value *string) string {
+	if value == nil {
+		return ""
 	}
 	return *value
 }
@@ -1299,6 +1307,8 @@ type ReviewQueueItem struct {
 	Status     string `json:"status"`
 	Summary    string `json:"summary"`
 	Unreviewed int    `json:"unreviewed"`
+	UpdatedAt  string `json:"updated_at"`
+	ReadyAt    string `json:"ready_at"`
 }
 
 // Queue lists tasks with reviewable work: tours the agent marked ready,
@@ -1343,8 +1353,12 @@ func (r *ReviewService) Queue(ctx context.Context) ([]ReviewQueueItem, error) {
 		items = append(items, ReviewQueueItem{
 			TourID: tour.ID, TaskID: tour.TaskID, Name: tour.Name,
 			Title: title, Status: tour.Status, Summary: tour.Summary, Unreviewed: unreviewed,
+			UpdatedAt: tour.UpdatedAt, ReadyAt: strValue(tour.ReadyAt),
 		})
 	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].UpdatedAt > items[j].UpdatedAt
+	})
 	return items, nil
 }
 

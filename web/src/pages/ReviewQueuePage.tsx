@@ -1,6 +1,38 @@
 import { ArrowRight, CheckCircle2, RefreshCw } from "lucide-react"
 import { Link } from "react-router-dom"
 import { useReviewQueue } from "../hooks/useReview"
+import type { ReviewQueueItem } from "../lib/review"
+
+function formatRelativeTime(iso: string): string {
+  const date = new Date(iso)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  if (diffMins < 1) return "just now"
+  if (diffMins < 60) return `${diffMins}m ago`
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours < 24) return `${diffHours}h ago`
+  const day = date.getDate().toString().padStart(2, "0")
+  const month = (date.getMonth() + 1).toString().padStart(2, "0")
+  const year = date.getFullYear()
+  return `${day}/${month}/${year}`
+}
+
+function formatAbsoluteTime(iso: string): string {
+  const date = new Date(iso)
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  })
+}
+
+function sortQueueItems(items: ReviewQueueItem[]): ReviewQueueItem[] {
+  return [...items].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+}
 
 export function ReviewQueuePage() {
   const { data, loading, error, refresh } = useReviewQueue()
@@ -27,7 +59,7 @@ export function ReviewQueuePage() {
           </div>
         )}
         <div className="mx-auto grid max-w-4xl gap-3">
-          {data?.map((item) => (
+          {sortQueueItems(data ?? []).map((item) => (
             <Link key={item.tour_id} to={`/review/${encodeURIComponent(item.tour_id)}`} className="group rounded border border-zinc-800 bg-zinc-950 p-4 transition-colors hover:border-indigo-700 hover:bg-zinc-900">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
@@ -37,6 +69,13 @@ export function ReviewQueuePage() {
                   </div>
                   <h2 className="mt-1 font-semibold text-zinc-100">{item.name || item.title}</h2>
                   {item.summary && <p className="mt-2 text-sm text-zinc-400">{item.summary}</p>}
+                  <time
+                    dateTime={item.updated_at}
+                    title={formatAbsoluteTime(item.updated_at)}
+                    className="mt-1 block text-xs text-zinc-500"
+                  >
+                    {formatRelativeTime(item.updated_at)}
+                  </time>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
                   <span className={item.unreviewed > 0 ? "text-xs font-medium text-amber-300" : "text-xs text-emerald-400"}>
