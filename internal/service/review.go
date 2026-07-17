@@ -734,6 +734,112 @@ func (r *ReviewService) syncDirtyStep(ctx context.Context, tourID, taskID, repo 
 	return false, nil
 }
 
+// ReviewChapterView is chapter metadata plus its durable hunk memberships.
+type ReviewChapterView struct {
+	ID         string                    `json:"id"`
+	Title      string                    `json:"title"`
+	Narration  string                    `json:"narration"`
+	Risk       string                    `json:"risk"`
+	OrderHint  *int                      `json:"order_hint,omitempty"`
+	Seq        int                       `json:"seq"`
+	Generated  bool                      `json:"generated"`
+	ReviewedAt *string                   `json:"reviewed_at,omitempty"`
+	Hunks      []store.ReviewChapterHunk `json:"hunks"`
+}
+
+// ReviewChaptersView is the ordered chapter index for one tour.
+type ReviewChaptersView struct {
+	Tour     store.ReviewTour    `json:"tour"`
+	Chapters []ReviewChapterView `json:"chapters"`
+}
+
+// ReviewChapterDetail adds the selected structured diff to chapter metadata.
+type ReviewChapterDetail struct {
+	ReviewChapterView
+	Diff []gitpkg.FileDiff `json:"diff"`
+}
+
+// Chapters syncs and returns every chapter in review order with its durable
+// memberships. Generated chapters remain identifiable to automation.
+func (r *ReviewService) Chapters(ctx context.Context, tourID string) (*ReviewChaptersView, error) {
+	if err := r.Sync(ctx, tourID); err != nil {
+		return nil, err
+	}
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return nil, err
+	}
+	steps, err := r.store.ListReviewSteps(ctx, tourID)
+	if err != nil {
+		return nil, err
+	}
+	chapters := make([]ReviewChapterView, 0)
+	for _, step := range steps {
+		if step.Kind != "chapter" {
+			continue
+		}
+		chapter, err := r.chapterView(ctx, step)
+		if err != nil {
+			return nil, err
+		}
+		chapters = append(chapters, chapter)
+	}
+	return &ReviewChaptersView{Tour: *tour, Chapters: chapters}, nil
+}
+
+// Chapter returns one chapter selected by full ID or unambiguous prefix,
+// including only the base-to-head hunks assigned to it.
+func (r *ReviewService) Chapter(ctx context.Context, tourID, stepPrefix string) (*ReviewChapterDetail, error) {
+	if err := r.Sync(ctx, tourID); err != nil {
+		return nil, err
+	}
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return nil, err
+	}
+	step, err := r.store.GetReviewStepByPrefix(ctx, tour.TaskID, stepPrefix)
+	if err != nil {
+		return nil, err
+	}
+	if step.TourID != tourID || step.Kind != "chapter" {
+		return nil, store.ErrNotFound
+	}
+	chapter, err := r.chapterView(ctx, *step)
+	if err != nil {
+		return nil, err
+	}
+	diff, err := r.StepDiff(ctx, tourID, step.ID)
+	if err != nil {
+		return nil, err
+	}
+	if diff == nil {
+		diff = []gitpkg.FileDiff{}
+	}
+	return &ReviewChapterDetail{ReviewChapterView: chapter, Diff: diff}, nil
+}
+
+func (r *ReviewService) chapterView(ctx context.Context, step store.ReviewStep) (ReviewChapterView, error) {
+	hunks, err := r.store.ListReviewChapterHunks(ctx, step.ID)
+	if err != nil {
+		return ReviewChapterView{}, err
+	}
+	if hunks == nil {
+		hunks = []store.ReviewChapterHunk{}
+	}
+	generated := len(hunks) > 0
+	for _, hunk := range hunks {
+		if !hunk.Generated {
+			generated = false
+			break
+		}
+	}
+	return ReviewChapterView{
+		ID: step.ID, Title: step.Title, Narration: step.Narration, Risk: step.Risk,
+		OrderHint: step.OrderHint, Seq: step.Seq, Generated: generated,
+		ReviewedAt: step.ReviewedAt, Hunks: hunks,
+	}, nil
+}
+
 // ReviewTourView is the assembled read model for the review UIs.
 type ReviewTourView struct {
 	Tour      store.ReviewTour       `json:"tour"`

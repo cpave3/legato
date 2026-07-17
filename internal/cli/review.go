@@ -77,6 +77,24 @@ func ReviewSync(svc *service.ReviewService, tourID string) error {
 	return nil
 }
 
+// ReviewChapters writes the ordered chapter index as JSON.
+func ReviewChapters(svc *service.ReviewService, tourID string, w io.Writer) error {
+	view, err := svc.Chapters(context.Background(), tourID)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, view)
+}
+
+// ReviewChapterShow writes one chapter and its selected structured diff as JSON.
+func ReviewChapterShow(svc *service.ReviewService, tourID, stepPrefix string, w io.Writer) error {
+	view, err := svc.Chapter(context.Background(), tourID, stepPrefix)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, view)
+}
+
 // ReviewShow writes the tour to w — human-readable by default, JSON with
 // asJSON.
 func ReviewShow(svc *service.ReviewService, tourID string, asJSON bool, w io.Writer) error {
@@ -85,9 +103,7 @@ func ReviewShow(svc *service.ReviewService, tourID string, asJSON bool, w io.Wri
 		return err
 	}
 	if asJSON {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(view)
+		return writeJSON(w, view)
 	}
 
 	fmt.Fprintf(w, "Review tour for %s — %s\n", view.Tour.TaskID, view.Tour.Status)
@@ -113,6 +129,12 @@ func ReviewShow(svc *service.ReviewService, tourID string, asJSON bool, w io.Wri
 		}
 	}
 	return nil
+}
+
+func writeJSON(w io.Writer, value any) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(value)
 }
 
 func broadcastReviewChanged(tourID, stepID, kind string) {

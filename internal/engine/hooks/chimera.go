@@ -161,10 +161,13 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"and retain its capture boundary, then author the replacement. Use `legato " +
 	"review discard` when no replacement should be created. Both accept `--task` " +
 	"and `--name`.\n" +
+	"- **Inspect chapter data for automation.** Run `legato review chapters --json` " +
+	"for ordered chapter metadata and hunk memberships, then `legato review chapter " +
+	"show <chapter-id> --json` for one chapter and its selected structured diff.\n" +
 	"\n" +
 	"### Named review tours\n" +
 	"\n" +
-	"Every `legato review` verb (annotate, chapter, ready, show, sync, answer, restart, discard) " +
+	"Every `legato review` verb (annotate, chapter, chapters, ready, show, sync, answer, restart, discard) " +
 	"accepts `--name <review-name>` to scope its packet. If you are working on " +
 	"multiple distinct features in a single session, name each review tour " +
 	"(`--name auth`, `--name search`, …) so the packets stay separate and the " +

@@ -159,6 +159,43 @@ func TestRestartReviewClearsPacketPreservesCaptureAndPublishesChange(t *testing.
 	}
 }
 
+func TestReviewChaptersReturnsOrderedMetadataMembershipsAndDiffs(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "chapter.go", "package chapter\n\nfunc Added() {}\n")
+	gitCommitAll(t, f.repo, "add chapter")
+	stepID, err := f.svc.CreateChapter(ctx, f.tourID, ChapterArgs{
+		Title: "Chapter API", Narration: "Expose chapter context to automation.", Risk: "medium",
+		Includes: []ChapterInclude{{FilePath: "chapter.go", Hunk: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	view, err := f.svc.Chapters(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Tour.ID != f.tourID || len(view.Chapters) != 1 {
+		t.Fatalf("chapters view = %+v", view)
+	}
+	chapter := view.Chapters[0]
+	if chapter.ID != stepID || chapter.Title != "Chapter API" || chapter.Narration != "Expose chapter context to automation." || chapter.Risk != "medium" || chapter.Generated {
+		t.Fatalf("chapter = %+v", chapter)
+	}
+	if len(chapter.Hunks) != 1 || chapter.Hunks[0].FilePath != "chapter.go" || chapter.Hunks[0].HunkAnchor == "" {
+		t.Fatalf("chapter hunks = %+v", chapter.Hunks)
+	}
+
+	detail, err := f.svc.Chapter(ctx, f.tourID, stepID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.ID != stepID || len(detail.Diff) != 1 || detail.Diff[0].NewPath != "chapter.go" || len(detail.Diff[0].Hunks) != 1 {
+		t.Fatalf("chapter detail = %+v", detail)
+	}
+}
+
 func TestUnreviewedCountsPreferChaptersOverHiddenCommitSteps(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()

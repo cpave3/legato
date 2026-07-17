@@ -27,6 +27,8 @@ func TestChimeraGeneralPromptTeachesReviewCapture(t *testing.T) {
 		"explicitly asks for a review",
 		"legato review restart",
 		"legato review discard",
+		"legato review chapters --json",
+		"legato review chapter show",
 		// Named review tours
 		"--name <review-name>",
 		"LEGATO_REVIEW_NAME",

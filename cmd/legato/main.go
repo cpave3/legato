@@ -76,7 +76,7 @@ func runCLI(args []string) int {
 
 func runReviewCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: legato review [chapter|annotate|answer|ready|show|sync|discard|restart] ...")
+		fmt.Fprintln(os.Stderr, "usage: legato review [chapter|chapters|annotate|answer|ready|show|sync|discard|restart] ...")
 		return 1
 	}
 
@@ -117,7 +117,46 @@ func runReviewCmd(args []string) int {
 	}
 
 	switch verb {
+	case "chapters":
+		if len(positional) != 0 {
+			fmt.Fprintln(os.Stderr, `usage: legato review chapters --json [--task <id>] [--name <name>]`)
+			return 1
+		}
+		if _, ok := flags["json"]; !ok {
+			fmt.Fprintln(os.Stderr, "error: review chapters requires --json")
+			return 1
+		}
+		tourID, err := resolveTourID()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		if err := cli.ReviewChapters(svc, tourID, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		return 0
 	case "chapter":
+		if len(positional) > 0 && positional[0] == "show" {
+			if len(positional) != 2 {
+				fmt.Fprintln(os.Stderr, `usage: legato review chapter show <chapter-id> --json [--task <id>] [--name <name>]`)
+				return 1
+			}
+			if _, ok := flags["json"]; !ok {
+				fmt.Fprintln(os.Stderr, "error: review chapter show requires --json")
+				return 1
+			}
+			tourID, err := resolveTourID()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				return 1
+			}
+			if err := cli.ReviewChapterShow(svc, tourID, positional[1], os.Stdout); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				return 1
+			}
+			return 0
+		}
 		a, err := parseReviewChapterArgs(positional, flags, listFlags)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -227,7 +266,7 @@ func runReviewCmd(args []string) int {
 		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "unknown review command: %s\n", verb)
-		fmt.Fprintln(os.Stderr, "usage: legato review [chapter|annotate|answer|ready|show|sync|discard|restart] ...")
+		fmt.Fprintln(os.Stderr, "usage: legato review [chapter|chapters|annotate|answer|ready|show|sync|discard|restart] ...")
 		return 1
 	}
 }
