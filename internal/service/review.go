@@ -492,8 +492,6 @@ func strValue(value *string) string {
 func reviewLineAnchor(lines []gitpkg.Line) string {
 	hash := sha256.New()
 	for _, line := range lines {
-		hash.Write([]byte(line.Kind))
-		hash.Write([]byte{0})
 		hash.Write([]byte(line.Text))
 		hash.Write([]byte{'\n'})
 	}
