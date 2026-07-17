@@ -756,7 +756,8 @@ type ReviewChaptersView struct {
 // ReviewChapterDetail adds the selected structured diff to chapter metadata.
 type ReviewChapterDetail struct {
 	ReviewChapterView
-	Diff []gitpkg.FileDiff `json:"diff"`
+	Diff      []gitpkg.FileDiff      `json:"diff"`
+	HunkNotes []store.ReviewHunkNote `json:"hunk_notes"`
 }
 
 // Chapters syncs and returns every chapter in review order with its durable
@@ -815,7 +816,12 @@ func (r *ReviewService) Chapter(ctx context.Context, tourID, stepPrefix string) 
 	if diff == nil {
 		diff = []gitpkg.FileDiff{}
 	}
-	return &ReviewChapterDetail{ReviewChapterView: chapter, Diff: diff}, nil
+	notes, err := r.store.ListReviewHunkNotes(ctx, tourID)
+	if err != nil {
+		return nil, err
+	}
+	notes = projectHunkNotesToChapter(notes, chapter)
+	return &ReviewChapterDetail{ReviewChapterView: chapter, Diff: diff, HunkNotes: notes}, nil
 }
 
 func (r *ReviewService) chapterView(ctx context.Context, step store.ReviewStep) (ReviewChapterView, error) {
@@ -876,10 +882,84 @@ func (r *ReviewService) Tour(ctx context.Context, tourID string) (*ReviewTourVie
 	if msgs == nil {
 		msgs = []store.ReviewMessage{}
 	}
+	hunkNotes, err = projectHunkNotesToVisibleChapters(ctx, r.store, steps, hunkNotes)
+	if err != nil {
+		return nil, err
+	}
 	if hunkNotes == nil {
 		hunkNotes = []store.ReviewHunkNote{}
 	}
 	return &ReviewTourView{Tour: *tour, Steps: steps, Messages: msgs, HunkNotes: hunkNotes}, nil
+}
+
+func projectHunkNotesToVisibleChapters(ctx context.Context, s *store.Store, steps []store.ReviewStep, notes []store.ReviewHunkNote) ([]store.ReviewHunkNote, error) {
+	chapters := make([]ReviewChapterView, 0)
+	visible := make(map[string]bool, len(steps))
+	for _, step := range steps {
+		visible[step.ID] = true
+		if step.Kind != "chapter" {
+			continue
+		}
+		hunks, err := s.ListReviewChapterHunks(ctx, step.ID)
+		if err != nil {
+			return nil, err
+		}
+		chapters = append(chapters, ReviewChapterView{ID: step.ID, Hunks: hunks})
+	}
+	if len(chapters) == 0 {
+		return notes, nil
+	}
+
+	projected := make([]store.ReviewHunkNote, 0, len(notes))
+	for _, note := range notes {
+		if visible[note.StepID] {
+			projected = append(projected, note)
+			continue
+		}
+		matches := chapterMatchesForNote(note, chapters)
+		projected = append(projected, matches...)
+	}
+	return projected, nil
+}
+
+func projectHunkNotesToChapter(notes []store.ReviewHunkNote, chapter ReviewChapterView) []store.ReviewHunkNote {
+	projected := make([]store.ReviewHunkNote, 0)
+	for _, note := range notes {
+		projected = append(projected, chapterMatchesForNote(note, []ReviewChapterView{chapter})...)
+	}
+	return projected
+}
+
+func chapterMatchesForNote(note store.ReviewHunkNote, chapters []ReviewChapterView) []store.ReviewHunkNote {
+	var exact []store.ReviewHunkNote
+	var sameFile []store.ReviewHunkNote
+	for _, chapter := range chapters {
+		fileMatched := false
+		for _, hunk := range chapter.Hunks {
+			if note.FilePath != hunk.FilePath {
+				continue
+			}
+			fileMatched = true
+			if note.HunkAnchor == hunk.HunkAnchor {
+				copy := note
+				copy.StepID = chapter.ID
+				exact = append(exact, copy)
+				break
+			}
+		}
+		if fileMatched {
+			copy := note
+			copy.StepID = chapter.ID
+			sameFile = append(sameFile, copy)
+		}
+	}
+	if len(exact) > 0 {
+		return exact
+	}
+	if len(sameFile) == 1 {
+		return sameFile
+	}
+	return nil
 }
 
 func reviewableSteps(ctx context.Context, s *store.Store, steps []store.ReviewStep, includeFollowUps bool) []store.ReviewStep {

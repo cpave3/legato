@@ -738,6 +738,78 @@ func TestReviewAnnotateHunkPersistsDurableNote(t *testing.T) {
 	}
 }
 
+func TestReviewTourProjectsCommitHunkNotesOntoVisibleChapters(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "noted.go", "package noted\n\nfunc Value() int { return 1 }\n")
+	sha := gitCommitAll(t, f.repo, "add noted file")
+
+	hunk := 1
+	noteID, err := f.svc.Annotate(ctx, f.tourID, AnnotateArgs{
+		SHA: sha, Text: "why this hunk matters", Files: []string{"noted.go"}, Hunk: &hunk,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chapterID, err := f.svc.CreateChapter(ctx, f.tourID, ChapterArgs{
+		Title: "Noted behavior", Includes: []ChapterInclude{{FilePath: "noted.go", Hunk: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	view, err := f.svc.Tour(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Steps) != 1 || view.Steps[0].ID != chapterID {
+		t.Fatalf("visible steps = %+v, want only chapter %s", view.Steps, chapterID)
+	}
+	if len(view.HunkNotes) != 1 {
+		t.Fatalf("HunkNotes = %+v", view.HunkNotes)
+	}
+	projected := view.HunkNotes[0]
+	if projected.ID != noteID || projected.StepID != chapterID || projected.FilePath != "noted.go" || projected.Body != "why this hunk matters" {
+		t.Fatalf("projected note = %+v", projected)
+	}
+}
+
+func TestReviewTourKeepsChangedCommitHunkNoteVisibleAsUnmatchedChapterNote(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "changed.go", "package changed\n\nfunc Value() int { return 1 }\n")
+	sha := gitCommitAll(t, f.repo, "add changed file")
+	hunk := 1
+	if _, err := f.svc.Annotate(ctx, f.tourID, AnnotateArgs{
+		SHA: sha, Text: "original intent", Files: []string{"changed.go"}, Hunk: &hunk,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	writeRepoFile(t, f.repo, "changed.go", "package changed\n\nfunc Value() int { return 2 }\n")
+	gitCommitAll(t, f.repo, "revise changed file")
+	chapterID, err := f.svc.CreateChapter(ctx, f.tourID, ChapterArgs{
+		Title: "Changed behavior", Includes: []ChapterInclude{{FilePath: "changed.go", Hunk: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	view, err := f.svc.Tour(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.HunkNotes) != 1 || view.HunkNotes[0].StepID != chapterID || view.HunkNotes[0].Body != "original intent" {
+		t.Fatalf("changed hunk note not projected as unmatched chapter note: %+v", view.HunkNotes)
+	}
+	chapterDiff, err := f.svc.StepDiff(ctx, f.tourID, chapterID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.HunkNotes[0].HunkAnchor == chapterDiff[0].Hunks[0].Anchor {
+		t.Fatal("test requires a stale anchor so the UI renders it as unmatched")
+	}
+}
+
 func TestReviewAnnotateHunkRejectsInvalidSelection(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
