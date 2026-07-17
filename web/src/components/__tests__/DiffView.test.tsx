@@ -31,6 +31,16 @@ describe("DiffView", () => {
     expect(screen.getByRole("button", { name: "Select new line 1" })).toBeTruthy()
   })
 
+  it("keeps each file header sticky beneath the review action bar", () => {
+    const { container } = render(<DiffView files={files} />)
+
+    const header = container.querySelector("[data-sticky-file-header]")
+    expect(header?.classList.contains("sticky")).toBe(true)
+    expect(header?.classList.contains("top-8")).toBe(true)
+    expect(header?.classList.contains("z-10")).toBe(true)
+    expect(header?.closest("section")?.classList.contains("overflow-hidden")).toBe(false)
+  })
+
   it("renders matching hunk notes immediately above their hunk", () => {
     const { container } = render(<DiffView files={files} hunkNotes={[{
       id: "N-1",
