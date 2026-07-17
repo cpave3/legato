@@ -40,7 +40,7 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
         const selectionPath = file.new_path || file.old_path
         return (
           <section key={`${path}-${fileIndex}`} className="rounded border border-zinc-800 bg-zinc-950">
-            <header data-sticky-file-header className="sticky top-8 z-10 flex items-center justify-between rounded-t border-b border-zinc-800 bg-zinc-900 px-3 py-2 shadow-md shadow-black/30">
+            <header data-sticky-file-header className="sticky top-7 z-10 flex items-center justify-between rounded-t border-b border-zinc-800 bg-zinc-900 px-3 py-2 shadow-md shadow-black/30">
               <span className="truncate text-zinc-200">{path}</span>
               <span className="ml-3 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">{file.status}</span>
             </header>

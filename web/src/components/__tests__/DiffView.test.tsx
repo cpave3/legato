@@ -36,7 +36,7 @@ describe("DiffView", () => {
 
     const header = container.querySelector("[data-sticky-file-header]")
     expect(header?.classList.contains("sticky")).toBe(true)
-    expect(header?.classList.contains("top-8")).toBe(true)
+    expect(header?.classList.contains("top-7")).toBe(true)
     expect(header?.classList.contains("z-10")).toBe(true)
     expect(header?.closest("section")?.classList.contains("overflow-hidden")).toBe(false)
   })
