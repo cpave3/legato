@@ -64,6 +64,9 @@ export interface ReviewHunkNote {
   step_id: string
   file_path: string
   hunk_anchor: string
+  line_start?: number
+  line_end?: number
+  line_anchor?: string
   body: string
   created_at: string
 }

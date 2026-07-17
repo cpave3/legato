@@ -147,7 +147,12 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"commit order, and `--file <path> \"<note>\"` for context that isn't tied " +
 	"to one commit. When individual hunks need context, use " +
 	"`legato review annotate [sha] \"text\" --file <path> --hunk <1-based N>`; " +
-	"inspect `legato review show` or the diff to choose the hunk number.\n" +
+	"add `--lines <start>-<end>` for a 1-based range inside that hunk. Inspect " +
+	"`legato review show` or the diff to choose hunk and line indices.\n" +
+	"- **Correct review metadata in place.** Use `legato review chapter edit` / " +
+	"`legato review chapter remove` for chapter metadata and `legato review " +
+	"annotation edit` / `legato review annotation remove` for durable hunk or " +
+	"line notes. Prefer `restart` when the whole reading order is stale.\n" +
 	"- **Signal when you're done.** Run `legato review ready \"<one-line summary>\"` " +
 	"when your work is ready for human review.\n" +
 	"- **Answer review questions.** Messages prefixed `[legato review]` are " +

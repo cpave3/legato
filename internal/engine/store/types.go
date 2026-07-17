@@ -197,8 +197,12 @@ type ReviewHunkNote struct {
 	StepID     string `db:"step_id" json:"step_id"`
 	FilePath   string `db:"file_path" json:"file_path"`
 	HunkAnchor string `db:"hunk_anchor" json:"hunk_anchor"`
+	LineStart  *int   `db:"line_start" json:"line_start,omitempty"`
+	LineEnd    *int   `db:"line_end" json:"line_end,omitempty"`
+	LineAnchor string `db:"line_anchor" json:"line_anchor,omitempty"`
 	Body       string `db:"body" json:"body"`
 	CreatedAt  string `db:"created_at" json:"created_at"`
+	UpdatedAt  string `db:"updated_at" json:"updated_at"`
 }
 
 // ReviewChapterHunk assigns one base-to-head diff hunk to a chapter step.

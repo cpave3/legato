@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -96,6 +97,90 @@ func TestReviewRestartReplacesPacketAndPreservesCaptureBoundary(t *testing.T) {
 	}
 	if len(steps) != 0 {
 		t.Fatalf("steps = %+v, want stale artifacts removed", steps)
+	}
+}
+
+func TestReviewChapterEditAndRemoveCLI(t *testing.T) {
+	dbPath, s := reviewCLITestStore(t)
+	ctx := context.Background()
+	repo := initReviewCLIRepo(t)
+	if err := s.CreateTask(ctx, store.Task{ID: "task-1", Title: "Task", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTaskWorktree(ctx, "task-1", &store.TaskWorktree{PrimaryDir: repo, Path: repo, Branch: "feature", BaseBranch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	tour, _ := s.EnsureReviewTour(ctx, "task-1", "")
+	svc := service.NewReviewService(s, nil, nil)
+	chapterID, err := svc.CreateChapter(ctx, tour.ID, service.ChapterArgs{Title: "Old", Includes: []service.ChapterInclude{{FilePath: "chapter.go", Hunk: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	configureReviewCLITest(t, dbPath)
+
+	if code := runReviewCmd([]string{"chapter", "edit", chapterID[:8], "New", "New narration", "--risk", "high", "--order", "4", "--task", "task-1"}); code != 0 {
+		t.Fatalf("edit code = %d", code)
+	}
+	s, _ = store.New(dbPath)
+	edited, _ := s.GetReviewStep(ctx, chapterID)
+	if edited.Title != "New" || edited.Narration != "New narration" || edited.Risk != "high" || edited.OrderHint == nil || *edited.OrderHint != 4 {
+		t.Fatalf("edited = %+v", edited)
+	}
+	s.Close()
+
+	if code := runReviewCmd([]string{"chapter", "remove", chapterID[:8], "--task", "task-1"}); code != 0 {
+		t.Fatalf("remove code = %d", code)
+	}
+	s, _ = store.New(dbPath)
+	defer s.Close()
+	if _, err := s.GetReviewStep(ctx, chapterID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("chapter still exists: %v", err)
+	}
+}
+
+func TestReviewAnnotationEditAndRemoveCLI(t *testing.T) {
+	dbPath, s := reviewCLITestStore(t)
+	ctx := context.Background()
+	repo := initReviewCLIRepo(t)
+	if err := s.CreateTask(ctx, store.Task{ID: "task-1", Title: "Task", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTaskWorktree(ctx, "task-1", &store.TaskWorktree{PrimaryDir: repo, Path: repo, Branch: "feature", BaseBranch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	tour, _ := s.EnsureReviewTour(ctx, "task-1", "")
+	s.Close()
+	configureReviewCLITest(t, dbPath)
+
+	noteID := strings.TrimSpace(captureStdout(t, func() int {
+		return runReviewCmd([]string{"annotate", "old", "--file", "chapter.go", "--hunk", "1", "--lines", "1-1", "--task", "task-1"})
+	}))
+	s, _ = store.New(dbPath)
+	notes, _ := s.ListReviewHunkNotes(ctx, tour.ID)
+	if len(notes) != 1 || notes[0].LineStart == nil || notes[0].LineEnd == nil || *notes[0].LineStart != 1 || *notes[0].LineEnd != 1 {
+		t.Fatalf("created line notes = %+v", notes)
+	}
+	s.Close()
+
+	if code := runReviewCmd([]string{"annotation", "edit", noteID[:8], "new", "--task", "task-1"}); code != 0 {
+		t.Fatalf("edit code = %d", code)
+	}
+	s, _ = store.New(dbPath)
+	notes, _ = s.ListReviewHunkNotes(ctx, tour.ID)
+	if len(notes) != 1 || notes[0].Body != "new" {
+		t.Fatalf("edited notes = %+v", notes)
+	}
+	s.Close()
+
+	if code := runReviewCmd([]string{"annotation", "remove", noteID[:8], "--task", "task-1"}); code != 0 {
+		t.Fatalf("remove code = %d", code)
+	}
+	s, _ = store.New(dbPath)
+	defer s.Close()
+	notes, _ = s.ListReviewHunkNotes(ctx, tour.ID)
+	if len(notes) != 0 {
+		t.Fatalf("notes after remove = %+v", notes)
 	}
 }
 

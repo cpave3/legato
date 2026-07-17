@@ -21,6 +21,24 @@ func ReviewChapter(svc *service.ReviewService, tourID string, args service.Chapt
 	return stepID, nil
 }
 
+// ReviewChapterEdit replaces chapter metadata and notifies running instances.
+func ReviewChapterEdit(svc *service.ReviewService, tourID, stepPrefix string, args service.ChapterEditArgs) error {
+	if err := svc.EditChapter(context.Background(), tourID, stepPrefix, args); err != nil {
+		return err
+	}
+	broadcastReviewChanged(tourID, stepPrefix, "chapter_edited")
+	return nil
+}
+
+// ReviewChapterRemove deletes an authored chapter and notifies running instances.
+func ReviewChapterRemove(svc *service.ReviewService, tourID, stepPrefix string) error {
+	if err := svc.RemoveChapter(context.Background(), tourID, stepPrefix); err != nil {
+		return err
+	}
+	broadcastReviewChanged(tourID, stepPrefix, "chapter_removed")
+	return nil
+}
+
 // ReviewAnnotate records an agent annotation and notifies running instances.
 // Returns the annotated/created step ID.
 func ReviewAnnotate(svc *service.ReviewService, tourID string, args service.AnnotateArgs) (string, error) {
@@ -30,6 +48,24 @@ func ReviewAnnotate(svc *service.ReviewService, tourID string, args service.Anno
 	}
 	broadcastReviewChanged(tourID, stepID, "annotated")
 	return stepID, nil
+}
+
+// ReviewAnnotationEdit replaces a durable annotation and notifies running instances.
+func ReviewAnnotationEdit(svc *service.ReviewService, tourID, notePrefix, body string) error {
+	if err := svc.EditAnnotation(context.Background(), tourID, notePrefix, body); err != nil {
+		return err
+	}
+	broadcastReviewChanged(tourID, notePrefix, "annotation_edited")
+	return nil
+}
+
+// ReviewAnnotationRemove deletes a durable annotation and notifies running instances.
+func ReviewAnnotationRemove(svc *service.ReviewService, tourID, notePrefix string) error {
+	if err := svc.RemoveAnnotation(context.Background(), tourID, notePrefix); err != nil {
+		return err
+	}
+	broadcastReviewChanged(tourID, notePrefix, "annotation_removed")
+	return nil
 }
 
 // ReviewAnswer records an agent's reply to a reviewer question.

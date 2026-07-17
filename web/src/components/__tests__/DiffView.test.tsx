@@ -58,6 +58,26 @@ describe("DiffView", () => {
     expect(container.querySelector('[data-hunk-anchor="auth-refresh-anchor"]')?.contains(note)).toBe(true)
   })
 
+  it("places line-range notes before the first selected line and highlights the range", () => {
+    const { container } = render(<DiffView files={files} hunkNotes={[{
+      id: "N-range",
+      task_id: "T-1",
+      step_id: "S-1",
+      file_path: "src/new.ts",
+      hunk_anchor: "auth-refresh-anchor",
+      line_start: 1,
+      line_end: 2,
+      line_anchor: "range-anchor",
+      body: "These lines move together.",
+      created_at: "2026-01-01",
+    }]} />)
+
+    const note = screen.getByText("These lines move together.")
+    const firstLine = screen.getByText("const oldName = true").closest("[data-diff-line]")!
+    expect(note.compareDocumentPosition(firstLine) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(container.querySelectorAll('[data-line-note-range="N-range"]')).toHaveLength(2)
+  })
+
   it("selects and extends a contiguous line range from the gutter", () => {
     const selections: unknown[] = []
     const { rerender } = render(<DiffView files={files} onSelectionChange={(selection) => selections.push(selection)} />)

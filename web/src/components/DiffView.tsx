@@ -46,6 +46,7 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
             </header>
             {file.hunks.map((hunk, hunkIndex) => {
               const hunkKey = `${selectionPath}:${hunk.anchor}`
+              const notesForHunk = hunkNotes.filter((note) => note.hunk_anchor === hunk.anchor && (note.file_path === file.new_path || note.file_path === file.old_path))
               const viewed = viewedHunks.has(hunkKey)
               const toggleViewed = () => {
                 setViewedHunks((current) => {
@@ -60,8 +61,8 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
               }
               return (
               <div key={`${hunk.header}-${hunkIndex}`} data-hunk-anchor={hunk.anchor}>
-                {hunkNotes
-                  .filter((note) => note.hunk_anchor === hunk.anchor && (note.file_path === file.new_path || note.file_path === file.old_path))
+                {notesForHunk
+                  .filter((note) => !note.line_start || !note.line_end)
                   .map((note) => (
                     <div key={note.id} className="border-b border-amber-800 bg-amber-950/40 px-3 py-2 font-sans text-sm text-amber-100">
                       {note.body}
@@ -117,23 +118,35 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
                       {lineNo}
                     </button>
                   ) : <span className="border-r border-zinc-800" />
+                  const lineNumber = lineIndex + 1
+                  const rangeNotes = notesForHunk.filter((note) => note.line_start && note.line_end && lineNumber >= note.line_start && lineNumber <= note.line_end)
+                  const startingNotes = rangeNotes.filter((note) => note.line_start === lineNumber)
                   return (
-                    <div
-                      key={lineIndex}
-                      data-diff-line
-                      data-selected={selected ? "true" : undefined}
-                      onPointerEnter={extendDrag}
-                      className={cn(
-                        "grid grid-cols-[3rem_3rem_1fr] leading-5",
-                        line.kind === "add" && "bg-emerald-950/40 text-emerald-200",
-                        line.kind === "del" && "bg-red-950/40 text-red-200",
-                        line.kind === "ctx" && "text-zinc-400",
-                        selected && "bg-indigo-900/60 text-indigo-100 ring-1 ring-inset ring-indigo-600",
-                      )}
-                    >
-                      {gutter("old", line.old_no)}
-                      {gutter("new", line.new_no)}
-                      <span className="whitespace-pre px-2"><span aria-hidden>{line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}</span>{line.text}</span>
+                    <div key={lineIndex}>
+                      {startingNotes.map((note) => (
+                        <div key={note.id} className="border-y border-amber-800 bg-amber-950/40 px-3 py-2 font-sans text-sm text-amber-100">
+                          <span className="mr-2 font-mono text-[10px] text-amber-400">Lines {note.line_start}-{note.line_end}</span>
+                          {note.body}
+                        </div>
+                      ))}
+                      <div
+                        data-diff-line
+                        data-selected={selected ? "true" : undefined}
+                        data-line-note-range={rangeNotes[0]?.id}
+                        onPointerEnter={extendDrag}
+                        className={cn(
+                          "grid grid-cols-[3rem_3rem_1fr] leading-5",
+                          line.kind === "add" && "bg-emerald-950/40 text-emerald-200",
+                          line.kind === "del" && "bg-red-950/40 text-red-200",
+                          line.kind === "ctx" && "text-zinc-400",
+                          rangeNotes.length > 0 && "ring-1 ring-inset ring-amber-700/70",
+                          selected && "bg-indigo-900/60 text-indigo-100 ring-1 ring-inset ring-indigo-600",
+                        )}
+                      >
+                        {gutter("old", line.old_no)}
+                        {gutter("new", line.new_no)}
+                        <span className="whitespace-pre px-2"><span aria-hidden>{line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}</span>{line.text}</span>
+                      </div>
                     </div>
                   )
                 })}

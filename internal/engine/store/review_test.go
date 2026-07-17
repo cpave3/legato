@@ -167,6 +167,29 @@ func TestMarkReviewStepsOrphaned(t *testing.T) {
 	}
 }
 
+func TestReviewHunkNoteLineRangeMigratesAndPersists(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, Task{ID: "t1", Title: "Task", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EnsureReviewTour(ctx, "t1", ""); err != nil {
+		t.Fatal(err)
+	}
+	start, end := 2, 4
+	note := ReviewHunkNote{ID: "rhn-lines", TaskID: "t1", TourID: "rt-t1", StepID: "step", FilePath: "a.go", HunkAnchor: "hunk", LineStart: &start, LineEnd: &end, LineAnchor: "lines", Body: "range"}
+	if err := s.InsertReviewHunkNote(ctx, note); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetReviewHunkNoteByPrefix(ctx, "rt-t1", "rhn-l")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LineStart == nil || got.LineEnd == nil || *got.LineStart != 2 || *got.LineEnd != 4 || got.LineAnchor != "lines" || got.UpdatedAt == "" {
+		t.Fatalf("note = %+v", got)
+	}
+}
+
 func TestReviewHunkNotesPersistAndAllowMultiplePerHunk(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

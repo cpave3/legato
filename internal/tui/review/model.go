@@ -655,7 +655,14 @@ func renderDiff(files []gitpkg.FileDiff, notes []store.ReviewHunkNote, width int
 				}
 			}
 			lines = append(lines, hunkStyle.Render(h.Header))
-			for _, l := range h.Lines {
+			for lineIndex, l := range h.Lines {
+				lineNumber := lineIndex + 1
+				for i, note := range notes {
+					if note.FilePath == f.NewPath && note.HunkAnchor == h.Anchor && note.LineStart != nil && note.LineEnd != nil && *note.LineStart == lineNumber {
+						lines = append(lines, noteStyle.Render(fmt.Sprintf("◆ Lines %d-%d: %s", *note.LineStart, *note.LineEnd, note.Body)))
+						matched[i] = true
+					}
+				}
 				text := truncate(l.Text, width-2)
 				switch l.Kind {
 				case gitpkg.LineAdded:

@@ -29,6 +29,11 @@ func TestChimeraGeneralPromptTeachesReviewCapture(t *testing.T) {
 		"legato review discard",
 		"legato review chapters --json",
 		"legato review chapter show",
+		"--lines <start>-<end>",
+		"legato review chapter edit",
+		"legato review chapter remove",
+		"legato review annotation edit",
+		"legato review annotation remove",
 		// Named review tours
 		"--name <review-name>",
 		"LEGATO_REVIEW_NAME",

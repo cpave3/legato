@@ -297,6 +297,29 @@ func TestRenderDiffPlacesMatchedHunkNoteImmediatelyBeforeHunk(t *testing.T) {
 	}
 }
 
+func TestRenderDiffPlacesLineRangeNoteBeforeFirstLineAndMarksRange(t *testing.T) {
+	start, end := 1, 2
+	files := []gitpkg.FileDiff{{NewPath: "a.go", Status: gitpkg.FileModified, Hunks: []gitpkg.Hunk{{
+		Header: "@@ -1,2 +1,2 @@", Anchor: "anchor-1", Lines: []gitpkg.Line{
+			{Kind: gitpkg.LineAdded, Text: "first"}, {Kind: gitpkg.LineAdded, Text: "second"},
+		},
+	}}}}
+	notes := []store.ReviewHunkNote{{
+		ID: "note-1", StepID: "step-1", FilePath: "a.go", HunkAnchor: "anchor-1",
+		LineStart: &start, LineEnd: &end, Body: "These lines move together.",
+	}}
+
+	out, unmatched := renderDiff(files, notes, 80)
+	noteAt := strings.Index(out, "These lines move together.")
+	firstAt := strings.Index(out, "+first")
+	if noteAt < 0 || firstAt < noteAt || !strings.Contains(out, "Lines 1-2") {
+		t.Fatalf("line note should render before its range:\n%s", out)
+	}
+	if len(unmatched) != 0 {
+		t.Fatalf("unmatched = %+v, want none", unmatched)
+	}
+}
+
 func TestViewportRendersUnmatchedNotesForSelectedStepWhenDiffIsEmpty(t *testing.T) {
 	m := New(nil)
 	m.SetSize(120, 40)

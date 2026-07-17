@@ -82,6 +82,31 @@ func TestParseReviewAnnotateArgsRejectsInvalidHunk(t *testing.T) {
 	}
 }
 
+func TestParseReviewAnnotateArgsAcceptsLineRangeWithinHunk(t *testing.T) {
+	positional, flags, listFlags := parseReviewArgs([]string{"explain range", "--file", "main.go", "--hunk", "2", "--lines", "4-9"})
+	got, err := parseReviewAnnotateArgs(positional, flags, listFlags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LineStart == nil || got.LineEnd == nil || *got.LineStart != 4 || *got.LineEnd != 9 {
+		t.Fatalf("line range = %v-%v, want 4-9", got.LineStart, got.LineEnd)
+	}
+}
+
+func TestParseReviewAnnotateArgsRejectsInvalidLineRange(t *testing.T) {
+	for _, args := range [][]string{
+		{"text", "--file", "main.go", "--lines", "1-2"},
+		{"text", "--file", "main.go", "--hunk", "1", "--lines", "0-2"},
+		{"text", "--file", "main.go", "--hunk", "1", "--lines", "3-2"},
+		{"text", "--file", "main.go", "--hunk", "1", "--lines", "nope"},
+	} {
+		positional, flags, listFlags := parseReviewArgs(args)
+		if _, err := parseReviewAnnotateArgs(positional, flags, listFlags); err == nil {
+			t.Fatalf("args %v should fail", args)
+		}
+	}
+}
+
 func TestParseReviewAnnotateArgsHunkRequiresExactlyOneFile(t *testing.T) {
 	for _, args := range [][]string{
 		{"text", "--hunk", "1"},

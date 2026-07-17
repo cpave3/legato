@@ -213,8 +213,14 @@ func (s *Store) DeleteReviewChapter(ctx context.Context, stepID string) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, "DELETE FROM review_chapter_hunks WHERE step_id = ?", stepID); err != nil {
-		return err
+	for _, query := range []string{
+		"DELETE FROM review_chapter_hunks WHERE step_id = ?",
+		"DELETE FROM review_hunk_notes WHERE step_id = ?",
+		"DELETE FROM review_transcript WHERE step_id = ?",
+	} {
+		if _, err = tx.ExecContext(ctx, query, stepID); err != nil {
+			return err
+		}
 	}
 	if _, err = tx.ExecContext(ctx, "DELETE FROM review_steps WHERE id = ? AND kind = 'chapter'", stepID); err != nil {
 		return err
@@ -234,9 +240,61 @@ func (s *Store) ListReviewTours(ctx context.Context) ([]ReviewTour, error) {
 // generated so the service can return the durable note identity.
 func (s *Store) InsertReviewHunkNote(ctx context.Context, note ReviewHunkNote) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO review_hunk_notes (id, task_id, tour_id, step_id, file_path, hunk_anchor, body)
-		VALUES (:id, :task_id, :tour_id, :step_id, :file_path, :hunk_anchor, :body)`, note)
+		INSERT INTO review_hunk_notes (id, task_id, tour_id, step_id, file_path, hunk_anchor,
+			line_start, line_end, line_anchor, body, updated_at)
+		VALUES (:id, :task_id, :tour_id, :step_id, :file_path, :hunk_anchor,
+			:line_start, :line_end, :line_anchor, :body, datetime('now'))`, note)
 	return err
+}
+
+// GetReviewHunkNoteByPrefix resolves a note within a tour by ID prefix.
+func (s *Store) GetReviewHunkNoteByPrefix(ctx context.Context, tourID, prefix string) (*ReviewHunkNote, error) {
+	var notes []ReviewHunkNote
+	if err := s.db.SelectContext(ctx, &notes,
+		"SELECT * FROM review_hunk_notes WHERE tour_id = ? AND id LIKE ? || '%' LIMIT 2", tourID, prefix); err != nil {
+		return nil, err
+	}
+	switch len(notes) {
+	case 0:
+		return nil, ErrNotFound
+	case 1:
+		return &notes[0], nil
+	default:
+		return nil, fmt.Errorf("annotation id prefix %q is ambiguous", prefix)
+	}
+}
+
+// UpdateReviewHunkNoteBody replaces an annotation's narration.
+func (s *Store) UpdateReviewHunkNoteBody(ctx context.Context, id, body string) error {
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE review_hunk_notes SET body = ?, updated_at = datetime('now') WHERE id = ?", body, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DeleteReviewHunkNote removes one durable annotation.
+func (s *Store) DeleteReviewHunkNote(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM review_hunk_notes WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // ListReviewHunkNotes returns a tour's hunk notes oldest first.

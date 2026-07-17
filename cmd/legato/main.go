@@ -76,7 +76,7 @@ func runCLI(args []string) int {
 
 func runReviewCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: legato review [chapter|chapters|annotate|answer|ready|show|sync|discard|restart] ...")
+		fmt.Fprintln(os.Stderr, "usage: legato review [chapter|chapters|annotate|annotation|answer|ready|show|sync|discard|restart] ...")
 		return 1
 	}
 
@@ -137,6 +137,49 @@ func runReviewCmd(args []string) int {
 		}
 		return 0
 	case "chapter":
+		if len(positional) > 0 && positional[0] == "edit" {
+			if len(positional) < 3 || len(positional) > 4 {
+				fmt.Fprintln(os.Stderr, `usage: legato review chapter edit <chapter-id> "title" ["narration"] [--risk ...] [--order N] [--task <id>] [--name <name>]`)
+				return 1
+			}
+			var order *int
+			if value, ok := flags["order"]; ok {
+				n, parseErr := strconv.Atoi(value)
+				if parseErr != nil {
+					fmt.Fprintf(os.Stderr, "error: --order must be a number, got %q\n", value)
+					return 1
+				}
+				order = &n
+			}
+			narration := ""
+			if len(positional) == 4 {
+				narration = positional[3]
+			}
+			tourID, err := resolveTourID()
+			if err == nil {
+				err = cli.ReviewChapterEdit(svc, tourID, positional[1], service.ChapterEditArgs{Title: positional[2], Narration: narration, Risk: flags["risk"], OrderHint: order})
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				return 1
+			}
+			return 0
+		}
+		if len(positional) > 0 && positional[0] == "remove" {
+			if len(positional) != 2 {
+				fmt.Fprintln(os.Stderr, `usage: legato review chapter remove <chapter-id> [--task <id>] [--name <name>]`)
+				return 1
+			}
+			tourID, err := resolveTourID()
+			if err == nil {
+				err = cli.ReviewChapterRemove(svc, tourID, positional[1])
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				return 1
+			}
+			return 0
+		}
 		if len(positional) > 0 && positional[0] == "show" {
 			if len(positional) != 2 {
 				fmt.Fprintln(os.Stderr, `usage: legato review chapter show <chapter-id> --json [--task <id>] [--name <name>]`)
@@ -179,7 +222,7 @@ func runReviewCmd(args []string) int {
 		a, err := parseReviewAnnotateArgs(positional, flags, listFlags)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			fmt.Fprintln(os.Stderr, `usage: legato review annotate [<sha>] "text" --file <path> [--hunk N] [--risk high|medium|low|unsure] [--order N] [--task <id>] [--name <name>]`)
+			fmt.Fprintln(os.Stderr, `usage: legato review annotate [<sha>] "text" --file <path> [--hunk N] [--lines start-end] [--risk high|medium|low|unsure] [--order N] [--task <id>] [--name <name>]`)
 			return 1
 		}
 		a.SubtaskID = os.Getenv("LEGATO_SUBTASK_ID")
@@ -194,6 +237,36 @@ func runReviewCmd(args []string) int {
 			return 1
 		}
 		fmt.Println(stepID)
+		return 0
+	case "annotation":
+		if len(positional) < 2 {
+			fmt.Fprintln(os.Stderr, `usage: legato review annotation [edit <annotation-id> "text"|remove <annotation-id>] [--task <id>] [--name <name>]`)
+			return 1
+		}
+		tourID, err := resolveTourID()
+		if err == nil {
+			switch positional[0] {
+			case "edit":
+				if len(positional) != 3 {
+					fmt.Fprintln(os.Stderr, `usage: legato review annotation edit <annotation-id> "text" [--task <id>] [--name <name>]`)
+					return 1
+				}
+				err = cli.ReviewAnnotationEdit(svc, tourID, positional[1], positional[2])
+			case "remove":
+				if len(positional) != 2 {
+					fmt.Fprintln(os.Stderr, `usage: legato review annotation remove <annotation-id> [--task <id>] [--name <name>]`)
+					return 1
+				}
+				err = cli.ReviewAnnotationRemove(svc, tourID, positional[1])
+			default:
+				fmt.Fprintf(os.Stderr, "unknown review annotation command: %s\n", positional[0])
+				return 1
+			}
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
 		return 0
 	case "answer":
 		if len(positional) != 2 {
@@ -266,7 +339,7 @@ func runReviewCmd(args []string) int {
 		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "unknown review command: %s\n", verb)
-		fmt.Fprintln(os.Stderr, "usage: legato review [chapter|chapters|annotate|answer|ready|show|sync|discard|restart] ...")
+		fmt.Fprintln(os.Stderr, "usage: legato review [chapter|chapters|annotate|annotation|answer|ready|show|sync|discard|restart] ...")
 		return 1
 	}
 }
@@ -289,6 +362,18 @@ func parseReviewAnnotateArgs(positional []string, flags map[string]string, listF
 		if len(a.Files) != 1 {
 			return a, fmt.Errorf("--hunk requires exactly one --file path")
 		}
+	}
+	if v, ok := flags["lines"]; ok {
+		if a.Hunk == nil {
+			return a, fmt.Errorf("--lines requires --hunk")
+		}
+		startText, endText, found := strings.Cut(v, "-")
+		start, startErr := strconv.Atoi(startText)
+		end, endErr := strconv.Atoi(endText)
+		if !found || startErr != nil || endErr != nil || start < 1 || end < start {
+			return a, fmt.Errorf("--lines must be a 1-based range such as 4-9, got %q", v)
+		}
+		a.LineStart, a.LineEnd = &start, &end
 	}
 	switch len(positional) {
 	case 1:

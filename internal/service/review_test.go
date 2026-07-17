@@ -159,6 +159,42 @@ func TestRestartReviewClearsPacketPreservesCaptureAndPublishesChange(t *testing.
 	}
 }
 
+func TestEditAndRemoveReviewChapterByPrefix(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "chapter.go", "package chapter\n")
+	gitCommitAll(t, f.repo, "add chapter")
+	chapterID, err := f.svc.CreateChapter(ctx, f.tourID, ChapterArgs{
+		Title: "Old title", Narration: "Old narration", Risk: "low", Includes: []ChapterInclude{{FilePath: "chapter.go", Hunk: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	order := 7
+	if err := f.svc.EditChapter(ctx, f.tourID, chapterID[:8], ChapterEditArgs{
+		Title: "New title", Narration: "New narration", Risk: "high", OrderHint: &order,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := f.svc.Chapter(ctx, f.tourID, chapterID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Title != "New title" || view.Narration != "New narration" || view.Risk != "high" || view.OrderHint == nil || *view.OrderHint != 7 || len(view.Hunks) != 1 {
+		t.Fatalf("edited chapter = %+v", view)
+	}
+	if err := f.svc.RemoveChapter(ctx, f.tourID, chapterID[:8]); err != nil {
+		t.Fatal(err)
+	}
+	chapters, err := f.svc.Chapters(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chapters.Chapters) != 0 {
+		t.Fatalf("chapters after remove = %+v", chapters.Chapters)
+	}
+}
+
 func TestReviewChaptersReturnsOrderedMetadataMembershipsAndDiffs(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
@@ -735,6 +771,73 @@ func TestReviewAnnotateHunkPersistsDurableNote(t *testing.T) {
 	note := view.HunkNotes[0]
 	if note.ID != noteID || note.FilePath != "old.go" || note.HunkAnchor == "" || note.Body != "check this hunk" {
 		t.Fatalf("note = %+v", note)
+	}
+}
+
+func TestReviewAnnotateLineRangePersistsSelectionWithinHunk(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "range.go", "package range_test\n\nfunc First() {}\nfunc Second() {}\n")
+	sha := gitCommitAll(t, f.repo, "add range")
+	hunk, start, end := 1, 2, 3
+	noteID, err := f.svc.Annotate(ctx, f.tourID, AnnotateArgs{
+		SHA: sha, Text: "these lines form one invariant", Files: []string{"range.go"}, Hunk: &hunk,
+		LineStart: &start, LineEnd: &end,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := f.svc.Tour(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.HunkNotes) != 1 {
+		t.Fatalf("HunkNotes = %+v", view.HunkNotes)
+	}
+	note := view.HunkNotes[0]
+	if note.ID != noteID || note.LineStart == nil || note.LineEnd == nil || *note.LineStart != 2 || *note.LineEnd != 3 || note.LineAnchor == "" {
+		t.Fatalf("line note = %+v", note)
+	}
+}
+
+func TestEditAndRemoveReviewAnnotationByPrefix(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "note.go", "package note\n")
+	sha := gitCommitAll(t, f.repo, "add note")
+	hunk := 1
+	noteID, err := f.svc.Annotate(ctx, f.tourID, AnnotateArgs{SHA: sha, Text: "old note", Files: []string{"note.go"}, Hunk: &hunk})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.EditAnnotation(ctx, f.tourID, noteID[:8], "new note"); err != nil {
+		t.Fatal(err)
+	}
+	notes, _ := f.store.ListReviewHunkNotes(ctx, f.tourID)
+	if len(notes) != 1 || notes[0].Body != "new note" || notes[0].UpdatedAt == "" {
+		t.Fatalf("edited notes = %+v", notes)
+	}
+	if err := f.svc.RemoveAnnotation(ctx, f.tourID, noteID[:8]); err != nil {
+		t.Fatal(err)
+	}
+	notes, _ = f.store.ListReviewHunkNotes(ctx, f.tourID)
+	if len(notes) != 0 {
+		t.Fatalf("notes after remove = %+v", notes)
+	}
+}
+
+func TestReviewAnnotateLineRangeRejectsLinesOutsideHunk(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "range.go", "package range_test\n")
+	sha := gitCommitAll(t, f.repo, "add range")
+	hunk, start, end := 1, 1, 99
+	_, err := f.svc.Annotate(ctx, f.tourID, AnnotateArgs{
+		SHA: sha, Text: "invalid", Files: []string{"range.go"}, Hunk: &hunk,
+		LineStart: &start, LineEnd: &end,
+	})
+	if err == nil || !strings.Contains(err.Error(), "has") {
+		t.Fatalf("error = %v, want line range bounds error", err)
 	}
 }
 

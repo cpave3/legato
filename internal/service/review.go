@@ -285,6 +285,68 @@ func (r *ReviewService) CreateChapter(ctx context.Context, tourID string, a Chap
 	return stepID, nil
 }
 
+type ChapterEditArgs struct {
+	Title     string
+	Narration string
+	Risk      string
+	OrderHint *int
+}
+
+// EditChapter replaces chapter metadata while preserving hunk memberships.
+func (r *ReviewService) EditChapter(ctx context.Context, tourID, stepPrefix string, a ChapterEditArgs) error {
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return err
+	}
+	step, err := r.store.GetReviewStepByPrefix(ctx, tour.TaskID, stepPrefix)
+	if err != nil {
+		return err
+	}
+	if step.TourID != tourID || step.Kind != "chapter" {
+		return store.ErrNotFound
+	}
+	if strings.TrimSpace(a.Title) == "" {
+		return fmt.Errorf("chapter title is required")
+	}
+	if _, err := r.store.UpdateReviewStep(ctx, step.ID, func(st *store.ReviewStep) {
+		st.Title = a.Title
+		st.Narration = a.Narration
+		st.Risk = a.Risk
+		st.OrderHint = a.OrderHint
+		st.ReviewedAt = nil
+	}); err != nil {
+		return err
+	}
+	if err := r.reopenReviewedTour(ctx, tour); err != nil {
+		return err
+	}
+	r.publish(tourID, step.ID, "chapter_edited")
+	return nil
+}
+
+// RemoveChapter deletes one authored chapter without affecting its selected code.
+func (r *ReviewService) RemoveChapter(ctx context.Context, tourID, stepPrefix string) error {
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return err
+	}
+	step, err := r.store.GetReviewStepByPrefix(ctx, tour.TaskID, stepPrefix)
+	if err != nil {
+		return err
+	}
+	if step.TourID != tourID || step.Kind != "chapter" {
+		return store.ErrNotFound
+	}
+	if err := r.store.DeleteReviewChapter(ctx, step.ID); err != nil {
+		return err
+	}
+	if err := r.reopenReviewedTour(ctx, tour); err != nil {
+		return err
+	}
+	r.publish(tourID, step.ID, "chapter_removed")
+	return nil
+}
+
 type AnnotateArgs struct {
 	SHA       string
 	Text      string
@@ -293,6 +355,8 @@ type AnnotateArgs struct {
 	OrderHint *int
 	SubtaskID string
 	Hunk      *int
+	LineStart *int
+	LineEnd   *int
 }
 
 // Annotate enriches the tour: appends narration, sets risk and reading order
@@ -378,10 +442,19 @@ func (r *ReviewService) insertHunkNote(ctx context.Context, tourID, taskID strin
 	if *a.Hunk > len(file.Hunks) {
 		return "", fmt.Errorf("file %q has %d hunks; cannot select hunk %d", path, len(file.Hunks), *a.Hunk)
 	}
+	selectedHunk := file.Hunks[*a.Hunk-1]
+	var lineAnchor string
+	if a.LineStart != nil || a.LineEnd != nil {
+		if a.LineStart == nil || a.LineEnd == nil || *a.LineStart < 1 || *a.LineEnd < *a.LineStart || *a.LineEnd > len(selectedHunk.Lines) {
+			return "", fmt.Errorf("hunk %d has %d lines; cannot select lines %v-%v", *a.Hunk, len(selectedHunk.Lines), intValue(a.LineStart), intValue(a.LineEnd))
+		}
+		lineAnchor = reviewLineAnchor(selectedHunk.Lines[*a.LineStart-1 : *a.LineEnd])
+	}
 	id := generateReviewHunkNoteID()
 	if err := r.store.InsertReviewHunkNote(ctx, store.ReviewHunkNote{
 		ID: id, TaskID: taskID, TourID: tourID, StepID: target.ID, FilePath: path,
-		HunkAnchor: file.Hunks[*a.Hunk-1].Anchor, Body: a.Text,
+		HunkAnchor: selectedHunk.Anchor, LineStart: a.LineStart, LineEnd: a.LineEnd,
+		LineAnchor: lineAnchor, Body: a.Text,
 	}); err != nil {
 		return "", err
 	}
@@ -399,6 +472,67 @@ func (r *ReviewService) insertHunkNote(ctx context.Context, tourID, taskID strin
 	}
 	r.publish(tourID, target.ID, "annotated")
 	return id, nil
+}
+
+func intValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
+}
+
+func reviewLineAnchor(lines []gitpkg.Line) string {
+	hash := sha256.New()
+	for _, line := range lines {
+		hash.Write([]byte(line.Kind))
+		hash.Write([]byte{0})
+		hash.Write([]byte(line.Text))
+		hash.Write([]byte{'\n'})
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
+// EditAnnotation replaces a durable hunk or line annotation body.
+func (r *ReviewService) EditAnnotation(ctx context.Context, tourID, notePrefix, body string) error {
+	if strings.TrimSpace(body) == "" {
+		return fmt.Errorf("annotation text is required")
+	}
+	note, err := r.store.GetReviewHunkNoteByPrefix(ctx, tourID, notePrefix)
+	if err != nil {
+		return err
+	}
+	if err := r.store.UpdateReviewHunkNoteBody(ctx, note.ID, body); err != nil {
+		return err
+	}
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return err
+	}
+	if err := r.reopenReviewedTour(ctx, tour); err != nil {
+		return err
+	}
+	r.publish(tourID, note.StepID, "annotation_edited")
+	return nil
+}
+
+// RemoveAnnotation deletes one durable hunk or line annotation.
+func (r *ReviewService) RemoveAnnotation(ctx context.Context, tourID, notePrefix string) error {
+	note, err := r.store.GetReviewHunkNoteByPrefix(ctx, tourID, notePrefix)
+	if err != nil {
+		return err
+	}
+	if err := r.store.DeleteReviewHunkNote(ctx, note.ID); err != nil {
+		return err
+	}
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return err
+	}
+	if err := r.reopenReviewedTour(ctx, tour); err != nil {
+		return err
+	}
+	r.publish(tourID, note.StepID, "annotation_removed")
+	return nil
 }
 
 func (r *ReviewService) reopenReviewedTour(ctx context.Context, tour *store.ReviewTour) error {
