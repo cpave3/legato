@@ -76,6 +76,16 @@ describe("DiffView", () => {
     const firstLine = screen.getByText("const oldName = true").closest("[data-diff-line]")!
     expect(note.compareDocumentPosition(firstLine) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(container.querySelectorAll('[data-line-note-range="N-range"]')).toHaveLength(2)
+
+    // Range block should be a single parent row, not per-line repeated notes.
+    const rangeRows = container.querySelectorAll('[data-diff-block="range"]')
+    expect(rangeRows).toHaveLength(1)
+    // Each line inside should preserve the data-line-note-range marker.
+    expect(rangeRows[0].querySelectorAll('[data-line-note-range="N-range"]')).toHaveLength(2)
+    // Outer border only on the wrapper, not between internal rows.
+    const firstRow = rangeRows[0].querySelector('[data-diff-line]')
+    expect(firstRow?.className.includes('ring-amber')).toBe(false)
+    expect(firstRow?.className.includes('border-amber')).toBe(false)
   })
 
   it("selects and extends a contiguous line range from the gutter", () => {

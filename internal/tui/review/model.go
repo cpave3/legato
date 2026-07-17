@@ -5,6 +5,7 @@ package review
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -627,12 +628,106 @@ func (m Model) hunkNotesForStep(stepID string) []store.ReviewHunkNote {
 }
 
 // renderDiff colorizes parsed FileDiffs and places notes beside their hunks.
+func groupHunkNoteRanges(notes []store.ReviewHunkNote) []struct {
+	Note       store.ReviewHunkNote
+	StartIndex int
+	EndIndex   int
+} {
+	var groups []struct {
+		Note       store.ReviewHunkNote
+		StartIndex int
+		EndIndex   int
+	}
+	for _, note := range notes {
+		if note.LineStart != nil && note.LineEnd != nil {
+			groups = append(groups, struct {
+				Note       store.ReviewHunkNote
+				StartIndex int
+				EndIndex   int
+			}{Note: note, StartIndex: *note.LineStart - 1, EndIndex: *note.LineEnd - 1})
+		}
+	}
+	sort.Slice(groups, func(i, j int) bool {
+		return groups[i].StartIndex < groups[j].StartIndex
+	})
+	return groups
+}
+
+func filterNotesForHunk(notes []store.ReviewHunkNote, filePath, anchor string) []store.ReviewHunkNote {
+	var filtered []store.ReviewHunkNote
+	for _, note := range notes {
+		if note.FilePath == filePath && note.HunkAnchor == anchor {
+			filtered = append(filtered, note)
+		}
+	}
+	return filtered
+}
+
+func findNoteRange(groups []struct {
+	Note       store.ReviewHunkNote
+	StartIndex int
+	EndIndex   int
+}, processed int) *struct {
+	Note       store.ReviewHunkNote
+	StartIndex int
+	EndIndex   int
+} {
+	for _, group := range groups {
+		if group.StartIndex == processed {
+			return &group
+		}
+	}
+	return nil
+}
+
+func renderDiffLine(l gitpkg.Line, width int) string {
+	text := truncate(l.Text, width-2)
+	switch l.Kind {
+	case gitpkg.LineAdded:
+		return lipgloss.NewStyle().Foreground(theme.SyncOK).Render("+" + text)
+	case gitpkg.LineDeleted:
+		return lipgloss.NewStyle().Foreground(theme.SyncError).Render("-" + text)
+	default:
+		return lipgloss.NewStyle().Foreground(theme.TextTertiary).Render(" " + text)
+	}
+}
+
+func renderRangeBlockStart() string {
+	return lipgloss.NewStyle().Foreground(theme.AccentPurple).Render("┌")
+}
+
+func renderRangeBlockEnd() string {
+	return lipgloss.NewStyle().Foreground(theme.AccentPurple).Render("└")
+}
+
+func renderDiffLineWithBackground(l gitpkg.Line, width int, background string, foreground *lipgloss.Color) string {
+	text := truncate(l.Text, width-2)
+	prefix := " "
+	switch l.Kind {
+	case gitpkg.LineAdded:
+		prefix = "+"
+	case gitpkg.LineDeleted:
+		prefix = "-"
+	}
+	var color lipgloss.Color
+	if foreground != nil {
+		color = *foreground
+	} else {
+		switch l.Kind {
+		case gitpkg.LineAdded:
+			color = theme.SyncOK
+		case gitpkg.LineDeleted:
+			color = theme.SyncError
+		default:
+			color = theme.TextTertiary
+		}
+	}
+	return lipgloss.NewStyle().Background(lipgloss.Color(background)).Foreground(color).Render(prefix + text)
+}
+
 func renderDiff(files []gitpkg.FileDiff, notes []store.ReviewHunkNote, width int) (string, []store.ReviewHunkNote) {
 	fileStyle := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true)
 	hunkStyle := lipgloss.NewStyle().Foreground(theme.ColReady)
-	addStyle := lipgloss.NewStyle().Foreground(theme.SyncOK)
-	delStyle := lipgloss.NewStyle().Foreground(theme.SyncError)
-	ctxStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
 	noteStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple).Bold(true)
 	matched := make([]bool, len(notes))
 
@@ -644,34 +739,38 @@ func renderDiff(files []gitpkg.FileDiff, notes []store.ReviewHunkNote, width int
 		}
 		lines = append(lines, fileStyle.Render(fmt.Sprintf("── %s (%s)", header, f.Status)))
 		if f.Status == gitpkg.FileBinary {
-			lines = append(lines, ctxStyle.Render("(binary file)"))
+			lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextTertiary).Render("(binary file)"))
 			continue
 		}
 		for _, h := range f.Hunks {
 			for i, note := range notes {
-				if note.FilePath == f.NewPath && note.HunkAnchor == h.Anchor {
+				if note.FilePath == f.NewPath && note.HunkAnchor == h.Anchor && (note.LineStart == nil || note.LineEnd == nil) {
 					lines = append(lines, noteStyle.Render("◆ Note: "+note.Body))
 					matched[i] = true
 				}
 			}
 			lines = append(lines, hunkStyle.Render(h.Header))
-			for lineIndex, l := range h.Lines {
-				lineNumber := lineIndex + 1
+			ranges := groupHunkNoteRanges(filterNotesForHunk(notes, f.NewPath, h.Anchor))
+			processed := 0
+			for processed < len(h.Lines) {
+				group := findNoteRange(ranges, processed)
+				if group == nil {
+					lines = append(lines, renderDiffLine(h.Lines[processed], width))
+					processed++
+					continue
+				}
 				for i, note := range notes {
-					if note.FilePath == f.NewPath && note.HunkAnchor == h.Anchor && note.LineStart != nil && note.LineEnd != nil && *note.LineStart == lineNumber {
-						lines = append(lines, noteStyle.Render(fmt.Sprintf("◆ Lines %d-%d: %s", *note.LineStart, *note.LineEnd, note.Body)))
+					if note.ID == group.Note.ID {
 						matched[i] = true
 					}
 				}
-				text := truncate(l.Text, width-2)
-				switch l.Kind {
-				case gitpkg.LineAdded:
-					lines = append(lines, addStyle.Render("+"+text))
-				case gitpkg.LineDeleted:
-					lines = append(lines, delStyle.Render("-"+text))
-				default:
-					lines = append(lines, ctxStyle.Render(" "+text))
+				lines = append(lines, noteStyle.Render(fmt.Sprintf("◆ Lines %d-%d: %s", *group.Note.LineStart, *group.Note.LineEnd, group.Note.Body)))
+				lines = append(lines, renderRangeBlockStart())
+				for lineIndex := group.StartIndex; lineIndex <= group.EndIndex; lineIndex++ {
+					lines = append(lines, renderDiffLine(h.Lines[lineIndex], width))
 				}
+				lines = append(lines, renderRangeBlockEnd())
+				processed = group.EndIndex + 1
 			}
 		}
 	}

@@ -32,7 +32,7 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
   }
 
   return (
-    <div className="space-y-4 font-mono text-xs">
+    <div className="space-y-4 overflow-x-auto font-mono text-xs">
       {files.map((file, fileIndex) => {
         const path = file.old_path !== file.new_path
           ? `${file.old_path} → ${file.new_path}`
@@ -75,85 +75,219 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
                     Viewed
                   </label>
                 </div>
-                {!viewed && hunk.lines.map((line, lineIndex) => {
-                  const selected = selection?.file_path === selectionPath
-                    && selection.hunk_anchor === hunk.anchor
-                    && lineIndex >= selection.start && lineIndex <= selection.end
-                  const selectLine = () => {
-                    if (suppressClickRef.current) {
-                      suppressClickRef.current = false
-                      return
-                    }
-                    if (!onSelectionChange) return
-                    if (selection?.file_path === selectionPath && selection.hunk_anchor === hunk.anchor) {
-                      onSelectionChange({ ...selection, start: Math.min(selection.start, lineIndex), end: Math.max(selection.end, lineIndex) })
-                    } else {
-                      onSelectionChange({ file_path: selectionPath, hunk_anchor: hunk.anchor, start: lineIndex, end: lineIndex })
-                    }
-                  }
-                  const startDrag = (event: React.PointerEvent) => {
-                    if (event.button !== 0 || !onSelectionChange) return
-                    dragOriginRef.current = { filePath: selectionPath, hunkAnchor: hunk.anchor, lineIndex, moved: false }
-                    onSelectionChange({ file_path: selectionPath, hunk_anchor: hunk.anchor, start: lineIndex, end: lineIndex })
-                  }
-                  const extendDrag = () => {
-                    const origin = dragOriginRef.current
-                    if (!origin || origin.filePath !== selectionPath || origin.hunkAnchor !== hunk.anchor) return
-                    origin.moved ||= origin.lineIndex !== lineIndex
-                    onSelectionChange?.({
-                      file_path: selectionPath,
-                      hunk_anchor: hunk.anchor,
-                      start: Math.min(origin.lineIndex, lineIndex),
-                      end: Math.max(origin.lineIndex, lineIndex),
-                    })
-                  }
-                  const gutter = (side: "old" | "new", lineNo: number) => lineNo ? (
-                    <button
-                      type="button"
-                      aria-label={`Select ${side} line ${lineNo}`}
-                      onClick={selectLine}
-                      onPointerDown={startDrag}
-                      className="select-none touch-none border-r border-zinc-800 px-2 text-right text-zinc-600 hover:bg-indigo-900/50 hover:text-indigo-200"
-                    >
-                      {lineNo}
-                    </button>
-                  ) : <span className="border-r border-zinc-800" />
-                  const lineNumber = lineIndex + 1
-                  const rangeNotes = notesForHunk.filter((note) => note.line_start && note.line_end && lineNumber >= note.line_start && lineNumber <= note.line_end)
-                  const startingNotes = rangeNotes.filter((note) => note.line_start === lineNumber)
-                  return (
-                    <div key={lineIndex}>
-                      {startingNotes.map((note) => (
-                        <div key={note.id} className="border-y border-amber-800 bg-amber-950/40 px-3 py-2 font-sans text-sm text-amber-100">
-                          <span className="mr-2 font-mono text-[10px] text-amber-400">Lines {note.line_start}-{note.line_end}</span>
-                          {note.body}
-                        </div>
-                      ))}
-                      <div
-                        data-diff-line
-                        data-selected={selected ? "true" : undefined}
-                        data-line-note-range={rangeNotes[0]?.id}
-                        onPointerEnter={extendDrag}
-                        className={cn(
-                          "grid grid-cols-[3rem_3rem_1fr] leading-5",
-                          line.kind === "add" && "bg-emerald-950/40 text-emerald-200",
-                          line.kind === "del" && "bg-red-950/40 text-red-200",
-                          line.kind === "ctx" && "text-zinc-400",
-                          rangeNotes.length > 0 && "ring-1 ring-inset ring-amber-700/70",
-                          selected && "bg-indigo-900/60 text-indigo-100 ring-1 ring-inset ring-indigo-600",
-                        )}
-                      >
-                        {gutter("old", line.old_no)}
-                        {gutter("new", line.new_no)}
-                        <span className="whitespace-pre px-2"><span aria-hidden>{line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}</span>{line.text}</span>
-                      </div>
-                    </div>
-                  )
-                })}
+                {!viewed && <HunkLines
+                  lines={hunk.lines}
+                  hunkAnchor={hunk.anchor}
+                  selectionPath={selectionPath}
+                  selection={selection}
+                  onSelectionChange={onSelectionChange}
+                  notesForHunk={notesForHunk}
+                  dragOriginRef={dragOriginRef}
+                  suppressClickRef={suppressClickRef}
+                />}
               </div>
               )
             })}
           </section>
+        )
+      })}
+    </div>
+  )
+}
+
+interface HunkLinesProps {
+  lines: FileDiff["hunks"][number]["lines"]
+  hunkAnchor: string
+  selectionPath: string
+  selection?: DiffSelection | null
+  onSelectionChange?: (selection: DiffSelection | null) => void
+  notesForHunk: ReviewHunkNote[]
+  dragOriginRef: React.MutableRefObject<{ filePath: string; hunkAnchor: string; lineIndex: number; moved: boolean } | null>
+  suppressClickRef: React.MutableRefObject<boolean>
+}
+
+interface NoteGroup {
+  note: ReviewHunkNote
+  startIndex: number
+  endIndex: number
+}
+
+function groupRangeNotes(notes: ReviewHunkNote[]): NoteGroup[] {
+  const groups: NoteGroup[] = []
+  notes.forEach((note) => {
+    if (note.line_start && note.line_end) {
+      groups.push({ note, startIndex: note.line_start - 1, endIndex: note.line_end - 1 })
+    }
+  })
+  groups.sort((a, b) => a.startIndex - b.startIndex)
+  return groups
+}
+
+function HunkLines({ lines, hunkAnchor, selectionPath, selection, onSelectionChange, notesForHunk, dragOriginRef, suppressClickRef }: HunkLinesProps) {
+  const groups = groupRangeNotes(notesForHunk)
+  const result: React.ReactNode[] = []
+  let processed = 0
+
+  while (processed < lines.length) {
+    const group = groups.find((g) => g.startIndex === processed)
+    if (!group) {
+      result.push(
+        <DiffLine
+          key={processed}
+          lineIndex={processed}
+          line={lines[processed]}
+          hunkAnchor={hunkAnchor}
+          selectionPath={selectionPath}
+          selection={selection}
+          onSelectionChange={onSelectionChange}
+          dragOriginRef={dragOriginRef}
+          suppressClickRef={suppressClickRef}
+          rangeNote={null}
+        />
+      )
+      processed++
+      continue
+    }
+
+    result.push(
+      <RangeBlock
+        key={`range-${processed}`}
+        note={group.note}
+        lines={lines}
+        startIndex={group.startIndex}
+        endIndex={group.endIndex}
+        hunkAnchor={hunkAnchor}
+        selectionPath={selectionPath}
+        selection={selection}
+        onSelectionChange={onSelectionChange}
+        dragOriginRef={dragOriginRef}
+        suppressClickRef={suppressClickRef}
+      />
+    )
+    processed = group.endIndex + 1
+  }
+
+  return result
+}
+
+interface DiffLineProps {
+  lineIndex: number
+  line: FileDiff["hunks"][number]["lines"][number]
+  hunkAnchor: string
+  selectionPath: string
+  selection?: DiffSelection | null
+  onSelectionChange?: (selection: DiffSelection | null) => void
+  dragOriginRef: React.MutableRefObject<{ filePath: string; hunkAnchor: string; lineIndex: number; moved: boolean } | null>
+  suppressClickRef: React.MutableRefObject<boolean>
+  rangeNote?: ReviewHunkNote | null
+  inRange?: boolean
+}
+
+function DiffLine({ lineIndex, line, hunkAnchor, selectionPath, selection, onSelectionChange, dragOriginRef, suppressClickRef, rangeNote, inRange = false }: DiffLineProps) {
+  const selected = selection?.file_path === selectionPath
+    && selection.hunk_anchor === hunkAnchor
+    && lineIndex >= selection.start && lineIndex <= selection.end
+
+  const selectLine = () => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      return
+    }
+    if (!onSelectionChange) return
+    if (selection?.file_path === selectionPath && selection.hunk_anchor === hunkAnchor) {
+      onSelectionChange({ ...selection, start: Math.min(selection.start, lineIndex), end: Math.max(selection.end, lineIndex) })
+    } else {
+      onSelectionChange({ file_path: selectionPath, hunk_anchor: hunkAnchor, start: lineIndex, end: lineIndex })
+    }
+  }
+  const startDrag = (event: React.PointerEvent) => {
+    if (event.button !== 0 || !onSelectionChange) return
+    dragOriginRef.current = { filePath: selectionPath, hunkAnchor, lineIndex, moved: false }
+    onSelectionChange({ file_path: selectionPath, hunk_anchor: hunkAnchor, start: lineIndex, end: lineIndex })
+  }
+  const extendDrag = () => {
+    const origin = dragOriginRef.current
+    if (!origin || origin.filePath !== selectionPath || origin.hunkAnchor !== hunkAnchor) return
+    origin.moved ||= origin.lineIndex !== lineIndex
+    onSelectionChange?.({
+      file_path: selectionPath,
+      hunk_anchor: hunkAnchor,
+      start: Math.min(origin.lineIndex, lineIndex),
+      end: Math.max(origin.lineIndex, lineIndex),
+    })
+  }
+  const gutter = (side: "old" | "new", lineNo: number) => lineNo ? (
+    <button
+      type="button"
+      aria-label={`Select ${side} line ${lineNo}`}
+      onClick={selectLine}
+      onPointerDown={startDrag}
+      className="select-none touch-none border-r border-zinc-800 px-2 text-right text-zinc-600 hover:bg-indigo-900/50 hover:text-indigo-200"
+    >
+      {lineNo}
+    </button>
+  ) : <span className="border-r border-zinc-800" />
+
+  return (
+    <div
+      data-diff-line
+      data-selected={selected ? "true" : undefined}
+      data-line-note-range={rangeNote?.id}
+      onPointerEnter={extendDrag}
+      className={cn(
+        "grid grid-cols-[3rem_3rem_1fr] leading-5",
+        !inRange && line.kind === "add" && "bg-emerald-950/40 text-emerald-200",
+        !inRange && line.kind === "del" && "bg-red-950/40 text-red-200",
+        inRange && !selected && line.kind === "add" && "range-tinted-add bg-emerald-950/[0.25] text-emerald-100",
+        inRange && !selected && line.kind === "del" && "range-tinted-del bg-red-950/[0.25] text-red-100",
+        inRange && !selected && line.kind === "ctx" && "bg-amber-950/20 text-amber-100",
+        line.kind === "ctx" && !inRange && "text-zinc-400",
+        selected && "bg-indigo-900/60 text-indigo-100 ring-1 ring-inset ring-indigo-600",
+      )}
+    >
+      {gutter("old", line.old_no)}
+      {gutter("new", line.new_no)}
+      <span className="whitespace-pre px-2"><span aria-hidden>{line.kind === "add" ? "+" : line.kind === "del" ? "-" : " "}</span>{line.text}</span>
+    </div>
+  )
+}
+
+interface RangeBlockProps {
+  note: ReviewHunkNote
+  lines: FileDiff["hunks"][number]["lines"]
+  startIndex: number
+  endIndex: number
+  hunkAnchor: string
+  selectionPath: string
+  selection?: DiffSelection | null
+  onSelectionChange?: (selection: DiffSelection | null) => void
+  dragOriginRef: React.MutableRefObject<{ filePath: string; hunkAnchor: string; lineIndex: number; moved: boolean } | null>
+  suppressClickRef: React.MutableRefObject<boolean>
+}
+
+function RangeBlock({ note, lines, startIndex, endIndex, hunkAnchor, selectionPath, selection, onSelectionChange, dragOriginRef, suppressClickRef }: RangeBlockProps) {
+  return (
+    <div data-diff-block="range" className="border-x border-y border-amber-700/70 bg-amber-950/20">
+      <div className="border-b border-amber-800 bg-amber-950/40 px-3 py-2 font-sans text-sm text-amber-100">
+        <span className="mr-2 font-mono text-[10px] text-amber-400">Lines {note.line_start}-{note.line_end}</span>
+        {note.body}
+      </div>
+      {lines.slice(startIndex, endIndex + 1).map((line, offset) => {
+        const lineIndex = startIndex + offset
+        return (
+          <DiffLine
+            key={lineIndex}
+            lineIndex={lineIndex}
+            line={line}
+            hunkAnchor={hunkAnchor}
+            selectionPath={selectionPath}
+            selection={selection}
+            onSelectionChange={onSelectionChange}
+            dragOriginRef={dragOriginRef}
+            suppressClickRef={suppressClickRef}
+            rangeNote={note}
+            inRange
+          />
         )
       })}
     </div>
