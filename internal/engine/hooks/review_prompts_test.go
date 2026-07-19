@@ -71,6 +71,9 @@ func TestConductorPromptTeachesReviewPacket(t *testing.T) {
 		"legato review answer",
 		"Format review answers as Markdown",
 		"[legato review]",
+		"Only use the review workflow when `LEGATO_TASK_ID` is set",
+		"this is an ephemeral task",
+		"skip review capture and all `legato review` commands",
 		// Named review tours
 		"--name <review-name>",
 		"LEGATO_REVIEW_NAME",
