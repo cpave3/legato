@@ -68,6 +68,16 @@ tasks:
     cmds:
       - go install ./cmd/legato/
 
+  link:
+    desc: Build legato and symlink it into $GOBIN (defaults to $GOPATH/bin)
+    cmds:
+      - task: build
+      - |
+        bin_dir="$(go env GOBIN)"
+        bin_dir="${bin_dir:-$(go env GOPATH)/bin}"
+        mkdir -p "$bin_dir"
+        ln -sfn "{{.ROOT_DIR}}/legato" "$bin_dir/legato"
+
   web:build:
     desc: Build the frontend
     dir: web

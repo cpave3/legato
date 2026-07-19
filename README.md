@@ -58,11 +58,19 @@ cd legato
 task build
 ```
 
-Install to `$GOPATH/bin`:
+Install a copy to `$GOPATH/bin`:
 
 ```bash
 task install
 ```
+
+For development, build and symlink this checkout's binary into `$GOBIN` (or `$GOPATH/bin` when `GOBIN` is unset):
+
+```bash
+task link
+```
+
+Subsequent `task build` runs update the linked binary in place.
 
 ### TUI + Web Dashboard
 
