@@ -128,8 +128,8 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"## Review capture\n" +
 	"\n" +
 	"The user reviews your work as a guided tour. Narrate as you go. If " +
-	"LEGATO_TASK_ID is unset, this is an ephemeral agent: skip all review " +
-	"capture and review CLI commands unless the user explicitly asks for a review.\n" +
+	"`LEGATO_TASK_EPHEMERAL=1`, skip all review capture and review CLI commands " +
+	"unless the user explicitly asks for a review.\n" +
 	"\n" +
 	"- **Make reasonable semantic commits as you work** — keep commits logically " +
 	"coherent, with bodies explaining *why* when decisions or tradeoffs need context.\n" +

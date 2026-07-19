@@ -23,7 +23,7 @@ func TestChimeraGeneralPromptTeachesReviewCapture(t *testing.T) {
 		"legato review answer",
 		"Format review answers as Markdown",
 		"[legato review]",
-		"LEGATO_TASK_ID is unset",
+		"LEGATO_TASK_EPHEMERAL=1",
 		"explicitly asks for a review",
 		"legato review restart",
 		"legato review discard",
@@ -71,8 +71,7 @@ func TestConductorPromptTeachesReviewPacket(t *testing.T) {
 		"legato review answer",
 		"Format review answers as Markdown",
 		"[legato review]",
-		"Only use the review workflow when `LEGATO_TASK_ID` is set",
-		"this is an ephemeral task",
+		"If `LEGATO_TASK_EPHEMERAL=1`",
 		"skip review capture and all `legato review` commands",
 		// Named review tours
 		"--name <review-name>",

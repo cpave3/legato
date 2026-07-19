@@ -364,6 +364,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// Build env vars to inject into the initial shell. Track them as a map
 	// for the adapter LaunchCommand call, then flatten for tmux Spawn.
 	envMap := map[string]string{}
+	if opt.Ephemeral {
+		envMap["LEGATO_TASK_EPHEMERAL"] = "1"
+	}
 	if adapter != nil {
 		for k, v := range adapter.EnvVars(taskID, a.socketPath) {
 			envMap[k] = v

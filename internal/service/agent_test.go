@@ -603,6 +603,9 @@ func TestSpawnAgentInjectsEnvVarsWhenAdapterConfigured(t *testing.T) {
 	if envs["LEGATO_TASK_ID"] != "task1" {
 		t.Errorf("LEGATO_TASK_ID = %q, want %q", envs["LEGATO_TASK_ID"], "task1")
 	}
+	if _, ok := envs["LEGATO_TASK_EPHEMERAL"]; ok {
+		t.Error("LEGATO_TASK_EPHEMERAL should not be set for a board-card task")
+	}
 	if _, ok := envs["LEGATO_SOCKET"]; ok {
 		t.Error("LEGATO_SOCKET should not be set (CLI uses broadcast)")
 	}
@@ -1186,6 +1189,12 @@ func TestSpawnEphemeralAgentCreatesTaskAndSession(t *testing.T) {
 	taskID := agents[0].TaskID
 	if !mt.sessionAlive("legato-" + taskID) {
 		t.Errorf("expected tmux session legato-%s to exist", taskID)
+	}
+
+	// The spawned agent can distinguish this hidden backing task from a board card.
+	envs := mt.envVarsFor("legato-" + taskID)
+	if envs["LEGATO_TASK_EPHEMERAL"] != "1" {
+		t.Errorf("LEGATO_TASK_EPHEMERAL = %q, want 1", envs["LEGATO_TASK_EPHEMERAL"])
 	}
 
 	// The backing task should be ephemeral
