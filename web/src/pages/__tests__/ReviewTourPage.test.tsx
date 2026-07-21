@@ -193,12 +193,15 @@ describe("ReviewTourPage", () => {
     expect(resizeHandle.getAttribute("aria-valuenow")).toBe("480")
   })
 
-  it("keeps the mark-reviewed action in a sticky diff-pane bar", () => {
+  it("keeps the diff pane as the shared vertical scroll container for sticky headers", () => {
     renderPage()
 
     const button = screen.getByRole("button", { name: "Mark step reviewed" })
+    const pane = button.closest("main")
     expect(button.closest("[data-sticky-review-action]")?.className).toContain("sticky")
-    expect(button.closest("main")).toBeTruthy()
+    expect(pane?.classList.contains("min-w-0")).toBe(true)
+    expect(pane?.classList.contains("overflow-y-auto")).toBe(true)
+    expect(pane?.classList.contains("overflow-x-hidden")).toBe(true)
   })
 
   it("loads the selected step's diff", async () => {

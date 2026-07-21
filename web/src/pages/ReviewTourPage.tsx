@@ -222,7 +222,7 @@ export function ReviewTourPage() {
           </div>
         </aside>
 
-        <main className="min-w-0 overflow-y-auto p-5">
+        <main className="min-w-0 overflow-x-hidden overflow-y-auto p-5">
           {selectedStep && (
             <div className="mx-auto max-w-6xl space-y-4">
               <div data-sticky-review-action className="sticky -top-5 z-20 -mx-5 flex justify-end border-b border-zinc-800/80 bg-[#0a0a0f]/95 px-5 py-2 backdrop-blur">

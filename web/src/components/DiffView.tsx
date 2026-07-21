@@ -32,7 +32,7 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
   }
 
   return (
-    <div className="space-y-4 overflow-x-auto font-mono text-xs">
+    <div className="min-w-0 space-y-4 font-mono text-xs">
       {files.map((file, fileIndex) => {
         const path = file.old_path !== file.new_path
           ? `${file.old_path} → ${file.new_path}`
@@ -44,6 +44,7 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
               <span className="truncate text-zinc-200">{path}</span>
               <span className="ml-3 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">{file.status}</span>
             </header>
+            <div data-diff-lines className="max-w-full overflow-x-auto">
             {file.hunks.map((hunk, hunkIndex) => {
               const hunkKey = `${selectionPath}:${hunk.anchor}`
               const notesForHunk = hunkNotes.filter((note) => note.hunk_anchor === hunk.anchor && (note.file_path === file.new_path || note.file_path === file.old_path))
@@ -88,6 +89,7 @@ export function DiffView({ files, hunkNotes = [], selection, onSelectionChange }
               </div>
               )
             })}
+            </div>
           </section>
         )
       })}
