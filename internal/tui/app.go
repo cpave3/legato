@@ -105,6 +105,12 @@ type ImportRemoteResultsMsg struct {
 // boardRefreshMsg triggers a board data reload.
 type boardRefreshMsg struct{}
 
+// importRemoteDoneMsg carries the result of an asynchronous remote ticket import.
+type importRemoteDoneMsg struct {
+	TicketID string
+	Err      string
+}
+
 // manualRefreshDoneMsg triggers a board reload and clears the sync indicator.
 type manualRefreshDoneMsg struct{}
 
@@ -128,6 +134,7 @@ type App struct {
 	width              int
 	height             int
 	pendingNav         string // card ID to navigate to after next board data load
+	pendingImport      string // remote ticket ID waiting to appear on the board
 	prSvc              service.PRTrackingService
 	eventBus           *events.Bus
 	eventSubs          []<-chan events.Event // sync lifecycle events (started/completed/failed/errors)
@@ -1125,6 +1132,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := a.board.Init()
 		return a, cmd
 
+	case importRemoteDoneMsg:
+		if msg.Err != "" {
+			a.pendingImport = ""
+			a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{})
+			a.statusBar, _ = a.statusBar.Update(statusbar.ErrorMsg{Text: "import failed: " + msg.Err})
+			return a, nil
+		}
+		a.pendingNav = msg.TicketID
+		return a, a.board.Init()
+
 	case manualRefreshDoneMsg:
 		a.statusBar, _ = a.statusBar.Update(statusbar.SyncCompletedMsg{})
 		cmd := a.board.Init()
@@ -1248,10 +1265,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd := a.loadReviewBadges(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		// Apply pending navigation (e.g. after task creation)
+		// Apply pending navigation (e.g. after task creation or remote import).
 		if a.pendingNav != "" {
-			a.board.NavigateTo(a.pendingNav)
-			a.pendingNav = ""
+			if a.pendingNav != a.pendingImport || a.boardHasTask(a.pendingNav) {
+				a.board.NavigateTo(a.pendingNav)
+				if a.pendingNav == a.pendingImport {
+					a.pendingImport = ""
+					a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{})
+				}
+				a.pendingNav = ""
+			}
 		}
 
 	default:
@@ -1283,6 +1306,15 @@ func (a App) setMode(v viewType) App {
 	a.active = v
 	a.statusBar, _ = a.statusBar.Update(statusbar.ModeMsg{Mode: viewToStatusMode(v)})
 	return a
+}
+
+func (a App) boardHasTask(taskID string) bool {
+	for _, visibleID := range a.board.TaskIDs() {
+		if visibleID == taskID {
+			return true
+		}
+	}
+	return false
 }
 
 func viewToStatusMode(v viewType) statusbar.Mode {
@@ -1573,14 +1605,14 @@ func (a App) handleImportSelected(msg overlay.ImportSelectedMsg) (tea.Model, tea
 	svc := a.syncSvc
 	ticketID := msg.TicketID
 	workspaceID := msg.WorkspaceID
+	a.pendingImport = ticketID
+	a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{Text: "importing " + ticketID + "..."})
 	return a, func() tea.Msg {
-		card, err := svc.ImportRemoteTask(context.Background(), ticketID, workspaceID)
+		_, err := svc.ImportRemoteTask(context.Background(), ticketID, workspaceID)
 		if err != nil {
-			return statusbar.ErrorMsg{Text: "import failed: " + err.Error()}
+			return importRemoteDoneMsg{TicketID: ticketID, Err: err.Error()}
 		}
-		_ = card
-		// Return a board refresh by re-initializing board data
-		return boardRefreshMsg{}
+		return importRemoteDoneMsg{TicketID: ticketID}
 	}
 }
 

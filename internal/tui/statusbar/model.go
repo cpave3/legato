@@ -39,6 +39,7 @@ type SyncFailedMsg struct{}
 type WarningMsg struct{ Text string }
 type ErrorMsg struct{ Text string }
 type InfoMsg struct{ Text string }
+type ProgressMsg struct{ Text string }
 type WorkspaceMsg struct {
 	Name  string
 	Color string
@@ -61,6 +62,7 @@ type Model struct {
 	warning        string
 	errorText      string
 	infoText       string
+	progressText   string
 	workspaceName  string
 	workspaceColor string
 	webServerPort  string
@@ -100,6 +102,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.warning = msg.Text
 	case InfoMsg:
 		m.infoText = msg.Text
+	case ProgressMsg:
+		m.progressText = msg.Text
 	case ErrorMsg:
 		m.errorText = msg.Text
 	case WorkspaceMsg:
@@ -156,9 +160,12 @@ func (m Model) View() string {
 		webDisplay = "  " + webStyle.Render("Web :"+m.webServerPort)
 	}
 
-	// Error > warning > info (priority order)
+	// Progress > error > warning > info (priority order)
 	var warningDisplay string
-	if m.errorText != "" {
+	if m.progressText != "" {
+		progressStyle := lipgloss.NewStyle().Foreground(theme.SyncActive)
+		warningDisplay = "  " + progressStyle.Render(m.progressText)
+	} else if m.errorText != "" {
 		errorStyle := lipgloss.NewStyle().Foreground(theme.SyncError)
 		warningDisplay = "  " + errorStyle.Render(m.errorText)
 	} else if m.warning != "" {

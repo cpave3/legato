@@ -26,7 +26,9 @@ import (
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
-type fakeBoardService struct{}
+type fakeBoardService struct {
+	imported []service.Card
+}
 
 func (f *fakeBoardService) ListColumns(_ context.Context) ([]service.Column, error) {
 	return []service.Column{
@@ -37,9 +39,10 @@ func (f *fakeBoardService) ListColumns(_ context.Context) ([]service.Column, err
 
 func (f *fakeBoardService) ListCards(_ context.Context, column string) ([]service.Card, error) {
 	if column == "Backlog" {
-		return []service.Card{
+		cards := []service.Card{
 			{ID: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug", Status: "Backlog"},
-		}, nil
+		}
+		return append(cards, f.imported...), nil
 	}
 	return nil, nil
 }
@@ -100,7 +103,12 @@ func (f *fakeBoardService) ArchiveDoneCards(_ context.Context) (int, error) { re
 func (f *fakeBoardService) ArchiveTask(_ context.Context, _ string) error   { return nil }
 func (f *fakeBoardService) CountDoneCards(_ context.Context) (int, error)   { return 0, nil }
 
-type fakeSyncService struct{}
+type fakeSyncService struct {
+	importStarted chan string
+	importRelease chan struct{}
+	importErr     error
+	board         *fakeBoardService
+}
 
 func (f *fakeSyncService) Sync(_ context.Context) (*service.SyncResult, error) { return nil, nil }
 func (f *fakeSyncService) Status() service.SyncStatus                          { return service.SyncStatus{} }
@@ -110,7 +118,20 @@ func (f *fakeSyncService) SearchRemote(_ context.Context, _ string) ([]service.R
 	return nil, nil
 }
 func (f *fakeSyncService) ImportRemoteTask(_ context.Context, id string, _ *int) (*service.Card, error) {
-	return &service.Card{ID: id, Title: "Imported", Status: "Backlog"}, nil
+	if f.importStarted != nil {
+		f.importStarted <- id
+	}
+	if f.importRelease != nil {
+		<-f.importRelease
+	}
+	if f.importErr != nil {
+		return nil, f.importErr
+	}
+	card := service.Card{ID: id, Title: "Imported", Status: "Backlog"}
+	if f.board != nil {
+		f.board.imported = append(f.board.imported, card)
+	}
+	return &card, nil
 }
 
 type fakeReportService struct{}
@@ -698,22 +719,86 @@ func TestImportKeyNoOpWithoutSync(t *testing.T) {
 	}
 }
 
-func TestImportSelectedImportsAndRefreshes(t *testing.T) {
-	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
-	cmd := app.Init()
-	if cmd != nil {
-		msg := cmd()
-		app, _ = updateApp(app, msg)
+func TestImportSelectedShowsProgressWhileRequestIsPending(t *testing.T) {
+	boardSvc := &fakeBoardService{}
+	syncSvc := &fakeSyncService{
+		importStarted: make(chan string, 1),
+		importRelease: make(chan struct{}),
+		board:         boardSvc,
 	}
+	app := NewApp(boardSvc, syncSvc, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
 	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
 	app, _ = updateApp(app, board.OpenImportMsg{})
-	// Select a ticket
-	app, cmd = updateApp(app, overlay.ImportSelectedMsg{TicketID: "REX-42"})
+
+	app, cmd := updateApp(app, overlay.ImportSelectedMsg{TicketID: "REX-42"})
 	if app.overlayType != overlayNone {
-		t.Error("overlay should close after import")
+		t.Error("overlay should close when import starts")
 	}
-	if cmd == nil {
-		t.Error("expected board refresh command")
+	if !strings.Contains(app.View(), "importing REX-42...") {
+		t.Fatalf("pending import status not rendered: %s", app.View())
+	}
+
+	result := make(chan tea.Msg, 1)
+	go func() { result <- cmd() }()
+	if got := <-syncSvc.importStarted; got != "REX-42" {
+		t.Fatalf("import started for %q, want REX-42", got)
+	}
+	select {
+	case <-result:
+		t.Fatal("import completed before the remote request was released")
+	default:
+	}
+	if !strings.Contains(app.View(), "importing REX-42...") {
+		t.Fatal("pending import status disappeared while request was blocked")
+	}
+	close(syncSvc.importRelease)
+	<-result
+}
+
+func TestImportSuccessKeepsProgressUntilTicketAppearsOnBoard(t *testing.T) {
+	boardSvc := &fakeBoardService{}
+	syncSvc := &fakeSyncService{board: boardSvc}
+	app := NewApp(boardSvc, syncSvc, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, board.OpenImportMsg{})
+
+	app, cmd := updateApp(app, overlay.ImportSelectedMsg{TicketID: "REX-42"})
+	app, refreshCmd := updateApp(app, cmd())
+	if refreshCmd == nil {
+		t.Fatal("successful import should reload the board")
+	}
+	if !strings.Contains(app.View(), "importing REX-42...") {
+		t.Fatal("progress should remain visible until the board reload completes")
+	}
+
+	app, _ = updateApp(app, refreshCmd())
+	if strings.Contains(app.View(), "importing REX-42...") {
+		t.Fatal("progress should clear once the imported ticket is visible")
+	}
+	selected := app.board.SelectedCard()
+	if selected == nil || selected.Key != "REX-42" {
+		t.Fatalf("selected card = %+v, want imported REX-42", selected)
+	}
+}
+
+func TestImportFailureClearsProgressAndShowsError(t *testing.T) {
+	boardSvc := &fakeBoardService{}
+	syncSvc := &fakeSyncService{importErr: errors.New("jira timed out")}
+	app := NewApp(boardSvc, syncSvc, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, board.OpenImportMsg{})
+
+	app, cmd := updateApp(app, overlay.ImportSelectedMsg{TicketID: "REX-42"})
+	app, next := updateApp(app, cmd())
+	if next != nil {
+		t.Fatal("failed import should not reload the board")
+	}
+	view := app.View()
+	if strings.Contains(view, "importing REX-42...") {
+		t.Fatal("progress should clear after an import failure")
+	}
+	if !strings.Contains(view, "import failed: jira timed out") {
+		t.Fatalf("import error not rendered: %s", view)
 	}
 }
 

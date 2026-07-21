@@ -195,6 +195,24 @@ func TestReviewModeHintsIncludeDelete(t *testing.T) {
 	}
 }
 
+func TestProgressMessageTakesPriorityAndCanBeCleared(t *testing.T) {
+	m := New()
+	m.width = 120
+	m, _ = m.Update(WarningMsg{Text: "clipboard unavailable"})
+	m, _ = m.Update(ProgressMsg{Text: "importing REX-42..."})
+	if view := m.View(); !strings.Contains(view, "importing REX-42...") {
+		t.Fatalf("progress should be visible over warnings, got: %q", view)
+	}
+	m, _ = m.Update(ProgressMsg{})
+	view := m.View()
+	if strings.Contains(view, "importing REX-42...") {
+		t.Fatalf("empty progress message should clear progress, got: %q", view)
+	}
+	if !strings.Contains(view, "clipboard unavailable") {
+		t.Fatalf("clearing progress should reveal the prior warning, got: %q", view)
+	}
+}
+
 func TestWarningMessage(t *testing.T) {
 	m := New()
 	m.width = 120
