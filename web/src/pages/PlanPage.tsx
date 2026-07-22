@@ -5,7 +5,7 @@ import { ArrowLeft, MessageSquarePlus, Send, X } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { usePlan } from "../hooks/usePlan"
 import { useServer } from "../hooks/useServer"
-import { addPlanComment, askPlanQuestion, planAction, respondToPlanQuestion, type PlanComment, type PlanOption, type PlanQuestion } from "../lib/plan"
+import { addPlanComment, askPlanQuestion, planAction, respondToPlanQuestion, updatePlanComment, type PlanComment, type PlanOption, type PlanQuestion } from "../lib/plan"
 import { ReviewMessageBody } from "../components/ReviewMessageBody"
 
 type SourcePosition = { start?: { offset?: number }; end?: { offset?: number } }
@@ -51,11 +51,43 @@ function commentState(comments: PlanComment[]) {
   return undefined
 }
 
-function BlockFrame({ block, selected, comments, coveredComments, onSelect, onDragStart, onDragEnter, onDragEnd, children }: {
+function EditableComment({ comment, onSave }: { comment: PlanComment; onSave: (body: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false)
+  const [body, setBody] = useState(comment.body)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save() {
+    if (!body.trim() || saving) return
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave(body.trim())
+      setEditing(false)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (editing) return <div className="rounded bg-indigo-950/35 p-2 text-sm text-zinc-200">
+    <textarea aria-label="Edit comment" value={body} onChange={event => setBody(event.target.value)} onKeyDown={event => keyboardSubmit(event, () => void save(), saving || !body.trim())} className="w-full rounded border border-zinc-700 bg-zinc-900 p-2"/>
+    {error && <p role="alert" className="mt-1 text-xs text-red-300">{error}</p>}
+    <div className="mt-2 flex gap-2"><button disabled={saving || !body.trim()} onClick={() => void save()} className="text-xs text-indigo-300">{saving ? "Saving…" : "Save"}</button><button disabled={saving} onClick={() => { setBody(comment.body); setError(null); setEditing(false) }} className="text-xs text-zinc-400">Cancel</button></div>
+  </div>
+  return <div className="rounded bg-indigo-950/35 p-2 text-sm text-zinc-200">
+    <p>{comment.body}</p>
+    <div className="mt-1 flex items-center justify-between"><span className="text-[10px] font-semibold uppercase tracking-wide text-indigo-300">{comment.submitted_at ? "Submitted" : "Draft"}</span><button aria-label="Edit comment" onClick={() => setEditing(true)} className="text-xs text-zinc-400 hover:text-indigo-300">Edit</button></div>
+  </div>
+}
+
+function BlockFrame({ block, selected, comments, coveredComments, onUpdateComment, onSelect, onDragStart, onDragEnter, onDragEnd, children }: {
   block: SelectedBlock | null
   selected: boolean
   comments: PlanComment[]
   coveredComments: PlanComment[]
+  onUpdateComment: (comment: PlanComment, body: string) => Promise<void>
   onSelect: (block: SelectedBlock) => void
   onDragStart: (block: SelectedBlock, event: MouseEvent) => void
   onDragEnter: (block: SelectedBlock) => void
@@ -78,10 +110,7 @@ function BlockFrame({ block, selected, comments, coveredComments, onSelect, onDr
     ><MessageSquarePlus size={14}/></button>
     <div>{children}</div>
     {comments.length > 0 && <div className="mb-3 space-y-2 border-l border-indigo-700/60 pl-3 lg:my-2" aria-label="Block comment thread">
-      {comments.map(comment => <button type="button" key={comment.id} onClick={() => onSelect(block)} className="block w-full rounded bg-indigo-950/35 p-2 text-left text-sm text-zinc-200 hover:bg-indigo-950/60 focus:ring-1 focus:ring-indigo-400">
-        <span className="block">{comment.body}</span>
-        <span className="mt-1 block text-[10px] font-semibold uppercase tracking-wide text-indigo-300">{comment.submitted_at ? "Submitted" : "Draft"}</span>
-      </button>)}
+      {comments.map(comment => <EditableComment key={comment.id} comment={comment} onSave={body => onUpdateComment(comment, body)}/>)}
     </div>}
   </div>
 }
@@ -180,6 +209,12 @@ export function PlanPage() {
     }
   }
 
+  async function editComment(existing: PlanComment, body: string) {
+    const updated = await updatePlanComment(baseUrl, id, existing.id, body)
+    setLocalComments(current => current.map(item => item.id === updated.id ? updated : item))
+    await refresh()
+  }
+
   async function verdict(action: "request-changes" | "approve" | "reject" | "reopen") {
     await run(async () => {
       await planAction(baseUrl, id, action)
@@ -202,14 +237,14 @@ export function PlanPage() {
 
   const unanswered = data.questions.filter(item => item.required && !data.responses.some(response => response.question_id === item.id)).length
   const currentAnchored = localComments.filter(item => item.revision_id === data.revision.id && item.selection_start !== undefined && item.selection_end !== undefined)
-  const generalComments = localComments.filter(item => !item.selected_text)
+  const generalComments = localComments.filter(item => item.revision_id === data.revision.id && !item.selected_text)
   const priorRevisionComments = localComments.filter(item => item.revision_id !== data.revision.id && item.selected_text)
   const blockComments = (block: SelectedBlock | null) => block ? currentAnchored.filter(item => item.selection_start === block.start) : []
   const coveringComments = (block: SelectedBlock | null) => block ? currentAnchored.filter(item => item.selection_start !== undefined && item.selection_end !== undefined && item.selection_start <= block.start && item.selection_end >= block.end) : []
   const block = (props: { node?: unknown }, kind: string, content: ReactNode) => {
     const anchor = sourceBlock(data.revision.markdown, props.node as MarkdownNode | undefined, kind)
     const selected = !!anchor && !!selectedBlock && anchor.start >= selectedBlock.start && anchor.end <= selectedBlock.end
-    return <BlockFrame block={anchor} selected={selected} comments={blockComments(anchor)} coveredComments={coveringComments(anchor)} onSelect={selectBlock} onDragStart={startDrag} onDragEnter={extendDrag} onDragEnd={endDrag}>{content}</BlockFrame>
+    return <BlockFrame block={anchor} selected={selected} comments={blockComments(anchor)} coveredComments={coveringComments(anchor)} onUpdateComment={editComment} onSelect={selectBlock} onDragStart={startDrag} onDragEnter={extendDrag} onDragEnd={endDrag}>{content}</BlockFrame>
   }
 
   return <div className="flex h-full min-h-0 flex-col bg-[#0a0a0f] text-zinc-200">
@@ -243,6 +278,7 @@ export function PlanPage() {
             code: ({ children }) => <code className="rounded bg-black/40 px-1 font-mono text-sm">{children}</code>,
           }}>{data.revision.markdown}</ReactMarkdown>
         </article>
+        {generalComments.length > 0 && <section role="region" aria-label="General feedback" className="mt-6 rounded border border-zinc-800 bg-zinc-950 p-5"><h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">General feedback</h2><div className="space-y-2">{generalComments.map(item => <EditableComment key={item.id} comment={item} onSave={body => editComment(item, body)}/>)}</div></section>}
       </div></main>
       <aside className="flex min-h-0 flex-col overflow-y-auto border-l border-zinc-800 bg-zinc-950 p-4">
         {data.questions.length > 0 && <><h2 className="text-xs font-semibold uppercase text-zinc-500">Choices</h2><div className="mt-3 space-y-4">{data.questions.map(item => <PlanQuestionControl key={item.id} question={item} response={data.responses.find(response => response.question_id === item.id)} disabled={busy} onRespond={body => run(() => respondToPlanQuestion(baseUrl, id, item.key, body))}/>)}</div></>}
@@ -250,7 +286,6 @@ export function PlanPage() {
           {selectedBlock && <div className="mt-2 rounded bg-indigo-950/40 p-2 text-xs text-indigo-200"><span className="line-clamp-3">{selectedBlock.text}</span><button aria-label="Clear selected block" onClick={() => setSelectedBlock(null)} className="mt-1 flex items-center gap-1 text-zinc-400"><X size={12}/> Clear</button></div>}
           <textarea ref={commentInput} aria-label={selectedBlock ? (selectedBlock.label === "Comment on selected blocks" ? "Comment on selected blocks" : "Comment on selected block") : "General plan comment"} value={comment} onChange={event => setComment(event.target.value)} onKeyDown={event => keyboardSubmit(event, () => void submitComment(), busy || !comment.trim())} placeholder={selectedBlock ? "Comment on this block…" : "Leave general feedback…"} className="mt-2 w-full rounded border border-zinc-700 bg-zinc-900 p-2 text-sm"/>
           <button disabled={busy || !comment.trim()} onClick={() => void submitComment()} className="mt-2 rounded bg-indigo-600 px-3 py-1.5 text-xs disabled:opacity-40">{busy ? "Saving…" : "Add draft comment"}</button>
-          {generalComments.length > 0 && <div className="mt-3 space-y-2" aria-label="General comments">{generalComments.map(item => <div key={item.id} className="rounded border border-zinc-800 bg-zinc-900 p-2 text-sm"><p>{item.body}</p><span className="text-[10px] font-semibold uppercase text-zinc-500">{item.submitted_at ? "Submitted" : "Draft"}</span></div>)}</div>}
           {priorRevisionComments.length > 0 && <details className="mt-4 text-sm text-zinc-400"><summary className="cursor-pointer text-xs font-semibold uppercase text-zinc-500">Prior revision feedback ({priorRevisionComments.length})</summary><div className="mt-2 space-y-2">{priorRevisionComments.map(item => <div key={item.id} className="rounded border border-zinc-800 p-2"><blockquote className="line-clamp-2 border-l border-zinc-700 pl-2 text-xs text-zinc-500">{item.selected_text}</blockquote><p className="mt-1">{item.body}</p></div>)}</div></details>}
         </div>
         <div className="mt-6 border-t border-zinc-800 pt-4"><h2 className="text-xs font-semibold uppercase text-zinc-500">Questions & answers</h2><div className="my-3 space-y-2">{data.messages.map(message => <div key={message.id} className={`rounded p-2 ${message.author === "user" ? "bg-indigo-950/40" : "bg-zinc-900"}`}><ReviewMessageBody body={message.body}/></div>)}</div><div className="flex gap-2"><textarea aria-label="Question for plan agent" value={question} onChange={event => setQuestion(event.target.value)} onKeyDown={event => keyboardSubmit(event, () => void ask(), busy || !question.trim())} className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 p-2 text-sm" placeholder="Ask the agent…"/><button aria-label="Ask plan agent" disabled={busy || !question.trim()} onClick={() => void ask()} className="rounded bg-zinc-800 p-2"><Send size={15}/></button></div></div>

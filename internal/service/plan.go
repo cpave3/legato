@@ -335,6 +335,23 @@ func (p *PlanService) AddComment(ctx context.Context, planID string, input PlanC
 	return &comment, nil
 }
 
+func (p *PlanService) UpdateComment(ctx context.Context, planID, commentID, body string) (*store.PlanComment, error) {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return nil, fmt.Errorf("comment body is required")
+	}
+	view, err := p.Plan(ctx, planID)
+	if err != nil {
+		return nil, err
+	}
+	comment, err := p.store.UpdatePlanCommentBody(ctx, planID, commentID, body)
+	if err != nil {
+		return nil, err
+	}
+	p.publish(view.Plan, comment.RevisionID, "comment_updated")
+	return comment, nil
+}
+
 func (p *PlanService) RequestChanges(ctx context.Context, planID string) error {
 	view, err := p.Plan(ctx, planID)
 	if err != nil {

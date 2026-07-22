@@ -133,6 +133,25 @@ func (s *Store) ListPlanComments(ctx context.Context, planID string) ([]PlanComm
 	return out, err
 }
 
+func (s *Store) UpdatePlanCommentBody(ctx context.Context, planID, commentID, body string) (*PlanComment, error) {
+	result, err := s.db.ExecContext(ctx, "UPDATE plan_comments SET body = ? WHERE id = ? AND plan_id = ?", body, commentID, planID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if rows == 0 {
+		return nil, ErrNotFound
+	}
+	var comment PlanComment
+	if err := s.db.GetContext(ctx, &comment, "SELECT * FROM plan_comments WHERE id = ? AND plan_id = ?", commentID, planID); err != nil {
+		return nil, err
+	}
+	return &comment, nil
+}
+
 func (s *Store) SubmitPlanComments(ctx context.Context, revisionID string) error {
 	_, err := s.db.ExecContext(ctx, "UPDATE plan_comments SET submitted_at = datetime('now') WHERE revision_id = ? AND submitted_at IS NULL", revisionID)
 	return err

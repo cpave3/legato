@@ -21,5 +21,6 @@ export const fetchPlanQueue = async (baseUrl:string) => json<PlanQueueItem[]>(aw
 export const fetchPlan = async (baseUrl:string, id:string) => json<PlanView>(await apiFetch(baseUrl, path(id)))
 export const respondToPlanQuestion = async (baseUrl:string,id:string,key:string,body:{values?:string[];text?:string}) => ok(await send(baseUrl,`${path(id)}/responses/${encodeURIComponent(key)}`,body,"PUT"))
 export const addPlanComment = async (baseUrl:string,id:string,body:{body:string;selection_start?:number;selection_end?:number;selected_text?:string;prefix?:string;suffix?:string}) => json<PlanComment>(await send(baseUrl,`${path(id)}/comments`,body))
+export const updatePlanComment = async (baseUrl:string,id:string,commentId:string,body:string) => json<PlanComment>(await send(baseUrl,`${path(id)}/comments/${encodeURIComponent(commentId)}`,{body},"PATCH"))
 export const askPlanQuestion = async (baseUrl:string,id:string,text:string) => json<{warning?:string;thread_id:string}>(await send(baseUrl,`${path(id)}/questions`,{text}))
 export const planAction = async (baseUrl:string,id:string,action:"request-changes"|"approve"|"reject"|"reopen") => ok(await send(baseUrl,`${path(id)}/${action}`))

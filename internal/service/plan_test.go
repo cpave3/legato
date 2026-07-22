@@ -129,6 +129,36 @@ func TestRequestChangesSubmitsAnchoredCommentsAndResubmissionCreatesRevision(t *
 	}
 }
 
+func TestUpdatePlanCommentPreservesAnchorAndSubmittedState(t *testing.T) {
+	_, svc, bundle := newPlanFixture(t)
+	ctx := context.Background()
+	view, err := svc.Submit(ctx, "task-1", "search", bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := strings.Index(view.Revision.Markdown, "indexed search")
+	comment, err := svc.AddComment(ctx, view.Plan.ID, PlanCommentInput{Body: "Original", SelectionStart: &start, SelectionEnd: intPtr(start + len("indexed search")), SelectedText: "indexed search"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RequestChanges(ctx, view.Plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := svc.UpdateComment(ctx, view.Plan.ID, comment.ID, "Updated body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Body != "Updated body" || updated.SelectionStart == nil || *updated.SelectionStart != start || updated.SubmittedAt == nil {
+		t.Fatalf("updated = %+v", updated)
+	}
+	if _, err := svc.UpdateComment(ctx, "other-plan", comment.ID, "Cross plan"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("cross-plan error = %v", err)
+	}
+	if _, err := svc.UpdateComment(ctx, view.Plan.ID, comment.ID, "  "); err == nil {
+		t.Fatal("empty update succeeded")
+	}
+}
+
 func TestPlanQuestionAndAgentAnswerRemainInTranscriptWhenOffline(t *testing.T) {
 	_, svc, bundle := newPlanFixture(t)
 	view, err := svc.Submit(context.Background(), "task-1", "search", bundle)

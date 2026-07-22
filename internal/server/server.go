@@ -109,6 +109,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/plans/{plan_id}/revisions", s.planRevisionsHandler())
 	mux.HandleFunc("/api/plans/{plan_id}/responses/{question_key}", s.planResponseHandler())
 	mux.HandleFunc("/api/plans/{plan_id}/comments", s.planCommentHandler())
+	mux.HandleFunc("/api/plans/{plan_id}/comments/{comment_id}", s.planCommentUpdateHandler())
 	mux.HandleFunc("/api/plans/{plan_id}/questions", s.planQuestionHandler())
 	mux.HandleFunc("/api/plans/{plan_id}/request-changes", s.planRequestChangesHandler())
 	mux.HandleFunc("/api/plans/{plan_id}/approve", s.planApproveHandler())

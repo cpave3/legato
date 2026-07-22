@@ -54,8 +54,23 @@ func TestPlanHTTPFlowAnswersRequiredQuestionAndApproves(t *testing.T) {
 	if got := request(http.MethodPut, "/api/plans/"+view.Plan.ID+"/responses/db", `{"values":["sqlite"]}`); got.Code != http.StatusOK {
 		t.Fatalf("response = %d: %s", got.Code, got.Body.String())
 	}
-	if got := request(http.MethodPost, "/api/plans/"+view.Plan.ID+"/comments", `{"body":"Clarify migration","selection_start":8,"selection_end":18,"selected_text":"Use SQLite"}`); got.Code != http.StatusCreated {
-		t.Fatalf("comment = %d: %s", got.Code, got.Body.String())
+	created := request(http.MethodPost, "/api/plans/"+view.Plan.ID+"/comments", `{"body":"Clarify migration","selection_start":8,"selection_end":18,"selected_text":"Use SQLite"}`)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("comment = %d: %s", created.Code, created.Body.String())
+	}
+	var comment store.PlanComment
+	if err := json.Unmarshal(created.Body.Bytes(), &comment); err != nil {
+		t.Fatal(err)
+	}
+	updated := request(http.MethodPatch, "/api/plans/"+view.Plan.ID+"/comments/"+comment.ID, `{"body":"Clarify the migration path"}`)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("update comment = %d: %s", updated.Code, updated.Body.String())
+	}
+	if err := json.Unmarshal(updated.Body.Bytes(), &comment); err != nil {
+		t.Fatal(err)
+	}
+	if comment.Body != "Clarify the migration path" || comment.SelectionStart == nil || *comment.SelectionStart != 8 {
+		t.Fatalf("updated comment = %+v", comment)
 	}
 	if got := request(http.MethodPost, "/api/plans/"+view.Plan.ID+"/approve", ""); got.Code != http.StatusOK {
 		t.Fatalf("approve = %d: %s", got.Code, got.Body.String())
