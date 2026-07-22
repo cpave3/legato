@@ -31,6 +31,7 @@ type CardData struct {
 	SwarmStats       SwarmStats    // sub-task aggregate; zero value = no swarm
 	ReviewUnreviewed int           // unreviewed review-tour steps
 	ReviewReady      bool          // agent marked the tour ready for review
+	HasWorktree      bool          // task has an associated worktree
 }
 
 // SwarmStats holds aggregate sub-task counts for a swarm parent card.
@@ -223,6 +224,11 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 		}
 	}
 
+	worktreePrefix := ""
+	if card.HasWorktree {
+		worktreePrefix = lipgloss.NewStyle().Foreground(theme.AccentPurple).Render(icons.Worktree) + " "
+	}
+
 	// Warning indicator for failed transitions
 	warningPrefix := ""
 	if card.Warning {
@@ -315,6 +321,11 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 			}
 		}
 
+		sWorktreePrefix := ""
+		if card.HasWorktree {
+			sWorktreePrefix = s(lipgloss.Color("#5b3fa3")).Render(icons.Worktree + " ")
+		}
+
 		// Warning
 		sWarningPrefix := ""
 		if card.Warning {
@@ -340,7 +351,7 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 			sMetaLine = strings.Join(sMetaParts, s(dimText).Render(" · "))
 		}
 
-		content := sProviderIcon + sAgentPrefix + sWarningPrefix + s(dimText).Render(card.Key) + "\n" +
+		content := sProviderIcon + sAgentPrefix + sWorktreePrefix + sWarningPrefix + s(dimText).Render(card.Key) + "\n" +
 			s(darkText).Bold(true).Render(title) + "\n" + sMetaLine
 		if prLine != "" {
 			content += "\n" + prLine
@@ -355,7 +366,7 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 
 	// Apply done-column muted styling
 	if isDone {
-		keyLine := theme.DoneMuted.Render(card.Key)
+		keyLine := theme.DoneMuted.Render(worktreePrefix + card.Key)
 		title = theme.DoneMuted.Render(title)
 		metaLine = theme.DoneMuted.Render(card.IssueType)
 		content := keyLine + "\n" + title + "\n" + metaLine
@@ -373,7 +384,7 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 		return style.Render(content)
 	}
 
-	keyLine := providerIcon + agentPrefix + warningPrefix + keyStyle.Render(card.Key)
+	keyLine := providerIcon + agentPrefix + worktreePrefix + warningPrefix + keyStyle.Render(card.Key)
 	titleLine := titleStyle.Render(title)
 	content := keyLine + "\n" + titleLine + "\n" + metaLine
 	if prLine != "" {

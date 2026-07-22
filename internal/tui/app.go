@@ -111,6 +111,12 @@ type importRemoteDoneMsg struct {
 	Err      string
 }
 
+// worktreeCreateDoneMsg carries the result of asynchronous worktree creation.
+type worktreeCreateDoneMsg struct {
+	TaskID string
+	Err    string
+}
+
 // manualRefreshDoneMsg triggers a board reload and clears the sync indicator.
 type manualRefreshDoneMsg struct{}
 
@@ -952,11 +958,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case overlay.WorktreeSubmitMsg:
 		a.overlayType, a.activeOverlay = overlayNone, nil
 		svc := a.worktreeSvc
+		taskID := msg.TaskID
+		a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{Text: "creating worktree for " + taskID + "..."})
 		return a, func() tea.Msg {
-			if _, err := svc.Create(context.Background(), msg.TaskID, msg.PrimaryDir, msg.Branch, msg.BaseBranch); err != nil {
-				return statusbar.ErrorMsg{Text: "worktree failed: " + err.Error()}
+			if _, err := svc.Create(context.Background(), taskID, msg.PrimaryDir, msg.Branch, msg.BaseBranch); err != nil {
+				return worktreeCreateDoneMsg{TaskID: taskID, Err: err.Error()}
 			}
-			return statusbar.InfoMsg{Text: "worktree created"}
+			return worktreeCreateDoneMsg{TaskID: taskID}
 		}
 
 	case overlay.ChimeraSessionChoiceMsg:
@@ -1131,6 +1139,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case boardRefreshMsg:
 		cmd := a.board.Init()
 		return a, cmd
+
+	case worktreeCreateDoneMsg:
+		a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{})
+		if msg.Err != "" {
+			a.statusBar, _ = a.statusBar.Update(statusbar.ErrorMsg{Text: "worktree failed: " + msg.Err})
+			return a, nil
+		}
+		a.statusBar, _ = a.statusBar.Update(statusbar.InfoMsg{Text: "worktree created"})
+		return a, a.board.Init()
 
 	case importRemoteDoneMsg:
 		if msg.Err != "" {

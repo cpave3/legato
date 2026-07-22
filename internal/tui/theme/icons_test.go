@@ -13,6 +13,9 @@ func TestUnicodeIcons(t *testing.T) {
 	if icons.Terminal == "" {
 		t.Error("Terminal icon should not be empty")
 	}
+	if icons.Worktree == "" {
+		t.Error("Worktree icon should not be empty")
+	}
 }
 
 func TestNerdFontIcons(t *testing.T) {

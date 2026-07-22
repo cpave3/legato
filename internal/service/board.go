@@ -90,14 +90,15 @@ func (b *boardService) ListCardsByWorkspace(ctx context.Context, column string, 
 			provider = *t.Provider
 		}
 		cards[i] = Card{
-			ID:         t.ID,
-			Title:      t.Title,
-			Priority:   t.Priority,
-			IssueType:  issueType,
-			Status:     t.Status,
-			Provider:   provider,
-			SortOrder:  t.SortOrder,
-			HasWarning: hasPushFailure(ctx, b.store, t.ID),
+			ID:          t.ID,
+			Title:       t.Title,
+			Priority:    t.Priority,
+			IssueType:   issueType,
+			Status:      t.Status,
+			Provider:    provider,
+			SortOrder:   t.SortOrder,
+			HasWarning:  hasPushFailure(ctx, b.store, t.ID),
+			HasWorktree: t.WorktreePath != nil && *t.WorktreePath != "",
 		}
 		if wsLookup != nil && t.WorkspaceID != nil {
 			if ws, ok := wsLookup[*t.WorkspaceID]; ok {

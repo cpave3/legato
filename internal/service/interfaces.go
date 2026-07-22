@@ -45,6 +45,7 @@ type Card struct {
 	Provider       string // "jira", "github", or "" for local
 	SortOrder      int
 	HasWarning     bool
+	HasWorktree    bool
 	WorkspaceName  string
 	WorkspaceColor string
 }

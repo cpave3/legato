@@ -28,6 +28,19 @@ func TaskWorktreeSet(s *store.Store, taskID string, meta store.TaskWorktree) err
 	if err := s.SetTaskWorktree(context.Background(), taskID, &meta); err != nil {
 		return fmt.Errorf("set worktree for task %s: %w", taskID, err)
 	}
+	ipc.Broadcast(ipc.Message{Type: "worktree_changed", TaskID: taskID})
+	return nil
+}
+
+// TaskWorktreeClear removes durable worktree metadata and notifies running clients.
+func TaskWorktreeClear(s *store.Store, taskID string) error {
+	if strings.TrimSpace(taskID) == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	if err := s.SetTaskWorktree(context.Background(), taskID, nil); err != nil {
+		return fmt.Errorf("clear worktree for task %s: %w", taskID, err)
+	}
+	ipc.Broadcast(ipc.Message{Type: "worktree_changed", TaskID: taskID})
 	return nil
 }
 

@@ -90,6 +90,7 @@ func (m Model) loadData() Model {
 				IssueType:      c.IssueType,
 				Provider:       c.Provider,
 				Warning:        c.HasWarning,
+				HasWorktree:    c.HasWorktree,
 				WorkspaceName:  c.WorkspaceName,
 				WorkspaceColor: c.WorkspaceColor,
 			}

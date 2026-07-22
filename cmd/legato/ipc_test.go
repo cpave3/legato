@@ -110,19 +110,23 @@ func TestIPCMessage_ReviewChangedPreservesTourIdentity(t *testing.T) {
 }
 
 func TestIPCMessage_CardEvents(t *testing.T) {
-	bus := events.New()
-	ch := bus.Subscribe(events.EventCardUpdated)
-	fn := &fakeNotifier{}
+	for _, messageType := range []string{"task_update", "worktree_changed"} {
+		t.Run(messageType, func(t *testing.T) {
+			bus := events.New()
+			ch := bus.Subscribe(events.EventCardUpdated)
+			fn := &fakeNotifier{}
 
-	msg := ipc.Message{Type: "task_update", TaskID: "abc123"}
-	handleIPCMessage(msg, bus, fn)
+			msg := ipc.Message{Type: messageType, TaskID: "abc123"}
+			handleIPCMessage(msg, bus, fn)
 
-	ev := drainEvent(t, ch)
-	if ev.Type != events.EventCardUpdated {
-		t.Errorf("Type = %v, want EventCardUpdated", ev.Type)
-	}
-	if !fn.called {
-		t.Error("NotifyAgentsChanged should be called")
+			ev := drainEvent(t, ch)
+			if ev.Type != events.EventCardUpdated {
+				t.Errorf("Type = %v, want EventCardUpdated", ev.Type)
+			}
+			if !fn.called {
+				t.Error("NotifyAgentsChanged should be called")
+			}
+		})
 	}
 }
 

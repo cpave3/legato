@@ -107,6 +107,33 @@ func TestCardAgentActiveIndicator(t *testing.T) {
 	}
 }
 
+func TestCardWorktreeIndicator(t *testing.T) {
+	card := CardData{Key: "REX-1", Title: "Test", HasWorktree: true}
+	for _, tc := range []struct {
+		name     string
+		selected bool
+		column   string
+	}{
+		{name: "normal", column: "Doing"},
+		{name: "selected", selected: true, column: "Doing"},
+		{name: "done", column: "Done"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := RenderCard(card, 30, tc.selected, tc.column, testIcons)
+			if !strings.Contains(out, testIcons.Worktree) {
+				t.Fatalf("worktree card should contain %q indicator, got: %q", testIcons.Worktree, out)
+			}
+		})
+	}
+}
+
+func TestCardWithoutWorktreeHasNoWorktreeIndicator(t *testing.T) {
+	card := CardData{Key: "REX-1", Title: "Test"}
+	if out := RenderCard(card, 30, false, "Doing", testIcons); strings.Contains(out, testIcons.Worktree) {
+		t.Fatalf("card without worktree should not contain %q: %q", testIcons.Worktree, out)
+	}
+}
+
 func TestCardNoAgentIndicatorByDefault(t *testing.T) {
 	card := CardData{Key: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug"}
 	out := RenderCard(card, 30, false, "Doing", testIcons)

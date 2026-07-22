@@ -2,20 +2,21 @@ package theme
 
 // Icons holds the icon glyphs for different providers and indicators.
 type Icons struct {
-	Jira             string
-	GitHub           string
-	Local            string
-	Terminal         string
-	Warning          string
-	AgentWorking     string
-	AgentWaiting     string
-	CIPass           string
-	CIFail           string
-	CIPending        string
-	PRApproved       string
-	PRChanges        string
-	PRComments       string
-	PRDraft          string
+	Jira         string
+	GitHub       string
+	Local        string
+	Terminal     string
+	Worktree     string
+	Warning      string
+	AgentWorking string
+	AgentWaiting string
+	CIPass       string
+	CIFail       string
+	CIPending    string
+	PRApproved   string
+	PRChanges    string
+	PRComments   string
+	PRDraft      string
 }
 
 // NewIcons creates an icon set based on the mode ("nerdfonts" or "unicode").
@@ -26,6 +27,7 @@ func NewIcons(mode string) Icons {
 			GitHub:       "\uf408", // nf-oct-mark_github
 			Local:        "\uf444", // nf-oct-note
 			Terminal:     "\uf489", // nf-cod-terminal
+			Worktree:     "\uf1bb", // nf-fa-tree
 			Warning:      "\uf071", // nf-fa-exclamation_triangle
 			AgentWorking: "\uf46a", // nf-oct-sync (spinning arrows)
 			AgentWaiting: "\uf4a5", // nf-oct-bell
@@ -44,6 +46,7 @@ func NewIcons(mode string) Icons {
 		GitHub:       "◉",
 		Local:        "●",
 		Terminal:     "▶",
+		Worktree:     "⑂",
 		Warning:      "!",
 		AgentWorking: "⟳",
 		AgentWaiting: "◆",

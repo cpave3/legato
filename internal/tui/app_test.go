@@ -27,7 +27,8 @@ import (
 )
 
 type fakeBoardService struct {
-	imported []service.Card
+	imported    []service.Card
+	hasWorktree bool
 }
 
 func (f *fakeBoardService) ListColumns(_ context.Context) ([]service.Column, error) {
@@ -40,7 +41,7 @@ func (f *fakeBoardService) ListColumns(_ context.Context) ([]service.Column, err
 func (f *fakeBoardService) ListCards(_ context.Context, column string) ([]service.Card, error) {
 	if column == "Backlog" {
 		cards := []service.Card{
-			{ID: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug", Status: "Backlog"},
+			{ID: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug", Status: "Backlog", HasWorktree: f.hasWorktree},
 		}
 		return append(cards, f.imported...), nil
 	}
@@ -102,6 +103,29 @@ func (f *fakeBoardService) ListWorkspaces(_ context.Context) ([]service.Workspac
 func (f *fakeBoardService) ArchiveDoneCards(_ context.Context) (int, error) { return 0, nil }
 func (f *fakeBoardService) ArchiveTask(_ context.Context, _ string) error   { return nil }
 func (f *fakeBoardService) CountDoneCards(_ context.Context) (int, error)   { return 0, nil }
+
+type fakeWorktreeService struct {
+	createStarted chan string
+	createRelease chan struct{}
+	createErr     error
+}
+
+func (f *fakeWorktreeService) Create(_ context.Context, taskID, primaryDir, branch, baseBranch string) (*store.TaskWorktree, error) {
+	if f.createStarted != nil {
+		f.createStarted <- taskID
+	}
+	if f.createRelease != nil {
+		<-f.createRelease
+	}
+	if f.createErr != nil {
+		return nil, f.createErr
+	}
+	return &store.TaskWorktree{PrimaryDir: primaryDir, Path: primaryDir + "/" + branch, Branch: branch, BaseBranch: baseBranch}, nil
+}
+
+func (f *fakeWorktreeService) Path(context.Context, string) (string, error) { return "", nil }
+
+func (f *fakeWorktreeService) Remove(context.Context, string) error { return nil }
 
 type fakeSyncService struct {
 	importStarted chan string
@@ -695,6 +719,109 @@ func TestDeleteCancelledClosesOverlay(t *testing.T) {
 }
 
 // Import overlay tests
+
+func TestWorktreeSubmitShowsProgressWhileCreationIsPending(t *testing.T) {
+	worktrees := &fakeWorktreeService{
+		createStarted: make(chan string, 1),
+		createRelease: make(chan struct{}),
+	}
+	app := initTestApp()
+	app.SetWorktreeService(worktrees)
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	app, cmd := updateApp(app, overlay.WorktreeSubmitMsg{TaskID: "REX-1", PrimaryDir: "/repo", Branch: "rex-1", BaseBranch: "main"})
+	if !strings.Contains(app.View(), "creating worktree for REX-1...") {
+		t.Fatalf("pending worktree status not rendered: %s", app.View())
+	}
+
+	result := make(chan tea.Msg, 1)
+	go func() { result <- cmd() }()
+	if got := <-worktrees.createStarted; got != "REX-1" {
+		t.Fatalf("worktree started for %q, want REX-1", got)
+	}
+	select {
+	case <-result:
+		t.Fatal("worktree completed before creation was released")
+	default:
+	}
+	if !strings.Contains(app.View(), "creating worktree for REX-1...") {
+		t.Fatal("pending worktree status disappeared while creation was blocked")
+	}
+	close(worktrees.createRelease)
+	<-result
+}
+
+func TestWorktreeCreationCompletionReloadsBoardAndClearsProgress(t *testing.T) {
+	app := initTestApp()
+	app.SetWorktreeService(&fakeWorktreeService{})
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	app, cmd := updateApp(app, overlay.WorktreeSubmitMsg{TaskID: "REX-1", PrimaryDir: "/repo", Branch: "rex-1", BaseBranch: "main"})
+	app, refreshCmd := updateApp(app, cmd())
+	if refreshCmd == nil {
+		t.Fatal("successful creation should reload the board")
+	}
+	view := app.View()
+	if strings.Contains(view, "creating worktree for REX-1...") {
+		t.Fatal("creation progress should clear when yg exits")
+	}
+	if !strings.Contains(view, "worktree created") {
+		t.Fatalf("success message not rendered: %s", view)
+	}
+}
+
+func TestWorktreeCreationFailureClearsProgressAndShowsError(t *testing.T) {
+	app := initTestApp()
+	app.SetWorktreeService(&fakeWorktreeService{createErr: errors.New("hook failed")})
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	app, cmd := updateApp(app, overlay.WorktreeSubmitMsg{TaskID: "REX-1", PrimaryDir: "/repo", Branch: "rex-1", BaseBranch: "main"})
+	app, refreshCmd := updateApp(app, cmd())
+	if refreshCmd != nil {
+		t.Fatal("failed creation should not reload the board")
+	}
+	view := app.View()
+	if strings.Contains(view, "creating worktree for REX-1...") {
+		t.Fatal("creation progress should clear after failure")
+	}
+	if !strings.Contains(view, "worktree failed: hook failed") {
+		t.Fatalf("worktree error not rendered: %s", view)
+	}
+}
+
+func TestWorktreeHookRefreshShowsIconWithoutClearingPendingProgress(t *testing.T) {
+	boardSvc := &fakeBoardService{}
+	worktrees := &fakeWorktreeService{
+		createStarted: make(chan string, 1),
+		createRelease: make(chan struct{}),
+	}
+	app := NewApp(boardSvc, nil, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
+	app.SetWorktreeService(worktrees)
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+	app, _ = updateApp(app, app.board.Init()())
+
+	app, createCmd := updateApp(app, overlay.WorktreeSubmitMsg{TaskID: "REX-1", PrimaryDir: "/repo", Branch: "rex-1", BaseBranch: "main"})
+	result := make(chan tea.Msg, 1)
+	go func() { result <- createCmd() }()
+	<-worktrees.createStarted
+
+	boardSvc.hasWorktree = true // the delayed yg hook persisted metadata
+	app, refreshCmd := updateApp(app, cardUpdateMsg{})
+	if refreshCmd == nil {
+		t.Fatal("worktree change notification should reload the board")
+	}
+	app, _ = updateApp(app, app.board.Init()())
+	view := app.View()
+	if !strings.Contains(view, theme.NewIcons("unicode").Worktree) {
+		t.Fatalf("hook refresh did not reveal worktree icon: %s", view)
+	}
+	if !strings.Contains(view, "creating worktree for REX-1...") {
+		t.Fatalf("hook refresh cleared pending creation status: %s", view)
+	}
+
+	close(worktrees.createRelease)
+	<-result
+}
 
 func TestImportKeyOpensOverlayWhenSyncAvailable(t *testing.T) {
 	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)

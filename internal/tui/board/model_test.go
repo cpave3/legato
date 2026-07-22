@@ -31,7 +31,7 @@ func (f *fakeBoardService) ListCards(_ context.Context, column string) ([]servic
 			{ID: "REX-3", Title: "Third", Priority: "Low", IssueType: "Task", Status: "Backlog"},
 		},
 		"Doing": {
-			{ID: "REX-4", Title: "In progress", Priority: "High", IssueType: "Bug", Status: "Doing"},
+			{ID: "REX-4", Title: "In progress", Priority: "High", IssueType: "Bug", Status: "Doing", HasWorktree: true},
 		},
 		"Review": {},
 		"Done": {
@@ -83,6 +83,17 @@ func newTestModel() Model {
 	m.height = 40
 	m.maxVisible = 100 // large enough that all cards are visible for existing tests
 	return m
+}
+
+func TestLoadDataPreservesWorktreeIndicator(t *testing.T) {
+	m := newTestModel()
+	cards := m.cards["Doing"]
+	if len(cards) != 1 || !cards[0].HasWorktree {
+		t.Fatalf("doing cards = %+v, want worktree indicator", cards)
+	}
+	if view := m.View(); !strings.Contains(view, m.icons.Worktree) {
+		t.Fatalf("board does not render worktree icon %q: %s", m.icons.Worktree, view)
+	}
 }
 
 func TestInitialCursorPosition(t *testing.T) {

@@ -551,7 +551,7 @@ func runTaskWorktreeClear(db *store.Store, args []string) int {
 	if len(args) > 0 && !strings.HasPrefix(args[0], "--") {
 		taskID = args[0]
 	}
-	if err := db.SetTaskWorktree(context.Background(), taskID, nil); err != nil {
+	if err := cli.TaskWorktreeClear(db, taskID); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}

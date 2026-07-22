@@ -110,6 +110,27 @@ func TestListCards_ReturnsSorted(t *testing.T) {
 	}
 }
 
+func TestListCards_ReportsPersistedWorktree(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	seedColumns(t, s)
+	seedTasks(t, s)
+	meta := store.TaskWorktree{PrimaryDir: "/repo", Path: "/repo/.worktrees/t-1", Branch: "t-1", BaseBranch: "main"}
+	if err := s.SetTaskWorktree(context.Background(), "T-1", &meta); err != nil {
+		t.Fatal(err)
+	}
+
+	cards, err := svc.ListCards(context.Background(), "Backlog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cards[0].HasWorktree {
+		t.Fatalf("card = %+v, want persisted worktree indicator", cards[0])
+	}
+	if cards[1].HasWorktree {
+		t.Fatalf("card = %+v, want no worktree indicator", cards[1])
+	}
+}
+
 func TestListCards_EmptyColumn(t *testing.T) {
 	s, _, svc := setupTestBoard(t)
 	seedColumns(t, s)
