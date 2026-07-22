@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
+import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { ArrowLeft, MessageSquarePlus, Send, X } from "lucide-react"
@@ -9,11 +9,20 @@ import { addPlanComment, askPlanQuestion, planAction, respondToPlanQuestion, typ
 import { ReviewMessageBody } from "../components/ReviewMessageBody"
 
 type SourcePosition = { start?: { offset?: number }; end?: { offset?: number } }
-type SelectedBlock = { start: number; end: number; text: string; label: string }
+type SelectedBlock = { start: number; end: number; characterStart: number; characterEnd: number; text: string; label: string }
 
-type BlockProps = {
-  node?: { position?: SourcePosition }
-  children?: ReactNode
+type MarkdownNode = { position?: SourcePosition; properties?: Record<string, unknown> }
+type MdastNode = { data?: { hProperties?: Record<string, unknown> } }
+type Root = { children?: MdastNode[] }
+
+function remarkOutermostBlocks() {
+  return (tree: Root) => {
+    for (const node of tree.children ?? []) {
+      node.data ??= {}
+      node.data.hProperties ??= {}
+      node.data.hProperties["data-plan-outer"] = "true"
+    }
+  }
 }
 
 function keyboardSubmit(event: KeyboardEvent<HTMLTextAreaElement>, submit: () => void, disabled: boolean) {
@@ -26,13 +35,14 @@ function byteOffset(source: string, characterOffset: number) {
   return new TextEncoder().encode(source.slice(0, characterOffset)).length
 }
 
-function sourceBlock(markdown: string, position?: SourcePosition, kind = "block"): SelectedBlock | null {
-  const start = position?.start?.offset
-  const end = position?.end?.offset
+function sourceBlock(markdown: string, node?: MarkdownNode, kind = "block"): SelectedBlock | null {
+  if (node?.properties?.dataPlanOuter !== "true" && node?.properties?.["data-plan-outer"] !== "true") return null
+  const start = node.position?.start?.offset
+  const end = node.position?.end?.offset
   if (start === undefined || end === undefined || end <= start) return null
   const text = markdown.slice(start, end)
   const excerpt = text.replace(/^#{1,6}\s+/, "").replace(/^[-*>+\d.)\s]+/, "").replace(/\s+/g, " ").trim().slice(0, 72)
-  return { start: byteOffset(markdown, start), end: byteOffset(markdown, end), text, label: `Comment on ${kind} beginning ${excerpt}` }
+  return { start: byteOffset(markdown, start), end: byteOffset(markdown, end), characterStart: start, characterEnd: end, text, label: `Comment on ${kind} beginning ${excerpt}` }
 }
 
 function commentState(comments: PlanComment[]) {
@@ -41,15 +51,19 @@ function commentState(comments: PlanComment[]) {
   return undefined
 }
 
-function BlockFrame({ block, selected, comments, onSelect, children }: {
+function BlockFrame({ block, selected, comments, coveredComments, onSelect, onDragStart, onDragEnter, onDragEnd, children }: {
   block: SelectedBlock | null
   selected: boolean
   comments: PlanComment[]
+  coveredComments: PlanComment[]
   onSelect: (block: SelectedBlock) => void
+  onDragStart: (block: SelectedBlock, event: MouseEvent) => void
+  onDragEnter: (block: SelectedBlock) => void
+  onDragEnd: () => void
   children: ReactNode
 }) {
   if (!block) return <>{children}</>
-  const state = commentState(comments)
+  const state = commentState(coveredComments)
   return <div id={`plan-block-${block.start}`} className={`group relative my-1 rounded border-l-2 pl-7 pr-2 transition-colors ${comments.length > 0 ? "lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-4" : ""} ${selected ? "border-indigo-400 bg-indigo-950/35" : state ? "border-amber-500/70 bg-amber-950/15" : "border-transparent hover:border-zinc-700 hover:bg-zinc-900/40"}`}>
     <button
       type="button"
@@ -57,6 +71,9 @@ function BlockFrame({ block, selected, comments, onSelect, children }: {
       aria-pressed={selected}
       data-commented={state}
       onClick={() => onSelect(block)}
+      onMouseDown={event => onDragStart(block, event)}
+      onMouseEnter={() => onDragEnter(block)}
+      onMouseUp={onDragEnd}
       className="absolute left-1 top-2 rounded p-1 text-zinc-600 opacity-60 hover:bg-zinc-800 hover:text-indigo-300 focus:opacity-100 group-hover:opacity-100"
     ><MessageSquarePlus size={14}/></button>
     <div>{children}</div>
@@ -76,6 +93,8 @@ export function PlanPage() {
   const { data, loading, error, refresh } = usePlan(id)
   const navigate = useNavigate()
   const commentInput = useRef<HTMLTextAreaElement>(null)
+  const dragAnchor = useRef<SelectedBlock | null>(null)
+  const suppressClick = useRef(false)
   const [selectedBlock, setSelectedBlock] = useState<SelectedBlock | null>(null)
   const [localComments, setLocalComments] = useState<PlanComment[]>([])
   const [comment, setComment] = useState("")
@@ -102,7 +121,38 @@ export function PlanPage() {
   }
 
   function selectBlock(block: SelectedBlock) {
+    if (suppressClick.current) {
+      suppressClick.current = false
+      return
+    }
     setSelectedBlock(block)
+    requestAnimationFrame(() => commentInput.current?.focus())
+  }
+
+  function selectRange(first: SelectedBlock, last: SelectedBlock) {
+    const start = Math.min(first.start, last.start)
+    const end = Math.max(first.end, last.end)
+    const characterStart = Math.min(first.characterStart, last.characterStart)
+    const characterEnd = Math.max(first.characterEnd, last.characterEnd)
+    setSelectedBlock({ start, end, characterStart, characterEnd, text: data?.revision.markdown.slice(characterStart, characterEnd) ?? "", label: "Comment on selected blocks" })
+  }
+
+  function startDrag(block: SelectedBlock, event: MouseEvent) {
+    if (event.button !== 0) return
+    event.preventDefault()
+    dragAnchor.current = block
+    selectRange(block, block)
+  }
+
+  function extendDrag(block: SelectedBlock) {
+    if (!dragAnchor.current) return
+    if (block.start !== dragAnchor.current.start) suppressClick.current = true
+    selectRange(dragAnchor.current, block)
+  }
+
+  function endDrag() {
+    if (!dragAnchor.current) return
+    dragAnchor.current = null
     requestAnimationFrame(() => commentInput.current?.focus())
   }
 
@@ -154,10 +204,12 @@ export function PlanPage() {
   const currentAnchored = localComments.filter(item => item.revision_id === data.revision.id && item.selection_start !== undefined && item.selection_end !== undefined)
   const generalComments = localComments.filter(item => !item.selected_text)
   const priorRevisionComments = localComments.filter(item => item.revision_id !== data.revision.id && item.selected_text)
-  const blockComments = (block: SelectedBlock | null) => block ? currentAnchored.filter(item => item.selection_start === block.start && item.selection_end === block.end) : []
-  const block = (props: BlockProps, kind: string, content: ReactNode) => {
-    const anchor = sourceBlock(data.revision.markdown, props.node?.position, kind)
-    return <BlockFrame block={anchor} selected={!!anchor && selectedBlock?.start === anchor.start && selectedBlock?.end === anchor.end} comments={blockComments(anchor)} onSelect={selectBlock}>{content}</BlockFrame>
+  const blockComments = (block: SelectedBlock | null) => block ? currentAnchored.filter(item => item.selection_start === block.start) : []
+  const coveringComments = (block: SelectedBlock | null) => block ? currentAnchored.filter(item => item.selection_start !== undefined && item.selection_end !== undefined && item.selection_start <= block.start && item.selection_end >= block.end) : []
+  const block = (props: { node?: unknown }, kind: string, content: ReactNode) => {
+    const anchor = sourceBlock(data.revision.markdown, props.node as MarkdownNode | undefined, kind)
+    const selected = !!anchor && !!selectedBlock && anchor.start >= selectedBlock.start && anchor.end <= selectedBlock.end
+    return <BlockFrame block={anchor} selected={selected} comments={blockComments(anchor)} coveredComments={coveringComments(anchor)} onSelect={selectBlock} onDragStart={startDrag} onDragEnter={extendDrag} onDragEnd={endDrag}>{content}</BlockFrame>
   }
 
   return <div className="flex h-full min-h-0 flex-col bg-[#0a0a0f] text-zinc-200">
@@ -169,7 +221,7 @@ export function PlanPage() {
     <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_25rem]">
       <main className="overflow-y-auto p-6"><div className="mx-auto max-w-4xl">
         <article className="rounded border border-zinc-800 bg-zinc-950 p-5 leading-7">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkOutermostBlocks]} components={{
             h1: props => block(props, "heading", <h1 className="mb-5 mt-1 text-2xl font-bold">{props.children}</h1>),
             h2: props => block(props, "heading", <h2 className="mb-3 mt-6 text-xl font-semibold">{props.children}</h2>),
             h3: props => block(props, "heading", <h3 className="mb-2 mt-5 text-lg font-semibold">{props.children}</h3>),
@@ -177,13 +229,13 @@ export function PlanPage() {
             h5: props => block(props, "heading", <h5 className="mb-2 mt-4 text-sm font-semibold">{props.children}</h5>),
             h6: props => block(props, "heading", <h6 className="mb-2 mt-4 text-xs font-semibold uppercase">{props.children}</h6>),
             p: props => block(props, "paragraph", <p className="my-3 text-zinc-300">{props.children}</p>),
-            li: props => block(props, "list item", <li className="ml-5 list-item">{props.children}</li>),
+            li: ({ children }) => <li className="ml-5 list-item">{children}</li>,
             blockquote: props => block(props, "blockquote", <blockquote className="my-3 border-l-2 border-zinc-700 pl-3 text-zinc-400">{props.children}</blockquote>),
             pre: props => block(props, "code block", <pre className="my-3 overflow-x-auto rounded bg-black/40 p-3">{props.children}</pre>),
-            tr: props => block(props, "table row", <div role="row" className="grid grid-flow-col border-b border-zinc-800">{props.children}</div>),
-            ul: ({ children }) => <ul className="my-3 list-disc">{children}</ul>,
-            ol: ({ children }) => <ol className="my-3 list-decimal">{children}</ol>,
-            table: ({ children }) => <div role="table" className="my-4 overflow-x-auto">{children}</div>,
+            tr: ({ children }) => <div role="row" className="grid grid-flow-col border-b border-zinc-800">{children}</div>,
+            ul: props => block(props, "list", <ul className="my-3 list-disc">{props.children}</ul>),
+            ol: props => block(props, "list", <ol className="my-3 list-decimal">{props.children}</ol>),
+            table: props => block(props, "table", <div role="table" className="my-4 overflow-x-auto">{props.children}</div>),
             thead: ({ children }) => <div role="rowgroup" className="font-semibold">{children}</div>,
             tbody: ({ children }) => <div role="rowgroup">{children}</div>,
             th: ({ children }) => <div role="columnheader" className="p-2 text-left">{children}</div>,
@@ -194,9 +246,9 @@ export function PlanPage() {
       </div></main>
       <aside className="flex min-h-0 flex-col overflow-y-auto border-l border-zinc-800 bg-zinc-950 p-4">
         {data.questions.length > 0 && <><h2 className="text-xs font-semibold uppercase text-zinc-500">Choices</h2><div className="mt-3 space-y-4">{data.questions.map(item => <PlanQuestionControl key={item.id} question={item} response={data.responses.find(response => response.question_id === item.id)} disabled={busy} onRespond={body => run(() => respondToPlanQuestion(baseUrl, id, item.key, body))}/>)}</div></>}
-        <div className="mt-4 border-t border-zinc-800 pt-4"><h2 className="text-xs font-semibold uppercase text-zinc-500">{selectedBlock ? "Comment on selected block" : "General comment"}</h2>
+        <div className="mt-4 border-t border-zinc-800 pt-4"><h2 className="text-xs font-semibold uppercase text-zinc-500">{selectedBlock ? (selectedBlock.label === "Comment on selected blocks" ? "Comment on selected blocks" : "Comment on selected block") : "General comment"}</h2>
           {selectedBlock && <div className="mt-2 rounded bg-indigo-950/40 p-2 text-xs text-indigo-200"><span className="line-clamp-3">{selectedBlock.text}</span><button aria-label="Clear selected block" onClick={() => setSelectedBlock(null)} className="mt-1 flex items-center gap-1 text-zinc-400"><X size={12}/> Clear</button></div>}
-          <textarea ref={commentInput} aria-label={selectedBlock ? "Comment on selected block" : "General plan comment"} value={comment} onChange={event => setComment(event.target.value)} onKeyDown={event => keyboardSubmit(event, () => void submitComment(), busy || !comment.trim())} placeholder={selectedBlock ? "Comment on this block…" : "Leave general feedback…"} className="mt-2 w-full rounded border border-zinc-700 bg-zinc-900 p-2 text-sm"/>
+          <textarea ref={commentInput} aria-label={selectedBlock ? (selectedBlock.label === "Comment on selected blocks" ? "Comment on selected blocks" : "Comment on selected block") : "General plan comment"} value={comment} onChange={event => setComment(event.target.value)} onKeyDown={event => keyboardSubmit(event, () => void submitComment(), busy || !comment.trim())} placeholder={selectedBlock ? "Comment on this block…" : "Leave general feedback…"} className="mt-2 w-full rounded border border-zinc-700 bg-zinc-900 p-2 text-sm"/>
           <button disabled={busy || !comment.trim()} onClick={() => void submitComment()} className="mt-2 rounded bg-indigo-600 px-3 py-1.5 text-xs disabled:opacity-40">{busy ? "Saving…" : "Add draft comment"}</button>
           {generalComments.length > 0 && <div className="mt-3 space-y-2" aria-label="General comments">{generalComments.map(item => <div key={item.id} className="rounded border border-zinc-800 bg-zinc-900 p-2 text-sm"><p>{item.body}</p><span className="text-[10px] font-semibold uppercase text-zinc-500">{item.submitted_at ? "Submitted" : "Draft"}</span></div>)}</div>}
           {priorRevisionComments.length > 0 && <details className="mt-4 text-sm text-zinc-400"><summary className="cursor-pointer text-xs font-semibold uppercase text-zinc-500">Prior revision feedback ({priorRevisionComments.length})</summary><div className="mt-2 space-y-2">{priorRevisionComments.map(item => <div key={item.id} className="rounded border border-zinc-800 p-2"><blockquote className="line-clamp-2 border-l border-zinc-700 pl-2 text-xs text-zinc-500">{item.selected_text}</blockquote><p className="mt-1">{item.body}</p></div>)}</div></details>}

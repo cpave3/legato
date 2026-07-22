@@ -11,7 +11,7 @@ const { refresh, addPlanComment, askPlanQuestion, respondToPlanQuestion, planAct
   planAction: vi.fn(),
 }))
 
-const markdown = "# Block comments\n\nRepeat this paragraph.\n\nRepeat this paragraph.\n"
+const markdown = "# Block comments\n\nRepeat this paragraph.\n\nRepeat this paragraph.\n\n- First nested item\n- Second nested item\n"
 const secondStart = markdown.lastIndexOf("Repeat this paragraph.")
 const planData = {
   plan: { id:"pl-1", task_id:"T-1", name:"", title:"Block comments", summary:"", status:"proposed", latest_revision:1, created_at:"", updated_at:"" },
@@ -52,6 +52,31 @@ describe("PlanPage block comments",()=>{
     expect(await screen.findByText("Clarify this")).toBeTruthy()
     expect(screen.getByText("Draft")).toBeTruthy()
     expect(screen.getAllByRole("button",{name:/Comment on paragraph beginning Repeat this paragraph/})[1].getAttribute("data-commented")).toBe("draft")
+  })
+
+  it("renders one control for an outer list rather than controls for nested items",()=>{
+    renderPage()
+    expect(screen.getAllByRole("button",{name:/Comment on list beginning/})).toHaveLength(1)
+    expect(screen.queryByRole("button",{name:/Comment on list item beginning/})).toBeNull()
+  })
+
+  it("drag-selects a contiguous range of outer blocks",async()=>{
+    renderPage()
+    const first=screen.getByRole("button",{name:/Comment on heading beginning Block comments/})
+    fireEvent.mouseDown(first,{button:0})
+    const second=screen.getAllByRole("button",{name:/Comment on paragraph beginning Repeat this paragraph/})[0]
+    fireEvent.mouseEnter(second,{buttons:1})
+    fireEvent.mouseUp(second)
+
+    expect(screen.getByRole("button",{name:/Comment on heading beginning Block comments/}).getAttribute("aria-pressed")).toBe("true")
+    expect(screen.getAllByRole("button",{name:/Comment on paragraph beginning Repeat this paragraph/})[0].getAttribute("aria-pressed")).toBe("true")
+    const composer=screen.getByLabelText("Comment on selected blocks")
+    fireEvent.change(composer,{target:{value:"Treat these together"}})
+    fireEvent.keyDown(composer,{key:"Enter",metaKey:true})
+    const end=markdown.indexOf("Repeat this paragraph.")+22
+    await waitFor(()=>expect(addPlanComment).toHaveBeenCalledWith("","pl-1",expect.objectContaining({
+      selection_start:0,selection_end:end,selected_text:markdown.slice(0,end),
+    })))
   })
 
   it("submits Q&A with Cmd+Enter and Ctrl+Enter but not plain Enter",async()=>{
