@@ -41,6 +41,7 @@ type Server struct {
 	voiceSvc         VoiceService
 	voiceAutoSend    bool
 	reviews          ReviewService
+	plans            PlanService
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -103,6 +104,16 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/review/tours/{tour_id}/steps/{step_id}/reviewed", s.reviewStepReviewedHandler())
 	mux.HandleFunc("/api/review/tours/{tour_id}/steps/{step_id}/question", s.reviewQuestionHandler())
 	mux.HandleFunc("/api/review/tours/{tour_id}/complete", s.reviewCompleteHandler())
+	mux.HandleFunc("/api/plans/queue", s.planQueueHandler())
+	mux.HandleFunc("/api/plans/{plan_id}", s.planHandler())
+	mux.HandleFunc("/api/plans/{plan_id}/revisions", s.planRevisionsHandler())
+	mux.HandleFunc("/api/plans/{plan_id}/responses/{question_key}", s.planResponseHandler())
+	mux.HandleFunc("/api/plans/{plan_id}/comments", s.planCommentHandler())
+	mux.HandleFunc("/api/plans/{plan_id}/questions", s.planQuestionHandler())
+	mux.HandleFunc("/api/plans/{plan_id}/request-changes", s.planRequestChangesHandler())
+	mux.HandleFunc("/api/plans/{plan_id}/approve", s.planApproveHandler())
+	mux.HandleFunc("/api/plans/{plan_id}/reject", s.planRejectHandler())
+	mux.HandleFunc("/api/plans/{plan_id}/reopen", s.planReopenHandler())
 	// Swarm endpoints
 	mux.HandleFunc("/api/swarm/start", s.swarmStartHandler())
 	mux.HandleFunc("/api/swarm/cancel", s.swarmCancelHandler())
@@ -402,6 +413,21 @@ func (s *Server) StartReviewEvents() {
 				s.hub.Broadcast(WSMessage{
 					Type: MsgReviewChanged, TaskID: p.TaskID, TourID: p.TourID, StepID: p.StepID, Kind: p.Kind,
 				})
+			}
+		}
+	}()
+}
+
+// StartPlanEvents subscribes to plan mutations and broadcasts them to web clients.
+func (s *Server) StartPlanEvents() {
+	if s.bus == nil {
+		return
+	}
+	ch := s.bus.Subscribe(events.EventPlanChanged)
+	go func() {
+		for ev := range ch {
+			if p, ok := ev.Payload.(events.PlanChangedPayload); ok {
+				s.hub.Broadcast(WSMessage{Type: MsgPlanChanged, PlanID: p.PlanID, TaskID: p.TaskID, RevisionID: p.RevisionID, Kind: p.Kind})
 			}
 		}
 	}()

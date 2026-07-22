@@ -24,7 +24,9 @@ type Message struct {
 	Mode        string `json:"mode,omitempty"`         // e.g. "extension" for plan-proposed messages
 	TourID      string `json:"tour_id,omitempty"`      // review tour identity for review_changed
 	StepID      string `json:"step_id,omitempty"`      // review step identity for review_changed
-	Kind        string `json:"kind,omitempty"`         // review mutation kind for review_changed
+	Kind        string `json:"kind,omitempty"`         // mutation kind for review_changed/plan_changed
+	PlanID      string `json:"plan_id,omitempty"`      // durable plan identity for plan_changed
+	RevisionID  string `json:"revision_id,omitempty"`  // plan revision identity for plan_changed
 }
 
 // SocketDir returns the directory for Legato IPC sockets.

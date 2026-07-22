@@ -8,6 +8,8 @@ import { BoardPage } from "./pages/Board"
 import { SettingsPage } from "./pages/Settings"
 import { ReviewQueuePage } from "./pages/ReviewQueuePage"
 import { ReviewTourPage } from "./pages/ReviewTourPage"
+import { PlanQueuePage } from "./pages/PlanQueuePage"
+import { PlanPage } from "./pages/PlanPage"
 import { authHeaders, clearToken } from "./lib/auth"
 
 export default function App() {
@@ -49,6 +51,8 @@ export default function App() {
           <Route path="/board" element={<BoardPage />} />
           <Route path="/review" element={<ReviewQueuePage />} />
           <Route path="/review/:tourId" element={<ReviewTourPage />} />
+          <Route path="/plans" element={<PlanQueuePage />} />
+          <Route path="/plans/:planId" element={<PlanPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/agents" replace />} />
         </Route>

@@ -87,6 +87,17 @@ func TestIPCMessage_PlanProposed(t *testing.T) {
 	}
 }
 
+func TestIPCMessage_PlanChangedPreservesPlanIdentity(t *testing.T) {
+	bus := events.New()
+	ch := bus.Subscribe(events.EventPlanChanged)
+	handleIPCMessage(ipc.Message{Type: "plan_changed", PlanID: "pl-task-search", TaskID: "task-1", RevisionID: "pr-1", Kind: "submitted"}, bus, nil)
+	event := drainEvent(t, ch)
+	payload, ok := event.Payload.(events.PlanChangedPayload)
+	if !ok || payload.PlanID != "pl-task-search" || payload.TaskID != "task-1" || payload.RevisionID != "pr-1" || payload.Kind != "submitted" {
+		t.Fatalf("payload = %#v", event.Payload)
+	}
+}
+
 func TestIPCMessage_ReviewChangedPreservesTourIdentity(t *testing.T) {
 	bus := events.New()
 	ch := bus.Subscribe(events.EventReviewChanged)

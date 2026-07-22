@@ -26,6 +26,7 @@ const (
 	EventSwarmChanged
 	EventPlanProposed
 	EventReviewChanged
+	EventPlanChanged
 )
 
 // ErrorPayload carries structured error information for error events.
@@ -67,6 +68,14 @@ type ReviewChangedPayload struct {
 	TaskID string
 	StepID string // empty when the change is tour-wide
 	Kind   string // "synced", "annotated", "question", "answer", "ready", "reviewed"
+}
+
+// PlanChangedPayload identifies a durable plan mutation for live UI refreshes.
+type PlanChangedPayload struct {
+	PlanID     string
+	TaskID     string
+	RevisionID string
+	Kind       string
 }
 
 type Event struct {

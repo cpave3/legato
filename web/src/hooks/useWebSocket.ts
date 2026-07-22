@@ -4,7 +4,7 @@ import { getToken } from "../lib/auth"
 export interface WSMessage {
   type: "agent_output" | "agent_list" | "agents_changed" | "prompt_state" | "error"
     | "subscribe_agent" | "unsubscribe_agent" | "send_keys" | "resize" | "detect_prompt" | "refresh_pane"
-    | "plan_proposed" | "plan_verdict" | "swarm_changed" | "cards_changed" | "review_changed"
+    | "plan_proposed" | "plan_verdict" | "plan_changed" | "swarm_changed" | "cards_changed" | "review_changed"
   agent_id?: string
   content?: string
   full?: boolean
@@ -28,6 +28,8 @@ export interface WSMessage {
   tour_id?: string
   step_id?: string
   kind?: string
+  plan_id?: string
+  revision_id?: string
 }
 
 export interface AgentInfo {

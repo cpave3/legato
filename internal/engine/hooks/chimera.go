@@ -121,7 +121,10 @@ func (a *ChimeraAdapter) GeneralPrompt() string {
 
 const chimeraGeneralPrompt = "You are a standalone coding agent launched by Legato. " +
 	"No task brief, sub-task, or swarm context was provided — work on whatever " +
-	"the user asks directly. If your session is sandboxed and you need to run the " +
+	"the user asks directly. When implementation should wait for plan approval, " +
+	"author plan.md and plan.json, submit them with `legato plan submit`, and do not " +
+	"implement until approved; use the legato-plan skill for the full workflow. " +
+	"If your session is sandboxed and you need to run the " +
 	"`legato` CLI or read host-side paths, switch that tool call to host mode; " +
 	"otherwise sandboxed calls will return \"command not found\" / \"no such file\".\n" +
 	"\n" +

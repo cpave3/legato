@@ -12,6 +12,9 @@ func TestChimeraGeneralPromptTeachesReviewCapture(t *testing.T) {
 
 	for _, want := range []string{
 		"reasonable semantic commits",
+		"legato plan submit",
+		"do not implement until approved",
+		"legato-plan skill",
 		"granular reading order",
 		"legato review chapter",
 		"--include <path>:<1-based-hunk>",

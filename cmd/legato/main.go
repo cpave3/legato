@@ -67,11 +67,110 @@ func runCLI(args []string) int {
 		return runSwarmCmd(args[1:])
 	case "review":
 		return runReviewCmd(args[1:])
+	case "plan":
+		return runPlanCmd(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato [task|agent|hooks|serve|auth|pair|swarm|review]\n")
+		fmt.Fprintf(os.Stderr, "usage: legato [task|agent|hooks|serve|auth|pair|swarm|review|plan]\n")
 		return 1
 	}
+}
+
+func runPlanCmd(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: legato plan [submit|show|feedback|status|answer|withdraw] ...")
+		return 1
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
+	db, err := store.New(config.ResolveDBPath(cfg))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "database: %v\n", err)
+		return 1
+	}
+	defer db.Close()
+	svc := service.NewPlanService(db, nil, nil)
+	verb := args[0]
+	positional, flags, _ := parseReviewArgs(args[1:])
+	taskID := flags["task"]
+	if taskID == "" {
+		taskID = os.Getenv("LEGATO_TASK_ID")
+	}
+	if taskID == "" {
+		fmt.Fprintln(os.Stderr, "error: no task — pass --task <id> or run inside a legato agent session (LEGATO_TASK_ID)")
+		return 1
+	}
+	name := flags["name"]
+	if name == "" {
+		name = os.Getenv("LEGATO_PLAN_NAME")
+	}
+	resolve := func() (string, error) {
+		plan, err := svc.Resolve(context.Background(), taskID, name)
+		if err != nil {
+			return "", err
+		}
+		return plan.ID, nil
+	}
+	fail := func(err error) int {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	switch verb {
+	case "submit":
+		if len(positional) != 1 {
+			fmt.Fprintln(os.Stderr, "usage: legato plan submit <bundle-dir> [--task <id>] [--name <name>]")
+			return 1
+		}
+		if err := cli.PlanSubmit(svc, taskID, name, positional[0], os.Stdout); err != nil {
+			return fail(err)
+		}
+	case "show", "feedback":
+		if len(positional) != 0 {
+			return fail(fmt.Errorf("usage: legato plan %s [--json] [--task <id>] [--name <name>]", verb))
+		}
+		planID, err := resolve()
+		if err != nil {
+			return fail(err)
+		}
+		if err := cli.PlanShow(svc, planID, os.Stdout); err != nil {
+			return fail(err)
+		}
+	case "status":
+		planID, err := resolve()
+		if err != nil {
+			return fail(err)
+		}
+		if err := cli.PlanStatus(svc, planID, os.Stdout); err != nil {
+			return fail(err)
+		}
+	case "answer":
+		if len(positional) != 2 {
+			fmt.Fprintln(os.Stderr, `usage: legato plan answer <thread-id> "<markdown>" [--task <id>] [--name <name>]`)
+			return 1
+		}
+		planID, err := resolve()
+		if err != nil {
+			return fail(err)
+		}
+		if err := cli.PlanAnswer(svc, planID, positional[0], positional[1]); err != nil {
+			return fail(err)
+		}
+	case "withdraw":
+		planID, err := resolve()
+		if err != nil {
+			return fail(err)
+		}
+		if err := cli.PlanWithdraw(svc, planID); err != nil {
+			return fail(err)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "unknown plan command: %s\n", verb)
+		return 1
+	}
+	return 0
 }
 
 func runReviewCmd(args []string) int {
@@ -988,9 +1087,11 @@ func runServeCmd(args []string) int {
 	}
 
 	reviewSvc := service.NewReviewService(db, tmuxMgr, bus)
+	planSvc := service.NewPlanService(db, tmuxMgr, bus)
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
 	srv.SetReviewService(reviewSvc)
+	srv.SetPlanService(planSvc)
 	srv.SetMacros(cfg.Macros)
 	srv.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
@@ -1019,7 +1120,7 @@ func runServeCmd(args []string) int {
 		switch msg.Type {
 		case "task_update", "task_note", "agent_state", "pr_linked":
 			srv.NotifyAgentsChanged()
-		case "review_changed":
+		case "review_changed", "plan_changed":
 			handleIPCMessage(msg, bus, nil)
 		}
 	})
@@ -1042,6 +1143,7 @@ func runServeCmd(args []string) int {
 	}
 	srv.StartSwarmEvents()
 	srv.StartReviewEvents()
+	srv.StartPlanEvents()
 	srv.StartBoardEvents()
 
 	scheme := "http"
@@ -1272,6 +1374,7 @@ func runTUI() int {
 	defer swarmStop()
 
 	reviewSvc := service.NewReviewService(db, tmuxMgr, bus)
+	planSvc := service.NewPlanService(db, tmuxMgr, bus)
 
 	// Auto-start web server if configured and port is free.
 	if cfg.Web.Enabled {
@@ -1282,6 +1385,7 @@ func runTUI() int {
 		} else {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
 			webSrv.SetReviewService(reviewSvc)
+			webSrv.SetPlanService(planSvc)
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)
@@ -1300,6 +1404,7 @@ func runTUI() int {
 			}
 			webSrv.StartSwarmEvents()
 			webSrv.StartReviewEvents()
+			webSrv.StartPlanEvents()
 			webSrv.StartBoardEvents()
 			go func() {
 				if err := webSrv.Serve(ln); err != nil && err.Error() != "http: Server closed" {
@@ -1315,6 +1420,7 @@ func runTUI() int {
 	reportSvc := service.NewReportService(db)
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
+	app.SetPlanService(planSvc)
 	app.SetGroupDefaults(cfg.Groups.Defaults)
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		app.SetWorktreeService(service.NewWorktreeWorkflow(db, worktree.NewRunner("yg")))

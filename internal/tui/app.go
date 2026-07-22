@@ -20,6 +20,7 @@ import (
 	"github.com/cpave3/legato/internal/tui/clipboard"
 	"github.com/cpave3/legato/internal/tui/detail"
 	"github.com/cpave3/legato/internal/tui/overlay"
+	"github.com/cpave3/legato/internal/tui/plan"
 	"github.com/cpave3/legato/internal/tui/report"
 	"github.com/cpave3/legato/internal/tui/review"
 	"github.com/cpave3/legato/internal/tui/statusbar"
@@ -34,6 +35,7 @@ const (
 	viewAgents
 	viewReport
 	viewReview
+	viewPlans
 )
 
 // VoiceService is the interface the TUI uses for voice dictation. The
@@ -131,6 +133,8 @@ type App struct {
 	reportView         report.Model
 	reviewView         review.Model
 	reviewSvc          review.Service
+	planView           plan.Model
+	planSvc            plan.Service
 	statusBar          statusbar.Model
 	clip               *clipboard.Clipboard
 	editor             string
@@ -148,6 +152,7 @@ type App struct {
 	prSub              <-chan events.Event
 	swarmSub           <-chan events.Event
 	planSub            <-chan events.Event
+	durablePlanSub     <-chan events.Event
 	reviewSub          <-chan events.Event
 	tmux               service.TmuxManager
 	swarmSvc           service.SwarmService
@@ -189,6 +194,12 @@ func (a *App) SetGroupDefaults(defaults []string) {
 func (a *App) SetReviewService(svc review.Service) {
 	a.reviewSvc = svc
 	a.reviewView = review.New(svc)
+}
+
+// SetPlanService enables the durable plan queue and reader.
+func (a *App) SetPlanService(svc plan.Service) {
+	a.planSvc = svc
+	a.planView = plan.New(svc)
 }
 
 func (a *App) SetWebServerRunning(port string) {
@@ -269,6 +280,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		app.prSub = bus.Subscribe(events.EventPRStatusUpdated)
 		app.swarmSub = bus.Subscribe(events.EventSwarmChanged)
 		app.planSub = bus.Subscribe(events.EventPlanProposed)
+		app.durablePlanSub = bus.Subscribe(events.EventPlanChanged)
 		app.reviewSub = bus.Subscribe(events.EventReviewChanged)
 	}
 	return app
@@ -294,6 +306,9 @@ func (a App) Init() tea.Cmd {
 	}
 	if a.reviewSub != nil {
 		cmds = append(cmds, a.listenReviewUpdates())
+	}
+	if a.durablePlanSub != nil {
+		cmds = append(cmds, a.listenDurablePlanUpdates())
 	}
 	if a.reviewSvc != nil {
 		cmds = append(cmds, a.loadReviewBadges())
@@ -345,8 +360,23 @@ type reviewUpdateMsg struct {
 	Payload events.ReviewChangedPayload
 }
 
+type durablePlanUpdateMsg struct {
+	Payload events.PlanChangedPayload
+}
+
 type reviewBadgesMsg struct {
 	States map[string]service.ReviewBadgeState
+}
+
+func (a App) listenDurablePlanUpdates() tea.Cmd {
+	return func() tea.Msg {
+		ev, ok := <-a.durablePlanSub
+		if !ok {
+			return nil
+		}
+		payload, _ := ev.Payload.(events.PlanChangedPayload)
+		return durablePlanUpdateMsg{Payload: payload}
+	}
 }
 
 func (a App) listenReviewUpdates() tea.Cmd {
@@ -448,7 +478,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		// ? opens help unless an active text input owns printable keys.
-		if msg.String() == "?" && !(a.active == viewReview && a.reviewView.InputFocused()) {
+		if msg.String() == "?" && !(a.active == viewReview && a.reviewView.InputFocused()) && !(a.active == viewPlans && a.planView.InputFocused()) {
 			return a.openHelpOverlay()
 		}
 
@@ -520,6 +550,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.active == viewBoard && a.reviewSvc != nil {
 				a = a.setMode(viewReview)
 				return a, a.reviewView.Init()
+			}
+			return a.delegateKey(msg)
+		case "P":
+			if a.active == viewBoard && a.planSvc != nil {
+				a = a.setMode(viewPlans)
+				return a, a.planView.Init()
 			}
 			return a.delegateKey(msg)
 		default:
@@ -1124,6 +1160,23 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, tea.Batch(cmds...)
 
+	case plan.ReturnToBoardMsg:
+		a = a.setMode(viewBoard)
+		return a, nil
+
+	case durablePlanUpdateMsg:
+		if a.active == viewPlans {
+			var cmd tea.Cmd
+			a.planView, cmd = a.planView.Update(plan.ChangedMsg{PlanID: msg.Payload.PlanID})
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if a.durablePlanSub != nil {
+			cmds = append(cmds, a.listenDurablePlanUpdates())
+		}
+		return a, tea.Batch(cmds...)
+
 	case reviewBadgesMsg:
 		a.board.SetReviewStates(msg.States)
 		return a, nil
@@ -1342,7 +1395,7 @@ func viewToStatusMode(v viewType) statusbar.Mode {
 		return statusbar.ModeAgents
 	case viewReport:
 		return statusbar.ModeReport
-	case viewReview:
+	case viewReview, viewPlans:
 		return statusbar.ModeReview
 	default:
 		return statusbar.ModeBoard
@@ -2501,6 +2554,12 @@ func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case viewPlans:
+		var cmd tea.Cmd
+		a.planView, cmd = a.planView.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	return a, tea.Batch(cmds...)
 }
@@ -2532,6 +2591,12 @@ func (a App) View() string {
 		statusBarHeight := lipgloss.Height(statusBar)
 		a.reviewView.SetSize(a.width, a.height-statusBarHeight)
 		content := a.reviewView.View()
+		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
+	case viewPlans:
+		statusBar := a.statusBar.View()
+		statusBarHeight := lipgloss.Height(statusBar)
+		a.planView.SetSize(a.width, a.height-statusBarHeight)
+		content := a.planView.View()
 		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 	default:
 		content := a.board.View()

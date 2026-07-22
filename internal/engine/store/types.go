@@ -232,6 +232,81 @@ type ReviewMessage struct {
 	CreatedAt   string  `db:"created_at" json:"created_at"`
 }
 
+// Plan is a durable planning artifact attached to a task.
+type Plan struct {
+	ID             string  `db:"id" json:"id"`
+	TaskID         string  `db:"task_id" json:"task_id"`
+	Name           string  `db:"name" json:"name"`
+	Title          string  `db:"title" json:"title"`
+	Summary        string  `db:"summary" json:"summary"`
+	Status         string  `db:"status" json:"status"`
+	LatestRevision int     `db:"latest_revision" json:"latest_revision"`
+	ApprovedAt     *string `db:"approved_at" json:"approved_at,omitempty"`
+	RejectedAt     *string `db:"rejected_at" json:"rejected_at,omitempty"`
+	CreatedAt      string  `db:"created_at" json:"created_at"`
+	UpdatedAt      string  `db:"updated_at" json:"updated_at"`
+}
+
+type PlanRevision struct {
+	ID           string `db:"id" json:"id"`
+	PlanID       string `db:"plan_id" json:"plan_id"`
+	Revision     int    `db:"revision" json:"revision"`
+	Markdown     string `db:"markdown" json:"markdown"`
+	ManifestJSON string `db:"manifest_json" json:"manifest_json"`
+	CreatedAt    string `db:"created_at" json:"created_at"`
+}
+
+type PlanQuestion struct {
+	ID              string `db:"id" json:"id"`
+	PlanID          string `db:"plan_id" json:"plan_id"`
+	RevisionID      string `db:"revision_id" json:"revision_id"`
+	Key             string `db:"question_key" json:"key"`
+	Kind            string `db:"kind" json:"kind"`
+	Prompt          string `db:"prompt" json:"prompt"`
+	Rationale       string `db:"rationale" json:"rationale"`
+	Required        bool   `db:"required" json:"required"`
+	OptionsJSON     string `db:"options_json" json:"options_json"`
+	RecommendedJSON string `db:"recommended_json" json:"recommended_json"`
+	CreatedAt       string `db:"created_at" json:"created_at"`
+}
+
+type PlanResponse struct {
+	ID         string `db:"id" json:"id"`
+	PlanID     string `db:"plan_id" json:"plan_id"`
+	RevisionID string `db:"revision_id" json:"revision_id"`
+	QuestionID string `db:"question_id" json:"question_id"`
+	ValuesJSON string `db:"values_json" json:"values_json"`
+	Text       string `db:"text" json:"text"`
+	CreatedAt  string `db:"created_at" json:"created_at"`
+	UpdatedAt  string `db:"updated_at" json:"updated_at"`
+}
+
+type PlanComment struct {
+	ID             string  `db:"id" json:"id"`
+	PlanID         string  `db:"plan_id" json:"plan_id"`
+	RevisionID     string  `db:"revision_id" json:"revision_id"`
+	Body           string  `db:"body" json:"body"`
+	SelectionStart *int    `db:"selection_start" json:"selection_start,omitempty"`
+	SelectionEnd   *int    `db:"selection_end" json:"selection_end,omitempty"`
+	SelectedText   string  `db:"selected_text" json:"selected_text"`
+	Prefix         string  `db:"prefix" json:"prefix"`
+	Suffix         string  `db:"suffix" json:"suffix"`
+	SubmittedAt    *string `db:"submitted_at" json:"submitted_at,omitempty"`
+	CreatedAt      string  `db:"created_at" json:"created_at"`
+}
+
+type PlanMessage struct {
+	ID          int     `db:"id" json:"id"`
+	PlanID      string  `db:"plan_id" json:"plan_id"`
+	RevisionID  string  `db:"revision_id" json:"revision_id"`
+	ThreadID    string  `db:"thread_id" json:"thread_id"`
+	Kind        string  `db:"kind" json:"kind"`
+	Author      string  `db:"author" json:"author"`
+	Body        string  `db:"body" json:"body"`
+	DeliveredAt *string `db:"delivered_at" json:"delivered_at,omitempty"`
+	CreatedAt   string  `db:"created_at" json:"created_at"`
+}
+
 // Subtask represents a swarm sub-task: a unit of work parented to a task,
 // owned by one worker agent, scoped to a set of file globs.
 //

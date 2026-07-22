@@ -17,6 +17,16 @@
 - `legato auth regenerate` — generate a new auth token (invalidates all paired devices)
 - `legato pair [--port <port>]` — render a QR code in the terminal encoding `legato://pair?url=<serverUrl>&token=<token>` for one-step PWA pairing. Prints raw token below QR as fallback. Uses configured hostname or system hostname, auto-detects TLS scheme
 
+### Collaborative plan verbs
+
+- `legato plan submit <bundle-dir> [--task <id>] [--name <name>]` — validate `plan.md`/`plan.json`, snapshot them, and propose a new immutable revision
+- `legato plan show|feedback --json [--task <id>] [--name <name>]` — print the current revision, choices, responses, comments, and Q&A transcript
+- `legato plan status --json [--task <id>] [--name <name>]` — print lifecycle status and revision
+- `legato plan answer <thread-id> "<markdown>" [--task <id>] [--name <name>]` — answer immediate plan Q&A
+- `legato plan withdraw [--task <id>] [--name <name>]` — remove a non-approved proposal
+
+See `docs/plans.md` for the bundle schema and approval lifecycle.
+
 ### Swarm verbs
 
 Conductor-only:
