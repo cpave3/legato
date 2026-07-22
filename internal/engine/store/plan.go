@@ -35,12 +35,12 @@ func (s *Store) InsertPlanRevision(ctx context.Context, plan Plan, revision Plan
 	}
 	defer tx.Rollback()
 	if _, err := tx.NamedExecContext(ctx, `
-		INSERT INTO plans (id, task_id, name, title, summary, status, latest_revision)
-		VALUES (:id, :task_id, :name, :title, :summary, :status, :latest_revision)
+		INSERT INTO plans (id, task_id, name, title, summary, status, latest_revision, source_bundle_path)
+		VALUES (:id, :task_id, :name, :title, :summary, :status, :latest_revision, :source_bundle_path)
 		ON CONFLICT(task_id, name) DO UPDATE SET title = excluded.title,
 			summary = excluded.summary, status = excluded.status,
-			latest_revision = excluded.latest_revision, approved_at = NULL,
-			rejected_at = NULL, updated_at = datetime('now')`, plan); err != nil {
+			latest_revision = excluded.latest_revision, source_bundle_path = excluded.source_bundle_path,
+			approved_at = NULL, rejected_at = NULL, completed_at = NULL, updated_at = datetime('now')`, plan); err != nil {
 		return err
 	}
 	if _, err := tx.NamedExecContext(ctx, `
@@ -155,6 +155,37 @@ func (s *Store) UpdatePlanCommentBody(ctx context.Context, planID, commentID, bo
 func (s *Store) SubmitPlanComments(ctx context.Context, revisionID string) error {
 	_, err := s.db.ExecContext(ctx, "UPDATE plan_comments SET submitted_at = datetime('now') WHERE revision_id = ? AND submitted_at IS NULL", revisionID)
 	return err
+}
+
+func (s *Store) ApprovePlan(ctx context.Context, planID string, cleanup bool) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE plans SET status = 'approved', cleanup_after_implementation = ?,
+		approved_at = datetime('now'), rejected_at = NULL, completed_at = NULL, updated_at = datetime('now') WHERE id = ?`, cleanup, planID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *Store) CompletePlan(ctx context.Context, planID string) error {
+	result, err := s.db.ExecContext(ctx, "UPDATE plans SET status = 'completed', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?", planID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) UpdatePlanStatus(ctx context.Context, planID, status string) error {

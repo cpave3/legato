@@ -234,17 +234,20 @@ type ReviewMessage struct {
 
 // Plan is a durable planning artifact attached to a task.
 type Plan struct {
-	ID             string  `db:"id" json:"id"`
-	TaskID         string  `db:"task_id" json:"task_id"`
-	Name           string  `db:"name" json:"name"`
-	Title          string  `db:"title" json:"title"`
-	Summary        string  `db:"summary" json:"summary"`
-	Status         string  `db:"status" json:"status"`
-	LatestRevision int     `db:"latest_revision" json:"latest_revision"`
-	ApprovedAt     *string `db:"approved_at" json:"approved_at,omitempty"`
-	RejectedAt     *string `db:"rejected_at" json:"rejected_at,omitempty"`
-	CreatedAt      string  `db:"created_at" json:"created_at"`
-	UpdatedAt      string  `db:"updated_at" json:"updated_at"`
+	ID                         string  `db:"id" json:"id"`
+	TaskID                     string  `db:"task_id" json:"task_id"`
+	Name                       string  `db:"name" json:"name"`
+	Title                      string  `db:"title" json:"title"`
+	Summary                    string  `db:"summary" json:"summary"`
+	Status                     string  `db:"status" json:"status"`
+	LatestRevision             int     `db:"latest_revision" json:"latest_revision"`
+	ApprovedAt                 *string `db:"approved_at" json:"approved_at,omitempty"`
+	RejectedAt                 *string `db:"rejected_at" json:"rejected_at,omitempty"`
+	CleanupAfterImplementation bool    `db:"cleanup_after_implementation" json:"cleanup_after_implementation"`
+	SourceBundlePath           string  `db:"source_bundle_path" json:"source_bundle_path"`
+	CompletedAt                *string `db:"completed_at" json:"completed_at,omitempty"`
+	CreatedAt                  string  `db:"created_at" json:"created_at"`
+	UpdatedAt                  string  `db:"updated_at" json:"updated_at"`
 }
 
 type PlanRevision struct {

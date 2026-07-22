@@ -78,7 +78,7 @@ func runCLI(args []string) int {
 
 func runPlanCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: legato plan [submit|show|feedback|status|answer|withdraw] ...")
+		fmt.Fprintln(os.Stderr, "usage: legato plan [submit|show|feedback|status|answer|complete|withdraw] ...")
 		return 1
 	}
 	cfg, err := config.Load()
@@ -156,6 +156,14 @@ func runPlanCmd(args []string) int {
 			return fail(err)
 		}
 		if err := cli.PlanAnswer(svc, planID, positional[0], positional[1]); err != nil {
+			return fail(err)
+		}
+	case "complete":
+		planID, err := resolve()
+		if err != nil {
+			return fail(err)
+		}
+		if err := cli.PlanComplete(svc, planID, os.Stdout); err != nil {
 			return fail(err)
 		}
 	case "withdraw":

@@ -48,7 +48,7 @@ func TestPlanHTTPFlowAnswersRequiredQuestionAndApproves(t *testing.T) {
 		server.Handler().ServeHTTP(recorder, req)
 		return recorder
 	}
-	if got := request(http.MethodPost, "/api/plans/"+view.Plan.ID+"/approve", ""); got.Code != http.StatusConflict {
+	if got := request(http.MethodPost, "/api/plans/"+view.Plan.ID+"/approve", `{"cleanup_after_implementation":true}`); got.Code != http.StatusConflict {
 		t.Fatalf("approve before response = %d: %s", got.Code, got.Body.String())
 	}
 	if got := request(http.MethodPut, "/api/plans/"+view.Plan.ID+"/responses/db", `{"values":["sqlite"]}`); got.Code != http.StatusOK {
@@ -72,7 +72,7 @@ func TestPlanHTTPFlowAnswersRequiredQuestionAndApproves(t *testing.T) {
 	if comment.Body != "Clarify the migration path" || comment.SelectionStart == nil || *comment.SelectionStart != 8 {
 		t.Fatalf("updated comment = %+v", comment)
 	}
-	if got := request(http.MethodPost, "/api/plans/"+view.Plan.ID+"/approve", ""); got.Code != http.StatusOK {
+	if got := request(http.MethodPost, "/api/plans/"+view.Plan.ID+"/approve", `{"cleanup_after_implementation":true}`); got.Code != http.StatusOK {
 		t.Fatalf("approve = %d: %s", got.Code, got.Body.String())
 	}
 	got := request(http.MethodGet, "/api/plans/"+view.Plan.ID, "")
@@ -83,7 +83,7 @@ func TestPlanHTTPFlowAnswersRequiredQuestionAndApproves(t *testing.T) {
 	if err := json.Unmarshal(got.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Plan.Status != "approved" || len(result.Responses) != 1 || len(result.Comments) != 1 {
+	if result.Plan.Status != "approved" || !result.Plan.CleanupAfterImplementation || len(result.Responses) != 1 || len(result.Comments) != 1 {
 		t.Fatalf("result = %+v", result)
 	}
 }

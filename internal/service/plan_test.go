@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -156,6 +157,78 @@ func TestUpdatePlanCommentPreservesAnchorAndSubmittedState(t *testing.T) {
 	}
 	if _, err := svc.UpdateComment(ctx, view.Plan.ID, comment.ID, "  "); err == nil {
 		t.Fatal("empty update succeeded")
+	}
+}
+
+func TestCompleteApprovedPlanKeepsOrCleansSourceBundle(t *testing.T) {
+	for _, cleanup := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cleanup=%t", cleanup), func(t *testing.T) {
+			_, svc, bundle := newPlanFixture(t)
+			ctx := context.Background()
+			view, err := svc.Submit(ctx, "task-1", "search", bundle)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.Respond(ctx, view.Plan.ID, "backend", PlanResponseInput{Values: []string{"sqlite"}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.Approve(ctx, view.Plan.ID, cleanup); err != nil {
+				t.Fatal(err)
+			}
+			result, err := svc.Complete(ctx, view.Plan.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != "completed" || result.CleanedUp != cleanup {
+				t.Fatalf("result = %+v", result)
+			}
+			_, statErr := os.Stat(bundle)
+			if cleanup && !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("bundle still exists: %v", statErr)
+			}
+			if !cleanup && statErr != nil {
+				t.Fatalf("bundle removed: %v", statErr)
+			}
+			stored, err := svc.Plan(ctx, view.Plan.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stored.Plan.Status != "completed" || stored.Plan.CompletedAt == nil || stored.Plan.CleanupAfterImplementation != cleanup {
+				t.Fatalf("stored = %+v", stored.Plan)
+			}
+			again, err := svc.Complete(ctx, view.Plan.ID)
+			if err != nil || !again.AlreadyCompleted {
+				t.Fatalf("repeat complete = %+v, %v", again, err)
+			}
+		})
+	}
+}
+
+func TestCompleteRefusesUnsafeOrInvalidBundle(t *testing.T) {
+	_, svc, bundle := newPlanFixture(t)
+	ctx := context.Background()
+	view, err := svc.Submit(ctx, "task-1", "search", bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Respond(ctx, view.Plan.ID, "backend", PlanResponseInput{Values: []string{"sqlite"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Approve(ctx, view.Plan.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(bundle, "plan.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Complete(ctx, view.Plan.ID); err == nil || !strings.Contains(err.Error(), "plan.json") {
+		t.Fatalf("complete error = %v", err)
+	}
+	stored, err := svc.Plan(ctx, view.Plan.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Plan.Status != "approved" || stored.Plan.CompletedAt != nil {
+		t.Fatalf("invalid bundle marked completed: %+v", stored.Plan)
 	}
 }
 

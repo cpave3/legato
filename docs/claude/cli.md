@@ -23,6 +23,7 @@
 - `legato plan show|feedback --json [--task <id>] [--name <name>]` — print the current revision, choices, responses, comments, and Q&A transcript
 - `legato plan status --json [--task <id>] [--name <name>]` — print lifecycle status and revision
 - `legato plan answer <thread-id> "<markdown>" [--task <id>] [--name <name>]` — answer immediate plan Q&A
+- `legato plan complete [--task <id>] [--name <name>]` — mark successful implementation complete and safely remove the submitted source bundle when approval requested cleanup
 - `legato plan withdraw [--task <id>] [--name <name>]` — remove a non-approved proposal
 
 See `docs/plans.md` for the bundle schema and approval lifecycle.

@@ -22,7 +22,7 @@ type Service interface {
 	AddComment(context.Context, string, service.PlanCommentInput) (*store.PlanComment, error)
 	AskQuestion(context.Context, string, string) (string, error)
 	RequestChanges(context.Context, string) error
-	Approve(context.Context, string) error
+	Approve(context.Context, string, ...bool) error
 	Reject(context.Context, string) error
 	Reopen(context.Context, string) error
 }
@@ -56,6 +56,7 @@ const (
 	inputAnswer
 	inputComment
 	inputQuestion
+	inputApproveCleanup
 )
 
 type Model struct {
@@ -166,7 +167,8 @@ func (m Model) key(key tea.KeyMsg) (Model, tea.Cmd) {
 		m.inputMode = inputQuestion
 		m.input = ""
 	case "a":
-		return m, m.action("Plan approved", func(ctx context.Context, id string) error { return m.svc.Approve(ctx, id) })
+		m.inputMode = inputApproveCleanup
+		return m, nil
 	case "x":
 		return m, m.action("Plan rejected", func(ctx context.Context, id string) error { return m.svc.Reject(ctx, id) })
 	case "r":
@@ -177,6 +179,21 @@ func (m Model) key(key tea.KeyMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 func (m Model) inputKey(key tea.KeyMsg) (Model, tea.Cmd) {
+	if m.inputMode == inputApproveCleanup {
+		switch key.String() {
+		case "y":
+			m.inputMode = inputNone
+			return m, m.action("Plan approved with cleanup", func(ctx context.Context, id string) error { return m.svc.Approve(ctx, id, true) })
+		case "n":
+			m.inputMode = inputNone
+			return m, m.action("Plan approved", func(ctx context.Context, id string) error { return m.svc.Approve(ctx, id, false) })
+		case "esc":
+			m.inputMode = inputNone
+			return m, nil
+		default:
+			return m, nil
+		}
+	}
 	switch key.String() {
 	case "esc":
 		m.inputMode = inputNone
@@ -320,7 +337,9 @@ func (m Model) View() string {
 	}
 	header := fmt.Sprintf("%s  rev %d  [%s]", title.Render(m.view.Plan.Title), m.view.Plan.LatestRevision, m.view.Plan.Status)
 	footer := "j/k scroll • tab choice • e answer • c comment • ? ask • a approve • r changes • x reject • q queue"
-	if m.inputMode != inputNone {
+	if m.inputMode == inputApproveCleanup {
+		footer = "Clean up plan files after successful implementation? y yes • n no • esc cancel"
+	} else if m.inputMode != inputNone {
 		labels := map[inputMode]string{inputAnswer: "Answer (option IDs comma-separated or text)", inputComment: "Comment", inputQuestion: "Question"}
 		footer = fmt.Sprintf("%s: %s█  (enter submit • esc cancel)", labels[m.inputMode], m.input)
 	}

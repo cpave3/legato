@@ -19,7 +19,7 @@ type PlanService interface {
 	UpdateComment(context.Context, string, string, string) (*store.PlanComment, error)
 	AskQuestion(context.Context, string, string) (string, error)
 	RequestChanges(context.Context, string) error
-	Approve(context.Context, string) error
+	Approve(context.Context, string, ...bool) error
 	Reject(context.Context, string) error
 	Reopen(context.Context, string) error
 }
@@ -203,7 +203,29 @@ func (s *Server) planRequestChangesHandler() http.HandlerFunc {
 	return s.planActionHandler("request changes", s.plansRequestChanges)
 }
 func (s *Server) planApproveHandler() http.HandlerFunc {
-	return s.planActionHandler("approve", s.plansApprove)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !s.requirePlanService(w) {
+			return
+		}
+		var input struct {
+			CleanupAfterImplementation bool `json:"cleanup_after_implementation"`
+		}
+		if r.ContentLength > 0 {
+			if err := decodeJSON(r, &input); err != nil {
+				s.writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+		}
+		if err := s.plans.Approve(r.Context(), r.PathValue("plan_id"), input.CleanupAfterImplementation); err != nil {
+			s.writePlanError(w, err)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
 }
 func (s *Server) planRejectHandler() http.HandlerFunc {
 	return s.planActionHandler("reject", s.plansReject)
@@ -232,6 +254,5 @@ func (s *Server) planActionHandler(_ string, action func(context.Context, string
 func (s *Server) plansRequestChanges(ctx context.Context, id string) error {
 	return s.plans.RequestChanges(ctx, id)
 }
-func (s *Server) plansApprove(ctx context.Context, id string) error { return s.plans.Approve(ctx, id) }
-func (s *Server) plansReject(ctx context.Context, id string) error  { return s.plans.Reject(ctx, id) }
-func (s *Server) plansReopen(ctx context.Context, id string) error  { return s.plans.Reopen(ctx, id) }
+func (s *Server) plansReject(ctx context.Context, id string) error { return s.plans.Reject(ctx, id) }
+func (s *Server) plansReopen(ctx context.Context, id string) error { return s.plans.Reopen(ctx, id) }

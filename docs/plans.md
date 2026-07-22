@@ -20,7 +20,9 @@ draft files → proposed → changes_requested → proposed → approved
                          └────────────────────→ rejected → reopened
 ```
 
-Required questions must be answered before approval. Requesting changes submits current draft comments and notifies the agent to retrieve structured feedback. Rejection prevents implementation unless reopened and subsequently approved.
+Required questions must be answered before approval. Approval can opt into **Clean up plan files after implementation**. Requesting changes submits current draft comments and notifies the agent to retrieve structured feedback. Rejection prevents implementation unless reopened and subsequently approved.
+
+After successful implementation and verification, the agent runs `legato plan complete`. Completion archives the plan from active queues while retaining revisions, comments, responses, and transcript history. If cleanup was selected, the command validates and removes only the submitted bundle directory before recording completion.
 
 ## CLI
 
@@ -30,6 +32,7 @@ legato plan show --json [--task ID] [--name NAME]
 legato plan feedback --json [--task ID] [--name NAME]
 legato plan status --json [--task ID] [--name NAME]
 legato plan answer <thread-id> <markdown> [--task ID] [--name NAME]
+legato plan complete [--task ID] [--name NAME]
 legato plan withdraw [--task ID] [--name NAME]
 ```
 

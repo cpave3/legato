@@ -1,9 +1,9 @@
 import { apiFetch } from "./api"
 
-export type PlanStatus = "proposed" | "changes_requested" | "approved" | "rejected"
+export type PlanStatus = "proposed" | "changes_requested" | "approved" | "rejected" | "completed"
 
 export interface PlanQueueItem { plan_id:string; task_id:string; name:string; title:string; summary:string; status:PlanStatus; revision:number; unanswered_required:number; updated_at:string }
-export interface Plan { id:string; task_id:string; name:string; title:string; summary:string; status:PlanStatus; latest_revision:number; approved_at?:string; rejected_at?:string; created_at:string; updated_at:string }
+export interface Plan { id:string; task_id:string; name:string; title:string; summary:string; status:PlanStatus; latest_revision:number; approved_at?:string; rejected_at?:string; cleanup_after_implementation:boolean; source_bundle_path:string; completed_at?:string; created_at:string; updated_at:string }
 export interface PlanRevision { id:string; plan_id:string; revision:number; markdown:string; manifest_json:string; created_at:string }
 export interface PlanQuestion { id:string; key:string; kind:"single_choice"|"multiple_choice"|"free_text"; prompt:string; rationale:string; required:boolean; options_json:string; recommended_json:string }
 export interface PlanResponse { id:string; question_id:string; values_json:string; text:string }
@@ -23,4 +23,4 @@ export const respondToPlanQuestion = async (baseUrl:string,id:string,key:string,
 export const addPlanComment = async (baseUrl:string,id:string,body:{body:string;selection_start?:number;selection_end?:number;selected_text?:string;prefix?:string;suffix?:string}) => json<PlanComment>(await send(baseUrl,`${path(id)}/comments`,body))
 export const updatePlanComment = async (baseUrl:string,id:string,commentId:string,body:string) => json<PlanComment>(await send(baseUrl,`${path(id)}/comments/${encodeURIComponent(commentId)}`,{body},"PATCH"))
 export const askPlanQuestion = async (baseUrl:string,id:string,text:string) => json<{warning?:string;thread_id:string}>(await send(baseUrl,`${path(id)}/questions`,{text}))
-export const planAction = async (baseUrl:string,id:string,action:"request-changes"|"approve"|"reject"|"reopen") => ok(await send(baseUrl,`${path(id)}/${action}`))
+export const planAction = async (baseUrl:string,id:string,action:"request-changes"|"approve"|"reject"|"reopen",body?:unknown) => ok(await send(baseUrl,`${path(id)}/${action}`,body))

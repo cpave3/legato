@@ -14,6 +14,7 @@ func TestChimeraGeneralPromptTeachesReviewCapture(t *testing.T) {
 		"reasonable semantic commits",
 		"legato plan submit",
 		"do not implement until approved",
+		"legato plan complete",
 		"legato-plan skill",
 		"granular reading order",
 		"legato review chapter",

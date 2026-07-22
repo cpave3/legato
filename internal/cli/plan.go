@@ -34,6 +34,15 @@ func PlanAnswer(svc *service.PlanService, planID, threadID, text string) error {
 	return nil
 }
 
+func PlanComplete(svc *service.PlanService, planID string, w io.Writer) error {
+	result, err := svc.Complete(context.Background(), planID)
+	if err != nil {
+		return err
+	}
+	broadcastPlanChanged(planID, "", "", "completed")
+	return writeJSON(w, result)
+}
+
 func PlanWithdraw(svc *service.PlanService, planID string) error {
 	if err := svc.Withdraw(context.Background(), planID); err != nil {
 		return err
@@ -49,7 +58,10 @@ func PlanStatus(svc *service.PlanService, planID string, w io.Writer) error {
 	}
 	return json.NewEncoder(w).Encode(map[string]any{
 		"plan_id": view.Plan.ID, "status": view.Plan.Status,
-		"revision": view.Plan.LatestRevision,
+		"revision":                     view.Plan.LatestRevision,
+		"cleanup_after_implementation": view.Plan.CleanupAfterImplementation,
+		"source_bundle_path":           view.Plan.SourceBundlePath,
+		"completed_at":                 view.Plan.CompletedAt,
 	})
 }
 

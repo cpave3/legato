@@ -36,11 +36,13 @@ function byteOffset(source: string, characterOffset: number) {
 }
 
 function sourceBlock(markdown: string, node?: MarkdownNode, kind = "block"): SelectedBlock | null {
-  if (node?.properties?.dataPlanOuter !== "true" && node?.properties?.["data-plan-outer"] !== "true") return null
-  const start = node.position?.start?.offset
-  const end = node.position?.end?.offset
+  const start = node?.position?.start?.offset
+  const end = node?.position?.end?.offset
   if (start === undefined || end === undefined || end <= start) return null
   const text = markdown.slice(start, end)
+  const outermost = node?.properties?.dataPlanOuter === "true" || node?.properties?.["data-plan-outer"] === "true"
+  const fencedCode = kind === "code block" && /^(?:```|~~~)/.test(text)
+  if (!outermost && !fencedCode) return null
   const excerpt = text.replace(/^#{1,6}\s+/, "").replace(/^[-*>+\d.)\s]+/, "").replace(/\s+/g, " ").trim().slice(0, 72)
   return { start: byteOffset(markdown, start), end: byteOffset(markdown, end), characterStart: start, characterEnd: end, text, label: `Comment on ${kind} beginning ${excerpt}` }
 }
@@ -128,6 +130,7 @@ export function PlanPage() {
   const [localComments, setLocalComments] = useState<PlanComment[]>([])
   const [comment, setComment] = useState("")
   const [question, setQuestion] = useState("")
+  const [cleanupAfterImplementation, setCleanupAfterImplementation] = useState(false)
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
@@ -217,7 +220,7 @@ export function PlanPage() {
 
   async function verdict(action: "request-changes" | "approve" | "reject" | "reopen") {
     await run(async () => {
-      await planAction(baseUrl, id, action)
+      await planAction(baseUrl, id, action, action === "approve" ? { cleanup_after_implementation: cleanupAfterImplementation } : undefined)
       if (action !== "reopen") navigate("/plans")
     })
   }
@@ -250,7 +253,7 @@ export function PlanPage() {
   return <div className="flex h-full min-h-0 flex-col bg-[#0a0a0f] text-zinc-200">
     <header className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
       <div><Link to="/plans" className="flex items-center gap-1 text-xs text-zinc-500"><ArrowLeft size={13}/> Plan queue</Link><h1 className="mt-1 text-lg font-semibold">{data.plan.title}</h1><div className="text-xs text-zinc-500">revision {data.plan.latest_revision} · {data.plan.status.replace("_", " ")}</div></div>
-      <div className="flex gap-2">{data.plan.status === "proposed" && <><button disabled={busy} onClick={() => void verdict("reject")} className="rounded border border-red-900 px-3 py-1.5 text-xs text-red-300">Reject</button><button disabled={busy} onClick={() => void verdict("request-changes")} className="rounded border border-amber-800 px-3 py-1.5 text-xs text-amber-300">Request changes</button><button title={unanswered ? "Answer required choices first" : "Approve plan"} disabled={busy || unanswered > 0} onClick={() => void verdict("approve")} className="rounded bg-emerald-700 px-3 py-1.5 text-xs text-white disabled:opacity-40">Approve plan</button></>}{data.plan.status === "rejected" && <button onClick={() => void verdict("reopen")} className="rounded bg-indigo-600 px-3 py-1.5 text-xs">Reopen</button>}</div>
+      <div className="flex items-center gap-2">{data.plan.status === "proposed" && <><label className="mr-2 flex max-w-52 items-center gap-2 text-xs text-zinc-400" title="Remove the editable plan bundle after successful implementation; collaboration history is retained"><input type="checkbox" checked={cleanupAfterImplementation} disabled={busy} onChange={event => setCleanupAfterImplementation(event.target.checked)} className="accent-indigo-500"/>Clean up plan files after implementation</label><button disabled={busy} onClick={() => void verdict("reject")} className="rounded border border-red-900 px-3 py-1.5 text-xs text-red-300">Reject</button><button disabled={busy} onClick={() => void verdict("request-changes")} className="rounded border border-amber-800 px-3 py-1.5 text-xs text-amber-300">Request changes</button><button title={unanswered ? "Answer required choices first" : "Approve plan"} disabled={busy || unanswered > 0} onClick={() => void verdict("approve")} className="rounded bg-emerald-700 px-3 py-1.5 text-xs text-white disabled:opacity-40">Approve plan</button></>}{data.plan.status === "rejected" && <button onClick={() => void verdict("reopen")} className="rounded bg-indigo-600 px-3 py-1.5 text-xs">Reopen</button>}</div>
     </header>
     {actionError && <div role="alert" className="border-b border-red-900 bg-red-950/40 px-5 py-2 text-xs text-red-300">{actionError}</div>}{info && <div className="border-b border-zinc-800 px-5 py-2 text-xs text-zinc-400">{info}</div>}
     <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_25rem]">

@@ -13,7 +13,7 @@ const { refresh, addPlanComment, updatePlanComment, askPlanQuestion, respondToPl
   planAction: vi.fn(),
 }))
 
-const markdown = "# Block comments\n\nRepeat this paragraph.\n\nRepeat this paragraph.\n\n- First nested item\n- Second nested item\n"
+const markdown = "# Block comments\n\nRepeat this paragraph.\n\nRepeat this paragraph.\n\n- First nested item\n- Second nested item\n\n```go\nfmt.Println(\"hello\")\n```\n"
 const secondStart = markdown.lastIndexOf("Repeat this paragraph.")
 const planData = {
   plan: { id:"pl-1", task_id:"T-1", name:"", title:"Block comments", summary:"", status:"proposed", latest_revision:1, created_at:"", updated_at:"" },
@@ -60,6 +60,18 @@ describe("PlanPage block comments",()=>{
     renderPage()
     expect(screen.getAllByRole("button",{name:/Comment on list beginning/})).toHaveLength(1)
     expect(screen.queryByRole("button",{name:/Comment on list item beginning/})).toBeNull()
+  })
+
+  it("anchors comments directly to an outer fenced code block",async()=>{
+    renderPage()
+    const selector=screen.getByRole("button",{name:/Comment on code block beginning/})
+    fireEvent.click(selector)
+    const composer=screen.getByLabelText("Comment on selected block")
+    fireEvent.change(composer,{target:{value:"Rename this call"}})
+    fireEvent.keyDown(composer,{key:"Enter",metaKey:true})
+    const fenced="```go\nfmt.Println(\"hello\")\n```"
+    const start=markdown.indexOf(fenced)
+    await waitFor(()=>expect(addPlanComment).toHaveBeenCalledWith("","pl-1",expect.objectContaining({selection_start:start,selection_end:start+fenced.length,selected_text:fenced})))
   })
 
   it("drag-selects a contiguous range of outer blocks",async()=>{
@@ -112,6 +124,15 @@ describe("PlanPage block comments",()=>{
     renderPage()
     expect(screen.queryByRole("region",{name:"General feedback"})).toBeNull()
     planData.comments=[]
+  })
+
+  it("approves with cleanup unchecked by default or checked by the reviewer",async()=>{
+    renderPage()
+    const checkbox=screen.getByRole("checkbox",{name:/Clean up plan files/})
+    expect((checkbox as HTMLInputElement).checked).toBe(false)
+    fireEvent.click(checkbox)
+    fireEvent.click(screen.getByRole("button",{name:"Approve plan"}))
+    await waitFor(()=>expect(planAction).toHaveBeenCalledWith("","pl-1","approve",{cleanup_after_implementation:true}))
   })
 
   it("submits Q&A with Cmd+Enter and Ctrl+Enter but not plain Enter",async()=>{

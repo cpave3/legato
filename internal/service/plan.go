@@ -73,6 +73,11 @@ func (p *PlanService) Submit(ctx context.Context, taskID, name, bundleDir string
 	if _, err := p.store.GetTask(ctx, taskID); err != nil {
 		return nil, err
 	}
+	bundleDir, err := filepath.Abs(bundleDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve plan bundle: %w", err)
+	}
+	bundleDir = filepath.Clean(bundleDir)
 	markdown, err := os.ReadFile(filepath.Join(bundleDir, "plan.md"))
 	if err != nil {
 		return nil, fmt.Errorf("read plan.md: %w", err)
@@ -114,7 +119,7 @@ func (p *PlanService) Submit(ctx context.Context, taskID, name, bundleDir string
 		})
 	}
 	plan := store.Plan{ID: planID, TaskID: taskID, Name: name, Title: manifest.Title,
-		Summary: manifest.Summary, Status: "proposed", LatestRevision: revisionNumber}
+		Summary: manifest.Summary, Status: "proposed", LatestRevision: revisionNumber, SourceBundlePath: bundleDir}
 	revision := store.PlanRevision{ID: revisionID, PlanID: planID, Revision: revisionNumber,
 		Markdown: string(markdown), ManifestJSON: string(manifestBytes)}
 	if err := p.store.InsertPlanRevision(ctx, plan, revision, questions); err != nil {
@@ -371,7 +376,7 @@ func (p *PlanService) RequestChanges(ctx context.Context, planID string) error {
 	return nil
 }
 
-func (p *PlanService) Approve(ctx context.Context, planID string) error {
+func (p *PlanService) Approve(ctx context.Context, planID string, cleanupAfterImplementation ...bool) error {
 	view, err := p.Plan(ctx, planID)
 	if err != nil {
 		return err
@@ -386,10 +391,19 @@ func (p *PlanService) Approve(ctx context.Context, planID string) error {
 	if count > 0 {
 		return ErrPlanQuestionsUnanswered
 	}
-	if err := p.store.UpdatePlanStatus(ctx, planID, "approved"); err != nil {
+	cleanup := len(cleanupAfterImplementation) > 0 && cleanupAfterImplementation[0]
+	if err := p.store.ApprovePlan(ctx, planID, cleanup); err != nil {
 		return err
 	}
-	p.deliver(ctx, view.Plan.TaskID, fmt.Sprintf("[legato plan] Plan %s was approved. You may begin implementation.", planID))
+	completeCommand := fmt.Sprintf("legato plan complete --task %s", view.Plan.TaskID)
+	if view.Plan.Name != "" {
+		completeCommand += fmt.Sprintf(" --name %s", view.Plan.Name)
+	}
+	message := fmt.Sprintf("[legato plan] Plan %s was approved. You may begin implementation. After successful implementation and verification, run: %s", planID, completeCommand)
+	if cleanup {
+		message = fmt.Sprintf("[legato plan] Plan %s was approved with cleanup requested. After successful implementation and verification, run: %s", planID, completeCommand)
+	}
+	p.deliver(ctx, view.Plan.TaskID, message)
 	p.publish(view.Plan, view.Revision.ID, "approved")
 	return nil
 }
@@ -429,13 +443,76 @@ func (p *PlanService) Revisions(ctx context.Context, planID string) ([]store.Pla
 	return p.store.ListPlanRevisions(ctx, planID)
 }
 
+type PlanCompletionResult struct {
+	PlanID           string `json:"plan_id"`
+	Status           string `json:"status"`
+	CleanedUp        bool   `json:"cleaned_up"`
+	AlreadyCompleted bool   `json:"already_completed"`
+}
+
+func (p *PlanService) Complete(ctx context.Context, planID string) (*PlanCompletionResult, error) {
+	view, err := p.Plan(ctx, planID)
+	if err != nil {
+		return nil, err
+	}
+	if view.Plan.Status == "completed" {
+		return &PlanCompletionResult{PlanID: planID, Status: "completed", CleanedUp: view.Plan.CleanupAfterImplementation, AlreadyCompleted: true}, nil
+	}
+	if view.Plan.Status != "approved" {
+		return nil, fmt.Errorf("plan must be approved to complete")
+	}
+	cleaned := false
+	if view.Plan.CleanupAfterImplementation {
+		if err := validatePlanBundleForCleanup(view.Plan.SourceBundlePath); err != nil {
+			return nil, err
+		}
+		if err := os.RemoveAll(view.Plan.SourceBundlePath); err != nil {
+			return nil, fmt.Errorf("remove plan bundle %q: %w", view.Plan.SourceBundlePath, err)
+		}
+		cleaned = true
+	}
+	if err := p.store.CompletePlan(ctx, planID); err != nil {
+		if cleaned {
+			return nil, fmt.Errorf("plan files were removed but completion could not be recorded: %w", err)
+		}
+		return nil, err
+	}
+	p.publish(view.Plan, view.Revision.ID, "completed")
+	return &PlanCompletionResult{PlanID: planID, Status: "completed", CleanedUp: cleaned}, nil
+}
+
+func validatePlanBundleForCleanup(path string) error {
+	path = filepath.Clean(path)
+	if path == "" || path == "." || path == string(filepath.Separator) {
+		return fmt.Errorf("unsafe plan bundle path %q", path)
+	}
+	if filepath.Base(path) == "plans" && filepath.Base(filepath.Dir(path)) == ".legato" {
+		return fmt.Errorf("refusing to remove plans root %q", path)
+	}
+	if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+		return fmt.Errorf("refusing to remove repository root %q", path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("validate repository marker in %q: %w", path, err)
+	}
+	for _, marker := range []string{"plan.md", "plan.json"} {
+		info, err := os.Stat(filepath.Join(path, marker))
+		if err != nil {
+			return fmt.Errorf("validate plan bundle %q: %s: %w", path, marker, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("validate plan bundle %q: %s is not a regular file", path, marker)
+		}
+	}
+	return nil
+}
+
 func (p *PlanService) Withdraw(ctx context.Context, planID string) error {
 	view, err := p.Plan(ctx, planID)
 	if err != nil {
 		return err
 	}
-	if view.Plan.Status == "approved" {
-		return fmt.Errorf("approved plans cannot be withdrawn")
+	if view.Plan.Status == "approved" || view.Plan.Status == "completed" {
+		return fmt.Errorf("%s plans cannot be withdrawn", view.Plan.Status)
 	}
 	if err := p.store.DeletePlan(ctx, planID); err != nil {
 		return err
