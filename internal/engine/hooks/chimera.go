@@ -142,7 +142,11 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"and repeat `--include` for every hunk in that chapter. Use `--risk " +
 	"high|medium|low|unsure` and `--order N` where useful; inspect `legato review " +
 	"show` or the diff to choose hunk numbers. Chapters should guide the reviewer " +
-	"through the change more precisely than commit boundaries.\n" +
+	"through the change more precisely than commit boundaries. Chapters belong to " +
+	"the active review pass; never rewrite chapters from an earlier pass.\n" +
+	"- **Compare against the captured plan.** When context includes a captured plan " +
+	"revision, treat it as agreed scope and call out deviations. Reviews without a " +
+	"plan still work normally.\n" +
 	"- **Flag the risky parts.** Keep `legato review annotate` compatibility for " +
 	"extra commit or file context. Run " +
 	"`legato review annotate [<sha>] \"<extra context>\" --risk high|medium|low|unsure` " +
@@ -166,7 +170,7 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"Format review answers as Markdown, using lists, inline code, and fenced code " +
 	"blocks where they improve clarity.\n" +
 	"- **Replace stale tours instead of patching them.** After a rebase or " +
-	"substantial rework, run `legato review restart` to clear the selected tour " +
+	"substantial rework, run `legato review restart --feedback \"<guidance>\"` to clear the selected pass " +
 	"and retain its capture boundary, then author the replacement. Use `legato " +
 	"review discard` when no replacement should be created. Both accept `--task` " +
 	"and `--name`.\n" +
