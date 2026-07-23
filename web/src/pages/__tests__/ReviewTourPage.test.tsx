@@ -114,6 +114,35 @@ describe("ReviewTourPage", () => {
     await waitFor(() => expect(screen.queryByText("src/auth.ts · 2 selected lines")).toBeNull())
   })
 
+  it("requires guidance before regenerating and submits it", async () => {
+    renderPage()
+
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate review" }))
+    const dialog = screen.getByRole("dialog", { name: "Regenerate review" })
+    expect(within(dialog).getByRole("button", { name: "Regenerate" }).hasAttribute("disabled")).toBe(true)
+
+    fireEvent.change(within(dialog).getByLabelText("Regeneration feedback"), { target: { value: "Focus on failure paths" } })
+    fireEvent.click(within(dialog).getByRole("button", { name: "Regenerate" }))
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(
+      "/api/review/tours/rt-task-1/regenerate",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ feedback: "Focus on failure paths" }) }),
+    ))
+  })
+
+  it("flags a requested change through the active review step", async () => {
+    renderPage()
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ id: "F-1", status: "open" }) })
+
+    fireEvent.change(screen.getByLabelText("Requested change"), { target: { value: "Handle refresh failure" } })
+    fireEvent.click(screen.getByRole("button", { name: "Flag change" }))
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(
+      "/api/review/tours/rt-task-1/findings",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ body: "Handle refresh failure", selection: { step_id: "S-1" } }) }),
+    ))
+  })
+
   it("asks for confirmation before deleting a review", async () => {
     renderPage()
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
