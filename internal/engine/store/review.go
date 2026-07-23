@@ -111,6 +111,76 @@ func (s *Store) ListReviewHunkNotesByPass(ctx context.Context, passID string) ([
 	return notes, err
 }
 
+func (s *Store) InsertReviewFinding(ctx context.Context, finding ReviewFinding) error {
+	_, err := s.db.NamedExecContext(ctx, `
+		INSERT INTO review_findings (id, task_id, tour_id, pass_id, step_id, file_path,
+			hunk_anchor, line_start, line_end, body, status)
+		VALUES (:id, :task_id, :tour_id, :pass_id, :step_id, :file_path,
+			:hunk_anchor, :line_start, :line_end, :body, :status)`, finding)
+	return err
+}
+
+func (s *Store) ListReviewFindingsByPass(ctx context.Context, passID string) ([]ReviewFinding, error) {
+	var findings []ReviewFinding
+	err := s.db.SelectContext(ctx, &findings, "SELECT * FROM review_findings WHERE pass_id = ? ORDER BY created_at, id", passID)
+	return findings, err
+}
+
+func (s *Store) InsertReviewPlanRequest(ctx context.Context, request ReviewPlanRequest, findingIDs []string) (*ReviewPlanRequest, error) {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var count int
+	query := `SELECT COUNT(*) FROM review_findings WHERE pass_id = ? AND status = 'open' AND id IN (` + strings.TrimSuffix(strings.Repeat("?,", len(findingIDs)), ",") + `)`
+	args := []any{request.PassID}
+	for _, id := range findingIDs {
+		args = append(args, id)
+	}
+	if err := tx.GetContext(ctx, &count, query, args...); err != nil {
+		return nil, err
+	}
+	if count != len(findingIDs) {
+		return nil, fmt.Errorf("selected findings must be open and belong to the active review pass")
+	}
+	if _, err := tx.NamedExecContext(ctx, `INSERT INTO review_plan_requests (id, task_id, tour_id, pass_id)
+		VALUES (:id, :task_id, :tour_id, :pass_id)`, request); err != nil {
+		return nil, err
+	}
+	for _, findingID := range findingIDs {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO review_plan_request_findings (request_id, finding_id) VALUES (?, ?)", request.ID, findingID); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	requests, err := s.ListReviewPlanRequestsByPass(ctx, request.PassID)
+	if err != nil {
+		return nil, err
+	}
+	return &requests[len(requests)-1], nil
+}
+
+func (s *Store) MarkReviewPlanRequestDelivered(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE review_plan_requests SET delivered_at = datetime('now') WHERE id = ?", id)
+	return err
+}
+
+func (s *Store) ListReviewPlanRequestsByPass(ctx context.Context, passID string) ([]ReviewPlanRequest, error) {
+	var requests []ReviewPlanRequest
+	if err := s.db.SelectContext(ctx, &requests, "SELECT * FROM review_plan_requests WHERE pass_id = ? ORDER BY created_at, id", passID); err != nil {
+		return nil, err
+	}
+	for i := range requests {
+		if err := s.db.SelectContext(ctx, &requests[i].FindingIDs, "SELECT finding_id FROM review_plan_request_findings WHERE request_id = ? ORDER BY finding_id", requests[i].ID); err != nil {
+			return nil, err
+		}
+	}
+	return requests, nil
+}
+
 func (s *Store) GetReviewPassPlan(ctx context.Context, passID string) (*ReviewPassPlan, error) {
 	var plan ReviewPassPlan
 	err := s.db.GetContext(ctx, &plan, `
@@ -517,6 +587,10 @@ func (s *Store) DeleteReviewTour(ctx context.Context, id string) error {
 	}
 	defer tx.Rollback()
 	for _, query := range []string{
+		"DELETE FROM plan_review_origins WHERE review_pass_id IN (SELECT id FROM review_passes WHERE tour_id = ?)",
+		"DELETE FROM review_plan_request_findings WHERE request_id IN (SELECT id FROM review_plan_requests WHERE tour_id = ?)",
+		"DELETE FROM review_plan_requests WHERE tour_id = ?",
+		"DELETE FROM review_findings WHERE tour_id = ?",
 		"DELETE FROM review_chapter_hunks WHERE tour_id = ?",
 		"DELETE FROM review_hunk_notes WHERE tour_id = ?",
 		"DELETE FROM review_transcript WHERE tour_id = ?",
@@ -535,6 +609,10 @@ func (s *Store) DeleteReviewTour(ctx context.Context, id string) error {
 // RestartReviewTour atomically removes review artifacts and resets lifecycle
 // state while retaining the repository and base SHA that define the capture.
 func (s *Store) RestartReviewTour(ctx context.Context, id string) error {
+	return s.RestartReviewTourWithGuidance(ctx, id, "")
+}
+
+func (s *Store) RestartReviewTourWithGuidance(ctx context.Context, id, guidance string) error {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
@@ -545,6 +623,10 @@ func (s *Store) RestartReviewTour(ctx context.Context, id string) error {
 		return err
 	}
 	for _, query := range []string{
+		"DELETE FROM plan_review_origins WHERE review_pass_id = ?",
+		"DELETE FROM review_plan_request_findings WHERE request_id IN (SELECT id FROM review_plan_requests WHERE pass_id = ?)",
+		"DELETE FROM review_plan_requests WHERE pass_id = ?",
+		"DELETE FROM review_findings WHERE pass_id = ?",
 		"DELETE FROM review_chapter_hunks WHERE pass_id = ?",
 		"DELETE FROM review_hunk_notes WHERE pass_id = ?",
 		"DELETE FROM review_transcript WHERE pass_id = ?",
@@ -557,7 +639,7 @@ func (s *Store) RestartReviewTour(ctx context.Context, id string) error {
 		}
 	}
 	replacementID := current.ID + "r"
-	if _, err := tx.ExecContext(ctx, "INSERT INTO review_passes (id, tour_id, number) VALUES (?, ?, ?)", replacementID, id, current.Number); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO review_passes (id, tour_id, number, guidance) VALUES (?, ?, ?, ?)", replacementID, id, current.Number, guidance); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `

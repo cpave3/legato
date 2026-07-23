@@ -786,6 +786,99 @@ func (r *ReviewService) Delete(ctx context.Context, tourID string) error {
 
 // Restart discards all authored and generated artifacts while preserving the
 // capture boundary needed to rebuild the tour after a rebase or substantial rework.
+type ReviewFindingInput struct {
+	Body       string `json:"body"`
+	StepID     string `json:"step_id,omitempty"`
+	FilePath   string `json:"file_path,omitempty"`
+	HunkAnchor string `json:"hunk_anchor,omitempty"`
+	LineStart  *int   `json:"line_start,omitempty"`
+	LineEnd    *int   `json:"line_end,omitempty"`
+}
+
+func (r *ReviewService) CreateFinding(ctx context.Context, tourID string, input ReviewFindingInput) (*store.ReviewFinding, error) {
+	input.Body = strings.TrimSpace(input.Body)
+	if input.Body == "" {
+		return nil, fmt.Errorf("finding body is required")
+	}
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return nil, err
+	}
+	pass, err := r.store.GetActiveReviewPass(ctx, tourID)
+	if err != nil {
+		return nil, err
+	}
+	if input.StepID != "" {
+		step, err := r.store.GetReviewStepByPrefix(ctx, tour.TaskID, input.StepID)
+		if err != nil {
+			return nil, err
+		}
+		if step.TourID != tourID || step.PassID != pass.ID {
+			return nil, store.ErrNotFound
+		}
+		input.StepID = step.ID
+	}
+	if (input.LineStart == nil) != (input.LineEnd == nil) || (input.LineStart != nil && (*input.LineStart < 1 || *input.LineEnd < *input.LineStart)) {
+		return nil, fmt.Errorf("finding line range is invalid")
+	}
+	finding := &store.ReviewFinding{ID: generateReviewID("rf-"), TaskID: tour.TaskID, TourID: tourID,
+		PassID: pass.ID, StepID: input.StepID, FilePath: input.FilePath, HunkAnchor: input.HunkAnchor,
+		LineStart: input.LineStart, LineEnd: input.LineEnd, Body: input.Body, Status: "open"}
+	if err := r.store.InsertReviewFinding(ctx, *finding); err != nil {
+		return nil, err
+	}
+	r.publish(tourID, input.StepID, "finding_created")
+	return finding, nil
+}
+
+func (r *ReviewService) RequestPlan(ctx context.Context, tourID string, findingIDs []string) (*store.ReviewPlanRequest, error) {
+	if len(findingIDs) == 0 {
+		return nil, fmt.Errorf("at least one open finding is required")
+	}
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return nil, err
+	}
+	pass, err := r.store.GetActiveReviewPass(ctx, tourID)
+	if err != nil {
+		return nil, err
+	}
+	request, err := r.store.InsertReviewPlanRequest(ctx, store.ReviewPlanRequest{
+		ID: generateReviewID("rpr-"), TaskID: tour.TaskID, TourID: tourID, PassID: pass.ID,
+	}, findingIDs)
+	if err != nil {
+		return nil, err
+	}
+	command := fmt.Sprintf("legato plan submit <bundle-dir> --task %s --review-pass %s", tour.TaskID, pass.ID)
+	for _, findingID := range findingIDs {
+		command += " --finding " + findingID
+	}
+	line := fmt.Sprintf("[legato review] Follow-up plan requested from pass %s findings %s. Author the plan bundle, then run: %s", pass.ID, strings.Join(findingIDs, ","), command)
+	delivered := false
+	if r.tmux != nil {
+		if session, sessionErr := r.store.GetAgentSessionByTaskID(ctx, tour.TaskID); sessionErr == nil {
+			if alive, _ := r.tmux.IsAlive(session.TmuxSession); alive && r.tmux.SendKeysLine(session.TmuxSession, line) == nil {
+				delivered = true
+			}
+		}
+	}
+	if delivered {
+		if err := r.store.MarkReviewPlanRequestDelivered(ctx, request.ID); err != nil {
+			return nil, err
+		}
+		requests, err := r.store.ListReviewPlanRequestsByPass(ctx, pass.ID)
+		if err != nil {
+			return nil, err
+		}
+		request = &requests[len(requests)-1]
+	}
+	r.publish(tourID, "", "plan_requested")
+	if !delivered {
+		return request, ErrAgentOffline
+	}
+	return request, nil
+}
+
 func (r *ReviewService) AdvancePass(ctx context.Context, tourID, guidance string) error {
 	tour, err := r.store.GetReviewTour(ctx, tourID)
 	if err != nil {
@@ -799,11 +892,15 @@ func (r *ReviewService) AdvancePass(ctx context.Context, tourID, guidance string
 }
 
 func (r *ReviewService) Restart(ctx context.Context, tourID string) error {
+	return r.RestartWithFeedback(ctx, tourID, "")
+}
+
+func (r *ReviewService) RestartWithFeedback(ctx context.Context, tourID, feedback string) error {
 	tour, err := r.store.GetReviewTour(ctx, tourID)
 	if err != nil {
 		return err
 	}
-	if err := r.store.RestartReviewTour(ctx, tourID); err != nil {
+	if err := r.store.RestartReviewTourWithGuidance(ctx, tourID, strings.TrimSpace(feedback)); err != nil {
 		return err
 	}
 	r.publishEvent(tour.ID, tour.TaskID, "", "restarted")
@@ -1030,11 +1127,13 @@ func (r *ReviewService) chapterView(ctx context.Context, step store.ReviewStep) 
 
 // ReviewTourView is the assembled read model for the review UIs.
 type ReviewPassView struct {
-	Pass         store.ReviewPass       `json:"pass"`
-	CapturedPlan *store.ReviewPassPlan  `json:"captured_plan,omitempty"`
-	Steps        []store.ReviewStep     `json:"steps"`
-	Messages     []store.ReviewMessage  `json:"messages"`
-	HunkNotes    []store.ReviewHunkNote `json:"hunk_notes"`
+	Pass         store.ReviewPass          `json:"pass"`
+	CapturedPlan *store.ReviewPassPlan     `json:"captured_plan,omitempty"`
+	Steps        []store.ReviewStep        `json:"steps"`
+	Messages     []store.ReviewMessage     `json:"messages"`
+	HunkNotes    []store.ReviewHunkNote    `json:"hunk_notes"`
+	Findings     []store.ReviewFinding     `json:"findings"`
+	PlanRequests []store.ReviewPlanRequest `json:"plan_requests"`
 }
 
 type ReviewTourView struct {
@@ -1098,6 +1197,14 @@ func (r *ReviewService) Tour(ctx context.Context, tourID string) (*ReviewTourVie
 		if err != nil {
 			return nil, err
 		}
+		passFindings, err := r.store.ListReviewFindingsByPass(ctx, pass.ID)
+		if err != nil {
+			return nil, err
+		}
+		passRequests, err := r.store.ListReviewPlanRequestsByPass(ctx, pass.ID)
+		if err != nil {
+			return nil, err
+		}
 		if passSteps == nil {
 			passSteps = []store.ReviewStep{}
 		}
@@ -1107,7 +1214,13 @@ func (r *ReviewService) Tour(ctx context.Context, tourID string) (*ReviewTourVie
 		if passNotes == nil {
 			passNotes = []store.ReviewHunkNote{}
 		}
-		passView := ReviewPassView{Pass: pass, Steps: passSteps, Messages: passMessages, HunkNotes: passNotes}
+		if passFindings == nil {
+			passFindings = []store.ReviewFinding{}
+		}
+		if passRequests == nil {
+			passRequests = []store.ReviewPlanRequest{}
+		}
+		passView := ReviewPassView{Pass: pass, Steps: passSteps, Messages: passMessages, HunkNotes: passNotes, Findings: passFindings, PlanRequests: passRequests}
 		if plan, err := r.store.GetReviewPassPlan(ctx, pass.ID); err == nil {
 			passView.CapturedPlan = plan
 		} else if !errors.Is(err, store.ErrNotFound) {

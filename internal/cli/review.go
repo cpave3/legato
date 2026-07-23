@@ -87,8 +87,8 @@ func ReviewDiscard(svc *service.ReviewService, tourID string) error {
 }
 
 // ReviewRestart replaces a stale packet while retaining its capture boundary.
-func ReviewRestart(svc *service.ReviewService, tourID string) error {
-	if err := svc.Restart(context.Background(), tourID); err != nil {
+func ReviewRestart(svc *service.ReviewService, tourID, feedback string) error {
+	if err := svc.RestartWithFeedback(context.Background(), tourID, feedback); err != nil {
 		return err
 	}
 	broadcastReviewChanged(tourID, "", "restarted")

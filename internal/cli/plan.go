@@ -9,8 +9,8 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
-func PlanSubmit(svc *service.PlanService, taskID, name, bundleDir string, w io.Writer) error {
-	view, err := svc.Submit(context.Background(), taskID, name, bundleDir)
+func PlanSubmit(svc *service.PlanService, taskID, name, bundleDir string, origin service.PlanOriginInput, w io.Writer) error {
+	view, err := svc.SubmitWithOrigin(context.Background(), taskID, name, bundleDir, origin)
 	if err != nil {
 		return err
 	}

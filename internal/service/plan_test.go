@@ -254,6 +254,68 @@ func TestPlanQuestionAndAgentAnswerRemainInTranscriptWhenOffline(t *testing.T) {
 	}
 }
 
+func TestSubmitWithOriginLinksPlanToReviewFindings(t *testing.T) {
+	s, svc, bundle := newPlanFixture(t)
+	ctx := context.Background()
+	tour, err := s.EnsureReviewTour(ctx, "task-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewSvc := NewReviewService(s, nil, nil)
+	finding, err := reviewSvc.CreateFinding(ctx, tour.ID, ReviewFindingInput{Body: "Fix validation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := svc.SubmitWithOrigin(ctx, "task-1", "search", bundle, PlanOriginInput{
+		ReviewPassID: finding.PassID, FindingIDs: []string{finding.ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Origins) != 1 || view.Origins[0].Finding.ID != finding.ID || view.Origins[0].ReviewPassID != finding.PassID {
+		t.Fatalf("origins = %+v", view.Origins)
+	}
+}
+
+func TestCompleteLinkedPlanResolvesFindings(t *testing.T) {
+	s, svc, bundle := newPlanFixture(t)
+	ctx := context.Background()
+	repo := initTestRepo(t)
+	if err := s.SetTaskWorktree(ctx, "task-1", &store.TaskWorktree{PrimaryDir: repo, Path: repo, Branch: "feature", BaseBranch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	tour, err := s.EnsureReviewTour(ctx, "task-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewSvc := NewReviewService(s, nil, nil)
+	finding, err := reviewSvc.CreateFinding(ctx, tour.ID, ReviewFindingInput{Body: "Fix validation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := svc.SubmitWithOrigin(ctx, "task-1", "search", bundle, PlanOriginInput{ReviewPassID: finding.PassID, FindingIDs: []string{finding.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Respond(ctx, view.Plan.ID, "backend", PlanResponseInput{Values: []string{"sqlite"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Approve(ctx, view.Plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Complete(ctx, view.Plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	review, err := reviewSvc.Tour(ctx, tour.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved := review.Passes[0].Findings[0]
+	if resolved.Status != "resolved" || resolved.ResolvedAt == nil {
+		t.Fatalf("finding after completion = %+v", resolved)
+	}
+}
+
 func newPlanFixture(t *testing.T) (*store.Store, *PlanService, string) {
 	t.Helper()
 	s := newReviewTestStore(t)

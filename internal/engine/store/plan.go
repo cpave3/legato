@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 )
 
 func (s *Store) GetPlan(ctx context.Context, id string) (*Plan, error) {
@@ -29,6 +30,10 @@ func (s *Store) GetPlanByTaskName(ctx context.Context, taskID, name string) (*Pl
 }
 
 func (s *Store) InsertPlanRevision(ctx context.Context, plan Plan, revision PlanRevision, questions []PlanQuestion) error {
+	return s.InsertPlanRevisionWithOrigins(ctx, plan, revision, questions, "", nil)
+}
+
+func (s *Store) InsertPlanRevisionWithOrigins(ctx context.Context, plan Plan, revision PlanRevision, questions []PlanQuestion, reviewPassID string, findingIDs []string) error {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
@@ -57,6 +62,27 @@ func (s *Store) InsertPlanRevision(ctx context.Context, plan Plan, revision Plan
 			return err
 		}
 	}
+	if len(findingIDs) > 0 {
+		var taskID string
+		if err := tx.GetContext(ctx, &taskID, `SELECT t.task_id FROM review_passes rp JOIN review_tours t ON t.id = rp.tour_id WHERE rp.id = ?`, reviewPassID); err != nil {
+			return err
+		}
+		if taskID != plan.TaskID {
+			return fmt.Errorf("review origin belongs to a different task")
+		}
+		for _, findingID := range findingIDs {
+			var count int
+			if err := tx.GetContext(ctx, &count, "SELECT COUNT(*) FROM review_findings WHERE id = ? AND pass_id = ?", findingID, reviewPassID); err != nil {
+				return err
+			}
+			if count != 1 {
+				return fmt.Errorf("finding %q does not belong to review pass %q", findingID, reviewPassID)
+			}
+			if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO plan_review_origins (plan_id, review_pass_id, finding_id) VALUES (?, ?, ?)", plan.ID, reviewPassID, findingID); err != nil {
+				return err
+			}
+		}
+	}
 	return tx.Commit()
 }
 
@@ -75,6 +101,27 @@ func (s *Store) ListPlanQuestions(ctx context.Context, revisionID string) ([]Pla
 	var out []PlanQuestion
 	err := s.db.SelectContext(ctx, &out, "SELECT * FROM plan_questions WHERE revision_id = ? ORDER BY created_at, id", revisionID)
 	return out, err
+}
+
+func (s *Store) ListPlanReviewOrigins(ctx context.Context, planID string) ([]PlanReviewOrigin, error) {
+	var rows []struct {
+		PlanID       string `db:"plan_id"`
+		ReviewPassID string `db:"review_pass_id"`
+		FindingID    string `db:"finding_id"`
+		CreatedAt    string `db:"created_at"`
+	}
+	if err := s.db.SelectContext(ctx, &rows, "SELECT * FROM plan_review_origins WHERE plan_id = ? ORDER BY created_at, finding_id", planID); err != nil {
+		return nil, err
+	}
+	origins := make([]PlanReviewOrigin, 0, len(rows))
+	for _, row := range rows {
+		var finding ReviewFinding
+		if err := s.db.GetContext(ctx, &finding, "SELECT * FROM review_findings WHERE id = ?", row.FindingID); err != nil {
+			return nil, err
+		}
+		origins = append(origins, PlanReviewOrigin{PlanID: row.PlanID, ReviewPassID: row.ReviewPassID, Finding: finding, CreatedAt: row.CreatedAt})
+	}
+	return origins, nil
 }
 
 func (s *Store) ListPlans(ctx context.Context) ([]Plan, error) {
@@ -174,7 +221,12 @@ func (s *Store) ApprovePlan(ctx context.Context, planID string, cleanup bool) er
 }
 
 func (s *Store) CompletePlan(ctx context.Context, planID string) error {
-	result, err := s.db.ExecContext(ctx, "UPDATE plans SET status = 'completed', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?", planID)
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, "UPDATE plans SET status = 'completed', completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?", planID)
 	if err != nil {
 		return err
 	}
@@ -185,7 +237,11 @@ func (s *Store) CompletePlan(ctx context.Context, planID string) error {
 	if rows == 0 {
 		return ErrNotFound
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx, `UPDATE review_findings SET status = 'resolved', resolved_at = datetime('now'), updated_at = datetime('now')
+		WHERE id IN (SELECT finding_id FROM plan_review_origins WHERE plan_id = ?)`, planID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) UpdatePlanStatus(ctx context.Context, planID, status string) error {

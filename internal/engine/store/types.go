@@ -182,6 +182,33 @@ type ReviewPass struct {
 	UpdatedAt  string  `db:"updated_at" json:"updated_at"`
 }
 
+type ReviewPlanRequest struct {
+	ID          string   `db:"id" json:"id"`
+	TaskID      string   `db:"task_id" json:"task_id"`
+	TourID      string   `db:"tour_id" json:"tour_id"`
+	PassID      string   `db:"pass_id" json:"pass_id"`
+	FindingIDs  []string `db:"-" json:"finding_ids"`
+	DeliveredAt *string  `db:"delivered_at" json:"delivered_at,omitempty"`
+	CreatedAt   string   `db:"created_at" json:"created_at"`
+}
+
+type ReviewFinding struct {
+	ID         string  `db:"id" json:"id"`
+	TaskID     string  `db:"task_id" json:"task_id"`
+	TourID     string  `db:"tour_id" json:"tour_id"`
+	PassID     string  `db:"pass_id" json:"pass_id"`
+	StepID     string  `db:"step_id" json:"step_id,omitempty"`
+	FilePath   string  `db:"file_path" json:"file_path,omitempty"`
+	HunkAnchor string  `db:"hunk_anchor" json:"hunk_anchor,omitempty"`
+	LineStart  *int    `db:"line_start" json:"line_start,omitempty"`
+	LineEnd    *int    `db:"line_end" json:"line_end,omitempty"`
+	Body       string  `db:"body" json:"body"`
+	Status     string  `db:"status" json:"status"`
+	ResolvedAt *string `db:"resolved_at" json:"resolved_at,omitempty"`
+	CreatedAt  string  `db:"created_at" json:"created_at"`
+	UpdatedAt  string  `db:"updated_at" json:"updated_at"`
+}
+
 type ReviewPassPlan struct {
 	PassID     string `db:"pass_id" json:"pass_id"`
 	PlanID     string `db:"plan_id" json:"plan_id"`
@@ -261,6 +288,13 @@ type ReviewMessage struct {
 }
 
 // Plan is a durable planning artifact attached to a task.
+type PlanReviewOrigin struct {
+	PlanID       string        `db:"plan_id" json:"plan_id"`
+	ReviewPassID string        `db:"review_pass_id" json:"review_pass_id"`
+	Finding      ReviewFinding `db:"-" json:"finding"`
+	CreatedAt    string        `db:"created_at" json:"created_at"`
+}
+
 type Plan struct {
 	ID                         string  `db:"id" json:"id"`
 	TaskID                     string  `db:"task_id" json:"task_id"`

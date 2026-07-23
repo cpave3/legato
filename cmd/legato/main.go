@@ -94,7 +94,7 @@ func runPlanCmd(args []string) int {
 	defer db.Close()
 	svc := service.NewPlanService(db, nil, nil)
 	verb := args[0]
-	positional, flags, _ := parseReviewArgs(args[1:])
+	positional, flags, listFlags := parseReviewArgs(args[1:])
 	taskID := flags["task"]
 	if taskID == "" {
 		taskID = os.Getenv("LEGATO_TASK_ID")
@@ -124,7 +124,15 @@ func runPlanCmd(args []string) int {
 			fmt.Fprintln(os.Stderr, "usage: legato plan submit <bundle-dir> [--task <id>] [--name <name>]")
 			return 1
 		}
-		if err := cli.PlanSubmit(svc, taskID, name, positional[0], os.Stdout); err != nil {
+		reviewPassID := flags["review-pass"]
+		if reviewPassID == "" {
+			reviewPassID = os.Getenv("LEGATO_REVIEW_PASS_ID")
+		}
+		findingIDs := listFlags["finding"]
+		if len(findingIDs) == 0 && os.Getenv("LEGATO_REVIEW_FINDING_IDS") != "" {
+			findingIDs = strings.Split(os.Getenv("LEGATO_REVIEW_FINDING_IDS"), ",")
+		}
+		if err := cli.PlanSubmit(svc, taskID, name, positional[0], service.PlanOriginInput{ReviewPassID: reviewPassID, FindingIDs: findingIDs}, os.Stdout); err != nil {
 			return fail(err)
 		}
 	case "show", "feedback":
@@ -437,7 +445,7 @@ func runReviewCmd(args []string) int {
 		if verb == "discard" {
 			err = cli.ReviewDiscard(svc, tourID)
 		} else {
-			err = cli.ReviewRestart(svc, tourID)
+			err = cli.ReviewRestart(svc, tourID, flags["feedback"])
 		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)

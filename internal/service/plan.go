@@ -49,12 +49,13 @@ type PlanManifest struct {
 }
 
 type PlanView struct {
-	Plan      store.Plan           `json:"plan"`
-	Revision  store.PlanRevision   `json:"revision"`
-	Questions []store.PlanQuestion `json:"questions"`
-	Responses []store.PlanResponse `json:"responses"`
-	Comments  []store.PlanComment  `json:"comments"`
-	Messages  []store.PlanMessage  `json:"messages"`
+	Plan      store.Plan               `json:"plan"`
+	Revision  store.PlanRevision       `json:"revision"`
+	Questions []store.PlanQuestion     `json:"questions"`
+	Responses []store.PlanResponse     `json:"responses"`
+	Comments  []store.PlanComment      `json:"comments"`
+	Messages  []store.PlanMessage      `json:"messages"`
+	Origins   []store.PlanReviewOrigin `json:"origins"`
 }
 
 type PlanQueueItem struct {
@@ -69,7 +70,16 @@ type PlanQueueItem struct {
 	UpdatedAt          string `json:"updated_at"`
 }
 
+type PlanOriginInput struct {
+	ReviewPassID string   `json:"review_pass_id"`
+	FindingIDs   []string `json:"finding_ids"`
+}
+
 func (p *PlanService) Submit(ctx context.Context, taskID, name, bundleDir string) (*PlanView, error) {
+	return p.SubmitWithOrigin(ctx, taskID, name, bundleDir, PlanOriginInput{})
+}
+
+func (p *PlanService) SubmitWithOrigin(ctx context.Context, taskID, name, bundleDir string, origin PlanOriginInput) (*PlanView, error) {
 	if _, err := p.store.GetTask(ctx, taskID); err != nil {
 		return nil, err
 	}
@@ -122,7 +132,7 @@ func (p *PlanService) Submit(ctx context.Context, taskID, name, bundleDir string
 		Summary: manifest.Summary, Status: "proposed", LatestRevision: revisionNumber, SourceBundlePath: bundleDir}
 	revision := store.PlanRevision{ID: revisionID, PlanID: planID, Revision: revisionNumber,
 		Markdown: string(markdown), ManifestJSON: string(manifestBytes)}
-	if err := p.store.InsertPlanRevision(ctx, plan, revision, questions); err != nil {
+	if err := p.store.InsertPlanRevisionWithOrigins(ctx, plan, revision, questions, origin.ReviewPassID, origin.FindingIDs); err != nil {
 		return nil, err
 	}
 	p.publish(plan, revisionID, "submitted")
@@ -208,6 +218,10 @@ func (p *PlanService) Plan(ctx context.Context, planID string) (*PlanView, error
 	if err != nil {
 		return nil, err
 	}
+	origins, err := p.store.ListPlanReviewOrigins(ctx, planID)
+	if err != nil {
+		return nil, err
+	}
 	if questions == nil {
 		questions = []store.PlanQuestion{}
 	}
@@ -220,7 +234,10 @@ func (p *PlanService) Plan(ctx context.Context, planID string) (*PlanView, error
 	if messages == nil {
 		messages = []store.PlanMessage{}
 	}
-	return &PlanView{Plan: *plan, Revision: *revision, Questions: questions, Responses: responses, Comments: comments, Messages: messages}, nil
+	if origins == nil {
+		origins = []store.PlanReviewOrigin{}
+	}
+	return &PlanView{Plan: *plan, Revision: *revision, Questions: questions, Responses: responses, Comments: comments, Messages: messages, Origins: origins}, nil
 }
 
 func (p *PlanService) Queue(ctx context.Context) ([]PlanQueueItem, error) {

@@ -93,6 +93,90 @@ func gitCommitAll(t *testing.T, dir, message string) string {
 	return gitRun(t, dir, "rev-parse", "HEAD")
 }
 
+func TestCreateFindingAppearsOnActivePass(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "a.go", "package a\n")
+	gitCommitAll(t, f.repo, "add a")
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
+		t.Fatal(err)
+	}
+	view, err := f.svc.Tour(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stepID := view.Steps[0].ID
+	lineStart, lineEnd := 2, 4
+	finding, err := f.svc.CreateFinding(ctx, f.tourID, ReviewFindingInput{
+		Body: "Handle the error", StepID: stepID, FilePath: "a.go",
+		HunkAnchor: "@@ -1 +1 @@", LineStart: &lineStart, LineEnd: &lineEnd,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finding.Status != "open" || finding.PassID != view.Passes[0].Pass.ID || finding.StepID != stepID {
+		t.Fatalf("finding = %+v", finding)
+	}
+	stored, err := f.svc.Tour(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.Passes[0].Findings) != 1 || stored.Passes[0].Findings[0].ID != finding.ID {
+		t.Fatalf("pass findings = %+v", stored.Passes[0].Findings)
+	}
+}
+
+func TestRequestPlanPersistsAndDeliversOriginAwareSubmitCommand(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	finding, err := f.svc.CreateFinding(ctx, f.tourID, ReviewFindingInput{Body: "Fix validation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.InsertAgentSession(ctx, store.AgentSession{TaskID: "task-1", TmuxSession: "legato-task-1", Command: "chimera", Status: "running", StartedAt: "2026-01-01T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.tmux.Spawn("legato-task-1", f.repo, 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	request, err := f.svc.RequestPlan(ctx, f.tourID, []string{finding.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := f.tmux.sentLinesFor("legato-task-1")
+	command := "legato plan submit <bundle-dir> --task task-1 --review-pass " + finding.PassID + " --finding " + finding.ID
+	if len(lines) != 1 || !strings.Contains(lines[0], command) {
+		t.Fatalf("notification = %v, want command %q", lines, command)
+	}
+	view, err := f.svc.Tour(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.DeliveredAt == nil || len(view.Passes[0].PlanRequests) != 1 || view.Passes[0].PlanRequests[0].ID != request.ID {
+		t.Fatalf("request=%+v pass requests=%+v", request, view.Passes[0].PlanRequests)
+	}
+}
+
+func TestRequestPlanOfflineReturnsAfterPersistence(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	finding, err := f.svc.CreateFinding(ctx, f.tourID, ReviewFindingInput{Body: "Fix validation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := f.svc.RequestPlan(ctx, f.tourID, []string{finding.ID})
+	if !errors.Is(err, ErrAgentOffline) || request == nil {
+		t.Fatalf("request=%+v err=%v", request, err)
+	}
+	view, viewErr := f.svc.Tour(ctx, f.tourID)
+	if viewErr != nil {
+		t.Fatal(viewErr)
+	}
+	if len(view.Passes[0].PlanRequests) != 1 || view.Passes[0].PlanRequests[0].DeliveredAt != nil {
+		t.Fatalf("requests = %+v", view.Passes[0].PlanRequests)
+	}
+}
+
 func TestReviewTourCreatesPassOneWithImmutableLatestPlanSnapshot(t *testing.T) {
 	s := newReviewTestStore(t)
 	ctx := context.Background()

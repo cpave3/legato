@@ -72,7 +72,7 @@ func TestReviewRestartReplacesPacketAndPreservesCaptureBoundary(t *testing.T) {
 	s.Close()
 
 	configureReviewCLITest(t, dbPath)
-	if code := runReviewCmd([]string{"restart", "--task", "task-1"}); code != 0 {
+	if code := runReviewCmd([]string{"restart", "--feedback", "Focus on error handling", "--task", "task-1"}); code != 0 {
 		t.Fatalf("runReviewCmd() = %d, want 0", code)
 	}
 
@@ -90,6 +90,10 @@ func TestReviewRestartReplacesPacketAndPreservesCaptureBoundary(t *testing.T) {
 	}
 	if restarted.BaseSHA != "base-before-rewrite" || restarted.RepositoryPath != "/repo" {
 		t.Fatalf("capture boundary lost: %+v", restarted)
+	}
+	pass, err := s.GetActiveReviewPass(ctx, tour.ID)
+	if err != nil || pass.Guidance != "Focus on error handling" {
+		t.Fatalf("replacement pass = %+v, err = %v", pass, err)
 	}
 	steps, err := s.ListReviewSteps(ctx, tour.ID)
 	if err != nil {
