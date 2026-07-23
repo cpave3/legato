@@ -664,16 +664,30 @@ func (r *ReviewService) Ready(ctx context.Context, tourID, summary string) error
 	if err := r.rebuildRemainingChapter(ctx, tourID, taskID, repo, head); err != nil {
 		return err
 	}
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
 	_, err = r.store.UpdateReviewTour(ctx, tourID, func(rt *store.ReviewTour) {
 		rt.Status = "ready"
 		rt.HeadSHA = head
 		if summary != "" {
 			rt.Summary = summary
 		}
-		now := time.Now().UTC().Format("2006-01-02 15:04:05")
 		rt.ReadyAt = &now
 	})
 	if err != nil {
+		return err
+	}
+	pass, err := r.store.GetActiveReviewPass(ctx, tourID)
+	if err != nil {
+		return err
+	}
+	if _, err := r.store.UpdateReviewPass(ctx, pass.ID, func(rp *store.ReviewPass) {
+		rp.Status = "ready"
+		rp.HeadSHA = head
+		if summary != "" {
+			rp.Summary = summary
+		}
+		rp.ReadyAt = &now
+	}); err != nil {
 		return err
 	}
 	r.publish(tourID, "", "ready")
@@ -772,6 +786,18 @@ func (r *ReviewService) Delete(ctx context.Context, tourID string) error {
 
 // Restart discards all authored and generated artifacts while preserving the
 // capture boundary needed to rebuild the tour after a rebase or substantial rework.
+func (r *ReviewService) AdvancePass(ctx context.Context, tourID, guidance string) error {
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return err
+	}
+	if _, err := r.store.AdvanceReviewPass(ctx, tourID, strings.TrimSpace(guidance)); err != nil {
+		return err
+	}
+	r.publishEvent(tour.ID, tour.TaskID, "", "pass_advanced")
+	return nil
+}
+
 func (r *ReviewService) Restart(ctx context.Context, tourID string) error {
 	tour, err := r.store.GetReviewTour(ctx, tourID)
 	if err != nil {
@@ -817,6 +843,16 @@ func (r *ReviewService) Complete(ctx context.Context, tourID string) error {
 		} else if watermark != "" {
 			rt.LastReviewedSHA = watermark
 		}
+	}); err != nil {
+		return err
+	}
+	pass, err := r.store.GetActiveReviewPass(ctx, tourID)
+	if err != nil {
+		return err
+	}
+	if _, err := r.store.UpdateReviewPass(ctx, pass.ID, func(rp *store.ReviewPass) {
+		rp.Status = "reviewed"
+		rp.ReviewedAt = &now
 	}); err != nil {
 		return err
 	}
@@ -993,8 +1029,17 @@ func (r *ReviewService) chapterView(ctx context.Context, step store.ReviewStep) 
 }
 
 // ReviewTourView is the assembled read model for the review UIs.
+type ReviewPassView struct {
+	Pass         store.ReviewPass       `json:"pass"`
+	CapturedPlan *store.ReviewPassPlan  `json:"captured_plan,omitempty"`
+	Steps        []store.ReviewStep     `json:"steps"`
+	Messages     []store.ReviewMessage  `json:"messages"`
+	HunkNotes    []store.ReviewHunkNote `json:"hunk_notes"`
+}
+
 type ReviewTourView struct {
 	Tour      store.ReviewTour       `json:"tour"`
+	Passes    []ReviewPassView       `json:"passes"`
 	Steps     []store.ReviewStep     `json:"steps"`
 	Messages  []store.ReviewMessage  `json:"messages"`
 	HunkNotes []store.ReviewHunkNote `json:"hunk_notes"`
@@ -1035,7 +1080,42 @@ func (r *ReviewService) Tour(ctx context.Context, tourID string) (*ReviewTourVie
 	if hunkNotes == nil {
 		hunkNotes = []store.ReviewHunkNote{}
 	}
-	return &ReviewTourView{Tour: *tour, Steps: steps, Messages: msgs, HunkNotes: hunkNotes}, nil
+	passes, err := r.store.ListReviewPasses(ctx, tourID)
+	if err != nil {
+		return nil, err
+	}
+	passViews := make([]ReviewPassView, 0, len(passes))
+	for _, pass := range passes {
+		passSteps, err := r.store.ListReviewStepsByPass(ctx, pass.ID)
+		if err != nil {
+			return nil, err
+		}
+		passMessages, err := r.store.ListReviewMessagesByPass(ctx, pass.ID)
+		if err != nil {
+			return nil, err
+		}
+		passNotes, err := r.store.ListReviewHunkNotesByPass(ctx, pass.ID)
+		if err != nil {
+			return nil, err
+		}
+		if passSteps == nil {
+			passSteps = []store.ReviewStep{}
+		}
+		if passMessages == nil {
+			passMessages = []store.ReviewMessage{}
+		}
+		if passNotes == nil {
+			passNotes = []store.ReviewHunkNote{}
+		}
+		passView := ReviewPassView{Pass: pass, Steps: passSteps, Messages: passMessages, HunkNotes: passNotes}
+		if plan, err := r.store.GetReviewPassPlan(ctx, pass.ID); err == nil {
+			passView.CapturedPlan = plan
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return nil, err
+		}
+		passViews = append(passViews, passView)
+	}
+	return &ReviewTourView{Tour: *tour, Passes: passViews, Steps: steps, Messages: msgs, HunkNotes: hunkNotes}, nil
 }
 
 func projectHunkNotesToVisibleChapters(ctx context.Context, s *store.Store, steps []store.ReviewStep, notes []store.ReviewHunkNote) ([]store.ReviewHunkNote, error) {

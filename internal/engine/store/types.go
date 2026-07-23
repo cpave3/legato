@@ -168,8 +168,33 @@ type ReviewTour struct {
 // ReviewStep is one reviewable unit of a tour: a commit, the synthetic dirty
 // step, or a file-anchored note. Identity is the generated ID — never the SHA —
 // so annotations and transcript survive re-syncs.
+type ReviewPass struct {
+	ID         string  `db:"id" json:"id"`
+	TourID     string  `db:"tour_id" json:"tour_id"`
+	Number     int     `db:"number" json:"number"`
+	Status     string  `db:"status" json:"status"`
+	Summary    string  `db:"summary" json:"summary"`
+	Guidance   string  `db:"guidance" json:"guidance"`
+	HeadSHA    string  `db:"head_sha" json:"head_sha"`
+	ReadyAt    *string `db:"ready_at" json:"ready_at,omitempty"`
+	ReviewedAt *string `db:"reviewed_at" json:"reviewed_at,omitempty"`
+	CreatedAt  string  `db:"created_at" json:"created_at"`
+	UpdatedAt  string  `db:"updated_at" json:"updated_at"`
+}
+
+type ReviewPassPlan struct {
+	PassID     string `db:"pass_id" json:"pass_id"`
+	PlanID     string `db:"plan_id" json:"plan_id"`
+	RevisionID string `db:"revision_id" json:"revision_id"`
+	Revision   int    `db:"revision" json:"revision"`
+	Title      string `db:"title" json:"title"`
+	Markdown   string `db:"markdown" json:"markdown"`
+	CreatedAt  string `db:"created_at" json:"created_at"`
+}
+
 type ReviewStep struct {
 	ID               string  `db:"id" json:"id"`
+	PassID           string  `db:"pass_id" json:"pass_id"`
 	TaskID           string  `db:"task_id" json:"task_id"`
 	TourID           string  `db:"tour_id" json:"tour_id"`
 	Kind             string  `db:"kind" json:"kind"` // commit|dirty|note|chapter
@@ -192,6 +217,7 @@ type ReviewStep struct {
 // review step's file diff.
 type ReviewHunkNote struct {
 	ID         string `db:"id" json:"id"`
+	PassID     string `db:"pass_id" json:"pass_id"`
 	TaskID     string `db:"task_id" json:"task_id"`
 	TourID     string `db:"tour_id" json:"tour_id"`
 	StepID     string `db:"step_id" json:"step_id"`
@@ -208,6 +234,7 @@ type ReviewHunkNote struct {
 // ReviewChapterHunk assigns one base-to-head diff hunk to a chapter step.
 type ReviewChapterHunk struct {
 	ID         string `db:"id" json:"id"`
+	PassID     string `db:"pass_id" json:"pass_id"`
 	TaskID     string `db:"task_id" json:"task_id"`
 	TourID     string `db:"tour_id" json:"tour_id"`
 	StepID     string `db:"step_id" json:"step_id"`
@@ -222,6 +249,7 @@ type ReviewChapterHunk struct {
 // ReviewMessage is one Q&A transcript entry attached to a review step.
 type ReviewMessage struct {
 	ID          int     `db:"id" json:"id"`
+	PassID      string  `db:"pass_id" json:"pass_id"`
 	TaskID      string  `db:"task_id" json:"task_id"`
 	TourID      string  `db:"tour_id" json:"tour_id"`
 	StepID      string  `db:"step_id" json:"step_id"`

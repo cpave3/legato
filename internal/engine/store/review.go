@@ -12,8 +12,29 @@ import (
 // default 'capturing' state when absent. An empty name selects the default tour.
 func (s *Store) EnsureReviewTour(ctx context.Context, taskID, name string) (*ReviewTour, error) {
 	id := reviewTourID(taskID, name)
-	if _, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
 		"INSERT OR IGNORE INTO review_tours (id, task_id, name) VALUES (?, ?, ?)", id, taskID, name); err != nil {
+		return nil, err
+	}
+	passID := id + "-p1"
+	if _, err := tx.ExecContext(ctx,
+		"INSERT OR IGNORE INTO review_passes (id, tour_id, number) VALUES (?, ?, 1)", passID, id); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO review_pass_plans (pass_id, plan_id, revision_id, markdown)
+		SELECT ?, p.id, r.id, r.markdown
+		FROM plans p JOIN plan_revisions r ON r.plan_id = p.id AND r.revision = p.latest_revision
+		WHERE p.task_id = ? AND p.status IN ('approved', 'completed')
+		ORDER BY COALESCE(p.completed_at, p.approved_at, p.updated_at) DESC, p.rowid DESC LIMIT 1`, passID, taskID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return s.GetReviewTour(ctx, id)
@@ -55,14 +76,118 @@ func reviewTourID(taskID, name string) string {
 	return "rt-" + taskID + "-" + name
 }
 
-// InsertReviewStep adds a step to a tour. Commit steps are deduped per task
+func (s *Store) ListReviewPasses(ctx context.Context, tourID string) ([]ReviewPass, error) {
+	var passes []ReviewPass
+	err := s.db.SelectContext(ctx, &passes, "SELECT * FROM review_passes WHERE tour_id = ? ORDER BY number", tourID)
+	return passes, err
+}
+
+func (s *Store) GetActiveReviewPass(ctx context.Context, tourID string) (*ReviewPass, error) {
+	var pass ReviewPass
+	err := s.db.GetContext(ctx, &pass, "SELECT * FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1", tourID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return &pass, err
+}
+
+func (s *Store) ListReviewStepsByPass(ctx context.Context, passID string) ([]ReviewStep, error) {
+	var steps []ReviewStep
+	err := s.db.SelectContext(ctx, &steps, `
+		SELECT * FROM review_steps WHERE pass_id = ?
+		ORDER BY (order_hint IS NULL), order_hint ASC, seq ASC`, passID)
+	return steps, err
+}
+
+func (s *Store) ListReviewMessagesByPass(ctx context.Context, passID string) ([]ReviewMessage, error) {
+	var messages []ReviewMessage
+	err := s.db.SelectContext(ctx, &messages, "SELECT * FROM review_transcript WHERE pass_id = ? ORDER BY id", passID)
+	return messages, err
+}
+
+func (s *Store) ListReviewHunkNotesByPass(ctx context.Context, passID string) ([]ReviewHunkNote, error) {
+	var notes []ReviewHunkNote
+	err := s.db.SelectContext(ctx, &notes, "SELECT * FROM review_hunk_notes WHERE pass_id = ? ORDER BY created_at, id", passID)
+	return notes, err
+}
+
+func (s *Store) GetReviewPassPlan(ctx context.Context, passID string) (*ReviewPassPlan, error) {
+	var plan ReviewPassPlan
+	err := s.db.GetContext(ctx, &plan, `
+		SELECT pp.pass_id, pp.plan_id, pp.revision_id, r.revision, p.title, pp.markdown, pp.created_at
+		FROM review_pass_plans pp
+		JOIN plans p ON p.id = pp.plan_id
+		JOIN plan_revisions r ON r.id = pp.revision_id
+		WHERE pp.pass_id = ?`, passID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return &plan, err
+}
+
+func (s *Store) UpdateReviewPass(ctx context.Context, id string, mutate func(*ReviewPass)) (*ReviewPass, error) {
+	var pass ReviewPass
+	if err := s.db.GetContext(ctx, &pass, "SELECT * FROM review_passes WHERE id = ?", id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	mutate(&pass)
+	if _, err := s.db.NamedExecContext(ctx, `UPDATE review_passes SET status = :status, summary = :summary,
+		guidance = :guidance, head_sha = :head_sha, ready_at = :ready_at, reviewed_at = :reviewed_at,
+		updated_at = datetime('now') WHERE id = :id`, pass); err != nil {
+		return nil, err
+	}
+	return s.GetActiveReviewPass(ctx, pass.TourID)
+}
+
+func (s *Store) AdvanceReviewPass(ctx context.Context, tourID, guidance string) (*ReviewPass, error) {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var current ReviewPass
+	if err := tx.GetContext(ctx, &current, "SELECT * FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1", tourID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE review_passes SET status = 'superseded', updated_at = datetime('now') WHERE id = ?", current.ID); err != nil {
+		return nil, err
+	}
+	next := ReviewPass{ID: fmt.Sprintf("%s-p%d", tourID, current.Number+1), TourID: tourID, Number: current.Number + 1, Status: "capturing", Guidance: guidance}
+	if _, err := tx.NamedExecContext(ctx, `
+		INSERT INTO review_passes (id, tour_id, number, status, guidance) VALUES (:id, :tour_id, :number, :status, :guidance)`, next); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO review_pass_plans (pass_id, plan_id, revision_id, markdown)
+		SELECT ?, p.id, r.id, r.markdown
+		FROM review_tours t JOIN plans p ON p.task_id = t.task_id
+		JOIN plan_revisions r ON r.plan_id = p.id AND r.revision = p.latest_revision
+		WHERE t.id = ? AND p.status IN ('approved', 'completed')
+		ORDER BY COALESCE(p.completed_at, p.approved_at, p.updated_at) DESC, p.rowid DESC LIMIT 1`, next.ID, tourID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE review_tours SET status = 'capturing', summary = '', head_sha = '',
+		last_reviewed_sha = '', ready_at = NULL, updated_at = datetime('now') WHERE id = ?`, tourID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return s.GetActiveReviewPass(ctx, tourID)
+}
+
+// InsertReviewStep adds a step to a tour. Commit steps are deduped per pass
 // on their SHA; the returned bool reports whether a row was actually inserted.
 func (s *Store) InsertReviewStep(ctx context.Context, step ReviewStep) (bool, error) {
 	res, err := s.db.NamedExecContext(ctx, `
-		INSERT OR IGNORE INTO review_steps (id, task_id, tour_id, kind, commit_sha, files,
+		INSERT OR IGNORE INTO review_steps (id, task_id, tour_id, pass_id, kind, commit_sha, files,
 			title, narration, risk, order_hint, seq, subtask_id, dirty_fingerprint)
-		VALUES (:id, :task_id, :tour_id, :kind, :commit_sha, :files,
-			:title, :narration, :risk, :order_hint, :seq, :subtask_id, :dirty_fingerprint)`, step)
+		VALUES (:id, :task_id, :tour_id,
+			COALESCE(NULLIF(:pass_id, ''), (SELECT id FROM review_passes WHERE tour_id = :tour_id ORDER BY number DESC LIMIT 1), ''),
+			:kind, :commit_sha, :files, :title, :narration, :risk, :order_hint, :seq, :subtask_id, :dirty_fingerprint)`, step)
 	if err != nil {
 		return false, err
 	}
@@ -79,7 +204,8 @@ func (s *Store) ListReviewSteps(ctx context.Context, tourID string) ([]ReviewSte
 	var steps []ReviewStep
 	err := s.db.SelectContext(ctx, &steps, `
 		SELECT * FROM review_steps WHERE tour_id = ?
-		ORDER BY (order_hint IS NULL), order_hint ASC, seq ASC`, tourID)
+		  AND (pass_id = COALESCE((SELECT id FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1), '') OR pass_id = '')
+		ORDER BY (order_hint IS NULL), order_hint ASC, seq ASC`, tourID, tourID)
 	return steps, err
 }
 
@@ -146,14 +272,18 @@ func (s *Store) DeleteReviewStep(ctx context.Context, id string) error {
 func (s *Store) MarkReviewStepsOrphaned(ctx context.Context, taskID string, liveSHAs []string) error {
 	query, args := buildInClause(
 		"UPDATE review_steps SET orphaned_at = datetime('now'), updated_at = datetime('now') "+
-			"WHERE task_id = ? AND kind = 'commit' AND orphaned_at IS NULL AND commit_sha NOT IN (%s)",
+			"WHERE task_id = ? AND kind = 'commit' AND orphaned_at IS NULL AND "+
+			"(pass_id = COALESCE((SELECT rp.id FROM review_passes rp JOIN review_tours rt ON rt.id = rp.tour_id WHERE rt.task_id = review_steps.task_id ORDER BY rp.number DESC LIMIT 1), '') OR pass_id = '') "+
+			"AND commit_sha NOT IN (%s)",
 		taskID, liveSHAs)
 	if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
 		return err
 	}
 	query, args = buildInClause(
 		"UPDATE review_steps SET orphaned_at = NULL, updated_at = datetime('now') "+
-			"WHERE task_id = ? AND kind = 'commit' AND orphaned_at IS NOT NULL AND commit_sha IN (%s)",
+			"WHERE task_id = ? AND kind = 'commit' AND orphaned_at IS NOT NULL AND "+
+			"(pass_id = COALESCE((SELECT rp.id FROM review_passes rp JOIN review_tours rt ON rt.id = rp.tour_id WHERE rt.task_id = review_steps.task_id ORDER BY rp.number DESC LIMIT 1), '') OR pass_id = '') "+
+			"AND commit_sha IN (%s)",
 		taskID, liveSHAs)
 	_, err := s.db.ExecContext(ctx, query, args...)
 	return err
@@ -181,17 +311,25 @@ func (s *Store) InsertReviewChapter(ctx context.Context, step ReviewStep, hunks 
 		return err
 	}
 	defer tx.Rollback()
+	if step.PassID == "" {
+		if err := tx.GetContext(ctx, &step.PassID, "SELECT id FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1", step.TourID); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.NamedExecContext(ctx, `
-		INSERT INTO review_steps (id, task_id, tour_id, kind, commit_sha, files, title,
+		INSERT INTO review_steps (id, task_id, tour_id, pass_id, kind, commit_sha, files, title,
 			narration, risk, order_hint, seq, subtask_id, dirty_fingerprint)
-		VALUES (:id, :task_id, :tour_id, :kind, :commit_sha, :files, :title,
+		VALUES (:id, :task_id, :tour_id, :pass_id, :kind, :commit_sha, :files, :title,
 			:narration, :risk, :order_hint, :seq, :subtask_id, :dirty_fingerprint)`, step); err != nil {
 		return err
 	}
 	for _, hunk := range hunks {
+		if hunk.PassID == "" {
+			hunk.PassID = step.PassID
+		}
 		if _, err := tx.NamedExecContext(ctx, `
-			INSERT INTO review_chapter_hunks (id, task_id, tour_id, step_id, file_path, hunk_anchor, seq, generated)
-			VALUES (:id, :task_id, :tour_id, :step_id, :file_path, :hunk_anchor, :seq, :generated)`, hunk); err != nil {
+			INSERT INTO review_chapter_hunks (id, task_id, tour_id, pass_id, step_id, file_path, hunk_anchor, seq, generated)
+			VALUES (:id, :task_id, :tour_id, :pass_id, :step_id, :file_path, :hunk_anchor, :seq, :generated)`, hunk); err != nil {
 			return err
 		}
 	}
@@ -240,10 +378,11 @@ func (s *Store) ListReviewTours(ctx context.Context) ([]ReviewTour, error) {
 // generated so the service can return the durable note identity.
 func (s *Store) InsertReviewHunkNote(ctx context.Context, note ReviewHunkNote) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO review_hunk_notes (id, task_id, tour_id, step_id, file_path, hunk_anchor,
+		INSERT INTO review_hunk_notes (id, task_id, tour_id, pass_id, step_id, file_path, hunk_anchor,
 			line_start, line_end, line_anchor, body, updated_at)
-		VALUES (:id, :task_id, :tour_id, :step_id, :file_path, :hunk_anchor,
-			:line_start, :line_end, :line_anchor, :body, datetime('now'))`, note)
+		VALUES (:id, :task_id, :tour_id,
+			COALESCE(NULLIF(:pass_id, ''), (SELECT id FROM review_passes WHERE tour_id = :tour_id ORDER BY number DESC LIMIT 1), ''),
+			:step_id, :file_path, :hunk_anchor, :line_start, :line_end, :line_anchor, :body, datetime('now'))`, note)
 	return err
 }
 
@@ -301,7 +440,9 @@ func (s *Store) DeleteReviewHunkNote(ctx context.Context, id string) error {
 func (s *Store) ListReviewHunkNotes(ctx context.Context, tourID string) ([]ReviewHunkNote, error) {
 	var notes []ReviewHunkNote
 	err := s.db.SelectContext(ctx, &notes, `
-		SELECT * FROM review_hunk_notes WHERE tour_id = ? ORDER BY created_at ASC, id ASC`, tourID)
+		SELECT * FROM review_hunk_notes WHERE tour_id = ?
+		  AND (pass_id = COALESCE((SELECT id FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1), '') OR pass_id = '')
+		ORDER BY created_at ASC, id ASC`, tourID, tourID)
 	return notes, err
 }
 
@@ -310,9 +451,10 @@ func (s *Store) ListReviewHunkNotes(ctx context.Context, tourID string) ([]Revie
 // the agent session is dead are stored with a NULL delivered_at).
 func (s *Store) InsertReviewMessage(ctx context.Context, m ReviewMessage, delivered bool) (*ReviewMessage, error) {
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO review_transcript (task_id, tour_id, step_id, kind, author, body, delivered_at)
-		VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? THEN datetime('now') ELSE NULL END)`,
-		m.TaskID, m.TourID, m.StepID, m.Kind, m.Author, m.Body, delivered)
+		INSERT INTO review_transcript (task_id, tour_id, pass_id, step_id, kind, author, body, delivered_at)
+		VALUES (?, ?, COALESCE(NULLIF(?, ''), (SELECT id FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1), ''),
+			?, ?, ?, ?, CASE WHEN ? THEN datetime('now') ELSE NULL END)`,
+		m.TaskID, m.TourID, m.PassID, m.TourID, m.StepID, m.Kind, m.Author, m.Body, delivered)
 	if err != nil {
 		return nil, err
 	}
@@ -330,8 +472,9 @@ func (s *Store) InsertReviewMessage(ctx context.Context, m ReviewMessage, delive
 // ListReviewMessages returns a tour's Q&A transcript, oldest first.
 func (s *Store) ListReviewMessages(ctx context.Context, tourID string) ([]ReviewMessage, error) {
 	var msgs []ReviewMessage
-	err := s.db.SelectContext(ctx, &msgs,
-		"SELECT * FROM review_transcript WHERE tour_id = ? ORDER BY id ASC", tourID)
+	err := s.db.SelectContext(ctx, &msgs, `SELECT * FROM review_transcript WHERE tour_id = ?
+		AND (pass_id = COALESCE((SELECT id FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1), '') OR pass_id = '')
+		ORDER BY id ASC`, tourID, tourID)
 	return msgs, err
 }
 
@@ -378,6 +521,8 @@ func (s *Store) DeleteReviewTour(ctx context.Context, id string) error {
 		"DELETE FROM review_hunk_notes WHERE tour_id = ?",
 		"DELETE FROM review_transcript WHERE tour_id = ?",
 		"DELETE FROM review_steps WHERE tour_id = ?",
+		"DELETE FROM review_pass_plans WHERE pass_id IN (SELECT id FROM review_passes WHERE tour_id = ?)",
+		"DELETE FROM review_passes WHERE tour_id = ?",
 		"DELETE FROM review_tours WHERE id = ?",
 	} {
 		if _, err := tx.ExecContext(ctx, query, id); err != nil {
@@ -395,15 +540,34 @@ func (s *Store) RestartReviewTour(ctx context.Context, id string) error {
 		return err
 	}
 	defer tx.Rollback()
+	var current ReviewPass
+	if err := tx.GetContext(ctx, &current, "SELECT * FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1", id); err != nil {
+		return err
+	}
 	for _, query := range []string{
-		"DELETE FROM review_chapter_hunks WHERE tour_id = ?",
-		"DELETE FROM review_hunk_notes WHERE tour_id = ?",
-		"DELETE FROM review_transcript WHERE tour_id = ?",
-		"DELETE FROM review_steps WHERE tour_id = ?",
+		"DELETE FROM review_chapter_hunks WHERE pass_id = ?",
+		"DELETE FROM review_hunk_notes WHERE pass_id = ?",
+		"DELETE FROM review_transcript WHERE pass_id = ?",
+		"DELETE FROM review_steps WHERE pass_id = ?",
+		"DELETE FROM review_pass_plans WHERE pass_id = ?",
+		"DELETE FROM review_passes WHERE id = ?",
 	} {
-		if _, err := tx.ExecContext(ctx, query, id); err != nil {
+		if _, err := tx.ExecContext(ctx, query, current.ID); err != nil {
 			return err
 		}
+	}
+	replacementID := current.ID + "r"
+	if _, err := tx.ExecContext(ctx, "INSERT INTO review_passes (id, tour_id, number) VALUES (?, ?, ?)", replacementID, id, current.Number); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO review_pass_plans (pass_id, plan_id, revision_id, markdown)
+		SELECT ?, p.id, r.id, r.markdown
+		FROM review_tours t JOIN plans p ON p.task_id = t.task_id
+		JOIN plan_revisions r ON r.plan_id = p.id AND r.revision = p.latest_revision
+		WHERE t.id = ? AND p.status IN ('approved', 'completed')
+		ORDER BY COALESCE(p.completed_at, p.approved_at, p.updated_at) DESC, p.rowid DESC LIMIT 1`, replacementID, id); err != nil {
+		return err
 	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE review_tours SET status = 'capturing', summary = '', head_sha = '',

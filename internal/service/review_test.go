@@ -93,6 +93,163 @@ func gitCommitAll(t *testing.T, dir, message string) string {
 	return gitRun(t, dir, "rev-parse", "HEAD")
 }
 
+func TestReviewTourCreatesPassOneWithImmutableLatestPlanSnapshot(t *testing.T) {
+	s := newReviewTestStore(t)
+	ctx := context.Background()
+	repo := initTestRepo(t)
+	createTask(t, s, "task-1")
+	if err := s.SetTaskWorktree(ctx, "task-1", &store.TaskWorktree{PrimaryDir: repo, Path: repo, Branch: "feature", BaseBranch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	insertApprovedReviewPlan(t, s, "task-1", "older", "# Older plan")
+	insertApprovedReviewPlan(t, s, "task-1", "latest", "# Captured plan")
+
+	svc := NewReviewService(s, nil, nil)
+	tour, err := svc.EnsureReviewTour(ctx, "task-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := svc.Tour(ctx, tour.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Passes) != 1 || view.Passes[0].Pass.Number != 1 {
+		t.Fatalf("passes = %+v, want pass 1", view.Passes)
+	}
+	captured := view.Passes[0].CapturedPlan
+	if captured == nil || captured.PlanID != "plan-latest" || captured.Revision != 1 || captured.Markdown != "# Captured plan" {
+		t.Fatalf("captured plan = %+v", captured)
+	}
+
+	if err := s.InsertPlanRevision(ctx,
+		store.Plan{ID: "plan-latest", TaskID: "task-1", Name: "latest", Title: "latest", Status: "proposed", LatestRevision: 2},
+		store.PlanRevision{ID: "plan-latest-r2", PlanID: "plan-latest", Revision: 2, Markdown: "# Revised later", ManifestJSON: "{}"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	view, err = svc.Tour(ctx, tour.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := view.Passes[0].CapturedPlan.Markdown; got != "# Captured plan" {
+		t.Fatalf("captured markdown changed to %q", got)
+	}
+}
+
+func insertApprovedReviewPlan(t *testing.T, s *store.Store, taskID, name, markdown string) {
+	t.Helper()
+	ctx := context.Background()
+	id := "plan-" + name
+	if err := s.InsertPlanRevision(ctx,
+		store.Plan{ID: id, TaskID: taskID, Name: name, Title: name, Status: "proposed", LatestRevision: 1},
+		store.PlanRevision{ID: id + "-r1", PlanID: id, Revision: 1, Markdown: markdown, ManifestJSON: "{}"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ApprovePlan(ctx, id, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReviewArtifactsBelongToActivePass(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "a.go", "package a\n")
+	sha := gitCommitAll(t, f.repo, "add a")
+	chapterID, err := f.svc.CreateChapter(ctx, f.tourID, ChapterArgs{
+		Title: "Package A", Includes: []ChapterInclude{{FilePath: "a.go", Hunk: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hunk := 1
+	noteID, err := f.svc.Annotate(ctx, f.tourID, AnnotateArgs{SHA: sha, Text: "note", Files: []string{"a.go"}, Hunk: &hunk})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.AskQuestion(ctx, f.tourID, chapterID, ReviewQuestion{Text: "why?"}); !errors.Is(err, ErrAgentOffline) {
+		t.Fatalf("AskQuestion error = %v, want ErrAgentOffline", err)
+	}
+
+	pass, err := f.store.GetActiveReviewPass(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps, _ := f.store.ListReviewSteps(ctx, f.tourID)
+	for _, step := range steps {
+		if step.PassID != pass.ID {
+			t.Fatalf("step %s pass = %q, want %q", step.ID, step.PassID, pass.ID)
+		}
+	}
+	note, err := f.store.GetReviewHunkNoteByPrefix(ctx, f.tourID, noteID)
+	if err != nil || note.PassID != pass.ID {
+		t.Fatalf("note = %+v, err = %v, want pass %q", note, err, pass.ID)
+	}
+	messages, err := f.store.ListReviewMessages(ctx, f.tourID)
+	if err != nil || len(messages) != 1 || messages[0].PassID != pass.ID {
+		t.Fatalf("messages = %+v, err = %v, want pass %q", messages, err, pass.ID)
+	}
+	hunks, err := f.store.ListReviewChapterHunks(ctx, chapterID)
+	if err != nil || len(hunks) != 1 || hunks[0].PassID != pass.ID {
+		t.Fatalf("chapter hunks = %+v, err = %v, want pass %q", hunks, err, pass.ID)
+	}
+}
+
+func TestRestartReviewReplacesCurrentPass(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "a.go", "package a\n")
+	gitCommitAll(t, f.repo, "add a")
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
+		t.Fatal(err)
+	}
+	before, err := f.store.GetActiveReviewPass(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.svc.Restart(ctx, f.tourID); err != nil {
+		t.Fatal(err)
+	}
+	passes, err := f.store.ListReviewPasses(ctx, f.tourID)
+	if err != nil || len(passes) != 1 || passes[0].Number != 1 || passes[0].ID == before.ID {
+		t.Fatalf("passes = %+v, err = %v; restart must replace pass 1", passes, err)
+	}
+	steps, err := f.store.ListReviewSteps(ctx, f.tourID)
+	if err != nil || len(steps) != 0 {
+		t.Fatalf("steps = %+v, err = %v, want replacement pass empty", steps, err)
+	}
+}
+
+func TestAdvancePassPreservesPriorPassAndStartsNextPass(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "a.go", "package a\n")
+	gitCommitAll(t, f.repo, "add a")
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
+		t.Fatal(err)
+	}
+	firstSteps, err := f.store.ListReviewSteps(ctx, f.tourID)
+	if err != nil || len(firstSteps) != 1 {
+		t.Fatalf("first steps = %+v, err = %v", firstSteps, err)
+	}
+
+	if err := f.svc.AdvancePass(ctx, f.tourID, "Address reviewer feedback"); err != nil {
+		t.Fatal(err)
+	}
+	view, err := f.svc.Tour(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Passes) != 2 || view.Passes[0].Pass.Status != "superseded" || view.Passes[1].Pass.Number != 2 || view.Passes[1].Pass.Guidance != "Address reviewer feedback" {
+		t.Fatalf("passes = %+v", view.Passes)
+	}
+	if len(view.Passes[0].Steps) != 1 || view.Passes[0].Steps[0].ID != firstSteps[0].ID {
+		t.Fatalf("prior pass steps = %+v, want preserved %s", view.Passes[0].Steps, firstSteps[0].ID)
+	}
+	if len(view.Steps) != 1 || view.Steps[0].PassID != view.Passes[1].Pass.ID {
+		t.Fatalf("active steps = %+v, want synced into pass 2", view.Steps)
+	}
+}
+
 func TestDeleteReviewRemovesPacketAndPublishesChange(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
