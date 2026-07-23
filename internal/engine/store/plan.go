@@ -241,6 +241,37 @@ func (s *Store) CompletePlan(ctx context.Context, planID string) error {
 		WHERE id IN (SELECT finding_id FROM plan_review_origins WHERE plan_id = ?)`, planID); err != nil {
 		return err
 	}
+	var tours []struct {
+		ID       string `db:"id"`
+		Guidance string `db:"guidance"`
+	}
+	if err := tx.SelectContext(ctx, &tours, `SELECT DISTINCT rp.tour_id AS id,
+		'Verify completed follow-up plan ' || p.title AS guidance
+		FROM plan_review_origins o JOIN review_passes rp ON rp.id = o.review_pass_id
+		JOIN plans p ON p.id = o.plan_id WHERE o.plan_id = ?`, planID); err != nil {
+		return err
+	}
+	for _, tour := range tours {
+		var current ReviewPass
+		if err := tx.GetContext(ctx, &current, "SELECT * FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1", tour.ID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE review_passes SET status = 'superseded', updated_at = datetime('now') WHERE id = ?", current.ID); err != nil {
+			return err
+		}
+		nextID := fmt.Sprintf("%s-p%d", tour.ID, current.Number+1)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO review_passes (id, tour_id, number, status, guidance) VALUES (?, ?, ?, 'capturing', ?)`, nextID, tour.ID, current.Number+1, tour.Guidance); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO review_pass_plans (pass_id, plan_id, revision_id, markdown)
+			SELECT ?, id, (SELECT id FROM plan_revisions WHERE plan_id = plans.id AND revision = plans.latest_revision),
+			(SELECT markdown FROM plan_revisions WHERE plan_id = plans.id AND revision = plans.latest_revision) FROM plans WHERE id = ?`, nextID, planID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE review_tours SET status = 'capturing', summary = '', head_sha = '', last_reviewed_sha = '', ready_at = NULL, updated_at = datetime('now') WHERE id = ?`, tour.ID); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 

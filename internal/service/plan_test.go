@@ -314,6 +314,12 @@ func TestCompleteLinkedPlanResolvesFindings(t *testing.T) {
 	if resolved.Status != "resolved" || resolved.ResolvedAt == nil {
 		t.Fatalf("finding after completion = %+v", resolved)
 	}
+	if len(review.Passes) != 2 || review.Passes[0].Pass.Status != "superseded" || review.Passes[1].Pass.Number != 2 {
+		t.Fatalf("passes after linked completion = %+v", review.Passes)
+	}
+	if review.Passes[1].CapturedPlan == nil || review.Passes[1].CapturedPlan.PlanID != view.Plan.ID {
+		t.Fatalf("follow-up pass plan = %+v", review.Passes[1].CapturedPlan)
+	}
 }
 
 func newPlanFixture(t *testing.T) (*store.Store, *PlanService, string) {

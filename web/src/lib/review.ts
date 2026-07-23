@@ -74,8 +74,48 @@ export interface ReviewHunkNote {
   created_at: string
 }
 
+export interface ReviewFinding {
+  id: string
+  pass_id: string
+  step_id?: string
+  file_path?: string
+  hunk_anchor?: string
+  line_start?: number
+  line_end?: number
+  body: string
+  status: "open" | "resolved"
+  resolved_at?: string
+}
+
+export interface ReviewPassPlan {
+  plan_id: string
+  revision_id: string
+  revision: number
+  title: string
+  markdown: string
+}
+
+export interface ReviewPass {
+  id: string
+  number: number
+  status: "capturing" | "ready" | "reviewed" | "superseded"
+  summary: string
+  guidance: string
+}
+
+export interface ReviewPassView {
+  pass: ReviewPass
+  captured_plan?: ReviewPassPlan
+  steps: ReviewStep[]
+  messages: ReviewMessage[]
+  hunk_notes: ReviewHunkNote[]
+  findings: ReviewFinding[]
+  plan_requests: Array<{ id: string; finding_ids: string[]; delivered_at?: string }>
+}
+
 export interface ReviewTourView {
   tour: ReviewTour
+  passes?: ReviewPassView[]
   steps: ReviewStep[]
   messages: ReviewMessage[]
   hunk_notes: ReviewHunkNote[]
@@ -165,6 +205,31 @@ export async function askReviewQuestion(baseUrl: string, tourId: string, stepId:
   }
   const result = await response.json().catch(() => ({})) as { warning?: string }
   return result.warning
+}
+
+export async function createReviewFinding(baseUrl: string, tourId: string, body: string, stepId: string, selection?: DiffSelection | null): Promise<ReviewFinding> {
+  return expectJSON<ReviewFinding>(await postJSON(baseUrl, `${tourPath(tourId)}/findings`, {
+    body,
+    selection: {
+      step_id: stepId,
+      ...(selection ? {
+        file_path: selection.file_path,
+        hunk_anchor: selection.hunk_anchor,
+        line_start: selection.start + 1,
+        line_end: selection.end + 1,
+      } : {}),
+    },
+  }))
+}
+
+export async function requestFollowUpPlan(baseUrl: string, tourId: string, findingIds: string[]): Promise<string | undefined> {
+  const response = await postJSON(baseUrl, `${tourPath(tourId)}/request-plan`, { finding_ids: findingIds })
+  const result = await expectJSON<{ warning?: string }>(response)
+  return result.warning
+}
+
+export async function regenerateReview(baseUrl: string, tourId: string, feedback: string): Promise<void> {
+  await expectOK(await postJSON(baseUrl, `${tourPath(tourId)}/regenerate`, { feedback }))
 }
 
 export async function completeReview(baseUrl: string, tourId: string): Promise<void> {

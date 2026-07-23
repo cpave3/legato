@@ -1,4 +1,8 @@
+import { useEffect, useState } from "react"
+import { Link } from "react-router-dom"
 import type { CardDetail } from "../../lib/board-types"
+import { fetchTaskArtifacts, type TaskArtifacts } from "../../lib/artifacts"
+import { useServer } from "../../hooks/useServer"
 import { X } from "lucide-react"
 
 interface DetailPanelProps {
@@ -29,6 +33,16 @@ export function DetailPanel({
   onCancelSwarm,
 }: DetailPanelProps) {
   const isLocal = !card.provider
+  const baseUrl = useServer()?.baseUrl ?? ""
+  const [artifacts, setArtifacts] = useState<TaskArtifacts | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void fetchTaskArtifacts(baseUrl, card.id)
+      .then((value) => { if (!cancelled) setArtifacts(value) })
+      .catch(() => { if (!cancelled) setArtifacts(null) })
+    return () => { cancelled = true }
+  }, [baseUrl, card.id])
 
   return (
     <div
@@ -124,6 +138,20 @@ export function DetailPanel({
             </>
           )}
         </div>
+
+        {artifacts && (artifacts.plans.length > 0 || artifacts.review_tours.length > 0) && (
+          <section aria-label="Plans and reviews" className="border-b border-zinc-800 px-5 py-3">
+            <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Plans & reviews</h4>
+            <div className="space-y-1 text-xs">
+              {artifacts.plans.map((plan) => <Link key={plan.plan.id} to={`/plans/${encodeURIComponent(plan.plan.id)}`} className="flex justify-between rounded px-2 py-1 text-indigo-300 hover:bg-zinc-800">
+                <span>{plan.plan.title || plan.plan.name}</span><span className="text-zinc-500">{plan.plan.status} · r{plan.revision.revision}</span>
+              </Link>)}
+              {artifacts.review_tours.map((review) => <Link key={review.tour.id} to={`/review/${encodeURIComponent(review.tour.id)}`} className="flex justify-between rounded px-2 py-1 text-emerald-300 hover:bg-zinc-800">
+                <span>{review.tour.name}</span><span className="text-zinc-500">{review.tour.status} · {review.passes.length} pass{review.passes.length === 1 ? "" : "es"}</span>
+              </Link>)}
+            </div>
+          </section>
+        )}
 
         {/* Action bar */}
         <div className="flex flex-wrap items-center gap-1 border-b border-zinc-800 px-5 py-2">

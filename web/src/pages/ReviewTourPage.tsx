@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
-import { ArrowLeft, Check, Circle, Loader2, Send } from "lucide-react"
+import { ArrowLeft, Check, Circle, Flag, Loader2, RefreshCw, Send } from "lucide-react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { DiffView } from "../components/DiffView"
 import { ReviewMessageBody } from "../components/ReviewMessageBody"
@@ -10,8 +12,11 @@ import { useVoiceEnabled } from "../hooks/useVoiceEnabled"
 import {
   askReviewQuestion,
   completeReview,
+  createReviewFinding,
   deleteReview,
   fetchStepDiff,
+  regenerateReview,
+  requestFollowUpPlan,
   setStepReviewed,
   type DiffSelection,
   type FileDiff,
@@ -42,9 +47,15 @@ export function ReviewTourPage() {
   const [selection, setSelection] = useState<DiffSelection | null>(null)
   const [qaWidthRem, setQAWidthRem] = useState(28)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
+  const [regenerationFeedback, setRegenerationFeedback] = useState("")
+  const [findingDraft, setFindingDraft] = useState("")
+  const [selectedFindingIDs, setSelectedFindingIDs] = useState<string[]>([])
   const voiceEnabled = useVoiceEnabled(baseUrl)
 
-  const steps = useMemo(() => data?.steps ?? [], [data?.steps])
+  const passViews = useMemo(() => data?.passes ?? [], [data?.passes])
+  const activePass = passViews[passViews.length - 1]
+  const steps = useMemo(() => activePass?.steps ?? data?.steps ?? [], [activePass?.steps, data?.steps])
   const selectedStep = steps.find((step) => step.id === selectedStepId) ?? steps[0]
   const reviewedCount = steps.filter((step) => step.reviewed_at).length
 
@@ -94,6 +105,37 @@ export function ReviewTourPage() {
       setQuestion("")
       setSelection(null)
       setActionInfo(warning ?? "Question sent")
+    })
+  }
+
+  async function flagChange() {
+    if (!selectedStep || !findingDraft.trim()) return
+    await runAction(async () => {
+      const finding = await createReviewFinding(baseUrl, decodedTourId, findingDraft.trim(), selectedStep.id, selection)
+      setFindingDraft("")
+      setSelection(null)
+      setSelectedFindingIDs((current) => [...current, finding.id])
+      setActionInfo("Change flagged")
+    })
+  }
+
+  async function requestPlan() {
+    if (selectedFindingIDs.length === 0) return
+    await runAction(async () => {
+      const warning = await requestFollowUpPlan(baseUrl, decodedTourId, selectedFindingIDs)
+      setSelectedFindingIDs([])
+      setActionInfo(warning ?? "Follow-up plan requested")
+    })
+  }
+
+  async function regenerate() {
+    if (!regenerationFeedback.trim()) return
+    await runAction(async () => {
+      await regenerateReview(baseUrl, decodedTourId, regenerationFeedback.trim())
+      setRegenerationFeedback("")
+      setRegenerating(false)
+      setSelectedStepId(null)
+      setActionInfo("Review regeneration requested")
     })
   }
 
@@ -149,8 +191,11 @@ export function ReviewTourPage() {
   if (error && !data) return <div role="alert" className="m-6 rounded border border-red-900 bg-red-950/40 p-3 text-red-300">{error}</div>
   if (!data) return null
 
-  const messages = selectedStep ? data.messages.filter((message) => message.step_id === selectedStep.id) : []
-  const hunkNotes = selectedStep ? data.hunk_notes.filter((note) => note.step_id === selectedStep.id) : []
+  const activeMessages = activePass?.messages ?? data.messages
+  const activeHunkNotes = activePass?.hunk_notes ?? data.hunk_notes
+  const findings = activePass?.findings ?? []
+  const messages = selectedStep ? activeMessages.filter((message) => message.step_id === selectedStep.id) : []
+  const hunkNotes = selectedStep ? activeHunkNotes.filter((note) => note.step_id === selectedStep.id) : []
   const matchedNoteIDs = new Set(diff.flatMap((file) => file.hunks.flatMap((hunk) =>
     hunkNotes
       .filter((note) => note.hunk_anchor === hunk.anchor && (note.file_path === file.new_path || note.file_path === file.old_path))
@@ -170,6 +215,9 @@ export function ReviewTourPage() {
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <span className="text-xs text-zinc-400">{reviewedCount}/{steps.length} reviewed</span>
+          <button disabled={busy} onClick={() => setRegenerating(true)} className="flex items-center gap-1 rounded border border-amber-800 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-950/50 disabled:opacity-50">
+            <RefreshCw size={13} /> Regenerate review
+          </button>
           <button disabled={busy} onClick={() => setConfirmingDelete(true)} className="rounded border border-red-900 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-950/50 disabled:opacity-50">
             Delete review
           </button>
@@ -178,6 +226,22 @@ export function ReviewTourPage() {
           </button>
         </div>
       </header>
+
+      {regenerating && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="regenerate-review-title" className="w-full max-w-lg rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+            <div className="border-b border-zinc-800 px-5 py-3"><h2 id="regenerate-review-title" className="text-sm font-semibold">Regenerate review</h2></div>
+            <div className="space-y-3 px-5 py-4">
+              <p className="text-xs text-zinc-400">Replace the current pass and tell the agent how to regenerate it.</p>
+              <textarea aria-label="Regeneration feedback" rows={5} value={regenerationFeedback} onChange={(event) => setRegenerationFeedback(event.target.value)} className="w-full rounded border border-zinc-700 bg-zinc-950 p-3 text-sm outline-none focus:border-amber-600" placeholder="Focus on API compatibility, reduce chapter size…" />
+            </div>
+            <div className="flex justify-end gap-2 border-t border-zinc-800 px-5 py-3">
+              <button disabled={busy} onClick={() => setRegenerating(false)} className="rounded border border-zinc-700 px-3 py-1.5 text-xs">Cancel</button>
+              <button disabled={busy || !regenerationFeedback.trim()} onClick={() => void regenerate()} className="rounded bg-amber-600 px-3 py-1.5 text-xs text-black disabled:opacity-40">Regenerate</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmingDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -203,7 +267,14 @@ export function ReviewTourPage() {
         className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[18rem_minmax(0,1fr)_var(--qa-width)]"
       >
         <aside className="overflow-y-auto border-r border-zinc-800 bg-zinc-950 p-3">
-          <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Review steps</div>
+          {passViews.length > 0 && <div className="mb-3 space-y-3">
+            {passViews.map((passView) => <section key={passView.pass.id} aria-label={`Pass ${passView.pass.number}`}>
+              <div className="px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Pass {passView.pass.number} · {passView.pass.status}</div>
+              {passView.pass.guidance && <p className="px-2 py-1 text-[10px] text-amber-300">{passView.pass.guidance}</p>}
+              {passView.pass.id !== activePass?.pass.id && <div className="space-y-1 opacity-60">{passView.steps.map((step) => <div key={step.id} className="truncate rounded px-2 py-1 text-xs text-zinc-400">{step.title}</div>)}</div>}
+            </section>)}
+          </div>}
+          <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Current pass</div>
           <div className="space-y-1">
             {steps.map((step, index) => (
               <button key={step.id} aria-label={`Step ${index + 1}: ${step.title}`} onClick={() => setSelectedStepId(step.id)} className={cn("w-full rounded p-2 text-left", selectedStep?.id === step.id ? "bg-zinc-800" : "hover:bg-zinc-900")}>
@@ -225,6 +296,10 @@ export function ReviewTourPage() {
         <main className="min-w-0 overflow-x-hidden overflow-y-auto p-5">
           {selectedStep && (
             <div className="mx-auto max-w-6xl space-y-4">
+              {activePass?.captured_plan && <details className="rounded border border-indigo-900 bg-indigo-950/20 p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-indigo-200">Plan context: {activePass.captured_plan.title} · revision {activePass.captured_plan.revision}</summary>
+                <div className="prose prose-invert mt-4 max-w-none text-sm"><ReactMarkdown remarkPlugins={[remarkGfm]}>{activePass.captured_plan.markdown}</ReactMarkdown></div>
+              </details>}
               <div data-sticky-review-action className="sticky -top-5 z-20 -mx-5 flex justify-end border-b border-zinc-800/80 bg-[#0a0a0f]/95 px-5 py-2 backdrop-blur">
                 <button disabled={busy} onClick={() => void toggleReviewed(selectedStep)} className={cn("rounded border px-3 py-1.5 text-xs shadow-lg", selectedStep.reviewed_at ? "border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-zinc-200" : "border-emerald-800 bg-emerald-950 text-emerald-300 hover:bg-emerald-900")}>
                   {selectedStep.reviewed_at ? "Mark unreviewed" : "Mark step reviewed"}
@@ -274,6 +349,20 @@ export function ReviewTourPage() {
             onKeyDown={resizeQAFromKeyboard}
             className="absolute inset-y-0 -left-1.5 z-30 hidden w-3 cursor-col-resize touch-none focus:bg-indigo-500/30 focus:outline-none lg:block"
           />
+          <section className="mb-4 border-b border-zinc-800 pb-4">
+            <h3 className="px-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Requested changes</h3>
+            <div className="mt-2 space-y-2">
+              {findings.map((finding) => <label key={finding.id} className="flex gap-2 rounded bg-zinc-900 p-2 text-xs text-zinc-300">
+                <input type="checkbox" disabled={finding.status !== "open"} checked={selectedFindingIDs.includes(finding.id)} onChange={(event) => setSelectedFindingIDs((current) => event.target.checked ? [...current, finding.id] : current.filter((id) => id !== finding.id))} />
+                <span><span className={finding.status === "resolved" ? "line-through text-zinc-600" : ""}>{finding.body}</span>{finding.file_path && <span className="mt-1 block font-mono text-[10px] text-zinc-600">{finding.file_path}</span>}</span>
+              </label>)}
+              <textarea aria-label="Requested change" rows={2} value={findingDraft} onChange={(event) => setFindingDraft(event.target.value)} placeholder={selection ? "Describe the change for selected lines…" : "Describe a required change…"} className="w-full rounded border border-zinc-700 bg-zinc-900 p-2 text-xs" />
+              <div className="flex gap-2">
+                <button disabled={busy || !selectedStep || !findingDraft.trim()} onClick={() => void flagChange()} className="flex items-center gap-1 rounded border border-amber-800 px-2 py-1 text-xs text-amber-300 disabled:opacity-40"><Flag size={12}/> Flag change</button>
+                <button disabled={busy || selectedFindingIDs.length === 0} onClick={() => void requestPlan()} className="rounded bg-indigo-700 px-2 py-1 text-xs disabled:opacity-40">Request follow-up plan</button>
+              </div>
+            </div>
+          </section>
           <h3 className="px-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Questions & answers</h3>
           <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto">
             {messages.length === 0 && <p className="px-1 text-xs text-zinc-600">No questions on this step yet.</p>}
