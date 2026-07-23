@@ -205,6 +205,97 @@ func TestReviewMutationsUpdateTour(t *testing.T) {
 	}
 }
 
+func TestReviewFindingCreatesSelectedFinding(t *testing.T) {
+	f := newReviewServerFixture(t)
+	tour, err := f.svc.Tour(context.Background(), f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stepID := tour.Steps[0].ID
+	body := fmt.Sprintf(`{"body":"Handle this edge case","selection":{"step_id":%q,"file_path":"api.go","hunk_anchor":"anchor-1","line_start":1,"line_end":2}}`, stepID)
+	req := httptest.NewRequest(http.MethodPost, "/api/review/tours/"+f.tourID+"/findings", strings.NewReader(body))
+	res := httptest.NewRecorder()
+
+	f.server.Handler().ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body = %s", res.Code, http.StatusCreated, res.Body.String())
+	}
+	var finding store.ReviewFinding
+	if err := json.NewDecoder(res.Body).Decode(&finding); err != nil {
+		t.Fatal(err)
+	}
+	if finding.Body != "Handle this edge case" || finding.StepID != stepID || finding.FilePath != "api.go" || finding.LineStart == nil || *finding.LineStart != 1 {
+		t.Fatalf("unexpected finding: %+v", finding)
+	}
+	updated, err := f.svc.Tour(context.Background(), f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Passes[0].Findings) != 1 || updated.Passes[0].Findings[0].ID != finding.ID {
+		t.Fatalf("finding not exposed by tour: %+v", updated.Passes[0].Findings)
+	}
+}
+
+func TestReviewRequestPlanPersistsWhenAgentOffline(t *testing.T) {
+	f := newReviewServerFixture(t)
+	finding, err := f.svc.CreateFinding(context.Background(), f.tourID, service.ReviewFindingInput{Body: "Needs a follow-up plan"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`{"finding_ids":[%q]}`, finding.ID)
+	req := httptest.NewRequest(http.MethodPost, "/api/review/tours/"+f.tourID+"/request-plan", strings.NewReader(body))
+	res := httptest.NewRecorder()
+
+	f.server.Handler().ServeHTTP(res, req)
+
+	if res.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d, body = %s", res.Code, http.StatusAccepted, res.Body.String())
+	}
+	var response struct {
+		Request store.ReviewPlanRequest `json:"request"`
+		Warning string                  `json:"warning"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Warning == "" || len(response.Request.FindingIDs) != 1 || response.Request.FindingIDs[0] != finding.ID || response.Request.DeliveredAt != nil {
+		t.Fatalf("unexpected response: %+v", response)
+	}
+	updated, err := f.svc.Tour(context.Background(), f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Passes[0].PlanRequests) != 1 || updated.Passes[0].PlanRequests[0].ID != response.Request.ID {
+		t.Fatalf("request not persisted: %+v", updated.Passes[0].PlanRequests)
+	}
+}
+
+func TestReviewRegenerateRestartsWithRequiredFeedback(t *testing.T) {
+	f := newReviewServerFixture(t)
+
+	emptyReq := httptest.NewRequest(http.MethodPost, "/api/review/tours/"+f.tourID+"/regenerate", strings.NewReader(`{"feedback":"  "}`))
+	emptyRes := httptest.NewRecorder()
+	f.server.Handler().ServeHTTP(emptyRes, emptyReq)
+	if emptyRes.Code != http.StatusBadRequest {
+		t.Fatalf("empty feedback status = %d, want %d, body = %s", emptyRes.Code, http.StatusBadRequest, emptyRes.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/review/tours/"+f.tourID+"/regenerate", strings.NewReader(`{"feedback":"Focus on API compatibility"}`))
+	res := httptest.NewRecorder()
+	f.server.Handler().ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	view, err := f.svc.Tour(context.Background(), f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Passes) != 1 || view.Passes[0].Pass.Guidance != "Focus on API compatibility" {
+		t.Fatalf("regenerate did not apply feedback: %+v", view.Passes)
+	}
+}
+
 func TestReviewQuestionRejectsStaleLineSelection(t *testing.T) {
 	f := newReviewServerFixture(t)
 	tour, err := f.svc.Tour(context.Background(), f.tourID)

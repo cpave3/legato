@@ -42,6 +42,7 @@ type Server struct {
 	voiceAutoSend    bool
 	reviews          ReviewService
 	plans            PlanService
+	artifacts        ArtifactService
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -83,6 +84,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/tasks", s.tasksHandler())
 	mux.HandleFunc("/api/tasks/search", s.searchTasksHandler())
 	mux.HandleFunc("/api/tasks/{id}/archive", s.archiveTaskHandler())
+	mux.HandleFunc("/api/tasks/{id}/artifacts", s.taskArtifactsHandler())
 	mux.HandleFunc("/api/tasks/{id}/link-pr", s.linkPRHandler())
 	mux.HandleFunc("/api/tasks/{id}/pr-preview", s.prPreviewHandler())
 	mux.HandleFunc("/api/tasks/{id}/unlink-pr", s.unlinkPRHandler())
@@ -103,6 +105,9 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/review/tours/{tour_id}/steps/{step_id}/diff", s.reviewStepDiffHandler())
 	mux.HandleFunc("/api/review/tours/{tour_id}/steps/{step_id}/reviewed", s.reviewStepReviewedHandler())
 	mux.HandleFunc("/api/review/tours/{tour_id}/steps/{step_id}/question", s.reviewQuestionHandler())
+	mux.HandleFunc("/api/review/tours/{tour_id}/findings", s.reviewFindingHandler())
+	mux.HandleFunc("/api/review/tours/{tour_id}/request-plan", s.reviewRequestPlanHandler())
+	mux.HandleFunc("/api/review/tours/{tour_id}/regenerate", s.reviewRegenerateHandler())
 	mux.HandleFunc("/api/review/tours/{tour_id}/complete", s.reviewCompleteHandler())
 	mux.HandleFunc("/api/plans/queue", s.planQueueHandler())
 	mux.HandleFunc("/api/plans/{plan_id}", s.planHandler())

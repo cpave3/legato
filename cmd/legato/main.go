@@ -1104,10 +1104,12 @@ func runServeCmd(args []string) int {
 
 	reviewSvc := service.NewReviewService(db, tmuxMgr, bus)
 	planSvc := service.NewPlanService(db, tmuxMgr, bus)
+	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
 	srv.SetReviewService(reviewSvc)
 	srv.SetPlanService(planSvc)
+	srv.SetArtifactService(artifactSvc)
 	srv.SetMacros(cfg.Macros)
 	srv.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
@@ -1391,6 +1393,7 @@ func runTUI() int {
 
 	reviewSvc := service.NewReviewService(db, tmuxMgr, bus)
 	planSvc := service.NewPlanService(db, tmuxMgr, bus)
+	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)
 
 	// Auto-start web server if configured and port is free.
 	if cfg.Web.Enabled {
@@ -1402,6 +1405,7 @@ func runTUI() int {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
 			webSrv.SetReviewService(reviewSvc)
 			webSrv.SetPlanService(planSvc)
+			webSrv.SetArtifactService(artifactSvc)
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)

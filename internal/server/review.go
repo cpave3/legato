@@ -20,6 +20,9 @@ type ReviewService interface {
 	StepDiff(ctx context.Context, tourID, stepID string) ([]gitpkg.FileDiff, error)
 	SetReviewed(ctx context.Context, tourID, stepID string, reviewed bool) error
 	AskQuestion(ctx context.Context, tourID, stepID string, question service.ReviewQuestion) error
+	CreateFinding(ctx context.Context, tourID string, input service.ReviewFindingInput) (*store.ReviewFinding, error)
+	RequestPlan(ctx context.Context, tourID string, findingIDs []string) (*store.ReviewPlanRequest, error)
+	RestartWithFeedback(ctx context.Context, tourID, feedback string) error
 	Complete(ctx context.Context, tourID string) error
 	Delete(ctx context.Context, tourID string) error
 }
@@ -140,6 +143,98 @@ func (s *Server) reviewQuestionHandler() http.HandlerFunc {
 			return
 		}
 		if err != nil {
+			s.writeReviewError(w, err)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+func (s *Server) reviewFindingHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !s.requireReviewService(w) {
+			return
+		}
+		var req struct {
+			Body      string                      `json:"body"`
+			Selection *service.ReviewFindingInput `json:"selection"`
+		}
+		if err := decodeJSON(r, &req); err != nil {
+			s.writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		input := service.ReviewFindingInput{Body: req.Body}
+		if req.Selection != nil {
+			input.StepID = req.Selection.StepID
+			input.FilePath = req.Selection.FilePath
+			input.HunkAnchor = req.Selection.HunkAnchor
+			input.LineStart = req.Selection.LineStart
+			input.LineEnd = req.Selection.LineEnd
+		}
+		finding, err := s.reviews.CreateFinding(r.Context(), r.PathValue("tour_id"), input)
+		if err != nil {
+			s.writeReviewError(w, err)
+			return
+		}
+		s.writeJSON(w, http.StatusCreated, finding)
+	}
+}
+
+func (s *Server) reviewRequestPlanHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !s.requireReviewService(w) {
+			return
+		}
+		var req struct {
+			FindingIDs []string `json:"finding_ids"`
+		}
+		if err := decodeJSON(r, &req); err != nil {
+			s.writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		request, err := s.reviews.RequestPlan(r.Context(), r.PathValue("tour_id"), req.FindingIDs)
+		if errors.Is(err, service.ErrAgentOffline) {
+			s.writeJSON(w, http.StatusAccepted, map[string]any{"request": request, "warning": err.Error()})
+			return
+		}
+		if err != nil {
+			s.writeReviewError(w, err)
+			return
+		}
+		s.writeJSON(w, http.StatusCreated, map[string]any{"request": request})
+	}
+}
+
+func (s *Server) reviewRegenerateHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !s.requireReviewService(w) {
+			return
+		}
+		var req struct {
+			Feedback string `json:"feedback"`
+		}
+		if err := decodeJSON(r, &req); err != nil {
+			s.writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		req.Feedback = strings.TrimSpace(req.Feedback)
+		if req.Feedback == "" {
+			s.writeError(w, http.StatusBadRequest, "feedback is required")
+			return
+		}
+		if err := s.reviews.RestartWithFeedback(r.Context(), r.PathValue("tour_id"), req.Feedback); err != nil {
 			s.writeReviewError(w, err)
 			return
 		}
