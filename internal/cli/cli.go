@@ -185,7 +185,7 @@ func TaskShow(s *store.Store, taskID, format string) (string, error) {
 
 func taskShowError(taskID string, err error) error {
 	if errors.Is(err, store.ErrNotFound) {
-		return fmt.Errorf("task %q not found", taskID)
+		return fmt.Errorf("task %q not found: %w", taskID, err)
 	}
 	return err
 }
@@ -217,7 +217,7 @@ func TaskUpdateFields(s *store.Store, taskID string, opts TaskUpdateOptions) err
 	}
 	task, err := s.GetTask(ctx, taskID)
 	if err != nil {
-		return fmt.Errorf("task %q not found", taskID)
+		return fmt.Errorf("task %q not found: %w", taskID, err)
 	}
 
 	if opts.Status != nil {

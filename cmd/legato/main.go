@@ -50,6 +50,14 @@ func main() {
 }
 
 func runCLI(args []string) int {
+	if len(args) >= 1 && args[0] == "--json" {
+		args = append(args[1:], "--json")
+	} else if len(args) >= 2 && args[0] == "--format" && args[1] == "json" {
+		args = append(args[2:], "--json")
+	}
+	if len(args) == 0 {
+		return renderCommandError("legato", usageError("missing_argument", "command is required"), false)
+	}
 	if args[0] == "help" || args[0] == "learn" {
 		fmt.Print(agentPrimer)
 		return 0
@@ -61,7 +69,7 @@ func runCLI(args []string) int {
 
 	switch args[0] {
 	case "task":
-		return runTaskCmd(args[1:])
+		return runTaskContract(args[1:])
 	case "workspace":
 		return runWorkspaceCmd(args[1:])
 	case "agent":

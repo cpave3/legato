@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,6 +11,9 @@ import (
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
+
+// ErrRemoteTaskReadOnly marks fields whose source of truth is a remote provider.
+var ErrRemoteTaskReadOnly = errors.New("remote task field is read-only")
 
 type boardService struct {
 	store       *store.Store
@@ -360,7 +364,7 @@ func (b *boardService) UpdateTaskDescription(ctx context.Context, id, descriptio
 		return err
 	}
 	if t.Provider != nil {
-		return fmt.Errorf("cannot edit description of remote task %s", id)
+		return fmt.Errorf("%w: cannot edit description of remote task %s", ErrRemoteTaskReadOnly, id)
 	}
 	t.Description = description
 	t.DescriptionMD = description
@@ -384,7 +388,7 @@ func (b *boardService) UpdateTaskTitle(ctx context.Context, id, title string) er
 		return err
 	}
 	if t.Provider != nil {
-		return fmt.Errorf("cannot edit title of remote task %s", id)
+		return fmt.Errorf("%w: cannot edit title of remote task %s", ErrRemoteTaskReadOnly, id)
 	}
 	t.Title = title
 	t.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
