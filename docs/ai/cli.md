@@ -5,9 +5,9 @@
 - `legato` (no args) — launches TUI (existing behavior)
 - `legato --help`, `legato <command> --help`, and `legato <command> <verb> --help` — print context-specific CLI help to stdout and exit successfully without loading configuration or the database. `-h` and a nested trailing `help` are aliases.
 - `legato help` / `legato learn` — print a Markdown primer designed for AI-agent discovery, including task workflows, Jira edit restrictions, agent-session environment, and links to command-family help.
-- `legato task show <task-id> [--format description|full|json]` — print task context to stdout for agents/scripts. Defaults to the description-only markdown format used by detail-view copy; `full` includes structured metadata; `json` returns a machine-readable task detail object.
-- `legato task create <title> [--description <text>] [--status <status>] [--priority <priority>] [--workspace <name>]` — create a local task and print its generated ID. The first board column is used when status is omitted. Workspace names are matched case-insensitively.
-- `legato task update <task-id> [--status <status>] [--title <title>] [--description <text>] [--workspace <name>]` — move a task to a column, replace its title or description, assign it to a workspace by name, or combine the changes. Use workspace `none` or `unassigned` to clear an assignment. Title and description edits are rejected for Jira-backed tasks; workspace assignment remains allowed.
+- `legato task show [<task-id>] [--format description|full|json] [--json]` — print task context to stdout for agents/scripts. Defaults to description Markdown; `--json` returns the standard result envelope.
+- `legato task create <title> [--description <text>|--description-file <path|->] [--status <status>] [--priority <priority>] [--workspace <name>] [--json]` — create a local task. `--description-file -` reads multiline Markdown from stdin without trimming it.
+- `legato task update [<task-id>] [--status <status>] [--title <title>] [--description <text>|--description-file <path|->] [--workspace <name>] [--json]` — atomically update requested fields. Use workspace `none` or `unassigned` to clear an assignment. Title and description edits are rejected for Jira-backed tasks.
 - `legato task description <task-id> <text>` — replace a local task's description (convenience alias for `task update --description`)
 - `legato task note <task-id> <message>` — append a timestamped note to a local task's description; Jira-backed tasks are rejected
 - `legato workspace list [--format text|json]` — list configured workspaces. Text output prints exact names suitable for `--workspace`; JSON includes IDs, names, and colors.
@@ -21,6 +21,25 @@
 - `legato auth token` — print the web UI auth token to stdout
 - `legato auth regenerate` — generate a new auth token (invalidates all paired devices)
 - `legato pair [--port <port>]` — render a QR code in the terminal encoding `legato://pair?url=<serverUrl>&token=<token>` for one-step PWA pairing. Prints raw token below QR as fallback. Uses configured hostname or system hostname, auto-detects TLS scheme
+
+### Shared command contract
+
+Human-readable text remains the default. Task, workspace, agent, hooks, auth,
+and pairing commands accept `--json`; it writes one `{ok, command, data}` value
+on success or `{ok, command, error: {code, message, details?}}` on failure.
+Global `legato --json <command> ...` is an alias. JSON diagnostics never share
+stdout with the result.
+
+Task-scoped commands resolve identity in this order: explicit task ID, then
+`LEGATO_TASK_ID`. This applies to task show/update/description/note/link/unlink,
+task worktree set/clear, and agent state/status. Task creation never consumes
+the environment identity.
+
+Stable exit categories are: `0` success, `2` usage or invalid input, `3`
+not found, `4` provider/state policy rejection, `5` configuration or missing
+environment, `6` external dependency failure, and `1` unexpected internal
+failure. Unknown and duplicate flags are rejected before configuration or the
+database is loaded.
 
 ### Collaborative plan verbs
 

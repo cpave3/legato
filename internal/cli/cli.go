@@ -69,7 +69,7 @@ func TaskDescription(s *store.Store, taskID, description string) error {
 	board := service.NewBoardService(s, events.New())
 	if err := board.UpdateTaskDescription(context.Background(), taskID, description); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return fmt.Errorf("task %q not found", taskID)
+			return fmt.Errorf("task %q not found: %w", taskID, err)
 		}
 		return err
 	}
@@ -91,7 +91,7 @@ func TaskWorkspace(s *store.Store, taskID, workspaceName string) error {
 	board := service.NewBoardService(s, events.New())
 	if err := board.UpdateTaskWorkspace(ctx, taskID, workspaceID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return fmt.Errorf("task %q not found", taskID)
+			return fmt.Errorf("task %q not found: %w", taskID, err)
 		}
 		return err
 	}
@@ -108,7 +108,7 @@ func TaskTitle(s *store.Store, taskID, title string) error {
 	board := service.NewBoardService(s, events.New())
 	if err := board.UpdateTaskTitle(context.Background(), taskID, title); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return fmt.Errorf("task %q not found", taskID)
+			return fmt.Errorf("task %q not found: %w", taskID, err)
 		}
 		return err
 	}
@@ -275,7 +275,7 @@ func TaskNote(s *store.Store, taskID, message string) error {
 
 	task, err := s.GetTask(ctx, taskID)
 	if err != nil {
-		return fmt.Errorf("task %q not found", taskID)
+		return fmt.Errorf("task %q not found: %w", taskID, err)
 	}
 
 	timestamp := time.Now().UTC().Format("2006-01-02 15:04")
@@ -366,7 +366,7 @@ func TaskLink(s *store.Store, taskID, branch, repo, sha string) error {
 
 	task, err := s.GetTask(ctx, taskID)
 	if err != nil {
-		return fmt.Errorf("task %q not found", taskID)
+		return fmt.Errorf("task %q not found: %w", taskID, err)
 	}
 
 	if branch == "" {
@@ -421,7 +421,7 @@ func TaskUnlink(s *store.Store, taskID string) error {
 	ctx := context.Background()
 
 	if _, err := s.GetTask(ctx, taskID); err != nil {
-		return fmt.Errorf("task %q not found", taskID)
+		return fmt.Errorf("task %q not found: %w", taskID, err)
 	}
 
 	if err := s.UpdatePRMeta(ctx, taskID, nil); err != nil {
@@ -571,7 +571,7 @@ func resolveColumn(ctx context.Context, s *store.Store, status string) (string, 
 	for i, m := range mappings {
 		names[i] = m.ColumnName
 	}
-	return "", fmt.Errorf("unknown status %q; valid statuses: %s", status, strings.Join(names, ", "))
+	return "", fmt.Errorf("%w: unknown status %q; valid statuses: %s", ErrInvalidInput, status, strings.Join(names, ", "))
 }
 
 func resolveWorkspace(ctx context.Context, s *store.Store, name string) (*int, error) {
@@ -595,5 +595,5 @@ func resolveWorkspace(ctx context.Context, s *store.Store, name string) (*int, e
 	for i, workspace := range workspaces {
 		names[i] = workspace.Name
 	}
-	return nil, fmt.Errorf("unknown workspace %q; valid workspaces: %s", name, strings.Join(names, ", "))
+	return nil, fmt.Errorf("%w: unknown workspace %q; valid workspaces: %s", ErrInvalidInput, name, strings.Join(names, ", "))
 }

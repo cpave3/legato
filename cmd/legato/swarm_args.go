@@ -17,7 +17,12 @@ func parseMessageArgs(args []string) (id, text string, urgent bool, err error) {
 	var pos []string
 	for _, a := range args {
 		if a == "--urgent" {
+			if urgent {
+				return "", "", false, errors.New("--urgent may only be specified once")
+			}
 			urgent = true
+		} else if strings.HasPrefix(a, "--") {
+			return "", "", false, errors.New("unknown flag " + a)
 		} else {
 			pos = append(pos, a)
 		}
@@ -38,12 +43,18 @@ func parseSwarmCreateArgs(args []string) (goal, workingDir string, err error) {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--working-dir":
+			if workingDir != "" {
+				return "", "", errors.New("--working-dir may only be specified once")
+			}
 			if i+1 >= len(args) {
 				return "", "", errors.New("--working-dir requires a value")
 			}
 			workingDir = args[i+1]
 			i++
 		default:
+			if strings.HasPrefix(args[i], "--") {
+				return "", "", errors.New("unknown flag " + args[i])
+			}
 			pos = append(pos, args[i])
 		}
 	}

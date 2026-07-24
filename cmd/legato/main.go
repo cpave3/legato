@@ -1209,11 +1209,16 @@ func runHooksCmd(args []string) int {
 }
 
 func runServeCmd(args []string) int {
-	port := "3080"
-	for i, a := range args {
-		if a == "--port" && i+1 < len(args) {
-			port = args[i+1]
+	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{"port": {}})
+	if parseErr != nil || len(parsed.Positionals) != 0 {
+		if parseErr != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", parseErr)
 		}
+		return exitUsage
+	}
+	port := parsed.Values["port"]
+	if port == "" {
+		port = "3080"
 	}
 
 	cfg, err := config.Load()
@@ -2102,7 +2107,7 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 }
 
 func runSwarmValidatePlan(args []string) int {
-	if len(args) < 1 {
+	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: legato swarm validate-plan <plan-file>")
 		return 1
 	}
@@ -2163,24 +2168,23 @@ func runSwarmCreate(args []string) int {
 }
 
 func runSwarmProposePlan(args []string) int {
-	if len(args) < 1 {
+	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{"auto-approve": {Boolean: true}, "timeout": {}})
+	if parseErr != nil || len(parsed.Positionals) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: legato swarm propose-plan <plan-file> [--auto-approve] [--timeout 5m]")
-		return 1
+		if parseErr != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", parseErr)
+		}
+		return exitUsage
 	}
-	planPath := args[0]
-	autoApprove := false
+	planPath := parsed.Positionals[0]
+	autoApprove := parsed.Present["auto-approve"]
 	var timeout time.Duration
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--auto-approve":
-			autoApprove = true
-		case "--timeout":
-			if i+1 < len(args) {
-				if d, err := time.ParseDuration(args[i+1]); err == nil {
-					timeout = d
-					i++
-				}
-			}
+	if parsed.Present["timeout"] {
+		var err error
+		timeout, err = time.ParseDuration(parsed.Values["timeout"])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: invalid timeout: %v\n", err)
+			return exitUsage
 		}
 	}
 	sw, db, code := loadSwarmServiceForCLI()
@@ -2198,7 +2202,7 @@ func runSwarmProposePlan(args []string) int {
 }
 
 func runSwarmCancel(args []string) int {
-	if len(args) < 1 {
+	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: legato swarm cancel <parent-id>")
 		return 1
 	}
@@ -2215,24 +2219,23 @@ func runSwarmCancel(args []string) int {
 }
 
 func runSwarmExtendPlan(args []string) int {
-	if len(args) < 1 {
+	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{"auto-approve": {Boolean: true}, "timeout": {}})
+	if parseErr != nil || len(parsed.Positionals) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: legato swarm extend-plan <plan-file> [--auto-approve] [--timeout 5m]")
-		return 1
+		if parseErr != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", parseErr)
+		}
+		return exitUsage
 	}
-	planPath := args[0]
-	autoApprove := false
+	planPath := parsed.Positionals[0]
+	autoApprove := parsed.Present["auto-approve"]
 	var timeout time.Duration
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--auto-approve":
-			autoApprove = true
-		case "--timeout":
-			if i+1 < len(args) {
-				if d, err := time.ParseDuration(args[i+1]); err == nil {
-					timeout = d
-					i++
-				}
-			}
+	if parsed.Present["timeout"] {
+		var err error
+		timeout, err = time.ParseDuration(parsed.Values["timeout"])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: invalid timeout: %v\n", err)
+			return exitUsage
 		}
 	}
 	sw, db, code := loadSwarmServiceForCLI()
@@ -2263,7 +2266,7 @@ func runSwarmExtendPlan(args []string) int {
 }
 
 func runSwarmDispatch(args []string) int {
-	if len(args) < 1 {
+	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: legato swarm dispatch <subtask-id>")
 		return 1
 	}
@@ -2317,7 +2320,7 @@ func runSwarmBroadcast(args []string) int {
 }
 
 func runSwarmClose(args []string) int {
-	if len(args) < 1 {
+	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: legato swarm close <subtask-id>")
 		return 1
 	}
@@ -2335,7 +2338,7 @@ func runSwarmClose(args []string) int {
 }
 
 func runSwarmFinish(args []string) int {
-	if len(args) < 2 {
+	if len(args) != 2 {
 		fmt.Fprintln(os.Stderr, `usage: legato swarm finish <parent-id> "<summary>"`)
 		return 1
 	}
@@ -2353,7 +2356,7 @@ func runSwarmFinish(args []string) int {
 }
 
 func runSwarmNextStep(args []string) int {
-	if len(args) < 1 {
+	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: legato swarm next-step <parent-id>")
 		return 1
 	}
@@ -2370,7 +2373,7 @@ func runSwarmNextStep(args []string) int {
 	return 0
 }
 func runSwarmStatus(args []string) int {
-	if len(args) < 1 {
+	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: legato swarm status <parent-id>")
 		return 1
 	}
@@ -2387,7 +2390,7 @@ func runSwarmStatus(args []string) int {
 }
 
 func runSwarmInbox(args []string) int {
-	if len(args) < 1 {
+	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: legato swarm inbox <parent-id>")
 		return 1
 	}
@@ -2404,7 +2407,7 @@ func runSwarmInbox(args []string) int {
 }
 
 func runSwarmProgress(args []string) int {
-	if len(args) < 2 {
+	if len(args) != 2 {
 		fmt.Fprintln(os.Stderr, `usage: legato swarm progress <subtask-id> "<text>"`)
 		return 1
 	}
@@ -2421,7 +2424,7 @@ func runSwarmProgress(args []string) int {
 }
 
 func runSwarmQuestion(args []string) int {
-	if len(args) < 2 {
+	if len(args) != 2 {
 		fmt.Fprintln(os.Stderr, `usage: legato swarm question <subtask-id> "<text>"`)
 		return 1
 	}
@@ -2438,7 +2441,7 @@ func runSwarmQuestion(args []string) int {
 }
 
 func runSwarmBuilt(args []string) int {
-	if len(args) < 1 {
+	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: legato swarm built <subtask-id>")
 		return 1
 	}

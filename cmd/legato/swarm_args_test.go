@@ -52,9 +52,7 @@ func TestParseMessageArgs(t *testing.T) {
 		{
 			name:    "duplicate urgent flags",
 			args:    []string{"st-123", "--urgent", "--urgent", "hello"},
-			wantID:  "st-123",
-			wantTxt: "hello",
-			wantUrg: true,
+			wantErr: true,
 		},
 		{
 			name:    "text contains urgent literal",

@@ -26,6 +26,8 @@ legato task show <task-id> --format json
 legato task update <task-id> --status Doing
 legato task update <task-id> --title "Clarify login failure"
 legato task update <task-id> --description "New Markdown details"
+legato task update <task-id> --description-file details.md
+legato task update <task-id> --description-file -
 legato task update <task-id> --status Review --title "Ready for review"
 
 # Append a timestamped note.
@@ -43,10 +45,12 @@ description, and notes are editable.
 ## Agent sessions
 
 Inside a Legato-launched agent session, ` + "`LEGATO_TASK_ID`" + ` identifies the
-current task:
+current task. Task-scoped commands can omit their task ID in that context:
 
 ` + "```bash" + `
 legato task show "$LEGATO_TASK_ID" --format full
+legato task show --json
+legato task update --status Doing
 legato agent state "$LEGATO_TASK_ID" --activity working
 legato agent state "$LEGATO_TASK_ID" --activity waiting
 ` + "```" + `
@@ -71,7 +75,8 @@ columns. Use ` + "`legato task update ... --status ...`" + ` for that.
 Use ` + "`legato <path> --help`" + ` before invoking an unfamiliar command. Help
 prints to stdout and exits 0. Normal command results generally print to stdout;
 diagnostics print to stderr and return a non-zero exit status. CLI mutations
-broadcast a best-effort refresh to running Legato interfaces.
+broadcast a best-effort refresh to running Legato interfaces. Text remains the
+default; pass ` + "`--json`" + ` for a stable result or error envelope.
 `
 
 var commandSummaries = map[string]string{
@@ -101,10 +106,10 @@ var commandChildren = map[string][]string{
 }
 
 var commandUsage = map[string]string{
-	"task create":      `legato task create <title> [--description <text>] [--status <status>] [--priority <priority>] [--workspace <name>]`,
-	"task show":        `legato task show <task-id> [--format description|full|json]`,
-	"task update":      `legato task update <task-id> [--status <status>] [--title <title>] [--description <text>] [--workspace <name>]`,
-	"task description": `legato task description <task-id> <text>`,
+	"task create":      `legato task create <title> [--description <text>|--description-file <path|->] [--status <status>] [--priority <priority>] [--workspace <name>] [--json]`,
+	"task show":        `legato task show [<task-id>] [--format description|full|json] [--json]`,
+	"task update":      `legato task update [<task-id>] [--status <status>] [--title <title>] [--description <text>|--description-file <path|->] [--workspace <name>] [--json]`,
+	"task description": `legato task description [<task-id>] [<text>|--description <text>|--description-file <path|->] [--json]`,
 	"task note":        `legato task note <task-id> <message>`,
 	"task link":        `legato task link <task-id> [--branch <branch>] [--repo <owner/repo>] [--sha <commit-sha>]`,
 	"task unlink":      `legato task unlink <task-id>`,
@@ -170,6 +175,7 @@ Fields:
   --status       Move any task to a configured column
   --title        Replace a local task's title (rejected for Jira-backed tasks)
   --description  Replace a local task's description (rejected for Jira-backed tasks)
+  --description-file  Read Markdown from a file; use "-" for stdin
   --workspace    Assign by workspace name; use "none" or "unassigned" to clear
 `)
 	}

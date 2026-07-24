@@ -233,6 +233,9 @@ func commandDomainError(err error) *commandError {
 	if errors.Is(err, service.ErrRemoteTaskReadOnly) {
 		return &commandError{Code: "remote_task_read_only", Message: err.Error(), Exit: exitForbidden}
 	}
+	if errors.Is(err, cli.ErrInvalidInput) {
+		return &commandError{Code: "invalid_input", Message: err.Error(), Exit: exitUsage}
+	}
 	return &commandError{Code: "internal_error", Message: err.Error(), Exit: exitInternal}
 }
 
