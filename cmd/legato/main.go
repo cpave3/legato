@@ -844,29 +844,22 @@ func runTaskUpdate(db *store.Store, args []string) int {
 		return 1
 	}
 
+	opts := cli.TaskUpdateOptions{}
+	if status != "" {
+		opts.Status = &status
+	}
 	if hasTitle {
-		if err := cli.TaskTitle(db, taskID, title); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
-		}
+		opts.Title = &title
 	}
 	if hasDescription {
-		if err := cli.TaskDescription(db, taskID, description); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
-		}
+		opts.Description = &description
 	}
 	if hasWorkspace {
-		if err := cli.TaskWorkspace(db, taskID, workspace); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
-		}
+		opts.Workspace = &workspace
 	}
-	if status != "" {
-		if err := cli.TaskUpdate(db, taskID, status); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
-		}
+	if err := cli.TaskUpdateFields(db, taskID, opts); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
 	}
 	return 0
 }

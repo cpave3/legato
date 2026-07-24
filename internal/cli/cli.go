@@ -193,28 +193,76 @@ func taskShowError(taskID string, err error) error {
 // TaskUpdate moves a task to the column matching the given status name (case-insensitive).
 // Broadcasts an IPC notification to all running Legato instances.
 func TaskUpdate(s *store.Store, taskID, status string) error {
+	return TaskUpdateFields(s, taskID, TaskUpdateOptions{Status: &status})
+}
+
+// TaskUpdateOptions contains the fields task update may change. Pointer fields
+// distinguish an omitted option from an explicitly empty value.
+type TaskUpdateOptions struct {
+	Status      *string
+	Title       *string
+	Description *string
+	Workspace   *string
+}
+
+var broadcastTaskUpdate = ipc.Broadcast
+
+// TaskUpdateFields validates and applies a task update as one durable write,
+// then broadcasts one refresh notification.
+func TaskUpdateFields(s *store.Store, taskID string, opts TaskUpdateOptions) error {
 	ctx := context.Background()
 
+	if strings.TrimSpace(taskID) == "" {
+		return fmt.Errorf("task ID is required")
+	}
 	task, err := s.GetTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("task %q not found", taskID)
 	}
 
-	column, err := resolveColumn(ctx, s, status)
-	if err != nil {
-		return err
+	if opts.Status != nil {
+		column, err := resolveColumn(ctx, s, *opts.Status)
+		if err != nil {
+			return err
+		}
+		task.Status = column
 	}
 
-	task.Status = column
+	if opts.Workspace != nil {
+		workspaceID, err := resolveWorkspace(ctx, s, *opts.Workspace)
+		if err != nil {
+			return err
+		}
+		task.WorkspaceID = workspaceID
+	}
+
+	if opts.Title != nil {
+		if *opts.Title == "" {
+			return fmt.Errorf("title cannot be empty")
+		}
+		if task.Provider != nil {
+			return fmt.Errorf("cannot edit title of remote task %s", taskID)
+		}
+		task.Title = *opts.Title
+	}
+
+	if opts.Description != nil {
+		if task.Provider != nil {
+			return fmt.Errorf("cannot edit description of remote task %s", taskID)
+		}
+		task.Description = *opts.Description
+		task.DescriptionMD = *opts.Description
+	}
+
 	task.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	if err := s.UpdateTask(ctx, *task); err != nil {
 		return fmt.Errorf("updating task: %w", err)
 	}
 
-	ipc.Broadcast(ipc.Message{
+	broadcastTaskUpdate(ipc.Message{
 		Type:   "task_update",
 		TaskID: taskID,
-		Status: column,
+		Status: task.Status,
 	})
 
 	return nil
