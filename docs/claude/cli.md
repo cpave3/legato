@@ -4,8 +4,10 @@
 
 - `legato` (no args) — launches TUI (existing behavior)
 - `legato task show <task-id> [--format description|full|json]` — print task context to stdout for agents/scripts. Defaults to the description-only markdown format used by detail-view copy; `full` includes structured metadata; `json` returns a machine-readable task detail object.
-- `legato task update <task-id> --status <status>` — move task to column (case-insensitive status matching)
-- `legato task note <task-id> <message>` — append timestamped note to task description
+- `legato task create <title> [--description <text>] [--status <status>] [--priority <priority>]` — create a local task and print its generated ID. The first board column is used when status is omitted.
+- `legato task update <task-id> [--status <status>] [--title <title>] [--description <text>]` — move a task to a column (case-insensitive status matching), replace its title or description, or combine the changes. Title and description edits are rejected for Jira-backed tasks.
+- `legato task description <task-id> <text>` — replace a local task's description (convenience alias for `task update --description`)
+- `legato task note <task-id> <message>` — append a timestamped note to a local task's description; Jira-backed tasks are rejected
 - `legato agent state <task-id> --activity <working|waiting|"">` — update agent activity state on a card
 - `legato agent summary [--exclude <task-id>]` — output tmux-formatted agent session counts (working/waiting/idle) for use in tmux status bar `#()` expansion
 - `legato agent status <task-id> --format tmux` — output a swarm-aware tmux status-line string for the given task. For swarm participants it shows `x/y done`, the last event kind + age, active sibling count, and a scope-warning icon; for solo agents it falls back to the same output as `agent summary --exclude <task-id>`. Auto-injected into `status-right` by `SpawnAgent` for swarm sessions; solo sessions keep the summary command. The CLI opens a new SQLite connection each call (the in-process `SwarmService.LatestSnapshot` cache is unreachable across process boundaries) so latency is bounded by SQLite open + two aggregate queries

@@ -187,6 +187,123 @@ func TestTaskShow_NonexistentTask(t *testing.T) {
 	}
 }
 
+func TestTaskCreate_CreatesLocalTask(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+
+	card, err := cli.TaskCreate(s, "New CLI task", "Task details", "backlog", "High")
+	if err != nil {
+		t.Fatalf("TaskCreate: %v", err)
+	}
+	if card.ID == "" {
+		t.Fatal("created task has empty ID")
+	}
+
+	task, err := s.GetTask(context.Background(), card.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.Title != "New CLI task" || task.DescriptionMD != "Task details" {
+		t.Fatalf("created task = %#v", task)
+	}
+	if task.Status != "Backlog" {
+		t.Errorf("status = %q, want Backlog", task.Status)
+	}
+	if task.Provider != nil {
+		t.Errorf("provider = %v, want local task", task.Provider)
+	}
+}
+
+func TestTaskCreate_RequiresTitle(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+
+	if _, err := cli.TaskCreate(s, "  ", "", "Backlog", ""); err == nil {
+		t.Fatal("expected empty title error")
+	}
+}
+
+func TestTaskDescription_UpdatesLocalTask(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Backlog")
+
+	if err := cli.TaskDescription(s, "abc123", "Updated details"); err != nil {
+		t.Fatalf("TaskDescription: %v", err)
+	}
+	task, err := s.GetTask(context.Background(), "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Description != "Updated details" || task.DescriptionMD != "Updated details" {
+		t.Errorf("descriptions = %q / %q", task.Description, task.DescriptionMD)
+	}
+}
+
+func TestTaskDescription_RejectsJiraTask(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	provider := "jira"
+	if err := s.CreateTask(context.Background(), store.Task{
+		ID: "JIRA-1", Title: "Remote", Status: "Backlog", Provider: &provider,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := cli.TaskDescription(s, "JIRA-1", "Do not update")
+	if err == nil || !strings.Contains(err.Error(), "cannot edit description") {
+		t.Fatalf("error = %v, want remote edit rejection", err)
+	}
+}
+
+func TestTaskTitle_UpdatesLocalTask(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Backlog")
+
+	if err := cli.TaskTitle(s, "abc123", "Updated title"); err != nil {
+		t.Fatalf("TaskTitle: %v", err)
+	}
+	task, err := s.GetTask(context.Background(), "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Title != "Updated title" {
+		t.Errorf("title = %q, want Updated title", task.Title)
+	}
+}
+
+func TestTaskTitle_RejectsJiraTask(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	provider := "jira"
+	if err := s.CreateTask(context.Background(), store.Task{
+		ID: "JIRA-3", Title: "Remote", Status: "Backlog", Provider: &provider,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := cli.TaskTitle(s, "JIRA-3", "Do not update")
+	if err == nil || !strings.Contains(err.Error(), "cannot edit title") {
+		t.Fatalf("error = %v, want remote edit rejection", err)
+	}
+}
+
+func TestTaskNote_RejectsJiraTask(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	provider := "jira"
+	if err := s.CreateTask(context.Background(), store.Task{
+		ID: "JIRA-2", Title: "Remote", Description: "Original", Status: "Backlog", Provider: &provider,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cli.TaskNote(s, "JIRA-2", "Do not append"); err == nil {
+		t.Fatal("expected Jira-backed note rejection")
+	}
+}
+
 func TestTaskUpdate_MovesTaskToColumn(t *testing.T) {
 	s := newTestStore(t)
 	seedColumns(t, s)

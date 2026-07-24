@@ -577,7 +577,7 @@ func parseReviewArgs(args []string) (positional []string, flags map[string]strin
 
 func runTaskCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "usage: legato task [show|update|note|link|unlink] ...\n")
+		fmt.Fprintf(os.Stderr, "usage: legato task [create|show|update|description|note|link|unlink] ...\n")
 		return 1
 	}
 
@@ -595,10 +595,14 @@ func runTaskCmd(args []string) int {
 	defer db.Close()
 
 	switch args[0] {
+	case "create":
+		return runTaskCreate(db, args[1:])
 	case "show":
 		return runTaskShow(db, args[1:])
 	case "update":
 		return runTaskUpdate(db, args[1:])
+	case "description":
+		return runTaskDescription(db, args[1:])
 	case "note":
 		return runTaskNote(db, args[1:])
 	case "link":
@@ -609,9 +613,43 @@ func runTaskCmd(args []string) int {
 		return runTaskWorktree(db, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown task command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato task [show|update|note|link|unlink|worktree] ...\n")
+		fmt.Fprintf(os.Stderr, "usage: legato task [create|show|update|description|note|link|unlink|worktree] ...\n")
 		return 1
 	}
+}
+
+func runTaskCreate(db *store.Store, args []string) int {
+	const usage = "usage: legato task create <title> [--description <text>] [--status <status>] [--priority <priority>]"
+	if len(args) < 1 || strings.HasPrefix(args[0], "--") {
+		fmt.Fprintln(os.Stderr, usage)
+		return 1
+	}
+
+	title := args[0]
+	values := map[string]string{}
+	for i := 1; i < len(args); i += 2 {
+		if i+1 >= len(args) {
+			fmt.Fprintf(os.Stderr, "missing value for %s\n", args[i])
+			fmt.Fprintln(os.Stderr, usage)
+			return 1
+		}
+		switch args[i] {
+		case "--description", "--status", "--priority":
+			values[args[i]] = args[i+1]
+		default:
+			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", args[i])
+			fmt.Fprintln(os.Stderr, usage)
+			return 1
+		}
+	}
+
+	card, err := cli.TaskCreate(db, title, values["--description"], values["--status"], values["--priority"])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	fmt.Println(card.ID)
+	return 0
 }
 
 func runTaskWorktree(db *store.Store, args []string) int {
@@ -716,26 +754,67 @@ func writeCLIOutput(out string) {
 }
 
 func runTaskUpdate(db *store.Store, args []string) int {
-	// Parse: legato task update <task-id> --status <status>
+	// Parse: legato task update <task-id> [--status <status>] [--title <title>] [--description <text>]
 	if len(args) < 3 {
-		fmt.Fprintf(os.Stderr, "usage: legato task update <task-id> --status <status>\n")
+		fmt.Fprintf(os.Stderr, "usage: legato task update <task-id> [--status <status>] [--title <title>] [--description <text>]\n")
 		return 1
 	}
 
 	taskID := args[0]
-	var status string
-	for i := 1; i < len(args)-1; i++ {
-		if args[i] == "--status" {
+	var status, title, description string
+	hasTitle := false
+	hasDescription := false
+	for i := 1; i < len(args); i += 2 {
+		if i+1 >= len(args) {
+			fmt.Fprintf(os.Stderr, "missing value for %s\n", args[i])
+			return 1
+		}
+		switch args[i] {
+		case "--status":
 			status = args[i+1]
-			break
+		case "--title":
+			title = args[i+1]
+			hasTitle = true
+		case "--description":
+			description = args[i+1]
+			hasDescription = true
+		default:
+			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", args[i])
+			return 1
 		}
 	}
-	if status == "" {
-		fmt.Fprintf(os.Stderr, "usage: legato task update <task-id> --status <status>\n")
+	if status == "" && !hasTitle && !hasDescription {
+		fmt.Fprintf(os.Stderr, "usage: legato task update <task-id> [--status <status>] [--title <title>] [--description <text>]\n")
 		return 1
 	}
 
-	if err := cli.TaskUpdate(db, taskID, status); err != nil {
+	if hasTitle {
+		if err := cli.TaskTitle(db, taskID, title); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+	}
+	if hasDescription {
+		if err := cli.TaskDescription(db, taskID, description); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+	}
+	if status != "" {
+		if err := cli.TaskUpdate(db, taskID, status); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+	}
+	return 0
+}
+
+func runTaskDescription(db *store.Store, args []string) int {
+	if len(args) != 2 {
+		fmt.Fprintln(os.Stderr, "usage: legato task description <task-id> <text>")
+		return 1
+	}
+	if err := cli.TaskDescription(db, args[0], args[1]); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}

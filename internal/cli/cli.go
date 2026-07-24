@@ -9,10 +9,80 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
+
+// TaskCreate creates a local task and returns its generated identity.
+func TaskCreate(s *store.Store, title, description, status, priority string) (*service.Card, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return nil, fmt.Errorf("title is required")
+	}
+
+	ctx := context.Background()
+	column := status
+	if strings.TrimSpace(column) == "" {
+		mappings, err := s.ListColumnMappings(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("listing columns: %w", err)
+		}
+		if len(mappings) == 0 {
+			return nil, fmt.Errorf("cannot create task: no board columns configured")
+		}
+		column = mappings[0].ColumnName
+	} else {
+		var err error
+		column, err = resolveColumn(ctx, s, column)
+		if err != nil {
+			return nil, err
+		}
+	}
+	board := service.NewBoardService(s, events.New())
+	card, err := board.CreateTask(ctx, title, description, column, priority, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating task: %w", err)
+	}
+	ipc.Broadcast(ipc.Message{Type: "task_update", TaskID: card.ID, Status: column})
+	return card, nil
+}
+
+// TaskDescription replaces the description of a local task. The board service
+// rejects Jira and other provider-backed tasks so remote details remain
+// authoritative.
+func TaskDescription(s *store.Store, taskID, description string) error {
+	if strings.TrimSpace(taskID) == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	board := service.NewBoardService(s, events.New())
+	if err := board.UpdateTaskDescription(context.Background(), taskID, description); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("task %q not found", taskID)
+		}
+		return err
+	}
+	ipc.Broadcast(ipc.Message{Type: "task_update", TaskID: taskID})
+	return nil
+}
+
+// TaskTitle replaces the title of a local task. Provider-backed task titles
+// remain authoritative in their remote system.
+func TaskTitle(s *store.Store, taskID, title string) error {
+	if strings.TrimSpace(taskID) == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	board := service.NewBoardService(s, events.New())
+	if err := board.UpdateTaskTitle(context.Background(), taskID, title); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("task %q not found", taskID)
+		}
+		return err
+	}
+	ipc.Broadcast(ipc.Message{Type: "task_update", TaskID: taskID})
+	return nil
+}
 
 // TaskWorktreeSet associates durable worktree metadata with a task.
 func TaskWorktreeSet(s *store.Store, taskID string, meta store.TaskWorktree) error {
@@ -131,9 +201,8 @@ func TaskNote(s *store.Store, taskID, message string) error {
 	timestamp := time.Now().UTC().Format("2006-01-02 15:04")
 	note := fmt.Sprintf("\n\n---\n**[%s]** %s", timestamp, message)
 
-	task.Description = task.Description + note
-	task.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	if err := s.UpdateTask(ctx, *task); err != nil {
+	board := service.NewBoardService(s, events.New())
+	if err := board.UpdateTaskDescription(ctx, taskID, task.Description+note); err != nil {
 		return fmt.Errorf("updating task: %w", err)
 	}
 
