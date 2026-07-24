@@ -62,6 +62,8 @@ func runCLI(args []string) int {
 	switch args[0] {
 	case "task":
 		return runTaskCmd(args[1:])
+	case "workspace":
+		return runWorkspaceCmd(args[1:])
 	case "agent":
 		return runAgentCmd(args[1:])
 	case "hooks":
@@ -80,9 +82,50 @@ func runCLI(args []string) int {
 		return runPlanCmd(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato [task|agent|hooks|serve|auth|pair|swarm|review|plan]\n")
+		fmt.Fprintf(os.Stderr, "usage: legato [task|workspace|agent|hooks|serve|auth|pair|swarm|review|plan]\n")
 		return 1
 	}
+}
+
+func runWorkspaceCmd(args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: legato workspace list [--format text|json]")
+		return 1
+	}
+	if args[0] != "list" {
+		fmt.Fprintf(os.Stderr, "unknown workspace command: %s\n", args[0])
+		return 1
+	}
+
+	format := "text"
+	for i := 1; i < len(args); i++ {
+		if args[i] != "--format" || i+1 >= len(args) {
+			fmt.Fprintln(os.Stderr, "usage: legato workspace list [--format text|json]")
+			return 1
+		}
+		format = args[i+1]
+		i++
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return 1
+	}
+	db, err := store.New(config.ResolveDBPath(cfg))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "database: %v\n", err)
+		return 1
+	}
+	defer db.Close()
+
+	out, err := cli.WorkspaceList(db, format)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
+	writeCLIOutput(out)
+	return 0
 }
 
 func runPlanCmd(args []string) int {
@@ -628,7 +671,7 @@ func runTaskCmd(args []string) int {
 }
 
 func runTaskCreate(db *store.Store, args []string) int {
-	const usage = "usage: legato task create <title> [--description <text>] [--status <status>] [--priority <priority>]"
+	const usage = "usage: legato task create <title> [--description <text>] [--status <status>] [--priority <priority>] [--workspace <name>]"
 	if len(args) < 1 || strings.HasPrefix(args[0], "--") {
 		fmt.Fprintln(os.Stderr, usage)
 		return 1
@@ -643,7 +686,7 @@ func runTaskCreate(db *store.Store, args []string) int {
 			return 1
 		}
 		switch args[i] {
-		case "--description", "--status", "--priority":
+		case "--description", "--status", "--priority", "--workspace":
 			values[args[i]] = args[i+1]
 		default:
 			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", args[i])
@@ -652,7 +695,7 @@ func runTaskCreate(db *store.Store, args []string) int {
 		}
 	}
 
-	card, err := cli.TaskCreate(db, title, values["--description"], values["--status"], values["--priority"])
+	card, err := cli.TaskCreate(db, title, values["--description"], values["--status"], values["--priority"], values["--workspace"])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
@@ -763,16 +806,17 @@ func writeCLIOutput(out string) {
 }
 
 func runTaskUpdate(db *store.Store, args []string) int {
-	// Parse: legato task update <task-id> [--status <status>] [--title <title>] [--description <text>]
+	// Parse: legato task update <task-id> [--status <status>] [--title <title>] [--description <text>] [--workspace <name>]
 	if len(args) < 3 {
-		fmt.Fprintf(os.Stderr, "usage: legato task update <task-id> [--status <status>] [--title <title>] [--description <text>]\n")
+		fmt.Fprintf(os.Stderr, "usage: legato task update <task-id> [--status <status>] [--title <title>] [--description <text>] [--workspace <name>]\n")
 		return 1
 	}
 
 	taskID := args[0]
-	var status, title, description string
+	var status, title, description, workspace string
 	hasTitle := false
 	hasDescription := false
+	hasWorkspace := false
 	for i := 1; i < len(args); i += 2 {
 		if i+1 >= len(args) {
 			fmt.Fprintf(os.Stderr, "missing value for %s\n", args[i])
@@ -787,13 +831,16 @@ func runTaskUpdate(db *store.Store, args []string) int {
 		case "--description":
 			description = args[i+1]
 			hasDescription = true
+		case "--workspace":
+			workspace = args[i+1]
+			hasWorkspace = true
 		default:
 			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", args[i])
 			return 1
 		}
 	}
-	if status == "" && !hasTitle && !hasDescription {
-		fmt.Fprintf(os.Stderr, "usage: legato task update <task-id> [--status <status>] [--title <title>] [--description <text>]\n")
+	if status == "" && !hasTitle && !hasDescription && !hasWorkspace {
+		fmt.Fprintf(os.Stderr, "usage: legato task update <task-id> [--status <status>] [--title <title>] [--description <text>] [--workspace <name>]\n")
 		return 1
 	}
 
@@ -805,6 +852,12 @@ func runTaskUpdate(db *store.Store, args []string) int {
 	}
 	if hasDescription {
 		if err := cli.TaskDescription(db, taskID, description); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+	}
+	if hasWorkspace {
+		if err := cli.TaskWorkspace(db, taskID, workspace); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}

@@ -15,7 +15,7 @@ Legato is a local kanban task manager and AI-agent orchestrator. Run commands as
 
 ` + "```bash" + `
 # Create a local task; its generated ID is printed to stdout.
-legato task create "Implement login" --description "Handle expired sessions" --status Backlog --priority High
+legato task create "Implement login" --description "Handle expired sessions" --status Backlog --priority High --workspace Personal
 
 # Read task context. JSON is best for structured automation.
 legato task show <task-id>
@@ -57,6 +57,7 @@ columns. Use ` + "`legato task update ... --status ...`" + ` for that.
 ## Other command families
 
 - ` + "`legato agent --help`" + ` — agent activity and session status
+- ` + "`legato workspace --help`" + ` — discover configured workspace names
 - ` + "`legato plan --help`" + ` — collaborative implementation plans
 - ` + "`legato review --help`" + ` — review tours, findings, and annotations
 - ` + "`legato swarm --help`" + ` — multi-agent orchestration
@@ -74,38 +75,41 @@ broadcast a best-effort refresh to running Legato interfaces.
 `
 
 var commandSummaries = map[string]string{
-	"":       "Legato task management and AI-agent orchestration",
-	"task":   "Create, inspect, update, and connect tasks",
-	"agent":  "Report and inspect AI-agent activity",
-	"hooks":  "Install or uninstall AI-tool integration hooks",
-	"serve":  "Run the Legato web server",
-	"auth":   "Manage the web UI authentication token",
-	"pair":   "Pair a device with the Legato web UI",
-	"plan":   "Manage collaborative implementation plans",
-	"review": "Create and manage review tours",
-	"swarm":  "Coordinate multi-agent swarms",
+	"":          "Legato task management and AI-agent orchestration",
+	"task":      "Create, inspect, update, and connect tasks",
+	"workspace": "Discover and manage task workspaces",
+	"agent":     "Report and inspect AI-agent activity",
+	"hooks":     "Install or uninstall AI-tool integration hooks",
+	"serve":     "Run the Legato web server",
+	"auth":      "Manage the web UI authentication token",
+	"pair":      "Pair a device with the Legato web UI",
+	"plan":      "Manage collaborative implementation plans",
+	"review":    "Create and manage review tours",
+	"swarm":     "Coordinate multi-agent swarms",
 }
 
 var commandChildren = map[string][]string{
-	"":       {"task", "agent", "plan", "review", "swarm", "hooks", "serve", "auth", "pair", "help", "learn"},
-	"task":   {"create", "show", "update", "description", "note", "link", "unlink", "worktree"},
-	"agent":  {"state", "summary", "status"},
-	"hooks":  {"install", "uninstall"},
-	"auth":   {"token", "regenerate"},
-	"plan":   {"submit", "show", "feedback", "status", "answer", "complete", "withdraw"},
-	"review": {"chapter", "chapters", "annotate", "annotation", "answer", "ready", "show", "sync", "discard", "restart"},
-	"swarm":  {"validate-plan", "propose-plan", "extend-plan", "cancel", "dispatch", "message", "broadcast", "close", "finish", "progress", "question", "built", "status", "inbox"},
+	"":          {"task", "workspace", "agent", "plan", "review", "swarm", "hooks", "serve", "auth", "pair", "help", "learn"},
+	"task":      {"create", "show", "update", "description", "note", "link", "unlink", "worktree"},
+	"workspace": {"list"},
+	"agent":     {"state", "summary", "status"},
+	"hooks":     {"install", "uninstall"},
+	"auth":      {"token", "regenerate"},
+	"plan":      {"submit", "show", "feedback", "status", "answer", "complete", "withdraw"},
+	"review":    {"chapter", "chapters", "annotate", "annotation", "answer", "ready", "show", "sync", "discard", "restart"},
+	"swarm":     {"validate-plan", "propose-plan", "extend-plan", "cancel", "dispatch", "message", "broadcast", "close", "finish", "progress", "question", "built", "status", "inbox"},
 }
 
 var commandUsage = map[string]string{
-	"task create":      `legato task create <title> [--description <text>] [--status <status>] [--priority <priority>]`,
+	"task create":      `legato task create <title> [--description <text>] [--status <status>] [--priority <priority>] [--workspace <name>]`,
 	"task show":        `legato task show <task-id> [--format description|full|json]`,
-	"task update":      `legato task update <task-id> [--status <status>] [--title <title>] [--description <text>]`,
+	"task update":      `legato task update <task-id> [--status <status>] [--title <title>] [--description <text>] [--workspace <name>]`,
 	"task description": `legato task description <task-id> <text>`,
 	"task note":        `legato task note <task-id> <message>`,
 	"task link":        `legato task link <task-id> [--branch <branch>] [--repo <owner/repo>] [--sha <commit-sha>]`,
 	"task unlink":      `legato task unlink <task-id>`,
 	"task worktree":    `legato task worktree [set|clear] <task-id> ...`,
+	"workspace list":   `legato workspace list [--format text|json]`,
 	"agent state":      `legato agent state <task-id> --activity <working|waiting|""> [--working-dir <path>]`,
 	"agent summary":    `legato agent summary [--exclude <task-id>]`,
 	"agent status":     `legato agent status <task-id> --format tmux`,
@@ -166,6 +170,7 @@ Fields:
   --status       Move any task to a configured column
   --title        Replace a local task's title (rejected for Jira-backed tasks)
   --description  Replace a local task's description (rejected for Jira-backed tasks)
+  --workspace    Assign by workspace name; use "none" or "unassigned" to clear
 `)
 	}
 	out.WriteString("\nRun `legato help` for the AI-agent primer.\n")

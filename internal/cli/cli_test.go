@@ -214,6 +214,27 @@ func TestTaskCreate_CreatesLocalTask(t *testing.T) {
 	}
 }
 
+func TestTaskCreate_AssignsWorkspaceByName(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	workspaceID, err := s.CreateWorkspace(context.Background(), store.Workspace{Name: "Personal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	card, err := cli.TaskCreate(s, "Personal task", "", "Backlog", "", "personal")
+	if err != nil {
+		t.Fatalf("TaskCreate: %v", err)
+	}
+	task, err := s.GetTask(context.Background(), card.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.WorkspaceID == nil || *task.WorkspaceID != workspaceID {
+		t.Errorf("workspace ID = %v, want %d", task.WorkspaceID, workspaceID)
+	}
+}
+
 func TestTaskCreate_RequiresTitle(t *testing.T) {
 	s := newTestStore(t)
 	seedColumns(t, s)
@@ -286,6 +307,71 @@ func TestTaskTitle_RejectsJiraTask(t *testing.T) {
 	err := cli.TaskTitle(s, "JIRA-3", "Do not update")
 	if err == nil || !strings.Contains(err.Error(), "cannot edit title") {
 		t.Fatalf("error = %v, want remote edit rejection", err)
+	}
+}
+
+func TestTaskWorkspace_AssignsAndClearsByName(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	workspaceID, err := s.CreateWorkspace(context.Background(), store.Workspace{Name: "Personal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedTask(t, s, "abc123", "Backlog")
+
+	if err := cli.TaskWorkspace(s, "abc123", "PERSONAL"); err != nil {
+		t.Fatalf("TaskWorkspace assign: %v", err)
+	}
+	task, _ := s.GetTask(context.Background(), "abc123")
+	if task.WorkspaceID == nil || *task.WorkspaceID != workspaceID {
+		t.Fatalf("workspace ID = %v, want %d", task.WorkspaceID, workspaceID)
+	}
+
+	if err := cli.TaskWorkspace(s, "abc123", "unassigned"); err != nil {
+		t.Fatalf("TaskWorkspace clear: %v", err)
+	}
+	task, _ = s.GetTask(context.Background(), "abc123")
+	if task.WorkspaceID != nil {
+		t.Errorf("workspace ID = %v, want nil", task.WorkspaceID)
+	}
+}
+
+func TestTaskWorkspace_RejectsUnknownName(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Backlog")
+
+	err := cli.TaskWorkspace(s, "abc123", "Missing")
+	if err == nil || !strings.Contains(err.Error(), "valid workspaces") {
+		t.Fatalf("error = %v, want valid workspace list", err)
+	}
+}
+
+func TestWorkspaceList_TextAndJSON(t *testing.T) {
+	s := newTestStore(t)
+	color := "#7BC47F"
+	if _, err := s.CreateWorkspace(context.Background(), store.Workspace{Name: "Personal", Color: &color}); err != nil {
+		t.Fatal(err)
+	}
+
+	text, err := cli.WorkspaceList(s, "text")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "Personal" {
+		t.Errorf("text = %q, want Personal", text)
+	}
+
+	out, err := cli.WorkspaceList(s, "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0]["name"] != "Personal" || got[0]["color"] != color {
+		t.Errorf("JSON = %#v", got)
 	}
 }
 

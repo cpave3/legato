@@ -16,7 +16,8 @@ import (
 )
 
 // TaskCreate creates a local task and returns its generated identity.
-func TaskCreate(s *store.Store, title, description, status, priority string) (*service.Card, error) {
+// workspaceName is optional and is resolved case-insensitively.
+func TaskCreate(s *store.Store, title, description, status, priority string, workspaceName ...string) (*service.Card, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return nil, fmt.Errorf("title is required")
@@ -40,8 +41,17 @@ func TaskCreate(s *store.Store, title, description, status, priority string) (*s
 			return nil, err
 		}
 	}
+
+	var workspaceID *int
+	if len(workspaceName) > 0 {
+		var err error
+		workspaceID, err = resolveWorkspace(ctx, s, workspaceName[0])
+		if err != nil {
+			return nil, err
+		}
+	}
 	board := service.NewBoardService(s, events.New())
-	card, err := board.CreateTask(ctx, title, description, column, priority, nil)
+	card, err := board.CreateTask(ctx, title, description, column, priority, workspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("creating task: %w", err)
 	}
@@ -58,6 +68,28 @@ func TaskDescription(s *store.Store, taskID, description string) error {
 	}
 	board := service.NewBoardService(s, events.New())
 	if err := board.UpdateTaskDescription(context.Background(), taskID, description); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("task %q not found", taskID)
+		}
+		return err
+	}
+	ipc.Broadcast(ipc.Message{Type: "task_update", TaskID: taskID})
+	return nil
+}
+
+// TaskWorkspace assigns a task to a workspace by name. The special names
+// "none" and "unassigned" clear the task's workspace.
+func TaskWorkspace(s *store.Store, taskID, workspaceName string) error {
+	if strings.TrimSpace(taskID) == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	ctx := context.Background()
+	workspaceID, err := resolveWorkspace(ctx, s, workspaceName)
+	if err != nil {
+		return err
+	}
+	board := service.NewBoardService(s, events.New())
+	if err := board.UpdateTaskWorkspace(ctx, taskID, workspaceID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return fmt.Errorf("task %q not found", taskID)
 		}
@@ -423,6 +455,44 @@ func taskDetailJSONFromService(detail *service.CardDetail) taskDetailJSON {
 	return resp
 }
 
+type workspaceJSON struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color,omitempty"`
+}
+
+// WorkspaceList returns configured workspaces as newline-delimited names or
+// as a JSON array.
+func WorkspaceList(s *store.Store, format string) (string, error) {
+	workspaces, err := s.ListWorkspaces(context.Background())
+	if err != nil {
+		return "", fmt.Errorf("listing workspaces: %w", err)
+	}
+	switch format {
+	case "", "text":
+		names := make([]string, len(workspaces))
+		for i, workspace := range workspaces {
+			names[i] = workspace.Name
+		}
+		return strings.Join(names, "\n"), nil
+	case "json":
+		result := make([]workspaceJSON, len(workspaces))
+		for i, workspace := range workspaces {
+			result[i] = workspaceJSON{ID: workspace.ID, Name: workspace.Name}
+			if workspace.Color != nil {
+				result[i].Color = *workspace.Color
+			}
+		}
+		data, err := json.Marshal(result)
+		if err != nil {
+			return "", fmt.Errorf("encoding workspaces: %w", err)
+		}
+		return string(data), nil
+	default:
+		return "", fmt.Errorf("unknown format %q; valid formats: text, json", format)
+	}
+}
+
 // detectBranch returns the current git branch name.
 func detectBranch() (string, error) {
 	out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").CombinedOutput()
@@ -454,4 +524,28 @@ func resolveColumn(ctx context.Context, s *store.Store, status string) (string, 
 		names[i] = m.ColumnName
 	}
 	return "", fmt.Errorf("unknown status %q; valid statuses: %s", status, strings.Join(names, ", "))
+}
+
+func resolveWorkspace(ctx context.Context, s *store.Store, name string) (*int, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || strings.EqualFold(name, "none") || strings.EqualFold(name, "unassigned") {
+		return nil, nil
+	}
+
+	workspaces, err := s.ListWorkspaces(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing workspaces: %w", err)
+	}
+	for _, workspace := range workspaces {
+		if strings.EqualFold(workspace.Name, name) {
+			id := workspace.ID
+			return &id, nil
+		}
+	}
+
+	names := make([]string, len(workspaces))
+	for i, workspace := range workspaces {
+		names[i] = workspace.Name
+	}
+	return nil, fmt.Errorf("unknown workspace %q; valid workspaces: %s", name, strings.Join(names, ", "))
 }
