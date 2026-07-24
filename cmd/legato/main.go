@@ -71,17 +71,17 @@ func runCLI(args []string) int {
 	case "task":
 		return runTaskContract(args[1:])
 	case "workspace":
-		return runWorkspaceCmd(args[1:])
+		return runWorkspaceContract(args[1:])
 	case "agent":
-		return runAgentCmd(args[1:])
+		return runAgentContract(args[1:])
 	case "hooks":
-		return runHooksCmd(args[1:])
+		return runHooksContract(args[1:])
 	case "serve":
 		return runServeCmd(args[1:])
 	case "auth":
-		return runAuthCmd(args[1:])
+		return runAuthContract(args[1:])
 	case "pair":
-		return runPairCmd(args[1:])
+		return runPairContract(args[1:])
 	case "swarm":
 		return runSwarmCmd(args[1:])
 	case "review":
@@ -154,7 +154,11 @@ func runPlanCmd(args []string) int {
 	defer db.Close()
 	svc := service.NewPlanService(db, nil, nil)
 	verb := args[0]
-	positional, flags, listFlags := parseReviewArgs(args[1:])
+	positional, flags, listFlags, parseErr := parseReviewArgs(args[1:])
+	if parseErr != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", parseErr)
+		return exitUsage
+	}
 	taskID := flags["task"]
 	if taskID == "" {
 		taskID = os.Getenv("LEGATO_TASK_ID")
@@ -269,7 +273,11 @@ func runReviewCmd(args []string) int {
 	svc := service.NewReviewService(db, nil, nil)
 
 	verb := args[0]
-	positional, flags, listFlags := parseReviewArgs(args[1:])
+	positional, flags, listFlags, parseErr := parseReviewArgs(args[1:])
+	if parseErr != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", parseErr)
+		return exitUsage
+	}
 
 	taskID := flags["task"]
 	if taskID == "" {
@@ -601,9 +609,14 @@ func parseReviewChapterArgs(positional []string, flags map[string]string, listFl
 
 // parseReviewArgs splits args into positionals, single-value flags, and
 // repeatable list flags (--file and --include). Boolean flags (--json) map to "".
-func parseReviewArgs(args []string) (positional []string, flags map[string]string, listFlags map[string][]string) {
+func parseReviewArgs(args []string) (positional []string, flags map[string]string, listFlags map[string][]string, parseErr error) {
 	flags = map[string]string{}
 	listFlags = map[string][]string{}
+	scalar := map[string]bool{
+		"task": true, "name": true, "review-pass": true, "risk": true,
+		"order": true, "hunk": true, "lines": true, "feedback": true,
+	}
+	repeatable := map[string]bool{"file": true, "include": true, "finding": true}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if !strings.HasPrefix(arg, "--") {
@@ -612,27 +625,46 @@ func parseReviewArgs(args []string) (positional []string, flags map[string]strin
 		}
 		name := strings.TrimPrefix(arg, "--")
 		if flagName, value, ok := strings.Cut(name, "="); ok {
-			if flagName == "name" {
+			if scalar[flagName] {
+				if _, exists := flags[flagName]; exists {
+					return positional, flags, listFlags, fmt.Errorf("flag --%s may only be specified once", flagName)
+				}
 				flags[flagName] = value
 				continue
 			}
+			if repeatable[flagName] {
+				listFlags[flagName] = append(listFlags[flagName], value)
+				continue
+			}
+			return positional, flags, listFlags, fmt.Errorf("unknown flag --%s", flagName)
 		}
 		switch name {
 		case "json":
+			if _, exists := flags[name]; exists {
+				return positional, flags, listFlags, fmt.Errorf("flag --json may only be specified once")
+			}
 			flags[name] = ""
-		case "file", "include":
-			if i+1 < len(args) {
-				listFlags[name] = append(listFlags[name], args[i+1])
-				i++
+		case "file", "include", "finding":
+			if i+1 >= len(args) {
+				return positional, flags, listFlags, fmt.Errorf("missing value for --%s", name)
 			}
+			listFlags[name] = append(listFlags[name], args[i+1])
+			i++
 		default:
-			if i+1 < len(args) {
-				flags[name] = args[i+1]
-				i++
+			if !scalar[name] && !repeatable[name] {
+				return positional, flags, listFlags, fmt.Errorf("unknown flag --%s", name)
 			}
+			if _, exists := flags[name]; exists {
+				return positional, flags, listFlags, fmt.Errorf("flag --%s may only be specified once", name)
+			}
+			if i+1 >= len(args) {
+				return positional, flags, listFlags, fmt.Errorf("missing value for --%s", name)
+			}
+			flags[name] = args[i+1]
+			i++
 		}
 	}
-	return positional, flags, listFlags
+	return positional, flags, listFlags, nil
 }
 
 func runTaskCmd(args []string) int {

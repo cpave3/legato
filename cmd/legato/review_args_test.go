@@ -6,7 +6,7 @@ import (
 )
 
 func TestParseReviewArgsAcceptsReviewName(t *testing.T) {
-	positional, flags, _ := parseReviewArgs([]string{"summary", "--name=security"})
+	positional, flags, _, _ := parseReviewArgs([]string{"summary", "--name=security"})
 	if len(positional) != 1 || positional[0] != "summary" {
 		t.Fatalf("positionals = %v, want [summary]", positional)
 	}
@@ -16,7 +16,7 @@ func TestParseReviewArgsAcceptsReviewName(t *testing.T) {
 }
 
 func TestParseReviewChapterArgs(t *testing.T) {
-	positional, flags, listFlags := parseReviewArgs([]string{
+	positional, flags, listFlags, _ := parseReviewArgs([]string{
 		"Auth flow", "Read validation before persistence",
 		"--include", "internal/auth.go:1", "--include", "fixtures/C:drive/input.go:2",
 		"--risk", "high", "--order", "3",
@@ -51,7 +51,7 @@ func TestParseReviewChapterArgsValidatesIncludes(t *testing.T) {
 		if tc.include != "" {
 			args = append(args, "--include", tc.include)
 		}
-		positional, flags, listFlags := parseReviewArgs(args)
+		positional, flags, listFlags, _ := parseReviewArgs(args)
 		_, err := parseReviewChapterArgs(positional, flags, listFlags)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Fatalf("include %q error = %v, want containing %q", tc.include, err, tc.want)
@@ -60,7 +60,7 @@ func TestParseReviewChapterArgsValidatesIncludes(t *testing.T) {
 }
 
 func TestParseReviewAnnotateArgsHunk(t *testing.T) {
-	positional, flags, listFlags := parseReviewArgs([]string{"abc123", "check this", "--file", "main.go", "--hunk", "2"})
+	positional, flags, listFlags, _ := parseReviewArgs([]string{"abc123", "check this", "--file", "main.go", "--hunk", "2"})
 	got, err := parseReviewAnnotateArgs(positional, flags, listFlags)
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func TestParseReviewAnnotateArgsHunk(t *testing.T) {
 
 func TestParseReviewAnnotateArgsRejectsInvalidHunk(t *testing.T) {
 	for _, value := range []string{"zero", "0", "-1"} {
-		positional, flags, listFlags := parseReviewArgs([]string{"text", "--file", "main.go", "--hunk", value})
+		positional, flags, listFlags, _ := parseReviewArgs([]string{"text", "--file", "main.go", "--hunk", value})
 		if _, err := parseReviewAnnotateArgs(positional, flags, listFlags); err == nil {
 			t.Fatalf("--hunk %q should fail", value)
 		}
@@ -83,7 +83,7 @@ func TestParseReviewAnnotateArgsRejectsInvalidHunk(t *testing.T) {
 }
 
 func TestParseReviewAnnotateArgsAcceptsLineRangeWithinHunk(t *testing.T) {
-	positional, flags, listFlags := parseReviewArgs([]string{"explain range", "--file", "main.go", "--hunk", "2", "--lines", "4-9"})
+	positional, flags, listFlags, _ := parseReviewArgs([]string{"explain range", "--file", "main.go", "--hunk", "2", "--lines", "4-9"})
 	got, err := parseReviewAnnotateArgs(positional, flags, listFlags)
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestParseReviewAnnotateArgsRejectsInvalidLineRange(t *testing.T) {
 		{"text", "--file", "main.go", "--hunk", "1", "--lines", "3-2"},
 		{"text", "--file", "main.go", "--hunk", "1", "--lines", "nope"},
 	} {
-		positional, flags, listFlags := parseReviewArgs(args)
+		positional, flags, listFlags, _ := parseReviewArgs(args)
 		if _, err := parseReviewAnnotateArgs(positional, flags, listFlags); err == nil {
 			t.Fatalf("args %v should fail", args)
 		}
@@ -112,7 +112,7 @@ func TestParseReviewAnnotateArgsHunkRequiresExactlyOneFile(t *testing.T) {
 		{"text", "--hunk", "1"},
 		{"text", "--file", "a.go", "--file", "b.go", "--hunk", "1"},
 	} {
-		positional, flags, listFlags := parseReviewArgs(args)
+		positional, flags, listFlags, _ := parseReviewArgs(args)
 		if _, err := parseReviewAnnotateArgs(positional, flags, listFlags); err == nil {
 			t.Fatalf("args %v should fail", args)
 		}
