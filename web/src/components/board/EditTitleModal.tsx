@@ -7,9 +7,10 @@ interface EditTitleModalProps {
   currentTitle: string
   onClose: () => void
   onSave: (title: string) => void
+  loading?: boolean
 }
 
-export function EditTitleModal({ open, currentTitle, onClose, onSave }: EditTitleModalProps) {
+export function EditTitleModal({ open, currentTitle, onClose, onSave, loading = false }: EditTitleModalProps) {
   const [title, setTitle] = useState(currentTitle)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -58,9 +59,10 @@ export function EditTitleModal({ open, currentTitle, onClose, onSave }: EditTitl
             </button>
             <button
               type="submit"
-              className="rounded bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-500"
+              disabled={loading}
+              className="rounded bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-500 disabled:cursor-wait disabled:opacity-50"
             >
-              Save
+              {loading ? "Saving…" : "Save"}
             </button>
           </div>
         </form>

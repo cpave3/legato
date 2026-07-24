@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { cn } from "../../lib/utils"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
 import { BoardCard } from "./BoardCard"
@@ -10,6 +11,7 @@ interface BoardColumnProps {
   showWorkspace: boolean
   onCardClick: (colIndex: number, cardIndex: number) => void
   colIndex: number
+  onCardDrop?: (cardId: string, column: string) => void
 }
 
 function columnBorderColor(name: string): string {
@@ -37,9 +39,32 @@ export function BoardColumn({
   showWorkspace,
   onCardClick,
   colIndex,
+  onCardDrop,
 }: BoardColumnProps) {
+  const [dragOver, setDragOver] = useState(false)
+
   return (
-    <div className="flex min-w-[280px] flex-1 flex-col">
+    <div
+      className={cn(
+        "flex min-w-[280px] flex-1 flex-col rounded transition-colors",
+        dragOver && "bg-indigo-950/30 ring-1 ring-inset ring-indigo-500/60"
+      )}
+      onDragOver={(event) => {
+        if (!onCardDrop) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = "move"
+        setDragOver(true)
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false)
+      }}
+      onDrop={(event) => {
+        event.preventDefault()
+        setDragOver(false)
+        const cardId = event.dataTransfer.getData("text/plain")
+        if (cardId) onCardDrop?.(cardId, name)
+      }}
+    >
       <div
         className={cn(
           "flex items-center justify-between border-t-4 px-2 py-2",
@@ -63,6 +88,10 @@ export function BoardColumn({
             column={name}
             showWorkspace={showWorkspace}
             onClick={() => onCardClick(colIndex, i)}
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = "move"
+              event.dataTransfer.setData("text/plain", card.id)
+            }}
           />
         ))}
       </div>

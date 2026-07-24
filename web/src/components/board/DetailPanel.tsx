@@ -46,7 +46,7 @@ export function DetailPanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-12 pb-8 px-4"
+      className="fixed inset-0 z-40 flex items-start justify-center bg-black/60 pt-12 pb-8 px-4"
       onClick={onClose}
     >
       <div

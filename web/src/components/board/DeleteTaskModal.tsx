@@ -8,15 +8,16 @@ interface DeleteTaskModalProps {
   isRemote: boolean
   onClose: () => void
   onConfirm: () => void
+  loading?: boolean
 }
 
-export function DeleteTaskModal({ open, taskId, taskTitle, isRemote, onClose, onConfirm }: DeleteTaskModalProps) {
+export function DeleteTaskModal({ open, taskId, taskTitle, isRemote, onClose, onConfirm, loading = false }: DeleteTaskModalProps) {
   useEffect(() => {
     if (!open) return
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return
-      if (e.key === "y" || e.key === "Y") {
+      if ((e.key === "y" || e.key === "Y") && !loading) {
         e.preventDefault()
         onConfirm()
       } else if (e.key === "n" || e.key === "N") {
@@ -26,7 +27,7 @@ export function DeleteTaskModal({ open, taskId, taskTitle, isRemote, onClose, on
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [open, onConfirm, onClose])
+  }, [open, onConfirm, onClose, loading])
 
   if (!open) return null
 
@@ -63,9 +64,10 @@ export function DeleteTaskModal({ open, taskId, taskTitle, isRemote, onClose, on
           </button>
           <button
             onClick={onConfirm}
-            className="rounded bg-red-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-red-500"
+            disabled={loading}
+            className="rounded bg-red-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-red-500 disabled:cursor-wait disabled:opacity-50"
           >
-            Delete
+            {loading ? "Deleting…" : "Delete"}
           </button>
         </div>
       </div>

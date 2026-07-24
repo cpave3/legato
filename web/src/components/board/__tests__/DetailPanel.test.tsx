@@ -28,6 +28,13 @@ function makeCard(overrides: Partial<CardDetail> = {}): CardDetail {
 }
 
 describe("DetailPanel", () => {
+  it("stays below action modals in the board stacking order", () => {
+    const { container } = render(
+      <DetailPanel card={makeCard()} onClose={() => {}} onEditTitle={() => {}} onEditDescription={() => {}} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />
+    )
+    expect(container.firstElementChild?.className).toContain("z-40")
+  })
+
   it("renders title", () => {
     render(<DetailPanel card={makeCard()} onClose={() => {}} onEditTitle={() => {}} onEditDescription={() => {}} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />)
     expect(screen.getByText("Test title")).toBeTruthy()

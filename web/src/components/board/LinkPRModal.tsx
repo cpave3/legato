@@ -19,6 +19,7 @@ export function LinkPRModal({ open, taskId, onClose, onLinked }: LinkPRModalProp
   const [prNumber, setPrNumber] = useState("")
   const [preview, setPreview] = useState<PRPreviewResponse | null>(null)
   const [error, setError] = useState("")
+  const [linking, setLinking] = useState(false)
   const repoRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -27,6 +28,7 @@ export function LinkPRModal({ open, taskId, onClose, onLinked }: LinkPRModalProp
     setPrNumber("")
     setPreview(null)
     setError("")
+    setLinking(false)
     detectRepo(baseUrl)
       .then((d) => setRepo(`${d.owner}/${d.repo}`))
       .catch(() => setRepo(""))
@@ -57,14 +59,18 @@ export function LinkPRModal({ open, taskId, onClose, onLinked }: LinkPRModalProp
   }
 
   const handleConfirm = async () => {
-    if (!preview) return
+    if (!preview || linking) return
     const parts = repo.trim().split("/")
+    setLinking(true)
+    setError("")
     try {
       await linkPR(baseUrl, taskId, { owner: parts[0], repo: parts[1], pr_number: preview.number })
       onLinked()
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Link failed")
+    } finally {
+      setLinking(false)
     }
   }
 
@@ -81,7 +87,7 @@ export function LinkPRModal({ open, taskId, onClose, onLinked }: LinkPRModalProp
         </div>
         <div className="px-5 py-4 space-y-3">
           {error && (
-            <div className="rounded border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-300">{error}</div>
+            <div role="alert" className="rounded border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-300">{error}</div>
           )}
           {(phase === "input" || phase === "loading") && (
             <>
@@ -149,8 +155,8 @@ export function LinkPRModal({ open, taskId, onClose, onLinked }: LinkPRModalProp
               <button onClick={() => setPhase("input")} className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800">
                 Back
               </button>
-              <button onClick={handleConfirm} className="rounded bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-500">
-                Link
+              <button disabled={linking} onClick={handleConfirm} className="rounded bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-500 disabled:cursor-wait disabled:opacity-50">
+                {linking ? "Linking…" : "Link"}
               </button>
             </>
           )}

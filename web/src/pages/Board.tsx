@@ -25,6 +25,7 @@ import { EditDescriptionModal } from "../components/board/EditDescriptionModal"
 import { HelpModal } from "../components/board/HelpModal"
 import { OpenURLPicker } from "../components/board/OpenURLPicker"
 import { CancelSwarmModal } from "../components/board/CancelSwarmModal"
+import { useToast } from "../hooks/useToast"
 
 type Overlay =
   | { kind: "none" }
@@ -41,8 +42,14 @@ type Overlay =
   | { kind: "openURL"; providerURL: string; prURL: string }
   | { kind: "cancelSwarm"; card: BoardCard }
 
+function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return error.message
+  return fallback
+}
+
 export function BoardPage() {
   const { baseUrl } = useServer()
+  const { addToast } = useToast()
   const [workspaceFilter, setWorkspaceFilter] = useState<string>("all")
   const { columns, workspaces, loading, error, refresh } = useBoard(workspaceFilter)
   const [cursorCol, setCursorCol] = useState(0)
@@ -50,6 +57,7 @@ export function BoardPage() {
   const [overlay, setOverlay] = useState<Overlay>({ kind: "none" })
   const [detailCard, setDetailCard] = useState<CardDetail | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
+  const [pendingAction, setPendingAction] = useState<string | null>(null)
   const boardRef = useRef<HTMLDivElement>(null)
   const movedCardIdRef = useRef<string | null>(null)
 
@@ -149,7 +157,9 @@ export function BoardPage() {
             if (detailCard.description_md) {
               await navigator.clipboard.writeText(detailCard.description_md)
             }
-          } catch {}
+          } catch (error) {
+            addToast(errorMessage(error, "Could not copy the task description"), "error")
+          }
           return
         }
         if (e.key === "Y") {
@@ -159,7 +169,9 @@ export function BoardPage() {
               const text = await fetchCardFull(baseUrl, detailId)
               await navigator.clipboard.writeText(text)
             }
-          } catch {}
+          } catch (error) {
+            addToast(errorMessage(error, "Could not copy the full task context"), "error")
+          }
           return
         }
         return
@@ -318,7 +330,7 @@ export function BoardPage() {
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [columns, cursorCol, cursorRow, currentCard, overlay, detailCard, detailId, workspaceFilter, workspaces, doneCount, baseUrl])
+  }, [columns, cursorCol, cursorRow, currentCard, overlay, detailCard, detailId, workspaceFilter, workspaces, doneCount, baseUrl, addToast])
 
   const openDetail = useCallback(
     async (id: string) => {
@@ -326,11 +338,12 @@ export function BoardPage() {
       try {
         const card = await fetchCard(baseUrl, id)
         setDetailCard(card)
-      } catch {
+      } catch (error) {
         setDetailId(null)
+        addToast(errorMessage(error, "Could not load task details"), "error")
       }
     },
-    [baseUrl]
+    [baseUrl, addToast]
   )
 
   const handleCardClick = useCallback(
@@ -354,6 +367,8 @@ export function BoardPage() {
     priority: string
     workspace_id: number | null
   }) => {
+    if (pendingAction) return
+    setPendingAction("create")
     try {
       await createTask(baseUrl, {
         ...values,
@@ -361,23 +376,50 @@ export function BoardPage() {
       })
       setOverlay({ kind: "none" })
       refresh()
-    } catch (e) {
-      // Error could be surfaced if we added a toast; silently failing for now
+      addToast("Task created", "success")
+    } catch (error) {
+      addToast(errorMessage(error, "Could not create the task"), "error")
+    } finally {
+      setPendingAction(null)
     }
   }
 
   const handleMove = async (targetColumn: string) => {
-    if (!currentCard) return
+    const card = overlay.kind === "move" ? overlay.card : currentCard
+    if (!card || pendingAction || card.status === targetColumn) return
+    setPendingAction("move")
     try {
-      await patchTask(baseUrl, currentCard.id, { column: targetColumn })
+      await patchTask(baseUrl, card.id, { column: targetColumn })
       setOverlay({ kind: "none" })
-      movedCardIdRef.current = currentCard.id
+      movedCardIdRef.current = card.id
       refresh()
-    } catch (e) {}
+      addToast(`Moved task to ${targetColumn}`, "success")
+    } catch (error) {
+      addToast(errorMessage(error, "Could not move the task"), "error")
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
+  const handleDragMove = async (cardId: string, targetColumn: string) => {
+    const card = allCards.find((candidate) => candidate.id === cardId)
+    if (!card || card.status === targetColumn || pendingAction) return
+    setPendingAction("move")
+    try {
+      await patchTask(baseUrl, card.id, { column: targetColumn })
+      movedCardIdRef.current = card.id
+      refresh()
+      addToast(`Moved task to ${targetColumn}`, "success")
+    } catch (error) {
+      addToast(errorMessage(error, "Could not move the task"), "error")
+    } finally {
+      setPendingAction(null)
+    }
   }
 
   const handleDelete = async () => {
-    if (!currentCard) return
+    if (!currentCard || pendingAction) return
+    setPendingAction("delete")
     try {
       await deleteTask(baseUrl, currentCard.id)
       setOverlay({ kind: "none" })
@@ -386,15 +428,27 @@ export function BoardPage() {
         setDetailCard(null)
         setDetailId(null)
       }
-    } catch (e) {}
+      addToast("Task deleted", "success")
+    } catch (error) {
+      addToast(errorMessage(error, "Could not delete the task"), "error")
+    } finally {
+      setPendingAction(null)
+    }
   }
 
   const handleArchiveDone = async () => {
+    if (pendingAction) return
+    setPendingAction("archive")
     try {
       await archiveDone(baseUrl)
       setOverlay({ kind: "none" })
       refresh()
-    } catch (e) {}
+      addToast("Done tasks archived", "success")
+    } catch (error) {
+      addToast(errorMessage(error, "Could not archive done tasks"), "error")
+    } finally {
+      setPendingAction(null)
+    }
   }
 
   const handleSearchSelect = (card: BoardCard) => {
@@ -409,7 +463,8 @@ export function BoardPage() {
   }
 
   const handleSaveTitle = async (title: string) => {
-    if (!currentCard) return
+    if (!currentCard || pendingAction) return
+    setPendingAction("title")
     try {
       await patchTask(baseUrl, currentCard.id, { title })
       setOverlay({ kind: "none" })
@@ -417,11 +472,17 @@ export function BoardPage() {
         setDetailCard({ ...detailCard, title })
       }
       refresh()
-    } catch (e) {}
+      addToast("Task title updated", "success")
+    } catch (error) {
+      addToast(errorMessage(error, "Could not update the task title"), "error")
+    } finally {
+      setPendingAction(null)
+    }
   }
 
   const handleSaveDescription = async (description: string) => {
-    if (!currentCard) return
+    if (!currentCard || pendingAction) return
+    setPendingAction("description")
     try {
       await patchTask(baseUrl, currentCard.id, { description })
       setOverlay({ kind: "none" })
@@ -429,15 +490,23 @@ export function BoardPage() {
         setDetailCard({ ...detailCard, description_md: description })
       }
       refresh()
-    } catch (e) {}
+      addToast("Task description updated", "success")
+    } catch (error) {
+      addToast(errorMessage(error, "Could not update the task description"), "error")
+    } finally {
+      setPendingAction(null)
+    }
   }
 
   const handleCopyDesc = async () => {
     try {
       if (detailCard?.description_md) {
         await navigator.clipboard.writeText(detailCard.description_md)
+        addToast("Description copied", "success")
       }
-    } catch {}
+    } catch (error) {
+      addToast(errorMessage(error, "Could not copy the task description"), "error")
+    }
   }
 
   const handleCopyFull = async () => {
@@ -445,8 +514,11 @@ export function BoardPage() {
       if (detailId) {
         const text = await fetchCardFull(baseUrl, detailId)
         await navigator.clipboard.writeText(text)
+        addToast("Full task context copied", "success")
       }
-    } catch {}
+    } catch (error) {
+      addToast(errorMessage(error, "Could not copy the full task context"), "error")
+    }
   }
 
   const handleOpenURL = (url: string) => {
@@ -507,6 +579,7 @@ export function BoardPage() {
             cursorRow={cursorRow}
             showWorkspace={showWorkspace}
             onCardClick={handleCardClick}
+            onCardMove={handleDragMove}
           />
         )}
         {!loading && !error && columns.length === 0 && (
@@ -532,6 +605,7 @@ export function BoardPage() {
         workspaces={workspaces}
         onClose={() => setOverlay({ kind: "none" })}
         onSubmit={handleCreate}
+        loading={pendingAction === "create"}
       />
 
       <MoveTaskModal
@@ -542,6 +616,7 @@ export function BoardPage() {
         currentColumn={activeColumn?.name || ""}
         onClose={() => setOverlay({ kind: "none" })}
         onMove={handleMove}
+        loading={pendingAction === "move"}
       />
 
       <DeleteTaskModal
@@ -551,6 +626,7 @@ export function BoardPage() {
         isRemote={!!(overlay.kind === "delete" && overlay.card.provider)}
         onClose={() => setOverlay({ kind: "none" })}
         onConfirm={handleDelete}
+        loading={pendingAction === "delete"}
       />
 
       <ArchiveDoneModal
@@ -558,6 +634,7 @@ export function BoardPage() {
         count={doneCount}
         onClose={() => setOverlay({ kind: "none" })}
         onConfirm={handleArchiveDone}
+        loading={pendingAction === "archive"}
       />
 
       <SearchModal
@@ -573,8 +650,11 @@ export function BoardPage() {
         onLinked={() => {
           setOverlay({ kind: "none" })
           refresh()
+          addToast("Pull request linked", "success")
           if (detailId) {
-            fetchCard(baseUrl, detailId).then(setDetailCard).catch(() => {})
+            fetchCard(baseUrl, detailId).then(setDetailCard).catch((error) => {
+              addToast(errorMessage(error, "PR linked, but task details could not be refreshed"), "error")
+            })
           }
         }}
       />
@@ -585,6 +665,7 @@ export function BoardPage() {
         onImported={() => {
           setOverlay({ kind: "none" })
           refresh()
+          addToast("Remote task imported", "success")
         }}
       />
 
@@ -593,6 +674,7 @@ export function BoardPage() {
         currentTitle={overlay.kind === "editTitle" ? overlay.card.title : ""}
         onClose={() => setOverlay({ kind: "none" })}
         onSave={handleSaveTitle}
+        loading={pendingAction === "title"}
       />
 
       <EditDescriptionModal
@@ -600,6 +682,7 @@ export function BoardPage() {
         currentDescription={detailCard?.description_md || ""}
         onClose={() => setOverlay({ kind: "none" })}
         onSave={handleSaveDescription}
+        loading={pendingAction === "description"}
       />
 
       <HelpModal
@@ -677,6 +760,7 @@ export function BoardPage() {
           setDetailCard(null)
           setDetailId(null)
           refresh()
+          addToast("Swarm cancelled", "success")
         }}
       />
     </div>

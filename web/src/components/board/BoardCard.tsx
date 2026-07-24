@@ -1,4 +1,5 @@
 import { cn } from "../../lib/utils"
+import type { DragEvent } from "react"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
 import {
   Globe,
@@ -23,6 +24,7 @@ interface BoardCardProps {
   column: string
   showWorkspace: boolean
   onClick: () => void
+  onDragStart?: (event: DragEvent<HTMLDivElement>) => void
 }
 
 function formatDuration(seconds: number): string {
@@ -78,7 +80,7 @@ function providerIcon(provider: string, selected: boolean) {
   }
 }
 
-export function BoardCard({ card, selected, column, showWorkspace, onClick }: BoardCardProps) {
+export function BoardCard({ card, selected, column, showWorkspace, onClick, onDragStart }: BoardCardProps) {
   const isDone = column === "Done"
   const workingDur = formatDuration(card.working_seconds || 0)
   const waitingDur = formatDuration(card.waiting_seconds || 0)
@@ -87,6 +89,8 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick }: Bo
   return (
     <div
       onClick={onClick}
+      draggable
+      onDragStart={onDragStart}
       className={cn(
         "relative cursor-pointer rounded border-l-2 px-2.5 py-2 text-sm transition-colors",
         priorityBorderClass(card.priority),

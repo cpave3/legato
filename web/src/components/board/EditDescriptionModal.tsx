@@ -7,9 +7,10 @@ interface EditDescriptionModalProps {
   currentDescription: string
   onClose: () => void
   onSave: (description: string) => void
+  loading?: boolean
 }
 
-export function EditDescriptionModal({ open, currentDescription, onClose, onSave }: EditDescriptionModalProps) {
+export function EditDescriptionModal({ open, currentDescription, onClose, onSave, loading = false }: EditDescriptionModalProps) {
   const [description, setDescription] = useState(currentDescription)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -52,9 +53,10 @@ export function EditDescriptionModal({ open, currentDescription, onClose, onSave
             </button>
             <button
               type="submit"
-              className="rounded bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-500"
+              disabled={loading}
+              className="rounded bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-500 disabled:cursor-wait disabled:opacity-50"
             >
-              Save
+              {loading ? "Saving…" : "Save"}
             </button>
           </div>
         </form>

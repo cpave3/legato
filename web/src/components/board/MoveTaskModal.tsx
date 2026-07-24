@@ -10,6 +10,7 @@ interface MoveTaskModalProps {
   currentColumn: string
   onClose: () => void
   onMove: (column: string) => void
+  loading?: boolean
 }
 
 function buildShortcuts(columns: string[]): Map<string, string> {
@@ -32,7 +33,7 @@ function buildShortcuts(columns: string[]): Map<string, string> {
   return shortcuts
 }
 
-export function MoveTaskModal({ open, taskId, taskTitle, columns, currentColumn, onClose, onMove }: MoveTaskModalProps) {
+export function MoveTaskModal({ open, taskId, taskTitle, columns, currentColumn, onClose, onMove, loading = false }: MoveTaskModalProps) {
   const shortcuts = useMemo(() => buildShortcuts(columns), [columns])
   const shortcutFor = (col: string): string => {
     for (const [k, v] of shortcuts) {
@@ -47,14 +48,14 @@ export function MoveTaskModal({ open, taskId, taskTitle, columns, currentColumn,
       const target = e.target as HTMLElement | null
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return
       const col = shortcuts.get(e.key.toLowerCase())
-      if (col && col !== currentColumn) {
+      if (col && col !== currentColumn && !loading) {
         e.preventDefault()
         onMove(col)
       }
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [open, shortcuts, currentColumn, onMove])
+  }, [open, shortcuts, currentColumn, onMove, loading])
 
   if (!open) return null
 
@@ -83,7 +84,7 @@ export function MoveTaskModal({ open, taskId, taskTitle, columns, currentColumn,
                   </kbd>
                 )}
                 <button
-                  disabled={isCurrent}
+                  disabled={isCurrent || loading}
                   onClick={() => !isCurrent && onMove(col)}
                   className={cn(
                     "flex-1 rounded px-2 py-1 text-left text-xs transition-colors",

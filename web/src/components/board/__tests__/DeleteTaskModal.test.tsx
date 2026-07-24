@@ -34,4 +34,19 @@ describe("DeleteTaskModal", () => {
     )
     expect(screen.queryByText(/remove the local reference only/)).toBeNull()
   })
+
+  it("disables duplicate confirmation while deleting", () => {
+    render(
+      <DeleteTaskModal
+        open={true}
+        taskId="T-1"
+        taskTitle="A task"
+        isRemote={false}
+        loading={true}
+        onClose={() => {}}
+        onConfirm={() => {}}
+      />
+    )
+    expect((screen.getByRole("button", { name: "Deleting…" }) as HTMLButtonElement).disabled).toBe(true)
+  })
 })

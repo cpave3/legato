@@ -17,6 +17,7 @@ export function ImportRemoteModal({ open, onClose, onImported }: ImportRemoteMod
   const [results, setResults] = useState<RemoteSearchResult[]>([])
   const [cursor, setCursor] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [importingID, setImportingID] = useState("")
   const [error, setError] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -49,6 +50,7 @@ export function ImportRemoteModal({ open, onClose, onImported }: ImportRemoteMod
     setResults([])
     setCursor(0)
     setError("")
+    setImportingID("")
     setTimeout(() => inputRef.current?.focus(), 50)
   }, [open])
 
@@ -70,22 +72,27 @@ export function ImportRemoteModal({ open, onClose, onImported }: ImportRemoteMod
         setCursor((c) => Math.max(c - 1, 0))
       } else if (e.key === "Enter") {
         e.preventDefault()
-        if (results[cursor]) {
+        if (results[cursor] && !importingID) {
           handleImport(results[cursor])
         }
       }
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [open, results, cursor])
+  }, [open, results, cursor, importingID])
 
   const handleImport = async (r: RemoteSearchResult) => {
+    if (importingID) return
+    setImportingID(r.id)
+    setError("")
     try {
       await remoteImport(baseUrl, { ticket_id: r.id })
       onImported()
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed")
+    } finally {
+      setImportingID("")
     }
   }
 
@@ -111,7 +118,7 @@ export function ImportRemoteModal({ open, onClose, onImported }: ImportRemoteMod
           />
         </div>
         {error && (
-          <div className="mx-4 mb-2 rounded border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-300">{error}</div>
+          <div role="alert" className="mx-4 mb-2 rounded border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-300">{error}</div>
         )}
         <div className="max-h-80 overflow-y-auto px-2 pb-2">
           {loading && (
@@ -124,9 +131,11 @@ export function ImportRemoteModal({ open, onClose, onImported }: ImportRemoteMod
             results.map((r, i) => (
               <div
                 key={r.id}
-                onClick={() => handleImport(r)}
+                onClick={() => !importingID && handleImport(r)}
+                aria-disabled={Boolean(importingID)}
                 className={cn(
                   "cursor-pointer rounded px-3 py-2 text-sm transition-colors",
+                  importingID && "pointer-events-none opacity-50",
                   i === cursor
                     ? "bg-zinc-800 text-zinc-200"
                     : "text-zinc-400 hover:bg-zinc-900/60 hover:text-zinc-300"
@@ -134,7 +143,7 @@ export function ImportRemoteModal({ open, onClose, onImported }: ImportRemoteMod
               >
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[10px] text-zinc-600">{r.id}</span>
-                  <span className="truncate">{r.summary}</span>
+                  <span className="truncate">{importingID === r.id ? "Importing…" : r.summary}</span>
                   <span className="ml-auto text-[10px] text-zinc-600">{r.status}</span>
                 </div>
               </div>

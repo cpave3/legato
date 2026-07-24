@@ -15,11 +15,12 @@ interface CreateTaskModalProps {
     priority: string
     workspace_id: number | null
   }) => void
+  loading?: boolean
 }
 
 const priorities = ["", "Low", "Medium", "High"]
 
-export function CreateTaskModal({ open, columns, currentColumn, workspaces, onClose, onSubmit }: CreateTaskModalProps) {
+export function CreateTaskModal({ open, columns, currentColumn, workspaces, onClose, onSubmit, loading = false }: CreateTaskModalProps) {
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [column, setColumn] = useState(currentColumn || (columns[0] ?? ""))
@@ -27,9 +28,15 @@ export function CreateTaskModal({ open, columns, currentColumn, workspaces, onCl
   const [workspaceId, setWorkspaceId] = useState<number | null>(null)
   const [error, setError] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
+  const wasOpenRef = useRef(false)
 
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      wasOpenRef.current = false
+      return
+    }
+    if (wasOpenRef.current) return
+    wasOpenRef.current = true
     setTitle("")
     setDescription("")
     setColumn(currentColumn || (columns[0] ?? ""))
@@ -67,7 +74,7 @@ export function CreateTaskModal({ open, columns, currentColumn, workspaces, onCl
         </div>
         <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
           {error && (
-            <div className="rounded border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-300">{error}</div>
+            <div role="alert" className="rounded border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-300">{error}</div>
           )}
           <div className="space-y-1.5">
             <label htmlFor="create-title" className="text-xs font-medium text-zinc-400">Title</label>
@@ -151,9 +158,10 @@ export function CreateTaskModal({ open, columns, currentColumn, workspaces, onCl
           <div className="flex justify-end">
             <button
               type="submit"
-              className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+              disabled={loading}
+              className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-wait disabled:opacity-50"
             >
-              Create
+              {loading ? "Creating…" : "Create"}
             </button>
           </div>
         </form>

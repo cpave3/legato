@@ -1,5 +1,5 @@
-import { describe, expect, it, afterEach } from "vitest"
-import { render, screen, cleanup } from "@testing-library/react"
+import { describe, expect, it, afterEach, vi } from "vitest"
+import { render, screen, cleanup, fireEvent } from "@testing-library/react"
 import { BoardColumn } from "../BoardColumn"
 import type { BoardCard as BoardCardType } from "../../../lib/board-types"
 
@@ -46,5 +46,34 @@ describe("BoardColumn", () => {
     )
     expect(screen.getByText(/Doing/i)).toBeTruthy()
     expect(screen.getByText("2")).toBeTruthy()
+  })
+
+  it("moves a dragged card when dropped on the column", () => {
+    const onCardDrop = vi.fn()
+    const data = new Map<string, string>()
+    const dataTransfer = {
+      dropEffect: "none",
+      effectAllowed: "none",
+      getData: (type: string) => data.get(type) ?? "",
+      setData: (type: string, value: string) => data.set(type, value),
+    }
+    const { container } = render(
+      <BoardColumn
+        name="Doing"
+        cards={[makeCard()]}
+        selectedIndex={0}
+        isActive={false}
+        showWorkspace={false}
+        onCardClick={() => {}}
+        onCardDrop={onCardDrop}
+        colIndex={0}
+      />
+    )
+
+    fireEvent.dragStart(screen.getByText("Test title").closest("[draggable=true]")!, { dataTransfer })
+    fireEvent.dragOver(container.firstElementChild!, { dataTransfer })
+    fireEvent.drop(container.firstElementChild!, { dataTransfer })
+
+    expect(onCardDrop).toHaveBeenCalledWith("T-1", "Doing")
   })
 })

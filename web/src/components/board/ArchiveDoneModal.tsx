@@ -6,15 +6,16 @@ interface ArchiveDoneModalProps {
   count: number
   onClose: () => void
   onConfirm: () => void
+  loading?: boolean
 }
 
-export function ArchiveDoneModal({ open, count, onClose, onConfirm }: ArchiveDoneModalProps) {
+export function ArchiveDoneModal({ open, count, onClose, onConfirm, loading = false }: ArchiveDoneModalProps) {
   useEffect(() => {
     if (!open) return
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return
-      if (e.key === "y" || e.key === "Y") {
+      if ((e.key === "y" || e.key === "Y") && !loading) {
         e.preventDefault()
         onConfirm()
       } else if (e.key === "n" || e.key === "N") {
@@ -24,7 +25,7 @@ export function ArchiveDoneModal({ open, count, onClose, onConfirm }: ArchiveDon
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [open, onConfirm, onClose])
+  }, [open, onConfirm, onClose, loading])
 
   if (!open) return null
 
@@ -52,9 +53,10 @@ export function ArchiveDoneModal({ open, count, onClose, onConfirm }: ArchiveDon
           </button>
           <button
             onClick={onConfirm}
-            className="rounded bg-amber-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-amber-500"
+            disabled={loading}
+            className="rounded bg-amber-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-amber-500 disabled:cursor-wait disabled:opacity-50"
           >
-            Archive
+            {loading ? "Archiving…" : "Archive"}
           </button>
         </div>
       </div>

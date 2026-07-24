@@ -33,4 +33,37 @@ describe("CreateTaskModal", () => {
       workspace_id: null,
     })
   })
+
+  it("preserves form data while an open request is loading", () => {
+    const onSubmit = vi.fn()
+    const { rerender } = render(
+      <CreateTaskModal
+        open={true}
+        columns={["Backlog", "Doing"]}
+        currentColumn="Backlog"
+        workspaces={[]}
+        onClose={() => {}}
+        onSubmit={onSubmit}
+      />
+    )
+
+    fireEvent.change(screen.getByLabelText(/Title/i), { target: { value: "Keep this title" } })
+    fireEvent.change(screen.getByLabelText(/Description/i), { target: { value: "Keep this description" } })
+
+    rerender(
+      <CreateTaskModal
+        open={true}
+        columns={[...["Backlog", "Doing"]]}
+        currentColumn="Backlog"
+        workspaces={[]}
+        onClose={() => {}}
+        onSubmit={onSubmit}
+        loading={true}
+      />
+    )
+
+    expect((screen.getByLabelText(/Title/i) as HTMLInputElement).value).toBe("Keep this title")
+    expect((screen.getByLabelText(/Description/i) as HTMLTextAreaElement).value).toBe("Keep this description")
+    expect((screen.getByRole("button", { name: "Creating…" }) as HTMLButtonElement).disabled).toBe(true)
+  })
 })
