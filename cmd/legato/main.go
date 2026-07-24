@@ -168,6 +168,7 @@ func runPlanCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", parseErr)
 		return exitUsage
 	}
+	_, jsonMode := flags["json"]
 	taskID := flags["task"]
 	if taskID == "" {
 		taskID = os.Getenv("LEGATO_TASK_ID")
@@ -239,6 +240,9 @@ func runPlanCmd(args []string) int {
 		if err := cli.PlanAnswer(svc, planID, positional[0], positional[1]); err != nil {
 			return fail(err)
 		}
+		if jsonMode {
+			return writeCommandSuccess("plan.answer", map[string]any{"plan_id": planID, "thread_id": positional[0]}, "", true)
+		}
 	case "complete":
 		planID, err := resolve()
 		if err != nil {
@@ -254,6 +258,9 @@ func runPlanCmd(args []string) int {
 		}
 		if err := cli.PlanWithdraw(svc, planID); err != nil {
 			return fail(err)
+		}
+		if jsonMode {
+			return writeCommandSuccess("plan.withdraw", map[string]any{"plan_id": planID}, "", true)
 		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown plan command: %s\n", verb)
@@ -287,6 +294,7 @@ func runReviewCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", parseErr)
 		return exitUsage
 	}
+	_, jsonMode := flags["json"]
 
 	taskID := flags["task"]
 	if taskID == "" {
@@ -355,6 +363,9 @@ func runReviewCmd(args []string) int {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				return 1
 			}
+			if jsonMode {
+				return writeCommandSuccess("review.chapter.edit", map[string]any{"chapter_id": positional[1]}, "", true)
+			}
 			return 0
 		}
 		if len(positional) > 0 && positional[0] == "remove" {
@@ -369,6 +380,9 @@ func runReviewCmd(args []string) int {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
 				return 1
+			}
+			if jsonMode {
+				return writeCommandSuccess("review.chapter.remove", map[string]any{"chapter_id": positional[1]}, "", true)
 			}
 			return 0
 		}
@@ -408,6 +422,9 @@ func runReviewCmd(args []string) int {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
+		if jsonMode {
+			return writeCommandSuccess("review.chapter", map[string]any{"chapter_id": stepID}, "", true)
+		}
 		fmt.Println(stepID)
 		return 0
 	case "annotate":
@@ -427,6 +444,9 @@ func runReviewCmd(args []string) int {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
+		}
+		if jsonMode {
+			return writeCommandSuccess("review.annotate", map[string]any{"annotation_id": stepID}, "", true)
 		}
 		fmt.Println(stepID)
 		return 0
@@ -459,6 +479,9 @@ func runReviewCmd(args []string) int {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
+		if jsonMode {
+			return writeCommandSuccess("review.annotation."+positional[0], map[string]any{"annotation_id": positional[1]}, "", true)
+		}
 		return 0
 	case "answer":
 		if len(positional) != 2 {
@@ -474,6 +497,9 @@ func runReviewCmd(args []string) int {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
+		if jsonMode {
+			return writeCommandSuccess("review.answer", map[string]any{"tour_id": tourID, "step_id": positional[0]}, "", true)
+		}
 		return 0
 	case "ready":
 		summary := ""
@@ -488,6 +514,9 @@ func runReviewCmd(args []string) int {
 		if err := cli.ReviewReady(svc, tourID, summary); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
+		}
+		if jsonMode {
+			return writeCommandSuccess("review.ready", map[string]any{"tour_id": tourID, "summary": summary}, "", true)
 		}
 		return 0
 	case "show":
@@ -512,6 +541,9 @@ func runReviewCmd(args []string) int {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
+		if jsonMode {
+			return writeCommandSuccess("review.sync", map[string]any{"tour_id": tourID}, "", true)
+		}
 		return 0
 	case "discard", "restart":
 		tourID, err := resolveTourID()
@@ -527,6 +559,9 @@ func runReviewCmd(args []string) int {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
+		}
+		if jsonMode {
+			return writeCommandSuccess("review."+verb, map[string]any{"tour_id": tourID}, "", true)
 		}
 		return 0
 	default:
@@ -1940,46 +1975,75 @@ func runSwarmCmd(args []string) int {
 		swarmUsage()
 		return 1
 	}
-	switch args[0] {
+	jsonMode := false
+	filtered := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--json" {
+			if jsonMode {
+				return renderCommandError("swarm."+args[0], usageError("duplicate_flag", "flag --json may only be specified once"), true)
+			}
+			jsonMode = true
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+	args = filtered
+	if len(args) == 0 {
+		return renderCommandError("swarm", usageError("missing_argument", "swarm command is required"), jsonMode)
+	}
+	swarmJSONMode = jsonMode
+	defer func() { swarmJSONMode = false }()
+	verb := args[0]
+	code := runSwarmVerb(verb, args[1:])
+	if code == 0 && jsonMode && verb != "validate-plan" && verb != "status" && verb != "inbox" {
+		return writeCommandSuccess("swarm."+verb, map[string]any{"status": "ok"}, "", true)
+	}
+	return code
+}
+
+var swarmJSONMode bool
+
+func runSwarmVerb(verb string, args []string) int {
+	switch verb {
 	// Conductor verbs (callable from any context, but conventionally the
 	// conductor is the only delegator).
 	case "validate-plan":
-		return runSwarmValidatePlan(args[1:])
+		return runSwarmValidatePlan(args)
 	case "create":
-		return runSwarmCreate(args[1:])
+		return runSwarmCreate(args)
 	case "propose-plan":
-		return runSwarmProposePlan(args[1:])
+		return runSwarmProposePlan(args)
 	case "cancel":
-		return runSwarmCancel(args[1:])
+		return runSwarmCancel(args)
 	case "extend-plan":
-		return runSwarmExtendPlan(args[1:])
+		return runSwarmExtendPlan(args)
 	case "dispatch":
-		return runSwarmDispatch(args[1:])
+		return runSwarmDispatch(args)
 	case "message":
-		return runSwarmMessage(args[1:])
+		return runSwarmMessage(args)
 	case "broadcast":
-		return runSwarmBroadcast(args[1:])
+		return runSwarmBroadcast(args)
 	case "close":
-		return runSwarmClose(args[1:])
+		return runSwarmClose(args)
 	case "finish":
-		return runSwarmFinish(args[1:])
+		return runSwarmFinish(args)
 	// Worker verbs (callable from any context — workers self-identify by
 	case "next-step":
-		return runSwarmNextStep(args[1:])
+		return runSwarmNextStep(args)
 	// LEGATO_AGENT_ROLE; the verb itself doesn't enforce caller identity).
 	case "progress":
-		return runSwarmProgress(args[1:])
+		return runSwarmProgress(args)
 	case "question":
-		return runSwarmQuestion(args[1:])
+		return runSwarmQuestion(args)
 	case "built":
-		return runSwarmBuilt(args[1:])
+		return runSwarmBuilt(args)
 	// Read-only.
 	case "status":
-		return runSwarmStatus(args[1:])
+		return runSwarmStatus(args)
 	case "inbox":
-		return runSwarmInbox(args[1:])
+		return runSwarmInbox(args)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown swarm subcommand: %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "unknown swarm subcommand: %s\n", verb)
 		swarmUsage()
 		return 1
 	}
@@ -2172,7 +2236,9 @@ func runSwarmCreate(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	fmt.Printf("created adhoc swarm %s\n", taskID)
+	if !swarmJSONMode {
+		fmt.Printf("created adhoc swarm %s\n", taskID)
+	}
 	return 0
 }
 
@@ -2288,7 +2354,9 @@ func runSwarmDispatch(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	fmt.Printf("dispatched %s\n", args[0])
+	if !swarmJSONMode {
+		fmt.Printf("dispatched %s\n", args[0])
+	}
 	return 0
 }
 
@@ -2342,7 +2410,9 @@ func runSwarmClose(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	fmt.Printf("closed %s\n", args[0])
+	if !swarmJSONMode {
+		fmt.Printf("closed %s\n", args[0])
+	}
 	return 0
 }
 
@@ -2360,7 +2430,9 @@ func runSwarmFinish(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	fmt.Printf("swarm %s finished\n", args[0])
+	if !swarmJSONMode {
+		fmt.Printf("swarm %s finished\n", args[0])
+	}
 	return 0
 }
 
@@ -2378,7 +2450,9 @@ func runSwarmNextStep(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
-	fmt.Println("advanced to next step")
+	if !swarmJSONMode {
+		fmt.Println("advanced to next step")
+	}
 	return 0
 }
 func runSwarmStatus(args []string) int {

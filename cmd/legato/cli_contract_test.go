@@ -21,6 +21,18 @@ func TestParseCommandArgsRejectsUnknownAndDuplicateFlags(t *testing.T) {
 	}
 }
 
+func TestReviewAndSwarmParsersRejectUnknownFlags(t *testing.T) {
+	if _, _, _, err := parseReviewArgs([]string{"--wat", "value"}); err == nil {
+		t.Fatal("review parser accepted unknown flag")
+	}
+	if _, _, _, err := parseMessageArgs([]string{"task-1", "message", "--wat"}); err == nil {
+		t.Fatal("swarm message parser accepted unknown flag")
+	}
+	if _, _, err := parseSwarmCreateArgs([]string{"goal", "--wat"}); err == nil {
+		t.Fatal("swarm create parser accepted unknown flag")
+	}
+}
+
 func TestReadTextInputPreservesMultilineStdin(t *testing.T) {
 	got, err := readTextInput("", false, "-", true, bytes.NewBufferString("one\n\ntwo\n"))
 	if err != nil {
