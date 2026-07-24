@@ -21,14 +21,16 @@ import (
 )
 
 type mockBoardService struct {
-	columns        []service.Column
-	cards          map[string][]service.Card
-	workspaceCards map[string][]service.Card
-	workspaces     []service.Workspace
-	cardDetail     *service.CardDetail
-	searchResults  []service.Card
-	createdCard    *service.Card
-	archiveCount   int
+	columns          []service.Column
+	cards            map[string][]service.Card
+	workspaceCards   map[string][]service.Card
+	workspaces       []service.Workspace
+	cardDetail       *service.CardDetail
+	searchResults    []service.Card
+	createdCard      *service.Card
+	archiveCount     int
+	listColumnsCalls int
+	listCardsCalls   int
 
 	// call-tracking fields for patch verification
 	updatedTitle     string
@@ -38,10 +40,12 @@ type mockBoardService struct {
 }
 
 func (m *mockBoardService) ListColumns(_ context.Context) ([]service.Column, error) {
+	m.listColumnsCalls++
 	return m.columns, nil
 }
 
 func (m *mockBoardService) ListCards(_ context.Context, column string) ([]service.Card, error) {
+	m.listCardsCalls++
 	return m.cards[column], nil
 }
 
@@ -248,49 +252,24 @@ func TestHealthEndpointReturnsOK(t *testing.T) {
 	if resp.Status != "ok" {
 		t.Errorf("status = %q, want ok", resp.Status)
 	}
-	if len(resp.Columns) != 2 {
-		t.Fatalf("columns = %d, want 2", len(resp.Columns))
+	if resp.Version == "" {
+		t.Error("version should not be empty")
 	}
-	if resp.Columns[0].Name != "Backlog" {
-		t.Errorf("column[0] = %q, want Backlog", resp.Columns[0].Name)
-	}
-	if len(resp.Columns[0].Cards) != 2 {
-		t.Errorf("backlog cards = %d, want 2", len(resp.Columns[0].Cards))
-	}
-	if resp.Columns[1].Name != "Doing" {
-		t.Errorf("column[1] = %q, want Doing", resp.Columns[1].Name)
-	}
-}
-
-func TestHealthEndpointEmptyBoard(t *testing.T) {
-	svc := &mockBoardService{
-		columns: []service.Column{
-			{Name: "Backlog", SortOrder: 0},
-		},
-		cards: map[string][]service.Card{
-			"Backlog": {},
-		},
+	if svc.listColumnsCalls != 0 || svc.listCardsCalls != 0 {
+		t.Errorf("health queried board: ListColumns=%d, ListCards=%d", svc.listColumnsCalls, svc.listCardsCalls)
 	}
 
-	srv := New(svc, nil, nil, ":0")
-	handler := srv.Handler()
-
-	req := httptest.NewRequest("GET", "/health", nil)
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &fields); err != nil {
+		t.Fatalf("unmarshal fields: %v", err)
 	}
-
-	var resp HealthResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
-
-	if resp.Status != "ok" {
-		t.Errorf("status = %q, want ok", resp.Status)
+	if len(fields) != 2 || fields["status"] == nil || fields["version"] == nil {
+		t.Errorf("health fields = %v, want only status and version", fields)
 	}
-	if len(resp.Columns[0].Cards) != 0 {
-		t.Errorf("should have 0 cards, got %d", len(resp.Columns[0].Cards))
+	for _, secret := range []string{"REX-1", "First", "Backlog", "Doing"} {
+		if strings.Contains(w.Body.String(), secret) {
+			t.Errorf("health response leaked board value %q", secret)
+		}
 	}
 }
 
@@ -419,6 +398,21 @@ func TestAuthMiddlewareHealthExempt(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("health status = %d, want 200", w.Code)
+	}
+
+	req = httptest.NewRequest("GET", "/api/board", nil)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("unauthenticated board status = %d, want 401", w.Code)
+	}
+
+	req = httptest.NewRequest("GET", "/api/board", nil)
+	req.Header.Set("Authorization", "Bearer test-secret-token")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("authenticated board status = %d, want 200", w.Code)
 	}
 }
 

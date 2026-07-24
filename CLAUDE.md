@@ -52,12 +52,12 @@ task check                 # build + test + vet + lint
 
 ## Detailed Documentation
 
-@docs/claude/packages.md
-@docs/claude/database.md
-@docs/claude/config.md
-@docs/claude/sync.md
-@docs/claude/dev-notes.md
-@docs/claude/pr-tracking.md
-@docs/claude/cli.md
-@docs/claude/web-ui.md
-@docs/claude/swarm.md
+@docs/ai/packages.md
+@docs/ai/database.md
+@docs/ai/config.md
+@docs/ai/sync.md
+@docs/ai/dev-notes.md
+@docs/ai/pr-tracking.md
+@docs/ai/cli.md
+@docs/ai/web-ui.md
+@docs/ai/swarm.md

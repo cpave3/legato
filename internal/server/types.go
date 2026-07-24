@@ -2,12 +2,11 @@ package server
 
 // HealthResponse is the JSON response for GET /health.
 type HealthResponse struct {
-	Status   string           `json:"status"`
-	Columns  []ColumnResponse `json:"columns"`
-	SyncedAt *string          `json:"synced_at"`
+	Status  string `json:"status"`
+	Version string `json:"version"`
 }
 
-// ColumnResponse represents a column with its cards in the health response.
+// ColumnResponse represents a column with its cards in the board response.
 type ColumnResponse struct {
 	Name  string         `json:"name"`
 	Cards []CardResponse `json:"cards"`

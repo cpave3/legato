@@ -1,49 +1,16 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
-
-	"github.com/cpave3/legato/internal/service"
+	"runtime/debug"
 )
 
-func healthHandler(svc service.BoardService) http.HandlerFunc {
+func healthHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := context.Background()
-
-		columns, err := svc.ListColumns(ctx)
-		if err != nil {
-			http.Error(w, "failed to list columns", http.StatusInternalServerError)
-			return
-		}
-
-		var colResponses []ColumnResponse
-		for _, col := range columns {
-			cards, err := svc.ListCards(ctx, col.Name)
-			if err != nil {
-				http.Error(w, "failed to list cards", http.StatusInternalServerError)
-				return
-			}
-
-			cardResponses := make([]CardResponse, len(cards))
-			for i, c := range cards {
-				cardResponses[i] = CardResponse{
-					ID:     c.ID,
-					Title:  c.Title,
-					Status: c.Status,
-				}
-			}
-
-			colResponses = append(colResponses, ColumnResponse{
-				Name:  col.Name,
-				Cards: cardResponses,
-			})
-		}
-
 		resp := HealthResponse{
 			Status:  "ok",
-			Columns: colResponses,
+			Version: buildVersion(),
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -51,4 +18,12 @@ func healthHandler(svc service.BoardService) http.HandlerFunc {
 			http.Error(w, "encode error", http.StatusInternalServerError)
 		}
 	}
+}
+
+func buildVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return "dev"
+	}
+	return info.Main.Version
 }

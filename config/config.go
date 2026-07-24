@@ -74,7 +74,7 @@ type AdapterConfig struct {
 }
 
 // TierConfig describes a single named launch profile for an adapter — see
-// docs/claude/swarm.md § Tiers for the full ordering and validation rules.
+// docs/ai/swarm.md § Tiers for the full ordering and validation rules.
 type TierConfig struct {
 	// Description is the one-liner the conductor sees when picking a tier.
 	Description string `yaml:"description"`

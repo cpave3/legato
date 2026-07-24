@@ -72,9 +72,9 @@
 
 ## 9. Documentation
 
-- [ ] 9.1 Add a "Swarm controls" section to `docs/claude/web-ui.md` covering the new modal flows and action menu
-- [ ] 9.2 Update `docs/claude/swarm.md` with a paragraph noting that the web UI now has parity for the user-driven swarm verbs (link to `web-ui.md`)
-- [ ] 9.3 Update `docs/claude/packages.md` to note the new `internal/server/swarm.go` file and the new WebSocket message types
+- [ ] 9.1 Add a "Swarm controls" section to `docs/ai/web-ui.md` covering the new modal flows and action menu
+- [ ] 9.2 Update `docs/ai/swarm.md` with a paragraph noting that the web UI now has parity for the user-driven swarm verbs (link to `web-ui.md`)
+- [ ] 9.3 Update `docs/ai/packages.md` to note the new `internal/server/swarm.go` file and the new WebSocket message types
 - [ ] 9.4 Update `docs/swarm-integration-followup.md` to mark item #1 as done (or remove it from the list)
 
 ## 10. Final validation

@@ -397,7 +397,7 @@ This plays directly to Legato's harness-neutral architecture. The continuation p
 
 **Inspired by:** Warp/Oz's server-backed, sequenced agent mailboxes and Claude's shared team coordination.
 
-Legato currently uses `tmux send-keys` as its inter-agent message bus. This is documented as best-effort in [`docs/claude/swarm.md`](../claude/swarm.md): messages can arrive mid-turn and are processed when the receiving agent returns to a prompt.
+Legato currently uses `tmux send-keys` as its inter-agent message bus. This is documented as best-effort in [`docs/ai/swarm.md`](../ai/swarm.md): messages can arrive mid-turn and are processed when the receiving agent returns to a prompt.
 
 Gradually replace that with persisted inbox messages supporting:
 

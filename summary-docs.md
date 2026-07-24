@@ -10,7 +10,7 @@
 - **`internal/engine/`** — Infrastructure layer (SQLite store, Jira REST client, event bus, tmux). Imports only stdlib and third-party packages.
 - **`config/`** — Standalone YAML configuration parser with XDG-compliant paths.
 
-## docs/claude/ — Table of Contents
+## docs/ai/ — Table of Contents
 
 | File | What it covers |
 |------|----------------|

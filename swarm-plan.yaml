@@ -397,9 +397,9 @@ steps:
       - title: "Docs: cancel + extend-plan reference"
         role: docs
         scope:
-          - docs/claude/swarm.md
-          - docs/claude/cli.md
-          - docs/claude/web-ui.md
+          - docs/ai/swarm.md
+          - docs/ai/cli.md
+          - docs/ai/web-ui.md
           - CLAUDE.md
         prompt: |
           You're working on the **legato swarm improvements** swarm.
@@ -411,7 +411,7 @@ steps:
 
           ## What to document
 
-          1. `docs/claude/swarm.md`:
+          1. `docs/ai/swarm.md`:
              - Under "Lifecycle" (or a new "Cancellation & recreation"
                section), explain that the user can cancel a swarm from
                the task card in any state, and that `StartSwarm` now
@@ -424,13 +424,13 @@ steps:
                idempotent from the `reporting` state (workers can
                re-report after feedback).
 
-          2. `docs/claude/cli.md`:
+          2. `docs/ai/cli.md`:
              - Add `legato swarm cancel <parent-id>` to the conductor
                verbs section.
              - Add `legato swarm extend-plan <plan-file> [--auto-approve]
                [--timeout 5m]` next to `propose-plan`.
 
-          3. `docs/claude/web-ui.md`:
+          3. `docs/ai/web-ui.md`:
              - In the "Swarm controls" section, document the new Cancel
                Swarm button on the board detail panel and the extension
                labelling on the plan approval modal.

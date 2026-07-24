@@ -8,7 +8,7 @@ Items are grouped by leverage. Within each group the order is roughly "do these 
 
 ### 1. ~~Web UI parity for swarm controls~~ ✅ *Done in `swarm-web-parity`.*
 
-Web now supports starting a swarm, plan approval/rejection/dismissal via modal, per-worker messaging, closing workers, and finishing the swarm. See `docs/claude/web-ui.md` § Swarm controls.
+Web now supports starting a swarm, plan approval/rejection/dismissal via modal, per-worker messaging, closing workers, and finishing the swarm. See `docs/ai/web-ui.md` § Swarm controls.
 
 ### 2. Reporting view swarm metrics
 

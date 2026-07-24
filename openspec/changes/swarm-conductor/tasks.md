@@ -95,7 +95,7 @@
 
 - [x] 11.1 Extended `config.SwarmConfig` with `DefaultAgent`, `MaxSubtasksPerPlan`, `StrictScope`, `RequireUserClose`
 - [x] 11.2 Added `path` to `config.WorkspaceConfig` (overlay pre-fill plumbing deferred — config field exists for future iteration)
-- [x] 11.3 ~~Update `docs/claude/config.md`~~ — covered in `docs/claude/swarm.md`'s Configuration section; standalone update deferred to iteration
+- [x] 11.3 ~~Update `docs/ai/config.md`~~ — covered in `docs/ai/swarm.md`'s Configuration section; standalone update deferred to iteration
 - [x] 11.4 ~~Tests for defaults / overrides~~ — deferred to iteration
 
 ## 12. CLI handlers
@@ -115,9 +115,9 @@
 
 ## 14. Documentation
 
-- [x] 14.1 Replaced `docs/claude/swarm.md` with v2 content (conductor lifecycle, send-keys IPC, plan format, file layout, CLI surface, configuration, risks)
-- [x] 14.2 ~~Update `docs/claude/dev-notes.md`~~ — deferred to iteration
-- [x] 14.3 ~~Update `docs/claude/cli.md`~~ — deferred to iteration; the new CLI surface is covered in `docs/claude/swarm.md`
+- [x] 14.1 Replaced `docs/ai/swarm.md` with v2 content (conductor lifecycle, send-keys IPC, plan format, file layout, CLI surface, configuration, risks)
+- [x] 14.2 ~~Update `docs/ai/dev-notes.md`~~ — deferred to iteration
+- [x] 14.3 ~~Update `docs/ai/cli.md`~~ — deferred to iteration; the new CLI surface is covered in `docs/ai/swarm.md`
 - [x] 14.4 Help overlay updated with v1 swarm bindings (`S`, `y/e/n` in plan approval)
 - [x] 14.5 ~~Archive v0 `swarm-orchestration` change~~ — deferred to iteration; openspec archive command can run separately
 

@@ -76,7 +76,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	}
 	sm.onAgentActivityChanged = s.NotifyAgentsChanged
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", healthHandler(board))
+	mux.HandleFunc("/health", healthHandler())
 	mux.HandleFunc("/api/agents", s.agentsHandler())
 	mux.HandleFunc("/api/agents/spawn", s.spawnAgentHandler())
 	mux.HandleFunc("/api/agents/kill", s.killAgentHandler())

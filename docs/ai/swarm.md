@@ -414,7 +414,7 @@ If you prefer the old style, keep `default_agent: claude-code` and put `agent: c
 
 ### Web UI parity
 
-The web PWA (`docs/claude/web-ui.md`) has full parity for the user-driven swarm verbs: starting a swarm from the agents view, approving/rejecting/dismissing plan proposals via a modal, messaging individual workers, closing workers, and finishing a swarm. Plan proposals arrive over WebSocket (`plan_proposed`) and verdicts travel back on the same socket (`plan_verdict`). A per-parent event log shows unacked swarm events with an explicit drain action. See `docs/claude/web-ui.md` § Swarm controls for details.
+The web PWA (`docs/ai/web-ui.md`) has full parity for the user-driven swarm verbs: starting a swarm from the agents view, approving/rejecting/dismissing plan proposals via a modal, messaging individual workers, closing workers, and finishing a swarm. Plan proposals arrive over WebSocket (`plan_proposed`) and verdicts travel back on the same socket (`plan_verdict`). A per-parent event log shows unacked swarm events with an explicit drain action. See `docs/ai/web-ui.md` § Swarm controls for details.
 
 ### Risks / known limitations
 

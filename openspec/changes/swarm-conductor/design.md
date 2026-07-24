@@ -251,7 +251,7 @@ This means starting a swarm on a parent task replaces what would have been a nor
 5. Modify adapters: implement `LaunchCommand` on `ClaudeCodeAdapter` and `ChimeraAdapter`. Repurpose embedded prompts to `conductor.md` and `worker.md` (drop the four role-specific files).
 6. Modify `agentService.SpawnAgent` to call `LaunchCommand` after session creation. Modify `KillAgent` to publish `EventAgentDied`.
 7. Modify `tui/board` to subscribe to `EventSwarmChanged` for live badge refresh.
-8. Update CLAUDE.md docs: remove the swarm sections written for v0; add `docs/claude/swarm.md` v2 covering the conductor model.
+8. Update CLAUDE.md docs: remove the swarm sections written for v0; add `docs/ai/swarm.md` v2 covering the conductor model.
 9. Archive `swarm-orchestration` change (mark superseded; no spec rollback needed since v0's specs never landed in `openspec/specs/`).
 
 **Rollback**: drop migration `014_swarm_v1.sql` and the v1 columns. Anyone who was using v0 remains broken (they were already broken — that's why we're doing this). Anyone on v1 loses their swarm history. Acceptable for non-prod.

@@ -116,9 +116,9 @@
 
 ## 15. Documentation
 
-- [ ] 15.1 Create `docs/claude/memory.md` describing the notes data model, wikilink syntax, MCP tools
-- [ ] 15.2 Update `docs/claude/packages.md` with `internal/engine/memory/`, `internal/engine/mcp/`, `internal/service/notes.go`
-- [ ] 15.3 Update `docs/claude/database.md` with the new tables
-- [ ] 15.4 Update `docs/claude/cli.md` with new subcommands
-- [ ] 15.5 Add `@docs/claude/memory.md` reference to project CLAUDE.md
+- [ ] 15.1 Create `docs/ai/memory.md` describing the notes data model, wikilink syntax, MCP tools
+- [ ] 15.2 Update `docs/ai/packages.md` with `internal/engine/memory/`, `internal/engine/mcp/`, `internal/service/notes.go`
+- [ ] 15.3 Update `docs/ai/database.md` with the new tables
+- [ ] 15.4 Update `docs/ai/cli.md` with new subcommands
+- [ ] 15.5 Add `@docs/ai/memory.md` reference to project CLAUDE.md
 - [ ] 15.6 Update help overlay with new keybindings (`N`, autocomplete, etc.)

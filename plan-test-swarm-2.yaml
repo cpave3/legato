@@ -30,7 +30,7 @@ steps:
              hooks/, lib/.
           3. Skim a few representative source files to understand the
              frontend architecture (WebSocket usage, auth flow, PWA setup,
-             routing). docs/claude/web-ui.md has a good cheat-sheet — use
+             routing). docs/ai/web-ui.md has a good cheat-sheet — use
              it as a guide but verify against actual files.
 
           Then write a single file `summary-web.md` in the working

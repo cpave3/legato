@@ -81,11 +81,11 @@
 - [x] 11.1 Add `swarm.max_concurrent_agents` (int, default 4) and `swarm.prompts` (map of role → adapter → prompt) to config struct in `config/`
 - [x] 11.2 Wire `SwarmService` in `cmd/legato/main.go` after `AgentService`; pass to `NewApp`; subscribe to `EventAgentDied` via `StartEventLoop`
 - [x] 11.3 Update `NewApp` signature to accept `SwarmService` (variadic for nil-safety)
-- [x] 11.4 Update CLAUDE.md / docs/claude/packages.md with the new package and concepts
+- [x] 11.4 Update CLAUDE.md / docs/ai/packages.md with the new package and concepts
 
 ## 12. Documentation
 
-- [x] 12.1 Add `docs/claude/swarm.md` describing the swarm lifecycle, scope semantics, and CLI usage
-- [x] 12.2 Update `docs/claude/dev-notes.md` with swarm-specific testing patterns
-- [x] 12.3 Add `@docs/claude/swarm.md` reference to project CLAUDE.md
+- [x] 12.1 Add `docs/ai/swarm.md` describing the swarm lifecycle, scope semantics, and CLI usage
+- [x] 12.2 Update `docs/ai/dev-notes.md` with swarm-specific testing patterns
+- [x] 12.3 Add `@docs/ai/swarm.md` reference to project CLAUDE.md
 - [x] 12.4 Update help overlay (`?` key) with new swarm keybindings

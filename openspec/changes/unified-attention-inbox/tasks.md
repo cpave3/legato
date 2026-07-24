@@ -92,7 +92,7 @@
 ## 13. Documentation
 
 - [ ] 13.1 Update `README.md` and TUI help/keyboard documentation with the attention view, badge, filters, shared dismissal semantics, and finalized keybinding.
-- [ ] 13.2 Update `docs/claude/packages.md` and `docs/claude/database.md` with the attention service/store ownership, table schema, source projection rules, and reconciliation behavior.
-- [ ] 13.3 Update `docs/claude/web-ui.md` with the attention route, authenticated endpoints, WebSocket invalidation, mobile behavior, and source-action routing.
-- [ ] 13.4 Update `docs/claude/swarm.md`, `docs/claude/pr-tracking.md`, and review documentation to describe which source transitions create/resolve attention and clarify that source logs/transcripts remain authoritative.
+- [ ] 13.2 Update `docs/ai/packages.md` and `docs/ai/database.md` with the attention service/store ownership, table schema, source projection rules, and reconciliation behavior.
+- [ ] 13.3 Update `docs/ai/web-ui.md` with the attention route, authenticated endpoints, WebSocket invalidation, mobile behavior, and source-action routing.
+- [ ] 13.4 Update `docs/ai/swarm.md`, `docs/ai/pr-tracking.md`, and review documentation to describe which source transitions create/resolve attention and clarify that source logs/transcripts remain authoritative.
 - [ ] 13.5 Update notification configuration documentation to explain that OS/ntfy are optional delivery channels for newly activated attention items and that ordinary idle transitions no longer generate pushes.
