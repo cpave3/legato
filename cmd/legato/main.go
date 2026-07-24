@@ -50,6 +50,15 @@ func main() {
 }
 
 func runCLI(args []string) int {
+	if args[0] == "help" || args[0] == "learn" {
+		fmt.Print(agentPrimer)
+		return 0
+	}
+	if path, ok := helpRequest(args); ok {
+		fmt.Print(helpText(path))
+		return 0
+	}
+
 	switch args[0] {
 	case "task":
 		return runTaskCmd(args[1:])

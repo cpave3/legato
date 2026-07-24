@@ -3,6 +3,8 @@
 `legato` binary supports subcommand dispatch alongside the default TUI mode:
 
 - `legato` (no args) — launches TUI (existing behavior)
+- `legato --help`, `legato <command> --help`, and `legato <command> <verb> --help` — print context-specific CLI help to stdout and exit successfully without loading configuration or the database. `-h` and a nested trailing `help` are aliases.
+- `legato help` / `legato learn` — print a Markdown primer designed for AI-agent discovery, including task workflows, Jira edit restrictions, agent-session environment, and links to command-family help.
 - `legato task show <task-id> [--format description|full|json]` — print task context to stdout for agents/scripts. Defaults to the description-only markdown format used by detail-view copy; `full` includes structured metadata; `json` returns a machine-readable task detail object.
 - `legato task create <title> [--description <text>] [--status <status>] [--priority <priority>]` — create a local task and print its generated ID. The first board column is used when status is omitted.
 - `legato task update <task-id> [--status <status>] [--title <title>] [--description <text>]` — move a task to a column (case-insensitive status matching), replace its title or description, or combine the changes. Title and description edits are rejected for Jira-backed tasks.
