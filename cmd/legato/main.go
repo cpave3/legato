@@ -51,9 +51,9 @@ func main() {
 
 func runCLI(args []string) int {
 	if len(args) >= 1 && args[0] == "--json" {
-		args = append(args[1:], "--json")
+		args = injectGlobalJSON(args[1:])
 	} else if len(args) >= 2 && args[0] == "--format" && args[1] == "json" {
-		args = append(args[2:], "--json")
+		args = injectGlobalJSON(args[2:])
 	}
 	if len(args) == 0 {
 		return renderCommandError("legato", usageError("missing_argument", "command is required"), false)
@@ -93,6 +93,15 @@ func runCLI(args []string) int {
 		fmt.Fprintf(os.Stderr, "usage: legato [task|workspace|agent|hooks|serve|auth|pair|swarm|review|plan]\n")
 		return 1
 	}
+}
+
+func injectGlobalJSON(args []string) []string {
+	at := min(2, len(args))
+	out := make([]string, 0, len(args)+1)
+	out = append(out, args[:at]...)
+	out = append(out, "--json")
+	out = append(out, args[at:]...)
+	return out
 }
 
 func runWorkspaceCmd(args []string) int {
