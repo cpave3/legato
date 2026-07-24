@@ -29,12 +29,9 @@ func TestTaskWorktreeSetBroadcastsChangeAfterPersistence(t *testing.T) {
 	t.Cleanup(func() { os.RemoveAll(runtimeDir) })
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	messages := make(chan ipc.Message, 1)
-	srv, err := ipc.NewServer(filepath.Join(runtimeDir, "legato", "legato-test.sock"), func(msg ipc.Message) {
+	srv := newTestIPCServer(t, filepath.Join(runtimeDir, "legato", "legato-test.sock"), func(msg ipc.Message) {
 		messages <- msg
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	defer srv.Close()
 
 	meta := store.TaskWorktree{Path: "/trees/one", PrimaryDir: "/repo", Branch: "task-1", BaseBranch: "main"}
@@ -73,10 +70,7 @@ func TestTaskWorktreeClearBroadcastsChangeAfterPersistence(t *testing.T) {
 	t.Cleanup(func() { os.RemoveAll(runtimeDir) })
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	messages := make(chan ipc.Message, 1)
-	srv, err := ipc.NewServer(filepath.Join(runtimeDir, "legato", "legato-test.sock"), func(msg ipc.Message) { messages <- msg })
-	if err != nil {
-		t.Fatal(err)
-	}
+	srv := newTestIPCServer(t, filepath.Join(runtimeDir, "legato", "legato-test.sock"), func(msg ipc.Message) { messages <- msg })
 	defer srv.Close()
 
 	if err := cli.TaskWorktreeClear(db, "task-1"); err != nil {

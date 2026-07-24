@@ -1,11 +1,13 @@
 package ipc_test
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -46,15 +48,12 @@ func TestSocketPath_IncludesPID(t *testing.T) {
 }
 
 func TestServerReceivesClientMessage(t *testing.T) {
-	sockPath := filepath.Join(t.TempDir(), "legato.sock")
+	sockPath := shortSocketPath(t)
 
 	received := make(chan ipc.Message, 1)
-	srv, err := ipc.NewServer(sockPath, func(msg ipc.Message) {
+	srv := newIPCServer(t, sockPath, func(msg ipc.Message) {
 		received <- msg
 	})
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
 	defer srv.Close()
 
 	msg := ipc.Message{Type: "task_update", TaskID: "abc123", Status: "done"}
@@ -73,7 +72,7 @@ func TestServerReceivesClientMessage(t *testing.T) {
 }
 
 func TestServerCleansUpStaleSocket(t *testing.T) {
-	sockPath := filepath.Join(t.TempDir(), "legato.sock")
+	sockPath := shortSocketPath(t)
 
 	// Create a stale socket file (no one listening).
 	if err := os.WriteFile(sockPath, []byte{}, 0o600); err != nil {
@@ -81,12 +80,9 @@ func TestServerCleansUpStaleSocket(t *testing.T) {
 	}
 
 	received := make(chan ipc.Message, 1)
-	srv, err := ipc.NewServer(sockPath, func(msg ipc.Message) {
+	srv := newIPCServer(t, sockPath, func(msg ipc.Message) {
 		received <- msg
 	})
-	if err != nil {
-		t.Fatalf("NewServer with stale socket: %v", err)
-	}
 	defer srv.Close()
 
 	// Prove it works by doing a round-trip.
@@ -106,18 +102,15 @@ func TestServerCleansUpStaleSocket(t *testing.T) {
 }
 
 func TestConcurrentConnections(t *testing.T) {
-	sockPath := filepath.Join(t.TempDir(), "legato.sock")
+	sockPath := shortSocketPath(t)
 
 	var mu sync.Mutex
 	var received []ipc.Message
-	srv, err := ipc.NewServer(sockPath, func(msg ipc.Message) {
+	srv := newIPCServer(t, sockPath, func(msg ipc.Message) {
 		mu.Lock()
 		received = append(received, msg)
 		mu.Unlock()
 	})
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
 	defer srv.Close()
 
 	const n = 10
@@ -145,15 +138,12 @@ func TestConcurrentConnections(t *testing.T) {
 }
 
 func TestServerIgnoresMalformedMessages(t *testing.T) {
-	sockPath := filepath.Join(t.TempDir(), "legato.sock")
+	sockPath := shortSocketPath(t)
 
 	received := make(chan ipc.Message, 2)
-	srv, err := ipc.NewServer(sockPath, func(msg ipc.Message) {
+	srv := newIPCServer(t, sockPath, func(msg ipc.Message) {
 		received <- msg
 	})
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
 	defer srv.Close()
 
 	// Send garbage followed by a valid message over raw socket.
@@ -176,7 +166,7 @@ func TestServerIgnoresMalformedMessages(t *testing.T) {
 }
 
 func TestSendReturnsNilWhenNoSocket(t *testing.T) {
-	sockPath := filepath.Join(t.TempDir(), "nonexistent.sock")
+	sockPath := filepath.Join(shortSocketDir(t), "nonexistent.sock")
 
 	err := ipc.Send(sockPath, ipc.Message{Type: "task_update", TaskID: "x"})
 
@@ -187,4 +177,31 @@ func TestSendReturnsNilWhenNoSocket(t *testing.T) {
 
 func itoa(i int) string {
 	return fmt.Sprintf("%d", i)
+}
+
+func shortSocketPath(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(shortSocketDir(t), "legato.sock")
+}
+
+func shortSocketDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "legato-ipc-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
+func newIPCServer(t *testing.T, path string, callback func(ipc.Message)) *ipc.Server {
+	t.Helper()
+	server, err := ipc.NewServer(path, callback)
+	if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
+		t.Skipf("Unix sockets unavailable in restricted test environment: %v", err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return server
 }

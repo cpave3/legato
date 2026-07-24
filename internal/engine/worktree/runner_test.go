@@ -30,10 +30,7 @@ printf 'warning: using default template\n  /tmp/legato.feature-one  \n'
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := primaryDir + "\nnew\nfeature-one\n--agent-owned\n--print-path\n--base\nmain\n"
-	if string(call) != want {
-		t.Fatalf("invocation:\n%s\nwant:\n%s", call, want)
-	}
+	assertInvocation(t, call, primaryDir, "new\nfeature-one\n--agent-owned\n--print-path\n--base\nmain\n")
 }
 
 func TestRunnerRemoveInvokesYggdrasil(t *testing.T) {
@@ -52,10 +49,7 @@ printf '%s\n' "$@" >> "$CALL_FILE"
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := primaryDir + "\nremove\nfeature-one\n"
-	if string(call) != want {
-		t.Fatalf("invocation:\n%s\nwant:\n%s", call, want)
-	}
+	assertInvocation(t, call, primaryDir, "remove\nfeature-one\n")
 }
 
 func TestRunnerCreateReturnsLastNonEmptyLine(t *testing.T) {
@@ -86,4 +80,23 @@ func writeFakeYG(t *testing.T, content string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func assertInvocation(t *testing.T, call []byte, primaryDir, wantArgs string) {
+	t.Helper()
+	parts := strings.SplitN(string(call), "\n", 2)
+	if len(parts) != 2 {
+		t.Fatalf("malformed invocation: %q", call)
+	}
+	gotDir, err := filepath.EvalSymlinks(parts[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantDir, err := filepath.EvalSymlinks(primaryDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotDir != wantDir || parts[1] != wantArgs {
+		t.Fatalf("invocation:\n%s\nwant directory %q and args:\n%s", call, primaryDir, wantArgs)
+	}
 }

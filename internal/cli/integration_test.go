@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -19,11 +20,15 @@ func TestIPCMessageTriggersEventBusRefresh(t *testing.T) {
 	ch := bus.Subscribe(events.EventCardUpdated)
 
 	// Set up a socket in a temp dir that Broadcast will discover.
-	sockDir := t.TempDir()
+	sockDir, err := os.MkdirTemp("/tmp", "legato-cli-ipc-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sockDir) })
 	t.Setenv("XDG_RUNTIME_DIR", sockDir)
 
 	sockPath := filepath.Join(sockDir, "legato", "legato-test.sock")
-	srv, err := ipc.NewServer(sockPath, func(msg ipc.Message) {
+	srv := newTestIPCServer(t, sockPath, func(msg ipc.Message) {
 		switch msg.Type {
 		case "task_update", "task_note", "agent_state":
 			bus.Publish(events.Event{
@@ -32,9 +37,6 @@ func TestIPCMessageTriggersEventBusRefresh(t *testing.T) {
 			})
 		}
 	})
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
 	defer srv.Close()
 
 	// CLI update — writes to DB and broadcasts IPC.
