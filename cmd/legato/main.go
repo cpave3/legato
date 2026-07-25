@@ -66,41 +66,17 @@ func runCLI(args []string) int {
 		fmt.Print(helpText(path))
 		return 0
 	}
-
-	switch args[0] {
-	case "task":
-		return runTaskContract(args[1:])
-	case "workspace":
-		return runWorkspaceContract(args[1:])
-	case "agent":
-		return runAgentContract(args[1:])
-	case "hooks":
-		return runHooksContract(args[1:])
-	case "serve":
-		return runServeCmd(args[1:])
-	case "auth":
-		return runAuthContract(args[1:])
-	case "pair":
-		return runPairContract(args[1:])
-	case "swarm":
-		return runSwarmCmd(args[1:])
-	case "review":
-		return runReviewCmd(args[1:])
-	case "plan":
-		return runPlanCmd(args[1:])
-	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato [task|workspace|agent|hooks|serve|auth|pair|swarm|review|plan]\n")
-		return 1
+	node, path, remaining, resolveErr := resolveCommand(commandTree(), args)
+	if resolveErr != nil {
+		return renderCommandError(strings.Join(path, "."), resolveErr, false)
 	}
+	return node.Run(remaining)
 }
 
 func injectGlobalJSON(args []string) []string {
-	at := min(2, len(args))
 	out := make([]string, 0, len(args)+1)
-	out = append(out, args[:at]...)
+	out = append(out, args...)
 	out = append(out, "--json")
-	out = append(out, args[at:]...)
 	return out
 }
 
@@ -1253,7 +1229,7 @@ func runHooksCmd(args []string) int {
 }
 
 func runServeCmd(args []string) int {
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{"port": {}})
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("serve"))
 	if parseErr != nil || len(parsed.Positionals) != 0 {
 		if parseErr != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", parseErr)
@@ -2243,7 +2219,7 @@ func runSwarmCreate(args []string) int {
 }
 
 func runSwarmProposePlan(args []string) int {
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{"auto-approve": {Boolean: true}, "timeout": {}})
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("swarm", "propose-plan"))
 	if parseErr != nil || len(parsed.Positionals) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: legato swarm propose-plan <plan-file> [--auto-approve] [--timeout 5m]")
 		if parseErr != nil {
@@ -2294,7 +2270,7 @@ func runSwarmCancel(args []string) int {
 }
 
 func runSwarmExtendPlan(args []string) int {
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{"auto-approve": {Boolean: true}, "timeout": {}})
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("swarm", "extend-plan"))
 	if parseErr != nil || len(parsed.Positionals) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: legato swarm extend-plan <plan-file> [--auto-approve] [--timeout 5m]")
 		if parseErr != nil {

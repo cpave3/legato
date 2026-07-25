@@ -15,7 +15,7 @@ func runWorkspaceContract(args []string) int {
 		return renderCommandError("workspace", usageError("unknown_command", fmt.Sprintf("unknown workspace command %q", args[0])), false)
 	}
 	const command = "workspace.list"
-	parsed, parseErr := parseCommandArgs(args[1:], map[string]flagSpec{"format": {}, "json": {Boolean: true}})
+	parsed, parseErr := parseCommandArgs(args[1:], commandFlagSpecs("workspace", "list"))
 	jsonMode := parsed.Present["json"] || parsed.Values["format"] == "json"
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)

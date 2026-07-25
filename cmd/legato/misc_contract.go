@@ -16,7 +16,7 @@ func runHooksContract(args []string) int {
 		return renderCommandError("hooks", usageError("missing_argument", "hooks requires install or uninstall"), false)
 	}
 	command := "hooks." + args[0]
-	parsed, parseErr := parseCommandArgs(args[1:], map[string]flagSpec{"tool": {}, "json": {Boolean: true}})
+	parsed, parseErr := parseCommandArgs(args[1:], commandFlagSpecs("hooks", args[0]))
 	jsonMode := parsed.Present["json"]
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
@@ -65,7 +65,7 @@ func runAuthContract(args []string) int {
 		return renderCommandError("auth", usageError("missing_argument", "auth requires token or regenerate"), false)
 	}
 	command := "auth." + args[0]
-	parsed, parseErr := parseCommandArgs(args[1:], map[string]flagSpec{"json": {Boolean: true}})
+	parsed, parseErr := parseCommandArgs(args[1:], commandFlagSpecs("auth", args[0]))
 	jsonMode := parsed.Present["json"]
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
@@ -92,7 +92,7 @@ func runAuthContract(args []string) int {
 
 func runPairContract(args []string) int {
 	const command = "pair"
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{"port": {}, "json": {Boolean: true}})
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("pair"))
 	jsonMode := parsed.Present["json"]
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)

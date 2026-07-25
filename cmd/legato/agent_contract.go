@@ -28,9 +28,7 @@ func runAgentContract(args []string) int {
 
 func runAgentStateContract(args []string) int {
 	const command = "agent.state"
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{
-		"activity": {}, "working-dir": {}, "json": {Boolean: true},
-	})
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("agent", "state"))
 	jsonMode := parsed.Present["json"]
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
@@ -69,7 +67,7 @@ func runAgentStateContract(args []string) int {
 
 func runAgentSessionCreatedContract(args []string) int {
 	const command = "agent.session-created"
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{"json": {Boolean: true}})
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("agent", "session-created"))
 	jsonMode := parsed.Present["json"]
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
@@ -90,7 +88,7 @@ func runAgentSessionCreatedContract(args []string) int {
 
 func runAgentSummaryContract(args []string) int {
 	const command = "agent.summary"
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{"exclude": {}, "json": {Boolean: true}})
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("agent", "summary"))
 	jsonMode := parsed.Present["json"]
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
@@ -112,7 +110,7 @@ func runAgentSummaryContract(args []string) int {
 
 func runAgentStatusContract(args []string) int {
 	const command = "agent.status"
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{"format": {}, "json": {Boolean: true}})
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("agent", "status"))
 	jsonMode := parsed.Present["json"]
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)

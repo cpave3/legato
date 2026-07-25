@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
@@ -52,9 +53,7 @@ func openCommandStore(command string, jsonMode bool) (*store.Store, int) {
 
 func runTaskCreateContract(args []string) int {
 	const command = "task.create"
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{
-		"description": {}, "description-file": {}, "status": {}, "priority": {}, "workspace": {}, "json": {Boolean: true},
-	})
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("task", "create"))
 	jsonMode := parsed.Present["json"]
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
@@ -80,7 +79,7 @@ func runTaskCreateContract(args []string) int {
 
 func runTaskShowContract(args []string) int {
 	const command = "task.show"
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{"format": {}, "json": {Boolean: true}})
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("task", "show"))
 	jsonMode := parsed.Present["json"]
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
@@ -120,9 +119,7 @@ func runTaskShowContract(args []string) int {
 
 func runTaskUpdateContract(args []string) int {
 	const command = "task.update"
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{
-		"status": {}, "title": {}, "description": {}, "description-file": {}, "workspace": {}, "json": {Boolean: true},
-	})
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("task", "update"))
 	jsonMode := parsed.Present["json"]
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
@@ -171,9 +168,7 @@ func runTaskUpdateContract(args []string) int {
 
 func runTaskDescriptionContract(args []string) int {
 	const command = "task.description"
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{
-		"description": {}, "description-file": {}, "json": {Boolean: true},
-	})
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("task", "description"))
 	jsonMode := parsed.Present["json"]
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
@@ -243,7 +238,7 @@ func stringPointer(value string) *string { return &value }
 
 func runTaskNoteContract(args []string) int {
 	const command = "task.note"
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{"json": {Boolean: true}})
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("task", "note"))
 	jsonMode := parsed.Present["json"]
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
@@ -271,7 +266,7 @@ func runTaskNoteContract(args []string) int {
 
 func runTaskLinkContract(args []string) int {
 	const command = "task.link"
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{"branch": {}, "repo": {}, "sha": {}, "json": {Boolean: true}})
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("task", "link"))
 	jsonMode := parsed.Present["json"]
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
@@ -304,7 +299,8 @@ func runTaskUnlinkContract(args []string) int {
 }
 
 func runLegacyTaskContextMutation(command string, args []string, mutate func(*store.Store, string, []string) error) int {
-	parsed, parseErr := parseCommandArgs(args, map[string]flagSpec{"json": {Boolean: true}})
+	path := strings.Split(command, ".")
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs(path...))
 	jsonMode := parsed.Present["json"]
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
@@ -335,9 +331,7 @@ func runTaskWorktreeContract(args []string) int {
 	switch args[0] {
 	case "set":
 		const command = "task.worktree.set"
-		parsed, parseErr := parseCommandArgs(args[1:], map[string]flagSpec{
-			"path": {}, "primary-dir": {}, "branch": {}, "base-branch": {}, "json": {Boolean: true},
-		})
+		parsed, parseErr := parseCommandArgs(args[1:], commandFlagSpecs("task", "worktree", "set"))
 		jsonMode := parsed.Present["json"]
 		if parseErr != nil {
 			return renderCommandError(command, parseErr, jsonMode)
