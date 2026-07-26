@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react"
-import { BackHandler, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { BackHandler, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native"
 import { CameraView, useCameraPermissions } from "expo-camera"
 import * as Crypto from "expo-crypto"
 import * as ExpoLinking from "expo-linking"
@@ -10,11 +10,12 @@ import { StatusBar } from "expo-status-bar"
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context"
 import { WebView } from "react-native-webview"
 import type { WebViewNavigation } from "react-native-webview"
-import { allowNavigation, bootstrapScript, probeServer } from "./src/compat"
+import { allowNavigation, bootstrapScript, probeHealth, probeServer } from "./src/compat"
 import { normalizeServerUrl, parsePairUri, type LegatoConnection } from "./src/model"
 import { loadConnections, loadToken, removeConnection, saveConnection, updateConnection } from "./src/storage"
 
 type Screen = "connections" | "add" | "scan" | "web"
+type Reachability = "checking" | "online" | "offline"
 
 export default function App() {
   const [connections, setConnections] = useState<LegatoConnection[]>([])
@@ -27,6 +28,27 @@ export default function App() {
   const [permission, requestPermission] = useCameraPermissions()
   const webRef = useRef<WebView>(null)
   const [canGoBack, setCanGoBack] = useState(false)
+  const [reachability, setReachability] = useState<Record<string, Reachability>>({})
+  const [serverVersions, setServerVersions] = useState<Record<string, string>>({})
+  const [refreshing, setRefreshing] = useState(false)
+
+  const pollReachability = useCallback(async (markChecking = false) => {
+    if (!connections.length) return
+    if (markChecking) {
+      setReachability((current) => Object.fromEntries(connections.map((connection) => [connection.id, current[connection.id] ?? "checking"])))
+    }
+    const results = await Promise.all(connections.map(async (connection) => [connection.id, await probeHealth(connection.baseUrl)] as const))
+    setReachability(Object.fromEntries(results.map(([id, health]) => [id, health.online ? "online" : "offline"])))
+    setServerVersions((current) => ({
+      ...current,
+      ...Object.fromEntries(results.flatMap(([id, health]) => health.version ? [[id, health.version]] : [])),
+    }))
+  }, [connections])
+
+  const refreshConnections = useCallback(async () => {
+    setRefreshing(true)
+    try { await pollReachability(true) } finally { setRefreshing(false) }
+  }, [pollReachability])
 
   useEffect(() => {
     loadConnections().then(setConnections)
@@ -55,6 +77,12 @@ export default function App() {
     })
     return () => subscription.remove()
   }, [screen, canGoBack])
+  useEffect(() => {
+    if (screen !== "connections" || !connections.length) return
+    pollReachability(true)
+    const interval = setInterval(pollReachability, 15000)
+    return () => clearInterval(interval)
+  }, [screen, connections, pollReachability])
 
   const open = async (connection: LegatoConnection) => {
     setError("")
@@ -63,6 +91,7 @@ export default function App() {
       if (!secret) throw new Error("This connection has no saved token. Re-pair it.")
       const meta = await probeServer(connection.baseUrl)
       if (meta.compatibility === "unsupported") throw new Error("This server requires a newer mobile app")
+      setReachability((current) => ({ ...current, [connection.id]: "online" }))
       setActive({ ...connection, ...meta, lastConnectedAt: new Date().toISOString() })
       setToken(secret)
       setScreen("web")
@@ -107,7 +136,9 @@ export default function App() {
 
   return <SafeAreaProvider><SafeAreaView style={styles.safe}>
     <StatusBar style="light" />
-    {screen === "connections" && <ScrollView contentContainerStyle={styles.page}>
+    {screen === "connections" && <ScrollView contentContainerStyle={styles.page} refreshControl={
+      <RefreshControl refreshing={refreshing} onRefresh={refreshConnections} tintColor="#818cf8" colors={["#818cf8"]} progressBackgroundColor="#18181b" />
+    }>
       <View style={styles.pageHeader}>
         <Text style={styles.eyebrow}>CONNECTIONS</Text>
         <Text style={styles.title}>Legato servers</Text>
@@ -118,7 +149,10 @@ export default function App() {
         <Text style={styles.emptyTitle}>No servers yet</Text>
         <Text style={styles.muted}>Pair with a Legato instance or add its address manually.</Text>
       </View>}
-      {connections.map((connection) => <View key={connection.id} style={styles.card}>
+      {connections.map((connection) => {
+        const status = reachability[connection.id] ?? "checking"
+        const version = serverVersions[connection.id] ?? connection.serverVersion
+        return <View key={connection.id} style={styles.card}>
         <View style={styles.cardHeader}>
           <View style={styles.serverMark}><Text style={styles.serverMarkText}>{connection.name.trim().charAt(0).toUpperCase() || "L"}</Text></View>
           <View style={styles.cardIdentity}>
@@ -132,8 +166,8 @@ export default function App() {
         </View>
         <View style={styles.cardFooter}>
           <View style={styles.serverMeta}>
-            <View style={styles.statusDot} />
-            <Text style={styles.metaText}>{connection.serverVersion ? `Legato ${connection.serverVersion}` : "Ready to connect"}</Text>
+            <View style={[styles.statusDot, status === "checking" && styles.statusChecking, status === "offline" && styles.statusOffline]} />
+            <Text style={styles.metaText} numberOfLines={1}>{status === "checking" ? "Checking…" : status === "online" ? (version ? `Online · ${compactVersion(version)}` : "Online") : "Offline"}</Text>
           </View>
           <View style={styles.cardActions}>
             <CardAction label="Edit" onPress={() => { setEditTarget(connection); setDraft({ name: connection.name, url: connection.baseUrl, token: "", caCertificate: connection.caCertificate }); setError(""); setScreen("add") }} />
@@ -141,7 +175,7 @@ export default function App() {
             <CardAction label="Remove" danger onPress={async () => setConnections(await removeConnection(connection.id))} />
           </View>
         </View>
-      </View>)}
+      </View>})}
       <Pressable accessibilityRole="button" onPress={() => { setError(""); setScreen("add") }} style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}>
         <Text style={styles.addIcon}>＋</Text><Text style={styles.addButtonText}>Add server</Text>
       </Pressable>
@@ -195,6 +229,9 @@ function CompactButton({ label, accessibilityLabel, wide, onPress }: { label: st
 function CardAction({ label, danger, onPress }: { label: string; danger?: boolean; onPress: () => void }) {
   return <Pressable accessibilityRole="button" onPress={onPress} hitSlop={6} style={({ pressed }) => [styles.cardAction, pressed && styles.pressed]}><Text style={[styles.cardActionText, danger && styles.cardActionDanger]}>{label}</Text></Pressable>
 }
+function compactVersion(version: string): string {
+  return version.length > 12 ? `${version.slice(0, 11)}…` : version
+}
 function Field(props: React.ComponentProps<typeof TextInput> & { label: string }) {
   return <View><Text style={styles.label}>{props.label}</Text><TextInput {...props} style={styles.input} placeholderTextColor="#71717a" /></View>
 }
@@ -214,7 +251,8 @@ const styles = StyleSheet.create({
   openButtonText: { color: "#fff", fontSize: 13, fontWeight: "700" }, openArrow: { color: "#c7d2fe", fontSize: 20, lineHeight: 20 },
   cardFooter: { minHeight: 42, paddingHorizontal: 14, borderTopColor: "#27272a", borderTopWidth: StyleSheet.hairlineWidth, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   serverMeta: { minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6 }, statusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#34d399" },
-  metaText: { color: "#71717a", fontSize: 10 }, cardActions: { flexDirection: "row", alignItems: "center", gap: 4 },
+  statusChecking: { backgroundColor: "#fbbf24" }, statusOffline: { backgroundColor: "#71717a" },
+  metaText: { maxWidth: 105, color: "#71717a", fontSize: 10 }, cardActions: { flexDirection: "row", alignItems: "center", gap: 4 },
   cardAction: { paddingHorizontal: 7, paddingVertical: 7 }, cardActionText: { color: "#a1a1aa", fontSize: 11, fontWeight: "600" }, cardActionDanger: { color: "#f87171" },
   addButton: { height: 50, marginTop: 2, borderRadius: 14, borderWidth: 1, borderColor: "#3f3f46", borderStyle: "dashed", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   addIcon: { color: "#818cf8", fontSize: 20 }, addButtonText: { color: "#d4d4d8", fontSize: 14, fontWeight: "700" },

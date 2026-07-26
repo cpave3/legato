@@ -101,6 +101,11 @@ tasks:
     cmds:
       - ./scripts/mobile-android.sh apk
 
+  mobile:install:
+    desc: Build, install, and launch the standalone Android app
+    cmds:
+      - ./scripts/mobile-android.sh install
+
   mobile:dev-apk:
     desc: Build an Android development APK for Metro and Fast Refresh
     cmds:
@@ -113,7 +118,7 @@ tasks:
       - pnpm start --dev-client --lan
 
   mobile:device:
-    desc: Build, install, and launch Legato on a connected Android device
+    desc: Build, install, and launch the development app on a connected device
     cmds:
       - ./scripts/mobile-android.sh device
 

@@ -17,6 +17,8 @@ launch on a connected phone. `task mobile:eas` creates an internal EAS APK.
 The APK is a standalone release build with its JavaScript and assets embedded,
 so it runs without Metro or an internet connection. Re-running the task and
 installing with `adb install -r` updates it while preserving app data.
+Use `task mobile:install` to perform that build, in-place install, and launch in
+one command on an authorized USB or wireless-debugging device.
 
 For the faster development loop, run `task mobile:dev-apk`, install the debug
 APK once, then run `task mobile:dev`. That build connects to Metro over the LAN

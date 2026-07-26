@@ -46,7 +46,7 @@ if [ "$mode" = "device" ]; then
 fi
 cd android
 case "$mode" in
-  apk)
+  apk|install)
     ./gradlew assembleRelease
     apk_path="$mobile_dir/android/app/build/outputs/apk/release/app-release.apk"
     ;;
@@ -55,9 +55,25 @@ case "$mode" in
     apk_path="$mobile_dir/android/app/build/outputs/apk/debug/app-debug.apk"
     ;;
   *)
-    echo "usage: $0 apk|dev-apk|device" >&2
+    echo "usage: $0 apk|install|dev-apk|device" >&2
     exit 2
     ;;
 esac
 test -f "$apk_path"
 echo "$apk_path"
+
+if [ "$mode" = "install" ]; then
+  adb="$ANDROID_HOME/platform-tools/adb"
+  if [ ! -x "$adb" ]; then
+    echo "adb not found at $adb" >&2
+    exit 1
+  fi
+  if ! "$adb" get-state >/dev/null 2>&1; then
+    echo "no authorized Android device connected" >&2
+    "$adb" devices -l >&2
+    exit 1
+  fi
+  "$adb" install -r "$apk_path"
+  "$adb" shell am force-stop dev.legato.mobile
+  "$adb" shell monkey -p dev.legato.mobile -c android.intent.category.LAUNCHER 1
+fi
