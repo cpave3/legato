@@ -135,10 +135,10 @@ func commandTree() *commandDef {
 
 	hooks := group("hooks", "Manage AI-tool integration hooks",
 		leaf("install", "Install integration hooks", func(a []string) int { return runHooksContract(append([]string{"install"}, a...)) }, nil,
-			[]commandFlag{valueFlag("tool", "tool", "claude-code, staccato, chimera, codex, or yggdrasil"), jsonFlag},
-			"legato hooks install --tool codex"),
+			[]commandFlag{valueFlag("tool", "tool[,tool...]", "Required; comma-separated claude-code, staccato, chimera, codex, or yggdrasil"), jsonFlag},
+			"legato hooks install --tool claude-code,codex,chimera"),
 		leaf("uninstall", "Uninstall integration hooks", func(a []string) int { return runHooksContract(append([]string{"uninstall"}, a...)) }, nil,
-			[]commandFlag{valueFlag("tool", "tool", "claude-code, staccato, chimera, codex, or yggdrasil"), jsonFlag},
+			[]commandFlag{valueFlag("tool", "tool[,tool...]", "Required; comma-separated claude-code, staccato, chimera, codex, or yggdrasil"), jsonFlag},
 			"legato hooks uninstall --tool codex"),
 	)
 	authGroup := group("auth", "Manage the web UI authentication token",

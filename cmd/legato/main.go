@@ -1167,17 +1167,25 @@ func runAgentStatus(args []string) int {
 
 func runHooksCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "usage: legato hooks [install|uninstall] [--tool <name>]\n")
+		fmt.Fprintf(os.Stderr, "usage: legato hooks [install|uninstall] --tool <name[,name...]>\n")
 		return 1
 	}
 
-	// Parse --tool flag, default to "claude-code".
-	tool := "claude-code"
+	toolValue := ""
 	for i := 1; i < len(args)-1; i++ {
 		if args[i] == "--tool" {
-			tool = args[i+1]
+			toolValue = args[i+1]
 			break
 		}
+	}
+	if toolValue == "" {
+		fmt.Fprintf(os.Stderr, "error: hooks %s requires --tool <name[,name...]>\n", args[0])
+		return 1
+	}
+	tools, err := parseHookTools(toolValue)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
 	}
 
 	registry := service.NewAdapterRegistry()
@@ -1193,11 +1201,15 @@ func runHooksCmd(args []string) int {
 	registry.Register(hooks.NewCodexAdapter(legatoBin))
 	registry.Register(hooks.NewYggdrasilAdapter(legatoBin))
 
-	adapter, err := registry.Get(tool)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		fmt.Fprintf(os.Stderr, "available tools: %v\n", registry.List())
-		return 1
+	adapters := make([]service.AIToolAdapter, 0, len(tools))
+	for _, tool := range tools {
+		adapter, getErr := registry.Get(tool)
+		if getErr != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", getErr)
+			fmt.Fprintf(os.Stderr, "available tools: %v\n", registry.List())
+			return 1
+		}
+		adapters = append(adapters, adapter)
 	}
 
 	wd, err := os.Getwd()
@@ -1208,22 +1220,26 @@ func runHooksCmd(args []string) int {
 
 	switch args[0] {
 	case "install":
-		if err := adapter.InstallHooks(wd); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
+		for index, adapter := range adapters {
+			if err := adapter.InstallHooks(wd); err != nil {
+				fmt.Fprintf(os.Stderr, "error installing %s hooks: %v\n", tools[index], err)
+				return 1
+			}
 		}
-		fmt.Printf("Installed %s hooks in %s\n", tool, wd)
+		fmt.Printf("Installed %s hooks in %s\n", strings.Join(tools, ", "), wd)
 		return 0
 	case "uninstall":
-		if err := adapter.UninstallHooks(wd); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
+		for index, adapter := range adapters {
+			if err := adapter.UninstallHooks(wd); err != nil {
+				fmt.Fprintf(os.Stderr, "error uninstalling %s hooks: %v\n", tools[index], err)
+				return 1
+			}
 		}
-		fmt.Printf("Uninstalled %s hooks from %s\n", tool, wd)
+		fmt.Printf("Uninstalled %s hooks from %s\n", strings.Join(tools, ", "), wd)
 		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "unknown hooks command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato hooks [install|uninstall] [--tool <name>]\n")
+		fmt.Fprintf(os.Stderr, "usage: legato hooks [install|uninstall] --tool <name[,name...]>\n")
 		return 1
 	}
 }

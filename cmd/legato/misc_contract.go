@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/auth"
@@ -27,9 +28,13 @@ func runHooksContract(args []string) int {
 	if len(parsed.Positionals) != 0 || (args[0] != "install" && args[0] != "uninstall") {
 		return renderCommandError(command, usageError("unknown_command", "hooks requires install or uninstall"), jsonMode)
 	}
-	tool := parsed.Values["tool"]
-	if tool == "" {
-		tool = "claude-code"
+	toolValue := parsed.Values["tool"]
+	if toolValue == "" {
+		return renderCommandError(command, usageError("missing_flag", "hooks "+args[0]+" requires --tool <name[,name...]>"), jsonMode)
+	}
+	tools, err := parseHookTools(toolValue)
+	if err != nil {
+		return renderCommandError(command, usageError("invalid_tool", err.Error()), jsonMode)
 	}
 	legatoBin, err := os.Executable()
 	if err != nil {
@@ -41,26 +46,58 @@ func runHooksContract(args []string) int {
 	registry.Register(hooks.NewChimeraAdapter(legatoBin))
 	registry.Register(hooks.NewCodexAdapter(legatoBin))
 	registry.Register(hooks.NewYggdrasilAdapter(legatoBin))
-	adapter, err := registry.Get(tool)
-	if err != nil {
-		return renderCommandError(command, &commandError{
-			Code: "invalid_tool", Message: err.Error(), Details: map[string]any{"available_tools": registry.List()}, Exit: exitUsage,
-		}, jsonMode)
+	adapters := make([]service.AIToolAdapter, 0, len(tools))
+	for _, tool := range tools {
+		adapter, getErr := registry.Get(tool)
+		if getErr != nil {
+			return renderCommandError(command, &commandError{
+				Code: "invalid_tool", Message: getErr.Error(), Details: map[string]any{"available_tools": registry.List()}, Exit: exitUsage,
+			}, jsonMode)
+		}
+		adapters = append(adapters, adapter)
 	}
 	wd, err := os.Getwd()
 	if err != nil {
 		return renderCommandError(command, &commandError{Code: "environment_unavailable", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
 	}
-	if args[0] == "install" {
-		err = adapter.InstallHooks(wd)
-	} else {
-		err = adapter.UninstallHooks(wd)
+	for index, adapter := range adapters {
+		if args[0] == "install" {
+			err = adapter.InstallHooks(wd)
+		} else {
+			err = adapter.UninstallHooks(wd)
+		}
+		if err != nil {
+			return renderCommandError(command, &commandError{
+				Code: "hook_operation_failed", Message: fmt.Sprintf("%s: %v", tools[index], err), Details: map[string]any{"tool": tools[index]}, Exit: exitDependency,
+			}, jsonMode)
+		}
 	}
-	if err != nil {
-		return renderCommandError(command, &commandError{Code: "hook_operation_failed", Message: err.Error(), Exit: exitDependency}, jsonMode)
+	text := fmt.Sprintf("%sed %s hooks in %s", map[bool]string{true: "Install", false: "Uninstall"}[args[0] == "install"], strings.Join(tools, ", "), wd)
+	data := map[string]any{"tools": tools, "directory": wd}
+	if len(tools) == 1 {
+		data["tool"] = tools[0]
 	}
-	text := fmt.Sprintf("%sed %s hooks in %s", map[bool]string{true: "Install", false: "Uninstall"}[args[0] == "install"], tool, wd)
-	return writeCommandSuccess(command, map[string]any{"tool": tool, "directory": wd}, text, jsonMode)
+	return writeCommandSuccess(command, data, text, jsonMode)
+}
+
+func parseHookTools(value string) ([]string, error) {
+	parts := strings.Split(value, ",")
+	tools := make([]string, 0, len(parts))
+	seen := make(map[string]bool, len(parts))
+	for _, part := range parts {
+		tool := strings.TrimSpace(part)
+		if tool == "" {
+			return nil, fmt.Errorf("--tool contains an empty tool name")
+		}
+		if !seen[tool] {
+			seen[tool] = true
+			tools = append(tools, tool)
+		}
+	}
+	if len(tools) == 0 {
+		return nil, fmt.Errorf("--tool requires at least one tool name")
+	}
+	return tools, nil
 }
 
 func runAuthContract(args []string) int {
