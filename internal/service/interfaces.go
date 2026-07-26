@@ -118,6 +118,8 @@ type BoardService interface {
 	ListWorkspaces(ctx context.Context) ([]Workspace, error)
 	ArchiveDoneCards(ctx context.Context) (int, error)
 	ArchiveTask(ctx context.Context, id string) error
+	ListArchivedTasks(ctx context.Context) ([]Card, error)
+	RestoreTask(ctx context.Context, id string) error
 	CountDoneCards(ctx context.Context) (int, error)
 }
 

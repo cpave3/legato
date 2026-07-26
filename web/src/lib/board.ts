@@ -94,6 +94,17 @@ export async function archiveDone(baseUrl: string): Promise<ArchiveDoneResponse>
   return res.json() as Promise<ArchiveDoneResponse>
 }
 
+export async function fetchArchivedTasks(baseUrl: string): Promise<BoardCard[]> {
+  const res = await apiFetch(baseUrl, "/api/tasks/archived")
+  if (!res.ok) throw new Error(`fetchArchivedTasks failed: ${res.status}`)
+  return res.json() as Promise<BoardCard[]>
+}
+
+export async function restoreTask(baseUrl: string, id: string): Promise<void> {
+  const res = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(id)}/restore`, { method: "POST" })
+  if (!res.ok) throw new Error(`restoreTask failed: ${res.status}`)
+}
+
 export async function searchTasks(baseUrl: string, query: string, signal?: AbortSignal): Promise<BoardCard[]> {
   const res = await apiFetch(baseUrl, `/api/tasks/search?q=${encodeURIComponent(query)}`, { signal })
   if (!res.ok) throw new Error(`searchTasks failed: ${res.status}`)

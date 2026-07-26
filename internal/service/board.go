@@ -272,7 +272,27 @@ func (b *boardService) SearchCards(ctx context.Context, query string) ([]Card, e
 			}
 		}
 	}
+	archived, err := b.store.ListArchivedTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range archived {
+		if query == "" || containsInsensitive(t.ID, query) || containsInsensitive(t.Title, query) {
+			results = append(results, taskToCard(t))
+		}
+	}
 	return results, nil
+}
+
+func taskToCard(t store.Task) Card {
+	issueType := ""
+	if t.RemoteMeta != nil {
+		var meta map[string]string
+		if json.Unmarshal([]byte(*t.RemoteMeta), &meta) == nil {
+			issueType = meta["issue_type"]
+		}
+	}
+	return Card{ID: t.ID, Title: t.Title, Priority: t.Priority, IssueType: issueType, Status: t.Status, SortOrder: t.SortOrder}
 }
 
 func (b *boardService) ExportCardContext(ctx context.Context, id string, format ExportFormat) (string, error) {
@@ -492,6 +512,33 @@ func (b *boardService) ArchiveTask(ctx context.Context, id string) error {
 		Type: events.EventCardsRefreshed,
 		At:   time.Now(),
 	})
+	return nil
+}
+
+func (b *boardService) ListArchivedTasks(ctx context.Context) ([]Card, error) {
+	tasks, err := b.store.ListArchivedTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cards := make([]Card, len(tasks))
+	for i, task := range tasks {
+		cards[i] = taskToCard(task)
+	}
+	return cards, nil
+}
+
+func (b *boardService) RestoreTask(ctx context.Context, id string) error {
+	columns, err := b.store.ListColumnMappings(ctx)
+	if err != nil {
+		return err
+	}
+	if len(columns) == 0 {
+		return fmt.Errorf("no configured columns")
+	}
+	if err := b.store.RestoreTask(ctx, id, columns[0].ColumnName); err != nil {
+		return err
+	}
+	b.bus.Publish(events.Event{Type: events.EventCardsRefreshed, At: time.Now()})
 	return nil
 }
 

@@ -195,7 +195,7 @@ func TestCountDoneCards(t *testing.T) {
 	}
 }
 
-func TestSearchCards_ExcludesArchived(t *testing.T) {
+func TestSearchCards_IncludesArchived(t *testing.T) {
 	s, _, svc := setupTestBoard(t)
 	seedColumns(t, s)
 	ctx := context.Background()
@@ -220,10 +220,14 @@ func TestSearchCards_ExcludesArchived(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 {
-		t.Fatalf("expected 1 search result, got %d", len(results))
+	if len(results) != 2 {
+		t.Fatalf("expected 2 search results, got %d", len(results))
 	}
-	if results[0].ID != "d2" {
-		t.Fatalf("expected d2, got %s", results[0].ID)
+	ids := map[string]bool{}
+	for _, result := range results {
+		ids[result.ID] = true
+	}
+	if !ids["d1"] || !ids["d2"] {
+		t.Fatalf("expected archived and active results, got %#v", ids)
 	}
 }

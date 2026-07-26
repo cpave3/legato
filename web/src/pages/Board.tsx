@@ -17,6 +17,7 @@ import { CreateTaskModal } from "../components/board/CreateTaskModal"
 import { MoveTaskModal } from "../components/board/MoveTaskModal"
 import { DeleteTaskModal } from "../components/board/DeleteTaskModal"
 import { ArchiveDoneModal } from "../components/board/ArchiveDoneModal"
+import { ArchivedTasksModal } from "../components/board/ArchivedTasksModal"
 import { SearchModal } from "../components/board/SearchModal"
 import { LinkPRModal } from "../components/board/LinkPRModal"
 import { ImportRemoteModal } from "../components/board/ImportRemoteModal"
@@ -33,6 +34,7 @@ type Overlay =
   | { kind: "move"; card: BoardCard }
   | { kind: "delete"; card: BoardCard }
   | { kind: "archive" }
+  | { kind: "archived" }
   | { kind: "search" }
   | { kind: "linkPR"; card: BoardCard }
   | { kind: "import" }
@@ -265,6 +267,11 @@ export function BoardPage() {
           e.preventDefault()
           setOverlay({ kind: "archive" })
         }
+        return
+      }
+      if (e.key === "A") {
+        e.preventDefault()
+        setOverlay({ kind: "archived" })
         return
       }
 
@@ -635,6 +642,14 @@ export function BoardPage() {
         onClose={() => setOverlay({ kind: "none" })}
         onConfirm={handleArchiveDone}
         loading={pendingAction === "archive"}
+      />
+      <ArchivedTasksModal
+        open={overlay.kind === "archived"}
+        onClose={() => setOverlay({ kind: "none" })}
+        onRestored={() => {
+          refresh()
+          addToast("Task restored", "success")
+        }}
       />
 
       <SearchModal

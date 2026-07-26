@@ -387,6 +387,39 @@ func (s *Server) archiveTaskHandler() http.HandlerFunc {
 	}
 }
 
+func (s *Server) archivedTasksHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		cards, err := s.board.ListArchivedTasks(r.Context())
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.writeJSON(w, http.StatusOK, cards)
+	}
+}
+
+func (s *Server) restoreTaskHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if err := s.board.RestoreTask(r.Context(), r.PathValue("id")); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				s.writeError(w, http.StatusNotFound, "archived task not found")
+				return
+			}
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
 // ---------- POST /api/board/archive-done ----------
 
 func (s *Server) archiveDoneHandler() http.HandlerFunc {

@@ -64,6 +64,32 @@ func TestArchiveTask_AlreadyArchived(t *testing.T) {
 	}
 }
 
+func TestListAndRestoreArchivedTasks(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := s.CreateTask(ctx, Task{ID: "restore-me", Title: "Restore me", Status: "Done", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ArchiveTask(ctx, "restore-me"); err != nil {
+		t.Fatal(err)
+	}
+	archived, err := s.ListArchivedTasks(ctx)
+	if err != nil || len(archived) != 1 {
+		t.Fatalf("ListArchivedTasks: %#v, %v", archived, err)
+	}
+	if err := s.RestoreTask(ctx, "restore-me", "Backlog"); err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.GetTask(ctx, "restore-me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.ArchivedAt != nil || task.Status != "Backlog" {
+		t.Fatalf("restored task = %#v", task)
+	}
+}
+
 func TestArchiveTasksByStatus(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

@@ -435,6 +435,28 @@ func (s *Store) ArchiveTask(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *Store) ListArchivedTasks(ctx context.Context) ([]Task, error) {
+	var tasks []Task
+	err := s.db.SelectContext(ctx, &tasks, "SELECT * FROM tasks WHERE archived_at IS NOT NULL ORDER BY archived_at DESC, id")
+	return tasks, err
+}
+
+func (s *Store) RestoreTask(ctx context.Context, id, status string) error {
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET archived_at = NULL, status = ?, updated_at = datetime('now') WHERE id = ? AND archived_at IS NOT NULL", status, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // UpdatePRMeta sets the pr_meta JSON field for a task.
 func (s *Store) UpdatePRMeta(ctx context.Context, taskID string, prMeta *string) error {
 	result, err := s.db.ExecContext(ctx,

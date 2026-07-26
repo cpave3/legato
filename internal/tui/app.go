@@ -71,6 +71,7 @@ const (
 	overlayWorkspace
 	overlayMoveWorkspace
 	overlayArchive
+	overlayArchived
 	overlayLinkPR
 	overlayOpenURL
 	overlayAgentSpawn
@@ -773,6 +774,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
 		return a, nil
+
+	case overlay.ArchivedCancelledMsg:
+		a.overlayType, a.activeOverlay = overlayNone, nil
+		return a, nil
+
+	case overlay.ArchivedRestoreMsg:
+		if err := a.svc.RestoreTask(context.Background(), msg.CardID); err != nil {
+			return a, func() tea.Msg { return statusbar.ErrorMsg{Text: err.Error()} }
+		}
+		a.overlayType, a.activeOverlay = overlayNone, nil
+		return a.manualRefresh()
 
 	case board.OpenWorkspaceMsg:
 		return a.openWorkspaceOverlay()
@@ -1563,6 +1575,16 @@ func (a App) openArchiveOverlay() (tea.Model, tea.Cmd) {
 	sized, _ := archiveModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
 	a.overlayType = overlayArchive
+	return a, nil
+}
+
+func (a App) openArchivedOverlay() (tea.Model, tea.Cmd) {
+	cards, err := a.svc.ListArchivedTasks(context.Background())
+	if err != nil {
+		return a, func() tea.Msg { return statusbar.ErrorMsg{Text: err.Error()} }
+	}
+	a.activeOverlay = overlay.NewArchived(cards)
+	a.overlayType = overlayArchived
 	return a, nil
 }
 
@@ -2492,6 +2514,9 @@ func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch a.active {
 	case viewBoard:
+		if msg.String() == "B" {
+			return a.openArchivedOverlay()
+		}
 		// 'X' opens archive confirmation for done cards
 		if msg.String() == "X" {
 			return a.openArchiveOverlay()

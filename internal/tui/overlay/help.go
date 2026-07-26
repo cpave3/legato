@@ -35,6 +35,7 @@ var (
 		{"r", "Force sync"},
 		{"p", "Link PR to task"},
 		{"X", "Archive done cards"},
+		{"B", "Browse archived tasks"},
 		{"s", "Decompose into swarm"},
 		{"/", "Search/filter tasks"},
 		{"esc", "Back / close overlay"},

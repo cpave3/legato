@@ -24,7 +24,7 @@ func (f *fakeBoardService) GetCard(_ context.Context, _ string) (*service.CardDe
 	return f.card, nil
 }
 func (f *fakeBoardService) MoveCard(_ context.Context, _ string, _ string) error { return nil }
-func (f *fakeBoardService) ReorderCard(_ context.Context, _ string, _ int) error  { return nil }
+func (f *fakeBoardService) ReorderCard(_ context.Context, _ string, _ int) error { return nil }
 func (f *fakeBoardService) SearchCards(_ context.Context, _ string) ([]service.Card, error) {
 	return nil, nil
 }
@@ -52,7 +52,11 @@ func (f *fakeBoardService) ListWorkspaces(_ context.Context) ([]service.Workspac
 }
 func (f *fakeBoardService) ArchiveDoneCards(_ context.Context) (int, error) { return 0, nil }
 func (f *fakeBoardService) ArchiveTask(_ context.Context, _ string) error   { return nil }
-func (f *fakeBoardService) CountDoneCards(_ context.Context) (int, error)   { return 0, nil }
+func (f *fakeBoardService) ListArchivedTasks(_ context.Context) ([]service.Card, error) {
+	return nil, nil
+}
+func (f *fakeBoardService) RestoreTask(_ context.Context, _ string) error { return nil }
+func (f *fakeBoardService) CountDoneCards(_ context.Context) (int, error) { return 0, nil }
 
 func testCard() *service.CardDetail {
 	return &service.CardDetail{
@@ -118,7 +122,7 @@ func TestViewContainsMetadata(t *testing.T) {
 func TestViewMissingOptionalFields(t *testing.T) {
 	card := &service.CardDetail{
 		ID:            "REX-99",
-		Title:       "Minimal ticket",
+		Title:         "Minimal ticket",
 		DescriptionMD: "Simple desc",
 		Status:        "Open",
 	}
@@ -158,7 +162,7 @@ func TestScrollKeybindings(t *testing.T) {
 	// j scrolls down
 	updated, _ := m.Update(keyMsg('j'))
 	m2 := updated.(Model)
-		_ = m2.viewport.YOffset 		// viewport may not scroll if content fits - that's ok
+	_ = m2.viewport.YOffset // viewport may not scroll if content fits - that's ok
 
 	// k scrolls up (should stay at or return to 0)
 	updated, _ = m2.Update(keyMsg('k'))
@@ -274,7 +278,7 @@ func TestCopyWithNoClipboard(t *testing.T) {
 // Task 3.3: o keybinding with no URL
 func TestOpenURLNoURL(t *testing.T) {
 	card := &service.CardDetail{
-		ID:      "REX-99",
+		ID:    "REX-99",
 		Title: "No URL",
 	}
 	m := New(card, nil, nil, "")
@@ -509,9 +513,6 @@ func TestStatusBarNoEditHintForRemoteTask(t *testing.T) {
 }
 
 // helpers
-
-
-
 
 func keyMsg(r rune) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}

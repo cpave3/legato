@@ -105,6 +105,11 @@ func commandTree() *commandDef {
 				[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")}, []commandFlag{jsonFlag},
 				"legato task worktree clear <task-id>"),
 		),
+		group("archive", "Browse and restore archived tasks",
+			leaf("list", "List archived tasks", runTaskArchiveListContract, nil, []commandFlag{jsonFlag}, "legato task archive list"),
+			leaf("restore", "Restore an archived task to the first configured column", runTaskArchiveRestoreContract,
+				[]argumentDef{arg("task-id", "Archived task ID")}, []commandFlag{jsonFlag}, "legato task archive restore <task-id>"),
+		),
 	)
 
 	workspace := group("workspace", "Discover task workspaces",

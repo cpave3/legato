@@ -113,6 +113,10 @@ func (m *mockBoardService) ArchiveTask(_ context.Context, id string) error {
 	}
 	return nil
 }
+func (m *mockBoardService) ListArchivedTasks(_ context.Context) ([]service.Card, error) {
+	return nil, nil
+}
+func (m *mockBoardService) RestoreTask(_ context.Context, _ string) error { return nil }
 func (m *mockBoardService) CountDoneCards(_ context.Context) (int, error) { return 0, nil }
 
 type mockSyncService struct {

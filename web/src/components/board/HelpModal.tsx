@@ -31,6 +31,7 @@ const sections = [
       { key: "Y", desc: "Copy full context" },
       { key: "o", desc: "Open URL" },
       { key: "X", desc: "Archive done cards" },
+      { key: "A", desc: "Browse archived tasks" },
       { key: "/", desc: "Search/filter" },
       { key: "w", desc: "Workspace filter" },
       { key: "esc", desc: "Back / close" },
