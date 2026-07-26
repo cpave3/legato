@@ -162,7 +162,7 @@ func commandTree() *commandDef {
 		task, workspace, agent, plan, review, swarm, hooks,
 		leaf("serve", "Run the Legato web server", runServeCmd, nil, []commandFlag{valueFlag("port", "port", "Listening port")}, "legato serve --port 3080"),
 		authGroup,
-		leaf("pair", "Pair a device with the Legato web UI", runPairContract, nil, []commandFlag{valueFlag("port", "port", "Server port"), jsonFlag}, "legato pair"),
+		leaf("pair", "Pair a device with the Legato web UI", runPairContract, nil, []commandFlag{valueFlag("host", "host|ip", "Address this device uses to reach this specific Legato instance"), valueFlag("port", "port", "Server port"), jsonFlag}, "legato pair --host 192.168.1.20"),
 	)
 	markCapabilities(root)
 	if update, ok := findCommand(root, []string{"task", "update"}); ok {

@@ -303,6 +303,24 @@ func TestAgentsEndpointNoService(t *testing.T) {
 	}
 }
 
+func TestMobileMetaIsPublicAndVersioned(t *testing.T) {
+	srv := New(&mockBoardService{}, nil, nil, ":0")
+	srv.SetAuthToken("secret")
+	req := httptest.NewRequest(http.MethodGet, "/api/meta", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var meta MobileMetaResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.Version == "" || meta.MobileShellAPI != 1 || meta.AuthBootstrap != "local_storage_v1" {
+		t.Fatalf("meta = %#v", meta)
+	}
+}
+
 func TestTasksEndpoint(t *testing.T) {
 	svc := &mockBoardService{
 		columns: []service.Column{

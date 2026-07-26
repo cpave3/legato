@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"os"
+	"path/filepath"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/auth"
@@ -115,15 +118,29 @@ func runPairContract(args []string) int {
 	if port == "" {
 		port = "3080"
 	}
-	host := cfg.Web.TLS.Hostname
+	host := parsed.Values["host"]
+	if host == "" {
+		host = cfg.Web.TLS.Hostname
+	}
 	if host == "" {
 		host, _ = os.Hostname()
 	}
 	if host == "" {
 		host = "localhost"
 	}
-	serverURL := fmt.Sprintf("https://%s:%s", host, port)
-	pairURI := fmt.Sprintf("legato://pair?url=%s&token=%s", serverURL, token)
+	scheme := "http"
+	if tlsEnabled(cfg) {
+		scheme = "https"
+	}
+	serverURL := scheme + "://" + net.JoinHostPort(host, port)
+	values := url.Values{"url": {serverURL}, "token": {token}}
+	if scheme == "https" {
+		caCertPath := filepath.Join(resolveDataDir(cfg), "certs", "ca.pem")
+		if caPEM, readErr := os.ReadFile(caCertPath); readErr == nil {
+			values.Set("ca", string(caPEM))
+		}
+	}
+	pairURI := "legato://pair?" + values.Encode()
 	if jsonMode {
 		return writeCommandSuccess(command, map[string]any{"url": serverURL, "token": token, "pair_uri": pairURI}, "", true)
 	}

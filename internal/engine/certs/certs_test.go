@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -146,6 +147,18 @@ func TestEnsureCerts_ReusesCAOnRegeneration(t *testing.T) {
 
 	if !caInfo1.ModTime().Equal(caInfo2.ModTime()) {
 		t.Error("CA was regenerated — should be reused when only server cert needs updating")
+	}
+}
+
+func TestCertsValid_RequiresCurrentIPAddresses(t *testing.T) {
+	dir := t.TempDir()
+	paths, err := EnsureCerts(dir)
+	if err != nil {
+		t.Fatalf("EnsureCerts: %v", err)
+	}
+
+	if certsValid(paths, []string{"localhost"}, []net.IP{net.ParseIP("192.0.2.42")}) {
+		t.Error("certificate without the current IP address should not be reused")
 	}
 }
 

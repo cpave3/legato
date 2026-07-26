@@ -96,6 +96,22 @@ tasks:
     cmds:
       - pnpm run test
 
+  mobile:apk:
+    desc: Build an installable Android debug APK
+    cmds:
+      - ./scripts/mobile-android.sh apk
+
+  mobile:device:
+    desc: Build, install, and launch Legato on a connected Android device
+    cmds:
+      - ./scripts/mobile-android.sh device
+
+  mobile:eas:
+    desc: Build an internal-distribution Android APK with EAS
+    dir: mobile
+    cmds:
+      - pnpm exec eas build --platform android --profile preview
+
   install:tools:
     desc: Install development tools
     cmds:

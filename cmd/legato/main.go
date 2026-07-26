@@ -1712,6 +1712,9 @@ func resolveTLS(cfg *config.Config) (certFile, keyFile, caCertFile string) {
 	if cfg.Web.TLS.Cert != "" && cfg.Web.TLS.Key != "" {
 		return cfg.Web.TLS.Cert, cfg.Web.TLS.Key, ""
 	}
+	if !tlsEnabled(cfg) {
+		return "", "", ""
+	}
 
 	// Auto-generate self-signed certs.
 	dataDir := resolveDataDir(cfg)
@@ -1726,6 +1729,10 @@ func resolveTLS(cfg *config.Config) (certFile, keyFile, caCertFile string) {
 	}
 	log.Printf("tls: using auto-generated certs (install CA on devices: %s)", paths.CACert)
 	return paths.ServerCert, paths.ServerKey, paths.CACert
+}
+
+func tlsEnabled(cfg *config.Config) bool {
+	return cfg.Web.TLS.Enabled || (cfg.Web.TLS.Cert != "" && cfg.Web.TLS.Key != "")
 }
 
 func resolveDataDir(cfg *config.Config) string {
@@ -1803,9 +1810,8 @@ func runPairCmd(args []string) int {
 	}
 
 	// Determine scheme.
-	scheme := "https"
-	if cfg.Web.TLS.Cert == "" && cfg.Web.TLS.Key == "" {
-		// Auto-generated certs — still HTTPS.
+	scheme := "http"
+	if tlsEnabled(cfg) {
 		scheme = "https"
 	}
 

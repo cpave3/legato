@@ -6,6 +6,12 @@ type HealthResponse struct {
 	Version string `json:"version"`
 }
 
+type MobileMetaResponse struct {
+	Version        string `json:"version"`
+	MobileShellAPI int    `json:"mobile_shell_api"`
+	AuthBootstrap  string `json:"auth_bootstrap"`
+}
+
 // ColumnResponse represents a column with its cards in the board response.
 type ColumnResponse struct {
 	Name  string         `json:"name"`

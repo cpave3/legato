@@ -42,9 +42,10 @@ func EnsureCerts(dataDir string, extraDNS ...string) (*Paths, error) {
 	}
 
 	dnsNames := buildDNSNames(extraDNS)
+	ipAddresses := localIPs()
 
 	// Check if existing certs are valid and have required SANs.
-	if certsValid(paths, dnsNames) {
+	if certsValid(paths, dnsNames, ipAddresses) {
 		return paths, nil
 	}
 
@@ -55,7 +56,7 @@ func EnsureCerts(dataDir string, extraDNS ...string) (*Paths, error) {
 	}
 
 	// Generate server cert signed by CA.
-	if err := generateServerCert(paths, caKey, caCert, dnsNames); err != nil {
+	if err := generateServerCert(paths, caKey, caCert, dnsNames, ipAddresses); err != nil {
 		return nil, fmt.Errorf("generating server cert: %w", err)
 	}
 
@@ -72,7 +73,7 @@ func buildDNSNames(extraDNS []string) []string {
 	return names
 }
 
-func certsValid(paths *Paths, requiredDNS []string) bool {
+func certsValid(paths *Paths, requiredDNS []string, requiredIPs []net.IP) bool {
 	certData, err := os.ReadFile(paths.ServerCert)
 	if err != nil {
 		return false
@@ -92,6 +93,13 @@ func certsValid(paths *Paths, requiredDNS []string) bool {
 	// Check all required DNS names are present.
 	for _, name := range requiredDNS {
 		if !slices.Contains(cert.DNSNames, name) {
+			return false
+		}
+	}
+	// Network addresses can change between launches. Regenerate the server
+	// certificate when it does, while retaining the already-trusted CA.
+	for _, required := range requiredIPs {
+		if !slices.ContainsFunc(cert.IPAddresses, required.Equal) {
 			return false
 		}
 	}
@@ -187,7 +195,7 @@ func generateCA() (*ecdsa.PrivateKey, *x509.Certificate, []byte, error) {
 	return key, cert, certDER, nil
 }
 
-func generateServerCert(paths *Paths, caKey *ecdsa.PrivateKey, caCert *x509.Certificate, dnsNames []string) error {
+func generateServerCert(paths *Paths, caKey *ecdsa.PrivateKey, caCert *x509.Certificate, dnsNames []string, ipAddresses []net.IP) error {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return err
@@ -211,7 +219,7 @@ func generateServerCert(paths *Paths, caKey *ecdsa.PrivateKey, caCert *x509.Cert
 			x509.ExtKeyUsageServerAuth,
 		},
 		DNSNames:    dnsNames,
-		IPAddresses: localIPs(),
+		IPAddresses: ipAddresses,
 	}
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, caCert, &key.PublicKey, caKey)

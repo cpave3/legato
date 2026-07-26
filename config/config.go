@@ -124,6 +124,7 @@ type SwarmConfig struct {
 }
 
 type TLSConfig struct {
+	Enabled  bool   `yaml:"enabled"`  // enable auto-generated HTTPS; explicit cert/key also enable TLS
 	Cert     string `yaml:"cert"`     // path to TLS certificate PEM file
 	Key      string `yaml:"key"`      // path to TLS private key PEM file
 	Hostname string `yaml:"hostname"` // additional DNS name for auto-generated certs (e.g. "mybox.local")

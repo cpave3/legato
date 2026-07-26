@@ -77,6 +77,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	sm.onAgentActivityChanged = s.NotifyAgentsChanged
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler())
+	mux.HandleFunc("/api/meta", mobileMetaHandler())
 	mux.HandleFunc("/api/agents", s.agentsHandler())
 	mux.HandleFunc("/api/agents/spawn", s.spawnAgentHandler())
 	mux.HandleFunc("/api/agents/kill", s.killAgentHandler())
@@ -221,7 +222,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if r.URL.Path == "/health" && r.Method == http.MethodGet {
+		if (r.URL.Path == "/health" || r.URL.Path == "/api/meta") && r.Method == http.MethodGet {
 			next.ServeHTTP(w, r)
 			return
 		}
