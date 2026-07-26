@@ -7,6 +7,7 @@ import { PlanApprovalModal } from "./PlanApprovalModal"
 import { cn } from "../lib/utils"
 import { useReviewQueue } from "../hooks/useReview"
 import { usePlanQueue } from "../hooks/usePlan"
+import { AgentSelectionProvider } from "../hooks/useAgentSelection"
 
 export function Layout() {
   const { connected } = useWebSocket()
@@ -40,7 +41,8 @@ export function Layout() {
   ]
 
   return (
-    <div className="flex h-dvh w-full overflow-hidden">
+    <AgentSelectionProvider>
+      <div className="flex h-dvh w-full overflow-hidden">
       {/* Sidebar */}
       <nav className="hidden w-14 flex-col items-center border-r border-zinc-800 bg-zinc-950 py-4 gap-4 md:flex">
         <NavLink
@@ -189,6 +191,7 @@ export function Layout() {
         ))}
       </nav>
       <PlanApprovalModal />
-    </div>
+      </div>
+    </AgentSelectionProvider>
   )
 }

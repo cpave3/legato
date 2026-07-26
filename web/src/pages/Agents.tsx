@@ -10,6 +10,7 @@ import { AgentSelect } from "../components/AgentSelect"
 import { useServer } from "../hooks/useServer"
 import { useSwarmEvents } from "../hooks/useSwarmEvents"
 import { apiFetch, toggleAgentNotify } from "../lib/api"
+import { useAgentSelection } from "../hooks/useAgentSelection"
 
 const GLITCH_DURATION_MS = 500
 
@@ -46,7 +47,7 @@ export function AgentsPage() {
   const { baseUrl } = useServer()
   const { fetchState } = useSwarmEvents()
   const [agents, setAgents] = useState<AgentInfo[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const { selectedAgentId: selectedId, setSelectedAgentId: setSelectedId } = useAgentSelection()
   const [promptState, setPromptState] = useState<PromptState | null>(null)
   const [glitching, setGlitching] = useState(false)
   const glitchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
