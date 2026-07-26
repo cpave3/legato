@@ -372,6 +372,33 @@ type PlanMessage struct {
 	CreatedAt   string  `db:"created_at" json:"created_at"`
 }
 
+type ArtifactClaim struct {
+	ArtifactKind   string `db:"artifact_kind" json:"artifact_kind"`
+	ArtifactID     string `db:"artifact_id" json:"artifact_id"`
+	ClaimantTaskID string `db:"claimant_task_id" json:"claimant_task_id"`
+	Generation     int    `db:"generation" json:"generation"`
+	ClaimedAt      string `db:"claimed_at" json:"claimed_at"`
+	UpdatedAt      string `db:"updated_at" json:"updated_at"`
+}
+
+type ArtifactInteraction struct {
+	ID              string  `db:"id" json:"id"`
+	ArtifactKind    string  `db:"artifact_kind" json:"artifact_kind"`
+	ArtifactID      string  `db:"artifact_id" json:"artifact_id"`
+	RevisionID      string  `db:"revision_id" json:"revision_id,omitempty"`
+	ThreadID        string  `db:"thread_id" json:"thread_id,omitempty"`
+	Kind            string  `db:"kind" json:"kind"`
+	Body            string  `db:"body" json:"body"`
+	ClaimantTaskID  string  `db:"claimant_task_id" json:"claimant_task_id"`
+	ClaimGeneration int     `db:"claim_generation" json:"claim_generation"`
+	AttemptCount    int     `db:"attempt_count" json:"attempt_count"`
+	DeliveredAt     *string `db:"delivered_at" json:"delivered_at,omitempty"`
+	AcknowledgedAt  *string `db:"acknowledged_at" json:"acknowledged_at,omitempty"`
+	LastError       string  `db:"last_error" json:"last_error,omitempty"`
+	CreatedAt       string  `db:"created_at" json:"created_at"`
+	UpdatedAt       string  `db:"updated_at" json:"updated_at"`
+}
+
 // Subtask represents a swarm sub-task: a unit of work parented to a task,
 // owned by one worker agent, scoped to a set of file globs.
 //

@@ -548,6 +548,11 @@ func (s *Store) ListReviewMessages(ctx context.Context, tourID string) ([]Review
 	return msgs, err
 }
 
+func (s *Store) MarkReviewMessageDelivered(ctx context.Context, id int) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE review_transcript SET delivered_at = COALESCE(delivered_at, datetime('now')) WHERE id = ?", id)
+	return err
+}
+
 // UnreviewedReviewCounts returns, per task, the number of non-orphaned steps
 // not yet marked reviewed. Drives the board badge.
 func (s *Store) UnreviewedReviewCounts(ctx context.Context) (map[string]int, error) {

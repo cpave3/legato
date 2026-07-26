@@ -166,7 +166,7 @@ export function Layout() {
       </nav>
 
       {/* Main content */}
-      <main className="flex flex-1 flex-col overflow-hidden">
+      <main className="flex flex-1 flex-col overflow-hidden pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
         <Outlet />
       </main>
       <nav

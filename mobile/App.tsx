@@ -212,10 +212,12 @@ export default function App() {
         <Text style={styles.headerTitle} numberOfLines={1}>{active.name}</Text>
         <CompactButton label="↻" accessibilityLabel="Reload server" onPress={() => webRef.current?.reload()} />
       </View>
-      <WebView ref={webRef} key={active.id} source={{ uri: active.baseUrl }} injectedJavaScriptBeforeContentLoaded={bootstrapScript(active.baseUrl, token)}
-        mixedContentMode="never" onNavigationStateChange={(state: WebViewNavigation) => setCanGoBack(state.canGoBack)}
-        onShouldStartLoadWithRequest={({ url }) => { if (allowNavigation(active.baseUrl, url)) return true; Linking.openURL(url).catch(() => setError(`Blocked link: ${url}`)); return false }}
-        onError={({ nativeEvent }) => { setError(nativeEvent.description); setScreen("connections") }} />
+      <View style={styles.webViewport}>
+        <WebView ref={webRef} style={styles.webView} key={active.id} source={{ uri: active.baseUrl }} injectedJavaScriptBeforeContentLoaded={bootstrapScript(active.baseUrl, token)}
+          mixedContentMode="never" overScrollMode="never" onNavigationStateChange={(state: WebViewNavigation) => setCanGoBack(state.canGoBack)}
+          onShouldStartLoadWithRequest={({ url }) => { if (allowNavigation(active.baseUrl, url)) return true; Linking.openURL(url).catch(() => setError(`Blocked link: ${url}`)); return false }}
+          onError={({ nativeEvent }) => { setError(nativeEvent.description); setScreen("connections") }} />
+      </View>
     </View>}
   </SafeAreaView></SafeAreaProvider>
 }
@@ -261,7 +263,9 @@ const styles = StyleSheet.create({
   button: { minHeight: 44, paddingHorizontal: 16, justifyContent: "center", borderRadius: 8, backgroundColor: "#4f46e5" },
   secondary: { backgroundColor: "#3f3f46" }, danger: { backgroundColor: "#991b1b" }, buttonText: { color: "white", fontWeight: "600" },
   label: { color: "#d4d4d8", marginBottom: 6 }, input: { minHeight: 48, color: "#fafafa", backgroundColor: "#18181b", borderColor: "#52525b", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12 },
-  camera: { flex: 1 }, cameraFooter: { position: "absolute", bottom: 24, alignSelf: "center" }, web: { flex: 1 },
+  camera: { flex: 1 }, cameraFooter: { position: "absolute", bottom: 24, alignSelf: "center" }, web: { flex: 1, overflow: "hidden" },
+  webViewport: { flex: 1, overflow: "hidden", backgroundColor: "#0a0a0f" },
+  webView: { flex: 1, backgroundColor: "#0a0a0f" },
   header: { height: 38, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#18181b", borderBottomColor: "#27272a", borderBottomWidth: StyleSheet.hairlineWidth },
   headerTitle: { flex: 1, color: "#a1a1aa", fontSize: 12, textAlign: "center", fontWeight: "600" },
   compactButton: { width: 24, height: 30, justifyContent: "center", alignItems: "flex-end" },

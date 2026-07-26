@@ -59,6 +59,80 @@ func TaskCreate(s *store.Store, title, description, status, priority string, wor
 	return card, nil
 }
 
+type TaskListOptions struct {
+	Status    string
+	Workspace string
+	Limit     int
+}
+
+type TaskListItem struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Status    string `json:"status"`
+	Priority  string `json:"priority,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+	Workspace string `json:"workspace,omitempty"`
+}
+
+// TaskList returns active, non-ephemeral tasks in board column and card order.
+func TaskList(s *store.Store, opts TaskListOptions) ([]TaskListItem, error) {
+	ctx := context.Background()
+	columns, err := s.ListColumnMappings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing columns: %w", err)
+	}
+	if opts.Status != "" {
+		status, resolveErr := resolveColumn(ctx, s, opts.Status)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		columns = []store.ColumnMapping{{ColumnName: status}}
+	}
+
+	workspaces, err := s.ListWorkspaces(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing workspaces: %w", err)
+	}
+	workspaceNames := make(map[int]string, len(workspaces))
+	view := store.WorkspaceView{Kind: store.ViewAll}
+	for _, workspace := range workspaces {
+		workspaceNames[workspace.ID] = workspace.Name
+	}
+	if opts.Workspace != "" && !strings.EqualFold(opts.Workspace, "all") {
+		if strings.EqualFold(opts.Workspace, "none") || strings.EqualFold(opts.Workspace, "unassigned") {
+			view = store.WorkspaceView{Kind: store.ViewUnassigned}
+		} else {
+			workspaceID, resolveErr := resolveWorkspace(ctx, s, opts.Workspace)
+			if resolveErr != nil {
+				return nil, resolveErr
+			}
+			view = store.WorkspaceView{Kind: store.ViewWorkspace, WorkspaceID: *workspaceID}
+		}
+	}
+
+	result := make([]TaskListItem, 0)
+	for _, column := range columns {
+		tasks, listErr := s.ListTasksByStatusAndWorkspace(ctx, column.ColumnName, view)
+		if listErr != nil {
+			return nil, fmt.Errorf("listing %s tasks: %w", column.ColumnName, listErr)
+		}
+		for _, task := range tasks {
+			item := TaskListItem{ID: task.ID, Title: task.Title, Status: task.Status, Priority: task.Priority}
+			if task.Provider != nil {
+				item.Provider = *task.Provider
+			}
+			if task.WorkspaceID != nil {
+				item.Workspace = workspaceNames[*task.WorkspaceID]
+			}
+			result = append(result, item)
+			if opts.Limit > 0 && len(result) >= opts.Limit {
+				return result, nil
+			}
+		}
+	}
+	return result, nil
+}
+
 // TaskDescription replaces the description of a local task. The board service
 // rejects Jira and other provider-backed tasks so remote details remain
 // authoritative.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/cpave3/legato/config"
@@ -18,6 +19,8 @@ func runTaskContract(args []string) int {
 		return renderCommandError("task", usageError("missing_argument", "usage: legato task <command> [options]"), false)
 	}
 	switch args[0] {
+	case "list":
+		return runTaskListContract(args[1:])
 	case "create":
 		return runTaskCreateContract(args[1:])
 	case "show":
@@ -37,6 +40,46 @@ func runTaskContract(args []string) int {
 	default:
 		return renderCommandError("task", usageError("unknown_command", fmt.Sprintf("unknown task command %q", args[0])), false)
 	}
+}
+
+func runTaskListContract(args []string) int {
+	const command = "task.list"
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("task", "list"))
+	jsonMode := parsed.Present["json"]
+	if parseErr != nil {
+		return renderCommandError(command, parseErr, jsonMode)
+	}
+	if len(parsed.Positionals) != 0 {
+		return renderCommandError(command, usageError("unexpected_argument", "task list accepts no arguments"), jsonMode)
+	}
+	limit := 0
+	if parsed.Present["limit"] {
+		value, err := strconv.Atoi(parsed.Values["limit"])
+		if err != nil || value < 1 {
+			return renderCommandError(command, usageError("invalid_value", "--limit must be a positive integer"), jsonMode)
+		}
+		limit = value
+	}
+	db, code := openCommandStore(command, jsonMode)
+	if db == nil {
+		return code
+	}
+	defer db.Close()
+	tasks, err := cli.TaskList(db, cli.TaskListOptions{
+		Status: parsed.Values["status"], Workspace: parsed.Values["workspace"], Limit: limit,
+	})
+	if err != nil {
+		return renderCommandError(command, commandDomainError(err), jsonMode)
+	}
+	var text strings.Builder
+	for _, task := range tasks {
+		fmt.Fprintf(&text, "%s\t%s\t%s", task.ID, task.Status, task.Title)
+		if task.Workspace != "" {
+			fmt.Fprintf(&text, "\t%s", task.Workspace)
+		}
+		text.WriteByte('\n')
+	}
+	return writeCommandSuccess(command, tasks, text.String(), jsonMode)
 }
 
 func openCommandStore(command string, jsonMode bool) (*store.Store, int) {

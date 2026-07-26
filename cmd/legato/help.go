@@ -98,7 +98,7 @@ Legato is a local kanban task manager and AI-agent orchestrator. Commands use
 ## Core task workflow
 
 ` + "```bash\n")
-	for _, path := range [][]string{{"task", "create"}, {"task", "show"}, {"task", "update"}, {"task", "note"}} {
+	for _, path := range [][]string{{"task", "list"}, {"task", "create"}, {"task", "show"}, {"task", "update"}, {"task", "note"}} {
 		if node, ok := findCommand(root, path); ok && len(node.Examples) > 0 {
 			out.WriteString(node.Examples[0] + "\n")
 		}
@@ -111,6 +111,12 @@ and description are read-only in Legato.
 Inside an agent session, task-scoped commands can use ` + "`LEGATO_TASK_ID`" + ` when
 the task ID is omitted. Agent activity changes the UI indicator; use
 ` + "`task update --status`" + ` to move the task itself.
+
+Plan and review feedback is durable. If you take over an existing artifact from
+another agent, run ` + "`legato plan claim --task <board-task-id>`" + ` or
+` + "`legato review claim --task <board-task-id>`" + `. When Legato notifies you
+about pending interactions, drain them with ` + "`legato plan inbox`" + ` (the
+plan and review inbox commands read the same agent-scoped queue).
 
 ## Command families
 

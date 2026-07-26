@@ -10,19 +10,21 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
 type PlanService struct {
-	store *store.Store
-	tmux  TmuxManager
-	bus   *events.Bus
+	store        *store.Store
+	tmux         TmuxManager
+	bus          *events.Bus
+	interactions *ArtifactInteractionService
 }
 
 func NewPlanService(s *store.Store, tmux TmuxManager, bus *events.Bus) *PlanService {
-	return &PlanService{store: s, tmux: tmux, bus: bus}
+	return &PlanService{store: s, tmux: tmux, bus: bus, interactions: NewArtifactInteractionService(s, tmux)}
 }
 
 type PlanOption struct {
@@ -71,8 +73,9 @@ type PlanQueueItem struct {
 }
 
 type PlanOriginInput struct {
-	ReviewPassID string   `json:"review_pass_id"`
-	FindingIDs   []string `json:"finding_ids"`
+	ReviewPassID   string   `json:"review_pass_id"`
+	FindingIDs     []string `json:"finding_ids"`
+	ClaimantTaskID string   `json:"claimant_task_id,omitempty"`
 }
 
 func (p *PlanService) Submit(ctx context.Context, taskID, name, bundleDir string) (*PlanView, error) {
@@ -134,6 +137,18 @@ func (p *PlanService) SubmitWithOrigin(ctx context.Context, taskID, name, bundle
 		Markdown: string(markdown), ManifestJSON: string(manifestBytes)}
 	if err := p.store.InsertPlanRevisionWithOrigins(ctx, plan, revision, questions, origin.ReviewPassID, origin.FindingIDs); err != nil {
 		return nil, err
+	}
+	if origin.ClaimantTaskID != "" {
+		if existing, claimErr := p.store.GetArtifactClaim(ctx, "plan", planID); claimErr != nil {
+			if !errors.Is(claimErr, store.ErrNotFound) {
+				return nil, claimErr
+			}
+			if _, _, claimErr = p.interactions.Claim(ctx, "plan", planID, origin.ClaimantTaskID); claimErr != nil {
+				return nil, claimErr
+			}
+		} else if existing.ClaimantTaskID == origin.ClaimantTaskID {
+			// Idempotent resubmission by the current claimant.
+		}
 	}
 	p.publish(plan, revisionID, "submitted")
 	return p.Plan(ctx, planID)
@@ -388,7 +403,11 @@ func (p *PlanService) RequestChanges(ctx context.Context, planID string) error {
 	if err := p.store.UpdatePlanStatus(ctx, planID, "changes_requested"); err != nil {
 		return err
 	}
-	p.deliver(ctx, view.Plan.TaskID, fmt.Sprintf("[legato plan] Changes requested on plan %s. Run `legato plan feedback --json` to read responses and comments, revise the bundle, then resubmit it.", planID))
+	_, _, err = p.interactions.Enqueue(ctx, "plan", planID, view.Revision.ID, "", "changes_requested",
+		fmt.Sprintf("[legato plan] Changes requested on plan %s. Run `legato plan feedback --json` to read responses and comments, revise the bundle, then resubmit it.", planID), view.Plan.TaskID)
+	if err != nil {
+		return err
+	}
 	p.publish(view.Plan, view.Revision.ID, "changes_requested")
 	return nil
 }
@@ -420,7 +439,9 @@ func (p *PlanService) Approve(ctx context.Context, planID string, cleanupAfterIm
 	if cleanup {
 		message = fmt.Sprintf("[legato plan] Plan %s was approved with cleanup requested. After successful implementation and verification, run: %s", planID, completeCommand)
 	}
-	p.deliver(ctx, view.Plan.TaskID, message)
+	if _, _, err := p.interactions.Enqueue(ctx, "plan", planID, view.Revision.ID, "", "approved", message, view.Plan.TaskID); err != nil {
+		return err
+	}
 	p.publish(view.Plan, view.Revision.ID, "approved")
 	return nil
 }
@@ -436,7 +457,10 @@ func (p *PlanService) Reject(ctx context.Context, planID string) error {
 	if err := p.store.UpdatePlanStatus(ctx, planID, "rejected"); err != nil {
 		return err
 	}
-	p.deliver(ctx, view.Plan.TaskID, fmt.Sprintf("[legato plan] Plan %s was rejected. Do not implement it unless the plan is reopened and later approved.", planID))
+	if _, _, err := p.interactions.Enqueue(ctx, "plan", planID, view.Revision.ID, "", "rejected",
+		fmt.Sprintf("[legato plan] Plan %s was rejected. Do not implement it unless the plan is reopened and later approved.", planID), view.Plan.TaskID); err != nil {
+		return err
+	}
 	p.publish(view.Plan, view.Revision.ID, "rejected")
 	return nil
 }
@@ -548,10 +572,19 @@ func (p *PlanService) AskQuestion(ctx context.Context, planID, text string) (str
 	}
 	threadID := randomPlanID("pt-")
 	line := fmt.Sprintf("[legato plan] Question on plan %s: %s — reply by running: legato plan answer %s %q", planID, text, threadID, "<your answer>")
-	delivered := p.deliver(ctx, view.Plan.TaskID, line)
-	if _, err := p.store.InsertPlanMessage(ctx, store.PlanMessage{PlanID: planID, RevisionID: view.Revision.ID,
-		ThreadID: threadID, Kind: "question", Author: "user", Body: text}, delivered); err != nil {
+	message, err := p.store.InsertPlanMessage(ctx, store.PlanMessage{PlanID: planID, RevisionID: view.Revision.ID,
+		ThreadID: threadID, Kind: "question", Author: "user", Body: text}, false)
+	if err != nil {
 		return "", err
+	}
+	_, delivered, err := p.interactions.Enqueue(ctx, "plan", planID, view.Revision.ID, threadID, "question", line, view.Plan.TaskID)
+	if err != nil {
+		return "", err
+	}
+	if delivered {
+		if err := p.store.MarkPlanMessageDelivered(ctx, message.ID); err != nil {
+			return "", err
+		}
 	}
 	p.publish(view.Plan, view.Revision.ID, "question")
 	if !delivered {
@@ -576,16 +609,19 @@ func (p *PlanService) Answer(ctx context.Context, planID, threadID, text string)
 	return nil
 }
 
-func (p *PlanService) deliver(ctx context.Context, taskID, line string) bool {
-	if p.tmux == nil {
-		return false
+func (p *PlanService) Claim(ctx context.Context, planID, claimantTaskID string) (*store.ArtifactClaim, *store.ArtifactClaim, error) {
+	if _, err := p.store.GetPlan(ctx, planID); err != nil {
+		return nil, nil, err
 	}
-	session, err := p.store.GetAgentSessionByTaskID(ctx, taskID)
-	if err != nil {
-		return false
-	}
-	alive, _ := p.tmux.IsAlive(session.TmuxSession)
-	return alive && p.tmux.SendKeysLine(session.TmuxSession, line) == nil
+	return p.interactions.Claim(ctx, "plan", planID, claimantTaskID)
+}
+
+func (p *PlanService) Inbox(ctx context.Context, claimantTaskID string, acknowledge bool) ([]store.ArtifactInteraction, error) {
+	return p.interactions.Inbox(ctx, claimantTaskID, acknowledge)
+}
+
+func (p *PlanService) StartInteractionDelivery(ctx context.Context, interval time.Duration) func() {
+	return p.interactions.Start(ctx, interval)
 }
 
 func (p *PlanService) publish(plan store.Plan, revisionID, kind string) {

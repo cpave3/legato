@@ -118,6 +118,7 @@ These git commands (and the `legato review` verbs) are lifecycle bookkeeping, no
 - **Do not over-decompose.** A swarm of 12 sub-tasks for a small feature is wrong. If the work is one or two focused changes, just dispatch one or two workers — or tell the user this doesn't need a swarm.
 - **Do not approve worker output without inspection.** When a worker reports built, read what they actually did before closing.
 - **Do not ignore inbox notifications.** Each `[legato] new swarm event` line means a worker is waiting for you. Fetch the inbox and respond.
+- **Recover durable plan/review follow-ups.** If Legato reports pending artifact interactions, run `legato plan inbox` once. When taking over an existing artifact, use `legato plan claim --task <board-task-id>` or `legato review claim --task <board-task-id>` first.
 - **Do not poll the inbox.** No `sleep N && legato swarm inbox`, no `while true` loops, no "just checking" calls. Notifications are pushed to your terminal as new user turns — wait for them. Idle is correct.
 
 ### Reference

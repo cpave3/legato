@@ -328,6 +328,11 @@ func (s *Store) ListPlanMessages(ctx context.Context, planID string) ([]PlanMess
 	return out, err
 }
 
+func (s *Store) MarkPlanMessageDelivered(ctx context.Context, id int) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE plan_transcript SET delivered_at = COALESCE(delivered_at, datetime('now')) WHERE id = ?", id)
+	return err
+}
+
 func (s *Store) DeletePlan(ctx context.Context, planID string) error {
 	result, err := s.db.ExecContext(ctx, "DELETE FROM plans WHERE id = ?", planID)
 	if err != nil {

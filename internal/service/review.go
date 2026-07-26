@@ -34,18 +34,46 @@ const (
 // ReviewService maintains review tours: commit-skeleton sync, agent
 // annotations, the reviewed watermark, and the Q&A transcript.
 type ReviewService struct {
-	store *store.Store
-	tmux  TmuxManager // nil-safe: questions are stored but undeliverable
-	bus   *events.Bus // nil-safe
+	store        *store.Store
+	tmux         TmuxManager // nil-safe: questions are stored but undeliverable
+	bus          *events.Bus // nil-safe
+	interactions *ArtifactInteractionService
 }
 
 func NewReviewService(s *store.Store, tmux TmuxManager, bus *events.Bus) *ReviewService {
-	return &ReviewService{store: s, tmux: tmux, bus: bus}
+	return &ReviewService{store: s, tmux: tmux, bus: bus, interactions: NewArtifactInteractionService(s, tmux)}
+}
+
+func (r *ReviewService) Claim(ctx context.Context, tourID, claimantTaskID string) (*store.ArtifactClaim, *store.ArtifactClaim, error) {
+	if _, err := r.store.GetReviewTour(ctx, tourID); err != nil {
+		return nil, nil, err
+	}
+	return r.interactions.Claim(ctx, "review", tourID, claimantTaskID)
+}
+
+func (r *ReviewService) Inbox(ctx context.Context, claimantTaskID string, acknowledge bool) ([]store.ArtifactInteraction, error) {
+	return r.interactions.Inbox(ctx, claimantTaskID, acknowledge)
 }
 
 // EnsureReviewTour returns the named tour for a task, creating it when absent.
 func (r *ReviewService) EnsureReviewTour(ctx context.Context, taskID, name string) (*store.ReviewTour, error) {
 	return r.store.EnsureReviewTour(ctx, taskID, name)
+}
+
+func (r *ReviewService) ResolveReviewTour(ctx context.Context, taskID, name string) (*store.ReviewTour, error) {
+	if name == "" {
+		return r.store.GetDefaultReviewTour(ctx, taskID)
+	}
+	tours, err := r.store.ListReviewToursByTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range tours {
+		if tours[i].Name == name {
+			return &tours[i], nil
+		}
+	}
+	return nil, store.ErrNotFound
 }
 
 func (r *ReviewService) resolveTourID(ctx context.Context, taskID, name string) (string, error) {
@@ -854,13 +882,9 @@ func (r *ReviewService) RequestPlan(ctx context.Context, tourID string, findingI
 		command += " --finding " + findingID
 	}
 	line := fmt.Sprintf("[legato review] Follow-up plan requested from pass %s findings %s. Author the plan bundle, then run: %s", pass.ID, strings.Join(findingIDs, ","), command)
-	delivered := false
-	if r.tmux != nil {
-		if session, sessionErr := r.store.GetAgentSessionByTaskID(ctx, tour.TaskID); sessionErr == nil {
-			if alive, _ := r.tmux.IsAlive(session.TmuxSession); alive && r.tmux.SendKeysLine(session.TmuxSession, line) == nil {
-				delivered = true
-			}
-		}
+	_, delivered, err := r.interactions.Enqueue(ctx, "review", tourID, pass.ID, request.ID, "plan_requested", line, tour.TaskID)
+	if err != nil {
+		return nil, err
 	}
 	if delivered {
 		if err := r.store.MarkReviewPlanRequestDelivered(ctx, request.ID); err != nil {
@@ -1665,21 +1689,20 @@ func (r *ReviewService) AskQuestion(ctx context.Context, tourID, stepID string, 
 		"[legato review] Question on step %s (%q): %s — reply by running: legato review answer %s \"<your answer>\". Reply in Markdown, using fenced code blocks where useful.",
 		step.ID, step.Title, body, step.ID)
 
-	delivered := false
-	if r.tmux != nil {
-		if sess, err := r.store.GetAgentSessionByTaskID(ctx, taskID); err == nil {
-			if alive, _ := r.tmux.IsAlive(sess.TmuxSession); alive {
-				if err := r.tmux.SendKeysLine(sess.TmuxSession, line); err == nil {
-					delivered = true
-				}
-			}
-		}
-	}
-
-	if _, err := r.store.InsertReviewMessage(ctx, store.ReviewMessage{
+	message, err := r.store.InsertReviewMessage(ctx, store.ReviewMessage{
 		TaskID: taskID, TourID: tourID, StepID: step.ID, Kind: "question", Author: "user", Body: body,
-	}, delivered); err != nil {
+	}, false)
+	if err != nil {
 		return err
+	}
+	_, delivered, err := r.interactions.Enqueue(ctx, "review", tourID, "", step.ID, "question", line, taskID)
+	if err != nil {
+		return err
+	}
+	if delivered {
+		if err := r.store.MarkReviewMessageDelivered(ctx, message.ID); err != nil {
+			return err
+		}
 	}
 	r.publish(tourID, step.ID, "question")
 	if !delivered {

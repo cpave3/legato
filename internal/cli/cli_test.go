@@ -50,6 +50,42 @@ func seedTask(t *testing.T, s *store.Store, id, status string) {
 	}
 }
 
+func TestTaskList_BoardOrderFiltersAndLimit(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	ctx := context.Background()
+	personalID, err := s.CreateWorkspace(ctx, store.Workspace{Name: "Personal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := []store.Task{
+		{ID: "backlog-2", Title: "Second backlog", Status: "Backlog", SortOrder: 2, WorkspaceID: &personalID, CreatedAt: "2024-01-01T00:00:00Z", UpdatedAt: "2024-01-01T00:00:00Z"},
+		{ID: "doing-1", Title: "Doing first", Status: "Doing", SortOrder: 1, CreatedAt: "2024-01-01T00:00:00Z", UpdatedAt: "2024-01-01T00:00:00Z"},
+		{ID: "backlog-1", Title: "First backlog", Status: "Backlog", SortOrder: 1, WorkspaceID: &personalID, CreatedAt: "2024-01-01T00:00:00Z", UpdatedAt: "2024-01-01T00:00:00Z"},
+	}
+	for _, task := range tasks {
+		if err := s.CreateTask(ctx, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := cli.TaskList(s, cli.TaskListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].ID != "backlog-1" || got[1].ID != "backlog-2" || got[2].ID != "doing-1" {
+		t.Fatalf("TaskList() order = %+v", got)
+	}
+
+	got, err = cli.TaskList(s, cli.TaskListOptions{Status: "backlog", Workspace: "personal", Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "backlog-1" || got[0].Workspace != "Personal" {
+		t.Fatalf("filtered TaskList() = %+v", got)
+	}
+}
+
 func TestTaskShow_DefaultsToDescription(t *testing.T) {
 	s := newTestStore(t)
 	seedColumns(t, s)

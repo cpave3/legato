@@ -70,6 +70,9 @@ func group(name, summary string, children ...*commandDef) *commandDef {
 
 func commandTree() *commandDef {
 	task := group("task", "Create, inspect, update, and connect tasks",
+		leaf("list", "List active tasks in board order", runTaskListContract, nil,
+			[]commandFlag{valueFlag("status", "status", "Only tasks in this board column"), valueFlag("workspace", "name|unassigned", "Only tasks in this workspace"), valueFlag("limit", "count", "Maximum tasks to return"), jsonFlag},
+			"legato task list", "legato task list --workspace Personal --status Backlog --json"),
 		leaf("create", "Create a local task", runTaskCreateContract,
 			[]argumentDef{arg("title", "Task title")},
 			[]commandFlag{valueFlag("description", "text", "Markdown task details"), valueFlag("description-file", "path|-", "Read Markdown details from a file or stdin"), valueFlag("status", "status", "Initial board column"), valueFlag("priority", "priority", "Task priority"), valueFlag("workspace", "name", "Workspace name"), jsonFlag},
@@ -148,10 +151,10 @@ func commandTree() *commandDef {
 
 	reviewFlags := reviewCommandFlags()
 	plan := legacyVerbGroup("plan", "Manage collaborative implementation plans", runPlanCmd,
-		[]string{"submit", "show", "feedback", "status", "answer", "complete", "withdraw"},
+		[]string{"submit", "show", "feedback", "status", "answer", "complete", "withdraw", "claim", "inbox"},
 		reviewFlags)
 	review := legacyVerbGroup("review", "Create and manage review tours", runReviewCmd,
-		[]string{"chapter", "chapters", "annotate", "annotation", "answer", "ready", "show", "sync", "discard", "restart"},
+		[]string{"chapter", "chapters", "annotate", "annotation", "answer", "ready", "show", "sync", "discard", "restart", "claim", "inbox"},
 		reviewFlags)
 	swarm := legacyVerbGroup("swarm", "Coordinate multi-agent swarms", runSwarmCmd,
 		[]string{"validate-plan", "create", "propose-plan", "cancel", "extend-plan", "dispatch", "message", "broadcast", "close", "finish", "next-step", "progress", "question", "built", "status", "inbox"},

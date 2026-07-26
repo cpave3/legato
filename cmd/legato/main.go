@@ -145,9 +145,10 @@ func runPlanCmd(args []string) int {
 		return exitUsage
 	}
 	_, jsonMode := flags["json"]
+	agentTaskID := os.Getenv("LEGATO_TASK_ID")
 	taskID := flags["task"]
 	if taskID == "" {
-		taskID = os.Getenv("LEGATO_TASK_ID")
+		taskID = agentTaskID
 	}
 	if taskID == "" {
 		fmt.Fprintln(os.Stderr, "error: no task — pass --task <id> or run inside a legato agent session (LEGATO_TASK_ID)")
@@ -182,9 +183,37 @@ func runPlanCmd(args []string) int {
 		if len(findingIDs) == 0 && os.Getenv("LEGATO_REVIEW_FINDING_IDS") != "" {
 			findingIDs = strings.Split(os.Getenv("LEGATO_REVIEW_FINDING_IDS"), ",")
 		}
-		if err := cli.PlanSubmit(svc, taskID, name, positional[0], service.PlanOriginInput{ReviewPassID: reviewPassID, FindingIDs: findingIDs}, os.Stdout); err != nil {
+		if err := cli.PlanSubmit(svc, taskID, name, positional[0], service.PlanOriginInput{ReviewPassID: reviewPassID, FindingIDs: findingIDs, ClaimantTaskID: agentTaskID}, os.Stdout); err != nil {
 			return fail(err)
 		}
+	case "claim":
+		if len(positional) != 0 || agentTaskID == "" {
+			return fail(fmt.Errorf("usage: legato plan claim --task <plan-task-id> [--name <name>] (inside an agent session)"))
+		}
+		planID, err := resolve()
+		if err != nil {
+			return fail(err)
+		}
+		claim, previous, err := svc.Claim(context.Background(), planID, agentTaskID)
+		if err != nil {
+			return fail(err)
+		}
+		return writeClaimResult("plan.claim", claim, previous, jsonMode)
+	case "inbox":
+		if len(positional) != 0 || agentTaskID == "" {
+			return fail(fmt.Errorf("usage: legato plan inbox [--json] (inside an agent session)"))
+		}
+		items, err := svc.Inbox(context.Background(), agentTaskID, false)
+		if err != nil {
+			return fail(err)
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(items); err != nil {
+			return fail(err)
+		}
+		if _, err := svc.Inbox(context.Background(), agentTaskID, true); err != nil {
+			return fail(err)
+		}
+		return 0
 	case "show", "feedback":
 		if len(positional) != 0 {
 			return fail(fmt.Errorf("usage: legato plan %s [--json] [--task <id>] [--name <name>]", verb))
@@ -272,9 +301,10 @@ func runReviewCmd(args []string) int {
 	}
 	_, jsonMode := flags["json"]
 
+	agentTaskID := os.Getenv("LEGATO_TASK_ID")
 	taskID := flags["task"]
 	if taskID == "" {
-		taskID = os.Getenv("LEGATO_TASK_ID")
+		taskID = agentTaskID
 	}
 	if taskID == "" {
 		fmt.Fprintln(os.Stderr, "error: no task — pass --task <id> or run inside a legato agent session (LEGATO_TASK_ID)")
@@ -293,6 +323,41 @@ func runReviewCmd(args []string) int {
 	}
 
 	switch verb {
+	case "claim":
+		if len(positional) != 0 || agentTaskID == "" {
+			fmt.Fprintln(os.Stderr, "error: usage: legato review claim --task <review-task-id> [--name <name>] (inside an agent session)")
+			return 1
+		}
+		tour, err := svc.ResolveReviewTour(context.Background(), taskID, name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		claim, previous, err := svc.Claim(context.Background(), tour.ID, agentTaskID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		return writeClaimResult("review.claim", claim, previous, jsonMode)
+	case "inbox":
+		if len(positional) != 0 || agentTaskID == "" {
+			fmt.Fprintln(os.Stderr, "error: usage: legato review inbox [--json] (inside an agent session)")
+			return 1
+		}
+		items, err := svc.Inbox(context.Background(), agentTaskID, false)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(items); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		if _, err := svc.Inbox(context.Background(), agentTaskID, true); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			return 1
+		}
+		return 0
 	case "chapters":
 		if len(positional) != 0 {
 			fmt.Fprintln(os.Stderr, `usage: legato review chapters --json [--task <id>] [--name <name>]`)
@@ -1319,6 +1384,8 @@ func runServeCmd(args []string) int {
 
 	reviewSvc := service.NewReviewService(db, tmuxMgr, bus)
 	planSvc := service.NewPlanService(db, tmuxMgr, bus)
+	stopInteractionDelivery := planSvc.StartInteractionDelivery(context.Background(), 5*time.Second)
+	defer stopInteractionDelivery()
 	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
@@ -1608,6 +1675,8 @@ func runTUI() int {
 
 	reviewSvc := service.NewReviewService(db, tmuxMgr, bus)
 	planSvc := service.NewPlanService(db, tmuxMgr, bus)
+	stopInteractionDelivery := planSvc.StartInteractionDelivery(context.Background(), 5*time.Second)
+	defer stopInteractionDelivery()
 	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)
 
 	// Auto-start web server if configured and port is free.

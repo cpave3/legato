@@ -5,6 +5,7 @@
 - `legato` (no args) — launches TUI (existing behavior)
 - `legato --help`, `legato <command> --help`, and `legato <command> <verb> --help` — print context-specific CLI help to stdout and exit successfully without loading configuration or the database. `-h` and a nested trailing `help` are aliases.
 - `legato help` / `legato learn` — print a Markdown primer designed for AI-agent discovery, including task workflows, Jira edit restrictions, agent-session environment, and links to command-family help.
+- `legato task list [--status <status>] [--workspace <name|unassigned>] [--limit <count>] [--json]` — list active tasks in board-column and card order. Text output is tab-separated; JSON returns concise task objects.
 - `legato task show [<task-id>] [--format description|full|json] [--json]` — print task context to stdout for agents/scripts. Defaults to description Markdown; `--json` returns the standard result envelope.
 - `legato task create <title> [--description <text>|--description-file <path|->] [--status <status>] [--priority <priority>] [--workspace <name>] [--json]` — create a local task. `--description-file -` reads multiline Markdown from stdin without trimming it.
 - `legato task update [<task-id>] [--status <status>] [--title <title>] [--description <text>|--description-file <path|->] [--workspace <name>] [--json]` — atomically update requested fields. Use workspace `none` or `unassigned` to clear an assignment. Title and description edits are rejected for Jira-backed tasks.
@@ -47,10 +48,19 @@ database is loaded.
 - `legato plan show|feedback --json [--task <id>] [--name <name>]` — print the current revision, choices, responses, comments, and Q&A transcript
 - `legato plan status --json [--task <id>] [--name <name>]` — print lifecycle status and revision
 - `legato plan answer <thread-id> "<markdown>" [--task <id>] [--name <name>]` — answer immediate plan Q&A
+- `legato plan claim --task <plan-task-id> [--name <name>]` — hand an existing plan to the current agent session; unacknowledged interactions follow the new claimant
+- `legato plan inbox [--json]` — print and acknowledge durable plan/review interactions assigned to the current `LEGATO_TASK_ID`
 - `legato plan complete [--task <id>] [--name <name>]` — mark successful implementation complete and safely remove the submitted source bundle when approval requested cleanup
 - `legato plan withdraw [--task <id>] [--name <name>]` — remove a non-approved proposal
 
 See `docs/plans.md` for the bundle schema and approval lifecycle.
+
+Review tours use the same handoff model: `legato review claim --task
+<review-task-id> [--name <name>]` assigns an existing tour to the current agent,
+and `legato review inbox [--json]` drains the shared interaction queue. Initial
+plan submission records the current agent separately from an explicit `--task`,
+so an ephemeral implementation task can receive feedback for a plan attached to
+another board task.
 
 ### Swarm verbs
 
