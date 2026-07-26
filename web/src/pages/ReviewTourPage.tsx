@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
-import { ArrowLeft, Check, Circle, Flag, Loader2, RefreshCw, Send } from "lucide-react"
+import { ArrowLeft, Check, Circle, Flag, List, Loader2, MessageSquare, RefreshCw, Send, X } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { Link, useNavigate, useParams } from "react-router-dom"
@@ -51,6 +51,8 @@ export function ReviewTourPage() {
   const [regenerationFeedback, setRegenerationFeedback] = useState("")
   const [findingDraft, setFindingDraft] = useState("")
   const [selectedFindingIDs, setSelectedFindingIDs] = useState<string[]>([])
+  const [stepsOpen, setStepsOpen] = useState(false)
+  const [qaOpen, setQAOpen] = useState(false)
   const voiceEnabled = useVoiceEnabled(baseUrl)
 
   const passViews = useMemo(() => data?.passes ?? [], [data?.passes])
@@ -205,7 +207,7 @@ export function ReviewTourPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#0a0a0f] text-zinc-200">
-      <header className="flex items-center justify-between gap-4 border-b border-zinc-800 px-5 py-3">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-3 py-2 md:px-5 md:py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs text-zinc-500">
             <Link to="/review" className="flex items-center gap-1 hover:text-zinc-200"><ArrowLeft size={13} /> Queue</Link>
@@ -213,15 +215,17 @@ export function ReviewTourPage() {
           </div>
           <h1 className="mt-1 truncate text-lg font-semibold">{data.tour.name || data.tour.summary || decodedTourId}</h1>
         </div>
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2 md:gap-3">
+          <button onClick={() => setStepsOpen(true)} className="flex h-11 items-center gap-1 rounded border border-zinc-700 px-3 text-xs lg:hidden"><List size={15}/> Steps</button>
+          <button onClick={() => setQAOpen(true)} className="flex h-11 items-center gap-1 rounded border border-zinc-700 px-3 text-xs lg:hidden"><MessageSquare size={15}/> Notes</button>
           <span className="text-xs text-zinc-400">{reviewedCount}/{steps.length} reviewed</span>
-          <button disabled={busy} onClick={() => setRegenerating(true)} className="flex items-center gap-1 rounded border border-amber-800 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-950/50 disabled:opacity-50">
+          <button disabled={busy} onClick={() => setRegenerating(true)} className="hidden items-center gap-1 rounded border border-amber-800 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-950/50 disabled:opacity-50 sm:flex">
             <RefreshCw size={13} /> Regenerate review
           </button>
-          <button disabled={busy} onClick={() => setConfirmingDelete(true)} className="rounded border border-red-900 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-950/50 disabled:opacity-50">
+          <button disabled={busy} onClick={() => setConfirmingDelete(true)} className="hidden rounded border border-red-900 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-950/50 disabled:opacity-50 md:block">
             Delete review
           </button>
-          <button disabled={busy || steps.length === 0} onClick={() => void complete()} className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
+          <button disabled={busy || steps.length === 0} onClick={() => void complete()} className="min-h-11 rounded bg-indigo-600 px-3 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50 md:min-h-0 md:py-1.5">
             Complete review
           </button>
         </div>
@@ -266,7 +270,8 @@ export function ReviewTourPage() {
         style={{ "--qa-width": `${qaWidthRem}rem` } as CSSProperties}
         className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[18rem_minmax(0,1fr)_var(--qa-width)]"
       >
-        <aside className="overflow-y-auto border-r border-zinc-800 bg-zinc-950 p-3">
+        <aside className={`${stepsOpen ? "fixed inset-2 z-50 block rounded-lg border shadow-2xl" : "hidden"} overflow-y-auto border-zinc-800 bg-zinc-950 p-3 lg:static lg:block lg:rounded-none lg:border-y-0 lg:border-l-0 lg:border-r`}>
+          <button aria-label="Close chapters" onClick={() => setStepsOpen(false)} className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center lg:hidden"><X size={18}/></button>
           {passViews.length > 0 && <div className="mb-3 space-y-3">
             {passViews.map((passView) => <section key={passView.pass.id} aria-label={`Pass ${passView.pass.number}`}>
               <div className="px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Pass {passView.pass.number} · {passView.pass.status}</div>
@@ -277,7 +282,7 @@ export function ReviewTourPage() {
           <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Current pass</div>
           <div className="space-y-1">
             {steps.map((step, index) => (
-              <button key={step.id} aria-label={`Step ${index + 1}: ${step.title}`} onClick={() => setSelectedStepId(step.id)} className={cn("w-full rounded p-2 text-left", selectedStep?.id === step.id ? "bg-zinc-800" : "hover:bg-zinc-900")}>
+              <button key={step.id} aria-label={`Step ${index + 1}: ${step.title}`} onClick={() => { setSelectedStepId(step.id); setStepsOpen(false) }} className={cn("min-h-11 w-full rounded p-2 text-left", selectedStep?.id === step.id ? "bg-zinc-800" : "hover:bg-zinc-900")}>
                 <div className="flex gap-2">
                   {step.reviewed_at ? <Check size={14} className="mt-0.5 shrink-0 text-emerald-400" /> : <Circle size={14} className="mt-0.5 shrink-0 text-amber-300" />}
                   <div className="min-w-0">
@@ -293,7 +298,7 @@ export function ReviewTourPage() {
           </div>
         </aside>
 
-        <main className="min-w-0 overflow-x-hidden overflow-y-auto p-5">
+        <main className="min-w-0 overflow-x-hidden overflow-y-auto p-3 md:p-5">
           {selectedStep && (
             <div className="mx-auto max-w-6xl space-y-4">
               {activePass?.captured_plan && <details className="rounded border border-indigo-900 bg-indigo-950/20 p-4">
@@ -336,7 +341,8 @@ export function ReviewTourPage() {
           )}
         </main>
 
-        <aside className="relative flex min-h-0 flex-col border-l border-zinc-800 bg-zinc-950 p-3">
+        <aside className={`${qaOpen ? "fixed inset-2 z-50 flex rounded-lg border shadow-2xl" : "hidden"} relative min-h-0 flex-col border-zinc-800 bg-zinc-950 p-3 lg:static lg:flex lg:rounded-none lg:border-y-0 lg:border-r-0 lg:border-l`}>
+          <button aria-label="Close notes" onClick={() => setQAOpen(false)} className="absolute right-2 top-2 z-10 flex h-11 w-11 items-center justify-center lg:hidden"><X size={18}/></button>
           <div
             role="separator"
             aria-label="Resize questions and answers"

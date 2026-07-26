@@ -131,7 +131,7 @@ describe("PlanPage block comments",()=>{
     const checkbox=screen.getByRole("checkbox",{name:/Clean up plan files/})
     expect((checkbox as HTMLInputElement).checked).toBe(false)
     fireEvent.click(checkbox)
-    fireEvent.click(screen.getByRole("button",{name:"Approve plan"}))
+    fireEvent.click(screen.getByRole("button",{name:"Approve"}))
     await waitFor(()=>expect(planAction).toHaveBeenCalledWith("","pl-1","approve",{cleanup_after_implementation:true}))
   })
 

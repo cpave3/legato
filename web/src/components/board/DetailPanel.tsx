@@ -46,11 +46,11 @@ export function DetailPanel({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-start justify-center bg-black/60 pt-12 pb-8 px-4"
+      className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 md:items-start md:px-4 md:pb-8 md:pt-12"
       onClick={onClose}
     >
       <div
-        className="flex max-h-full w-full max-w-2xl flex-col rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl"
+        className="flex h-[calc(100dvh-env(safe-area-inset-top))] w-full max-w-2xl flex-col rounded-t-xl border border-zinc-700 bg-zinc-900 shadow-2xl md:h-auto md:max-h-full md:rounded-lg"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -154,14 +154,14 @@ export function DetailPanel({
         )}
 
         {/* Action bar */}
-        <div className="flex flex-wrap items-center gap-1 border-b border-zinc-800 px-5 py-2">
+        <div className="flex flex-wrap items-center gap-1 border-b border-zinc-800 px-3 py-2 md:px-5">
           {isLocal && (
-            <button onClick={onEditTitle} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">
+            <button onClick={onEditTitle} className="min-h-11 rounded px-3 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 md:min-h-0 md:px-2 md:py-1 md:text-[10px]">
               Edit title (t)
             </button>
           )}
           {isLocal && (
-            <button onClick={onEditDescription} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">
+            <button onClick={onEditDescription} className="min-h-11 rounded px-3 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 md:min-h-0 md:px-2 md:py-1 md:text-[10px]">
               Edit desc (e)
             </button>
           )}

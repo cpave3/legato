@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { WifiOff, ChevronRight, Settings } from "lucide-react"
+import { WifiOff, ChevronRight, Plus, QrCode, Settings } from "lucide-react"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 
@@ -42,6 +42,12 @@ export function OfflineOverlay({ delayMs = 2000 }: { delayMs?: number }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 md:ml-auto">
+          <a href="#/settings" className="flex min-h-11 items-center gap-1.5 rounded border border-zinc-700 px-3 text-xs text-zinc-300 md:min-h-0 md:border-0 md:px-2 md:py-1">
+            <Plus className="h-3.5 w-3.5" /> Add server
+          </a>
+          <a href="#/settings?pair=qr" className="flex min-h-11 items-center gap-1.5 rounded border border-zinc-700 px-3 text-xs text-zinc-300 md:min-h-0 md:border-0 md:px-2 md:py-1">
+            <QrCode className="h-3.5 w-3.5" /> Scan QR
+          </a>
           {/* Server switcher */}
           {hasRemoteServers && (
             <>

@@ -11,6 +11,8 @@ import {
 } from "../lib/board"
 import type { BoardCard, CardDetail } from "../lib/board-types"
 import { BoardGrid } from "../components/board/BoardGrid"
+import { MobileBoardList } from "../components/board/MobileBoardList"
+import { RefreshCw } from "lucide-react"
 import { WorkspaceFilter } from "../components/board/WorkspaceFilter"
 import { DetailPanel } from "../components/board/DetailPanel"
 import { CreateTaskModal } from "../components/board/CreateTaskModal"
@@ -543,7 +545,7 @@ export function BoardPage() {
       tabIndex={0}
     >
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-2">
+      <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-3 py-2 md:px-4">
         <div className="flex items-center gap-3">
           <span className="text-xs font-bold uppercase tracking-wider text-zinc-500">Board</span>
           <span className="text-[10px] text-zinc-600">{allCards.length} cards</span>
@@ -559,8 +561,16 @@ export function BoardPage() {
             }}
           />
           <button
+            aria-label="Refresh board"
+            title="Refresh board"
+            onClick={() => void refresh()}
+            className="flex h-11 w-11 items-center justify-center rounded border border-zinc-700 text-zinc-400 md:h-auto md:w-auto md:border-0 md:p-2"
+          >
+            <RefreshCw size={16} />
+          </button>
+          <button
             onClick={() => setOverlay({ kind: "create" })}
-            className="rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-300 transition-colors hover:bg-zinc-800"
+            className="min-h-11 rounded border border-zinc-700 bg-zinc-900 px-3 text-xs text-zinc-300 transition-colors hover:bg-zinc-800 md:min-h-0 md:py-1.5"
           >
             + New
           </button>
@@ -580,14 +590,21 @@ export function BoardPage() {
           </div>
         )}
         {columns.length > 0 && (
-          <BoardGrid
-            columns={columns}
-            cursorCol={cursorCol}
-            cursorRow={cursorRow}
-            showWorkspace={showWorkspace}
-            onCardClick={handleCardClick}
-            onCardMove={handleDragMove}
-          />
+          <>
+            <div className="hidden h-full md:block">
+              <BoardGrid
+                columns={columns}
+                cursorCol={cursorCol}
+                cursorRow={cursorRow}
+                showWorkspace={showWorkspace}
+                onCardClick={handleCardClick}
+                onCardMove={handleDragMove}
+              />
+            </div>
+            <div className="h-full md:hidden">
+              <MobileBoardList columns={columns} showWorkspace={showWorkspace} onCardClick={handleCardClick} />
+            </div>
+          </>
         )}
         {!loading && !error && columns.length === 0 && (
           <div className="flex h-full items-center justify-center">
@@ -597,7 +614,7 @@ export function BoardPage() {
       </div>
 
       {/* Status bar */}
-      <div className="flex items-center gap-3 border-t border-zinc-800 px-4 py-1.5 text-[10px] text-zinc-600">
+      <div className="hidden items-center gap-3 border-t border-zinc-800 px-4 py-1.5 text-[10px] text-zinc-600 md:flex">
         <span>h/l columns · j/k scroll · enter detail · ? help</span>
         {workspaceFilter !== "all" && (
           <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-500">{filterLabel}</span>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
-import { ArrowLeft, MessageSquarePlus, Send, X } from "lucide-react"
+import { ArrowLeft, MessageSquarePlus, PanelRight, Send, X } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { usePlan } from "../hooks/usePlan"
 import { useServer } from "../hooks/useServer"
@@ -129,6 +129,7 @@ export function PlanPage() {
   const [selectedBlock, setSelectedBlock] = useState<SelectedBlock | null>(null)
   const [localComments, setLocalComments] = useState<PlanComment[]>([])
   const [comment, setComment] = useState("")
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [question, setQuestion] = useState("")
   const [cleanupAfterImplementation, setCleanupAfterImplementation] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -251,13 +252,13 @@ export function PlanPage() {
   }
 
   return <div className="flex h-full min-h-0 flex-col bg-[#0a0a0f] text-zinc-200">
-    <header className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
+    <header data-plan-header className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-3 py-2 md:px-5 md:py-3">
       <div><Link to="/plans" className="flex items-center gap-1 text-xs text-zinc-500"><ArrowLeft size={13}/> Plan queue</Link><h1 className="mt-1 text-lg font-semibold">{data.plan.title}</h1><div className="text-xs text-zinc-500">revision {data.plan.latest_revision} · {data.plan.status.replace("_", " ")}</div></div>
-      <div className="flex items-center gap-2">{data.plan.status === "proposed" && <><label className="mr-2 flex max-w-52 items-center gap-2 text-xs text-zinc-400" title="Remove the editable plan bundle after successful implementation; collaboration history is retained"><input type="checkbox" checked={cleanupAfterImplementation} disabled={busy} onChange={event => setCleanupAfterImplementation(event.target.checked)} className="accent-indigo-500"/>Clean up plan files after implementation</label><button disabled={busy} onClick={() => void verdict("reject")} className="rounded border border-red-900 px-3 py-1.5 text-xs text-red-300">Reject</button><button disabled={busy} onClick={() => void verdict("request-changes")} className="rounded border border-amber-800 px-3 py-1.5 text-xs text-amber-300">Request changes</button><button title={unanswered ? "Answer required choices first" : "Approve plan"} disabled={busy || unanswered > 0} onClick={() => void verdict("approve")} className="rounded bg-emerald-700 px-3 py-1.5 text-xs text-white disabled:opacity-40">Approve plan</button></>}{data.plan.status === "rejected" && <button onClick={() => void verdict("reopen")} className="rounded bg-indigo-600 px-3 py-1.5 text-xs">Reopen</button>}</div>
+      <div className="flex items-center gap-2"><button onClick={() => setFeedbackOpen(true)} className="flex min-h-11 items-center gap-1 rounded border border-zinc-700 px-3 text-xs lg:hidden"><PanelRight size={15}/> Feedback</button>{data.plan.status === "proposed" && <><label className="mr-2 hidden max-w-52 items-center gap-2 text-xs text-zinc-400 md:flex" title="Remove the editable plan bundle after successful implementation; collaboration history is retained"><input type="checkbox" checked={cleanupAfterImplementation} disabled={busy} onChange={event => setCleanupAfterImplementation(event.target.checked)} className="accent-indigo-500"/>Clean up plan files after implementation</label><button disabled={busy} onClick={() => void verdict("reject")} className="hidden rounded border border-red-900 px-3 py-1.5 text-xs text-red-300 sm:block">Reject</button><button disabled={busy} onClick={() => void verdict("request-changes")} className="min-h-11 rounded border border-amber-800 px-3 text-xs text-amber-300 md:min-h-0 md:py-1.5">Request changes</button><button title={unanswered ? "Answer required choices first" : "Approve plan"} disabled={busy || unanswered > 0} onClick={() => void verdict("approve")} className="min-h-11 rounded bg-emerald-700 px-3 text-xs text-white disabled:opacity-40 md:min-h-0 md:py-1.5">Approve</button></>}{data.plan.status === "rejected" && <button onClick={() => void verdict("reopen")} className="rounded bg-indigo-600 px-3 py-1.5 text-xs">Reopen</button>}</div>
     </header>
     {actionError && <div role="alert" className="border-b border-red-900 bg-red-950/40 px-5 py-2 text-xs text-red-300">{actionError}</div>}{info && <div className="border-b border-zinc-800 px-5 py-2 text-xs text-zinc-400">{info}</div>}
     <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_25rem]">
-      <main className="overflow-y-auto p-6"><div className="mx-auto max-w-4xl">
+      <main data-plan-document className="overflow-y-auto p-3 md:p-6"><div className="mx-auto max-w-4xl">
         <article className="rounded border border-zinc-800 bg-zinc-950 p-5 leading-7">
           <ReactMarkdown remarkPlugins={[remarkGfm, remarkOutermostBlocks]} components={{
             h1: props => block(props, "heading", <h1 className="mb-5 mt-1 text-2xl font-bold">{props.children}</h1>),
@@ -283,7 +284,8 @@ export function PlanPage() {
         </article>
         {generalComments.length > 0 && <section role="region" aria-label="General feedback" className="mt-6 rounded border border-zinc-800 bg-zinc-950 p-5"><h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">General feedback</h2><div className="space-y-2">{generalComments.map(item => <EditableComment key={item.id} comment={item} onSave={body => editComment(item, body)}/>)}</div></section>}
       </div></main>
-      <aside className="flex min-h-0 flex-col overflow-y-auto border-l border-zinc-800 bg-zinc-950 p-4">
+      <aside className={`${feedbackOpen ? "fixed inset-2 z-50 flex shadow-2xl" : "hidden"} min-h-0 flex-col overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950 p-4 lg:static lg:flex lg:rounded-none lg:border-y-0 lg:border-r-0`}>
+        <button aria-label="Close feedback" onClick={() => setFeedbackOpen(false)} className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center lg:hidden"><X size={18}/></button>
         {data.questions.length > 0 && <><h2 className="text-xs font-semibold uppercase text-zinc-500">Choices</h2><div className="mt-3 space-y-4">{data.questions.map(item => <PlanQuestionControl key={item.id} question={item} response={data.responses.find(response => response.question_id === item.id)} disabled={busy} onRespond={body => run(() => respondToPlanQuestion(baseUrl, id, item.key, body))}/>)}</div></>}
         <div className="mt-4 border-t border-zinc-800 pt-4"><h2 className="text-xs font-semibold uppercase text-zinc-500">{selectedBlock ? (selectedBlock.label === "Comment on selected blocks" ? "Comment on selected blocks" : "Comment on selected block") : "General comment"}</h2>
           {selectedBlock && <div className="mt-2 rounded bg-indigo-950/40 p-2 text-xs text-indigo-200"><span className="line-clamp-3">{selectedBlock.text}</span><button aria-label="Clear selected block" onClick={() => setSelectedBlock(null)} className="mt-1 flex items-center gap-1 text-zinc-400"><X size={12}/> Clear</button></div>}

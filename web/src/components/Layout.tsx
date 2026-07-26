@@ -31,10 +31,18 @@ export function Layout() {
 
   const hasRemoteServers = servers.length > 0
 
+  const navItems = [
+    { to: "/agents", label: "Agents", icon: Monitor },
+    { to: "/board", label: "Board", icon: LayoutGrid },
+    { to: "/review", label: "Review", icon: ListChecks, count: reviewCount, badge: "bg-amber-500" },
+    { to: "/plans", label: "Plans", icon: ClipboardList, count: planCount, badge: "bg-indigo-400" },
+    { to: "/settings", label: "Settings", icon: Settings },
+  ]
+
   return (
     <div className="flex h-dvh w-full overflow-hidden">
       {/* Sidebar */}
-      <nav className="flex w-14 flex-col items-center border-r border-zinc-800 bg-zinc-950 py-4 gap-4">
+      <nav className="hidden w-14 flex-col items-center border-r border-zinc-800 bg-zinc-950 py-4 gap-4 md:flex">
         <NavLink
           to="/agents"
           className={({ isActive }) =>
@@ -161,6 +169,25 @@ export function Layout() {
       <main className="flex flex-1 flex-col overflow-hidden">
         <Outlet />
       </main>
+      <nav
+        aria-label="Primary navigation"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-zinc-800 bg-zinc-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+      >
+        {navItems.map(({ to, label, icon: Icon, count, badge }) => (
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) => cn(
+              "relative flex min-h-14 flex-col items-center justify-center gap-0.5 text-[10px]",
+              isActive ? "text-indigo-300" : "text-zinc-500",
+            )}
+          >
+            <Icon size={19} />
+            <span>{label}</span>
+            {!!count && <span className={cn("absolute right-[24%] top-1 min-w-4 rounded-full px-1 text-center text-[9px] font-bold leading-4 text-zinc-950", badge)}>{count > 99 ? "99+" : count}</span>}
+          </NavLink>
+        ))}
+      </nav>
       <PlanApprovalModal />
     </div>
   )

@@ -4,12 +4,14 @@ import { setToken } from "../lib/auth"
 import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
 import { QRScanner } from "../components/QRScanner"
+import { useSearchParams } from "react-router-dom"
 
 interface SettingsData {
   ca_cert_available: boolean
 }
 
 export function SettingsPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const { baseUrl, servers, addServer, removeServer, setActiveServer } = useServer()
   const [settings, setSettings] = useState<SettingsData | null>(null)
   const [glitchEnabled, setGlitchEnabled] = useState(() => {
@@ -48,7 +50,7 @@ export function SettingsPage() {
     localStorage.setItem("legato:switch-modifier", value)
   }
 
-  const [showScanner, setShowScanner] = useState(false)
+  const [showScanner, setShowScanner] = useState(() => searchParams.get("pair") === "qr")
   const [scanSuccess, setScanSuccess] = useState("")
 
   const [newServerName, setNewServerName] = useState("")
@@ -86,12 +88,13 @@ export function SettingsPage() {
       addServer(hostname, data.url)
     }
     setShowScanner(false)
+    setSearchParams({}, { replace: true })
     setScanSuccess(`Paired with ${data.url}`)
     setTimeout(() => setScanSuccess(""), 3000)
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className="flex-1 overflow-y-auto p-4 md:p-6">
       <h1 className="text-lg font-semibold text-zinc-100 mb-6">Settings</h1>
 
       <section className="max-w-lg mb-8">
@@ -194,18 +197,17 @@ export function SettingsPage() {
       </section>
 
       {showScanner && (
-        <QRScanner onScan={handleQRScan} onClose={() => setShowScanner(false)} />
+        <QRScanner onScan={handleQRScan} onClose={() => { setShowScanner(false); setSearchParams({}, { replace: true }) }} />
       )}
 
-      {servers.length > 0 && (
-        <section className="max-w-lg mb-8">
+      <section className="max-w-lg mb-8">
           <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">
             Servers
           </h2>
           <div className="rounded-lg border border-zinc-800 bg-zinc-900 divide-y divide-zinc-800">
             <button
               onClick={() => setActiveServer("")}
-              className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-800 ${!baseUrl ? "bg-zinc-800/50" : ""}`}
+              className={`flex min-h-11 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-800 ${!baseUrl ? "bg-zinc-800/50" : ""}`}
             >
               <Server size={16} className={!baseUrl ? "text-indigo-400" : "text-zinc-600"} />
               <div className="flex-1 min-w-0">
@@ -218,7 +220,7 @@ export function SettingsPage() {
               <div key={s.url} className={`flex items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-800 ${baseUrl === s.url ? "bg-zinc-800/50" : ""}`}>
                 <button
                   onClick={() => setActiveServer(s.url)}
-                  className="flex flex-1 items-center gap-3 text-left min-w-0"
+                  className="flex min-h-11 flex-1 items-center gap-3 text-left min-w-0"
                 >
                   <Server size={16} className={baseUrl === s.url ? "text-indigo-400" : "text-zinc-600"} />
                   <div className="flex-1 min-w-0">
@@ -229,7 +231,7 @@ export function SettingsPage() {
                 </button>
                 <button
                   onClick={() => removeServer(s.url)}
-                  className="rounded p-1 text-zinc-600 hover:text-red-400 hover:bg-zinc-800 transition-colors"
+                  className="flex h-11 w-11 items-center justify-center rounded text-zinc-600 hover:text-red-400 hover:bg-zinc-800 transition-colors"
                   title="Remove server"
                 >
                   <Trash2 size={14} />
@@ -237,31 +239,30 @@ export function SettingsPage() {
               </div>
             ))}
           </div>
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:flex">
             <input
               type="text"
               value={newServerName}
               onChange={(e) => setNewServerName(e.target.value)}
               placeholder="Name"
-              className="w-28 rounded bg-zinc-800 border border-zinc-700 px-2 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500"
+              className="min-h-11 w-full rounded bg-zinc-800 border border-zinc-700 px-3 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500 sm:w-28"
             />
             <input
               type="text"
               value={newServerUrl}
               onChange={(e) => setNewServerUrl(e.target.value)}
               placeholder="https://hostname:3080"
-              className="flex-1 rounded bg-zinc-800 border border-zinc-700 px-2 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500"
+              className="min-h-11 flex-1 rounded bg-zinc-800 border border-zinc-700 px-3 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500"
             />
             <button
               onClick={handleAddServer}
               disabled={!newServerName.trim() || !newServerUrl.trim()}
-              className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
+              className="flex min-h-11 items-center justify-center rounded bg-indigo-600 px-3 text-sm text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
             >
               <Plus size={14} />
             </button>
           </div>
         </section>
-      )}
 
       <section className="max-w-lg">
         <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">

@@ -39,7 +39,7 @@ export function ReviewQueuePage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#0a0a0f] text-zinc-200">
-      <header className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
+      <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-3 md:px-6 md:py-4">
         <div>
           <h1 className="text-lg font-semibold">Review queue</h1>
           <p className="mt-0.5 text-xs text-zinc-500">Walk through agent changes before completing work.</p>
@@ -49,7 +49,7 @@ export function ReviewQueuePage() {
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-3 md:p-6">
         {loading && !data && <p className="text-sm text-zinc-500">Loading review queue…</p>}
         {error && <div role="alert" className="rounded border border-red-900 bg-red-950/40 p-3 text-sm text-red-300">{error}</div>}
         {data?.length === 0 && (
@@ -61,7 +61,7 @@ export function ReviewQueuePage() {
         <div className="mx-auto grid max-w-4xl gap-3">
           {sortQueueItems(data ?? []).map((item) => (
             <Link key={item.tour_id} to={`/review/${encodeURIComponent(item.tour_id)}`} className="group rounded border border-zinc-800 bg-zinc-950 p-4 transition-colors hover:border-indigo-700 hover:bg-zinc-900">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs text-zinc-500">{item.task_id}</span>
