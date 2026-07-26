@@ -342,7 +342,10 @@ export function ReviewTourPage() {
         </main>
 
         <aside className={`${qaOpen ? "fixed inset-2 z-50 flex rounded-lg border shadow-2xl" : "hidden"} relative min-h-0 flex-col border-zinc-800 bg-zinc-950 p-3 lg:static lg:flex lg:rounded-none lg:border-y-0 lg:border-r-0 lg:border-l`}>
-          <button aria-label="Close notes" onClick={() => setQAOpen(false)} className="absolute right-2 top-2 z-10 flex h-11 w-11 items-center justify-center lg:hidden"><X size={18}/></button>
+          <div className="-mx-3 -mt-3 mb-4 flex min-h-14 shrink-0 items-center justify-between border-b border-zinc-800 px-3 lg:hidden">
+            <h2 className="text-sm font-semibold text-zinc-200">Review feedback</h2>
+            <button aria-label="Close notes" onClick={() => setQAOpen(false)} className="flex h-11 w-11 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"><X size={18}/></button>
+          </div>
           <div
             role="separator"
             aria-label="Resize questions and answers"

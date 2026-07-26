@@ -90,6 +90,11 @@ tasks:
     cmds:
       - pnpm run dev
 
+  server:restart:
+    desc: Stop the Legato server, rebuild the embedded web UI, and restart it
+    cmds:
+      - ./scripts/restart-legato-server.sh
+
   web:test:
     desc: Run frontend tests
     dir: web
