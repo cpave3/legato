@@ -14,6 +14,14 @@ The command installs the frozen dependencies, generates the Android project,
 builds a debug APK, and prints its path. Use `task mobile:device` to install and
 launch on a connected phone. `task mobile:eas` creates an internal EAS APK.
 
+The APK is a standalone release build with its JavaScript and assets embedded,
+so it runs without Metro or an internet connection. Re-running the task and
+installing with `adb install -r` updates it while preserving app data.
+
+For the faster development loop, run `task mobile:dev-apk`, install the debug
+APK once, then run `task mobile:dev`. That build connects to Metro over the LAN
+and supports Fast Refresh; the standalone APK remains independent of Metro.
+
 The app accepts the QR URI printed by `legato pair`. When machines share a
 configuration hostname, advertise each machine's actual reachable address:
 

@@ -97,9 +97,20 @@ tasks:
       - pnpm run test
 
   mobile:apk:
-    desc: Build an installable Android debug APK
+    desc: Build a standalone Android APK that runs without Metro
     cmds:
       - ./scripts/mobile-android.sh apk
+
+  mobile:dev-apk:
+    desc: Build an Android development APK for Metro and Fast Refresh
+    cmds:
+      - ./scripts/mobile-android.sh dev-apk
+
+  mobile:dev:
+    desc: Serve updates to an installed development APK over the LAN
+    dir: mobile
+    cmds:
+      - pnpm start --dev-client --lan
 
   mobile:device:
     desc: Build, install, and launch Legato on a connected Android device
