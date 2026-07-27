@@ -1394,7 +1394,7 @@ func runServeCmd(args []string) int {
 	srv.SetArtifactService(artifactSvc)
 	if workflowSvc, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, nil, wd); workflowErr == nil {
 		globalWorkflows, projectWorkflows := workflowDirs()
-		srv.SetWorkflowService(workflowSvc, globalWorkflows, projectWorkflows)
+		srv.SetWorkflowService(workflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
 	} else {
 		log.Printf("workflows: %v", workflowErr)
 	}
@@ -1700,7 +1700,7 @@ func runTUI() int {
 			webSrv.SetArtifactService(artifactSvc)
 			if workflowSvc, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, prSvc, wd); workflowErr == nil {
 				globalWorkflows, projectWorkflows := workflowDirs()
-				webSrv.SetWorkflowService(workflowSvc, globalWorkflows, projectWorkflows)
+				webSrv.SetWorkflowService(workflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
 			} else {
 				log.Printf("workflows: %v", workflowErr)
 			}

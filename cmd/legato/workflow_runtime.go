@@ -13,6 +13,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/hooks"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/tmux"
+	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/engine/worktree"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -63,4 +64,12 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 	}
 	dataDir := filepath.Join(filepath.Dir(config.ResolveDBPath(cfg)), "artifacts")
 	return service.NewWorkflowServiceWithOutputs(db, executors, dataDir), nil
+}
+
+func workflowRepositoryPresets(cfg *config.Config) []workflowengine.RepositoryPreset {
+	presets := make([]workflowengine.RepositoryPreset, len(cfg.Workflows.Repositories))
+	for i, repository := range cfg.Workflows.Repositories {
+		presets[i] = workflowengine.RepositoryPreset{Name: repository.Name, Repo: repository.Repo, PrimaryDir: repository.PrimaryDir, BaseBranch: repository.BaseBranch}
+	}
+	return presets
 }

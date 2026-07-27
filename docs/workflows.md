@@ -9,7 +9,22 @@ Legato discovers YAML definitions from:
 1. `$XDG_CONFIG_HOME/legato/workflows` (normally `~/.config/legato/workflows`)
 2. `.legato/workflows` in the current project
 
-A project-local definition overrides a global definition with the same `name`. The selected source path is stored on every run.
+Legato also reads `~/.legato/workflows` for compatibility. Precedence is legacy global, XDG global, then project-local. A later definition overrides an earlier definition with the same `name`. The selected source path is stored on every run.
+
+## Repository presets
+
+Frequently used repository/path pairs can be configured once and selected from the web launch form:
+
+```yaml
+workflows:
+  repositories:
+    - name: Legato
+      repo: cpave3/legato
+      primary_dir: /home/cameron/Projects/legato
+      base_branch: main
+```
+
+Selecting a preset prefills matching `repo`, `primary_dir`, and `base_branch` workflow inputs. All fields remain editable, and selecting **Custom** permits fully manual values.
 
 ## Schema version 1
 

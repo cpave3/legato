@@ -13,17 +13,30 @@ type DiscoveryError struct {
 	Error string `json:"error"`
 }
 
+type RepositoryPreset struct {
+	Name       string `json:"name"`
+	Repo       string `json:"repo"`
+	PrimaryDir string `json:"primary_dir"`
+	BaseBranch string `json:"base_branch,omitempty"`
+}
+
 type DiscoveryResult struct {
-	Definitions []*Definition    `json:"definitions"`
-	Errors      []DiscoveryError `json:"errors"`
+	Definitions  []*Definition      `json:"definitions"`
+	Errors       []DiscoveryError   `json:"errors"`
+	Repositories []RepositoryPreset `json:"repositories"`
 }
 
 // Discover loads global then project definitions. Project definitions replace
 // global definitions with the same workflow name.
 func Discover(globalDir, projectDir string) DiscoveryResult {
+	return DiscoverPaths(globalDir, projectDir)
+}
+
+// DiscoverPaths loads definitions in increasing precedence order.
+func DiscoverPaths(dirs ...string) DiscoveryResult {
 	result := DiscoveryResult{Definitions: make([]*Definition, 0), Errors: make([]DiscoveryError, 0)}
 	byName := make(map[string]*Definition)
-	for _, dir := range []string{globalDir, projectDir} {
+	for _, dir := range dirs {
 		if dir == "" {
 			continue
 		}

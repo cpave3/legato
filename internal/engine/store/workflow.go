@@ -109,7 +109,9 @@ func (s *Store) CreateWorkflowRun(ctx context.Context, run WorkflowRun, steps []
 }
 
 func (s *Store) GetWorkflowRun(ctx context.Context, id string) (*WorkflowRunView, error) {
-	var view WorkflowRunView
+	view := WorkflowRunView{
+		Steps: make([]WorkflowStepRun, 0), Attempts: make([]WorkflowStepAttempt, 0), Artifacts: make([]WorkflowArtifact, 0),
+	}
 	if err := s.db.GetContext(ctx, &view.Run, "SELECT * FROM workflow_runs WHERE id = ?", id); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrNotFound

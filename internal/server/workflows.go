@@ -4,10 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
+
+func legacyWorkflowDirPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".legato", "workflows")
+}
 
 type WorkflowService interface {
 	Start(context.Context, *workflowengine.Definition, map[string]string, *int) (*store.WorkflowRunView, error)
@@ -23,7 +30,9 @@ func (s *Server) workflowsHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		s.writeJSON(w, http.StatusOK, workflowengine.Discover(s.workflowGlobalDir, s.workflowProjectDir))
+		result := workflowengine.DiscoverPaths(legacyWorkflowDirPath(), s.workflowGlobalDir, s.workflowProjectDir)
+		result.Repositories = append([]workflowengine.RepositoryPreset(nil), s.workflowRepositories...)
+		s.writeJSON(w, http.StatusOK, result)
 	}
 }
 func (s *Server) workflowStartHandler() http.HandlerFunc {
@@ -37,7 +46,7 @@ func (s *Server) workflowStartHandler() http.HandlerFunc {
 			return
 		}
 		name := r.PathValue("name")
-		result := workflowengine.Discover(s.workflowGlobalDir, s.workflowProjectDir)
+		result := workflowengine.DiscoverPaths(legacyWorkflowDirPath(), s.workflowGlobalDir, s.workflowProjectDir)
 		var definition *workflowengine.Definition
 		for _, item := range result.Definitions {
 			if item.Name == name {

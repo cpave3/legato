@@ -26,6 +26,11 @@ func workflowDirs() (string, string) {
 	return global, filepath.Join(cwd, ".legato", "workflows")
 }
 
+func legacyWorkflowDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".legato", "workflows")
+}
+
 func workflowCommandError(err error) *commandError {
 	return &commandError{Code: "workflow_error", Message: err.Error(), Exit: exitInternal}
 }
@@ -151,7 +156,7 @@ func resolveWorkflowDefinition(name, global, project string) (*workflowengine.De
 	if data, err := os.ReadFile(name); err == nil {
 		return workflowengine.Parse(name, data)
 	}
-	result := workflowengine.Discover(global, project)
+	result := workflowengine.DiscoverPaths(legacyWorkflowDir(), global, project)
 	for _, definition := range result.Definitions {
 		if definition.Name == name {
 			return definition, nil

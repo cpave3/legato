@@ -12,40 +12,42 @@ import (
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/macros"
+	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/server/static"
 	"github.com/cpave3/legato/internal/service"
 )
 
 // Server is the HTTP/WebSocket server for Legato's web UI.
 type Server struct {
-	board              service.BoardService
-	agents             service.AgentService
-	swarm              SwarmService
-	sync               service.SyncService
-	prTracking         service.PRTrackingService
-	tmux               service.TmuxManager
-	bus                *events.Bus
-	addr               string
-	workDir            string // default CWD for agent spawn
-	server             *http.Server
-	hub                *Hub
-	streams            *streamManager
-	tlsCert            string
-	tlsKey             string
-	caCertPath         string
-	authToken          string
-	macros             []macros.Macro
-	sparklineWindow    time.Duration
-	sparklineBuckets   int
-	ntfyConfigured     bool
-	voiceSvc           VoiceService
-	voiceAutoSend      bool
-	reviews            ReviewService
-	plans              PlanService
-	artifacts          ArtifactService
-	workflows          WorkflowService
-	workflowGlobalDir  string
-	workflowProjectDir string
+	board                service.BoardService
+	agents               service.AgentService
+	swarm                SwarmService
+	sync                 service.SyncService
+	prTracking           service.PRTrackingService
+	tmux                 service.TmuxManager
+	bus                  *events.Bus
+	addr                 string
+	workDir              string // default CWD for agent spawn
+	server               *http.Server
+	hub                  *Hub
+	streams              *streamManager
+	tlsCert              string
+	tlsKey               string
+	caCertPath           string
+	authToken            string
+	macros               []macros.Macro
+	sparklineWindow      time.Duration
+	sparklineBuckets     int
+	ntfyConfigured       bool
+	voiceSvc             VoiceService
+	voiceAutoSend        bool
+	reviews              ReviewService
+	plans                PlanService
+	artifacts            ArtifactService
+	workflows            WorkflowService
+	workflowGlobalDir    string
+	workflowProjectDir   string
+	workflowRepositories []workflowengine.RepositoryPreset
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -182,10 +184,11 @@ func (s *Server) SetAuthToken(token string) {
 }
 
 // SetWorkflowService sets the workflow lifecycle and definition locations.
-func (s *Server) SetWorkflowService(svc WorkflowService, globalDir, projectDir string) {
+func (s *Server) SetWorkflowService(svc WorkflowService, globalDir, projectDir string, repositories ...workflowengine.RepositoryPreset) {
 	s.workflows = svc
 	s.workflowGlobalDir = globalDir
 	s.workflowProjectDir = projectDir
+	s.workflowRepositories = append([]workflowengine.RepositoryPreset(nil), repositories...)
 }
 
 // SetSyncService sets the optional sync service for remote search/import endpoints.

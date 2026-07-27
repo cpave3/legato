@@ -29,6 +29,20 @@ type Config struct {
 	Voice         VoiceConfig              `yaml:"voice"`
 	Worktrees     WorktreesConfig          `yaml:"worktrees"`
 	Groups        GroupsConfig             `yaml:"groups"`
+	Workflows     WorkflowsConfig          `yaml:"workflows"`
+}
+
+// WorkflowsConfig holds workflow launch conveniences.
+type WorkflowsConfig struct {
+	Repositories []WorkflowRepositoryConfig `yaml:"repositories"`
+}
+
+// WorkflowRepositoryConfig is a named repository/path preset for workflow inputs.
+type WorkflowRepositoryConfig struct {
+	Name       string `yaml:"name" json:"name"`
+	Repo       string `yaml:"repo" json:"repo"`
+	PrimaryDir string `yaml:"primary_dir" json:"primary_dir"`
+	BaseBranch string `yaml:"base_branch" json:"base_branch,omitempty"`
 }
 
 // GroupsConfig holds task grouping defaults.
