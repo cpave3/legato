@@ -1,7 +1,9 @@
-import { describe, expect, it, afterEach } from "vitest"
+import { describe, expect, it, afterEach, vi } from "vitest"
 import { render, screen, cleanup } from "@testing-library/react"
 import { DetailPanel } from "../DetailPanel"
 import type { CardDetail } from "../../../lib/board-types"
+vi.mock("../TaskAgentAction",()=>({TaskAgentAction:()=>null}))
+vi.mock("../TaskActivityTabs",()=>({TaskActivityTabs:()=>null}))
 
 afterEach(() => {
   cleanup()

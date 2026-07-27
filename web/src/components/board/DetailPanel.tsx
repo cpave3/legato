@@ -1,10 +1,7 @@
-import { useEffect, useState } from "react"
-import { Link } from "react-router-dom"
 import type { CardDetail } from "../../lib/board-types"
-import { fetchTaskArtifacts, type TaskArtifacts } from "../../lib/artifacts"
-import { useServer } from "../../hooks/useServer"
 import { X } from "lucide-react"
-import { WorkflowMarkdownPreview } from "../WorkflowMarkdownPreview"
+import { TaskActivityTabs } from "./TaskActivityTabs"
+import { TaskAgentAction } from "./TaskAgentAction"
 
 interface DetailPanelProps {
   card: CardDetail
@@ -34,17 +31,6 @@ export function DetailPanel({
   onCancelSwarm,
 }: DetailPanelProps) {
   const isLocal = !card.provider
-  const baseUrl = useServer()?.baseUrl ?? ""
-  const [artifacts, setArtifacts] = useState<TaskArtifacts | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void fetchTaskArtifacts(baseUrl, card.id)
-      .then((value) => { if (!cancelled) setArtifacts(value) })
-      .catch(() => { if (!cancelled) setArtifacts(null) })
-    return () => { cancelled = true }
-  }, [baseUrl, card.id])
-
   return (
     <div
       className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 md:items-start md:px-4 md:pb-8 md:pt-12"
@@ -140,22 +126,9 @@ export function DetailPanel({
           )}
         </div>
 
-        {artifacts && (artifacts.plans.length > 0 || artifacts.review_tours.length > 0) && (
-          <section aria-label="Plans and reviews" className="border-b border-zinc-800 px-5 py-3">
-            <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Plans & reviews</h4>
-            <div className="space-y-1 text-xs">
-              {artifacts.plans.map((plan) => <Link key={plan.plan.id} to={`/plans/${encodeURIComponent(plan.plan.id)}`} className="flex justify-between rounded px-2 py-1 text-indigo-300 hover:bg-zinc-800">
-                <span>{plan.plan.title || plan.plan.name}</span><span className="text-zinc-500">{plan.plan.status} · r{plan.revision.revision}</span>
-              </Link>)}
-              {artifacts.review_tours.map((review) => <Link key={review.tour.id} to={`/review/${encodeURIComponent(review.tour.id)}`} className="flex justify-between rounded px-2 py-1 text-emerald-300 hover:bg-zinc-800">
-                <span>{review.tour.name}</span><span className="text-zinc-500">{review.tour.status} · {review.passes.length} pass{review.passes.length === 1 ? "" : "es"}</span>
-              </Link>)}
-            </div>
-          </section>
-        )}
-
         {/* Action bar */}
         <div className="flex flex-wrap items-center gap-1 border-b border-zinc-800 px-3 py-2 md:px-5">
+          <TaskAgentAction taskId={card.id}/>
           {isLocal && (
             <button onClick={onEditTitle} className="min-h-11 rounded px-3 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 md:min-h-0 md:px-2 md:py-1 md:text-[10px]">
               Edit title (t)
@@ -204,7 +177,7 @@ export function DetailPanel({
           ) : (
             <p className="text-xs text-zinc-600 italic">No description</p>
           )}
-          {(card.notes??[]).length>0&&<section className="mt-5 border-t border-zinc-800 pt-4"><h4 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Notes</h4><div className="space-y-3">{(card.notes??[]).map(note=><article key={note.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-4"><WorkflowMarkdownPreview markdown={note.body}/><p className="mt-3 text-[10px] text-zinc-600">{note.source} · {note.created_at}</p></article>)}</div></section>}
+          <TaskActivityTabs taskId={card.id} notes={card.notes??[]}/>
 
           {/* Swarm sub-task tree — TODO: backend does not yet return subtasks on /api/tasks/<id> */}
           {/* {card.subtasks && card.subtasks.length > 0 && (

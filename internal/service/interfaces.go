@@ -102,6 +102,19 @@ type SyncEvent struct {
 }
 
 // BoardService provides kanban board operations.
+type TaskActivity struct {
+	Reviews      []store.ReviewTour     `json:"reviews"`
+	Plans        []store.Plan           `json:"plans"`
+	WorkflowRuns []TaskWorkflowActivity `json:"workflow_runs"`
+}
+type TaskWorkflowActivity struct {
+	Run       store.WorkflowRun        `json:"run"`
+	Artifacts []store.WorkflowArtifact `json:"artifacts"`
+}
+type TaskActivityService interface {
+	TaskActivity(context.Context, string) (*TaskActivity, error)
+}
+
 type BoardService interface {
 	ListColumns(ctx context.Context) ([]Column, error)
 	ListCards(ctx context.Context, column string) ([]Card, error)

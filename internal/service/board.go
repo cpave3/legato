@@ -116,6 +116,33 @@ func (b *boardService) ListCardsByWorkspace(ctx context.Context, column string, 
 	return cards, nil
 }
 
+func (b *boardService) TaskActivity(ctx context.Context, id string) (*TaskActivity, error) {
+	if _, err := b.store.GetTask(ctx, id); err != nil {
+		return nil, err
+	}
+	reviews, err := b.store.ListReviewToursByTask(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	plans, err := b.store.ListPlansByTask(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	runs, err := b.store.ListWorkflowRunsByRelatedTask(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	activity := &TaskActivity{Reviews: reviews, Plans: plans, WorkflowRuns: make([]TaskWorkflowActivity, 0, len(runs))}
+	for _, run := range runs {
+		view, viewErr := b.store.GetWorkflowRun(ctx, run.ID)
+		if viewErr != nil {
+			return nil, viewErr
+		}
+		activity.WorkflowRuns = append(activity.WorkflowRuns, TaskWorkflowActivity{Run: run, Artifacts: view.Artifacts})
+	}
+	return activity, nil
+}
+
 func (b *boardService) GetCard(ctx context.Context, id string) (*CardDetail, error) {
 	t, err := b.store.GetTask(ctx, id)
 	if err != nil {

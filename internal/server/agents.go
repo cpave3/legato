@@ -3,9 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -301,5 +304,54 @@ func (s *Server) tasksHandler() http.HandlerFunc {
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
+	}
+}
+
+type taskAgentService interface {
+	CaptureOutput(context.Context, string) (string, error)
+	SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error
+}
+
+func (s *Server) taskAgentHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		agents, ok := s.agents.(taskAgentService)
+		if !ok {
+			http.Error(w, "agent service not available", http.StatusServiceUnavailable)
+			return
+		}
+		taskID := r.PathValue("id")
+		if _, err := s.board.GetCard(r.Context(), taskID); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				http.Error(w, "task not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if _, err := agents.CaptureOutput(r.Context(), taskID); err == nil {
+			s.writeJSON(w, http.StatusOK, map[string]any{"task_id": taskID, "created": false})
+			return
+		}
+		var req struct {
+			AgentKind  string `json:"agent_kind"`
+			WorkingDir string `json:"working_dir"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if req.WorkingDir == "" {
+			req.WorkingDir = s.workDir
+		}
+		if err := agents.SpawnAgent(r.Context(), taskID, 0, 0, service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, ChimeraSessionExists: "resume"}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
+		s.writeJSON(w, http.StatusCreated, map[string]any{"task_id": taskID, "created": true})
 	}
 }

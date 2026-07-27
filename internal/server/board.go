@@ -673,3 +673,27 @@ func (s *Server) detectRepoHandler() http.HandlerFunc {
 		s.writeJSON(w, http.StatusOK, map[string]string{"owner": owner, "repo": repo})
 	}
 }
+
+func (s *Server) taskActivityHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		activityService, ok := s.board.(service.TaskActivityService)
+		if !ok {
+			s.writeError(w, http.StatusServiceUnavailable, "task activity unavailable")
+			return
+		}
+		activity, err := activityService.TaskActivity(r.Context(), r.PathValue("id"))
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				s.writeError(w, http.StatusNotFound, "task not found")
+				return
+			}
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.writeJSON(w, http.StatusOK, activity)
+	}
+}

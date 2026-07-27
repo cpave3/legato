@@ -412,6 +412,12 @@ func (s *Store) InsertWorkflowArtifact(ctx context.Context, artifact WorkflowArt
 	return err
 }
 
+func (s *Store) ListWorkflowRunsByRelatedTask(ctx context.Context, taskID string) ([]WorkflowRun, error) {
+	var runs []WorkflowRun
+	err := s.db.SelectContext(ctx, &runs, workflowRunSelect+" WHERE related_task_id = ? ORDER BY created_at DESC", taskID)
+	return runs, err
+}
+
 func (s *Store) ListWorkflowRuns(ctx context.Context, status string, limit int) ([]WorkflowRun, error) {
 	if limit <= 0 {
 		limit = 100
