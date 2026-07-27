@@ -21,8 +21,9 @@ legato workflow step complete --output result=value --artifact review=review.md 
 legato workflow step fail "reason" --json
 ```
 
-See `docs/workflows.md` for the schema and lifecycle.
- Subcommands
+See `docs/workflows.md` for the schema and lifecycle. Workflow commands currently emit raw JSON for successful structured output; errors use the standard CLI error rendering.
+
+## Subcommands
 
 `legato` binary supports subcommand dispatch alongside the default TUI mode:
 

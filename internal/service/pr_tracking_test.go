@@ -13,17 +13,17 @@ import (
 )
 
 type mockGitHub struct {
-	statuses       map[string]*github.PRStatus
-	prByNumber     map[int]*github.PRStatus
-	prsByCommit    map[string]*github.PRStatus // sha → status
-	commitErr      error
-	fetchErr       error
-	branch         string
-	branchErr      error
-	owner, repo    string
-	repoErr        error
-	commentCnt     int
-	commentErr     error
+	statuses        map[string]*github.PRStatus
+	prByNumber      map[int]*github.PRStatus
+	prsByCommit     map[string]*github.PRStatus // sha → status
+	commitErr       error
+	fetchErr        error
+	branch          string
+	branchErr       error
+	owner, repo     string
+	repoErr         error
+	commentCnt      int
+	commentErr      error
 	queriedBranches []string // tracks branches passed to BatchFetchPRStatusWithRepo
 	queriedSHAs     []string // tracks SHAs passed to FetchPRsForCommit
 }

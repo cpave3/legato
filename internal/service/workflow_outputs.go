@@ -41,6 +41,9 @@ func (c *WorkflowOutputCollector) Collect(ctx context.Context, req WorkflowOutpu
 			if !ok {
 				return nil, fmt.Errorf("artifact output %q is required", key)
 			}
+			if filepath.Clean(relative) != filepath.Clean(spec.Path) {
+				return nil, fmt.Errorf("artifact output %q must use declared path %q", key, spec.Path)
+			}
 			artifact, err := c.collectFile(ctx, req, key, spec, relative)
 			if err != nil {
 				return nil, fmt.Errorf("artifact %q: %w", key, err)

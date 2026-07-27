@@ -21,7 +21,7 @@ type DiscoveryResult struct {
 // Discover loads global then project definitions. Project definitions replace
 // global definitions with the same workflow name.
 func Discover(globalDir, projectDir string) DiscoveryResult {
-	result := DiscoveryResult{}
+	result := DiscoveryResult{Definitions: make([]*Definition, 0), Errors: make([]DiscoveryError, 0)}
 	byName := make(map[string]*Definition)
 	for _, dir := range []string{globalDir, projectDir} {
 		if dir == "" {

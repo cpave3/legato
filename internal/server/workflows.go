@@ -1,11 +1,21 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
+	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
+
+type WorkflowService interface {
+	Start(context.Context, *workflowengine.Definition, map[string]string, *int) (*store.WorkflowRunView, error)
+	ListRuns(context.Context, string, int) ([]store.WorkflowRun, error)
+	Show(context.Context, string) (*store.WorkflowRunView, error)
+	Cancel(context.Context, string, string) (*store.WorkflowRunView, error)
+	Retry(context.Context, string, string) (*store.WorkflowRunView, error)
+}
 
 func (s *Server) workflowsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

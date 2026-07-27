@@ -58,6 +58,18 @@ func seedWorkflowOutputAttempt(t *testing.T, db *store.Store) {
 	}
 }
 
+func TestCollectWorkflowOutputsRejectsUndeclaredFilePath(t *testing.T) {
+	db, _ := store.New(filepath.Join(t.TempDir(), "test.db"))
+	defer db.Close()
+	seedWorkflowOutputAttempt(t, db)
+	workDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(workDir, "other.md"), []byte("other"), 0o600)
+	_, err := NewWorkflowOutputCollector(db, t.TempDir()).Collect(context.Background(), WorkflowOutputRequest{RunID: "wr", StepID: "review", AttemptID: "wa", WorkingDir: workDir, Declared: map[string]workflowengine.Output{"review": {Type: "file", Path: "review.md"}}, Artifacts: map[string]string{"review": "other.md"}})
+	if err == nil {
+		t.Fatal("collector accepted a path other than the declared output")
+	}
+}
+
 func TestCollectWorkflowOutputsRejectsSymlinkEscape(t *testing.T) {
 	db, _ := store.New(filepath.Join(t.TempDir(), "test.db"))
 	defer db.Close()

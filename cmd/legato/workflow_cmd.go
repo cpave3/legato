@@ -35,7 +35,7 @@ func runWorkflowCmd(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: legato workflow [list|validate|run|runs|show|cancel|retry|step] ...")
 		return 1
 	}
-	positional, flags, lists, err := parseReviewArgs(args[1:])
+	positional, flags, lists, err := parseWorkflowArgs(args[1:])
 	if err != nil {
 		return renderCommandError("workflow."+args[0], workflowCommandError(err), false)
 	}

@@ -43,7 +43,7 @@ type Server struct {
 	reviews            ReviewService
 	plans              PlanService
 	artifacts          ArtifactService
-	workflows          *service.WorkflowService
+	workflows          WorkflowService
 	workflowGlobalDir  string
 	workflowProjectDir string
 }
@@ -181,13 +181,14 @@ func (s *Server) SetAuthToken(token string) {
 	s.authToken = token
 }
 
-// SetSyncService sets the optional sync service for remote search/import endpoints.
-func (s *Server) SetWorkflowService(svc *service.WorkflowService, globalDir, projectDir string) {
+// SetWorkflowService sets the workflow lifecycle and definition locations.
+func (s *Server) SetWorkflowService(svc WorkflowService, globalDir, projectDir string) {
 	s.workflows = svc
 	s.workflowGlobalDir = globalDir
 	s.workflowProjectDir = projectDir
 }
 
+// SetSyncService sets the optional sync service for remote search/import endpoints.
 func (s *Server) SetSyncService(svc service.SyncService) {
 	s.sync = svc
 }

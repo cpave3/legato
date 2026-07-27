@@ -700,9 +700,8 @@ func parseReviewArgs(args []string) (positional []string, flags map[string]strin
 	scalar := map[string]bool{
 		"task": true, "name": true, "review-pass": true, "risk": true,
 		"order": true, "hunk": true, "lines": true, "feedback": true,
-		"run": true, "step": true, "attempt": true, "status": true, "limit": true,
 	}
-	repeatable := map[string]bool{"file": true, "include": true, "finding": true, "input": true, "output": true, "artifact": true}
+	repeatable := map[string]bool{"file": true, "include": true, "finding": true}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if !strings.HasPrefix(arg, "--") {
@@ -730,7 +729,7 @@ func parseReviewArgs(args []string) (positional []string, flags map[string]strin
 				return positional, flags, listFlags, fmt.Errorf("flag --json may only be specified once")
 			}
 			flags[name] = ""
-		case "file", "include", "finding", "input", "output", "artifact":
+		case "file", "include", "finding":
 			if i+1 >= len(args) {
 				return positional, flags, listFlags, fmt.Errorf("missing value for --%s", name)
 			}
@@ -1429,6 +1428,8 @@ func runServeCmd(args []string) int {
 			srv.NotifyAgentsChanged()
 		case "review_changed", "plan_changed":
 			handleIPCMessage(msg, bus, nil)
+		case "workflow_changed":
+			srv.NotifyWorkflowChanged(msg.WorkflowRunID, msg.WorkflowStepID)
 		}
 	})
 	if ipcErr == nil {

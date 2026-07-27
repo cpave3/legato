@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -156,6 +157,11 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 	if err != nil {
 		return nil, err
 	}
+	if executor := s.executors[attempt.ExecutorType]; executor != nil {
+		if err := executor.Cancel(ctx, *attempt); err != nil {
+			return nil, fmt.Errorf("stopping completed workflow agent: %w", err)
+		}
+	}
 	encoded, _ := json.Marshal(outputs)
 	next := ""
 	if index+1 < len(definition.Steps) {
@@ -216,7 +222,18 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		}
 		attemptID := workflowID("wa-")
 		resolvedJSON, _ := json.Marshal(resolved.With)
-		attempt := store.WorkflowStepAttempt{ID: attemptID, RunID: runID, StepID: step.ID, AttemptNumber: 1, ExecutorType: step.Type, TaskID: taskID, Status: "running"}
+		view, err := s.store.GetWorkflowRun(ctx, runID)
+		if err != nil {
+			return err
+		}
+		attemptNumber := 1
+		for _, persisted := range view.Steps {
+			if persisted.StepID == step.ID {
+				attemptNumber = persisted.LatestAttempt + 1
+				break
+			}
+		}
+		attempt := store.WorkflowStepAttempt{ID: attemptID, RunID: runID, StepID: step.ID, AttemptNumber: attemptNumber, ExecutorType: step.Type, TaskID: taskID, Status: "running"}
 		if err := s.store.StartWorkflowStepAttempt(ctx, attempt, string(resolvedJSON)); err != nil {
 			return err
 		}
@@ -251,7 +268,6 @@ func workflowID(prefix string) string {
 	return prefix + hex.EncodeToString(b[:])
 }
 func digestBytes(data []byte) string {
-	var b [8]byte
-	copy(b[:], data)
-	return hex.EncodeToString(b[:])
+	digest := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(digest[:])
 }

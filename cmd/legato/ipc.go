@@ -12,6 +12,10 @@ type webNotifier interface {
 	NotifyAgentsChanged()
 }
 
+type workflowWebNotifier interface {
+	NotifyWorkflowChanged(runID, stepID string)
+}
+
 func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 	switch msg.Type {
 	case "task_update", "task_note", "agent_state", "worktree_changed":
@@ -45,6 +49,10 @@ func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 				Kind:   msg.Kind,
 			},
 		})
+	case "workflow_changed":
+		if notifier, ok := wn.(workflowWebNotifier); ok {
+			notifier.NotifyWorkflowChanged(msg.WorkflowRunID, msg.WorkflowStepID)
+		}
 	case "plan_changed":
 		bus.Publish(events.Event{
 			Type: events.EventPlanChanged,
