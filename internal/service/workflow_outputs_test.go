@@ -58,6 +58,28 @@ func seedWorkflowOutputAttempt(t *testing.T, db *store.Store) {
 	}
 }
 
+func TestCollectWorkflowOutputsReusesMatchingManagedArtifact(t *testing.T) {
+	db, _ := store.New(filepath.Join(t.TempDir(), "test.db"))
+	defer db.Close()
+	seedWorkflowOutputAttempt(t, db)
+	workDir, dataDir := t.TempDir(), t.TempDir()
+	source := filepath.Join(workDir, "review.md")
+	_ = os.WriteFile(source, []byte("# Review\n"), 0600)
+	collector := NewWorkflowOutputCollector(db, dataDir)
+	req := WorkflowOutputRequest{RunID: "wr", StepID: "review", AttemptID: "wa", TaskID: "task", WorkingDir: workDir, Declared: map[string]workflowengine.Output{"review": {Type: "file", Path: "review.md", MediaType: "text/markdown"}}, Artifacts: map[string]string{"review": "review.md"}}
+	first, err := collector.Collect(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := collector.Collect(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first["review"].(map[string]any)["artifact_id"] != second["review"].(map[string]any)["artifact_id"] {
+		t.Fatalf("first=%#v second=%#v", first, second)
+	}
+}
+
 func TestCollectWorkflowOutputsRejectsUndeclaredFilePath(t *testing.T) {
 	db, _ := store.New(filepath.Join(t.TempDir(), "test.db"))
 	defer db.Close()

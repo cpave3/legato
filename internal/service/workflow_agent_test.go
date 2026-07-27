@@ -18,7 +18,10 @@ func (f *fakeWorkflowAgentService) SpawnWorkflowAgent(_ context.Context, taskID 
 	f.taskID, f.opts = taskID, opts
 	return &store.AgentSession{ID: 7, TaskID: taskID, TmuxSession: "legato-" + taskID, AgentKind: opts.AgentKind, Status: "running"}, nil
 }
-func (f *fakeWorkflowAgentService) KillAgent(context.Context, string) error           { return nil }
+func (f *fakeWorkflowAgentService) KillAgent(context.Context, string) error { return nil }
+func (f *fakeWorkflowAgentService) FinishWorkflowAgent(context.Context, store.WorkflowStepAttempt) error {
+	return nil
+}
 func (f *fakeWorkflowAgentService) PromptAgent(context.Context, string, string) error { return nil }
 
 func TestAgentRunExecutorLaunchesExplicitWorkflowAssignment(t *testing.T) {

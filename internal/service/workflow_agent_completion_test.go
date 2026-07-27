@@ -11,11 +11,26 @@ import (
 
 type killingWorkflowExecutor struct {
 	fakeWorkflowExecutor
-	cancelled []store.WorkflowStepAttempt
+	store                    *store.Store
+	cancelled                []store.WorkflowStepAttempt
+	finished                 []store.WorkflowStepAttempt
+	cancelObservedStepStatus string
+	cancelObservedStarts     int
 }
 
 func (e *killingWorkflowExecutor) Cancel(_ context.Context, a store.WorkflowStepAttempt) error {
 	e.cancelled = append(e.cancelled, a)
+	return nil
+}
+func (e *killingWorkflowExecutor) Finish(ctx context.Context, a store.WorkflowStepAttempt) error {
+	e.finished = append(e.finished, a)
+	view, _ := e.store.GetWorkflowRun(ctx, a.RunID)
+	for _, step := range view.Steps {
+		if step.StepID == a.StepID {
+			e.cancelObservedStepStatus = step.Status
+		}
+	}
+	e.cancelObservedStarts = len(e.starts)
 	return nil
 }
 
@@ -23,7 +38,7 @@ func TestWorkflowCompleteStopsAgentBeforeNextSharedTaskStep(t *testing.T) {
 	db, _ := store.New(filepath.Join(t.TempDir(), "test.db"))
 	defer db.Close()
 	definition, _ := workflowengine.Parse("test.yaml", []byte("schema_version: 1\nname: chain\ntitle: Chain\nsteps:\n  - id: one\n    title: One\n    type: agent.run\n    with: {prompt: one}\n  - id: two\n    title: Two\n    type: agent.run\n    with: {prompt: two}\n"))
-	executor := &killingWorkflowExecutor{fakeWorkflowExecutor: fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent"}}}
+	executor := &killingWorkflowExecutor{store: db, fakeWorkflowExecutor: fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent"}}}
 	svc := NewWorkflowServiceWithOutputs(db, []WorkflowExecutor{executor}, t.TempDir())
 	view, err := svc.Start(context.Background(), definition, nil, nil)
 	if err != nil {
@@ -33,7 +48,10 @@ func TestWorkflowCompleteStopsAgentBeforeNextSharedTaskStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(executor.cancelled) != 1 || len(executor.starts) != 2 {
-		t.Fatalf("cancelled=%d starts=%d", len(executor.cancelled), len(executor.starts))
+	if len(executor.finished) != 1 || len(executor.starts) != 2 {
+		t.Fatalf("finished=%d starts=%d", len(executor.finished), len(executor.starts))
+	}
+	if executor.cancelObservedStepStatus != "succeeded" || executor.cancelObservedStarts != 2 {
+		t.Fatalf("cancel observed status=%q starts=%d", executor.cancelObservedStepStatus, executor.cancelObservedStarts)
 	}
 }

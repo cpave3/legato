@@ -205,6 +205,15 @@ func (c *WorkflowOutputCollector) collectFile(ctx context.Context, req WorkflowO
 		return nil, err
 	}
 	digest := sha256.Sum256(data)
+	digestText := "sha256:" + hex.EncodeToString(digest[:])
+	if existing, existingErr := c.store.GetWorkflowArtifactByAttemptOutput(ctx, req.AttemptID, key); existingErr == nil {
+		if existing.Digest != digestText || existing.OriginalPath != relative {
+			return nil, fmt.Errorf("artifact output %q was already collected with different content", key)
+		}
+		return existing, nil
+	} else if existingErr != store.ErrNotFound {
+		return nil, existingErr
+	}
 	artifactID := workflowID("wfa-")
 	destination := filepath.Join(c.dataDir, "workflows", req.RunID, req.StepID, req.AttemptID, artifactID+filepath.Ext(source))
 	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
@@ -232,7 +241,7 @@ func (c *WorkflowOutputCollector) collectFile(ctx context.Context, req WorkflowO
 	if mediaType == "" {
 		mediaType = "application/octet-stream"
 	}
-	artifact := &store.WorkflowArtifact{ID: artifactID, RunID: req.RunID, StepID: req.StepID, AttemptID: req.AttemptID, TaskID: req.TaskID, OutputKey: key, ManagedPath: destination, OriginalPath: relative, MediaType: mediaType, SizeBytes: info.Size(), Digest: "sha256:" + hex.EncodeToString(digest[:])}
+	artifact := &store.WorkflowArtifact{ID: artifactID, RunID: req.RunID, StepID: req.StepID, AttemptID: req.AttemptID, TaskID: req.TaskID, OutputKey: key, ManagedPath: destination, OriginalPath: relative, MediaType: mediaType, SizeBytes: info.Size(), Digest: digestText}
 	if err := c.store.InsertWorkflowArtifact(ctx, *artifact); err != nil {
 		_ = os.Remove(destination)
 		return nil, err

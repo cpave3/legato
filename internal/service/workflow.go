@@ -333,11 +333,6 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 	if err != nil {
 		return nil, err
 	}
-	if executor := s.executors[attempt.ExecutorType]; executor != nil {
-		if err := executor.Cancel(ctx, *attempt); err != nil {
-			return nil, fmt.Errorf("stopping completed workflow agent: %w", err)
-		}
-	}
 	encoded, _ := json.Marshal(outputs)
 	next := ""
 	if index+1 < len(definition.Steps) {
@@ -352,7 +347,16 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 			return nil, err
 		}
 	}
-	return s.store.GetWorkflowRun(ctx, runID)
+	completed, err := s.store.GetWorkflowRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	if executor, ok := s.executors[attempt.ExecutorType].(interface {
+		Finish(context.Context, store.WorkflowStepAttempt) error
+	}); ok {
+		_ = executor.Finish(ctx, *attempt)
+	}
+	return completed, nil
 }
 
 func (s *WorkflowService) loadExecution(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, *workflowengine.Definition, map[string]any, map[string]map[string]any, int, error) {

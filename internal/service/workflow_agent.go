@@ -12,6 +12,7 @@ import (
 type workflowAgentRunner interface {
 	SpawnWorkflowAgent(context.Context, string, AgentSpawnOptions) (*store.AgentSession, error)
 	KillAgent(context.Context, string) error
+	FinishWorkflowAgent(context.Context, store.WorkflowStepAttempt) error
 	PromptAgent(context.Context, string, string) error
 }
 
@@ -41,6 +42,21 @@ func (r *WorkflowAgentRunner) SpawnWorkflowAgent(ctx context.Context, taskID str
 }
 func (r *WorkflowAgentRunner) KillAgent(ctx context.Context, taskID string) error {
 	return r.agents.KillAgent(ctx, taskID)
+}
+func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt store.WorkflowStepAttempt) error {
+	if attempt.AgentSessionID == nil {
+		return nil
+	}
+	if err := r.store.FinishAgentSession(ctx, *attempt.AgentSessionID); err != nil && err != store.ErrNotFound {
+		return err
+	}
+	if err := r.store.DeleteAgentSession(ctx, *attempt.AgentSessionID); err != nil {
+		return err
+	}
+	if tmuxer, ok := r.agents.(interface{ Tmux() TmuxManager }); ok && attempt.TmuxSession != "" {
+		tmuxer.Tmux().Kill(attempt.TmuxSession)
+	}
+	return nil
 }
 func (r *WorkflowAgentRunner) PromptAgent(ctx context.Context, taskID, prompt string) error {
 	session, err := r.store.GetAgentSessionByTaskID(ctx, taskID)
@@ -89,6 +105,9 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 
 func (e *AgentRunExecutor) Cancel(ctx context.Context, attempt store.WorkflowStepAttempt) error {
 	return e.agents.KillAgent(ctx, attempt.TaskID)
+}
+func (e *AgentRunExecutor) Finish(ctx context.Context, attempt store.WorkflowStepAttempt) error {
+	return e.agents.FinishWorkflowAgent(ctx, attempt)
 }
 func (e *AgentRunExecutor) Prompt(ctx context.Context, attempt store.WorkflowStepAttempt, prompt string) error {
 	return e.agents.PromptAgent(ctx, attempt.TaskID, prompt)

@@ -378,6 +378,17 @@ func (s *Store) ResetWorkflowStepForRetry(ctx context.Context, runID, stepID str
 	})
 }
 
+func (s *Store) GetWorkflowArtifactByAttemptOutput(ctx context.Context, attemptID, outputKey string) (*WorkflowArtifact, error) {
+	var artifact WorkflowArtifact
+	if err := s.db.GetContext(ctx, &artifact, "SELECT * FROM workflow_artifacts WHERE attempt_id = ? AND output_key = ?", attemptID, outputKey); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &artifact, nil
+}
+
 func (s *Store) GetWorkflowArtifact(ctx context.Context, id string) (*WorkflowArtifact, error) {
 	var artifact WorkflowArtifact
 	if err := s.db.GetContext(ctx, &artifact, "SELECT * FROM workflow_artifacts WHERE id = ?", id); err != nil {

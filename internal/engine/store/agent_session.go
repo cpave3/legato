@@ -133,6 +133,25 @@ func (s *Store) GetAgentActivityCounts(ctx context.Context, excludeTaskID string
 	return working, waiting, idle, nil
 }
 
+func (s *Store) FinishAgentSession(ctx context.Context, id int) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE agent_sessions SET status = 'dead', ended_at = datetime('now') WHERE id = ? AND status = 'running'`, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+func (s *Store) DeleteAgentSession(ctx context.Context, id int) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM agent_sessions WHERE id = ?", id)
+	return err
+}
+
 func (s *Store) DeleteDeadAgentSessions(ctx context.Context, taskID string) error {
 	_, err := s.db.ExecContext(ctx, `
 		DELETE FROM agent_sessions WHERE task_id = ? AND status != 'running'`, taskID)
