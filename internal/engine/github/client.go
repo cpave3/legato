@@ -21,6 +21,8 @@ type PRStatus struct {
 	CheckStatus    string // pass, fail, pending, ""
 	CommentCount   int
 	HeadBranch     string // branch name (populated by FetchPRByNumber)
+	HeadSHA        string // exact head commit (populated by FetchPRByNumber)
+	HeadRepo       string // head owner/repo, including fork identity
 	CreatedAt      string // RFC3339 PR creation time (populated by list/commit queries)
 }
 
@@ -279,7 +281,11 @@ func (c *Client) FetchPRByNumber(owner, repo string, prNumber int) (*PRStatus, e
 		Comments       int    `json:"comments"`
 		ReviewComments int    `json:"review_comments"`
 		Head           struct {
-			Ref string `json:"ref"`
+			Ref  string `json:"ref"`
+			SHA  string `json:"sha"`
+			Repo struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
 		} `json:"head"`
 	}
 	if err := json.Unmarshal(out, &raw); err != nil {
@@ -301,6 +307,8 @@ func (c *Client) FetchPRByNumber(owner, repo string, prNumber int) (*PRStatus, e
 		CheckStatus:  "",
 		CommentCount: raw.Comments + raw.ReviewComments,
 		HeadBranch:   raw.Head.Ref,
+		HeadSHA:      raw.Head.SHA,
+		HeadRepo:     raw.Head.Repo.FullName,
 	}, nil
 }
 

@@ -423,7 +423,7 @@ func TestFetchCommentCountZero(t *testing.T) {
 }
 
 func TestFetchPRByNumber(t *testing.T) {
-	output := `{"number":42,"title":"Add auth","state":"open","draft":false,"merged":false,"html_url":"https://github.com/owner/repo/pull/42","comments":2,"review_comments":3,"head":{"ref":"feature/auth"}}`
+	output := `{"number":42,"title":"Add auth","state":"open","draft":false,"merged":false,"html_url":"https://github.com/owner/repo/pull/42","comments":2,"review_comments":3,"head":{"ref":"feature/auth","sha":"abc123","repo":{"full_name":"contributor/repo"}}}`
 	c := newTestClient(output, 0)
 
 	status, err := c.FetchPRByNumber("owner", "repo", 42)
@@ -444,6 +444,9 @@ func TestFetchPRByNumber(t *testing.T) {
 	}
 	if status.HeadBranch != "feature/auth" {
 		t.Errorf("HeadBranch = %q, want feature/auth", status.HeadBranch)
+	}
+	if status.HeadSHA != "abc123" || status.HeadRepo != "contributor/repo" {
+		t.Errorf("head identity = %q at %q", status.HeadSHA, status.HeadRepo)
 	}
 	if status.CommentCount != 5 {
 		t.Errorf("CommentCount = %d, want 5", status.CommentCount)

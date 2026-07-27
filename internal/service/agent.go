@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -71,18 +72,20 @@ type DurationData struct {
 // to inject role tags, scope-based conflict checks, a role system prompt, and
 // the per-worker initial brief that the launch command delivers.
 type AgentSpawnOptions struct {
-	Role                 string   // free-form role label (e.g. "conductor", "backend"); "" for non-swarm
-	ParentTaskID         string   // parent task ID when spawning a swarm sub-task
-	SubtaskID            string   // sub-task ID being assigned
-	Scope                []string // scope globs for conflict checks
-	WorkingDir           string   // override for tmux session working directory; falls back to agent service workDir
-	AgentKind            string   // adapter name to use; "" → default adapter
-	Tier                 string   // adapter tier name (selects per-tier launch_args from cfg.Adapters.<kind>.tiers); "" → base launch_args only
-	Brief                string   // the per-worker initial brief; conductors leave this empty
-	StrictScope          bool     // when true, scope conflicts hard-block the spawn; otherwise advisory
-	ChimeraSessionID     string   // requested or previously stored Chimera session ID
-	ChimeraSessionExists string   // Chimera collision policy: new, resume, or error
-	Ephemeral            bool     // internal: omit task-linked session identity
+	Role                 string            // free-form role label (e.g. "conductor", "backend"); "" for non-swarm
+	ParentTaskID         string            // parent task ID when spawning a swarm sub-task
+	SubtaskID            string            // sub-task ID being assigned
+	Scope                []string          // scope globs for conflict checks
+	WorkingDir           string            // override for tmux session working directory; falls back to agent service workDir
+	AgentKind            string            // adapter name to use; "" → default adapter
+	Tier                 string            // adapter tier name (selects per-tier launch_args from cfg.Adapters.<kind>.tiers); "" → base launch_args only
+	Brief                string            // the per-worker initial brief; conductors leave this empty
+	StrictScope          bool              // when true, scope conflicts hard-block the spawn; otherwise advisory
+	ChimeraSessionID     string            // requested or previously stored Chimera session ID
+	ChimeraSessionExists string            // Chimera collision policy: new, resume, or error
+	Ephemeral            bool              // internal: omit task-linked session identity
+	Assignment           string            // standalone workflow assignment; distinct from swarm role prompts
+	ExtraEnv             map[string]string // trusted Legato-owned workflow identity values
 }
 
 // AgentSpawnConflict describes a scope-overlap warning encountered at spawn time.
@@ -367,6 +370,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if opt.Ephemeral {
 		envMap["LEGATO_TASK_EPHEMERAL"] = "1"
 	}
+	for key, value := range opt.ExtraEnv {
+		if strings.HasPrefix(key, "LEGATO_WORKFLOW_") {
+			envMap[key] = value
+		}
+	}
 	if adapter != nil {
 		for k, v := range adapter.EnvVars(taskID, a.socketPath) {
 			envMap[k] = v
@@ -409,8 +417,15 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	} else {
 		rolePrompt = generalPromptForAdapter(adapter)
 	}
-	if rolePrompt != "" || opt.Brief != "" {
-		rolePath, briefPath, perr := writeAgentPromptFiles(taskID, rolePrompt, opt.Brief)
+	assignment := opt.Brief
+	if opt.Assignment != "" {
+		assignment = opt.Assignment
+		if rolePrompt == "" {
+			rolePrompt = opt.Assignment
+		}
+	}
+	if rolePrompt != "" || assignment != "" {
+		rolePath, briefPath, perr := writeAgentPromptFiles(taskID, rolePrompt, assignment)
 		if perr != nil {
 			// Non-fatal — fall back to a session without prompt files. The
 			// adapter's LaunchCommand will see no LEGATO_*_FILE env and skip
@@ -597,6 +612,13 @@ func (a *agentService) collectSiblingConflicts(ctx context.Context, opt AgentSpa
 		}
 	}
 	return out, nil
+}
+
+func (a *agentService) SpawnWorkflowAgent(ctx context.Context, taskID string, opt AgentSpawnOptions) (*store.AgentSession, error) {
+	if err := a.SpawnAgent(ctx, taskID, 0, 0, opt); err != nil {
+		return nil, err
+	}
+	return a.store.GetAgentSessionByTaskID(ctx, taskID)
 }
 
 func (a *agentService) SpawnEphemeralAgent(ctx context.Context, title string, width, height int, opts ...AgentSpawnOptions) error {
