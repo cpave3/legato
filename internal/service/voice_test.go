@@ -12,7 +12,7 @@ import (
 // stubRecorder is a test double for the audio recorder interface.
 type stubRecorder struct {
 	recording bool
-	levels    []float64
+	levels   []float64
 	audioPath string
 	audioData []byte
 	startErr  error
@@ -36,7 +36,7 @@ func (s *stubRecorder) Stop() (string, error) {
 	return s.audioPath, nil
 }
 func (s *stubRecorder) Levels() []float64 { return s.levels }
-func (s *stubRecorder) Cleanup()          {}
+func (s *stubRecorder) Cleanup()            {}
 
 // stubWhisperClient is a test double for the whisper transcription client.
 type stubWhisperClient struct {
@@ -58,7 +58,7 @@ func TestVoiceService_DeliverNoAutoSendSendsTextOnly(t *testing.T) {
 	vs := &VoiceService{
 		tmux:     mt,
 		agents:   nil,
-		autoSend: false,
+		autoSend:  false,
 	}
 
 	err := vs.Deliver(context.Background(), "legato-TASK-1", "shell", "hello agent", false)
@@ -90,7 +90,7 @@ func TestVoiceService_DeliverAutoSendDefaultOneEnter(t *testing.T) {
 	vs := &VoiceService{
 		tmux:     mt,
 		agents:   agents,
-		autoSend: true,
+		autoSend:  true,
 	}
 
 	err := vs.Deliver(context.Background(), "legato-TASK-1", "claude-code", "hello agent", true)
@@ -122,7 +122,7 @@ func TestVoiceService_DeliverAutoSendCodexTwoEnters(t *testing.T) {
 	vs := &VoiceService{
 		tmux:     mt,
 		agents:   agents,
-		autoSend: true,
+		autoSend:  true,
 	}
 
 	err := vs.Deliver(context.Background(), "legato-TASK-1", "codex", "hello agent", true)

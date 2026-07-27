@@ -20,9 +20,9 @@ func (a *multiKeyAdapter) InterruptKeys() []string { return []string{"Escape", "
 // implement InterruptAdapter. Used to verify graceful degradation.
 type plainAdapter struct{ name string }
 
-func (a *plainAdapter) Name() string                                    { return a.name }
-func (a *plainAdapter) InstallHooks(string) error                       { return nil }
-func (a *plainAdapter) UninstallHooks(string) error                     { return nil }
+func (a *plainAdapter) Name() string                                 { return a.name }
+func (a *plainAdapter) InstallHooks(string) error                    { return nil }
+func (a *plainAdapter) UninstallHooks(string) error                  { return nil }
 func (a *plainAdapter) EnvVars(taskID, socket string) map[string]string { return nil }
 
 func TestMessageUrgentSendsInterruptKeys(t *testing.T) {
