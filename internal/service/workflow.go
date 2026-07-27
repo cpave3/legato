@@ -97,6 +97,26 @@ func (s *WorkflowService) ListRuns(ctx context.Context, status string, limit int
 }
 
 func (s *WorkflowService) Fail(ctx context.Context, runID, stepID, attemptID, reason string) (*store.WorkflowRunView, error) {
+	view, err := s.store.GetWorkflowRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	var active *store.WorkflowStepAttempt
+	for i := range view.Attempts {
+		attempt := &view.Attempts[i]
+		if attempt.ID == attemptID && attempt.StepID == stepID && (attempt.Status == "running" || attempt.Status == "waiting_agent") {
+			active = attempt
+			break
+		}
+	}
+	if active == nil {
+		return nil, store.ErrWorkflowStateConflict
+	}
+	if executor := s.executors[active.ExecutorType]; executor != nil {
+		if err := executor.Cancel(ctx, *active); err != nil {
+			return nil, fmt.Errorf("stopping failed workflow agent: %w", err)
+		}
+	}
 	if err := s.store.FailWorkflowStep(ctx, runID, stepID, attemptID, reason); err != nil {
 		return nil, err
 	}
