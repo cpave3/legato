@@ -84,9 +84,19 @@ func (s *WorkflowService) Start(ctx context.Context, definition *workflowengine.
 		return nil, err
 	}
 	if err := s.advance(ctx, definition, inputs, runID, taskID, 0, map[string]map[string]any{}); err != nil {
-		return nil, err
+		// The run is already durable and the executor records its failure.
+		// Return that visible run instead of encouraging an accidental duplicate launch.
+		view, loadErr := s.store.GetWorkflowRun(ctx, runID)
+		if loadErr != nil {
+			return nil, err
+		}
+		return view, nil
 	}
 	return s.store.GetWorkflowRun(ctx, runID)
+}
+
+func (s *WorkflowService) Artifact(ctx context.Context, artifactID string) (*store.WorkflowArtifact, error) {
+	return s.store.GetWorkflowArtifact(ctx, artifactID)
 }
 
 func (s *WorkflowService) Show(ctx context.Context, runID string) (*store.WorkflowRunView, error) {

@@ -1,3 +1,23 @@
+## Workflow repository presets
+
+Named repository presets reduce repeated workflow input without preventing overrides:
+
+```yaml
+workflows:
+  repositories:
+    - name: Legato
+      repo: cpave3/legato
+      primary_dir: /home/cameron/Projects/legato
+      base_branch: main
+```
+
+- `name`: dropdown label.
+- `repo`: GitHub `owner/repository` value.
+- `primary_dir`: absolute path to the primary local checkout.
+- `base_branch`: optional default branch.
+
+Selecting a preset in the workflow launch dialog prefills matching inputs. Every field remains editable, and **Custom** allows fully manual values.
+
 ## Config
 
 - Config file location: `$LEGATO_CONFIG` > `$XDG_CONFIG_HOME/legato/config.yaml` > `~/.config/legato/config.yaml`

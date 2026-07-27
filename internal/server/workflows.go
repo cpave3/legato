@@ -22,6 +22,7 @@ type WorkflowService interface {
 	Show(context.Context, string) (*store.WorkflowRunView, error)
 	Cancel(context.Context, string, string) (*store.WorkflowRunView, error)
 	Retry(context.Context, string, string) (*store.WorkflowRunView, error)
+	Artifact(context.Context, string) (*store.WorkflowArtifact, error)
 }
 
 func (s *Server) workflowsHandler() http.HandlerFunc {
@@ -158,31 +159,18 @@ func (s *Server) workflowArtifactHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		// Resolve through run views to keep managed paths private from the API.
-		runs, err := s.workflows.ListRuns(r.Context(), "", 1000)
+		artifact, err := s.workflows.Artifact(r.Context(), r.PathValue("artifact_id"))
 		if err != nil {
-			http.Error(w, err.Error(), 500)
+			http.Error(w, "artifact not found", http.StatusNotFound)
 			return
 		}
-		for _, run := range runs {
-			view, _ := s.workflows.Show(r.Context(), run.ID)
-			if view == nil {
-				continue
-			}
-			for _, artifact := range view.Artifacts {
-				if artifact.ID == r.PathValue("artifact_id") {
-					if artifact.MediaType == "text/markdown" || artifact.MediaType == "text/plain" {
-						w.Header().Set("Content-Type", artifact.MediaType)
-					} else {
-						w.Header().Set("Content-Type", "application/octet-stream")
-						w.Header().Set("Content-Disposition", "attachment")
-					}
-					http.ServeFile(w, r, artifact.ManagedPath)
-					return
-				}
-			}
+		if artifact.MediaType == "text/markdown" || artifact.MediaType == "text/plain" {
+			w.Header().Set("Content-Type", artifact.MediaType)
+		} else {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Disposition", "attachment")
 		}
-		http.Error(w, "artifact not found", 404)
+		http.ServeFile(w, r, artifact.ManagedPath)
 	}
 }
 

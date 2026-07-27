@@ -35,6 +35,7 @@ func NewWorkflowOutputCollector(s *store.Store, dataDir string) *WorkflowOutputC
 
 func (c *WorkflowOutputCollector) Collect(ctx context.Context, req WorkflowOutputRequest) (map[string]any, error) {
 	result := make(map[string]any, len(req.Declared))
+	// Validate all arguments before any file or database side effect.
 	for key, spec := range req.Declared {
 		if spec.Type == "file" {
 			relative, ok := req.Artifacts[key]
@@ -44,11 +45,9 @@ func (c *WorkflowOutputCollector) Collect(ctx context.Context, req WorkflowOutpu
 			if filepath.Clean(relative) != filepath.Clean(spec.Path) {
 				return nil, fmt.Errorf("artifact output %q must use declared path %q", key, spec.Path)
 			}
-			artifact, err := c.collectFile(ctx, req, key, spec, relative)
-			if err != nil {
+			if err := validateWorkflowArtifactPath(req.WorkingDir, relative); err != nil {
 				return nil, fmt.Errorf("artifact %q: %w", key, err)
 			}
-			result[key] = map[string]any{"artifact_id": artifact.ID, "path": artifact.ManagedPath, "media_type": artifact.MediaType, "digest": artifact.Digest}
 			continue
 		}
 		raw, ok := req.Values[key]
@@ -60,6 +59,22 @@ func (c *WorkflowOutputCollector) Collect(ctx context.Context, req WorkflowOutpu
 			return nil, fmt.Errorf("output %q: %w", key, err)
 		}
 		result[key] = value
+	}
+	collected := make([]*store.WorkflowArtifact, 0)
+	for key, spec := range req.Declared {
+		if spec.Type != "file" {
+			continue
+		}
+		artifact, err := c.collectFile(ctx, req, key, spec, req.Artifacts[key])
+		if err != nil {
+			for _, previous := range collected {
+				_ = os.Remove(previous.ManagedPath)
+			}
+			_ = c.store.DeleteWorkflowArtifactsByAttempt(ctx, req.AttemptID)
+			return nil, fmt.Errorf("artifact %q: %w", key, err)
+		}
+		collected = append(collected, artifact)
+		result[key] = map[string]any{"artifact_id": artifact.ID, "path": artifact.ManagedPath, "media_type": artifact.MediaType, "digest": artifact.Digest}
 	}
 	for key := range req.Values {
 		if _, ok := req.Declared[key]; !ok {
@@ -128,6 +143,35 @@ func workflowJSONDepth(value any) int {
 		return 1
 	}
 	return max + 1
+}
+
+func validateWorkflowArtifactPath(workingDir, relative string) error {
+	if filepath.IsAbs(relative) || filepath.Clean(relative) != relative || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("path must stay within the working directory")
+	}
+	root, err := filepath.EvalSymlinks(workingDir)
+	if err != nil {
+		return err
+	}
+	source, err := filepath.EvalSymlinks(filepath.Join(root, relative))
+	if err != nil {
+		return err
+	}
+	pathRel, err := filepath.Rel(root, source)
+	if err != nil || pathRel == ".." || strings.HasPrefix(pathRel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("path escapes the working directory")
+	}
+	info, err := os.Stat(source)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("path is not a regular file")
+	}
+	if info.Size() > maxWorkflowOutputBytes {
+		return fmt.Errorf("file exceeds size limit")
+	}
+	return nil
 }
 
 func (c *WorkflowOutputCollector) collectFile(ctx context.Context, req WorkflowOutputRequest, key string, spec workflowengine.Output, relative string) (*store.WorkflowArtifact, error) {

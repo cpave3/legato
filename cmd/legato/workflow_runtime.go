@@ -30,37 +30,37 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 		}
 		prSvc = service.NewPRTrackingService(db, bus, client, 10*time.Minute, 10*time.Minute)
 	}
-	_ = existingAgents // workflow assignments require configured adapter semantics below
-	mgr, err := tmux.New(tmux.Options{})
-	if err != nil {
-		return nil, fmt.Errorf("agent workflows require tmux: %w", err)
-	}
-	binary, _ := os.Executable()
-	if binary == "" {
-		binary = "legato"
-	}
-	claude := hooks.NewClaudeCodeAdapter(binary)
-	chimera := hooks.NewChimeraAdapter(binary)
-	codex := hooks.NewCodexAdapter(binary)
-	configureWorkflowAdapter := func(adapter interface {
-		Name() string
-		SetLaunchArgs([]string)
-		SetTiers(map[string][]string)
-	}) {
-		if configured, ok := cfg.Adapters[adapter.Name()]; ok {
+	agentSvc := existingAgents
+	if agentSvc == nil {
+		mgr, err := tmux.New(tmux.Options{})
+		if err != nil {
+			return nil, fmt.Errorf("agent workflows require tmux: %w", err)
+		}
+		binary, _ := os.Executable()
+		if binary == "" {
+			binary = "legato"
+		}
+		claude := hooks.NewClaudeCodeAdapter(binary)
+		chimera := hooks.NewChimeraAdapter(binary)
+		codex := hooks.NewCodexAdapter(binary)
+		configure := func(adapter interface {
+			Name() string
+			SetLaunchArgs([]string)
+			SetTiers(map[string][]string)
+		}) { if configured, ok := cfg.Adapters[adapter.Name()]; ok {
 			adapter.SetLaunchArgs(configured.LaunchArgs)
 			adapter.SetTiers(adapterTierLaunchArgs(configured))
-		}
+		} }
+		configure(claude)
+		configure(chimera)
+		configure(codex)
+		adapters := map[string]service.AIToolAdapter{claude.Name(): claude, chimera.Name(): chimera, codex.Name(): codex}
+		agentSvc = service.NewAgentService(db, mgr, workDir, service.AgentServiceOptions{Adapter: chimera, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions})
 	}
-	configureWorkflowAdapter(claude)
-	configureWorkflowAdapter(chimera)
-	configureWorkflowAdapter(codex)
-	adapters := map[string]service.AIToolAdapter{claude.Name(): claude, chimera.Name(): chimera, codex.Name(): codex}
-	agentSvc := service.NewAgentService(db, mgr, workDir, service.AgentServiceOptions{Adapter: chimera, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions})
 	runner := service.NewWorkflowAgentRunner(agentSvc, db)
-	executors := []service.WorkflowExecutor{
-		service.NewGitHubPRPrepareExecutor(prSvc, gitengine.ExactFetcher{}, service.NewWorktreeWorkflow(db, worktree.NewRunner("yg")), prSvc),
-		service.NewAgentRunExecutor(runner),
+	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner)}
+	if cfg.Worktrees.Yggdrasil.Enabled {
+		executors = append(executors, service.NewGitHubPRPrepareExecutor(prSvc, gitengine.ExactFetcher{}, service.NewWorktreeWorkflow(db, worktree.NewRunner("yg")), prSvc))
 	}
 	dataDir := filepath.Join(filepath.Dir(config.ResolveDBPath(cfg)), "artifacts")
 	return service.NewWorkflowServiceWithOutputs(db, executors, dataDir), nil

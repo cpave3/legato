@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
 
 func TestWorkflowsEndpointReturnsDefinitionsAndValidationErrors(t *testing.T) {
@@ -18,11 +20,11 @@ func TestWorkflowsEndpointReturnsDefinitionsAndValidationErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := New(nil, nil, nil, "")
-	s.SetWorkflowService(nil, dir, "")
+	s.SetWorkflowService(nil, dir, "", workflowengine.RepositoryPreset{Name: "Legato", Repo: "cpave3/legato", PrimaryDir: "/projects/legato", BaseBranch: "main"})
 	req := httptest.NewRequest(http.MethodGet, "/api/workflows", nil)
 	rec := httptest.NewRecorder()
 	s.server.Handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"review"`) || !strings.Contains(rec.Body.String(), `broken.yaml`) {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"review"`) || !strings.Contains(rec.Body.String(), `broken.yaml`) || !strings.Contains(rec.Body.String(), `"repo":"cpave3/legato"`) || !strings.Contains(rec.Body.String(), `"base_branch":"main"`) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

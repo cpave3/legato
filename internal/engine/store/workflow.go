@@ -298,6 +298,22 @@ func (s *Store) ResetWorkflowStepForRetry(ctx context.Context, runID, stepID str
 	})
 }
 
+func (s *Store) GetWorkflowArtifact(ctx context.Context, id string) (*WorkflowArtifact, error) {
+	var artifact WorkflowArtifact
+	if err := s.db.GetContext(ctx, &artifact, "SELECT * FROM workflow_artifacts WHERE id = ?", id); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &artifact, nil
+}
+
+func (s *Store) DeleteWorkflowArtifactsByAttempt(ctx context.Context, attemptID string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM workflow_artifacts WHERE attempt_id = ?", attemptID)
+	return err
+}
+
 func (s *Store) InsertWorkflowArtifact(ctx context.Context, artifact WorkflowArtifact) error {
 	_, err := s.db.NamedExecContext(ctx, `INSERT INTO workflow_artifacts
 		(id, run_id, step_id, attempt_id, task_id, output_key, managed_path, original_path, media_type, size_bytes, digest)
