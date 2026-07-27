@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -17,11 +18,12 @@ func (f *fakeWorkflowAgentService) SpawnWorkflowAgent(_ context.Context, taskID 
 	f.taskID, f.opts = taskID, opts
 	return &store.AgentSession{ID: 7, TaskID: taskID, TmuxSession: "legato-" + taskID, AgentKind: opts.AgentKind, Status: "running"}, nil
 }
-func (f *fakeWorkflowAgentService) KillAgent(context.Context, string) error { return nil }
+func (f *fakeWorkflowAgentService) KillAgent(context.Context, string) error           { return nil }
+func (f *fakeWorkflowAgentService) PromptAgent(context.Context, string, string) error { return nil }
 
 func TestAgentRunExecutorLaunchesExplicitWorkflowAssignment(t *testing.T) {
 	agents := &fakeWorkflowAgentService{}
-	executor := NewAgentRunExecutor(agents)
+	executor := NewAgentRunExecutor(agents, "/opt/legato current/legato")
 	result, err := executor.Start(context.Background(), ResolvedWorkflowStep{
 		RunID: "wr-1", AttemptID: "wa-1", TaskID: "task-1", StepID: "review", Type: "agent.run",
 		With:    map[string]any{"agent": "chimera", "tier": "large", "working_dir": "/tmp/wt", "prompt": "Run 3-tier-review"},
@@ -35,5 +37,8 @@ func TestAgentRunExecutorLaunchesExplicitWorkflowAssignment(t *testing.T) {
 	}
 	if agents.opts.ExtraEnv["LEGATO_WORKFLOW_RUN_ID"] != "wr-1" || agents.opts.WorkingDir != "/tmp/wt" || agents.opts.AgentKind != "chimera" {
 		t.Fatalf("opts = %+v", agents.opts)
+	}
+	if !strings.Contains(agents.opts.Assignment, "'/opt/legato current/legato' workflow step complete") {
+		t.Fatalf("assignment lacks exact callback binary: %s", agents.opts.Assignment)
 	}
 }

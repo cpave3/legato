@@ -154,7 +154,7 @@ The **Workflows** destination includes:
 - managed artifacts with Markdown preview/download;
 - retry and cancellation controls.
 
-Run views update through `workflow_changed` WebSocket events. Mobile layouts use stacked step cards, contained JSON/code scrolling, touch-sized actions, and safe-area navigation spacing.
+Run views update through `workflow_changed` and agent activity WebSocket events. An unfinished `agent.run` step is marked as needing attention when its session becomes waiting, idle, or disappears. The Workflows navigation item shows a red count, run cards explain the stall, and the run page offers **Prompt to continue** for a live stalled agent. Legato does not prompt automatically, avoiding duplicate or unsafe agent work. Mobile layouts use stacked step cards, contained JSON/code scrolling, touch-sized actions, and safe-area navigation spacing.
 
 ## Extension model
 

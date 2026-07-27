@@ -47,18 +47,21 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 			Name() string
 			SetLaunchArgs([]string)
 			SetTiers(map[string][]string)
-		}) { if configured, ok := cfg.Adapters[adapter.Name()]; ok {
-			adapter.SetLaunchArgs(configured.LaunchArgs)
-			adapter.SetTiers(adapterTierLaunchArgs(configured))
-		} }
+		}) {
+			if configured, ok := cfg.Adapters[adapter.Name()]; ok {
+				adapter.SetLaunchArgs(configured.LaunchArgs)
+				adapter.SetTiers(adapterTierLaunchArgs(configured))
+			}
+		}
 		configure(claude)
 		configure(chimera)
 		configure(codex)
 		adapters := map[string]service.AIToolAdapter{claude.Name(): claude, chimera.Name(): chimera, codex.Name(): codex}
 		agentSvc = service.NewAgentService(db, mgr, workDir, service.AgentServiceOptions{Adapter: chimera, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions})
 	}
-	runner := service.NewWorkflowAgentRunner(agentSvc, db)
-	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner)}
+	binary, _ := os.Executable()
+	runner := service.NewWorkflowAgentRunner(agentSvc, db, binary)
+	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary)}
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		executors = append(executors, service.NewGitHubPRPrepareExecutor(prSvc, gitengine.ExactFetcher{}, service.NewWorktreeWorkflow(db, worktree.NewRunner("yg")), prSvc))
 	}

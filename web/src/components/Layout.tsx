@@ -8,6 +8,7 @@ import { cn } from "../lib/utils"
 import { useReviewQueue } from "../hooks/useReview"
 import { usePlanQueue } from "../hooks/usePlan"
 import { AgentSelectionProvider } from "../hooks/useAgentSelection"
+import { useWorkflowRuns } from "../hooks/useWorkflow"
 
 export function Layout() {
   const { connected } = useWebSocket()
@@ -16,6 +17,8 @@ export function Layout() {
   const reviewCount = reviewQueue?.length ?? 0
   const { data: planQueue } = usePlanQueue()
   const planCount = planQueue?.length ?? 0
+  const { data: workflowRuns } = useWorkflowRuns()
+  const workflowAttentionCount = (workflowRuns??[]).filter(run=>run.needs_attention).length
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const switcherRef = useRef<HTMLDivElement>(null)
 
@@ -37,7 +40,7 @@ export function Layout() {
     { to: "/board", label: "Board", icon: LayoutGrid },
     { to: "/review", label: "Review", icon: ListChecks, count: reviewCount, badge: "bg-amber-500" },
     { to: "/plans", label: "Plans", icon: ClipboardList, count: planCount, badge: "bg-indigo-400" },
-    { to: "/workflows", label: "Flows", icon: Workflow },
+    { to: "/workflows", label: "Flows", icon: Workflow, count: workflowAttentionCount, badge: "bg-red-400" },
     { to: "/settings", label: "Settings", icon: Settings },
   ]
 

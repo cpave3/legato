@@ -26,6 +26,8 @@ type WorkflowRun struct {
 	CreatedAt        string  `db:"created_at" json:"created_at"`
 	StartedAt        *string `db:"started_at" json:"started_at,omitempty"`
 	CompletedAt      *string `db:"completed_at" json:"completed_at,omitempty"`
+	NeedsAttention   bool    `db:"-" json:"needs_attention,omitempty"`
+	AttentionReason  string  `db:"-" json:"attention_reason,omitempty"`
 }
 
 type WorkflowStepRun struct {
@@ -45,21 +47,24 @@ type WorkflowStepRun struct {
 }
 
 type WorkflowStepAttempt struct {
-	ID             string  `db:"id" json:"id"`
-	RunID          string  `db:"run_id" json:"run_id"`
-	StepID         string  `db:"step_id" json:"step_id"`
-	AttemptNumber  int     `db:"attempt_number" json:"attempt_number"`
-	ExecutorType   string  `db:"executor_type" json:"executor_type"`
-	AgentSessionID *int    `db:"agent_session_id" json:"agent_session_id,omitempty"`
-	TaskID         string  `db:"task_id" json:"task_id,omitempty"`
-	TmuxSession    string  `db:"tmux_session" json:"tmux_session,omitempty"`
-	AgentKind      string  `db:"agent_kind" json:"agent_kind,omitempty"`
-	Tier           string  `db:"tier" json:"tier,omitempty"`
-	WorkingDir     string  `db:"working_dir" json:"working_dir,omitempty"`
-	Status         string  `db:"status" json:"status"`
-	Error          string  `db:"error" json:"error,omitempty"`
-	StartedAt      string  `db:"started_at" json:"started_at"`
-	EndedAt        *string `db:"ended_at" json:"ended_at,omitempty"`
+	ID              string  `db:"id" json:"id"`
+	RunID           string  `db:"run_id" json:"run_id"`
+	StepID          string  `db:"step_id" json:"step_id"`
+	AttemptNumber   int     `db:"attempt_number" json:"attempt_number"`
+	ExecutorType    string  `db:"executor_type" json:"executor_type"`
+	AgentSessionID  *int    `db:"agent_session_id" json:"agent_session_id,omitempty"`
+	TaskID          string  `db:"task_id" json:"task_id,omitempty"`
+	TmuxSession     string  `db:"tmux_session" json:"tmux_session,omitempty"`
+	AgentKind       string  `db:"agent_kind" json:"agent_kind,omitempty"`
+	Tier            string  `db:"tier" json:"tier,omitempty"`
+	WorkingDir      string  `db:"working_dir" json:"working_dir,omitempty"`
+	Status          string  `db:"status" json:"status"`
+	Error           string  `db:"error" json:"error,omitempty"`
+	StartedAt       string  `db:"started_at" json:"started_at"`
+	EndedAt         *string `db:"ended_at" json:"ended_at,omitempty"`
+	AgentActivity   string  `db:"-" json:"agent_activity,omitempty"`
+	NeedsAttention  bool    `db:"-" json:"needs_attention,omitempty"`
+	AttentionReason string  `db:"-" json:"attention_reason,omitempty"`
 }
 
 type WorkflowArtifact struct {

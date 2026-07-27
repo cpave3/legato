@@ -22,6 +22,7 @@ type WorkflowService interface {
 	Show(context.Context, string) (*store.WorkflowRunView, error)
 	Cancel(context.Context, string, string) (*store.WorkflowRunView, error)
 	Retry(context.Context, string, string) (*store.WorkflowRunView, error)
+	PromptStep(context.Context, string, string) (*store.WorkflowRunView, error)
 	Artifact(context.Context, string) (*store.WorkflowArtifact, error)
 }
 
@@ -149,6 +150,26 @@ func (s *Server) workflowRetryHandler() http.HandlerFunc {
 		s.writeJSON(w, 200, view)
 	}
 }
+func (s *Server) workflowPromptHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.workflows == nil {
+			http.Error(w, "workflow service unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		view, err := s.workflows.PromptStep(r.Context(), r.PathValue("run_id"), r.PathValue("step_id"))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		s.NotifyWorkflowChanged(view.Run.ID, view.Run.CurrentStepID)
+		s.writeJSON(w, http.StatusOK, view)
+	}
+}
+
 func (s *Server) workflowArtifactHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.workflows == nil {

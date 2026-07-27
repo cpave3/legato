@@ -100,10 +100,85 @@ func (s *WorkflowService) Artifact(ctx context.Context, artifactID string) (*sto
 }
 
 func (s *WorkflowService) Show(ctx context.Context, runID string) (*store.WorkflowRunView, error) {
-	return s.store.GetWorkflowRun(ctx, runID)
+	view, err := s.store.GetWorkflowRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	s.enrichWorkflowAttention(ctx, view)
+	return view, nil
+}
+
+func (s *WorkflowService) enrichWorkflowAttention(ctx context.Context, view *store.WorkflowRunView) {
+	for i := range view.Attempts {
+		attempt := &view.Attempts[i]
+		if attempt.ExecutorType != "agent.run" || attempt.Status != "waiting_agent" {
+			continue
+		}
+		session, err := s.store.GetAgentSessionByTaskID(ctx, attempt.TaskID)
+		if err != nil {
+			attempt.NeedsAttention = true
+			attempt.AttentionReason = "agent session ended before step completion"
+			continue
+		}
+		attempt.AgentActivity = session.Activity
+		if session.Activity != "working" {
+			attempt.NeedsAttention = true
+			if session.Activity == "waiting" {
+				attempt.AttentionReason = "agent waiting for input"
+			} else {
+				attempt.AttentionReason = "agent idle before step completion"
+			}
+		}
+	}
 }
 func (s *WorkflowService) ListRuns(ctx context.Context, status string, limit int) ([]store.WorkflowRun, error) {
-	return s.store.ListWorkflowRuns(ctx, status, limit)
+	runs, err := s.store.ListWorkflowRuns(ctx, status, limit)
+	if err != nil {
+		return nil, err
+	}
+	for i := range runs {
+		if runs[i].Status != "running" {
+			continue
+		}
+		view, viewErr := s.store.GetWorkflowRun(ctx, runs[i].ID)
+		if viewErr != nil {
+			continue
+		}
+		s.enrichWorkflowAttention(ctx, view)
+		for _, attempt := range view.Attempts {
+			if attempt.NeedsAttention {
+				runs[i].NeedsAttention = true
+				runs[i].AttentionReason = attempt.AttentionReason
+				break
+			}
+		}
+	}
+	return runs, nil
+}
+
+func (s *WorkflowService) PromptStep(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, error) {
+	view, err := s.Show(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	for _, attempt := range view.Attempts {
+		if attempt.StepID != stepID || !attempt.NeedsAttention || attempt.Status != "waiting_agent" {
+			continue
+		}
+		executor := s.executors[attempt.ExecutorType]
+		prompter, ok := executor.(interface {
+			Prompt(context.Context, store.WorkflowStepAttempt, string) error
+		})
+		if !ok {
+			return nil, fmt.Errorf("workflow step %q cannot be prompted", stepID)
+		}
+		message := "Continue your workflow assignment now. The step is not complete; finish the declared outputs and run the exact completion command from your assignment."
+		if err := prompter.Prompt(ctx, attempt, message); err != nil {
+			return nil, err
+		}
+		return s.Show(ctx, runID)
+	}
+	return nil, fmt.Errorf("workflow step %q does not currently need attention", stepID)
 }
 
 func (s *WorkflowService) Fail(ctx context.Context, runID, stepID, attemptID, reason string) (*store.WorkflowRunView, error) {
