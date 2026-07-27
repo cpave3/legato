@@ -11,6 +11,11 @@ import (
 
 var ErrWorkflowStateConflict = errors.New("workflow state conflict")
 
+const workflowRunSelect = `SELECT id, workflow_name, workflow_title, definition_source,
+	definition_digest, definition_json, inputs_json, status, current_step_id,
+	COALESCE(task_id, '') AS task_id, error, created_at, started_at, completed_at,
+	COALESCE(related_task_id, '') AS related_task_id FROM workflow_runs`
+
 type WorkflowRun struct {
 	ID               string  `db:"id" json:"id"`
 	WorkflowName     string  `db:"workflow_name" json:"workflow_name"`
@@ -94,7 +99,7 @@ func (s *Store) CreateWorkflowRun(ctx context.Context, run WorkflowRun, steps []
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
 		if _, err := tx.NamedExecContext(ctx, `INSERT INTO workflow_runs
 			(id, workflow_name, workflow_title, definition_source, definition_digest, definition_json, inputs_json, status, current_step_id, task_id, related_task_id, error, started_at)
-			VALUES (:id, :workflow_name, :workflow_title, :definition_source, :definition_digest, :definition_json, :inputs_json, :status, :current_step_id, NULLIF(:task_id,''), :related_task_id, :error, datetime('now'))`, run); err != nil {
+			VALUES (:id, :workflow_name, :workflow_title, :definition_source, :definition_digest, :definition_json, :inputs_json, :status, :current_step_id, NULLIF(:task_id,''), NULLIF(:related_task_id,''), :error, datetime('now'))`, run); err != nil {
 			return err
 		}
 		for _, step := range steps {
@@ -118,7 +123,7 @@ func (s *Store) GetWorkflowRun(ctx context.Context, id string) (*WorkflowRunView
 	view := WorkflowRunView{
 		Steps: make([]WorkflowStepRun, 0), Attempts: make([]WorkflowStepAttempt, 0), Artifacts: make([]WorkflowArtifact, 0),
 	}
-	if err := s.db.GetContext(ctx, &view.Run, "SELECT * FROM workflow_runs WHERE id = ?", id); err != nil {
+	if err := s.db.GetContext(ctx, &view.Run, workflowRunSelect+" WHERE id = ?", id); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrNotFound
 		}
@@ -388,7 +393,7 @@ func (s *Store) ListWorkflowRuns(ctx context.Context, status string, limit int) 
 		limit = 100
 	}
 	var runs []WorkflowRun
-	query := "SELECT * FROM workflow_runs"
+	query := workflowRunSelect
 	args := []any{}
 	if status != "" {
 		query += " WHERE status = ?"

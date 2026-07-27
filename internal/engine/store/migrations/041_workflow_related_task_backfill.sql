@@ -1,1 +1,2 @@
-UPDATE workflow_runs SET related_task_id = '' WHERE related_task_id IS NULL;
+-- Compatibility marker: related_task_id remains nullable so workflows without
+-- a selected task satisfy legacy foreign-key schemas.
