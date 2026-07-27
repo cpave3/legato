@@ -125,7 +125,7 @@ export function AgentSidebar({
   const grouped = groupAndSortAgents(agents);
 
   return (
-    <div className="flex w-64 flex-col border-r border-zinc-800 bg-zinc-950 overflow-y-auto">
+    <div aria-label="Agent sessions" className="flex w-64 max-w-full flex-col overflow-x-hidden overflow-y-auto border-r border-zinc-800 bg-zinc-950">
       <div className="flex items-center justify-between px-3 py-3">
         <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
           Agents ({agents.length})
@@ -158,7 +158,7 @@ export function AgentSidebar({
           return (
             <div key={agent.task_id}>
               {groupStart && (
-                <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-400">
+                <div className="truncate px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-400">
                   ◆ swarm:{" "}
                   <span className="font-mono normal-case">{groupParentId}</span>
                 </div>
@@ -170,7 +170,7 @@ export function AgentSidebar({
               )}
               <div
                 className={cn(
-                  "relative flex items-center border-l-2 transition-colors group",
+                  "group relative flex min-w-0 max-w-full items-center overflow-hidden border-l-2 transition-colors",
                   isSwarm && !isConductor && "ml-2", // worker indent
                   selectedId === agent.task_id
                     ? isSwarm
@@ -183,14 +183,14 @@ export function AgentSidebar({
               >
                 <button
                   onClick={() => onSelect(agent.task_id)}
-                  className="flex flex-1 flex-col gap-0.5 px-3 py-2 text-left"
+                  className="flex min-w-0 max-w-full flex-1 flex-col gap-0.5 overflow-hidden px-3 py-2 text-left"
                 >
                   {modifierHeld && index < 9 && (
                     <span className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded bg-indigo-600 text-[10px] font-bold text-white">
                       {index + 1}
                     </span>
                   )}
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
                     {activityBadge(agent.activity)}
                     {agent.notify_enabled && (
                       <Bell size={10} className="text-indigo-400" />
@@ -211,7 +211,7 @@ export function AgentSidebar({
                         {agent.role}
                       </span>
                     )}
-                    <span className="text-sm font-mono truncate">
+                    <span className="min-w-0 truncate text-sm font-mono">
                       {agent.task_id}
                     </span>
                   </div>
