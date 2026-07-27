@@ -160,7 +160,7 @@ func commandTree() *commandDef {
 		[]string{"validate-plan", "create", "propose-plan", "cancel", "extend-plan", "dispatch", "message", "broadcast", "close", "finish", "next-step", "progress", "question", "built", "status", "inbox"},
 		[]commandFlag{jsonFlag})
 	workflow := legacyVerbGroup("workflow", "Run and inspect reusable workflows", runWorkflowCmd,
-		[]string{"list", "validate", "run", "runs", "show", "cancel", "retry", "step"},
+		[]string{"list", "validate", "run", "runs", "show", "cancel", "retry", "trigger", "step"},
 		[]commandFlag{valueFlag("input", "key=value", "Workflow input (repeatable)"), valueFlag("output", "key=value", "Step output (repeatable)"), valueFlag("artifact", "key=path", "Step artifact (repeatable)"), valueFlag("run", "run-id", "Workflow run identity"), valueFlag("step", "step-id", "Workflow step identity"), valueFlag("attempt", "attempt-id", "Workflow attempt identity"), valueFlag("status", "status", "Filter runs"), valueFlag("limit", "count", "Maximum runs"), jsonFlag})
 	configureSwarmCommands(swarm)
 

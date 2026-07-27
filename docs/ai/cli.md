@@ -10,6 +10,7 @@ legato workflow validate <name-or-file> --json
 legato workflow run <name> --input key=value --json
 legato workflow runs [--status running] [--limit 20] --json
 legato workflow show <run-id> --json
+legato workflow trigger <run-id> <step-id> --json
 legato workflow retry <run-id> <step-id> --json
 legato workflow cancel <run-id> --json
 ```

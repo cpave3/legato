@@ -39,6 +39,7 @@ type Step struct {
 	ID      string            `yaml:"id" json:"id"`
 	Title   string            `yaml:"title" json:"title"`
 	Type    string            `yaml:"type" json:"type"`
+	Trigger string            `yaml:"trigger,omitempty" json:"trigger"`
 	With    map[string]any    `yaml:"with" json:"with"`
 	Outputs map[string]Output `yaml:"outputs,omitempty" json:"outputs,omitempty"`
 }
@@ -89,12 +90,19 @@ func (d *Definition) Validate() error {
 	}
 	seen := make(map[string]bool, len(d.Steps))
 	availableOutputs := make(map[string]map[string]bool, len(d.Steps))
-	for _, step := range d.Steps {
+	for i := range d.Steps {
+		step := &d.Steps[i]
 		if step.ID == "" || seen[step.ID] {
 			return fmt.Errorf("step IDs must be non-empty and unique")
 		}
 		seen[step.ID] = true
-		if step.Type != "github.pr.prepare" && step.Type != "agent.run" {
+		if step.Trigger == "" {
+			step.Trigger = "automatic"
+		}
+		if step.Trigger != "automatic" && step.Trigger != "manual" {
+			return fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger)
+		}
+		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "worktree.remove" {
 			return fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type)
 		}
 		for field, value := range step.With {

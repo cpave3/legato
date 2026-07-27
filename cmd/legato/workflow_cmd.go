@@ -109,6 +109,13 @@ func runWorkflowCmd(args []string) int {
 		if err := cli.WorkflowCancel(ctx, svc, positional[0], os.Stdout); err != nil {
 			return fail(err)
 		}
+	case "trigger":
+		if len(positional) != 2 {
+			return fail(fmt.Errorf("usage: legato workflow trigger <run-id> <step-id>"))
+		}
+		if err := cli.WorkflowTrigger(ctx, svc, positional[0], positional[1], os.Stdout); err != nil {
+			return fail(err)
+		}
 	case "retry":
 		if len(positional) != 2 {
 			return fail(fmt.Errorf("usage: legato workflow retry <run-id> <step-id>"))

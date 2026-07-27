@@ -109,6 +109,13 @@ func (s *WorkflowService) Show(ctx context.Context, runID string) (*store.Workfl
 }
 
 func (s *WorkflowService) enrichWorkflowAttention(ctx context.Context, view *store.WorkflowRunView) {
+	for _, step := range view.Steps {
+		if step.Status == "waiting_manual" {
+			view.Run.NeedsAttention = true
+			view.Run.AttentionReason = "manual action required: " + step.Title
+			break
+		}
+	}
 	for i := range view.Attempts {
 		attempt := &view.Attempts[i]
 		if attempt.ExecutorType != "agent.run" || attempt.Status != "waiting_agent" {
@@ -137,7 +144,7 @@ func (s *WorkflowService) ListRuns(ctx context.Context, status string, limit int
 		return nil, err
 	}
 	for i := range runs {
-		if runs[i].Status != "running" {
+		if runs[i].Status != "running" && runs[i].Status != "waiting" {
 			continue
 		}
 		view, viewErr := s.store.GetWorkflowRun(ctx, runs[i].ID)
@@ -145,6 +152,11 @@ func (s *WorkflowService) ListRuns(ctx context.Context, status string, limit int
 			continue
 		}
 		s.enrichWorkflowAttention(ctx, view)
+		if view.Run.NeedsAttention {
+			runs[i].NeedsAttention = true
+			runs[i].AttentionReason = view.Run.AttentionReason
+			continue
+		}
 		for _, attempt := range view.Attempts {
 			if attempt.NeedsAttention {
 				runs[i].NeedsAttention = true
@@ -154,6 +166,27 @@ func (s *WorkflowService) ListRuns(ctx context.Context, status string, limit int
 		}
 	}
 	return runs, nil
+}
+
+func (s *WorkflowService) TriggerStep(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, error) {
+	view, definition, inputs, prior, index, err := s.loadExecution(ctx, runID, stepID)
+	if err != nil {
+		return nil, err
+	}
+	if view.Run.Status != "waiting" || view.Run.CurrentStepID != stepID || definition.Steps[index].Trigger != "manual" || view.Steps[index].Status != "waiting_manual" {
+		return nil, store.ErrWorkflowStateConflict
+	}
+	if err := s.store.TriggerWorkflowStep(ctx, runID, stepID); err != nil {
+		return nil, err
+	}
+	if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index, prior, stepID); err != nil {
+		updated, loadErr := s.store.GetWorkflowRun(ctx, runID)
+		if loadErr != nil {
+			return nil, err
+		}
+		return updated, nil
+	}
+	return s.store.GetWorkflowRun(ctx, runID)
 }
 
 func (s *WorkflowService) PromptStep(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, error) {
@@ -318,12 +351,20 @@ func (s *WorkflowService) loadExecution(ctx context.Context, runID, stepID strin
 	return view, &definition, inputs, prior, index, nil
 }
 
-func (s *WorkflowService) advance(ctx context.Context, definition *workflowengine.Definition, inputs map[string]any, runID, taskID string, index int, prior map[string]map[string]any) error {
+func (s *WorkflowService) advance(ctx context.Context, definition *workflowengine.Definition, inputs map[string]any, runID, taskID string, index int, prior map[string]map[string]any, triggeredStep ...string) error {
 	for index < len(definition.Steps) {
 		step := definition.Steps[index]
+		isTriggered := len(triggeredStep) > 0 && triggeredStep[0] == step.ID
 		resolved, err := definition.ResolveStep(step.ID, inputs, prior)
 		if err != nil {
 			return err
+		}
+		if step.Trigger == "manual" && !isTriggered {
+			resolvedJSON, _ := json.Marshal(resolved.With)
+			if err := s.store.WaitWorkflowStepManual(ctx, runID, step.ID, string(resolvedJSON)); err != nil {
+				return err
+			}
+			return nil
 		}
 		attemptID := workflowID("wa-")
 		resolvedJSON, _ := json.Marshal(resolved.With)

@@ -1,0 +1,12 @@
+import { useState } from "react"
+import { Hand } from "lucide-react"
+import type { WorkflowStepRun } from "../lib/workflow"
+
+function parseInputs(raw:string):Record<string,unknown>{try{return JSON.parse(raw)}catch{return {}}}
+
+export function ManualWorkflowStepAction({step,onTrigger}:{step:WorkflowStepRun;onTrigger:()=>Promise<void>}){
+  const [confirming,setConfirming]=useState(false);const [busy,setBusy]=useState(false);const [error,setError]=useState("")
+  const cleanup=step.executor_type==="worktree.remove";const inputs=parseInputs(step.resolved_inputs_json);const expected=String(inputs.expected_path??"")
+  async function trigger(){setBusy(true);setError("");try{await onTrigger();setConfirming(false)}catch(c){setError(c instanceof Error?c.message:String(c));setBusy(false)}}
+  return <div className="mt-3 rounded-lg border border-amber-900/60 bg-amber-950/20 p-4"><div className="flex items-start gap-3"><Hand className="mt-0.5 shrink-0 text-amber-300" size={18}/><div className="min-w-0 flex-1"><p className="font-medium text-amber-200">Manual action required</p><p className="mt-1 text-sm text-zinc-400">This step has not run yet.</p>{expected&&<p className="mt-2 break-all text-xs text-zinc-500">{expected}</p>}</div><button onClick={()=>cleanup?setConfirming(true):void trigger()} disabled={busy} className="min-h-11 rounded-lg bg-amber-500 px-3 text-sm font-medium text-zinc-950 disabled:opacity-60">{busy?"Running…":cleanup?"Remove worktree":"Run step"}</button></div>{error&&<p className="mt-3 text-sm text-red-400">{error}</p>}{confirming&&<div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-end bg-black/70 p-2 sm:items-center sm:justify-center"><div className="w-full rounded-xl border border-zinc-700 bg-zinc-900 p-4 sm:max-w-lg"><h3 className="text-lg font-semibold">Remove worktree?</h3><p className="mt-3 text-sm text-zinc-300">Yggdrasil will remove this worktree and clear its task metadata:</p><p className="mt-2 break-all rounded bg-zinc-950 p-3 text-xs text-zinc-400">{expected}</p><p className="mt-3 text-sm text-zinc-400">Managed workflow artifacts, including the review report, will remain available.</p><div className="mt-5 flex gap-2"><button onClick={()=>setConfirming(false)} className="min-h-11 flex-1 rounded-lg border border-zinc-700">Keep worktree</button><button onClick={()=>void trigger()} disabled={busy} className="min-h-11 flex-1 rounded-lg bg-red-500 font-medium text-white">{busy?"Removing…":"Remove worktree"}</button></div></div></div>}</div>
+}

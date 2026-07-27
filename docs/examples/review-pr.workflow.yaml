@@ -50,3 +50,16 @@ steps:
         media_type: text/markdown
       findings:
         type: json
+  - id: cleanup
+    title: Remove review worktree
+    type: worktree.remove
+    trigger: manual
+    with:
+      expected_path: ${{ steps.prepare.outputs.worktree_path }}
+    outputs:
+      removed:
+        type: boolean
+      removed_path:
+        type: string
+      removed_branch:
+        type: string

@@ -135,6 +135,62 @@ func (s *Store) GetWorkflowRun(ctx context.Context, id string) (*WorkflowRunView
 	return &view, nil
 }
 
+func (s *Store) WaitWorkflowStepManual(ctx context.Context, runID, stepID, resolvedInputsJSON string) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'waiting_manual', resolved_inputs_json = ?, error = '' WHERE run_id = ? AND step_id = ? AND status = 'pending'`, resolvedInputsJSON, runID, stepID)
+		if err != nil {
+			return err
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rows != 1 {
+			return ErrWorkflowStateConflict
+		}
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'waiting' WHERE id = ? AND current_step_id = ? AND status = 'running'`, runID, stepID)
+		if err != nil {
+			return err
+		}
+		rows, err = result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rows != 1 {
+			return ErrWorkflowStateConflict
+		}
+		return nil
+	})
+}
+
+func (s *Store) TriggerWorkflowStep(ctx context.Context, runID, stepID string) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'pending', error = '' WHERE run_id = ? AND step_id = ? AND status = 'waiting_manual'`, runID, stepID)
+		if err != nil {
+			return err
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rows != 1 {
+			return ErrWorkflowStateConflict
+		}
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'running' WHERE id = ? AND current_step_id = ? AND status = 'waiting'`, runID, stepID)
+		if err != nil {
+			return err
+		}
+		rows, err = result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rows != 1 {
+			return ErrWorkflowStateConflict
+		}
+		return nil
+	})
+}
+
 func (s *Store) StartWorkflowStepAttempt(ctx context.Context, attempt WorkflowStepAttempt, resolvedInputsJSON string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
 		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_runs
@@ -358,7 +414,7 @@ func (s *Store) CancelWorkflowRun(ctx context.Context, runID, reason string) err
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE run_id = ? AND status IN ('pending','running','waiting_agent')`, reason, runID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE run_id = ? AND status IN ('pending','running','waiting_agent','waiting_manual')`, reason, runID); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'cancelled', error = ?, ended_at = datetime('now') WHERE run_id = ? AND status IN ('running','waiting_agent')`, reason, runID)

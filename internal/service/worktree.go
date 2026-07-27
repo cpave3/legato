@@ -23,6 +23,18 @@ func NewWorktreeWorkflow(s *store.Store, runner worktreeRunner) *WorktreeWorkflo
 	return &WorktreeWorkflow{store: s, runner: runner}
 }
 
+// Get returns the durable worktree metadata for a task.
+func (w *WorktreeWorkflow) Get(ctx context.Context, taskID string) (*store.TaskWorktree, error) {
+	task, err := w.store.GetTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task.WorktreePrimaryDir == nil || task.WorktreePath == nil || task.WorktreeBranch == nil || task.WorktreeBaseBranch == nil {
+		return nil, fmt.Errorf("task %s has no worktree", taskID)
+	}
+	return &store.TaskWorktree{PrimaryDir: *task.WorktreePrimaryDir, Path: *task.WorktreePath, Branch: *task.WorktreeBranch, BaseBranch: *task.WorktreeBaseBranch}, nil
+}
+
 // Path returns the remembered worktree path for a task, or an empty string.
 func (w *WorktreeWorkflow) Path(ctx context.Context, taskID string) (string, error) {
 	task, err := w.store.GetTask(ctx, taskID)

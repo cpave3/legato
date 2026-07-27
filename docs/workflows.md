@@ -28,10 +28,11 @@ Selecting a preset prefills matching `repo`, `primary_dir`, and `base_branch` wo
 
 ## Schema version 1
 
-Version 1 executes steps in declaration order and supports two executors:
+Version 1 executes steps in declaration order and supports three executors:
 
 - `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
 - `agent.run`: launch a configured Legato agent with an explicit assignment and completion contract.
+- `worktree.remove`: validate and remove the shared task's worktree through Yggdrasil, then clear task metadata.
 
 ```yaml
 schema_version: 1
@@ -79,7 +80,7 @@ steps:
         type: json
 ```
 
-Inputs support `string`, `integer`, `boolean`, and `json`. Outputs support those scalar/JSON types plus `file`. Unknown fields, unsupported executors, unsafe paths, forward references, and undeclared references fail validation before a run starts.
+Inputs support `string`, `integer`, `boolean`, and `json`. Outputs support those scalar/JSON types plus `file`. Steps default to `trigger: automatic`; set `trigger: manual` to pause the run before that executor starts. A manual step creates no attempt until explicitly triggered with `legato workflow trigger <run-id> <step-id>`. While waiting, the run is non-terminal and contributes to the Workflows attention badge. Unknown fields, unsupported executors, unsafe paths, forward references, and undeclared references fail validation before a run starts.
 
 Templates support only:
 
@@ -100,6 +101,7 @@ legato workflow run review-pr \
   --json
 legato workflow runs --status running --json
 legato workflow show <run-id> --json
+legato workflow trigger <run-id> <step-id> --json
 legato workflow retry <run-id> <step-id> --json
 legato workflow cancel <run-id> --json
 ```
@@ -152,7 +154,8 @@ The **Workflows** destination includes:
 - deterministic PR/worktree details;
 - all agent attempts and live terminal links;
 - managed artifacts with Markdown preview/download;
-- retry and cancellation controls.
+- retry and cancellation controls;
+- manual-step actions, including an expected-path confirmation before Yggdrasil worktree removal.
 
 Run views update through `workflow_changed` and agent activity WebSocket events. An unfinished `agent.run` step is marked as needing attention when its session becomes waiting, idle, or disappears. The Workflows navigation item shows a red count, run cards explain the stall, and the run page offers **Prompt to continue** for a live stalled agent. Legato does not prompt automatically, avoiding duplicate or unsafe agent work. Mobile layouts use stacked step cards, contained JSON/code scrolling, touch-sized actions, and safe-area navigation spacing.
 

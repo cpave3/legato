@@ -63,7 +63,11 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 	runner := service.NewWorkflowAgentRunner(agentSvc, db, binary)
 	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary)}
 	if cfg.Worktrees.Yggdrasil.Enabled {
-		executors = append(executors, service.NewGitHubPRPrepareExecutor(prSvc, gitengine.ExactFetcher{}, service.NewWorktreeWorkflow(db, worktree.NewRunner("yg")), prSvc))
+		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"))
+		executors = append(executors,
+			service.NewGitHubPRPrepareExecutor(prSvc, gitengine.ExactFetcher{}, worktrees, prSvc),
+			service.NewWorktreeRemoveExecutor(worktrees),
+		)
 	}
 	dataDir := filepath.Join(filepath.Dir(config.ResolveDBPath(cfg)), "artifacts")
 	return service.NewWorkflowServiceWithOutputs(db, executors, dataDir), nil
