@@ -172,7 +172,7 @@ export function AgentsPage() {
       dismissedPromptTypeRef.current = null
       send({ type: "subscribe_agent", agent_id: taskId })
     },
-    [selectedId, send]
+    [selectedId, send, setSelectedId]
   )
 
   const handleSendKeys = useCallback(
@@ -223,7 +223,7 @@ export function AgentsPage() {
     setSelectedId(null)
     setPromptState(null)
     dismissedPromptTypeRef.current = null
-  }, [selectedId, send])
+  }, [selectedId, send, setSelectedId])
 
   const handleKill = useCallback(async () => {
     if (!selectedId) return

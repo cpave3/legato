@@ -1,0 +1,146 @@
+# Workflows
+
+Workflows are reusable, ordered recipes that combine deterministic Legato operations with agent assignments. Each run records typed inputs, step progress, attempts, outputs, artifacts, and associated agent sessions.
+
+## Definition locations
+
+Legato discovers YAML definitions from:
+
+1. `$XDG_CONFIG_HOME/legato/workflows` (normally `~/.config/legato/workflows`)
+2. `.legato/workflows` in the current project
+
+A project-local definition overrides a global definition with the same `name`. The selected source path is stored on every run.
+
+## Schema version 1
+
+Version 1 executes steps in declaration order and supports two executors:
+
+- `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
+- `agent.run`: launch a configured Legato agent with an explicit assignment and completion contract.
+
+```yaml
+schema_version: 1
+name: review-pr
+title: Review pull request
+description: Prepare and review a GitHub pull request.
+inputs:
+  repo:
+    type: string
+    required: true
+  pr_number:
+    type: integer
+    required: true
+steps:
+  - id: prepare
+    title: Prepare exact PR head
+    type: github.pr.prepare
+    with:
+      repo: ${{ workflow.inputs.repo }}
+      number: ${{ workflow.inputs.pr_number }}
+      primary_dir: /path/to/local/repository
+      base_branch: main
+    outputs:
+      worktree_path: {type: string}
+      head_sha: {type: string}
+      metadata: {type: json}
+
+  - id: review
+    title: Run three-tier review
+    type: agent.run
+    with:
+      agent: chimera
+      tier: large
+      working_dir: ${{ steps.prepare.outputs.worktree_path }}
+      prompt: |
+        Run the `3-tier-review` skill against this pull request. Do not modify
+        or publish to the PR. Write the consolidated review to
+        `${{ outputs.review.path }}` and report structured findings.
+    outputs:
+      review:
+        type: file
+        path: review.md
+        media_type: text/markdown
+      findings:
+        type: json
+```
+
+Inputs support `string`, `integer`, `boolean`, and `json`. Outputs support those scalar/JSON types plus `file`. Unknown fields, unsupported executors, unsafe paths, forward references, and undeclared references fail validation before a run starts.
+
+Templates support only:
+
+- `${{ workflow.inputs.<key> }}`
+- `${{ steps.<earlier-step>.outputs.<key> }}`
+- `${{ outputs.<current-file-output>.path }}`
+
+Whole-field references preserve native types. Values interpolated into text use scalar or canonical JSON formatting.
+
+## Running and inspecting
+
+```bash
+legato workflow list --json
+legato workflow validate review-pr --json
+legato workflow run review-pr \
+  --input repo=owner/repository \
+  --input pr_number=123 \
+  --json
+legato workflow runs --status running --json
+legato workflow show <run-id> --json
+legato workflow retry <run-id> <step-id> --json
+legato workflow cancel <run-id> --json
+```
+
+A run creates one shared local task. Deterministic steps execute synchronously until an agent step starts. The run then advances when that agent explicitly completes or fails its step.
+
+## Agent completion
+
+Workflow agents receive these environment variables:
+
+```text
+LEGATO_WORKFLOW_RUN_ID
+LEGATO_WORKFLOW_STEP_ID
+LEGATO_WORKFLOW_ATTEMPT_ID
+```
+
+Complete a step using declared output names:
+
+```bash
+legato workflow step complete \
+  --output findings='[{"severity":"high","message":"..."}]' \
+  --artifact review=review.md \
+  --json
+```
+
+Report an unrecoverable failure:
+
+```bash
+legato workflow step fail "review tool unavailable" --json
+```
+
+Agent or tmux exit alone never means success. Missing or invalid outputs leave the step incomplete or failed.
+
+## Artifacts and security
+
+File outputs must resolve beneath the agent attempt's working directory. Legato rejects absolute paths, traversal, symlink escapes, directories, and files larger than the configured workflow limit. Accepted files are copied atomically into managed Legato storage with a SHA-256 digest so worktree cleanup does not destroy them.
+
+Workflow input and output JSON have size/depth limits. Definition templates are intentionally not a general expression or shell language. The deterministic PR executor uses an exact head SHA and head repository identity, including fork PRs, rather than trusting a branch name.
+
+Workflow prompts may ask agents to invoke local skills and tools. Remote mutation or publication is not a native workflow operation; definitions must explicitly authorize any such agent behavior.
+
+## Web UI
+
+The **Workflows** destination includes:
+
+- reusable definitions and validation errors;
+- generated typed-input launch forms;
+- active and historical runs;
+- ordered step status, resolved inputs, outputs, and errors;
+- deterministic PR/worktree details;
+- all agent attempts and live terminal links;
+- managed artifacts with Markdown preview/download;
+- retry and cancellation controls.
+
+Run views update through `workflow_changed` WebSocket events. Mobile layouts use stacked step cards, contained JSON/code scrolling, touch-sized actions, and safe-area navigation spacing.
+
+## Extension model
+
+Workflow persistence and UI are executor-neutral. Future deterministic executors can implement the service executor contract and render type-specific details without replacing runs, steps, attempts, outputs, or artifacts. DAGs, parallel execution, schedules, shell plugins, approval gates, and native external publishers are not part of schema version 1.

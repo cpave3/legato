@@ -1,0 +1,52 @@
+schema_version: 1
+name: review-pr
+title: Review pull request
+description: Prepare an exact GitHub PR head and review it with Chimera.
+inputs:
+  repo:
+    type: string
+    required: true
+    description: GitHub owner/repository
+  pr_number:
+    type: integer
+    required: true
+    description: Pull request number
+  primary_dir:
+    type: string
+    required: true
+    description: Local primary checkout for the repository
+steps:
+  - id: prepare
+    title: Prepare pull request
+    type: github.pr.prepare
+    with:
+      repo: ${{ workflow.inputs.repo }}
+      number: ${{ workflow.inputs.pr_number }}
+      primary_dir: ${{ workflow.inputs.primary_dir }}
+      base_branch: main
+    outputs:
+      worktree_path: {type: string}
+      branch: {type: string}
+      base_branch: {type: string}
+      head_sha: {type: string}
+      metadata: {type: json}
+
+  - id: review
+    title: Review pull request
+    type: agent.run
+    with:
+      agent: chimera
+      tier: large
+      working_dir: ${{ steps.prepare.outputs.worktree_path }}
+      prompt: |
+        Run the `3-tier-review` skill against this pull request. Use the prepared
+        exact head at ${{ steps.prepare.outputs.head_sha }}. Do not modify or
+        publish to the pull request. Write the consolidated review to
+        `${{ outputs.review.path }}` and provide a JSON list of findings.
+    outputs:
+      review:
+        type: file
+        path: review.md
+        media_type: text/markdown
+      findings:
+        type: json

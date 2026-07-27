@@ -1,6 +1,7 @@
 ## Key Packages
 
 - `internal/engine/store/` — SQLite store with embedded migrations, task/column mapping/sync log CRUD, task ID generation, state interval tracking (`RecordStateTransition`, `GetStateDurations`, `GetStateDurationsBatch`, `GetStateTimeline` for sparkline bucket sequences). `DeleteTask` also clears `state_intervals` for the task and any swarm sub-task children (the FK cascade was removed in migration 021)
+- `internal/engine/workflow/` — Strict versioned workflow YAML parsing, global/project discovery, typed input normalization, backward-only output references, and safe prompt/input template resolution. Schema v1 supports `github.pr.prepare` and `agent.run`; see `docs/workflows.md`
 - `internal/engine/macros/` — Tiny shared package defining the `Macro` struct (`Name`, `Keys`) and `ListResult` JSON envelope used by the `GET /api/macros` endpoint, the TUI macro picker overlay, and the YAML config layer
 - `internal/engine/events/` — Channel-based event bus with buffered pub/sub (buffer size 64, non-blocking drops on full), error event types (`EventSyncError`, `EventTransitionFailed`, `EventAuthFailed`, `EventRateLimited`) with `ErrorPayload` struct
 - `internal/engine/auth/` — Web UI auth token management. `EnsureToken(dataDir)` reads `<dataDir>/auth-token` or generates 32-byte `crypto/rand` hex token on first run. `RegenerateToken(dataDir)` overwrites with new token. `ReadToken(dataDir)` reads without generating. Token file is 0600 permissions
