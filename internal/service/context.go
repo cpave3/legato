@@ -45,7 +45,18 @@ func formatFull(card *CardDetail) string {
 		out += "\n" + card.DescriptionMD + "\n"
 	}
 
-	return out + formatAttachments(card.Attachments)
+	out += formatAttachments(card.Attachments)
+	if len(card.Notes) > 0 {
+		out += "\n## Notes\n"
+		for _, note := range card.Notes {
+			out += "\n### " + note.CreatedAt
+			if note.Source != "" {
+				out += " · " + note.Source
+			}
+			out += "\n\n" + note.Body + "\n"
+		}
+	}
+	return out
 }
 
 func formatAttachments(items []LocalAttachment) string {

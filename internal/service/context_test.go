@@ -202,6 +202,22 @@ func (d *contextAttachmentDownloader) DownloadAttachment(context.Context, string
 	return io.NopCloser(strings.NewReader(d.data)), nil
 }
 
+func TestExportCardContextFullIncludesTaskNotes(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	seedColumns(t, s)
+	seedTasks(t, s)
+	if err := s.InsertTaskNote(context.Background(), store.TaskNote{ID: "tn-1", TaskID: "T-1", Body: "## Triage\n\nInvestigate retries.", Source: "workflow", CreatedAt: "2026-07-27 10:00:00"}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := svc.ExportCardContext(context.Background(), "T-1", ExportFormatFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "## Notes") || !strings.Contains(out, "Investigate retries.") {
+		t.Fatalf("output = %q", out)
+	}
+}
+
 func TestExportCardContext_UnknownFormat(t *testing.T) {
 	s, _, svc := setupExportBoard(t)
 	seedTaskForExport(t, s)

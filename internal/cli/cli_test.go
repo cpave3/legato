@@ -196,6 +196,44 @@ func TestTaskShow_JSONFormat(t *testing.T) {
 	}
 }
 
+func TestTaskShowFullAndJSONIncludeNotes(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	if err := s.CreateTask(context.Background(), store.Task{ID: "abc123", Title: "Implement", DescriptionMD: "Task description", Status: "Backlog", CreatedAt: "2024-01-01T00:00:00Z", UpdatedAt: "2024-01-01T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertTaskNote(context.Background(), store.TaskNote{ID: "tn-1", TaskID: "abc123", Body: "## Triage\n\nUse bounded retries.", Source: "workflow", CreatedAt: "2026-07-27 10:00:00"}); err != nil {
+		t.Fatal(err)
+	}
+	full, err := cli.TaskShow(s, "abc123", "full")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(full, "## Notes") || !strings.Contains(full, "Use bounded retries.") {
+		t.Fatalf("full = %q", full)
+	}
+	raw, err := cli.TaskShow(s, "abc123", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Notes []store.TaskNote `json:"notes"`
+	}
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Notes) != 1 || got.Notes[0].ID != "tn-1" {
+		t.Fatalf("notes = %#v", got.Notes)
+	}
+	notes, err := cli.TaskNotes(s, "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 || notes[0].Body != "## Triage\n\nUse bounded retries." {
+		t.Fatalf("notes = %#v", notes)
+	}
+}
+
 func TestTaskShow_InvalidFormat(t *testing.T) {
 	s := newTestStore(t)
 	seedColumns(t, s)

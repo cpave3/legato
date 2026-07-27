@@ -306,6 +306,11 @@ func (b *boardService) ExportCardContext(ctx context.Context, id string, format 
 		return "", err
 	}
 	detail := taskToCardDetail(t)
+	notes, err := b.store.ListTaskNotes(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	detail.Notes = notes
 	if err := b.addAttachments(detail); err != nil {
 		return "", err
 	}

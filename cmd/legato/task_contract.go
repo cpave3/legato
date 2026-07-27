@@ -31,6 +31,8 @@ func runTaskContract(args []string) int {
 		return runTaskDescriptionContract(args[1:])
 	case "note":
 		return runTaskNoteContract(args[1:])
+	case "notes":
+		return runTaskNotesContract(args[1:])
 	case "link":
 		return runTaskLinkContract(args[1:])
 	case "unlink":
@@ -305,6 +307,40 @@ func runTaskNoteContract(args []string) int {
 		return renderCommandError(command, commandDomainError(err), jsonMode)
 	}
 	return writeCommandSuccess(command, map[string]any{"task_id": taskID, "message": message}, "", jsonMode)
+}
+
+func runTaskNotesContract(args []string) int {
+	const command = "task.notes"
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("task", "notes"))
+	jsonMode := parsed.Present["json"]
+	if parseErr != nil {
+		return renderCommandError(command, parseErr, jsonMode)
+	}
+	taskID, rest, idErr := resolveTaskID(parsed.Positionals)
+	if idErr != nil {
+		return renderCommandError(command, idErr, jsonMode)
+	}
+	if len(rest) != 0 {
+		return renderCommandError(command, usageError("unexpected_argument", "task notes accepts one task ID"), jsonMode)
+	}
+	db, code := openCommandStore(command, jsonMode)
+	if db == nil {
+		return code
+	}
+	defer db.Close()
+	notes, err := cli.TaskNotes(db, taskID)
+	if err != nil {
+		return renderCommandError(command, commandDomainError(err), jsonMode)
+	}
+	var text strings.Builder
+	for _, note := range notes {
+		fmt.Fprintf(&text, "### %s", note.CreatedAt)
+		if note.Source != "" {
+			fmt.Fprintf(&text, " · %s", note.Source)
+		}
+		fmt.Fprintf(&text, "\n\n%s\n\n", note.Body)
+	}
+	return writeCommandSuccess(command, notes, text.String(), jsonMode)
 }
 
 func runTaskLinkContract(args []string) int {

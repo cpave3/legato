@@ -257,6 +257,13 @@ func TaskShow(s *store.Store, taskID, format string) (string, error) {
 	}
 }
 
+func TaskNotes(s *store.Store, taskID string) ([]store.TaskNote, error) {
+	if _, err := s.GetTask(context.Background(), taskID); err != nil {
+		return nil, taskShowError(taskID, err)
+	}
+	return s.ListTaskNotes(context.Background(), taskID)
+}
+
 func taskShowError(taskID string, err error) error {
 	if errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("task %q not found: %w", taskID, err)
@@ -525,6 +532,7 @@ type taskDetailJSON struct {
 	SwarmStepNames  []string          `json:"swarm_step_names"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
+	Notes           []store.TaskNote  `json:"notes"`
 }
 
 type prMetaJSON struct {
@@ -554,6 +562,7 @@ func taskDetailJSONFromService(detail *service.CardDetail) taskDetailJSON {
 		SwarmStepNames:  detail.SwarmStepNames,
 		CreatedAt:       detail.CreatedAt,
 		UpdatedAt:       detail.UpdatedAt,
+		Notes:           detail.Notes,
 	}
 	if resp.RemoteMeta == nil {
 		resp.RemoteMeta = map[string]string{}
