@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import { Link, useSearchParams } from "react-router-dom"
 import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "../hooks/useWebSocket"
 import { AgentSidebar } from "../components/AgentSidebar"
 import { TerminalPanel } from "../components/TerminalPanel"
@@ -48,6 +49,9 @@ export function AgentsPage() {
   const { fetchState } = useSwarmEvents()
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const { selectedAgentId: selectedId, setSelectedAgentId: setSelectedId } = useAgentSelection()
+  const [searchParams] = useSearchParams()
+  const linkedTask = searchParams.get("task")
+  const workflowRun = searchParams.get("workflow")
   const [promptState, setPromptState] = useState<PromptState | null>(null)
   const [glitching, setGlitching] = useState(false)
   const glitchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -125,6 +129,12 @@ export function AgentsPage() {
       }
     })
   }, [fetchAgents, subscribe, selectedId, baseUrl])
+
+  useEffect(() => {
+    if (linkedTask && agents.some((agent) => agent.task_id === linkedTask)) {
+      setSelectedId(linkedTask)
+    }
+  }, [agents, linkedTask, setSelectedId])
 
   // Global keyboard handler for voice dictation: 'v' toggles record/send,
   // Escape cancels recording. Only active when the textarea is not focused
@@ -361,6 +371,7 @@ export function AgentsPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden md:flex-row">
+      {workflowRun && <Link to={`/workflows/runs/${workflowRun}`} className="absolute right-3 top-3 z-30 rounded bg-zinc-900 px-3 py-2 text-xs text-indigo-300 shadow">Back to workflow</Link>}
       {isMobile ? (
         <div className="flex shrink-0 gap-2 border-b border-zinc-800 bg-zinc-950 p-2">
           <AgentSelect

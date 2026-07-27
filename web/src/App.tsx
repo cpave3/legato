@@ -10,6 +10,8 @@ import { ReviewQueuePage } from "./pages/ReviewQueuePage"
 import { ReviewTourPage } from "./pages/ReviewTourPage"
 import { PlanQueuePage } from "./pages/PlanQueuePage"
 import { PlanPage } from "./pages/PlanPage"
+import { WorkflowsPage } from "./pages/WorkflowsPage"
+import { WorkflowRunPage } from "./pages/WorkflowRunPage"
 import { authHeaders, clearToken } from "./lib/auth"
 
 export default function App() {
@@ -53,6 +55,8 @@ export default function App() {
           <Route path="/review/:tourId" element={<ReviewTourPage />} />
           <Route path="/plans" element={<PlanQueuePage />} />
           <Route path="/plans/:planId" element={<PlanPage />} />
+          <Route path="/workflows" element={<WorkflowsPage />} />
+          <Route path="/workflows/runs/:runId" element={<WorkflowRunPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/agents" replace />} />
         </Route>

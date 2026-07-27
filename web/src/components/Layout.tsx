@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react"
 import { Outlet, NavLink } from "react-router-dom"
-import { Monitor, LayoutGrid, Settings, Server, ListChecks, ClipboardList } from "lucide-react"
+import { Monitor, LayoutGrid, Settings, Server, ListChecks, ClipboardList, Workflow } from "lucide-react"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
@@ -37,6 +37,7 @@ export function Layout() {
     { to: "/board", label: "Board", icon: LayoutGrid },
     { to: "/review", label: "Review", icon: ListChecks, count: reviewCount, badge: "bg-amber-500" },
     { to: "/plans", label: "Plans", icon: ClipboardList, count: planCount, badge: "bg-indigo-400" },
+    { to: "/workflows", label: "Flows", icon: Workflow },
     { to: "/settings", label: "Settings", icon: Settings },
   ]
 
@@ -95,6 +96,7 @@ export function Layout() {
         <NavLink to="/plans" className={({isActive})=>cn("relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors",isActive?"bg-zinc-800 text-zinc-100":"text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300")} title={planCount>0?`Plan queue: ${planCount} plans`:"Plan queue"}>
           <ClipboardList size={20}/>{planCount>0&&<span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-indigo-400 px-1 text-center text-[9px] font-bold leading-4 text-zinc-950">{planCount>99?"99+":planCount}</span>}
         </NavLink>
+        <NavLink to="/workflows" className={({isActive})=>cn("flex h-10 w-10 items-center justify-center rounded-lg transition-colors",isActive?"bg-zinc-800 text-zinc-100":"text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300")} title="Workflows"><Workflow size={20}/></NavLink>
 
         {/* Settings + server switcher + connection status at bottom */}
         <div className="mt-auto flex flex-col items-center gap-4">
@@ -173,7 +175,7 @@ export function Layout() {
       </main>
       <nav
         aria-label="Primary navigation"
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-zinc-800 bg-zinc-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-zinc-800 bg-zinc-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
       >
         {navItems.map(({ to, label, icon: Icon, count, badge }) => (
           <NavLink
