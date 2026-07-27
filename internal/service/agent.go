@@ -420,7 +420,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	assignment := opt.Brief
 	if opt.Assignment != "" {
 		assignment = opt.Assignment
-		if rolePrompt == "" {
+		// Self-kickoff adapters use LEGATO_ROLE_PROMPT_FILE as their first
+		// user turn. A workflow assignment must therefore replace the generic
+		// standalone prompt rather than wait in an undelivered brief file.
+		if kickoff, ok := adapter.(LaunchSelfKickoff); ok && kickoff.LaunchIsSelfKickoff() {
+			rolePrompt = opt.Assignment
+		} else if rolePrompt == "" {
 			rolePrompt = opt.Assignment
 		}
 	}
