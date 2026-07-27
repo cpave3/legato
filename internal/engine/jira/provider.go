@@ -94,6 +94,10 @@ func (p *Provider) DoTransition(ctx context.Context, id string, transitionID str
 	return p.client.DoTransition(ctx, id, transitionID)
 }
 
+func (p *Provider) AddTaskNote(ctx context.Context, id, body string) error {
+	return p.client.AddComment(ctx, id, body)
+}
+
 // DownloadAttachment opens an authenticated attachment stream.
 func (p *Provider) DownloadAttachment(ctx context.Context, id string) (io.ReadCloser, error) {
 	return p.client.DownloadAttachment(ctx, id)

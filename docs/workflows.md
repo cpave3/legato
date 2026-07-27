@@ -28,11 +28,12 @@ Selecting a preset prefills matching `repo`, `primary_dir`, and `base_branch` wo
 
 ## Schema version 1
 
-Version 1 executes steps in declaration order and supports three executors:
+Version 1 executes steps in declaration order and supports four executors:
 
 - `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
 - `agent.run`: launch a configured Legato agent with an explicit assignment and completion contract.
 - `worktree.remove`: validate and remove the shared task's worktree through Yggdrasil, then clear task metadata.
+- `task.note`: add Markdown to a selected task. Local notes are stored in Legato and shown in task detail; Jira-backed notes are also published as Jira comments.
 
 ```yaml
 schema_version: 1
@@ -80,12 +81,14 @@ steps:
         type: json
 ```
 
-Inputs support `string`, `integer`, `boolean`, and `json`. Outputs support those scalar/JSON types plus `file`. Steps default to `trigger: automatic`; set `trigger: manual` to pause the run before that executor starts. A manual step creates no attempt until explicitly triggered with `legato workflow trigger <run-id> <step-id>`. While waiting, the run is non-terminal and contributes to the Workflows attention badge. Unknown fields, unsupported executors, unsafe paths, forward references, and undeclared references fail validation before a run starts.
+Inputs support `string`, `integer`, `boolean`, `json`, and `task`. A task input is supplied as an existing Legato task ID and resolves to structured `id`, `title`, `description`, `status`, `priority`, `provider`, and `remote_id` fields. The web form presents current tasks as a selector. Outputs support scalar/JSON types plus `file`. Steps default to `trigger: automatic`; set `trigger: manual` to pause the run before that executor starts. A manual step creates no attempt until explicitly triggered with `legato workflow trigger <run-id> <step-id>`. While waiting, the run is non-terminal and contributes to the Workflows attention badge. Unknown fields, unsupported executors, unsafe paths, forward references, and undeclared references fail validation before a run starts.
 
 Templates support only:
 
 - `${{ workflow.inputs.<key> }}`
+- `${{ workflow.inputs.<task-key>.<field> }}`
 - `${{ steps.<earlier-step>.outputs.<key> }}`
+- `${{ steps.<earlier-step>.outputs.<file-key>.path }}`
 - `${{ outputs.<current-file-output>.path }}`
 
 Whole-field references preserve native types. Values interpolated into text use scalar or canonical JSON formatting.
@@ -106,7 +109,7 @@ legato workflow retry <run-id> <step-id> --json
 legato workflow cancel <run-id> --json
 ```
 
-A run creates one shared local task. Deterministic steps execute synchronously until an agent step starts. The run then advances when that agent explicitly completes or fails its step.
+A run creates one shared local execution task. When a workflow accepts a `task` input, the selected target is stored separately as `related_task_id`; agent sessions continue to use the execution task so an existing task's active agent session is not replaced. Deterministic steps execute synchronously until an agent step starts. The run then advances when that agent explicitly completes or fails its step.
 
 ## Agent completion
 

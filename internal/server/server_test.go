@@ -1066,6 +1066,7 @@ func TestGetTaskDetail_Returns200(t *testing.T) {
 			Priority:      "High",
 			CreatedAt:     time.Now(),
 			UpdatedAt:     time.Now(),
+			Notes:         []store.TaskNote{{ID: "tn-1", TaskID: "task-1", Body: "Triage note", Source: "workflow"}},
 			PRMeta: &service.PRMetaView{
 				Repo:     "acme/app",
 				Branch:   "feat/x",
@@ -1086,6 +1087,9 @@ func TestGetTaskDetail_Returns200(t *testing.T) {
 	var resp CardDetailResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(resp.Notes) != 1 || resp.Notes[0].Body != "Triage note" {
+		t.Fatalf("notes = %#v", resp.Notes)
 	}
 	if resp.PRMeta == nil {
 		t.Fatal("pr_meta is nil")

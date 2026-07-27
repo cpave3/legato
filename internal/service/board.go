@@ -122,6 +122,11 @@ func (b *boardService) GetCard(ctx context.Context, id string) (*CardDetail, err
 		return nil, err
 	}
 	detail := taskToCardDetail(t)
+	notes, err := b.store.ListTaskNotes(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	detail.Notes = notes
 	if err := b.addAttachments(detail); err != nil {
 		return nil, err
 	}

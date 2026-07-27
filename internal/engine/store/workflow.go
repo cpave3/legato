@@ -22,6 +22,7 @@ type WorkflowRun struct {
 	Status           string  `db:"status" json:"status"`
 	CurrentStepID    string  `db:"current_step_id" json:"current_step_id"`
 	TaskID           string  `db:"task_id" json:"task_id,omitempty"`
+	RelatedTaskID    string  `db:"related_task_id" json:"related_task_id,omitempty"`
 	Error            string  `db:"error" json:"error,omitempty"`
 	CreatedAt        string  `db:"created_at" json:"created_at"`
 	StartedAt        *string `db:"started_at" json:"started_at,omitempty"`
@@ -92,8 +93,8 @@ type WorkflowRunView struct {
 func (s *Store) CreateWorkflowRun(ctx context.Context, run WorkflowRun, steps []WorkflowStepRun) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
 		if _, err := tx.NamedExecContext(ctx, `INSERT INTO workflow_runs
-			(id, workflow_name, workflow_title, definition_source, definition_digest, definition_json, inputs_json, status, current_step_id, task_id, error, started_at)
-			VALUES (:id, :workflow_name, :workflow_title, :definition_source, :definition_digest, :definition_json, :inputs_json, :status, :current_step_id, NULLIF(:task_id,''), :error, datetime('now'))`, run); err != nil {
+			(id, workflow_name, workflow_title, definition_source, definition_digest, definition_json, inputs_json, status, current_step_id, task_id, related_task_id, error, started_at)
+			VALUES (:id, :workflow_name, :workflow_title, :definition_source, :definition_digest, :definition_json, :inputs_json, :status, :current_step_id, NULLIF(:task_id,''), :related_task_id, :error, datetime('now'))`, run); err != nil {
 			return err
 		}
 		for _, step := range steps {

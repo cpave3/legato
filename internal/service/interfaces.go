@@ -74,6 +74,7 @@ type CardDetail struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	Attachments     []LocalAttachment
+	Notes           []store.TaskNote
 }
 
 // LocalAttachment describes a cached attachment available to agents.

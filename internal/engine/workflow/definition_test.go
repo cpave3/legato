@@ -6,6 +6,39 @@ import (
 	"github.com/cpave3/legato/internal/engine/workflow"
 )
 
+func TestResolveManagedArtifactPathForLaterStep(t *testing.T) {
+	definition, err := workflow.Parse("task.yaml", []byte(`
+schema_version: 1
+name: triage
+title: Triage
+inputs:
+  task: {type: task, required: true}
+steps:
+  - id: triage
+    title: Triage
+    type: agent.run
+    with: {prompt: inspect}
+    outputs:
+      report: {type: file, path: triage.md}
+  - id: note
+    title: Note
+    type: task.note
+    with:
+      task: ${{ workflow.inputs.task }}
+      body_path: ${{ steps.triage.outputs.report.path }}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	step, err := definition.ResolveStep("note", map[string]any{"task": map[string]any{"id": "LEG-1"}}, map[string]map[string]any{"triage": {"report": map[string]any{"path": "/managed/triage.md", "artifact_id": "a1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if step.With["body_path"] != "/managed/triage.md" {
+		t.Fatalf("body_path = %#v", step.With["body_path"])
+	}
+}
+
 func TestParseValidateAndRenderWorkflow(t *testing.T) {
 	raw := []byte(`
 schema_version: 1

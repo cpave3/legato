@@ -121,6 +121,19 @@ func (c *Client) DownloadAttachment(ctx context.Context, id string) (io.ReadClos
 	return resp.Body, nil
 }
 
+// AddComment adds a plain-text Jira comment. Jira renders line breaks while
+// preserving Markdown source for readers and agents.
+func (c *Client) AddComment(ctx context.Context, key, body string) error {
+	payload, err := json.Marshal(map[string]any{"body": map[string]any{"type": "doc", "version": 1, "content": []any{map[string]any{"type": "paragraph", "content": []any{map[string]any{"type": "text", "text": body}}}}}})
+	if err != nil {
+		return err
+	}
+	if _, err := c.doPost(ctx, "/rest/api/3/issue/"+url.PathEscape(key)+"/comment", string(payload)); err != nil {
+		return fmt.Errorf("add comment: %w", err)
+	}
+	return nil
+}
+
 // GetTransitions returns available transitions for an issue.
 func (c *Client) GetTransitions(ctx context.Context, key string) ([]Transition, error) {
 	body, err := c.doGet(ctx, "/rest/api/3/issue/"+url.PathEscape(key)+"/transitions")

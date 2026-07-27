@@ -61,6 +61,21 @@ func (s *WorkflowService) Start(ctx context.Context, definition *workflowengine.
 	if err != nil {
 		return nil, err
 	}
+	relatedTaskID := ""
+	for key, spec := range definition.Inputs {
+		if spec.Type != "task" {
+			continue
+		}
+		id, _ := inputs[key].(string)
+		task, taskErr := s.store.GetTask(ctx, id)
+		if taskErr != nil {
+			return nil, fmt.Errorf("workflow input %q: task %q not found: %w", key, id, taskErr)
+		}
+		inputs[key] = workflowTaskContext(task)
+		if relatedTaskID == "" {
+			relatedTaskID = task.ID
+		}
+	}
 	for _, step := range definition.Steps {
 		if _, ok := s.executors[step.Type]; !ok {
 			return nil, fmt.Errorf("workflow executor %q is not registered", step.Type)
@@ -74,7 +89,7 @@ func (s *WorkflowService) Start(ctx context.Context, definition *workflowengine.
 	}
 	definitionJSON, _ := json.Marshal(definition)
 	inputsJSON, _ := json.Marshal(inputs)
-	run := store.WorkflowRun{ID: runID, WorkflowName: definition.Name, WorkflowTitle: definition.Title, DefinitionSource: definition.Source, DefinitionDigest: digestBytes(definitionJSON), DefinitionJSON: string(definitionJSON), InputsJSON: string(inputsJSON), Status: "running", CurrentStepID: definition.Steps[0].ID, TaskID: taskID}
+	run := store.WorkflowRun{ID: runID, WorkflowName: definition.Name, WorkflowTitle: definition.Title, DefinitionSource: definition.Source, DefinitionDigest: digestBytes(definitionJSON), DefinitionJSON: string(definitionJSON), InputsJSON: string(inputsJSON), Status: "running", CurrentStepID: definition.Steps[0].ID, TaskID: taskID, RelatedTaskID: relatedTaskID}
 	steps := make([]store.WorkflowStepRun, len(definition.Steps))
 	for i, step := range definition.Steps {
 		encoded, _ := json.Marshal(step)
@@ -93,6 +108,21 @@ func (s *WorkflowService) Start(ctx context.Context, definition *workflowengine.
 		return view, nil
 	}
 	return s.store.GetWorkflowRun(ctx, runID)
+}
+
+func workflowTaskContext(task *store.Task) map[string]any {
+	provider, remoteID := "", ""
+	if task.Provider != nil {
+		provider = *task.Provider
+	}
+	if task.RemoteID != nil {
+		remoteID = *task.RemoteID
+	}
+	description := task.DescriptionMD
+	if description == "" {
+		description = task.Description
+	}
+	return map[string]any{"id": task.ID, "title": task.Title, "description": description, "status": task.Status, "priority": task.Priority, "provider": provider, "remote_id": remoteID}
 }
 
 func (s *WorkflowService) Artifact(ctx context.Context, artifactID string) (*store.WorkflowArtifact, error) {

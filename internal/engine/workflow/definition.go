@@ -102,7 +102,7 @@ func (d *Definition) Validate() error {
 		if step.Trigger != "automatic" && step.Trigger != "manual" {
 			return fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger)
 		}
-		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "worktree.remove" {
+		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "worktree.remove" && step.Type != "task.note" {
 			return fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type)
 		}
 		for field, value := range step.With {
@@ -126,7 +126,15 @@ func (d *Definition) Validate() error {
 }
 
 func validValueType(valueType string, file bool) bool {
-	return valueType == "string" || valueType == "integer" || valueType == "boolean" || valueType == "json" || (file && valueType == "file")
+	return valueType == "string" || valueType == "integer" || valueType == "boolean" || valueType == "json" || (!file && valueType == "task") || (file && valueType == "file")
+}
+
+func validTaskField(field string) bool {
+	switch field {
+	case "id", "title", "description", "status", "priority", "provider", "remote_id":
+		return true
+	}
+	return false
 }
 
 func safeRelativePath(path string) bool {
@@ -154,13 +162,24 @@ func validateReferences(value any, inputs map[string]Input, current map[string]O
 			if _, ok := inputs[parts[2]]; !ok {
 				return fmt.Errorf("input %q is not declared", parts[2])
 			}
-		case len(parts) == 4 && parts[0] == "steps" && parts[2] == "outputs":
+		case len(parts) == 4 && parts[0] == "workflow" && parts[1] == "inputs":
+			input, ok := inputs[parts[2]]
+			if !ok {
+				return fmt.Errorf("input %q is not declared", parts[2])
+			}
+			if input.Type != "task" || !validTaskField(parts[3]) {
+				return fmt.Errorf("input %q has no field %q", parts[2], parts[3])
+			}
+		case (len(parts) == 4 || len(parts) == 5) && parts[0] == "steps" && parts[2] == "outputs":
 			outputs, ok := previous[parts[1]]
 			if !ok {
 				return fmt.Errorf("step %q is not an earlier step", parts[1])
 			}
 			if !outputs[parts[3]] {
 				return fmt.Errorf("step %q output %q is not declared", parts[1], parts[3])
+			}
+			if len(parts) == 5 && parts[4] != "path" {
+				return fmt.Errorf("output %q has no field %q", parts[3], parts[4])
 			}
 		case len(parts) == 3 && parts[0] == "outputs" && parts[2] == "path":
 			if output, ok := current[parts[1]]; !ok || output.Type != "file" {
@@ -203,7 +222,7 @@ func (d *Definition) NormalizeInputs(raw map[string]string) (map[string]any, err
 
 func parseValue(valueType, value string) (any, error) {
 	switch valueType {
-	case "string":
+	case "string", "task":
 		return value, nil
 	case "integer":
 		parsed, err := strconv.ParseInt(value, 10, 64)
@@ -289,14 +308,25 @@ func resolveValue(value any, current map[string]Output, inputs map[string]any, o
 
 func resolveExpression(expr string, current map[string]Output, inputs map[string]any, outputs map[string]map[string]any) (any, error) {
 	parts := strings.Split(expr, ".")
-	if len(parts) == 3 && parts[0] == "workflow" && parts[1] == "inputs" {
+	if len(parts) >= 3 && len(parts) <= 4 && parts[0] == "workflow" && parts[1] == "inputs" {
 		value, ok := inputs[parts[2]]
 		if !ok {
 			return nil, fmt.Errorf("input %q is unavailable", parts[2])
 		}
-		return value, nil
+		if len(parts) == 3 {
+			return value, nil
+		}
+		task, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("input %q is not a task", parts[2])
+		}
+		field, ok := task[parts[3]]
+		if !ok {
+			return nil, fmt.Errorf("task input %q field %q is unavailable", parts[2], parts[3])
+		}
+		return field, nil
 	}
-	if len(parts) == 4 && parts[0] == "steps" && parts[2] == "outputs" {
+	if (len(parts) == 4 || len(parts) == 5) && parts[0] == "steps" && parts[2] == "outputs" {
 		stepOutputs, ok := outputs[parts[1]]
 		if !ok {
 			return nil, fmt.Errorf("step %q outputs are unavailable", parts[1])
@@ -305,7 +335,18 @@ func resolveExpression(expr string, current map[string]Output, inputs map[string
 		if !ok {
 			return nil, fmt.Errorf("step %q output %q is unavailable", parts[1], parts[3])
 		}
-		return value, nil
+		if len(parts) == 4 {
+			return value, nil
+		}
+		structured, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("step %q output %q has no field %q", parts[1], parts[3], parts[4])
+		}
+		field, ok := structured[parts[4]]
+		if !ok {
+			return nil, fmt.Errorf("step %q output %q field %q is unavailable", parts[1], parts[3], parts[4])
+		}
+		return field, nil
 	}
 	if len(parts) == 3 && parts[0] == "outputs" && parts[2] == "path" {
 		output, ok := current[parts[1]]

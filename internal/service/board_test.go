@@ -176,6 +176,23 @@ func TestGetCard_Exists(t *testing.T) {
 	}
 }
 
+func TestGetCardIncludesTaskNotes(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	seedColumns(t, s)
+	seedTasks(t, s)
+	ctx := context.Background()
+	if err := s.InsertTaskNote(ctx, store.TaskNote{ID: "tn-1", TaskID: "T-1", Body: "## Triage\n\nInvestigate retries.", Source: "workflow"}); err != nil {
+		t.Fatal(err)
+	}
+	card, err := svc.GetCard(ctx, "T-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(card.Notes) != 1 || card.Notes[0].Body != "## Triage\n\nInvestigate retries." {
+		t.Fatalf("notes = %#v", card.Notes)
+	}
+}
+
 func TestGetCard_NotFound(t *testing.T) {
 	_, _, svc := setupTestBoard(t)
 

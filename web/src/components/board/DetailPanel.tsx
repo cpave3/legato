@@ -4,6 +4,7 @@ import type { CardDetail } from "../../lib/board-types"
 import { fetchTaskArtifacts, type TaskArtifacts } from "../../lib/artifacts"
 import { useServer } from "../../hooks/useServer"
 import { X } from "lucide-react"
+import { WorkflowMarkdownPreview } from "../WorkflowMarkdownPreview"
 
 interface DetailPanelProps {
   card: CardDetail
@@ -203,6 +204,7 @@ export function DetailPanel({
           ) : (
             <p className="text-xs text-zinc-600 italic">No description</p>
           )}
+          {(card.notes??[]).length>0&&<section className="mt-5 border-t border-zinc-800 pt-4"><h4 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Notes</h4><div className="space-y-3">{(card.notes??[]).map(note=><article key={note.id} className="rounded-lg border border-zinc-800 bg-zinc-950 p-4"><WorkflowMarkdownPreview markdown={note.body}/><p className="mt-3 text-[10px] text-zinc-600">{note.source} · {note.created_at}</p></article>)}</div></section>}
 
           {/* Swarm sub-task tree — TODO: backend does not yet return subtasks on /api/tasks/<id> */}
           {/* {card.subtasks && card.subtasks.length > 0 && (

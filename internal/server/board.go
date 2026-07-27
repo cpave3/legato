@@ -348,6 +348,7 @@ func cardDetailToResponse(d *service.CardDetail) CardDetailResponse {
 		SwarmStepNames:  d.SwarmStepNames,
 		CreatedAt:       d.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:       d.UpdatedAt.Format(time.RFC3339),
+		Notes:           d.Notes,
 	}
 	if d.PRMeta != nil {
 		resp.PRMeta = &PRMetaResponse{

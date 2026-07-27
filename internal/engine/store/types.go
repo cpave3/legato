@@ -70,6 +70,15 @@ type Task struct {
 	UpdatedAt          string  `db:"updated_at"`
 }
 
+type TaskNote struct {
+	ID        string `db:"id" json:"id"`
+	TaskID    string `db:"task_id" json:"task_id"`
+	Body      string `db:"body" json:"body"`
+	Source    string `db:"source" json:"source"`
+	RemoteID  string `db:"remote_id" json:"remote_id,omitempty"`
+	CreatedAt string `db:"created_at" json:"created_at"`
+}
+
 // TaskWorktree is the durable worktree associated with a task.
 type TaskWorktree struct {
 	PrimaryDir string

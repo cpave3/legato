@@ -11,6 +11,7 @@ import (
 	gitengine "github.com/cpave3/legato/internal/engine/git"
 	gh "github.com/cpave3/legato/internal/engine/github"
 	"github.com/cpave3/legato/internal/engine/hooks"
+	"github.com/cpave3/legato/internal/engine/jira"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/tmux"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
@@ -61,7 +62,11 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 	}
 	binary, _ := os.Executable()
 	runner := service.NewWorkflowAgentRunner(agentSvc, db, binary)
-	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary)}
+	publishers := map[string]service.TaskNotePublisher{}
+	if cfg.Jira.BaseURL != "" && cfg.Jira.Email != "" && cfg.Jira.APIToken != "" {
+		publishers["jira"] = jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second)
+	}
+	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary), service.NewTaskNoteExecutor(db, publishers)}
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"))
 		executors = append(executors,

@@ -64,6 +64,7 @@ export interface CardDetail {
   swarm_working_dir?: string
   created_at: string
   updated_at: string
+  notes?: { id: string; task_id: string; body: string; source: string; remote_id?: string; created_at: string }[]
 }
 
 export interface PRMetaView {

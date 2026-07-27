@@ -1,5 +1,7 @@
 package server
 
+import "github.com/cpave3/legato/internal/engine/store"
+
 // HealthResponse is the JSON response for GET /health.
 type HealthResponse struct {
 	Status  string `json:"status"`
@@ -87,6 +89,7 @@ type CardDetailResponse struct {
 	SwarmStepNames  []string          `json:"swarm_step_names,omitempty"`
 	CreatedAt       string            `json:"created_at"`
 	UpdatedAt       string            `json:"updated_at"`
+	Notes           []store.TaskNote  `json:"notes"`
 }
 
 // PRMetaResponse is the JSON representation of PR metadata linked to a task.
