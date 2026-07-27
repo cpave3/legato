@@ -14,19 +14,21 @@ import (
 
 // Message is the IPC protocol unit between CLI clients and the TUI server.
 type Message struct {
-	Type        string `json:"type"`
-	TaskID      string `json:"task_id"`
-	Status      string `json:"status,omitempty"`
-	Content     string `json:"content,omitempty"`
-	ReplySocket string `json:"reply_socket,omitempty"` // for request/reply requests, the requester's listening socket
-	Notes       string `json:"notes,omitempty"`        // free-form supplementary text (e.g. plan rejection notes)
-	PlanPath    string `json:"plan_path,omitempty"`    // canonical path to the plan file (plan_proposed)
-	Mode        string `json:"mode,omitempty"`         // e.g. "extension" for plan-proposed messages
-	TourID      string `json:"tour_id,omitempty"`      // review tour identity for review_changed
-	StepID      string `json:"step_id,omitempty"`      // review step identity for review_changed
-	Kind        string `json:"kind,omitempty"`         // mutation kind for review_changed/plan_changed
-	PlanID      string `json:"plan_id,omitempty"`      // durable plan identity for plan_changed
-	RevisionID  string `json:"revision_id,omitempty"`  // plan revision identity for plan_changed
+	Type           string `json:"type"`
+	TaskID         string `json:"task_id"`
+	Status         string `json:"status,omitempty"`
+	Content        string `json:"content,omitempty"`
+	ReplySocket    string `json:"reply_socket,omitempty"`     // for request/reply requests, the requester's listening socket
+	Notes          string `json:"notes,omitempty"`            // free-form supplementary text (e.g. plan rejection notes)
+	PlanPath       string `json:"plan_path,omitempty"`        // canonical path to the plan file (plan_proposed)
+	Mode           string `json:"mode,omitempty"`             // e.g. "extension" for plan-proposed messages
+	TourID         string `json:"tour_id,omitempty"`          // review tour identity for review_changed
+	StepID         string `json:"step_id,omitempty"`          // review step identity for review_changed
+	Kind           string `json:"kind,omitempty"`             // mutation kind for review_changed/plan_changed
+	PlanID         string `json:"plan_id,omitempty"`          // durable plan identity for plan_changed
+	RevisionID     string `json:"revision_id,omitempty"`      // plan revision identity for plan_changed
+	WorkflowRunID  string `json:"workflow_run_id,omitempty"`  // workflow identity for workflow_changed
+	WorkflowStepID string `json:"workflow_step_id,omitempty"` // workflow step identity for workflow_changed
 }
 
 // SocketDir returns the directory for Legato IPC sockets.

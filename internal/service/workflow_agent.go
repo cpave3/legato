@@ -14,6 +14,26 @@ type workflowAgentRunner interface {
 	KillAgent(context.Context, string) error
 }
 
+// WorkflowAgentRunner adapts the presentation-facing agent service to the
+// workflow executor's spawn-and-resolve contract.
+type WorkflowAgentRunner struct {
+	agents AgentService
+	store  *store.Store
+}
+
+func NewWorkflowAgentRunner(agents AgentService, s *store.Store) *WorkflowAgentRunner {
+	return &WorkflowAgentRunner{agents: agents, store: s}
+}
+func (r *WorkflowAgentRunner) SpawnWorkflowAgent(ctx context.Context, taskID string, opts AgentSpawnOptions) (*store.AgentSession, error) {
+	if err := r.agents.SpawnAgent(ctx, taskID, 0, 0, opts); err != nil {
+		return nil, err
+	}
+	return r.store.GetAgentSessionByTaskID(ctx, taskID)
+}
+func (r *WorkflowAgentRunner) KillAgent(ctx context.Context, taskID string) error {
+	return r.agents.KillAgent(ctx, taskID)
+}
+
 type AgentRunExecutor struct{ agents workflowAgentRunner }
 
 func NewAgentRunExecutor(agents workflowAgentRunner) *AgentRunExecutor {

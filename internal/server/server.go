@@ -18,31 +18,34 @@ import (
 
 // Server is the HTTP/WebSocket server for Legato's web UI.
 type Server struct {
-	board            service.BoardService
-	agents           service.AgentService
-	swarm            SwarmService
-	sync             service.SyncService
-	prTracking       service.PRTrackingService
-	tmux             service.TmuxManager
-	bus              *events.Bus
-	addr             string
-	workDir          string // default CWD for agent spawn
-	server           *http.Server
-	hub              *Hub
-	streams          *streamManager
-	tlsCert          string
-	tlsKey           string
-	caCertPath       string
-	authToken        string
-	macros           []macros.Macro
-	sparklineWindow  time.Duration
-	sparklineBuckets int
-	ntfyConfigured   bool
-	voiceSvc         VoiceService
-	voiceAutoSend    bool
-	reviews          ReviewService
-	plans            PlanService
-	artifacts        ArtifactService
+	board              service.BoardService
+	agents             service.AgentService
+	swarm              SwarmService
+	sync               service.SyncService
+	prTracking         service.PRTrackingService
+	tmux               service.TmuxManager
+	bus                *events.Bus
+	addr               string
+	workDir            string // default CWD for agent spawn
+	server             *http.Server
+	hub                *Hub
+	streams            *streamManager
+	tlsCert            string
+	tlsKey             string
+	caCertPath         string
+	authToken          string
+	macros             []macros.Macro
+	sparklineWindow    time.Duration
+	sparklineBuckets   int
+	ntfyConfigured     bool
+	voiceSvc           VoiceService
+	voiceAutoSend      bool
+	reviews            ReviewService
+	plans              PlanService
+	artifacts          ArtifactService
+	workflows          *service.WorkflowService
+	workflowGlobalDir  string
+	workflowProjectDir string
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -123,6 +126,13 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/plans/{plan_id}/approve", s.planApproveHandler())
 	mux.HandleFunc("/api/plans/{plan_id}/reject", s.planRejectHandler())
 	mux.HandleFunc("/api/plans/{plan_id}/reopen", s.planReopenHandler())
+	mux.HandleFunc("/api/workflows", s.workflowsHandler())
+	mux.HandleFunc("/api/workflows/{name}/runs", s.workflowStartHandler())
+	mux.HandleFunc("/api/workflow-runs", s.workflowRunsHandler())
+	mux.HandleFunc("/api/workflow-runs/{run_id}", s.workflowRunHandler())
+	mux.HandleFunc("/api/workflow-runs/{run_id}/cancel", s.workflowCancelHandler())
+	mux.HandleFunc("/api/workflow-runs/{run_id}/steps/{step_id}/retry", s.workflowRetryHandler())
+	mux.HandleFunc("/api/workflow-artifacts/{artifact_id}", s.workflowArtifactHandler())
 	// Swarm endpoints
 	mux.HandleFunc("/api/swarm/start", s.swarmStartHandler())
 	mux.HandleFunc("/api/swarm/cancel", s.swarmCancelHandler())
@@ -172,6 +182,12 @@ func (s *Server) SetAuthToken(token string) {
 }
 
 // SetSyncService sets the optional sync service for remote search/import endpoints.
+func (s *Server) SetWorkflowService(svc *service.WorkflowService, globalDir, projectDir string) {
+	s.workflows = svc
+	s.workflowGlobalDir = globalDir
+	s.workflowProjectDir = projectDir
+}
+
 func (s *Server) SetSyncService(svc service.SyncService) {
 	s.sync = svc
 }

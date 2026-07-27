@@ -700,8 +700,9 @@ func parseReviewArgs(args []string) (positional []string, flags map[string]strin
 	scalar := map[string]bool{
 		"task": true, "name": true, "review-pass": true, "risk": true,
 		"order": true, "hunk": true, "lines": true, "feedback": true,
+		"run": true, "step": true, "attempt": true, "status": true, "limit": true,
 	}
-	repeatable := map[string]bool{"file": true, "include": true, "finding": true}
+	repeatable := map[string]bool{"file": true, "include": true, "finding": true, "input": true, "output": true, "artifact": true}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if !strings.HasPrefix(arg, "--") {
@@ -729,7 +730,7 @@ func parseReviewArgs(args []string) (positional []string, flags map[string]strin
 				return positional, flags, listFlags, fmt.Errorf("flag --json may only be specified once")
 			}
 			flags[name] = ""
-		case "file", "include", "finding":
+		case "file", "include", "finding", "input", "output", "artifact":
 			if i+1 >= len(args) {
 				return positional, flags, listFlags, fmt.Errorf("missing value for --%s", name)
 			}
@@ -1392,6 +1393,12 @@ func runServeCmd(args []string) int {
 	srv.SetReviewService(reviewSvc)
 	srv.SetPlanService(planSvc)
 	srv.SetArtifactService(artifactSvc)
+	if workflowSvc, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, nil, wd); workflowErr == nil {
+		globalWorkflows, projectWorkflows := workflowDirs()
+		srv.SetWorkflowService(workflowSvc, globalWorkflows, projectWorkflows)
+	} else {
+		log.Printf("workflows: %v", workflowErr)
+	}
 	srv.SetMacros(cfg.Macros)
 	srv.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
@@ -1690,6 +1697,12 @@ func runTUI() int {
 			webSrv.SetReviewService(reviewSvc)
 			webSrv.SetPlanService(planSvc)
 			webSrv.SetArtifactService(artifactSvc)
+			if workflowSvc, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, prSvc, wd); workflowErr == nil {
+				globalWorkflows, projectWorkflows := workflowDirs()
+				webSrv.SetWorkflowService(workflowSvc, globalWorkflows, projectWorkflows)
+			} else {
+				log.Printf("workflows: %v", workflowErr)
+			}
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)

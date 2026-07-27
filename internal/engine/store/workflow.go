@@ -322,6 +322,27 @@ func (s *Store) ListWorkflowRuns(ctx context.Context, status string, limit int) 
 	return runs, nil
 }
 
+func (s *Store) CancelWorkflowRun(ctx context.Context, runID, reason string) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_runs SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE id = ? AND status IN ('running','waiting')`, reason, runID)
+		if err != nil {
+			return err
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rows != 1 {
+			return ErrWorkflowStateConflict
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE run_id = ? AND status IN ('pending','running','waiting_agent')`, reason, runID); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'cancelled', error = ?, ended_at = datetime('now') WHERE run_id = ? AND status IN ('running','waiting_agent')`, reason, runID)
+		return err
+	})
+}
+
 func (s *Store) UpdateWorkflowAttemptStatus(ctx context.Context, attemptID, from, to, errorMessage string) error {
 	result, err := s.db.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = ?, error = ?, ended_at = CASE WHEN ? IN ('failed','interrupted','cancelled','succeeded') THEN datetime('now') ELSE ended_at END WHERE id = ? AND status = ?`, to, errorMessage, to, attemptID, from)
 	if err != nil {

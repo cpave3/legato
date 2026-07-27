@@ -159,10 +159,13 @@ func commandTree() *commandDef {
 	swarm := legacyVerbGroup("swarm", "Coordinate multi-agent swarms", runSwarmCmd,
 		[]string{"validate-plan", "create", "propose-plan", "cancel", "extend-plan", "dispatch", "message", "broadcast", "close", "finish", "next-step", "progress", "question", "built", "status", "inbox"},
 		[]commandFlag{jsonFlag})
+	workflow := legacyVerbGroup("workflow", "Run and inspect reusable workflows", runWorkflowCmd,
+		[]string{"list", "validate", "run", "runs", "show", "cancel", "retry", "step"},
+		[]commandFlag{valueFlag("input", "key=value", "Workflow input (repeatable)"), valueFlag("output", "key=value", "Step output (repeatable)"), valueFlag("artifact", "key=path", "Step artifact (repeatable)"), valueFlag("run", "run-id", "Workflow run identity"), valueFlag("step", "step-id", "Workflow step identity"), valueFlag("attempt", "attempt-id", "Workflow attempt identity"), valueFlag("status", "status", "Filter runs"), valueFlag("limit", "count", "Maximum runs"), jsonFlag})
 	configureSwarmCommands(swarm)
 
 	root := group("", "Legato task management and AI-agent orchestration",
-		task, workspace, agent, plan, review, swarm, hooks,
+		task, workspace, agent, plan, review, workflow, swarm, hooks,
 		leaf("serve", "Run the Legato web server", runServeCmd, nil, []commandFlag{valueFlag("port", "port", "Listening port")}, "legato serve --port 3080"),
 		authGroup,
 		leaf("pair", "Pair a device with the Legato web UI", runPairContract, nil, []commandFlag{valueFlag("host", "host|ip", "Address this device uses to reach this specific Legato instance"), valueFlag("port", "port", "Server port"), jsonFlag}, "legato pair --host 192.168.1.20"),

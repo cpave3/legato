@@ -26,43 +26,46 @@ const (
 
 // WebSocket message types (server → client).
 const (
-	MsgAgentOutput   = "agent_output"
-	MsgAgentList     = "agent_list"
-	MsgAgentsChanged = "agents_changed"
-	MsgPromptState   = "prompt_state"
-	MsgPlanProposed  = "plan_proposed"
-	MsgPlanVerdict   = "plan_verdict"
-	MsgSwarmChanged  = "swarm_changed"
-	MsgCardsChanged  = "cards_changed"
-	MsgReviewChanged = "review_changed"
-	MsgPlanChanged   = "plan_changed"
-	MsgError         = "error"
+	MsgAgentOutput     = "agent_output"
+	MsgAgentList       = "agent_list"
+	MsgAgentsChanged   = "agents_changed"
+	MsgPromptState     = "prompt_state"
+	MsgPlanProposed    = "plan_proposed"
+	MsgPlanVerdict     = "plan_verdict"
+	MsgSwarmChanged    = "swarm_changed"
+	MsgCardsChanged    = "cards_changed"
+	MsgReviewChanged   = "review_changed"
+	MsgPlanChanged     = "plan_changed"
+	MsgWorkflowChanged = "workflow_changed"
+	MsgError           = "error"
 )
 
 // WSMessage is the JSON envelope for all WebSocket messages.
 type WSMessage struct {
-	Type         string              `json:"type"`
-	AgentID      string              `json:"agent_id,omitempty"`
-	Content      string              `json:"content,omitempty"`
-	Keys         string              `json:"keys,omitempty"`
-	Cols         int                 `json:"cols,omitempty"`
-	Rows         int                 `json:"rows,omitempty"`
-	Agents       []AgentResponse     `json:"agents,omitempty"`
-	Prompt       *prompt.PromptState `json:"prompt,omitempty"`
-	Error        string              `json:"error,omitempty"`
-	PlanPath     string              `json:"plan_path,omitempty"`
-	ReplySocket  string              `json:"reply_socket,omitempty"`
-	ParentTaskID string              `json:"parent_task_id,omitempty"`
-	SubtaskID    string              `json:"subtask_id,omitempty"`
-	Status       string              `json:"status,omitempty"`
-	Notes        string              `json:"notes,omitempty"`
-	Mode         string              `json:"mode,omitempty"`
-	TaskID       string              `json:"task_id,omitempty"`
-	TourID       string              `json:"tour_id,omitempty"`
-	StepID       string              `json:"step_id,omitempty"`
-	Kind         string              `json:"kind,omitempty"`
-	PlanID       string              `json:"plan_id,omitempty"`
-	RevisionID   string              `json:"revision_id,omitempty"`
+	Type           string              `json:"type"`
+	AgentID        string              `json:"agent_id,omitempty"`
+	Content        string              `json:"content,omitempty"`
+	Keys           string              `json:"keys,omitempty"`
+	Cols           int                 `json:"cols,omitempty"`
+	Rows           int                 `json:"rows,omitempty"`
+	Agents         []AgentResponse     `json:"agents,omitempty"`
+	Prompt         *prompt.PromptState `json:"prompt,omitempty"`
+	Error          string              `json:"error,omitempty"`
+	PlanPath       string              `json:"plan_path,omitempty"`
+	ReplySocket    string              `json:"reply_socket,omitempty"`
+	ParentTaskID   string              `json:"parent_task_id,omitempty"`
+	SubtaskID      string              `json:"subtask_id,omitempty"`
+	Status         string              `json:"status,omitempty"`
+	Notes          string              `json:"notes,omitempty"`
+	Mode           string              `json:"mode,omitempty"`
+	TaskID         string              `json:"task_id,omitempty"`
+	TourID         string              `json:"tour_id,omitempty"`
+	StepID         string              `json:"step_id,omitempty"`
+	Kind           string              `json:"kind,omitempty"`
+	PlanID         string              `json:"plan_id,omitempty"`
+	RevisionID     string              `json:"revision_id,omitempty"`
+	WorkflowRunID  string              `json:"workflow_run_id,omitempty"`
+	WorkflowStepID string              `json:"workflow_step_id,omitempty"`
 }
 
 // wsClient represents a connected WebSocket client.

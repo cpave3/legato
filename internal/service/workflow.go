@@ -88,6 +88,54 @@ func (s *WorkflowService) Start(ctx context.Context, definition *workflowengine.
 	return s.store.GetWorkflowRun(ctx, runID)
 }
 
+func (s *WorkflowService) Show(ctx context.Context, runID string) (*store.WorkflowRunView, error) {
+	return s.store.GetWorkflowRun(ctx, runID)
+}
+func (s *WorkflowService) ListRuns(ctx context.Context, status string, limit int) ([]store.WorkflowRun, error) {
+	return s.store.ListWorkflowRuns(ctx, status, limit)
+}
+
+func (s *WorkflowService) Fail(ctx context.Context, runID, stepID, attemptID, reason string) (*store.WorkflowRunView, error) {
+	if err := s.store.FailWorkflowStep(ctx, runID, stepID, attemptID, reason); err != nil {
+		return nil, err
+	}
+	return s.store.GetWorkflowRun(ctx, runID)
+}
+
+func (s *WorkflowService) Retry(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, error) {
+	view, definition, inputs, prior, index, err := s.loadExecution(ctx, runID, stepID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.store.ResetWorkflowStepForRetry(ctx, runID, stepID); err != nil {
+		return nil, err
+	}
+	if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index, prior); err != nil {
+		return nil, err
+	}
+	return s.store.GetWorkflowRun(ctx, runID)
+}
+
+func (s *WorkflowService) Cancel(ctx context.Context, runID, reason string) (*store.WorkflowRunView, error) {
+	view, err := s.store.GetWorkflowRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	for _, attempt := range view.Attempts {
+		if attempt.Status == "running" || attempt.Status == "waiting_agent" {
+			if executor := s.executors[attempt.ExecutorType]; executor != nil {
+				if err := executor.Cancel(ctx, attempt); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	if err := s.store.CancelWorkflowRun(ctx, runID, reason); err != nil {
+		return nil, err
+	}
+	return s.store.GetWorkflowRun(ctx, runID)
+}
+
 func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID string, values, artifacts map[string]string) (*store.WorkflowRunView, error) {
 	view, definition, inputs, prior, index, err := s.loadExecution(ctx, runID, stepID)
 	if err != nil {
