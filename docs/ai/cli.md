@@ -37,7 +37,7 @@ See `docs/workflows.md` for the schema and lifecycle. Workflow commands currentl
 - `legato task create <title> [--description <text>|--description-file <path|->] [--status <status>] [--priority <priority>] [--workspace <name>] [--json]` — create a local task. `--description-file -` reads multiline Markdown from stdin without trimming it.
 - `legato task update [<task-id>] [--status <status>] [--title <title>] [--description <text>|--description-file <path|->] [--workspace <name>] [--json]` — atomically update requested fields. Use workspace `none` or `unassigned` to clear an assignment. Title and description edits are rejected for Jira-backed tasks.
 - `legato task description <task-id> <text>` — replace a local task's description (convenience alias for `task update --description`)
-- `legato task note <task-id> <message>` — append a timestamped note to a local task's description; Jira-backed tasks are rejected
+- `legato task note <task-id> <message>` — legacy convenience command that appends timestamped text to a local task description; Jira-backed tasks are rejected. Durable workflow notes are separate records written by the `task.note` workflow executor and read with `task notes` or full/JSON `task show`.
 - `legato workspace list [--format text|json]` — list configured workspaces. Text output prints exact names suitable for `--workspace`; JSON includes IDs, names, and colors.
 - `legato agent state <task-id> --activity <working|waiting|"">` — update agent activity state on a card
 - `legato agent summary [--exclude <task-id>]` — output tmux-formatted agent session counts (working/waiting/idle) for use in tmux status bar `#()` expansion
@@ -59,7 +59,7 @@ Global `legato --json <command> ...` is an alias. JSON diagnostics never share
 stdout with the result.
 
 Task-scoped commands resolve identity in this order: explicit task ID, then
-`LEGATO_TASK_ID`. This applies to task show/update/description/note/link/unlink,
+`LEGATO_TASK_ID`. This applies to task show/notes/update/description/note/link/unlink,
 task worktree set/clear, and agent state/status. Task creation never consumes
 the environment identity.
 

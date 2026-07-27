@@ -16,7 +16,7 @@ workflows:
 - `primary_dir`: absolute path to the primary local checkout.
 - `base_branch`: optional default branch.
 
-Selecting a preset in the workflow launch dialog prefills matching inputs. Every field remains editable, and **Custom** allows fully manual values.
+The preset control appears only when the workflow declares `repo`, `primary_dir`, or `base_branch`. Selecting a preset prefills only declared matching inputs; undeclared values are not submitted. Every visible field remains editable, and **Custom** allows fully manual values.
 
 ## Config
 

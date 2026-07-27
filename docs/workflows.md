@@ -24,7 +24,7 @@ workflows:
       base_branch: main
 ```
 
-Selecting a preset prefills matching `repo`, `primary_dir`, and `base_branch` workflow inputs. All fields remain editable, and selecting **Custom** permits fully manual values.
+The preset control appears only when a workflow declares at least one of `repo`, `primary_dir`, or `base_branch`. Selecting a preset prefills only those declared inputs; undeclared preset values are never submitted. All fields remain editable, and selecting **Custom** permits fully manual values.
 
 ## Schema version 1
 
@@ -33,7 +33,7 @@ Version 1 executes steps in declaration order and supports four executors:
 - `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
 - `agent.run`: launch a configured Legato agent with an explicit assignment and completion contract.
 - `worktree.remove`: validate and remove the shared task's worktree through Yggdrasil, then clear task metadata.
-- `task.note`: add Markdown to a selected task. Local notes are stored in Legato and shown in task detail; Jira-backed notes are also published as Jira comments.
+- `task.note`: add Markdown to a selected task. Pass a resolved `task` input plus either inline `body` or a managed/file `body_path`. Local notes are stored in Legato and shown in task detail; Jira-backed notes are also published as Jira comments. Provider failures fail the step rather than silently dropping the note.
 
 ```yaml
 schema_version: 1
@@ -93,6 +93,32 @@ Templates support only:
 
 Whole-field references preserve native types. Values interpolated into text use scalar or canonical JSON formatting.
 
+A typical task-triage tail writes the agent's managed report back to the selected task:
+
+```yaml
+inputs:
+  task: {type: task, required: true}
+  primary_dir: {type: string, required: true}
+steps:
+  - id: triage
+    title: Investigate task
+    type: agent.run
+    with:
+      working_dir: ${{ workflow.inputs.primary_dir }}
+      prompt: Write actionable triage for ${{ workflow.inputs.task.title }} to `${{ outputs.report.path }}`.
+    outputs:
+      report: {type: file, path: triage.md, media_type: text/markdown}
+  - id: note
+    title: Add triage note
+    type: task.note
+    with:
+      task: ${{ workflow.inputs.task }}
+      body_path: ${{ steps.triage.outputs.report.path }}
+    outputs:
+      note_id: {type: string}
+      task_id: {type: string}
+```
+
 ## Running and inspecting
 
 ```bash
@@ -136,7 +162,7 @@ Report an unrecoverable failure:
 legato workflow step fail "review tool unavailable" --json
 ```
 
-Agent or tmux exit alone never means success. Missing or invalid outputs leave the step incomplete or failed.
+Agent or tmux exit alone never means success. Missing or invalid outputs leave the step incomplete or failed. Completion is persisted and downstream steps are advanced before Legato removes the completed agent session, because the callback may be running inside that session. Managed artifact collection is replay-safe: rerunning an interrupted completion callback reuses an existing `(attempt, output)` artifact only when its source path and digest still match; changed content is rejected.
 
 ## Artifacts and security
 
@@ -159,6 +185,8 @@ The **Workflows** destination includes:
 - managed artifacts with Markdown preview/download;
 - retry and cancellation controls;
 - manual-step actions, including an expected-path confirmation before Yggdrasil worktree removal.
+
+Board task detail also shows related workflow runs and their downloadable managed artifacts when the run selected that task through a `task` input.
 
 Run views update through `workflow_changed` and agent activity WebSocket events. An unfinished `agent.run` step is marked as needing attention when its session becomes waiting, idle, or disappears. The Workflows navigation item shows a red count, run cards explain the stall, and the run page offers **Prompt to continue** for a live stalled agent. Legato does not prompt automatically, avoiding duplicate or unsafe agent work. Mobile layouts use stacked step cards, contained JSON/code scrolling, touch-sized actions, and safe-area navigation spacing.
 
