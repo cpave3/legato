@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { Layout } from "./components/Layout"
-import { OfflineOverlay } from "./components/OfflineOverlay"
 import { TokenPrompt } from "./components/TokenPrompt"
 import { AgentsPage } from "./pages/Agents"
 import { BoardPage } from "./pages/Board"
@@ -27,7 +26,7 @@ export default function App() {
         setAuthState("ok")
       }
     } catch {
-      // Network error — let the offline overlay handle it.
+      // Network error — let the offline dialog handle it.
       setAuthState("ok")
     }
   }, [])
@@ -46,7 +45,6 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <OfflineOverlay />
       <Routes>
         <Route element={<Layout />}>
           <Route path="/agents" element={<AgentsPage />} />

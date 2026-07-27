@@ -4,6 +4,7 @@ import { Monitor, LayoutGrid, Settings, Server, ListChecks, ClipboardList, Workf
 import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
+import { OfflineDialog } from "./OfflineDialog"
 import { cn } from "../lib/utils"
 import { useReviewQueue } from "../hooks/useReview"
 import { usePlanQueue } from "../hooks/usePlan"
@@ -180,7 +181,7 @@ export function Layout() {
         aria-label="Primary navigation"
         className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-zinc-800 bg-zinc-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
       >
-        {navItems.map(({ to, label, icon: Icon, count, badge }) => (
+        {navItems.map(({ to, label, icon: Icon, count, badge }, index) => (
           <NavLink
             key={to}
             to={to}
@@ -191,10 +192,14 @@ export function Layout() {
           >
             <Icon size={19} />
             <span>{label}</span>
+            {index === 0 && !connected && (
+              <span aria-label="Disconnected" className="absolute right-[24%] top-1 h-2 w-2 rounded-full bg-red-500" />
+            )}
             {!!count && <span className={cn("absolute right-[24%] top-1 min-w-4 rounded-full px-1 text-center text-[9px] font-bold leading-4 text-zinc-950", badge)}>{count > 99 ? "99+" : count}</span>}
           </NavLink>
         ))}
       </nav>
+      <OfflineDialog />
       <PlanApprovalModal />
       </div>
     </AgentSelectionProvider>
