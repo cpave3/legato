@@ -48,4 +48,29 @@ describe("useReviewTour", () => {
     await waitFor(() => expect(result.current.data?.tour.summary).toBe("Updated"))
     expect(mockFetch).toHaveBeenCalledTimes(2)
   })
+
+  it("keeps the newest tour snapshot when overlapping refreshes finish out of order", async () => {
+    let handler: ((message: WSMessage) => void) | undefined
+    let resolveInitial: (value: ReturnType<typeof response>) => void = () => undefined
+    let resolveAnswer: (value: ReturnType<typeof response>) => void = () => undefined
+    mockSubscribe.mockImplementation((next) => {
+      handler = next
+      return () => undefined
+    })
+    mockFetch
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveInitial = resolve }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveAnswer = resolve }))
+
+    const { result } = renderHook(() => useReviewTour("rt-task-1"))
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+
+    act(() => handler?.({ type: "review_changed", tour_id: "rt-task-1", step_id: "S-1", kind: "answer" }))
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
+
+    await act(async () => { resolveAnswer(response("Includes answer")) })
+    await waitFor(() => expect(result.current.data?.tour.summary).toBe("Includes answer"))
+
+    await act(async () => { resolveInitial(response("Before answer")) })
+    expect(result.current.data?.tour.summary).toBe("Includes answer")
+  })
 })

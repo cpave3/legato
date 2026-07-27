@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useServer } from "./useServer"
 import { useWebSocket } from "./useWebSocket"
 import { fetchReviewQueue, fetchReviewTour, type ReviewQueueItem, type ReviewTourView } from "../lib/review"
@@ -46,16 +46,19 @@ export function useReviewTour(tourId: string): AsyncReviewState<ReviewTourView> 
   const [data, setData] = useState<ReviewTourView | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const requestIdRef = useRef(0)
 
   const refresh = useCallback(async () => {
     if (!tourId) return
+    const requestId = ++requestIdRef.current
     try {
       setError(null)
-      setData(await fetchReviewTour(baseUrl, tourId))
+      const nextData = await fetchReviewTour(baseUrl, tourId)
+      if (requestId === requestIdRef.current) setData(nextData)
     } catch (cause) {
-      setError(errorMessage(cause))
+      if (requestId === requestIdRef.current) setError(errorMessage(cause))
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) setLoading(false)
     }
   }, [baseUrl, tourId])
 
