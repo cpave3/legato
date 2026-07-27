@@ -261,6 +261,19 @@ func (s *Store) CompleteWorkflowStep(ctx context.Context, runID, stepID, attempt
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
+		if nextStepID == "" {
+			result, err = tx.ExecContext(ctx, `UPDATE tasks SET status = 'Done', updated_at = datetime('now') WHERE id = (SELECT task_id FROM workflow_runs WHERE id = ?)`, runID)
+			if err != nil {
+				return err
+			}
+			rows, err = result.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if rows != 1 {
+				return ErrWorkflowStateConflict
+			}
+		}
 		return nil
 	})
 }

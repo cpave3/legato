@@ -109,7 +109,7 @@ legato workflow retry <run-id> <step-id> --json
 legato workflow cancel <run-id> --json
 ```
 
-A run creates one shared local execution task. When a workflow accepts a `task` input, the selected target is stored separately as `related_task_id`; agent sessions continue to use the execution task so an existing task's active agent session is not replaced. Deterministic steps execute synchronously until an agent step starts. The run then advances when that agent explicitly completes or fails its step.
+A run creates one shared local execution task. Unless an explicit workspace is supplied, Legato places it in an automatically managed **Workflows** workspace. When the run succeeds, the execution task moves to **Done**; failed or cancelled runs remain in their current column for intervention. When a workflow accepts a `task` input, the selected target is stored separately as `related_task_id`; agent sessions continue to use the execution task so an existing task's active agent session is not replaced. Deterministic steps execute synchronously until an agent step starts. The run then advances when that agent explicitly completes or fails its step.
 
 ## Agent completion
 

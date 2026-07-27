@@ -81,6 +81,14 @@ func (s *WorkflowService) Start(ctx context.Context, definition *workflowengine.
 			return nil, fmt.Errorf("workflow executor %q is not registered", step.Type)
 		}
 	}
+	if workspaceID == nil {
+		color := "#6366f1"
+		id, workspaceErr := s.store.EnsureWorkspace(ctx, store.Workspace{Name: "Workflows", Color: &color, SortOrder: 1000})
+		if workspaceErr != nil {
+			return nil, fmt.Errorf("ensure workflow workspace: %w", workspaceErr)
+		}
+		workspaceID = &id
+	}
 	runID := workflowID("wr-")
 	taskID := store.GenerateTaskID()
 	now := time.Now().UTC().Format(time.RFC3339)

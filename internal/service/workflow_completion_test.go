@@ -50,4 +50,15 @@ steps:
 	if len(first.starts) != 2 || first.starts[1].With["prompt"] != `Summarize [{"severity":"high"}]` || view.Run.CurrentStepID != "summarize" {
 		t.Fatalf("starts=%+v run=%+v", first.starts, view.Run)
 	}
+	view, err = svc.Complete(context.Background(), view.Run.ID, "summarize", view.Attempts[1].ID, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(context.Background(), view.Run.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Run.Status != "succeeded" || task.Status != "Done" {
+		t.Fatalf("run=%+v task=%+v", view.Run, task)
+	}
 }
