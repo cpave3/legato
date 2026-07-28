@@ -88,10 +88,10 @@ export function AttentionPage() {
               const navPath = navigationPath(item)
               const executeAction = item.actions.find((a) => a.kind === "execute")
               return (
-                <li key={item.id} className="px-6 py-4 hover:bg-zinc-800/30">
-                  <div className="flex items-start justify-between gap-4">
+                <li key={item.id} className="px-4 py-4 hover:bg-zinc-800/30 sm:px-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <h2 className="truncate font-medium">{item.title}</h2>
                         <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-400">{item.producer}</span>
                         <span className={`rounded px-1.5 py-0.5 text-xs ${item.urgency === "high" || item.urgency === "critical" ? "bg-red-500/20 text-red-400" : "bg-zinc-800 text-zinc-500"}`}>{item.urgency}</span>
@@ -100,7 +100,7 @@ export function AttentionPage() {
                       <p className="mt-1 text-sm text-zinc-400">{item.reason}</p>
                       {item.detail && <p className="mt-1 text-xs text-zinc-600">{item.detail}</p>}
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
                       {executeAction && (
                         <button
                           disabled={pending === item.id}
