@@ -75,6 +75,18 @@ type EventEnvelope struct {
 	Data      json.RawMessage `json:"-"` // raw SSE data field (full envelope JSON)
 }
 
+// MarshalJSON serializes the envelope as the raw event data, which
+// includes all event-specific fields (content, text, delta, etc.).
+// The EventID, SessionID, Timestamp, and Type fields are already part
+// of the raw data, so we just marshal Data directly.
+func (e EventEnvelope) MarshalJSON() ([]byte, error) {
+	if len(e.Data) > 0 {
+		return e.Data, nil
+	}
+	type alias EventEnvelope
+	return json.Marshal(alias(e))
+}
+
 // PermissionRequest is the pending permission request state.
 type PermissionRequest struct {
 	RequestID string `json:"requestId"`

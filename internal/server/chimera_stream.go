@@ -47,12 +47,14 @@ func newChimeraStreamManager() *chimeraStreamManager {
 // If no SSE subscription exists yet, it starts one. The client will
 // receive all future Chimera events for this agent.
 func (m *chimeraStreamManager) subscribe(client *wsClient, taskID string) {
+	log.Printf("[chimera-stream] subscribe request for %s", taskID)
 	m.mu.Lock()
 	stream, ok := m.streams[taskID]
 	if !ok {
 		// Resolve the endpoint and start a new shared SSE subscription.
 		session, err := m.agents.GetAgentSession(context.Background(), taskID)
 		if err != nil || session.ChimeraEndpoint == nil || session.ChimeraSessionID == nil {
+			log.Printf("[chimera-stream] no endpoint for %s: err=%v", taskID, err)
 			m.mu.Unlock()
 			client.send(WSMessage{Type: MsgError, Error: "no chimera endpoint"})
 			return
@@ -116,6 +118,7 @@ func (m *chimeraStreamManager) runSSELoop(ctx context.Context, stream *chimeraSt
 		// cursor for gap-free resume.
 		since := stream.lastEvent
 		err := c.Subscribe(ctx, stream.sessionID, since, func(env chimera.EventEnvelope) {
+			log.Printf("[chimera-stream] event for %s: type=%s eventId=%s clients=%d", stream.taskID, env.Type, env.EventID, len(stream.clients))
 			if env.EventID != "" {
 				stream.mu.Lock()
 				stream.lastEvent = env.EventID
