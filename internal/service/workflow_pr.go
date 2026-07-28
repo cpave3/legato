@@ -18,7 +18,7 @@ type workflowExactFetcher interface {
 }
 type workflowWorktrees interface {
 	Create(context.Context, string, string, string, string) (*store.TaskWorktree, error)
-	Remove(context.Context, string) error
+	Remove(context.Context, string, bool) error
 }
 type workflowPRLinker interface {
 	LinkPR(context.Context, string, string, string, int) error
@@ -74,7 +74,7 @@ func (e *GitHubPRPrepareExecutor) Start(ctx context.Context, step ResolvedWorkfl
 		return WorkflowExecutionResult{}, err
 	}
 	if err := e.links.LinkPR(ctx, step.TaskID, parts[0], parts[1], number); err != nil {
-		_ = e.worktrees.Remove(ctx, step.TaskID)
+		_ = e.worktrees.Remove(ctx, step.TaskID, false)
 		return WorkflowExecutionResult{}, fmt.Errorf("linking workflow task to PR: %w", err)
 	}
 	return WorkflowExecutionResult{Status: "succeeded", Outputs: map[string]any{

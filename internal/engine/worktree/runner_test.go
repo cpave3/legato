@@ -42,7 +42,7 @@ printf '%s\n' "$@" >> "$CALL_FILE"
 	t.Setenv("CALL_FILE", callFile)
 	primaryDir := t.TempDir()
 
-	if err := NewRunner(bin).Remove(context.Background(), primaryDir, "feature-one"); err != nil {
+	if err := NewRunner(bin).Remove(context.Background(), primaryDir, "feature-one", false); err != nil {
 		t.Fatal(err)
 	}
 	call, err := os.ReadFile(callFile)
@@ -50,6 +50,25 @@ printf '%s\n' "$@" >> "$CALL_FILE"
 		t.Fatal(err)
 	}
 	assertInvocation(t, call, primaryDir, "remove\nfeature-one\n")
+}
+
+func TestRunnerForceRemovePassesForceToYggdrasil(t *testing.T) {
+	bin := writeFakeYG(t, `#!/bin/sh
+printf '%s\n' "$PWD" > "$CALL_FILE"
+printf '%s\n' "$@" >> "$CALL_FILE"
+`)
+	callFile := filepath.Join(t.TempDir(), "call")
+	t.Setenv("CALL_FILE", callFile)
+	primaryDir := t.TempDir()
+
+	if err := NewRunner(bin).Remove(context.Background(), primaryDir, "feature-one", true); err != nil {
+		t.Fatal(err)
+	}
+	call, err := os.ReadFile(callFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertInvocation(t, call, primaryDir, "remove\nfeature-one\n--force\n")
 }
 
 func TestRunnerCreateReturnsLastNonEmptyLine(t *testing.T) {

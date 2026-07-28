@@ -10,7 +10,7 @@ import (
 
 type worktreeRunner interface {
 	Create(ctx context.Context, taskID, primaryDir, branch, baseBranch string) (string, error)
-	Remove(ctx context.Context, primaryDir, branch string) error
+	Remove(ctx context.Context, primaryDir, branch string, force bool) error
 }
 
 // WorktreeWorkflow coordinates external worktree lifecycle with task metadata.
@@ -57,7 +57,7 @@ func (w *WorktreeWorkflow) Create(ctx context.Context, taskID, primaryDir, branc
 	}
 	meta := &store.TaskWorktree{PrimaryDir: primaryDir, Path: path, Branch: branch, BaseBranch: baseBranch}
 	if err := w.store.SetTaskWorktree(ctx, taskID, meta); err != nil {
-		if cleanupErr := w.runner.Remove(ctx, primaryDir, branch); cleanupErr != nil {
+		if cleanupErr := w.runner.Remove(ctx, primaryDir, branch, false); cleanupErr != nil {
 			return nil, fmt.Errorf("persisting worktree metadata: %w (cleanup failed: %v)", err, cleanupErr)
 		}
 		return nil, fmt.Errorf("persisting worktree metadata: %w", err)
@@ -65,7 +65,7 @@ func (w *WorktreeWorkflow) Create(ctx context.Context, taskID, primaryDir, branc
 	return meta, nil
 }
 
-func (w *WorktreeWorkflow) Remove(ctx context.Context, taskID string) error {
+func (w *WorktreeWorkflow) Remove(ctx context.Context, taskID string, force bool) error {
 	task, err := w.store.GetTask(ctx, taskID)
 	if err != nil {
 		return err
@@ -73,7 +73,7 @@ func (w *WorktreeWorkflow) Remove(ctx context.Context, taskID string) error {
 	if task.WorktreePrimaryDir == nil || task.WorktreeBranch == nil {
 		return fmt.Errorf("task %s has no worktree", taskID)
 	}
-	if err := w.runner.Remove(ctx, *task.WorktreePrimaryDir, *task.WorktreeBranch); err != nil {
+	if err := w.runner.Remove(ctx, *task.WorktreePrimaryDir, *task.WorktreeBranch, force); err != nil {
 		return err
 	}
 	if err := w.store.SetTaskWorktree(ctx, taskID, nil); err != nil {

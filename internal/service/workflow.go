@@ -106,7 +106,7 @@ func (s *WorkflowService) Start(ctx context.Context, definition *workflowengine.
 	if err := s.store.CreateWorkflowRun(ctx, run, steps); err != nil {
 		return nil, err
 	}
-	if err := s.advance(ctx, definition, inputs, runID, taskID, 0, map[string]map[string]any{}); err != nil {
+	if err := s.advance(ctx, definition, inputs, runID, taskID, 0, map[string]map[string]any{}, "", false); err != nil {
 		// The run is already durable and the executor records its failure.
 		// Return that visible run instead of encouraging an accidental duplicate launch.
 		view, loadErr := s.store.GetWorkflowRun(ctx, runID)
@@ -206,7 +206,7 @@ func (s *WorkflowService) ListRuns(ctx context.Context, status string, limit int
 	return runs, nil
 }
 
-func (s *WorkflowService) TriggerStep(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, error) {
+func (s *WorkflowService) TriggerStep(ctx context.Context, runID, stepID string, force bool) (*store.WorkflowRunView, error) {
 	view, definition, inputs, prior, index, err := s.loadExecution(ctx, runID, stepID)
 	if err != nil {
 		return nil, err
@@ -214,10 +214,13 @@ func (s *WorkflowService) TriggerStep(ctx context.Context, runID, stepID string)
 	if view.Run.Status != "waiting" || view.Run.CurrentStepID != stepID || definition.Steps[index].Trigger != "manual" || view.Steps[index].Status != "waiting_manual" {
 		return nil, store.ErrWorkflowStateConflict
 	}
+	if force && definition.Steps[index].Type != "worktree.remove" {
+		return nil, fmt.Errorf("force is only supported for worktree.remove steps")
+	}
 	if err := s.store.TriggerWorkflowStep(ctx, runID, stepID); err != nil {
 		return nil, err
 	}
-	if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index, prior, stepID); err != nil {
+	if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index, prior, stepID, force); err != nil {
 		updated, loadErr := s.store.GetWorkflowRun(ctx, runID)
 		if loadErr != nil {
 			return nil, err
@@ -279,15 +282,18 @@ func (s *WorkflowService) Fail(ctx context.Context, runID, stepID, attemptID, re
 	return s.store.GetWorkflowRun(ctx, runID)
 }
 
-func (s *WorkflowService) Retry(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, error) {
+func (s *WorkflowService) Retry(ctx context.Context, runID, stepID string, force bool) (*store.WorkflowRunView, error) {
 	view, definition, inputs, prior, index, err := s.loadExecution(ctx, runID, stepID)
 	if err != nil {
 		return nil, err
 	}
+	if force && definition.Steps[index].Type != "worktree.remove" {
+		return nil, fmt.Errorf("force is only supported for worktree.remove steps")
+	}
 	if err := s.store.ResetWorkflowStepForRetry(ctx, runID, stepID); err != nil {
 		return nil, err
 	}
-	if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index, prior); err != nil {
+	if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index, prior, stepID, force); err != nil {
 		return nil, err
 	}
 	return s.store.GetWorkflowRun(ctx, runID)
@@ -343,7 +349,7 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 	}
 	prior[stepID] = outputs
 	if next != "" {
-		if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index+1, prior); err != nil {
+		if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index+1, prior, "", false); err != nil {
 			return nil, err
 		}
 	}
@@ -393,13 +399,16 @@ func (s *WorkflowService) loadExecution(ctx context.Context, runID, stepID strin
 	return view, &definition, inputs, prior, index, nil
 }
 
-func (s *WorkflowService) advance(ctx context.Context, definition *workflowengine.Definition, inputs map[string]any, runID, taskID string, index int, prior map[string]map[string]any, triggeredStep ...string) error {
+func (s *WorkflowService) advance(ctx context.Context, definition *workflowengine.Definition, inputs map[string]any, runID, taskID string, index int, prior map[string]map[string]any, selectedStep string, force bool) error {
 	for index < len(definition.Steps) {
 		step := definition.Steps[index]
-		isTriggered := len(triggeredStep) > 0 && triggeredStep[0] == step.ID
+		isTriggered := selectedStep == step.ID
 		resolved, err := definition.ResolveStep(step.ID, inputs, prior)
 		if err != nil {
 			return err
+		}
+		if isTriggered && step.Type == "worktree.remove" {
+			resolved.With["force"] = force
 		}
 		if step.Trigger == "manual" && !isTriggered {
 			resolvedJSON, _ := json.Marshal(resolved.With)

@@ -32,7 +32,7 @@ func TestWorkflowFailStopsAgentAndAllowsRetry(t *testing.T) {
 	if len(executor.cancelled) != 1 || executor.cancelled[0].ID != first.ID {
 		t.Fatalf("cancelled = %+v, want attempt %s", executor.cancelled, first.ID)
 	}
-	view, err = svc.Retry(context.Background(), view.Run.ID, "run")
+	view, err = svc.Retry(context.Background(), view.Run.ID, "run", false)
 	if err != nil {
 		t.Fatal(err)
 	}

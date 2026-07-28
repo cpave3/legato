@@ -2,11 +2,10 @@ package service
 
 import (
 	"context"
-	"strings"
-	"testing"
-
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
+	"strings"
+	"testing"
 )
 
 type fakeWorkflowAgentService struct {

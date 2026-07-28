@@ -10,7 +10,7 @@ import (
 
 type workflowWorktreeRemover interface {
 	Get(context.Context, string) (*store.TaskWorktree, error)
-	Remove(context.Context, string) error
+	Remove(context.Context, string, bool) error
 }
 
 type WorktreeRemoveExecutor struct{ worktrees workflowWorktreeRemover }
@@ -39,9 +39,25 @@ func (e *WorktreeRemoveExecutor) Start(ctx context.Context, step ResolvedWorkflo
 	if actual != wanted {
 		return WorkflowExecutionResult{}, fmt.Errorf("worktree path mismatch: task has %q, workflow expected %q", meta.Path, expected)
 	}
-	if err := e.worktrees.Remove(ctx, step.TaskID); err != nil {
+	force, err := workflowBool(step.With, "force")
+	if err != nil {
+		return WorkflowExecutionResult{}, err
+	}
+	if err := e.worktrees.Remove(ctx, step.TaskID, force); err != nil {
 		return WorkflowExecutionResult{}, err
 	}
 	return WorkflowExecutionResult{Status: "succeeded", Outputs: map[string]any{"removed": true, "removed_path": meta.Path, "removed_branch": meta.Branch}}, nil
 }
 func (e *WorktreeRemoveExecutor) Cancel(context.Context, store.WorkflowStepAttempt) error { return nil }
+
+func workflowBool(values map[string]any, key string) (bool, error) {
+	value, ok := values[key]
+	if !ok {
+		return false, nil
+	}
+	result, ok := value.(bool)
+	if !ok {
+		return false, fmt.Errorf("workflow field %q must be a boolean", key)
+	}
+	return result, nil
+}

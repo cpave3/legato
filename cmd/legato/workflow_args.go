@@ -5,6 +5,11 @@ import (
 	"strings"
 )
 
+func flagPresent(flags map[string]string, name string) bool {
+	_, ok := flags[name]
+	return ok
+}
+
 func parseWorkflowArgs(args []string) (positionals []string, flags map[string]string, lists map[string][]string, err error) {
 	flags = map[string]string{}
 	lists = map[string][]string{}
@@ -31,9 +36,9 @@ func parseWorkflowArgs(args []string) (positionals []string, flags map[string]st
 			}
 			return nil, nil, nil, fmt.Errorf("unknown flag --%s", key)
 		}
-		if name == "json" {
+		if name == "json" || name == "force" {
 			if _, exists := flags[name]; exists {
-				return nil, nil, nil, fmt.Errorf("flag --json may only be specified once")
+				return nil, nil, nil, fmt.Errorf("flag --%s may only be specified once", name)
 			}
 			flags[name] = ""
 			continue

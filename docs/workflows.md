@@ -81,7 +81,7 @@ steps:
         type: json
 ```
 
-Inputs support `string`, `integer`, `boolean`, `json`, and `task`. A task input is supplied as an existing Legato task ID and resolves to structured `id`, `title`, `description`, `status`, `priority`, `provider`, and `remote_id` fields. The web form presents current tasks as a selector. Outputs support scalar/JSON types plus `file`. Steps default to `trigger: automatic`; set `trigger: manual` to pause the run before that executor starts. A manual step creates no attempt until explicitly triggered with `legato workflow trigger <run-id> <step-id>`. While waiting, the run is non-terminal and contributes to the Workflows attention badge. Unknown fields, unsupported executors, unsafe paths, forward references, and undeclared references fail validation before a run starts.
+Inputs support `string`, `integer`, `boolean`, `json`, and `task`. A task input is supplied as an existing Legato task ID and resolves to structured `id`, `title`, `description`, `status`, `priority`, `provider`, and `remote_id` fields. The web form groups selectable tasks by workspace and hides Done and archived tasks by default; enable **Show done and archived tasks** in the selector to include them. Outputs support scalar/JSON types plus `file`. Steps default to `trigger: automatic`; set `trigger: manual` to pause the run before that executor starts. A manual step creates no attempt until explicitly triggered with `legato workflow trigger <run-id> <step-id>`. While waiting, the run is non-terminal and contributes to the Workflows attention badge. Unknown fields, unsupported executors, unsafe paths, forward references, and undeclared references fail validation before a run starts.
 
 Templates support only:
 
@@ -130,10 +130,12 @@ legato workflow run review-pr \
   --json
 legato workflow runs --status running --json
 legato workflow show <run-id> --json
-legato workflow trigger <run-id> <step-id> --json
-legato workflow retry <run-id> <step-id> --json
+legato workflow trigger <run-id> <step-id> [--force] --json
+legato workflow retry <run-id> <step-id> [--force] --json
 legato workflow cancel <run-id> --json
 ```
+
+For a `worktree.remove` step, `--force` forwards Yggdrasil's force option and discards uncommitted worktree changes. It can be selected when first triggering a manual removal or when retrying a failed removal; other step types reject it.
 
 A run creates one shared local execution task. Unless an explicit workspace is supplied, Legato places it in an automatically managed **Workflows** workspace. When the run succeeds, the execution task moves to **Done**; failed or cancelled runs remain in their current column for intervention. When a workflow accepts a `task` input, the selected target is stored separately as `related_task_id`; agent sessions continue to use the execution task so an existing task's active agent session is not replaced. Deterministic steps execute synchronously until an agent step starts. The run then advances when that agent explicitly completes or fails its step.
 

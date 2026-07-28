@@ -8,9 +8,15 @@ import (
 	"github.com/cpave3/legato/internal/engine/ipc"
 )
 
-type fakeNotifier struct{ called bool }
+type fakeNotifier struct {
+	called          bool
+	workflowChanged bool
+}
 
 func (f *fakeNotifier) NotifyAgentsChanged() { f.called = true }
+func (f *fakeNotifier) NotifyWorkflowChanged(string, string) {
+	f.workflowChanged = true
+}
 
 func drainEvent(t *testing.T, ch <-chan events.Event) events.Event {
 	t.Helper()
@@ -117,6 +123,19 @@ func TestIPCMessage_ReviewChangedPreservesTourIdentity(t *testing.T) {
 	}
 	if payload.TourID != "rt-task-1-security" || payload.StepID != "rs-123" || payload.Kind != "answer" {
 		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestIPCMessage_CompletedWorkflowStepRefreshesAgents(t *testing.T) {
+	bus := events.New()
+	cardUpdated := bus.Subscribe(events.EventCardUpdated)
+	notifier := &fakeNotifier{}
+	handleIPCMessage(ipc.Message{Type: "workflow_changed", WorkflowRunID: "wr-1", WorkflowStepID: "triage", Kind: "completed_step"}, bus, notifier)
+	if event := drainEvent(t, cardUpdated); event.Type != events.EventCardUpdated {
+		t.Fatalf("event type = %v, want EventCardUpdated", event.Type)
+	}
+	if !notifier.workflowChanged || !notifier.called {
+		t.Fatalf("workflow changed=%v agents changed=%v", notifier.workflowChanged, notifier.called)
 	}
 }
 

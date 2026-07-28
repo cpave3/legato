@@ -58,16 +58,16 @@ func WorkflowFail(ctx context.Context, svc *service.WorkflowService, runID, step
 	broadcastWorkflowChanged(runID, stepID, "failed_step")
 	return json.NewEncoder(w).Encode(view)
 }
-func WorkflowTrigger(ctx context.Context, svc *service.WorkflowService, runID, stepID string, w io.Writer) error {
-	view, err := svc.TriggerStep(ctx, runID, stepID)
+func WorkflowTrigger(ctx context.Context, svc *service.WorkflowService, runID, stepID string, force bool, w io.Writer) error {
+	view, err := svc.TriggerStep(ctx, runID, stepID, force)
 	if err != nil {
 		return err
 	}
 	broadcastWorkflowChanged(runID, stepID, "triggered")
 	return json.NewEncoder(w).Encode(view)
 }
-func WorkflowRetry(ctx context.Context, svc *service.WorkflowService, runID, stepID string, w io.Writer) error {
-	view, err := svc.Retry(ctx, runID, stepID)
+func WorkflowRetry(ctx context.Context, svc *service.WorkflowService, runID, stepID string, force bool, w io.Writer) error {
+	view, err := svc.Retry(ctx, runID, stepID, force)
 	if err != nil {
 		return err
 	}

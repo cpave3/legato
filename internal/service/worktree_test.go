@@ -17,13 +17,14 @@ type fakeWorktreeRunner struct {
 	removeErr   error
 	removedFrom string
 	removed     string
+	force       bool
 }
 
 func (f *fakeWorktreeRunner) Create(context.Context, string, string, string, string) (string, error) {
 	return f.path, f.createErr
 }
-func (f *fakeWorktreeRunner) Remove(_ context.Context, primaryDir, branch string) error {
-	f.removedFrom, f.removed = primaryDir, branch
+func (f *fakeWorktreeRunner) Remove(_ context.Context, primaryDir, branch string, force bool) error {
+	f.removedFrom, f.removed, f.force = primaryDir, branch, force
 	return f.removeErr
 }
 
@@ -72,7 +73,7 @@ func TestWorktreeWorkflowRemoveClearsMetadata(t *testing.T) {
 	}
 	runner := &fakeWorktreeRunner{}
 
-	if err := NewWorktreeWorkflow(s, runner).Remove(context.Background(), "task-1"); err != nil {
+	if err := NewWorktreeWorkflow(s, runner).Remove(context.Background(), "task-1", false); err != nil {
 		t.Fatal(err)
 	}
 	task, _ := s.GetTask(context.Background(), "task-1")
@@ -93,7 +94,7 @@ func TestWorktreeWorkflowRemovePreservesMetadataOnRunnerFailure(t *testing.T) {
 	}
 	runner := &fakeWorktreeRunner{removeErr: errors.New("dirty worktree")}
 
-	err := NewWorktreeWorkflow(s, runner).Remove(context.Background(), "task-1")
+	err := NewWorktreeWorkflow(s, runner).Remove(context.Background(), "task-1", false)
 	if err == nil {
 		t.Fatal("Remove() error = nil")
 	}

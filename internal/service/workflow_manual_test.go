@@ -76,6 +76,23 @@ func TestCancelWaitingManualStepDoesNotRunIt(t *testing.T) {
 	}
 }
 
+func TestTriggerManualWorktreeRemovalCanSelectForce(t *testing.T) {
+	db, _ := store.New(filepath.Join(t.TempDir(), "test.db"))
+	defer db.Close()
+	definition, automatic, cleanup := newManualWorkflow(t)
+	svc := NewWorkflowService(db, []WorkflowExecutor{automatic, cleanup})
+	view, err := svc.Start(context.Background(), definition, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.TriggerStep(context.Background(), view.Run.ID, "cleanup", true); err != nil {
+		t.Fatal(err)
+	}
+	if force, _ := cleanup.starts[0].With["force"].(bool); !force {
+		t.Fatalf("inputs = %+v, want force=true", cleanup.starts[0].With)
+	}
+}
+
 func TestTriggerManualStepStartsItExactlyOnce(t *testing.T) {
 	db, _ := store.New(filepath.Join(t.TempDir(), "test.db"))
 	defer db.Close()
@@ -85,14 +102,14 @@ func TestTriggerManualStepStartsItExactlyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err = svc.TriggerStep(context.Background(), view.Run.ID, "cleanup")
+	view, err = svc.TriggerStep(context.Background(), view.Run.ID, "cleanup", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if view.Run.Status != "succeeded" || len(cleanup.starts) != 1 || len(view.Attempts) != 2 {
 		t.Fatalf("view=%+v starts=%d", view, len(cleanup.starts))
 	}
-	if _, err := svc.TriggerStep(context.Background(), view.Run.ID, "cleanup"); err == nil {
+	if _, err := svc.TriggerStep(context.Background(), view.Run.ID, "cleanup", false); err == nil {
 		t.Fatal("duplicate trigger succeeded")
 	}
 	if len(cleanup.starts) != 1 {

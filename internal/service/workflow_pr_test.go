@@ -27,7 +27,7 @@ func (f *fakePRWorktrees) Create(_ context.Context, task, dir, branch, base stri
 	f.task, f.dir, f.branch, f.base = task, dir, branch, base
 	return &store.TaskWorktree{PrimaryDir: dir, Path: dir + "/.worktrees/" + branch, Branch: branch, BaseBranch: base}, nil
 }
-func (f *fakePRWorktrees) Remove(context.Context, string) error { return nil }
+func (f *fakePRWorktrees) Remove(context.Context, string, bool) error { return nil }
 
 type fakePRLinker struct {
 	task, owner, repo string

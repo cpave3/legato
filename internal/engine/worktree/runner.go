@@ -37,9 +37,13 @@ func (r *Runner) Create(ctx context.Context, taskID, primaryDir, branch, baseBra
 	return "", fmt.Errorf("yggdrasil produced no path")
 }
 
-// Remove removes a worktree while preserving Yggdrasil's safety checks.
-func (r *Runner) Remove(ctx context.Context, primaryDir, branch string) error {
-	cmd := exec.CommandContext(ctx, r.binary, "remove", branch)
+// Remove removes a worktree, optionally bypassing Yggdrasil's dirty-tree safety check.
+func (r *Runner) Remove(ctx context.Context, primaryDir, branch string, force bool) error {
+	args := []string{"remove", branch}
+	if force {
+		args = append(args, "--force")
+	}
+	cmd := exec.CommandContext(ctx, r.binary, args...)
 	cmd.Dir = primaryDir
 	output, err := cmd.CombinedOutput()
 	if err != nil {
