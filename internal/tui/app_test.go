@@ -1060,6 +1060,9 @@ func (f *fakeAgentService) ResolvePermission(_ context.Context, _ string, _ stri
 func (f *fakeAgentService) HasChimeraEndpoint(_ context.Context, _ string) bool {
 	return false
 }
+func (f *fakeAgentService) GetAgentSession(_ context.Context, _ string) (*store.AgentSession, error) {
+	return nil, fmt.Errorf("not found")
+}
 
 func TestAgentGroupSelectionPersistsAndRefreshes(t *testing.T) {
 	agentSvc := &fakeAgentService{agents: []service.AgentSession{{TaskID: "TASK-1", Group: "backend"}}}

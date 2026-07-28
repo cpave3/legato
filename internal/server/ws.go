@@ -19,6 +19,9 @@ const (
 	MsgSubscribeAgent   = "subscribe_agent"
 	MsgUnsubscribeAgent = "unsubscribe_agent"
 	MsgSendKeys         = "send_keys"
+	MsgAgentMessage     = "agent_message"
+	MsgAgentInterrupt    = "agent_interrupt"
+	MsgAgentPermission  = "agent_permission"
 	MsgResize           = "resize"
 	MsgDetectPrompt     = "detect_prompt"
 	MsgRefreshPane      = "refresh_pane"
@@ -29,6 +32,7 @@ const (
 	MsgAgentOutput      = "agent_output"
 	MsgAgentList        = "agent_list"
 	MsgAgentsChanged    = "agents_changed"
+	MsgChimeraEvent     = "chimera_event"
 	MsgPromptState      = "prompt_state"
 	MsgPlanProposed     = "plan_proposed"
 	MsgPlanVerdict      = "plan_verdict"
@@ -70,6 +74,9 @@ type WSMessage struct {
 	ItemID         string              `json:"item_id,omitempty"`
 	Producer       string              `json:"producer,omitempty"`
 	SourceKey      string              `json:"source_key,omitempty"`
+	RequestID      string              `json:"request_id,omitempty"`
+	Decision       string              `json:"decision,omitempty"`
+	RememberScope  string              `json:"remember_scope,omitempty"`
 }
 
 // wsClient represents a connected WebSocket client.
@@ -179,6 +186,12 @@ func (s *Server) handleWSMessage(client *wsClient, msg WSMessage) {
 		s.unsubscribeAgent(client, msg.AgentID)
 	case MsgSendKeys:
 		s.handleSendKeys(client, msg)
+	case MsgAgentMessage:
+		s.handleAgentMessage(client, msg)
+	case MsgAgentInterrupt:
+		s.handleAgentInterrupt(client, msg)
+	case MsgAgentPermission:
+		s.handleAgentPermission(client, msg)
 	case MsgResize:
 		s.handleResize(client, msg)
 	case MsgDetectPrompt:
@@ -237,6 +250,12 @@ func (s *Server) sendAgentList(client *wsClient) {
 }
 
 func (s *Server) subscribeAgent(client *wsClient, agentID string) {
+	if s.agents != nil && s.agents.HasChimeraEndpoint(context.Background(), agentID) {
+		// Chimera agent: start an SSE subscription that forwards events
+		// to this WebSocket client. The terminal pane is not streamed.
+		s.startChimeraEventForwarder(client, agentID)
+		return
+	}
 	if s.tmux == nil {
 		client.send(WSMessage{Type: MsgError, Error: "tmux not available"})
 		return
@@ -248,7 +267,55 @@ func (s *Server) subscribeAgent(client *wsClient, agentID string) {
 }
 
 func (s *Server) unsubscribeAgent(client *wsClient, agentID string) {
+	// For Chimera agents, cancel the SSE forwarder goroutine.
+	if client.cancel != nil {
+		client.cancel()
+	}
 	s.streams.unsubscribe(agentID, client)
+}
+
+// handleAgentMessage sends a text message to the agent through the
+// AgentService interaction adapter (HTTP for Chimera, send-keys for others).
+func (s *Server) handleAgentMessage(client *wsClient, msg WSMessage) {
+	if s.agents == nil {
+		client.send(WSMessage{Type: MsgError, Error: "agent service not available"})
+		return
+	}
+	if msg.AgentID == "" || msg.Content == "" {
+		client.send(WSMessage{Type: MsgError, Error: "agent_id and content are required"})
+		return
+	}
+	if err := s.agents.SendMessage(context.Background(), msg.AgentID, msg.Content); err != nil {
+		client.send(WSMessage{Type: MsgError, Error: "send message failed: " + err.Error()})
+	}
+}
+
+func (s *Server) handleAgentInterrupt(client *wsClient, msg WSMessage) {
+	if s.agents == nil {
+		client.send(WSMessage{Type: MsgError, Error: "agent service not available"})
+		return
+	}
+	if msg.AgentID == "" {
+		client.send(WSMessage{Type: MsgError, Error: "agent_id is required"})
+		return
+	}
+	if err := s.agents.InterruptAgent(context.Background(), msg.AgentID); err != nil {
+		client.send(WSMessage{Type: MsgError, Error: "interrupt failed: " + err.Error()})
+	}
+}
+
+func (s *Server) handleAgentPermission(client *wsClient, msg WSMessage) {
+	if s.agents == nil {
+		client.send(WSMessage{Type: MsgError, Error: "agent service not available"})
+		return
+	}
+	if msg.AgentID == "" {
+		client.send(WSMessage{Type: MsgError, Error: "agent_id is required"})
+		return
+	}
+	if err := s.agents.ResolvePermission(context.Background(), msg.AgentID, msg.RequestID, msg.Decision, msg.RememberScope); err != nil {
+		client.send(WSMessage{Type: MsgError, Error: "resolve permission failed: " + err.Error()})
+	}
 }
 
 func (s *Server) handleResize(client *wsClient, msg WSMessage) {

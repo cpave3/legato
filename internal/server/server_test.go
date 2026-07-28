@@ -208,6 +208,9 @@ func (p *promptAgentService) ResolvePermission(context.Context, string, string, 
 func (p *promptAgentService) HasChimeraEndpoint(context.Context, string) bool {
 	return false
 }
+func (p *promptAgentService) GetAgentSession(context.Context, string) (*store.AgentSession, error) {
+	return nil, fmt.Errorf("not found")
+}
 func (m *mockSyncService) Subscribe() <-chan service.SyncEvent     { return nil }
 func (m *mockSyncService) StartScheduler(_ context.Context) func() { return func() {} }
 func (m *mockSyncService) SearchRemote(_ context.Context, _ string) ([]service.RemoteSearchResult, error) {

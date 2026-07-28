@@ -138,6 +138,11 @@ type AgentService interface {
 	// endpoint, meaning the web UI should render the structured panel
 	// instead of the xterm terminal.
 	HasChimeraEndpoint(ctx context.Context, taskID string) bool
+	// GetAgentSession returns the raw agent session for the given task.
+	// Used by the web server to proxy Chimera snapshot/SSE endpoints.
+	// The returned session's ChimeraEndpoint is private and must not be
+	// exposed in API DTOs.
+	GetAgentSession(ctx context.Context, taskID string) (*store.AgentSession, error)
 }
 
 type agentService struct {
@@ -1007,6 +1012,11 @@ func (a *agentService) HasChimeraEndpoint(ctx context.Context, taskID string) bo
 		return false
 	}
 	return session.ChimeraEndpoint != nil && session.ChimeraSessionID != nil
+}
+
+// GetAgentSession returns the raw agent session row for the given task.
+func (a *agentService) GetAgentSession(ctx context.Context, taskID string) (*store.AgentSession, error) {
+	return a.store.GetAgentSessionByTaskID(ctx, taskID)
 }
 
 // resolveInteractionAdapter returns the appropriate interaction adapter

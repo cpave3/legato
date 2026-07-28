@@ -158,6 +158,10 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/swarm/inbox/", s.swarmInboxHandler())
 	mux.HandleFunc("/api/swarm/pending-plan/", s.swarmPendingPlanHandler())
 	mux.HandleFunc("/api/swarm/pending-plans", s.swarmPendingPlansHandler())
+	mux.HandleFunc("/api/agents/{task_id}/chimera/snapshot", s.chimeraSnapshotHandler())
+	mux.HandleFunc("/api/agents/{task_id}/chimera/send", s.chimeraSendHandler())
+	mux.HandleFunc("/api/agents/{task_id}/chimera/interrupt", s.chimeraInterruptHandler())
+	mux.HandleFunc("/api/agents/{task_id}/chimera/permission", s.chimeraPermissionHandler())
 	mux.HandleFunc("/ws", s.wsHandler())
 
 	// SPA fallback — serve embedded frontend for all non-API paths.
