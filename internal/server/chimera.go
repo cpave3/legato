@@ -172,6 +172,45 @@ func (s *Server) chimeraPermissionHandler() http.HandlerFunc {
 	}
 }
 
+// chimeraModesHandler returns the available modes for the session.
+func (s *Server) chimeraModesHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		taskID := r.PathValue("task_id")
+		if taskID == "" {
+			taskID = strings.TrimPrefix(r.URL.Path, "/api/agents/")
+			taskID = strings.TrimSuffix(taskID, "/chimera/modes")
+		}
+		endpoint, sessionID, err := s.getChimeraEndpoint(r, taskID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		client := chimera.NewClient(endpoint)
+		if r.Method == http.MethodGet {
+			modes, err := client.ListModes(r.Context(), sessionID)
+			if err != nil {
+				http.Error(w, "chimera: "+err.Error(), http.StatusBadGateway)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(modes)
+		} else if r.Method == http.MethodPost {
+			var req struct {
+				Mode string `json:"mode"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid JSON", http.StatusBadRequest)
+				return
+			}
+			if err := client.SetMode(r.Context(), sessionID, req.Mode); err != nil {
+				http.Error(w, "chimera: "+err.Error(), http.StatusBadGateway)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}
+}
+
 // getChimeraEndpoint resolves the private Chimera endpoint URL and session ID
 // for the given task from the agent service. Returns an error if the agent
 // doesn't have a discovered Chimera endpoint.

@@ -87,6 +87,13 @@ func (e EventEnvelope) MarshalJSON() ([]byte, error) {
 	return json.Marshal(alias(e))
 }
 
+// ModeInfo describes a mode available in a Chimera session.
+type ModeInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Cycle       bool   `json:"cycle"`
+}
+
 // PermissionRequest is the pending permission request state.
 type PermissionRequest struct {
 	RequestID string `json:"requestId"`
@@ -211,7 +218,31 @@ func (c *Client) Subscribe(ctx context.Context, sessionID, since string, onEvent
 	return parseSSE(resp.Body, onEvent)
 }
 
-// ErrBusy is returned when a message POST is rejected because a run is
+// ListModes returns the available modes for a session.
+func (c *Client) ListModes(ctx context.Context, sessionID string) ([]ModeInfo, error) {
+	var modes []ModeInfo
+	if err := c.getJSON(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/modes", &modes); err != nil {
+		return nil, err
+	}
+	return modes, nil
+}
+
+// SetMode changes the mode of a session.
+func (c *Client) SetMode(ctx context.Context, sessionID, mode string) error {
+	body := map[string]string{"mode": mode}
+	bodyBytes, _ := json.Marshal(body)
+	resp, err := c.do(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/mode", bodyBytes)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("setMode: %s", resp.Status)
+	}
+	return nil
+}
+
+// ErrBusy is returned when a message POST is rejected because a run
 // already in progress (HTTP 409).
 var ErrBusy = fmt.Errorf("run already in progress")
 

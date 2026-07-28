@@ -403,7 +403,16 @@ export function AgentsPage() {
           <>
             <div className="relative min-h-0 flex-1">
               {selectedAgent?.has_chimera_endpoint ? (
-                <NativeAgentPanel agentId={selectedId} />
+                <NativeAgentPanel
+                  agentId={selectedId}
+                  onKill={handleKill}
+                  onDisconnect={handleDisconnect}
+                  ntfyConfigured={ntfyConfigured}
+                  notifyEnabled={selectedAgent?.notify_enabled}
+                  onToggleNotify={handleToggleNotify}
+                  voiceEnabled={voiceEnabled}
+                  agentKind={selectedAgent?.agent_kind}
+                />
               ) : (
                 <TerminalPanel agentId={selectedId} onGlitch={triggerGlitch} onClickTerminal={() => promptBarRef.current?.focus()} />
               )}

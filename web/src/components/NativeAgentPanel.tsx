@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { ArrowDown } from "lucide-react"
+import { ArrowDown, ArrowLeftRight, Zap, MoreHorizontal, Unplug, Skull, Bell, BellOff } from "lucide-react"
 import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
+import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
 
 interface ChimeraEvent {
   eventId: string
@@ -56,9 +57,22 @@ interface SessionSnapshot {
   tasks?: { content: string; status: string }[]
 }
 
+interface ModeInfo {
+  name: string
+  description: string
+  cycle: boolean
+}
+
 interface NativeAgentPanelProps {
   agentId: string
   onClickTerminal?: () => void
+  onKill?: () => void
+  onDisconnect?: () => void
+  ntfyConfigured?: boolean
+  notifyEnabled?: boolean
+  onToggleNotify?: () => void
+  voiceEnabled?: boolean
+  agentKind?: string
 }
 
 type ItemRole = "user" | "assistant" | "tool" | "system"
@@ -81,7 +95,7 @@ interface ConversationItem {
   toolName?: string // for permission requests
 }
 
-export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   const { baseUrl } = useServer()
   const [items, setItems] = useState<ConversationItem[]>([])
@@ -100,6 +114,15 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
   const snapshotToolCallCount = useRef<number>(0)
   const seenCallIds = useRef<Set<string>>(new Set())
   const [isScrolledUp, setIsScrolledUp] = useState(false)
+  const [modes, setModes] = useState<ModeInfo[]>([])
+  const [modesOpen, setModesOpen] = useState(false)
+  const [macros, setMacros] = useState<{ name: string; keys: string }[]>([])
+  const [macrosOpen, setMacrosOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const modesRef = useRef<HTMLDivElement>(null)
+  const macrosRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const voiceRef = useRef<VoiceRecorderHandle>(null)
 
   // Load/save draft
   useEffect(() => {
@@ -109,6 +132,36 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
   useEffect(() => {
     localStorage.setItem(draftKey, draft)
   }, [draftKey, draft])
+
+  // Fetch available modes
+  useEffect(() => {
+    apiFetch(baseUrl, `/api/agents/${agentId}/chimera/modes`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: ModeInfo[]) => setModes(Array.isArray(data) ? data : []))
+      .catch(() => {})
+  }, [agentId, baseUrl])
+
+  // Fetch macros
+  useEffect(() => {
+    if (!macrosOpen) return
+    apiFetch(baseUrl, "/api/macros")
+      .then((r) => r.ok ? r.json() : { macros: [] })
+      .then((data: { macros?: { name: string; keys: string }[] }) => {
+        if (Array.isArray(data.macros)) setMacros(data.macros)
+      })
+      .catch(() => setMacros([]))
+  }, [baseUrl, macrosOpen])
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (modesRef.current && !modesRef.current.contains(e.target as Node)) setModesOpen(false)
+      if (macrosRef.current && !macrosRef.current.contains(e.target as Node)) setMacrosOpen(false)
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
 
   // Fetch initial snapshot and hydrate conversation
   useEffect(() => {
@@ -401,6 +454,21 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
     }
   }, [])
 
+  const handleModeChange = useCallback((mode: string) => {
+    apiFetch(baseUrl, `/api/agents/${agentId}/chimera/modes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
+    }).then(() => setMode(mode)).catch(() => {})
+    setModesOpen(false)
+  }, [agentId, baseUrl])
+
+  const handleMacro = useCallback((keys: string) => {
+    // For native sessions, macros send text via the message API
+    send({ type: "agent_message", agent_id: agentId, content: keys })
+    setMacrosOpen(false)
+  }, [agentId, send])
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -511,11 +579,114 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
           </span>
         )}
         {error && <span className="text-red-400">{error}</span>}
+        {/* Action buttons */}
+        <div className="ml-auto flex items-center gap-1.5 shrink-0">
+          {/* Mode selector */}
+          {modes.length > 0 && (
+            <div className="relative" ref={modesRef}>
+              <button
+                onClick={() => setModesOpen((v) => !v)}
+                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-400 border border-zinc-700 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                title="Change mode"
+              >
+                <ArrowLeftRight size={12} />
+                <span>Mode</span>
+              </button>
+              {modesOpen && (
+                <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[160px] z-10">
+                  {modes.map((m) => (
+                    <button
+                      key={m.name}
+                      onClick={() => handleModeChange(m.name)}
+                      className={"flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
+                    >
+                      <span className="font-mono">{m.name}</span>
+                      {m.description && <span className="text-zinc-500 truncate">{m.description}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {/* Macros dropdown */}
+          <div className="relative" ref={macrosRef}>
+            <button
+              onClick={() => setMacrosOpen((v) => !v)}
+              className={"flex items-center gap-1 rounded px-2 py-1 text-xs border transition-colors " + (macrosOpen ? "text-zinc-200 bg-zinc-800 border-zinc-600" : "text-zinc-400 border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200")}
+              title="Macros"
+            >
+              <Zap size={12} />
+              <span>Macros</span>
+            </button>
+            {macrosOpen && (
+              <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
+                {macros.length === 0 ? (
+                  <div className="px-3 py-1.5 text-xs text-zinc-500">(no macros configured)</div>
+                ) : (
+                  macros.map((macro) => (
+                    <button
+                      key={macro.name}
+                      onClick={() => handleMacro(macro.keys)}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                    >
+                      <Zap size={12} />
+                      {macro.name}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+          {/* Overflow menu */}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              className={"flex items-center gap-1 rounded px-2 py-1 text-xs border transition-colors " + (menuOpen ? "text-zinc-200 bg-zinc-800 border-zinc-600" : "text-zinc-400 border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200")}
+              title="More actions"
+            >
+              <MoreHorizontal size={12} />
+            </button>
+            {menuOpen && (
+              <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
+                {ntfyConfigured && onToggleNotify && (
+                  <button
+                    onClick={() => { onToggleNotify(); setMenuOpen(false) }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                  >
+                    {notifyEnabled ? <Bell size={12} /> : <BellOff size={12} />}
+                    {notifyEnabled ? "Disable notify" : "Enable notify"}
+                  </button>
+                )}
+                {onDisconnect && (
+                  <button
+                    onClick={() => { onDisconnect(); setMenuOpen(false) }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                  >
+                    <Unplug size={12} />
+                    Disconnect
+                  </button>
+                )}
+                {onKill && (
+                  <>
+                    <div className="my-1 border-t border-zinc-800" />
+                    <button
+                      onClick={() => { onKill(); setMenuOpen(false) }}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-400 hover:bg-red-950 transition-colors"
+                    >
+                      <Skull size={12} />
+                      Kill agent
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Composer */}
       <div className="border-t border-zinc-800 p-3">
-        <div className="flex gap-2">
+        <div className="flex items-end gap-2">
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -533,14 +704,25 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
             >
               Send
             </button>
-            {busy && (
+            {busy ? (
               <button
                 onClick={handleInterrupt}
                 className="rounded-lg bg-red-700/60 px-4 py-2 text-xs text-white hover:bg-red-600/60"
               >
                 Interrupt
               </button>
-            )}
+            ) : voiceEnabled ? (
+              <VoiceRecorder
+                ref={voiceRef}
+                agentId={agentId}
+                agentKind={agentKind}
+                baseUrl={baseUrl}
+                transcriptionOnly
+                onTranscription={(text) => {
+                  setDraft((prev) => prev ? prev + " " + text : text)
+                }}
+              />
+            ) : null}
           </div>
         </div>
       </div>
