@@ -589,7 +589,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// The endpoint and session ID are persisted on the agent session row
 	// so the web UI can proxy the SSE stream and send follow-ups via HTTP.
 	if agentKind == "chimera" {
-		go a.discoverChimeraLockfile(context.Background(), taskID)
+		go a.discoverChimeraLockfile(context.Background(), taskID, workDir)
 	}
 
 	// Auto-link git branch to task for PR tracking (best-effort)
@@ -1037,7 +1037,7 @@ func (a *agentService) resolveInteractionAdapter(ctx context.Context, taskID str
 // The lockfile is named <pid>.json and contains the server URL and session
 // ID. We don't know the PID ahead of time, so we scan the instances directory
 // for a lockfile whose cwd matches our working directory.
-func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID string) {
+func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, spawnWorkDir string) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		log.Printf("chimera lockfile discovery for %s: %v", taskID, err)
@@ -1073,7 +1073,7 @@ func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID strin
 			}
 			// Match by working directory — the Chimera instance was
 			// started in the same cwd as the agent's tmux session.
-			if lf.CWD != a.workDir {
+			if lf.CWD != spawnWorkDir {
 				continue
 			}
 			// Found it. Persist the discovery.
