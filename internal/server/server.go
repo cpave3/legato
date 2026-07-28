@@ -31,6 +31,7 @@ type Server struct {
 	server               *http.Server
 	hub                  *Hub
 	streams              *streamManager
+	chimeraStreams      *chimeraStreamManager
 	tlsCert              string
 	tlsKey               string
 	caCertPath           string
@@ -62,16 +63,18 @@ func New(board service.BoardService, agents service.AgentService, tmux service.T
 func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux service.TmuxManager, addr string, swarm SwarmService, bus *events.Bus, workDir string) *Server {
 	sm := newStreamManager(tmux, agents)
 	s := &Server{
-		board:   board,
-		agents:  agents,
-		swarm:   swarm,
-		tmux:    tmux,
-		bus:     bus,
-		addr:    addr,
-		workDir: workDir,
-		hub:     newHub(),
-		streams: sm,
+		board:          board,
+		agents:         agents,
+		swarm:           swarm,
+		tmux:            tmux,
+		bus:             bus,
+		addr:            addr,
+		workDir:         workDir,
+		hub:             newHub(),
+		streams:         sm,
+		chimeraStreams:  newChimeraStreamManager(),
 	}
+	s.chimeraStreams.agents = agents
 	// When a pipe-pane stream ends (shell exit), reconcile DB state
 	// and notify all web clients so dead agents update in the sidebar.
 	sm.onStreamEnd = func(agentID string) {

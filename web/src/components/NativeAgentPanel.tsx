@@ -97,6 +97,7 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
   const streamingIdRef = useRef<string>("")
   // Track which snapshot tool calls we've already rendered (by position in messages)
   const snapshotToolCallCount = useRef<number>(0)
+  const seenCallIds = useRef<Set<string>>(new Set())
 
   // Load/save draft
   useEffect(() => {
@@ -111,6 +112,7 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
   useEffect(() => {
     setLoading(true)
     seenEventIds.current.clear()
+    seenCallIds.current.clear()
     streamingTextRef.current = ""
     streamingIdRef.current = ""
     apiFetch(baseUrl, `/api/agents/${agentId}/chimera/snapshot`)
@@ -132,6 +134,9 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
         const msgs = data.messages || []
         const tcs = data.toolCalls || []
         snapshotToolCallCount.current = tcs.length
+        for (const tc of tcs) {
+          if (tc.callId) seenCallIds.current.add(tc.callId)
+        }
 
         for (let i = 0; i < msgs.length; i++) {
           const msg = msgs[i]
@@ -267,6 +272,9 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
             break
           }
           case "tool_call_start": {
+            // Skip tool calls already rendered from the snapshot
+            if (env.callId && seenCallIds.current.has(env.callId)) break
+            if (env.callId) seenCallIds.current.add(env.callId)
             if (env.name) {
               setItems((prev) => [...prev, {
                 key: env.eventId,

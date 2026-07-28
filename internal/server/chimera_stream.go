@@ -7,94 +7,152 @@ import (
 	"sync"
 
 	"github.com/cpave3/legato/internal/engine/chimera"
+	"github.com/cpave3/legato/internal/engine/store"
 )
 
-// chimeraStreamManager manages SSE subscriptions to Chimera servers for
-// WebSocket clients. Each WebSocket client that subscribes to a Chimera
-// agent gets its own SSE subscription that forwards events to the client.
+// chimeraStreamManager manages a single SSE subscription per Chimera agent
+// session and fans out events to all subscribed WebSocket clients. This
+// ensures all connected clients (desktop, mobile, etc.) receive the same
+// events in sync, even if a message is sent from one client — the Chimera
+// server emits the event once, and the shared subscription broadcasts it
+// to all clients.
 type chimeraStreamManager struct {
-	agents chimeraAgentLookup
-	mu     sync.Mutex
-	subs   map[*wsClient]map[string]context.CancelFunc // client -> agentID -> cancel
-}
-
-// chimeraAgentLookup provides the Chimera endpoint and session ID for a task.
-type chimeraAgentLookup interface {
-	GetAgentSession(ctx context.Context, taskID string) (endpoint, sessionID string, err error)
-}
-
-type agentServiceChimeraLookup struct {
 	agents interface {
-		GetAgentSession(ctx context.Context, taskID string) (*chimeraSessionRow, error)
+		HasChimeraEndpoint(ctx context.Context, taskID string) bool
+		GetAgentSession(ctx context.Context, taskID string) (*store.AgentSession, error)
+	}
+
+	mu      sync.Mutex
+	streams map[string]*chimeraStream // keyed by taskID
+}
+
+type chimeraStream struct {
+	taskID    string
+	endpoint  string
+	sessionID string
+	cancel    context.CancelFunc
+
+	mu        sync.RWMutex
+	clients   map[*wsClient]struct{}
+	lastEvent string
+}
+
+func newChimeraStreamManager() *chimeraStreamManager {
+	return &chimeraStreamManager{
+		streams: make(map[string]*chimeraStream),
 	}
 }
 
-type chimeraSessionRow struct {
-	ChimeraEndpoint  *string
-	ChimeraSessionID *string
+// subscribe adds a WebSocket client to the fan-out for the given agent.
+// If no SSE subscription exists yet, it starts one. The client will
+// receive all future Chimera events for this agent.
+func (m *chimeraStreamManager) subscribe(client *wsClient, taskID string) {
+	m.mu.Lock()
+	stream, ok := m.streams[taskID]
+	if !ok {
+		// Resolve the endpoint and start a new shared SSE subscription.
+		session, err := m.agents.GetAgentSession(context.Background(), taskID)
+		if err != nil || session.ChimeraEndpoint == nil || session.ChimeraSessionID == nil {
+			m.mu.Unlock()
+			client.send(WSMessage{Type: MsgError, Error: "no chimera endpoint"})
+			return
+		}
+		stream = &chimeraStream{
+			taskID:    taskID,
+			endpoint:  *session.ChimeraEndpoint,
+		sessionID: *session.ChimeraSessionID,
+			clients:   make(map[*wsClient]struct{}),
+		}
+		m.streams[taskID] = stream
+		ctx, cancel := context.WithCancel(context.Background())
+		stream.cancel = cancel
+		go m.runSSELoop(ctx, stream)
+	}
+	m.mu.Unlock()
+
+	stream.mu.Lock()
+	stream.clients[client] = struct{}{}
+	stream.mu.Unlock()
 }
 
-func (s *Server) startChimeraEventForwarder(client *wsClient, taskID string) {
-	if s.agents == nil {
+// unsubscribe removes a WebSocket client from the fan-out. When the last
+// client leaves, the SSE subscription is cancelled and the stream is
+// removed.
+func (m *chimeraStreamManager) unsubscribe(client *wsClient, taskID string) {
+	m.mu.Lock()
+	stream, ok := m.streams[taskID]
+	if !ok {
+		m.mu.Unlock()
 		return
 	}
 
-	session, err := s.agents.GetAgentSession(context.Background(), taskID)
-	if err != nil {
-		client.send(WSMessage{Type: MsgError, Error: "agent session not found"})
-		return
+	stream.mu.Lock()
+	delete(stream.clients, client)
+	empty := len(stream.clients) == 0
+	stream.mu.Unlock()
+
+	if empty {
+		stream.cancel()
+		delete(m.streams, taskID)
 	}
-	if session.ChimeraEndpoint == nil || session.ChimeraSessionID == nil {
-		client.send(WSMessage{Type: MsgError, Error: "no chimera endpoint"})
-		return
-	}
+	m.mu.Unlock()
+}
 
-	endpoint := *session.ChimeraEndpoint
-	sessionID := *session.ChimeraSessionID
-	client.ctx, client.cancel = context.WithCancel(context.Background())
+// runSSELoop maintains a persistent SSE connection to the Chimera server,
+// reconnecting on error. Every event is broadcast to all subscribed
+// WebSocket clients.
+func (m *chimeraStreamManager) runSSELoop(ctx context.Context, stream *chimeraStream) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 
-	// Subscribe to Chimera SSE and forward events to the WebSocket client.
-	go func() {
-		client := client
-		var lastEventID string
+		c := chimera.NewClient(stream.endpoint)
+		// On first connect, lastEvent is empty — subscribe without replay
+		// so we only get live events. The frontend hydrates history from
+		// the snapshot. On reconnect after error, lastEvent provides the
+		// cursor for gap-free resume.
+		since := stream.lastEvent
+		err := c.Subscribe(ctx, stream.sessionID, since, func(env chimera.EventEnvelope) {
+			if env.EventID != "" {
+				stream.mu.Lock()
+				stream.lastEvent = env.EventID
+				stream.mu.Unlock()
+			}
 
-		for {
+			data, err := json.Marshal(env)
+			if err != nil {
+				return
+			}
+
+			msg := WSMessage{
+				Type:    MsgChimeraEvent,
+				AgentID: stream.taskID,
+				Content: string(data),
+			}
+
+			// Fan out to all connected clients.
+			stream.mu.RLock()
+			for client := range stream.clients {
+				client.send(msg)
+			}
+			stream.mu.RUnlock()
+		})
+
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("chimera SSE stream for %s: %v", stream.taskID, err)
 			select {
-			case <-client.ctx.Done():
+			case <-ctx.Done():
 				return
 			default:
 			}
-
-			c := chimera.NewClient(endpoint)
-			err := c.Subscribe(client.ctx, sessionID, lastEventID, func(env chimera.EventEnvelope) {
-				if env.EventID != "" {
-					lastEventID = env.EventID
-				}
-				// Forward the event as a WebSocket message.
-				data, err := json.Marshal(env)
-				if err != nil {
-					return
-				}
-				client.send(WSMessage{
-					Type:    MsgChimeraEvent,
-					AgentID: taskID,
-					Content: string(data),
-				})
-			})
-			if err != nil {
-				if client.ctx.Err() != nil {
-					return
-				}
-				log.Printf("chimera SSE forwarder for %s: %v", taskID, err)
-				// Reconnect after a brief pause.
-				select {
-				case <-client.ctx.Done():
-					return
-				default:
-				}
-			} else {
-				return
-			}
+		} else {
+			return
 		}
-	}()
+	}
 }

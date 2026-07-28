@@ -252,9 +252,8 @@ func (s *Server) sendAgentList(client *wsClient) {
 
 func (s *Server) subscribeAgent(client *wsClient, agentID string) {
 	if s.agents != nil && s.agents.HasChimeraEndpoint(context.Background(), agentID) {
-		// Chimera agent: start an SSE subscription that forwards events
-		// to this WebSocket client. The terminal pane is not streamed.
-		s.startChimeraEventForwarder(client, agentID)
+		// Chimera agent: subscribe to the shared SSE fan-out.
+		s.chimeraStreams.subscribe(client, agentID)
 		return
 	}
 	if s.tmux == nil {
@@ -268,10 +267,8 @@ func (s *Server) subscribeAgent(client *wsClient, agentID string) {
 }
 
 func (s *Server) unsubscribeAgent(client *wsClient, agentID string) {
-	// For Chimera agents, cancel the SSE forwarder goroutine.
-	if client.cancel != nil {
-		client.cancel()
-	}
+	// For Chimera agents, unsubscribe from the shared SSE fan-out.
+	s.chimeraStreams.unsubscribe(client, agentID)
 	s.streams.unsubscribe(agentID, client)
 }
 
