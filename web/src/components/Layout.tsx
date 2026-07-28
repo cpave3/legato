@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react"
-import { Outlet, NavLink } from "react-router-dom"
-import { Monitor, LayoutGrid, Settings, Server, ListChecks, ClipboardList, Workflow, Bell } from "lucide-react"
+import { Outlet, NavLink, useLocation } from "react-router-dom"
+import { Monitor, LayoutGrid, Settings, Server, ListChecks, ClipboardList, Workflow, Bell, MoreHorizontal, X } from "lucide-react"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
@@ -24,7 +24,11 @@ export function Layout() {
   const { data: attentionItems } = useAttention()
   const attentionCount = attentionItems?.length ?? 0
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   const switcherRef = useRef<HTMLDivElement>(null)
+  const location = useLocation()
+
+  useEffect(() => { setMoreOpen(false) }, [location.pathname])
 
   useEffect(() => {
     if (!switcherOpen) return
@@ -39,15 +43,20 @@ export function Layout() {
 
   const hasRemoteServers = servers.length > 0
 
-  const navItems = [
+  const primaryNav = [
     { to: "/attention", label: "Attention", icon: Bell, count: attentionCount, badge: "bg-amber-500" },
-    { to: "/agents", label: "Agents", icon: Monitor },
     { to: "/board", label: "Board", icon: LayoutGrid },
+    { to: "/agents", label: "Agents", icon: Monitor },
     { to: "/review", label: "Review", icon: ListChecks, count: reviewCount, badge: "bg-amber-500" },
+  ]
+
+  const secondaryNav = [
     { to: "/plans", label: "Plans", icon: ClipboardList, count: planCount, badge: "bg-indigo-400" },
     { to: "/workflows", label: "Flows", icon: Workflow, count: workflowAttentionCount, badge: "bg-red-400" },
     { to: "/settings", label: "Settings", icon: Settings },
   ]
+
+  const secondaryActive = secondaryNav.some(({ to }) => location.pathname.startsWith(to))
 
   return (
     <AgentSelectionProvider>
@@ -202,9 +211,9 @@ export function Layout() {
       </main>
       <nav
         aria-label="Primary navigation"
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-7 border-t border-zinc-800 bg-zinc-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-zinc-800 bg-zinc-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
       >
-        {navItems.map(({ to, label, icon: Icon, count, badge }, index) => (
+        {primaryNav.map(({ to, label, icon: Icon, count, badge }, index) => (
           <NavLink
             key={to}
             to={to}
@@ -213,15 +222,62 @@ export function Layout() {
               isActive ? "text-indigo-300" : "text-zinc-500",
             )}
           >
-            <Icon size={19} />
+            <Icon size={20} />
             <span>{label}</span>
             {index === 0 && !connected && (
-              <span aria-label="Disconnected" className="absolute right-[24%] top-1 h-2 w-2 rounded-full bg-red-500" />
+              <span aria-label="Disconnected" className="absolute right-[18%] top-1.5 h-2 w-2 rounded-full bg-red-500" />
             )}
-            {!!count && <span className={cn("absolute right-[24%] top-1 min-w-4 rounded-full px-1 text-center text-[9px] font-bold leading-4 text-zinc-950", badge)}>{count > 99 ? "99+" : count}</span>}
+            {!!count && <span className={cn("absolute right-[18%] top-1.5 min-w-4 rounded-full px-1 text-center text-[9px] font-bold leading-4 text-zinc-950", badge)}>{count > 99 ? "99+" : count}</span>}
           </NavLink>
         ))}
+        <button
+          onClick={() => setMoreOpen((v) => !v)}
+          className={cn(
+            "relative flex min-h-14 flex-col items-center justify-center gap-0.5 text-[10px]",
+            moreOpen || secondaryActive ? "text-indigo-300" : "text-zinc-500",
+          )}
+        >
+          <MoreHorizontal size={20} />
+          <span>More</span>
+          {secondaryNav.some(({ count }) => !!count) && (
+            <span className="absolute right-[18%] top-1.5 min-w-4 rounded-full bg-zinc-600 px-1 text-center text-[9px] font-bold leading-4 text-zinc-200">
+              {secondaryNav.reduce((sum, { count }) => sum + (count ?? 0), 0) > 99 ? "99+" : secondaryNav.reduce((sum, { count }) => sum + (count ?? 0), 0)}
+            </span>
+          )}
+        </button>
       </nav>
+
+      {/* More sheet */}
+      {moreOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setMoreOpen(false)} />
+          <div className="absolute inset-x-0 bottom-0 rounded-t-xl border-t border-zinc-700 bg-zinc-950 pb-[env(safe-area-inset-bottom)] shadow-2xl">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-zinc-800">
+              <span className="text-sm font-medium text-zinc-300">More</span>
+              <button onClick={() => setMoreOpen(false)} className="text-zinc-500 hover:text-zinc-300">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex flex-col py-1">
+              {secondaryNav.map(({ to, label, icon: Icon, count, badge }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) => cn(
+                    "relative flex items-center gap-3 px-5 py-3 text-sm",
+                    isActive ? "text-indigo-300 bg-zinc-900" : "text-zinc-400 hover:bg-zinc-900",
+                  )}
+                >
+                  <Icon size={18} />
+                  <span>{label}</span>
+                  {!!count && <span className={cn("ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-bold text-zinc-950", badge)}>{count > 99 ? "99+" : count}</span>}
+                </NavLink>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       <OfflineDialog />
       <PlanApprovalModal />
       </div>
