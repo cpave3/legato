@@ -589,7 +589,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, a.planView.Init()
 			}
 			return a.delegateKey(msg)
-		case "A":
+		case "I":
 			if a.active == viewBoard && a.attentionSvc != nil {
 				a = a.setMode(viewAttention)
 				return a, a.attentionView.Init()
