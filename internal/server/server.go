@@ -310,15 +310,17 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		hasCACert := s.caCertPath != ""
 		resp := struct {
-			CaCertAvailable bool   `json:"ca_cert_available"`
-			WorkingDir      string `json:"working_dir"`
-			NtfyConfigured  bool   `json:"ntfy_configured"`
-			VoiceEnabled    bool   `json:"voice_enabled"`
+			CaCertAvailable bool                              `json:"ca_cert_available"`
+			WorkingDir      string                            `json:"working_dir"`
+			NtfyConfigured  bool                              `json:"ntfy_configured"`
+			VoiceEnabled    bool                              `json:"voice_enabled"`
+			Repositories    []workflowengine.RepositoryPreset `json:"repositories"`
 		}{
 			CaCertAvailable: hasCACert,
 			WorkingDir:      s.workDir,
 			NtfyConfigured:  s.ntfyConfigured,
 			VoiceEnabled:    s.voiceSvc != nil,
+			Repositories:    append([]workflowengine.RepositoryPreset(nil), s.workflowRepositories...),
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}

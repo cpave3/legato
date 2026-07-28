@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
 import { X, Plus } from "lucide-react"
+import { RepositoryPresetSelect, type RepositoryPreset } from "./RepositoryPresetSelect"
 
 interface AdapterInfo {
   adapters: string[]
@@ -11,6 +12,7 @@ interface AdapterInfo {
 interface SettingsInfo {
   ca_cert_available: boolean
   working_dir: string
+  repositories?: RepositoryPreset[]
 }
 
 export function SpawnEphemeralModal({
@@ -26,6 +28,8 @@ export function SpawnEphemeralModal({
   const [title, setTitle] = useState("Ephemeral session")
   const [agentKind, setAgentKind] = useState("")
   const [workingDir, setWorkingDir] = useState("")
+  const [repositories, setRepositories] = useState<RepositoryPreset[]>([])
+  const [repositoryPreset, setRepositoryPreset] = useState("")
   const [adapters, setAdapters] = useState<AdapterInfo | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -36,6 +40,7 @@ export function SpawnEphemeralModal({
     setLoading(false)
     setTitle("Ephemeral session")
     setAgentKind("")
+    setRepositoryPreset("")
 
     // Fetch adapters and default cwd.
     Promise.all([
@@ -51,6 +56,7 @@ export function SpawnEphemeralModal({
         if (settingsRes.ok) {
           const data: SettingsInfo = await settingsRes.json()
           setWorkingDir(data.working_dir || "")
+          setRepositories(data.repositories ?? [])
         }
       })
       .catch(() => {
@@ -143,15 +149,30 @@ export function SpawnEphemeralModal({
             </select>
           </div>
 
+          <RepositoryPresetSelect
+            repositories={repositories}
+            value={repositoryPreset}
+            onChange={(name, repository) => {
+              setRepositoryPreset(name)
+              if (repository) setWorkingDir(repository.primary_dir)
+            }}
+          />
+
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-zinc-400">Working Directory</label>
-            <input
-              type="text"
-              value={workingDir}
-              onChange={(e) => setWorkingDir(e.target.value)}
-              placeholder="/path/to/project"
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500 font-mono"
-            />
+            <label className="text-xs font-medium text-zinc-400">
+              Working Directory
+              <input
+                aria-label="Working Directory"
+                type="text"
+                value={workingDir}
+                onChange={(e) => {
+                  setWorkingDir(e.target.value)
+                  setRepositoryPreset("")
+                }}
+                placeholder="/path/to/project"
+                className="mt-1.5 w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500 font-mono"
+              />
+            </label>
           </div>
 
           <div className="flex justify-end">

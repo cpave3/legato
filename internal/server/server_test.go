@@ -16,6 +16,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/github"
 	"github.com/cpave3/legato/internal/engine/store"
+	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/service"
 	"nhooyr.io/websocket"
 )
@@ -119,6 +120,33 @@ func (m *mockBoardService) ListArchivedTasks(_ context.Context) ([]service.Card,
 }
 func (m *mockBoardService) RestoreTask(_ context.Context, _ string) error { return nil }
 func (m *mockBoardService) CountDoneCards(_ context.Context) (int, error) { return 0, nil }
+
+func TestSettingsEndpointIncludesRepositoryPresets(t *testing.T) {
+	s := New(nil, nil, nil, "")
+	s.SetWorkflowService(nil, "", "", workflowengine.RepositoryPreset{
+		Name:       "Legato",
+		Repo:       "cpave3/legato",
+		PrimaryDir: "/projects/legato",
+		BaseBranch: "main",
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	rec := httptest.NewRecorder()
+
+	s.server.Handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Repositories []workflowengine.RepositoryPreset `json:"repositories"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode settings: %v", err)
+	}
+	if len(response.Repositories) != 1 || response.Repositories[0].Name != "Legato" || response.Repositories[0].PrimaryDir != "/projects/legato" {
+		t.Fatalf("repositories=%+v", response.Repositories)
+	}
+}
 
 func TestArchivedTasksEndpointUsesBoardCardJSONShape(t *testing.T) {
 	board := &mockBoardService{archivedCards: []service.Card{{ID: "LEG-44", Title: "Archived task", Status: "Done", WorkspaceName: "Platform", WorkspaceColor: "#123456"}}}

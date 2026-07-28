@@ -1,6 +1,6 @@
 ## Workflow repository presets
 
-Named repository presets reduce repeated workflow input without preventing overrides:
+Named repository presets reduce repeated workflow and web agent launch input without preventing overrides:
 
 ```yaml
 workflows:
@@ -16,7 +16,7 @@ workflows:
 - `primary_dir`: absolute path to the primary local checkout.
 - `base_branch`: optional default branch.
 
-The preset control appears only when the workflow declares `repo`, `primary_dir`, or `base_branch`. Selecting a preset prefills only declared matching inputs; undeclared values are not submitted. Every visible field remains editable, and **Custom** allows fully manual values.
+For workflow launches, the preset control appears only when the definition declares `repo`, `primary_dir`, or `base_branch`. Selecting a preset prefills only declared matching inputs; undeclared values are not submitted. The ephemeral-agent and task-agent web dialogs use the same list and copy the selected preset's `primary_dir` into their editable working-directory field. Editing that field switches the selector to **Custom** and the manual value is submitted.
 
 ## Config
 

@@ -13,7 +13,7 @@ Legato also reads `~/.legato/workflows` for compatibility. Precedence is legacy 
 
 ## Repository presets
 
-Frequently used repository/path pairs can be configured once and selected from the web launch form:
+Frequently used repository/path pairs can be configured once and selected from web workflow and agent launch forms:
 
 ```yaml
 workflows:
@@ -24,7 +24,9 @@ workflows:
       base_branch: main
 ```
 
-The preset control appears only when a workflow declares at least one of `repo`, `primary_dir`, or `base_branch`. Selecting a preset prefills only those declared inputs; undeclared preset values are never submitted. All fields remain editable, and selecting **Custom** permits fully manual values.
+For workflows, the preset control appears only when a definition declares at least one of `repo`, `primary_dir`, or `base_branch`. Selecting a preset prefills only those declared inputs; undeclared preset values are never submitted.
+
+The web dialogs for spawning an ephemeral agent or opening an agent for an existing task also list these presets. Selecting one copies its `primary_dir` into the working-directory field. The field remains editable, and a manual edit switches the selector to **Custom** without discarding the entered path.
 
 ## Schema version 1
 
