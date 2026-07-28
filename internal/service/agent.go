@@ -1045,6 +1045,18 @@ func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, spaw
 	}
 	instancesDir := filepath.Join(home, ".chimera", "instances")
 
+	// Snapshot lockfiles that already exist before spawn so we can
+	// detect new ones. Matching by cwd is unreliable because worktree
+	// paths resolve to the main repo directory inside Chimera.
+	preExisting := map[string]bool{}
+	if entries, err := os.ReadDir(instancesDir); err == nil {
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".json") {
+				preExisting[e.Name()] = true
+			}
+		}
+	}
+
 	// Poll for up to 30 seconds — Chimera may take a few seconds to boot.
 	for i := 0; i < 60; i++ {
 		select {
@@ -1063,6 +1075,9 @@ func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, spaw
 			if !strings.HasSuffix(entry.Name(), ".json") {
 				continue
 			}
+			if preExisting[entry.Name()] {
+				continue
+			}
 			data, err := os.ReadFile(filepath.Join(instancesDir, entry.Name()))
 			if err != nil {
 				continue
@@ -1071,12 +1086,7 @@ func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, spaw
 			if err != nil {
 				continue
 			}
-			// Match by working directory — the Chimera instance was
-			// started in the same cwd as the agent's tmux session.
-			if lf.CWD != spawnWorkDir {
-				continue
-			}
-			// Found it. Persist the discovery.
+			// Found a new lockfile. Persist the discovery.
 			if err := a.store.UpdateChimeraDiscovery(ctx, taskID, lf.SessionID, lf.URL); err != nil {
 				log.Printf("chimera lockfile discovery for %s: persisting: %v", taskID, err)
 			} else {
