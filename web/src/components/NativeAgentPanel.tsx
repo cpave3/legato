@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
+import { ArrowDown } from "lucide-react"
 import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
@@ -98,6 +99,7 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
   // Track which snapshot tool calls we've already rendered (by position in messages)
   const snapshotToolCallCount = useRef<number>(0)
   const seenCallIds = useRef<Set<string>>(new Set())
+  const [isScrolledUp, setIsScrolledUp] = useState(false)
 
   // Load/save draft
   useEffect(() => {
@@ -392,6 +394,13 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
     [handleSend],
   )
 
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      setIsScrolledUp(false)
+    }
+  }, [])
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -412,9 +421,9 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
   }
 
   return (
-    <div className="flex h-full flex-col bg-zinc-950">
+    <div className="relative flex h-full flex-col bg-zinc-950">
       {/* Conversation scroll area */}
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto" onScroll={(e) => { const el = e.currentTarget; const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setIsScrolledUp(!atBottom) }}>
         {items.length === 0 && (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-zinc-500">
@@ -471,6 +480,17 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
           )
         })}
       </div>
+
+      {/* Scroll to bottom button */}
+      {isScrolledUp && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-16 right-3 z-10 rounded-full bg-zinc-800 border border-zinc-700 p-2 text-zinc-400 shadow-lg transition-colors hover:bg-zinc-700 hover:text-zinc-200 active:bg-zinc-600"
+          title="Scroll to bottom"
+        >
+          <ArrowDown size={18} />
+        </button>
+      )}
 
       {/* Status bar */}
       <div className="flex items-center gap-3 border-t border-zinc-800 px-4 py-1.5 text-xs text-zinc-500">
