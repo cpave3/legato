@@ -94,6 +94,24 @@ type ModeInfo struct {
 	Cycle       bool   `json:"cycle"`
 }
 
+// CommandInfo describes a slash command available in a Chimera session.
+type CommandInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Body        string `json:"body"`
+	Path        string `json:"path"`
+	Source      string `json:"source"`
+}
+
+// SkillInfo describes a skill available in a Chimera session.
+type SkillInfo struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Path        string            `json:"path"`
+	Source      string            `json:"source"`
+	Frontmatter map[string]string `json:"frontmatter"`
+}
+
 // PermissionRequest is the pending permission request state.
 type PermissionRequest struct {
 	RequestID string `json:"requestId"`
@@ -240,6 +258,24 @@ func (c *Client) SetMode(ctx context.Context, sessionID, mode string) error {
 		return fmt.Errorf("setMode: %s", resp.Status)
 	}
 	return nil
+}
+
+// ListCommands returns the slash commands available in a session.
+func (c *Client) ListCommands(ctx context.Context, sessionID string) ([]CommandInfo, error) {
+	var commands []CommandInfo
+	if err := c.getJSON(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/commands", &commands); err != nil {
+		return nil, err
+	}
+	return commands, nil
+}
+
+// ListSkills returns the skills available in a session.
+func (c *Client) ListSkills(ctx context.Context, sessionID string) ([]SkillInfo, error) {
+	var skills []SkillInfo
+	if err := c.getJSON(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/skills", &skills); err != nil {
+		return nil, err
+	}
+	return skills, nil
 }
 
 // ErrBusy is returned when a message POST is rejected because a run

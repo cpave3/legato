@@ -211,6 +211,46 @@ func (s *Server) chimeraModesHandler() http.HandlerFunc {
 	}
 }
 
+// chimeraCommandsHandler returns the slash commands available for the session.
+func (s *Server) chimeraCommandsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		taskID := r.PathValue("task_id")
+		endpoint, sessionID, err := s.getChimeraEndpoint(r, taskID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		client := chimera.NewClient(endpoint)
+		commands, err := client.ListCommands(r.Context(), sessionID)
+		if err != nil {
+			http.Error(w, "chimera: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(commands)
+	}
+}
+
+// chimeraSkillsHandler returns the skills available for the session.
+func (s *Server) chimeraSkillsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		taskID := r.PathValue("task_id")
+		endpoint, sessionID, err := s.getChimeraEndpoint(r, taskID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		client := chimera.NewClient(endpoint)
+		skills, err := client.ListSkills(r.Context(), sessionID)
+		if err != nil {
+			http.Error(w, "chimera: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(skills)
+	}
+}
+
 // getChimeraEndpoint resolves the private Chimera endpoint URL and session ID
 // for the given task from the agent service. Returns an error if the agent
 // doesn't have a discovered Chimera endpoint.

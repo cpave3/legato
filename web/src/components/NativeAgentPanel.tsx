@@ -63,6 +63,28 @@ interface ModeInfo {
   cycle: boolean
 }
 
+interface CommandInfo {
+  name: string
+  description?: string
+  body: string
+  path: string
+  source: string
+}
+
+interface SkillInfo {
+  name: string
+  description: string
+  path: string
+  source: string
+}
+
+type SlashSuggestion = {
+  type: "command" | "skill"
+  name: string
+  description: string
+  body?: string
+}
+
 interface NativeAgentPanelProps {
   agentId: string
   onClickTerminal?: () => void
@@ -123,6 +145,11 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   const macrosRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const voiceRef = useRef<VoiceRecorderHandle>(null)
+  const [commands, setCommands] = useState<CommandInfo[]>([])
+  const [skills, setSkills] = useState<SkillInfo[]>([])
+  const [slashOpen, setSlashOpen] = useState(false)
+  const [slashIndex, setSlashIndex] = useState(0)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Load/save draft
   useEffect(() => {
@@ -140,6 +167,41 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       .then((data: ModeInfo[]) => setModes(Array.isArray(data) ? data : []))
       .catch(() => {})
   }, [agentId, baseUrl])
+
+  // Fetch commands and skills for slash autocomplete
+  useEffect(() => {
+    Promise.all([
+      apiFetch(baseUrl, `/api/agents/${agentId}/chimera/commands`).then((r) => r.ok ? r.json() : []).catch(() => []),
+      apiFetch(baseUrl, `/api/agents/${agentId}/chimera/skills`).then((r) => r.ok ? r.json() : []).catch(() => []),
+    ]).then(([cmds, skls]) => {
+      setCommands(Array.isArray(cmds) ? cmds : [])
+      setSkills(Array.isArray(skls) ? skls : [])
+    })
+  }, [agentId, baseUrl])
+
+  // Compute slash suggestions from current draft
+  const slashSuggestions: SlashSuggestion[] = (() => {
+    if (!draft.startsWith("/")) return []
+    const query = draft.slice(1).toLowerCase()
+    const cmdSuggestions: SlashSuggestion[] = commands
+      .filter((c) => c.name.toLowerCase().includes(query))
+      .map((c) => ({ type: "command" as const, name: c.name, description: c.description || "", body: c.body }))
+    const skillSuggestions: SlashSuggestion[] = skills
+      .filter((s) => s.name.toLowerCase().includes(query))
+      .map((s) => ({ type: "skill" as const, name: s.name, description: s.description }))
+    return [...cmdSuggestions, ...skillSuggestions]
+  })()
+
+  // Open/close slash menu based on draft
+  useEffect(() => {
+    if (draft.startsWith("/") && slashSuggestions.length > 0) {
+      setSlashOpen(true)
+      setSlashIndex(0)
+    } else {
+      setSlashOpen(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft])
 
   // Fetch macros
   useEffect(() => {
@@ -437,14 +499,52 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     [agentId, send],
   )
 
+  const handleSlashSelect = useCallback((suggestion: SlashSuggestion) => {
+    if (suggestion.type === "command" && suggestion.body) {
+      // Expand the command body into the draft and send immediately
+      setDraft(suggestion.body)
+      setSlashOpen(false)
+      // Auto-send the expanded command
+      send({ type: "agent_message", agent_id: agentId, content: suggestion.body })
+      setDraft("")
+    } else {
+      // For skills, insert the skill name and let the user continue typing
+      setDraft(`/${suggestion.name} `)
+      setSlashOpen(false)
+      textareaRef.current?.focus()
+    }
+  }, [agentId, send])
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (slashOpen) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault()
+          setSlashIndex((i) => Math.min(i + 1, slashSuggestions.length - 1))
+          return
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault()
+          setSlashIndex((i) => Math.max(i - 1, 0))
+          return
+        }
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault()
+          handleSlashSelect(slashSuggestions[slashIndex])
+          return
+        }
+        if (e.key === "Escape") {
+          e.preventDefault()
+          setSlashOpen(false)
+          return
+        }
+      }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault()
         handleSend()
       }
     },
-    [handleSend],
+    [handleSend, slashOpen, slashIndex, slashSuggestions, handleSlashSelect],
   )
 
   const scrollToBottom = useCallback(() => {
@@ -685,9 +785,28 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       </div>
 
       {/* Composer */}
-      <div className="border-t border-zinc-800 p-3">
+      <div className="relative border-t border-zinc-800 p-3">
+        {slashOpen && (
+          <div className="absolute bottom-full left-3 right-3 mb-1 max-h-48 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl z-20">
+            {slashSuggestions.map((s, i) => (
+              <button
+                key={s.type + ":" + s.name}
+                onMouseDown={(e) => { e.preventDefault(); handleSlashSelect(s) }}
+                onMouseEnter={() => setSlashIndex(i)}
+                className={"flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors " + (i === slashIndex ? "bg-zinc-800 text-zinc-100" : "text-zinc-300 hover:bg-zinc-800")}
+              >
+                <span className={"shrink-0 rounded px-1 text-[10px] font-mono uppercase " + (s.type === "command" ? "bg-indigo-900/60 text-indigo-300" : "bg-amber-900/60 text-amber-300")}>
+                  {s.type === "command" ? "cmd" : "skill"}
+                </span>
+                <span className="font-mono text-zinc-200">{s.name}</span>
+                {s.description && <span className="text-zinc-500 truncate">{s.description}</span>}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="flex items-end gap-2">
           <textarea
+            ref={textareaRef}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={handleKeyDown}
