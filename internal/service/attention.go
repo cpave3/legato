@@ -255,6 +255,14 @@ func (s *AttentionService) Execute(ctx context.Context, id string, request Atten
 	if err := handler.Execute(ctx, request); err != nil {
 		return err
 	}
+	s.producerMu.RLock()
+	_, hasProducer := s.producers[item.Producer]
+	s.producerMu.RUnlock()
+	if hasProducer {
+		if err := s.Reconcile(ctx, item.Producer); err != nil {
+			return err
+		}
+	}
 	current, err := s.store.GetAttentionItem(ctx, id)
 	if err == nil {
 		s.publish(current, "acted")

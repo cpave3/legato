@@ -26,18 +26,19 @@ const (
 
 // WebSocket message types (server → client).
 const (
-	MsgAgentOutput     = "agent_output"
-	MsgAgentList       = "agent_list"
-	MsgAgentsChanged   = "agents_changed"
-	MsgPromptState     = "prompt_state"
-	MsgPlanProposed    = "plan_proposed"
-	MsgPlanVerdict     = "plan_verdict"
-	MsgSwarmChanged    = "swarm_changed"
-	MsgCardsChanged    = "cards_changed"
-	MsgReviewChanged   = "review_changed"
-	MsgPlanChanged     = "plan_changed"
-	MsgWorkflowChanged = "workflow_changed"
-	MsgError           = "error"
+	MsgAgentOutput      = "agent_output"
+	MsgAgentList        = "agent_list"
+	MsgAgentsChanged    = "agents_changed"
+	MsgPromptState      = "prompt_state"
+	MsgPlanProposed     = "plan_proposed"
+	MsgPlanVerdict      = "plan_verdict"
+	MsgSwarmChanged     = "swarm_changed"
+	MsgCardsChanged     = "cards_changed"
+	MsgReviewChanged    = "review_changed"
+	MsgPlanChanged      = "plan_changed"
+	MsgWorkflowChanged  = "workflow_changed"
+	MsgAttentionChanged = "attention_changed"
+	MsgError            = "error"
 )
 
 // WSMessage is the JSON envelope for all WebSocket messages.
@@ -66,6 +67,9 @@ type WSMessage struct {
 	RevisionID     string              `json:"revision_id,omitempty"`
 	WorkflowRunID  string              `json:"workflow_run_id,omitempty"`
 	WorkflowStepID string              `json:"workflow_step_id,omitempty"`
+	ItemID         string              `json:"item_id,omitempty"`
+	Producer       string              `json:"producer,omitempty"`
+	SourceKey      string              `json:"source_key,omitempty"`
 }
 
 // wsClient represents a connected WebSocket client.

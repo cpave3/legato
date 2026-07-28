@@ -45,6 +45,7 @@ type Server struct {
 	plans                PlanService
 	artifacts            ArtifactService
 	workflows            WorkflowService
+	attention            *service.AttentionService
 	workflowGlobalDir    string
 	workflowProjectDir   string
 	workflowRepositories []workflowengine.RepositoryPreset
@@ -131,6 +132,9 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/plans/{plan_id}/approve", s.planApproveHandler())
 	mux.HandleFunc("/api/plans/{plan_id}/reject", s.planRejectHandler())
 	mux.HandleFunc("/api/plans/{plan_id}/reopen", s.planReopenHandler())
+	mux.HandleFunc("/api/attention", s.attentionHandler())
+	mux.HandleFunc("/api/attention/{id}/actions/{action_id}", s.attentionActionHandler())
+	mux.HandleFunc("/api/attention/{id}/dismiss", s.attentionDismissHandler())
 	mux.HandleFunc("/api/workflows", s.workflowsHandler())
 	mux.HandleFunc("/api/workflows/{name}/runs", s.workflowStartHandler())
 	mux.HandleFunc("/api/workflow-runs", s.workflowRunsHandler())
@@ -469,6 +473,20 @@ func (s *Server) StartPlanEvents() {
 
 // StartBoardEvents subscribes to card-related events and broadcasts
 // cards_changed to all connected WebSocket clients.
+func (s *Server) StartAttentionEvents() {
+	if s.bus == nil {
+		return
+	}
+	ch := s.bus.Subscribe(events.EventAttentionChanged)
+	go func() {
+		for ev := range ch {
+			if p, ok := ev.Payload.(events.AttentionChangedPayload); ok {
+				s.hub.Broadcast(WSMessage{Type: MsgAttentionChanged, ItemID: p.ItemID, Producer: p.Producer, SourceKey: p.SourceKey, Kind: p.Kind})
+			}
+		}
+	}()
+}
+
 func (s *Server) StartBoardEvents() {
 	if s.bus == nil {
 		return
