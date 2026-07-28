@@ -18,6 +18,7 @@ func TestMigrationFromLegacyNullableRelatedTaskID(t *testing.T) {
 	statements := []string{
 		`PRAGMA foreign_keys=ON`,
 		`CREATE TABLE tasks (id TEXT PRIMARY KEY)`,
+		`CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, task_id TEXT, tmux_session TEXT, command TEXT, status TEXT, started_at DATETIME, ended_at DATETIME)`,
 		`CREATE TABLE workflow_runs (
 			id TEXT PRIMARY KEY, workflow_name TEXT NOT NULL, workflow_title TEXT NOT NULL,
 			definition_source TEXT NOT NULL, definition_digest TEXT NOT NULL, definition_json TEXT NOT NULL,
