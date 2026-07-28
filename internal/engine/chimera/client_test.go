@@ -55,6 +55,25 @@ func TestGetSession(t *testing.T) {
 	}
 }
 
+func TestGetSessionContext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/sessions/sess-1/context" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"contextWindow":256000,"lastPromptTokens":128000}`)
+	}))
+	defer srv.Close()
+
+	contextUsage, err := NewClient(srv.URL).GetSessionContext(context.Background(), "sess-1")
+	if err != nil {
+		t.Fatalf("GetSessionContext: %v", err)
+	}
+	if contextUsage.ContextWindow != 256000 || contextUsage.LastPromptTokens == nil || *contextUsage.LastPromptTokens != 128000 {
+		t.Fatalf("context usage = %+v", contextUsage)
+	}
+}
+
 func TestPostMessage(t *testing.T) {
 	var gotBody map[string]string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

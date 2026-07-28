@@ -5,6 +5,12 @@ import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
 import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
 
+function formatTokens(value: number): string {
+  if (value < 1_000) return value.toLocaleString()
+  if (value < 1_000_000) return `${Number((value / 1_000).toFixed(1))}k`
+  return `${Number((value / 1_000_000).toFixed(2))}M`
+}
+
 interface ChimeraEvent {
   eventId: string
   sessionId: string
@@ -54,6 +60,8 @@ interface SessionSnapshot {
     totalTokens: number
     stepCount: number
   }
+  contextWindow?: number
+  usedContextTokens?: number
   tasks?: { content: string; status: string }[]
 }
 
@@ -125,7 +133,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [usage, setUsage] = useState<{ totalTokens: number; stepCount: number } | null>(null)
+  const [contextUsage, setContextUsage] = useState<{ used: number; window: number } | null>(null)
   const [mode, setMode] = useState<string>("")
   const scrollRef = useRef<HTMLDivElement>(null)
   const draftKey = `legato:chimera-draft:${agentId}`
@@ -240,8 +248,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       .then((data: SessionSnapshot) => {
         setMode(data.mode || "")
         setBusy(data.status === "running")
-        if (data.usage) {
-          setUsage({ totalTokens: data.usage.totalTokens, stepCount: data.usage.stepCount })
+        if (data.contextWindow && data.usedContextTokens != null) {
+          setContextUsage({ used: data.usedContextTokens, window: data.contextWindow })
         }
         // Hydrate conversation from snapshot messages AND tool calls.
         // Tool calls are interleaved with messages in the conversation order.
@@ -464,9 +472,9 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
             setBusy(false)
             break
           case "usage_updated": {
-            const u = env as unknown as { usage?: { totalTokens: number; stepCount: number } }
-            if (u.usage) {
-              setUsage({ totalTokens: u.usage.totalTokens, stepCount: u.usage.stepCount })
+            const update = env as unknown as { contextWindow?: number; usedContextTokens?: number }
+            if (update.contextWindow && update.usedContextTokens != null) {
+              setContextUsage({ used: update.usedContextTokens, window: update.contextWindow })
             }
             break
           }
@@ -684,9 +692,9 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
         {mode && (
           <span className="rounded bg-zinc-800 px-1.5 py-0.5">{mode}</span>
         )}
-        {usage && (
+        {contextUsage && (
           <span>
-            {usage.totalTokens.toLocaleString()} tokens · {usage.stepCount} steps
+            {formatTokens(contextUsage.used)} / {formatTokens(contextUsage.window)} ({Math.round((contextUsage.used / contextUsage.window) * 100)}%)
           </span>
         )}
         {error && <span className="text-red-400">{error}</span>}

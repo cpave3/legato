@@ -50,18 +50,27 @@ type InstanceInfo struct {
 // Fields are kept as json.RawMessage for the parts Legato doesn't need to
 // decode, so the client tolerates protocol additions without breaking.
 type SessionSnapshot struct {
-	ID              string          `json:"id"`
-	Name            string          `json:"name"`
-	CWD             string          `json:"cwd"`
-	Model           json.RawMessage `json:"model"`
-	SandboxMode     string          `json:"sandboxMode"`
-	Mode            string          `json:"mode"`
-	Status          string          `json:"status"`
-	Messages        json.RawMessage `json:"messages"`
-	ToolCalls       json.RawMessage `json:"toolCalls"`
-	Usage           json.RawMessage `json:"usage"`
-	Tasks           json.RawMessage `json:"tasks"`
-	UserModelOverride *string       `json:"userModelOverride"`
+	ID                string          `json:"id"`
+	Name              string          `json:"name"`
+	CWD               string          `json:"cwd"`
+	Model             json.RawMessage `json:"model"`
+	SandboxMode       string          `json:"sandboxMode"`
+	Mode              string          `json:"mode"`
+	Status            string          `json:"status"`
+	Messages          json.RawMessage `json:"messages"`
+	ToolCalls         json.RawMessage `json:"toolCalls"`
+	Usage             json.RawMessage `json:"usage"`
+	Tasks             json.RawMessage `json:"tasks"`
+	ContextWindow     int             `json:"contextWindow,omitempty"`
+	UsedContextTokens int             `json:"usedContextTokens,omitempty"`
+	UserModelOverride *string         `json:"userModelOverride"`
+}
+
+// SessionContext describes the provider-reported occupancy of a session's
+// context window. LastPromptTokens is nil before the first model step.
+type SessionContext struct {
+	ContextWindow    int  `json:"contextWindow"`
+	LastPromptTokens *int `json:"lastPromptTokens"`
 }
 
 // EventEnvelope is a single SSE event from Chimera's event stream.
@@ -136,6 +145,15 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (*SessionSnap
 		return nil, err
 	}
 	return &snap, nil
+}
+
+// GetSessionContext fetches the current context-window occupancy reported by Chimera.
+func (c *Client) GetSessionContext(ctx context.Context, sessionID string) (*SessionContext, error) {
+	var sessionContext SessionContext
+	if err := c.getJSON(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/context", &sessionContext); err != nil {
+		return nil, err
+	}
+	return &sessionContext, nil
 }
 
 // PostMessage sends a user message to the session via POST /v1/sessions/:id/messages.

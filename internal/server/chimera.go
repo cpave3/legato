@@ -41,6 +41,15 @@ func (s *Server) chimeraSnapshotHandler() http.HandlerFunc {
 			http.Error(w, "chimera: "+err.Error(), http.StatusBadGateway)
 			return
 		}
+		sessionContext, err := client.GetSessionContext(r.Context(), sessionID)
+		if err != nil {
+			http.Error(w, "chimera context: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		snap.ContextWindow = sessionContext.ContextWindow
+		if sessionContext.LastPromptTokens != nil {
+			snap.UsedContextTokens = *sessionContext.LastPromptTokens
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(snap)
 	}
