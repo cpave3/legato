@@ -255,6 +255,12 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
           if (tc.callId) seenCallIds.current.add(tc.callId)
         }
 
+        // Insert messages and interleave tool calls chronologically.
+        // The snapshot's toolCalls array is in chronological order, but we
+        // can't precisely map which assistant message produced which tool
+        // call. Instead, we insert all tool calls once, after the last
+        // assistant message (or after the last message if there are none).
+        let toolCallsPlaced = false
         for (let i = 0; i < msgs.length; i++) {
           const msg = msgs[i]
           const text = extractMessageText(msg)
@@ -268,39 +274,47 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
             text,
           })
 
-          // If this is an assistant message, check if tool calls follow
-          // (tool calls in the snapshot are in order, we insert them as we
-          // encounter assistant messages that should have produced them)
-          if (msg.role === "assistant") {
-            // Insert all tool calls — since we can't precisely map which
-            // assistant message produced which tool call, we insert tool
-            // calls after each assistant message in order, distributing
-            // roughly evenly. A simpler approach: insert all tool calls
-            // after the last assistant message.
-            // Actually, the snapshot's toolCalls array is chronological.
-            // We'll insert tool calls after the assistant message that
-            // precedes them chronologically. For simplicity, insert all
-            // remaining tool calls after the last assistant message.
-            if (i === msgs.length - 1 || msgs[i + 1]?.role !== "assistant") {
-              // Insert all tool calls that haven't been placed yet
-              for (let j = 0; j < tcs.length; j++) {
-                snapshotItems.push({
+          // Insert tool calls once, after the last assistant message
+          if (msg.role === "assistant" && !toolCallsPlaced &&
+              (i === msgs.length - 1 || msgs[i + 1]?.role !== "assistant")) {
+            toolCallsPlaced = true
+            for (let j = 0; j < tcs.length; j++) {
+              snapshotItems.push({
+                key: `snap-tc-${j}`,
+                role: "tool" as ItemRole,
+                text: "",
+                tool: {
                   key: `snap-tc-${j}`,
-                  role: "tool" as ItemRole,
-                  text: "",
-                  tool: {
-                    key: `snap-tc-${j}`,
-                    toolName: tcs[j].name,
-                    args: tcs[j].args,
-                    result: tcs[j]?.result,
-                    summary: tcs[j]?.display?.summary,
-                    durationMs: tcs[j]?.endedAt && tcs[j]?.startedAt
-                      ? tcs[j]!.endedAt! - tcs[j]!.startedAt!
-                      : undefined,
-                  },
-                })
-              }
+                  toolName: tcs[j].name,
+                  args: tcs[j].args,
+                  result: tcs[j]?.result,
+                  summary: tcs[j]?.display?.summary,
+                  durationMs: tcs[j]?.endedAt && tcs[j]?.startedAt
+                    ? tcs[j]!.endedAt! - tcs[j]!.startedAt!
+                    : undefined,
+                },
+              })
             }
+          }
+        }
+        // If no assistant messages were found, append tool calls at the end
+        if (!toolCallsPlaced) {
+          for (let j = 0; j < tcs.length; j++) {
+            snapshotItems.push({
+              key: `snap-tc-${j}`,
+              role: "tool" as ItemRole,
+              text: "",
+              tool: {
+                key: `snap-tc-${j}`,
+                toolName: tcs[j].name,
+                args: tcs[j].args,
+                result: tcs[j]?.result,
+                summary: tcs[j]?.display?.summary,
+                durationMs: tcs[j]?.endedAt && tcs[j]?.startedAt
+                  ? tcs[j]!.endedAt! - tcs[j]!.startedAt!
+                  : undefined,
+              },
+            })
           }
         }
         setItems(snapshotItems)
@@ -393,12 +407,13 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
             if (env.callId && seenCallIds.current.has(env.callId)) break
             if (env.callId) seenCallIds.current.add(env.callId)
             if (env.name) {
+              const callKey = env.callId || env.eventId
               setItems((prev) => [...prev, {
-                key: env.eventId,
+                key: callKey,
                 role: "tool",
                 text: "",
                 tool: {
-                  key: env.eventId,
+                  key: callKey,
                   toolName: env.name!,
                   args: env.args || {},
                   summary: env.display?.summary,
