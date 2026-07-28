@@ -16,6 +16,7 @@ import (
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/agents"
+	"github.com/cpave3/legato/internal/tui/attention"
 	"github.com/cpave3/legato/internal/tui/board"
 	"github.com/cpave3/legato/internal/tui/clipboard"
 	"github.com/cpave3/legato/internal/tui/detail"
@@ -36,6 +37,7 @@ const (
 	viewReport
 	viewReview
 	viewPlans
+	viewAttention
 )
 
 // VoiceService is the interface the TUI uses for voice dictation. The
@@ -136,6 +138,9 @@ type App struct {
 	reviewSvc          review.Service
 	planView           plan.Model
 	planSvc            plan.Service
+	attentionView      attention.Model
+	attentionSvc       attention.Service
+	attentionSub       <-chan events.Event
 	statusBar          statusbar.Model
 	clip               *clipboard.Clipboard
 	editor             string
@@ -201,6 +206,11 @@ func (a *App) SetReviewService(svc review.Service) {
 func (a *App) SetPlanService(svc plan.Service) {
 	a.planSvc = svc
 	a.planView = plan.New(svc)
+}
+
+func (a *App) SetAttentionService(svc attention.Service) {
+	a.attentionSvc = svc
+	a.attentionView = attention.New(svc)
 }
 
 func (a *App) SetWebServerRunning(port string) {
@@ -283,6 +293,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		app.planSub = bus.Subscribe(events.EventPlanProposed)
 		app.durablePlanSub = bus.Subscribe(events.EventPlanChanged)
 		app.reviewSub = bus.Subscribe(events.EventReviewChanged)
+		app.attentionSub = bus.Subscribe(events.EventAttentionChanged)
 	}
 	return app
 }
@@ -310,6 +321,9 @@ func (a App) Init() tea.Cmd {
 	}
 	if a.durablePlanSub != nil {
 		cmds = append(cmds, a.listenDurablePlanUpdates())
+	}
+	if a.attentionSub != nil {
+		cmds = append(cmds, a.listenAttentionUpdates())
 	}
 	if a.reviewSvc != nil {
 		cmds = append(cmds, a.loadReviewBadges())
@@ -365,6 +379,10 @@ type durablePlanUpdateMsg struct {
 	Payload events.PlanChangedPayload
 }
 
+type attentionUpdateMsg struct {
+	Payload events.AttentionChangedPayload
+}
+
 type reviewBadgesMsg struct {
 	States map[string]service.ReviewBadgeState
 }
@@ -377,6 +395,18 @@ func (a App) listenDurablePlanUpdates() tea.Cmd {
 		}
 		payload, _ := ev.Payload.(events.PlanChangedPayload)
 		return durablePlanUpdateMsg{Payload: payload}
+	}
+}
+
+func (a App) listenAttentionUpdates() tea.Cmd {
+	ch := a.attentionSub
+	return func() tea.Msg {
+		ev, ok := <-ch
+		if !ok {
+			return nil
+		}
+		payload, _ := ev.Payload.(events.AttentionChangedPayload)
+		return attentionUpdateMsg{Payload: payload}
 	}
 }
 
@@ -557,6 +587,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.active == viewBoard && a.planSvc != nil {
 				a = a.setMode(viewPlans)
 				return a, a.planView.Init()
+			}
+			return a.delegateKey(msg)
+		case "A":
+			if a.active == viewBoard && a.attentionSvc != nil {
+				a = a.setMode(viewAttention)
+				return a, a.attentionView.Init()
 			}
 			return a.delegateKey(msg)
 		default:
@@ -1175,6 +1211,23 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case plan.ReturnToBoardMsg:
 		a = a.setMode(viewBoard)
 		return a, nil
+
+	case attention.ReturnToBoardMsg:
+		a = a.setMode(viewBoard)
+		return a, nil
+
+	case attentionUpdateMsg:
+		if a.active == viewAttention {
+			var cmd tea.Cmd
+			a.attentionView, cmd = a.attentionView.Update(attention.ChangedMsg{})
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+		if a.attentionSub != nil {
+			cmds = append(cmds, a.listenAttentionUpdates())
+		}
+		return a, tea.Batch(cmds...)
 
 	case durablePlanUpdateMsg:
 		if a.active == viewPlans {
@@ -2585,6 +2638,12 @@ func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case viewAttention:
+		var cmd tea.Cmd
+		a.attentionView, cmd = a.attentionView.Update(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	}
 	return a, tea.Batch(cmds...)
 }
@@ -2622,6 +2681,12 @@ func (a App) View() string {
 		statusBarHeight := lipgloss.Height(statusBar)
 		a.planView.SetSize(a.width, a.height-statusBarHeight)
 		content := a.planView.View()
+		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
+	case viewAttention:
+		statusBar := a.statusBar.View()
+		statusBarHeight := lipgloss.Height(statusBar)
+		a.attentionView.SetSize(a.width, a.height-statusBarHeight)
+		content := a.attentionView.View()
 		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 	default:
 		content := a.board.View()

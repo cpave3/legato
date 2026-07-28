@@ -1392,12 +1392,15 @@ func runServeCmd(args []string) int {
 	srv.SetReviewService(reviewSvc)
 	srv.SetPlanService(planSvc)
 	srv.SetArtifactService(artifactSvc)
-	if workflowSvc, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, nil, wd); workflowErr == nil {
+	var workflowSvc *service.WorkflowService
+	if built, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, nil, wd); workflowErr == nil {
+		workflowSvc = built
 		globalWorkflows, projectWorkflows := workflowDirs()
 		srv.SetWorkflowService(workflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
 	} else {
 		log.Printf("workflows: %v", workflowErr)
 	}
+	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, workflowSvc)
 	srv.SetMacros(cfg.Macros)
 	srv.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
@@ -1430,6 +1433,9 @@ func runServeCmd(args []string) int {
 			handleIPCMessage(msg, bus, nil)
 		case "workflow_changed":
 			srv.NotifyWorkflowChanged(msg.WorkflowRunID, msg.WorkflowStepID)
+			if msg.Kind == "completed_step" {
+				srv.NotifyAgentsChanged()
+			}
 		}
 	})
 	if ipcErr == nil {
@@ -1687,6 +1693,14 @@ func runTUI() int {
 	defer stopInteractionDelivery()
 	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)
 
+	// Build workflow service for both web and TUI attention producers.
+	var tuiWorkflowSvc *service.WorkflowService
+	if built, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, prSvc, wd); workflowErr == nil {
+		tuiWorkflowSvc = built
+	} else {
+		log.Printf("workflows: %v", workflowErr)
+	}
+
 	// Auto-start web server if configured and port is free.
 	if cfg.Web.Enabled {
 		addr := ":" + cfg.Web.Port
@@ -1698,11 +1712,10 @@ func runTUI() int {
 			webSrv.SetReviewService(reviewSvc)
 			webSrv.SetPlanService(planSvc)
 			webSrv.SetArtifactService(artifactSvc)
-			if workflowSvc, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, prSvc, wd); workflowErr == nil {
+			if tuiWorkflowSvc != nil {
 				globalWorkflows, projectWorkflows := workflowDirs()
-				webSrv.SetWorkflowService(workflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
-			} else {
-				log.Printf("workflows: %v", workflowErr)
+				webSrv.SetWorkflowService(tuiWorkflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
+				wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, tuiWorkflowSvc)
 			}
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSyncService(syncSvc)
@@ -1739,6 +1752,26 @@ func runTUI() int {
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
 	app.SetPlanService(planSvc)
+	attentionSvc := service.NewAttentionService(db, bus)
+	if planSvc != nil {
+		planAdapter := service.NewPlanAttentionAdapter(planSvc)
+		_ = attentionSvc.RegisterProducer(planAdapter)
+		_ = attentionSvc.RegisterHandler(planAdapter.Producer(), planAdapter)
+	}
+	if reviewSvc != nil {
+		reviewAdapter := service.NewReviewAttentionAdapter(reviewSvc)
+		_ = attentionSvc.RegisterProducer(reviewAdapter)
+		_ = attentionSvc.RegisterHandler(reviewAdapter.Producer(), reviewAdapter)
+	}
+	if tuiWorkflowSvc != nil {
+		workflowAdapter := service.NewWorkflowAttentionAdapter(tuiWorkflowSvc)
+		_ = attentionSvc.RegisterProducer(workflowAdapter)
+		_ = attentionSvc.RegisterHandler(workflowAdapter.Producer(), workflowAdapter)
+	}
+	if err := attentionSvc.ReconcileAll(context.Background()); err != nil {
+		log.Printf("attention: startup reconciliation: %v", err)
+	}
+	app.SetAttentionService(attentionSvc)
 	app.SetGroupDefaults(cfg.Groups.Defaults)
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		app.SetWorktreeService(service.NewWorktreeWorkflow(db, worktree.NewRunner("yg")))
