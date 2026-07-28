@@ -172,6 +172,15 @@ export async function fetchReviewQueue(baseUrl: string): Promise<ReviewQueueItem
   return expectJSON<ReviewQueueItem[]>(await apiFetch(baseUrl, "/api/review/queue"))
 }
 
+export async function bulkDeleteReviews(baseUrl: string, tourIds: string[]): Promise<number> {
+  const response = await expectJSON<{ deleted: number }>(await apiFetch(baseUrl, "/api/review/tours/bulk-delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tour_ids: tourIds }),
+  }))
+  return response.deleted
+}
+
 export async function fetchReviewTour(baseUrl: string, tourId: string): Promise<ReviewTourView> {
   return expectJSON<ReviewTourView>(await apiFetch(baseUrl, tourPath(tourId)))
 }
