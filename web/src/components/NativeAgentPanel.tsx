@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { useWebSocket } from "../hooks/useWebSocket"
+import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
 
@@ -10,6 +10,8 @@ interface ChimeraEvent {
   type: string
   content?: string
   text?: string
+  delta?: string
+  id?: string
   name?: string
   display?: { summary?: string }
   requestId?: string
@@ -19,12 +21,17 @@ interface ChimeraEvent {
   [key: string]: unknown
 }
 
+interface SnapshotMessage {
+  role: string
+  content: string | { type: string; text: string }[]
+}
+
 interface SessionSnapshot {
   id: string
   cwd: string
   mode: string
   status: string
-  messages?: unknown[]
+  messages?: SnapshotMessage[]
   toolCalls?: unknown[]
   usage?: {
     inputTokens: number
@@ -40,44 +47,77 @@ interface NativeAgentPanelProps {
   onClickTerminal?: () => void
 }
 
+// A rendered conversation item — either from snapshot or from live events
+interface ConversationItem {
+  key: string
+  role: "user" | "assistant" | "tool" | "system"
+  text: string
+  toolName?: string
+  toolSummary?: string
+  isStreaming?: boolean
+}
+
 export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   const { baseUrl } = useServer()
-  const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null)
-  const [events, setEvents] = useState<ChimeraEvent[]>([])
+  const [items, setItems] = useState<ConversationItem[]>([])
   const [draft, setDraft] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [usage, setUsage] = useState<{ totalTokens: number; stepCount: number } | null>(null)
+  const [mode, setMode] = useState<string>("")
   const scrollRef = useRef<HTMLDivElement>(null)
   const draftKey = `legato:chimera-draft:${agentId}`
+  const seenEventIds = useRef<Set<string>>(new Set())
+  const streamingTextRef = useRef<string>("")
+  const streamingIdRef = useRef<string>("")
 
-  // Load draft from localStorage
+  // Load/save draft
   useEffect(() => {
     const saved = localStorage.getItem(draftKey)
     if (saved) setDraft(saved)
   }, [draftKey])
-
-  // Save draft to localStorage
   useEffect(() => {
     localStorage.setItem(draftKey, draft)
   }, [draftKey, draft])
 
-  // Fetch initial snapshot
+  // Fetch initial snapshot and hydrate conversation
   useEffect(() => {
     setLoading(true)
+    seenEventIds.current.clear()
+    streamingTextRef.current = ""
+    streamingIdRef.current = ""
     apiFetch(baseUrl, `/api/agents/${agentId}/chimera/snapshot`)
       .then((r) => {
         if (!r.ok) throw new Error(`snapshot: ${r.status}`)
         return r.json()
       })
       .then((data: SessionSnapshot) => {
-        setSnapshot(data)
+        setMode(data.mode || "")
         setBusy(data.status === "running")
+        if (data.usage) {
+          setUsage({ totalTokens: data.usage.totalTokens, stepCount: data.usage.stepCount })
+        }
+        // Hydrate conversation from snapshot messages
+        const snapshotItems: ConversationItem[] = []
+        for (let i = 0; i < (data.messages?.length || 0); i++) {
+          const msg = data.messages![i]
+          const text = extractMessageText(msg)
+          if (!text) continue
+          // Skip the system prompt (first user message is the role prompt)
+          if (i === 0 && msg.role === "user") continue
+          snapshotItems.push({
+            key: `snap-${i}`,
+            role: msg.role as "user" | "assistant" | "tool",
+            text,
+          })
+        }
+        setItems(snapshotItems)
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [agentId])
+  }, [agentId, baseUrl])
 
   // Subscribe to Chimera events via WebSocket
   useEffect(() => {
@@ -93,26 +133,129 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
 
   // Handle incoming WebSocket messages
   useEffect(() => {
-    const unsubscribe = subscribe((msg) => {
-      if (msg.type === "chimera_event" && msg.agent_id === agentId) {
-        try {
-          const env: ChimeraEvent = JSON.parse(msg.content || "{}")
-          setEvents((prev) => [...prev, env])
-          if (env.type === "run_finished") {
-            setBusy(false)
-          } else if (env.type === "user_message" || env.type === "session_started") {
+    const unsubscribe = subscribe((msg: WSMessage) => {
+      if (msg.type !== "chimera_event" || msg.agent_id !== agentId) return
+      try {
+        const env: ChimeraEvent = JSON.parse(msg.content || "{}")
+        // Deduplicate by event ID
+        if (env.eventId && seenEventIds.current.has(env.eventId)) return
+        if (env.eventId) seenEventIds.current.add(env.eventId)
+
+        switch (env.type) {
+          case "session_started":
             setBusy(true)
-          } else if (env.type === "permission_request") {
-            setBusy(false)
-          }
-          requestAnimationFrame(() => {
-            if (scrollRef.current) {
-              scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+            break
+          case "user_message": {
+            setBusy(true)
+            if (env.content) {
+              setItems((prev) => [...prev, {
+                key: env.eventId,
+                role: "user",
+                text: env.content!,
+              }])
             }
-          })
-        } catch {
-          // ignore parse errors
+            break
+          }
+          case "assistant_text_delta": {
+            // Accumulate streaming text
+            if (env.id) streamingIdRef.current = env.id
+            if (env.delta) {
+              streamingTextRef.current += env.delta
+              // Update or append the streaming item
+              setItems((prev) => {
+                const streamKey = `stream-${streamingIdRef.current}`
+                const existing = prev.find((it) => it.key === streamKey)
+                if (existing) {
+                  return prev.map((it) =>
+                    it.key === streamKey ? { ...it, text: streamingTextRef.current } : it
+                  )
+                }
+                return [...prev, {
+                  key: streamKey,
+                  role: "assistant",
+                  text: streamingTextRef.current,
+                  isStreaming: true,
+                }]
+              })
+            }
+            break
+          }
+          case "assistant_text_done": {
+            // Finalize the streamed text
+            const finalText = env.text || streamingTextRef.current
+            streamingTextRef.current = ""
+            streamingIdRef.current = ""
+            setItems((prev) => {
+              const streamKey = `stream-${env.id || ""}`
+              const existing = prev.find((it) => it.key === streamKey)
+              if (existing) {
+                return prev.map((it) =>
+                  it.key === streamKey
+                    ? { ...it, text: finalText, isStreaming: false }
+                    : it
+                )
+              }
+              // No streaming item was created (delta events were missed)
+              if (finalText) {
+                return [...prev, {
+                  key: env.eventId,
+                  role: "assistant",
+                  text: finalText,
+                }]
+              }
+              return prev
+            })
+            break
+          }
+          case "tool_call_start": {
+            if (env.name) {
+              setItems((prev) => [...prev, {
+                key: env.eventId,
+                role: "tool",
+                text: "",
+                toolName: env.name,
+                toolSummary: env.display?.summary,
+              }])
+            }
+            break
+          }
+          case "tool_call_result":
+            break
+          case "permission_request": {
+            setBusy(false)
+            if (env.requestId) {
+              setItems((prev) => [...prev, {
+                key: env.eventId,
+                role: "system",
+                text: "",
+                toolName: env.toolName,
+              }])
+            }
+            break
+          }
+          case "run_finished":
+            setBusy(false)
+            break
+          case "usage_updated": {
+            const u = env as unknown as { usage?: { totalTokens: number; stepCount: number } }
+            if (u.usage) {
+              setUsage({ totalTokens: u.usage.totalTokens, stepCount: u.usage.stepCount })
+            }
+            break
+          }
+          case "error":
+            if (env.error) setError(env.error)
+            break
         }
+
+        // Auto-scroll
+        requestAnimationFrame(() => {
+          if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+          }
+        })
+      } catch {
+        // ignore parse errors
       }
     })
     return unsubscribe
@@ -151,76 +294,6 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
     [handleSend],
   )
 
-  const renderedEvents = events.map((env, i) => {
-    switch (env.type) {
-      case "user_message":
-        return (
-          <div key={i} className="flex justify-end px-4 py-2">
-            <div className="max-w-[80%] rounded-lg bg-blue-600/20 px-3 py-2 text-sm text-zinc-200">
-              {String(env.content || "")}
-            </div>
-          </div>
-        )
-      case "assistant_text_done":
-        return (
-          <div key={i} className="flex justify-start px-4 py-2">
-            <div className="max-w-[80%] whitespace-pre-wrap rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200">
-              {String(env.text || "")}
-            </div>
-          </div>
-        )
-      case "tool_call_start":
-        return (
-          <div key={i} className="px-4 py-1">
-            <div className="flex items-center gap-2 text-xs text-zinc-400">
-              <span className="rounded bg-zinc-700 px-1.5 py-0.5 font-mono">{String(env.name || "tool")}</span>
-              {env.display?.summary && <span>{env.display.summary}</span>}
-            </div>
-          </div>
-        )
-      case "tool_call_result":
-        return null
-      case "permission_request":
-        return (
-          <div key={i} className="mx-4 my-2 rounded-lg border border-yellow-600/40 bg-yellow-900/10 p-3">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-yellow-200">
-                Permission: <span className="font-mono">{String(env.toolName || "unknown")}</span>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  className="rounded bg-green-700/60 px-2 py-1 text-xs text-white hover:bg-green-600/60"
-                  onClick={() => handlePermission(String(env.requestId || ""), "allow")}
-                >
-                  Allow
-                </button>
-                <button
-                  className="rounded bg-red-700/60 px-2 py-1 text-xs text-white hover:bg-red-600/60"
-                  onClick={() => handlePermission(String(env.requestId || ""), "deny")}
-                >
-                  Deny
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-      case "run_finished":
-        return (
-          <div key={i} className="px-4 py-1 text-xs text-zinc-500 italic">
-            Turn ended ({String(env.reason || "stop")})
-          </div>
-        )
-      case "error":
-        return (
-          <div key={i} className="px-4 py-1 text-xs text-red-400">
-            {String(env.error || "unknown error")}
-          </div>
-        )
-      default:
-        return null
-    }
-  })
-
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -229,13 +302,12 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
     )
   }
 
-  if (error && !snapshot) {
+  if (error && items.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
           <p className="text-zinc-500 mb-2">No Chimera endpoint discovered</p>
           <p className="text-xs text-zinc-600">{error}</p>
-          <p className="text-xs text-zinc-600 mt-2">Falling back to terminal view...</p>
         </div>
       </div>
     )
@@ -245,14 +317,70 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
     <div className="flex h-full flex-col bg-zinc-950">
       {/* Conversation scroll area */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-        {renderedEvents.length === 0 && (
+        {items.length === 0 && (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-zinc-500">
               Session ready — send a message to start
             </p>
           </div>
         )}
-        {renderedEvents}
+        {items.map((item) => {
+          if (item.role === "user") {
+            return (
+              <div key={item.key} className="flex justify-end px-4 py-2">
+                <div className="max-w-[80%] rounded-lg bg-blue-600/20 px-3 py-2 text-sm text-zinc-200 whitespace-pre-wrap">
+                  {item.text}
+                </div>
+              </div>
+            )
+          }
+          if (item.role === "assistant") {
+            return (
+              <div key={item.key} className="flex justify-start px-4 py-2">
+                <div className={`max-w-[80%] whitespace-pre-wrap rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 ${item.isStreaming ? "opacity-80" : ""}`}>
+                  {item.text}
+                  {item.isStreaming && <span className="ml-0.5 animate-pulse">▋</span>}
+                </div>
+              </div>
+            )
+          }
+          if (item.role === "tool") {
+            return (
+              <div key={item.key} className="px-4 py-1">
+                <div className="flex items-center gap-2 text-xs text-zinc-400">
+                  <span className="rounded bg-zinc-700 px-1.5 py-0.5 font-mono">
+                    {item.toolName || "tool"}
+                  </span>
+                  {item.toolSummary && <span>{item.toolSummary}</span>}
+                </div>
+              </div>
+            )
+          }
+          // system (permission request)
+          return (
+            <div key={item.key} className="mx-4 my-2 rounded-lg border border-yellow-600/40 bg-yellow-900/10 p-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-yellow-200">
+                  Permission: <span className="font-mono">{item.toolName || "unknown"}</span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    className="rounded bg-green-700/60 px-2 py-1 text-xs text-white hover:bg-green-600/60"
+                    onClick={() => handlePermission(item.key, "allow")}
+                  >
+                    Allow
+                  </button>
+                  <button
+                    className="rounded bg-red-700/60 px-2 py-1 text-xs text-white hover:bg-red-600/60"
+                    onClick={() => handlePermission(item.key, "deny")}
+                  >
+                    Deny
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       {/* Status bar */}
@@ -265,12 +393,12 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
         ) : (
           <span className="text-zinc-500">Idle</span>
         )}
-        {snapshot?.mode && (
-          <span className="rounded bg-zinc-800 px-1.5 py-0.5">{snapshot.mode}</span>
+        {mode && (
+          <span className="rounded bg-zinc-800 px-1.5 py-0.5">{mode}</span>
         )}
-        {snapshot?.usage && (
+        {usage && (
           <span>
-            {snapshot.usage.totalTokens.toLocaleString()} tokens · {snapshot.usage.stepCount} steps
+            {usage.totalTokens.toLocaleString()} tokens · {usage.stepCount} steps
           </span>
         )}
         {error && <span className="text-red-400">{error}</span>}
@@ -309,4 +437,16 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
       </div>
     </div>
   )
+}
+
+function extractMessageText(msg: SnapshotMessage): string {
+  const content = msg.content
+  if (typeof content === "string") return content
+  if (Array.isArray(content)) {
+    return content
+      .filter((p) => p.type === "text")
+      .map((p) => p.text)
+      .join("")
+  }
+  return ""
 }
