@@ -408,6 +408,27 @@ type ArtifactInteraction struct {
 	UpdatedAt       string  `db:"updated_at" json:"updated_at"`
 }
 
+type AttentionItem struct {
+	ID                string  `db:"id" json:"id"`
+	Producer          string  `db:"producer" json:"producer"`
+	SourceKey         string  `db:"source_key" json:"source_key"`
+	SourceRevision    string  `db:"source_revision" json:"source_revision"`
+	TaskID            string  `db:"task_id" json:"task_id,omitempty"`
+	WorkspaceID       *int    `db:"workspace_id" json:"workspace_id,omitempty"`
+	Title             string  `db:"title" json:"title"`
+	Reason            string  `db:"reason" json:"reason"`
+	Detail            string  `db:"detail" json:"detail,omitempty"`
+	Category          string  `db:"category" json:"category"`
+	Urgency           string  `db:"urgency" json:"urgency"`
+	NavigationJSON    string  `db:"navigation_json" json:"-"`
+	ActionsJSON       string  `db:"actions_json" json:"-"`
+	Status            string  `db:"status" json:"status"`
+	DismissedRevision string  `db:"dismissed_revision" json:"dismissed_revision,omitempty"`
+	CreatedAt         string  `db:"created_at" json:"created_at"`
+	UpdatedAt         string  `db:"updated_at" json:"updated_at"`
+	ResolvedAt        *string `db:"resolved_at" json:"resolved_at,omitempty"`
+}
+
 // Subtask represents a swarm sub-task: a unit of work parented to a task,
 // owned by one worker agent, scoped to a set of file globs.
 //

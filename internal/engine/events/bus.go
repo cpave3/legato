@@ -27,6 +27,7 @@ const (
 	EventPlanProposed
 	EventReviewChanged
 	EventPlanChanged
+	EventAttentionChanged
 )
 
 // ErrorPayload carries structured error information for error events.
@@ -76,6 +77,13 @@ type PlanChangedPayload struct {
 	TaskID     string
 	RevisionID string
 	Kind       string
+}
+
+type AttentionChangedPayload struct {
+	ItemID    string
+	Producer  string
+	SourceKey string
+	Kind      string
 }
 
 type Event struct {
