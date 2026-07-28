@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/chimera"
 	gitpkg "github.com/cpave3/legato/internal/engine/git"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
@@ -125,6 +126,18 @@ type AgentService interface {
 	// GetTaskNotifyEnabled returns whether push notifications are enabled for a task.
 	GetTaskNotifyEnabled(ctx context.Context, taskID string) (bool, error)
 	GetTaskChimeraSessionID(ctx context.Context, taskID string) (string, error)
+	// SendMessage delivers a text message to the agent through the
+	// appropriate interaction adapter (tmux send-keys or Chimera HTTP).
+	SendMessage(ctx context.Context, taskID, message string) error
+	// Interrupt sends an interrupt to the agent's active turn.
+	InterruptAgent(ctx context.Context, taskID string) error
+	// ResolvePermission resolves a pending permission request for the
+	// agent. Only applies to agents with structured permissions (Chimera).
+	ResolvePermission(ctx context.Context, taskID, requestID, decision, rememberScope string) error
+	// HasChimeraEndpoint returns true if the agent has a discovered Chimera
+	// endpoint, meaning the web UI should render the structured panel
+	// instead of the xterm terminal.
+	HasChimeraEndpoint(ctx context.Context, taskID string) bool
 }
 
 type agentService struct {
@@ -141,6 +154,9 @@ type agentService struct {
 	briefKickoffDelay time.Duration
 	notifier          Notifier
 	osNotifier        Notifier
+
+	sendKeysAdapter  AgentInteraction
+	chimeraAdapter    AgentInteraction
 
 	conflictsMu   sync.Mutex
 	lastConflicts []AgentSpawnConflict
@@ -297,6 +313,11 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.notifier = opts[0].Notifier
 		svc.osNotifier = opts[0].OSNotifier
 	}
+	// Wire the interaction adapters. The send-keys adapter is always
+	// available (it wraps the tmux manager). The Chimera adapter is only
+	// used for agents with a discovered endpoint.
+	svc.sendKeysAdapter = NewSendKeysAdapter(tmux, s)
+	svc.chimeraAdapter = NewChimeraInteractionAdapter(s, nil)
 	return svc
 }
 
@@ -555,6 +576,15 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 				}
 			}
 		}
+	}
+
+	// Discover the Chimera lockfile for Chimera agents. The lockfile is
+	// written by the interactive command after the server starts; we poll
+	// for it asynchronously so spawn doesn't block on the agent's boot.
+	// The endpoint and session ID are persisted on the agent session row
+	// so the web UI can proxy the SSE stream and send follow-ups via HTTP.
+	if agentKind == "chimera" {
+		go a.discoverChimeraLockfile(context.Background(), taskID)
 	}
 
 	// Auto-link git branch to task for PR tracking (best-effort)
@@ -947,4 +977,106 @@ func (a *agentService) AttachCmd(ctx context.Context, taskID string) (*exec.Cmd,
 // GetStateTimeline delegates to the store query for bucketed state labels.
 func (a *agentService) GetStateTimeline(ctx context.Context, taskID string, window time.Duration, buckets int) ([]string, error) {
 	return a.store.GetStateTimeline(ctx, taskID, window, buckets)
+}
+
+// SendMessage delivers a text message to the agent through the appropriate
+// interaction adapter. For Chimera agents with a discovered endpoint, this
+// uses the HTTP API; for all others, it uses tmux send-keys.
+func (a *agentService) SendMessage(ctx context.Context, taskID, message string) error {
+	adapter := a.resolveInteractionAdapter(ctx, taskID)
+	return adapter.SendMessage(ctx, taskID, message)
+}
+
+// InterruptAgent sends an interrupt to the agent's active turn.
+func (a *agentService) InterruptAgent(ctx context.Context, taskID string) error {
+	adapter := a.resolveInteractionAdapter(ctx, taskID)
+	return adapter.Interrupt(ctx, taskID)
+}
+
+// ResolvePermission resolves a pending permission request for the agent.
+func (a *agentService) ResolvePermission(ctx context.Context, taskID, requestID, decision, rememberScope string) error {
+	adapter := a.resolveInteractionAdapter(ctx, taskID)
+	return adapter.ResolvePermission(ctx, taskID, requestID, decision, rememberScope)
+}
+
+// HasChimeraEndpoint returns true if the agent has a discovered Chimera
+// endpoint, meaning the web UI should render the structured panel.
+func (a *agentService) HasChimeraEndpoint(ctx context.Context, taskID string) bool {
+	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	if err != nil {
+		return false
+	}
+	return session.ChimeraEndpoint != nil && session.ChimeraSessionID != nil
+}
+
+// resolveInteractionAdapter returns the appropriate interaction adapter
+// for the given task. Chimera agents with a discovered endpoint use the
+// Chimera adapter; all others use the send-keys adapter.
+func (a *agentService) resolveInteractionAdapter(ctx context.Context, taskID string) AgentInteraction {
+	if a.HasChimeraEndpoint(ctx, taskID) && a.chimeraAdapter != nil {
+		return a.chimeraAdapter
+	}
+	return a.sendKeysAdapter
+}
+
+// discoverChimeraLockfile polls ~/.chimera/instances/ for a lockfile written
+// by the Chimera interactive command running in the agent's tmux session.
+// When found, it persists the endpoint and session ID on the agent session
+// row so the web UI can proxy the SSE stream and send follow-ups via HTTP.
+//
+// The lockfile is named <pid>.json and contains the server URL and session
+// ID. We don't know the PID ahead of time, so we scan the instances directory
+// for a lockfile whose cwd matches our working directory.
+func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Printf("chimera lockfile discovery for %s: %v", taskID, err)
+		return
+	}
+	instancesDir := filepath.Join(home, ".chimera", "instances")
+
+	// Poll for up to 30 seconds — Chimera may take a few seconds to boot.
+	for i := 0; i < 60; i++ {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		entries, err := os.ReadDir(instancesDir)
+		if err != nil {
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		for _, entry := range entries {
+			if !strings.HasSuffix(entry.Name(), ".json") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(instancesDir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			lf, err := chimera.ParseLockfile(data)
+			if err != nil {
+				continue
+			}
+			// Match by working directory — the Chimera instance was
+			// started in the same cwd as the agent's tmux session.
+			if lf.CWD != a.workDir {
+				continue
+			}
+			// Found it. Persist the discovery.
+			if err := a.store.UpdateChimeraDiscovery(ctx, taskID, lf.SessionID, lf.URL); err != nil {
+				log.Printf("chimera lockfile discovery for %s: persisting: %v", taskID, err)
+			} else {
+				log.Printf("chimera lockfile discovered for %s: endpoint=%s session=%s",
+					taskID, lf.URL, lf.SessionID)
+			}
+			return
+		}
+
+		time.Sleep(500 * time.Millisecond)
+	}
+	log.Printf("chimera lockfile discovery for %s: timed out after 30s", taskID)
 }

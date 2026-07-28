@@ -196,6 +196,18 @@ func (p *promptAgentService) GetTaskNotifyEnabled(context.Context, string) (bool
 func (p *promptAgentService) GetTaskChimeraSessionID(context.Context, string) (string, error) {
 	return "", nil
 }
+func (p *promptAgentService) SendMessage(context.Context, string, string) error {
+	return nil
+}
+func (p *promptAgentService) InterruptAgent(context.Context, string) error {
+	return nil
+}
+func (p *promptAgentService) ResolvePermission(context.Context, string, string, string, string) error {
+	return nil
+}
+func (p *promptAgentService) HasChimeraEndpoint(context.Context, string) bool {
+	return false
+}
 func (m *mockSyncService) Subscribe() <-chan service.SyncEvent     { return nil }
 func (m *mockSyncService) StartScheduler(_ context.Context) func() { return func() {} }
 func (m *mockSyncService) SearchRemote(_ context.Context, _ string) ([]service.RemoteSearchResult, error) {

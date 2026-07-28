@@ -1048,6 +1048,18 @@ func (f *fakeAgentService) GetTaskNotifyEnabled(_ context.Context, _ string) (bo
 func (f *fakeAgentService) GetTaskChimeraSessionID(_ context.Context, _ string) (string, error) {
 	return f.chimeraSession, nil
 }
+func (f *fakeAgentService) SendMessage(_ context.Context, _ string, _ string) error {
+	return nil
+}
+func (f *fakeAgentService) InterruptAgent(_ context.Context, _ string) error {
+	return nil
+}
+func (f *fakeAgentService) ResolvePermission(_ context.Context, _ string, _ string, _ string, _ string) error {
+	return nil
+}
+func (f *fakeAgentService) HasChimeraEndpoint(_ context.Context, _ string) bool {
+	return false
+}
 
 func TestAgentGroupSelectionPersistsAndRefreshes(t *testing.T) {
 	agentSvc := &fakeAgentService{agents: []service.AgentSession{{TaskID: "TASK-1", Group: "backend"}}}

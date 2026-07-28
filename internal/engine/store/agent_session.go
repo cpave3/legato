@@ -157,3 +157,24 @@ func (s *Store) DeleteDeadAgentSessions(ctx context.Context, taskID string) erro
 		DELETE FROM agent_sessions WHERE task_id = ? AND status != 'running'`, taskID)
 	return err
 }
+
+// UpdateChimeraDiscovery stores the Chimera session ID and endpoint discovered
+// from the lockfile after spawning a Chimera agent via tmux. The endpoint is
+// private (loopback only) and must not be exposed in public API DTOs.
+func (s *Store) UpdateChimeraDiscovery(ctx context.Context, taskID, chimeraSessionID, endpoint string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE agent_sessions
+		SET chimera_session_id = ?, chimera_endpoint = ?
+		WHERE task_id = ? AND status = 'running'`,
+		chimeraSessionID, endpoint, taskID)
+	return err
+}
+
+// UpdateChimeraLastEventID stores the latest SSE event ID consumed for this
+// agent session, enabling gap-free replay on reconnect.
+func (s *Store) UpdateChimeraLastEventID(ctx context.Context, taskID, eventID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE agent_sessions SET last_event_id = ?
+		WHERE task_id = ? AND status = 'running'`, eventID, taskID)
+	return err
+}

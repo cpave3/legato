@@ -1,0 +1,245 @@
+package chimera
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+func TestGetInstance(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/instance" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"pid":12345,"cwd":"/tmp","version":"0.1.0","sandboxMode":"off"}`)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	info, err := c.GetInstance(context.Background())
+	if err != nil {
+		t.Fatalf("GetInstance: %v", err)
+	}
+	if info.PID != 12345 {
+		t.Fatalf("PID = %d, want 12345", info.PID)
+	}
+}
+
+func TestGetSession(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/sessions/sess-1" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"id":"sess-1","cwd":"/tmp","mode":"build","status":"idle"}`)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	snap, err := c.GetSession(context.Background(), "sess-1")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if snap.ID != "sess-1" {
+		t.Fatalf("ID = %q, want sess-1", snap.ID)
+	}
+	if snap.Mode != "build" {
+		t.Fatalf("Mode = %q, want build", snap.Mode)
+	}
+}
+
+func TestPostMessage(t *testing.T) {
+	var gotBody map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/sessions/sess-1/messages" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Method != "POST" {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(202)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	if err := c.PostMessage(context.Background(), "sess-1", "hello"); err != nil {
+		t.Fatalf("PostMessage: %v", err)
+	}
+	if gotBody["content"] != "hello" {
+		t.Fatalf("content = %q, want hello", gotBody["content"])
+	}
+}
+
+func TestPostMessageBusy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(409)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	err := c.PostMessage(context.Background(), "sess-1", "hello")
+	if err != ErrBusy {
+		t.Fatalf("err = %v, want ErrBusy", err)
+	}
+}
+
+func TestInterrupt(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/sessions/sess-1/interrupt" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	if err := c.Interrupt(context.Background(), "sess-1"); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+}
+
+func TestResolvePermission(t *testing.T) {
+	var gotBody map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/sessions/sess-1/permissions/req-1" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	if err := c.ResolvePermission(context.Background(), "sess-1", "req-1", "allow", "session"); err != nil {
+		t.Fatalf("ResolvePermission: %v", err)
+	}
+	if gotBody["decision"] != "allow" {
+		t.Fatalf("decision = %q, want allow", gotBody["decision"])
+	}
+	if gotBody["rememberScope"] != "session" {
+		t.Fatalf("rememberScope = %q, want session", gotBody["rememberScope"])
+	}
+}
+
+func TestParseSSE(t *testing.T) {
+	// Build a raw SSE stream with multiple events, a heartbeat, and
+	// multi-line data.
+	sse := strings.Join([]string{
+		`: heartbeat`,
+		``,
+		`event: agent_event`,
+		`id: evt-1`,
+		`data: {"type":"user_message","content":"hi","eventId":"evt-1","sessionId":"s1","ts":1000}`,
+		``,
+		`event: agent_event`,
+		`id: evt-2`,
+		`data: {"type":"assistant_text_done","text":"hello","eventId":"evt-2","sessionId":"s1","ts":2000}`,
+		``,
+		`: heartbeat`,
+		``,
+	}, "\n")
+
+	var events []EventEnvelope
+	err := parseSSE(strings.NewReader(sse), func(env EventEnvelope) {
+		events = append(events, env)
+	})
+	if err != nil {
+		t.Fatalf("parseSSE: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("got %d events, want 2", len(events))
+	}
+	if events[0].EventID != "evt-1" {
+		t.Fatalf("events[0] EventID = %q, want evt-1", events[0].EventID)
+	}
+	if events[0].Type != "user_message" {
+		t.Fatalf("events[0] Type = %q, want user_message", events[0].Type)
+	}
+	if events[1].EventID != "evt-2" {
+		t.Fatalf("events[1] EventID = %q, want evt-2", events[1].EventID)
+	}
+}
+
+func TestParseLockfile(t *testing.T) {
+	data := []byte(`{"pid":12345,"port":38123,"cwd":"/tmp","sessionId":"sess-abc","startedAt":1700000000,"version":"0.1.0","url":"http://127.0.0.1:38123"}`)
+	lf, err := ParseLockfile(data)
+	if err != nil {
+		t.Fatalf("ParseLockfile: %v", err)
+	}
+	if lf.PID != 12345 {
+		t.Fatalf("PID = %d, want 12345", lf.PID)
+	}
+	if lf.SessionID != "sess-abc" {
+		t.Fatalf("SessionID = %q, want sess-abc", lf.SessionID)
+	}
+	if lf.URL != "http://127.0.0.1:38123" {
+		t.Fatalf("URL = %q, want http://127.0.0.1:38123", lf.URL)
+	}
+}
+
+func TestSubscribe(t *testing.T) {
+	var count atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		fmt.Fprintf(w, "event: agent_event\nid: evt-1\ndata: {\"type\":\"user_message\",\"content\":\"hi\",\"eventId\":\"evt-1\",\"sessionId\":\"s1\",\"ts\":1000}\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := c.Subscribe(ctx, "s1", "", func(env EventEnvelope) {
+		count.Add(1)
+		if env.EventID != "evt-1" {
+			t.Errorf("EventID = %q, want evt-1", env.EventID)
+		}
+	})
+	// ctx timeout is expected
+	if err != nil && err != context.DeadlineExceeded {
+		// The server keeps the stream open, so we expect a timeout
+		t.Logf("Subscribe returned: %v (timeout expected)", err)
+	}
+	if count.Load() == 0 {
+		t.Fatal("expected at least 1 event, got 0")
+	}
+}
+
+func TestSubscribeWithSince(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("since") != "evt-0" {
+			t.Errorf("since = %q, want evt-0", r.URL.Query().Get("since"))
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		fmt.Fprintf(w, "event: agent_event\nid: evt-1\ndata: {\"type\":\"user_message\",\"content\":\"hi\",\"eventId\":\"evt-1\",\"sessionId\":\"s1\",\"ts\":1000}\n\n")
+		w.(http.Flusher).Flush()
+		// Keep stream open
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL)
+	ctx, cancel := context.WithCancel(context.Background())
+	var got EventEnvelope
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		cancel()
+	}()
+	_ = c.Subscribe(ctx, "s1", "evt-0", func(env EventEnvelope) {
+		got = env
+	})
+	if got.EventID != "evt-1" {
+		t.Fatalf("EventID = %q, want evt-1", got.EventID)
+	}
+}
