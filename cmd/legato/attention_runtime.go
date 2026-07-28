@@ -19,12 +19,12 @@ func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *s
 
 	if planSvc != nil {
 		adapter := service.NewPlanAttentionAdapter(planSvc)
-		mustRegister(attention.RegisterProducer(adapter))
+		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventPlanChanged))
 		mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
 	}
 	if reviewSvc != nil {
 		adapter := service.NewReviewAttentionAdapter(reviewSvc)
-		mustRegister(attention.RegisterProducer(adapter))
+		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventReviewChanged))
 		mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
 	}
 	if workflowSvc != nil {
@@ -32,6 +32,8 @@ func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *s
 		mustRegister(attention.RegisterProducer(adapter))
 		mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
 	}
+
+	attention.StartEventReconciliation(ctx)
 
 	srv.SetAttentionService(attention)
 	srv.StartAttentionEvents()

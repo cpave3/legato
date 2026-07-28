@@ -1755,12 +1755,12 @@ func runTUI() int {
 	attentionSvc := service.NewAttentionService(db, bus)
 	if planSvc != nil {
 		planAdapter := service.NewPlanAttentionAdapter(planSvc)
-		_ = attentionSvc.RegisterProducer(planAdapter)
+		_ = attentionSvc.RegisterProducerWithEvents(planAdapter, events.EventPlanChanged)
 		_ = attentionSvc.RegisterHandler(planAdapter.Producer(), planAdapter)
 	}
 	if reviewSvc != nil {
 		reviewAdapter := service.NewReviewAttentionAdapter(reviewSvc)
-		_ = attentionSvc.RegisterProducer(reviewAdapter)
+		_ = attentionSvc.RegisterProducerWithEvents(reviewAdapter, events.EventReviewChanged)
 		_ = attentionSvc.RegisterHandler(reviewAdapter.Producer(), reviewAdapter)
 	}
 	if tuiWorkflowSvc != nil {
@@ -1768,6 +1768,7 @@ func runTUI() int {
 		_ = attentionSvc.RegisterProducer(workflowAdapter)
 		_ = attentionSvc.RegisterHandler(workflowAdapter.Producer(), workflowAdapter)
 	}
+	attentionSvc.StartEventReconciliation(context.Background())
 	if err := attentionSvc.ReconcileAll(context.Background()); err != nil {
 		log.Printf("attention: startup reconciliation: %v", err)
 	}

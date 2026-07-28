@@ -89,33 +89,47 @@ type AttentionProducer interface {
 var ErrAttentionConflict = errors.New("attention item changed; refresh and try again")
 
 type AttentionService struct {
-	store      *store.Store
-	bus        *events.Bus
-	handlerMu  sync.RWMutex
-	handlers   map[string]AttentionActionHandler
-	producerMu sync.RWMutex
-	producers  map[string]AttentionProducer
+	store           *store.Store
+	bus             *events.Bus
+	handlerMu       sync.RWMutex
+	handlers        map[string]AttentionActionHandler
+	producerMu      sync.RWMutex
+	producers       map[string]AttentionProducer
+	eventToProducer map[events.EventType]string
 }
 
 func NewAttentionService(s *store.Store, bus *events.Bus) *AttentionService {
 	return &AttentionService{
 		store: s, bus: bus,
-		handlers:  map[string]AttentionActionHandler{},
-		producers: map[string]AttentionProducer{},
+		handlers:        map[string]AttentionActionHandler{},
+		producers:       map[string]AttentionProducer{},
+		eventToProducer: map[events.EventType]string{},
 	}
 }
 
-func (s *AttentionService) RegisterHandler(producer string, handler AttentionActionHandler) error {
-	if strings.TrimSpace(producer) == "" || handler == nil {
-		return fmt.Errorf("attention handler requires producer and handler")
+// StartEventReconciliation subscribes to source events and triggers
+// re-reconciliation of the corresponding producer. Call once after all
+// producers are registered.
+func (s *AttentionService) StartEventReconciliation(ctx context.Context) func() {
+	if s.bus == nil {
+		return func() {}
 	}
-	s.handlerMu.Lock()
-	defer s.handlerMu.Unlock()
-	if _, exists := s.handlers[producer]; exists {
-		return fmt.Errorf("attention handler already registered for %q", producer)
+	var channels []<-chan events.Event
+	for eventType, producerName := range s.eventToProducer {
+		ch := s.bus.Subscribe(eventType)
+		producerName := producerName
+		channels = append(channels, ch)
+		go func() {
+			for range ch {
+				_ = s.Reconcile(ctx, producerName)
+			}
+		}()
 	}
-	s.handlers[producer] = handler
-	return nil
+	return func() {
+		for _, ch := range channels {
+			s.bus.Unsubscribe(ch)
+		}
+	}
 }
 
 func (s *AttentionService) RegisterProducer(producer AttentionProducer) error {
@@ -129,6 +143,31 @@ func (s *AttentionService) RegisterProducer(producer AttentionProducer) error {
 		return fmt.Errorf("attention producer %q already registered", name)
 	}
 	s.producers[name] = producer
+	return nil
+}
+
+// RegisterProducerWithEvents registers a producer and maps source events
+// to trigger reconciliation for that producer.
+func (s *AttentionService) RegisterProducerWithEvents(producer AttentionProducer, eventTypes ...events.EventType) error {
+	if err := s.RegisterProducer(producer); err != nil {
+		return err
+	}
+	for _, eventType := range eventTypes {
+		s.eventToProducer[eventType] = producer.Producer()
+	}
+	return nil
+}
+
+func (s *AttentionService) RegisterHandler(producer string, handler AttentionActionHandler) error {
+	if strings.TrimSpace(producer) == "" || handler == nil {
+		return fmt.Errorf("attention handler requires producer and handler")
+	}
+	s.handlerMu.Lock()
+	defer s.handlerMu.Unlock()
+	if _, exists := s.handlers[producer]; exists {
+		return fmt.Errorf("attention handler already registered for %q", producer)
+	}
+	s.handlers[producer] = handler
 	return nil
 }
 
