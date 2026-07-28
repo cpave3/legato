@@ -40,7 +40,22 @@ To register a new producer:
 1. Implement `Snapshot` to enumerate current actionable state as `[]AttentionInput`.
 2. Implement `Execute` to handle declared actions by calling the feature's existing public service operations.
 3. Register both in `cmd/legato/attention_runtime.go` (or the TUI composition path).
-4. Reconciliation runs at startup; mutations should also upsert/resolve directly for immediate feedback.
+4. Use `RegisterProducerWithEvents` to map source events to the producer so the service re-reconciles when source state changes after startup (see Event subscriptions below).
+5. Reconciliation runs at startup; mutations should also upsert/resolve directly for immediate feedback.
+
+### Event subscriptions
+
+The service subscribes to source events and re-reconciles the matching producer when they fire, so the inbox stays current without a restart:
+
+| Producer | Events | Source |
+|---|---|---|
+| `plans` | `EventPlanChanged` | IPC `plan_changed` → bus, or direct `PlanService` mutation |
+| `reviews` | `EventReviewChanged` | IPC `review_changed` → bus, or direct `ReviewService` mutation |
+| `workflows` | `EventWorkflowChanged`, `EventAgentDied`, `EventAgentCompleted` | IPC `workflow_changed` → bus, or `Server.NotifyWorkflowChanged`, or agent lifecycle |
+
+`RegisterProducerWithEvents(producer, eventTypes...)` maps events to producers. `StartEventReconciliation(ctx)` subscribes and launches goroutines. Call it once after all producers are registered.
+
+Workflows need `EventAgentDied` and `EventAgentCompleted` because the workflow producer checks agent session state (waiting/idle/ended) to determine if a step needs attention.
 
 ### Action and navigation descriptors
 
@@ -74,9 +89,14 @@ All endpoints require the configured auth token.
 
 ## TUI
 
-- `A` key from the board opens the attention queue (`internal/tui/attention/model.go`).
+- `I` key from the board opens the attention queue (`internal/tui/attention/model.go`).
 - `j`/`k` navigation, `Enter` executes the primary action, `D` dismisses, `q` returns to board.
 - Refreshes on `EventAttentionChanged`.
+
+## CLI
+
+- `legato attention list` — reconcile and list actionable items. Flags: `--producer`, `--category`, `--urgency`, `--json`.
+- Reconciles plan and review producers against the durable store so agents can inspect the inbox without a running server.
 
 ## Deferred
 

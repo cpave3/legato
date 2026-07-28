@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
@@ -21,8 +22,8 @@ type WorkflowService interface {
 	ListRuns(context.Context, string, int) ([]store.WorkflowRun, error)
 	Show(context.Context, string) (*store.WorkflowRunView, error)
 	Cancel(context.Context, string, string) (*store.WorkflowRunView, error)
-	Retry(context.Context, string, string) (*store.WorkflowRunView, error)
-	TriggerStep(context.Context, string, string) (*store.WorkflowRunView, error)
+	Retry(context.Context, string, string, bool) (*store.WorkflowRunView, error)
+	TriggerStep(context.Context, string, string, bool) (*store.WorkflowRunView, error)
 	PromptStep(context.Context, string, string) (*store.WorkflowRunView, error)
 	Artifact(context.Context, string) (*store.WorkflowArtifact, error)
 }
@@ -132,6 +133,22 @@ func (s *Server) workflowCancelHandler() http.HandlerFunc {
 		s.writeJSON(w, 200, view)
 	}
 }
+
+type workflowStepOptions struct {
+	Force bool `json:"force"`
+}
+
+func decodeWorkflowStepOptions(r *http.Request) (workflowStepOptions, error) {
+	var options workflowStepOptions
+	if r.Body == nil || r.ContentLength == 0 {
+		return options, nil
+	}
+	if err := json.NewDecoder(r.Body).Decode(&options); err != nil {
+		return options, err
+	}
+	return options, nil
+}
+
 func (s *Server) workflowRetryHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.workflows == nil {
@@ -142,7 +159,12 @@ func (s *Server) workflowRetryHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		view, err := s.workflows.Retry(r.Context(), r.PathValue("run_id"), r.PathValue("step_id"))
+		options, err := decodeWorkflowStepOptions(r)
+		if err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		view, err := s.workflows.Retry(r.Context(), r.PathValue("run_id"), r.PathValue("step_id"), options.Force)
 		if err != nil {
 			http.Error(w, err.Error(), 409)
 			return
@@ -161,7 +183,12 @@ func (s *Server) workflowTriggerHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		view, err := s.workflows.TriggerStep(r.Context(), r.PathValue("run_id"), r.PathValue("step_id"))
+		options, err := decodeWorkflowStepOptions(r)
+		if err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		view, err := s.workflows.TriggerStep(r.Context(), r.PathValue("run_id"), r.PathValue("step_id"), options.Force)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
@@ -218,4 +245,7 @@ func (s *Server) workflowArtifactHandler() http.HandlerFunc {
 
 func (s *Server) NotifyWorkflowChanged(runID, stepID string) {
 	s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged, WorkflowRunID: runID, WorkflowStepID: stepID})
+	if s.bus != nil {
+		s.bus.Publish(events.Event{Type: events.EventWorkflowChanged, Payload: events.WorkflowChangedPayload{RunID: runID, StepID: stepID}})
+	}
 }

@@ -50,6 +50,8 @@ task check                 # build + test + vet + lint
 5. ~~Detail View & Clipboard~~ (complete)
 6. ~~Polish~~ (complete) — overlays (search/move/help), error handling, server stub
 
+Post-v0: Unified attention inbox (complete) — durable generic registry with source-owned producers (plans/reviews/workflows), HTTP API, live event reconciliation, web dashboard, TUI queue, and CLI. See `docs/ai/attention.md`.
+
 ## Detailed Documentation
 
 @docs/ai/packages.md
@@ -61,3 +63,4 @@ task check                 # build + test + vet + lint
 @docs/ai/cli.md
 @docs/ai/web-ui.md
 @docs/ai/swarm.md
+@docs/ai/attention.md

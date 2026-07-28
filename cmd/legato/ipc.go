@@ -53,6 +53,16 @@ func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 		if notifier, ok := wn.(workflowWebNotifier); ok {
 			notifier.NotifyWorkflowChanged(msg.WorkflowRunID, msg.WorkflowStepID)
 		}
+		bus.Publish(events.Event{
+			Type: events.EventWorkflowChanged, At: time.Now(),
+			Payload: events.WorkflowChangedPayload{RunID: msg.WorkflowRunID, StepID: msg.WorkflowStepID, Kind: msg.Kind},
+		})
+		if msg.Kind == "completed_step" {
+			bus.Publish(events.Event{Type: events.EventCardUpdated, At: time.Now()})
+			if wn != nil {
+				wn.NotifyAgentsChanged()
+			}
+		}
 	case "plan_changed":
 		bus.Publish(events.Event{
 			Type: events.EventPlanChanged,

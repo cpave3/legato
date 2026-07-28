@@ -1765,7 +1765,7 @@ func runTUI() int {
 	}
 	if tuiWorkflowSvc != nil {
 		workflowAdapter := service.NewWorkflowAttentionAdapter(tuiWorkflowSvc)
-		_ = attentionSvc.RegisterProducer(workflowAdapter)
+		_ = attentionSvc.RegisterProducerWithEvents(workflowAdapter, events.EventWorkflowChanged, events.EventAgentDied, events.EventAgentCompleted)
 		_ = attentionSvc.RegisterHandler(workflowAdapter.Producer(), workflowAdapter)
 	}
 	attentionSvc.StartEventReconciliation(context.Background())

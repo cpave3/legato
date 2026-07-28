@@ -27,6 +27,7 @@ const (
 	EventPlanProposed
 	EventReviewChanged
 	EventPlanChanged
+	EventWorkflowChanged
 	EventAttentionChanged
 )
 
@@ -84,6 +85,12 @@ type AttentionChangedPayload struct {
 	Producer  string
 	SourceKey string
 	Kind      string
+}
+
+type WorkflowChangedPayload struct {
+	RunID  string
+	StepID string
+	Kind   string
 }
 
 type Event struct {
