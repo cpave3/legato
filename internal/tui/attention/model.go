@@ -3,6 +3,7 @@ package attention
 import (
 	"context"
 	"fmt"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cpave3/legato/internal/service"
@@ -137,11 +138,33 @@ func (m Model) View() string {
 		if i == m.cursor {
 			cursor = "▸ "
 		}
-		line := fmt.Sprintf("%s%s — %s [%s/%s]\n", cursor, item.Title, item.Reason, item.Producer, item.Urgency)
+		age := formatRelativeTime(item.UpdatedAt)
+		line := fmt.Sprintf("%s%s — %s [%s/%s] %s\n", cursor, item.Title, item.Reason, item.Producer, item.Urgency, age)
 		b = append(b, line...)
 	}
 	if m.info != "" {
 		b = append(b, []byte("\n"+m.info)...)
 	}
 	return string(b)
+}
+
+func formatRelativeTime(iso string) string {
+	t, err := time.Parse("2006-01-02 15:04:05", iso)
+	if err != nil {
+		t, err = time.Parse(time.RFC3339, iso)
+		if err != nil {
+			return ""
+		}
+	}
+	d := time.Since(t)
+	switch {
+	case d >= 24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	case d >= time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	case d >= time.Minute:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	default:
+		return "just now"
+	}
 }

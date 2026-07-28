@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -71,7 +72,7 @@ func runAttentionCmd(args []string) int {
 
 	fmt.Printf("%d item%s need attention:\n\n", len(items), plural(len(items)))
 	for _, item := range items {
-		fmt.Printf("  %s — %s [%s/%s]\n", item.Title, item.Reason, item.Producer, item.Urgency)
+		fmt.Printf("  %s — %s [%s/%s] %s\n", item.Title, item.Reason, item.Producer, item.Urgency, relativeAge(item.UpdatedAt))
 		for _, action := range item.Actions {
 			if action.Kind == "execute" {
 				fmt.Printf("    action: %s\n", action.Label)
@@ -86,4 +87,25 @@ func plural(n int) string {
 		return ""
 	}
 	return "s"
+}
+
+func relativeAge(iso string) string {
+	t, err := time.Parse("2006-01-02 15:04:05", iso)
+	if err != nil {
+		t, err = time.Parse(time.RFC3339, iso)
+		if err != nil {
+			return "?"
+		}
+	}
+	d := time.Since(t)
+	switch {
+	case d >= 24*time.Hour:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	case d >= time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	case d >= time.Minute:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	default:
+		return "just now"
+	}
 }

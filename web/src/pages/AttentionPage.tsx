@@ -5,6 +5,17 @@ import { useAttention } from "../hooks/useAttention"
 import { useServer } from "../hooks/useServer"
 import { executeAttentionAction, dismissAttentionItem, type AttentionItem } from "../lib/attention"
 
+function formatRelativeTime(iso: string): string {
+  const date = new Date(iso)
+  const now = new Date()
+  const diffMins = Math.floor((now.getTime() - date.getTime()) / 60000)
+  if (diffMins < 1) return "just now"
+  if (diffMins < 60) return `${diffMins}m ago`
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours < 24) return `${diffHours}h ago`
+  return `${Math.floor(diffHours / 24)}d ago`
+}
+
 function navigationPath(item: AttentionItem): string | null {
   switch (item.navigation.kind) {
     case "plan": return `/plans/${encodeURIComponent(item.navigation.target)}`
@@ -84,6 +95,7 @@ export function AttentionPage() {
                         <h2 className="truncate font-medium">{item.title}</h2>
                         <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-400">{item.producer}</span>
                         <span className={`rounded px-1.5 py-0.5 text-xs ${item.urgency === "high" || item.urgency === "critical" ? "bg-red-500/20 text-red-400" : "bg-zinc-800 text-zinc-500"}`}>{item.urgency}</span>
+                        <span className="text-xs text-zinc-600">{formatRelativeTime(item.updated_at)}</span>
                       </div>
                       <p className="mt-1 text-sm text-zinc-400">{item.reason}</p>
                       {item.detail && <p className="mt-1 text-xs text-zinc-600">{item.detail}</p>}
