@@ -244,6 +244,7 @@ func (s *Server) sendAgentList(client *wsClient) {
 			r.WorkingSeconds = d.Working.Seconds()
 			r.WaitingSeconds = d.Waiting.Seconds()
 		}
+		r.HasChimeraEndpoint = s.agents.HasChimeraEndpoint(context.Background(), a.TaskID)
 		resp[i] = r
 	}
 	client.send(WSMessage{Type: MsgAgentList, Agents: resp})

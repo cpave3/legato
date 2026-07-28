@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom"
 import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "../hooks/useWebSocket"
 import { AgentSidebar } from "../components/AgentSidebar"
 import { TerminalPanel } from "../components/TerminalPanel"
+import { NativeAgentPanel } from "../components/NativeAgentPanel"
 import { PromptBar, type PromptBarHandle } from "../components/PromptBar"
 import { StartSwarmModal } from "../components/StartSwarmModal"
 import { SpawnEphemeralModal } from "../components/SpawnEphemeralModal"
@@ -401,11 +402,16 @@ export function AgentsPage() {
         {selectedId ? (
           <>
             <div className="relative min-h-0 flex-1">
-              <TerminalPanel agentId={selectedId} onGlitch={triggerGlitch} onClickTerminal={() => promptBarRef.current?.focus()} />
-              {glitching && (
+              {selectedAgent?.has_chimera_endpoint ? (
+                <NativeAgentPanel agentId={selectedId} />
+              ) : (
+                <TerminalPanel agentId={selectedId} onGlitch={triggerGlitch} onClickTerminal={() => promptBarRef.current?.focus()} />
+              )}
+              {glitching && !selectedAgent?.has_chimera_endpoint && (
                 <div className="terminal-glitch-overlay" aria-hidden="true" />
               )}
             </div>
+            {!selectedAgent?.has_chimera_endpoint && (
             <PromptBar
               ref={promptBarRef}
               promptState={isPromptDetectionEnabled ? promptState : null}
@@ -429,6 +435,7 @@ export function AgentsPage() {
               onToggleNotify={handleToggleNotify}
               voiceEnabled={voiceEnabled}
             />
+            )}
           </>
         ) : (
           <div className="flex flex-1 items-center justify-center">

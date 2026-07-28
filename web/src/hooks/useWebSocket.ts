@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, useCallback, createContext, useContext } f
 import { getToken } from "../lib/auth"
 
 export interface WSMessage {
-  type: "agent_output" | "agent_list" | "agents_changed" | "prompt_state" | "error"
+  type: "agent_output" | "agent_list" | "agents_changed" | "prompt_state" | "error" | "chimera_event"
     | "subscribe_agent" | "unsubscribe_agent" | "send_keys" | "resize" | "detect_prompt" | "refresh_pane"
+    | "agent_message" | "agent_interrupt" | "agent_permission"
     | "plan_proposed" | "plan_verdict" | "plan_changed" | "swarm_changed" | "cards_changed" | "review_changed" | "workflow_changed" | "attention_changed"
   agent_id?: string
   content?: string
@@ -55,6 +56,7 @@ export interface AgentInfo {
   waiting_seconds: number
   state_timeline?: string[]
   notify_enabled?: boolean
+  has_chimera_endpoint?: boolean
 }
 
 export interface PromptState {

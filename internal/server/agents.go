@@ -49,23 +49,24 @@ func (s *Server) sparklineParams() (time.Duration, int) {
 
 // AgentResponse is the JSON representation of an agent session.
 type AgentResponse struct {
-	ID             int        `json:"id"`
-	TaskID         string     `json:"task_id"`
-	Title          string     `json:"task_title"`
-	TmuxSession    string     `json:"tmux_session"`
-	Command        string     `json:"command"`
-	AgentKind      string     `json:"agent_kind"`
-	Status         string     `json:"status"`
-	Activity       string     `json:"activity"`
-	Role           string     `json:"role,omitempty"`
-	ParentTaskID   string     `json:"parent_task_id,omitempty"`
-	SubtaskID      string     `json:"subtask_id,omitempty"`
-	StartedAt      time.Time  `json:"started_at"`
-	EndedAt        *time.Time `json:"ended_at,omitempty"`
-	WorkingSeconds float64    `json:"working_seconds"`
-	WaitingSeconds float64    `json:"waiting_seconds"`
-	StateTimeline  []string   `json:"state_timeline,omitempty"`
-	NotifyEnabled  bool       `json:"notify_enabled"`
+	ID                int        `json:"id"`
+	TaskID            string     `json:"task_id"`
+	Title             string     `json:"task_title"`
+	TmuxSession       string     `json:"tmux_session"`
+	Command           string     `json:"command"`
+	AgentKind         string     `json:"agent_kind"`
+	Status            string     `json:"status"`
+	Activity          string     `json:"activity"`
+	Role              string     `json:"role,omitempty"`
+	ParentTaskID      string     `json:"parent_task_id,omitempty"`
+	SubtaskID         string     `json:"subtask_id,omitempty"`
+	StartedAt         time.Time  `json:"started_at"`
+	EndedAt           *time.Time `json:"ended_at,omitempty"`
+	WorkingSeconds    float64    `json:"working_seconds"`
+	WaitingSeconds    float64    `json:"waiting_seconds"`
+	StateTimeline     []string   `json:"state_timeline,omitempty"`
+	NotifyEnabled     bool       `json:"notify_enabled"`
+	HasChimeraEndpoint bool     `json:"has_chimera_endpoint"`
 }
 
 func (s *Server) spawnAgentHandler() http.HandlerFunc {
@@ -201,6 +202,7 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 			}
 			if s.agents != nil {
 				r.NotifyEnabled, _ = s.agents.GetTaskNotifyEnabled(context.Background(), a.TaskID)
+				r.HasChimeraEndpoint = s.agents.HasChimeraEndpoint(context.Background(), a.TaskID)
 			}
 			resp[i] = r
 		}
