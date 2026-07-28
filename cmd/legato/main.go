@@ -1460,6 +1460,7 @@ func runServeCmd(args []string) int {
 		defer swarmStop()
 	}
 	srv.StartSwarmEvents()
+	srv.StartChimeraDiscoveryEvents()
 	srv.StartReviewEvents()
 	srv.StartPlanEvents()
 	srv.StartBoardEvents()
@@ -1742,6 +1743,7 @@ func runTUI() int {
 				webSrv.SetAuthToken(token)
 			}
 			webSrv.StartSwarmEvents()
+			webSrv.StartChimeraDiscoveryEvents()
 			webSrv.StartReviewEvents()
 			webSrv.StartPlanEvents()
 			webSrv.StartBoardEvents()

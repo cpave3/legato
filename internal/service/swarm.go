@@ -1618,5 +1618,17 @@ func (p AgentDiedPublisher) PublishAgentDied(taskID, parentTaskID, subtaskID, ro
 	})
 }
 
+func (p AgentDiedPublisher) PublishAgentChimeraDiscovered(taskID string) {
+	if p.Bus == nil {
+		return
+	}
+	p.Bus.Publish(events.Event{
+		Type: events.EventAgentChimeraDiscovered,
+		Payload: events.AgentChimeraDiscoveredPayload{
+			TaskID: taskID,
+		},
+	})
+}
+
 // progressDebounceWindow is the per-worker progress collapse window.
 const progressDebounceWindow = 1 * time.Second

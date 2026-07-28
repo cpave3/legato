@@ -279,6 +279,7 @@ func generalPromptForAdapter(adapter AIToolAdapter) string {
 // loosely coupled.
 type EventPublisher interface {
 	PublishAgentDied(taskID, parentTaskID, subtaskID, role string)
+	PublishAgentChimeraDiscovered(taskID string)
 }
 
 // AgentServiceOptions configures optional AI tool integration for agent sessions.
@@ -1092,6 +1093,11 @@ func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, spaw
 			} else {
 				log.Printf("chimera lockfile discovered for %s: endpoint=%s session=%s",
 					taskID, lf.URL, lf.SessionID)
+				// Notify connected web clients that the agent list changed
+				// so they re-fetch and switch to the NativeAgentPanel.
+				if a.bus != nil {
+					a.bus.PublishAgentChimeraDiscovered(taskID)
+				}
 			}
 			return
 		}

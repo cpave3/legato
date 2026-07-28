@@ -443,6 +443,21 @@ func (s *Server) StartSwarmEvents() {
 	}()
 }
 
+// StartChimeraDiscoveryEvents subscribes to Chimera lockfile discovery events
+// and broadcasts agents_changed so connected web clients re-fetch the agent
+// list and switch to the NativeAgentPanel when an endpoint is discovered.
+func (s *Server) StartChimeraDiscoveryEvents() {
+	if s.bus == nil {
+		return
+	}
+	ch := s.bus.Subscribe(events.EventAgentChimeraDiscovered)
+	go func() {
+		for range ch {
+			s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
+		}
+	}()
+}
+
 // StartReviewEvents subscribes to review mutations and broadcasts them to web clients.
 func (s *Server) StartReviewEvents() {
 	if s.bus == nil {

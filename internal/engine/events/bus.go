@@ -23,6 +23,7 @@ const (
 	EventRateLimited
 	EventPRStatusUpdated
 	EventAgentDied
+	EventAgentChimeraDiscovered
 	EventSwarmChanged
 	EventPlanProposed
 	EventReviewChanged
@@ -44,6 +45,13 @@ type AgentDiedPayload struct {
 	ParentTaskID string // empty for non-swarm agents
 	SubtaskID    string // empty for non-swarm agents
 	Role         string
+}
+
+// AgentChimeraDiscoveredPayload is published when a Chimera lockfile is
+// discovered for an agent session, meaning the web UI can now render the
+// structured NativeAgentPanel instead of the xterm terminal.
+type AgentChimeraDiscoveredPayload struct {
+	TaskID string
 }
 
 // SwarmChangedPayload is published when a swarm sub-task changes state.

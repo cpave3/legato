@@ -13,7 +13,10 @@ interface ChimeraEvent {
   delta?: string
   id?: string
   name?: string
-  display?: { summary?: string }
+  args?: Record<string, unknown>
+  result?: Record<string, unknown>
+  callId?: string
+  display?: { summary?: string; detail?: string }
   requestId?: string
   toolName?: string
   reason?: string
@@ -26,13 +29,23 @@ interface SnapshotMessage {
   content: string | { type: string; text: string }[]
 }
 
+interface SnapshotToolCall {
+  callId: string
+  name: string
+  args: Record<string, unknown>
+  result?: Record<string, unknown>
+  startedAt?: number
+  endedAt?: number
+  display?: { summary?: string; detail?: string }
+}
+
 interface SessionSnapshot {
   id: string
   cwd: string
   mode: string
   status: string
   messages?: SnapshotMessage[]
-  toolCalls?: unknown[]
+  toolCalls?: SnapshotToolCall[]
   usage?: {
     inputTokens: number
     outputTokens: number
@@ -47,14 +60,24 @@ interface NativeAgentPanelProps {
   onClickTerminal?: () => void
 }
 
-// A rendered conversation item — either from snapshot or from live events
+type ItemRole = "user" | "assistant" | "tool" | "system"
+
+interface ToolCallItem {
+  key: string
+  toolName: string
+  args: Record<string, unknown>
+  result?: Record<string, unknown>
+  summary?: string
+  durationMs?: number
+}
+
 interface ConversationItem {
   key: string
-  role: "user" | "assistant" | "tool" | "system"
+  role: ItemRole
   text: string
-  toolName?: string
-  toolSummary?: string
   isStreaming?: boolean
+  tool?: ToolCallItem
+  toolName?: string // for permission requests
 }
 
 export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
@@ -72,6 +95,8 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
   const seenEventIds = useRef<Set<string>>(new Set())
   const streamingTextRef = useRef<string>("")
   const streamingIdRef = useRef<string>("")
+  // Track which snapshot tool calls we've already rendered (by position in messages)
+  const snapshotToolCallCount = useRef<number>(0)
 
   // Load/save draft
   useEffect(() => {
@@ -99,19 +124,62 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
         if (data.usage) {
           setUsage({ totalTokens: data.usage.totalTokens, stepCount: data.usage.stepCount })
         }
-        // Hydrate conversation from snapshot messages
+        // Hydrate conversation from snapshot messages AND tool calls.
+        // Tool calls are interleaved with messages in the conversation order.
+        // We walk both arrays, inserting tool calls after the assistant message
+        // that produced them (by matching step boundaries).
         const snapshotItems: ConversationItem[] = []
-        for (let i = 0; i < (data.messages?.length || 0); i++) {
-          const msg = data.messages![i]
+        const msgs = data.messages || []
+        const tcs = data.toolCalls || []
+        snapshotToolCallCount.current = tcs.length
+
+        for (let i = 0; i < msgs.length; i++) {
+          const msg = msgs[i]
           const text = extractMessageText(msg)
           if (!text) continue
-          // Skip the system prompt (first user message is the role prompt)
+          // Skip the system/role prompt (first user message)
           if (i === 0 && msg.role === "user") continue
+
           snapshotItems.push({
-            key: `snap-${i}`,
-            role: msg.role as "user" | "assistant" | "tool",
+            key: `snap-msg-${i}`,
+            role: msg.role as ItemRole,
             text,
           })
+
+          // If this is an assistant message, check if tool calls follow
+          // (tool calls in the snapshot are in order, we insert them as we
+          // encounter assistant messages that should have produced them)
+          if (msg.role === "assistant") {
+            // Insert all tool calls — since we can't precisely map which
+            // assistant message produced which tool call, we insert tool
+            // calls after each assistant message in order, distributing
+            // roughly evenly. A simpler approach: insert all tool calls
+            // after the last assistant message.
+            // Actually, the snapshot's toolCalls array is chronological.
+            // We'll insert tool calls after the assistant message that
+            // precedes them chronologically. For simplicity, insert all
+            // remaining tool calls after the last assistant message.
+            if (i === msgs.length - 1 || msgs[i + 1]?.role !== "assistant") {
+              // Insert all tool calls that haven't been placed yet
+              for (let j = 0; j < tcs.length; j++) {
+                snapshotItems.push({
+                  key: `snap-tc-${j}`,
+                  role: "tool" as ItemRole,
+                  text: "",
+                  tool: {
+                    key: `snap-tc-${j}`,
+                    toolName: tcs[j].name,
+                    args: tcs[j].args,
+                    result: tcs[j]?.result,
+                    summary: tcs[j]?.display?.summary,
+                    durationMs: tcs[j]?.endedAt && tcs[j]?.startedAt
+                      ? tcs[j]!.endedAt! - tcs[j]!.startedAt!
+                      : undefined,
+                  },
+                })
+              }
+            }
+          }
         }
         setItems(snapshotItems)
       })
@@ -137,7 +205,6 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
       if (msg.type !== "chimera_event" || msg.agent_id !== agentId) return
       try {
         const env: ChimeraEvent = JSON.parse(msg.content || "{}")
-        // Deduplicate by event ID
         if (env.eventId && seenEventIds.current.has(env.eventId)) return
         if (env.eventId) seenEventIds.current.add(env.eventId)
 
@@ -157,11 +224,9 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
             break
           }
           case "assistant_text_delta": {
-            // Accumulate streaming text
             if (env.id) streamingIdRef.current = env.id
             if (env.delta) {
               streamingTextRef.current += env.delta
-              // Update or append the streaming item
               setItems((prev) => {
                 const streamKey = `stream-${streamingIdRef.current}`
                 const existing = prev.find((it) => it.key === streamKey)
@@ -181,7 +246,6 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
             break
           }
           case "assistant_text_done": {
-            // Finalize the streamed text
             const finalText = env.text || streamingTextRef.current
             streamingTextRef.current = ""
             streamingIdRef.current = ""
@@ -195,13 +259,8 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
                     : it
                 )
               }
-              // No streaming item was created (delta events were missed)
               if (finalText) {
-                return [...prev, {
-                  key: env.eventId,
-                  role: "assistant",
-                  text: finalText,
-                }]
+                return [...prev, { key: env.eventId, role: "assistant", text: finalText }]
               }
               return prev
             })
@@ -213,14 +272,46 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
                 key: env.eventId,
                 role: "tool",
                 text: "",
-                toolName: env.name,
-                toolSummary: env.display?.summary,
+                tool: {
+                  key: env.eventId,
+                  toolName: env.name!,
+                  args: env.args || {},
+                  summary: env.display?.summary,
+                },
               }])
             }
             break
           }
-          case "tool_call_result":
+          case "tool_call_result": {
+            // Update the tool call item with results
+            if (env.callId) {
+              setItems((prev) => prev.map((it) => {
+                if (it.tool && it.tool.key === env.callId) {
+                  return {
+                    ...it,
+                    tool: {
+                      ...it.tool,
+                      result: env.result,
+                      summary: env.display?.summary || it.tool.summary,
+                    },
+                  }
+                }
+                // Also check by eventId match for tool_call_start
+                if (it.key === env.callId && it.tool) {
+                  return {
+                    ...it,
+                    tool: {
+                      ...it.tool,
+                      result: env.result,
+                      summary: env.display?.summary || it.tool.summary,
+                    },
+                  }
+                }
+                return it
+              }))
+            }
             break
+          }
           case "permission_request": {
             setBusy(false)
             if (env.requestId) {
@@ -248,7 +339,6 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
             break
         }
 
-        // Auto-scroll
         requestAnimationFrame(() => {
           if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -344,17 +434,8 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
               </div>
             )
           }
-          if (item.role === "tool") {
-            return (
-              <div key={item.key} className="px-4 py-1">
-                <div className="flex items-center gap-2 text-xs text-zinc-400">
-                  <span className="rounded bg-zinc-700 px-1.5 py-0.5 font-mono">
-                    {item.toolName || "tool"}
-                  </span>
-                  {item.toolSummary && <span>{item.toolSummary}</span>}
-                </div>
-              </div>
-            )
+          if (item.role === "tool" && item.tool) {
+            return <ToolCallCard key={item.key} tool={item.tool} />
           }
           // system (permission request)
           return (
@@ -435,6 +516,165 @@ export function NativeAgentPanel({ agentId }: NativeAgentPanelProps) {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function ToolCallCard({ tool }: { tool: ToolCallItem }) {
+  const [expanded, setExpanded] = useState(false)
+
+  const name = tool.toolName
+  const args = tool.args || {}
+  const summary = tool.summary || ""
+  const result = tool.result || {}
+  const durationMs = tool.durationMs
+
+  // For edit tool calls, render a diff
+  if (name === "edit") {
+    const path = args.path as string || ""
+    const oldStr = args.old_string as string || ""
+    const newStr = args.new_string as string || ""
+    const replacements = result.replacements as number | undefined
+    const filename = path.split("/").pop() || path
+
+    return (
+      <div className="mx-4 my-1.5 rounded-lg border border-zinc-700 bg-zinc-900/50">
+        <button
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <span className="rounded bg-purple-700/60 px-1.5 py-0.5 font-mono text-xs text-white">edit</span>
+          <span className="text-xs text-zinc-300 font-mono truncate">{filename}</span>
+          {replacements !== undefined && (
+            <span className="text-xs text-zinc-500">({replacements} replacement{replacements !== 1 ? "s" : ""})</span>
+          )}
+          {durationMs !== undefined && <span className="text-xs text-zinc-600">{durationMs}ms</span>}
+          <span className="ml-auto text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
+        </button>
+        {expanded && (
+          <div className="border-t border-zinc-800 px-3 py-2">
+            {path !== filename && <div className="text-xs text-zinc-500 mb-1">{path}</div>}
+            <div className="font-mono text-xs">
+              {oldStr.split("\n").map((line, i) => (
+                <div key={`old-${i}`} className="bg-red-900/30 text-red-300 px-2">
+                  - {line}
+                </div>
+              ))}
+              {newStr.split("\n").map((line, i) => (
+                <div key={`new-${i}`} className="bg-green-900/30 text-green-300 px-2">
+                  + {line}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // For write tool calls, show the path and content preview
+  if (name === "write") {
+    const path = args.path as string || ""
+    const content = args.content as string || ""
+    const bytesWritten = result.bytes_written as number | undefined
+    const created = result.created as boolean | undefined
+    const filename = path.split("/").pop() || path
+
+    return (
+      <div className="mx-4 my-1.5 rounded-lg border border-zinc-700 bg-zinc-900/50">
+        <button
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <span className="rounded bg-green-700/60 px-1.5 py-0.5 font-mono text-xs text-white">write</span>
+          <span className="text-xs text-zinc-300 font-mono truncate">{filename}</span>
+          {created && <span className="text-xs text-green-400">created</span>}
+          {bytesWritten !== undefined && <span className="text-xs text-zinc-500">{bytesWritten}B</span>}
+          {durationMs !== undefined && <span className="text-xs text-zinc-600">{durationMs}ms</span>}
+          <span className="ml-auto text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
+        </button>
+        {expanded && (
+          <div className="border-t border-zinc-800 px-3 py-2">
+            {path !== filename && <div className="text-xs text-zinc-500 mb-1">{path}</div>}
+            <pre className="font-mono text-xs text-zinc-300 whitespace-pre-wrap max-h-60 overflow-y-auto">{content}</pre>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // For bash tool calls, show the command and output
+  if (name === "bash") {
+    const command = args.command as string || ""
+    const stdout = result.stdout as string || ""
+    const stderr = result.stderr as string || ""
+    const exitCode = result.exit_code as number | undefined
+
+    return (
+      <div className="mx-4 my-1.5 rounded-lg border border-zinc-700 bg-zinc-900/50">
+        <button
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <span className="rounded bg-zinc-600 px-1.5 py-0.5 font-mono text-xs text-white">bash</span>
+          <span className="text-xs text-zinc-300 font-mono truncate">{command.slice(0, 80)}{command.length > 80 ? "…" : ""}</span>
+          {exitCode !== undefined && (
+            <span className={`text-xs ${exitCode === 0 ? "text-green-500" : "text-red-400"}`}>exit {exitCode}</span>
+          )}
+          {durationMs !== undefined && <span className="text-xs text-zinc-600">{durationMs}ms</span>}
+          <span className="ml-auto text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
+        </button>
+        {expanded && (
+          <div className="border-t border-zinc-800 px-3 py-2">
+            <div className="font-mono text-xs text-zinc-500 mb-1">$ {command}</div>
+            {stdout && <pre className="font-mono text-xs text-zinc-300 whitespace-pre-wrap max-h-60 overflow-y-auto">{stdout}</pre>}
+            {stderr && <pre className="font-mono text-xs text-red-400 whitespace-pre-wrap max-h-40 overflow-y-auto">{stderr}</pre>}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // For read tool calls, show the path
+  if (name === "read") {
+    const path = args.path as string || ""
+    const filename = path.split("/").pop() || path
+    return (
+      <div className="mx-4 my-1 flex items-center gap-2 px-1 py-0.5 text-xs text-zinc-400">
+        <span className="rounded bg-blue-700/40 px-1.5 py-0.5 font-mono text-white">read</span>
+        <span className="font-mono truncate">{filename}</span>
+      </div>
+    )
+  }
+
+  // Default: compact tool card
+  return (
+    <div className="mx-4 my-1.5 rounded-lg border border-zinc-700 bg-zinc-900/50">
+      <button
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span className="rounded bg-zinc-600 px-1.5 py-0.5 font-mono text-xs text-white">{name}</span>
+        <span className="text-xs text-zinc-300 truncate">{summary}</span>
+        {durationMs !== undefined && <span className="text-xs text-zinc-600">{durationMs}ms</span>}
+        <span className="ml-auto text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
+      </button>
+      {expanded && (
+        <div className="border-t border-zinc-800 px-3 py-2">
+          {Object.keys(args).length > 0 && (
+            <>
+              <div className="text-xs text-zinc-500 mb-1">Args</div>
+              <pre className="font-mono text-xs text-zinc-300 whitespace-pre-wrap max-h-40 overflow-y-auto">{JSON.stringify(args, null, 2)}</pre>
+            </>
+          )}
+          {Object.keys(result).length > 0 && (
+            <>
+              <div className="text-xs text-zinc-500 mt-2 mb-1">Result</div>
+              <pre className="font-mono text-xs text-zinc-300 whitespace-pre-wrap max-h-40 overflow-y-auto">{JSON.stringify(result, null, 2)}</pre>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
