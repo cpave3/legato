@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react"
 import { Outlet, NavLink } from "react-router-dom"
-import { Monitor, LayoutGrid, Settings, Server, ListChecks, ClipboardList, Workflow } from "lucide-react"
+import { Monitor, LayoutGrid, Settings, Server, ListChecks, ClipboardList, Workflow, Bell } from "lucide-react"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
@@ -8,6 +8,7 @@ import { OfflineDialog } from "./OfflineDialog"
 import { cn } from "../lib/utils"
 import { useReviewQueue } from "../hooks/useReview"
 import { usePlanQueue } from "../hooks/usePlan"
+import { useAttention } from "../hooks/useAttention"
 import { AgentSelectionProvider } from "../hooks/useAgentSelection"
 import { useWorkflowRuns } from "../hooks/useWorkflow"
 
@@ -20,6 +21,8 @@ export function Layout() {
   const planCount = planQueue?.length ?? 0
   const { data: workflowRuns } = useWorkflowRuns()
   const workflowAttentionCount = (workflowRuns??[]).filter(run=>run.needs_attention).length
+  const { data: attentionItems } = useAttention()
+  const attentionCount = attentionItems?.length ?? 0
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const switcherRef = useRef<HTMLDivElement>(null)
 
@@ -37,6 +40,7 @@ export function Layout() {
   const hasRemoteServers = servers.length > 0
 
   const navItems = [
+    { to: "/attention", label: "Attention", icon: Bell, count: attentionCount, badge: "bg-amber-500" },
     { to: "/agents", label: "Agents", icon: Monitor },
     { to: "/board", label: "Board", icon: LayoutGrid },
     { to: "/review", label: "Review", icon: ListChecks, count: reviewCount, badge: "bg-amber-500" },
@@ -50,6 +54,25 @@ export function Layout() {
       <div className="flex h-dvh w-full overflow-hidden">
       {/* Sidebar */}
       <nav className="hidden w-14 flex-col items-center border-r border-zinc-800 bg-zinc-950 py-4 gap-4 md:flex">
+        <NavLink
+          to="/attention"
+          className={({ isActive }) =>
+            cn(
+              "relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+              isActive
+                ? "bg-zinc-800 text-zinc-100"
+                : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+            )
+          }
+          title={attentionCount > 0 ? `Attention: ${attentionCount} items` : "Attention"}
+        >
+          <Bell size={20} />
+          {attentionCount > 0 && (
+            <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-amber-500 px-1 text-center text-[9px] font-bold leading-4 text-zinc-950">
+              {attentionCount > 99 ? "99+" : attentionCount}
+            </span>
+          )}
+        </NavLink>
         <NavLink
           to="/agents"
           className={({ isActive }) =>
@@ -179,7 +202,7 @@ export function Layout() {
       </main>
       <nav
         aria-label="Primary navigation"
-        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-zinc-800 bg-zinc-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-7 border-t border-zinc-800 bg-zinc-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
       >
         {navItems.map(({ to, label, icon: Icon, count, badge }, index) => (
           <NavLink
