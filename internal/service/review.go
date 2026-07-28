@@ -44,6 +44,12 @@ func NewReviewService(s *store.Store, tmux TmuxManager, bus *events.Bus) *Review
 	return &ReviewService{store: s, tmux: tmux, bus: bus, interactions: NewArtifactInteractionService(s, tmux)}
 }
 
+// SetAgentService wires the agent service for Chimera-aware delivery of
+// review question interactions to Chimera agents via the HTTP API.
+func (r *ReviewService) SetAgentService(a AgentService) {
+	r.interactions.SetAgentService(a)
+}
+
 func (r *ReviewService) Claim(ctx context.Context, tourID, claimantTaskID string) (*store.ArtifactClaim, *store.ArtifactClaim, error) {
 	if _, err := r.store.GetReviewTour(ctx, tourID); err != nil {
 		return nil, nil, err

@@ -27,6 +27,12 @@ func NewPlanService(s *store.Store, tmux TmuxManager, bus *events.Bus) *PlanServ
 	return &PlanService{store: s, tmux: tmux, bus: bus, interactions: NewArtifactInteractionService(s, tmux)}
 }
 
+// SetAgentService wires the agent service for Chimera-aware delivery of
+// plan question interactions to Chimera agents via the HTTP API.
+func (p *PlanService) SetAgentService(a AgentService) {
+	p.interactions.SetAgentService(a)
+}
+
 type PlanOption struct {
 	ID          string `json:"id"`
 	Label       string `json:"label"`

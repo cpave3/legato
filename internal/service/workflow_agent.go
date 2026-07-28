@@ -59,6 +59,12 @@ func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt s
 	return nil
 }
 func (r *WorkflowAgentRunner) PromptAgent(ctx context.Context, taskID, prompt string) error {
+	// Use AgentService.SendMessage for Chimera agents (HTTP API) and
+	// tmux send-keys for non-Chimera agents. This ensures workflow
+	// follow-ups reach the agent through the same path as web follow-ups.
+	if r.agents.HasChimeraEndpoint(ctx, taskID) {
+		return r.agents.SendMessage(ctx, taskID, prompt)
+	}
 	session, err := r.store.GetAgentSessionByTaskID(ctx, taskID)
 	if err != nil {
 		return err

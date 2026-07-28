@@ -1384,6 +1384,10 @@ func runServeCmd(args []string) int {
 
 	reviewSvc := service.NewReviewService(db, tmuxMgr, bus)
 	planSvc := service.NewPlanService(db, tmuxMgr, bus)
+	if agentSvc != nil {
+		planSvc.SetAgentService(agentSvc)
+		reviewSvc.SetAgentService(agentSvc)
+	}
 	stopInteractionDelivery := planSvc.StartInteractionDelivery(context.Background(), 5*time.Second)
 	defer stopInteractionDelivery()
 	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)
@@ -1689,6 +1693,10 @@ func runTUI() int {
 
 	reviewSvc := service.NewReviewService(db, tmuxMgr, bus)
 	planSvc := service.NewPlanService(db, tmuxMgr, bus)
+	if agentSvc != nil {
+		planSvc.SetAgentService(agentSvc)
+		reviewSvc.SetAgentService(agentSvc)
+	}
 	stopInteractionDelivery := planSvc.StartInteractionDelivery(context.Background(), 5*time.Second)
 	defer stopInteractionDelivery()
 	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)

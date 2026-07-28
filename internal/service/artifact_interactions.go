@@ -9,12 +9,20 @@ import (
 )
 
 type ArtifactInteractionService struct {
-	store *store.Store
-	tmux  TmuxManager
+	store  *store.Store
+	tmux   TmuxManager
+	agents AgentService
 }
 
 func NewArtifactInteractionService(s *store.Store, tmux TmuxManager) *ArtifactInteractionService {
 	return &ArtifactInteractionService{store: s, tmux: tmux}
+}
+
+// SetAgentService wires the agent service for Chimera-aware delivery.
+// When set, artifact interactions for Chimera agents are delivered via
+// the HTTP API instead of tmux send-keys.
+func (d *ArtifactInteractionService) SetAgentService(a AgentService) {
+	d.agents = a
 }
 
 func (d *ArtifactInteractionService) Claim(ctx context.Context, kind, artifactID, claimantTaskID string) (*store.ArtifactClaim, *store.ArtifactClaim, error) {
@@ -51,6 +59,15 @@ func (d *ArtifactInteractionService) Enqueue(ctx context.Context, kind, artifact
 }
 
 func (d *ArtifactInteractionService) Deliver(ctx context.Context, interaction *store.ArtifactInteraction) bool {
+	// For Chimera agents, use the HTTP API via AgentService.SendMessage.
+	if d.agents != nil && d.agents.HasChimeraEndpoint(ctx, interaction.ClaimantTaskID) {
+		if err := d.agents.SendMessage(ctx, interaction.ClaimantTaskID, interaction.Body); err != nil {
+			_ = d.store.MarkArtifactInteractionDelivery(ctx, interaction.ID, false, err.Error())
+			return false
+		}
+		_ = d.store.MarkArtifactInteractionDelivery(ctx, interaction.ID, true, "")
+		return true
+	}
 	if d.tmux == nil {
 		_ = d.store.MarkArtifactInteractionDelivery(ctx, interaction.ID, false, "tmux unavailable")
 		return false
