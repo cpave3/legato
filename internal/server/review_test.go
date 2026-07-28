@@ -167,6 +167,60 @@ func TestDeleteReviewRemovesTourAndRetainsTask(t *testing.T) {
 	}
 }
 
+func TestBulkDeleteReviewsRemovesSelectedToursAndRetainsTask(t *testing.T) {
+	f := newReviewServerFixture(t)
+	ctx := context.Background()
+	second, err := f.svc.EnsureReviewTour(ctx, "task-1", "follow-up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.Ready(ctx, second.ID, "follow-up ready"); err != nil {
+		t.Fatal(err)
+	}
+
+	body := fmt.Sprintf(`{"tour_ids":[%q,%q]}`, f.tourID, second.ID)
+	req := httptest.NewRequest(http.MethodPost, "/api/review/tours/bulk-delete", strings.NewReader(body))
+	res := httptest.NewRecorder()
+	f.server.Handler().ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("POST status = %d, want %d, body = %s", res.Code, http.StatusOK, res.Body.String())
+	}
+	var response struct {
+		Deleted int `json:"deleted"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Deleted != 2 {
+		t.Fatalf("deleted = %d, want 2", response.Deleted)
+	}
+	for _, tourID := range []string{f.tourID, second.ID} {
+		if _, err := f.store.GetReviewTour(ctx, tourID); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("tour %q still exists: %v", tourID, err)
+		}
+	}
+	if _, err := f.store.GetTask(ctx, "task-1"); err != nil {
+		t.Fatalf("task removed with reviews: %v", err)
+	}
+}
+
+func TestBulkDeleteReviewsIsAtomicWhenTourIsMissing(t *testing.T) {
+	f := newReviewServerFixture(t)
+
+	body := fmt.Sprintf(`{"tour_ids":[%q,"missing"]}`, f.tourID)
+	req := httptest.NewRequest(http.MethodPost, "/api/review/tours/bulk-delete", strings.NewReader(body))
+	res := httptest.NewRecorder()
+	f.server.Handler().ServeHTTP(res, req)
+
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("POST status = %d, want %d, body = %s", res.Code, http.StatusNotFound, res.Body.String())
+	}
+	if _, err := f.store.GetReviewTour(context.Background(), f.tourID); err != nil {
+		t.Fatalf("valid selected tour was removed after failed bulk delete: %v", err)
+	}
+}
+
 func TestReviewMutationsUpdateTour(t *testing.T) {
 	f := newReviewServerFixture(t)
 	tour, err := f.svc.Tour(context.Background(), f.tourID)
@@ -337,6 +391,9 @@ func TestReviewAPIRejectsInvalidRequests(t *testing.T) {
 		status int
 	}{
 		{"wrong queue method", http.MethodPost, "/api/review/queue", "", http.StatusMethodNotAllowed},
+		{"wrong bulk delete method", http.MethodGet, "/api/review/tours/bulk-delete", "", http.StatusMethodNotAllowed},
+		{"empty bulk delete", http.MethodPost, "/api/review/tours/bulk-delete", `{"tour_ids":[]}`, http.StatusBadRequest},
+		{"duplicate bulk delete", http.MethodPost, "/api/review/tours/bulk-delete", fmt.Sprintf(`{"tour_ids":[%q,%q]}`, f.tourID, f.tourID), http.StatusBadRequest},
 		{"wrong review method", http.MethodPost, "/api/review/tours/" + f.tourID, "", http.StatusMethodNotAllowed},
 		{"malformed JSON", http.MethodPost, "/api/review/tours/" + f.tourID + "/steps/" + stepID + "/question", `{`, http.StatusBadRequest},
 		{"missing text", http.MethodPost, "/api/review/tours/" + f.tourID + "/steps/" + stepID + "/question", `{}`, http.StatusBadRequest},

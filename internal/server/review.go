@@ -25,6 +25,7 @@ type ReviewService interface {
 	RestartWithFeedback(ctx context.Context, tourID, feedback string) error
 	Complete(ctx context.Context, tourID string) error
 	Delete(ctx context.Context, tourID string) error
+	DeleteMany(ctx context.Context, tourIDs []string) (int, error)
 }
 
 // SetReviewService sets the optional service used by review endpoints.
@@ -55,6 +56,47 @@ func (s *Server) reviewHandler() http.HandlerFunc {
 			return
 		}
 		s.writeJSON(w, http.StatusOK, tour)
+	}
+}
+
+func (s *Server) reviewBulkDeleteHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !s.requireReviewService(w) {
+			return
+		}
+		var req struct {
+			TourIDs []string `json:"tour_ids"`
+		}
+		if err := decodeJSON(r, &req); err != nil {
+			s.writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if len(req.TourIDs) == 0 {
+			s.writeError(w, http.StatusBadRequest, "tour_ids must not be empty")
+			return
+		}
+		seen := make(map[string]struct{}, len(req.TourIDs))
+		for _, id := range req.TourIDs {
+			if strings.TrimSpace(id) == "" {
+				s.writeError(w, http.StatusBadRequest, "tour_ids must not contain empty IDs")
+				return
+			}
+			if _, exists := seen[id]; exists {
+				s.writeError(w, http.StatusBadRequest, "tour_ids must not contain duplicates")
+				return
+			}
+			seen[id] = struct{}{}
+		}
+		deleted, err := s.reviews.DeleteMany(r.Context(), req.TourIDs)
+		if err != nil {
+			s.writeReviewError(w, err)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]int{"deleted": deleted})
 	}
 }
 

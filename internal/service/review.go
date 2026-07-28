@@ -801,15 +801,21 @@ func uniqueReviewChapterHunks(hunks []store.ReviewChapterHunk) []store.ReviewCha
 // Delete discards a task's complete review packet. Git history and task state
 // are untouched; the next capture starts a fresh tour.
 func (r *ReviewService) Delete(ctx context.Context, tourID string) error {
-	tour, err := r.store.GetReviewTour(ctx, tourID)
+	_, err := r.DeleteMany(ctx, []string{tourID})
+	return err
+}
+
+// DeleteMany atomically discards complete review packets and publishes queue
+// updates only after every selected tour has been removed.
+func (r *ReviewService) DeleteMany(ctx context.Context, tourIDs []string) (int, error) {
+	tours, err := r.store.DeleteReviewTours(ctx, tourIDs)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if err := r.store.DeleteReviewTour(ctx, tourID); err != nil {
-		return err
+	for _, tour := range tours {
+		r.publishDeleted(tour.ID, tour.TaskID)
 	}
-	r.publishDeleted(tour.ID, tour.TaskID)
-	return nil
+	return len(tours), nil
 }
 
 // Restart discards all authored and generated artifacts while preserving the

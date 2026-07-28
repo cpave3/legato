@@ -586,29 +586,53 @@ func (s *Store) UnreviewedReviewCounts(ctx context.Context) (map[string]int, err
 // DeleteReviewTour atomically removes every review artifact for a tour while
 // leaving the task, repository, worktree, and agent records untouched.
 func (s *Store) DeleteReviewTour(ctx context.Context, id string) error {
+	_, err := s.DeleteReviewTours(ctx, []string{id})
+	return err
+}
+
+// DeleteReviewTours removes complete review packets in one transaction. Every
+// requested tour must exist or no review is removed.
+func (s *Store) DeleteReviewTours(ctx context.Context, ids []string) ([]ReviewTour, error) {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer tx.Rollback()
-	for _, query := range []string{
-		"DELETE FROM plan_review_origins WHERE review_pass_id IN (SELECT id FROM review_passes WHERE tour_id = ?)",
-		"DELETE FROM review_plan_request_findings WHERE request_id IN (SELECT id FROM review_plan_requests WHERE tour_id = ?)",
-		"DELETE FROM review_plan_requests WHERE tour_id = ?",
-		"DELETE FROM review_findings WHERE tour_id = ?",
-		"DELETE FROM review_chapter_hunks WHERE tour_id = ?",
-		"DELETE FROM review_hunk_notes WHERE tour_id = ?",
-		"DELETE FROM review_transcript WHERE tour_id = ?",
-		"DELETE FROM review_steps WHERE tour_id = ?",
-		"DELETE FROM review_pass_plans WHERE pass_id IN (SELECT id FROM review_passes WHERE tour_id = ?)",
-		"DELETE FROM review_passes WHERE tour_id = ?",
-		"DELETE FROM review_tours WHERE id = ?",
-	} {
-		if _, err := tx.ExecContext(ctx, query, id); err != nil {
-			return err
+
+	tours := make([]ReviewTour, 0, len(ids))
+	for _, id := range ids {
+		var tour ReviewTour
+		if err := tx.GetContext(ctx, &tour, "SELECT * FROM review_tours WHERE id = ?", id); errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		} else if err != nil {
+			return nil, err
+		}
+		tours = append(tours, tour)
+	}
+
+	for _, id := range ids {
+		for _, query := range []string{
+			"DELETE FROM plan_review_origins WHERE review_pass_id IN (SELECT id FROM review_passes WHERE tour_id = ?)",
+			"DELETE FROM review_plan_request_findings WHERE request_id IN (SELECT id FROM review_plan_requests WHERE tour_id = ?)",
+			"DELETE FROM review_plan_requests WHERE tour_id = ?",
+			"DELETE FROM review_findings WHERE tour_id = ?",
+			"DELETE FROM review_chapter_hunks WHERE tour_id = ?",
+			"DELETE FROM review_hunk_notes WHERE tour_id = ?",
+			"DELETE FROM review_transcript WHERE tour_id = ?",
+			"DELETE FROM review_steps WHERE tour_id = ?",
+			"DELETE FROM review_pass_plans WHERE pass_id IN (SELECT id FROM review_passes WHERE tour_id = ?)",
+			"DELETE FROM review_passes WHERE tour_id = ?",
+			"DELETE FROM review_tours WHERE id = ?",
+		} {
+			if _, err := tx.ExecContext(ctx, query, id); err != nil {
+				return nil, err
+			}
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return tours, nil
 }
 
 // RestartReviewTour atomically removes review artifacts and resets lifecycle
