@@ -399,7 +399,11 @@ func (s *Server) archivedTasksHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		s.writeJSON(w, http.StatusOK, cards)
+		response := make([]CardResponse, len(cards))
+		for i, card := range cards {
+			response[i] = CardResponse{ID: card.ID, Title: card.Title, Priority: card.Priority, IssueType: card.IssueType, Status: card.Status, Provider: card.Provider, HasWarning: card.HasWarning, WorkspaceName: card.WorkspaceName, WorkspaceColor: card.WorkspaceColor}
+		}
+		s.writeJSON(w, http.StatusOK, response)
 	}
 }
 

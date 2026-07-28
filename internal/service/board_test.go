@@ -24,6 +24,29 @@ func setupTestBoard(t *testing.T) (*store.Store, *events.Bus, BoardService) {
 	return s, bus, svc
 }
 
+func TestListArchivedTasksPreservesWorkspace(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	ctx := context.Background()
+	color := "#123456"
+	workspaceID, err := s.CreateWorkspace(ctx, store.Workspace{Name: "Platform", Color: &color})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(ctx, store.Task{ID: "LEG-44", Title: "Archived task", Status: "Done", WorkspaceID: &workspaceID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ArchiveTask(ctx, "LEG-44"); err != nil {
+		t.Fatal(err)
+	}
+	cards, err := svc.ListArchivedTasks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cards) != 1 || cards[0].WorkspaceName != "Platform" || cards[0].WorkspaceColor != "#123456" {
+		t.Fatalf("cards = %+v", cards)
+	}
+}
+
 func seedColumns(t *testing.T, s *store.Store) {
 	t.Helper()
 	ctx := context.Background()

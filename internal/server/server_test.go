@@ -29,6 +29,7 @@ type mockBoardService struct {
 	searchResults    []service.Card
 	createdCard      *service.Card
 	archiveCount     int
+	archivedCards    []service.Card
 	listColumnsCalls int
 	listCardsCalls   int
 
@@ -114,10 +115,25 @@ func (m *mockBoardService) ArchiveTask(_ context.Context, id string) error {
 	return nil
 }
 func (m *mockBoardService) ListArchivedTasks(_ context.Context) ([]service.Card, error) {
-	return nil, nil
+	return m.archivedCards, nil
 }
 func (m *mockBoardService) RestoreTask(_ context.Context, _ string) error { return nil }
 func (m *mockBoardService) CountDoneCards(_ context.Context) (int, error) { return 0, nil }
+
+func TestArchivedTasksEndpointUsesBoardCardJSONShape(t *testing.T) {
+	board := &mockBoardService{archivedCards: []service.Card{{ID: "LEG-44", Title: "Archived task", Status: "Done", WorkspaceName: "Platform", WorkspaceColor: "#123456"}}}
+	s := New(board, nil, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/tasks/archived", nil)
+	rec := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"id":"LEG-44"`) || !strings.Contains(body, `"workspace_name":"Platform"`) || strings.Contains(body, `"ID"`) {
+		t.Fatalf("body=%s", body)
+	}
+}
 
 type mockSyncService struct {
 	searchResults []service.RemoteSearchResult

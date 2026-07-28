@@ -557,9 +557,25 @@ func (b *boardService) ListArchivedTasks(ctx context.Context) ([]Card, error) {
 	if err != nil {
 		return nil, err
 	}
+	workspaces, err := b.store.ListWorkspaces(ctx)
+	if err != nil {
+		return nil, err
+	}
+	workspaceByID := make(map[int]store.Workspace, len(workspaces))
+	for _, workspace := range workspaces {
+		workspaceByID[workspace.ID] = workspace
+	}
 	cards := make([]Card, len(tasks))
 	for i, task := range tasks {
 		cards[i] = taskToCard(task)
+		if task.WorkspaceID != nil {
+			if workspace, ok := workspaceByID[*task.WorkspaceID]; ok {
+				cards[i].WorkspaceName = workspace.Name
+				if workspace.Color != nil {
+					cards[i].WorkspaceColor = *workspace.Color
+				}
+			}
+		}
 	}
 	return cards, nil
 }
