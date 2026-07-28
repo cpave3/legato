@@ -28,7 +28,7 @@ interface ChimeraEvent {
 
 interface SnapshotMessage {
   role: string
-  content: string | { type: string; text: string }[]
+  content: string | Array<{ type: string; text?: string; toolCallId?: string; toolName?: string; input?: unknown; output?: unknown }>
 }
 
 interface SnapshotToolCall {
@@ -255,66 +255,62 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
           if (tc.callId) seenCallIds.current.add(tc.callId)
         }
 
-        // Insert messages and interleave tool calls chronologically.
-        // The snapshot's toolCalls array is in chronological order, but we
-        // can't precisely map which assistant message produced which tool
-        // call. Instead, we insert all tool calls once, after the last
-        // assistant message (or after the last message if there are none).
-        let toolCallsPlaced = false
+        // Walk messages and interleave text and tool calls in conversation
+        // order. Assistant messages contain tool-call parts inline; tool
+        // result messages contain tool-result parts. We match tool-call
+        // parts to the flat toolCalls[] array by chronological order.
+        let tcIdx = 0 // index into the flat toolCalls array
         for (let i = 0; i < msgs.length; i++) {
           const msg = msgs[i]
-          const text = extractMessageText(msg)
-          if (!text) continue
           // Skip the system/role prompt (first user message)
           if (i === 0 && msg.role === "user") continue
 
-          snapshotItems.push({
-            key: `snap-msg-${i}`,
-            role: msg.role as ItemRole,
-            text,
-          })
-
-          // Insert tool calls once, after the last assistant message
-          if (msg.role === "assistant" && !toolCallsPlaced &&
-              (i === msgs.length - 1 || msgs[i + 1]?.role !== "assistant")) {
-            toolCallsPlaced = true
-            for (let j = 0; j < tcs.length; j++) {
+          if (typeof msg.content === "string") {
+            if (msg.content) {
               snapshotItems.push({
-                key: `snap-tc-${j}`,
+                key: `snap-msg-${i}`,
+                role: msg.role as ItemRole,
+                text: msg.content,
+              })
+            }
+            continue
+          }
+
+          if (!Array.isArray(msg.content)) continue
+
+          // Extract text parts as a single assistant/user message
+          const textParts = msg.content.filter((p) => p.type === "text" && p.text)
+          if (textParts.length > 0) {
+            snapshotItems.push({
+              key: `snap-msg-${i}`,
+              role: msg.role as ItemRole,
+              text: textParts.map((p) => p.text!).join(""),
+            })
+          }
+
+          // Extract tool-call parts and insert as tool cards inline
+          const toolCallCount = msg.content.filter((p) => p.type === "tool-call").length
+          for (let _ = 0; _ < toolCallCount; _++) {
+            const tc = tcIdx < tcs.length ? tcs[tcIdx] : undefined
+            if (tc) {
+              if (tc.callId) seenCallIds.current.add(tc.callId)
+              snapshotItems.push({
+                key: `snap-tc-${tcIdx}`,
                 role: "tool" as ItemRole,
                 text: "",
                 tool: {
-                  key: `snap-tc-${j}`,
-                  toolName: tcs[j].name,
-                  args: tcs[j].args,
-                  result: tcs[j]?.result,
-                  summary: tcs[j]?.display?.summary,
-                  durationMs: tcs[j]?.endedAt && tcs[j]?.startedAt
-                    ? tcs[j]!.endedAt! - tcs[j]!.startedAt!
+                  key: tc.callId || `snap-tc-${tcIdx}`,
+                  toolName: tc.name,
+                  args: tc.args as Record<string, unknown>,
+                  result: tc.result as Record<string, unknown> | undefined,
+                  summary: tc.display?.summary,
+                  durationMs: tc.endedAt && tc.startedAt
+                    ? tc.endedAt - tc.startedAt
                     : undefined,
                 },
               })
+              tcIdx++
             }
-          }
-        }
-        // If no assistant messages were found, append tool calls at the end
-        if (!toolCallsPlaced) {
-          for (let j = 0; j < tcs.length; j++) {
-            snapshotItems.push({
-              key: `snap-tc-${j}`,
-              role: "tool" as ItemRole,
-              text: "",
-              tool: {
-                key: `snap-tc-${j}`,
-                toolName: tcs[j].name,
-                args: tcs[j].args,
-                result: tcs[j]?.result,
-                summary: tcs[j]?.display?.summary,
-                durationMs: tcs[j]?.endedAt && tcs[j]?.startedAt
-                  ? tcs[j]!.endedAt! - tcs[j]!.startedAt!
-                  : undefined,
-              },
-            })
           }
         }
         setItems(snapshotItems)
@@ -1023,14 +1019,4 @@ function ToolCallCard({ tool }: { tool: ToolCallItem }) {
   )
 }
 
-function extractMessageText(msg: SnapshotMessage): string {
-  const content = msg.content
-  if (typeof content === "string") return content
-  if (Array.isArray(content)) {
-    return content
-      .filter((p) => p.type === "text")
-      .map((p) => p.text)
-      .join("")
-  }
-  return ""
-}
+
