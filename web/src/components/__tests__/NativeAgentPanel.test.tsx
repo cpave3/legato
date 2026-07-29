@@ -27,6 +27,33 @@ describe("NativeAgentPanel", () => {
     websocketConnected = true
   })
 
+  it("anchors the scroll-to-bottom action inside the conversation viewport", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({
+          id: "session-1",
+          status: "idle",
+          messages: [
+            { role: "user", content: "system" },
+            { role: "assistant", content: [{ type: "text", text: "A long conversation" }] },
+          ],
+          toolCalls: [],
+        }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await within(view.container).findByText("A long conversation")
+    const viewport = within(view.container).getByRole("region", { name: "Conversation" })
+    const scrollArea = viewport.querySelector("[data-conversation-scroll]") as HTMLDivElement
+    Object.defineProperties(scrollArea, {
+      scrollHeight: { value: 1000, configurable: true },
+      clientHeight: { value: 300, configurable: true },
+      scrollTop: { value: 100, writable: true, configurable: true },
+    })
+    fireEvent.scroll(scrollArea)
+
+    expect(within(viewport).getByTitle("Scroll to bottom")).not.toBeNull()
+  })
+
   it("queues a message through Chimera while the agent is working", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
