@@ -321,7 +321,9 @@ describe("NativeAgentPanel", () => {
     }))
 
     await waitFor(() => expect(bangExecuted).toBe(true))
-    expect(await within(view.container).findByText(/done/)).not.toBeNull()
+    // The bang card should be visible with the command and output
+    expect(await within(view.container).findByText("echo done")).not.toBeNull()
+    expect(within(view.container).getByText("exit 0")).not.toBeNull()
   })
 
   it("anchors the scroll-to-bottom action inside the conversation viewport", async () => {

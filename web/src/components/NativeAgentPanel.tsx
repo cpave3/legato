@@ -511,7 +511,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     <div className="relative flex h-full flex-col bg-zinc-950">
       {/* Conversation viewport owns both scrolling and its floating action. */}
       <div role="region" aria-label="Conversation" className="relative min-h-0 flex-1">
-        <div data-conversation-scroll ref={scrollRef} className="h-full overflow-y-auto" onScroll={(e) => { const el = e.currentTarget; const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40; isScrolledUpRef.current = !atBottom; setIsScrolledUp(!atBottom) }}>
+        <div data-conversation-scroll ref={scrollRef} className="h-full overflow-y-auto overflow-x-hidden" onScroll={(e) => { const el = e.currentTarget; const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40; isScrolledUpRef.current = !atBottom; setIsScrolledUp(!atBottom) }}>
           {items.length === 0 && (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-zinc-500">
@@ -776,7 +776,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
           </div>
         )}
         <div className="flex items-end gap-2">
-          <div className="relative flex-1">
+          <div className="relative flex-1 min-w-0">
             {isBang && (
               <div className="absolute left-2.5 top-1.5 flex items-center gap-1 text-amber-400 pointer-events-none">
                 <Terminal size={13} />
@@ -790,7 +790,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
               onKeyDown={handleKeyDown}
               placeholder={busy ? "Queue a message..." : "Send a message..."}
               rows={2}
-              className={`flex-1 resize-none rounded-lg border bg-zinc-900 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none disabled:opacity-50 ${isBang ? "border-amber-500/60 focus:border-amber-400 pt-7" : "border-zinc-700 focus:border-zinc-500"}`}
+              className={`w-full resize-none rounded-lg border bg-zinc-900 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none disabled:opacity-50 ${isBang ? "border-amber-500/60 focus:border-amber-400 pt-7" : "border-zinc-700 focus:border-zinc-500"}`}
             />
           </div>
           <div className="flex flex-col gap-1">

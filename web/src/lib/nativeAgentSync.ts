@@ -103,6 +103,8 @@ export function createNativeSyncState(items: NativeConversationItem[] = [], call
   }
 }
 
+const bangResultPattern = /^!.+ \(exit -?\d+(?:, timed out)?\)/
+
 export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncState {
   const items: NativeConversationItem[] = []
   const calls = snapshot.toolCalls ?? []
@@ -111,10 +113,14 @@ export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncSta
     const message = snapshot.messages![index]
     if (index === 0 && message.role === "user") continue
     if (typeof message.content === "string") {
+      // Skip user messages that are bang command results (already rendered as bang cards)
+      if (message.role === "user" && bangResultPattern.test(message.content)) continue
       if (message.content) items.push({ key: `snap-msg-${index}`, role: message.role as NativeItemRole, text: message.content })
       continue
     }
     const text = message.content.filter((part) => part.type === "text" && part.text).map((part) => part.text).join("")
+    // Skip assistant messages that are bang command results (already rendered as bang cards)
+    if (message.role === "assistant" && bangResultPattern.test(text)) continue
     if (text) items.push({ key: `snap-msg-${index}`, role: message.role as NativeItemRole, text })
     const toolCount = message.content.filter((part) => part.type === "tool-call").length
     for (let offset = 0; offset < toolCount && callIndex < calls.length; offset++, callIndex++) {
@@ -148,6 +154,11 @@ export function reconcileNativeSnapshot(
   queuedEvents: NativeEvent[],
 ): NativeSyncState {
   let next = stateFromNativeSnapshot(snapshot)
+  // Preserve local-only bang items that don't exist in the Chimera snapshot
+  const previousBangs = previous.items.filter((item) => item.role === "bang" && item.bang)
+  if (previousBangs.length > 0) {
+    next.items = [...next.items, ...previousBangs]
+  }
   const previousSkills = new Map(previous.items.flatMap((item) => item.tool?.skillName
     ? [[item.tool.key, { skillName: item.tool.skillName, skillSource: item.tool.skillSource }] as const]
     : []))
