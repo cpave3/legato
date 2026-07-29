@@ -209,11 +209,11 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       if (generation !== syncGenerationRef.current) return
       setMode(snapshot.mode || "")
       replaceSyncState(reconcileNativeSnapshot(snapshot, syncStateRef.current, eventQueue))
-      requestAnimationFrame(() => {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
         if (!scrollRef.current) return
         if (scrollAfterSync || scrollAnchor?.atBottom) scrollToBottom()
         else if (scrollAnchor) scrollRef.current.scrollTop = scrollAnchor.top
-      })
+      }))
     } catch (reason) {
       if (generation === syncGenerationRef.current) {
         let next = syncStateRef.current

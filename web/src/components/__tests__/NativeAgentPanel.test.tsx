@@ -382,7 +382,9 @@ describe("NativeAgentPanel", () => {
       clientHeight: { value: 300, configurable: true },
       scrollTop: { value: 0, writable: true, configurable: true },
     })
-    await waitFor(() => expect(scrollArea.scrollTop).toBe(1200))
+    // Wait for the double-rAF initial mount scroll to complete before
+    // simulating the user scrolling into history.
+    await waitFor(() => expect(scrollArea.scrollTop).toBe(1200), { timeout: 2000 })
     scrollArea.scrollTop = 200
     fireEvent.scroll(scrollArea)
     act(() => websocketHandler?.({
