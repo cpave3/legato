@@ -189,11 +189,13 @@ func (m *mockSyncService) Sync(_ context.Context) (*service.SyncResult, error) {
 func (m *mockSyncService) Status() service.SyncStatus                          { return service.SyncStatus{} }
 
 type promptAgentService struct {
-	agent          service.AgentSession
-	setActivities  []string
-	setWorkingDirs []string
-	queuedTaskID   string
-	queuedMessage  string
+	agent            service.AgentSession
+	setActivities    []string
+	setWorkingDirs   []string
+	queuedTaskID     string
+	queuedMessage    string
+	chimeraEndpoint  string
+	chimeraSessionID string
 }
 
 func (p *promptAgentService) SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error {
@@ -258,10 +260,15 @@ func (p *promptAgentService) ResolvePermission(context.Context, string, string, 
 	return nil
 }
 func (p *promptAgentService) HasChimeraEndpoint(context.Context, string) bool {
-	return false
+	return p.chimeraEndpoint != ""
 }
 func (p *promptAgentService) GetAgentSession(context.Context, string) (*store.AgentSession, error) {
-	return nil, fmt.Errorf("not found")
+	if p.chimeraEndpoint == "" {
+		return nil, fmt.Errorf("not found")
+	}
+	ep := p.chimeraEndpoint
+	sid := p.chimeraSessionID
+	return &store.AgentSession{ChimeraEndpoint: &ep, ChimeraSessionID: &sid}, nil
 }
 func (m *mockSyncService) Subscribe() <-chan service.SyncEvent     { return nil }
 func (m *mockSyncService) StartScheduler(_ context.Context) func() { return func() {} }

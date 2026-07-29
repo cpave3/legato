@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/cpave3/legato/internal/engine/chimera"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -48,7 +49,43 @@ func (a *ChimeraInteractionAdapter) SendMessage(ctx context.Context, taskID, mes
 		return err
 	}
 	client := a.clientFactory(endpoint)
+
+	// Expand @path (read) and #path (write) attachment tokens. Only idle
+	// turns process attachments; QueueMessage remains plain text.
+	cwd, err := a.getSessionCWD(ctx, client, sessionID)
+	if err != nil {
+		return err
+	}
+	tokens := parseChimeraAttachments(message, cwd, os.Getenv("HOME"))
+	for _, token := range tokens {
+		if err := client.AddPath(ctx, sessionID, token.Kind, token.Absolute); err != nil {
+			return fmt.Errorf("attach %s: %w", token.Raw, err)
+		}
+		body, err := readChimeraAttachment(token.Absolute)
+		if err != nil {
+			return fmt.Errorf("attach %s: %w", token.Raw, err)
+		}
+		prefix := "@"
+		if token.Kind == "write" {
+			prefix = "#"
+		}
+		if err := client.PostMessageAppend(ctx, sessionID, fmt.Sprintf("[auto-attached %s%s]\n%s", prefix, token.Raw, body)); err != nil {
+			return fmt.Errorf("attach %s: %w", token.Raw, err)
+		}
+	}
+
 	return client.PostMessage(ctx, sessionID, message)
+}
+
+func (a *ChimeraInteractionAdapter) getSessionCWD(ctx context.Context, client *chimera.Client, sessionID string) (string, error) {
+	snap, err := client.GetSession(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	if snap.CWD == "" {
+		return "", fmt.Errorf("chimera session has no cwd")
+	}
+	return snap.CWD, nil
 }
 
 func (a *ChimeraInteractionAdapter) QueueMessage(ctx context.Context, taskID, message string) error {

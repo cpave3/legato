@@ -189,6 +189,27 @@ func (c *Client) postMessage(ctx context.Context, sessionID, content string, app
 	return nil
 }
 
+// AddPath grants read or write access to a path on the Chimera session via
+// POST /v1/sessions/:id/paths. kind is "read" or "write".
+func (c *Client) AddPath(ctx context.Context, sessionID, kind, path string) error {
+	body := map[string]string{"kind": kind, "path": path}
+	bodyBytes, _ := json.Marshal(body)
+	pathURL := "/v1/sessions/" + url.PathEscape(sessionID) + "/paths"
+	resp, err := c.do(ctx, http.MethodPost, pathURL, bodyBytes)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == 400 {
+		errBytes, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("%s", strings.TrimSpace(string(errBytes)))
+	}
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("POST %s: %s", pathURL, resp.Status)
+	}
+	return nil
+}
+
 // Interrupt sends an interrupt to the session via POST /v1/sessions/:id/interrupt.
 func (c *Client) Interrupt(ctx context.Context, sessionID string) error {
 	resp, err := c.do(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/interrupt", nil)
@@ -433,21 +454,21 @@ func ParseLockfile(data []byte) (*Lockfile, error) {
 // shutdown. It ensures events are delivered to the handler without
 // blocking the caller and handles reconnection.
 type EventSubscriber struct {
-	client   *Client
+	client    *Client
 	sessionID string
-	handler  func(EventEnvelope)
-	mu       sync.Mutex
-	lastID   string
-	cancel   context.CancelFunc
+	handler   func(EventEnvelope)
+	mu        sync.Mutex
+	lastID    string
+	cancel    context.CancelFunc
 }
 
 // NewEventSubscriber creates a subscriber that tracks the last event ID
 // for gap-free replay on reconnect.
 func NewEventSubscriber(client *Client, sessionID string, handler func(EventEnvelope)) *EventSubscriber {
 	return &EventSubscriber{
-		client:   client,
+		client:    client,
 		sessionID: sessionID,
-		handler:  handler,
+		handler:   handler,
 	}
 }
 

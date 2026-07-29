@@ -31,7 +31,7 @@ type Server struct {
 	server               *http.Server
 	hub                  *Hub
 	streams              *streamManager
-	chimeraStreams      *chimeraStreamManager
+	chimeraStreams       *chimeraStreamManager
 	tlsCert              string
 	tlsKey               string
 	caCertPath           string
@@ -65,14 +65,14 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	s := &Server{
 		board:          board,
 		agents:         agents,
-		swarm:           swarm,
-		tmux:            tmux,
-		bus:             bus,
-		addr:            addr,
-		workDir:         workDir,
-		hub:             newHub(),
-		streams:         sm,
-		chimeraStreams:  newChimeraStreamManager(),
+		swarm:          swarm,
+		tmux:           tmux,
+		bus:            bus,
+		addr:           addr,
+		workDir:        workDir,
+		hub:            newHub(),
+		streams:        sm,
+		chimeraStreams: newChimeraStreamManager(),
 	}
 	s.chimeraStreams.agents = agents
 	// When a pipe-pane stream ends (shell exit), reconcile DB state
@@ -168,6 +168,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/{task_id}/chimera/modes", s.chimeraModesHandler())
 	mux.HandleFunc("/api/agents/{task_id}/chimera/commands", s.chimeraCommandsHandler())
 	mux.HandleFunc("/api/agents/{task_id}/chimera/skills", s.chimeraSkillsHandler())
+	mux.HandleFunc("/api/agents/{task_id}/chimera/bang", s.chimeraBangHandler())
 	mux.HandleFunc("/ws", s.wsHandler())
 
 	// SPA fallback — serve embedded frontend for all non-API paths.
