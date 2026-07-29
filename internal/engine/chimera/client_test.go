@@ -97,6 +97,22 @@ func TestPostMessage(t *testing.T) {
 	}
 }
 
+func TestPostMessageAppendUsesChimeraQueue(t *testing.T) {
+	var requestURI string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestURI = r.URL.RequestURI()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	if err := NewClient(srv.URL).PostMessageAppend(context.Background(), "sess-1", "next"); err != nil {
+		t.Fatalf("PostMessageAppend: %v", err)
+	}
+	if requestURI != "/v1/sessions/sess-1/messages?append=true" {
+		t.Fatalf("request URI = %q", requestURI)
+	}
+}
+
 func TestPostMessageBusy(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(409)

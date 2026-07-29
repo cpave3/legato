@@ -27,6 +27,25 @@ describe("NativeAgentPanel", () => {
     websocketConnected = true
   })
 
+  it("queues a message through Chimera while the agent is working", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    const composer = await within(view.container).findByPlaceholderText("Queue a message...")
+    expect((composer as HTMLTextAreaElement).disabled).toBe(false)
+    fireEvent.change(composer, { target: { value: "Check the tests next" } })
+    fireEvent.click(within(view.container).getByRole("button", { name: "Queue" }))
+
+    expect(send).toHaveBeenCalledWith({
+      type: "agent_message",
+      agent_id: "task-1",
+      content: "Check the tests next",
+      queue: true,
+    })
+  })
+
   it("shows current context usage instead of cumulative session tokens", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)

@@ -148,6 +148,23 @@ func TestSettingsEndpointIncludesRepositoryPresets(t *testing.T) {
 	}
 }
 
+func TestAgentMessageQueuesThroughServiceWhenRequested(t *testing.T) {
+	agents := &promptAgentService{}
+	s := New(nil, agents, nil, "")
+	client := &wsClient{ctx: context.Background(), sendFn: func(WSMessage) {}}
+
+	s.handleWSMessage(client, WSMessage{
+		Type:    MsgAgentMessage,
+		AgentID: "task-1",
+		Content: "Follow this up next",
+		Queue:   true,
+	})
+
+	if agents.queuedTaskID != "task-1" || agents.queuedMessage != "Follow this up next" {
+		t.Fatalf("queued task=%q message=%q", agents.queuedTaskID, agents.queuedMessage)
+	}
+}
+
 func TestArchivedTasksEndpointUsesBoardCardJSONShape(t *testing.T) {
 	board := &mockBoardService{archivedCards: []service.Card{{ID: "LEG-44", Title: "Archived task", Status: "Done", WorkspaceName: "Platform", WorkspaceColor: "#123456"}}}
 	s := New(board, nil, nil, "")
@@ -175,6 +192,8 @@ type promptAgentService struct {
 	agent          service.AgentSession
 	setActivities  []string
 	setWorkingDirs []string
+	queuedTaskID   string
+	queuedMessage  string
 }
 
 func (p *promptAgentService) SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error {
@@ -225,6 +244,11 @@ func (p *promptAgentService) GetTaskChimeraSessionID(context.Context, string) (s
 	return "", nil
 }
 func (p *promptAgentService) SendMessage(context.Context, string, string) error {
+	return nil
+}
+func (p *promptAgentService) QueueMessage(_ context.Context, taskID, message string) error {
+	p.queuedTaskID = taskID
+	p.queuedMessage = message
 	return nil
 }
 func (p *promptAgentService) InterruptAgent(context.Context, string) error {

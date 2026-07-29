@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/prompt"
+	"github.com/cpave3/legato/internal/service"
 	"nhooyr.io/websocket"
 )
 
@@ -77,6 +78,7 @@ type WSMessage struct {
 	SourceKey      string              `json:"source_key,omitempty"`
 	RequestID      string              `json:"request_id,omitempty"`
 	Cursor         string              `json:"cursor,omitempty"`
+	Queue          bool                `json:"queue,omitempty"`
 	Decision       string              `json:"decision,omitempty"`
 	RememberScope  string              `json:"remember_scope,omitempty"`
 }
@@ -291,7 +293,18 @@ func (s *Server) handleAgentMessage(client *wsClient, msg WSMessage) {
 		client.send(WSMessage{Type: MsgError, Error: "agent_id and content are required"})
 		return
 	}
-	if err := s.agents.SendMessage(context.Background(), msg.AgentID, msg.Content); err != nil {
+	var err error
+	if msg.Queue {
+		queuer, ok := s.agents.(service.AgentMessageQueuer)
+		if !ok {
+			client.send(WSMessage{Type: MsgError, Error: "agent does not support queued messages"})
+			return
+		}
+		err = queuer.QueueMessage(context.Background(), msg.AgentID, msg.Content)
+	} else {
+		err = s.agents.SendMessage(context.Background(), msg.AgentID, msg.Content)
+	}
+	if err != nil {
 		client.send(WSMessage{Type: MsgError, Error: "send message failed: " + err.Error()})
 	}
 }

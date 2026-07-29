@@ -258,10 +258,10 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   }, [subscribe, agentId, applyEvent, isScrolledUp, replaceSyncState, resync])
 
   const handleSend = useCallback(() => {
-    if (!draft.trim() || busy) return
-    send({ type: "agent_message", agent_id: agentId, content: draft.trim() })
+    if (!draft.trim()) return
+    send({ type: "agent_message", agent_id: agentId, content: draft.trim(), queue: busy })
     setDraft("")
-    replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
+    if (!busy) replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
   }, [draft, busy, agentId, send, replaceSyncState])
 
   const handleInterrupt = useCallback(() => {
@@ -598,18 +598,17 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={busy ? "Agent is working..." : "Send a message..."}
-            disabled={busy}
+            placeholder={busy ? "Queue a message..." : "Send a message..."}
             rows={2}
             className="flex-1 resize-none rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
           />
           <div className="flex flex-col gap-1">
             <button
               onClick={handleSend}
-              disabled={!draft.trim() || busy}
+              disabled={!draft.trim()}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500 disabled:opacity-40"
             >
-              Send
+              {busy ? "Queue" : "Send"}
             </button>
             {busy ? (
               <button

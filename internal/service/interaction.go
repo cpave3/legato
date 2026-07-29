@@ -18,6 +18,8 @@ type AgentInteraction interface {
 	// this is equivalent to send-keys + Enter. For Chimera agents, this
 	// POSTs to the session's messages endpoint.
 	SendMessage(ctx context.Context, taskID, message string) error
+	// QueueMessage delivers a message at the next supported step boundary.
+	QueueMessage(ctx context.Context, taskID, message string) error
 	// Interrupt sends an interrupt to the agent's active turn.
 	Interrupt(ctx context.Context, taskID string) error
 	// ResolvePermission resolves a pending permission request. requestID
@@ -47,6 +49,10 @@ func (a *SendKeysAdapter) SendMessage(ctx context.Context, taskID, message strin
 		return err
 	}
 	return a.tmux.SendKeysMultiline(session.TmuxSession, message)
+}
+
+func (a *SendKeysAdapter) QueueMessage(ctx context.Context, taskID, message string) error {
+	return a.SendMessage(ctx, taskID, message)
 }
 
 func (a *SendKeysAdapter) Interrupt(ctx context.Context, taskID string) error {

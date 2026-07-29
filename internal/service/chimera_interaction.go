@@ -51,6 +51,14 @@ func (a *ChimeraInteractionAdapter) SendMessage(ctx context.Context, taskID, mes
 	return client.PostMessage(ctx, sessionID, message)
 }
 
+func (a *ChimeraInteractionAdapter) QueueMessage(ctx context.Context, taskID, message string) error {
+	endpoint, sessionID, err := a.getEndpointAndSession(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	return a.clientFactory(endpoint).PostMessageAppend(ctx, sessionID, message)
+}
+
 func (a *ChimeraInteractionAdapter) Interrupt(ctx context.Context, taskID string) error {
 	endpoint, sessionID, err := a.getEndpointAndSession(ctx, taskID)
 	if err != nil {

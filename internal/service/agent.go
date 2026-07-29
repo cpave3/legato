@@ -145,6 +145,12 @@ type AgentService interface {
 	GetAgentSession(ctx context.Context, taskID string) (*store.AgentSession, error)
 }
 
+// AgentMessageQueuer is implemented by agent services that can defer a
+// message until the agent reaches a supported step boundary.
+type AgentMessageQueuer interface {
+	QueueMessage(ctx context.Context, taskID, message string) error
+}
+
 type agentService struct {
 	store             *store.Store
 	tmux              TmuxManager
@@ -994,6 +1000,11 @@ func (a *agentService) SendMessage(ctx context.Context, taskID, message string) 
 }
 
 // InterruptAgent sends an interrupt to the agent's active turn.
+// QueueMessage delegates step-boundary delivery to the active interaction adapter.
+func (a *agentService) QueueMessage(ctx context.Context, taskID, message string) error {
+	return a.resolveInteractionAdapter(ctx, taskID).QueueMessage(ctx, taskID, message)
+}
+
 func (a *agentService) InterruptAgent(ctx context.Context, taskID string) error {
 	adapter := a.resolveInteractionAdapter(ctx, taskID)
 	return adapter.Interrupt(ctx, taskID)

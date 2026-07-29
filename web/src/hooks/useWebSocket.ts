@@ -8,6 +8,7 @@ export interface WSMessage {
     | "plan_proposed" | "plan_verdict" | "plan_changed" | "swarm_changed" | "cards_changed" | "review_changed" | "workflow_changed" | "attention_changed"
   agent_id?: string
   cursor?: string
+  queue?: boolean
   content?: string
   full?: boolean
   keys?: string
