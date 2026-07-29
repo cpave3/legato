@@ -117,6 +117,14 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     requestAnimationFrame(scrollToBottom)
   }, [scrollToBottom])
 
+  // Scroll to bottom once the feed has content and after every items update,
+  // unless the user has scrolled up to read history.
+  useEffect(() => {
+    if (!loading && scrollRef.current && !isScrolledUpRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    }
+  }, [loading, syncState.items])
+
   // Load/save draft
   useEffect(() => {
     const saved = localStorage.getItem(draftKey)
@@ -209,11 +217,14 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       if (generation !== syncGenerationRef.current) return
       setMode(snapshot.mode || "")
       replaceSyncState(reconcileNativeSnapshot(snapshot, syncStateRef.current, eventQueue))
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (!scrollRef.current) return
-        if (scrollAfterSync || scrollAnchor?.atBottom) scrollToBottom()
-        else if (scrollAnchor) scrollRef.current.scrollTop = scrollAnchor.top
-      }))
+      if (scrollAfterSync || scrollAnchor?.atBottom) {
+        isScrolledUpRef.current = false
+        setIsScrolledUp(false)
+      } else if (scrollAnchor) {
+        requestAnimationFrame(() => {
+          if (scrollRef.current) scrollRef.current.scrollTop = scrollAnchor.top
+        })
+      }
     } catch (reason) {
       if (generation === syncGenerationRef.current) {
         let next = syncStateRef.current

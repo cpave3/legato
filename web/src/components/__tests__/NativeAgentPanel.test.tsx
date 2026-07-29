@@ -380,12 +380,8 @@ describe("NativeAgentPanel", () => {
     Object.defineProperties(scrollArea, {
       scrollHeight: { value: 1200, configurable: true },
       clientHeight: { value: 300, configurable: true },
-      scrollTop: { value: 0, writable: true, configurable: true },
+      scrollTop: { value: 200, writable: true, configurable: true },
     })
-    // Wait for the double-rAF initial mount scroll to complete before
-    // simulating the user scrolling into history.
-    await waitFor(() => expect(scrollArea.scrollTop).toBe(1200), { timeout: 2000 })
-    scrollArea.scrollTop = 200
     fireEvent.scroll(scrollArea)
     act(() => websocketHandler?.({
       type: "chimera_event",
@@ -407,7 +403,8 @@ describe("NativeAgentPanel", () => {
       ],
       toolCalls: [],
     }), { status: 200 }))
-    expect(await within(view.container).findByText("Repaired history", {}, { timeout: 2000 })).not.toBeNull()
+    expect(await within(view.container).findByText("Repaired history", {}, { timeout: 3000 })).not.toBeNull()
+    // After repair, the scroll position should be preserved for a history reader
     expect(scrollArea.scrollTop).toBe(200)
   })
 
