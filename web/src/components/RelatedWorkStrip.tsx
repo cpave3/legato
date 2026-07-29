@@ -1,10 +1,8 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
-import { ClipboardList, ListChecks, Workflow as WorkflowIcon, ChevronDown, ChevronUp } from "lucide-react"
+import { ClipboardList, ListChecks, Workflow as WorkflowIcon, X, Layers } from "lucide-react"
 import type { RelatedWorkItem } from "../lib/task-activity"
 import type { LegatoNavigationKind } from "../lib/navigation"
-
-const COLLAPSE_THRESHOLD = 4
 
 const KIND_ICON: Record<LegatoNavigationKind, typeof ClipboardList> = {
   plan: ClipboardList,
@@ -51,56 +49,72 @@ interface RelatedWorkStripProps {
 }
 
 /**
- * Compact strip of related plans, reviews, and workflow runs shown above the
- * native agent panel. Collapses beyond COLLAPSE_THRESHOLD items to stay
- * non-intrusive on mobile.
+ * Slide-out drawer of related plans, reviews, and workflow runs. A small
+ * trigger button stays fixed in the top-right corner so it costs no layout
+ * space until opened. The drawer slides in from the right with a backdrop.
  */
 export function RelatedWorkStrip({ items }: RelatedWorkStripProps) {
-  const [expanded, setExpanded] = useState(false)
+  const [open, setOpen] = useState(false)
 
   if (items.length === 0) return null
 
-  const visible = expanded ? items : items.slice(0, COLLAPSE_THRESHOLD)
-  const hiddenCount = items.length - visible.length
-
   return (
-    <div className="border-b border-zinc-800 bg-zinc-950/50 px-3 py-2" data-related-work>
-      <div className="flex flex-wrap items-center gap-2">
-        {visible.map((item) => {
-          const Icon = KIND_ICON[item.kind]
-          return (
-            <Link
-              key={`${item.kind}:${item.id}`}
-              to={item.href}
-              className="group flex items-center gap-1.5 rounded border border-zinc-800 bg-zinc-900 px-2.5 py-1.5 text-xs transition-colors hover:border-zinc-600 hover:bg-zinc-800"
-            >
-              <Icon aria-label={KIND_LABEL[item.kind]} size={13} className="shrink-0 text-zinc-400 group-hover:text-zinc-200" />
-              <span className="max-w-[12rem] truncate text-zinc-200">{item.title}</span>
-              <span className={`shrink-0 ${statusClass(item.status)}`}>{statusLabel(item.status)}</span>
-            </Link>
-          )
-        })}
-        {hiddenCount > 0 && (
-          <button
-            onClick={() => setExpanded(true)}
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
-            aria-label={`Show all ${items.length} items`}
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        aria-label={`Related work (${items.length})`}
+        className="absolute right-3 top-3 z-30 flex items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs text-zinc-300 shadow-lg transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+        data-related-work
+      >
+        <Layers size={14} className="shrink-0 text-zinc-400" />
+        <span>{items.length}</span>
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60" onClick={() => setOpen(false)} data-related-work-backdrop>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Related work"
+            className="flex h-full w-full max-w-sm flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
           >
-            <ChevronDown size={13} />
-            +{hiddenCount} more
-          </button>
-        )}
-        {expanded && items.length > COLLAPSE_THRESHOLD && (
-          <button
-            onClick={() => setExpanded(false)}
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
-            aria-label="Collapse"
-          >
-            <ChevronUp size={13} />
-            Less
-          </button>
-        )}
-      </div>
-    </div>
+            <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-200">
+                <Layers size={16} className="text-zinc-400" />
+                Related work
+              </h2>
+              <button
+                onClick={() => setOpen(false)}
+                aria-label="Close"
+                className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              <ul className="space-y-2">
+                {items.map((item) => {
+                  const Icon = KIND_ICON[item.kind]
+                  return (
+                    <li key={`${item.kind}:${item.id}`}>
+                      <Link
+                        to={item.href}
+                        onClick={() => setOpen(false)}
+                        className="group flex items-center gap-2.5 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-sm transition-colors hover:border-zinc-600 hover:bg-zinc-800"
+                      >
+                        <Icon aria-label={KIND_LABEL[item.kind]} size={15} className="shrink-0 text-zinc-400 group-hover:text-zinc-200" />
+                        <span className="min-w-0 flex-1 truncate text-zinc-200">{item.title}</span>
+                        <span className={`shrink-0 text-xs ${statusClass(item.status)}`}>{statusLabel(item.status)}</span>
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }

@@ -13,13 +13,21 @@ const items: RelatedWorkItem[] = [
 ]
 
 describe("RelatedWorkStrip", () => {
+  it("renders only a trigger button when closed and there are items", () => {
+    render(<MemoryRouter><RelatedWorkStrip items={items} /></MemoryRouter>)
+    expect(screen.getByRole("button", { name: /related work/i })).toBeTruthy()
+    // Links not visible until opened.
+    expect(screen.queryByRole("link", { name: /Add search/ })).toBeNull()
+  })
+
   it("renders nothing when there are no items", () => {
     const { container } = render(<MemoryRouter><RelatedWorkStrip items={[]} /></MemoryRouter>)
     expect(container.firstChild).toBeNull()
   })
 
-  it("renders links to plans, reviews, and workflows with status labels", () => {
+  it("opens a drawer with links to plans, reviews, and workflows on trigger click", () => {
     render(<MemoryRouter><RelatedWorkStrip items={items} /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: /related work/i }))
     expect(screen.getByRole("link", { name: /Add search/ }).getAttribute("href")).toBe("/plans/pl-1")
     expect(screen.getByText("proposed")).toBeTruthy()
     expect(screen.getByRole("link", { name: /Auth review/ }).getAttribute("href")).toBe("/review/rt-1")
@@ -28,24 +36,34 @@ describe("RelatedWorkStrip", () => {
     expect(screen.getByText("running")).toBeTruthy()
   })
 
-  it("shows a domain icon per kind", () => {
+  it("shows a domain icon per kind in the drawer", () => {
     render(<MemoryRouter><RelatedWorkStrip items={items} /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: /related work/i }))
     expect(screen.getAllByLabelText("Plan").length).toBeGreaterThan(0)
     expect(screen.getAllByLabelText("Review").length).toBeGreaterThan(0)
     expect(screen.getAllByLabelText("Workflow").length).toBeGreaterThan(0)
   })
 
-  it("collapses beyond the threshold and expands on toggle", () => {
-    const many: RelatedWorkItem[] = Array.from({ length: 8 }, (_, i) => ({
-      kind: "plan" as const, id: `pl-${i}`, title: `Plan ${i}`, status: "proposed", href: `/plans/pl-${i}`,
-    }))
-    render(<MemoryRouter><RelatedWorkStrip items={many} /></MemoryRouter>)
-    // Only the threshold number of links visible initially.
-    const visibleLinks = screen.getAllByRole("link")
-    expect(visibleLinks.length).toBeLessThan(many.length)
-    // Expand button present.
-    const expand = screen.getByRole("button", { name: /show all/i })
-    fireEvent.click(expand)
-    expect(screen.getAllByRole("link").length).toBe(many.length)
+  it("closes the drawer on close button click", () => {
+    render(<MemoryRouter><RelatedWorkStrip items={items} /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: /related work/i }))
+    expect(screen.getByRole("link", { name: /Add search/ })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: /close/i }))
+    expect(screen.queryByRole("link", { name: /Add search/ })).toBeNull()
+  })
+
+  it("closes on backdrop click", () => {
+    const { container } = render(<MemoryRouter><RelatedWorkStrip items={items} /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: /related work/i }))
+    expect(screen.getByRole("link", { name: /Add search/ })).toBeTruthy()
+    const backdrop = container.querySelector("[data-related-work-backdrop]")
+    expect(backdrop).toBeTruthy()
+    fireEvent.click(backdrop!)
+    expect(screen.queryByRole("link", { name: /Add search/ })).toBeNull()
+  })
+
+  it("shows an item count badge on the trigger", () => {
+    render(<MemoryRouter><RelatedWorkStrip items={items} /></MemoryRouter>)
+    expect(screen.getByRole("button", { name: /related work/i }).textContent).toContain("3")
   })
 })

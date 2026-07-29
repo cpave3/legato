@@ -401,7 +401,7 @@ export function AgentsPage() {
         />
       )}
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         <RelatedWorkStrip items={relatedWork} />
         {selectedId ? (
           <>
