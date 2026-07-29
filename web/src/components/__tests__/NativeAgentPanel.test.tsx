@@ -27,6 +27,58 @@ describe("NativeAgentPanel", () => {
     websocketConnected = true
   })
 
+  it("expands edit diffs by default without expanding other tool calls", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({
+          id: "session-1",
+          status: "idle",
+          messages: [
+            { role: "user", content: "system" },
+            { role: "assistant", content: [{ type: "tool-call" }, { type: "tool-call" }] },
+          ],
+          toolCalls: [
+            { callId: "edit-1", name: "edit", args: { path: "main.go", old_string: "old line", new_string: "new line" } },
+            { callId: "bash-1", name: "bash", args: { command: "go test ./..." }, result: { stdout: "hidden output" } },
+          ],
+        }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+
+    expect(await within(view.container).findByText("- old line")).not.toBeNull()
+    expect(within(view.container).getByText("+ new line")).not.toBeNull()
+    expect(within(view.container).queryByText("hidden output")).toBeNull()
+  })
+
+  it("scrolls to the latest message after hydration and after sending", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({
+          id: "session-1",
+          status: "idle",
+          messages: [
+            { role: "user", content: "system" },
+            { role: "assistant", content: [{ type: "text", text: "Latest reply" }] },
+          ],
+          toolCalls: [],
+        }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    let scrollTop = 0
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(1200)
+    vi.spyOn(HTMLElement.prototype, "scrollTop", "get").mockImplementation(() => scrollTop)
+    vi.spyOn(HTMLElement.prototype, "scrollTop", "set").mockImplementation((value) => { scrollTop = value })
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await within(view.container).findByText("Latest reply")
+    await waitFor(() => expect(scrollTop).toBe(1200))
+    scrollTop = 100
+    const composer = within(view.container).getByPlaceholderText("Send a message...")
+    fireEvent.change(composer, { target: { value: "Next message" } })
+    fireEvent.click(within(view.container).getByRole("button", { name: "Send" }))
+
+    await waitFor(() => expect(scrollTop).toBe(1200))
+  })
+
   it("shows the activated skill on its read tool card", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })

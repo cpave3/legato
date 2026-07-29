@@ -103,6 +103,17 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     replaceSyncState(reduceNativeEvent(syncStateRef.current, event))
   }, [replaceSyncState])
 
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      setIsScrolledUp(false)
+    }
+  }, [])
+
+  const scrollToBottomAfterRender = useCallback(() => {
+    requestAnimationFrame(scrollToBottom)
+  }, [scrollToBottom])
+
   // Load/save draft
   useEffect(() => {
     const saved = localStorage.getItem(draftKey)
@@ -177,7 +188,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     return () => document.removeEventListener("mousedown", handler)
   }, [])
 
-  const resync = useCallback(async () => {
+  const resync = useCallback(async (scrollAfterSync = false) => {
     const generation = ++syncGenerationRef.current
     const eventQueue = queuedEventsRef.current ?? []
     queuedEventsRef.current = eventQueue
@@ -189,6 +200,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       if (generation !== syncGenerationRef.current) return
       setMode(snapshot.mode || "")
       replaceSyncState(reconcileNativeSnapshot(snapshot, syncStateRef.current, eventQueue))
+      if (scrollAfterSync) scrollToBottomAfterRender()
     } catch (reason) {
       if (generation === syncGenerationRef.current) {
         let next = syncStateRef.current
@@ -206,11 +218,11 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
         setLoading(false)
       }
     }
-  }, [agentId, baseUrl, replaceSyncState])
+  }, [agentId, baseUrl, replaceSyncState, scrollToBottomAfterRender])
 
   useEffect(() => {
     replaceSyncState(createNativeSyncState())
-    void resync()
+    void resync(true)
     return () => {
       queuedEventsRef.current = null
       if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
@@ -262,7 +274,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     send({ type: "agent_message", agent_id: agentId, content: draft.trim(), queue: busy })
     setDraft("")
     if (!busy) replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
-  }, [draft, busy, agentId, send, replaceSyncState])
+    scrollToBottomAfterRender()
+  }, [draft, busy, agentId, send, replaceSyncState, scrollToBottomAfterRender])
 
   const handleInterrupt = useCallback(() => {
     send({ type: "agent_interrupt", agent_id: agentId })
@@ -326,13 +339,6 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     },
     [handleSend, slashOpen, slashIndex, slashSuggestions, handleSlashSelect],
   )
-
-  const scrollToBottom = useCallback(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-      setIsScrolledUp(false)
-    }
-  }, [])
 
   const handleModeChange = useCallback((mode: string) => {
     apiFetch(baseUrl, `/api/agents/${agentId}/chimera/modes`, {
@@ -639,7 +645,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
 }
 
 function ToolCallCard({ tool }: { tool: ToolCallItem }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(tool.toolName === "edit")
 
   const name = tool.toolName
   const args = tool.args || {}
