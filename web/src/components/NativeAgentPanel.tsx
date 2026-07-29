@@ -75,6 +75,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   const [mode, setMode] = useState<string>("")
   const scrollRef = useRef<HTMLDivElement>(null)
   const draftKey = `legato:chimera-draft:${agentId}`
+  const bangKey = `legato:chimera-bangs:${agentId}`
   const { items, busy, error, contextUsage } = syncState
   const [isScrolledUp, setIsScrolledUp] = useState(false)
   const isScrolledUpRef = useRef(false)
@@ -149,6 +150,29 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   useEffect(() => {
     localStorage.setItem(draftKey, draft)
   }, [draftKey, draft])
+
+  // Load persisted bang items from localStorage
+  const loadBangs = useCallback(() => {
+    try {
+      const saved = localStorage.getItem(bangKey)
+      if (!saved) return []
+      const bangs = JSON.parse(saved) as { key: string; command: string; stdout: string; stderr: string; exitCode: number; timedOut: boolean }[]
+      if (!Array.isArray(bangs)) return []
+      return bangs.map((b) => ({ key: b.key, role: "bang" as const, text: "", bang: b }))
+    } catch {
+      return []
+    }
+  }, [bangKey])
+
+  // Save bang items whenever items change
+  useEffect(() => {
+    const bangs = items.filter((i) => i.role === "bang" && i.bang && i.bang.exitCode !== -1)
+    if (bangs.length > 0) {
+      localStorage.setItem(bangKey, JSON.stringify(bangs.map((i) => i.bang)))
+    } else {
+      localStorage.removeItem(bangKey)
+    }
+  }, [items, bangKey])
 
   // Fetch available modes
   useEffect(() => {
@@ -262,14 +286,16 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   }, [agentId, baseUrl, replaceSyncState])
 
   useEffect(() => {
-    replaceSyncState(createNativeSyncState())
+    const initial = createNativeSyncState()
+    initial.items = loadBangs()
+    replaceSyncState(initial)
     initialScrollDone.current = false
     void resync(true)
     return () => {
       queuedEventsRef.current = null
       if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
     }
-  }, [agentId, replaceSyncState, resync])
+  }, [agentId, replaceSyncState, resync, loadBangs])
 
   const [bangQueue, setBangQueue] = useState<string[]>([])
   const [bangRunning, setBangRunning] = useState(false)
