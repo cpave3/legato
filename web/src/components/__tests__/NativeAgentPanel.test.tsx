@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NativeAgentPanel } from "../NativeAgentPanel"
 
 const send = vi.fn()
@@ -27,6 +27,11 @@ describe("NativeAgentPanel", () => {
     websocketConnected = true
   })
 
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
   it("expands edit diffs by default without expanding other tool calls", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
       ? new Response(JSON.stringify({
@@ -50,6 +55,30 @@ describe("NativeAgentPanel", () => {
     expect(within(view.container).queryByText("hidden output")).toBeNull()
   })
 
+  it("preserves indentation in edit diff lines", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({
+          id: "session-1",
+          status: "idle",
+          messages: [
+            { role: "user", content: "system" },
+            { role: "assistant", content: [{ type: "tool-call" }] },
+          ],
+          toolCalls: [
+            { callId: "edit-1", name: "edit", args: { path: "main.go", old_string: "\tif x {\n\t\treturn 1\n\t}", new_string: "\tif x {\n\t\treturn 2\n\t}" } },
+          ],
+        }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await within(view.container).findByText("edit")
+    const diffContainer = view.container.querySelector(".font-mono.whitespace-pre")
+    expect(diffContainer).not.toBeNull()
+    // whitespace-pre preserves leading tabs — the rendered text should contain them
+    expect(diffContainer!.textContent).toContain("\tif x {")
+    expect(diffContainer!.textContent).toContain("\t\treturn 2")
+  })
+
   it("scrolls to the latest message after hydration and after sending", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
       ? new Response(JSON.stringify({
@@ -65,6 +94,7 @@ describe("NativeAgentPanel", () => {
 
     let scrollTop = 0
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(1200)
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(300)
     vi.spyOn(HTMLElement.prototype, "scrollTop", "get").mockImplementation(() => scrollTop)
     vi.spyOn(HTMLElement.prototype, "scrollTop", "set").mockImplementation((value) => { scrollTop = value })
 
@@ -77,6 +107,49 @@ describe("NativeAgentPanel", () => {
     fireEvent.click(within(view.container).getByRole("button", { name: "Send" }))
 
     await waitFor(() => expect(scrollTop).toBe(1200))
+  })
+
+  it("auto-scrolls when near the bottom on new content, but not when scrolled up", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({
+          id: "session-1",
+          status: "running",
+          messages: [
+            { role: "user", content: "system" },
+            { role: "assistant", content: [{ type: "text", text: "First reply" }] },
+          ],
+          toolCalls: [],
+        }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    let scrollTop = 0
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(1200)
+    vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(300)
+    vi.spyOn(HTMLElement.prototype, "scrollTop", "get").mockImplementation(() => scrollTop)
+    vi.spyOn(HTMLElement.prototype, "scrollTop", "set").mockImplementation((value) => { scrollTop = value })
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await within(view.container).findByText("First reply")
+    await waitFor(() => expect(scrollTop).toBe(1200))
+
+    // Simulate user near the bottom (within threshold)
+    scrollTop = 950 // 1200 - 950 - 300 = -50 < 60 → at bottom
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "ev1", type: "assistant_text", text: "streaming content" }),
+    }))
+    await waitFor(() => expect(scrollTop).toBe(1200))
+
+    // Simulate user deliberately scrolled up beyond threshold
+    scrollTop = 100 // 1200 - 100 - 300 = 800 > 60 → not at bottom
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "ev2", type: "assistant_text", text: "more content" }),
+    }))
+    // Should not auto-scroll
+    expect(scrollTop).toBe(100)
   })
 
   it("shows the activated skill on its read tool card", async () => {
@@ -111,6 +184,46 @@ describe("NativeAgentPanel", () => {
     })
 
     expect(await within(view.container).findByText("📚 skill: coworker-walkthrough")).not.toBeNull()
+  })
+
+  it("intercepts /model and calls the model API instead of sending a message", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      if (url.endsWith("/chimera/model")) return new Response(null, { status: 204 })
+      return new Response("[]", { status: 200 })
+    })
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(websocketHandler).toBeDefined())
+    const composer = within(view.container).getByPlaceholderText("Send a message...")
+    fireEvent.change(composer, { target: { value: "/model manticore/glm" } })
+    fireEvent.click(within(view.container).getByRole("button", { name: "Send" }))
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("/chimera/model"), expect.objectContaining({ method: "POST" }))
+    })
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent_message" }))
+  })
+
+  it("intercepts /mode and calls the modes API instead of sending a message", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      if (url.endsWith("/chimera/modes")) return new Response(null, { status: 204 })
+      return new Response("[]", { status: 200 })
+    })
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(websocketHandler).toBeDefined())
+    const composer = within(view.container).getByPlaceholderText("Send a message...")
+    fireEvent.change(composer, { target: { value: "/mode plan" } })
+    fireEvent.click(within(view.container).getByRole("button", { name: "Send" }))
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("/chimera/modes"), expect.objectContaining({ method: "POST" }))
+    })
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent_message" }))
   })
 
   it("intercepts a leading bang command and executes it via the bang endpoint", async () => {

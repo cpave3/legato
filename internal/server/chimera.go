@@ -220,6 +220,36 @@ func (s *Server) chimeraModesHandler() http.HandlerFunc {
 	}
 }
 
+// chimeraModelHandler sets the model for the session.
+func (s *Server) chimeraModelHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		taskID := r.PathValue("task_id")
+		endpoint, sessionID, err := s.getChimeraEndpoint(r, taskID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		var req struct {
+			Model string `json:"model"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		var modelRef *string
+		if req.Model != "" && req.Model != "default" && req.Model != "reset" {
+			modelRef = &req.Model
+		}
+		client := chimera.NewClient(endpoint)
+		if err := client.SetModel(r.Context(), sessionID, modelRef); err != nil {
+			http.Error(w, "chimera: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // chimeraCommandsHandler returns the slash commands available for the session.
 func (s *Server) chimeraCommandsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

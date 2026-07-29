@@ -121,7 +121,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   // Scroll to bottom once the feed has content. The initial load always
   // scrolls to the latest message regardless of isScrolledUp, because the
   // browser fires a spurious onScroll at scrollTop=0 when content first
-  // overflows. After that, respect the user's scroll position.
+  // overflows. After that, scroll to bottom only when the user is near the
+  // bottom (within a threshold), respecting deliberate scroll-up.
   const initialScrollDone = useRef(false)
   useEffect(() => {
     if (!loading && scrollRef.current) {
@@ -130,8 +131,12 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
         isScrolledUpRef.current = false
         setIsScrolledUp(false)
         initialScrollDone.current = true
-      } else if (!isScrolledUpRef.current) {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      } else {
+        const el = scrollRef.current
+        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+        if (atBottom) {
+          el.scrollTop = el.scrollHeight
+        }
       }
     }
   }, [loading, syncState.items])
@@ -320,8 +325,12 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
           })
         }
         requestAnimationFrame(() => {
-          if (scrollRef.current && !isScrolledUpRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+          if (scrollRef.current) {
+            const el = scrollRef.current
+            const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+            if (atBottom) {
+              el.scrollTop = el.scrollHeight
+            }
           }
         })
       } catch {
@@ -330,6 +339,29 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     })
     return unsubscribe
   }, [subscribe, agentId, applyEvent, replaceSyncState, resync, executeBang])
+
+  const handleBuiltinSlash = useCallback(async (raw: string) => {
+    const parts = raw.split(/\s+/)
+    const cmd = parts[0]
+    const arg = parts.slice(1).join(" ")
+    try {
+      if (cmd === "/model") {
+        await apiFetch(baseUrl, `/api/agents/${agentId}/chimera/model`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model: arg }),
+        })
+      } else if (cmd === "/mode") {
+        await apiFetch(baseUrl, `/api/agents/${agentId}/chimera/modes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode: arg }),
+        })
+      }
+    } catch (reason) {
+      replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
+    }
+  }, [agentId, baseUrl, replaceSyncState])
 
   const handleSend = useCallback(() => {
     const trimmed = draft.trim()
@@ -344,11 +376,18 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       }
       return
     }
+    // Intercept built-in slash commands that need API calls, not message sends
+    const builtinCommands = ["/model", "/mode"]
+    if (builtinCommands.includes(trimmed.split(/\s+/)[0])) {
+      setDraft("")
+      void handleBuiltinSlash(trimmed)
+      return
+    }
     send({ type: "agent_message", agent_id: agentId, content: trimmed, queue: busy })
     setDraft("")
     if (!busy) replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
     scrollToBottomAfterRender()
-  }, [draft, busy, agentId, send, replaceSyncState, scrollToBottomAfterRender, executeBang])
+  }, [draft, busy, agentId, send, replaceSyncState, scrollToBottomAfterRender, executeBang, handleBuiltinSlash])
 
   const handleInterrupt = useCallback(() => {
     send({ type: "agent_interrupt", agent_id: agentId })
@@ -767,7 +806,7 @@ function ToolCallCard({ tool }: { tool: ToolCallItem }) {
         {expanded && (
           <div className="border-t border-zinc-800 px-3 py-2">
             {path !== filename && <div className="text-xs text-zinc-500 mb-1">{path}</div>}
-            <div className="font-mono text-xs">
+            <div className="font-mono text-xs whitespace-pre">
               {oldStr.split("\n").map((line, i) => (
                 <div key={`old-${i}`} className="bg-red-900/30 text-red-300 px-2">
                   - {line}

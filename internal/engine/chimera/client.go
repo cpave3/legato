@@ -210,6 +210,26 @@ func (c *Client) AddPath(ctx context.Context, sessionID, kind, path string) erro
 	return nil
 }
 
+// SetModel changes the model for a session via POST /v1/sessions/:id/model.
+// Pass nil to reset to the default model.
+func (c *Client) SetModel(ctx context.Context, sessionID string, modelRef *string) error {
+	var bodyBytes []byte
+	if modelRef != nil {
+		bodyBytes, _ = json.Marshal(map[string]string{"model": *modelRef})
+	} else {
+		bodyBytes, _ = json.Marshal(map[string]string{})
+	}
+	resp, err := c.do(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/model", bodyBytes)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("POST model: %s", resp.Status)
+	}
+	return nil
+}
+
 // Interrupt sends an interrupt to the session via POST /v1/sessions/:id/interrupt.
 func (c *Client) Interrupt(ctx context.Context, sessionID string) error {
 	resp, err := c.do(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/interrupt", nil)
