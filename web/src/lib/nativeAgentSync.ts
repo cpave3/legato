@@ -103,7 +103,22 @@ export function createNativeSyncState(items: NativeConversationItem[] = [], call
   }
 }
 
-const bangResultPattern = /^!.+ \(exit -?\d+(?:, timed out)?\)/
+const bangResultPattern = /^!(.+) \(exit (-?\d+)(?:, timed out)?\)\n([\s\S]*)$/
+
+function parseBangResult(text: string): { command: string; exitCode: number; timedOut: boolean; stdout: string; stderr: string } | null {
+  const m = text.match(bangResultPattern)
+  if (!m) return null
+  const [, command, exitStr, rest] = m
+  // Split rest into stdout/stderr — stderr lines typically go to stderr,
+  // but since the server concatenates them, we treat all remaining output as stdout.
+  return {
+    command,
+    exitCode: parseInt(exitStr, 10),
+    timedOut: text.includes(", timed out"),
+    stdout: rest || "",
+    stderr: "",
+  }
+}
 
 export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncState {
   const items: NativeConversationItem[] = []
@@ -113,14 +128,26 @@ export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncSta
     const message = snapshot.messages![index]
     if (index === 0 && message.role === "user") continue
     if (typeof message.content === "string") {
-      // Skip user messages that are bang command results (already rendered as bang cards)
-      if (message.role === "user" && bangResultPattern.test(message.content)) continue
+      // Render user messages that are bang command results as bang items
+      if (message.role === "user") {
+        const bang = parseBangResult(message.content)
+        if (bang) {
+          items.push({ key: `snap-msg-${index}`, role: "bang", text: "", bang: { key: `snap-msg-${index}`, ...bang } })
+          continue
+        }
+      }
       if (message.content) items.push({ key: `snap-msg-${index}`, role: message.role as NativeItemRole, text: message.content })
       continue
     }
     const text = message.content.filter((part) => part.type === "text" && part.text).map((part) => part.text).join("")
-    // Skip assistant messages that are bang command results (already rendered as bang cards)
-    if (message.role === "assistant" && bangResultPattern.test(text)) continue
+    // Render assistant messages that are bang command results as bang items
+    if (message.role === "assistant") {
+      const bang = parseBangResult(text)
+      if (bang) {
+        items.push({ key: `snap-msg-${index}`, role: "bang", text: "", bang: { key: `snap-msg-${index}`, ...bang } })
+        continue
+      }
+    }
     if (text) items.push({ key: `snap-msg-${index}`, role: message.role as NativeItemRole, text })
     const toolCount = message.content.filter((part) => part.type === "tool-call").length
     for (let offset = 0; offset < toolCount && callIndex < calls.length; offset++, callIndex++) {
@@ -154,11 +181,6 @@ export function reconcileNativeSnapshot(
   queuedEvents: NativeEvent[],
 ): NativeSyncState {
   let next = stateFromNativeSnapshot(snapshot)
-  // Preserve local-only bang items that don't exist in the Chimera snapshot
-  const previousBangs = previous.items.filter((item) => item.role === "bang" && item.bang)
-  if (previousBangs.length > 0) {
-    next.items = [...next.items, ...previousBangs]
-  }
   const previousSkills = new Map(previous.items.flatMap((item) => item.tool?.skillName
     ? [[item.tool.key, { skillName: item.tool.skillName, skillSource: item.tool.skillSource }] as const]
     : []))

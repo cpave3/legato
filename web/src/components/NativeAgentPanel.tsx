@@ -75,7 +75,6 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   const [mode, setMode] = useState<string>("")
   const scrollRef = useRef<HTMLDivElement>(null)
   const draftKey = `legato:chimera-draft:${agentId}`
-  const bangKey = `legato:chimera-bangs:${agentId}`
   const { items, busy, error, contextUsage } = syncState
   const [isScrolledUp, setIsScrolledUp] = useState(false)
   const isScrolledUpRef = useRef(false)
@@ -151,28 +150,6 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     localStorage.setItem(draftKey, draft)
   }, [draftKey, draft])
 
-  // Load persisted bang items from localStorage
-  const loadBangs = useCallback(() => {
-    try {
-      const saved = localStorage.getItem(bangKey)
-      if (!saved) return []
-      const bangs = JSON.parse(saved) as { key: string; command: string; stdout: string; stderr: string; exitCode: number; timedOut: boolean }[]
-      if (!Array.isArray(bangs)) return []
-      return bangs.map((b) => ({ key: b.key, role: "bang" as const, text: "", bang: b }))
-    } catch {
-      return []
-    }
-  }, [bangKey])
-
-  // Save bang items whenever items change
-  useEffect(() => {
-    const bangs = items.filter((i) => i.role === "bang" && i.bang && i.bang.exitCode !== -1)
-    if (bangs.length > 0) {
-      localStorage.setItem(bangKey, JSON.stringify(bangs.map((i) => i.bang)))
-    } else {
-      localStorage.removeItem(bangKey)
-    }
-  }, [items, bangKey])
 
   // Fetch available modes
   useEffect(() => {
@@ -286,16 +263,14 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   }, [agentId, baseUrl, replaceSyncState])
 
   useEffect(() => {
-    const initial = createNativeSyncState()
-    initial.items = loadBangs()
-    replaceSyncState(initial)
+    replaceSyncState(createNativeSyncState())
     initialScrollDone.current = false
     void resync(true)
     return () => {
       queuedEventsRef.current = null
       if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
     }
-  }, [agentId, replaceSyncState, resync, loadBangs])
+  }, [agentId, replaceSyncState, resync])
 
   const [bangQueue, setBangQueue] = useState<string[]>([])
   const [bangRunning, setBangRunning] = useState(false)
@@ -303,18 +278,6 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
 
   const executeBang = useCallback(async (command: string) => {
     setBangRunning(true)
-    const bangKey = `bang-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    // Insert a placeholder bang item immediately so the user sees the command
-    replaceSyncState({
-      ...syncStateRef.current,
-      items: [...syncStateRef.current.items, {
-        key: bangKey,
-        role: "bang" as const,
-        text: "",
-        bang: { key: bangKey, command, stdout: "", stderr: "", exitCode: -1, timedOut: false },
-      }],
-    })
-    scrollToBottomAfterRender()
     try {
       const response = await apiFetch(baseUrl, `/api/agents/${agentId}/chimera/bang`, {
         method: "POST",
@@ -322,22 +285,14 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
         body: JSON.stringify({ command }),
       })
       if (!response.ok) throw new Error(`bang: ${response.status}`)
-      const result = await response.json() as { stdout: string; stderr: string; exit_code: number; timed_out: boolean }
-      // Update the bang item with the result
-      replaceSyncState({
-        ...syncStateRef.current,
-        items: syncStateRef.current.items.map((item) =>
-          item.key === bangKey && item.bang
-            ? { ...item, bang: { ...item.bang, stdout: result.stdout || "", stderr: result.stderr || "", exitCode: result.exit_code, timedOut: result.timed_out } }
-            : item
-        ),
-      })
+      await resync()
+      scrollToBottomAfterRender()
     } catch (reason) {
       replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
     } finally {
       setBangRunning(false)
     }
-  }, [agentId, baseUrl, replaceSyncState, scrollToBottomAfterRender])
+  }, [agentId, baseUrl, resync, replaceSyncState, scrollToBottomAfterRender])
 
   // Subscribe with the last accepted cursor on every WebSocket connection.
   useEffect(() => {
@@ -534,7 +489,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   }
 
   return (
-    <div className="relative flex h-full flex-col bg-zinc-950">
+    <div className="relative flex h-full min-w-0 flex-col overflow-hidden bg-zinc-950">
       {/* Conversation viewport owns both scrolling and its floating action. */}
       <div role="region" aria-label="Conversation" className="relative min-h-0 flex-1">
         <div data-conversation-scroll ref={scrollRef} className="h-full overflow-y-auto overflow-x-hidden" onScroll={(e) => { const el = e.currentTarget; const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40; isScrolledUpRef.current = !atBottom; setIsScrolledUp(!atBottom) }}>
@@ -549,7 +504,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
           if (item.role === "user") {
             return (
               <div key={item.key} className="flex justify-end px-4 py-2">
-                <div className="max-w-[80%] rounded-lg bg-blue-600/20 px-3 py-2 text-sm text-zinc-200 whitespace-pre-wrap">
+                <div className="max-w-[75%] rounded-lg bg-blue-600/20 px-3 py-2 text-sm text-zinc-200 whitespace-pre-wrap break-words">
                   {item.text}
                 </div>
               </div>
@@ -558,7 +513,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
           if (item.role === "assistant") {
             return (
               <div key={item.key} className="flex justify-start px-4 py-2">
-                <div className={`max-w-[80%] rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 ${item.isStreaming ? "opacity-80" : ""}`}>
+                <div className={`max-w-[75%] min-w-0 rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 ${item.isStreaming ? "opacity-80" : ""}`}>
                   <ReviewMessageBody body={item.text} />
                   {item.isStreaming && <span className="ml-0.5 animate-pulse">▋</span>}
                 </div>
@@ -573,7 +528,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
             const pending = b.exitCode === -1
             const success = b.exitCode === 0
             return (
-              <div key={item.key} className="mx-4 my-1.5 rounded-lg border border-zinc-700 bg-zinc-900/50">
+              <div key={item.key} className="mx-4 my-1.5 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/50">
                 <div className="flex items-center gap-2 px-3 py-1.5">
                   <span className={`rounded px-1.5 py-0.5 font-mono text-xs text-white ${pending ? "bg-zinc-600 animate-pulse" : success ? "bg-green-700/60" : "bg-red-700/60"}`}>
                     bash
@@ -871,7 +826,7 @@ function ToolCallCard({ tool }: { tool: ToolCallItem }) {
     const filename = path.split("/").pop() || path
 
     return (
-      <div className="mx-4 my-1.5 rounded-lg border border-zinc-700 bg-zinc-900/50">
+      <div className="mx-4 my-1.5 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/50">
         <button
           className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
           onClick={() => setExpanded(!expanded)}
@@ -914,7 +869,7 @@ function ToolCallCard({ tool }: { tool: ToolCallItem }) {
     const filename = path.split("/").pop() || path
 
     return (
-      <div className="mx-4 my-1.5 rounded-lg border border-zinc-700 bg-zinc-900/50">
+      <div className="mx-4 my-1.5 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/50">
         <button
           className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
           onClick={() => setExpanded(!expanded)}
@@ -944,7 +899,7 @@ function ToolCallCard({ tool }: { tool: ToolCallItem }) {
     const exitCode = result.exit_code as number | undefined
 
     return (
-      <div className="mx-4 my-1.5 rounded-lg border border-zinc-700 bg-zinc-900/50">
+      <div className="mx-4 my-1.5 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/50">
         <button
           className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
           onClick={() => setExpanded(!expanded)}
@@ -987,7 +942,7 @@ function ToolCallCard({ tool }: { tool: ToolCallItem }) {
 
   // Default: compact tool card
   return (
-    <div className="mx-4 my-1.5 rounded-lg border border-zinc-700 bg-zinc-900/50">
+    <div className="mx-4 my-1.5 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/50">
       <button
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
         onClick={() => setExpanded(!expanded)}
