@@ -113,6 +113,75 @@ describe("NativeAgentPanel", () => {
     expect(await within(view.container).findByText("📚 skill: coworker-walkthrough")).not.toBeNull()
   })
 
+  it("intercepts a leading bang command and executes it via the bang endpoint", async () => {
+    let snapshotMessages: unknown[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/snapshot")) {
+        return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: snapshotMessages, toolCalls: [] }), { status: 200 })
+      }
+      if (url.includes("/chimera/bang")) {
+        snapshotMessages = [
+          { role: "user", content: "system" },
+          { role: "assistant", content: [{ type: "text", text: "!echo hello (exit 0)\nhello" }] },
+        ]
+        return new Response(JSON.stringify({ stdout: "hello\n", stderr: "", exit_code: 0, timed_out: false }), { status: 200 })
+      }
+      return new Response("[]", { status: 200 })
+    })
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(websocketHandler).toBeDefined())
+    const composer = within(view.container).getByPlaceholderText("Send a message...")
+    fireEvent.change(composer, { target: { value: "!echo hello" } })
+    fireEvent.click(within(view.container).getByRole("button", { name: "Run" }))
+
+    await waitFor(() => {
+      expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent_message" }))
+    })
+    expect(await within(view.container).findByText(/hello/)).not.toBeNull()
+  })
+
+  it("queues a bang command while the agent is busy and runs it after run_finished", async () => {
+    let snapshotStatus = "running"
+    let snapshotMessages: unknown[] = []
+    let bangExecuted = false
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/snapshot")) {
+        return new Response(JSON.stringify({ id: "session-1", status: snapshotStatus, messages: snapshotMessages, toolCalls: [] }), { status: 200 })
+      }
+      if (url.includes("/chimera/bang")) {
+        bangExecuted = true
+        snapshotStatus = "idle"
+        snapshotMessages = [
+          { role: "user", content: "system" },
+          { role: "assistant", content: [{ type: "text", text: "!echo done (exit 0)\ndone" }] },
+        ]
+        return new Response(JSON.stringify({ stdout: "done\n", stderr: "", exit_code: 0, timed_out: false }), { status: 200 })
+      }
+      return new Response("[]", { status: 200 })
+    })
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(websocketHandler).toBeDefined())
+    const composer = within(view.container).getByPlaceholderText("Queue a message...")
+    fireEvent.change(composer, { target: { value: "!echo done" } })
+    fireEvent.click(within(view.container).getByRole("button", { name: "Run" }))
+
+    await waitFor(() => expect(within(view.container).getByText("Queued: !echo done")).not.toBeNull())
+    expect(bangExecuted).toBe(false)
+
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "finish-bang", type: "run_finished" }),
+    }))
+
+    await waitFor(() => expect(bangExecuted).toBe(true))
+    expect(await within(view.container).findByText(/done/)).not.toBeNull()
+  })
+
   it("anchors the scroll-to-bottom action inside the conversation viewport", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
       ? new Response(JSON.stringify({
@@ -282,6 +351,62 @@ describe("NativeAgentPanel", () => {
     act(() => websocketHandler?.({ type: "chimera_sync_required", agent_id: "task-1" }))
 
     expect(await screen.findByText("After repair")).not.toBeNull()
+  })
+
+  it("keeps the feed mounted and preserves history position during post-run repair", async () => {
+    let snapshotCalls = 0
+    let releaseRepair!: (response: Response) => void
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (!String(input).endsWith("/snapshot")) return new Response("[]", { status: 200 })
+      snapshotCalls++
+      if (snapshotCalls === 1) {
+        return new Response(JSON.stringify({
+          id: "session-1",
+          status: "running",
+          messages: [
+            { role: "user", content: "system" },
+            { role: "assistant", content: [{ type: "text", text: "Existing history" }] },
+          ],
+          toolCalls: [],
+        }), { status: 200 })
+      }
+      return new Promise<Response>((resolve) => { releaseRepair = resolve })
+    })
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    const existing = await within(view.container).findByText("Existing history")
+    const scrollArea = within(view.container).getByRole("region", { name: "Conversation" })
+      .querySelector("[data-conversation-scroll]") as HTMLDivElement
+    Object.defineProperties(scrollArea, {
+      scrollHeight: { value: 1200, configurable: true },
+      clientHeight: { value: 300, configurable: true },
+      scrollTop: { value: 0, writable: true, configurable: true },
+    })
+    await waitFor(() => expect(scrollArea.scrollTop).toBe(1200))
+    scrollArea.scrollTop = 200
+    fireEvent.scroll(scrollArea)
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "finish-mounted", type: "run_finished" }),
+    }))
+    await waitFor(() => expect(snapshotCalls).toBe(2))
+
+    expect(existing.isConnected).toBe(true)
+    expect(within(view.container).queryByText("Loading Chimera session...")).toBeNull()
+    expect(scrollArea.scrollTop).toBe(200)
+
+    releaseRepair(new Response(JSON.stringify({
+      id: "session-1",
+      status: "idle",
+      messages: [
+        { role: "user", content: "system" },
+        { role: "assistant", content: [{ type: "text", text: "Repaired history" }] },
+      ],
+      toolCalls: [],
+    }), { status: 200 }))
+    expect(await within(view.container).findByText("Repaired history", {}, { timeout: 2000 })).not.toBeNull()
+    expect(scrollArea.scrollTop).toBe(200)
   })
 
   it("repairs from the authoritative snapshot after a run finishes", async () => {

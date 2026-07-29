@@ -70,11 +70,13 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   const runFinishTimerRef = useRef<number | null>(null)
   const [draft, setDraft] = useState("")
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
   const [mode, setMode] = useState<string>("")
   const scrollRef = useRef<HTMLDivElement>(null)
   const draftKey = `legato:chimera-draft:${agentId}`
   const { items, busy, error, contextUsage } = syncState
   const [isScrolledUp, setIsScrolledUp] = useState(false)
+  const isScrolledUpRef = useRef(false)
   const [modes, setModes] = useState<ModeInfo[]>([])
   const [modesOpen, setModesOpen] = useState(false)
   const [macros, setMacros] = useState<{ name: string; keys: string }[]>([])
@@ -106,6 +108,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      isScrolledUpRef.current = false
       setIsScrolledUp(false)
     }
   }, [])
@@ -191,8 +194,14 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   const resync = useCallback(async (scrollAfterSync = false) => {
     const generation = ++syncGenerationRef.current
     const eventQueue = queuedEventsRef.current ?? []
+    const viewport = scrollRef.current
+    const scrollAnchor = viewport ? {
+      atBottom: viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 40,
+      top: viewport.scrollTop,
+    } : null
     queuedEventsRef.current = eventQueue
-    setLoading(true)
+    if (viewport) setSyncing(true)
+    else setLoading(true)
     try {
       const response = await apiFetch(baseUrl, `/api/agents/${agentId}/chimera/snapshot`)
       if (!response.ok) throw new Error(`snapshot: ${response.status}`)
@@ -200,7 +209,11 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       if (generation !== syncGenerationRef.current) return
       setMode(snapshot.mode || "")
       replaceSyncState(reconcileNativeSnapshot(snapshot, syncStateRef.current, eventQueue))
-      if (scrollAfterSync) scrollToBottomAfterRender()
+      requestAnimationFrame(() => {
+        if (!scrollRef.current) return
+        if (scrollAfterSync || scrollAnchor?.atBottom) scrollToBottom()
+        else if (scrollAnchor) scrollRef.current.scrollTop = scrollAnchor.top
+      })
     } catch (reason) {
       if (generation === syncGenerationRef.current) {
         let next = syncStateRef.current
@@ -216,9 +229,10 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       if (generation === syncGenerationRef.current) {
         queuedEventsRef.current = null
         setLoading(false)
+        setSyncing(false)
       }
     }
-  }, [agentId, baseUrl, replaceSyncState, scrollToBottomAfterRender])
+  }, [agentId, baseUrl, replaceSyncState, scrollToBottom])
 
   useEffect(() => {
     replaceSyncState(createNativeSyncState())
@@ -228,6 +242,27 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
     }
   }, [agentId, replaceSyncState, resync])
+
+  const [bangQueue, setBangQueue] = useState<string[]>([])
+  const [bangRunning, setBangRunning] = useState(false)
+  const isBang = draft.trim().startsWith("!") && draft.trim().length > 1
+
+  const executeBang = useCallback(async (command: string) => {
+    setBangRunning(true)
+    try {
+      const response = await apiFetch(baseUrl, `/api/agents/${agentId}/chimera/bang`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command }),
+      })
+      if (!response.ok) throw new Error(`bang: ${response.status}`)
+      await resync()
+    } catch (reason) {
+      replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
+    } finally {
+      setBangRunning(false)
+    }
+  }, [agentId, baseUrl, resync, replaceSyncState])
 
   // Subscribe with the last accepted cursor on every WebSocket connection.
   useEffect(() => {
@@ -256,9 +291,13 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
             runFinishTimerRef.current = null
             void resync()
           }, 100)
+          setBangQueue((prev) => {
+            if (prev.length > 0) void executeBang(prev[0])
+            return prev.slice(1)
+          })
         }
         requestAnimationFrame(() => {
-          if (scrollRef.current && !isScrolledUp) {
+          if (scrollRef.current && !isScrolledUpRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight
           }
         })
@@ -267,15 +306,26 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       }
     })
     return unsubscribe
-  }, [subscribe, agentId, applyEvent, isScrolledUp, replaceSyncState, resync])
+  }, [subscribe, agentId, applyEvent, replaceSyncState, resync, executeBang])
 
   const handleSend = useCallback(() => {
-    if (!draft.trim()) return
-    send({ type: "agent_message", agent_id: agentId, content: draft.trim(), queue: busy })
+    const trimmed = draft.trim()
+    if (!trimmed) return
+    if (trimmed.startsWith("!") && trimmed.length > 1) {
+      const command = trimmed.slice(1)
+      setDraft("")
+      if (busy) {
+        setBangQueue((prev) => [...prev, command])
+      } else {
+        void executeBang(command)
+      }
+      return
+    }
+    send({ type: "agent_message", agent_id: agentId, content: trimmed, queue: busy })
     setDraft("")
     if (!busy) replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
     scrollToBottomAfterRender()
-  }, [draft, busy, agentId, send, replaceSyncState, scrollToBottomAfterRender])
+  }, [draft, busy, agentId, send, replaceSyncState, scrollToBottomAfterRender, executeBang])
 
   const handleInterrupt = useCallback(() => {
     send({ type: "agent_interrupt", agent_id: agentId })
@@ -378,7 +428,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     <div className="relative flex h-full flex-col bg-zinc-950">
       {/* Conversation viewport owns both scrolling and its floating action. */}
       <div role="region" aria-label="Conversation" className="relative min-h-0 flex-1">
-        <div data-conversation-scroll ref={scrollRef} className="h-full overflow-y-auto" onScroll={(e) => { const el = e.currentTarget; const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40; setIsScrolledUp(!atBottom) }}>
+        <div data-conversation-scroll ref={scrollRef} className="h-full overflow-y-auto" onScroll={(e) => { const el = e.currentTarget; const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40; isScrolledUpRef.current = !atBottom; setIsScrolledUp(!atBottom) }}>
           {items.length === 0 && (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-zinc-500">
@@ -461,6 +511,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
         {mode && (
           <span className="rounded bg-zinc-800 px-1.5 py-0.5">{mode}</span>
         )}
+        {syncing && <span className="text-indigo-400">Syncing…</span>}
         {contextUsage && (
           <span>
             {formatTokens(contextUsage.used)} / {formatTokens(contextUsage.window)} ({Math.round((contextUsage.used / contextUsage.window) * 100)}%)
@@ -600,6 +651,21 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
             ))}
           </div>
         )}
+        {bangQueue.length > 0 && (
+          <div className="mb-2 space-y-1">
+            {bangQueue.map((cmd, i) => (
+              <div key={i} className="flex items-center gap-2 rounded bg-zinc-800/50 px-2 py-1 text-xs text-zinc-400">
+                <span>Queued: !{cmd}</span>
+                <button
+                  onClick={() => setBangQueue((prev) => prev.filter((_, j) => j !== i))}
+                  className="ml-auto text-zinc-600 hover:text-red-400"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex items-end gap-2">
           <textarea
             ref={textareaRef}
@@ -613,10 +679,10 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
           <div className="flex flex-col gap-1">
             <button
               onClick={handleSend}
-              disabled={!draft.trim()}
+              disabled={!draft.trim() || bangRunning}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500 disabled:opacity-40"
             >
-              {busy ? "Queue" : "Send"}
+              {bangRunning ? "Running…" : isBang ? "Run" : busy ? "Queue" : "Send"}
             </button>
             {busy ? (
               <button
