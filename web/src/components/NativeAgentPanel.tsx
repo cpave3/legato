@@ -528,20 +528,22 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
             const pending = b.exitCode === -1
             const success = b.exitCode === 0
             return (
-              <div key={item.key} className="mx-4 my-1.5 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/50">
+              <div key={item.key} className={`mx-4 my-1.5 overflow-hidden rounded-lg border bg-zinc-900/50 ${pending ? "border-amber-500/60" : success ? "border-amber-500/40" : "border-red-700/50"}`}>
                 <div className="flex items-center gap-2 px-3 py-1.5">
-                  <span className={`rounded px-1.5 py-0.5 font-mono text-xs text-white ${pending ? "bg-zinc-600 animate-pulse" : success ? "bg-green-700/60" : "bg-red-700/60"}`}>
-                    bash
+                  <span className="flex items-center gap-1 text-amber-400 shrink-0">
+                    <Terminal size={13} />
+                    <span className="text-[10px] font-semibold uppercase tracking-wide">bash</span>
                   </span>
                   <span className="font-mono text-xs text-zinc-300 truncate">{b.command}</span>
                   {!pending && (
-                    <span className={`text-xs ${success ? "text-green-500" : "text-red-500"}`}>
+                    <span className={`text-xs ml-auto shrink-0 ${success ? "text-amber-500/80" : "text-red-500"}`}>
                       exit {b.exitCode}{b.timedOut ? " (timed out)" : ""}
                     </span>
                   )}
+                  {pending && <span className="ml-auto text-xs text-amber-400/60 animate-pulse">running…</span>}
                 </div>
                 {!pending && (b.stdout || b.stderr) && (
-                  <div className="border-t border-zinc-800 px-3 py-2">
+                  <div className="border-t border-amber-900/30 px-3 py-2">
                     {b.stdout && <pre className="font-mono text-xs text-zinc-300 whitespace-pre-wrap max-h-60 overflow-y-auto">{b.stdout}</pre>}
                     {b.stderr && <pre className="font-mono text-xs text-red-400 whitespace-pre-wrap max-h-40 overflow-y-auto mt-1">{b.stderr}</pre>}
                   </div>
