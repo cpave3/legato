@@ -1,4 +1,13 @@
-export type NativeItemRole = "user" | "assistant" | "tool" | "system"
+export type NativeItemRole = "user" | "assistant" | "tool" | "system" | "bang"
+
+export interface NativeBangItem {
+  key: string
+  command: string
+  stdout: string
+  stderr: string
+  exitCode: number
+  timedOut: boolean
+}
 
 export interface NativeToolItem {
   key: string
@@ -18,6 +27,7 @@ export interface NativeConversationItem {
   isStreaming?: boolean
   tool?: NativeToolItem
   toolName?: string
+  bang?: NativeBangItem
 }
 
 export interface NativeSnapshotMessage {

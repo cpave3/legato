@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { ArrowDown, ArrowLeftRight, Zap, MoreHorizontal, RefreshCw, Unplug, Skull, Bell, BellOff } from "lucide-react"
+import { ArrowDown, ArrowLeftRight, Zap, MoreHorizontal, RefreshCw, Unplug, Skull, Bell, BellOff, Terminal } from "lucide-react"
 import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
@@ -277,6 +277,18 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
 
   const executeBang = useCallback(async (command: string) => {
     setBangRunning(true)
+    const bangKey = `bang-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    // Insert a placeholder bang item immediately so the user sees the command
+    replaceSyncState({
+      ...syncStateRef.current,
+      items: [...syncStateRef.current.items, {
+        key: bangKey,
+        role: "bang" as const,
+        text: "",
+        bang: { key: bangKey, command, stdout: "", stderr: "", exitCode: -1, timedOut: false },
+      }],
+    })
+    scrollToBottomAfterRender()
     try {
       const response = await apiFetch(baseUrl, `/api/agents/${agentId}/chimera/bang`, {
         method: "POST",
@@ -284,13 +296,22 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
         body: JSON.stringify({ command }),
       })
       if (!response.ok) throw new Error(`bang: ${response.status}`)
-      await resync()
+      const result = await response.json() as { stdout: string; stderr: string; exit_code: number; timed_out: boolean }
+      // Update the bang item with the result
+      replaceSyncState({
+        ...syncStateRef.current,
+        items: syncStateRef.current.items.map((item) =>
+          item.key === bangKey && item.bang
+            ? { ...item, bang: { ...item.bang, stdout: result.stdout || "", stderr: result.stderr || "", exitCode: result.exit_code, timedOut: result.timed_out } }
+            : item
+        ),
+      })
     } catch (reason) {
       replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
     } finally {
       setBangRunning(false)
     }
-  }, [agentId, baseUrl, resync, replaceSyncState])
+  }, [agentId, baseUrl, replaceSyncState, scrollToBottomAfterRender])
 
   // Subscribe with the last accepted cursor on every WebSocket connection.
   useEffect(() => {
@@ -521,6 +542,32 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
           if (item.role === "tool" && item.tool) {
             return <ToolCallCard key={item.key} tool={item.tool} />
           }
+          if (item.role === "bang" && item.bang) {
+            const b = item.bang
+            const pending = b.exitCode === -1
+            const success = b.exitCode === 0
+            return (
+              <div key={item.key} className="mx-4 my-1.5 rounded-lg border border-zinc-700 bg-zinc-900/50">
+                <div className="flex items-center gap-2 px-3 py-1.5">
+                  <span className={`rounded px-1.5 py-0.5 font-mono text-xs text-white ${pending ? "bg-zinc-600 animate-pulse" : success ? "bg-green-700/60" : "bg-red-700/60"}`}>
+                    bash
+                  </span>
+                  <span className="font-mono text-xs text-zinc-300 truncate">{b.command}</span>
+                  {!pending && (
+                    <span className={`text-xs ${success ? "text-green-500" : "text-red-500"}`}>
+                      exit {b.exitCode}{b.timedOut ? " (timed out)" : ""}
+                    </span>
+                  )}
+                </div>
+                {!pending && (b.stdout || b.stderr) && (
+                  <div className="border-t border-zinc-800 px-3 py-2">
+                    {b.stdout && <pre className="font-mono text-xs text-zinc-300 whitespace-pre-wrap max-h-60 overflow-y-auto">{b.stdout}</pre>}
+                    {b.stderr && <pre className="font-mono text-xs text-red-400 whitespace-pre-wrap max-h-40 overflow-y-auto mt-1">{b.stderr}</pre>}
+                  </div>
+                )}
+              </div>
+            )
+          }
           // system (permission request)
           return (
             <div key={item.key} className="mx-4 my-2 rounded-lg border border-yellow-600/40 bg-yellow-900/10 p-3">
@@ -729,15 +776,23 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
           </div>
         )}
         <div className="flex items-end gap-2">
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={busy ? "Queue a message..." : "Send a message..."}
-            rows={2}
-            className="flex-1 resize-none rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-500 focus:outline-none disabled:opacity-50"
-          />
+          <div className="relative flex-1">
+            {isBang && (
+              <div className="absolute left-2.5 top-1.5 flex items-center gap-1 text-amber-400 pointer-events-none">
+                <Terminal size={13} />
+                <span className="text-[10px] font-semibold uppercase tracking-wide">bash</span>
+              </div>
+            )}
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={busy ? "Queue a message..." : "Send a message..."}
+              rows={2}
+              className={`flex-1 resize-none rounded-lg border bg-zinc-900 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none disabled:opacity-50 ${isBang ? "border-amber-500/60 focus:border-amber-400 pt-7" : "border-zinc-700 focus:border-zinc-500"}`}
+            />
+          </div>
           <div className="flex flex-col gap-1">
             <button
               onClick={handleSend}

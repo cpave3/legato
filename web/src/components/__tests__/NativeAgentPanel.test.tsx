@@ -252,7 +252,36 @@ describe("NativeAgentPanel", () => {
     await waitFor(() => {
       expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent_message" }))
     })
-    expect(await within(view.container).findByText(/hello/)).not.toBeNull()
+    // The bang card shows the command and its stdout output
+    expect(await within(view.container).findByText("echo hello")).not.toBeNull()
+    expect(within(view.container).getByText("exit 0")).not.toBeNull()
+    expect(within(view.container).getByText("hello")).not.toBeNull()
+  })
+
+  it("shows a bash-mode indicator in the composer when the draft starts with !", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(websocketHandler).toBeDefined())
+    const composer = within(view.container).getByPlaceholderText("Send a message...") as HTMLTextAreaElement
+
+    // No indicator when draft is empty or normal text
+    expect(within(view.container).queryByText("bash")).toBeNull()
+    fireEvent.change(composer, { target: { value: "hello" } })
+    expect(within(view.container).queryByText("bash")).toBeNull()
+
+    // Indicator appears when draft starts with !
+    fireEvent.change(composer, { target: { value: "!ls" } })
+    expect(within(view.container).getByText("bash")).not.toBeNull()
+
+    // Border changes to amber
+    expect(composer.className).toContain("border-amber-500/60")
+
+    // Indicator disappears when ! is removed
+    fireEvent.change(composer, { target: { value: "hello" } })
+    expect(within(view.container).queryByText("bash")).toBeNull()
   })
 
   it("queues a bang command while the agent is busy and runs it after run_finished", async () => {
