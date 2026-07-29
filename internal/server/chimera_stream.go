@@ -5,157 +5,262 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/chimera"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
-// chimeraStreamManager manages a single SSE subscription per Chimera agent
-// session and fans out events to all subscribed WebSocket clients. This
-// ensures all connected clients (desktop, mobile, etc.) receive the same
-// events in sync, even if a message is sent from one client — the Chimera
-// server emits the event once, and the shared subscription broadcasts it
-// to all clients.
+const (
+	chimeraReplayLimit = 1000
+	chimeraStreamGrace = 30 * time.Second
+	chimeraRetryMax    = 5 * time.Second
+)
+
+type chimeraSubscribeFunc func(context.Context, string, string, string, func(chimera.EventEnvelope)) error
+
 type chimeraStreamManager struct {
 	agents interface {
 		HasChimeraEndpoint(ctx context.Context, taskID string) bool
 		GetAgentSession(ctx context.Context, taskID string) (*store.AgentSession, error)
 	}
 
-	mu      sync.Mutex
-	streams map[string]*chimeraStream // keyed by taskID
+	mu              sync.Mutex
+	streams         map[string]*chimeraStream
+	subscribeEvents chimeraSubscribeFunc
+	gracePeriod     time.Duration
 }
 
 type chimeraStream struct {
 	taskID    string
 	endpoint  string
 	sessionID string
+	ctx       context.Context
 	cancel    context.CancelFunc
 
-	mu        sync.RWMutex
-	clients   map[*wsClient]struct{}
-	lastEvent string
+	mu           sync.Mutex
+	clients      map[*wsClient]*chimeraSubscriber
+	events       []chimera.EventEnvelope
+	lastEvent    string
+	cleanupTimer *time.Timer
+}
+
+type chimeraSubscriber struct {
+	messages chan WSMessage
 }
 
 func newChimeraStreamManager() *chimeraStreamManager {
 	return &chimeraStreamManager{
-		streams: make(map[string]*chimeraStream),
+		streams:     make(map[string]*chimeraStream),
+		gracePeriod: chimeraStreamGrace,
+		subscribeEvents: func(ctx context.Context, endpoint, sessionID, since string, onEvent func(chimera.EventEnvelope)) error {
+			return chimera.NewClient(endpoint).Subscribe(ctx, sessionID, since, onEvent)
+		},
 	}
 }
 
-// subscribe adds a WebSocket client to the fan-out for the given agent.
-// If no SSE subscription exists yet, it starts one. The client will
-// receive all future Chimera events for this agent.
-func (m *chimeraStreamManager) subscribe(client *wsClient, taskID string) {
-	log.Printf("[chimera-stream] subscribe request for %s", taskID)
+// subscribe registers an ordered writer before upstream delivery starts. A
+// cursorless subscription to an existing stream requires a fresh snapshot,
+// because there is no exact boundary between that snapshot and retained events.
+func (m *chimeraStreamManager) subscribe(client *wsClient, taskID, cursor string) {
 	m.mu.Lock()
-	stream, ok := m.streams[taskID]
-	if !ok {
-		// Resolve the endpoint and start a new shared SSE subscription.
+	stream, exists := m.streams[taskID]
+	created := false
+	if !exists {
 		session, err := m.agents.GetAgentSession(context.Background(), taskID)
 		if err != nil || session.ChimeraEndpoint == nil || session.ChimeraSessionID == nil {
-			log.Printf("[chimera-stream] no endpoint for %s: err=%v", taskID, err)
 			m.mu.Unlock()
 			client.send(WSMessage{Type: MsgError, Error: "no chimera endpoint"})
 			return
 		}
+		ctx, cancel := context.WithCancel(context.Background())
 		stream = &chimeraStream{
 			taskID:    taskID,
 			endpoint:  *session.ChimeraEndpoint,
-		sessionID: *session.ChimeraSessionID,
-			clients:   make(map[*wsClient]struct{}),
+			sessionID: *session.ChimeraSessionID,
+			ctx:       ctx,
+			cancel:    cancel,
+			clients:   make(map[*wsClient]*chimeraSubscriber),
 		}
 		m.streams[taskID] = stream
-		ctx, cancel := context.WithCancel(context.Background())
-		stream.cancel = cancel
-		go m.runSSELoop(ctx, stream)
+		created = true
 	}
 	m.mu.Unlock()
 
+	subscriber := &chimeraSubscriber{messages: make(chan WSMessage, chimeraReplayLimit+16)}
 	stream.mu.Lock()
-	stream.clients[client] = struct{}{}
+	if stream.cleanupTimer != nil {
+		stream.cleanupTimer.Stop()
+		stream.cleanupTimer = nil
+	}
+	stream.clients[client] = subscriber
+	replay, cursorKnown := stream.eventsAfter(cursor)
+	if !created && cursor == "" {
+		subscriber.messages <- WSMessage{Type: MsgChimeraSyncRequired, AgentID: taskID}
+	} else if cursor != "" && !cursorKnown {
+		subscriber.messages <- WSMessage{Type: MsgChimeraSyncRequired, AgentID: taskID}
+	} else {
+		for _, event := range replay {
+			subscriber.messages <- chimeraWSMessage(taskID, event)
+		}
+	}
 	stream.mu.Unlock()
+	go writeChimeraMessages(client, subscriber.messages)
+
+	if created {
+		go m.runSSELoop(stream)
+	}
 }
 
-// unsubscribe removes a WebSocket client from the fan-out. When the last
-// client leaves, the SSE subscription is cancelled and the stream is
-// removed.
+func writeChimeraMessages(client *wsClient, messages <-chan WSMessage) {
+	for message := range messages {
+		client.send(message)
+	}
+}
+
+func (s *chimeraStream) eventsAfter(cursor string) ([]chimera.EventEnvelope, bool) {
+	if cursor == "" {
+		return nil, true
+	}
+	for index := len(s.events) - 1; index >= 0; index-- {
+		if s.events[index].EventID == cursor {
+			return append([]chimera.EventEnvelope(nil), s.events[index+1:]...), true
+		}
+	}
+	return nil, false
+}
+
 func (m *chimeraStreamManager) unsubscribe(client *wsClient, taskID string) {
 	m.mu.Lock()
 	stream, ok := m.streams[taskID]
+	m.mu.Unlock()
 	if !ok {
-		m.mu.Unlock()
 		return
 	}
-
 	stream.mu.Lock()
-	delete(stream.clients, client)
-	empty := len(stream.clients) == 0
-	stream.mu.Unlock()
-
-	if empty {
-		stream.cancel()
-		delete(m.streams, taskID)
+	if subscriber, subscribed := stream.clients[client]; subscribed {
+		delete(stream.clients, client)
+		close(subscriber.messages)
 	}
-	m.mu.Unlock()
+	if len(stream.clients) == 0 && stream.cleanupTimer == nil {
+		stream.cleanupTimer = time.AfterFunc(m.gracePeriod, func() { m.removeIfIdle(taskID, stream) })
+	}
+	stream.mu.Unlock()
 }
 
-// runSSELoop maintains a persistent SSE connection to the Chimera server,
-// reconnecting on error. Every event is broadcast to all subscribed
-// WebSocket clients.
-func (m *chimeraStreamManager) runSSELoop(ctx context.Context, stream *chimeraStream) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		c := chimera.NewClient(stream.endpoint)
-		// On first connect, lastEvent is empty — subscribe without replay
-		// so we only get live events. The frontend hydrates history from
-		// the snapshot. On reconnect after error, lastEvent provides the
-		// cursor for gap-free resume.
-		since := stream.lastEvent
-		err := c.Subscribe(ctx, stream.sessionID, since, func(env chimera.EventEnvelope) {
-			log.Printf("[chimera-stream] event for %s: type=%s eventId=%s clients=%d", stream.taskID, env.Type, env.EventID, len(stream.clients))
-			if env.EventID != "" {
-				stream.mu.Lock()
-				stream.lastEvent = env.EventID
-				stream.mu.Unlock()
-			}
-
-			data, err := json.Marshal(env)
-			if err != nil {
-				return
-			}
-
-			msg := WSMessage{
-				Type:    MsgChimeraEvent,
-				AgentID: stream.taskID,
-				Content: string(data),
-			}
-
-			// Fan out to all connected clients.
-			stream.mu.RLock()
-			for client := range stream.clients {
-				client.send(msg)
-			}
-			stream.mu.RUnlock()
-		})
-
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			log.Printf("chimera SSE stream for %s: %v", stream.taskID, err)
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-		} else {
-			return
+func (m *chimeraStreamManager) unsubscribeAll(client *wsClient) {
+	m.mu.Lock()
+	taskIDs := make([]string, 0)
+	for taskID, stream := range m.streams {
+		stream.mu.Lock()
+		_, subscribed := stream.clients[client]
+		stream.mu.Unlock()
+		if subscribed {
+			taskIDs = append(taskIDs, taskID)
 		}
 	}
+	m.mu.Unlock()
+	for _, taskID := range taskIDs {
+		m.unsubscribe(client, taskID)
+	}
+}
+
+func (m *chimeraStreamManager) removeIfIdle(taskID string, stream *chimeraStream) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.streams[taskID] != stream {
+		return
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	stream.cleanupTimer = nil
+	if len(stream.clients) != 0 {
+		return
+	}
+	stream.cancel()
+	delete(m.streams, taskID)
+}
+
+func (m *chimeraStreamManager) runSSELoop(stream *chimeraStream) {
+	retryDelay := 100 * time.Millisecond
+	failures := 0
+	for stream.ctx.Err() == nil {
+		stream.mu.Lock()
+		since := stream.lastEvent
+		stream.mu.Unlock()
+		received := false
+		err := m.subscribeEvents(stream.ctx, stream.endpoint, stream.sessionID, since, func(event chimera.EventEnvelope) {
+			received = true
+			m.publish(stream, event)
+		})
+		if stream.ctx.Err() != nil {
+			return
+		}
+		if received {
+			failures = 0
+			retryDelay = 100 * time.Millisecond
+		} else {
+			failures++
+		}
+		if err != nil {
+			log.Printf("chimera SSE stream for %s: %v", stream.taskID, err)
+		}
+		if failures >= 3 {
+			m.requireSync(stream)
+			failures = 0
+		}
+		select {
+		case <-stream.ctx.Done():
+			return
+		case <-time.After(retryDelay):
+		}
+		retryDelay = min(retryDelay*2, chimeraRetryMax)
+	}
+}
+
+func (m *chimeraStreamManager) publish(stream *chimeraStream, event chimera.EventEnvelope) {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	if event.EventID != "" {
+		if event.EventID == stream.lastEvent {
+			return
+		}
+		stream.lastEvent = event.EventID
+	}
+	stream.events = append(stream.events, event)
+	if len(stream.events) > chimeraReplayLimit {
+		stream.events = append([]chimera.EventEnvelope(nil), stream.events[len(stream.events)-chimeraReplayLimit:]...)
+	}
+	message := chimeraWSMessage(stream.taskID, event)
+	for client, subscriber := range stream.clients {
+		select {
+		case subscriber.messages <- message:
+		default:
+			delete(stream.clients, client)
+			close(subscriber.messages)
+			client.cancel()
+		}
+	}
+}
+
+func (m *chimeraStreamManager) requireSync(stream *chimeraStream) {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	stream.lastEvent = ""
+	stream.events = nil
+	message := WSMessage{Type: MsgChimeraSyncRequired, AgentID: stream.taskID}
+	for _, subscriber := range stream.clients {
+		select {
+		case subscriber.messages <- message:
+		default:
+		}
+	}
+}
+
+func chimeraWSMessage(taskID string, event chimera.EventEnvelope) WSMessage {
+	data, err := json.Marshal(event)
+	if err != nil {
+		return WSMessage{Type: MsgError, Error: "marshal chimera event: " + err.Error()}
+	}
+	return WSMessage{Type: MsgChimeraEvent, AgentID: taskID, Content: string(data)}
 }

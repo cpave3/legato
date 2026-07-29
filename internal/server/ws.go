@@ -20,7 +20,7 @@ const (
 	MsgUnsubscribeAgent = "unsubscribe_agent"
 	MsgSendKeys         = "send_keys"
 	MsgAgentMessage     = "agent_message"
-	MsgAgentInterrupt    = "agent_interrupt"
+	MsgAgentInterrupt   = "agent_interrupt"
 	MsgAgentPermission  = "agent_permission"
 	MsgResize           = "resize"
 	MsgDetectPrompt     = "detect_prompt"
@@ -29,20 +29,21 @@ const (
 
 // WebSocket message types (server → client).
 const (
-	MsgAgentOutput      = "agent_output"
-	MsgAgentList        = "agent_list"
-	MsgAgentsChanged    = "agents_changed"
-	MsgChimeraEvent     = "chimera_event"
-	MsgPromptState      = "prompt_state"
-	MsgPlanProposed     = "plan_proposed"
-	MsgPlanVerdict      = "plan_verdict"
-	MsgSwarmChanged     = "swarm_changed"
-	MsgCardsChanged     = "cards_changed"
-	MsgReviewChanged    = "review_changed"
-	MsgPlanChanged      = "plan_changed"
-	MsgWorkflowChanged  = "workflow_changed"
-	MsgAttentionChanged = "attention_changed"
-	MsgError            = "error"
+	MsgAgentOutput         = "agent_output"
+	MsgAgentList           = "agent_list"
+	MsgAgentsChanged       = "agents_changed"
+	MsgChimeraEvent        = "chimera_event"
+	MsgChimeraSyncRequired = "chimera_sync_required"
+	MsgPromptState         = "prompt_state"
+	MsgPlanProposed        = "plan_proposed"
+	MsgPlanVerdict         = "plan_verdict"
+	MsgSwarmChanged        = "swarm_changed"
+	MsgCardsChanged        = "cards_changed"
+	MsgReviewChanged       = "review_changed"
+	MsgPlanChanged         = "plan_changed"
+	MsgWorkflowChanged     = "workflow_changed"
+	MsgAttentionChanged    = "attention_changed"
+	MsgError               = "error"
 )
 
 // WSMessage is the JSON envelope for all WebSocket messages.
@@ -75,6 +76,7 @@ type WSMessage struct {
 	Producer       string              `json:"producer,omitempty"`
 	SourceKey      string              `json:"source_key,omitempty"`
 	RequestID      string              `json:"request_id,omitempty"`
+	Cursor         string              `json:"cursor,omitempty"`
 	Decision       string              `json:"decision,omitempty"`
 	RememberScope  string              `json:"remember_scope,omitempty"`
 }
@@ -85,19 +87,24 @@ type wsClient struct {
 	mu     sync.Mutex
 	ctx    context.Context
 	cancel context.CancelFunc
+	sendFn func(WSMessage)
 }
 
 func (c *wsClient) send(msg WSMessage) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.sendFn != nil {
+		c.sendFn(msg)
+		return
+	}
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(c.ctx, 5*time.Second)
 	defer cancel()
-	c.conn.Write(ctx, websocket.MessageText, data)
+	_ = c.conn.Write(ctx, websocket.MessageText, data)
 }
 
 // Hub manages connected WebSocket clients.
@@ -152,6 +159,7 @@ func (s *Server) wsHandler() http.HandlerFunc {
 		s.hub.add(client)
 		defer func() {
 			s.streams.unsubscribeAll(client)
+			s.chimeraStreams.unsubscribeAll(client)
 			s.hub.remove(client)
 			conn.Close(websocket.StatusNormalClosure, "")
 			cancel()
@@ -181,7 +189,7 @@ func (s *Server) wsHandler() http.HandlerFunc {
 func (s *Server) handleWSMessage(client *wsClient, msg WSMessage) {
 	switch msg.Type {
 	case MsgSubscribeAgent:
-		s.subscribeAgent(client, msg.AgentID)
+		s.subscribeAgent(client, msg.AgentID, msg.Cursor)
 	case MsgUnsubscribeAgent:
 		s.unsubscribeAgent(client, msg.AgentID)
 	case MsgSendKeys:
@@ -250,10 +258,10 @@ func (s *Server) sendAgentList(client *wsClient) {
 	client.send(WSMessage{Type: MsgAgentList, Agents: resp})
 }
 
-func (s *Server) subscribeAgent(client *wsClient, agentID string) {
+func (s *Server) subscribeAgent(client *wsClient, agentID, cursor string) {
 	if s.agents != nil && s.agents.HasChimeraEndpoint(context.Background(), agentID) {
 		// Chimera agent: subscribe to the shared SSE fan-out.
-		s.chimeraStreams.subscribe(client, agentID)
+		s.chimeraStreams.subscribe(client, agentID, cursor)
 		return
 	}
 	if s.tmux == nil {
