@@ -60,14 +60,16 @@ export function ReviewTourPage() {
   const activePass = passViews[passViews.length - 1]
   const steps = useMemo(() => activePass?.steps ?? data?.steps ?? [], [activePass?.steps, data?.steps])
   const selectedStep = steps.find((step) => step.id === selectedStepId) ?? steps[0]
-  const reviewedCount = steps.filter((step) => step.reviewed_at).length
+  const reviewedCount = steps.filter((step) => step.reviewed_at && step.kind !== "commit").length
+  const reviewableCount = steps.filter((step) => step.kind !== "commit").length
 
+  const firstChapterStep = steps.find((step) => step.kind !== "commit")
   useEffect(() => {
-    if (!selectedStepId && steps[0]) setSelectedStepId(steps[0].id)
+    if (!selectedStepId && firstChapterStep) setSelectedStepId(firstChapterStep.id)
     if (selectedStepId && steps.length > 0 && !steps.some((step) => step.id === selectedStepId)) {
-      setSelectedStepId(steps[0].id)
+      setSelectedStepId(firstChapterStep?.id ?? steps[0].id)
     }
-  }, [selectedStepId, steps])
+  }, [selectedStepId, steps, firstChapterStep])
 
   useEffect(() => {
     setSelection(null)
@@ -220,14 +222,14 @@ export function ReviewTourPage() {
           <GoToAgentButton taskId={data.tour.task_id} />
           <button onClick={() => setStepsOpen(true)} className="flex h-11 items-center gap-1 rounded border border-zinc-700 px-3 text-xs lg:hidden"><List size={15}/> Steps</button>
           <button onClick={() => setQAOpen(true)} className="flex h-11 items-center gap-1 rounded border border-zinc-700 px-3 text-xs lg:hidden"><MessageSquare size={15}/> Notes</button>
-          <span className="text-xs text-zinc-400">{reviewedCount}/{steps.length} reviewed</span>
+          <span className="text-xs text-zinc-400">{reviewedCount}/{reviewableCount} reviewed</span>
           <button disabled={busy} onClick={() => setRegenerating(true)} className="hidden items-center gap-1 rounded border border-amber-800 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-950/50 disabled:opacity-50 sm:flex">
             <RefreshCw size={13} /> Regenerate review
           </button>
           <button disabled={busy} onClick={() => setConfirmingDelete(true)} className="hidden rounded border border-red-900 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-950/50 disabled:opacity-50 md:block">
             Delete review
           </button>
-          <button disabled={busy || steps.length === 0} onClick={() => void complete()} className="min-h-11 rounded bg-indigo-600 px-3 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50 md:min-h-0 md:py-1.5">
+          <button disabled={busy || reviewableCount === 0} onClick={() => void complete()} className="min-h-11 rounded bg-indigo-600 px-3 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50 md:min-h-0 md:py-1.5">
             Complete review
           </button>
         </div>
@@ -283,7 +285,7 @@ export function ReviewTourPage() {
           </div>}
           <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Current pass</div>
           <div className="space-y-1">
-            {steps.map((step, index) => (
+            {steps.filter((step) => step.kind !== "commit").map((step, index) => (
               <button key={step.id} aria-label={`Step ${index + 1}: ${step.title}`} onClick={() => { setSelectedStepId(step.id); setStepsOpen(false) }} className={cn("min-h-11 w-full rounded p-2 text-left", selectedStep?.id === step.id ? "bg-zinc-800" : "hover:bg-zinc-900")}>
                 <div className="flex gap-2">
                   {step.reviewed_at ? <Check size={14} className="mt-0.5 shrink-0 text-emerald-400" /> : <Circle size={14} className="mt-0.5 shrink-0 text-amber-300" />}
@@ -298,6 +300,28 @@ export function ReviewTourPage() {
               </button>
             ))}
           </div>
+          {steps.some((step) => step.kind === "commit") && (
+            <details className="mt-3">
+              <summary className="cursor-pointer px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-600 hover:text-zinc-400">Commits ({steps.filter((s) => s.kind === "commit").length})</summary>
+              <div className="mt-1 space-y-1">
+                {steps.filter((step) => step.kind === "commit").map((step, index) => (
+                  <button key={step.id} aria-label={`Commit ${index + 1}: ${step.title}`} onClick={() => { setSelectedStepId(step.id); setStepsOpen(false) }} className={cn("min-h-11 w-full rounded p-2 text-left", selectedStep?.id === step.id ? "bg-zinc-800" : "hover:bg-zinc-900")}>
+                    <div className="flex gap-2">
+                      {step.reviewed_at ? <Check size={14} className="mt-0.5 shrink-0 text-emerald-400" /> : <Circle size={14} className="mt-0.5 shrink-0 text-amber-300" />}
+                      <div className="min-w-0">
+                        <div className="truncate text-xs font-medium text-zinc-200">{step.title}</div>
+                        <div className="mt-1 flex items-center gap-2 text-[10px] uppercase text-zinc-600">
+                          {step.commit_sha && <span className="font-mono">{step.commit_sha.slice(0, 8)}</span>}
+                          {step.orphaned_at && <span className="text-amber-500">rewritten</span>}
+                          {step.risk && <span className={riskColor[step.risk]}>Risk: {step.risk}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </details>
+          )}
         </aside>
 
         <main className="min-w-0 overflow-x-hidden overflow-y-auto p-3 md:p-5">

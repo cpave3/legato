@@ -20,8 +20,8 @@ vi.mock("../../hooks/useReview", () => ({
     data: {
       tour: { id: "rt-task-1", task_id: "T-1", name: "Auth review", status: "ready", summary: "Review the authentication changes" },
       steps: [
-        { id: "S-1", task_id: "T-1", kind: "commit", commit_sha: "abcdef123456", title: "Refresh expired tokens", narration: "Retries once after refreshing.", risk: "medium", reviewed_at: null, orphaned_at: null },
-        { id: "S-2", task_id: "T-1", kind: "dirty", commit_sha: "", title: "Uncommitted changes", narration: "", risk: "", reviewed_at: "2026-01-01", orphaned_at: null },
+        { id: "S-1", task_id: "T-1", kind: "chapter", commit_sha: "", title: "Refresh expired tokens", narration: "Retries once after refreshing.", risk: "medium", reviewed_at: null, orphaned_at: null },
+        { id: "S-2", task_id: "T-1", kind: "commit", commit_sha: "abcdef123456", title: "Commit: auth refactor", narration: "", risk: "", reviewed_at: "2026-01-01", orphaned_at: null },
       ],
       messages: [
         { id: 1, step_id: "S-1", author: "agent", kind: "answer", body: "The refresh is **single-flight**." },
@@ -61,7 +61,7 @@ describe("ReviewTourPage", () => {
     renderPage()
 
     expect(screen.getByRole("heading", { name: "Auth review" })).toBeTruthy()
-    expect(screen.getByText("1/2 reviewed")).toBeTruthy()
+    expect(screen.getByText("0/1 reviewed")).toBeTruthy()
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("/api/review/tours/rt-task-1/steps/S-1/diff", expect.anything()))
 
     mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: "ok" }) })
@@ -237,7 +237,10 @@ describe("ReviewTourPage", () => {
   it("loads the selected step's diff", async () => {
     renderPage()
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
-    fireEvent.click(screen.getByRole("button", { name: /Uncommitted changes/ }))
+    // Expand the collapsed commits section to access the commit step
+    const commitsSummary = screen.getByText(/Commits \(1\)/)
+    fireEvent.click(commitsSummary)
+    fireEvent.click(screen.getByRole("button", { name: /Commit: auth refactor/ }))
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("/api/review/tours/rt-task-1/steps/S-2/diff", expect.anything()))
   })
 })
