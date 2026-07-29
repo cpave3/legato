@@ -30,6 +30,7 @@ type Config struct {
 	Worktrees     WorktreesConfig          `yaml:"worktrees"`
 	Groups        GroupsConfig             `yaml:"groups"`
 	Workflows     WorkflowsConfig          `yaml:"workflows"`
+	SSHAgentSocket string                  `yaml:"ssh_agent_socket"`
 }
 
 // WorkflowsConfig holds workflow launch conveniences.
@@ -398,9 +399,35 @@ func applyDefaults(cfg *Config) {
 	if cfg.Notifications.Ntfy.URL == "" {
 		cfg.Notifications.Ntfy.URL = "https://ntfy.sh"
 	}
+	applySSHAgent(cfg)
 	// VimMode defaults to true — yaml unmarshals missing bool as false,
 	// so we only set it if the entire keybindings section was absent.
 	// Since yaml zero-value for bool is false, we handle this in defaults().
+}
+
+// applySSHAgent sets SSH_AUTH_SOCK in the process environment when an
+// explicit override is configured, or when the env var is empty and a
+// well-known agent socket (1Password) exists. This ensures spawned
+// subprocesses (git, tmux sessions, workflow steps) can reach the SSH
+// agent even when Legato's environment doesn't inherit it from the
+// desktop session.
+func applySSHAgent(cfg *Config) {
+	if cfg.SSHAgentSocket != "" {
+		os.Setenv("SSH_AUTH_SOCK", cfg.SSHAgentSocket)
+		return
+	}
+	if os.Getenv("SSH_AUTH_SOCK") != "" {
+		return
+	}
+	// Auto-detect 1Password's agent socket as a fallback
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	socket := filepath.Join(home, ".1password", "agent.sock")
+	if info, err := os.Stat(socket); err == nil && !info.IsDir() {
+		os.Setenv("SSH_AUTH_SOCK", socket)
+	}
 }
 
 // DefaultColumns returns the default board columns.

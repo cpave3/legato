@@ -632,3 +632,72 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+func TestSSHAgentSocketOverride(t *testing.T) {
+	// Save and restore SSH_AUTH_SOCK
+	original := os.Getenv("SSH_AUTH_SOCK")
+	t.Cleanup(func() { os.Setenv("SSH_AUTH_SOCK", original) })
+
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	writeTestConfig(t, `
+ssh_agent_socket: /custom/agent.sock
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SSHAgentSocket != "/custom/agent.sock" {
+		t.Fatalf("expected SSHAgentSocket=/custom/agent.sock, got %q", cfg.SSHAgentSocket)
+	}
+	if got := os.Getenv("SSH_AUTH_SOCK"); got != "/custom/agent.sock" {
+		t.Fatalf("expected SSH_AUTH_SOCK=/custom/agent.sock, got %q", got)
+	}
+}
+
+func TestSSHAgentSocketAutoDetect1Password(t *testing.T) {
+	original := os.Getenv("SSH_AUTH_SOCK")
+	t.Cleanup(func() { os.Setenv("SSH_AUTH_SOCK", original) })
+
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	// Create a fake 1Password agent socket file
+	dir := t.TempDir()
+	home := dir
+	t.Setenv("HOME", home)
+	socketPath := filepath.Join(home, ".1password", "agent.sock")
+	if err := os.MkdirAll(filepath.Dir(socketPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(socketPath, []byte{}, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestConfig(t, ``)
+	_, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := os.Getenv("SSH_AUTH_SOCK"); got != socketPath {
+		t.Fatalf("expected SSH_AUTH_SOCK=%q, got %q", socketPath, got)
+	}
+}
+
+func TestSSHAgentSocketNoOverrideWhenAlreadySet(t *testing.T) {
+	original := os.Getenv("SSH_AUTH_SOCK")
+	t.Cleanup(func() { os.Setenv("SSH_AUTH_SOCK", original) })
+
+	t.Setenv("SSH_AUTH_SOCK", "/existing/agent.sock")
+
+	writeTestConfig(t, `
+ssh_agent_socket: /custom/agent.sock
+`)
+	_, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Explicit config override wins over existing env
+	if got := os.Getenv("SSH_AUTH_SOCK"); got != "/custom/agent.sock" {
+		t.Fatalf("expected SSH_AUTH_SOCK=/custom/agent.sock, got %q", got)
+	}
+}
