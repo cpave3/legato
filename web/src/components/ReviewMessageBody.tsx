@@ -1,3 +1,4 @@
+import { memo } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "../lib/utils"
@@ -6,7 +7,7 @@ interface ReviewMessageBodyProps {
   body: string
 }
 
-export function ReviewMessageBody({ body }: ReviewMessageBodyProps) {
+export const ReviewMessageBody = memo(function ReviewMessageBody({ body }: ReviewMessageBodyProps) {
   return (
     <div className="min-w-0 break-words text-sm leading-5">
       <ReactMarkdown
@@ -33,4 +34,4 @@ export function ReviewMessageBody({ body }: ReviewMessageBodyProps) {
       </ReactMarkdown>
     </div>
   )
-}
+})

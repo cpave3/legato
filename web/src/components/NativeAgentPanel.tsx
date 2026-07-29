@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react"
 import { ArrowDown, ArrowLeftRight, Zap, MoreHorizontal, RefreshCw, Unplug, Skull, Bell, BellOff, Terminal } from "lucide-react"
 import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
@@ -171,7 +171,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   }, [agentId, baseUrl])
 
   // Compute slash suggestions from current draft
-  const slashSuggestions: SlashSuggestion[] = (() => {
+  const slashSuggestions: SlashSuggestion[] = useMemo(() => {
     if (!draft.startsWith("/")) return []
     const query = draft.slice(1).toLowerCase()
     const cmdSuggestions: SlashSuggestion[] = commands
@@ -181,7 +181,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       .filter((s) => s.name.toLowerCase().includes(query))
       .map((s) => ({ type: "skill" as const, name: s.name, description: s.description }))
     return [...cmdSuggestions, ...skillSuggestions]
-  })()
+  }, [draft, commands, skills])
 
   // Open/close slash menu based on draft
   useEffect(() => {
@@ -810,7 +810,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   )
 }
 
-function ToolCallCard({ tool }: { tool: ToolCallItem }) {
+const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCallItem }) {
   const [expanded, setExpanded] = useState(tool.toolName === "edit")
 
   const name = tool.toolName
@@ -972,6 +972,4 @@ function ToolCallCard({ tool }: { tool: ToolCallItem }) {
       )}
     </div>
   )
-}
-
-
+})
