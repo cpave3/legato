@@ -4,6 +4,7 @@ import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "
 import { AgentSidebar } from "../components/AgentSidebar"
 import { TerminalPanel } from "../components/TerminalPanel"
 import { NativeAgentPanel } from "../components/NativeAgentPanel"
+import { RelatedWorkStrip } from "../components/RelatedWorkStrip"
 import { PromptBar, type PromptBarHandle } from "../components/PromptBar"
 import { StartSwarmModal } from "../components/StartSwarmModal"
 import { SpawnEphemeralModal } from "../components/SpawnEphemeralModal"
@@ -11,6 +12,7 @@ import { SwarmEventLog } from "../components/SwarmEventLog"
 import { AgentSelect } from "../components/AgentSelect"
 import { useServer } from "../hooks/useServer"
 import { useSwarmEvents } from "../hooks/useSwarmEvents"
+import { useTaskActivity } from "../hooks/useTaskActivity"
 import { apiFetch, toggleAgentNotify } from "../lib/api"
 import { useAgentSelection } from "../hooks/useAgentSelection"
 
@@ -272,6 +274,7 @@ export function AgentsPage() {
 
   const selectedAgent = agents.find((a) => a.task_id === selectedId)
   const selectedParentId = selectedAgent?.parent_task_id ?? null
+  const { items: relatedWork } = useTaskActivity(selectedId ?? "")
 
   const handleToggleNotify = useCallback(async () => {
     if (!selectedId) return
@@ -399,6 +402,7 @@ export function AgentsPage() {
       )}
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <RelatedWorkStrip items={relatedWork} />
         {selectedId ? (
           <>
             <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">

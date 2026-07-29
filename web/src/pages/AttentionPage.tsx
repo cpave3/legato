@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useAttention } from "../hooks/useAttention"
 import { useServer } from "../hooks/useServer"
 import { executeAttentionAction, dismissAttentionItem, type AttentionItem } from "../lib/attention"
+import { legatoHref } from "../lib/navigation"
 
 function formatRelativeTime(iso: string): string {
   const date = new Date(iso)
@@ -17,13 +18,7 @@ function formatRelativeTime(iso: string): string {
 }
 
 function navigationPath(item: AttentionItem): string | null {
-  switch (item.navigation.kind) {
-    case "plan": return `/plans/${encodeURIComponent(item.navigation.target)}`
-    case "review": return `/review/${encodeURIComponent(item.navigation.target)}`
-    case "workflow_run": return `/workflows/runs/${encodeURIComponent(item.navigation.target)}`
-    case "task": return `/board`
-    default: return null
-  }
+  return legatoHref(item.navigation)
 }
 
 export function AttentionPage() {
