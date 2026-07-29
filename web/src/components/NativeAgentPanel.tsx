@@ -758,9 +758,14 @@ function ToolCallCard({ tool }: { tool: ToolCallItem }) {
     const path = args.path as string || ""
     const filename = path.split("/").pop() || path
     return (
-      <div className="mx-4 my-1 flex items-center gap-2 px-1 py-0.5 text-xs text-zinc-400">
-        <span className="rounded bg-blue-700/40 px-1.5 py-0.5 font-mono text-white">read</span>
-        <span className="font-mono truncate">{filename}</span>
+      <div className="mx-4 my-1 px-1 py-0.5 text-xs text-zinc-400">
+        <div className="flex items-center gap-2">
+          <span className="rounded bg-blue-700/40 px-1.5 py-0.5 font-mono text-white">read</span>
+          <span className="font-mono truncate">{filename}</span>
+        </div>
+        {tool.skillName && (
+          <div className="ml-12 mt-0.5 text-indigo-300">📚 skill: {tool.skillName}</div>
+        )}
       </div>
     )
   }

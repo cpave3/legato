@@ -27,6 +27,40 @@ describe("NativeAgentPanel", () => {
     websocketConnected = true
   })
 
+  it("shows the activated skill on its read tool card", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(websocketHandler).toBeDefined())
+    act(() => {
+      websocketHandler?.({
+        type: "chimera_event",
+        agent_id: "task-1",
+        content: JSON.stringify({
+          eventId: "read-1",
+          type: "tool_call_start",
+          callId: "call-1",
+          name: "read",
+          args: { path: "/skills/coworker-walkthrough/SKILL.md" },
+        }),
+      })
+      websocketHandler?.({
+        type: "chimera_event",
+        agent_id: "task-1",
+        content: JSON.stringify({
+          eventId: "skill-1",
+          type: "skill_activated",
+          skillName: "coworker-walkthrough",
+          source: "user",
+        }),
+      })
+    })
+
+    expect(await within(view.container).findByText("📚 skill: coworker-walkthrough")).not.toBeNull()
+  })
+
   it("anchors the scroll-to-bottom action inside the conversation viewport", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
       ? new Response(JSON.stringify({

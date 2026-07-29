@@ -31,6 +31,59 @@ describe("native agent synchronization", () => {
     expect(state.items.filter((item) => item.text === "Same reply")).toHaveLength(2)
   })
 
+  it("attaches skill activation metadata to the most recent read tool", () => {
+    let state = createNativeSyncState()
+    state = reduceNativeEvent(state, {
+      eventId: "read-1",
+      type: "tool_call_start",
+      callId: "call-1",
+      name: "read",
+      args: { path: "/skills/coworker-walkthrough/SKILL.md" },
+    })
+    state = reduceNativeEvent(state, {
+      eventId: "skill-1",
+      type: "skill_activated",
+      skillName: "coworker-walkthrough",
+      source: "user",
+    })
+
+    expect(state.items[0]?.tool).toMatchObject({
+      skillName: "coworker-walkthrough",
+      skillSource: "user",
+    })
+  })
+
+  it("preserves skill metadata when an authoritative snapshot replaces live items", () => {
+    let state = createNativeSyncState()
+    state = reduceNativeEvent(state, {
+      eventId: "read-1",
+      type: "tool_call_start",
+      callId: "call-1",
+      name: "read",
+      args: { path: "/skills/coworker-walkthrough/SKILL.md" },
+    })
+    state = reduceNativeEvent(state, {
+      eventId: "skill-1",
+      type: "skill_activated",
+      skillName: "coworker-walkthrough",
+      source: "user",
+    })
+
+    state = reconcileNativeSnapshot({
+      messages: [
+        { role: "user", content: "system" },
+        { role: "assistant", content: [{ type: "tool-call" }] },
+      ],
+      toolCalls: [{
+        callId: "call-1",
+        name: "read",
+        args: { path: "/skills/coworker-walkthrough/SKILL.md" },
+      }],
+    }, state, [])
+
+    expect(state.items[0]?.tool?.skillName).toBe("coworker-walkthrough")
+  })
+
   it("applies duplicate event and tool call IDs exactly once", () => {
     let state = createNativeSyncState()
     const message = { eventId: "1", type: "assistant_text_done", id: "a", text: "Done" }

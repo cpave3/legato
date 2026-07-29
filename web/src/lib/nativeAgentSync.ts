@@ -7,6 +7,8 @@ export interface NativeToolItem {
   result?: Record<string, unknown>
   summary?: string
   durationMs?: number
+  skillName?: string
+  skillSource?: "project" | "user" | "claude-compat"
 }
 
 export interface NativeConversationItem {
@@ -59,6 +61,8 @@ export interface NativeEvent {
   error?: string
   contextWindow?: number
   usedContextTokens?: number
+  skillName?: string
+  source?: "project" | "user" | "claude-compat"
 }
 
 const nativeEventHistoryLimit = 1000
@@ -134,6 +138,14 @@ export function reconcileNativeSnapshot(
   queuedEvents: NativeEvent[],
 ): NativeSyncState {
   let next = stateFromNativeSnapshot(snapshot)
+  const previousSkills = new Map(previous.items.flatMap((item) => item.tool?.skillName
+    ? [[item.tool.key, { skillName: item.tool.skillName, skillSource: item.tool.skillSource }] as const]
+    : []))
+  next.items = next.items.map((item) => {
+    if (!item.tool) return item
+    const skill = previousSkills.get(item.tool.key)
+    return skill ? { ...item, tool: { ...item.tool, ...skill } } : item
+  })
   next.cursor = previous.cursor
   next.eventIds = new Set(previous.eventIds)
   next.eventOrder = [...previous.eventOrder]
@@ -217,6 +229,18 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
           text: "",
           tool: { key: callID, toolName: event.name, args: event.args ?? {}, summary: event.display?.summary },
         })
+      }
+      break
+    }
+    case "skill_activated": {
+      if (!event.skillName) break
+      const index = next.items.findLastIndex((item) => item.tool != null)
+      const tool = index >= 0 ? next.items[index].tool : undefined
+      if (tool?.toolName === "read") {
+        next.items[index] = {
+          ...next.items[index],
+          tool: { ...tool, skillName: event.skillName, skillSource: event.source },
+        }
       }
       break
     }
