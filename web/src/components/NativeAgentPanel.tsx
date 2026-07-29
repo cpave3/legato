@@ -1,68 +1,23 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { ArrowDown, ArrowLeftRight, Zap, MoreHorizontal, Unplug, Skull, Bell, BellOff } from "lucide-react"
+import { ArrowDown, ArrowLeftRight, Zap, MoreHorizontal, RefreshCw, Unplug, Skull, Bell, BellOff } from "lucide-react"
 import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
 import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
+import {
+  createNativeSyncState,
+  reconcileNativeSnapshot,
+  reduceNativeEvent,
+  type NativeEvent as ChimeraEvent,
+  type NativeSnapshot as SessionSnapshot,
+  type NativeSyncState,
+  type NativeToolItem as ToolCallItem,
+} from "../lib/nativeAgentSync"
 
 function formatTokens(value: number): string {
   if (value < 1_000) return value.toLocaleString()
   if (value < 1_000_000) return `${Number((value / 1_000).toFixed(1))}k`
   return `${Number((value / 1_000_000).toFixed(2))}M`
-}
-
-interface ChimeraEvent {
-  eventId: string
-  sessionId: string
-  ts: number
-  type: string
-  content?: string
-  text?: string
-  delta?: string
-  id?: string
-  name?: string
-  args?: Record<string, unknown>
-  result?: Record<string, unknown>
-  callId?: string
-  display?: { summary?: string; detail?: string }
-  requestId?: string
-  toolName?: string
-  reason?: string
-  error?: string
-  [key: string]: unknown
-}
-
-interface SnapshotMessage {
-  role: string
-  content: string | Array<{ type: string; text?: string; toolCallId?: string; toolName?: string; input?: unknown; output?: unknown }>
-}
-
-interface SnapshotToolCall {
-  callId: string
-  name: string
-  args: Record<string, unknown>
-  result?: Record<string, unknown>
-  startedAt?: number
-  endedAt?: number
-  display?: { summary?: string; detail?: string }
-}
-
-interface SessionSnapshot {
-  id: string
-  cwd: string
-  mode: string
-  status: string
-  messages?: SnapshotMessage[]
-  toolCalls?: SnapshotToolCall[]
-  usage?: {
-    inputTokens: number
-    outputTokens: number
-    totalTokens: number
-    stepCount: number
-  }
-  contextWindow?: number
-  usedContextTokens?: number
-  tasks?: { content: string; status: string }[]
 }
 
 interface ModeInfo {
@@ -105,44 +60,20 @@ interface NativeAgentPanelProps {
   agentKind?: string
 }
 
-type ItemRole = "user" | "assistant" | "tool" | "system"
-
-interface ToolCallItem {
-  key: string
-  toolName: string
-  args: Record<string, unknown>
-  result?: Record<string, unknown>
-  summary?: string
-  durationMs?: number
-}
-
-interface ConversationItem {
-  key: string
-  role: ItemRole
-  text: string
-  isStreaming?: boolean
-  tool?: ToolCallItem
-  toolName?: string // for permission requests
-}
-
 export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   const { baseUrl } = useServer()
-  const [items, setItems] = useState<ConversationItem[]>([])
+  const [syncState, setSyncState] = useState<NativeSyncState>(() => createNativeSyncState())
+  const syncStateRef = useRef(syncState)
+  const queuedEventsRef = useRef<ChimeraEvent[] | null>(null)
+  const syncGenerationRef = useRef(0)
+  const runFinishTimerRef = useRef<number | null>(null)
   const [draft, setDraft] = useState("")
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [contextUsage, setContextUsage] = useState<{ used: number; window: number } | null>(null)
   const [mode, setMode] = useState<string>("")
   const scrollRef = useRef<HTMLDivElement>(null)
   const draftKey = `legato:chimera-draft:${agentId}`
-  const seenEventIds = useRef<Set<string>>(new Set())
-  const streamingTextRef = useRef<string>("")
-  const streamingIdRef = useRef<string>("")
-  // Track which snapshot tool calls we've already rendered (by position in messages)
-  const snapshotToolCallCount = useRef<number>(0)
-  const seenCallIds = useRef<Set<string>>(new Set())
+  const { items, busy, error, contextUsage } = syncState
   const [isScrolledUp, setIsScrolledUp] = useState(false)
   const [modes, setModes] = useState<ModeInfo[]>([])
   const [modesOpen, setModesOpen] = useState(false)
@@ -158,6 +89,19 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   const [slashOpen, setSlashOpen] = useState(false)
   const [slashIndex, setSlashIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const replaceSyncState = useCallback((next: NativeSyncState) => {
+    syncStateRef.current = next
+    setSyncState(next)
+  }, [])
+
+  const applyEvent = useCallback((event: ChimeraEvent) => {
+    if (queuedEventsRef.current) {
+      queuedEventsRef.current.push(event)
+      return
+    }
+    replaceSyncState(reduceNativeEvent(syncStateRef.current, event))
+  }, [replaceSyncState])
 
   // Load/save draft
   useEffect(() => {
@@ -233,275 +177,92 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     return () => document.removeEventListener("mousedown", handler)
   }, [])
 
-  // Fetch initial snapshot and hydrate conversation
-  useEffect(() => {
+  const resync = useCallback(async () => {
+    const generation = ++syncGenerationRef.current
+    const eventQueue = queuedEventsRef.current ?? []
+    queuedEventsRef.current = eventQueue
     setLoading(true)
-    seenEventIds.current.clear()
-    seenCallIds.current.clear()
-    streamingTextRef.current = ""
-    streamingIdRef.current = ""
-    apiFetch(baseUrl, `/api/agents/${agentId}/chimera/snapshot`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`snapshot: ${r.status}`)
-        return r.json()
-      })
-      .then((data: SessionSnapshot) => {
-        setMode(data.mode || "")
-        setBusy(data.status === "running")
-        if (data.contextWindow && data.usedContextTokens != null) {
-          setContextUsage({ used: data.usedContextTokens, window: data.contextWindow })
+    try {
+      const response = await apiFetch(baseUrl, `/api/agents/${agentId}/chimera/snapshot`)
+      if (!response.ok) throw new Error(`snapshot: ${response.status}`)
+      const snapshot: SessionSnapshot = await response.json()
+      if (generation !== syncGenerationRef.current) return
+      setMode(snapshot.mode || "")
+      replaceSyncState(reconcileNativeSnapshot(snapshot, syncStateRef.current, eventQueue))
+    } catch (reason) {
+      if (generation === syncGenerationRef.current) {
+        let next = syncStateRef.current
+        for (const event of eventQueue) {
+          next = reduceNativeEvent(next, event)
         }
-        // Hydrate conversation from snapshot messages AND tool calls.
-        // Tool calls are interleaved with messages in the conversation order.
-        // We walk both arrays, inserting tool calls after the assistant message
-        // that produced them (by matching step boundaries).
-        const snapshotItems: ConversationItem[] = []
-        const msgs = data.messages || []
-        const tcs = data.toolCalls || []
-        snapshotToolCallCount.current = tcs.length
-        for (const tc of tcs) {
-          if (tc.callId) seenCallIds.current.add(tc.callId)
-        }
+        replaceSyncState({
+          ...next,
+          error: reason instanceof Error ? reason.message : String(reason),
+        })
+      }
+    } finally {
+      if (generation === syncGenerationRef.current) {
+        queuedEventsRef.current = null
+        setLoading(false)
+      }
+    }
+  }, [agentId, baseUrl, replaceSyncState])
 
-        // Walk messages and interleave text and tool calls in conversation
-        // order. Assistant messages contain tool-call parts inline; tool
-        // result messages contain tool-result parts. We match tool-call
-        // parts to the flat toolCalls[] array by chronological order.
-        let tcIdx = 0 // index into the flat toolCalls array
-        for (let i = 0; i < msgs.length; i++) {
-          const msg = msgs[i]
-          // Skip the system/role prompt (first user message)
-          if (i === 0 && msg.role === "user") continue
+  useEffect(() => {
+    replaceSyncState(createNativeSyncState())
+    void resync()
+    return () => {
+      queuedEventsRef.current = null
+      if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
+    }
+  }, [agentId, replaceSyncState, resync])
 
-          if (typeof msg.content === "string") {
-            if (msg.content) {
-              snapshotItems.push({
-                key: `snap-msg-${i}`,
-                role: msg.role as ItemRole,
-                text: msg.content,
-              })
-            }
-            continue
-          }
-
-          if (!Array.isArray(msg.content)) continue
-
-          // Extract text parts as a single assistant/user message
-          const textParts = msg.content.filter((p) => p.type === "text" && p.text)
-          if (textParts.length > 0) {
-            snapshotItems.push({
-              key: `snap-msg-${i}`,
-              role: msg.role as ItemRole,
-              text: textParts.map((p) => p.text!).join(""),
-            })
-          }
-
-          // Extract tool-call parts and insert as tool cards inline
-          const toolCallCount = msg.content.filter((p) => p.type === "tool-call").length
-          for (let _ = 0; _ < toolCallCount; _++) {
-            const tc = tcIdx < tcs.length ? tcs[tcIdx] : undefined
-            if (tc) {
-              if (tc.callId) seenCallIds.current.add(tc.callId)
-              snapshotItems.push({
-                key: `snap-tc-${tcIdx}`,
-                role: "tool" as ItemRole,
-                text: "",
-                tool: {
-                  key: tc.callId || `snap-tc-${tcIdx}`,
-                  toolName: tc.name,
-                  args: tc.args as Record<string, unknown>,
-                  result: tc.result as Record<string, unknown> | undefined,
-                  summary: tc.display?.summary,
-                  durationMs: tc.endedAt && tc.startedAt
-                    ? tc.endedAt - tc.startedAt
-                    : undefined,
-                },
-              })
-              tcIdx++
-            }
-          }
-        }
-        setItems(snapshotItems)
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false))
-  }, [agentId, baseUrl])
-
-  // Subscribe to Chimera events via WebSocket
+  // Subscribe with the last accepted cursor on every WebSocket connection.
   useEffect(() => {
     if (connected) {
-      send({ type: "subscribe_agent", agent_id: agentId })
+      send({ type: "subscribe_agent", agent_id: agentId, cursor: syncStateRef.current.cursor })
     }
     return () => {
-      if (connected) {
-        send({ type: "unsubscribe_agent", agent_id: agentId })
-      }
+      if (connected) send({ type: "unsubscribe_agent", agent_id: agentId })
     }
   }, [agentId, connected, send])
 
-  // Handle incoming WebSocket messages
   useEffect(() => {
     const unsubscribe = subscribe((msg: WSMessage) => {
-      if (msg.type !== "chimera_event" || msg.agent_id !== agentId) return
+      if (msg.agent_id !== agentId) return
+      if (msg.type === "chimera_sync_required") {
+        void resync()
+        return
+      }
+      if (msg.type !== "chimera_event") return
       try {
-        const env: ChimeraEvent = JSON.parse(msg.content || "{}")
-        if (env.eventId && seenEventIds.current.has(env.eventId)) return
-        if (env.eventId) seenEventIds.current.add(env.eventId)
-
-        switch (env.type) {
-          case "session_started":
-            setBusy(true)
-            break
-          case "user_message": {
-            setBusy(true)
-            if (env.content) {
-              setItems((prev) => [...prev, {
-                key: env.eventId,
-                role: "user",
-                text: env.content!,
-              }])
-            }
-            break
-          }
-          case "assistant_text_delta": {
-            if (env.id) streamingIdRef.current = env.id
-            if (env.delta) {
-              streamingTextRef.current += env.delta
-              setItems((prev) => {
-                const streamKey = `stream-${streamingIdRef.current}`
-                const existing = prev.find((it) => it.key === streamKey)
-                if (existing) {
-                  return prev.map((it) =>
-                    it.key === streamKey ? { ...it, text: streamingTextRef.current } : it
-                  )
-                }
-                return [...prev, {
-                  key: streamKey,
-                  role: "assistant",
-                  text: streamingTextRef.current,
-                  isStreaming: true,
-                }]
-              })
-            }
-            break
-          }
-          case "assistant_text_done": {
-            const finalText = env.text || streamingTextRef.current
-            streamingTextRef.current = ""
-            streamingIdRef.current = ""
-            setItems((prev) => {
-              const streamKey = `stream-${env.id || ""}`
-              const existing = prev.find((it) => it.key === streamKey)
-              if (existing) {
-                return prev.map((it) =>
-                  it.key === streamKey
-                    ? { ...it, text: finalText, isStreaming: false }
-                    : it
-                )
-              }
-              if (finalText) {
-                return [...prev, { key: env.eventId, role: "assistant", text: finalText }]
-              }
-              return prev
-            })
-            break
-          }
-          case "tool_call_start": {
-            // Skip tool calls already rendered from the snapshot
-            if (env.callId && seenCallIds.current.has(env.callId)) break
-            if (env.callId) seenCallIds.current.add(env.callId)
-            if (env.name) {
-              const callKey = env.callId || env.eventId
-              setItems((prev) => [...prev, {
-                key: callKey,
-                role: "tool",
-                text: "",
-                tool: {
-                  key: callKey,
-                  toolName: env.name!,
-                  args: env.args || {},
-                  summary: env.display?.summary,
-                },
-              }])
-            }
-            break
-          }
-          case "tool_call_result": {
-            // Update the tool call item with results
-            if (env.callId) {
-              setItems((prev) => prev.map((it) => {
-                if (it.tool && it.tool.key === env.callId) {
-                  return {
-                    ...it,
-                    tool: {
-                      ...it.tool,
-                      result: env.result,
-                      summary: env.display?.summary || it.tool.summary,
-                    },
-                  }
-                }
-                // Also check by eventId match for tool_call_start
-                if (it.key === env.callId && it.tool) {
-                  return {
-                    ...it,
-                    tool: {
-                      ...it.tool,
-                      result: env.result,
-                      summary: env.display?.summary || it.tool.summary,
-                    },
-                  }
-                }
-                return it
-              }))
-            }
-            break
-          }
-          case "permission_request": {
-            setBusy(false)
-            if (env.requestId) {
-              setItems((prev) => [...prev, {
-                key: env.eventId,
-                role: "system",
-                text: "",
-                toolName: env.toolName,
-              }])
-            }
-            break
-          }
-          case "run_finished":
-            setBusy(false)
-            break
-          case "usage_updated": {
-            const update = env as unknown as { contextWindow?: number; usedContextTokens?: number }
-            if (update.contextWindow && update.usedContextTokens != null) {
-              setContextUsage({ used: update.usedContextTokens, window: update.contextWindow })
-            }
-            break
-          }
-          case "error":
-            if (env.error) setError(env.error)
-            break
+        const event: ChimeraEvent = JSON.parse(msg.content || "{}")
+        applyEvent(event)
+        if (event.type === "run_finished") {
+          if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
+          runFinishTimerRef.current = window.setTimeout(() => {
+            runFinishTimerRef.current = null
+            void resync()
+          }, 100)
         }
-
         requestAnimationFrame(() => {
-          if (scrollRef.current) {
+          if (scrollRef.current && !isScrolledUp) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight
           }
         })
       } catch {
-        // ignore parse errors
+        replaceSyncState({ ...syncStateRef.current, error: "Invalid Chimera event; refresh from snapshot" })
       }
     })
     return unsubscribe
-  }, [subscribe, agentId])
+  }, [subscribe, agentId, applyEvent, isScrolledUp, replaceSyncState, resync])
 
   const handleSend = useCallback(() => {
     if (!draft.trim() || busy) return
     send({ type: "agent_message", agent_id: agentId, content: draft.trim() })
     setDraft("")
-    setBusy(true)
-    setError(null)
-  }, [draft, busy, agentId, send])
+    replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
+  }, [draft, busy, agentId, send, replaceSyncState])
 
   const handleInterrupt = useCallback(() => {
     send({ type: "agent_interrupt", agent_id: agentId })
@@ -767,6 +528,14 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
             </button>
             {menuOpen && (
               <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
+                <button
+                  onClick={() => { setMenuOpen(false); void resync() }}
+                  disabled={loading}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                >
+                  <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+                  {loading ? "Refreshing…" : "Refresh from snapshot"}
+                </button>
                 {ntfyConfigured && onToggleNotify && (
                   <button
                     onClick={() => { onToggleNotify(); setMenuOpen(false) }}
