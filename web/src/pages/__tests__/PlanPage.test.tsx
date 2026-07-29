@@ -22,6 +22,7 @@ const planData = {
 }
 
 vi.mock("../../hooks/useServer",()=>({useServer:()=>({baseUrl:""})}))
+vi.mock("../../hooks/useRunningAgent",()=>({useRunningAgent:()=>({agent:null,loading:false})}))
 vi.mock("../../hooks/usePlan",()=>({usePlan:()=>({data:planData,loading:false,error:null,refresh})}))
 vi.mock("../../lib/plan", async importOriginal => {
   const actual = await importOriginal<typeof import("../../lib/plan")>()

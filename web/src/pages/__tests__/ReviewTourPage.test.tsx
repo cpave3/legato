@@ -9,6 +9,7 @@ vi.stubGlobal("fetch", mockFetch)
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 vi.mock("../../hooks/useVoiceEnabled", () => ({ useVoiceEnabled: () => true }))
+vi.mock("../../hooks/useRunningAgent", () => ({ useRunningAgent: () => ({ agent: null, loading: false }) }))
 vi.mock("../../components/VoiceRecorder", () => ({
   VoiceRecorder: ({ onTranscription }: { onTranscription?: (text: string) => void }) => (
     <button type="button" aria-label="Dictate review question" onClick={() => onTranscription?.("Dictated follow-up")}>Dictate</button>

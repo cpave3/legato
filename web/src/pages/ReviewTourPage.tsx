@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { DiffView } from "../components/DiffView"
 import { ReviewMessageBody } from "../components/ReviewMessageBody"
+import { GoToAgentButton } from "../components/GoToAgentButton"
 import { VoiceRecorder } from "../components/VoiceRecorder"
 import { useReviewTour } from "../hooks/useReview"
 import { useServer } from "../hooks/useServer"
@@ -216,6 +217,7 @@ export function ReviewTourPage() {
           <h1 className="mt-1 truncate text-lg font-semibold">{data.tour.name || data.tour.summary || decodedTourId}</h1>
         </div>
         <div className="flex shrink-0 items-center gap-2 md:gap-3">
+          <GoToAgentButton taskId={data.tour.task_id} />
           <button onClick={() => setStepsOpen(true)} className="flex h-11 items-center gap-1 rounded border border-zinc-700 px-3 text-xs lg:hidden"><List size={15}/> Steps</button>
           <button onClick={() => setQAOpen(true)} className="flex h-11 items-center gap-1 rounded border border-zinc-700 px-3 text-xs lg:hidden"><MessageSquare size={15}/> Notes</button>
           <span className="text-xs text-zinc-400">{reviewedCount}/{steps.length} reviewed</span>
