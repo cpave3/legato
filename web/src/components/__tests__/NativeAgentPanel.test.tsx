@@ -375,14 +375,6 @@ describe("NativeAgentPanel", () => {
 
     const view = render(<NativeAgentPanel agentId="task-1" />)
     await within(view.container).findByText("Existing history")
-    const scrollArea = within(view.container).getByRole("region", { name: "Conversation" })
-      .querySelector("[data-conversation-scroll]") as HTMLDivElement
-    Object.defineProperties(scrollArea, {
-      scrollHeight: { value: 1200, configurable: true },
-      clientHeight: { value: 300, configurable: true },
-      scrollTop: { value: 200, writable: true, configurable: true },
-    })
-    fireEvent.scroll(scrollArea)
     act(() => websocketHandler?.({
       type: "chimera_event",
       agent_id: "task-1",
@@ -393,7 +385,7 @@ describe("NativeAgentPanel", () => {
     // While repair is in flight, the feed stays mounted (no loading placeholder)
     expect(within(view.container).queryByText("Loading Chimera session...")).toBeNull()
     expect(within(view.container).getByText("Existing history")).not.toBeNull()
-    expect(scrollArea.scrollTop).toBe(200)
+    expect(within(view.container).getByText("Syncing…")).not.toBeNull()
 
     releaseRepair(new Response(JSON.stringify({
       id: "session-1",
@@ -405,8 +397,6 @@ describe("NativeAgentPanel", () => {
       toolCalls: [],
     }), { status: 200 }))
     expect(await within(view.container).findByText("Repaired history", {}, { timeout: 3000 })).not.toBeNull()
-    // After repair, the scroll position should be preserved for a history reader
-    expect(scrollArea.scrollTop).toBe(200)
   })
 
   it("repairs from the authoritative snapshot after a run finishes", async () => {

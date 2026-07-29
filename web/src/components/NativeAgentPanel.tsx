@@ -118,11 +118,21 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     requestAnimationFrame(scrollToBottom)
   }, [scrollToBottom])
 
-  // Scroll to bottom once the feed has content and after every items update,
-  // unless the user has scrolled up to read history.
+  // Scroll to bottom once the feed has content. The initial load always
+  // scrolls to the latest message regardless of isScrolledUp, because the
+  // browser fires a spurious onScroll at scrollTop=0 when content first
+  // overflows. After that, respect the user's scroll position.
+  const initialScrollDone = useRef(false)
   useEffect(() => {
-    if (!loading && scrollRef.current && !isScrolledUpRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    if (!loading && scrollRef.current) {
+      if (!initialScrollDone.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+        isScrolledUpRef.current = false
+        setIsScrolledUp(false)
+        initialScrollDone.current = true
+      } else if (!isScrolledUpRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+      }
     }
   }, [loading, syncState.items])
 
@@ -244,10 +254,11 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
         setSyncing(false)
       }
     }
-  }, [agentId, baseUrl, replaceSyncState, scrollToBottom])
+  }, [agentId, baseUrl, replaceSyncState])
 
   useEffect(() => {
     replaceSyncState(createNativeSyncState())
+    initialScrollDone.current = false
     void resync(true)
     return () => {
       queuedEventsRef.current = null
