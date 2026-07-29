@@ -52,7 +52,7 @@ export function AgentsPage() {
   const { fetchState } = useSwarmEvents()
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const { selectedAgentId: selectedId, setSelectedAgentId: setSelectedId } = useAgentSelection()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const linkedTask = searchParams.get("task")
   const workflowRun = searchParams.get("workflow")
   const [promptState, setPromptState] = useState<PromptState | null>(null)
@@ -133,11 +133,16 @@ export function AgentsPage() {
     })
   }, [fetchAgents, subscribe, selectedId, baseUrl])
 
+  // Treat ?task= as a one-shot deep link: select it once, then clear the param
+  // so it doesn't reassert on every agents update and fight sidebar selection.
   useEffect(() => {
     if (linkedTask && agents.some((agent) => agent.task_id === linkedTask)) {
       setSelectedId(linkedTask)
+      const next = new URLSearchParams(searchParams)
+      next.delete("task")
+      setSearchParams(next, { replace: true })
     }
-  }, [agents, linkedTask, setSelectedId])
+  }, [agents, linkedTask, setSelectedId, searchParams, setSearchParams])
 
   // Global keyboard handler for voice dictation: 'v' toggles record/send,
   // Escape cancels recording. Only active when the textarea is not focused
