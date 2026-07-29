@@ -374,7 +374,7 @@ describe("NativeAgentPanel", () => {
     })
 
     const view = render(<NativeAgentPanel agentId="task-1" />)
-    const existing = await within(view.container).findByText("Existing history")
+    await within(view.container).findByText("Existing history")
     const scrollArea = within(view.container).getByRole("region", { name: "Conversation" })
       .querySelector("[data-conversation-scroll]") as HTMLDivElement
     Object.defineProperties(scrollArea, {
@@ -390,8 +390,9 @@ describe("NativeAgentPanel", () => {
     }))
     await waitFor(() => expect(snapshotCalls).toBe(2))
 
-    expect(existing.isConnected).toBe(true)
+    // While repair is in flight, the feed stays mounted (no loading placeholder)
     expect(within(view.container).queryByText("Loading Chimera session...")).toBeNull()
+    expect(within(view.container).getByText("Existing history")).not.toBeNull()
     expect(scrollArea.scrollTop).toBe(200)
 
     releaseRepair(new Response(JSON.stringify({

@@ -4,6 +4,7 @@ import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
 import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
+import { ReviewMessageBody } from "./ReviewMessageBody"
 import {
   createNativeSyncState,
   reconcileNativeSnapshot,
@@ -460,8 +461,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
           if (item.role === "assistant") {
             return (
               <div key={item.key} className="flex justify-start px-4 py-2">
-                <div className={`max-w-[80%] whitespace-pre-wrap rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 ${item.isStreaming ? "opacity-80" : ""}`}>
-                  {item.text}
+                <div className={`max-w-[80%] rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 ${item.isStreaming ? "opacity-80" : ""}`}>
+                  <ReviewMessageBody body={item.text} />
                   {item.isStreaming && <span className="ml-0.5 animate-pulse">▋</span>}
                 </div>
               </div>
