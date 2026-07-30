@@ -77,9 +77,13 @@ func main() {
 			st.mu.Lock()
 			switch e.Action {
 			case opendeck.ActionAgentTile:
-				st.agentCtxs = append(st.agentCtxs, e.Context)
+				if !contains(st.agentCtxs, e.Context) {
+					st.agentCtxs = append(st.agentCtxs, e.Context)
+				}
 			case opendeck.ActionAttnTile:
-				st.attnCtxs = append(st.attnCtxs, e.Context)
+				if !contains(st.attnCtxs, e.Context) {
+					st.attnCtxs = append(st.attnCtxs, e.Context)
+				}
 			}
 			deck := st.deck
 			snap := st.snap
@@ -280,6 +284,15 @@ func removeContext(list []string, ctx string) []string {
 		}
 	}
 	return list
+}
+
+func contains(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Config ---
