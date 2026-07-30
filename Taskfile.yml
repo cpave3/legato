@@ -133,6 +133,19 @@ tasks:
     cmds:
       - pnpm exec eas build --platform android --profile preview
 
+  streamdeck:build:
+    desc: Build the Stream Deck plugin binary
+    dir: streamdeck
+    cmds:
+      - go build -o plugin/bin/legato-streamdeck ./cmd/legato-streamdeck
+
+  streamdeck:package:
+    desc: Build and assemble the .sdPlugin folder
+    dir: streamdeck
+    cmds:
+      - task: streamdeck:build
+      - ./scripts/package.sh
+
   install:tools:
     desc: Install development tools
     cmds:

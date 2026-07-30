@@ -1,0 +1,55 @@
+{
+  "Name": "Legato",
+  "Author": "cpave3",
+  "Version": "0.1.0",
+  "CodePathLin": "bin/legato-streamdeck",
+  "CodePaths": {
+    "x86_64-unknown-linux-gnu": "bin/legato-streamdeck",
+    "aarch64-unknown-linux-gnu": "bin/legato-streamdeck-arm64"
+  },
+  "Icon": "icons/plugin",
+  "Category": "Legato",
+  "OS": [
+    {
+      "Platform": "linux"
+    }
+  ],
+  "Actions": [
+    {
+      "UUID": "com.cpave3.legato.home",
+      "Name": "Legato Home",
+      "States": [
+        {
+          "Image": "icons/tile"
+        }
+      ],
+      "Controllers": ["Keypad"],
+      "Tooltip": "Switch to Legato home profile",
+      "SupportedInMultiActions": false
+    },
+    {
+      "UUID": "com.cpave3.legato.agent-tile",
+      "Name": "Agent Tile",
+      "States": [
+        {
+          "Image": "icons/tile"
+        }
+      ],
+      "Controllers": ["Keypad"],
+      "Tooltip": "Shows an active agent; press to open in browser",
+      "SupportedInMultiActions": false
+    },
+    {
+      "UUID": "com.cpave3.legato.attention-tile",
+      "Name": "Attention Tile",
+      "States": [
+        {
+          "Image": "icons/tile"
+        }
+      ],
+      "Controllers": ["Keypad"],
+      "Tooltip": "Shows an attention item; press to open or act",
+      "SupportedInMultiActions": false
+    }
+  ]
+}
