@@ -57,11 +57,11 @@ func newMockServer(agentsJSON, attentionJSON string) *mockLegatoServer {
 }
 
 func TestFetchAgents(t *testing.T) {
-	agentsJSON := `{"agents":[
+	agentsJSON := `[
 		{"id":1,"task_id":"t-1","task_title":"Build feature","status":"running","activity":"working"},
 		{"id":2,"task_id":"t-2","task_title":"Fix bug","status":"running","activity":"waiting"},
 		{"id":3,"task_id":"t-3","task_title":"Old task","status":"dead","activity":""}
-	]}`
+	]`
 	srv := newMockServer(agentsJSON, `{"items":[]}`)
 	defer srv.Close()
 
@@ -91,7 +91,7 @@ func TestFetchAttention(t *testing.T) {
 	attentionJSON := `{"items":[
 		{"id":"attn-1","producer":"plans","title":"Approve plan X","urgency":"normal","navigation":{"kind":"plan","target":"pl-1"},"actions":[{"id":"open","label":"Open plan","kind":"navigate"}]}
 	]}`
-	srv := newMockServer(`{"agents":[]}`, attentionJSON)
+	srv := newMockServer(`[]`, attentionJSON)
 	defer srv.Close()
 
 	c := NewClient(Config{BaseURL: srv.URL, Token: "test-token"}, nil)
@@ -111,7 +111,7 @@ func TestFetchAttention(t *testing.T) {
 }
 
 func TestHealthCheck(t *testing.T) {
-	srv := newMockServer(`{"agents":[]}`, `{"items":[]}`)
+	srv := newMockServer(`[]`, `{"items":[]}`)
 	defer srv.Close()
 
 	c := NewClient(Config{BaseURL: srv.URL, Token: "test-token"}, nil)
@@ -136,7 +136,7 @@ func TestHealthCheckFailsOnUnreachable(t *testing.T) {
 }
 
 func TestSnapshotConnectedAfterStart(t *testing.T) {
-	agentsJSON := `{"agents":[{"id":1,"task_id":"t-1","task_title":"Agent 1","status":"running","activity":"working"}]}`
+	agentsJSON := `[{"id":1,"task_id":"t-1","task_title":"Agent 1","status":"running","activity":"working"}]`
 	srv := newMockServer(agentsJSON, `{"items":[]}`)
 	defer srv.Close()
 
@@ -175,7 +175,7 @@ func TestSnapshotConnectedAfterStart(t *testing.T) {
 }
 
 func TestRecoveryAfterServerRestart(t *testing.T) {
-	agentsJSON := `{"agents":[{"id":1,"task_id":"t-1","task_title":"Recovery agent","status":"running","activity":"working"}]}`
+	agentsJSON := `[{"id":1,"task_id":"t-1","task_title":"Recovery agent","status":"running","activity":"working"}]`
 	srv := newMockServer(agentsJSON, `{"items":[]}`)
 
 	c := NewClient(Config{

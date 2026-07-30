@@ -369,15 +369,13 @@ func (c *Client) fetchAgents(ctx context.Context, token string) ([]Agent, error)
 		b, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("%s: %s", resp.Status, string(b))
 	}
-	var raw struct {
-		Agents []Agent `json:"agents"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+	var agents []Agent
+	if err := json.NewDecoder(resp.Body).Decode(&agents); err != nil {
 		return nil, err
 	}
 	// Filter to running agents only.
 	var running []Agent
-	for _, a := range raw.Agents {
+	for _, a := range agents {
 		if a.Status == "running" {
 			running = append(running, a)
 		}
