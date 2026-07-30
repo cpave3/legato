@@ -36,18 +36,43 @@ This produces `streamdeck/dist/com.cpave3.legato.sdPlugin/` with the manifest, i
 
 ## Configure
 
-The plugin reads its connection config from `~/.config/legato/streamdeck.yaml`:
+The plugin needs the Legato server URL and auth token. It searches for a `streamdeck.yaml` config file in three locations (first match wins):
+
+1. **Next to the plugin binary** — inside the `.sdPlugin` folder (e.g. `~/.var/app/me.amankhanna.opendeck/config/opendeck/plugins/com.cpave3.legato.sdPlugin/streamdeck.yaml`)
+2. **Current working directory** — wherever the plugin process starts
+3. **`~/.config/legato/streamdeck.yaml`** — the standard Legato config location
 
 ```yaml
 legato_url: "http://localhost:3080"
-# token: "your-auth-token"  # optional; if omitted, read from ~/.local/share/legato/auth-token
+token: "your-auth-token"
 ```
 
-If `legato_url` is absent, it defaults to `http://localhost:3080`.
+Environment variables `LEGATO_URL` and `LEGATO_TOKEN` override the config file.
 
-If `token` is absent, the plugin reads the auth token from `~/.local/share/legato/auth-token` (Legato's default data directory). This means **zero configuration when Legato and the plugin run on the same machine** — the plugin automatically picks up the token.
+### Flatpak note (important)
 
-The `LEGATO_URL` environment variable overrides the config file URL.
+OpenDeck is distributed as a Flatpak. Plugins run inside the sandbox, which means **the plugin cannot read `~/.local/share/legato/auth-token` from the host filesystem**. You must provide the token explicitly via a `streamdeck.yaml` file placed inside the `.sdPlugin` folder:
+
+```bash
+# Get your Legato auth token
+TOKEN=$(cat ~/.local/share/legato/auth-token)
+
+# Place it in the plugin directory
+cat > ~/.var/app/me.amankhanna.opendeck/config/opendeck/plugins/com.cpave3.legato.sdPlugin/streamdeck.yaml << EOF
+legato_url: "http://localhost:3080"
+token: "$TOKEN"
+EOF
+```
+
+The `package.sh` script automatically copies `plugin/streamdeck.yaml` into the `.sdPlugin` folder if it exists, so you can create it before packaging:
+
+```bash
+echo "legato_url: http://localhost:3080" > streamdeck/plugin/streamdeck.yaml
+echo "token: $(cat ~/.local/share/legato/auth-token)" >> streamdeck/plugin/streamdeck.yaml
+task streamdeck:package
+```
+
+If `legato_url` is absent, it defaults to `http://localhost:3080` (works because the Flatpak has network access).
 
 ## Set up profiles in OpenDeck
 
