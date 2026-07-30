@@ -3,11 +3,12 @@
 // Each tile is a 144×144 SVG rendered to a base64 data URI. The SVG is
 // downscaled to 72×72 by the hardware — so design for 72px legibility.
 //
-// Design philosophy: color and shape only, no text. The keys are glance
-// indicators, not text displays. Color encodes state (working/waiting/idle/
-// urgent). Shape encodes activity (filled circle / hollow ring / dot). Color
-// shift encodes elapsed time (green→yellow→amber→red as an agent works longer).
-// Border weight encodes urgency (thin bar = normal, thick border = urgent).
+// Design philosophy: color and shape as primary signals, minimal text.
+// Agent tiles use a rectangular layout:
+// - Top: state bar (green=working, amber=waiting, gray=idle)
+// - Middle: context pressure bar (green→amber→red as context fills)
+// - Bottom: last 4 chars of task ID
+// - Corner: purple dot if notify enabled
 package render
 
 import (
@@ -21,13 +22,14 @@ const (
 	bgColor  = "#18181b" // zinc-900
 )
 
-// Base colors for activity states.
+// Base colors.
 const (
 	Green  = "#22c55e"
 	Amber  = "#f59e0b"
 	Red    = "#ef4444"
 	Gray   = "#52525b"
 	DarkGray = "#27272a"
+	Purple = "#a855f7"
 )
 
 // DataURI wraps raw SVG bytes as a data URI.
@@ -53,70 +55,86 @@ func escapeXML(s string) string {
 	return s
 }
 
-// elapsedColor shifts green→lime→amber→red based on seconds working.
-// 0-30min: green, 30-60min: lime, 1-2hr: amber, 2hr+: red.
-func elapsedColor(seconds float64) string {
+// pressureColor returns a color for context pressure (0-1).
+// 0-0.5: green, 0.5-0.75: amber, 0.75-1: red.
+func pressureColor(pressure float64) string {
+	if pressure < 0 {
+		return DarkGray // unknown
+	}
 	switch {
-	case seconds < 1800:   // < 30 min
+	case pressure < 0.5:
 		return Green
-	case seconds < 3600:   // 30-60 min
-		return "#84cc16" // lime — green shifting yellow
-	case seconds < 7200:   // 1-2 hr
+	case pressure < 0.75:
 		return Amber
-	default:               // > 2 hr
+	default:
 		return Red
 	}
 }
 
-// waitingColor shifts amber→red based on seconds waiting.
-// 0-5min: amber, 5min+: red.
-func waitingColor(seconds float64) string {
-	if seconds > 300 {
-		return Red
-	}
-	return Amber
-}
-
-// Agent renders a purely visual tile for an agent.
+// Agent renders a rectangular tile for an agent.
 //
-// Visual encoding:
-// - Working: filled circle, color shifts green→red with elapsed time
-// - Waiting: hollow ring, amber (red if >5min)
-// - Idle: small dim dot
-// - Dead: red X over dark background
-// - Last 4 chars of task ID shown in large text at bottom
-func Agent(activity, taskID string, workingSeconds, waitingSeconds float64) string {
-	var centerSVG string
-
+// Layout (144×144):
+// - Top bar (y=8-14): state color — always green for working, amber for waiting, gray for idle
+// - Middle (y=30-110): context pressure bar — fills left-to-right, colored by pressure
+// - Bottom (y=126): last 4 chars of task ID in monospace
+// - Top-right corner: purple dot if notify enabled
+func Agent(activity, taskID string, workingSeconds, waitingSeconds, contextPressure float64, notifyEnabled bool) string {
+	// State color — working is always green regardless of elapsed time
+	var stateColor string
 	switch activity {
 	case "working":
-		color := elapsedColor(workingSeconds)
-		// Filled circle with outer ring
-		centerSVG = fmt.Sprintf(
-			`<circle cx="72" cy="64" r="40" fill="none" stroke="%s" stroke-width="3" opacity="0.25"/>
-  <circle cx="72" cy="64" r="30" fill="%s"/>`, color, color)
+		stateColor = Green
 	case "waiting":
-		color := waitingColor(waitingSeconds)
-		// Hollow ring
-		centerSVG = fmt.Sprintf(
-			`<circle cx="72" cy="64" r="30" fill="none" stroke="%s" stroke-width="11"/>`, color)
+		stateColor = Amber
 	default:
-		// Idle: small dim dot
-		centerSVG = fmt.Sprintf(
-			`<circle cx="72" cy="64" r="12" fill="%s"/>`, Gray)
+		stateColor = Gray
 	}
 
+	// Top state bar
+	stateBar := fmt.Sprintf(`<rect x="12" y="8" width="120" height="6" rx="3" fill="%s"/>`, stateColor)
+
+	// Context pressure bar
+	var pressureBar string
+	if contextPressure < 0 {
+		// Unknown — show a dim dashed bar
+		pressureBar = `<rect x="20" y="40" width="104" height="60" rx="6" fill="none" stroke="#27272a" stroke-width="3" stroke-dasharray="6 4"/>`
+	} else {
+		// Fill proportionally
+		barWidth := int(104 * contextPressure)
+		if barWidth < 2 {
+			barWidth = 2 // minimum visible
+		}
+		color := pressureColor(contextPressure)
+		pressureBar = fmt.Sprintf(
+			`<rect x="20" y="40" width="104" height="60" rx="6" fill="none" stroke="#27272a" stroke-width="3"/>
+  <rect x="23" y="43" width="%d" height="54" rx="4" fill="%s" opacity="0.8"/>`,
+			barWidth, color)
+	}
+
+	// ID text
 	idText := escapeXML(lastChars(taskID, 4))
+	idBar := fmt.Sprintf(`<text x="72" y="130" fill="#a1a1aa" font-family="monospace" font-size="18" font-weight="700" text-anchor="middle">%s</text>`,
+		idText)
+
+	// Notify dot (top-right corner)
+	var notifyDot string
+	if notifyEnabled {
+		notifyDot = `<circle cx="128" cy="22" r="8" fill="#a855f7"/>`
+	}
 
 	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
   <rect width="%d" height="%d" rx="12" fill="%s"/>
   %s
-  <text x="72" y="126" fill="#a1a1aa" font-family="monospace" font-size="20" font-weight="700" text-anchor="middle">%s</text>
+  %s
+  %s
+  %s
 </svg>`,
 		tileSize, tileSize, tileSize, tileSize,
 		tileSize, tileSize, bgColor,
-		centerSVG,
-		idText)
+		stateBar,
+		pressureBar,
+		notifyDot,
+		idBar)
 }
 
 // AgentDead renders a tile for a dead/stopped agent — red X + task ID.
@@ -126,7 +144,7 @@ func AgentDead(taskID string) string {
   <rect width="%d" height="%d" rx="12" fill="%s"/>
   <line x1="40" y1="40" x2="80" y2="80" stroke="%s" stroke-width="9" stroke-linecap="round"/>
   <line x1="80" y1="40" x2="40" y2="80" stroke="%s" stroke-width="9" stroke-linecap="round"/>
-  <text x="72" y="126" fill="#ef4444" font-family="monospace" font-size="20" font-weight="700" text-anchor="middle">%s</text>
+  <text x="72" y="126" fill="#ef4444" font-family="monospace" font-size="18" font-weight="700" text-anchor="middle">%s</text>
 </svg>`,
 		tileSize, tileSize, tileSize, tileSize,
 		tileSize, tileSize, bgColor,
@@ -138,9 +156,9 @@ func AgentDead(taskID string) string {
 // Visual encoding:
 // - Normal urgency: thin colored left bar + producer icon
 // - Urgent: thick red border around entire tile + producer icon
-// - Producer type: distinct geometric icon (no text)
-// - Last 4 chars of item ID shown in large text at bottom
-func Attention(producer, urgency, itemID string, index, total int) string {
+// - Producer type: distinct geometric icon (document/eye/flow/bolt)
+// - Last 4 chars of the related item's ID (from navigation.target) at bottom
+func Attention(producer, urgency, navTarget string, index, total int) string {
 	isUrgent := urgency == "urgent" || urgency == "high"
 
 	var iconSVG string
@@ -162,7 +180,7 @@ func Attention(producer, urgency, itemID string, index, total int) string {
 		iconSVG = `<rect x="54" y="44" width="36" height="36" rx="8" fill="{color}"/>`
 	}
 
-	idText := escapeXML(lastChars(itemID, 4))
+	idText := escapeXML(lastChars(navTarget, 4))
 	textColor := "#a1a1aa"
 
 	if isUrgent {
@@ -196,11 +214,11 @@ func Attention(producer, urgency, itemID string, index, total int) string {
 		iconSVG, textColor, idText)
 }
 
-// EmptyAgent renders a subtle dashed circle for an unused agent slot.
+// EmptyAgent renders a subtle dashed rectangle for an unused agent slot.
 func EmptyAgent() string {
 	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
   <rect width="%d" height="%d" rx="12" fill="%s"/>
-  <circle cx="72" cy="72" r="34" fill="none" stroke="%s" stroke-width="3" stroke-dasharray="8 6"/>
+  <rect x="20" y="20" width="104" height="104" rx="8" fill="none" stroke="%s" stroke-width="3" stroke-dasharray="8 6"/>
 </svg>`,
 		tileSize, tileSize, tileSize, tileSize,
 		tileSize, tileSize, bgColor, DarkGray)

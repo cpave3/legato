@@ -6,64 +6,72 @@ import (
 )
 
 func TestAgentWorkingGreen(t *testing.T) {
-	svg := Agent("working", "5hptcdnx", 120, 0) // 2 min working
+	svg := Agent("working", "5hptcdnx", 0, 0, 0.3, false)
 	if !strings.Contains(svg, `fill="#22c55e"`) {
-		t.Error("working agent <30min should be green")
-	}
-}
-
-func TestAgentWorkingLime(t *testing.T) {
-	svg := Agent("working", "AG-9632", 2400, 0) // 40 min working
-	if !strings.Contains(svg, `fill="#84cc16"`) {
-		t.Error("working agent 30-60min should be lime")
-	}
-}
-
-func TestAgentWorkingAmber(t *testing.T) {
-	svg := Agent("working", "AG-9645", 5400, 0) // 90 min working
-	if !strings.Contains(svg, `fill="#f59e0b"`) {
-		t.Error("working agent 1-2hr should be amber")
-	}
-}
-
-func TestAgentWorkingRed(t *testing.T) {
-	svg := Agent("working", "dyxsx3i8", 10800, 0) // 3 hours working
-	if !strings.Contains(svg, `fill="#ef4444"`) {
-		t.Error("working agent >2hr should be red")
+		t.Error("working agent should always be green")
 	}
 }
 
 func TestAgentWaiting(t *testing.T) {
-	svg := Agent("waiting", "AG-9632", 0, 60) // 1 min waiting
-	if !strings.Contains(svg, `fill="none"`) {
-		t.Error("waiting agent should have hollow ring")
-	}
-	if !strings.Contains(svg, `stroke="#f59e0b"`) {
-		t.Error("waiting agent <5min should be amber stroke")
-	}
-}
-
-func TestAgentWaitingLong(t *testing.T) {
-	svg := Agent("waiting", "AG-9632", 0, 600) // 10 min waiting
-	if !strings.Contains(svg, `stroke="#ef4444"`) {
-		t.Error("waiting agent >5min should be red stroke")
+	svg := Agent("waiting", "AG-9632", 0, 60, -1, false)
+	if !strings.Contains(svg, `fill="#f59e0b"`) {
+		t.Error("waiting agent should be amber")
 	}
 }
 
 func TestAgentIdle(t *testing.T) {
-	svg := Agent("", "AG-9632", 0, 0)
-	if !strings.Contains(svg, `r="12"`) {
-		t.Error("idle agent should have small circle")
-	}
+	svg := Agent("", "AG-9632", 0, 0, -1, false)
 	if !strings.Contains(svg, `fill="#52525b"`) {
 		t.Error("idle agent should be gray")
 	}
 }
 
 func TestAgentShowsID(t *testing.T) {
-	svg := Agent("working", "5hptcdnx", 0, 0)
+	svg := Agent("working", "5hptcdnx", 0, 0, 0.3, false)
 	if !strings.Contains(svg, "cdnx") {
 		t.Error("agent tile should show last 4 chars of task ID")
+	}
+}
+
+func TestAgentNotifyDot(t *testing.T) {
+	svg := Agent("working", "AG-9632", 0, 0, 0.3, true)
+	if !strings.Contains(svg, `#a855f7`) {
+		t.Error("agent with notify enabled should have purple dot")
+	}
+}
+
+func TestAgentNoNotifyDot(t *testing.T) {
+	svg := Agent("working", "AG-9632", 0, 0, 0.3, false)
+	if strings.Contains(svg, "#a855f7") {
+		t.Error("agent with notify disabled should not have purple dot")
+	}
+}
+
+func TestAgentContextPressureGreen(t *testing.T) {
+	svg := Agent("working", "AG-9632", 0, 0, 0.2, false)
+	if !strings.Contains(svg, `fill="#22c55e"`) {
+		t.Error("low context pressure should show green bar")
+	}
+}
+
+func TestAgentContextPressureAmber(t *testing.T) {
+	svg := Agent("working", "AG-9632", 0, 0, 0.6, false)
+	if !strings.Contains(svg, `fill="#f59e0b"`) {
+		t.Error("medium context pressure should show amber bar")
+	}
+}
+
+func TestAgentContextPressureRed(t *testing.T) {
+	svg := Agent("working", "AG-9632", 0, 0, 0.9, false)
+	if !strings.Contains(svg, `fill="#ef4444"`) {
+		t.Error("high context pressure should show red bar")
+	}
+}
+
+func TestAgentContextPressureUnknown(t *testing.T) {
+	svg := Agent("", "AG-9632", 0, 0, -1, false)
+	if !strings.Contains(svg, "stroke-dasharray") {
+		t.Error("unknown context pressure should show dashed bar")
 	}
 }
 
@@ -80,18 +88,28 @@ func TestAgentDead(t *testing.T) {
 	}
 }
 
+func TestAttentionShowsNavTarget(t *testing.T) {
+	svg := Attention("reviews", "normal", "rt-AG-9645", 0, 1)
+	if !strings.Contains(svg, "9645") {
+		t.Error("attention tile should show last 4 chars of navigation target")
+	}
+	if strings.Contains(svg, "a5d2") {
+		t.Error("attention tile should NOT show the attention entry ID")
+	}
+}
+
 func TestAttentionNormal(t *testing.T) {
-	svg := Attention("plans", "normal", "att-abc123", 0, 1)
+	svg := Attention("plans", "normal", "pl-abc123", 0, 1)
 	if !strings.Contains(svg, `fill="#f59e0b"`) {
 		t.Error("normal attention should use amber")
 	}
 	if !strings.Contains(svg, "c123") {
-		t.Error("attention tile should show last 4 chars of item ID")
+		t.Error("attention tile should show nav target last 4")
 	}
 }
 
 func TestAttentionUrgent(t *testing.T) {
-	svg := Attention("plans", "urgent", "att-abc123", 0, 1)
+	svg := Attention("plans", "urgent", "pl-abc123", 0, 1)
 	if !strings.Contains(svg, `stroke="#ef4444"`) {
 		t.Error("urgent attention should have red border")
 	}
@@ -103,7 +121,7 @@ func TestAttentionUrgent(t *testing.T) {
 func TestAttentionProducerIcons(t *testing.T) {
 	producers := []string{"plans", "reviews", "workflows", "workflow_triggers", "unknown"}
 	for _, p := range producers {
-		svg := Attention(p, "normal", "att-test", 0, 1)
+		svg := Attention(p, "normal", "test1234", 0, 1)
 		if !strings.Contains(svg, "<path") && !strings.Contains(svg, "<rect") {
 			t.Errorf("producer %q should have an icon element", p)
 		}
@@ -113,7 +131,7 @@ func TestAttentionProducerIcons(t *testing.T) {
 func TestEmptyAgent(t *testing.T) {
 	svg := EmptyAgent()
 	if !strings.Contains(svg, "stroke-dasharray") {
-		t.Error("empty agent should have dashed circle")
+		t.Error("empty agent should have dashed border")
 	}
 	if strings.Contains(svg, "<text") {
 		t.Error("empty agent should have no text")
@@ -166,6 +184,7 @@ func TestLastChars(t *testing.T) {
 	}{
 		{"5hptcdnx", 4, "cdnx"},
 		{"AG-9632", 4, "9632"},
+		{"rt-AG-9645", 4, "9645"},
 		{"ab", 4, "ab"},
 		{"", 4, ""},
 	}
@@ -177,41 +196,26 @@ func TestLastChars(t *testing.T) {
 	}
 }
 
-func TestElapsedColor(t *testing.T) {
+func TestPressureColor(t *testing.T) {
 	tests := []struct {
-		seconds float64
-		want    string
+		pressure float64
+		want     string
 	}{
-		{0, "#22c55e"},
-		{1799, "#22c55e"},
-		{1800, "#84cc16"},
-		{3599, "#84cc16"},
-		{3600, "#f59e0b"},
-		{7199, "#f59e0b"},
-		{7200, "#ef4444"},
+		{-1, DarkGray},
+		{0.0, Green},
+		{0.3, Green},
+		{0.49, Green},
+		{0.5, Amber},
+		{0.7, Amber},
+		{0.74, Amber},
+		{0.75, Red},
+		{0.9, Red},
+		{1.0, Red},
 	}
 	for _, tt := range tests {
-		got := elapsedColor(tt.seconds)
+		got := pressureColor(tt.pressure)
 		if got != tt.want {
-			t.Errorf("elapsedColor(%.0f) = %q, want %q", tt.seconds, got, tt.want)
-		}
-	}
-}
-
-func TestWaitingColor(t *testing.T) {
-	tests := []struct {
-		seconds float64
-		want    string
-	}{
-		{0, "#f59e0b"},
-		{299, "#f59e0b"},
-		{301, "#ef4444"},
-		{600, "#ef4444"},
-	}
-	for _, tt := range tests {
-		got := waitingColor(tt.seconds)
-		if got != tt.want {
-			t.Errorf("waitingColor(%.0f) = %q, want %q", tt.seconds, got, tt.want)
+			t.Errorf("pressureColor(%.2f) = %q, want %q", tt.pressure, got, tt.want)
 		}
 	}
 }

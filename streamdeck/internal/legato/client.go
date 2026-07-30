@@ -34,6 +34,11 @@ type Agent struct {
 	SubtaskID      string  `json:"subtask_id,omitempty"`
 	WorkingSeconds float64 `json:"working_seconds"`
 	WaitingSeconds float64 `json:"waiting_seconds"`
+	NotifyEnabled  bool    `json:"notify_enabled"`
+	HasChimeraEndpoint bool `json:"has_chimera_endpoint"`
+
+	// Context pressure (0-1), fetched from chimera snapshot. -1 = unknown.
+	ContextPressure float64 `json:"-"`
 }
 
 // AttentionItem represents an actionable item from GET /api/attention.
@@ -144,6 +149,67 @@ func (c *Client) Snapshot() Snapshot {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.snap
+}
+
+// ToggleNotify PATCHes /api/agents/{task_id}/notify to enable/disable notifications.
+func (c *Client) ToggleNotify(ctx context.Context, taskID string, enabled bool) error {
+	token, err := c.resolveToken()
+	if err != nil {
+		return err
+	}
+	body := fmt.Sprintf(`{"enabled":%t}`, enabled)
+	req, err := http.NewRequestWithContext(ctx, "PATCH",
+		c.cfg.BaseURL+"/api/agents/"+taskID+"/notify",
+		strings.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("toggle notify: %s: %s", resp.Status, string(b))
+	}
+	return nil
+}
+
+// FetchContextPressure queries the chimera snapshot for an agent and returns
+// a 0-1 pressure value (used tokens / context window). Returns -1 if unavailable.
+func (c *Client) FetchContextPressure(ctx context.Context, taskID string) (float64, error) {
+	token, err := c.resolveToken()
+	if err != nil {
+		return -1, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		c.cfg.BaseURL+"/api/agents/"+taskID+"/chimera/snapshot", nil)
+	if err != nil {
+		return -1, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return -1, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return -1, fmt.Errorf("snapshot: %s", resp.Status)
+	}
+	var snap struct {
+		ContextWindow      int   `json:"contextWindow"`
+		UsedContextTokens  *int  `json:"usedContextTokens"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
+		return -1, err
+	}
+	if snap.ContextWindow == 0 || snap.UsedContextTokens == nil {
+		return -1, nil
+	}
+	return float64(*snap.UsedContextTokens) / float64(snap.ContextWindow), nil
 }
 
 // ExecuteAction POSTs to /api/attention/{id}/actions/{action_id}.
@@ -337,7 +403,8 @@ func (c *Client) healthCheck(ctx context.Context) (bool, error) {
 	return resp.StatusCode == http.StatusOK, nil
 }
 
-// refreshState fetches agents and attention items via REST.
+// refreshState fetches agents and attention items via REST, then enriches
+// agents with context pressure from the chimera snapshot endpoint.
 func (c *Client) refreshState(ctx context.Context, token string) error {
 	agents, err := c.fetchAgents(ctx, token)
 	if err != nil {
@@ -347,6 +414,25 @@ func (c *Client) refreshState(ctx context.Context, token string) error {
 	if err != nil {
 		return fmt.Errorf("fetch attention: %w", err)
 	}
+
+	// Fetch context pressure for agents with chimera endpoints.
+	// Use a sub-context with a short timeout so a slow snapshot doesn't
+	// block the whole refresh.
+	pressCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for i := range agents {
+		if agents[i].HasChimeraEndpoint {
+			pressure, err := c.FetchContextPressure(pressCtx, agents[i].TaskID)
+			if err != nil {
+				agents[i].ContextPressure = -1
+			} else {
+				agents[i].ContextPressure = pressure
+			}
+		} else {
+			agents[i].ContextPressure = -1
+		}
+	}
+
 	c.mu.Lock()
 	c.snap.Agents = agents
 	c.snap.Attention = attention

@@ -163,8 +163,37 @@ func (st *pluginState) handleKeyAction(ctx context.Context, e opendeck.Event, sn
 			return
 		}
 		agent := snap.Agents[idx]
-		// Agent tiles always open browser (short or long press)
-		_ = openBrowser(st.baseURL + "/agents?task=" + agent.TaskID)
+		if isHold {
+			// Long press: toggle notify for this agent
+			newNotify := !agent.NotifyEnabled
+			err := st.legato.ToggleNotify(ctx, agent.TaskID, newNotify)
+			if err != nil {
+				log.Printf("[legato-streamdeck] toggle notify for %s: %v", agent.TaskID, err)
+				_ = st.deck.ShowAlert(ctx, e.Context)
+			} else {
+				log.Printf("[legato-streamdeck] notify %s → %v", agent.TaskID, newNotify)
+				_ = st.deck.ShowOK(ctx, e.Context)
+				// Update local state so the dot appears immediately
+				st.mu.Lock()
+				if idx < len(st.snap.Agents) {
+					st.snap.Agents[idx].NotifyEnabled = newNotify
+				}
+				st.mu.Unlock()
+				// Re-render tiles
+				st.mu.Lock()
+				snap := st.snap
+				deck := st.deck
+				agentCtxs := st.agentCtxs
+				attnCtxs := st.attnCtxs
+				st.mu.Unlock()
+				if deck != nil {
+					pushTiles(ctx, deck, snap, agentCtxs, attnCtxs)
+				}
+			}
+		} else {
+			// Short press: open in browser
+			_ = openBrowser(st.baseURL + "/agents?task=" + agent.TaskID)
+		}
 
 	case opendeck.ActionAttnTile:
 		idx := st.contextIndex(st.attnCtxs, e.Context)
@@ -254,7 +283,7 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 			if a.Status == "dead" {
 				img = render.DataURI(render.AgentDead(a.TaskID))
 			} else {
-				img = render.DataURI(render.Agent(a.Activity, a.TaskID, a.WorkingSeconds, a.WaitingSeconds))
+				img = render.DataURI(render.Agent(a.Activity, a.TaskID, a.WorkingSeconds, a.WaitingSeconds, a.ContextPressure, a.NotifyEnabled))
 			}
 			_ = deck.SetImage(ctx, c, img)
 		} else {
@@ -269,7 +298,7 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 		}
 		if i < len(snap.Attention) {
 			item := snap.Attention[i]
-			img := render.DataURI(render.Attention(item.Producer, item.Urgency, item.ID, i, len(snap.Attention)))
+			img := render.DataURI(render.Attention(item.Producer, item.Urgency, item.Navigation.Target, i, len(snap.Attention)))
 			_ = deck.SetImage(ctx, c, img)
 		} else {
 			_ = deck.SetImage(ctx, c, render.DataURI(render.EmptyAttention()))
