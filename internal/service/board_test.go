@@ -647,6 +647,31 @@ func TestCreateTask_PlacedAtEndOfColumn(t *testing.T) {
 	}
 }
 
+func TestTaskMetadataUpdatesAreMergedAndReadable(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	seedColumns(t, s)
+	seedTasks(t, s)
+	metadata := svc.(TaskMetadataService)
+
+	if err := metadata.SetTaskMetadata(context.Background(), "T-1", "triaged", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := metadata.SetTaskMetadata(context.Background(), "T-1", "repository.name", "legato"); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := svc.GetCard(context.Background(), "T-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.Metadata["triaged"] != true {
+		t.Fatalf("metadata = %#v", detail.Metadata)
+	}
+	repository, ok := detail.Metadata["repository"].(map[string]any)
+	if !ok || repository["name"] != "legato" {
+		t.Fatalf("repository metadata = %#v", detail.Metadata["repository"])
+	}
+}
+
 // UpdateTaskTitle tests
 
 func TestUpdateTaskTitle_Success(t *testing.T) {

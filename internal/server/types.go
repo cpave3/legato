@@ -83,6 +83,7 @@ type CardDetailResponse struct {
 	Provider        string            `json:"provider"`
 	RemoteID        string            `json:"remote_id"`
 	RemoteMeta      map[string]string `json:"remote_meta,omitempty"`
+	Metadata        map[string]any    `json:"metadata"`
 	WorkspaceID     *int              `json:"workspace_id,omitempty"`
 	PRMeta          *PRMetaResponse   `json:"pr_meta,omitempty"`
 	SwarmActiveStep int               `json:"swarm_active_step"`

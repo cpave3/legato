@@ -29,6 +29,10 @@ import { HelpModal } from "../components/board/HelpModal"
 import { OpenURLPicker } from "../components/board/OpenURLPicker"
 import { CancelSwarmModal } from "../components/board/CancelSwarmModal"
 import { useToast } from "../hooks/useToast"
+import { apiFetch } from "../lib/api"
+import { WorkflowTriggerInputModal } from "../components/WorkflowTriggerInputModal"
+import type { WorkflowTriggerRequest } from "../lib/board"
+import type { RepositoryPreset } from "../components/RepositoryPresetSelect"
 
 type Overlay =
   | { kind: "none" }
@@ -45,6 +49,7 @@ type Overlay =
   | { kind: "help" }
   | { kind: "openURL"; providerURL: string; prURL: string }
   | { kind: "cancelSwarm"; card: BoardCard }
+  | { kind: "workflowInput"; request: WorkflowTriggerRequest }
 
 function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message
@@ -62,6 +67,8 @@ export function BoardPage() {
   const [detailCard, setDetailCard] = useState<CardDetail | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<string | null>(null)
+  const [repositories, setRepositories] = useState<RepositoryPreset[]>([])
+  useEffect(()=>{apiFetch(baseUrl,"/api/settings").then(r=>r.ok?r.json():null).then(data=>setRepositories(data?.repositories??[])).catch(()=>{})},[baseUrl])
   const boardRef = useRef<HTMLDivElement>(null)
   const movedCardIdRef = useRef<string | null>(null)
 
@@ -398,8 +405,9 @@ export function BoardPage() {
     if (!card || pendingAction || card.status === targetColumn) return
     setPendingAction("move")
     try {
-      await patchTask(baseUrl, card.id, { column: targetColumn })
-      setOverlay({ kind: "none" })
+      const result = await patchTask(baseUrl, card.id, { column: targetColumn })
+      const waiting = result.triggers?.find(trigger => trigger.status === "waiting_input")
+      setOverlay(waiting ? { kind: "workflowInput", request: waiting } : { kind: "none" })
       movedCardIdRef.current = card.id
       refresh()
       addToast(`Moved task to ${targetColumn}`, "success")
@@ -415,7 +423,9 @@ export function BoardPage() {
     if (!card || card.status === targetColumn || pendingAction) return
     setPendingAction("move")
     try {
-      await patchTask(baseUrl, card.id, { column: targetColumn })
+      const result = await patchTask(baseUrl, card.id, { column: targetColumn })
+      const waiting = result.triggers?.find(trigger => trigger.status === "waiting_input")
+      if (waiting) setOverlay({ kind: "workflowInput", request: waiting })
       movedCardIdRef.current = card.id
       refresh()
       addToast(`Moved task to ${targetColumn}`, "success")
@@ -729,6 +739,8 @@ export function BoardPage() {
         onSelect={handleOpenURL}
         onClose={() => setOverlay({ kind: "none" })}
       />
+
+      {overlay.kind === "workflowInput" && <WorkflowTriggerInputModal baseUrl={baseUrl} request={overlay.request} repositories={repositories} onClose={()=>setOverlay({kind:"none"})} onStarted={()=>{setOverlay({kind:"none"});addToast("Workflow started","success")}}/>}
 
       {/* Detail panel */}
       {detailCard && (

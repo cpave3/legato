@@ -161,18 +161,29 @@ func (b *boardService) GetCard(ctx context.Context, id string) (*CardDetail, err
 }
 
 func (b *boardService) MoveCard(ctx context.Context, id string, targetColumn string) error {
-	t, err := b.store.GetTask(ctx, id)
+	return moveCard(ctx, b.store, b.bus, id, targetColumn, false)
+}
+
+func moveCard(ctx context.Context, taskStore *store.Store, bus *events.Bus, id string, targetColumn string, recordLocalMove bool) error {
+	t, err := taskStore.GetTask(ctx, id)
 	if err != nil {
 		return err
 	}
 
 	// No-op if already in target column
 	if t.Status == targetColumn {
+		if recordLocalMove && t.Provider != nil {
+			t.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			meta := parseRemoteMeta(t.RemoteMeta)
+			meta.LocalMoveAt = t.UpdatedAt
+			t.RemoteMeta = encodeRemoteMeta(meta)
+			return taskStore.UpdateTask(ctx, *t)
+		}
 		return nil
 	}
 
 	// Validate target column exists
-	mappings, err := b.store.ListColumnMappings(ctx)
+	mappings, err := taskStore.ListColumnMappings(ctx)
 	if err != nil {
 		return err
 	}
@@ -188,7 +199,7 @@ func (b *boardService) MoveCard(ctx context.Context, id string, targetColumn str
 	}
 
 	// Find max sort_order in target column to place at end
-	targetCards, err := b.store.ListTasksByStatus(ctx, targetColumn)
+	targetCards, err := taskStore.ListTasksByStatus(ctx, targetColumn)
 	if err != nil {
 		return err
 	}
@@ -203,15 +214,24 @@ func (b *boardService) MoveCard(ctx context.Context, id string, targetColumn str
 	t.Status = targetColumn
 	t.SortOrder = newOrder
 	t.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	if err := b.store.UpdateTask(ctx, *t); err != nil {
+	if recordLocalMove && t.Provider != nil {
+		meta := parseRemoteMeta(t.RemoteMeta)
+		meta.LocalMoveAt = t.UpdatedAt
+		t.RemoteMeta = encodeRemoteMeta(meta)
+	}
+	taskSnapshot, _ := json.Marshal(workflowTaskContext(t))
+	transition := store.TaskTransition{ID: workflowID("tt-"), TaskID: id, Source: "local", FromColumn: fromColumn, ToColumn: targetColumn, TaskJSON: string(taskSnapshot)}
+	if err := taskStore.RecordTaskTransition(ctx, transition, *t); err != nil {
 		return err
 	}
 
-	b.bus.Publish(events.Event{
-		Type:    events.EventCardMoved,
-		Payload: map[string]string{"id": id, "from": fromColumn, "to": targetColumn},
-		At:      time.Now(),
-	})
+	if bus != nil {
+		bus.Publish(events.Event{
+			Type:    events.EventCardMoved,
+			Payload: map[string]string{"id": id, "from": fromColumn, "to": targetColumn, "transition_id": transition.ID},
+			At:      time.Now(),
+		})
+	}
 	return nil
 }
 
@@ -459,6 +479,18 @@ func (b *boardService) UpdateTaskTitle(ctx context.Context, id, title string) er
 	return nil
 }
 
+func (b *boardService) SetTaskMetadata(ctx context.Context, taskID, path string, value any) error {
+	parts, err := store.ValidateTaskMetadataPath(path)
+	if err != nil {
+		return err
+	}
+	if err := b.store.SetTaskMetadata(ctx, taskID, parts, value); err != nil {
+		return err
+	}
+	b.bus.Publish(events.Event{Type: events.EventCardsRefreshed, At: time.Now()})
+	return nil
+}
+
 func (b *boardService) UpdateTaskWorkspace(ctx context.Context, id string, workspaceID *int) error {
 	if _, err := b.store.GetTask(ctx, id); err != nil {
 		return err
@@ -645,6 +677,7 @@ func taskToCardDetail(t *store.Task) *CardDetail {
 			detail.RemoteMeta = meta
 		}
 	}
+	detail.Metadata, _ = store.ParseTaskMetadata(t.Metadata)
 
 	if t.PRMeta != nil {
 		prMeta, err := store.ParsePRMeta(t.PRMeta)

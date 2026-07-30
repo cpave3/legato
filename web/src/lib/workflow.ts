@@ -1,6 +1,6 @@
 import { apiFetch } from "./api"
 
-export type WorkflowInput = { type: "string"|"integer"|"boolean"|"json"|"task"; required?: boolean; default?: unknown; description?: string; secret?: boolean; choices?: unknown[] }
+export type WorkflowInput = { type: "string"|"integer"|"boolean"|"json"|"task"|"repository"; required?: boolean; default?: unknown; description?: string; secret?: boolean; choices?: unknown[] }
 export type WorkflowOutput = { type: string; path?: string; media_type?: string; description?: string }
 export type WorkflowStepDefinition = { id:string; title:string; type:string; trigger?:"automatic"|"manual"; with:Record<string,unknown>; outputs?:Record<string,WorkflowOutput> }
 export type WorkflowDefinition = { schema_version:number; name:string; title:string; description?:string; inputs?:Record<string,WorkflowInput>; steps:WorkflowStepDefinition[]; source:string }

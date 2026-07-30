@@ -66,7 +66,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 	if cfg.Jira.BaseURL != "" && cfg.Jira.Email != "" && cfg.Jira.APIToken != "" {
 		publishers["jira"] = jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second)
 	}
-	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary), service.NewTaskNoteExecutor(db, publishers)}
+	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary), service.NewTaskNoteExecutor(db, publishers), service.NewTaskMetadataExecutor(db)}
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"))
 		executors = append(executors,
@@ -75,7 +75,9 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 		)
 	}
 	dataDir := filepath.Join(filepath.Dir(config.ResolveDBPath(cfg)), "artifacts")
-	return service.NewWorkflowServiceWithOutputs(db, executors, dataDir), nil
+	workflows := service.NewWorkflowServiceWithOutputs(db, executors, dataDir)
+	workflows.SetRepositoryPresets(workflowRepositoryPresets(cfg))
+	return workflows, nil
 }
 
 func workflowRepositoryPresets(cfg *config.Config) []workflowengine.RepositoryPreset {

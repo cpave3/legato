@@ -14,7 +14,8 @@ var ErrWorkflowStateConflict = errors.New("workflow state conflict")
 const workflowRunSelect = `SELECT id, workflow_name, workflow_title, definition_source,
 	definition_digest, definition_json, inputs_json, status, current_step_id,
 	COALESCE(task_id, '') AS task_id, error, created_at, started_at, completed_at,
-	COALESCE(related_task_id, '') AS related_task_id FROM workflow_runs`
+	COALESCE(related_task_id, '') AS related_task_id,
+	COALESCE(trigger_request_id, '') AS trigger_request_id FROM workflow_runs`
 
 type WorkflowRun struct {
 	ID               string  `db:"id" json:"id"`
@@ -28,6 +29,7 @@ type WorkflowRun struct {
 	CurrentStepID    string  `db:"current_step_id" json:"current_step_id"`
 	TaskID           string  `db:"task_id" json:"task_id,omitempty"`
 	RelatedTaskID    string  `db:"related_task_id" json:"related_task_id,omitempty"`
+	TriggerRequestID string  `db:"trigger_request_id" json:"trigger_request_id,omitempty"`
 	Error            string  `db:"error" json:"error,omitempty"`
 	CreatedAt        string  `db:"created_at" json:"created_at"`
 	StartedAt        *string `db:"started_at" json:"started_at,omitempty"`
@@ -98,8 +100,8 @@ type WorkflowRunView struct {
 func (s *Store) CreateWorkflowRun(ctx context.Context, run WorkflowRun, steps []WorkflowStepRun) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
 		if _, err := tx.NamedExecContext(ctx, `INSERT INTO workflow_runs
-			(id, workflow_name, workflow_title, definition_source, definition_digest, definition_json, inputs_json, status, current_step_id, task_id, related_task_id, error, started_at)
-			VALUES (:id, :workflow_name, :workflow_title, :definition_source, :definition_digest, :definition_json, :inputs_json, :status, :current_step_id, NULLIF(:task_id,''), NULLIF(:related_task_id,''), :error, datetime('now'))`, run); err != nil {
+			(id, workflow_name, workflow_title, definition_source, definition_digest, definition_json, inputs_json, status, current_step_id, task_id, related_task_id, trigger_request_id, error, started_at)
+			VALUES (:id, :workflow_name, :workflow_title, :definition_source, :definition_digest, :definition_json, :inputs_json, :status, :current_step_id, NULLIF(:task_id,''), NULLIF(:related_task_id,''), NULLIF(:trigger_request_id,''), :error, datetime('now'))`, run); err != nil {
 			return err
 		}
 		for _, step := range steps {

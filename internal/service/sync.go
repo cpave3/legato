@@ -293,24 +293,12 @@ func (s *syncService) isWithinConflictWindow(meta remoteMeta) bool {
 
 // PushMove updates the local task immediately and queues an async remote transition.
 func (s *syncService) PushMove(ctx context.Context, taskID, targetColumn string) error {
-	task, err := s.store.GetTask(ctx, taskID)
-	if err != nil {
+	if err := moveCard(ctx, s.store, s.bus, taskID, targetColumn, true); err != nil {
 		return err
 	}
 
-	// Update local state immediately
-	now := time.Now().UTC().Format(time.RFC3339)
-	task.Status = targetColumn
-	task.UpdatedAt = now
-
-	// Update local_move_at in remote_meta (only for synced tasks)
-	if task.Provider != nil {
-		meta := parseRemoteMeta(task.RemoteMeta)
-		meta.LocalMoveAt = now
-		task.RemoteMeta = encodeRemoteMeta(meta)
-	}
-
-	if err := s.store.UpdateTask(ctx, *task); err != nil {
+	task, err := s.store.GetTask(ctx, taskID)
+	if err != nil {
 		return err
 	}
 

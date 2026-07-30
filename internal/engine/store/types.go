@@ -54,6 +54,7 @@ type Task struct {
 	Provider           *string `db:"provider"`
 	RemoteID           *string `db:"remote_id"`
 	RemoteMeta         *string `db:"remote_meta"`
+	Metadata           *string `db:"metadata"`
 	PRMeta             *string `db:"pr_meta"`
 	WorkspaceID        *int    `db:"workspace_id"`
 	ArchivedAt         *string `db:"archived_at"`

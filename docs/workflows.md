@@ -24,18 +24,40 @@ workflows:
       base_branch: main
 ```
 
-For workflows, the preset control appears only when a definition declares at least one of `repo`, `primary_dir`, or `base_branch`. Selecting a preset prefills only those declared inputs; undeclared preset values are never submitted.
+For legacy workflows, the preset control appears when a definition declares at least one of `repo`, `primary_dir`, or `base_branch`, and prefills only those fields. New workflows can declare one typed `repository` input instead. It accepts an existing preset name or Custom values (`repo`, `primary_dir`, and optional `base_branch`) and exposes the resolved snapshot as `${{ workflow.inputs.repository.* }}`.
 
 The web dialogs for spawning an ephemeral agent or opening an agent for an existing task also list these presets. Selecting one copies its `primary_dir` into the working-directory field. The field remains editable, and a manual edit switches the selector to **Custom** without discarding the entered path.
 
 ## Schema version 1
 
-Version 1 executes steps in declaration order and supports four executors:
+Version 1 executes steps in declaration order and supports these executors:
 
 - `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
 - `agent.run`: launch a configured Legato agent with an explicit assignment and completion contract. Set `with.name` to customize the agent's visible name; workflow input references are supported.
 - `worktree.remove`: validate and remove the shared task's worktree through Yggdrasil, then clear task metadata.
 - `task.note`: add Markdown to a selected task. Pass a resolved `task` input plus either inline `body` or a managed/file `body_path`. Local notes are stored in Legato and shown in task detail; Jira-backed notes are also published as Jira comments. Provider failures fail the step rather than silently dropping the note.
+- `task.metadata.set`: atomically set one or more dotted local metadata paths on a task. Provider sync preserves this metadata.
+
+Task inputs expose `${{ workflow.inputs.task.metadata.<path> }}`. Metadata is arbitrary JSON, local to Legato, and separate from provider-owned `remote_meta`.
+
+### Column-entry triggers and conditions
+
+A workflow may remain manually runnable while also declaring an automatic local column-entry trigger:
+
+```yaml
+on:
+  task.entered_column:
+    column: Triaged
+    inputs:
+      task: ${{ event.task }}
+      repository: ${{ task.metadata.repository }}
+    conditions:
+      all:
+        - field: task.metadata.triaged
+          not_equals: true
+```
+
+Conditions support nested `all`, `any`, and `not`, and field comparisons using `exists`, `equals`, `not_equals`, or `in`. Automatic triggers run for explicit local moves, including local moves of provider-backed tasks; pull-sync status changes do not trigger workflows. Trigger requests are durable and idempotent. Missing required inputs leave the card in its destination column and create a recoverable Attention item. Closing the immediate prompt means **Not now**; only explicit **Skip** terminates that request. The workflow can always be started manually as a separate run.
 
 ```yaml
 schema_version: 1
@@ -84,30 +106,41 @@ steps:
         type: json
 ```
 
-Inputs support `string`, `integer`, `boolean`, `json`, and `task`. A task input is supplied as an existing Legato task ID and resolves to structured `id`, `title`, `description`, `status`, `priority`, `provider`, and `remote_id` fields. The web form groups selectable tasks by workspace and hides Done and archived tasks by default; enable **Show done and archived tasks** in the selector to include them. Outputs support scalar/JSON types plus `file`. Steps default to `trigger: automatic`; set `trigger: manual` to pause the run before that executor starts. A manual step creates no attempt until explicitly triggered with `legato workflow trigger <run-id> <step-id>`. While waiting, the run is non-terminal and contributes to the Workflows attention badge. Unknown fields, unsupported executors, unsafe paths, forward references, and undeclared references fail validation before a run starts.
+Inputs support `string`, `integer`, `boolean`, `json`, `task`, and `repository`. A task input is supplied as an existing Legato task ID and resolves to structured `id`, `title`, `description`, `status`, `priority`, `provider`, `remote_id`, and local `metadata` fields. A repository input accepts a configured preset name or Custom JSON and resolves to `name`, `repo`, `primary_dir`, and `base_branch`. The web form groups selectable tasks by workspace and hides Done and archived tasks by default; enable **Show done and archived tasks** in the selector to include them. Outputs support scalar/JSON types plus `file`. Steps default to `trigger: automatic`; set `trigger: manual` to pause the run before that executor starts. A manual step creates no attempt until explicitly triggered with `legato workflow trigger <run-id> <step-id>`. While waiting, the run is non-terminal and contributes to the Workflows attention badge. Unknown fields, unsupported executors, unsafe paths, forward references, and undeclared references fail validation before a run starts.
 
 Templates support only:
 
 - `${{ workflow.inputs.<key> }}`
-- `${{ workflow.inputs.<task-key>.<field> }}`
+- `${{ workflow.inputs.<task-key>.<field> }}` and `${{ workflow.inputs.<task-key>.metadata.<path> }}`
+- `${{ workflow.inputs.<repository-key>.<name|repo|primary_dir|base_branch> }}`
 - `${{ steps.<earlier-step>.outputs.<key> }}`
 - `${{ steps.<earlier-step>.outputs.<file-key>.path }}`
 - `${{ outputs.<current-file-output>.path }}`
 
 Whole-field references preserve native types. Values interpolated into text use scalar or canonical JSON formatting.
 
-A typical task-triage tail writes the agent's managed report back to the selected task:
+A task-triage workflow can remain manually runnable while also reacting to a local column entry:
 
 ```yaml
 inputs:
   task: {type: task, required: true}
-  primary_dir: {type: string, required: true}
+  repository: {type: repository, required: true}
+on:
+  task.entered_column:
+    column: Triaged
+    inputs:
+      task: ${{ event.task }}
+      repository: ${{ task.metadata.repository }}
+    conditions:
+      all:
+        - field: task.metadata.triaged
+          not_equals: true
 steps:
   - id: triage
     title: Investigate task
     type: agent.run
     with:
-      working_dir: ${{ workflow.inputs.primary_dir }}
+      working_dir: ${{ workflow.inputs.repository.primary_dir }}
       prompt: Write actionable triage for ${{ workflow.inputs.task.title }} to `${{ outputs.report.path }}`.
     outputs:
       report: {type: file, path: triage.md, media_type: text/markdown}
@@ -117,9 +150,12 @@ steps:
     with:
       task: ${{ workflow.inputs.task }}
       body_path: ${{ steps.triage.outputs.report.path }}
-    outputs:
-      note_id: {type: string}
-      task_id: {type: string}
+  - id: mark-triaged
+    title: Mark task triaged
+    type: task.metadata.set
+    with:
+      task: ${{ workflow.inputs.task }}
+      values: {triaged: true}
 ```
 
 ## Running and inspecting

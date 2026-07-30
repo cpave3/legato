@@ -46,6 +46,7 @@ type Server struct {
 	plans                PlanService
 	artifacts            ArtifactService
 	workflows            WorkflowService
+	workflowTriggers     *service.WorkflowTriggerCoordinator
 	attention            *service.AttentionService
 	workflowGlobalDir    string
 	workflowProjectDir   string
@@ -140,6 +141,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/attention/{id}/dismiss", s.attentionDismissHandler())
 	mux.HandleFunc("/api/workflows", s.workflowsHandler())
 	mux.HandleFunc("/api/workflows/{name}/runs", s.workflowStartHandler())
+	mux.HandleFunc("/api/workflow-triggers/{request_id}", s.workflowTriggerRequestHandler())
 	mux.HandleFunc("/api/workflow-runs", s.workflowRunsHandler())
 	mux.HandleFunc("/api/workflow-runs/{run_id}", s.workflowRunHandler())
 	mux.HandleFunc("/api/workflow-runs/{run_id}/cancel", s.workflowCancelHandler())
@@ -210,6 +212,10 @@ func (s *Server) SetWorkflowService(svc WorkflowService, globalDir, projectDir s
 	s.workflowGlobalDir = globalDir
 	s.workflowProjectDir = projectDir
 	s.workflowRepositories = append([]workflowengine.RepositoryPreset(nil), repositories...)
+}
+
+func (s *Server) SetWorkflowTriggerCoordinator(coordinator *service.WorkflowTriggerCoordinator) {
+	s.workflowTriggers = coordinator
 }
 
 // SetSyncService sets the optional sync service for remote search/import endpoints.

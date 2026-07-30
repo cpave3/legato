@@ -14,7 +14,7 @@ import (
 // reviews, workflows) registered and reconciled, then attaches it to the
 // server. It returns the service so callers can also wire it into the TUI.
 // planSvc, reviewSvc, and workflowSvc may be nil; nil sources are skipped.
-func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *server.Server, planSvc *service.PlanService, reviewSvc *service.ReviewService, workflowSvc *service.WorkflowService) *service.AttentionService {
+func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *server.Server, planSvc *service.PlanService, reviewSvc *service.ReviewService, workflowSvc *service.WorkflowService, triggerCoordinator ...*service.WorkflowTriggerCoordinator) *service.AttentionService {
 	attention := service.NewAttentionService(db, bus)
 
 	if planSvc != nil {
@@ -30,6 +30,11 @@ func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *s
 	if workflowSvc != nil {
 		adapter := service.NewWorkflowAttentionAdapter(workflowSvc)
 		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventWorkflowChanged, events.EventAgentDied, events.EventAgentCompleted))
+		mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
+	}
+	if len(triggerCoordinator) > 0 && triggerCoordinator[0] != nil {
+		adapter := service.NewWorkflowTriggerAttentionAdapter(triggerCoordinator[0], db)
+		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventWorkflowTriggerChanged))
 		mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
 	}
 

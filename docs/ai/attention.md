@@ -101,3 +101,7 @@ All endpoints require the configured auth token.
 ## Deferred
 
 Agents, parent-aggregated swarms, PR feedback/CI, live permission prompts, and the durable orchestration mailbox are deferred per the approved plan until their underlying sources provide stable structured signals.
+
+## Workflow trigger producer
+
+The `workflow_triggers` producer surfaces automatic workflow requests in `waiting_input` or `failed` state. Items navigate to the related task and provide an explicit **Skip this trigger** action; web and TUI task-move flows provide the structured repository-input form. Choosing **Not now** leaves the request open. Trigger request mutations publish `EventWorkflowTriggerChanged`, so Attention reconciles after the durable request exists.

@@ -262,10 +262,11 @@ func (s *Server) taskHandler() http.HandlerFunc {
 				return
 			}
 			var req struct {
-				Title       *string `json:"title,omitempty"`
-				Description *string `json:"description,omitempty"`
-				WorkspaceID *int    `json:"workspace_id,omitempty"`
-				Column      *string `json:"column,omitempty"`
+				Title       *string        `json:"title,omitempty"`
+				Description *string        `json:"description,omitempty"`
+				WorkspaceID *int           `json:"workspace_id,omitempty"`
+				Column      *string        `json:"column,omitempty"`
+				Metadata    map[string]any `json:"metadata,omitempty"`
 			}
 			if err := json.Unmarshal(body, &req); err != nil {
 				s.writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -304,8 +305,27 @@ func (s *Server) taskHandler() http.HandlerFunc {
 					return
 				}
 			}
+			if req.Metadata != nil {
+				metadata, ok := s.board.(service.TaskMetadataService)
+				if !ok {
+					s.writeError(w, http.StatusNotImplemented, "task metadata is not supported")
+					return
+				}
+				for path, value := range req.Metadata {
+					if err := metadata.SetTaskMetadata(ctx, id, path, value); err != nil {
+						s.writeError(w, http.StatusBadRequest, err.Error())
+						return
+					}
+				}
+			}
 			if req.Column != nil {
-				if err := s.board.MoveCard(ctx, id, *req.Column); err != nil {
+				var err error
+				if mover, ok := s.sync.(service.CardMoveSync); ok {
+					err = mover.PushMove(ctx, id, *req.Column)
+				} else {
+					err = s.board.MoveCard(ctx, id, *req.Column)
+				}
+				if err != nil {
 					if errors.Is(err, store.ErrNotFound) {
 						s.writeError(w, http.StatusNotFound, "task not found")
 						return
@@ -314,7 +334,24 @@ func (s *Server) taskHandler() http.HandlerFunc {
 					return
 				}
 			}
-			s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+			response := struct {
+				Status   string                         `json:"status"`
+				Triggers []store.WorkflowTriggerRequest `json:"triggers,omitempty"`
+			}{Status: "ok"}
+			if req.Column != nil && s.workflowTriggers != nil {
+				transition, transitionErr := s.workflowTriggers.LatestTransitionForTask(ctx, id)
+				if transitionErr != nil || s.workflowTriggers.CaptureTransition(ctx, transition.ID) != nil {
+					s.writeError(w, http.StatusInternalServerError, "workflow trigger capture failed")
+					return
+				}
+				requests, err := s.workflowTriggers.RequestsForTransition(ctx, transition.ID)
+				if err != nil {
+					s.writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				response.Triggers = requests
+			}
+			s.writeJSON(w, http.StatusOK, response)
 
 		case http.MethodDelete:
 			if err := s.board.DeleteTask(ctx, id); err != nil {
@@ -343,6 +380,7 @@ func cardDetailToResponse(d *service.CardDetail) CardDetailResponse {
 		Provider:        d.Provider,
 		RemoteID:        d.RemoteID,
 		RemoteMeta:      d.RemoteMeta,
+		Metadata:        d.Metadata,
 		WorkspaceID:     d.WorkspaceID,
 		SwarmActiveStep: d.SwarmActiveStep,
 		SwarmStepNames:  d.SwarmStepNames,

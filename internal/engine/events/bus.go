@@ -29,6 +29,7 @@ const (
 	EventReviewChanged
 	EventPlanChanged
 	EventWorkflowChanged
+	EventWorkflowTriggerChanged
 	EventAttentionChanged
 )
 

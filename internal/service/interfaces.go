@@ -67,6 +67,7 @@ type CardDetail struct {
 	Provider        string
 	RemoteID        string
 	RemoteMeta      map[string]string
+	Metadata        map[string]any
 	WorkspaceID     *int
 	PRMeta          *PRMetaView
 	SwarmActiveStep int
@@ -115,6 +116,10 @@ type TaskActivityService interface {
 	TaskActivity(context.Context, string) (*TaskActivity, error)
 }
 
+type TaskMetadataService interface {
+	SetTaskMetadata(ctx context.Context, taskID, path string, value any) error
+}
+
 type BoardService interface {
 	ListColumns(ctx context.Context) ([]Column, error)
 	ListCards(ctx context.Context, column string) ([]Card, error)
@@ -154,6 +159,12 @@ type SyncService interface {
 	StartScheduler(ctx context.Context) func()
 	SearchRemote(ctx context.Context, query string) ([]RemoteSearchResult, error)
 	ImportRemoteTask(ctx context.Context, ticketID string, workspaceID *int) (*Card, error)
+}
+
+// CardMoveSync coordinates a local card move with its remote provider.
+// Sync services may implement this in addition to SyncService.
+type CardMoveSync interface {
+	PushMove(ctx context.Context, taskID, targetColumn string) error
 }
 
 // ReportService generates analytics reports.

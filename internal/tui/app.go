@@ -13,6 +13,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/engine/store"
+	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/agents"
@@ -85,6 +86,7 @@ const (
 	overlaySwarmCancel
 	overlayWorktree
 	overlayGroup
+	overlayWorkflowTrigger
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -127,59 +129,61 @@ type manualRefreshDoneMsg struct{}
 
 // App is the root Bubbletea model.
 type App struct {
-	svc                service.BoardService
-	syncSvc            service.SyncService
-	agentSvc           service.AgentService
-	board              board.Model
-	detail             detail.Model
-	agentView          agents.Model
-	reportView         report.Model
-	reviewView         review.Model
-	reviewSvc          review.Service
-	planView           plan.Model
-	planSvc            plan.Service
-	attentionView      attention.Model
-	attentionSvc       attention.Service
-	attentionSub       <-chan events.Event
-	statusBar          statusbar.Model
-	clip               *clipboard.Clipboard
-	editor             string
-	activeOverlay      tea.Model
-	overlayType        overlayKind
-	active             viewType
-	width              int
-	height             int
-	pendingNav         string // card ID to navigate to after next board data load
-	pendingImport      string // remote ticket ID waiting to appear on the board
-	prSvc              service.PRTrackingService
-	eventBus           *events.Bus
-	eventSubs          []<-chan events.Event // sync lifecycle events (started/completed/failed/errors)
-	cardUpdateSub      <-chan events.Event
-	prSub              <-chan events.Event
-	swarmSub           <-chan events.Event
-	planSub            <-chan events.Event
-	durablePlanSub     <-chan events.Event
-	reviewSub          <-chan events.Event
-	tmux               service.TmuxManager
-	swarmSvc           service.SwarmService
-	workDir            string
-	webServer          *server.Server
-	webServerStop      func()
-	webServerPort      string
-	macros             []macros.Macro
-	lastSparklineFetch time.Time
-	sparklineWindow    time.Duration
-	sparklineBuckets   int
-	voiceSvc           VoiceService
-	voiceEnabled       bool
-	voiceAutoSend      bool
-	voiceMicDevice     string
-	voiceRecording     bool
-	voiceTargetSession string
-	voiceTargetKind    string
-	worktreeSvc        WorktreeService
-	worktreesEnabled   bool
-	groupDefaults      []string
+	svc                  service.BoardService
+	syncSvc              service.SyncService
+	agentSvc             service.AgentService
+	board                board.Model
+	detail               detail.Model
+	agentView            agents.Model
+	reportView           report.Model
+	reviewView           review.Model
+	reviewSvc            review.Service
+	planView             plan.Model
+	planSvc              plan.Service
+	attentionView        attention.Model
+	attentionSvc         attention.Service
+	attentionSub         <-chan events.Event
+	statusBar            statusbar.Model
+	clip                 *clipboard.Clipboard
+	editor               string
+	activeOverlay        tea.Model
+	overlayType          overlayKind
+	active               viewType
+	width                int
+	height               int
+	pendingNav           string // card ID to navigate to after next board data load
+	pendingImport        string // remote ticket ID waiting to appear on the board
+	prSvc                service.PRTrackingService
+	eventBus             *events.Bus
+	eventSubs            []<-chan events.Event // sync lifecycle events (started/completed/failed/errors)
+	cardUpdateSub        <-chan events.Event
+	prSub                <-chan events.Event
+	swarmSub             <-chan events.Event
+	planSub              <-chan events.Event
+	durablePlanSub       <-chan events.Event
+	reviewSub            <-chan events.Event
+	tmux                 service.TmuxManager
+	swarmSvc             service.SwarmService
+	workDir              string
+	webServer            *server.Server
+	webServerStop        func()
+	webServerPort        string
+	macros               []macros.Macro
+	lastSparklineFetch   time.Time
+	sparklineWindow      time.Duration
+	sparklineBuckets     int
+	voiceSvc             VoiceService
+	voiceEnabled         bool
+	voiceAutoSend        bool
+	voiceMicDevice       string
+	voiceRecording       bool
+	voiceTargetSession   string
+	voiceTargetKind      string
+	worktreeSvc          WorktreeService
+	worktreesEnabled     bool
+	groupDefaults        []string
+	workflowTriggers     *service.WorkflowTriggerCoordinator
+	workflowRepositories []workflowengine.RepositoryPreset
 }
 
 // SetWebServerRunning tells the TUI that the web server was auto-started
@@ -206,6 +210,11 @@ func (a *App) SetReviewService(svc review.Service) {
 func (a *App) SetPlanService(svc plan.Service) {
 	a.planSvc = svc
 	a.planView = plan.New(svc)
+}
+
+func (a *App) SetWorkflowTriggerCoordinator(coordinator *service.WorkflowTriggerCoordinator, repositories []workflowengine.RepositoryPreset) {
+	a.workflowTriggers = coordinator
+	a.workflowRepositories = append([]workflowengine.RepositoryPreset(nil), repositories...)
 }
 
 func (a *App) SetAttentionService(svc attention.Service) {
@@ -749,9 +758,21 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case overlay.MoveSelectedMsg:
 		return a.handleMoveSelected(msg)
 
-	case overlay.MoveCancelledMsg:
+	case overlay.MoveCancelledMsg, overlay.WorkflowTriggerCancelledMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
+		return a, nil
+	case overlay.WorkflowTriggerSubmitMsg:
+		if a.workflowTriggers != nil {
+			_, _ = a.workflowTriggers.SupplyInputs(context.Background(), msg.RequestID, map[string]string{"repository": msg.Repository}, msg.Remember)
+		}
+		a.overlayType, a.activeOverlay = overlayNone, nil
+		return a, nil
+	case overlay.WorkflowTriggerSkipMsg:
+		if a.workflowTriggers != nil {
+			_ = a.workflowTriggers.Skip(context.Background(), msg.RequestID)
+		}
+		a.overlayType, a.activeOverlay = overlayNone, nil
 		return a, nil
 
 	case overlay.OpenMoveWorkspaceMsg:
@@ -1495,9 +1516,26 @@ func (a App) openMoveOverlay(taskID string) (tea.Model, tea.Cmd) {
 func (a App) handleMoveSelected(msg overlay.MoveSelectedMsg) (tea.Model, tea.Cmd) {
 	a.overlayType = overlayNone
 	a.activeOverlay = nil
-	err := a.svc.MoveCard(context.Background(), msg.TaskID, msg.TargetColumn)
+	var err error
+	if mover, ok := a.syncSvc.(service.CardMoveSync); ok {
+		err = mover.PushMove(context.Background(), msg.TaskID, msg.TargetColumn)
+	} else {
+		err = a.svc.MoveCard(context.Background(), msg.TaskID, msg.TargetColumn)
+	}
 	if err != nil {
 		return a, nil
+	}
+	if a.workflowTriggers != nil {
+		_ = a.workflowTriggers.CaptureLatestForTask(context.Background(), msg.TaskID)
+		requests, _ := a.workflowTriggers.RequestsForTask(context.Background(), msg.TaskID)
+		for i := len(requests) - 1; i >= 0; i-- {
+			if requests[i].Status == "waiting_input" {
+				model := overlay.NewWorkflowTrigger(requests[i].ID, a.workflowRepositories)
+				sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+				a.activeOverlay, a.overlayType = sized, overlayWorkflowTrigger
+				break
+			}
+		}
 	}
 	// Refresh board data
 	cmd := a.board.Init()

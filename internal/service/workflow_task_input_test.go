@@ -16,7 +16,8 @@ func TestWorkflowTaskInputResolvesCurrentTaskContext(t *testing.T) {
 	}
 	defer db.Close()
 	provider, remoteID := "jira", "LEG-42"
-	if err := db.CreateTask(context.Background(), store.Task{ID: "LEG-42", Title: "Investigate timeout", Description: "Connection times out", DescriptionMD: "Connection **times out**", Status: "Backlog", Priority: "High", Provider: &provider, RemoteID: &remoteID}); err != nil {
+	metadata := `{"triaged":false,"repository":{"name":"legato"}}`
+	if err := db.CreateTask(context.Background(), store.Task{ID: "LEG-42", Title: "Investigate timeout", Description: "Connection times out", DescriptionMD: "Connection **times out**", Status: "Backlog", Priority: "High", Provider: &provider, RemoteID: &remoteID, Metadata: &metadata}); err != nil {
 		t.Fatal(err)
 	}
 	definition, err := workflowengine.Parse("test.yaml", []byte(`
@@ -33,7 +34,7 @@ steps:
     type: agent.run
     with:
       task: ${{ workflow.inputs.task }}
-      prompt: "Triage ${{ workflow.inputs.task.title }}: ${{ workflow.inputs.task.description }}"
+      prompt: "Triage ${{ workflow.inputs.task.title }} from ${{ workflow.inputs.task.metadata.repository.name }}: ${{ workflow.inputs.task.description }}"
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +55,7 @@ steps:
 	if got["id"] != "LEG-42" || got["provider"] != "jira" || got["description"] != "Connection **times out**" {
 		t.Fatalf("task context = %#v", got)
 	}
-	if executor.starts[0].With["prompt"] != "Triage Investigate timeout: Connection **times out**" {
+	if executor.starts[0].With["prompt"] != "Triage Investigate timeout from legato: Connection **times out**" {
 		t.Fatalf("prompt = %q", executor.starts[0].With["prompt"])
 	}
 }

@@ -1393,18 +1393,23 @@ func runServeCmd(args []string) int {
 	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
+	srv.SetSyncService(syncSvc)
 	srv.SetReviewService(reviewSvc)
 	srv.SetPlanService(planSvc)
 	srv.SetArtifactService(artifactSvc)
 	var workflowSvc *service.WorkflowService
+	var triggerCoordinator *service.WorkflowTriggerCoordinator
 	if built, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, nil, wd); workflowErr == nil {
 		workflowSvc = built
 		globalWorkflows, projectWorkflows := workflowDirs()
 		srv.SetWorkflowService(workflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
+		triggerCoordinator = buildWorkflowTriggerCoordinator(db, workflowSvc, bus)
+		srv.SetWorkflowTriggerCoordinator(triggerCoordinator)
+		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()
 	} else {
 		log.Printf("workflows: %v", workflowErr)
 	}
-	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, workflowSvc)
+	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, workflowSvc, triggerCoordinator)
 	srv.SetMacros(cfg.Macros)
 	srv.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
@@ -1704,8 +1709,11 @@ func runTUI() int {
 
 	// Build workflow service for both web and TUI attention producers.
 	var tuiWorkflowSvc *service.WorkflowService
+	var triggerCoordinator *service.WorkflowTriggerCoordinator
 	if built, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, prSvc, wd); workflowErr == nil {
 		tuiWorkflowSvc = built
+		triggerCoordinator = buildWorkflowTriggerCoordinator(db, tuiWorkflowSvc, bus)
+		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()
 	} else {
 		log.Printf("workflows: %v", workflowErr)
 	}
@@ -1724,7 +1732,8 @@ func runTUI() int {
 			if tuiWorkflowSvc != nil {
 				globalWorkflows, projectWorkflows := workflowDirs()
 				webSrv.SetWorkflowService(tuiWorkflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
-				wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, tuiWorkflowSvc)
+				webSrv.SetWorkflowTriggerCoordinator(triggerCoordinator)
+				wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, tuiWorkflowSvc, triggerCoordinator)
 			}
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSyncService(syncSvc)
@@ -1777,6 +1786,12 @@ func runTUI() int {
 		workflowAdapter := service.NewWorkflowAttentionAdapter(tuiWorkflowSvc)
 		_ = attentionSvc.RegisterProducerWithEvents(workflowAdapter, events.EventWorkflowChanged, events.EventAgentDied, events.EventAgentCompleted)
 		_ = attentionSvc.RegisterHandler(workflowAdapter.Producer(), workflowAdapter)
+	}
+	if triggerCoordinator != nil {
+		triggerAdapter := service.NewWorkflowTriggerAttentionAdapter(triggerCoordinator, db)
+		_ = attentionSvc.RegisterProducerWithEvents(triggerAdapter, events.EventWorkflowTriggerChanged)
+		_ = attentionSvc.RegisterHandler(triggerAdapter.Producer(), triggerAdapter)
+		app.SetWorkflowTriggerCoordinator(triggerCoordinator, workflowRepositoryPresets(cfg))
 	}
 	attentionSvc.StartEventReconciliation(context.Background())
 	if err := attentionSvc.ReconcileAll(context.Background()); err != nil {

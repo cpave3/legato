@@ -22,6 +22,7 @@ type Definition struct {
 	Title         string           `yaml:"title" json:"title"`
 	Description   string           `yaml:"description,omitempty" json:"description,omitempty"`
 	Inputs        map[string]Input `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	On            Triggers         `yaml:"on,omitempty" json:"on,omitempty"`
 	Steps         []Step           `yaml:"steps" json:"steps"`
 	Source        string           `yaml:"-" json:"source"`
 }
@@ -83,6 +84,11 @@ func (d *Definition) Validate() error {
 	if len(d.Steps) == 0 {
 		return fmt.Errorf("at least one step is required")
 	}
+	if d.On.TaskEnteredColumn != nil {
+		if err := d.On.TaskEnteredColumn.Validate(d.Inputs); err != nil {
+			return err
+		}
+	}
 	for key, input := range d.Inputs {
 		if !validValueType(input.Type, false) {
 			return fmt.Errorf("input %q has unsupported type %q", key, input.Type)
@@ -102,7 +108,7 @@ func (d *Definition) Validate() error {
 		if step.Trigger != "automatic" && step.Trigger != "manual" {
 			return fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger)
 		}
-		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "worktree.remove" && step.Type != "task.note" {
+		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "worktree.remove" && step.Type != "task.note" && step.Type != "task.metadata.set" {
 			return fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type)
 		}
 		for field, value := range step.With {
@@ -126,12 +132,20 @@ func (d *Definition) Validate() error {
 }
 
 func validValueType(valueType string, file bool) bool {
-	return valueType == "string" || valueType == "integer" || valueType == "boolean" || valueType == "json" || (!file && valueType == "task") || (file && valueType == "file")
+	return valueType == "string" || valueType == "integer" || valueType == "boolean" || valueType == "json" || (!file && (valueType == "task" || valueType == "repository")) || (file && valueType == "file")
 }
 
 func validTaskField(field string) bool {
 	switch field {
-	case "id", "title", "description", "status", "priority", "provider", "remote_id":
+	case "id", "title", "description", "status", "priority", "provider", "remote_id", "metadata":
+		return true
+	}
+	return false
+}
+
+func validRepositoryField(field string) bool {
+	switch field {
+	case "name", "repo", "primary_dir", "base_branch":
 		return true
 	}
 	return false
@@ -150,6 +164,22 @@ func safeRelativePath(path string) bool {
 }
 
 func validateReferences(value any, inputs map[string]Input, current map[string]Output, previous map[string]map[string]bool) error {
+	switch nested := value.(type) {
+	case map[string]any:
+		for _, item := range nested {
+			if err := validateReferences(item, inputs, current, previous); err != nil {
+				return err
+			}
+		}
+		return nil
+	case []any:
+		for _, item := range nested {
+			if err := validateReferences(item, inputs, current, previous); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	text, ok := value.(string)
 	if !ok {
 		return nil
@@ -162,13 +192,15 @@ func validateReferences(value any, inputs map[string]Input, current map[string]O
 			if _, ok := inputs[parts[2]]; !ok {
 				return fmt.Errorf("input %q is not declared", parts[2])
 			}
-		case len(parts) == 4 && parts[0] == "workflow" && parts[1] == "inputs":
+		case len(parts) >= 4 && parts[0] == "workflow" && parts[1] == "inputs":
 			input, ok := inputs[parts[2]]
 			if !ok {
 				return fmt.Errorf("input %q is not declared", parts[2])
 			}
-			if input.Type != "task" || !validTaskField(parts[3]) {
-				return fmt.Errorf("input %q has no field %q", parts[2], parts[3])
+			valid := input.Type == "task" && validTaskField(parts[3]) && (len(parts) == 4 || parts[3] == "metadata")
+			valid = valid || (input.Type == "repository" && len(parts) == 4 && validRepositoryField(parts[3]))
+			if !valid {
+				return fmt.Errorf("input %q has no field path %q", parts[2], strings.Join(parts[3:], "."))
 			}
 		case (len(parts) == 4 || len(parts) == 5) && parts[0] == "steps" && parts[2] == "outputs":
 			outputs, ok := previous[parts[1]]
@@ -222,7 +254,7 @@ func (d *Definition) NormalizeInputs(raw map[string]string) (map[string]any, err
 
 func parseValue(valueType, value string) (any, error) {
 	switch valueType {
-	case "string", "task":
+	case "string", "task", "repository":
 		return value, nil
 	case "integer":
 		parsed, err := strconv.ParseInt(value, 10, 64)
@@ -272,6 +304,28 @@ func (d *Definition) ResolveStep(stepID string, inputs map[string]any, outputs m
 }
 
 func resolveValue(value any, current map[string]Output, inputs map[string]any, outputs map[string]map[string]any) (any, error) {
+	switch nested := value.(type) {
+	case map[string]any:
+		resolved := make(map[string]any, len(nested))
+		for key, item := range nested {
+			value, err := resolveValue(item, current, inputs, outputs)
+			if err != nil {
+				return nil, err
+			}
+			resolved[key] = value
+		}
+		return resolved, nil
+	case []any:
+		resolved := make([]any, len(nested))
+		for i, item := range nested {
+			value, err := resolveValue(item, current, inputs, outputs)
+			if err != nil {
+				return nil, err
+			}
+			resolved[i] = value
+		}
+		return resolved, nil
+	}
 	text, ok := value.(string)
 	if !ok {
 		return value, nil
@@ -308,7 +362,7 @@ func resolveValue(value any, current map[string]Output, inputs map[string]any, o
 
 func resolveExpression(expr string, current map[string]Output, inputs map[string]any, outputs map[string]map[string]any) (any, error) {
 	parts := strings.Split(expr, ".")
-	if len(parts) >= 3 && len(parts) <= 4 && parts[0] == "workflow" && parts[1] == "inputs" {
+	if len(parts) >= 3 && parts[0] == "workflow" && parts[1] == "inputs" {
 		value, ok := inputs[parts[2]]
 		if !ok {
 			return nil, fmt.Errorf("input %q is unavailable", parts[2])
@@ -316,13 +370,20 @@ func resolveExpression(expr string, current map[string]Output, inputs map[string
 		if len(parts) == 3 {
 			return value, nil
 		}
-		task, ok := value.(map[string]any)
+		current, ok := value.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("input %q is not a task", parts[2])
+			return nil, fmt.Errorf("input %q is not structured", parts[2])
 		}
-		field, ok := task[parts[3]]
-		if !ok {
-			return nil, fmt.Errorf("task input %q field %q is unavailable", parts[2], parts[3])
+		var field any = current
+		for _, part := range parts[3:] {
+			object, ok := field.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("input %q field path %q is unavailable", parts[2], strings.Join(parts[3:], "."))
+			}
+			field, ok = object[part]
+			if !ok {
+				return nil, fmt.Errorf("input %q field path %q is unavailable", parts[2], strings.Join(parts[3:], "."))
+			}
 		}
 		return field, nil
 	}

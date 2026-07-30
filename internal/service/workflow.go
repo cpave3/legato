@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -39,9 +40,10 @@ type WorkflowExecutor interface {
 }
 
 type WorkflowService struct {
-	store     *store.Store
-	executors map[string]WorkflowExecutor
-	collector *WorkflowOutputCollector
+	store        *store.Store
+	executors    map[string]WorkflowExecutor
+	collector    *WorkflowOutputCollector
+	repositories []workflowengine.RepositoryPreset
 }
 
 func NewWorkflowService(s *store.Store, executors []WorkflowExecutor) *WorkflowService {
@@ -56,24 +58,52 @@ func NewWorkflowServiceWithOutputs(s *store.Store, executors []WorkflowExecutor,
 	return &WorkflowService{store: s, executors: registry, collector: NewWorkflowOutputCollector(s, dataDir)}
 }
 
+func (s *WorkflowService) SetRepositoryPresets(presets []workflowengine.RepositoryPreset) {
+	s.repositories = append([]workflowengine.RepositoryPreset(nil), presets...)
+}
+
 func (s *WorkflowService) Start(ctx context.Context, definition *workflowengine.Definition, rawInputs map[string]string, workspaceID *int) (*store.WorkflowRunView, error) {
+	return s.start(ctx, definition, rawInputs, workspaceID, "")
+}
+
+func (s *WorkflowService) StartTriggered(ctx context.Context, definition *workflowengine.Definition, rawInputs map[string]string, workspaceID *int, triggerRequestID string) (*store.WorkflowRunView, error) {
+	return s.start(ctx, definition, rawInputs, workspaceID, triggerRequestID)
+}
+
+func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.Definition, rawInputs map[string]string, workspaceID *int, triggerRequestID string) (*store.WorkflowRunView, error) {
 	inputs, err := definition.NormalizeInputs(rawInputs)
 	if err != nil {
 		return nil, err
 	}
 	relatedTaskID := ""
 	for key, spec := range definition.Inputs {
-		if spec.Type != "task" {
-			continue
-		}
-		id, _ := inputs[key].(string)
-		task, taskErr := s.store.GetTask(ctx, id)
-		if taskErr != nil {
-			return nil, fmt.Errorf("workflow input %q: task %q not found: %w", key, id, taskErr)
-		}
-		inputs[key] = workflowTaskContext(task)
-		if relatedTaskID == "" {
-			relatedTaskID = task.ID
+		switch spec.Type {
+		case "task":
+			id, _ := inputs[key].(string)
+			task, taskErr := s.store.GetTask(ctx, id)
+			if taskErr != nil {
+				return nil, fmt.Errorf("workflow input %q: task %q not found: %w", key, id, taskErr)
+			}
+			inputs[key] = workflowTaskContext(task)
+			if relatedTaskID == "" {
+				relatedTaskID = task.ID
+			}
+		case "repository":
+			value, _ := inputs[key].(string)
+			if strings.HasPrefix(strings.TrimSpace(value), "{") {
+				var custom map[string]any
+				if err := json.Unmarshal([]byte(value), &custom); err != nil || fmt.Sprint(custom["repo"]) == "" || fmt.Sprint(custom["primary_dir"]) == "" {
+					return nil, fmt.Errorf("workflow input %q: custom repository requires repo and primary_dir", key)
+				}
+				custom["name"] = ""
+				inputs[key] = custom
+				continue
+			}
+			preset, ok := findRepositoryPreset(s.repositories, value)
+			if !ok {
+				return nil, fmt.Errorf("workflow input %q: repository preset %q not found", key, value)
+			}
+			inputs[key] = map[string]any{"name": preset.Name, "repo": preset.Repo, "primary_dir": preset.PrimaryDir, "base_branch": preset.BaseBranch}
 		}
 	}
 	for _, step := range definition.Steps {
@@ -97,7 +127,7 @@ func (s *WorkflowService) Start(ctx context.Context, definition *workflowengine.
 	}
 	definitionJSON, _ := json.Marshal(definition)
 	inputsJSON, _ := json.Marshal(inputs)
-	run := store.WorkflowRun{ID: runID, WorkflowName: definition.Name, WorkflowTitle: definition.Title, DefinitionSource: definition.Source, DefinitionDigest: digestBytes(definitionJSON), DefinitionJSON: string(definitionJSON), InputsJSON: string(inputsJSON), Status: "running", CurrentStepID: definition.Steps[0].ID, TaskID: taskID, RelatedTaskID: relatedTaskID}
+	run := store.WorkflowRun{ID: runID, WorkflowName: definition.Name, WorkflowTitle: definition.Title, DefinitionSource: definition.Source, DefinitionDigest: digestBytes(definitionJSON), DefinitionJSON: string(definitionJSON), InputsJSON: string(inputsJSON), Status: "running", CurrentStepID: definition.Steps[0].ID, TaskID: taskID, RelatedTaskID: relatedTaskID, TriggerRequestID: triggerRequestID}
 	steps := make([]store.WorkflowStepRun, len(definition.Steps))
 	for i, step := range definition.Steps {
 		encoded, _ := json.Marshal(step)
@@ -118,6 +148,15 @@ func (s *WorkflowService) Start(ctx context.Context, definition *workflowengine.
 	return s.store.GetWorkflowRun(ctx, runID)
 }
 
+func findRepositoryPreset(presets []workflowengine.RepositoryPreset, name string) (workflowengine.RepositoryPreset, bool) {
+	for _, preset := range presets {
+		if preset.Name == name {
+			return preset, true
+		}
+	}
+	return workflowengine.RepositoryPreset{}, false
+}
+
 func workflowTaskContext(task *store.Task) map[string]any {
 	provider, remoteID := "", ""
 	if task.Provider != nil {
@@ -130,7 +169,8 @@ func workflowTaskContext(task *store.Task) map[string]any {
 	if description == "" {
 		description = task.Description
 	}
-	return map[string]any{"id": task.ID, "title": task.Title, "description": description, "status": task.Status, "priority": task.Priority, "provider": provider, "remote_id": remoteID}
+	metadata, _ := store.ParseTaskMetadata(task.Metadata)
+	return map[string]any{"id": task.ID, "title": task.Title, "description": description, "status": task.Status, "priority": task.Priority, "provider": provider, "remote_id": remoteID, "metadata": metadata}
 }
 
 func (s *WorkflowService) Artifact(ctx context.Context, artifactID string) (*store.WorkflowArtifact, error) {
