@@ -36,6 +36,14 @@ else
   exit 1
 fi
 
+# Copy config file if it exists (contains legato_url + token).
+# This is needed because OpenDeck runs plugins inside a Flatpak sandbox
+# where the host's ~/.local/share/legato/auth-token is not readable.
+if [ -f plugin/streamdeck.yaml ]; then
+  cp plugin/streamdeck.yaml "$PLUGIN_DIR/streamdeck.yaml"
+  echo "  Config: plugin/streamdeck.yaml (copied into package)"
+fi
+
 # Zip the plugin folder. The archive must contain the top-level .sdPlugin dir
 # so OpenDeck can extract it into ~/.local/share/opendeck/plugins/.
 (cd "$OUTPUT_DIR" && zip -r "$PLUGIN_NAME.zip" "$PLUGIN_NAME" && mv "$PLUGIN_NAME.zip" "com.cpave3.legato.streamDeckPlugin")

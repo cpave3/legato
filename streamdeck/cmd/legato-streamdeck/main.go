@@ -245,20 +245,57 @@ func removeContext(list []string, ctx string) []string {
 
 // --- Config ---
 
+// loadConfig resolves the plugin configuration. It searches for a config file
+// in several locations, since OpenDeck runs plugins inside a Flatpak sandbox
+// where the host home directory is not directly accessible:
+//
+//  1. Next to the plugin binary (the .sdPlugin directory — always readable)
+//  2. The current working directory
+//  3. ~/.config/legato/streamdeck.yaml (works outside Flatpak)
+//
+// Environment variables LEGATO_URL and LEGATO_TOKEN override the file.
 func loadConfig() legato.Config {
-	home, _ := os.UserHomeDir()
-	configPath := filepath.Join(home, ".config", "legato", "streamdeck.yaml")
-
 	cfg := legato.Config{
 		BaseURL: "http://localhost:3080",
 	}
 
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return cfg
+	// Try config files in priority order.
+	var configPaths []string
+	if exe, err := os.Executable(); err == nil {
+		configPaths = append(configPaths, filepath.Join(filepath.Dir(exe), "streamdeck.yaml"))
+	}
+	if wd, err := os.Getwd(); err == nil {
+		configPaths = append(configPaths, filepath.Join(wd, "streamdeck.yaml"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		configPaths = append(configPaths, filepath.Join(home, ".config", "legato", "streamdeck.yaml"))
 	}
 
-	// Minimal YAML parser — only a few fields, zero deps.
+	for _, p := range configPaths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		log.Printf("[legato-streamdeck] config loaded from %s", p)
+		parseConfig(data, &cfg)
+		break
+	}
+
+	// Environment variable overrides.
+	if envURL := os.Getenv("LEGATO_URL"); envURL != "" {
+		cfg.BaseURL = envURL
+	}
+	if envToken := os.Getenv("LEGATO_TOKEN"); envToken != "" {
+		cfg.Token = envToken
+	}
+
+	if cfg.Token != "" {
+		log.Printf("[legato-streamdeck] using explicit token from config/env")
+	}
+	return cfg
+}
+
+func parseConfig(data []byte, cfg *legato.Config) {
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "legato_url:") {
@@ -268,10 +305,4 @@ func loadConfig() legato.Config {
 			cfg.Token = strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, "token:")), `"`)
 		}
 	}
-
-	if envURL := os.Getenv("LEGATO_URL"); envURL != "" {
-		cfg.BaseURL = envURL
-	}
-
-	return cfg
 }

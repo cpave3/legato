@@ -221,6 +221,7 @@ func (c *Client) connectLoop(ctx context.Context) {
 		// Resolve token.
 		token, err := c.resolveToken()
 		if err != nil {
+			log.Printf("legato: cannot resolve token: %v (will retry)", err)
 			c.setConnected(false)
 			c.setHasToken(false)
 			c.notify()
@@ -247,6 +248,8 @@ func (c *Client) connectLoop(ctx context.Context) {
 			}
 		}
 		c.setConnected(true)
+		snap := c.Snapshot()
+		log.Printf("legato: connected — %d agents, %d attention items", len(snap.Agents), len(snap.Attention))
 		c.notify()
 
 		// Try WebSocket for live updates. If it fails, fall back to polling.
