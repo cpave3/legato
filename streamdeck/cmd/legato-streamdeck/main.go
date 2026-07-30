@@ -3,8 +3,12 @@
 //
 // OpenDeck launches this process with -port, -pluginUUID, and -registerEvent
 // arguments. The plugin connects to OpenDeck over WebSocket, receives key
-// lifecycle events, and renders live Legato state (agents, attention items)
-// as SVG tile images on the physical keys.
+// lifecycle events, and renders live Legato state as visual-only tile images
+// (color and shape, no text — designed for 72px keys).
+//
+// Interaction: short press opens the agent/item in the browser. Long press
+// (hold >800ms) on an attention tile executes the primary action directly
+// and flashes a green checkmark on the key.
 package main
 
 import (
@@ -15,11 +19,15 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cpave3/streamdeck-plugin/internal/legato"
 	"github.com/cpave3/streamdeck-plugin/internal/opendeck"
 	"github.com/cpave3/streamdeck-plugin/internal/render"
 )
+
+// holdThreshold is how long a key must be held to trigger the action.
+const holdThreshold = 800 * time.Millisecond
 
 // pluginState holds all mutable state shared between the OpenDeck event
 // handler and the Legato state callback. All access is guarded by mu.
@@ -31,6 +39,8 @@ type pluginState struct {
 	attnCtxs  []string
 	baseURL   string
 	legato    *legato.Client
+	// keyDownTime tracks when each context was pressed (for hold detection)
+	keyDownTime map[string]time.Time
 }
 
 func main() {
@@ -42,7 +52,10 @@ func main() {
 	cfg := loadConfig()
 	log.Printf("[legato-streamdeck] connecting to Legato at %s", cfg.BaseURL)
 
-	st := &pluginState{baseURL: cfg.BaseURL}
+	st := &pluginState{
+		baseURL:     cfg.BaseURL,
+		keyDownTime: make(map[string]time.Time),
+	}
 
 	// Legato state callback — called whenever Legato state changes.
 	onState := func(snap legato.Snapshot) {
@@ -73,7 +86,6 @@ func main() {
 		}()
 		switch e.Event {
 		case "willAppear":
-			log.Printf("[legato-streamdeck] willAppear: action=%s context=%s", e.Action, e.Context)
 			st.mu.Lock()
 			switch e.Action {
 			case opendeck.ActionAgentTile:
@@ -95,7 +107,6 @@ func main() {
 			}
 
 		case "willDisappear":
-			log.Printf("[legato-streamdeck] willDisappear: action=%s context=%s", e.Action, e.Context)
 			st.mu.Lock()
 			switch e.Action {
 			case opendeck.ActionAgentTile:
@@ -103,11 +114,26 @@ func main() {
 			case opendeck.ActionAttnTile:
 				st.attnCtxs = removeContext(st.attnCtxs, e.Context)
 			}
+			delete(st.keyDownTime, e.Context)
+			st.mu.Unlock()
+
+		case "keyDown":
+			st.mu.Lock()
+			st.keyDownTime[e.Context] = time.Now()
 			st.mu.Unlock()
 
 		case "keyUp":
-			log.Printf("[legato-streamdeck] keyUp: action=%s context=%s", e.Action, e.Context)
-			st.handleKeyPress(ctx, e)
+			st.mu.Lock()
+			downAt, hasDown := st.keyDownTime[e.Context]
+			delete(st.keyDownTime, e.Context)
+			snap := st.snap
+			st.mu.Unlock()
+
+			if !hasDown {
+				return
+			}
+			holdDuration := time.Since(downAt)
+			st.handleKeyAction(ctx, e, snap, holdDuration)
 		}
 	}
 
@@ -124,39 +150,95 @@ func main() {
 	}
 }
 
+// handleKeyAction routes a key press based on hold duration.
+// Short press (<800ms): open in browser.
+// Long press (>=800ms): execute primary action if safe, else open browser.
+func (st *pluginState) handleKeyAction(ctx context.Context, e opendeck.Event, snap legato.Snapshot, holdDuration time.Duration) {
+	isHold := holdDuration >= holdThreshold
+
+	switch e.Action {
+	case opendeck.ActionAgentTile:
+		idx := st.contextIndex(st.agentCtxs, e.Context)
+		if idx < 0 || idx >= len(snap.Agents) {
+			return
+		}
+		agent := snap.Agents[idx]
+		// Agent tiles always open browser (short or long press)
+		_ = openBrowser(st.baseURL + "/agents?task=" + agent.TaskID)
+
+	case opendeck.ActionAttnTile:
+		idx := st.contextIndex(st.attnCtxs, e.Context)
+		if idx < 0 || idx >= len(snap.Attention) {
+			return
+		}
+		item := snap.Attention[idx]
+
+		if isHold {
+			// Long press: try to execute the primary action
+			var safeAction *legato.AttentionAction
+			for i := range item.Actions {
+				a := &item.Actions[i]
+				if a.Kind == "execute" && !a.RequiresConfirm {
+					safeAction = a
+					break
+				}
+			}
+
+			if safeAction != nil {
+				err := st.legato.ExecuteAction(ctx, item.ID, safeAction.ID, item.SourceRevision)
+				if err != nil {
+					log.Printf("[legato-streamdeck] execute action %s: %v", safeAction.ID, err)
+					_ = st.deck.ShowAlert(ctx, e.Context)
+					// Fall back to browser
+					_ = openBrowser(legato.AttentionDeepLink(st.baseURL, item.Navigation))
+				} else {
+					log.Printf("[legato-streamdeck] executed action %s on %s", safeAction.ID, item.ID)
+					_ = st.deck.ShowOK(ctx, e.Context)
+				}
+			} else {
+				// No safe action — open browser even on hold
+				_ = openBrowser(legato.AttentionDeepLink(st.baseURL, item.Navigation))
+			}
+		} else {
+			// Short press: open browser
+			_ = openBrowser(legato.AttentionDeepLink(st.baseURL, item.Navigation))
+		}
+	}
+}
+
+func (st *pluginState) contextIndex(list []string, ctx string) int {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for i, c := range list {
+		if c == ctx {
+			return i
+		}
+	}
+	return -1
+}
+
 // pushTiles sends the current Legato state to all active tile contexts.
 func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot, agentCtxs, attnCtxs []string) {
-	log.Printf("[legato-streamdeck] pushTiles: connected=%v hasToken=%v agents=%d attention=%d agentSlots=%d attnSlots=%d",
-		snap.Connected, snap.HasToken, len(snap.Agents), len(snap.Attention), len(agentCtxs), len(attnCtxs))
-
 	// Disconnected — all tiles show offline.
 	if !snap.Connected {
 		img := render.DataURI(render.Disconnected())
 		for _, c := range agentCtxs {
-			if err := deck.SetImage(ctx, c, img); err != nil {
-				log.Printf("[legato-streamdeck] SetImage error (offline/agent): %v", err)
-			}
+			_ = deck.SetImage(ctx, c, img)
 		}
 		for _, c := range attnCtxs {
-			if err := deck.SetImage(ctx, c, img); err != nil {
-				log.Printf("[legato-streamdeck] SetImage error (offline/attn): %v", err)
-			}
+			_ = deck.SetImage(ctx, c, img)
 		}
 		return
 	}
 
-	// No token — show no-token state.
+	// No token — show lock icon.
 	if !snap.HasToken {
 		img := render.DataURI(render.NoToken())
 		for _, c := range agentCtxs {
-			if err := deck.SetImage(ctx, c, img); err != nil {
-				log.Printf("[legato-streamdeck] SetImage error (notoken/agent): %v", err)
-			}
+			_ = deck.SetImage(ctx, c, img)
 		}
 		for _, c := range attnCtxs {
-			if err := deck.SetImage(ctx, c, img); err != nil {
-				log.Printf("[legato-streamdeck] SetImage error (notoken/attn): %v", err)
-			}
+			_ = deck.SetImage(ctx, c, img)
 		}
 		return
 	}
@@ -168,14 +250,15 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 		}
 		if i < len(snap.Agents) {
 			a := snap.Agents[i]
-			img := render.DataURI(render.Agent(a.Title, a.Activity, a.Role))
-			if err := deck.SetImage(ctx, c, img); err != nil {
-				log.Printf("[legato-streamdeck] SetImage error (agent %d): %v", i, err)
+			var img string
+			if a.Status == "dead" {
+				img = render.DataURI(render.AgentDead())
+			} else {
+				img = render.DataURI(render.Agent(a.Activity, a.WorkingSeconds, a.WaitingSeconds))
 			}
+			_ = deck.SetImage(ctx, c, img)
 		} else {
-			if err := deck.SetImage(ctx, c, render.DataURI(render.EmptyAgent())); err != nil {
-				log.Printf("[legato-streamdeck] SetImage error (empty agent %d): %v", i, err)
-			}
+			_ = deck.SetImage(ctx, c, render.DataURI(render.EmptyAgent()))
 		}
 	}
 
@@ -186,91 +269,17 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 		}
 		if i < len(snap.Attention) {
 			item := snap.Attention[i]
-			img := render.DataURI(render.Attention(item.Producer, item.Title, item.Urgency, i, len(snap.Attention)))
-			if err := deck.SetImage(ctx, c, img); err != nil {
-				log.Printf("[legato-streamdeck] SetImage error (attn %d): %v", i, err)
-			}
+			img := render.DataURI(render.Attention(item.Producer, item.Urgency, i, len(snap.Attention)))
+			_ = deck.SetImage(ctx, c, img)
 		} else {
-			if err := deck.SetImage(ctx, c, render.DataURI(render.EmptyAttention())); err != nil {
-				log.Printf("[legato-streamdeck] SetImage error (empty attn %d): %v", i, err)
-			}
+			_ = deck.SetImage(ctx, c, render.DataURI(render.EmptyAttention()))
 		}
 	}
 }
 
-// handleKeyPress routes a keyUp event to the appropriate action.
-func (st *pluginState) handleKeyPress(ctx context.Context, e opendeck.Event) {
-	st.mu.Lock()
-	snap := st.snap
-	baseURL := st.baseURL
-	st.mu.Unlock()
-
-	switch e.Action {
-	case opendeck.ActionAgentTile:
-		// Find the slot index for this context.
-		idx := -1
-		st.mu.Lock()
-		for i, c := range st.agentCtxs {
-			if c == e.Context {
-				idx = i
-				break
-			}
-		}
-		st.mu.Unlock()
-		if idx < 0 || idx >= len(snap.Agents) {
-			return
-		}
-		agent := snap.Agents[idx]
-		url := baseURL + "/agents?task=" + agent.TaskID
-		_ = openBrowser(url)
-
-	case opendeck.ActionAttnTile:
-		idx := -1
-		st.mu.Lock()
-		for i, c := range st.attnCtxs {
-			if c == e.Context {
-				idx = i
-				break
-			}
-		}
-		st.mu.Unlock()
-		if idx < 0 || idx >= len(snap.Attention) {
-			return
-		}
-		item := snap.Attention[idx]
-
-		// Check for a safe direct-execute action (non-confirm, execute kind).
-		var safeAction *legato.AttentionAction
-		for i := range item.Actions {
-			a := &item.Actions[i]
-			if a.Kind == "execute" && !a.RequiresConfirm && a.Intent == "primary" {
-				safeAction = a
-				break
-			}
-		}
-
-		if safeAction != nil {
-			// Execute directly via API.
-			if err := st.legato.ExecuteAction(ctx, item.ID, safeAction.ID, item.SourceRevision); err != nil {
-				log.Printf("[legato-streamdeck] execute action %s: %v", safeAction.ID, err)
-				// Fall back to opening the browser.
-				url := legato.AttentionDeepLink(baseURL, item.Navigation)
-				_ = openBrowser(url)
-			}
-		} else {
-			// Open in browser for confirmation or navigation.
-			url := legato.AttentionDeepLink(baseURL, item.Navigation)
-			_ = openBrowser(url)
-		}
-	}
-}
-
-// openBrowser opens a URL in the default browser via xdg-open.
 // openBrowser opens a URL in the default browser. Inside the Flatpak sandbox,
-// it uses flatpak-spawn --host to invoke xdg-open on the host, which integrates
-// better with the host's desktop portal and browser.
+// it uses flatpak-spawn --host to invoke xdg-open on the host.
 func openBrowser(url string) error {
-	// Try flatpak-spawn first (works inside the sandbox).
 	if _, err := exec.LookPath("flatpak-spawn"); err == nil {
 		return exec.Command("flatpak-spawn", "--host", "xdg-open", url).Start()
 	}

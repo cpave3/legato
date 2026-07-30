@@ -1,12 +1,13 @@
 // Package render produces SVG tile images for Stream Deck keys.
 //
-// Each tile is a 144×144 SVG rendered to a base64 data URI suitable for
-// OpenDeck's setImage command. All rendering is pure string templating —
-// no external SVG library is needed.
+// Each tile is a 144×144 SVG rendered to a base64 data URI. The SVG is
+// downscaled to 72×72 by the hardware — so design for 72px legibility.
 //
-// Design philosophy: visual-first, minimal text. The key should be
-// glanceable from across the desk — a colored status indicator dominates
-// the tile, with just enough text to identify the agent or item.
+// Design philosophy: color and shape only, no text. The keys are glance
+// indicators, not text displays. Color encodes state (working/waiting/idle/
+// urgent). Shape encodes activity (filled circle / hollow ring / dot). Color
+// shift encodes elapsed time (green→yellow→amber→red as an agent works longer).
+// Border weight encodes urgency (thin bar = normal, thick border = urgent).
 package render
 
 import (
@@ -17,17 +18,16 @@ import (
 
 const (
 	tileSize = 144
-	bgColor  = "#18181b" // zinc-900, matches Legato web UI
+	bgColor  = "#18181b" // zinc-900
 )
 
-// Color constants for activity states.
+// Base colors for activity states.
 const (
-	ColorWorking = "#22c55e" // green
-	ColorWaiting = "#f59e0b" // amber
-	ColorIdle    = "#52525b" // dark gray
-	ColorUrgent  = "#ef4444" // red
-	ColorNormal  = "#f59e0b" // amber
-	ColorOffline = "#52525b" // dark gray
+	Green  = "#22c55e"
+	Amber  = "#f59e0b"
+	Red    = "#ef4444"
+	Gray   = "#52525b"
+	DarkGray = "#27272a"
 )
 
 // DataURI wraps raw SVG bytes as a data URI.
@@ -35,262 +35,176 @@ func DataURI(svg string) string {
 	return "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(svg))
 }
 
-func escapeXML(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, "\"", "&quot;")
-	s = strings.ReplaceAll(s, "'", "&apos;")
-	return s
-}
-
-// truncate shortens a string to maxLen characters, appending "…" if truncated.
-func truncate(s string, maxLen int) string {
-	runes := []rune(s)
-	if len(runes) <= maxLen {
-		return s
-	}
-	return string(runes[:maxLen]) + "…"
-}
-
-// activityColor returns the color for an agent's activity state.
-func activityColor(activity string) string {
-	switch activity {
-	case "working":
-		return ColorWorking
-	case "waiting":
-		return ColorWaiting
-	default:
-		return ColorIdle
+// elapsedColor shifts green→yellow→amber→red based on seconds working.
+// 0-10min: green, 10-30min: yellow-green, 30-60min: amber, 60min+: red.
+func elapsedColor(seconds float64) string {
+	switch {
+	case seconds < 600:   // < 10 min
+		return Green
+	case seconds < 1800:  // 10-30 min
+		return "#84cc16" // lime — green shifting yellow
+	case seconds < 3600:  // 30-60 min
+		return Amber
+	default:              // > 60 min
+		return Red
 	}
 }
 
-// urgencyColor returns the color for an attention item's urgency.
-func urgencyColor(urgency string) string {
-	if urgency == "urgent" || urgency == "high" {
-		return ColorUrgent
+// waitingColor shifts amber→red based on seconds waiting.
+// 0-5min: amber, 5min+: red.
+func waitingColor(seconds float64) string {
+	if seconds > 300 {
+		return Red
 	}
-	return ColorNormal
+	return Amber
 }
 
-// producerIcon returns an SVG path for an attention item's producer.
-// Returns a simple geometric icon — no text needed.
-func producerIcon(producer string) (iconSVG, label string) {
-	switch producer {
-	case "plans":
-		// Document/checkmark icon
-		return `<rect x="52" y="40" width="40" height="52" rx="4" fill="none" stroke="{color}" stroke-width="4"/><path d="M60 60h24M60 70h24M60 80h16" stroke="{color}" stroke-width="3" stroke-linecap="round"/>`, "PLAN"
-	case "reviews":
-		// Eye icon (review)
-		return `<path d="M72 50C55 50 42 72 42 72s13 22 30 22 30-22 30-22-13-22-30-22z" fill="none" stroke="{color}" stroke-width="4"/><circle cx="72" cy="72" r="8" fill="{color}"/>`, "REVIEW"
-	case "workflows":
-		// Flow icon (connected boxes)
-		return `<rect x="40" y="44" width="26" height="26" rx="4" fill="none" stroke="{color}" stroke-width="4"/><rect x="78" y="74" width="26" height="26" rx="4" fill="none" stroke="{color}" stroke-width="4"/><path d="M66 57h24v17" stroke="{color}" stroke-width="4" stroke-linecap="round" fill="none"/>`, "FLOW"
-	case "workflow_triggers":
-		// Lightning bolt (trigger)
-		return `<path d="M76 42L54 78h18l-8 24 22-36H68z" fill="{color}"/>`, "TRIG"
-	default:
-		// Square dot (generic task)
-		return `<rect x="58" y="58" width="28" height="28" rx="6" fill="{color}"/>`, "TASK"
-	}
-}
-
-// Agent renders an SVG tile for an agent.
+// Agent renders a purely visual tile for an agent.
 //
-// Visual layout:
-// - Top: large colored status bar (full width, ~8px thick)
-// - Center: big colored circle/ring showing activity (the dominant visual)
-// - Bottom: short title text (max ~16 chars, 2 lines)
-// - Bottom edge: role badge if present
-func Agent(title, activity, role string) string {
-	color := activityColor(activity)
-	titleXML := escapeXML(truncate(title, 16))
-
-	// The center circle is the main visual — filled for working, ring for waiting, dim for idle
+// Visual encoding:
+// - Working: filled circle, color shifts green→red with elapsed time
+// - Waiting: hollow ring, amber (red if >5min)
+// - Idle: small dim dot
+// - Dead: red X over dark background
+func Agent(activity string, workingSeconds, waitingSeconds float64) string {
 	var centerSVG string
+
 	switch activity {
 	case "working":
-		// Filled circle with a subtle pulse ring
+		color := elapsedColor(workingSeconds)
+		// Filled circle with outer ring
 		centerSVG = fmt.Sprintf(
-			`<circle cx="72" cy="58" r="28" fill="none" stroke="%s" stroke-width="3" opacity="0.3"/>
-  <circle cx="72" cy="58" r="22" fill="%s"/>`,
-			color, color)
+			`<circle cx="72" cy="72" r="44" fill="none" stroke="%s" stroke-width="3" opacity="0.25"/>
+  <circle cx="72" cy="72" r="34" fill="%s"/>`, color, color)
 	case "waiting":
-		// Ring (hollow circle)
+		color := waitingColor(waitingSeconds)
+		// Hollow ring
 		centerSVG = fmt.Sprintf(
-			`<circle cx="72" cy="58" r="22" fill="none" stroke="%s" stroke-width="6"/>`, color)
+			`<circle cx="72" cy="72" r="34" fill="none" stroke="%s" stroke-width="12"/>`, color)
 	default:
-		// Small dim dot
+		// Idle: small dim dot
 		centerSVG = fmt.Sprintf(
-			`<circle cx="72" cy="58" r="10" fill="%s"/>`, color)
-	}
-
-	// Split title into two lines if long
-	var titleLines string
-	runes := []rune(titleXML)
-	if len(runes) > 10 {
-		mid := len(runes) / 2
-		// Try to split at a space near the middle
-		for i := mid; i < len(runes) && i < mid+8; i++ {
-			if runes[i] == ' ' {
-				mid = i + 1
-				break
-			}
-		}
-		line1 := escapeXML(truncate(string(runes[:mid-1]), 14))
-		line2 := escapeXML(truncate(string(runes[mid:]), 14))
-		titleLines = fmt.Sprintf(
-			`<text x="72" y="108" fill="#e4e4e7" font-family="sans-serif" font-size="11" font-weight="600" text-anchor="middle">%s</text>
-  <text x="72" y="122" fill="#a1a1aa" font-family="sans-serif" font-size="10" font-weight="500" text-anchor="middle">%s</text>`,
-			line1, line2)
-	} else {
-		titleLines = fmt.Sprintf(
-			`<text x="72" y="115" fill="#e4e4e7" font-family="sans-serif" font-size="12" font-weight="600" text-anchor="middle">%s</text>`,
-			titleXML)
-	}
-
-	// Role badge at bottom
-	var roleLine string
-	if role != "" {
-		roleLine = fmt.Sprintf(
-			`<text x="72" y="136" fill="#71717a" font-family="sans-serif" font-size="8" font-weight="600" text-anchor="middle">%s</text>`,
-			escapeXML(truncate(role, 10)))
+			`<circle cx="72" cy="72" r="14" fill="%s"/>`, Gray)
 	}
 
 	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
   <rect width="%d" height="%d" rx="12" fill="%s"/>
-  <rect x="12" y="8" width="120" height="6" rx="3" fill="%s"/>
-  %s
-  %s
   %s
 </svg>`,
 		tileSize, tileSize, tileSize, tileSize,
 		tileSize, tileSize, bgColor,
-		color,
-		centerSVG,
-		titleLines,
-		roleLine)
+		centerSVG)
 }
 
-// Attention renders an SVG tile for an attention item.
-//
-// Visual layout:
-// - Left edge: thick colored urgency bar (full height)
-// - Center: large producer icon (dominant visual)
-// - Bottom: short title text (max ~14 chars, 2 lines)
-// - Top-right: count badge if multiple items
-func Attention(producer, title, urgency string, index, total int) string {
-	color := urgencyColor(urgency)
-	iconSVG, _ := producerIcon(producer)
-	// Replace {color} placeholder in icon
-	iconSVG = strings.ReplaceAll(iconSVG, "{color}", color)
-	titleXML := escapeXML(truncate(title, 14))
-
-	// Count badge (top-right corner) on the first tile when multiple items
-	var badge string
-	if index == 0 && total > 1 {
-		badge = fmt.Sprintf(
-			`<circle cx="124" cy="20" r="14" fill="%s"/>
-  <text x="124" y="25" fill="#18181b" font-family="sans-serif" font-size="14" font-weight="800" text-anchor="middle">%d</text>`,
-			color, total)
-	}
-
-	// Split title into two lines if long
-	var titleLines string
-	runes := []rune(titleXML)
-	if len(runes) > 8 {
-		mid := len(runes) / 2
-		for i := mid; i < len(runes) && i < mid+6; i++ {
-			if runes[i] == ' ' {
-				mid = i + 1
-				break
-			}
-		}
-		line1 := escapeXML(truncate(string(runes[:mid-1]), 12))
-		line2 := escapeXML(truncate(string(runes[mid:]), 12))
-		titleLines = fmt.Sprintf(
-			`<text x="72" y="116" fill="#e4e4e7" font-family="sans-serif" font-size="10" font-weight="600" text-anchor="middle">%s</text>
-  <text x="72" y="128" fill="#a1a1aa" font-family="sans-serif" font-size="9" font-weight="500" text-anchor="middle">%s</text>`,
-			line1, line2)
-	} else {
-		titleLines = fmt.Sprintf(
-			`<text x="72" y="122" fill="#e4e4e7" font-family="sans-serif" font-size="11" font-weight="600" text-anchor="middle">%s</text>`,
-			titleXML)
-	}
-
+// AgentDead renders a tile for a dead/stopped agent — red X on dark.
+func AgentDead() string {
 	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
   <rect width="%d" height="%d" rx="12" fill="%s"/>
-  <rect x="0" y="0" width="8" height="%d" rx="0" fill="%s"/>
+  <line x1="48" y1="48" x2="96" y2="96" stroke="%s" stroke-width="10" stroke-linecap="round"/>
+  <line x1="96" y1="48" x2="48" y2="96" stroke="%s" stroke-width="10" stroke-linecap="round"/>
+</svg>`,
+		tileSize, tileSize, tileSize, tileSize,
+		tileSize, tileSize, bgColor,
+		Red, Red)
+}
+
+// Attention renders a purely visual tile for an attention item.
+//
+// Visual encoding:
+// - Normal urgency: thin colored left bar + producer icon
+// - Urgent: thick red border around entire tile + producer icon
+// - Producer type: distinct geometric icon (no text)
+func Attention(producer, urgency string, index, total int) string {
+	isUrgent := urgency == "urgent" || urgency == "high"
+
+	var iconSVG string
+	switch producer {
+	case "plans":
+		// Document shape
+		iconSVG = `<rect x="50" y="40" width="44" height="56" rx="4" fill="none" stroke="{color}" stroke-width="5"/><path d="M60 58h24M60 72h24M60 86h16" stroke="{color}" stroke-width="4" stroke-linecap="round"/>`
+	case "reviews":
+		// Eye shape
+		iconSVG = `<path d="M72 44C50 44 36 72 36 72s14 28 36 28 36-28 36-28-14-28-36-28z" fill="none" stroke="{color}" stroke-width="5"/><circle cx="72" cy="72" r="12" fill="{color}"/>`
+	case "workflows":
+		// Connected boxes (flow)
+		iconSVG = `<rect x="38" y="40" width="30" height="30" rx="5" fill="none" stroke="{color}" stroke-width="5"/><rect x="76" y="74" width="30" height="30" rx="5" fill="none" stroke="{color}" stroke-width="5"/><path d="M68 55h24v19" stroke="{color}" stroke-width="5" stroke-linecap="round" fill="none"/>`
+	case "workflow_triggers":
+		// Lightning bolt
+		iconSVG = `<path d="M78 38L52 80h20l-8 26 24-42H66z" fill="{color}"/>`
+	default:
+		// Filled square
+		iconSVG = `<rect x="54" y="54" width="36" height="36" rx="8" fill="{color}"/>`
+	}
+
+	if isUrgent {
+		// Urgent: thick red border + red icon
+		iconSVG = strings.ReplaceAll(iconSVG, "{color}", Red)
+		return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
+  <rect width="%d" height="%d" rx="12" fill="%s"/>
+  <rect x="6" y="6" width="%d" height="%d" rx="8" fill="none" stroke="%s" stroke-width="6"/>
   %s
-  %s
+</svg>`,
+			tileSize, tileSize, tileSize, tileSize,
+			tileSize, tileSize, bgColor,
+			tileSize-12, tileSize-12, Red,
+			iconSVG)
+	}
+
+	// Normal: thin amber left bar + amber icon
+	color := Amber
+	iconSVG = strings.ReplaceAll(iconSVG, "{color}", color)
+	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
+  <rect width="%d" height="%d" rx="12" fill="%s"/>
+  <rect x="0" y="0" width="10" height="%d" rx="0" fill="%s"/>
   %s
 </svg>`,
 		tileSize, tileSize, tileSize, tileSize,
 		tileSize, tileSize, bgColor,
 		tileSize, color,
-		badge,
-		iconSVG,
-		titleLines)
+		iconSVG)
 }
 
-// Empty renders a transparent/blank tile (for unused slots).
-func Empty() string {
-	return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144"></svg>`
-}
-
-// EmptyAgent renders a subtle placeholder for an agent tile with no agent.
-// Shows a dim circle outline so the slot reads as "available" not "broken".
+// EmptyAgent renders a subtle dashed circle for an unused agent slot.
 func EmptyAgent() string {
 	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
   <rect width="%d" height="%d" rx="12" fill="%s"/>
-  <circle cx="72" cy="58" r="22" fill="none" stroke="#27272a" stroke-width="4" stroke-dasharray="6 4"/>
+  <circle cx="72" cy="72" r="34" fill="none" stroke="%s" stroke-width="3" stroke-dasharray="8 6"/>
 </svg>`,
 		tileSize, tileSize, tileSize, tileSize,
-		tileSize, tileSize, bgColor)
+		tileSize, tileSize, bgColor, DarkGray)
 }
 
-// EmptyAttention renders a subtle placeholder for an attention tile with no item.
-// Shows a dim dashed left bar so the slot reads as "available" not "broken".
+// EmptyAttention renders a subtle dashed square for an unused attention slot.
 func EmptyAttention() string {
 	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
   <rect width="%d" height="%d" rx="12" fill="%s"/>
-  <rect x="0" y="0" width="8" height="%d" rx="0" fill="#27272a"/>
-  <circle cx="72" cy="58" r="22" fill="none" stroke="#27272a" stroke-width="4" stroke-dasharray="6 4"/>
+  <rect x="38" y="38" width="68" height="68" rx="8" fill="none" stroke="%s" stroke-width="3" stroke-dasharray="8 6"/>
 </svg>`,
 		tileSize, tileSize, tileSize, tileSize,
-		tileSize, tileSize, bgColor,
-		tileSize)
+		tileSize, tileSize, bgColor, DarkGray)
 }
 
-// Disconnected renders an "OFFLINE" tile when Legato is unreachable.
-//
-// Visual: dim background with a broken-link icon.
+// Disconnected renders a broken-link icon (no text).
 func Disconnected() string {
 	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
   <rect width="%d" height="%d" rx="12" fill="%s"/>
-  <path d="M56 64h-8v-8a16 16 0 0 1 16-16h8M88 80h8v8a16 16 0 0 1-16 16h-8" stroke="%s" stroke-width="5" stroke-linecap="round" fill="none"/>
-  <line x1="58" y1="86" x2="86" y2="58" stroke="%s" stroke-width="5" stroke-linecap="round"/>
-  <text x="72" y="120" fill="%s" font-family="sans-serif" font-size="11" font-weight="600" text-anchor="middle">OFFLINE</text>
+  <path d="M56 64h-8v-8a16 16 0 0 1 16-16h8M88 80h8v8a16 16 0 0 1-16 16h-8" stroke="%s" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <line x1="58" y1="86" x2="86" y2="58" stroke="%s" stroke-width="6" stroke-linecap="round"/>
 </svg>`,
 		tileSize, tileSize, tileSize, tileSize,
 		tileSize, tileSize, bgColor,
-		ColorOffline, ColorOffline, "#52525b")
+		Gray, Gray)
 }
 
-// NoToken renders a "NO TOKEN" tile when the auth token can't be found.
-//
-// Visual: lock icon with warning text.
+// NoToken renders a lock icon (no text).
 func NoToken() string {
 	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
   <rect width="%d" height="%d" rx="12" fill="%s"/>
-  <rect x="56" y="58" width="32" height="28" rx="4" fill="none" stroke="%s" stroke-width="4"/>
-  <path d="M62 58v-6a10 10 0 0 1 20 0v6" fill="none" stroke="%s" stroke-width="4"/>
-  <circle cx="72" cy="70" r="4" fill="%s"/>
-  <text x="72" y="112" fill="%s" font-family="sans-serif" font-size="10" font-weight="700" text-anchor="middle">NO TOKEN</text>
-  <text x="72" y="126" fill="#52525b" font-family="sans-serif" font-size="8" text-anchor="middle">check config</text>
+  <rect x="54" y="60" width="36" height="32" rx="5" fill="none" stroke="%s" stroke-width="5"/>
+  <path d="M60 60v-8a12 12 0 0 1 24 0v8" fill="none" stroke="%s" stroke-width="5"/>
+  <circle cx="72" cy="74" r="5" fill="%s"/>
 </svg>`,
 		tileSize, tileSize, tileSize, tileSize,
 		tileSize, tileSize, bgColor,
-		ColorUrgent, ColorUrgent, ColorUrgent,
-		"#ef4444")
+		Red, Red, Red)
 }

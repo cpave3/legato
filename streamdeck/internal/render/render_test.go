@@ -5,157 +5,174 @@ import (
 	"testing"
 )
 
-func TestAgentRendering(t *testing.T) {
-	svg := Agent("Build feature", "working", "API")
-	// Working agent should have a filled circle (dominant visual)
-	if !strings.Contains(svg, `<circle cx="72" cy="58" r="22" fill="#22c55e"/>`) {
-		t.Error("working agent should have filled green circle")
+func TestAgentWorkingGreen(t *testing.T) {
+	svg := Agent("working", 120, 0) // 2 min working
+	// Fresh working: filled green circle
+	if !strings.Contains(svg, `fill="#22c55e"`) {
+		t.Error("working agent <10min should be green")
 	}
-	// Title may be split across two lines
-	if !strings.Contains(svg, "Build") || !strings.Contains(svg, "feature") {
-		t.Error("SVG missing title text")
-	}
-	if !strings.Contains(svg, "API") {
-		t.Error("SVG missing role")
+	// No text elements
+	if strings.Contains(svg, "<text") {
+		t.Error("agent tile should have no text")
 	}
 }
 
-func TestAgentWaitingState(t *testing.T) {
-	svg := Agent("Fix bug", "waiting", "")
-	// Waiting agent should have a ring (hollow circle with stroke)
-	if !strings.Contains(svg, `fill="none" stroke="#f59e0b" stroke-width="6"`) {
-		t.Error("waiting agent should have amber ring")
-	}
-	// No role should produce no role text
-	if strings.Contains(svg, "sans-serif\" font-size=\"8\"") {
-		t.Error("SVG should not have role line when role is empty")
+func TestAgentWorkingYellowGreen(t *testing.T) {
+	svg := Agent("working", 900, 0) // 15 min working
+	if !strings.Contains(svg, `fill="#84cc16"`) {
+		t.Error("working agent 10-30min should be lime")
 	}
 }
 
-func TestAgentIdleState(t *testing.T) {
-	svg := Agent("Idle task", "", "")
-	// Idle agent should have a small dim dot
-	if !strings.Contains(svg, `r="10" fill="#52525b"`) {
-		t.Error("idle agent should have small gray dot")
+func TestAgentWorkingAmber(t *testing.T) {
+	svg := Agent("working", 2400, 0) // 40 min working
+	if !strings.Contains(svg, `fill="#f59e0b"`) {
+		t.Error("working agent 30-60min should be amber")
 	}
 }
 
-func TestAgentWorkingHasStatusBar(t *testing.T) {
-	svg := Agent("Test", "working", "")
-	// Top status bar should be present and colored
-	if !strings.Contains(svg, `<rect x="12" y="8" width="120" height="6" rx="3" fill="#22c55e"/>`) {
-		t.Error("working agent should have green status bar at top")
+func TestAgentWorkingRed(t *testing.T) {
+	svg := Agent("working", 7200, 0) // 2 hours working
+	if !strings.Contains(svg, `fill="#ef4444"`) {
+		t.Error("working agent >60min should be red")
 	}
 }
 
-func TestAgentWaitingHasStatusBar(t *testing.T) {
-	svg := Agent("Test", "waiting", "")
-	if !strings.Contains(svg, `fill="#f59e0b"/>`) {
-		t.Error("waiting agent should have amber status bar")
+func TestAgentWaiting(t *testing.T) {
+	svg := Agent("waiting", 0, 60) // 1 min waiting
+	// Waiting: hollow ring (stroke, no fill)
+	if !strings.Contains(svg, `fill="none"`) {
+		t.Error("waiting agent should have hollow ring")
+	}
+	if !strings.Contains(svg, `stroke="#f59e0b"`) {
+		t.Error("waiting agent <5min should be amber stroke")
 	}
 }
 
-func TestAgentTruncation(t *testing.T) {
-	longTitle := "This is a very long agent title that should be truncated"
-	svg := Agent(longTitle, "working", "")
-	if !strings.Contains(svg, "…") {
-		t.Error("SVG should contain truncation marker")
-	}
-	if strings.Contains(svg, longTitle) {
-		t.Error("SVG should not contain the full untruncated title")
+func TestAgentWaitingLong(t *testing.T) {
+	svg := Agent("waiting", 0, 600) // 10 min waiting
+	if !strings.Contains(svg, `stroke="#ef4444"`) {
+		t.Error("waiting agent >5min should be red stroke")
 	}
 }
 
-func TestAgentLongTitleSplits(t *testing.T) {
-	svg := Agent("Very long title here", "working", "")
-	// Long titles should produce two text lines for the title
-	// (plus status bar = 0 text, center circle = 0 text, no role = 0 text)
-	textCount := strings.Count(svg, "<text ")
-	if textCount != 2 {
-		t.Errorf("long title should produce 2 text lines, got %d text elements", textCount)
+func TestAgentIdle(t *testing.T) {
+	svg := Agent("", 0, 0)
+	// Idle: small dim dot
+	if !strings.Contains(svg, `r="14"`) {
+		t.Error("idle agent should have small circle")
+	}
+	if !strings.Contains(svg, `fill="#52525b"`) {
+		t.Error("idle agent should be gray")
 	}
 }
 
-func TestAttentionRendering(t *testing.T) {
-	svg := Attention("plans", "Approve plan X", "normal", 0, 3)
-	// Should have a plan icon (document shape)
-	if !strings.Contains(svg, "rect") {
-		t.Error("attention SVG should have an icon")
+func TestAgentDead(t *testing.T) {
+	svg := AgentDead()
+	// Red X — two diagonal lines
+	if !strings.Contains(svg, `stroke="#ef4444"`) {
+		t.Error("dead agent should have red lines")
 	}
-	// Title may be split across two lines
-	if !strings.Contains(svg, "Approve") || !strings.Contains(svg, "plan") {
-		t.Error("SVG missing title text")
-	}
-}
-
-func TestAttentionCountBadge(t *testing.T) {
-	svg := Attention("plans", "Test", "normal", 0, 3)
-	// First tile with total > 1 should show count badge
-	if !strings.Contains(svg, ">3<") {
-		t.Error("SVG should show count badge with number 3")
+	if strings.Count(svg, "<line") != 2 {
+		t.Error("dead agent should have two lines (X shape)")
 	}
 }
 
-func TestAttentionNoCountBadge(t *testing.T) {
-	svg := Attention("plans", "Test", "normal", 0, 1)
-	// Single item should not show count badge
-	if strings.Contains(svg, ">1<") {
-		t.Error("SVG should not show count badge for single item")
-	}
-}
-
-func TestAttentionUrgent(t *testing.T) {
-	svg := Attention("workflows", "Retry step", "urgent", 0, 1)
-	if !strings.Contains(svg, "#ef4444") {
-		t.Error("SVG should use urgent red color")
-	}
-}
-
-func TestAttentionLeftBar(t *testing.T) {
-	svg := Attention("reviews", "Test", "normal", 0, 1)
-	// Should have a left edge colored bar
-	if !strings.Contains(svg, `width="8" height="144"`) {
-		t.Error("attention SVG should have left edge bar")
-	}
-}
-
-func TestAttentionProducerIcons(t *testing.T) {
-	// Each producer should render a distinct icon
-	producers := []string{"plans", "reviews", "workflows", "workflow_triggers", "unknown"}
-	for _, p := range producers {
-		svg := Attention(p, "Test", "normal", 0, 1)
-		// Each should have some path or rect (icon element)
-		if !strings.Contains(svg, "<path") && !strings.Contains(svg, "<rect") {
-			t.Errorf("producer %q should have an icon element", p)
+func TestAgentNoText(t *testing.T) {
+	// All agent variants should be text-free
+	for _, svg := range []string{
+		Agent("working", 0, 0),
+		Agent("waiting", 0, 0),
+		Agent("", 0, 0),
+		AgentDead(),
+		EmptyAgent(),
+	} {
+		if strings.Contains(svg, "<text") {
+			t.Error("agent tile should have no text elements")
 		}
 	}
 }
 
-func TestEmpty(t *testing.T) {
-	svg := Empty()
-	// Should be an empty SVG with no visible elements.
-	if strings.Contains(svg, "text") {
-		t.Error("empty SVG should not contain text elements")
+func TestAttentionNormal(t *testing.T) {
+	svg := Attention("plans", "normal", 0, 1)
+	// Normal: thin left bar, amber
+	if !strings.Contains(svg, `fill="#f59e0b"`) {
+		t.Error("normal attention should use amber")
+	}
+	if strings.Contains(svg, "<text") {
+		t.Error("attention tile should have no text")
+	}
+}
+
+func TestAttentionUrgent(t *testing.T) {
+	svg := Attention("plans", "urgent", 0, 1)
+	// Urgent: thick red border
+	if !strings.Contains(svg, `stroke="#ef4444"`) {
+		t.Error("urgent attention should have red border")
+	}
+	if !strings.Contains(svg, `stroke-width="6"`) {
+		t.Error("urgent attention should have thick border")
+	}
+}
+
+func TestAttentionProducerIcons(t *testing.T) {
+	// Each producer should render a distinct shape
+	producers := []string{"plans", "reviews", "workflows", "workflow_triggers", "unknown"}
+	for _, p := range producers {
+		svg := Attention(p, "normal", 0, 1)
+		if !strings.Contains(svg, "<path") && !strings.Contains(svg, "<rect") {
+			t.Errorf("producer %q should have an icon element", p)
+		}
+		if strings.Contains(svg, "<text") {
+			t.Errorf("producer %q should have no text", p)
+		}
+	}
+}
+
+func TestAttentionNoText(t *testing.T) {
+	for _, svg := range []string{
+		Attention("plans", "normal", 0, 1),
+		Attention("reviews", "urgent", 0, 1),
+		EmptyAttention(),
+	} {
+		if strings.Contains(svg, "<text") {
+			t.Error("attention tile should have no text elements")
+		}
+	}
+}
+
+func TestEmptyAgent(t *testing.T) {
+	svg := EmptyAgent()
+	if !strings.Contains(svg, "stroke-dasharray") {
+		t.Error("empty agent should have dashed circle")
+	}
+}
+
+func TestEmptyAttention(t *testing.T) {
+	svg := EmptyAttention()
+	if !strings.Contains(svg, "stroke-dasharray") {
+		t.Error("empty attention should have dashed square")
 	}
 }
 
 func TestDisconnected(t *testing.T) {
 	svg := Disconnected()
-	if !strings.Contains(svg, "OFFLINE") {
-		t.Error("disconnected SVG should contain OFFLINE text")
+	if strings.Contains(svg, "<text") {
+		t.Error("disconnected should have no text")
 	}
 	if !strings.Contains(svg, "<path") {
-		t.Error("disconnected SVG should have a broken-link icon")
+		t.Error("disconnected should have broken-link icon")
 	}
 }
 
 func TestNoToken(t *testing.T) {
 	svg := NoToken()
-	if !strings.Contains(svg, "NO TOKEN") {
-		t.Error("no-token SVG should contain NO TOKEN text")
+	if strings.Contains(svg, "<text") {
+		t.Error("no-token should have no text")
 	}
-	if !strings.Contains(svg, "NO TOKEN") {
-		t.Error("no-token SVG should have lock icon")
+	// Lock icon: rect + path (arc) + circle
+	if !strings.Contains(svg, "<rect") || !strings.Contains(svg, "<path") {
+		t.Error("no-token should have lock icon")
 	}
 }
 
@@ -167,19 +184,42 @@ func TestDataURI(t *testing.T) {
 	}
 }
 
-func TestActivityColors(t *testing.T) {
+func TestElapsedColor(t *testing.T) {
 	tests := []struct {
-		activity, color string
+		seconds float64
+		want    string
 	}{
-		{"working", ColorWorking},
-		{"waiting", ColorWaiting},
-		{"", ColorIdle},
-		{"unknown", ColorIdle},
+		{0, "#22c55e"},
+		{599, "#22c55e"},
+		{600, "#84cc16"},
+		{1799, "#84cc16"},
+		{1800, "#f59e0b"},
+		{3599, "#f59e0b"},
+		{3600, "#ef4444"},
+		{7200, "#ef4444"},
 	}
 	for _, tt := range tests {
-		got := activityColor(tt.activity)
-		if got != tt.color {
-			t.Errorf("activityColor(%q) = %q, want %q", tt.activity, got, tt.color)
+		got := elapsedColor(tt.seconds)
+		if got != tt.want {
+			t.Errorf("elapsedColor(%.0f) = %q, want %q", tt.seconds, got, tt.want)
+		}
+	}
+}
+
+func TestWaitingColor(t *testing.T) {
+	tests := []struct {
+		seconds float64
+		want    string
+	}{
+		{0, "#f59e0b"},
+		{299, "#f59e0b"},
+		{301, "#ef4444"},
+		{600, "#ef4444"},
+	}
+	for _, tt := range tests {
+		got := waitingColor(tt.seconds)
+		if got != tt.want {
+			t.Errorf("waitingColor(%.0f) = %q, want %q", tt.seconds, got, tt.want)
 		}
 	}
 }

@@ -180,3 +180,19 @@ func (c *Client) SwitchProfile(ctx context.Context, device, profile string) erro
 		"profile": profile,
 	})
 }
+
+// ShowOK flashes a green checkmark on the key for ~1 second.
+func (c *Client) ShowOK(ctx context.Context, contextID string) error {
+	return c.Send(ctx, map[string]any{
+		"event":   "showOk",
+		"context": contextID,
+	})
+}
+
+// ShowAlert flashes a red alert on the key for ~1 second.
+func (c *Client) ShowAlert(ctx context.Context, contextID string) error {
+	return c.Send(ctx, map[string]any{
+		"event":   "showAlert",
+		"context": contextID,
+	})
+}
