@@ -17,14 +17,15 @@ const SchemaVersion = 1
 var expressionPattern = regexp.MustCompile(`\$\{\{\s*([^}]+?)\s*\}\}`)
 
 type Definition struct {
-	SchemaVersion int              `yaml:"schema_version" json:"schema_version"`
-	Name          string           `yaml:"name" json:"name"`
-	Title         string           `yaml:"title" json:"title"`
-	Description   string           `yaml:"description,omitempty" json:"description,omitempty"`
-	Inputs        map[string]Input `yaml:"inputs,omitempty" json:"inputs,omitempty"`
-	On            Triggers         `yaml:"on,omitempty" json:"on,omitempty"`
-	Steps         []Step           `yaml:"steps" json:"steps"`
-	Source        string           `yaml:"-" json:"source"`
+	SchemaVersion    int              `yaml:"schema_version" json:"schema_version"`
+	Name             string           `yaml:"name" json:"name"`
+	Title            string           `yaml:"title" json:"title"`
+	Description      string           `yaml:"description,omitempty" json:"description,omitempty"`
+	NotifyOnComplete bool             `yaml:"notify_on_complete,omitempty" json:"notify_on_complete,omitempty"`
+	Inputs           map[string]Input `yaml:"inputs,omitempty" json:"inputs,omitempty"`
+	On               Triggers         `yaml:"on,omitempty" json:"on,omitempty"`
+	Steps            []Step           `yaml:"steps" json:"steps"`
+	Source           string           `yaml:"-" json:"source"`
 }
 
 type Input struct {

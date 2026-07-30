@@ -49,3 +49,84 @@ func TestWorkflowShowFlagsIdleAgentAsNeedingAttention(t *testing.T) {
 		t.Fatal("executor was not prompted")
 	}
 }
+
+func TestNotifyOnCompleteSurfacesAttentionItem(t *testing.T) {
+	db, _ := store.New(filepath.Join(t.TempDir(), "test.db"))
+	defer db.Close()
+
+	// Definition with notify_on_complete: true
+	definition, _ := workflowengine.Parse("test.yaml", []byte("schema_version: 1\nname: review\nnotify_on_complete: true\ntitle: Review PR\nsteps:\n  - id: run\n    title: Run\n    type: agent.run\n    with: {prompt: run}\n"))
+
+	executor := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "succeeded"}}
+	svc := NewWorkflowService(db, []WorkflowExecutor{executor})
+	view, err := svc.Start(context.Background(), definition, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The run should have succeeded (fake executor returns succeeded immediately)
+	completed, err := svc.Show(context.Background(), view.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.Run.Status != "succeeded" {
+		t.Fatalf("expected succeeded, got %s", completed.Run.Status)
+	}
+
+	// The attention adapter should surface this as a completed item
+	adapter := NewWorkflowAttentionAdapter(svc)
+	items, err := adapter.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var found bool
+	for _, item := range items {
+		if item.Navigation.Target == view.Run.ID {
+			found = true
+			if item.Reason != "Workflow succeeded: Review PR" {
+				t.Errorf("reason: got %q, want %q", item.Reason, "Workflow succeeded: Review PR")
+			}
+			// Should have a dismiss action
+			var hasDismiss bool
+			for _, a := range item.Actions {
+				if a.ID == "dismiss" {
+					hasDismiss = true
+				}
+			}
+			if !hasDismiss {
+				t.Error("completed workflow attention item should have dismiss action")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("notify_on_complete run should appear in attention snapshot")
+	}
+}
+
+func TestNotifyOnCompleteFalseDoesNotSurface(t *testing.T) {
+	db, _ := store.New(filepath.Join(t.TempDir(), "test.db"))
+	defer db.Close()
+
+	// Definition without notify_on_complete
+	definition, _ := workflowengine.Parse("test.yaml", []byte("schema_version: 1\nname: review\ntitle: Review PR\nsteps:\n  - id: run\n    title: Run\n    type: agent.run\n    with: {prompt: run}\n"))
+
+	executor := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "succeeded"}}
+	svc := NewWorkflowService(db, []WorkflowExecutor{executor})
+	view, err := svc.Start(context.Background(), definition, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := NewWorkflowAttentionAdapter(svc)
+	items, err := adapter.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, item := range items {
+		if item.Navigation.Target == view.Run.ID {
+			t.Fatal("run without notify_on_complete should NOT appear in attention snapshot")
+		}
+	}
+}

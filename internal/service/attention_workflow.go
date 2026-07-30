@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -28,7 +29,7 @@ func (a *WorkflowAttentionAdapter) Producer() string { return "workflows" }
 type workflowAttentionState struct {
 	runID    string
 	stepID   string
-	kind     string // manual | failed | waiting_agent
+	kind     string // manual | failed | waiting_agent | completed
 	revision string
 	runTitle string
 	taskID   string
@@ -43,14 +44,30 @@ func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInp
 	}
 	var states []workflowAttentionState
 	for _, run := range runs {
-		if !run.NeedsAttention {
+		// Active runs with needs_attention (failed/manual/waiting_agent)
+		if run.NeedsAttention {
+			view, err := a.workflows.Show(ctx, run.ID)
+			if err != nil {
+				continue
+			}
+			states = append(states, a.collectRunStates(run, view)...)
 			continue
 		}
-		view, err := a.workflows.Show(ctx, run.ID)
-		if err != nil {
-			continue
+		// Completed runs with notify_on_complete in their definition
+		if run.Status == "succeeded" || run.Status == "failed" {
+			if hasNotifyOnComplete(run.DefinitionJSON) {
+				states = append(states, workflowAttentionState{
+					runID:    run.ID,
+					stepID:   "_complete",
+					kind:     "completed",
+					revision: fmt.Sprintf("completed:%s:%s", run.ID, run.Status),
+					runTitle: run.WorkflowTitle,
+					taskID:   run.TaskID,
+					reason:   "Workflow " + run.Status + ": " + run.WorkflowTitle,
+					action:   AttentionAction{ID: "dismiss", Label: "Dismiss", Kind: "dismiss"},
+				})
+			}
 		}
-		states = append(states, a.collectRunStates(run, view)...)
 	}
 	items := make([]AttentionInput, 0, len(states))
 	for _, s := range states {
@@ -66,6 +83,18 @@ func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInp
 		})
 	}
 	return items, nil
+}
+
+// hasNotifyOnComplete parses a workflow definition JSON and returns whether
+// notify_on_complete is set. Returns false on parse error.
+func hasNotifyOnComplete(definitionJSON string) bool {
+	var def struct {
+		NotifyOnComplete bool `json:"notify_on_complete"`
+	}
+	if err := json.Unmarshal([]byte(definitionJSON), &def); err != nil {
+		return false
+	}
+	return def.NotifyOnComplete
 }
 
 func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view *store.WorkflowRunView) []workflowAttentionState {
@@ -120,10 +149,16 @@ func (a *WorkflowAttentionAdapter) Execute(ctx context.Context, request Attentio
 	case "prompt":
 		_, err := a.workflows.PromptStep(ctx, runID, stepID)
 		return err
+	case "dismiss":
+		// Dismiss is handled by the attention service (marks the item as
+		// dismissed). No workflow action needed.
+		return nil
 	default:
 		return fmt.Errorf("unsupported workflow attention action %q", request.ActionID)
 	}
 }
+
+// Ensure unused import is referenced
 
 func splitWorkflowSourceKey(sourceKey string) (runID, stepID string, ok bool) {
 	for i := 0; i < len(sourceKey); i++ {
