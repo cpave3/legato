@@ -50,18 +50,6 @@
       "Controllers": ["Keypad"],
       "Tooltip": "Shows an attention item; press to open or act",
       "SupportedInMultiActions": false
-    },
-    {
-      "UUID": "com.cpave3.legato.workflow-tile",
-      "Name": "Workflow Tile",
-      "States": [
-        {
-          "Image": "icons/tile"
-        }
-      ],
-      "Controllers": ["Keypad"],
-      "Tooltip": "Shows a workflow run; press to open, hold to dismiss when complete",
-      "SupportedInMultiActions": false
     }
   ]
 }
