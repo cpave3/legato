@@ -34,11 +34,12 @@ const holdThreshold = 800 * time.Millisecond
 type pluginState struct {
 	mu        sync.Mutex
 	snap      legato.Snapshot
-	deck      *opendeck.Client
-	agentCtxs []string
-	attnCtxs  []string
-	baseURL   string
-	legato    *legato.Client
+	deck         *opendeck.Client
+	agentCtxs    []string
+	attnCtxs     []string
+	workflowCtxs []string
+	baseURL      string
+	legato       *legato.Client
 	// keyDownTime tracks when each context was pressed (for hold detection)
 	keyDownTime map[string]time.Time
 }
@@ -69,9 +70,10 @@ func main() {
 		deck := st.deck
 		agentCtxs := st.agentCtxs
 		attnCtxs := st.attnCtxs
+		workflowCtxs := st.workflowCtxs
 		st.mu.Unlock()
 		if deck != nil {
-			pushTiles(context.Background(), deck, snap, agentCtxs, attnCtxs)
+			pushTiles(context.Background(), deck, snap, agentCtxs, attnCtxs, workflowCtxs)
 		}
 	}
 
@@ -96,14 +98,19 @@ func main() {
 				if !contains(st.attnCtxs, e.Context) {
 					st.attnCtxs = append(st.attnCtxs, e.Context)
 				}
+			case opendeck.ActionWorkflowTile:
+				if !contains(st.workflowCtxs, e.Context) {
+					st.workflowCtxs = append(st.workflowCtxs, e.Context)
+				}
 			}
 			deck := st.deck
 			snap := st.snap
 			agentCtxs := st.agentCtxs
 			attnCtxs := st.attnCtxs
+			workflowCtxs := st.workflowCtxs
 			st.mu.Unlock()
 			if deck != nil {
-				pushTiles(ctx, deck, snap, agentCtxs, attnCtxs)
+				pushTiles(ctx, deck, snap, agentCtxs, attnCtxs, workflowCtxs)
 			}
 
 		case "willDisappear":
@@ -113,6 +120,8 @@ func main() {
 				st.agentCtxs = removeContext(st.agentCtxs, e.Context)
 			case opendeck.ActionAttnTile:
 				st.attnCtxs = removeContext(st.attnCtxs, e.Context)
+			case opendeck.ActionWorkflowTile:
+				st.workflowCtxs = removeContext(st.workflowCtxs, e.Context)
 			}
 			delete(st.keyDownTime, e.Context)
 			st.mu.Unlock()
@@ -185,9 +194,10 @@ func (st *pluginState) handleKeyAction(ctx context.Context, e opendeck.Event, sn
 				deck := st.deck
 				agentCtxs := st.agentCtxs
 				attnCtxs := st.attnCtxs
+				workflowCtxs := st.workflowCtxs
 				st.mu.Unlock()
 				if deck != nil {
-					pushTiles(ctx, deck, snap, agentCtxs, attnCtxs)
+					pushTiles(ctx, deck, snap, agentCtxs, attnCtxs, workflowCtxs)
 				}
 			}
 		} else {
@@ -232,6 +242,55 @@ func (st *pluginState) handleKeyAction(ctx context.Context, e opendeck.Event, sn
 			// Short press: open browser
 			_ = openBrowser(legato.AttentionDeepLink(st.baseURL, item.Navigation))
 		}
+
+	case opendeck.ActionWorkflowTile:
+		idx := st.contextIndex(st.workflowCtxs, e.Context)
+		if idx < 0 || idx >= len(snap.Workflows) {
+			return
+		}
+		wf := snap.Workflows[idx]
+		isTerminal := wf.Status == "succeeded" || wf.Status == "failed" || wf.Status == "cancelled"
+
+		if isHold {
+			if isTerminal {
+				// Long press on completed workflow: dismiss from tile
+				st.legato.DismissWorkflow(wf.ID)
+				log.Printf("[legato-streamdeck] dismissed workflow %s", wf.ID)
+				_ = st.deck.ShowOK(ctx, e.Context)
+				// Re-render tiles to remove this workflow
+				st.mu.Lock()
+				snap := st.snap
+				deck := st.deck
+				agentCtxs := st.agentCtxs
+				attnCtxs := st.attnCtxs
+				workflowCtxs := st.workflowCtxs
+				st.mu.Unlock()
+				if deck != nil {
+					// Remove dismissed workflow from the snapshot
+					var filtered []legato.WorkflowRun
+					for _, w := range snap.Workflows {
+						if w.ID != wf.ID {
+							filtered = append(filtered, w)
+						}
+					}
+					snap.Workflows = filtered
+					pushTiles(ctx, deck, snap, agentCtxs, attnCtxs, workflowCtxs)
+				}
+			} else {
+				// Long press on active workflow: cancel it
+				err := st.legato.CancelWorkflow(ctx, wf.ID)
+				if err != nil {
+					log.Printf("[legato-streamdeck] cancel workflow %s: %v", wf.ID, err)
+					_ = st.deck.ShowAlert(ctx, e.Context)
+				} else {
+					log.Printf("[legato-streamdeck] cancelled workflow %s", wf.ID)
+					_ = st.deck.ShowOK(ctx, e.Context)
+				}
+			}
+		} else {
+			// Short press: open in browser
+			_ = openBrowser(st.baseURL + "/workflows/runs/" + wf.ID)
+		}
 	}
 }
 
@@ -247,7 +306,7 @@ func (st *pluginState) contextIndex(list []string, ctx string) int {
 }
 
 // pushTiles sends the current Legato state to all active tile contexts.
-func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot, agentCtxs, attnCtxs []string) {
+func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot, agentCtxs, attnCtxs, workflowCtxs []string) {
 	// Disconnected — all tiles show offline.
 	if !snap.Connected {
 		img := render.DataURI(render.Disconnected())
@@ -255,6 +314,9 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 			_ = deck.SetImage(ctx, c, img)
 		}
 		for _, c := range attnCtxs {
+			_ = deck.SetImage(ctx, c, img)
+		}
+		for _, c := range workflowCtxs {
 			_ = deck.SetImage(ctx, c, img)
 		}
 		return
@@ -267,6 +329,9 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 			_ = deck.SetImage(ctx, c, img)
 		}
 		for _, c := range attnCtxs {
+			_ = deck.SetImage(ctx, c, img)
+		}
+		for _, c := range workflowCtxs {
 			_ = deck.SetImage(ctx, c, img)
 		}
 		return
@@ -302,6 +367,20 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 			_ = deck.SetImage(ctx, c, img)
 		} else {
 			_ = deck.SetImage(ctx, c, render.DataURI(render.EmptyAttention()))
+		}
+	}
+
+	// Workflow tiles.
+	for i, c := range workflowCtxs {
+		if i >= opendeck.MaxTiles {
+			break
+		}
+		if i < len(snap.Workflows) {
+			w := snap.Workflows[i]
+			img := render.DataURI(render.Workflow(w.Status, w.ID))
+			_ = deck.SetImage(ctx, c, img)
+		} else {
+			_ = deck.SetImage(ctx, c, render.DataURI(render.EmptyWorkflow()))
 		}
 	}
 }

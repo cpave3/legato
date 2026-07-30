@@ -258,3 +258,53 @@ func NoToken() string {
 		tileSize, tileSize, bgColor,
 		Red, Red, Red)
 }
+
+// Workflow renders a tile for a workflow run.
+//
+// Visual encoding (mirrors agent tile layout):
+// - Top bar: status color (blue=running, amber=waiting, green=succeeded, red=failed)
+// - Middle: flow icon (connected boxes) in the status color
+// - Bottom: last 4 chars of run ID
+func Workflow(status, runID string) string {
+	var color string
+	switch status {
+	case "running", "pending":
+		color = "#3b82f6" // blue
+	case "waiting":
+		color = Amber
+	case "succeeded":
+		color = Green
+	case "failed":
+		color = Red
+	default:
+		color = Gray
+	}
+
+	// Flow icon — connected boxes
+	iconSVG := fmt.Sprintf(`<rect x="38" y="32" width="28" height="28" rx="5" fill="none" stroke="%s" stroke-width="5"/><rect x="78" y="62" width="28" height="28" rx="5" fill="none" stroke="%s" stroke-width="5"/><path d="M66 46h22v16" stroke="%s" stroke-width="5" stroke-linecap="round" fill="none"/>`,
+		color, color, color)
+
+	idText := escapeXML(lastChars(runID, 4))
+
+	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
+  <rect width="%d" height="%d" rx="12" fill="%s"/>
+  <rect x="12" y="8" width="120" height="6" rx="3" fill="%s"/>
+  %s
+  <text x="72" y="128" fill="#a1a1aa" font-family="monospace" font-size="18" font-weight="700" text-anchor="middle">%s</text>
+</svg>`,
+		tileSize, tileSize, tileSize, tileSize,
+		tileSize, tileSize, bgColor,
+		color,
+		iconSVG,
+		idText)
+}
+
+// EmptyWorkflow renders a subtle dashed rectangle for an unused workflow slot.
+func EmptyWorkflow() string {
+	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
+  <rect width="%d" height="%d" rx="12" fill="%s"/>
+  <rect x="20" y="20" width="104" height="104" rx="8" fill="none" stroke="%s" stroke-width="3" stroke-dasharray="8 6"/>
+</svg>`,
+		tileSize, tileSize, tileSize, tileSize,
+		tileSize, tileSize, bgColor, DarkGray)
+}

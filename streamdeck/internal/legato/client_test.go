@@ -52,6 +52,10 @@ func newMockServer(agentsJSON, attentionJSON string) *mockLegatoServer {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(attentionJSON))
 	})
+	mux.HandleFunc("/api/workflow-runs", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("[]"))
+	})
 	m.Server = httptest.NewServer(mux)
 	return m
 }

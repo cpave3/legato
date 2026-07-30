@@ -88,6 +88,7 @@ func TestActionUUIDs(t *testing.T) {
 		{ActionHome, "com.cpave3.legato.home"},
 		{ActionAgentTile, "com.cpave3.legato.agent-tile"},
 		{ActionAttnTile, "com.cpave3.legato.attention-tile"},
+		{ActionWorkflowTile, "com.cpave3.legato.workflow-tile"},
 	}
 	for _, tt := range tests {
 		if tt.got != tt.want {

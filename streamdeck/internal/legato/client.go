@@ -41,6 +41,15 @@ type Agent struct {
 	ContextPressure float64 `json:"-"`
 }
 
+// WorkflowRun represents a workflow run from GET /api/workflow-runs.
+type WorkflowRun struct {
+	ID           string `json:"id"`
+	WorkflowName string `json:"workflow_name"`
+	WorkflowTitle string `json:"workflow_title"`
+	Status       string `json:"status"` // running, waiting, succeeded, failed, cancelled
+	TaskID       string `json:"task_id"`
+}
+
 // AttentionItem represents an actionable item from GET /api/attention.
 type AttentionItem struct {
 	ID             string              `json:"id"`
@@ -77,10 +86,14 @@ type Config struct {
 
 // Snapshot is the current view of Legato state.
 type Snapshot struct {
-	Agents     []Agent
-	Attention  []AttentionItem
-	Connected  bool
-	HasToken   bool
+	Agents    []Agent
+	Attention []AttentionItem
+	Workflows []WorkflowRun
+	// DismissedWorkflows tracks run IDs the user dismissed from the deck.
+	// Completed runs in this set are excluded from the snapshot.
+	DismissedWorkflows map[string]bool
+	Connected          bool
+	HasToken           bool
 }
 
 // StateCallback is called whenever the snapshot changes (new agents,
@@ -149,6 +162,41 @@ func (c *Client) Snapshot() Snapshot {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.snap
+}
+
+// DismissWorkflow marks a workflow run as dismissed so it no longer appears
+// on the deck. This is purely client-side — it doesn't cancel the workflow.
+func (c *Client) DismissWorkflow(runID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.snap.DismissedWorkflows == nil {
+		c.snap.DismissedWorkflows = make(map[string]bool)
+	}
+	c.snap.DismissedWorkflows[runID] = true
+}
+
+// CancelWorkflow POSTs to /api/workflow-runs/{run_id}/cancel.
+func (c *Client) CancelWorkflow(ctx context.Context, runID string) error {
+	token, err := c.resolveToken()
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST",
+		c.cfg.BaseURL+"/api/workflow-runs/"+runID+"/cancel", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("cancel workflow: %s: %s", resp.Status, string(b))
+	}
+	return nil
 }
 
 // ToggleNotify PATCHes /api/agents/{task_id}/notify to enable/disable notifications.
@@ -356,7 +404,7 @@ func (c *Client) runWithWS(ctx context.Context, token string) {
 			continue
 		}
 		switch msg.Type {
-		case "agents_changed", "attention_changed", "cards_changed":
+		case "agents_changed", "attention_changed", "cards_changed", "workflow_changed":
 			if err := c.refreshState(ctx, token); err != nil {
 				log.Printf("legato: refresh on event failed: %v", err)
 			} else {
@@ -414,6 +462,10 @@ func (c *Client) refreshState(ctx context.Context, token string) error {
 	if err != nil {
 		return fmt.Errorf("fetch attention: %w", err)
 	}
+	workflows, err := c.fetchWorkflows(ctx, token)
+	if err != nil {
+		return fmt.Errorf("fetch workflows: %w", err)
+	}
 
 	// Fetch context pressure for agents with chimera endpoints.
 	// Use a sub-context with a short timeout so a slow snapshot doesn't
@@ -433,9 +485,27 @@ func (c *Client) refreshState(ctx context.Context, token string) error {
 		}
 	}
 
+	// Filter out dismissed completed workflows
+	c.mu.Lock()
+	if c.snap.DismissedWorkflows == nil {
+		c.snap.DismissedWorkflows = make(map[string]bool)
+	}
+	dismissed := c.snap.DismissedWorkflows
+	c.mu.Unlock()
+	var visibleWorkflows []WorkflowRun
+	for _, w := range workflows {
+		// Keep active workflows always; skip dismissed completed ones
+		isTerminal := w.Status == "succeeded" || w.Status == "failed" || w.Status == "cancelled"
+		if isTerminal && dismissed[w.ID] {
+			continue
+		}
+		visibleWorkflows = append(visibleWorkflows, w)
+	}
+
 	c.mu.Lock()
 	c.snap.Agents = agents
 	c.snap.Attention = attention
+	c.snap.Workflows = visibleWorkflows
 	c.mu.Unlock()
 	return nil
 }
@@ -491,6 +561,38 @@ func (c *Client) fetchAttention(ctx context.Context, token string) ([]AttentionI
 		return nil, err
 	}
 	return raw.Items, nil
+}
+
+func (c *Client) fetchWorkflows(ctx context.Context, token string) ([]WorkflowRun, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.cfg.BaseURL+"/api/workflow-runs", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("%s: %s", resp.Status, string(b))
+	}
+	var runs []WorkflowRun
+	if err := json.NewDecoder(resp.Body).Decode(&runs); err != nil {
+		return nil, err
+	}
+	// Sort: active (running/waiting) first, then completed by recency
+	var active, terminal []WorkflowRun
+	for _, r := range runs {
+		if r.Status == "running" || r.Status == "waiting" || r.Status == "pending" {
+			active = append(active, r)
+		} else {
+			terminal = append(terminal, r)
+		}
+	}
+	// Terminal runs: keep only the most recent few (they'll be capped by tile count)
+	return append(active, terminal...), nil
 }
 
 func (c *Client) setConnected(v bool) {

@@ -27,9 +27,10 @@ const MaxTiles = 15
 
 // Action UUIDs — must match plugin/manifest.json.
 const (
-	ActionHome      = "com.cpave3.legato.home"
-	ActionAgentTile = "com.cpave3.legato.agent-tile"
-	ActionAttnTile  = "com.cpave3.legato.attention-tile"
+	ActionHome         = "com.cpave3.legato.home"
+	ActionAgentTile    = "com.cpave3.legato.agent-tile"
+	ActionAttnTile     = "com.cpave3.legato.attention-tile"
+	ActionWorkflowTile = "com.cpave3.legato.workflow-tile"
 )
 
 // Event is an inbound message from OpenDeck.
