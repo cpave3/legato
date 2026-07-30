@@ -169,7 +169,7 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 				log.Printf("[legato-streamdeck] SetImage error (agent %d): %v", i, err)
 			}
 		} else {
-			if err := deck.SetImage(ctx, c, render.DataURI(render.Empty())); err != nil {
+			if err := deck.SetImage(ctx, c, render.DataURI(render.EmptyAgent())); err != nil {
 				log.Printf("[legato-streamdeck] SetImage error (empty agent %d): %v", i, err)
 			}
 		}
@@ -187,7 +187,7 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 				log.Printf("[legato-streamdeck] SetImage error (attn %d): %v", i, err)
 			}
 		} else {
-			if err := deck.SetImage(ctx, c, render.DataURI(render.Empty())); err != nil {
+			if err := deck.SetImage(ctx, c, render.DataURI(render.EmptyAttention())); err != nil {
 				log.Printf("[legato-streamdeck] SetImage error (empty attn %d): %v", i, err)
 			}
 		}
@@ -262,7 +262,14 @@ func (st *pluginState) handleKeyPress(ctx context.Context, e opendeck.Event) {
 }
 
 // openBrowser opens a URL in the default browser via xdg-open.
+// openBrowser opens a URL in the default browser. Inside the Flatpak sandbox,
+// it uses flatpak-spawn --host to invoke xdg-open on the host, which integrates
+// better with the host's desktop portal and browser.
 func openBrowser(url string) error {
+	// Try flatpak-spawn first (works inside the sandbox).
+	if _, err := exec.LookPath("flatpak-spawn"); err == nil {
+		return exec.Command("flatpak-spawn", "--host", "xdg-open", url).Start()
+	}
 	return exec.Command("xdg-open", url).Start()
 }
 

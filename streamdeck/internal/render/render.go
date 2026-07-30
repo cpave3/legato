@@ -238,6 +238,30 @@ func Empty() string {
 	return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144"></svg>`
 }
 
+// EmptyAgent renders a subtle placeholder for an agent tile with no agent.
+// Shows a dim circle outline so the slot reads as "available" not "broken".
+func EmptyAgent() string {
+	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
+  <rect width="%d" height="%d" rx="12" fill="%s"/>
+  <circle cx="72" cy="58" r="22" fill="none" stroke="#27272a" stroke-width="4" stroke-dasharray="6 4"/>
+</svg>`,
+		tileSize, tileSize, tileSize, tileSize,
+		tileSize, tileSize, bgColor)
+}
+
+// EmptyAttention renders a subtle placeholder for an attention tile with no item.
+// Shows a dim dashed left bar so the slot reads as "available" not "broken".
+func EmptyAttention() string {
+	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">
+  <rect width="%d" height="%d" rx="12" fill="%s"/>
+  <rect x="0" y="0" width="8" height="%d" rx="0" fill="#27272a"/>
+  <circle cx="72" cy="58" r="22" fill="none" stroke="#27272a" stroke-width="4" stroke-dasharray="6 4"/>
+</svg>`,
+		tileSize, tileSize, tileSize, tileSize,
+		tileSize, tileSize, bgColor,
+		tileSize)
+}
+
 // Disconnected renders an "OFFLINE" tile when Legato is unreachable.
 //
 // Visual: dim background with a broken-link icon.
