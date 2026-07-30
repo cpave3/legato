@@ -252,9 +252,9 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 			a := snap.Agents[i]
 			var img string
 			if a.Status == "dead" {
-				img = render.DataURI(render.AgentDead())
+				img = render.DataURI(render.AgentDead(a.TaskID))
 			} else {
-				img = render.DataURI(render.Agent(a.Activity, a.WorkingSeconds, a.WaitingSeconds))
+				img = render.DataURI(render.Agent(a.Activity, a.TaskID, a.WorkingSeconds, a.WaitingSeconds))
 			}
 			_ = deck.SetImage(ctx, c, img)
 		} else {
@@ -269,7 +269,7 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 		}
 		if i < len(snap.Attention) {
 			item := snap.Attention[i]
-			img := render.DataURI(render.Attention(item.Producer, item.Urgency, i, len(snap.Attention)))
+			img := render.DataURI(render.Attention(item.Producer, item.Urgency, item.ID, i, len(snap.Attention)))
 			_ = deck.SetImage(ctx, c, img)
 		} else {
 			_ = deck.SetImage(ctx, c, render.DataURI(render.EmptyAttention()))
