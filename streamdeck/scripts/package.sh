@@ -1,18 +1,25 @@
 #!/usr/bin/env bash
-# package.sh — assemble the .sdPlugin distribution folder.
+# package.sh — assemble the .sdPlugin folder and zip it for installation.
 #
 # Usage: ./scripts/package.sh [output-dir]
 #
-# Produces dist/com.cpave3.legato.sdPlugin/ with the manifest, icons, and
-# compiled binary ready to drop into ~/.local/share/opendeck/plugins/.
+# Produces:
+#   dist/com.cpave3.legato.sdPlugin/       — unpacked plugin folder
+#   dist/com.cpave3.legato.streamDeckPlugin — zipped plugin (install via OpenDeck UI)
+#
+# OpenDeck's install_plugin command expects a zip whose top-level entry is a
+# *.sdPlugin directory. The .streamDeckPlugin extension is the Elgato/OpenAction
+# convention for these installable archives.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 OUTPUT_DIR="${1:-dist}"
-PLUGIN_DIR="${OUTPUT_DIR}/com.cpave3.legato.sdPlugin"
+PLUGIN_NAME="com.cpave3.legato.sdPlugin"
+PLUGIN_DIR="${OUTPUT_DIR}/${PLUGIN_NAME}"
+ZIP_FILE="${OUTPUT_DIR}/com.cpave3.legato.streamDeckPlugin"
 
-rm -rf "$PLUGIN_DIR"
+rm -rf "$PLUGIN_DIR" "$ZIP_FILE"
 mkdir -p "$PLUGIN_DIR/bin" "$PLUGIN_DIR/icons"
 
 # Copy manifest.
@@ -29,5 +36,13 @@ else
   exit 1
 fi
 
-echo "Packaged to $PLUGIN_DIR"
-echo "Install: cp -r $PLUGIN_DIR ~/.local/share/opendeck/plugins/"
+# Zip the plugin folder. The archive must contain the top-level .sdPlugin dir
+# so OpenDeck can extract it into ~/.local/share/opendeck/plugins/.
+(cd "$OUTPUT_DIR" && zip -r "$PLUGIN_NAME.zip" "$PLUGIN_NAME" && mv "$PLUGIN_NAME.zip" "com.cpave3.legato.streamDeckPlugin")
+
+echo "Packaged:"
+echo "  Folder: $PLUGIN_DIR"
+echo "  Zip:    $ZIP_FILE"
+echo ""
+echo "Install via OpenDeck UI: Settings → Plugins → Install from file → $ZIP_FILE"
+echo "Or manual: unzip $ZIP_FILE -d ~/.local/share/opendeck/plugins/"
