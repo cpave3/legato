@@ -40,3 +40,26 @@ func TestSpawnAgentUsesWorkflowAssignmentAsSelfKickoffPrompt(t *testing.T) {
 		t.Fatalf("launch lines=%v", lines)
 	}
 }
+
+func TestWorkflowAgentRunnerNamesSpawnedAgent(t *testing.T) {
+	s, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{Adapter: selfKickoffWorkflowAdapter{&fakeAdapter{name: "chimera"}}})
+	createTask(t, s, "task-1")
+	runner := NewWorkflowAgentRunner(svc, s)
+
+	if _, err := runner.SpawnWorkflowAgent(context.Background(), "task-1", "PR Review - 123", AgentSpawnOptions{Assignment: "review", ExtraEnv: map[string]string{}}); err != nil {
+		t.Fatal(err)
+	}
+	agents, err := svc.ListAgents(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 || agents[0].Title != "PR Review - 123" {
+		t.Fatalf("agents = %+v", agents)
+	}
+}

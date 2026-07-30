@@ -33,7 +33,7 @@ The web dialogs for spawning an ephemeral agent or opening an agent for an exist
 Version 1 executes steps in declaration order and supports four executors:
 
 - `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
-- `agent.run`: launch a configured Legato agent with an explicit assignment and completion contract.
+- `agent.run`: launch a configured Legato agent with an explicit assignment and completion contract. Set `with.name` to customize the agent's visible name; workflow input references are supported.
 - `worktree.remove`: validate and remove the shared task's worktree through Yggdrasil, then clear task metadata.
 - `task.note`: add Markdown to a selected task. Pass a resolved `task` input plus either inline `body` or a managed/file `body_path`. Local notes are stored in Legato and shown in task detail; Jira-backed notes are also published as Jira comments. Provider failures fail the step rather than silently dropping the note.
 
@@ -67,6 +67,7 @@ steps:
     title: Run three-tier review
     type: agent.run
     with:
+      name: PR Review - ${{ workflow.inputs.pr_number }}
       agent: chimera
       tier: large
       working_dir: ${{ steps.prepare.outputs.worktree_path }}

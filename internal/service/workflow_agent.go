@@ -10,7 +10,7 @@ import (
 )
 
 type workflowAgentRunner interface {
-	SpawnWorkflowAgent(context.Context, string, AgentSpawnOptions) (*store.AgentSession, error)
+	SpawnWorkflowAgent(context.Context, string, string, AgentSpawnOptions) (*store.AgentSession, error)
 	KillAgent(context.Context, string) error
 	FinishWorkflowAgent(context.Context, store.WorkflowStepAttempt) error
 	PromptAgent(context.Context, string, string) error
@@ -31,9 +31,19 @@ func NewWorkflowAgentRunner(agents AgentService, s *store.Store, binaryPath ...s
 	}
 	return runner
 }
-func (r *WorkflowAgentRunner) SpawnWorkflowAgent(ctx context.Context, taskID string, opts AgentSpawnOptions) (*store.AgentSession, error) {
+func (r *WorkflowAgentRunner) SpawnWorkflowAgent(ctx context.Context, taskID, name string, opts AgentSpawnOptions) (*store.AgentSession, error) {
 	if r.binaryPath != "" {
 		opts.ExtraEnv["LEGATO_WORKFLOW_BINARY"] = r.binaryPath
+	}
+	if name != "" {
+		task, err := r.store.GetTask(ctx, taskID)
+		if err != nil {
+			return nil, err
+		}
+		task.Title = name
+		if err := r.store.UpdateTask(ctx, *task); err != nil {
+			return nil, err
+		}
 	}
 	if err := r.agents.SpawnAgent(ctx, taskID, 0, 0, opts); err != nil {
 		return nil, err
@@ -95,6 +105,7 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
+	name, _ := workflowString(step.With, "name", false)
 	kind, _ := workflowString(step.With, "agent", false)
 	tier, _ := workflowString(step.With, "tier", false)
 	workingDir, _ := workflowString(step.With, "working_dir", false)
@@ -102,7 +113,7 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 	opts := AgentSpawnOptions{AgentKind: kind, Tier: tier, WorkingDir: workingDir, Assignment: assignment, ExtraEnv: map[string]string{
 		"LEGATO_WORKFLOW_RUN_ID": step.RunID, "LEGATO_WORKFLOW_STEP_ID": step.StepID, "LEGATO_WORKFLOW_ATTEMPT_ID": step.AttemptID,
 	}}
-	session, err := e.agents.SpawnWorkflowAgent(ctx, step.TaskID, opts)
+	session, err := e.agents.SpawnWorkflowAgent(ctx, step.TaskID, name, opts)
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
