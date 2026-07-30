@@ -26,6 +26,13 @@ func TestParseChimeraAttachments(t *testing.T) {
 	}
 }
 
+func TestParseChimeraAttachmentsIgnoresMarkdownPunctuation(t *testing.T) {
+	tokens := parseChimeraAttachments("Selected lines (`@@ -1 +1 @@`):** and @`):**", "/repo", t.TempDir())
+	if len(tokens) != 0 {
+		t.Fatalf("tokens = %+v", tokens)
+	}
+}
+
 func TestReadChimeraAttachmentFileAndDirectory(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "notes.txt")

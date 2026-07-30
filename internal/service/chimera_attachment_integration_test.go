@@ -190,3 +190,51 @@ func containsSubstrHelper(s, sub string) bool {
 	}
 	return false
 }
+
+func TestChimeraSendMessageContinuesWhenAttachmentFails(t *testing.T) {
+	repoDir := t.TempDir()
+	var sentContent string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v1/sessions/sess-1" && r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(map[string]any{"cwd": repoDir})
+		case r.URL.Path == "/v1/sessions/sess-1/paths":
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "no such file or directory"})
+		case r.URL.Path == "/v1/sessions/sess-1/messages" && r.Method == http.MethodPost:
+			var body struct {
+				Content string `json:"content"`
+			}
+			json.NewDecoder(r.Body).Decode(&body)
+			sentContent = body.Content
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	s, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, store.Task{ID: "task-1", Title: "Test", Status: "Todo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "task-1", Status: "running", AgentKind: "chimera"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateChimeraDiscovery(ctx, "task-1", "sess-1", srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewChimeraInteractionAdapter(s, func(string) *chimera.Client { return chimera.NewClient(srv.URL) })
+
+	if err := adapter.SendMessage(ctx, "task-1", "review @missing.md anyway"); err != nil {
+		t.Fatal(err)
+	}
+	if sentContent != "review @missing.md anyway" {
+		t.Fatalf("sent content = %q", sentContent)
+	}
+}

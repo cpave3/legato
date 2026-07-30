@@ -59,22 +59,29 @@ func (a *ChimeraInteractionAdapter) SendMessage(ctx context.Context, taskID, mes
 	tokens := parseChimeraAttachments(message, cwd, os.Getenv("HOME"))
 	for _, token := range tokens {
 		if err := client.AddPath(ctx, sessionID, token.Kind, token.Absolute); err != nil {
-			return fmt.Errorf("attach %s: %w", token.Raw, err)
+			a.appendAttachmentWarning(ctx, client, sessionID, token.Raw, err)
+			continue
 		}
 		body, err := readChimeraAttachment(token.Absolute)
 		if err != nil {
-			return fmt.Errorf("attach %s: %w", token.Raw, err)
+			a.appendAttachmentWarning(ctx, client, sessionID, token.Raw, err)
+			continue
 		}
 		prefix := "@"
 		if token.Kind == "write" {
 			prefix = "#"
 		}
 		if err := client.PostMessageAppend(ctx, sessionID, fmt.Sprintf("[auto-attached %s%s]\n%s", prefix, token.Raw, body)); err != nil {
-			return fmt.Errorf("attach %s: %w", token.Raw, err)
+			a.appendAttachmentWarning(ctx, client, sessionID, token.Raw, err)
 		}
 	}
 
 	return client.PostMessage(ctx, sessionID, message)
+}
+
+func (a *ChimeraInteractionAdapter) appendAttachmentWarning(ctx context.Context, client *chimera.Client, sessionID, raw string, attachErr error) {
+	warning := fmt.Sprintf("[attachment skipped: %s: %v]", raw, attachErr)
+	_ = client.PostMessageAppend(ctx, sessionID, warning)
 }
 
 func (a *ChimeraInteractionAdapter) getSessionCWD(ctx context.Context, client *chimera.Client, sessionID string) (string, error) {

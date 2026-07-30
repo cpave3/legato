@@ -29,6 +29,7 @@ type mockTmux struct {
 	paneCommands    map[string]string            // session -> command
 	paneCommandsErr error
 	sentLines       map[string][]string // session -> ordered list of SendKeysLine payloads
+	sendLineErr     error
 	sentMultiline   map[string][]string // session -> ordered list of SendKeysMultiline payloads
 	sentKeys        map[string][]string // session -> ordered list of SendKey payloads
 	sentRaw         map[string][]string // session -> ordered list of SendKeys (literal text) payloads
@@ -160,6 +161,9 @@ func (m *mockTmux) SendKeysLine(name, line string) error {
 	defer m.mu.Unlock()
 	if !m.sessions[name] {
 		return fmt.Errorf("session %s not found", name)
+	}
+	if m.sendLineErr != nil {
+		return m.sendLineErr
 	}
 	m.sentLines[name] = append(m.sentLines[name], line)
 	return nil

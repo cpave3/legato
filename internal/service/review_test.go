@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1610,5 +1611,37 @@ func TestReviewSyncSeedsStepsFromCommits(t *testing.T) {
 	steps, _ = f.store.ListReviewSteps(ctx, f.tourID)
 	if len(steps) != 2 {
 		t.Fatalf("re-sync duplicated steps: %d", len(steps))
+	}
+}
+
+func TestAskQuestionReturnsDeliveryErrorForRunningAgent(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	if err := os.WriteFile(filepath.Join(f.repo, "delivery.go"), []byte("package delivery\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitCommitAll(t, f.repo, "add delivery")
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
+		t.Fatal(err)
+	}
+	steps, err := f.store.ListReviewSteps(ctx, f.tourID)
+	if err != nil || len(steps) == 0 {
+		t.Fatalf("steps=%v err=%v", steps, err)
+	}
+	if err := f.tmux.Spawn("legato-task-1", f.repo, 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.InsertAgentSession(ctx, store.AgentSession{TaskID: "task-1", TmuxSession: "legato-task-1", Command: "chimera", Status: "running", StartedAt: "2026-01-01T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	f.tmux.sendLineErr = fmt.Errorf("attach @bad: file not found")
+
+	err = f.svc.AskQuestion(ctx, f.tourID, steps[0].ID, ReviewQuestion{Text: "why?"})
+	if errors.Is(err, ErrAgentOffline) || err == nil || !strings.Contains(err.Error(), "attach @bad: file not found") {
+		t.Fatalf("err = %v, want delivery error", err)
+	}
+	interactions, listErr := f.store.ListUndeliveredArtifactInteractions(ctx)
+	if listErr != nil || len(interactions) != 1 || interactions[0].LastError != "attach @bad: file not found" {
+		t.Fatalf("interactions=%+v err=%v", interactions, listErr)
 	}
 }

@@ -31,6 +31,9 @@ func parseChimeraAttachments(input, cwd, homeDir string) []chimeraAttachToken {
 		prefix := input[prefixStart:prefixEnd]
 		rawPath := input[rawStart:rawEnd]
 
+		if !isChimeraAttachmentPath(rawPath) {
+			continue
+		}
 		if prefix == "#" && strings.HasPrefix(rawPath, "#") {
 			continue
 		}
@@ -55,6 +58,15 @@ func parseChimeraAttachments(input, cwd, homeDir string) []chimeraAttachToken {
 		tokens = append(tokens, chimeraAttachToken{Kind: kind, Raw: rawPath, Absolute: resolved})
 	}
 	return tokens
+}
+
+func isChimeraAttachmentPath(rawPath string) bool {
+	if rawPath == "" {
+		return false
+	}
+	first := rawPath[0]
+	return first == '.' || first == '/' || first == '~' || first == '_' || first == '-' ||
+		(first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z') || (first >= '0' && first <= '9')
 }
 
 func isPlaceholder(rawPath string) bool {

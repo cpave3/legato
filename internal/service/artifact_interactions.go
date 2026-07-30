@@ -2,11 +2,14 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
 )
+
+var ErrInteractionOffline = errors.New("agent interaction route is unavailable")
 
 type ArtifactInteractionService struct {
 	store  *store.Store
@@ -54,40 +57,43 @@ func (d *ArtifactInteractionService) Enqueue(ctx context.Context, kind, artifact
 	if err := d.store.InsertArtifactInteraction(ctx, interaction); err != nil {
 		return nil, false, err
 	}
-	delivered := d.Deliver(ctx, &interaction)
-	return &interaction, delivered, nil
+	delivered, deliveryErr := d.Deliver(ctx, &interaction)
+	if errors.Is(deliveryErr, ErrInteractionOffline) {
+		deliveryErr = nil
+	}
+	return &interaction, delivered, deliveryErr
 }
 
-func (d *ArtifactInteractionService) Deliver(ctx context.Context, interaction *store.ArtifactInteraction) bool {
+func (d *ArtifactInteractionService) Deliver(ctx context.Context, interaction *store.ArtifactInteraction) (bool, error) {
 	// For Chimera agents, use the HTTP API via AgentService.SendMessage.
 	if d.agents != nil && d.agents.HasChimeraEndpoint(ctx, interaction.ClaimantTaskID) {
 		if err := d.agents.SendMessage(ctx, interaction.ClaimantTaskID, interaction.Body); err != nil {
 			_ = d.store.MarkArtifactInteractionDelivery(ctx, interaction.ID, false, err.Error())
-			return false
+			return false, err
 		}
 		_ = d.store.MarkArtifactInteractionDelivery(ctx, interaction.ID, true, "")
-		return true
+		return true, nil
 	}
 	if d.tmux == nil {
 		_ = d.store.MarkArtifactInteractionDelivery(ctx, interaction.ID, false, "tmux unavailable")
-		return false
+		return false, ErrInteractionOffline
 	}
 	session, err := d.store.GetAgentSessionByTaskID(ctx, interaction.ClaimantTaskID)
 	if err != nil {
 		_ = d.store.MarkArtifactInteractionDelivery(ctx, interaction.ID, false, err.Error())
-		return false
+		return false, ErrInteractionOffline
 	}
 	alive, err := d.tmux.IsAlive(session.TmuxSession)
 	if err != nil || !alive {
 		_ = d.store.MarkArtifactInteractionDelivery(ctx, interaction.ID, false, "agent session unavailable")
-		return false
+		return false, ErrInteractionOffline
 	}
 	if err := d.tmux.SendKeysLine(session.TmuxSession, interaction.Body); err != nil {
 		_ = d.store.MarkArtifactInteractionDelivery(ctx, interaction.ID, false, err.Error())
-		return false
+		return false, err
 	}
 	_ = d.store.MarkArtifactInteractionDelivery(ctx, interaction.ID, true, "")
-	return true
+	return true, nil
 }
 
 func (d *ArtifactInteractionService) Retry(ctx context.Context) {
@@ -96,7 +102,7 @@ func (d *ArtifactInteractionService) Retry(ctx context.Context) {
 		return
 	}
 	for i := range interactions {
-		d.Deliver(ctx, &interactions[i])
+		_, _ = d.Deliver(ctx, &interactions[i])
 	}
 }
 
