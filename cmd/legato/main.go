@@ -1345,6 +1345,19 @@ func runServeCmd(args []string) int {
 	boardSvc := service.NewBoardService(db, bus, attachmentCache)
 	wd, _ := os.Getwd()
 
+	// Set up remote sync so web card moves use the same conflict-aware path as
+	// the TUI and can transition provider-backed tasks when configured.
+	var syncSvc service.SyncService
+	if cfg.Jira.BaseURL != "" && cfg.Jira.Email != "" && cfg.Jira.APIToken != "" {
+		jiraProvider := jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second)
+		provider := service.NewJiraProvider(jiraProvider)
+		interval := time.Duration(cfg.Jira.SyncIntervalSeconds) * time.Second
+		syncSvc = service.NewSyncService(db, bus, provider, cfg.Jira.JQLFilter, cfg.Jira.ProjectKeys, interval, cfg.Jira.StatusSyncEnabled, attachmentCache)
+		go syncSvc.Sync(context.Background())
+		stopSync := syncSvc.StartScheduler(context.Background())
+		defer stopSync()
+	}
+
 	// Set up agent service (tmux may not be installed).
 	var agentSvc service.AgentService
 	var tmuxMgr service.TmuxManager
@@ -1559,7 +1572,7 @@ func runTUI() int {
 		jiraProvider := jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second)
 		provider := service.NewJiraProvider(jiraProvider)
 		interval := time.Duration(cfg.Jira.SyncIntervalSeconds) * time.Second
-		syncSvc = service.NewSyncService(db, bus, provider, cfg.Jira.JQLFilter, cfg.Jira.ProjectKeys, interval, attachmentCache)
+		syncSvc = service.NewSyncService(db, bus, provider, cfg.Jira.JQLFilter, cfg.Jira.ProjectKeys, interval, cfg.Jira.StatusSyncEnabled, attachmentCache)
 
 		// Run initial sync, then start periodic scheduler
 		go syncSvc.Sync(context.Background())

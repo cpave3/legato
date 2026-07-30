@@ -27,6 +27,7 @@ type syncService struct {
 	jql         string
 	projectKeys []string
 	interval    time.Duration
+	statusSync  bool
 	attachments *attachments.Cache
 
 	mu   sync.Mutex
@@ -64,7 +65,7 @@ func encodeRemoteMeta(m remoteMeta) *string {
 }
 
 // NewSyncService creates a SyncService backed by a TicketProvider.
-func NewSyncService(s *store.Store, bus *events.Bus, provider TicketProvider, jql string, projectKeys []string, interval time.Duration, attachmentCache ...*attachments.Cache) SyncService {
+func NewSyncService(s *store.Store, bus *events.Bus, provider TicketProvider, jql string, projectKeys []string, interval time.Duration, statusSync bool, attachmentCache ...*attachments.Cache) SyncService {
 	var cache *attachments.Cache
 	if len(attachmentCache) > 0 {
 		cache = attachmentCache[0]
@@ -77,6 +78,7 @@ func NewSyncService(s *store.Store, bus *events.Bus, provider TicketProvider, jq
 		jql:         jql,
 		projectKeys: projectKeys,
 		interval:    interval,
+		statusSync:  statusSync,
 	}
 }
 
@@ -208,9 +210,13 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 
 		// Check if status/column changed
 		newColumn := resolveColumn(rt.Status, mappings)
-		if newColumn != "" && newColumn != existing.Status {
-			// Check conflict window: if local move is recent, preserve local
-			if s.isWithinConflictWindow(existingMeta) {
+		if s.statusSync && newColumn != "" && newColumn != existing.Status {
+			// Columns with no remote statuses are local-only. Jira updates may
+			// refresh the task fields, but must not move the card out of them.
+			if isLocalOnlyColumn(existing.Status, mappings) {
+				// Preserve the local column indefinitely.
+			} else if s.isWithinConflictWindow(existingMeta) {
+				// Check conflict window: if local move is recent, preserve local.
 				// Local wins — log the conflict
 				s.store.InsertSyncLog(ctx, store.SyncLogEntry{
 					TaskID: rt.ID,
@@ -306,6 +312,9 @@ func (s *syncService) PushMove(ctx context.Context, taskID, targetColumn string)
 	if task.Provider == nil {
 		return nil
 	}
+	if !s.statusSync {
+		return nil
+	}
 
 	// Find the transition ID for the target column
 	mappings, err := s.store.ListColumnMappings(ctx)
@@ -391,6 +400,9 @@ func (s *syncService) executePush(taskID, transitionID, targetColumn string) {
 
 // retryFailedPushes retries any pending failed push transitions.
 func (s *syncService) retryFailedPushes(ctx context.Context) {
+	if !s.statusSync {
+		return
+	}
 	allTasks, err := s.store.ListAllTasks(ctx)
 	if err != nil {
 		return
@@ -626,4 +638,15 @@ func resolveColumn(remoteStatus string, mappings []store.ColumnMapping) string {
 		}
 	}
 	return ""
+}
+
+func isLocalOnlyColumn(column string, mappings []store.ColumnMapping) bool {
+	for _, mapping := range mappings {
+		if mapping.ColumnName != column {
+			continue
+		}
+		var statuses []string
+		return json.Unmarshal([]byte(mapping.RemoteStatuses), &statuses) == nil && len(statuses) == 0
+	}
+	return false
 }

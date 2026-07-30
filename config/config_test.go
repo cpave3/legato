@@ -94,6 +94,33 @@ func TestVoiceConfigAbsentDefaultsToDisabled(t *testing.T) {
 	}
 }
 
+func TestJiraStatusSyncDefaultsToEnabled(t *testing.T) {
+	writeTestConfig(t, `theme: default`)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Jira.StatusSyncEnabled {
+		t.Error("Jira.StatusSyncEnabled = false, want default true")
+	}
+}
+
+func TestJiraStatusSyncCanBeDisabled(t *testing.T) {
+	writeTestConfig(t, `
+jira:
+  status_sync_enabled: false
+`)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Jira.StatusSyncEnabled {
+		t.Error("Jira.StatusSyncEnabled = true, want false")
+	}
+}
+
 func TestYggdrasilWorktreeConfigParsed(t *testing.T) {
 	writeTestConfig(t, `
 worktrees:

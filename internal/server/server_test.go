@@ -183,6 +183,8 @@ func TestArchivedTasksEndpointUsesBoardCardJSONShape(t *testing.T) {
 type mockSyncService struct {
 	searchResults []service.RemoteSearchResult
 	importedCard  *service.Card
+	movedTaskID   string
+	movedTo       string
 }
 
 func (m *mockSyncService) Sync(_ context.Context) (*service.SyncResult, error) { return nil, nil }
@@ -277,6 +279,11 @@ func (m *mockSyncService) SearchRemote(_ context.Context, _ string) ([]service.R
 }
 func (m *mockSyncService) ImportRemoteTask(_ context.Context, _ string, _ *int) (*service.Card, error) {
 	return m.importedCard, nil
+}
+func (m *mockSyncService) PushMove(_ context.Context, taskID, targetColumn string) error {
+	m.movedTaskID = taskID
+	m.movedTo = targetColumn
+	return nil
 }
 
 type mockPRTrackingService struct {
@@ -1381,6 +1388,26 @@ func TestPatchTaskRoutesEdits(t *testing.T) {
 		}
 		if svc.movedTo != "Doing" {
 			t.Errorf("movedTo = %q, want Doing", svc.movedTo)
+		}
+	})
+
+	t.Run("column uses sync-aware move when available", func(t *testing.T) {
+		board := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+		syncSvc := &mockSyncService{}
+		srv := New(board, nil, nil, ":0")
+		srv.SetSyncService(syncSvc)
+		req := httptest.NewRequest("PATCH", "/api/tasks/t1", strings.NewReader(`{"column":"Triage"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", w.Code)
+		}
+		if syncSvc.movedTaskID != "t1" || syncSvc.movedTo != "Triage" {
+			t.Fatalf("sync move = (%q, %q)", syncSvc.movedTaskID, syncSvc.movedTo)
+		}
+		if board.movedTo != "" {
+			t.Fatalf("board fallback unexpectedly moved to %q", board.movedTo)
 		}
 	})
 }

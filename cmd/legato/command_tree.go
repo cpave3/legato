@@ -122,6 +122,10 @@ func commandTree() *commandDef {
 		leaf("list", "List configured workspaces", func(a []string) int { return runWorkspaceContract(append([]string{"list"}, a...)) },
 			nil, []commandFlag{valueFlag("format", "text|json", "Output format"), jsonFlag}, "legato workspace list"),
 	)
+	columns := group("columns", "Manage config-driven board columns",
+		leaf("sync", "Sync board columns from config", runColumnsSyncContract,
+			nil, []commandFlag{jsonFlag}, "legato columns sync", "legato columns sync --json"),
+	)
 	agent := group("agent", "Report and inspect AI-agent activity",
 		leaf("state", "Report agent activity for a task", runAgentStateContract,
 			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")},
@@ -172,7 +176,7 @@ func commandTree() *commandDef {
 		[]commandFlag{valueFlag("producer", "name", "Filter by producer"), valueFlag("category", "category", "Filter by category"), valueFlag("urgency", "urgency", "Filter by urgency"), jsonFlag})
 
 	root := group("", "Legato task management and AI-agent orchestration",
-		task, workspace, agent, plan, review, workflow, swarm, attention, hooks,
+		task, workspace, columns, agent, plan, review, workflow, swarm, attention, hooks,
 		leaf("serve", "Run the Legato web server", runServeCmd, nil, []commandFlag{valueFlag("port", "port", "Listening port")}, "legato serve --port 3080"),
 		authGroup,
 		leaf("pair", "Pair a device with the Legato web UI", runPairContract, nil, []commandFlag{valueFlag("host", "host|ip", "Address this device uses to reach this specific Legato instance"), valueFlag("port", "port", "Server port"), jsonFlag}, "legato pair --host 192.168.1.20"),

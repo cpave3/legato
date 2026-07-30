@@ -136,6 +136,8 @@ type fakeSyncService struct {
 	importRelease chan struct{}
 	importErr     error
 	board         *fakeBoardService
+	movedTaskID   string
+	movedTo       string
 }
 
 func (f *fakeSyncService) Sync(_ context.Context) (*service.SyncResult, error) { return nil, nil }
@@ -160,6 +162,22 @@ func (f *fakeSyncService) ImportRemoteTask(_ context.Context, id string, _ *int)
 		f.board.imported = append(f.board.imported, card)
 	}
 	return &card, nil
+}
+func (f *fakeSyncService) PushMove(_ context.Context, taskID, targetColumn string) error {
+	f.movedTaskID = taskID
+	f.movedTo = targetColumn
+	return nil
+}
+
+func TestMoveSelectedUsesSyncAwareMove(t *testing.T) {
+	syncSvc := &fakeSyncService{}
+	app := NewApp(&fakeBoardService{}, syncSvc, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
+
+	_, _ = app.handleMoveSelected(overlay.MoveSelectedMsg{TaskID: "REX-1", TargetColumn: "Triage"})
+
+	if syncSvc.movedTaskID != "REX-1" || syncSvc.movedTo != "Triage" {
+		t.Fatalf("sync move = (%q, %q)", syncSvc.movedTaskID, syncSvc.movedTo)
+	}
 }
 
 type fakeReportService struct{}

@@ -11,26 +11,26 @@ import (
 )
 
 type Config struct {
-	Jira          JiraConfig               `yaml:"jira"`
-	Board         BoardConfig              `yaml:"board"`
-	Theme         string                   `yaml:"theme"`
-	Icons         string                   `yaml:"icons"` // "unicode" (default) or "nerdfonts"
-	Editor        string                   `yaml:"editor"`
-	Keybindings   KeybindingsConfig        `yaml:"keybindings"`
-	DB            DBConfig                 `yaml:"db"`
-	Agents        AgentsConfig             `yaml:"agents"`
-	GitHub        GitHubConfig             `yaml:"github"`
-	Web           WebConfig                `yaml:"web"`
-	Notifications NotificationsConfig      `yaml:"notifications"`
-	Workspaces    []WorkspaceConfig        `yaml:"workspaces"`
-	Swarm         SwarmConfig              `yaml:"swarm"`
-	Adapters      map[string]AdapterConfig `yaml:"adapters"`
-	Macros        []macros.Macro           `yaml:"macros"`
-	Voice         VoiceConfig              `yaml:"voice"`
-	Worktrees     WorktreesConfig          `yaml:"worktrees"`
-	Groups        GroupsConfig             `yaml:"groups"`
-	Workflows     WorkflowsConfig          `yaml:"workflows"`
-	SSHAgentSocket string                  `yaml:"ssh_agent_socket"`
+	Jira           JiraConfig               `yaml:"jira"`
+	Board          BoardConfig              `yaml:"board"`
+	Theme          string                   `yaml:"theme"`
+	Icons          string                   `yaml:"icons"` // "unicode" (default) or "nerdfonts"
+	Editor         string                   `yaml:"editor"`
+	Keybindings    KeybindingsConfig        `yaml:"keybindings"`
+	DB             DBConfig                 `yaml:"db"`
+	Agents         AgentsConfig             `yaml:"agents"`
+	GitHub         GitHubConfig             `yaml:"github"`
+	Web            WebConfig                `yaml:"web"`
+	Notifications  NotificationsConfig      `yaml:"notifications"`
+	Workspaces     []WorkspaceConfig        `yaml:"workspaces"`
+	Swarm          SwarmConfig              `yaml:"swarm"`
+	Adapters       map[string]AdapterConfig `yaml:"adapters"`
+	Macros         []macros.Macro           `yaml:"macros"`
+	Voice          VoiceConfig              `yaml:"voice"`
+	Worktrees      WorktreesConfig          `yaml:"worktrees"`
+	Groups         GroupsConfig             `yaml:"groups"`
+	Workflows      WorkflowsConfig          `yaml:"workflows"`
+	SSHAgentSocket string                   `yaml:"ssh_agent_socket"`
 }
 
 // WorkflowsConfig holds workflow launch conveniences.
@@ -196,6 +196,7 @@ type JiraConfig struct {
 	ProjectKeys            []string `yaml:"project_keys"`
 	JQLFilter              string   `yaml:"jql_filter"`
 	SyncIntervalSeconds    int      `yaml:"sync_interval_seconds"`
+	StatusSyncEnabled      bool     `yaml:"status_sync_enabled"`
 	AttachmentMaxSizeBytes int64    `yaml:"attachment_max_size_bytes"`
 }
 
@@ -356,6 +357,7 @@ func defaults() *Config {
 	return &Config{
 		Jira: JiraConfig{
 			SyncIntervalSeconds:    60,
+			StatusSyncEnabled:      true,
 			AttachmentMaxSizeBytes: 25 * 1024 * 1024,
 		},
 		Board: BoardConfig{

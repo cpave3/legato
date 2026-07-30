@@ -129,6 +129,7 @@ jira:
     - PROJ
   jql_filter: ""                # optional: additional JQL filter
   sync_interval_seconds: 60     # how often to pull from Jira
+  status_sync_enabled: true     # false: refresh tickets without aligning board/Jira statuses
 
 worktrees:
   yggdrasil:
@@ -241,9 +242,21 @@ legato task note <task-id> <message>             # append note to task
 legato agent state <task-id> --activity working  # set agent activity state
 legato task link <task-id> [--branch <b>] [--repo <o/r>]  # link PR branch
 legato task unlink <task-id>                     # remove PR link
+legato columns sync                              # sync config columns to the board
 legato hooks install [--tool claude-code|staccato|chimera|codex]       # install hooks
 legato hooks uninstall [--tool claude-code|staccato|chimera|codex]     # remove hooks
 ```
+
+`legato columns sync` makes the database-backed board match `board.columns` in
+the active config file. Tasks in removed columns move to `Unmapped` when that
+column is configured, or to the first configured column otherwise.
+Columns with no `remote_statuses` are local-only: remote sync refreshes their
+task details but does not move cards out of those columns.
+
+Set `jira.status_sync_enabled: false` to keep pulling Jira ticket details while
+disabling status changes in both directions. Existing cards keep their Legato
+columns, and moving a card does not transition its Jira issue. Manual imports
+still choose an initial column from the issue's current Jira status.
 
 ## Usage
 

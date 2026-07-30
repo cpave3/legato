@@ -96,7 +96,7 @@ func newTestSync(t *testing.T) (*syncService, *store.Store, *mockProvider, *even
 		}
 	}
 
-	svc := NewSyncService(s, bus, provider, "project = TEST", []string{"TEST"}, 60*time.Second).(*syncService)
+	svc := NewSyncService(s, bus, provider, "project = TEST", []string{"TEST"}, 60*time.Second, true).(*syncService)
 	return svc, s, provider, bus
 }
 
@@ -408,6 +408,63 @@ func TestPullSyncLocalMoveWithinConflictWindow(t *testing.T) {
 	// Local should win — task stays in "Doing"
 	if task.Status != "Doing" {
 		t.Errorf("status = %q, want 'Doing' (local wins)", task.Status)
+	}
+}
+
+func TestPullSyncPreservesLocalOnlyColumnOutsideConflictWindow(t *testing.T) {
+	svc, s, provider, _ := newTestSync(t)
+	ctx := context.Background()
+	if err := s.CreateColumnMapping(ctx, store.ColumnMapping{
+		ColumnName: "Triage", RemoteStatuses: `[]`, SortOrder: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	oldRemoteUpdate := time.Now().Add(-2 * time.Hour)
+	createSyncedTask(t, s, "TEST-1", "Needs triage", "Triage", "To Do", oldRemoteUpdate, map[string]string{
+		"local_move_at": time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
+	})
+	provider.tickets = []RemoteTicket{{
+		ID: "TEST-1", Summary: "Needs triage", Status: "To Do", UpdatedAt: time.Now(),
+	}}
+
+	if _, err := svc.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.GetTask(ctx, "TEST-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != "Triage" {
+		t.Fatalf("status = %q, want local-only Triage", task.Status)
+	}
+}
+
+func TestPullSyncWithStatusSyncDisabledRefreshesTicketWithoutMovingCard(t *testing.T) {
+	svc, s, provider, _ := newTestSync(t)
+	svc.statusSync = false
+	ctx := context.Background()
+	oldRemoteUpdate := time.Now().Add(-time.Hour)
+	createSyncedTask(t, s, "TEST-1", "Old title", "Done", "Done", oldRemoteUpdate, nil)
+	provider.tickets = []RemoteTicket{{
+		ID: "TEST-1", Summary: "Updated title", Status: "To Do", UpdatedAt: time.Now(),
+	}}
+
+	if _, err := svc.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.GetTask(ctx, "TEST-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != "Done" {
+		t.Fatalf("status = %q, want unchanged Done", task.Status)
+	}
+	if task.Title != "Updated title" {
+		t.Fatalf("title = %q, want refreshed title", task.Title)
+	}
+	meta := getRemoteMeta(t, s, "TEST-1")
+	if meta["remote_status"] != "To Do" {
+		t.Fatalf("remote metadata = %#v", meta)
 	}
 }
 
@@ -838,6 +895,56 @@ func TestPushSyncCardMove(t *testing.T) {
 	meta := getRemoteMeta(t, s, "TEST-1")
 	if meta["local_move_at"] == "" {
 		t.Error("local_move_at should be set in remote_meta")
+	}
+}
+
+func TestPushMoveIntoLocalOnlyColumnDoesNotTransitionJira(t *testing.T) {
+	svc, s, provider, _ := newTestSync(t)
+	ctx := context.Background()
+	if err := s.CreateColumnMapping(ctx, store.ColumnMapping{
+		ColumnName: "Triage", RemoteStatuses: `[]`, SortOrder: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	createSyncedTask(t, s, "TEST-1", "Test", "Backlog", "To Do", time.Now(), nil)
+
+	if err := svc.PushMove(ctx, "TEST-1", "Triage"); err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.GetTask(ctx, "TEST-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != "Triage" {
+		t.Fatalf("status = %q, want Triage", task.Status)
+	}
+	if len(provider.doTransCalls) != 0 {
+		t.Fatalf("unexpected Jira transitions: %#v", provider.doTransCalls)
+	}
+	meta := getRemoteMeta(t, s, "TEST-1")
+	if meta["remote_status"] != "To Do" || meta["local_move_at"] == "" {
+		t.Fatalf("remote metadata = %#v", meta)
+	}
+}
+
+func TestPushMoveWithStatusSyncDisabledMovesLocallyWithoutTransitioningJira(t *testing.T) {
+	svc, s, provider, _ := newTestSync(t)
+	svc.statusSync = false
+	ctx := context.Background()
+	createSyncedTask(t, s, "TEST-1", "Test", "Backlog", "To Do", time.Now(), nil)
+
+	if err := svc.PushMove(ctx, "TEST-1", "Done"); err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.GetTask(ctx, "TEST-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != "Done" {
+		t.Fatalf("status = %q, want local Done", task.Status)
+	}
+	if len(provider.doTransCalls) != 0 {
+		t.Fatalf("unexpected Jira transitions: %#v", provider.doTransCalls)
 	}
 }
 
