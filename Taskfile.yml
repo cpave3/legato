@@ -139,6 +139,12 @@ tasks:
     cmds:
       - go build -o plugin/bin/legato-streamdeck ./cmd/legato-streamdeck
 
+  streamdeck:dev:
+    desc: Build, deploy to OpenDeck, and restart the plugin (no zip/reload needed)
+    dir: streamdeck
+    cmds:
+      - ./scripts/dev.sh
+
   streamdeck:package:
     desc: Build and assemble the .sdPlugin folder
     dir: streamdeck
