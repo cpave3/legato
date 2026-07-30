@@ -46,6 +46,11 @@ func main() {
 
 	// Legato state callback — called whenever Legato state changes.
 	onState := func(snap legato.Snapshot) {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[legato-streamdeck] panic in onState: %v", r)
+			}
+		}()
 		st.mu.Lock()
 		st.snap = snap
 		deck := st.deck
@@ -61,8 +66,14 @@ func main() {
 
 	// OpenDeck event handler.
 	handler := func(ctx context.Context, e opendeck.Event) {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[legato-streamdeck] panic in handler (%s): %v", e.Event, r)
+			}
+		}()
 		switch e.Event {
 		case "willAppear":
+			log.Printf("[legato-streamdeck] willAppear: action=%s context=%s", e.Action, e.Context)
 			st.mu.Lock()
 			switch e.Action {
 			case opendeck.ActionAgentTile:
@@ -80,6 +91,7 @@ func main() {
 			}
 
 		case "willDisappear":
+			log.Printf("[legato-streamdeck] willDisappear: action=%s context=%s", e.Action, e.Context)
 			st.mu.Lock()
 			switch e.Action {
 			case opendeck.ActionAgentTile:
@@ -90,6 +102,7 @@ func main() {
 			st.mu.Unlock()
 
 		case "keyUp":
+			log.Printf("[legato-streamdeck] keyUp: action=%s context=%s", e.Action, e.Context)
 			st.handleKeyPress(ctx, e)
 		}
 	}
@@ -109,14 +122,21 @@ func main() {
 
 // pushTiles sends the current Legato state to all active tile contexts.
 func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot, agentCtxs, attnCtxs []string) {
+	log.Printf("[legato-streamdeck] pushTiles: connected=%v hasToken=%v agents=%d attention=%d agentSlots=%d attnSlots=%d",
+		snap.Connected, snap.HasToken, len(snap.Agents), len(snap.Attention), len(agentCtxs), len(attnCtxs))
+
 	// Disconnected — all tiles show offline.
 	if !snap.Connected {
 		img := render.DataURI(render.Disconnected())
 		for _, c := range agentCtxs {
-			_ = deck.SetImage(ctx, c, img)
+			if err := deck.SetImage(ctx, c, img); err != nil {
+				log.Printf("[legato-streamdeck] SetImage error (offline/agent): %v", err)
+			}
 		}
 		for _, c := range attnCtxs {
-			_ = deck.SetImage(ctx, c, img)
+			if err := deck.SetImage(ctx, c, img); err != nil {
+				log.Printf("[legato-streamdeck] SetImage error (offline/attn): %v", err)
+			}
 		}
 		return
 	}
@@ -125,10 +145,14 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 	if !snap.HasToken {
 		img := render.DataURI(render.NoToken())
 		for _, c := range agentCtxs {
-			_ = deck.SetImage(ctx, c, img)
+			if err := deck.SetImage(ctx, c, img); err != nil {
+				log.Printf("[legato-streamdeck] SetImage error (notoken/agent): %v", err)
+			}
 		}
 		for _, c := range attnCtxs {
-			_ = deck.SetImage(ctx, c, img)
+			if err := deck.SetImage(ctx, c, img); err != nil {
+				log.Printf("[legato-streamdeck] SetImage error (notoken/attn): %v", err)
+			}
 		}
 		return
 	}
@@ -141,9 +165,13 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 		if i < len(snap.Agents) {
 			a := snap.Agents[i]
 			img := render.DataURI(render.Agent(a.Title, a.Activity, a.Role))
-			_ = deck.SetImage(ctx, c, img)
+			if err := deck.SetImage(ctx, c, img); err != nil {
+				log.Printf("[legato-streamdeck] SetImage error (agent %d): %v", i, err)
+			}
 		} else {
-			_ = deck.SetImage(ctx, c, render.DataURI(render.Empty()))
+			if err := deck.SetImage(ctx, c, render.DataURI(render.Empty())); err != nil {
+				log.Printf("[legato-streamdeck] SetImage error (empty agent %d): %v", i, err)
+			}
 		}
 	}
 
@@ -155,9 +183,13 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 		if i < len(snap.Attention) {
 			item := snap.Attention[i]
 			img := render.DataURI(render.Attention(item.Producer, item.Title, item.Urgency, i, len(snap.Attention)))
-			_ = deck.SetImage(ctx, c, img)
+			if err := deck.SetImage(ctx, c, img); err != nil {
+				log.Printf("[legato-streamdeck] SetImage error (attn %d): %v", i, err)
+			}
 		} else {
-			_ = deck.SetImage(ctx, c, render.DataURI(render.Empty()))
+			if err := deck.SetImage(ctx, c, render.DataURI(render.Empty())); err != nil {
+				log.Printf("[legato-streamdeck] SetImage error (empty attn %d): %v", i, err)
+			}
 		}
 	}
 }
