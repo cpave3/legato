@@ -140,7 +140,9 @@ const (
 	PredicateSwarmNext Predicate = "swarm-next-step"
 )
 
-func DefaultRegistry() *Registry { return MustRegistry(DefaultBindings()) }
+var defaultRegistry = MustRegistry(DefaultBindings())
+
+func DefaultRegistry() *Registry { return defaultRegistry }
 
 func DefaultBindings() []Binding {
 	var bindings []Binding

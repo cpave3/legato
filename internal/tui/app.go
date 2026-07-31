@@ -2865,6 +2865,7 @@ func (a App) View() string {
 	case viewDetail:
 		return a.detail.View()
 	case viewAgents:
+		a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
 		statusBar := a.statusBar.View()
 		statusBarHeight := lipgloss.Height(statusBar)
 		// Set agent view height to fill space above status bar
@@ -2872,24 +2873,28 @@ func (a App) View() string {
 		content := a.agentView.View()
 		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 	case viewReport:
+		a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
 		statusBar := a.statusBar.View()
 		statusBarHeight := lipgloss.Height(statusBar)
 		a.reportView.SetSize(a.width, a.height-statusBarHeight)
 		content := a.reportView.View()
 		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 	case viewReview:
+		a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
 		statusBar := a.statusBar.View()
 		statusBarHeight := lipgloss.Height(statusBar)
 		a.reviewView.SetSize(a.width, a.height-statusBarHeight)
 		content := a.reviewView.View()
 		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 	case viewPlans:
+		a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
 		statusBar := a.statusBar.View()
 		statusBarHeight := lipgloss.Height(statusBar)
 		a.planView.SetSize(a.width, a.height-statusBarHeight)
 		content := a.planView.View()
 		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 	case viewAttention:
+		a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
 		statusBar := a.statusBar.View()
 		statusBarHeight := lipgloss.Height(statusBar)
 		a.attentionView.SetSize(a.width, a.height-statusBarHeight)
@@ -2897,6 +2902,7 @@ func (a App) View() string {
 		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 	default:
 		content := a.board.View()
+		a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
 		statusBar := a.statusBar.View()
 		statusBarHeight := lipgloss.Height(statusBar)
 
