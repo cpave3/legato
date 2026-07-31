@@ -38,6 +38,24 @@ describe("useReviewQueue", () => {
     rerender({ include: true })
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("/api/review/queue?include_capturing=true", expect.anything()))
   })
+
+  it("ignores an expanded response after captures are hidden again", async () => {
+    mockSubscribe.mockReturnValue(() => undefined)
+    let resolveExpanded!: (value: unknown) => void
+    mockFetch.mockImplementation((path: string) => {
+      if (path.includes("include_capturing")) return new Promise(resolve => { resolveExpanded = resolve })
+      return Promise.resolve({ ok: true, json: async () => [{ tour_id: "ready" }] })
+    })
+    const { result, rerender } = renderHook(({ include }) => useReviewQueue(include), { initialProps: { include: false } })
+    await waitFor(() => expect(result.current.data).toEqual([{ tour_id: "ready" }]))
+    rerender({ include: true })
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("/api/review/queue?include_capturing=true", expect.anything()))
+    rerender({ include: false })
+    await waitFor(() => expect(result.current.data).toEqual([{ tour_id: "ready" }]))
+    resolveExpanded({ ok: true, json: async () => [{ tour_id: "capture" }] })
+    await act(async () => {})
+    expect(result.current.data).toEqual([{ tour_id: "ready" }])
+  })
 })
 
 describe("useReviewTour", () => {

@@ -20,15 +20,18 @@ export function useReviewQueue(includeCapturing = false): AsyncReviewState<Revie
   const [data, setData] = useState<ReviewQueueItem[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const requestIdRef = useRef(0)
 
   const refresh = useCallback(async () => {
+    const requestId = ++requestIdRef.current
     try {
       setError(null)
-      setData(await fetchReviewQueue(baseUrl, includeCapturing))
+      const next = await fetchReviewQueue(baseUrl, includeCapturing)
+      if (requestId === requestIdRef.current) setData(next)
     } catch (cause) {
-      setError(errorMessage(cause))
+      if (requestId === requestIdRef.current) setError(errorMessage(cause))
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) setLoading(false)
     }
   }, [baseUrl, includeCapturing])
 

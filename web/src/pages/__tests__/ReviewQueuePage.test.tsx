@@ -82,7 +82,7 @@ describe("ReviewQueuePage", () => {
     expect(screen.getByText(/Tasks and code will remain/)).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Remove 2 reviews" }))
 
-    await waitFor(() => expect(mocks.bulkDeleteReviews).toHaveBeenCalledWith("http://legato.test", ["rt-task-2", "rt-task-1"]))
+    await waitFor(() => expect(mocks.bulkDeleteReviews).toHaveBeenCalledWith("http://legato.test", ["rt-task-1", "rt-task-2"]))
     expect(mocks.refresh).toHaveBeenCalledOnce()
   })
 

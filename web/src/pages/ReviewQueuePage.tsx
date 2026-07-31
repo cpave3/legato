@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { ArrowRight, CheckCircle2, RefreshCw, Trash2 } from "lucide-react"
 import { Link } from "react-router-dom"
 import { useReviewQueue } from "../hooks/useReview"
@@ -32,10 +32,6 @@ function formatAbsoluteTime(iso: string): string {
   })
 }
 
-function sortQueueItems(items: ReviewQueueItem[]): ReviewQueueItem[] {
-  return [...items].sort((a, b) => new Date(b.activity_at).getTime() - new Date(a.activity_at).getTime())
-}
-
 function reviewLabel(item: ReviewQueueItem): string {
   return item.name || item.title
 }
@@ -48,7 +44,7 @@ export function ReviewQueuePage() {
   const { baseUrl } = useServer()
   const [showCapturing, setShowCapturing] = useState(false)
   const { data, loading, error, refresh } = useReviewQueue(showCapturing)
-  const items = useMemo(() => sortQueueItems(data ?? []), [data])
+  const items = data ?? []
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirming, setConfirming] = useState(false)
   const [removing, setRemoving] = useState(false)
@@ -107,7 +103,11 @@ export function ReviewQueuePage() {
         </div>
         <div className="flex items-center gap-3">
           <label className="flex min-h-10 cursor-pointer items-center gap-2 text-xs text-zinc-400">
-            <input type="checkbox" checked={showCapturing} onChange={(event) => setShowCapturing(event.target.checked)} className="size-4 accent-indigo-500" />
+            <input type="checkbox" checked={showCapturing} onChange={(event) => {
+              setShowCapturing(event.target.checked)
+              setSelected(new Set())
+              setConfirming(false)
+            }} className="size-4 accent-indigo-500" />
             Show incomplete captures
           </label>
           <button onClick={() => void refresh()} className="rounded p-2 text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200" title="Refresh review queue">

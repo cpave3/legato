@@ -783,7 +783,7 @@ func TestReadyDoesNotRequeueCompletedTourWithoutNewReviewableWork(t *testing.T) 
 	}
 }
 
-func TestAddingChapterToCompletedTourMakesItVisibleAndReviewable(t *testing.T) {
+func TestAddingChapterToCompletedTourRequiresExplicitReady(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
 	writeRepoFile(t, f.repo, "a.go", "package a\n")
@@ -819,8 +819,15 @@ func TestAddingChapterToCompletedTourMakesItVisibleAndReviewable(t *testing.T) {
 		t.Fatalf("review state = %+v", view.Steps)
 	}
 	items, err := f.svc.Queue(ctx)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("queue before ready = %+v, err = %v", items, err)
+	}
+	if err := f.svc.Ready(ctx, f.tourID, "additional review"); err != nil {
+		t.Fatal(err)
+	}
+	items, err = f.svc.Queue(ctx)
 	if err != nil || len(items) != 1 || items[0].Unreviewed != 1 {
-		t.Fatalf("queue = %+v, err = %v", items, err)
+		t.Fatalf("queue after ready = %+v, err = %v", items, err)
 	}
 }
 
@@ -924,7 +931,7 @@ func TestReviewAnnotate(t *testing.T) {
 	}
 }
 
-func TestAnnotatingCompletedCommitRequeuesItForReview(t *testing.T) {
+func TestAnnotatingCompletedCommitRequiresExplicitReady(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
 	writeRepoFile(t, f.repo, "a.go", "package a\n")
@@ -949,16 +956,23 @@ func TestAnnotatingCompletedCommitRequeuesItForReview(t *testing.T) {
 		t.Fatal("annotated step must become unreviewed")
 	}
 	tour, _ := f.store.GetReviewTour(ctx, f.tourID)
-	if tour.Status != "ready" {
-		t.Fatalf("status = %q, want ready", tour.Status)
+	if tour.Status != "capturing" {
+		t.Fatalf("status = %q, want capturing", tour.Status)
 	}
 	items, err := f.svc.Queue(ctx)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("queue before ready = %+v, err = %v", items, err)
+	}
+	if err := f.svc.Ready(ctx, f.tourID, "new context ready"); err != nil {
+		t.Fatal(err)
+	}
+	items, err = f.svc.Queue(ctx)
 	if err != nil || len(items) != 1 || items[0].Unreviewed != 1 {
-		t.Fatalf("queue = %+v, err = %v", items, err)
+		t.Fatalf("queue after ready = %+v, err = %v", items, err)
 	}
 }
 
-func TestAnnotatingHunkOnCompletedStepRequeuesItForReview(t *testing.T) {
+func TestAnnotatingHunkOnCompletedStepReturnsTourToCapturing(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
 	writeRepoFile(t, f.repo, "a.go", "package a\n")
@@ -982,8 +996,12 @@ func TestAnnotatingHunkOnCompletedStepRequeuesItForReview(t *testing.T) {
 		t.Fatalf("steps = %+v, want annotated step unreviewed", steps)
 	}
 	tour, _ := f.store.GetReviewTour(ctx, f.tourID)
-	if tour.Status != "ready" {
-		t.Fatalf("status = %q, want ready", tour.Status)
+	if tour.Status != "capturing" {
+		t.Fatalf("status = %q, want capturing", tour.Status)
+	}
+	items, err := f.svc.Queue(ctx)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("queue before explicit ready = %+v, err = %v", items, err)
 	}
 }
 
@@ -1559,6 +1577,25 @@ func TestReviewQueueExcludesCapturingToursAndCapturingQueueExposesThem(t *testin
 	}
 	if len(items) != 1 || items[0].Status != "capturing" {
 		t.Fatalf("capturing queue = %+v, want capturing tour", items)
+	}
+}
+
+func TestReviewBadgeStatesExcludeCapturingTourWithUnreviewedWork(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "a.go", "package a\n")
+	gitCommitAll(t, f.repo, "add a")
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
+		t.Fatal(err)
+	}
+
+	states, err := f.svc.ReviewBadgeStates(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := states["task-1"]
+	if state.Ready || state.Unreviewed != 0 || state.TourID != "" {
+		t.Fatalf("capturing badge state = %+v, want hidden", state)
 	}
 }
 

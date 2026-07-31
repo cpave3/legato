@@ -357,7 +357,7 @@ func (r *ReviewService) EditChapter(ctx context.Context, tourID, stepPrefix stri
 	}); err != nil {
 		return err
 	}
-	if err := r.reopenReviewedTour(ctx, tour); err != nil {
+	if err := r.markReviewedTourCapturing(ctx, tour); err != nil {
 		return err
 	}
 	r.publish(tourID, step.ID, "chapter_edited")
@@ -380,7 +380,7 @@ func (r *ReviewService) RemoveChapter(ctx context.Context, tourID, stepPrefix st
 	if err := r.store.DeleteReviewChapter(ctx, step.ID); err != nil {
 		return err
 	}
-	if err := r.reopenReviewedTour(ctx, tour); err != nil {
+	if err := r.markReviewedTourCapturing(ctx, tour); err != nil {
 		return err
 	}
 	r.publish(tourID, step.ID, "chapter_removed")
@@ -442,7 +442,7 @@ func (r *ReviewService) Annotate(ctx context.Context, tourID string, a AnnotateA
 	if err != nil {
 		return "", err
 	}
-	if err := r.reopenReviewedTour(ctx, tour); err != nil {
+	if err := r.markReviewedTourCapturing(ctx, tour); err != nil {
 		return "", err
 	}
 	r.publish(tourID, updated.ID, "annotated")
@@ -507,7 +507,7 @@ func (r *ReviewService) insertHunkNote(ctx context.Context, tourID, taskID strin
 	if err != nil {
 		return "", err
 	}
-	if err := r.reopenReviewedTour(ctx, tour); err != nil {
+	if err := r.markReviewedTourCapturing(ctx, tour); err != nil {
 		return "", err
 	}
 	r.publish(tourID, target.ID, "annotated")
@@ -553,7 +553,7 @@ func (r *ReviewService) EditAnnotation(ctx context.Context, tourID, notePrefix, 
 	if err != nil {
 		return err
 	}
-	if err := r.reopenReviewedTour(ctx, tour); err != nil {
+	if err := r.markReviewedTourCapturing(ctx, tour); err != nil {
 		return err
 	}
 	r.publish(tourID, note.StepID, "annotation_edited")
@@ -573,19 +573,19 @@ func (r *ReviewService) RemoveAnnotation(ctx context.Context, tourID, notePrefix
 	if err != nil {
 		return err
 	}
-	if err := r.reopenReviewedTour(ctx, tour); err != nil {
+	if err := r.markReviewedTourCapturing(ctx, tour); err != nil {
 		return err
 	}
 	r.publish(tourID, note.StepID, "annotation_removed")
 	return nil
 }
 
-func (r *ReviewService) reopenReviewedTour(ctx context.Context, tour *store.ReviewTour) error {
+func (r *ReviewService) markReviewedTourCapturing(ctx context.Context, tour *store.ReviewTour) error {
 	if tour.Status != "reviewed" {
 		return nil
 	}
 	_, err := r.store.UpdateReviewTour(ctx, tour.ID, func(rt *store.ReviewTour) {
-		rt.Status = "ready"
+		rt.Status = "capturing"
 	})
 	return err
 }
@@ -1530,12 +1530,15 @@ func (r *ReviewService) ReviewBadgeStates(ctx context.Context) (map[string]Revie
 		}
 		state := ReviewBadgeState{}
 		for _, tour := range taskTours {
+			if tour.Status != "ready" {
+				continue
+			}
 			unreviewed, err := r.unreviewedCount(ctx, tour.ID)
 			if err != nil {
 				return nil, err
 			}
 			state.Unreviewed += unreviewed
-			ready := tour.Status == "ready" && unreviewed > 0
+			ready := unreviewed > 0
 			if state.TourID == "" || (ready && !state.Ready) {
 				state.TourID = tour.ID
 				state.Name = tour.Name
