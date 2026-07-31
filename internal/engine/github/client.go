@@ -94,9 +94,13 @@ func New(opts Options) (*Client, error) {
 	if _, err := url.ParseRequestURI(baseURL); err != nil {
 		return nil, fmt.Errorf("invalid GitHub API base URL: %w", err)
 	}
-	httpClient := opts.HTTPClient
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 30 * time.Second}
+	var httpClient *http.Client
+	if opts.HTTPClient == nil {
+		httpClient = &http.Client{Timeout: 30 * time.Second, Transport: NewReadOnlyTransport(nil)}
+	} else {
+		copy := *opts.HTTPClient
+		copy.Transport = NewReadOnlyTransport(opts.HTTPClient.Transport)
+		httpClient = &copy
 	}
 	execCommand := opts.ExecCommand
 	if execCommand == nil {
