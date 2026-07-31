@@ -23,6 +23,26 @@ func initRepo(t *testing.T) string {
 	return dir
 }
 
+func TestInspectCheckoutReadsGitHubIdentityFromExactDirectory(t *testing.T) {
+	dir := initRepo(t)
+	runGitT(t, dir, "remote", "add", "origin", "git@github.com:acme/widget.git")
+	checkout, err := InspectCheckout(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkout.Repo != "acme/widget" || checkout.Branch != "main" || checkout.HeadSHA == "" || checkout.WorkingDir != dir {
+		t.Fatalf("checkout = %+v", checkout)
+	}
+}
+
+func TestInspectCheckoutRejectsNonGitHubRemote(t *testing.T) {
+	dir := initRepo(t)
+	runGitT(t, dir, "remote", "add", "origin", "https://example.com/acme/widget.git")
+	if _, err := InspectCheckout(context.Background(), dir); err == nil {
+		t.Fatal("expected unsupported remote error")
+	}
+}
+
 func runGitT(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)

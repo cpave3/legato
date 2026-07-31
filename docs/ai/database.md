@@ -4,7 +4,7 @@
 - Migrations embedded via `embed.FS`, tracked with `PRAGMA user_version`
 - WAL mode enabled, foreign keys ON
 - Core schema includes `tasks`, `column_mappings`, `sync_log`, `agent_sessions`, `state_intervals`, `workspaces`, swarm tables, review tours/passes/findings, plans/revisions/comments/interactions, workflow runs/steps/attempts/artifacts, and `task_notes`.
-- `tasks` table: core fields (id, title, description, description_md, status, priority, sort_order, workspace_id, archived_at, created_at, updated_at) + nullable provider link (provider, remote_id, remote_meta JSON) + nullable `pr_meta` TEXT (JSON with branch, pr_number, pr_url, state, is_draft, review_decision, check_status, comment_count, updated_at). `archived_at` is nullable DATETIME — NULL means active, non-NULL means archived (hidden from board but retained in DB)
+- `tasks` table: core fields (id, title, description, description_md, status, priority, sort_order, workspace_id, archived_at, created_at, updated_at) + nullable provider link (provider, remote_id, remote_meta JSON) + nullable `code_context` TEXT (durable repository/branch/SHA/path/provenance JSON) + nullable `pr_meta` TEXT (refreshable PR number/URL/state/review/check/comment/pin/outcome JSON). `archived_at` is nullable DATETIME — NULL means active, non-NULL means archived (hidden from board but retained in DB)
 - `workspaces` table: id (INTEGER PRIMARY KEY), name (TEXT UNIQUE), color (TEXT), sort_order (INTEGER)
 - Local tasks: provider/remote_id/remote_meta are NULL. Synced tasks: provider='jira', remote_id=Jira key, remote_meta=JSON with remote_status, issue_type, assignee, labels, etc.
 - Task IDs: 8-char lowercase alphanumeric (crypto/rand) for local tasks, provider IDs (e.g. REX-1234) for synced tasks
@@ -21,4 +21,4 @@ Tasks store local arbitrary JSON metadata in `tasks.metadata`. This is separate 
 
 Explicit local column moves atomically persist a `task_transitions` snapshot. Matching workflow definitions create `workflow_trigger_requests` with a definition digest and full definition snapshot. `(transition_id, workflow_name, definition_digest)` is unique, and `workflow_runs.trigger_request_id` is unique when present, preventing replay from launching duplicate runs. Requests remain durable in `pending`, `waiting_input`, `started`, `skipped`, or `failed` state.
 
-Migrations 044-046 add task metadata, transition/request persistence, and the workflow-run trigger link.
+Migrations 044-046 add task metadata, transition/request persistence, and the workflow-run trigger link. Migration 047 adds `code_context`, backfills repository identity from legacy `pr_meta`, and pins existing numbered PR links.

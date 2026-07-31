@@ -15,7 +15,9 @@ func TestFetchPRByNumberEnrichesReviewsAndChecks(t *testing.T) {
 		case "/repos/acme/widget/pulls/42/reviews":
 			_, _ = w.Write([]byte(`[{"user":{"login":"alice"},"state":"APPROVED","submitted_at":"2026-07-01T00:00:00Z"},{"user":{"login":"bob"},"state":"CHANGES_REQUESTED","submitted_at":"2026-07-02T00:00:00Z"}]`))
 		case "/repos/acme/widget/commits/abc123/check-runs":
-			_, _ = w.Write([]byte(`{"check_runs":[{"status":"completed","conclusion":"success"},{"status":"in_progress","conclusion":null}]}`))
+			_, _ = w.Write([]byte(`{"check_runs":[{"status":"completed","conclusion":"success"}]}`))
+		case "/repos/acme/widget/commits/abc123/status":
+			_, _ = w.Write([]byte(`{"statuses":[{"state":"pending"}]}`))
 		default:
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}
@@ -47,6 +49,8 @@ func TestFetchPRByNumberUsesTokenAuthenticatedAPI(t *testing.T) {
 			_, _ = w.Write([]byte(`[]`))
 		case "/repos/acme/widget/commits/abc123/check-runs":
 			_, _ = w.Write([]byte(`{"check_runs":[]}`))
+		case "/repos/acme/widget/commits/abc123/status":
+			_, _ = w.Write([]byte(`{"statuses":[]}`))
 		default:
 			t.Fatalf("unexpected path %q", r.URL.Path)
 		}

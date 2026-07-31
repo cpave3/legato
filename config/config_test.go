@@ -22,13 +22,12 @@ func TestGitHubTokenExpandsFromEnvironment(t *testing.T) {
 	writeTestConfig(t, `
 github:
   token: ${LEGATO_GITHUB_TOKEN}
-  api_base_url: https://github.example/api/v3
 `)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.GitHub.Token != "github-secret" || cfg.GitHub.APIBaseURL != "https://github.example/api/v3" {
+	if cfg.GitHub.Token != "github-secret" {
 		t.Fatalf("GitHub config = %+v", cfg.GitHub)
 	}
 }

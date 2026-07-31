@@ -178,7 +178,6 @@ type WebConfig struct {
 
 type GitHubConfig struct {
 	Token                       string `yaml:"token"`
-	APIBaseURL                  string `yaml:"api_base_url"`
 	PollIntervalSeconds         int    `yaml:"poll_interval_seconds"`          // unresolved PRs (branch-only, no PR yet) — default 600s (10 min)
 	ResolvedPollIntervalSeconds int    `yaml:"resolved_poll_interval_seconds"` // resolved PRs (have PR number) — default 600s (10 min)
 }

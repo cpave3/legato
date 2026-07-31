@@ -1,15 +1,18 @@
-## Workflow repository presets
+## Shared repository presets
 
-Named repository presets reduce repeated workflow and web agent launch input without preventing overrides:
+Named repository presets support workflow/web agent input and establish task GitHub context without preventing overrides:
 
 ```yaml
-workflows:
-  repositories:
-    - name: Legato
-      repo: cpave3/legato
-      primary_dir: /home/cameron/Projects/legato
-      base_branch: main
+repositories:
+  - name: Legato
+    repo: cpave3/legato
+    primary_dir: /home/cameron/Projects/legato
+    base_branch: main
+    jira_projects: [LEG]
+    workspaces: [Legato]
 ```
+
+Legacy `workflows.repositories` is loaded only when the shared top-level catalog is absent.
 
 - `name`: dropdown label.
 - `repo`: GitHub `owner/repository` value.
@@ -30,7 +33,7 @@ For workflow launches, the preset control appears only when the definition decla
 - `macros` field: top-level list of `{name, keys}` objects defining named send-keys payloads. `name` is the display label; `keys` is the raw text sent to a worker's tmux pane (trailing `\n` becomes a real Enter). Exposed in the TUI agents view via the `m` keybinding (opens the macro picker overlay), in the web `PromptBar` as a Macros dropdown, and over HTTP via `GET /api/macros`. No env-var expansion or placeholder substitution — strings are sent verbatim
 - `workspaces` field: list of `{name, color}` objects defining workspaces. Seeded to DB on startup via `service.SeedWorkspaces`. Color is hex string (e.g. `"#4A9EEF"`)
 - `web.enabled` field: bool, auto-start web server alongside TUI. On startup, probes the port — if free, starts server in background goroutine sharing the same services. If port is in use (another instance), it skips silently. Server shuts down cleanly when TUI exits. Status bar shows `Web :<port>` indicator. `web.port` field: string (default `"3080"`). HTTP is the default. Set `web.tls.enabled: true` to enable HTTPS with an auto-generated CA and server certificate at `$XDG_DATA_HOME/legato/certs/` (or `~/.local/share/legato/certs/`). Setting both `web.tls.cert` and `web.tls.key` also enables HTTPS and uses those files. Auto-generated server certificates include SANs for localhost, loopback, all current local network IPs, and optional `web.tls.hostname`. They regenerate when local IPs or the hostname change while retaining the CA.
-- `github.poll_interval_seconds` field: polling interval for unresolved PRs — branch-only, no PR number yet (default 600s / 10 min). `github.resolved_poll_interval_seconds`: polling interval for resolved PRs — already have PR number (default 600s / 10 min). Both require `gh` CLI installed and authenticated. Manual refresh via `r` key bypasses intervals and polls all PRs immediately.
+- `github.token` field: read-only GitHub PAT enabling HTTP API synchronization. Prefer `${LEGATO_GITHUB_TOKEN}` environment expansion. `github.poll_interval_seconds` controls unresolved discovery (default 600s); `github.resolved_poll_interval_seconds` controls linked PR refresh (default 600s). No `gh` executable is required. Manual `r` bypasses intervals.
 - `swarm` block: swarm-orchestration settings.
   - `swarm.default_agent` (string): adapter name used by any worker that doesn't specify an `agent:` in its plan entry (e.g. `claude-code`, `chimera`, `codex`). When unset, falls back to the first registered adapter. Also used as the conductor's adapter unless `conductor_agent` is set.
   - `swarm.conductor_agent` (string, optional): adapter name used exclusively for the conductor. When set, overrides `default_agent` for the conductor; workers still fall back to `default_agent` when no explicit `agent:` is set in the plan. Allows splitting tools — e.g. Claude Code conducts while Chimera workers run sandboxed.

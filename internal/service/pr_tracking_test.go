@@ -213,8 +213,8 @@ func TestUnlinkBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.PRMeta != nil {
-		t.Errorf("expected pr_meta to be nil, got %v", task.PRMeta)
+	if task.PRMeta != nil || task.CodeContext != nil {
+		t.Errorf("expected PR metadata and code context to be nil, got pr=%v context=%v", task.PRMeta, task.CodeContext)
 	}
 }
 
@@ -675,6 +675,26 @@ func TestPollDiscoversUntrackedTaskFromCodeContextWithOneRepositoryListing(t *te
 	}
 }
 
+func TestMatchContextPRUsesConservativeConfidenceOrder(t *testing.T) {
+	prs := []github.PRStatus{
+		{Number: 1, State: "OPEN", HeadSHA: "exact-sha", HeadBranch: "other", HeadRepo: "acme/widget"},
+		{Number: 2, State: "OPEN", HeadBranch: "feature/TASK-1", HeadRepo: "acme/widget"},
+		{Number: 3, State: "OPEN", HeadBranch: "feature/TASK-1", HeadRepo: "fork/widget"},
+	}
+	status, method, _ := matchContextPR("TASK-1", "acme/widget", &store.CodeContext{HeadSHA: "exact-sha", Branch: "feature/TASK-1"}, prs)
+	if status == nil || status.Number != 1 || method != "commit" {
+		t.Fatalf("SHA match = %#v method=%q", status, method)
+	}
+	status, method, _ = matchContextPR("TASK-1", "acme/widget", &store.CodeContext{Branch: "feature/TASK-1"}, prs)
+	if status == nil || status.Number != 2 || method != "branch" {
+		t.Fatalf("branch match = %#v method=%q", status, method)
+	}
+	status, _, outcome := matchContextPR("TASK-1", "acme/widget", &store.CodeContext{Branch: "main", BaseBranch: "main"}, []github.PRStatus{{Number: 4, HeadBranch: "main"}})
+	if status != nil || outcome != "no_match" {
+		t.Fatalf("default branch status=%#v outcome=%q", status, outcome)
+	}
+}
+
 func TestPollInfersOnlyUniqueBoundaryAwareTicketKeyBranch(t *testing.T) {
 	s := newTestPRStore(t)
 	ctx := context.Background()
@@ -746,6 +766,29 @@ func TestPollAPIErrorPreservesLastGoodPRState(t *testing.T) {
 	}
 }
 
+func TestRefreshPRUpdatesPinnedAssociationWithoutChangingIdentity(t *testing.T) {
+	s := newTestPRStore(t)
+	ctx := context.Background()
+	createPRTask(t, s, "TASK-1")
+	if err := s.SetCodeContext(ctx, "TASK-1", &store.CodeContext{Repo: "acme/widget", Branch: "feature/TASK-1"}); err != nil {
+		t.Fatal(err)
+	}
+	old := `{"pr_number":42,"state":"OPEN","pinned":true,"match_method":"manual"}`
+	if err := s.UpdatePRMeta(ctx, "TASK-1", &old); err != nil {
+		t.Fatal(err)
+	}
+	gh := &mockGitHub{prByNumber: map[int]*github.PRStatus{42: {HasPR: true, Number: 42, State: "MERGED", HeadBranch: "feature/TASK-1"}}}
+	actions := NewPRTrackingService(s, events.New(), gh, time.Minute, time.Minute).(PRTaskActions)
+	if err := actions.RefreshPR(ctx, "TASK-1"); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := s.GetTask(ctx, "TASK-1")
+	meta, _ := store.ParsePRMeta(task.PRMeta)
+	if meta == nil || meta.PRNumber != 42 || meta.State != "MERGED" || !meta.Pinned || meta.MatchMethod != "manual" {
+		t.Fatalf("PR metadata = %#v", meta)
+	}
+}
+
 func TestRediscoverPRRetainsContextAndReplacesWrongLink(t *testing.T) {
 	s := newTestPRStore(t)
 	ctx := context.Background()
@@ -773,6 +816,31 @@ func TestRediscoverPRRetainsContextAndReplacesWrongLink(t *testing.T) {
 	}
 	if meta == nil || meta.PRNumber != 42 || meta.Pinned || meta.MatchMethod != "branch" {
 		t.Fatalf("PR metadata = %#v", meta)
+	}
+}
+
+func TestPollAllPublishesEventWhenResolvedPRChanges(t *testing.T) {
+	s := newTestPRStore(t)
+	ctx := context.Background()
+	createPRTask(t, s, "TASK-1")
+	if err := s.SetCodeContext(ctx, "TASK-1", &store.CodeContext{Repo: "acme/widget", Branch: "feature/TASK-1"}); err != nil {
+		t.Fatal(err)
+	}
+	old := `{"pr_number":42,"state":"OPEN","match_method":"branch"}`
+	if err := s.UpdatePRMeta(ctx, "TASK-1", &old); err != nil {
+		t.Fatal(err)
+	}
+	bus := events.New()
+	sub := bus.Subscribe(events.EventPRStatusUpdated)
+	gh := &mockGitHub{prByNumber: map[int]*github.PRStatus{42: {HasPR: true, Number: 42, State: "MERGED", HeadBranch: "feature/TASK-1"}}}
+	svc := NewPRTrackingService(s, bus, gh, time.Minute, 0)
+	if err := svc.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-sub:
+	case <-time.After(time.Second):
+		t.Fatal("expected PR status update event")
 	}
 }
 

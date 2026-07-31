@@ -145,7 +145,10 @@ func (p *prTrackingService) LinkPR(ctx context.Context, taskID string, owner, re
 }
 
 func (p *prTrackingService) UnlinkBranch(ctx context.Context, taskID string) error {
-	return p.store.UpdatePRMeta(ctx, taskID, nil)
+	if err := p.store.UpdatePRMeta(ctx, taskID, nil); err != nil {
+		return err
+	}
+	return p.store.SetCodeContext(ctx, taskID, nil)
 }
 
 func (p *prTrackingService) SetCodeContext(ctx context.Context, taskID string, codeContext *store.CodeContext) error {
@@ -279,6 +282,7 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		context *store.CodeContext
 	}
 	contextByRepo := make(map[string][]contextTarget)
+	changed := false
 	branchToTasks := make(map[string][]string) // branch → task IDs
 	branchRepos := make(map[string]string)     // branch → repo (first seen)
 	for _, t := range tasks {
@@ -307,9 +311,11 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 				}
 				status, fetchErr := p.gh.FetchPRByNumber(owner, name, meta.PRNumber)
 				if fetchErr != nil {
-					p.applyDiscoveryOutcome(ctx, t.ID, "error", fetchErr.Error())
-				} else {
-					p.applyContextStatus(ctx, t.ID, status, meta.MatchMethod)
+					if p.applyDiscoveryOutcome(ctx, t.ID, "error", fetchErr.Error()) {
+						changed = true
+					}
+				} else if p.applyContextStatus(ctx, t.ID, status, meta.MatchMethod) {
+					changed = true
 				}
 				continue
 			}
@@ -337,11 +343,9 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		}
 	}
 
-	if len(branchToTasks) == 0 && len(shaTargets) == 0 && len(contextByRepo) == 0 {
+	if !changed && len(branchToTasks) == 0 && len(shaTargets) == 0 && len(contextByRepo) == 0 {
 		return nil
 	}
-
-	changed := false
 
 	for repo, targets := range contextByRepo {
 		owner, name, ok := splitRepo(repo)
@@ -738,31 +742,6 @@ func (p *prTrackingService) AutoLinkBranch(ctx context.Context, taskID string) {
 	}
 
 	p.LinkBranch(ctx, taskID, branch, owner+"/"+repo)
-}
-
-func (p *prTrackingService) pollSingleBranch(ctx context.Context, taskID, branch string) {
-	task, err := p.store.GetTask(ctx, taskID)
-	if err != nil {
-		return
-	}
-	meta, _ := store.ParsePRMeta(task.PRMeta)
-
-	// Skip if no repo — gh needs --repo to work from non-git dirs.
-	if meta == nil || meta.Repo == "" {
-		return
-	}
-
-	status := p.discoverPR(meta)
-	if !p.applyStatus(ctx, taskID, branch, status) {
-		return
-	}
-
-	if p.bus != nil {
-		p.bus.Publish(events.Event{
-			Type: events.EventPRStatusUpdated,
-			At:   time.Now(),
-		})
-	}
 }
 
 // prMetaChanged compares two PRMeta structs to detect meaningful changes.

@@ -1,129 +1,50 @@
-## ADDED Requirements
+## Requirements
 
-### Requirement: Link a branch to a task
+### Requirement: Durable task code context
 
-The PR tracking service SHALL allow associating a git branch name with any task (local or synced). Linking a branch MUST store the branch name in the task's `pr_meta` JSON field and trigger an immediate PR status fetch for that branch.
+The system SHALL store repository identity independently from refreshable PR state. Code context SHALL include repository, optional branch/head SHA/working directory/base branch, provenance, and timestamps. PR metadata SHALL contain remote PR state, pin/match method, and synchronization outcome/error.
 
-#### Scenario: Link branch to a local task
+#### Scenario: Existing data migration
+- **WHEN** a database with legacy `pr_meta` is opened
+- **THEN** repository/branch/SHA identity SHALL be backfilled to code context, visible PR data retained, and existing numbered links pinned
 
-- **WHEN** a user links branch `feature/auth` to local task `abc12345`
-- **THEN** the task's `pr_meta` SHALL be updated with `{"branch": "feature/auth"}` and a PR status fetch SHALL be triggered
+#### Scenario: Missing context
+- **WHEN** an active task has no repository context
+- **THEN** GitHub discovery SHALL skip it without affecting other task behavior or guessing from titles/arbitrary repositories
 
-#### Scenario: Link branch to a Jira-synced task
+### Requirement: Context capture and precedence
 
-- **WHEN** a user links a branch to a task with `provider='jira'`
-- **THEN** the task's `pr_meta` SHALL be updated independently of `remote_meta` — Jira sync MUST NOT overwrite PR data
+Context SHALL be captured from manual edits, task worktrees (including external worktree metadata), exact agent working directories, and unique configured Jira-project/workspace repository mappings. Authority SHALL be `manual > worktree > agent > repository mapping > inferred branch`; lower-authority evidence MUST NOT overwrite stronger context.
 
-#### Scenario: Re-link with a different branch
+### Requirement: Conservative repository-batched discovery
 
-- **WHEN** a task already has a linked branch and a new branch is linked
-- **THEN** the old branch association SHALL be replaced and PR status SHALL be refreshed for the new branch
+Unresolved tasks SHALL be grouped by known repository and each repository listed once per cycle. Matching SHALL prefer exact head SHA, then exact repository+branch, then exactly one boundary-aware task/remote-ticket key branch. Default/detached branches, title-only matches, wrong fork identities, and ambiguous candidates MUST NOT auto-link.
 
-#### Scenario: Branch already linked to another task
+#### Scenario: Unique match
+- **WHEN** exactly one candidate satisfies the highest available confidence rule
+- **THEN** its PR SHALL be linked and the match method recorded
 
-- **WHEN** a branch is linked to a task but is already linked to a different task
-- **THEN** the service SHALL proceed with linking (allowing duplicate branch references) since branches may legitimately span tasks
+#### Scenario: Ambiguous match
+- **WHEN** multiple plausible candidates remain
+- **THEN** no PR SHALL be linked and the task outcome SHALL be `ambiguous`
 
-### Requirement: Unlink a branch from a task
+#### Scenario: API failure
+- **WHEN** GitHub returns an authentication, access, rate-limit, network, or server failure
+- **THEN** last-good PR state SHALL be retained and an actionable error outcome recorded
 
-The PR tracking service SHALL allow removing a branch association from a task, clearing the `pr_meta` field.
+### Requirement: Pinned links and targeted repair
 
-#### Scenario: Unlink an existing branch
+Manual PR selection and migrated numbered links SHALL be pinned. Background synchronization SHALL refresh pinned PRs by number without replacing them.
 
-- **WHEN** a user unlinks a branch from a task that has one
-- **THEN** the task's `pr_meta` SHALL be set to NULL
+- Refresh SHALL refetch the current PR without reconsidering identity.
+- Rediscover SHALL clear cached/pinned PR identity, retain code context, and rerun matching immediately.
+- Unlink SHALL clear both PR state and code context so polling cannot relink automatically.
+- Editing repository or branch identity SHALL clear stale derived PR state.
 
-#### Scenario: Unlink when no branch is linked
+### Requirement: Polling and live updates
 
-- **WHEN** a user attempts to unlink from a task with no linked branch
-- **THEN** the service SHALL return without error (idempotent)
+Active non-ephemeral tasks SHALL synchronize on configurable unresolved/resolved cadences. Archived and ephemeral tasks SHALL be excluded. Startup/global force sync SHALL process all eligible tasks. Meaningful resolved or unresolved state/outcome changes SHALL publish `EventPRStatusUpdated`; no-change cycles SHALL not publish.
 
-### Requirement: Poll PR status on interval
+### Requirement: User access
 
-The PR tracking service SHALL periodically fetch PR status for all tasks that have a linked branch. The polling interval MUST be configurable (default 60s). Polling MUST query all linked branches in a single batch operation.
-
-#### Scenario: Periodic poll updates PR state
-
-- **WHEN** the poll interval elapses and 3 tasks have linked branches
-- **THEN** the service SHALL batch-fetch PR status for all 3 branches and update each task's `pr_meta` with the latest state
-
-#### Scenario: Poll on app startup
-
-- **WHEN** the application starts and tasks with linked branches exist
-- **THEN** the service SHALL perform an initial PR status fetch before the first poll interval
-
-#### Scenario: No tasks with linked branches
-
-- **WHEN** the poll runs but no tasks have linked branches
-- **THEN** the service SHALL skip the fetch and wait for the next interval
-
-#### Scenario: gh CLI unavailable during poll
-
-- **WHEN** the `gh` CLI is not available when a poll runs
-- **THEN** the service SHALL log a warning and skip the poll cycle without crashing
-
-### Requirement: Publish events on PR status change
-
-The PR tracking service SHALL publish an `EventPRStatusUpdated` event via the event bus after each poll cycle that produces changes. The event MUST include the list of task IDs whose PR status changed.
-
-#### Scenario: PR status changes detected
-
-- **WHEN** a poll cycle finds that 2 of 5 tracked PRs have changed state
-- **THEN** the service SHALL publish `EventPRStatusUpdated` with the 2 changed task IDs
-
-#### Scenario: No changes detected
-
-- **WHEN** a poll cycle finds no PR status changes
-- **THEN** the service SHALL NOT publish an event
-
-### Requirement: Auto-link branch on agent spawn
-
-The PR tracking service SHALL automatically link the current git branch to a task when an agent session is spawned for that task, if the task does not already have a linked branch.
-
-#### Scenario: Agent spawns with detectable branch
-
-- **WHEN** an agent session is spawned for task `abc12345` and the working directory is on branch `feature/abc`
-- **THEN** the service SHALL automatically link `feature/abc` to the task
-
-#### Scenario: Agent spawns but task already has a branch
-
-- **WHEN** an agent session is spawned for a task that already has a linked branch
-- **THEN** the service SHALL NOT overwrite the existing branch link
-
-#### Scenario: Agent spawns outside a git repo
-
-- **WHEN** an agent session is spawned but the working directory is not a git repository
-- **THEN** the service SHALL skip auto-linking without error
-
-### Requirement: PR status data model
-
-Each task's PR metadata SHALL be stored as a JSON field (`pr_meta`) containing: `branch` (string), `pr_number` (int), `pr_url` (string), `state` (OPEN/MERGED/CLOSED), `is_draft` (bool), `review_decision` (APPROVED/CHANGES_REQUESTED/REVIEW_REQUIRED/""), `check_status` (pass/fail/pending/""), `comment_count` (int), `updated_at` (RFC3339 timestamp of last fetch).
-
-#### Scenario: Full PR metadata stored
-
-- **WHEN** a PR status fetch returns data for a linked branch
-- **THEN** all fields in `pr_meta` SHALL be updated with the latest values and `updated_at` set to the current time
-
-#### Scenario: No PR exists for linked branch
-
-- **WHEN** a PR status fetch finds no PR for a linked branch
-- **THEN** `pr_meta` SHALL retain the `branch` field but set `pr_number` to 0, `state` to empty, and other PR fields to zero values
-
-### Requirement: Start and stop polling lifecycle
-
-The PR tracking service SHALL expose `StartPolling(ctx)` returning a stop function, matching the pattern used by `SyncService.StartScheduler`. Cancelling the context or calling the stop function MUST cease polling.
-
-#### Scenario: Start polling
-
-- **WHEN** `StartPolling` is called with a context
-- **THEN** the service SHALL begin periodic PR status fetches and return a stop function
-
-#### Scenario: Stop polling via stop function
-
-- **WHEN** the returned stop function is called
-- **THEN** polling SHALL cease and no further fetches SHALL occur
-
-#### Scenario: Stop polling via context cancellation
-
-- **WHEN** the context passed to `StartPolling` is cancelled
-- **THEN** polling SHALL cease gracefully
+CLI, TUI, web/API, and task detail responses SHALL expose code context, sync outcomes, manual linking, targeted refresh, and targeted rediscovery without exposing credentials. Staccato hooks MAY continue using explicit link commands but SHALL NOT be required for discovery.

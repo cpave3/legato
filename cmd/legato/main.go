@@ -869,7 +869,7 @@ func runTaskWorktreeSet(db *store.Store, args []string) int {
 		values[args[i]] = args[i+1]
 	}
 	meta := store.TaskWorktree{Path: values["--path"], PrimaryDir: values["--primary-dir"], Branch: values["--branch"], BaseBranch: values["--base-branch"]}
-	recorder := service.NewWorktreeWorkflow(db, nil, service.NewGitCheckoutInspector())
+	recorder := service.NewWorktreeWorkflow(db, nil, checkoutInspector())
 	if err := cli.TaskWorktreeSet(db, taskID, meta, recorder); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
@@ -1583,7 +1583,7 @@ func runTUI() int {
 
 	// Set up token-authenticated GitHub PR tracking when configured.
 	var prSvc service.PRTrackingService
-	ghClient, ghErr := gh.New(gh.Options{Token: cfg.GitHub.Token, BaseURL: cfg.GitHub.APIBaseURL})
+	ghClient, ghErr := gh.New(gh.Options{Token: cfg.GitHub.Token})
 	if ghErr == nil {
 		interval := time.Duration(cfg.GitHub.PollIntervalSeconds) * time.Second
 		resolvedInterval := time.Duration(cfg.GitHub.ResolvedPollIntervalSeconds) * time.Second
@@ -1683,7 +1683,7 @@ func runTUI() int {
 			SocketPath:        socketPath,
 			TmuxOptions:       cfg.Agents.TmuxOptions,
 			PRService:         prSvc,
-			CheckoutInspector: service.NewGitCheckoutInspector(),
+			CheckoutInspector: checkoutInspector(),
 			BinaryPath:        legatoBin,
 			EventBus:          service.AgentDiedPublisher{Bus: bus},
 			BriefKickoffDelay: time.Duration(cfg.Swarm.BriefKickoffDelayMs) * time.Millisecond,
@@ -1815,7 +1815,7 @@ func runTUI() int {
 	app.SetAttentionService(attentionSvc)
 	app.SetGroupDefaults(cfg.Groups.Defaults)
 	if cfg.Worktrees.Yggdrasil.Enabled {
-		app.SetWorktreeService(service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), service.NewGitCheckoutInspector()))
+		app.SetWorktreeService(service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector()))
 	}
 	appWindow, appBuckets := resolveSparklineWindow(cfg)
 	app.SetSparklineWindow(appWindow, appBuckets)

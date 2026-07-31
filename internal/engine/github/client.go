@@ -252,7 +252,16 @@ func (c *Client) fetchCheckStatus(owner, repo, sha string) (string, error) {
 	if err := c.get(path, url.Values{"per_page": {"100"}}, &response); err != nil {
 		return "", err
 	}
-	if len(response.CheckRuns) == 0 {
+	var statuses struct {
+		Statuses []struct {
+			State string `json:"state"`
+		} `json:"statuses"`
+	}
+	statusPath := fmt.Sprintf("/repos/%s/%s/commits/%s/status", url.PathEscape(owner), url.PathEscape(repo), url.PathEscape(sha))
+	if err := c.get(statusPath, url.Values{"per_page": {"100"}}, &statuses); err != nil {
+		return "", err
+	}
+	if len(response.CheckRuns) == 0 && len(statuses.Statuses) == 0 {
 		return "", nil
 	}
 	pending := false
@@ -265,6 +274,17 @@ func (c *Client) fetchCheckStatus(owner, repo, sha string) (string, error) {
 		case "failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale":
 			return "fail", nil
 		case "neutral", "skipped", "success":
+		default:
+			pending = true
+		}
+	}
+	for _, status := range statuses.Statuses {
+		switch status.State {
+		case "failure", "error":
+			return "fail", nil
+		case "pending", "expected":
+			pending = true
+		case "success":
 		default:
 			pending = true
 		}

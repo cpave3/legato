@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,13 +20,23 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
+func checkoutInspector() service.CheckoutInspector {
+	return service.CheckoutInspectFunc(func(directory string) (*store.CodeContext, error) {
+		checkout, err := gitengine.InspectCheckout(context.Background(), directory)
+		if err != nil {
+			return nil, err
+		}
+		return &store.CodeContext{Repo: checkout.Repo, Branch: checkout.Branch, HeadSHA: checkout.HeadSHA, WorkingDir: checkout.WorkingDir}, nil
+	})
+}
+
 func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, existingAgents service.AgentService, existingPR service.PRTrackingService, workDir string) (*service.WorkflowService, error) {
 	if bus == nil {
 		bus = events.New()
 	}
 	prSvc := existingPR
 	if prSvc == nil {
-		client, err := gh.New(gh.Options{Token: cfg.GitHub.Token, BaseURL: cfg.GitHub.APIBaseURL})
+		client, err := gh.New(gh.Options{Token: cfg.GitHub.Token})
 		if err != nil {
 			return nil, fmt.Errorf("GitHub workflows require a configured token: %w", err)
 		}
@@ -68,7 +79,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 	}
 	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary), service.NewTaskNoteExecutor(db, publishers), service.NewTaskMetadataExecutor(db)}
 	if cfg.Worktrees.Yggdrasil.Enabled {
-		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), service.NewGitCheckoutInspector())
+		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector())
 		executors = append(executors,
 			service.NewGitHubPRPrepareExecutor(prSvc, gitengine.ExactFetcher{}, worktrees, prSvc),
 			service.NewWorktreeRemoveExecutor(worktrees),

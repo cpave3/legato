@@ -435,7 +435,7 @@ func runTaskGitHubContract(args []string) int {
 		return code
 	}
 	defer db.Close()
-	client, err := gh.New(gh.Options{Token: cfg.GitHub.Token, BaseURL: cfg.GitHub.APIBaseURL})
+	client, err := gh.New(gh.Options{Token: cfg.GitHub.Token})
 	if err != nil {
 		return renderCommandError(command, commandDomainError(err), jsonMode)
 	}
@@ -499,7 +499,7 @@ func runTaskWorktreeContract(args []string) int {
 			return code
 		}
 		defer db.Close()
-		recorder := service.NewWorktreeWorkflow(db, nil, service.NewGitCheckoutInspector())
+		recorder := service.NewWorktreeWorkflow(db, nil, checkoutInspector())
 		if err := cli.TaskWorktreeSet(db, taskID, meta, recorder); err != nil {
 			return renderCommandError(command, commandDomainError(err), jsonMode)
 		}

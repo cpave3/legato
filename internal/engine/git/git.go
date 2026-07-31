@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -36,6 +37,46 @@ func Head(ctx context.Context, dir string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(out), nil
+}
+
+// CheckoutContext is the repository identity read from an explicit checkout.
+type CheckoutContext struct {
+	Repo       string
+	Branch     string
+	HeadSHA    string
+	WorkingDir string
+}
+
+var (
+	githubSSHRemote   = regexp.MustCompile(`(?:ssh://)?git@github\.com[:/]([^/]+)/(.+?)(?:\.git)?$`)
+	githubHTTPSRemote = regexp.MustCompile(`https://github\.com/([^/]+)/(.+?)(?:\.git)?$`)
+)
+
+// InspectCheckout reads a GitHub origin, branch, and HEAD from dir.
+func InspectCheckout(ctx context.Context, dir string) (*CheckoutContext, error) {
+	remote, err := runGit(ctx, dir, "remote", "get-url", "origin")
+	if err != nil {
+		return nil, err
+	}
+	repo := ""
+	for _, pattern := range []*regexp.Regexp{githubSSHRemote, githubHTTPSRemote} {
+		if match := pattern.FindStringSubmatch(strings.TrimSpace(remote)); match != nil {
+			repo = match[1] + "/" + strings.TrimSuffix(match[2], ".git")
+			break
+		}
+	}
+	if repo == "" {
+		return nil, fmt.Errorf("checkout origin is not a GitHub repository")
+	}
+	branch, err := runGit(ctx, dir, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	head, err := Head(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+	return &CheckoutContext{Repo: repo, Branch: strings.TrimSpace(branch), HeadSHA: head, WorkingDir: dir}, nil
 }
 
 // MergeBase returns the fork point between HEAD and the given base branch.
