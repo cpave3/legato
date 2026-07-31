@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	gitpkg "github.com/cpave3/legato/internal/engine/git"
@@ -16,6 +17,7 @@ import (
 // ReviewService is the subset of review operations exposed over HTTP.
 type ReviewService interface {
 	Queue(context.Context) ([]service.ReviewQueueItem, error)
+	CapturingQueue(context.Context) ([]service.ReviewQueueItem, error)
 	Tour(ctx context.Context, tourID string) (*service.ReviewTourView, error)
 	StepDiff(ctx context.Context, tourID, stepID string) ([]gitpkg.FileDiff, error)
 	SetReviewed(ctx context.Context, tourID, stepID string, reviewed bool) error
@@ -344,6 +346,15 @@ func (s *Server) reviewQueueHandler() http.HandlerFunc {
 		if err != nil {
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if r.URL.Query().Get("include_capturing") == "true" {
+			capturing, err := s.reviews.CapturingQueue(r.Context())
+			if err != nil {
+				s.writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			items = append(items, capturing...)
+			sort.SliceStable(items, func(i, j int) bool { return items[i].ActivityAt > items[j].ActivityAt })
 		}
 		if items == nil {
 			items = []service.ReviewQueueItem{}

@@ -56,6 +56,40 @@ func TestReviewAttentionCanBeCompletedThroughInbox(t *testing.T) {
 	}
 }
 
+func TestCapturingReviewResolvesExistingAttentionItem(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "a.go", "package a\n")
+	gitCommitAll(t, f.repo, "add a")
+	if err := f.svc.Ready(ctx, f.tourID, "ready"); err != nil {
+		t.Fatal(err)
+	}
+
+	attention := NewAttentionService(f.store, nil)
+	adapter := NewReviewAttentionAdapter(f.svc)
+	if err := attention.RegisterProducer(adapter); err != nil {
+		t.Fatal(err)
+	}
+	if err := attention.Reconcile(ctx, adapter.Producer()); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := attention.List(ctx, AttentionFilter{})
+	if len(items) != 1 {
+		t.Fatalf("ready items = %+v", items)
+	}
+
+	if err := f.svc.RestartWithFeedback(ctx, f.tourID, "continue working"); err != nil {
+		t.Fatal(err)
+	}
+	if err := attention.Reconcile(ctx, adapter.Producer()); err != nil {
+		t.Fatal(err)
+	}
+	items, _ = attention.List(ctx, AttentionFilter{})
+	if len(items) != 0 {
+		t.Fatalf("capturing review remains in attention API/Stream Deck snapshot: %+v", items)
+	}
+}
+
 func TestWorkflowAttentionSnapshotReportsManualStep(t *testing.T) {
 	db, err := store.New(filepath.Join(t.TempDir(), "attention-workflow.db"))
 	if err != nil {

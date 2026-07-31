@@ -1458,6 +1458,29 @@ func TestReviewQueue(t *testing.T) {
 	}
 }
 
+func TestReviewQueueExcludesReviewedTourWithNewWork(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "a.go", "package a\n")
+	gitCommitAll(t, f.repo, "add a")
+	if err := f.svc.Ready(ctx, f.tourID, "ready"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.Complete(ctx, f.tourID); err != nil {
+		t.Fatal(err)
+	}
+	writeRepoFile(t, f.repo, "b.go", "package b\n")
+	gitCommitAll(t, f.repo, "add b")
+
+	items, err := f.svc.Queue(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("queue = %+v, want reviewed tour hidden until ready again", items)
+	}
+}
+
 func TestReviewQueueDoesNotRefreshUnchangedTourTimestamp(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
@@ -1512,39 +1535,30 @@ func TestReviewQueueSyncsToursAndSkipsBrokenWorktrees(t *testing.T) {
 	}
 }
 
-func TestReviewQueueSurfacesAbandonedCapturingTours(t *testing.T) {
+func TestReviewQueueExcludesCapturingToursAndCapturingQueueExposesThem(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
 
 	writeRepoFile(t, f.repo, "a.go", "package a\n")
 	gitCommitAll(t, f.repo, "add a")
-	// Agent synced steps but died before running `review ready`.
 	if err := f.svc.Sync(ctx, f.tourID); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.store.InsertAgentSession(ctx, store.AgentSession{
-		TaskID: "task-1", TmuxSession: "legato-task-1", Command: "chimera",
-		Status: "running", StartedAt: "2026-01-01T00:00:00Z",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// Session is in the DB but the tmux session is not alive (mock has no spawn).
 
 	items, err := f.svc.Queue(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].Status != "capturing" {
-		t.Fatalf("queue = %+v, want the abandoned capturing tour", items)
+	if len(items) != 0 {
+		t.Fatalf("actionable queue = %+v, want no capturing tours", items)
 	}
 
-	// A live session keeps capturing tours out of the queue.
-	if err := f.tmux.Spawn("legato-task-1", f.repo, 80, 24); err != nil {
+	items, err = f.svc.CapturingQueue(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	items, _ = f.svc.Queue(ctx)
-	if len(items) != 0 {
-		t.Fatalf("queue with live agent = %+v, want empty", items)
+	if len(items) != 1 || items[0].Status != "capturing" {
+		t.Fatalf("capturing queue = %+v, want capturing tour", items)
 	}
 }
 

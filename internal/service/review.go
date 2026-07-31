@@ -1579,10 +1579,17 @@ type ReviewQueueItem struct {
 	ActivityAt string `json:"activity_at"`
 }
 
-// Queue lists tasks with reviewable work: tours the agent marked ready,
-// completed reviews that gained new steps, and capturing tours whose agent
-// died before signalling ready.
+// Queue lists explicitly ready tours with unreviewed work.
 func (r *ReviewService) Queue(ctx context.Context) ([]ReviewQueueItem, error) {
+	return r.queueByStatus(ctx, "ready")
+}
+
+// CapturingQueue lists incomplete tours for explicit diagnostic views.
+func (r *ReviewService) CapturingQueue(ctx context.Context) ([]ReviewQueueItem, error) {
+	return r.queueByStatus(ctx, "capturing")
+}
+
+func (r *ReviewService) queueByStatus(ctx context.Context, status string) ([]ReviewQueueItem, error) {
 	tours, err := r.store.ListReviewTours(ctx)
 	if err != nil {
 		return nil, err
@@ -1602,16 +1609,7 @@ func (r *ReviewService) Queue(ctx context.Context) ([]ReviewQueueItem, error) {
 		if err != nil {
 			return nil, err
 		}
-		include := false
-		switch tour.Status {
-		case "ready":
-			include = unreviewed > 0
-		case "reviewed":
-			include = unreviewed > 0
-		case "capturing":
-			include = unreviewed > 0 && !r.agentAlive(ctx, tour.TaskID)
-		}
-		if !include {
+		if tour.Status != status || unreviewed == 0 {
 			continue
 		}
 		title := tour.TaskID
@@ -1632,18 +1630,6 @@ func (r *ReviewService) Queue(ctx context.Context) ([]ReviewQueueItem, error) {
 		return items[i].ActivityAt > items[j].ActivityAt
 	})
 	return items, nil
-}
-
-func (r *ReviewService) agentAlive(ctx context.Context, taskID string) bool {
-	if r.tmux == nil {
-		return false
-	}
-	sess, err := r.store.GetAgentSessionByTaskID(ctx, taskID)
-	if err != nil {
-		return false
-	}
-	alive, _ := r.tmux.IsAlive(sess.TmuxSession)
-	return alive
 }
 
 // ErrAgentOffline is returned by AskQuestion when the task has no live agent

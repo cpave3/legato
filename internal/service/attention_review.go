@@ -27,16 +27,9 @@ func (a *ReviewAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInput
 	}
 	items := make([]AttentionInput, 0, len(queue))
 	for _, tour := range queue {
-		reason := "Review tour is ready for your review"
-		switch tour.Status {
-		case "reviewed":
-			reason = "Reviewed tour has new work to review"
-		case "capturing":
-			reason = "Capturing tour's agent ended before signalling ready"
-		}
 		items = append(items, AttentionInput{
 			SourceKey: tour.TourID, SourceRevision: fmt.Sprintf("%s:%d:%s", tour.Status, tour.Unreviewed, tour.UpdatedAt),
-			TaskID: tour.TaskID, Title: tour.Title, Reason: reason, Detail: tour.Summary,
+			TaskID: tour.TaskID, Title: tour.Title, Reason: "Review tour is ready for your review", Detail: tour.Summary,
 			Category: "review", Urgency: "normal",
 			Navigation: AttentionNavigation{Kind: "review", Target: tour.TourID},
 			Actions: []AttentionAction{

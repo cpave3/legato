@@ -26,6 +26,8 @@ type reviewServerFixture struct {
 	store  *store.Store
 	svc    *service.ReviewService
 	tourID string
+	repo   string
+	git    func(...string)
 }
 
 func newReviewServerFixture(t *testing.T) *reviewServerFixture {
@@ -84,7 +86,7 @@ func newReviewServerFixture(t *testing.T) *reviewServerFixture {
 	}
 	server := New(nil, nil, nil, "")
 	server.SetReviewService(svc)
-	return &reviewServerFixture{server: server, store: s, svc: svc, tourID: tour.ID}
+	return &reviewServerFixture{server: server, store: s, svc: svc, tourID: tour.ID, repo: repo, git: git}
 }
 
 func TestReviewTourAndStepDiff(t *testing.T) {
@@ -495,6 +497,37 @@ func TestReviewAPIUnavailableWithoutService(t *testing.T) {
 	server.Handler().ServeHTTP(res, req)
 	if res.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestReviewQueueHidesCapturingToursUnlessRequested(t *testing.T) {
+	f := newReviewServerFixture(t)
+	if err := os.WriteFile(filepath.Join(f.repo, "capture.go"), []byte("package capture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.git("add", ".")
+	f.git("commit", "-m", "capture")
+	if err := f.svc.RestartWithFeedback(context.Background(), f.tourID, "more work"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.Sync(context.Background(), f.tourID); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		query string
+		want  int
+	}{{"", 0}, {"?include_capturing=true", 1}} {
+		req := httptest.NewRequest(http.MethodGet, "/api/review/queue"+test.query, nil)
+		res := httptest.NewRecorder()
+		f.server.Handler().ServeHTTP(res, req)
+		var items []service.ReviewQueueItem
+		if err := json.NewDecoder(res.Body).Decode(&items); err != nil {
+			t.Fatal(err)
+		}
+		if len(items) != test.want {
+			t.Fatalf("query %q queue = %+v, want %d", test.query, items, test.want)
+		}
 	}
 }
 
