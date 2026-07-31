@@ -339,9 +339,13 @@ func (s *Server) taskHandler() http.HandlerFunc {
 				Triggers []store.WorkflowTriggerRequest `json:"triggers,omitempty"`
 			}{Status: "ok"}
 			if req.Column != nil && s.workflowTriggers != nil {
-				transition, transitionErr := s.workflowTriggers.LatestTransitionForTask(ctx, id)
-				if transitionErr != nil || s.workflowTriggers.CaptureTransition(ctx, transition.ID) != nil {
-					s.writeError(w, http.StatusInternalServerError, "workflow trigger capture failed")
+				transition, err := s.workflowTriggers.LatestTransitionForTask(ctx, id)
+				if err != nil {
+					s.writeError(w, http.StatusInternalServerError, "workflow trigger capture failed: "+err.Error())
+					return
+				}
+				if err := s.workflowTriggers.CaptureTransition(ctx, transition.ID); err != nil {
+					s.writeError(w, http.StatusInternalServerError, "workflow trigger capture failed: "+err.Error())
 					return
 				}
 				requests, err := s.workflowTriggers.RequestsForTransition(ctx, transition.ID)

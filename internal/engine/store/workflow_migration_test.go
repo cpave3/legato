@@ -9,6 +9,44 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func TestMigrationAddsWorkflowTriggerDefinitionSnapshot(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-trigger.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statements := []string{
+		`CREATE TABLE workflow_trigger_requests (
+			id TEXT PRIMARY KEY, transition_id TEXT NOT NULL, workflow_name TEXT NOT NULL,
+			definition_source TEXT NOT NULL, definition_digest TEXT NOT NULL,
+			inputs_json TEXT NOT NULL DEFAULT '{}', missing_inputs_json TEXT NOT NULL DEFAULT '[]',
+			status TEXT NOT NULL, run_id TEXT NOT NULL DEFAULT '', error TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT (datetime('now')), updated_at DATETIME NOT NULL DEFAULT (datetime('now')),
+			UNIQUE (transition_id, workflow_name, definition_digest)
+		)`,
+		`PRAGMA user_version=47`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := New(path)
+	if err != nil {
+		t.Fatalf("open legacy database: %v", err)
+	}
+	defer store.Close()
+
+	var definitionJSON string
+	if err := store.DB().Get(&definitionJSON, `SELECT definition_json FROM workflow_trigger_requests LIMIT 1`); err != sql.ErrNoRows {
+		t.Fatalf("definition_json column check: %v", err)
+	}
+}
+
 func TestMigrationFromLegacyNullableRelatedTaskID(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy.db")
 	db, err := sql.Open("sqlite", path)

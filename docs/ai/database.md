@@ -21,4 +21,4 @@ Tasks store local arbitrary JSON metadata in `tasks.metadata`. This is separate 
 
 Explicit local column moves atomically persist a `task_transitions` snapshot. Matching workflow definitions create `workflow_trigger_requests` with a definition digest and full definition snapshot. `(transition_id, workflow_name, definition_digest)` is unique, and `workflow_runs.trigger_request_id` is unique when present, preventing replay from launching duplicate runs. Requests remain durable in `pending`, `waiting_input`, `started`, `skipped`, or `failed` state.
 
-Migrations 044-046 add task metadata, transition/request persistence, and the workflow-run trigger link. Migration 047 adds `code_context`, backfills repository identity from legacy `pr_meta`, and pins existing numbered PR links.
+Migrations 044-046 add task metadata, transition/request persistence, and the workflow-run trigger link. Migration 047 adds `code_context`, backfills repository identity from legacy `pr_meta`, and pins existing numbered PR links. Migration 048 repairs early migration-045 databases by adding the missing workflow-trigger definition snapshot column.
