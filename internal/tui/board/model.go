@@ -220,12 +220,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			key := card.Key
 			return m, func() tea.Msg { return OpenLinkPRMsg{CardKey: key} }
 		}
-	case "R":
+	case "ctrl+r":
 		if card := m.SelectedCard(); card != nil {
 			key := card.Key
 			return m, func() tea.Msg { return RefreshPRMsg{CardKey: key} }
 		}
-	case "P":
+	case "ctrl+p":
 		if card := m.SelectedCard(); card != nil {
 			key := card.Key
 			return m, func() tea.Msg { return RediscoverPRMsg{CardKey: key} }

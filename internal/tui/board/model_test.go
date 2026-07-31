@@ -91,19 +91,23 @@ func newTestModel() Model {
 
 func TestTargetedPRKeysEmitSelectedTaskActions(t *testing.T) {
 	m := newTestModel()
-	for key, wantType := range map[string]any{"R": RefreshPRMsg{}, "P": RediscoverPRMsg{}} {
-		_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+	for _, test := range []struct {
+		key      tea.KeyType
+		name     string
+		wantType any
+	}{{tea.KeyCtrlR, "ctrl+r", RefreshPRMsg{}}, {tea.KeyCtrlP, "ctrl+p", RediscoverPRMsg{}}} {
+		_, cmd := m.handleKey(tea.KeyMsg{Type: test.key})
 		if cmd == nil {
-			t.Fatalf("%s returned no command", key)
+			t.Fatalf("%s returned no command", test.name)
 		}
-		switch wantType.(type) {
+		switch test.wantType.(type) {
 		case RefreshPRMsg:
 			if msg, ok := cmd().(RefreshPRMsg); !ok || msg.CardKey == "" {
-				t.Fatalf("%s message = %#v", key, cmd())
+				t.Fatalf("%s message = %#v", test.name, cmd())
 			}
 		case RediscoverPRMsg:
 			if msg, ok := cmd().(RediscoverPRMsg); !ok || msg.CardKey == "" {
-				t.Fatalf("%s message = %#v", key, cmd())
+				t.Fatalf("%s message = %#v", test.name, cmd())
 			}
 		}
 	}

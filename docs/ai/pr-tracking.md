@@ -86,7 +86,7 @@ legato task github rediscover TASK-123
 
 `legato task link` remains compatible for hooks and scripts but now writes durable code context. `legato task unlink` clears both the PR cache and code context. Staccato can still call these commands, but is no longer required.
 
-TUI: lowercase `p` links a known PR, uppercase `R` refreshes the selected task's PR, uppercase `P` rediscovers it, and lowercase `r` performs the existing global Jira + GitHub synchronization. Task detail shows repository/branch plus `no match`, `ambiguous`, and API error outcomes.
+TUI: lowercase `p` links a known PR, `ctrl+r` refreshes the selected task's PR, `ctrl+p` rediscovers it, and lowercase `r` performs the existing global Jira + GitHub synchronization. Uppercase `R` and `P` retain their existing Reporting and Plans actions. Task detail shows repository/branch plus `no match`, `ambiguous`, and API error outcomes.
 
 Web/API task detail includes `code_context` and enriched `pr_meta`. Authenticated targeted endpoints are:
 

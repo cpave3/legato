@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cpave3/legato/internal/engine/analytics"
 	gitpkg "github.com/cpave3/legato/internal/engine/git"
+	"github.com/cpave3/legato/internal/engine/github"
 	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
@@ -25,6 +26,42 @@ import (
 	"github.com/cpave3/legato/internal/tui/statusbar"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
+
+type fakeTargetedPRService struct {
+	refreshed    string
+	rediscovered string
+}
+
+func (f *fakeTargetedPRService) LinkBranch(context.Context, string, string, string) error { return nil }
+func (f *fakeTargetedPRService) LinkPR(context.Context, string, string, string, int) error {
+	return nil
+}
+func (f *fakeTargetedPRService) UnlinkBranch(context.Context, string) error { return nil }
+func (f *fakeTargetedPRService) PollOnce(context.Context) error             { return nil }
+func (f *fakeTargetedPRService) PollAll(context.Context) error              { return nil }
+func (f *fakeTargetedPRService) StartPolling(context.Context) func()        { return func() {} }
+func (f *fakeTargetedPRService) GetPRStatus(context.Context, string) (*store.PRMeta, error) {
+	return nil, nil
+}
+func (f *fakeTargetedPRService) DetectRepo() (string, string, error) { return "", "", nil }
+func (f *fakeTargetedPRService) FetchPRByNumber(string, string, int) (*github.PRStatus, error) {
+	return nil, nil
+}
+
+func (f *fakeTargetedPRService) RefreshPR(_ context.Context, taskID string) error {
+	f.refreshed = taskID
+	return nil
+}
+func (f *fakeTargetedPRService) RediscoverPR(_ context.Context, taskID string) error {
+	f.rediscovered = taskID
+	return nil
+}
+func (f *fakeTargetedPRService) SetCodeContext(context.Context, string, *store.CodeContext) error {
+	return nil
+}
+func (f *fakeTargetedPRService) GetCodeContext(context.Context, string) (*store.CodeContext, error) {
+	return nil, nil
+}
 
 type fakeBoardService struct {
 	imported    []service.Card
@@ -342,6 +379,38 @@ func TestReviewQuestionInputTakesGlobalHelpKey(t *testing.T) {
 	}
 	if !app.reviewView.InputFocused() || !strings.Contains(app.View(), "Question: ?") {
 		t.Fatalf("question input did not receive ?: %s", app.View())
+	}
+}
+
+func TestAppRoutesControlPRShortcutsWithoutOverridingReports(t *testing.T) {
+	prSvc := &fakeTargetedPRService{}
+	app := NewApp(&fakeBoardService{}, nil, nil, prSvc, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
+	load := app.board.Init()
+	loaded, _ := app.Update(load())
+	app = loaded.(App)
+
+	updated, cmd := app.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	app = updated.(App)
+	msg := cmd()
+	updated, actionCmd := app.Update(msg)
+	app = updated.(App)
+	_ = actionCmd()
+	if prSvc.refreshed != "REX-1" {
+		t.Fatalf("refreshed = %q", prSvc.refreshed)
+	}
+
+	updated, cmd = app.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	app = updated.(App)
+	msg = cmd()
+	_, actionCmd = app.Update(msg)
+	_ = actionCmd()
+	if prSvc.rediscovered != "REX-1" {
+		t.Fatalf("rediscovered = %q", prSvc.rediscovered)
+	}
+
+	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	if updated.(App).active != viewReport {
+		t.Fatal("uppercase R no longer opens reporting")
 	}
 }
 
