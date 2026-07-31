@@ -40,7 +40,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 		if err != nil {
 			prErr = err
 		} else {
-			prSvc = service.NewPRTrackingService(db, bus, client, 10*time.Minute, 10*time.Minute, githubRepositoryMappings(cfg)...)
+			prSvc = service.NewPRTrackingServiceWithInspector(db, bus, client, 10*time.Minute, 10*time.Minute, checkoutInspector(), githubRepositoryMappings(cfg)...)
 		}
 	}
 	agentSvc := existingAgents

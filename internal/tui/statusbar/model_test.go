@@ -195,6 +195,29 @@ func TestReviewModeHintsIncludeDelete(t *testing.T) {
 	}
 }
 
+func TestTransientMessageExpiresWithoutClearingNewerMessage(t *testing.T) {
+	m := New()
+	m, cmd := m.Update(ErrorMsg{Text: "first failure"})
+	if cmd == nil {
+		t.Fatal("error should schedule expiry")
+	}
+	firstSeq := m.transientSeq
+	m, _ = m.Update(ErrorMsg{Text: "newer failure"})
+	m, _ = m.Update(ClearTransientMsg{Kind: "error", Seq: firstSeq})
+	if m.errorText != "newer failure" {
+		t.Fatalf("stale expiry cleared newer error: %q", m.errorText)
+	}
+
+	m, cmd = m.Update(InfoMsg{Text: "no pull request found"})
+	if cmd == nil {
+		t.Fatal("info should schedule expiry")
+	}
+	m, _ = m.Update(ClearTransientMsg{Kind: "info", Seq: m.transientSeq})
+	if m.infoText != "" {
+		t.Fatalf("info did not expire: %q", m.infoText)
+	}
+}
+
 func TestProgressMessageTakesPriorityAndCanBeCleared(t *testing.T) {
 	m := New()
 	m.width = 120

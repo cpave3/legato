@@ -447,7 +447,7 @@ func runTaskGitHubContract(args []string) int {
 		if clientErr != nil {
 			return renderCommandError(command, commandDomainError(clientErr), jsonMode)
 		}
-		svc := service.NewPRTrackingService(db, events.New(), client, 0, 0, githubRepositoryMappings(cfg)...)
+		svc := service.NewPRTrackingServiceWithInspector(db, events.New(), client, 0, 0, checkoutInspector(), githubRepositoryMappings(cfg)...)
 		actions := svc.(service.PRTaskActions)
 		switch args[0] {
 		case "refresh":

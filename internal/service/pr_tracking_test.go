@@ -836,6 +836,59 @@ func TestSetTaskCodeContextRequiresNoGitHubClient(t *testing.T) {
 	}
 }
 
+func TestRefreshPRRecoversContextFromExistingWorktree(t *testing.T) {
+	s := newTestPRStore(t)
+	ctx := context.Background()
+	createPRTask(t, s, "TASK-1")
+	if err := s.SetTaskWorktree(ctx, "TASK-1", &store.TaskWorktree{Path: "/worktrees/TASK-1", Branch: "feature/TASK-1", BaseBranch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	prMeta, err := store.MarshalPRMeta(&store.PRMeta{PRNumber: 42})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdatePRMeta(ctx, "TASK-1", prMeta); err != nil {
+		t.Fatal(err)
+	}
+	inspector := &fakeCheckoutInspector{context: &store.CodeContext{Repo: "acme/widget", Branch: "feature/TASK-1", HeadSHA: "abc123"}}
+	gh := &mockGitHub{prByNumber: map[int]*github.PRStatus{42: {HasPR: true, Number: 42, State: "OPEN"}}}
+	actions := NewPRTrackingServiceWithInspector(s, events.New(), gh, time.Minute, time.Minute, inspector).(PRTaskActions)
+	if err := actions.RefreshPR(ctx, "TASK-1"); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := s.GetTask(ctx, "TASK-1")
+	codeContext, _ := store.ParseCodeContext(task.CodeContext)
+	if inspector.dir != "/worktrees/TASK-1" || codeContext == nil || codeContext.Repo != "acme/widget" {
+		t.Fatalf("inspected=%q context=%#v", inspector.dir, codeContext)
+	}
+}
+
+func TestRediscoverPRRecoversContextFromExistingWorktree(t *testing.T) {
+	s := newTestPRStore(t)
+	ctx := context.Background()
+	createPRTask(t, s, "TASK-1")
+	if err := s.SetTaskWorktree(ctx, "TASK-1", &store.TaskWorktree{Path: "/worktrees/TASK-1", Branch: "feature/TASK-1", BaseBranch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	inspector := &fakeCheckoutInspector{context: &store.CodeContext{Repo: "acme/widget", Branch: "feature/TASK-1", HeadSHA: "abc123"}}
+	gh := &mockGitHub{repositoryPRs: map[string][]github.PRStatus{
+		"acme/widget": {{HasPR: true, Number: 42, State: "OPEN", HeadSHA: "abc123", HeadBranch: "feature/TASK-1", HeadRepo: "acme/widget"}},
+	}}
+	actions := NewPRTrackingServiceWithInspector(s, events.New(), gh, time.Minute, time.Minute, inspector).(PRTaskActions)
+	if err := actions.RediscoverPR(ctx, "TASK-1"); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := s.GetTask(ctx, "TASK-1")
+	codeContext, _ := store.ParseCodeContext(task.CodeContext)
+	meta, _ := store.ParsePRMeta(task.PRMeta)
+	if inspector.dir != "/worktrees/TASK-1" || codeContext == nil || codeContext.Repo != "acme/widget" || codeContext.RepoSource != "worktree" {
+		t.Fatalf("inspected=%q context=%#v", inspector.dir, codeContext)
+	}
+	if meta == nil || meta.PRNumber != 42 {
+		t.Fatalf("PR metadata = %#v", meta)
+	}
+}
+
 func TestRediscoverPRRetainsContextAndReplacesWrongLink(t *testing.T) {
 	s := newTestPRStore(t)
 	ctx := context.Background()

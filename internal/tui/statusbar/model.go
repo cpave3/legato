@@ -40,6 +40,10 @@ type WarningMsg struct{ Text string }
 type ErrorMsg struct{ Text string }
 type InfoMsg struct{ Text string }
 type ProgressMsg struct{ Text string }
+type ClearTransientMsg struct {
+	Kind string
+	Seq  uint64
+}
 type WorkspaceMsg struct {
 	Name  string
 	Color string
@@ -63,6 +67,7 @@ type Model struct {
 	errorText      string
 	infoText       string
 	progressText   string
+	transientSeq   uint64
 	workspaceName  string
 	workspaceColor string
 	webServerPort  string
@@ -102,10 +107,24 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.warning = msg.Text
 	case InfoMsg:
 		m.infoText = msg.Text
+		m.errorText = ""
+		m.transientSeq++
+		return m, clearTransientAfter("info", m.transientSeq)
 	case ProgressMsg:
 		m.progressText = msg.Text
 	case ErrorMsg:
 		m.errorText = msg.Text
+		m.infoText = ""
+		m.transientSeq++
+		return m, clearTransientAfter("error", m.transientSeq)
+	case ClearTransientMsg:
+		if msg.Seq == m.transientSeq {
+			if msg.Kind == "error" {
+				m.errorText = ""
+			} else {
+				m.infoText = ""
+			}
+		}
 	case WorkspaceMsg:
 		m.workspaceName = msg.Name
 		m.workspaceColor = msg.Color
@@ -119,6 +138,12 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.width = msg.Width
 	}
 	return m, nil
+}
+
+func clearTransientAfter(kind string, seq uint64) tea.Cmd {
+	return tea.Tick(5*time.Second, func(time.Time) tea.Msg {
+		return ClearTransientMsg{Kind: kind, Seq: seq}
+	})
 }
 
 // SetWebServer updates the status bar to show the web server port.

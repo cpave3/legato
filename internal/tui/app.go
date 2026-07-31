@@ -1294,12 +1294,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case targetedPRDoneMsg:
 		a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{})
+		var statusCmd tea.Cmd
 		if msg.Err != "" {
-			a.statusBar, _ = a.statusBar.Update(statusbar.ErrorMsg{Text: "PR sync failed: " + msg.Err})
+			a.statusBar, statusCmd = a.statusBar.Update(statusbar.ErrorMsg{Text: "PR sync failed: " + msg.Err})
 		} else {
-			a.statusBar, _ = a.statusBar.Update(statusbar.InfoMsg{Text: targetedPROutcome(msg.Meta, msg.Rediscover)})
+			a.statusBar, statusCmd = a.statusBar.Update(statusbar.InfoMsg{Text: targetedPROutcome(msg.Meta, msg.Rediscover)})
 		}
-		return a, a.board.Init()
+		return a, tea.Batch(a.board.Init(), statusCmd)
+
+	case statusbar.ClearTransientMsg:
+		a.statusBar, _ = a.statusBar.Update(msg)
+		return a, nil
 
 	case worktreeCreateDoneMsg:
 		a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{})

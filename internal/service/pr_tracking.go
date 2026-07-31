@@ -62,6 +62,7 @@ type prTrackingService struct {
 	interval         time.Duration // unresolved PRs (branch-only)
 	resolvedInterval time.Duration // resolved PRs (have PR number)
 	repositories     []RepositoryMapping
+	inspector        CheckoutInspector
 
 	mu               sync.Mutex // protects lastResolvedPoll
 	lastResolvedPoll time.Time  // tracks when resolved PRs were last polled
@@ -69,6 +70,14 @@ type prTrackingService struct {
 
 // NewPRTrackingService creates a new PR tracking service.
 func NewPRTrackingService(s *store.Store, bus *events.Bus, gh GitHubClient, interval, resolvedInterval time.Duration, repositories ...RepositoryMapping) PRTrackingService {
+	return newPRTrackingService(s, bus, gh, interval, resolvedInterval, nil, repositories...)
+}
+
+func NewPRTrackingServiceWithInspector(s *store.Store, bus *events.Bus, gh GitHubClient, interval, resolvedInterval time.Duration, inspector CheckoutInspector, repositories ...RepositoryMapping) PRTrackingService {
+	return newPRTrackingService(s, bus, gh, interval, resolvedInterval, inspector, repositories...)
+}
+
+func newPRTrackingService(s *store.Store, bus *events.Bus, gh GitHubClient, interval, resolvedInterval time.Duration, inspector CheckoutInspector, repositories ...RepositoryMapping) PRTrackingService {
 	if interval == 0 {
 		interval = 10 * time.Minute
 	}
@@ -82,6 +91,7 @@ func NewPRTrackingService(s *store.Store, bus *events.Bus, gh GitHubClient, inte
 		interval:         interval,
 		resolvedInterval: resolvedInterval,
 		repositories:     append([]RepositoryMapping(nil), repositories...),
+		inspector:        inspector,
 	}
 }
 
@@ -197,6 +207,9 @@ func (p *prTrackingService) RefreshPR(ctx context.Context, taskID string) error 
 	if err != nil {
 		return err
 	}
+	if codeContext == nil || codeContext.Repo == "" {
+		codeContext = p.contextFromWorktree(ctx, task)
+	}
 	if codeContext == nil || codeContext.Repo == "" || meta == nil || meta.PRNumber == 0 {
 		return fmt.Errorf("task %s has no linked PR with repository context", taskID)
 	}
@@ -221,6 +234,9 @@ func (p *prTrackingService) RediscoverPR(ctx context.Context, taskID string) err
 	codeContext, err := store.ParseCodeContext(task.CodeContext)
 	if err != nil {
 		return err
+	}
+	if codeContext == nil || codeContext.Repo == "" {
+		codeContext = p.contextFromWorktree(ctx, task)
 	}
 	if codeContext == nil || codeContext.Repo == "" {
 		return fmt.Errorf("task %s has no repository context", taskID)
@@ -300,7 +316,10 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		if err != nil {
 			continue
 		}
-		if codeContext == nil {
+		if codeContext == nil || codeContext.Repo == "" {
+			codeContext = p.contextFromWorktree(ctx, &t)
+		}
+		if codeContext == nil || codeContext.Repo == "" {
 			codeContext = p.contextFromMappings(ctx, &t)
 			if codeContext != nil {
 				_ = p.store.SetCodeContext(ctx, t.ID, codeContext)
@@ -415,6 +434,36 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 	}
 
 	return nil
+}
+
+func (p *prTrackingService) contextFromWorktree(ctx context.Context, task *store.Task) *store.CodeContext {
+	if p.inspector == nil || task.WorktreePath == nil || *task.WorktreePath == "" {
+		return nil
+	}
+	captured, err := p.inspector.InspectCodeContext(*task.WorktreePath)
+	if err != nil || captured == nil || captured.Repo == "" {
+		return nil
+	}
+	captured.WorkingDir = *task.WorktreePath
+	if task.WorktreeBaseBranch != nil {
+		captured.BaseBranch = *task.WorktreeBaseBranch
+	}
+	captured.RepoSource = "worktree"
+	captured.BranchSource = "worktree"
+	if existing, parseErr := store.ParseCodeContext(task.CodeContext); parseErr == nil && existing != nil {
+		if existing.BranchSource == "manual" {
+			captured.Branch = existing.Branch
+			captured.BranchSource = existing.BranchSource
+		}
+		if existing.BaseBranch != "" {
+			captured.BaseBranch = existing.BaseBranch
+		}
+	}
+	captured.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := p.store.SetCodeContext(ctx, task.ID, captured); err != nil {
+		return nil
+	}
+	return captured
 }
 
 func (p *prTrackingService) contextFromMappings(ctx context.Context, task *store.Task) *store.CodeContext {

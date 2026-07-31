@@ -1586,7 +1586,7 @@ func runTUI() int {
 	if ghErr == nil {
 		interval := time.Duration(cfg.GitHub.PollIntervalSeconds) * time.Second
 		resolvedInterval := time.Duration(cfg.GitHub.ResolvedPollIntervalSeconds) * time.Second
-		prSvc = service.NewPRTrackingService(db, bus, ghClient, interval, resolvedInterval, githubRepositoryMappings(cfg)...)
+		prSvc = service.NewPRTrackingServiceWithInspector(db, bus, ghClient, interval, resolvedInterval, checkoutInspector(), githubRepositoryMappings(cfg)...)
 		// Initial poll fetches all PRs (resolved + unresolved), then periodic uses split cadence
 		go prSvc.PollAll(context.Background())
 		stopPR := prSvc.StartPolling(context.Background())

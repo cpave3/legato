@@ -389,8 +389,11 @@ func TestTargetedPRActionClearsProgressOnError(t *testing.T) {
 	app := NewApp(&fakeBoardService{}, nil, nil, prSvc, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
 	model, cmd := app.runTargetedPRAction("REX-1", true)
 	app = model.(App)
-	updated, _ := app.Update(cmd())
+	updated, expiryCmd := app.Update(cmd())
 	app = updated.(App)
+	if expiryCmd == nil {
+		t.Fatal("targeted PR failure should schedule status expiry")
+	}
 	app.statusBar, _ = app.statusBar.Update(tea.WindowSizeMsg{Width: 160})
 	view := app.statusBar.View()
 	if strings.Contains(view, "rediscovering") || !strings.Contains(view, "rate_limit") {
@@ -417,8 +420,11 @@ func TestTargetedPRActionClearsProgressAndShowsOutcome(t *testing.T) {
 				app.statusBar, _ = app.statusBar.Update(tea.WindowSizeMsg{Width: 160})
 			}
 			msg := cmd()
-			updated, _ := app.Update(msg)
+			updated, expiryCmd := app.Update(msg)
 			app = updated.(App)
+			if expiryCmd == nil {
+				t.Fatal("targeted PR outcome should schedule status expiry")
+			}
 			app.statusBar, _ = app.statusBar.Update(tea.WindowSizeMsg{Width: 160})
 			view := app.statusBar.View()
 			if strings.Contains(view, "rediscovering") || !strings.Contains(view, test.want) {
