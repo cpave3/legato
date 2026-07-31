@@ -121,6 +121,22 @@ func (m *mockBoardService) ListArchivedTasks(_ context.Context) ([]service.Card,
 func (m *mockBoardService) RestoreTask(_ context.Context, _ string) error { return nil }
 func (m *mockBoardService) CountDoneCards(_ context.Context) (int, error) { return 0, nil }
 
+func TestSettingsEndpointReportsWorktreeCapability(t *testing.T) {
+	s := New(nil, nil, nil, "")
+	s.SetWorktreeService(&worktreeServiceFake{})
+	rec := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/settings", nil))
+	var response struct {
+		WorktreesEnabled bool `json:"worktrees_enabled"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.WorktreesEnabled {
+		t.Fatal("worktree capability not reported")
+	}
+}
+
 func TestSettingsEndpointIncludesRepositoryPresets(t *testing.T) {
 	s := New(nil, nil, nil, "")
 	s.SetWorkflowService(nil, "", "", workflowengine.RepositoryPreset{

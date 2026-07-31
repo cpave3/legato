@@ -75,23 +75,31 @@ type WorkspaceResponse struct {
 
 // CardDetailResponse is the JSON response for GET /api/tasks/{id}.
 type CardDetailResponse struct {
-	ID              string               `json:"id"`
-	Title           string               `json:"title"`
-	DescriptionMD   string               `json:"description_md"`
-	Status          string               `json:"status"`
-	Priority        string               `json:"priority"`
-	Provider        string               `json:"provider"`
-	RemoteID        string               `json:"remote_id"`
-	RemoteMeta      map[string]string    `json:"remote_meta,omitempty"`
-	Metadata        map[string]any       `json:"metadata"`
-	WorkspaceID     *int                 `json:"workspace_id,omitempty"`
-	PRMeta          *PRMetaResponse      `json:"pr_meta,omitempty"`
-	CodeContext     *CodeContextResponse `json:"code_context,omitempty"`
-	SwarmActiveStep int                  `json:"swarm_active_step"`
-	SwarmStepNames  []string             `json:"swarm_step_names,omitempty"`
-	CreatedAt       string               `json:"created_at"`
-	UpdatedAt       string               `json:"updated_at"`
-	Notes           []store.TaskNote     `json:"notes"`
+	ID              string                `json:"id"`
+	Title           string                `json:"title"`
+	DescriptionMD   string                `json:"description_md"`
+	Status          string                `json:"status"`
+	Priority        string                `json:"priority"`
+	Provider        string                `json:"provider"`
+	RemoteID        string                `json:"remote_id"`
+	RemoteMeta      map[string]string     `json:"remote_meta,omitempty"`
+	Metadata        map[string]any        `json:"metadata"`
+	WorkspaceID     *int                  `json:"workspace_id,omitempty"`
+	PRMeta          *PRMetaResponse       `json:"pr_meta,omitempty"`
+	CodeContext     *CodeContextResponse  `json:"code_context,omitempty"`
+	Worktree        *TaskWorktreeResponse `json:"worktree,omitempty"`
+	SwarmActiveStep int                   `json:"swarm_active_step"`
+	SwarmStepNames  []string              `json:"swarm_step_names,omitempty"`
+	CreatedAt       string                `json:"created_at"`
+	UpdatedAt       string                `json:"updated_at"`
+	Notes           []store.TaskNote      `json:"notes"`
+}
+
+type TaskWorktreeResponse struct {
+	PrimaryDir string `json:"primary_dir"`
+	Path       string `json:"path"`
+	Branch     string `json:"branch"`
+	BaseBranch string `json:"base_branch"`
 }
 
 type CodeContextResponse struct {

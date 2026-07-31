@@ -393,6 +393,14 @@ func cardDetailToResponse(d *service.CardDetail) CardDetailResponse {
 		UpdatedAt:       d.UpdatedAt.Format(time.RFC3339),
 		Notes:           d.Notes,
 	}
+	if d.Worktree != nil {
+		resp.Worktree = &TaskWorktreeResponse{
+			PrimaryDir: d.Worktree.PrimaryDir,
+			Path:       d.Worktree.Path,
+			Branch:     d.Worktree.Branch,
+			BaseBranch: d.Worktree.BaseBranch,
+		}
+	}
 	if d.CodeContext != nil {
 		resp.CodeContext = &CodeContextResponse{
 			Repo: d.CodeContext.Repo, Branch: d.CodeContext.Branch, HeadSHA: d.CodeContext.HeadSHA,

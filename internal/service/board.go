@@ -686,6 +686,15 @@ func taskToCardDetail(t *store.Task) *CardDetail {
 	}
 	detail.Metadata, _ = store.ParseTaskMetadata(t.Metadata)
 
+	if t.WorktreePrimaryDir != nil && t.WorktreePath != nil && t.WorktreeBranch != nil && t.WorktreeBaseBranch != nil {
+		detail.Worktree = &store.TaskWorktree{
+			PrimaryDir: *t.WorktreePrimaryDir,
+			Path:       *t.WorktreePath,
+			Branch:     *t.WorktreeBranch,
+			BaseBranch: *t.WorktreeBaseBranch,
+		}
+	}
+
 	codeContext, _ := store.ParseCodeContext(t.CodeContext)
 	if codeContext != nil {
 		detail.CodeContext = &CodeContextView{

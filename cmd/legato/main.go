@@ -1406,6 +1406,9 @@ func runServeCmd(args []string) int {
 	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
+	if cfg.Worktrees.Yggdrasil.Enabled {
+		srv.SetWorktreeService(service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector()))
+	}
 	srv.SetSyncService(syncSvc)
 	srv.SetReviewService(reviewSvc)
 	srv.SetPlanService(planSvc)
@@ -1732,6 +1735,11 @@ func runTUI() int {
 		log.Printf("workflows: %v", workflowErr)
 	}
 
+	var worktreeSvc *service.WorktreeWorkflow
+	if cfg.Worktrees.Yggdrasil.Enabled {
+		worktreeSvc = service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector())
+	}
+
 	// Auto-start web server if configured and port is free.
 	if cfg.Web.Enabled {
 		addr := ":" + cfg.Web.Port
@@ -1740,6 +1748,9 @@ func runTUI() int {
 			log.Printf("web: port %s unavailable: %v", cfg.Web.Port, listenErr)
 		} else {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
+			if worktreeSvc != nil {
+				webSrv.SetWorktreeService(worktreeSvc)
+			}
 			webSrv.SetReviewService(reviewSvc)
 			webSrv.SetPlanService(planSvc)
 			webSrv.SetArtifactService(artifactSvc)
@@ -1813,8 +1824,8 @@ func runTUI() int {
 	}
 	app.SetAttentionService(attentionSvc)
 	app.SetGroupDefaults(cfg.Groups.Defaults)
-	if cfg.Worktrees.Yggdrasil.Enabled {
-		app.SetWorktreeService(service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector()))
+	if worktreeSvc != nil {
+		app.SetWorktreeService(worktreeSvc)
 	}
 	appWindow, appBuckets := resolveSparklineWindow(cfg)
 	app.SetSparklineWindow(appWindow, appBuckets)

@@ -13,12 +13,17 @@ import (
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/macros"
+	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/server/static"
 	"github.com/cpave3/legato/internal/service"
 )
 
 // Server is the HTTP/WebSocket server for Legato's web UI.
+type WorktreeService interface {
+	Create(ctx context.Context, taskID, primaryDir, branch, baseBranch string) (*store.TaskWorktree, error)
+}
+
 type Server struct {
 	board                service.BoardService
 	agents               service.AgentService
@@ -52,6 +57,7 @@ type Server struct {
 	workflowGlobalDir    string
 	workflowProjectDir   string
 	workflowRepositories []workflowengine.RepositoryPreset
+	worktrees            WorktreeService
 	notifyTaskChanged    func(string)
 }
 
@@ -104,6 +110,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/tasks/archived", s.archivedTasksHandler())
 	mux.HandleFunc("/api/tasks/{id}/activity", s.taskActivityHandler())
 	mux.HandleFunc("/api/tasks/{id}/agent", s.taskAgentHandler())
+	mux.HandleFunc("/api/tasks/{id}/worktree", s.taskWorktreeHandler())
 	mux.HandleFunc("/api/tasks/{id}/artifacts", s.taskArtifactsHandler())
 	mux.HandleFunc("/api/tasks/{id}/link-pr", s.linkPRHandler())
 	mux.HandleFunc("/api/tasks/{id}/pr-preview", s.prPreviewHandler())
@@ -226,6 +233,10 @@ func (s *Server) SetWorkflowTriggerCoordinator(coordinator *service.WorkflowTrig
 	s.workflowTriggers = coordinator
 }
 
+func (s *Server) SetWorktreeService(worktrees WorktreeService) {
+	s.worktrees = worktrees
+}
+
 // SetSyncService sets the optional sync service for remote search/import endpoints.
 func (s *Server) SetSyncService(svc service.SyncService) {
 	s.sync = svc
@@ -326,17 +337,19 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		hasCACert := s.caCertPath != ""
 		resp := struct {
-			CaCertAvailable bool                              `json:"ca_cert_available"`
-			WorkingDir      string                            `json:"working_dir"`
-			NtfyConfigured  bool                              `json:"ntfy_configured"`
-			VoiceEnabled    bool                              `json:"voice_enabled"`
-			Repositories    []workflowengine.RepositoryPreset `json:"repositories"`
+			CaCertAvailable  bool                              `json:"ca_cert_available"`
+			WorkingDir       string                            `json:"working_dir"`
+			NtfyConfigured   bool                              `json:"ntfy_configured"`
+			VoiceEnabled     bool                              `json:"voice_enabled"`
+			WorktreesEnabled bool                              `json:"worktrees_enabled"`
+			Repositories     []workflowengine.RepositoryPreset `json:"repositories"`
 		}{
-			CaCertAvailable: hasCACert,
-			WorkingDir:      s.workDir,
-			NtfyConfigured:  s.ntfyConfigured,
-			VoiceEnabled:    s.voiceSvc != nil,
-			Repositories:    append([]workflowengine.RepositoryPreset(nil), s.workflowRepositories...),
+			CaCertAvailable:  hasCACert,
+			WorkingDir:       s.workDir,
+			NtfyConfigured:   s.ntfyConfigured,
+			VoiceEnabled:     s.voiceSvc != nil,
+			WorktreesEnabled: s.worktrees != nil,
+			Repositories:     append([]workflowengine.RepositoryPreset(nil), s.workflowRepositories...),
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}

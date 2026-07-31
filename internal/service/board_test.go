@@ -199,6 +199,25 @@ func TestGetCard_Exists(t *testing.T) {
 	}
 }
 
+func TestGetCardIncludesPersistedWorktree(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	seedColumns(t, s)
+	seedTasks(t, s)
+	ctx := context.Background()
+	want := &store.TaskWorktree{PrimaryDir: "/projects/app", Path: "/projects/app-t1", Branch: "t-1", BaseBranch: "main"}
+	if err := s.SetTaskWorktree(ctx, "T-1", want); err != nil {
+		t.Fatal(err)
+	}
+
+	card, err := svc.GetCard(ctx, "T-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if card.Worktree == nil || *card.Worktree != *want {
+		t.Fatalf("worktree = %#v, want %#v", card.Worktree, want)
+	}
+}
+
 func TestGetCardIncludesTaskNotes(t *testing.T) {
 	s, _, svc := setupTestBoard(t)
 	seedColumns(t, s)

@@ -86,6 +86,7 @@ type CardDetail struct {
 	WorkspaceID     *int
 	PRMeta          *PRMetaView
 	CodeContext     *CodeContextView
+	Worktree        *store.TaskWorktree
 	SwarmActiveStep int
 	SwarmStepNames  []string
 	CreatedAt       time.Time
