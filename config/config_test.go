@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -15,6 +16,22 @@ func writeTestConfig(t *testing.T, content string) string {
 	}
 	t.Setenv("LEGATO_CONFIG", path)
 	return path
+}
+
+func TestGitHubAuthDefaultsToAutoAndValidatesModes(t *testing.T) {
+	writeTestConfig(t, "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GitHub.Auth != "auto" {
+		t.Fatalf("auth = %q, want auto", cfg.GitHub.Auth)
+	}
+
+	writeTestConfig(t, "github:\n  auth: mutate\n")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "github.auth") {
+		t.Fatalf("error = %v", err)
+	}
 }
 
 func TestGitHubTokenExpandsFromEnvironment(t *testing.T) {

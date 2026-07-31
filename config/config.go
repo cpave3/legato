@@ -177,6 +177,7 @@ type WebConfig struct {
 }
 
 type GitHubConfig struct {
+	Auth                        string `yaml:"auth"`
 	Token                       string `yaml:"token"`
 	PollIntervalSeconds         int    `yaml:"poll_interval_seconds"`          // unresolved PRs (branch-only, no PR yet) — default 600s (10 min)
 	ResolvedPollIntervalSeconds int    `yaml:"resolved_poll_interval_seconds"` // resolved PRs (have PR number) — default 600s (10 min)
@@ -292,6 +293,9 @@ func Load() (*Config, error) {
 	}
 
 	applyDefaults(cfg)
+	if cfg.GitHub.Auth != "auto" && cfg.GitHub.Auth != "gh" && cfg.GitHub.Auth != "token" {
+		return nil, fmt.Errorf("github.auth must be auto, gh, or token")
+	}
 	return cfg, nil
 }
 
@@ -382,6 +386,9 @@ func defaults() *Config {
 }
 
 func applyDefaults(cfg *Config) {
+	if cfg.GitHub.Auth == "" {
+		cfg.GitHub.Auth = "auto"
+	}
 	if cfg.Jira.SyncIntervalSeconds == 0 {
 		cfg.Jira.SyncIntervalSeconds = 60
 	}
