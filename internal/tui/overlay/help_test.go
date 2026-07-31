@@ -44,14 +44,14 @@ func TestHelpOverlayIgnoresOtherKeys(t *testing.T) {
 func TestHelpOverlayShowsKeybindings(t *testing.T) {
 	m := NewHelp(80, 24)
 	view := m.View()
-	// Navigation section
-	for _, expected := range []string{"h/l", "j/k", "g/G", "1-5"} {
+	// Navigation section is generated from individual dispatchable actions.
+	for _, expected := range []string{"Move to previous column", "Move down within column", "Jump to first card", "Jump to column"} {
 		if !strings.Contains(view, expected) {
 			t.Errorf("view should contain %q", expected)
 		}
 	}
-	// Actions section
-	for _, expected := range []string{"enter", "m", "y", "Y", "/", "esc"} {
+	// Actions across page scopes are included in the full reference.
+	for _, expected := range []string{"Open task detail", "Move task", "Copy full task context", "Search tasks", "Return to board"} {
 		if !strings.Contains(view, expected) {
 			t.Errorf("view should contain %q", expected)
 		}
@@ -94,7 +94,9 @@ func TestHelpOverlayShowsShortlistForMode(t *testing.T) {
 		{"detail", HelpModeDetail, "Detail — Quick Reference", []string{"back", "edit", "copy"}},
 		{"agents", HelpModeAgents, "Agents — Quick Reference", []string{"select", "spawn", "kill"}},
 		{"report", HelpModeReport, "Report — Quick Reference", []string{"back", "copy"}},
-		{"review", HelpModeReview, "Review — Quick Reference", []string{"open tour", "toggle reviewed", "delete review"}},
+		{"review", HelpModeReview, "Review — Quick Reference", []string{"reviewed", "ask", "delete"}},
+		{"plans", HelpModePlans, "Plans — Quick Reference", []string{"select", "open"}},
+		{"attention", HelpModeAttention, "Attention — Quick Reference", []string{"select", "dismiss"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

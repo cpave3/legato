@@ -188,7 +188,7 @@ func TestReviewModeHintsIncludeDelete(t *testing.T) {
 	m.width = 120
 	m, _ = m.Update(ModeMsg{Mode: ModeReview})
 	view := m.View()
-	for _, expected := range []string{"open", "reviewed", "ask", "delete"} {
+	for _, expected := range []string{"select", "reviewed", "ask", "delete"} {
 		if !strings.Contains(view, expected) {
 			t.Errorf("review mode should contain %q, got: %q", expected, view)
 		}

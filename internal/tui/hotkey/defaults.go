@@ -207,20 +207,22 @@ func addOverlayBindings(add func(ActionID, Scope, Target, []Key, string, string,
 
 func addPageBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Key, string, string, string, int, int, Surface, ...Capability)) {
 	detail := PageScope(PageDetail)
-	add(ActionBack, detail, TargetPage, []Key{Special(tea.KeyEsc, "esc"), Rune('q')}, "back", "Return to board", "Detail", 20, 1, FullHelp|Shortlist|ShortcutBar)
+	add(ActionBack, detail, TargetPage, []Key{Special(tea.KeyEsc, "esc"), Rune('q')}, "back", "Return to board", "Detail", 20, 1, FullHelp|Shortlist|ShortcutBar|InlineHint)
 	add(ActionDetailDown, detail, TargetPage, []Key{Rune('j')}, "scroll", "Scroll down", "Detail", 20, 10, FullHelp)
 	add(ActionDetailUp, detail, TargetPage, []Key{Rune('k')}, "scroll", "Scroll up", "Detail", 20, 11, FullHelp)
 	add(ActionDetailHalfDown, detail, TargetPage, []Key{Rune('d')}, "page down", "Scroll half page down", "Detail", 20, 12, FullHelp)
 	add(ActionDetailHalfUp, detail, TargetPage, []Key{Rune('u')}, "page up", "Scroll half page up", "Detail", 20, 13, FullHelp)
 	add(ActionDetailTop, detail, TargetPage, []Key{Rune('g')}, "top", "Jump to top", "Detail", 20, 14, FullHelp)
 	add(ActionDetailBottom, detail, TargetPage, []Key{Rune('G')}, "bottom", "Jump to bottom", "Detail", 20, 15, FullHelp)
-	add(ActionDetailCopyDescription, detail, TargetPage, []Key{Rune('y')}, "copy", "Copy description", "Detail", 20, 20, FullHelp|Shortlist|ShortcutBar)
-	add(ActionDetailCopyFull, detail, TargetPage, []Key{Rune('Y')}, "copy full", "Copy full task context", "Detail", 20, 21, FullHelp)
-	add(ActionDetailMove, detail, TargetPage, []Key{Rune('m')}, "move", "Move task", "Detail", 20, 22, FullHelp|Shortlist|ShortcutBar)
-	add(ActionDetailDelete, detail, TargetPage, []Key{Rune('D')}, "delete", "Delete task", "Detail", 20, 23, FullHelp|Shortlist|ShortcutBar)
+	add(ActionDetailCopyDescription, detail, TargetPage, []Key{Rune('y')}, "copy desc", "Copy description", "Detail", 20, 20, FullHelp|Shortlist|ShortcutBar|InlineHint)
+	add(ActionDetailCopyFull, detail, TargetPage, []Key{Rune('Y')}, "copy full", "Copy full task context", "Detail", 20, 21, FullHelp|InlineHint)
+	add(ActionDetailMove, detail, TargetPage, []Key{Rune('m')}, "move", "Move task", "Detail", 20, 22, FullHelp|Shortlist|ShortcutBar|InlineHint)
+	add(ActionDetailDelete, detail, TargetPage, []Key{Rune('D')}, "delete", "Delete task", "Detail", 20, 23, FullHelp|Shortlist|ShortcutBar|InlineHint)
 	add(ActionDetailOpenURL, detail, TargetPage, []Key{Rune('o')}, "open", "Open remote task", "Detail", 20, 24, FullHelp|InlineHint)
-	add(ActionDetailEditTitle, detail, TargetPage, []Key{Rune('t')}, "edit title", "Edit task title", "Detail", 20, 25, FullHelp)
-	add(ActionDetailEditDescription, detail, TargetPage, []Key{Rune('e')}, "edit", "Edit task description", "Detail", 20, 26, FullHelp)
+	add(ActionDetailEditTitle, detail, TargetPage, []Key{Rune('t')}, "edit title", "Edit task title", "Detail", 20, 25, FullHelp|InlineHint)
+	(*bindings)[len(*bindings)-1].When = []Predicate{PredicateLocalTask}
+	add(ActionDetailEditDescription, detail, TargetPage, []Key{Rune('e')}, "edit desc", "Edit task description", "Detail", 20, 26, FullHelp|Shortlist|ShortcutBar|InlineHint)
+	(*bindings)[len(*bindings)-1].When = []Predicate{PredicateLocalTask, PredicateEditor}
 	add(ActionDetailNextSwarmStep, detail, TargetPage, []Key{Rune('s')}, "next step", "Advance swarm to next step", "Detail", 20, 27, InlineHint)
 	(*bindings)[len(*bindings)-1].When = []Predicate{PredicateSwarmNext}
 

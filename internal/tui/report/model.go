@@ -507,13 +507,12 @@ func truncateDir(dir string, maxLen int) string {
 func (m Model) renderHints(width int) string {
 	dimStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
 	keyStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple)
-
-	return dimStyle.Render(
-		keyStyle.Render("tab") + " period  " +
-			keyStyle.Render("h/l") + " navigate  " +
-			keyStyle.Render("j/k") + " scroll  " +
-			keyStyle.Render("C") + " copy markdown  " +
-			keyStyle.Render("esc") + " back")
+	bindings := hotkey.DefaultRegistry().Bindings(hotkey.Context{Page: hotkey.PageReport}, hotkey.InlineHint)
+	parts := make([]string, 0, len(bindings))
+	for _, binding := range bindings {
+		parts = append(parts, keyStyle.Render(hotkey.DisplayKey(binding))+" "+binding.Label)
+	}
+	return dimStyle.Render(strings.Join(parts, "  "))
 }
 
 func fmtRatio(r float64) string {

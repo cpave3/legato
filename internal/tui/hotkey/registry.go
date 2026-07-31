@@ -196,7 +196,7 @@ func (r *Registry) Resolve(msg tea.KeyMsg, ctx Context) (Binding, bool) {
 	}
 	var candidates []Binding
 	for _, binding := range r.bindings {
-		if !binding.active(ctx) || !scopeApplies(binding.Scope, ctx) {
+		if !binding.capabilitiesActive(ctx) || !scopeApplies(binding.Scope, ctx) {
 			continue
 		}
 		for _, key := range binding.Keys {
@@ -216,9 +216,18 @@ func (r *Registry) Resolve(msg tea.KeyMsg, ctx Context) (Binding, bool) {
 }
 
 func (r *Registry) Bindings(ctx Context, surface Surface) []Binding {
+	return r.orderedBindings(ctx, surface, true)
+}
+
+// AllBindings returns enabled bindings across pages for the full reference.
+func (r *Registry) AllBindings(ctx Context, surface Surface) []Binding {
+	return r.orderedBindings(ctx, surface, false)
+}
+
+func (r *Registry) orderedBindings(ctx Context, surface Surface, scoped bool) []Binding {
 	result := make([]Binding, 0)
 	for _, binding := range r.bindings {
-		if binding.Surfaces&surface != 0 && binding.active(ctx) && displayScopeApplies(binding.Scope, ctx) {
+		if binding.Surfaces&surface != 0 && binding.active(ctx) && (!scoped || displayScopeApplies(binding.Scope, ctx)) {
 			result = append(result, binding)
 		}
 	}
@@ -258,11 +267,18 @@ func (r *Registry) IsReserved(key Key, ctx Context) (ActionID, bool) {
 	return action, ok
 }
 
-func (b Binding) active(ctx Context) bool {
+func (b Binding) capabilitiesActive(ctx Context) bool {
 	for _, capability := range b.Requires {
 		if !ctx.Capabilities[capability] {
 			return false
 		}
+	}
+	return true
+}
+
+func (b Binding) active(ctx Context) bool {
+	if !b.capabilitiesActive(ctx) {
+		return false
 	}
 	for _, predicate := range b.When {
 		if !ctx.Predicates[predicate] {

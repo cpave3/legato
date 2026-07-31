@@ -719,41 +719,21 @@ func (m Model) renderStatusBar() string {
 		return theme.StatusBar.Width(m.width).Render(m.feedback)
 	}
 
-	hints := []struct{ key, label string }{
-		{"esc", "back"},
-		{"y", "copy desc"},
-		{"Y", "copy full"},
-		{"m", "move"},
-		{"D", "delete"},
-		{"o", "open"},
-		{"j/k", "scroll"},
-	}
-	// Show edit hints only for local tasks
+	ctx := hotkey.Context{Page: hotkey.PageDetail, Predicates: hotkey.NewPredicates()}
 	if m.card != nil && m.card.Provider == "" {
-		hints = append(hints, struct{ key, label string }{"t", "edit title"})
-		if m.editor != "" {
-			hints = append(hints, struct{ key, label string }{"e", "edit desc"})
-		}
+		ctx.Predicates[hotkey.PredicateLocalTask] = true
 	}
-
-	// Show next-step hint only for swarm parents with a terminal active step
-	if len(m.subtasks) > 0 && m.card != nil {
-		activeStep := m.card.SwarmActiveStep
-		var activeSubs []service.SwarmSubtaskInfo
-		for _, st := range m.subtasks {
-			if st.StepIndex == activeStep {
-				activeSubs = append(activeSubs, st)
-			}
-		}
-		if stepIsTerminal(activeSubs) {
-			hints = append(hints, struct{ key, label string }{"s", "next step"})
-		}
+	if m.editor != "" {
+		ctx.Predicates[hotkey.PredicateEditor] = true
 	}
-
+	if m.swarmCanAdvance() {
+		ctx.Predicates[hotkey.PredicateSwarmNext] = true
+	}
+	bindings := hotkey.DefaultRegistry().Bindings(ctx, hotkey.InlineHint)
 	var parts []string
-	for _, h := range hints {
+	for _, binding := range bindings {
 		parts = append(parts,
-			theme.KeyHintKey.Render(h.key)+" "+theme.KeyHintLabel.Render(h.label))
+			theme.KeyHintKey.Render(hotkey.DisplayKey(binding))+" "+theme.KeyHintLabel.Render(binding.Label))
 	}
 
 	return theme.StatusBar.Width(m.width).Render(strings.Join(parts, "  "))

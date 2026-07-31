@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/cpave3/legato/internal/tui/hotkey"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -49,6 +50,10 @@ type WorkspaceMsg struct {
 	Color string
 }
 type ModeMsg struct{ Mode Mode }
+type HotkeyContextMsg struct {
+	Registry *hotkey.Registry
+	Context  hotkey.Context
+}
 
 // NtfyMsg tells the status bar whether ntfy notifications are configured,
 // so the 'n' (notify) hint shows conditionally in agent mode.
@@ -71,8 +76,8 @@ type Model struct {
 	workspaceName  string
 	workspaceColor string
 	webServerPort  string
-	ntfyConfigured bool
-	voiceEnabled   bool
+	hotkeys        *hotkey.Registry
+	hotkeyContext  hotkey.Context
 	width          int
 	now            func() time.Time // for testing
 }
@@ -80,9 +85,11 @@ type Model struct {
 // New creates a new status bar model.
 func New() Model {
 	return Model{
-		state: StateOffline,
-		mode:  ModeBoard,
-		now:   time.Now,
+		state:         StateOffline,
+		mode:          ModeBoard,
+		hotkeys:       hotkey.DefaultRegistry(),
+		hotkeyContext: hotkey.Context{Page: hotkey.PageBoard, Predicates: hotkey.NewPredicates(hotkey.PredicateLocalTask, hotkey.PredicateEditor)},
+		now:           time.Now,
 	}
 }
 
@@ -130,10 +137,25 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.workspaceColor = msg.Color
 	case ModeMsg:
 		m.mode = msg.Mode
+		m.hotkeyContext.Page = statusModePage(msg.Mode)
+		if msg.Mode == ModeReview {
+			m.hotkeyContext.Mode = hotkey.ModeTour
+		} else {
+			m.hotkeyContext.Mode = ""
+		}
+	case HotkeyContextMsg:
+		m.hotkeys = msg.Registry
+		m.hotkeyContext = msg.Context
 	case NtfyMsg:
-		m.ntfyConfigured = msg.Configured
+		if m.hotkeyContext.Capabilities == nil {
+			m.hotkeyContext.Capabilities = hotkey.NewCapabilities()
+		}
+		m.hotkeyContext.Capabilities[hotkey.CapabilityNotifications] = msg.Configured
 	case VoiceMsg:
-		m.voiceEnabled = msg.Enabled
+		if m.hotkeyContext.Capabilities == nil {
+			m.hotkeyContext.Capabilities = hotkey.NewCapabilities()
+		}
+		m.hotkeyContext.Capabilities[hotkey.CapabilityVoice] = msg.Enabled
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 	}
@@ -292,59 +314,29 @@ func truncateHints(hints []string, maxWidth int) string {
 
 // hintsForMode returns the compact key-hint set for the active view. The full
 // reference is always available via the ? overlay.
-func (m Model) hintsForMode() []struct{ key, label string } {
-	switch m.mode {
+func statusModePage(mode Mode) hotkey.Page {
+	switch mode {
 	case ModeDetail:
-		return []struct{ key, label string }{
-			{"esc", "back"},
-			{"e", "edit"},
-			{"m", "move"},
-			{"d", "delete"},
-			{"y", "copy"},
-			{"?", "keys"},
-		}
+		return hotkey.PageDetail
 	case ModeAgents:
-		hints := []struct{ key, label string }{
-			{"j/k", "select"},
-			{"s", "spawn"},
-			{"X", "kill"},
-			{"m", "macro"},
-			{"↵", "attach"},
-			{"esc", "board"},
-		}
-		// Conditional agent keys — only shown when the feature is configured.
-		if m.ntfyConfigured {
-			hints = append(hints, struct{ key, label string }{"n", "notify"})
-		}
-		if m.voiceEnabled {
-			hints = append(hints, struct{ key, label string }{"v", "voice"})
-		}
-		hints = append(hints, struct{ key, label string }{"?", "keys"})
-		return hints
+		return hotkey.PageAgents
 	case ModeReport:
-		return []struct{ key, label string }{
-			{"esc", "back"},
-			{"y", "copy"},
-			{"?", "keys"},
-		}
+		return hotkey.PageReport
 	case ModeReview:
-		return []struct{ key, label string }{
-			{"j/k", "select"},
-			{"↵", "open"},
-			{"space", "reviewed"},
-			{"a", "ask"},
-			{"x", "delete"},
-			{"esc", "back"},
-			{"?", "keys"},
-		}
-	default: // ModeBoard
-		return []struct{ key, label string }{
-			{"↵", "detail"},
-			{"m", "move"},
-			{"n", "new"},
-			{"/", "search"},
-			{"r", "sync"},
-			{"?", "keys"},
-		}
+		return hotkey.PageReview
+	default:
+		return hotkey.PageBoard
 	}
+}
+
+func (m Model) hintsForMode() []struct{ key, label string } {
+	if m.hotkeys == nil {
+		return nil
+	}
+	bindings := m.hotkeys.Bindings(m.hotkeyContext, hotkey.ShortcutBar)
+	hints := make([]struct{ key, label string }, 0, len(bindings))
+	for _, binding := range bindings {
+		hints = append(hints, struct{ key, label string }{hotkey.DisplayKey(binding), binding.Label})
+	}
+	return hints
 }

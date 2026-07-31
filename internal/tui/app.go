@@ -1432,6 +1432,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a App) setMode(v viewType) App {
 	a.active = v
 	a.statusBar, _ = a.statusBar.Update(statusbar.ModeMsg{Mode: viewToStatusMode(v)})
+	a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
 	return a
 }
 
@@ -1521,24 +1522,9 @@ func (a App) handleMoveSelected(msg overlay.MoveSelectedMsg) (tea.Model, tea.Cmd
 }
 
 func (a App) openHelpOverlay() (tea.Model, tea.Cmd) {
-	a.activeOverlay = overlay.NewHelpWithMode(a.width, a.height, appViewToHelpMode(a.active)).WithWorktrees(a.worktreesEnabled)
+	a.activeOverlay = overlay.NewHelpWithContext(a.width, a.height, a.hotkeys, a.hotkeyContext())
 	a.overlayType = overlayHelp
 	return a, nil
-}
-
-func appViewToHelpMode(v viewType) overlay.HelpMode {
-	switch v {
-	case viewDetail:
-		return overlay.HelpModeDetail
-	case viewAgents:
-		return overlay.HelpModeAgents
-	case viewReport:
-		return overlay.HelpModeReport
-	case viewReview:
-		return overlay.HelpModeReview
-	default:
-		return overlay.HelpModeBoard
-	}
 }
 
 func (a App) openSearchOverlay() (tea.Model, tea.Cmd) {
