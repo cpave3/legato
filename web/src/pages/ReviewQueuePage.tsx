@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { ArrowRight, CheckCircle2, RefreshCw, Trash2 } from "lucide-react"
 import { Link } from "react-router-dom"
 import { useReviewQueue } from "../hooks/useReview"
@@ -44,7 +44,7 @@ export function ReviewQueuePage() {
   const { baseUrl } = useServer()
   const [showCapturing, setShowCapturing] = useState(false)
   const { data, loading, error, refresh } = useReviewQueue(showCapturing)
-  const items = data ?? []
+  const items = useMemo(() => data ?? [], [data])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirming, setConfirming] = useState(false)
   const [removing, setRemoving] = useState(false)
