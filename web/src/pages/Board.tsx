@@ -477,8 +477,8 @@ export function BoardPage() {
     if (colIdx >= 0) {
       setCursorCol(colIdx)
       setCursorRow(rowIdx)
-      openDetail(card.id)
     }
+    openDetail(card.id)
   }
 
   const handleSaveTitle = async (title: string) => {

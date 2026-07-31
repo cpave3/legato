@@ -522,6 +522,27 @@ func TestSlashOpensSearchOverlay(t *testing.T) {
 	}
 }
 
+func TestSearchSelectionOpensArchivedCardDetail(t *testing.T) {
+	app := initTestApp()
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+
+	app, cmd := updateApp(app, overlay.SearchSelectedMsg{CardID: "ARCHIVED-1"})
+	if cmd == nil {
+		t.Fatal("search selection did not produce a detail command")
+	}
+	app, _ = updateApp(app, cmd())
+
+	if app.active != viewDetail {
+		t.Fatalf("active view = %d, want detail view", app.active)
+	}
+	if app.detail.TaskID() != "ARCHIVED-1" {
+		t.Fatalf("detail task = %q, want ARCHIVED-1", app.detail.TaskID())
+	}
+	if app.overlayType != overlayNone {
+		t.Fatalf("overlay type = %d, want none", app.overlayType)
+	}
+}
+
 func TestSearchQueryTriggersServiceCall(t *testing.T) {
 	app := initTestApp()
 	// Open search

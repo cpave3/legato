@@ -1592,9 +1592,10 @@ func (a App) handleSearchQuery(msg overlay.SearchQueryChangedMsg) (tea.Model, te
 func (a App) handleSearchSelected(msg overlay.SearchSelectedMsg) (tea.Model, tea.Cmd) {
 	a.overlayType = overlayNone
 	a.activeOverlay = nil
-	// Navigate board cursor to the selected card
+	// Keep the board cursor in sync when the result is active; archived cards
+	// are absent from the board but can still be opened directly.
 	a.board.NavigateTo(msg.CardID)
-	return a, nil
+	return a, func() tea.Msg { return board.OpenDetailMsg{CardKey: msg.CardID} }
 }
 
 func (a App) openCreateOverlay() (tea.Model, tea.Cmd) {
