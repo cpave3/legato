@@ -69,6 +69,8 @@ Default/detached branches and title-only matches never auto-link. Fork repositor
 
 Resolved and manually pinned PRs refresh by repository and number on the slower cadence. Polling never replaces a pinned link. Existing numbered links are pinned by migration; branch-only legacy/Staccato links are backfilled as discoverable code context.
 
+A targeted rediscovery performs exactly one bounded repository request (`GET /repos/{owner}/{repo}/pulls?state=all&per_page=100`) and matches locally; it does not issue one request per task or candidate. The HTTP client timeout is 30 seconds. TUI completion replaces the progress indicator with the linked PR number, `no match`, ambiguity guidance, or the concrete API/auth/rate-limit error.
+
 ### User actions
 
 - **Refresh PR** refetches the currently linked PR by number without reconsidering identity.

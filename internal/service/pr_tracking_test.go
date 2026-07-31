@@ -864,6 +864,31 @@ func TestRediscoverPRRetainsContextAndReplacesWrongLink(t *testing.T) {
 	if meta == nil || meta.PRNumber != 42 || meta.Pinned || meta.MatchMethod != "branch" {
 		t.Fatalf("PR metadata = %#v", meta)
 	}
+	if gh.repositoryCalls["acme/widget"] != 1 {
+		t.Fatalf("repository listing calls = %d, want exactly 1", gh.repositoryCalls["acme/widget"])
+	}
+}
+
+func TestRediscoverPRNoMatchUsesOneRepositoryRequest(t *testing.T) {
+	s := newTestPRStore(t)
+	ctx := context.Background()
+	createPRTask(t, s, "TASK-1")
+	if err := s.SetCodeContext(ctx, "TASK-1", &store.CodeContext{Repo: "acme/widget", Branch: "feature/TASK-1"}); err != nil {
+		t.Fatal(err)
+	}
+	gh := &mockGitHub{repositoryPRs: map[string][]github.PRStatus{"acme/widget": {}}}
+	actions := NewPRTrackingService(s, events.New(), gh, time.Minute, time.Minute).(PRTaskActions)
+	if err := actions.RediscoverPR(ctx, "TASK-1"); err != nil {
+		t.Fatal(err)
+	}
+	if gh.repositoryCalls["acme/widget"] != 1 {
+		t.Fatalf("repository listing calls = %d, want exactly 1", gh.repositoryCalls["acme/widget"])
+	}
+	task, _ := s.GetTask(ctx, "TASK-1")
+	meta, _ := store.ParsePRMeta(task.PRMeta)
+	if meta == nil || meta.SyncOutcome != "no_match" {
+		t.Fatalf("PR metadata = %#v", meta)
+	}
 }
 
 func TestPollAllPublishesEventWhenResolvedPRChanges(t *testing.T) {

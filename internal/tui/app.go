@@ -112,6 +112,13 @@ type ImportRemoteResultsMsg struct {
 // boardRefreshMsg triggers a board data reload.
 type boardRefreshMsg struct{}
 
+type targetedPRDoneMsg struct {
+	TaskID     string
+	Rediscover bool
+	Meta       *store.PRMeta
+	Err        string
+}
+
 // importRemoteDoneMsg carries the result of an asynchronous remote ticket import.
 type importRemoteDoneMsg struct {
 	TicketID string
@@ -1285,6 +1292,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := a.board.Init()
 		return a, cmd
 
+	case targetedPRDoneMsg:
+		a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{})
+		if msg.Err != "" {
+			a.statusBar, _ = a.statusBar.Update(statusbar.ErrorMsg{Text: "PR sync failed: " + msg.Err})
+		} else {
+			a.statusBar, _ = a.statusBar.Update(statusbar.InfoMsg{Text: targetedPROutcome(msg.Meta, msg.Rediscover)})
+		}
+		return a, a.board.Init()
+
 	case worktreeCreateDoneMsg:
 		a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{})
 		if msg.Err != "" {
@@ -1830,6 +1846,29 @@ func (a App) manualRefresh() (tea.Model, tea.Cmd) {
 	}
 }
 
+func targetedPROutcome(meta *store.PRMeta, rediscover bool) string {
+	if meta == nil {
+		return "PR sync completed"
+	}
+	if meta.PRNumber > 0 {
+		if rediscover {
+			return fmt.Sprintf("PR #%d linked", meta.PRNumber)
+		}
+		return fmt.Sprintf("PR #%d refreshed", meta.PRNumber)
+	}
+	switch meta.SyncOutcome {
+	case "no_match":
+		return "no matching PR found"
+	case "ambiguous":
+		return "multiple matching PRs found; edit context or link manually"
+	case "error":
+		if meta.SyncError != "" {
+			return "PR sync failed: " + meta.SyncError
+		}
+	}
+	return "PR sync completed"
+}
+
 func (a App) runTargetedPRAction(taskID string, rediscover bool) (tea.Model, tea.Cmd) {
 	actions, ok := a.prSvc.(service.PRTaskActions)
 	if !ok {
@@ -1839,7 +1878,12 @@ func (a App) runTargetedPRAction(taskID string, rediscover bool) (tea.Model, tea
 	if rediscover {
 		verb = "rediscovering"
 	}
-	a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{Text: verb + " PR for " + taskID + "..."})
+	progress := verb + " PR for " + taskID + "..."
+	if rediscover {
+		progress += " (one repository lookup, up to 30s)"
+	}
+	a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{Text: progress})
+	prSvc := a.prSvc
 	return a, func() tea.Msg {
 		var err error
 		if rediscover {
@@ -1848,9 +1892,13 @@ func (a App) runTargetedPRAction(taskID string, rediscover bool) (tea.Model, tea
 			err = actions.RefreshPR(context.Background(), taskID)
 		}
 		if err != nil {
-			return statusbar.ErrorMsg{Text: verb + " PR failed: " + err.Error()}
+			return targetedPRDoneMsg{TaskID: taskID, Rediscover: rediscover, Err: err.Error()}
 		}
-		return boardRefreshMsg{}
+		meta, statusErr := prSvc.GetPRStatus(context.Background(), taskID)
+		if statusErr != nil {
+			return targetedPRDoneMsg{TaskID: taskID, Rediscover: rediscover, Err: statusErr.Error()}
+		}
+		return targetedPRDoneMsg{TaskID: taskID, Rediscover: rediscover, Meta: meta}
 	}
 }
 

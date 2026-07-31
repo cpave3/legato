@@ -30,6 +30,8 @@ import (
 type fakeTargetedPRService struct {
 	refreshed    string
 	rediscovered string
+	status       *store.PRMeta
+	err          error
 }
 
 func (f *fakeTargetedPRService) LinkBranch(context.Context, string, string, string) error { return nil }
@@ -41,7 +43,7 @@ func (f *fakeTargetedPRService) PollOnce(context.Context) error             { re
 func (f *fakeTargetedPRService) PollAll(context.Context) error              { return nil }
 func (f *fakeTargetedPRService) StartPolling(context.Context) func()        { return func() {} }
 func (f *fakeTargetedPRService) GetPRStatus(context.Context, string) (*store.PRMeta, error) {
-	return nil, nil
+	return f.status, f.err
 }
 func (f *fakeTargetedPRService) DetectRepo() (string, string, error) { return "", "", nil }
 func (f *fakeTargetedPRService) FetchPRByNumber(string, string, int) (*github.PRStatus, error) {
@@ -50,11 +52,11 @@ func (f *fakeTargetedPRService) FetchPRByNumber(string, string, int) (*github.PR
 
 func (f *fakeTargetedPRService) RefreshPR(_ context.Context, taskID string) error {
 	f.refreshed = taskID
-	return nil
+	return f.err
 }
 func (f *fakeTargetedPRService) RediscoverPR(_ context.Context, taskID string) error {
 	f.rediscovered = taskID
-	return nil
+	return f.err
 }
 func (f *fakeTargetedPRService) SetCodeContext(context.Context, string, *store.CodeContext) error {
 	return nil
@@ -379,6 +381,50 @@ func TestReviewQuestionInputTakesGlobalHelpKey(t *testing.T) {
 	}
 	if !app.reviewView.InputFocused() || !strings.Contains(app.View(), "Question: ?") {
 		t.Fatalf("question input did not receive ?: %s", app.View())
+	}
+}
+
+func TestTargetedPRActionClearsProgressOnError(t *testing.T) {
+	prSvc := &fakeTargetedPRService{err: errors.New("GitHub API: rate_limit")}
+	app := NewApp(&fakeBoardService{}, nil, nil, prSvc, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
+	model, cmd := app.runTargetedPRAction("REX-1", true)
+	app = model.(App)
+	updated, _ := app.Update(cmd())
+	app = updated.(App)
+	app.statusBar, _ = app.statusBar.Update(tea.WindowSizeMsg{Width: 160})
+	view := app.statusBar.View()
+	if strings.Contains(view, "rediscovering") || !strings.Contains(view, "rate_limit") {
+		t.Fatalf("status = %q", view)
+	}
+}
+
+func TestTargetedPRActionClearsProgressAndShowsOutcome(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		meta *store.PRMeta
+		want string
+	}{
+		{name: "linked", meta: &store.PRMeta{PRNumber: 42, SyncOutcome: "linked"}, want: "PR #42 linked"},
+		{name: "no match", meta: &store.PRMeta{SyncOutcome: "no_match"}, want: "no matching PR found"},
+		{name: "ambiguous", meta: &store.PRMeta{SyncOutcome: "ambiguous"}, want: "multiple matching PRs found"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			prSvc := &fakeTargetedPRService{status: test.meta}
+			app := NewApp(&fakeBoardService{}, nil, nil, prSvc, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
+			model, cmd := app.runTargetedPRAction("REX-1", true)
+			app = model.(App)
+			if !strings.Contains(app.statusBar.View(), "rediscovering") {
+				app.statusBar, _ = app.statusBar.Update(tea.WindowSizeMsg{Width: 160})
+			}
+			msg := cmd()
+			updated, _ := app.Update(msg)
+			app = updated.(App)
+			app.statusBar, _ = app.statusBar.Update(tea.WindowSizeMsg{Width: 160})
+			view := app.statusBar.View()
+			if strings.Contains(view, "rediscovering") || !strings.Contains(view, test.want) {
+				t.Fatalf("status = %q, want outcome %q with progress cleared", view, test.want)
+			}
+		})
 	}
 }
 
