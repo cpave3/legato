@@ -1,14 +1,22 @@
 ## GitHub PR Tracking
 
-Read-only PR enrichment is independent of ticket providers: local and Jira tasks can discover and track pull requests without Staccato or the `gh` executable. GitHub synchronization is enabled when `github.token` is configured.
+Read-only PR enrichment is independent of ticket providers: local and Jira tasks can discover and track pull requests without Staccato. By default Legato reuses an authenticated GitHub CLI session only to obtain an in-memory credential; all repository data is read through the typed HTTP client.
 
 ### Configuration
 
-Prefer environment expansion so the PAT is not written directly into the config file:
+The default `auto` mode prefers an explicit token and otherwise runs `gh auth token` once. Most local users need only:
+
+```bash
+gh auth login
+gh auth status
+```
+
+Configuration:
 
 ```yaml
 github:
-  token: ${LEGATO_GITHUB_TOKEN}
+  auth: auto # auto (default), gh, or token
+  # token: ${LEGATO_GITHUB_TOKEN} # optional in auto; required in token mode
   poll_interval_seconds: 600
   resolved_poll_interval_seconds: 600
 
@@ -21,7 +29,9 @@ repositories:
     workspaces: [Legato]
 ```
 
-Use a fine-grained PAT with read-only access to the selected repositories. Repository metadata and pull requests are required; grant checks/status read access for CI indicators. Private repositories must be selected explicitly. The token is only held in process memory and is never persisted in SQLite, included in API responses, or written to logs. `github.api_base_url` may point at a GitHub Enterprise API.
+`auto` uses `github.token` when present and never invokes `gh`; otherwise it executes exactly `gh auth token`. `gh` mode requires that CLI credential, while `token` mode requires explicit configuration. The credential stays in memory and is never persisted, serialized, or included in errors. A GitHub CLI OAuth credential commonly has access to private repositories your account can see, subject to organization OAuth restrictions and SAML SSO authorization; verify a repository with `gh repo view OWNER/REPO`.
+
+The underlying OAuth/PAT may have broader scopes, including write access. Legato independently enforces read-only behavior: the GitHub client exposes read operations only and a shared transport rejects POST, PUT, PATCH, DELETE, or any other non-GET request before network dispatch. Legato uses no `gh api`, `gh pr`, or mutation command. Future write support requires a separate explicit design change.
 
 `repositories` is the shared catalog for workflow inputs, task context discovery, and workspace/Jira mappings. Legacy `workflows.repositories` is loaded when no shared catalog exists, but new configuration should use the top-level key.
 

@@ -1,16 +1,42 @@
 ## Requirements
 
-### Requirement: Token-authenticated GitHub API client
+### Requirement: Configurable in-memory GitHub credentials
 
-The GitHub client SHALL use a configured read-only PAT with GitHub HTTP APIs and SHALL NOT require the `gh` executable or ambient CLI authentication. The token MUST NOT be persisted, serialized, or included in errors.
+The GitHub runtime SHALL support `auto`, `gh`, and `token` authentication modes. `auto` SHALL prefer an explicit configured token and otherwise retrieve the active GitHub CLI credential by executing exactly `gh auth token` once. `token` SHALL require explicit configuration; `gh` SHALL require CLI authentication.
 
-#### Scenario: Missing token
-- **WHEN** no GitHub token is configured
-- **THEN** GitHub synchronization SHALL remain disabled with an actionable configuration error
+#### Scenario: Explicit token in auto mode
+- **WHEN** `github.auth` is `auto` and `github.token` is non-empty
+- **THEN** the configured token SHALL be used and `gh` SHALL not execute
 
-#### Scenario: Authenticated request
-- **WHEN** a GitHub read is made
-- **THEN** the request SHALL include bearer authentication, the GitHub API version, and the GitHub JSON media type
+#### Scenario: CLI fallback
+- **WHEN** `github.auth` is `auto`, no token is configured, and GitHub CLI is authenticated
+- **THEN** Legato SHALL execute `gh auth token` once and retain the trimmed credential in memory
+
+#### Scenario: Authentication unavailable
+- **WHEN** the selected provider is missing, unauthenticated, returns empty output, or fails
+- **THEN** synchronization SHALL be disabled or the requested remote action rejected with an actionable error mentioning `gh auth login` or `github.token`
+- **AND** command output or credential material MUST NOT appear in the error
+
+### Requirement: Read-only GitHub boundary
+
+The GitHub client SHALL expose read operations only and SHALL wrap all HTTP access in a transport that rejects every method other than `GET` before underlying network dispatch. Legato SHALL use `gh` only to retrieve credentials and SHALL NOT execute `gh api`, `gh pr`, or any GitHub mutation command.
+
+#### Scenario: Supported reads
+- **WHEN** availability, repository PR lists, PR detail/reviews, commit-associated PRs, checks, or statuses are requested
+- **THEN** every dispatched request SHALL use HTTP GET
+
+#### Scenario: Mutation attempt
+- **WHEN** POST, PUT, PATCH, DELETE, or another non-GET method reaches the guarded transport
+- **THEN** it SHALL return a local read-only invariant error
+- **AND** the underlying transport SHALL receive zero requests
+
+#### Scenario: Broad credential scope
+- **WHEN** the selected OAuth/PAT credential has write-capable scopes
+- **THEN** Legato's GET-only guard SHALL still prevent this integration from mutating GitHub data
+
+### Requirement: Credential secrecy
+
+Credentials SHALL remain in process memory and MUST NOT be persisted, serialized, logged, included in API responses, or included in errors.
 
 ### Requirement: Repository and PR reads
 
@@ -19,10 +45,6 @@ The client SHALL support repository PR listings, exact commit-to-PR lookup, PR-b
 #### Scenario: Repository discovery listing
 - **WHEN** unresolved tasks in one repository require discovery
 - **THEN** the client SHALL return a bounded newest-first PR list suitable for matching all tasks from one response
-
-#### Scenario: Exact commit lookup
-- **WHEN** a task has a head SHA
-- **THEN** the client SHALL query pull requests associated with that commit
 
 #### Scenario: Linked PR refresh
 - **WHEN** a numbered PR is refreshed
