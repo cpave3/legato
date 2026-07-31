@@ -2,432 +2,384 @@ package github
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os/exec"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
-// PRStatus holds the state of a pull request for a given branch.
+const defaultBaseURL = "https://api.github.com"
+
+// PRStatus holds the state of a pull request.
 type PRStatus struct {
 	HasPR          bool
 	Number         int
 	Title          string
 	URL            string
-	State          string // OPEN, MERGED, CLOSED
+	State          string
 	IsDraft        bool
-	ReviewDecision string // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, ""
-	CheckStatus    string // pass, fail, pending, ""
+	ReviewDecision string
+	CheckStatus    string
 	CommentCount   int
-	HeadBranch     string // branch name (populated by FetchPRByNumber)
-	HeadSHA        string // exact head commit (populated by FetchPRByNumber)
-	HeadRepo       string // head owner/repo, including fork identity
-	CreatedAt      string // RFC3339 PR creation time (populated by list/commit queries)
+	HeadBranch     string
+	HeadSHA        string
+	HeadRepo       string
+	CreatedAt      string
 }
 
-// Options configures the GitHub Client.
+// ErrorKind classifies failures that callers can surface without parsing text.
+type ErrorKind string
+
+const (
+	ErrorAuthentication ErrorKind = "authentication"
+	ErrorAuthorization  ErrorKind = "authorization"
+	ErrorNotFound       ErrorKind = "not_found"
+	ErrorRateLimit      ErrorKind = "rate_limit"
+	ErrorServer         ErrorKind = "server"
+	ErrorResponse       ErrorKind = "response"
+)
+
+// APIError is a classified GitHub API failure.
+type APIError struct {
+	Kind       ErrorKind
+	StatusCode int
+	Message    string
+	ResetAt    time.Time
+}
+
+func (e *APIError) Error() string {
+	if e.Message == "" {
+		return fmt.Sprintf("GitHub API: %s", e.Kind)
+	}
+	return fmt.Sprintf("GitHub API: %s: %s", e.Kind, e.Message)
+}
+
+// Options configures a GitHub client.
 type Options struct {
-	// LookPath overrides exec.LookPath for testing.
-	LookPath func(name string) (string, error)
-	// ExecCommand overrides exec.Command for testing.
+	Token       string
+	BaseURL     string
+	HTTPClient  *http.Client
 	ExecCommand func(name string, args ...string) *exec.Cmd
+	// LookPath remains for source compatibility with callers migrating from the
+	// old gh-backed client. It is not consulted.
+	LookPath func(name string) (string, error)
 }
 
-// Client wraps gh and git CLI operations for PR status queries.
+// Client performs token-authenticated GitHub API reads and local git inspection.
 type Client struct {
-	ghPath      string
+	token       string
+	baseURL     string
+	httpClient  *http.Client
 	execCommand func(name string, args ...string) *exec.Cmd
 }
 
-// New creates a Client, verifying gh is available.
+// New creates an HTTP GitHub client. A token is required so GitHub support is
+// explicitly enabled rather than depending on ambient gh authentication.
 func New(opts Options) (*Client, error) {
-	lookup := opts.LookPath
-	if lookup == nil {
-		lookup = exec.LookPath
+	if strings.TrimSpace(opts.Token) == "" {
+		return nil, errors.New("GitHub token is required")
 	}
-
-	path, err := lookup("gh")
-	if err != nil {
-		return nil, fmt.Errorf("gh CLI not found — install from https://cli.github.com: %w", err)
+	baseURL := strings.TrimRight(opts.BaseURL, "/")
+	if baseURL == "" {
+		baseURL = defaultBaseURL
 	}
-
-	execCmd := opts.ExecCommand
-	if execCmd == nil {
-		execCmd = exec.Command
+	if _, err := url.ParseRequestURI(baseURL); err != nil {
+		return nil, fmt.Errorf("invalid GitHub API base URL: %w", err)
 	}
-
-	return &Client{
-		ghPath:      path,
-		execCommand: execCmd,
-	}, nil
+	httpClient := opts.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 30 * time.Second}
+	}
+	execCommand := opts.ExecCommand
+	if execCommand == nil {
+		execCommand = exec.Command
+	}
+	return &Client{token: opts.Token, baseURL: baseURL, httpClient: httpClient, execCommand: execCommand}, nil
 }
 
-// CheckAvailable verifies the gh CLI is accessible.
+// CheckAvailable verifies authentication with a lightweight API request.
 func (c *Client) CheckAvailable() error {
-	cmd := c.execCommand(c.ghPath, "version")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("gh CLI not accessible: %w", err)
+	var out struct {
+		Login string `json:"login"`
 	}
-	return nil
+	return c.get("/user", nil, &out)
 }
 
-// ghPR is the JSON shape returned by gh pr list.
-type ghPR struct {
-	Number            int             `json:"number"`
-	HeadRefName       string          `json:"headRefName"`
-	Title             string          `json:"title"`
-	State             string          `json:"state"`
-	IsDraft           bool            `json:"isDraft"`
-	ReviewDecision    string          `json:"reviewDecision"`
-	URL               string          `json:"url"`
-	CreatedAt         string          `json:"createdAt"`
-	StatusCheckRollup []ghCheck       `json:"statusCheckRollup"`
-	Comments          json.RawMessage `json:"comments"`
-	ReviewComments    json.RawMessage `json:"reviews"`
+type apiPR struct {
+	Number         int     `json:"number"`
+	Title          string  `json:"title"`
+	State          string  `json:"state"`
+	Draft          bool    `json:"draft"`
+	Merged         bool    `json:"merged"`
+	MergedAt       *string `json:"merged_at"`
+	HTMLURL        string  `json:"html_url"`
+	CreatedAt      string  `json:"created_at"`
+	Comments       int     `json:"comments"`
+	ReviewComments int     `json:"review_comments"`
+	Head           struct {
+		Ref  string `json:"ref"`
+		SHA  string `json:"sha"`
+		Repo struct {
+			FullName string `json:"full_name"`
+		} `json:"repo"`
+	} `json:"head"`
 }
 
-type ghCheck struct {
-	Conclusion string `json:"conclusion"`
-	Status     string `json:"status"`
+func statusFromAPI(pr apiPR) PRStatus {
+	state := strings.ToUpper(pr.State)
+	if pr.Merged || pr.MergedAt != nil {
+		state = "MERGED"
+	}
+	return PRStatus{
+		HasPR: true, Number: pr.Number, Title: pr.Title, URL: pr.HTMLURL,
+		State: state, IsDraft: pr.Draft, CommentCount: pr.Comments + pr.ReviewComments,
+		HeadBranch: pr.Head.Ref, HeadSHA: pr.Head.SHA, HeadRepo: pr.Head.Repo.FullName,
+		CreatedAt: pr.CreatedAt,
+	}
 }
 
-// FetchPRStatus queries GitHub for the PR associated with a branch.
-// If repo is non-empty (owner/repo format), it scopes the query to that repo.
-// When multiple PRs match the branch name (reused branch names), the open PR
-// wins; ties are broken by newest creation time.
-func (c *Client) FetchPRStatus(branch string, repo ...string) (*PRStatus, error) {
-	args := []string{"pr", "list",
-		"--head", branch,
-		"--state", "all",
-		"--limit", "10",
-		"--json", "number,headRefName,title,state,isDraft,reviewDecision,url,createdAt,statusCheckRollup,comments,reviews"}
-	if len(repo) > 0 && repo[0] != "" {
-		args = append(args, "--repo", repo[0])
+// ListRepositoryPRs returns pull requests for one repository in newest-first
+// order. The bounded result is used once per repository during discovery.
+func (c *Client) ListRepositoryPRs(owner, repo string) ([]PRStatus, error) {
+	var raw []apiPR
+	query := url.Values{"state": {"all"}, "sort": {"created"}, "direction": {"desc"}, "per_page": {"100"}}
+	if err := c.get(fmt.Sprintf("/repos/%s/%s/pulls", url.PathEscape(owner), url.PathEscape(repo)), query, &raw); err != nil {
+		return nil, err
 	}
-	cmd := c.execCommand(c.ghPath, args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("gh pr list: %s: %w", strings.TrimSpace(string(out)), err)
-	}
-
-	var prs []ghPR
-	if err := json.Unmarshal(out, &prs); err != nil {
-		return nil, fmt.Errorf("parsing gh output: %w", err)
-	}
-
-	if len(prs) == 0 {
-		return &PRStatus{HasPR: false}, nil
-	}
-
-	pr := pickBestPR(prs)
-	return &PRStatus{
-		HasPR:          true,
-		Number:         pr.Number,
-		Title:          pr.Title,
-		URL:            pr.URL,
-		State:          pr.State,
-		IsDraft:        pr.IsDraft,
-		ReviewDecision: pr.ReviewDecision,
-		CheckStatus:    deriveCheckStatus(pr.StatusCheckRollup),
-		CommentCount:   countJSONArray(pr.Comments) + countJSONArray(pr.ReviewComments),
-		CreatedAt:      pr.CreatedAt,
-	}, nil
-}
-
-// pickBestPR ranks candidate PRs for a branch: open beats closed/merged,
-// and within the same openness the newest creation time wins. RFC3339
-// timestamps compare correctly as strings.
-func pickBestPR(prs []ghPR) ghPR {
-	best := prs[0]
-	for _, pr := range prs[1:] {
-		bestOpen := strings.EqualFold(best.State, "OPEN")
-		prOpen := strings.EqualFold(pr.State, "OPEN")
-		if prOpen != bestOpen {
-			if prOpen {
-				best = pr
-			}
-			continue
-		}
-		if pr.CreatedAt > best.CreatedAt {
-			best = pr
-		}
-	}
-	return best
-}
-
-// countJSONArray returns the length of a JSON array, or 0 if not an array.
-func countJSONArray(raw json.RawMessage) int {
-	if len(raw) == 0 {
-		return 0
-	}
-	var arr []json.RawMessage
-	if json.Unmarshal(raw, &arr) == nil {
-		return len(arr)
-	}
-	// Fallback: might be {totalCount: N} format
-	var obj struct {
-		TotalCount int `json:"totalCount"`
-	}
-	if json.Unmarshal(raw, &obj) == nil {
-		return obj.TotalCount
-	}
-	return 0
-}
-
-// deriveCheckStatus aggregates CI check conclusions into a single status.
-func deriveCheckStatus(checks []ghCheck) string {
-	if len(checks) == 0 {
-		return ""
-	}
-
-	for _, c := range checks {
-		switch strings.ToUpper(c.Conclusion) {
-		case "FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED":
-			return "fail"
-		}
-	}
-
-	for _, c := range checks {
-		if c.Conclusion == "" && strings.ToUpper(c.Status) != "COMPLETED" {
-			return "pending"
-		}
-	}
-
-	return "pass"
-}
-
-// BranchQuery pairs a branch name with an optional repo for batch fetching.
-type BranchQuery struct {
-	Branch string
-	Repo   string // owner/repo format, empty to use current repo context
-}
-
-// BatchFetchPRStatus fetches PR status for multiple branches concurrently.
-// Concurrency is limited to 5 at a time.
-func (c *Client) BatchFetchPRStatus(branches []string) (map[string]*PRStatus, error) {
-	queries := make([]BranchQuery, len(branches))
-	for i, b := range branches {
-		queries[i] = BranchQuery{Branch: b}
-	}
-	return c.BatchFetchPRStatusWithRepo(queries)
-}
-
-// BatchFetchPRStatusWithRepo fetches PR status for multiple branches with per-branch repo scoping.
-func (c *Client) BatchFetchPRStatusWithRepo(queries []BranchQuery) (map[string]*PRStatus, error) {
-	if len(queries) == 0 {
-		return map[string]*PRStatus{}, nil
-	}
-
-	type result struct {
-		branch string
-		status *PRStatus
-		err    error
-	}
-
-	sem := make(chan struct{}, 5)
-	results := make(chan result, len(queries))
-
-	var wg sync.WaitGroup
-	for _, q := range queries {
-		wg.Add(1)
-		go func(query BranchQuery) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			status, err := c.FetchPRStatus(query.Branch, query.Repo)
-			results <- result{branch: query.Branch, status: status, err: err}
-		}(q)
-	}
-
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	statuses := make(map[string]*PRStatus)
-	var errs []string
-	for r := range results {
-		if r.err != nil {
-			errs = append(errs, fmt.Sprintf("%s: %v", r.branch, r.err))
-			continue
-		}
-		statuses[r.branch] = r.status
-	}
-
-	if len(errs) > 0 {
-		return statuses, fmt.Errorf("batch PR fetch errors: %s", strings.Join(errs, "; "))
+	statuses := make([]PRStatus, len(raw))
+	for i, pr := range raw {
+		statuses[i] = statusFromAPI(pr)
 	}
 	return statuses, nil
 }
 
-// FetchPRByNumber queries GitHub for a PR by its number using the REST API.
-func (c *Client) FetchPRByNumber(owner, repo string, prNumber int) (*PRStatus, error) {
-	cmd := c.execCommand(c.ghPath, "api",
-		fmt.Sprintf("repos/%s/%s/pulls/%d", owner, repo, prNumber))
-	out, err := cmd.CombinedOutput()
+// FetchPRStatus finds the best PR with the exact head branch in a repository.
+func (c *Client) FetchPRStatus(branch string, repositories ...string) (*PRStatus, error) {
+	if len(repositories) == 0 || repositories[0] == "" {
+		return nil, errors.New("repository is required for PR lookup")
+	}
+	owner, repo, ok := splitRepo(repositories[0])
+	if !ok {
+		return nil, fmt.Errorf("repository must be owner/name")
+	}
+	prs, err := c.ListRepositoryPRs(owner, repo)
 	if err != nil {
-		return nil, fmt.Errorf("gh api: %s: %w", strings.TrimSpace(string(out)), err)
+		return nil, err
 	}
-
-	var raw struct {
-		Number         int    `json:"number"`
-		Title          string `json:"title"`
-		State          string `json:"state"`
-		Draft          bool   `json:"draft"`
-		Merged         bool   `json:"merged"`
-		HTMLURL        string `json:"html_url"`
-		Comments       int    `json:"comments"`
-		ReviewComments int    `json:"review_comments"`
-		Head           struct {
-			Ref  string `json:"ref"`
-			SHA  string `json:"sha"`
-			Repo struct {
-				FullName string `json:"full_name"`
-			} `json:"repo"`
-		} `json:"head"`
+	matches := make([]PRStatus, 0)
+	for _, pr := range prs {
+		if pr.HeadBranch == branch {
+			matches = append(matches, pr)
+		}
 	}
-	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, fmt.Errorf("parsing PR response: %w", err)
-	}
-
-	state := strings.ToUpper(raw.State)
-	if raw.Merged {
-		state = "MERGED"
-	}
-
-	return &PRStatus{
-		HasPR:        true,
-		Number:       raw.Number,
-		Title:        raw.Title,
-		URL:          raw.HTMLURL,
-		State:        state,
-		IsDraft:      raw.Draft,
-		CheckStatus:  "",
-		CommentCount: raw.Comments + raw.ReviewComments,
-		HeadBranch:   raw.Head.Ref,
-		HeadSHA:      raw.Head.SHA,
-		HeadRepo:     raw.Head.Repo.FullName,
-	}, nil
+	return pickBestStatus(matches), nil
 }
 
-// restPR is the JSON shape of a pull request in GitHub REST list responses.
-type restPR struct {
-	Number    int     `json:"number"`
-	Title     string  `json:"title"`
-	State     string  `json:"state"` // open, closed
-	Draft     bool    `json:"draft"`
-	MergedAt  *string `json:"merged_at"`
-	HTMLURL   string  `json:"html_url"`
-	CreatedAt string  `json:"created_at"`
-	Head      struct {
-		Ref string `json:"ref"`
-	} `json:"head"`
+// FetchPRByNumber fetches a single PR by repository and number.
+func (c *Client) FetchPRByNumber(owner, repo string, number int) (*PRStatus, error) {
+	var raw apiPR
+	if err := c.get(fmt.Sprintf("/repos/%s/%s/pulls/%d", url.PathEscape(owner), url.PathEscape(repo), number), nil, &raw); err != nil {
+		return nil, err
+	}
+	status := statusFromAPI(raw)
+	return &status, nil
 }
 
-// FetchPRsForCommit queries GitHub for pull requests containing the given
-// commit via the repos/{owner}/{repo}/commits/{sha}/pulls REST endpoint.
-// This is an exact match on commit identity — immune to branch-name reuse
-// and fork branch-name collisions. When multiple PRs contain the commit,
-// the open PR wins; ties are broken by newest creation time.
+// FetchPRsForCommit resolves PRs containing an exact commit.
 func (c *Client) FetchPRsForCommit(owner, repo, sha string) (*PRStatus, error) {
-	cmd := c.execCommand(c.ghPath, "api",
-		fmt.Sprintf("repos/%s/%s/commits/%s/pulls", owner, repo, sha))
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("gh api commits/pulls: %s: %w", strings.TrimSpace(string(out)), err)
+	var raw []apiPR
+	if err := c.get(fmt.Sprintf("/repos/%s/%s/commits/%s/pulls", url.PathEscape(owner), url.PathEscape(repo), url.PathEscape(sha)), nil, &raw); err != nil {
+		return nil, err
 	}
-
-	var prs []restPR
-	if err := json.Unmarshal(out, &prs); err != nil {
-		return nil, fmt.Errorf("parsing commit pulls response: %w", err)
+	statuses := make([]PRStatus, len(raw))
+	for i, pr := range raw {
+		statuses[i] = statusFromAPI(pr)
 	}
-
-	if len(prs) == 0 {
-		return &PRStatus{HasPR: false}, nil
-	}
-
-	best := prs[0]
-	for _, pr := range prs[1:] {
-		bestOpen := strings.EqualFold(best.State, "open")
-		prOpen := strings.EqualFold(pr.State, "open")
-		if prOpen != bestOpen {
-			if prOpen {
-				best = pr
-			}
-			continue
-		}
-		if pr.CreatedAt > best.CreatedAt {
-			best = pr
-		}
-	}
-
-	state := strings.ToUpper(best.State)
-	if best.MergedAt != nil && *best.MergedAt != "" {
-		state = "MERGED"
-	}
-
-	return &PRStatus{
-		HasPR:      true,
-		Number:     best.Number,
-		Title:      best.Title,
-		URL:        best.HTMLURL,
-		State:      state,
-		IsDraft:    best.Draft,
-		HeadBranch: best.Head.Ref,
-		CreatedAt:  best.CreatedAt,
-	}, nil
+	return pickBestStatus(statuses), nil
 }
 
-// FetchCommentCount returns the total comment count for a PR.
-func (c *Client) FetchCommentCount(owner, repo string, prNumber int) (int, error) {
-	cmd := c.execCommand(c.ghPath, "api",
-		fmt.Sprintf("repos/%s/%s/pulls/%d", owner, repo, prNumber),
-		"--jq", ".comments + .review_comments")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return 0, fmt.Errorf("gh api: %s: %w", strings.TrimSpace(string(out)), err)
+func pickBestStatus(statuses []PRStatus) *PRStatus {
+	if len(statuses) == 0 {
+		return &PRStatus{HasPR: false}
 	}
+	sort.SliceStable(statuses, func(i, j int) bool {
+		iOpen := strings.EqualFold(statuses[i].State, "OPEN")
+		jOpen := strings.EqualFold(statuses[j].State, "OPEN")
+		if iOpen != jOpen {
+			return iOpen
+		}
+		return statuses[i].CreatedAt > statuses[j].CreatedAt
+	})
+	best := statuses[0]
+	return &best
+}
 
-	var count int
-	if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &count); err != nil {
-		return 0, fmt.Errorf("parsing comment count: %w", err)
+// BranchQuery pairs a branch with owner/repo context.
+type BranchQuery struct{ Branch, Repo string }
+
+func (c *Client) BatchFetchPRStatus(branches []string) (map[string]*PRStatus, error) {
+	queries := make([]BranchQuery, len(branches))
+	for i, branch := range branches {
+		queries[i] = BranchQuery{Branch: branch}
 	}
-	return count, nil
+	return c.BatchFetchPRStatusWithRepo(queries)
+}
+
+func (c *Client) BatchFetchPRStatusWithRepo(queries []BranchQuery) (map[string]*PRStatus, error) {
+	statuses := make(map[string]*PRStatus)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 5)
+	var errs []string
+	for _, query := range queries {
+		query := query
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			status, err := c.FetchPRStatus(query.Branch, query.Repo)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("%s: %v", query.Branch, err))
+				return
+			}
+			statuses[query.Branch] = status
+		}()
+	}
+	wg.Wait()
+	if len(errs) > 0 {
+		return statuses, errors.New(strings.Join(errs, "; "))
+	}
+	return statuses, nil
+}
+
+func (c *Client) FetchCommentCount(owner, repo string, number int) (int, error) {
+	status, err := c.FetchPRByNumber(owner, repo, number)
+	if err != nil {
+		return 0, err
+	}
+	return status.CommentCount, nil
+}
+
+func (c *Client) get(path string, query url.Values, target any) error {
+	endpoint := c.baseURL + path
+	if len(query) > 0 {
+		endpoint += "?" + query.Encode()
+	}
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	response, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("GitHub API request: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return decodeAPIError(response)
+	}
+	if err := json.NewDecoder(response.Body).Decode(target); err != nil {
+		return &APIError{Kind: ErrorResponse, StatusCode: response.StatusCode, Message: "invalid JSON response"}
+	}
+	return nil
+}
+
+func decodeAPIError(response *http.Response) error {
+	data, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
+	var payload struct {
+		Message string `json:"message"`
+	}
+	_ = json.Unmarshal(data, &payload)
+	kind := ErrorResponse
+	switch {
+	case response.StatusCode == http.StatusUnauthorized:
+		kind = ErrorAuthentication
+	case response.StatusCode == http.StatusForbidden && response.Header.Get("X-RateLimit-Remaining") == "0":
+		kind = ErrorRateLimit
+	case response.StatusCode == http.StatusTooManyRequests:
+		kind = ErrorRateLimit
+	case response.StatusCode == http.StatusForbidden:
+		kind = ErrorAuthorization
+	case response.StatusCode == http.StatusNotFound:
+		kind = ErrorNotFound
+	case response.StatusCode >= 500:
+		kind = ErrorServer
+	}
+	apiErr := &APIError{Kind: kind, StatusCode: response.StatusCode, Message: payload.Message}
+	if raw := response.Header.Get("X-RateLimit-Reset"); raw != "" {
+		if seconds, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			apiErr.ResetAt = time.Unix(seconds, 0)
+		}
+	}
+	return apiErr
 }
 
 var (
-	sshRemoteRe   = regexp.MustCompile(`git@github\.com:([^/]+)/(.+?)(?:\.git)?$`)
+	sshRemoteRe   = regexp.MustCompile(`(?:ssh://)?git@github\.com[:/]([^/]+)/(.+?)(?:\.git)?$`)
 	httpsRemoteRe = regexp.MustCompile(`https://github\.com/([^/]+)/(.+?)(?:\.git)?$`)
 )
 
-// DetectRepo returns the GitHub owner and repo from the git remote.
-func (c *Client) DetectRepo() (owner, repo string, err error) {
-	cmd := c.execCommand("git", "remote", "get-url", "origin")
+func parseRemote(raw string) (string, string, error) {
+	raw = strings.TrimSpace(raw)
+	for _, pattern := range []*regexp.Regexp{sshRemoteRe, httpsRemoteRe} {
+		if match := pattern.FindStringSubmatch(raw); match != nil {
+			return match[1], strings.TrimSuffix(match[2], ".git"), nil
+		}
+	}
+	return "", "", fmt.Errorf("could not parse GitHub remote URL: %s", raw)
+}
+
+// DetectRepo returns the origin repository in the process working directory.
+func (c *Client) DetectRepo() (string, string, error) { return c.DetectRepoAt("") }
+
+// DetectRepoAt returns the origin repository for an explicit checkout.
+func (c *Client) DetectRepoAt(directory string) (string, string, error) {
+	args := []string{"remote", "get-url", "origin"}
+	cmd := c.execCommand("git", args...)
+	if directory != "" {
+		cmd.Dir = directory
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", "", fmt.Errorf("detecting repo: %s: %w", strings.TrimSpace(string(out)), err)
 	}
-
-	url := strings.TrimSpace(string(out))
-
-	if m := sshRemoteRe.FindStringSubmatch(url); m != nil {
-		return m[1], m[2], nil
-	}
-	if m := httpsRemoteRe.FindStringSubmatch(url); m != nil {
-		return m[1], m[2], nil
-	}
-
-	return "", "", fmt.Errorf("could not parse GitHub remote URL: %s", url)
+	return parseRemote(string(out))
 }
 
-// DetectBranch returns the current git branch name.
-func (c *Client) DetectBranch() (string, error) {
+func (c *Client) DetectBranch() (string, error) { return c.DetectBranchAt("") }
+
+func (c *Client) DetectBranchAt(directory string) (string, error) {
 	cmd := c.execCommand("git", "rev-parse", "--abbrev-ref", "HEAD")
+	if directory != "" {
+		cmd.Dir = directory
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("detecting branch: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func splitRepo(repo string) (string, string, bool) {
+	parts := strings.Split(repo, "/")
+	returnPart := func() (string, string, bool) {
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return "", "", false
+		}
+		return parts[0], parts[1], true
+	}
+	return returnPart()
 }

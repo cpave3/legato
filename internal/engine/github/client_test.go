@@ -1,506 +1,147 @@
 package github
 
 import (
-	"fmt"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"testing"
+	"time"
 )
 
-// mockExecCommand creates a function that returns exec.Cmd objects backed by
-// the test binary itself. When the "mocked" command runs, it executes the
-// TestHelperProcess test case which prints predefined output and exits.
-func mockExecCommand(output string, exitCode int) func(string, ...string) *exec.Cmd {
+func TestNewRequiresToken(t *testing.T) {
+	if _, err := New(Options{}); err == nil {
+		t.Fatal("expected missing token error")
+	}
+}
+
+func TestListRepositoryPRsConvertsGitHubResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/acme/widget/pulls" || r.URL.Query().Get("state") != "all" || r.URL.Query().Get("per_page") != "100" {
+			t.Fatalf("request = %s", r.URL.String())
+		}
+		_, _ = w.Write([]byte(`[{"number":7,"title":"Widget","state":"closed","draft":true,"merged_at":"2026-07-01T00:00:00Z","html_url":"https://github.com/acme/widget/pull/7","created_at":"2026-06-01T00:00:00Z","head":{"ref":"TASK-7-widget","sha":"deadbeef","repo":{"full_name":"fork/widget"}}}]`))
+	}))
+	defer server.Close()
+	client, err := New(Options{Token: "token", BaseURL: server.URL, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prs, err := client.ListRepositoryPRs("acme", "widget")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prs) != 1 || prs[0].State != "MERGED" || prs[0].HeadRepo != "fork/widget" || prs[0].HeadSHA != "deadbeef" {
+		t.Fatalf("PRs = %+v", prs)
+	}
+}
+
+func TestFetchPRStatusSelectsOpenExactBranch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"number":1,"state":"closed","created_at":"2026-07-02T00:00:00Z","head":{"ref":"feature/x","repo":{"full_name":"acme/widget"}}},
+			{"number":2,"state":"open","created_at":"2026-07-01T00:00:00Z","head":{"ref":"feature/x","repo":{"full_name":"acme/widget"}}},
+			{"number":3,"state":"open","created_at":"2026-07-03T00:00:00Z","head":{"ref":"other","repo":{"full_name":"acme/widget"}}}
+		]`))
+	}))
+	defer server.Close()
+	client, _ := New(Options{Token: "token", BaseURL: server.URL, HTTPClient: server.Client()})
+	status, err := client.FetchPRStatus("feature/x", "acme/widget")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Number != 2 {
+		t.Fatalf("PR = %+v, want #2", status)
+	}
+}
+
+func TestFetchPRsForCommitUsesExactEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/acme/widget/commits/abc123/pulls" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`[{"number":9,"state":"open","head":{"ref":"feature/9","repo":{"full_name":"acme/widget"}}}]`))
+	}))
+	defer server.Close()
+	client, _ := New(Options{Token: "token", BaseURL: server.URL, HTTPClient: server.Client()})
+	status, err := client.FetchPRsForCommit("acme", "widget", "abc123")
+	if err != nil || status.Number != 9 {
+		t.Fatalf("status=%+v err=%v", status, err)
+	}
+}
+
+func TestAPIErrorsAreClassifiedAndDoNotExposeToken(t *testing.T) {
+	reset := time.Now().Add(time.Hour).Unix()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(reset, 10))
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"API rate limit exceeded"}`))
+	}))
+	defer server.Close()
+	client, _ := New(Options{Token: "super-secret", BaseURL: server.URL, HTTPClient: server.Client()})
+	_, err := client.ListRepositoryPRs("acme", "widget")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Kind != ErrorRateLimit || apiErr.ResetAt.IsZero() {
+		t.Fatalf("error = %#v", err)
+	}
+	if err != nil && contains(err.Error(), "super-secret") {
+		t.Fatalf("error exposed token: %v", err)
+	}
+}
+
+func TestDetectRepoAndBranchAtUseExplicitDirectory(t *testing.T) {
+	dir := t.TempDir()
+	commands := map[string]string{
+		"remote get-url origin":       "git@github.com:acme/widget.git\n",
+		"rev-parse --abbrev-ref HEAD": "feature/TASK-1\n",
+	}
+	client, err := New(Options{Token: "token", ExecCommand: helperCommand(t, dir, commands)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, repo, err := client.DetectRepoAt(dir)
+	if err != nil || owner != "acme" || repo != "widget" {
+		t.Fatalf("repo=%s/%s err=%v", owner, repo, err)
+	}
+	branch, err := client.DetectBranchAt(dir)
+	if err != nil || branch != "feature/TASK-1" {
+		t.Fatalf("branch=%q err=%v", branch, err)
+	}
+}
+
+func helperCommand(t *testing.T, wantDir string, outputs map[string]string) func(string, ...string) *exec.Cmd {
+	t.Helper()
 	return func(name string, args ...string) *exec.Cmd {
-		cs := []string{"-test.run=TestHelperProcess", "--", name}
-		cs = append(cs, args...)
-		cmd := exec.Command(os.Args[0], cs...)
-		cmd.Env = append(os.Environ(),
-			"GO_WANT_HELPER_PROCESS=1",
-			fmt.Sprintf("GO_HELPER_OUTPUT=%s", output),
-			fmt.Sprintf("GO_HELPER_EXIT_CODE=%d", exitCode),
-		)
+		key := ""
+		for i, arg := range args {
+			if i > 0 {
+				key += " "
+			}
+			key += arg
+		}
+		output, ok := outputs[key]
+		if !ok {
+			t.Fatalf("unexpected command: %s %s", name, key)
+		}
+		script := filepath.Join(t.TempDir(), "git")
+		if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' '"+output+"'\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(script)
+		cmd.Dir = wantDir
 		return cmd
 	}
 }
 
-// TestHelperProcess is the subprocess entry point used by mockExecCommand.
-// It's not a real test — it's invoked as a subprocess.
-func TestHelperProcess(t *testing.T) {
-	if os.Getenv("GO_WANT_HELPER_PROCESS") != "1" {
-		return
-	}
-	fmt.Fprint(os.Stdout, os.Getenv("GO_HELPER_OUTPUT"))
-	exitCode := os.Getenv("GO_HELPER_EXIT_CODE")
-	if exitCode == "1" {
-		os.Exit(1)
-	}
-	os.Exit(0)
-}
-
-func newTestClient(output string, exitCode int) *Client {
-	return &Client{
-		ghPath:      "gh",
-		execCommand: mockExecCommand(output, exitCode),
-	}
-}
-
-func TestNewReturnsErrorWhenGhNotFound(t *testing.T) {
-	_, err := New(Options{
-		LookPath: func(name string) (string, error) {
-			return "", exec.ErrNotFound
-		},
-	})
-	if err == nil {
-		t.Error("expected error when gh not found")
-	}
-}
-
-func TestNewSucceedsWhenGhFound(t *testing.T) {
-	c, err := New(Options{
-		LookPath: func(name string) (string, error) {
-			return "/usr/bin/gh", nil
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c == nil {
-		t.Fatal("expected non-nil client")
-	}
-}
-
-func TestFetchPRStatusWithOpenPR(t *testing.T) {
-	output := `[{"number":42,"headRefName":"feature/auth","title":"Add auth","state":"OPEN","isDraft":false,"reviewDecision":"APPROVED","url":"https://github.com/owner/repo/pull/42","statusCheckRollup":[{"conclusion":"SUCCESS","status":"COMPLETED"}],"comments":[{},{}],"reviews":[{},{},{}]}]`
-	c := newTestClient(output, 0)
-
-	status, err := c.FetchPRStatus("feature/auth")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !status.HasPR {
-		t.Error("expected HasPR=true")
-	}
-	if status.Number != 42 {
-		t.Errorf("Number = %d, want 42", status.Number)
-	}
-	if status.State != "OPEN" {
-		t.Errorf("State = %q, want OPEN", status.State)
-	}
-	if status.ReviewDecision != "APPROVED" {
-		t.Errorf("ReviewDecision = %q, want APPROVED", status.ReviewDecision)
-	}
-	if status.CheckStatus != "pass" {
-		t.Errorf("CheckStatus = %q, want pass", status.CheckStatus)
-	}
-	if status.CommentCount != 5 {
-		t.Errorf("CommentCount = %d, want 5", status.CommentCount)
-	}
-	if status.URL != "https://github.com/owner/repo/pull/42" {
-		t.Errorf("URL = %q, want https://github.com/owner/repo/pull/42", status.URL)
-	}
-}
-
-func TestFetchPRStatusNoPR(t *testing.T) {
-	c := newTestClient("[]", 0)
-
-	status, err := c.FetchPRStatus("no-pr-branch")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.HasPR {
-		t.Error("expected HasPR=false")
-	}
-}
-
-func TestFetchPRStatusMerged(t *testing.T) {
-	output := `[{"number":10,"headRefName":"feature/done","title":"Done","state":"MERGED","isDraft":false,"reviewDecision":"APPROVED","url":"https://github.com/owner/repo/pull/10","statusCheckRollup":[],"comments":[],"reviews":[]}]`
-	c := newTestClient(output, 0)
-
-	status, err := c.FetchPRStatus("feature/done")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.State != "MERGED" {
-		t.Errorf("State = %q, want MERGED", status.State)
-	}
-}
-
-func TestFetchPRStatusDraft(t *testing.T) {
-	output := `[{"number":5,"headRefName":"wip","title":"WIP","state":"OPEN","isDraft":true,"reviewDecision":"","url":"https://github.com/owner/repo/pull/5","statusCheckRollup":[],"comments":[],"reviews":[]}]`
-	c := newTestClient(output, 0)
-
-	status, err := c.FetchPRStatus("wip")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !status.IsDraft {
-		t.Error("expected IsDraft=true")
-	}
-}
-
-func TestFetchPRStatusPrefersOpenOverClosed(t *testing.T) {
-	// A reused branch name can match an old closed/merged PR. The open PR
-	// must win even when the closed one appears first in gh's output.
-	output := `[
-		{"number":17,"headRefName":"fix-tests","title":"Old fix","state":"CLOSED","isDraft":false,"reviewDecision":"","url":"https://github.com/o/r/pull/17","createdAt":"2025-01-10T00:00:00Z","statusCheckRollup":[],"comments":[],"reviews":[]},
-		{"number":42,"headRefName":"fix-tests","title":"New fix","state":"OPEN","isDraft":false,"reviewDecision":"","url":"https://github.com/o/r/pull/42","createdAt":"2026-07-01T00:00:00Z","statusCheckRollup":[],"comments":[],"reviews":[]}
-	]`
-	c := newTestClient(output, 0)
-
-	status, err := c.FetchPRStatus("fix-tests")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.Number != 42 {
-		t.Errorf("Number = %d, want 42 (open PR should win over closed)", status.Number)
-	}
-	if status.CreatedAt != "2026-07-01T00:00:00Z" {
-		t.Errorf("CreatedAt = %q, want 2026-07-01T00:00:00Z", status.CreatedAt)
-	}
-}
-
-func TestFetchPRStatusPrefersNewestWhenSameState(t *testing.T) {
-	output := `[
-		{"number":17,"headRefName":"fix-tests","title":"Old","state":"MERGED","isDraft":false,"reviewDecision":"","url":"https://github.com/o/r/pull/17","createdAt":"2025-01-10T00:00:00Z","statusCheckRollup":[],"comments":[],"reviews":[]},
-		{"number":42,"headRefName":"fix-tests","title":"New","state":"MERGED","isDraft":false,"reviewDecision":"","url":"https://github.com/o/r/pull/42","createdAt":"2026-07-01T00:00:00Z","statusCheckRollup":[],"comments":[],"reviews":[]}
-	]`
-	c := newTestClient(output, 0)
-
-	status, err := c.FetchPRStatus("fix-tests")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.Number != 42 {
-		t.Errorf("Number = %d, want 42 (newest should win)", status.Number)
-	}
-}
-
-func TestFetchPRsForCommit(t *testing.T) {
-	// REST repos/{o}/{r}/commits/{sha}/pulls response shape.
-	output := `[{"number":42,"title":"Add auth","state":"open","draft":false,"merged_at":null,"html_url":"https://github.com/owner/repo/pull/42","created_at":"2026-07-01T00:00:00Z","head":{"ref":"feature/auth"}}]`
-	c := newTestClient(output, 0)
-
-	status, err := c.FetchPRsForCommit("owner", "repo", "abc123")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !status.HasPR {
-		t.Fatal("expected HasPR=true")
-	}
-	if status.Number != 42 {
-		t.Errorf("Number = %d, want 42", status.Number)
-	}
-	if status.State != "OPEN" {
-		t.Errorf("State = %q, want OPEN", status.State)
-	}
-	if status.HeadBranch != "feature/auth" {
-		t.Errorf("HeadBranch = %q, want feature/auth", status.HeadBranch)
-	}
-	if status.CreatedAt != "2026-07-01T00:00:00Z" {
-		t.Errorf("CreatedAt = %q, want 2026-07-01T00:00:00Z", status.CreatedAt)
-	}
-	if status.URL != "https://github.com/owner/repo/pull/42" {
-		t.Errorf("URL = %q", status.URL)
-	}
-}
-
-func TestFetchPRsForCommitPrefersOpen(t *testing.T) {
-	output := `[
-		{"number":17,"title":"Old","state":"closed","draft":false,"merged_at":"2025-02-01T00:00:00Z","html_url":"https://github.com/o/r/pull/17","created_at":"2025-01-10T00:00:00Z","head":{"ref":"fix-tests"}},
-		{"number":42,"title":"New","state":"open","draft":false,"merged_at":null,"html_url":"https://github.com/o/r/pull/42","created_at":"2026-07-01T00:00:00Z","head":{"ref":"fix-tests"}}
-	]`
-	c := newTestClient(output, 0)
-
-	status, err := c.FetchPRsForCommit("o", "r", "abc123")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.Number != 42 {
-		t.Errorf("Number = %d, want 42", status.Number)
-	}
-}
-
-func TestFetchPRsForCommitMerged(t *testing.T) {
-	output := `[{"number":10,"title":"Done","state":"closed","draft":false,"merged_at":"2026-07-02T00:00:00Z","html_url":"https://github.com/o/r/pull/10","created_at":"2026-07-01T00:00:00Z","head":{"ref":"feature/done"}}]`
-	c := newTestClient(output, 0)
-
-	status, err := c.FetchPRsForCommit("o", "r", "def456")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.State != "MERGED" {
-		t.Errorf("State = %q, want MERGED", status.State)
-	}
-}
-
-func TestFetchPRsForCommitNone(t *testing.T) {
-	c := newTestClient("[]", 0)
-	status, err := c.FetchPRsForCommit("o", "r", "nope")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.HasPR {
-		t.Error("expected HasPR=false")
-	}
-}
-
-func TestFetchPRsForCommitError(t *testing.T) {
-	c := newTestClient("Not Found\n", 1)
-	if _, err := c.FetchPRsForCommit("o", "r", "bad"); err == nil {
-		t.Error("expected error")
-	}
-}
-
-func TestDeriveCheckStatus(t *testing.T) {
-	tests := []struct {
-		name   string
-		checks []ghCheck
-		want   string
-	}{
-		{"no checks", nil, ""},
-		{"empty checks", []ghCheck{}, ""},
-		{"all passing", []ghCheck{
-			{Conclusion: "SUCCESS", Status: "COMPLETED"},
-			{Conclusion: "NEUTRAL", Status: "COMPLETED"},
-			{Conclusion: "SKIPPED", Status: "COMPLETED"},
-		}, "pass"},
-		{"one failure", []ghCheck{
-			{Conclusion: "SUCCESS", Status: "COMPLETED"},
-			{Conclusion: "FAILURE", Status: "COMPLETED"},
-		}, "fail"},
-		{"error conclusion", []ghCheck{
-			{Conclusion: "ERROR", Status: "COMPLETED"},
-		}, "fail"},
-		{"cancelled", []ghCheck{
-			{Conclusion: "CANCELLED", Status: "COMPLETED"},
-		}, "fail"},
-		{"timed out", []ghCheck{
-			{Conclusion: "TIMED_OUT", Status: "COMPLETED"},
-		}, "fail"},
-		{"action required", []ghCheck{
-			{Conclusion: "ACTION_REQUIRED", Status: "COMPLETED"},
-		}, "fail"},
-		{"pending - no conclusion", []ghCheck{
-			{Conclusion: "SUCCESS", Status: "COMPLETED"},
-			{Conclusion: "", Status: "IN_PROGRESS"},
-		}, "pending"},
-		{"pending - queued", []ghCheck{
-			{Conclusion: "", Status: "QUEUED"},
-		}, "pending"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := deriveCheckStatus(tt.checks)
-			if got != tt.want {
-				t.Errorf("deriveCheckStatus() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestBatchFetchPRStatusEmpty(t *testing.T) {
-	c := newTestClient("", 0)
-	statuses, err := c.BatchFetchPRStatus(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(statuses) != 0 {
-		t.Errorf("got %d statuses, want 0", len(statuses))
-	}
-}
-
-func TestBatchFetchPRStatusMultiple(t *testing.T) {
-	// For batch, each call gets the same mock output. That's OK for testing the fan-out logic.
-	output := `[{"number":1,"headRefName":"branch","title":"PR","state":"OPEN","isDraft":false,"reviewDecision":"","url":"https://github.com/o/r/pull/1","statusCheckRollup":[],"comments":[],"reviews":[]}]`
-	c := newTestClient(output, 0)
-
-	branches := []string{"branch-a", "branch-b", "branch-c"}
-	statuses, err := c.BatchFetchPRStatus(branches)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(statuses) != 3 {
-		t.Errorf("got %d statuses, want 3", len(statuses))
-	}
-	for _, b := range branches {
-		if _, ok := statuses[b]; !ok {
-			t.Errorf("missing status for branch %s", b)
+func contains(value, substring string) bool {
+	for i := 0; i+len(substring) <= len(value); i++ {
+		if value[i:i+len(substring)] == substring {
+			return true
 		}
 	}
-}
-
-func TestDetectRepoSSH(t *testing.T) {
-	c := newTestClient("git@github.com:owner/repo.git\n", 0)
-	owner, repo, err := c.DetectRepo()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if owner != "owner" {
-		t.Errorf("owner = %q, want owner", owner)
-	}
-	if repo != "repo" {
-		t.Errorf("repo = %q, want repo", repo)
-	}
-}
-
-func TestDetectRepoHTTPS(t *testing.T) {
-	c := newTestClient("https://github.com/myorg/myrepo.git\n", 0)
-	owner, repo, err := c.DetectRepo()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if owner != "myorg" {
-		t.Errorf("owner = %q, want myorg", owner)
-	}
-	if repo != "myrepo" {
-		t.Errorf("repo = %q, want myrepo", repo)
-	}
-}
-
-func TestDetectRepoHTTPSNoGitSuffix(t *testing.T) {
-	c := newTestClient("https://github.com/myorg/myrepo\n", 0)
-	owner, repo, err := c.DetectRepo()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if owner != "myorg" {
-		t.Errorf("owner = %q, want myorg", owner)
-	}
-	if repo != "myrepo" {
-		t.Errorf("repo = %q, want myrepo", repo)
-	}
-}
-
-func TestDetectRepoNoRemote(t *testing.T) {
-	c := newTestClient("fatal: no such remote 'origin'\n", 1)
-	_, _, err := c.DetectRepo()
-	if err == nil {
-		t.Error("expected error when no remote")
-	}
-}
-
-func TestDetectBranch(t *testing.T) {
-	c := newTestClient("feature/auth\n", 0)
-	branch, err := c.DetectBranch()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if branch != "feature/auth" {
-		t.Errorf("branch = %q, want feature/auth", branch)
-	}
-}
-
-func TestDetectBranchNotGitRepo(t *testing.T) {
-	c := newTestClient("fatal: not a git repository\n", 1)
-	_, err := c.DetectBranch()
-	if err == nil {
-		t.Error("expected error when not a git repo")
-	}
-}
-
-func TestFetchCommentCount(t *testing.T) {
-	c := newTestClient("7\n", 0)
-	count, err := c.FetchCommentCount("owner", "repo", 42)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != 7 {
-		t.Errorf("count = %d, want 7", count)
-	}
-}
-
-func TestFetchCommentCountZero(t *testing.T) {
-	c := newTestClient("0\n", 0)
-	count, err := c.FetchCommentCount("owner", "repo", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Errorf("count = %d, want 0", count)
-	}
-}
-
-func TestFetchPRByNumber(t *testing.T) {
-	output := `{"number":42,"title":"Add auth","state":"open","draft":false,"merged":false,"html_url":"https://github.com/owner/repo/pull/42","comments":2,"review_comments":3,"head":{"ref":"feature/auth","sha":"abc123","repo":{"full_name":"contributor/repo"}}}`
-	c := newTestClient(output, 0)
-
-	status, err := c.FetchPRByNumber("owner", "repo", 42)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !status.HasPR {
-		t.Error("expected HasPR=true")
-	}
-	if status.Number != 42 {
-		t.Errorf("Number = %d, want 42", status.Number)
-	}
-	if status.Title != "Add auth" {
-		t.Errorf("Title = %q, want Add auth", status.Title)
-	}
-	if status.State != "OPEN" {
-		t.Errorf("State = %q, want OPEN", status.State)
-	}
-	if status.HeadBranch != "feature/auth" {
-		t.Errorf("HeadBranch = %q, want feature/auth", status.HeadBranch)
-	}
-	if status.HeadSHA != "abc123" || status.HeadRepo != "contributor/repo" {
-		t.Errorf("head identity = %q at %q", status.HeadSHA, status.HeadRepo)
-	}
-	if status.CommentCount != 5 {
-		t.Errorf("CommentCount = %d, want 5", status.CommentCount)
-	}
-	if status.URL != "https://github.com/owner/repo/pull/42" {
-		t.Errorf("URL = %q", status.URL)
-	}
-}
-
-func TestFetchPRByNumberMerged(t *testing.T) {
-	output := `{"number":10,"title":"Done","state":"closed","draft":false,"merged":true,"html_url":"https://github.com/o/r/pull/10","comments":0,"review_comments":0,"head":{"ref":"feature/done"}}`
-	c := newTestClient(output, 0)
-
-	status, err := c.FetchPRByNumber("o", "r", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.State != "MERGED" {
-		t.Errorf("State = %q, want MERGED", status.State)
-	}
-}
-
-func TestFetchPRByNumberDraft(t *testing.T) {
-	output := `{"number":5,"title":"WIP","state":"open","draft":true,"merged":false,"html_url":"https://github.com/o/r/pull/5","comments":0,"review_comments":0,"head":{"ref":"wip"}}`
-	c := newTestClient(output, 0)
-
-	status, err := c.FetchPRByNumber("o", "r", 5)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !status.IsDraft {
-		t.Error("expected IsDraft=true")
-	}
-}
-
-func TestFetchPRByNumberNotFound(t *testing.T) {
-	c := newTestClient("Not Found\n", 1)
-	_, err := c.FetchPRByNumber("owner", "repo", 999)
-	if err == nil {
-		t.Error("expected error for non-existent PR")
-	}
-}
-
-// TestDetectRepoSSHNoGitSuffix tests SSH URL without .git suffix
-func TestDetectRepoSSHNoGitSuffix(t *testing.T) {
-	c := newTestClient("git@github.com:owner/repo\n", 0)
-	owner, repo, err := c.DetectRepo()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if owner != "owner" {
-		t.Errorf("owner = %q, want owner", owner)
-	}
-	if repo != "repo" {
-		t.Errorf("repo = %q, want repo", repo)
-	}
+	return false
 }

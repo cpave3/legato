@@ -17,6 +17,22 @@ func writeTestConfig(t *testing.T, content string) string {
 	return path
 }
 
+func TestGitHubTokenExpandsFromEnvironment(t *testing.T) {
+	t.Setenv("LEGATO_GITHUB_TOKEN", "github-secret")
+	writeTestConfig(t, `
+github:
+  token: ${LEGATO_GITHUB_TOKEN}
+  api_base_url: https://github.example/api/v3
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GitHub.Token != "github-secret" || cfg.GitHub.APIBaseURL != "https://github.example/api/v3" {
+		t.Fatalf("GitHub config = %+v", cfg.GitHub)
+	}
+}
+
 func TestGroupsDefaultsParsed(t *testing.T) {
 	writeTestConfig(t, `
 groups:

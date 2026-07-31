@@ -25,9 +25,9 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 	}
 	prSvc := existingPR
 	if prSvc == nil {
-		client, err := gh.New(gh.Options{})
+		client, err := gh.New(gh.Options{Token: cfg.GitHub.Token, BaseURL: cfg.GitHub.APIBaseURL})
 		if err != nil {
-			return nil, fmt.Errorf("GitHub workflows require gh: %w", err)
+			return nil, fmt.Errorf("GitHub workflows require a configured token: %w", err)
 		}
 		prSvc = service.NewPRTrackingService(db, bus, client, 10*time.Minute, 10*time.Minute)
 	}

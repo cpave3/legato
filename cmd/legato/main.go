@@ -1580,9 +1580,9 @@ func runTUI() int {
 		defer stopSync()
 	}
 
-	// Set up GitHub PR tracking (gh CLI may not be installed — that's OK)
+	// Set up token-authenticated GitHub PR tracking when configured.
 	var prSvc service.PRTrackingService
-	ghClient, ghErr := gh.New(gh.Options{})
+	ghClient, ghErr := gh.New(gh.Options{Token: cfg.GitHub.Token, BaseURL: cfg.GitHub.APIBaseURL})
 	if ghErr == nil {
 		interval := time.Duration(cfg.GitHub.PollIntervalSeconds) * time.Second
 		resolvedInterval := time.Duration(cfg.GitHub.ResolvedPollIntervalSeconds) * time.Second
