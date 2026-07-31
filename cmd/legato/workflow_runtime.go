@@ -29,7 +29,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 		if err != nil {
 			return nil, fmt.Errorf("GitHub workflows require a configured token: %w", err)
 		}
-		prSvc = service.NewPRTrackingService(db, bus, client, 10*time.Minute, 10*time.Minute)
+		prSvc = service.NewPRTrackingService(db, bus, client, 10*time.Minute, 10*time.Minute, githubRepositoryMappings(cfg)...)
 	}
 	agentSvc := existingAgents
 	if agentSvc == nil {
@@ -68,7 +68,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 	}
 	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary), service.NewTaskNoteExecutor(db, publishers), service.NewTaskMetadataExecutor(db)}
 	if cfg.Worktrees.Yggdrasil.Enabled {
-		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"))
+		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), service.NewGitCheckoutInspector())
 		executors = append(executors,
 			service.NewGitHubPRPrepareExecutor(prSvc, gitengine.ExactFetcher{}, worktrees, prSvc),
 			service.NewWorktreeRemoveExecutor(worktrees),
@@ -80,9 +80,17 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 	return workflows, nil
 }
 
+func githubRepositoryMappings(cfg *config.Config) []service.RepositoryMapping {
+	mappings := make([]service.RepositoryMapping, len(cfg.Repositories))
+	for i, repository := range cfg.Repositories {
+		mappings[i] = service.RepositoryMapping{Repo: repository.Repo, BaseBranch: repository.BaseBranch, JiraProjects: repository.JiraProjects, Workspaces: repository.Workspaces}
+	}
+	return mappings
+}
+
 func workflowRepositoryPresets(cfg *config.Config) []workflowengine.RepositoryPreset {
-	presets := make([]workflowengine.RepositoryPreset, len(cfg.Workflows.Repositories))
-	for i, repository := range cfg.Workflows.Repositories {
+	presets := make([]workflowengine.RepositoryPreset, len(cfg.Repositories))
+	for i, repository := range cfg.Repositories {
 		presets[i] = workflowengine.RepositoryPreset{Name: repository.Name, Repo: repository.Repo, PrimaryDir: repository.PrimaryDir, BaseBranch: repository.BaseBranch}
 	}
 	return presets

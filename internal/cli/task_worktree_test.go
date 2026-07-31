@@ -93,6 +93,35 @@ func TestTaskWorktreeClearBroadcastsChangeAfterPersistence(t *testing.T) {
 	}
 }
 
+type fakeWorktreeRecorder struct {
+	taskID string
+	meta   *store.TaskWorktree
+}
+
+func (f *fakeWorktreeRecorder) Record(_ context.Context, taskID string, meta *store.TaskWorktree) error {
+	f.taskID, f.meta = taskID, meta
+	return nil
+}
+
+func TestTaskWorktreeSetRoutesExternalMetadataThroughContextRecorder(t *testing.T) {
+	db, err := store.New(t.TempDir() + "/test.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.CreateTask(context.Background(), store.Task{ID: "task-1", Title: "one", Status: "todo"}); err != nil {
+		t.Fatal(err)
+	}
+	recorder := &fakeWorktreeRecorder{}
+	meta := store.TaskWorktree{Path: "/trees/one", PrimaryDir: "/repo", Branch: "task-1", BaseBranch: "main"}
+	if err := cli.TaskWorktreeSet(db, "task-1", meta, recorder); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.taskID != "task-1" || recorder.meta == nil || *recorder.meta != meta {
+		t.Fatalf("recorded task=%q meta=%#v", recorder.taskID, recorder.meta)
+	}
+}
+
 func TestTaskWorktreeSetPersistsMetadata(t *testing.T) {
 	db, err := store.New(t.TempDir() + "/test.db")
 	if err != nil {

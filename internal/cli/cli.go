@@ -190,8 +190,12 @@ func TaskTitle(s *store.Store, taskID, title string) error {
 	return nil
 }
 
+type taskWorktreeRecorder interface {
+	Record(ctx context.Context, taskID string, meta *store.TaskWorktree) error
+}
+
 // TaskWorktreeSet associates durable worktree metadata with a task.
-func TaskWorktreeSet(s *store.Store, taskID string, meta store.TaskWorktree) error {
+func TaskWorktreeSet(s *store.Store, taskID string, meta store.TaskWorktree, recorders ...taskWorktreeRecorder) error {
 	if strings.TrimSpace(taskID) == "" {
 		return fmt.Errorf("task ID is required")
 	}
@@ -201,7 +205,11 @@ func TaskWorktreeSet(s *store.Store, taskID string, meta store.TaskWorktree) err
 	if strings.Contains(meta.Path, "\n") || (meta.PrimaryDir != "" && strings.Contains(meta.PrimaryDir, "\n")) {
 		return fmt.Errorf("worktree path and primary directory must not contain newlines")
 	}
-	if err := s.SetTaskWorktree(context.Background(), taskID, &meta); err != nil {
+	if len(recorders) > 0 && recorders[0] != nil {
+		if err := recorders[0].Record(context.Background(), taskID, &meta); err != nil {
+			return fmt.Errorf("set worktree for task %s: %w", taskID, err)
+		}
+	} else if err := s.SetTaskWorktree(context.Background(), taskID, &meta); err != nil {
 		return fmt.Errorf("set worktree for task %s: %w", taskID, err)
 	}
 	ipc.Broadcast(ipc.Message{Type: "worktree_changed", TaskID: taskID})

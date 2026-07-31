@@ -30,6 +30,7 @@ type Config struct {
 	Worktrees      WorktreesConfig          `yaml:"worktrees"`
 	Groups         GroupsConfig             `yaml:"groups"`
 	Workflows      WorkflowsConfig          `yaml:"workflows"`
+	Repositories   []RepositoryConfig       `yaml:"repositories"`
 	SSHAgentSocket string                   `yaml:"ssh_agent_socket"`
 }
 
@@ -38,13 +39,19 @@ type WorkflowsConfig struct {
 	Repositories []WorkflowRepositoryConfig `yaml:"repositories"`
 }
 
-// WorkflowRepositoryConfig is a named repository/path preset for workflow inputs.
-type WorkflowRepositoryConfig struct {
-	Name       string `yaml:"name" json:"name"`
-	Repo       string `yaml:"repo" json:"repo"`
-	PrimaryDir string `yaml:"primary_dir" json:"primary_dir"`
-	BaseBranch string `yaml:"base_branch" json:"base_branch,omitempty"`
+// RepositoryConfig is a shared repository/path preset used by workflows,
+// task context discovery, and agent launch surfaces.
+type RepositoryConfig struct {
+	Name         string   `yaml:"name" json:"name"`
+	Repo         string   `yaml:"repo" json:"repo"`
+	PrimaryDir   string   `yaml:"primary_dir" json:"primary_dir"`
+	BaseBranch   string   `yaml:"base_branch" json:"base_branch,omitempty"`
+	JiraProjects []string `yaml:"jira_projects" json:"jira_projects,omitempty"`
+	Workspaces   []string `yaml:"workspaces" json:"workspaces,omitempty"`
 }
+
+// WorkflowRepositoryConfig is retained only to load legacy configuration.
+type WorkflowRepositoryConfig = RepositoryConfig
 
 // GroupsConfig holds task grouping defaults.
 type GroupsConfig struct {
@@ -281,6 +288,9 @@ func Load() (*Config, error) {
 	}
 
 	cfg.Macros = rawMacros
+	if len(cfg.Repositories) == 0 && len(cfg.Workflows.Repositories) > 0 {
+		cfg.Repositories = append([]RepositoryConfig(nil), cfg.Workflows.Repositories...)
+	}
 
 	applyDefaults(cfg)
 	return cfg, nil

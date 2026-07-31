@@ -869,7 +869,8 @@ func runTaskWorktreeSet(db *store.Store, args []string) int {
 		values[args[i]] = args[i+1]
 	}
 	meta := store.TaskWorktree{Path: values["--path"], PrimaryDir: values["--primary-dir"], Branch: values["--branch"], BaseBranch: values["--base-branch"]}
-	if err := cli.TaskWorktreeSet(db, taskID, meta); err != nil {
+	recorder := service.NewWorktreeWorkflow(db, nil, service.NewGitCheckoutInspector())
+	if err := cli.TaskWorktreeSet(db, taskID, meta, recorder); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
@@ -1586,7 +1587,7 @@ func runTUI() int {
 	if ghErr == nil {
 		interval := time.Duration(cfg.GitHub.PollIntervalSeconds) * time.Second
 		resolvedInterval := time.Duration(cfg.GitHub.ResolvedPollIntervalSeconds) * time.Second
-		prSvc = service.NewPRTrackingService(db, bus, ghClient, interval, resolvedInterval)
+		prSvc = service.NewPRTrackingService(db, bus, ghClient, interval, resolvedInterval, githubRepositoryMappings(cfg)...)
 		// Initial poll fetches all PRs (resolved + unresolved), then periodic uses split cadence
 		go prSvc.PollAll(context.Background())
 		stopPR := prSvc.StartPolling(context.Background())
@@ -1682,6 +1683,7 @@ func runTUI() int {
 			SocketPath:        socketPath,
 			TmuxOptions:       cfg.Agents.TmuxOptions,
 			PRService:         prSvc,
+			CheckoutInspector: service.NewGitCheckoutInspector(),
 			BinaryPath:        legatoBin,
 			EventBus:          service.AgentDiedPublisher{Bus: bus},
 			BriefKickoffDelay: time.Duration(cfg.Swarm.BriefKickoffDelayMs) * time.Millisecond,
@@ -1813,7 +1815,7 @@ func runTUI() int {
 	app.SetAttentionService(attentionSvc)
 	app.SetGroupDefaults(cfg.Groups.Defaults)
 	if cfg.Worktrees.Yggdrasil.Enabled {
-		app.SetWorktreeService(service.NewWorktreeWorkflow(db, worktree.NewRunner("yg")))
+		app.SetWorktreeService(service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), service.NewGitCheckoutInspector()))
 	}
 	appWindow, appBuckets := resolveSparklineWindow(cfg)
 	app.SetSparklineWindow(appWindow, appBuckets)

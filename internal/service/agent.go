@@ -160,14 +160,15 @@ type agentService struct {
 	socketPath        string
 	tmuxOptions       map[string]string
 	prSvc             PRTrackingService
+	checkoutInspector CheckoutInspector
 	binaryPath        string
 	bus               EventPublisher
 	briefKickoffDelay time.Duration
 	notifier          Notifier
 	osNotifier        Notifier
 
-	sendKeysAdapter  AgentInteraction
-	chimeraAdapter    AgentInteraction
+	sendKeysAdapter AgentInteraction
+	chimeraAdapter  AgentInteraction
 
 	conflictsMu   sync.Mutex
 	lastConflicts []AgentSpawnConflict
@@ -301,6 +302,7 @@ type AgentServiceOptions struct {
 	SocketPath        string
 	TmuxOptions       map[string]string
 	PRService         PRTrackingService
+	CheckoutInspector CheckoutInspector
 	BinaryPath        string // Absolute path to legato binary for tmux status line
 	EventBus          EventPublisher
 	BriefKickoffDelay time.Duration // override the default brief-kickoff send-keys delay
@@ -317,6 +319,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.socketPath = opts[0].SocketPath
 		svc.tmuxOptions = opts[0].TmuxOptions
 		svc.prSvc = opts[0].PRService
+		svc.checkoutInspector = opts[0].CheckoutInspector
 		svc.binaryPath = opts[0].BinaryPath
 		svc.bus = opts[0].EventBus
 		if opts[0].BriefKickoffDelay > 0 {
@@ -599,14 +602,40 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		go a.discoverChimeraLockfile(context.Background(), taskID, workDir)
 	}
 
-	// Auto-link git branch to task for PR tracking (best-effort)
-	if a.prSvc != nil {
-		if svc, ok := a.prSvc.(*prTrackingService); ok {
-			go svc.AutoLinkBranch(ctx, taskID)
-		}
+	// Capture repository identity from the exact agent working directory and
+	// immediately try discovery. Agent startup remains successful when local Git
+	// inspection or GitHub synchronization is unavailable.
+	if a.checkoutInspector != nil {
+		go a.captureAgentCodeContext(taskID, workDir)
 	}
 
 	return nil
+}
+
+func (a *agentService) captureAgentCodeContext(taskID, workDir string) {
+	captured, err := a.checkoutInspector.InspectCodeContext(workDir)
+	if err != nil || captured == nil || isDefaultBranch(captured.Branch, captured.BaseBranch) {
+		return
+	}
+	ctx := context.Background()
+	task, err := a.store.GetTask(ctx, taskID)
+	if err != nil {
+		return
+	}
+	existing, _ := store.ParseCodeContext(task.CodeContext)
+	if existing != nil && (existing.RepoSource == "manual" || existing.BranchSource == "manual" || existing.RepoSource == "worktree") {
+		return
+	}
+	captured.WorkingDir = workDir
+	captured.RepoSource = "agent"
+	captured.BranchSource = "agent"
+	captured.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := a.store.SetCodeContext(ctx, taskID, captured); err != nil {
+		return
+	}
+	if actions, ok := a.prSvc.(PRTaskActions); ok {
+		_ = actions.RediscoverPR(ctx, taskID)
+	}
 }
 
 // resolveAdapter returns the adapter to use for the given kind, falling back

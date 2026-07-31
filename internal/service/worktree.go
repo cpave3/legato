@@ -15,12 +15,17 @@ type worktreeRunner interface {
 
 // WorktreeWorkflow coordinates external worktree lifecycle with task metadata.
 type WorktreeWorkflow struct {
-	store  *store.Store
-	runner worktreeRunner
+	store     *store.Store
+	runner    worktreeRunner
+	inspector CheckoutInspector
 }
 
-func NewWorktreeWorkflow(s *store.Store, runner worktreeRunner) *WorktreeWorkflow {
-	return &WorktreeWorkflow{store: s, runner: runner}
+func NewWorktreeWorkflow(s *store.Store, runner worktreeRunner, inspectors ...CheckoutInspector) *WorktreeWorkflow {
+	var inspector CheckoutInspector
+	if len(inspectors) > 0 {
+		inspector = inspectors[0]
+	}
+	return &WorktreeWorkflow{store: s, runner: runner, inspector: inspector}
 }
 
 // Get returns the durable worktree metadata for a task.
@@ -62,7 +67,40 @@ func (w *WorktreeWorkflow) Create(ctx context.Context, taskID, primaryDir, branc
 		}
 		return nil, fmt.Errorf("persisting worktree metadata: %w", err)
 	}
+	w.captureContext(ctx, taskID, meta)
 	return meta, nil
+}
+
+// Record associates externally-created worktree metadata and captures its checkout context.
+func (w *WorktreeWorkflow) Record(ctx context.Context, taskID string, meta *store.TaskWorktree) error {
+	if err := w.store.SetTaskWorktree(ctx, taskID, meta); err != nil {
+		return err
+	}
+	w.captureContext(ctx, taskID, meta)
+	return nil
+}
+
+func (w *WorktreeWorkflow) captureContext(ctx context.Context, taskID string, meta *store.TaskWorktree) {
+	if w.inspector == nil || meta == nil || meta.Path == "" {
+		return
+	}
+	captured, err := w.inspector.InspectCodeContext(meta.Path)
+	if err != nil || captured == nil {
+		return
+	}
+	existingTask, err := w.store.GetTask(ctx, taskID)
+	if err != nil {
+		return
+	}
+	existing, _ := store.ParseCodeContext(existingTask.CodeContext)
+	if existing != nil && (existing.RepoSource == "manual" || existing.BranchSource == "manual") {
+		return
+	}
+	captured.WorkingDir = meta.Path
+	captured.BaseBranch = meta.BaseBranch
+	captured.RepoSource = "worktree"
+	captured.BranchSource = "worktree"
+	_ = w.store.SetCodeContext(ctx, taskID, captured)
 }
 
 func (w *WorktreeWorkflow) Remove(ctx context.Context, taskID string, force bool) error {

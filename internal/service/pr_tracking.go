@@ -47,19 +47,28 @@ type PRTaskActions interface {
 	GetCodeContext(ctx context.Context, taskID string) (*store.CodeContext, error)
 }
 
+// RepositoryMapping associates tasks with a configured GitHub repository.
+type RepositoryMapping struct {
+	Repo         string
+	BaseBranch   string
+	JiraProjects []string
+	Workspaces   []string
+}
+
 type prTrackingService struct {
 	store            *store.Store
 	bus              *events.Bus
 	gh               GitHubClient
 	interval         time.Duration // unresolved PRs (branch-only)
 	resolvedInterval time.Duration // resolved PRs (have PR number)
+	repositories     []RepositoryMapping
 
 	mu               sync.Mutex // protects lastResolvedPoll
 	lastResolvedPoll time.Time  // tracks when resolved PRs were last polled
 }
 
 // NewPRTrackingService creates a new PR tracking service.
-func NewPRTrackingService(s *store.Store, bus *events.Bus, gh GitHubClient, interval, resolvedInterval time.Duration) PRTrackingService {
+func NewPRTrackingService(s *store.Store, bus *events.Bus, gh GitHubClient, interval, resolvedInterval time.Duration, repositories ...RepositoryMapping) PRTrackingService {
 	if interval == 0 {
 		interval = 10 * time.Minute
 	}
@@ -72,6 +81,7 @@ func NewPRTrackingService(s *store.Store, bus *events.Bus, gh GitHubClient, inte
 		gh:               gh,
 		interval:         interval,
 		resolvedInterval: resolvedInterval,
+		repositories:     append([]RepositoryMapping(nil), repositories...),
 	}
 }
 
@@ -265,6 +275,12 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		if err != nil {
 			continue
 		}
+		if codeContext == nil {
+			codeContext = p.contextFromMappings(ctx, &t)
+			if codeContext != nil {
+				_ = p.store.SetCodeContext(ctx, t.ID, codeContext)
+			}
+		}
 		if codeContext != nil && codeContext.Repo != "" {
 			if meta != nil && meta.PRNumber > 0 {
 				if skipResolved {
@@ -374,6 +390,44 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 	}
 
 	return nil
+}
+
+func (p *prTrackingService) contextFromMappings(ctx context.Context, task *store.Task) *store.CodeContext {
+	matches := make([]RepositoryMapping, 0)
+	project := ""
+	if task.RemoteID != nil {
+		if index := strings.IndexByte(*task.RemoteID, '-'); index > 0 {
+			project = strings.ToUpper((*task.RemoteID)[:index])
+		}
+	}
+	workspace := ""
+	if task.WorkspaceID != nil {
+		if value, err := p.store.GetWorkspace(ctx, *task.WorkspaceID); err == nil {
+			workspace = value.Name
+		}
+	}
+	for _, mapping := range p.repositories {
+		if containsFold(mapping.JiraProjects, project) || containsFold(mapping.Workspaces, workspace) {
+			matches = append(matches, mapping)
+		}
+	}
+	if len(matches) != 1 {
+		return nil
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	return &store.CodeContext{Repo: matches[0].Repo, BaseBranch: matches[0].BaseBranch, RepoSource: "repository_preset", UpdatedAt: now}
+}
+
+func containsFold(values []string, target string) bool {
+	if target == "" {
+		return false
+	}
+	for _, value := range values {
+		if strings.EqualFold(value, target) {
+			return true
+		}
+	}
+	return false
 }
 
 func matchContextPR(taskID, repo string, codeContext *store.CodeContext, prs []github.PRStatus) (*github.PRStatus, string, string) {

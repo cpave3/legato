@@ -11,6 +11,17 @@ import (
 	engineworktree "github.com/cpave3/legato/internal/engine/worktree"
 )
 
+type fakeCheckoutInspector struct {
+	context *store.CodeContext
+	err     error
+	dir     string
+}
+
+func (f *fakeCheckoutInspector) InspectCodeContext(directory string) (*store.CodeContext, error) {
+	f.dir = directory
+	return f.context, f.err
+}
+
 type fakeWorktreeRunner struct {
 	path        string
 	createErr   error
@@ -48,6 +59,47 @@ func TestWorktreeWorkflowCreatePersistsMetadata(t *testing.T) {
 	}
 	if task.WorktreePath == nil || *task.WorktreePath != runner.path || task.WorktreeBranch == nil || *task.WorktreeBranch != "feature" {
 		t.Fatalf("task metadata = %#v", task)
+	}
+}
+
+func TestAgentCaptureUsesExactWorkingDirectoryAndPreservesManualContext(t *testing.T) {
+	s := newServiceTestStore(t)
+	createServiceTestTask(t, s, "task-1")
+	inspector := &fakeCheckoutInspector{context: &store.CodeContext{Repo: "cpave3/legato", Branch: "feature/task-1", HeadSHA: "abc123"}}
+	agent := &agentService{store: s, checkoutInspector: inspector}
+	agent.captureAgentCodeContext("task-1", "/projects/legato.feature")
+	task, _ := s.GetTask(context.Background(), "task-1")
+	captured, _ := store.ParseCodeContext(task.CodeContext)
+	if inspector.dir != "/projects/legato.feature" || captured == nil || captured.RepoSource != "agent" || captured.WorkingDir != inspector.dir {
+		t.Fatalf("directory=%q context=%#v", inspector.dir, captured)
+	}
+
+	manual := &store.CodeContext{Repo: "other/repo", Branch: "manual", RepoSource: "manual", BranchSource: "manual"}
+	if err := s.SetCodeContext(context.Background(), "task-1", manual); err != nil {
+		t.Fatal(err)
+	}
+	agent.captureAgentCodeContext("task-1", "/projects/legato.feature")
+	task, _ = s.GetTask(context.Background(), "task-1")
+	preserved, _ := store.ParseCodeContext(task.CodeContext)
+	if preserved == nil || preserved.Repo != "other/repo" || preserved.Branch != "manual" {
+		t.Fatalf("manual context overwritten: %#v", preserved)
+	}
+}
+
+func TestWorktreeWorkflowCreateCapturesCheckoutCodeContext(t *testing.T) {
+	s := newServiceTestStore(t)
+	createServiceTestTask(t, s, "task-1")
+	runner := &fakeWorktreeRunner{path: "/projects/legato.feature"}
+	inspector := &fakeCheckoutInspector{context: &store.CodeContext{Repo: "cpave3/legato", Branch: "feature", HeadSHA: "abc123"}}
+	workflow := NewWorktreeWorkflow(s, runner, inspector)
+
+	if _, err := workflow.Create(context.Background(), "task-1", "/projects/legato", "feature", "main"); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := s.GetTask(context.Background(), "task-1")
+	codeContext, _ := store.ParseCodeContext(task.CodeContext)
+	if inspector.dir != runner.path || codeContext == nil || codeContext.Repo != "cpave3/legato" || codeContext.WorkingDir != runner.path || codeContext.BaseBranch != "main" || codeContext.RepoSource != "worktree" {
+		t.Fatalf("directory=%q context=%#v", inspector.dir, codeContext)
 	}
 }
 

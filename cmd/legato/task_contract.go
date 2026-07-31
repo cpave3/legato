@@ -434,7 +434,8 @@ func runTaskWorktreeContract(args []string) int {
 			return code
 		}
 		defer db.Close()
-		if err := cli.TaskWorktreeSet(db, taskID, meta); err != nil {
+		recorder := service.NewWorktreeWorkflow(db, nil, service.NewGitCheckoutInspector())
+		if err := cli.TaskWorktreeSet(db, taskID, meta, recorder); err != nil {
 			return renderCommandError(command, commandDomainError(err), jsonMode)
 		}
 		return writeCommandSuccess(command, map[string]any{"task_id": taskID, "worktree": meta}, "", jsonMode)

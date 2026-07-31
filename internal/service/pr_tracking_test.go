@@ -613,6 +613,31 @@ func TestPRMetaChanged(t *testing.T) {
 	}
 }
 
+func TestPollEstablishesRepositoryContextFromUniqueJiraProjectMapping(t *testing.T) {
+	s := newTestPRStore(t)
+	ctx := context.Background()
+	provider, remoteID := "jira", "TASK-1"
+	if err := s.CreateTask(ctx, store.Task{ID: remoteID, Title: "Mapped", Status: "Doing", Provider: &provider, RemoteID: &remoteID, CreatedAt: "2024-01-01T00:00:00Z", UpdatedAt: "2024-01-01T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	gh := &mockGitHub{repositoryPRs: map[string][]github.PRStatus{
+		"acme/widget": {{HasPR: true, Number: 1, State: "OPEN", HeadBranch: "feature/TASK-1", HeadRepo: "acme/widget"}},
+	}}
+	svc := NewPRTrackingService(s, events.New(), gh, time.Minute, 10*time.Minute, RepositoryMapping{Repo: "acme/widget", BaseBranch: "trunk", JiraProjects: []string{"TASK"}})
+	if err := svc.PollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := s.GetTask(ctx, remoteID)
+	codeContext, _ := store.ParseCodeContext(task.CodeContext)
+	meta, _ := store.ParsePRMeta(task.PRMeta)
+	if codeContext == nil || codeContext.Repo != "acme/widget" || codeContext.BaseBranch != "trunk" || codeContext.RepoSource != "repository_preset" {
+		t.Fatalf("code context = %#v", codeContext)
+	}
+	if meta == nil || meta.PRNumber != 1 || meta.MatchMethod != "ticket_key" {
+		t.Fatalf("PR metadata = %#v", meta)
+	}
+}
+
 func TestPollDiscoversUntrackedTaskFromCodeContextWithOneRepositoryListing(t *testing.T) {
 	s := newTestPRStore(t)
 	ctx := context.Background()
