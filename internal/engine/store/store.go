@@ -67,7 +67,7 @@ func (s *Store) migrate() error {
 		return err
 	}
 
-	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql", "008_workspaces.sql", "009_archive.sql", "010_pr_meta.sql", "011_ephemeral.sql", "012_swarm.sql", "013_agent_role.sql", "014_swarm_v1.sql", "015_swarm_events.sql", "016_state_interval_working_dir.sql", "017_swarm_step_index.sql", "018_swarm_active_step.sql", "019_swarm_pending_plans.sql", "020_swarm_tier.sql", "021_state_intervals_drop_fk.sql", "022_agent_kind.sql", "023_task_prefs.sql", "024_chimera_session.sql", "025_task_worktree.sql", "026_task_group.sql", "027_review_tours.sql", "028_review_repository.sql", "029_review_hunk_notes.sql", "030_review_chapters.sql", "031_named_review_tours.sql", "032_review_note_lines.sql", "033_plans.sql", "034_plan_completion.sql", "035_review_passes.sql", "036_review_findings.sql", "037_artifact_interactions.sql", "038_workflows.sql", "039_workflow_related_task.sql", "040_task_notes.sql", "041_workflow_related_task_backfill.sql", "042_attention_items.sql", "043_chimera_discovery.sql", "044_task_metadata.sql", "045_workflow_triggers.sql", "046_workflow_run_trigger.sql"}
+	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql", "008_workspaces.sql", "009_archive.sql", "010_pr_meta.sql", "011_ephemeral.sql", "012_swarm.sql", "013_agent_role.sql", "014_swarm_v1.sql", "015_swarm_events.sql", "016_state_interval_working_dir.sql", "017_swarm_step_index.sql", "018_swarm_active_step.sql", "019_swarm_pending_plans.sql", "020_swarm_tier.sql", "021_state_intervals_drop_fk.sql", "022_agent_kind.sql", "023_task_prefs.sql", "024_chimera_session.sql", "025_task_worktree.sql", "026_task_group.sql", "027_review_tours.sql", "028_review_repository.sql", "029_review_hunk_notes.sql", "030_review_chapters.sql", "031_named_review_tours.sql", "032_review_note_lines.sql", "033_plans.sql", "034_plan_completion.sql", "035_review_passes.sql", "036_review_findings.sql", "037_artifact_interactions.sql", "038_workflows.sql", "039_workflow_related_task.sql", "040_task_notes.sql", "041_workflow_related_task_backfill.sql", "042_attention_items.sql", "043_chimera_discovery.sql", "044_task_metadata.sql", "045_workflow_triggers.sql", "046_workflow_run_trigger.sql", "047_task_code_context.sql"}
 
 	for i := version; i < len(migrations); i++ {
 		data, err := migrationsFS.ReadFile("migrations/" + migrations[i])
@@ -461,6 +461,27 @@ func (s *Store) RestoreTask(ctx context.Context, id, status string) error {
 	return nil
 }
 
+// SetCodeContext atomically replaces the durable repository context for a task.
+func (s *Store) SetCodeContext(ctx context.Context, taskID string, codeContext *CodeContext) error {
+	raw, err := MarshalCodeContext(codeContext)
+	if err != nil {
+		return err
+	}
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE tasks SET code_context = ?, updated_at = datetime('now') WHERE id = ?", raw, taskID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // UpdatePRMeta sets the pr_meta JSON field for a task.
 func (s *Store) UpdatePRMeta(ctx context.Context, taskID string, prMeta *string) error {
 	result, err := s.db.ExecContext(ctx,
@@ -477,6 +498,14 @@ func (s *Store) UpdatePRMeta(ctx context.Context, taskID string, prMeta *string)
 		return ErrNotFound
 	}
 	return nil
+}
+
+// ListPRSyncCandidates returns tasks eligible for background GitHub synchronization.
+func (s *Store) ListPRSyncCandidates(ctx context.Context) ([]Task, error) {
+	var tasks []Task
+	err := s.db.SelectContext(ctx, &tasks,
+		"SELECT * FROM tasks WHERE archived_at IS NULL AND ephemeral = 0 ORDER BY id")
+	return tasks, err
 }
 
 // ListPRTrackedTasks returns all non-archived tasks that have pr_meta set.

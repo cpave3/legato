@@ -2,6 +2,44 @@ package store
 
 import "encoding/json"
 
+// CodeContext identifies the local repository state associated with a task.
+type CodeContext struct {
+	Repo         string `json:"repo,omitempty"`
+	Branch       string `json:"branch,omitempty"`
+	HeadSHA      string `json:"head_sha,omitempty"`
+	WorkingDir   string `json:"working_dir,omitempty"`
+	BaseBranch   string `json:"base_branch,omitempty"`
+	RepoSource   string `json:"repo_source,omitempty"`
+	BranchSource string `json:"branch_source,omitempty"`
+	LinkedAt     string `json:"linked_at,omitempty"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
+}
+
+// MarshalCodeContext serializes task code context for storage.
+func MarshalCodeContext(context *CodeContext) (*string, error) {
+	if context == nil {
+		return nil, nil
+	}
+	data, err := json.Marshal(context)
+	if err != nil {
+		return nil, err
+	}
+	raw := string(data)
+	return &raw, nil
+}
+
+// ParseCodeContext deserializes task code context.
+func ParseCodeContext(raw *string) (*CodeContext, error) {
+	if raw == nil || *raw == "" {
+		return nil, nil
+	}
+	var context CodeContext
+	if err := json.Unmarshal([]byte(*raw), &context); err != nil {
+		return nil, err
+	}
+	return &context, nil
+}
+
 // PRMeta holds PR tracking metadata stored as JSON in the pr_meta column.
 type PRMeta struct {
 	Repo           string `json:"repo,omitempty"` // owner/repo format
@@ -16,6 +54,10 @@ type PRMeta struct {
 	UpdatedAt      string `json:"updated_at,omitempty"` // RFC3339
 	HeadSHA        string `json:"head_sha,omitempty"`   // commit SHA recorded at link time — anchors PR discovery
 	LinkedAt       string `json:"linked_at,omitempty"`  // RFC3339 time the link was created — PRs created before this are rejected during discovery
+	Pinned         bool   `json:"pinned,omitempty"`     // explicit/legacy numbered links are refreshed but not rediscovered
+	MatchMethod    string `json:"match_method,omitempty"`
+	SyncOutcome    string `json:"sync_outcome,omitempty"`
+	SyncError      string `json:"sync_error,omitempty"`
 }
 
 // MarshalPRMeta serializes PRMeta to a JSON string pointer for storage.
@@ -56,6 +98,7 @@ type Task struct {
 	RemoteMeta         *string `db:"remote_meta"`
 	Metadata           *string `db:"metadata"`
 	PRMeta             *string `db:"pr_meta"`
+	CodeContext        *string `db:"code_context"`
 	WorkspaceID        *int    `db:"workspace_id"`
 	ArchivedAt         *string `db:"archived_at"`
 	Ephemeral          bool    `db:"ephemeral"`
