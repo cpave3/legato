@@ -15,6 +15,7 @@ import (
 
 // GitHubClient abstracts the GitHub PR client for testability.
 type GitHubClient interface {
+	ListRepositoryPRs(owner, repo string) ([]github.PRStatus, error)
 	FetchPRStatus(branch string, repo ...string) (*github.PRStatus, error)
 	BatchFetchPRStatus(branches []string) (map[string]*github.PRStatus, error)
 	BatchFetchPRStatusWithRepo(queries []github.BranchQuery) (map[string]*github.PRStatus, error)
@@ -36,6 +37,14 @@ type PRTrackingService interface {
 	GetPRStatus(ctx context.Context, taskID string) (*store.PRMeta, error)
 	DetectRepo() (owner, repo string, err error)
 	FetchPRByNumber(owner, repo string, prNumber int) (*github.PRStatus, error)
+}
+
+// PRTaskActions exposes targeted context and synchronization operations.
+type PRTaskActions interface {
+	RefreshPR(ctx context.Context, taskID string) error
+	RediscoverPR(ctx context.Context, taskID string) error
+	SetCodeContext(ctx context.Context, taskID string, codeContext *store.CodeContext) error
+	GetCodeContext(ctx context.Context, taskID string) (*store.CodeContext, error)
 }
 
 type prTrackingService struct {
@@ -67,17 +76,17 @@ func NewPRTrackingService(s *store.Store, bus *events.Bus, gh GitHubClient, inte
 }
 
 func (p *prTrackingService) LinkBranch(ctx context.Context, taskID, branch, repo string) error {
-	meta := &store.PRMeta{Branch: branch, Repo: repo}
-	raw, err := store.MarshalPRMeta(meta)
-	if err != nil {
+	now := time.Now().UTC().Format(time.RFC3339)
+	codeContext := &store.CodeContext{
+		Repo: repo, Branch: branch, RepoSource: "manual", BranchSource: "manual", LinkedAt: now, UpdatedAt: now,
+	}
+	if err := p.store.SetCodeContext(ctx, taskID, codeContext); err != nil {
 		return err
 	}
-	if err := p.store.UpdatePRMeta(ctx, taskID, raw); err != nil {
+	if err := p.store.UpdatePRMeta(ctx, taskID, nil); err != nil {
 		return err
 	}
-
-	// Trigger immediate poll for this branch
-	go p.pollSingleBranch(ctx, taskID, branch)
+	go func() { _ = p.RediscoverPR(context.Background(), taskID) }()
 	return nil
 }
 
@@ -88,9 +97,14 @@ func (p *prTrackingService) LinkPR(ctx context.Context, taskID string, owner, re
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
+	codeContext := &store.CodeContext{
+		Repo: owner + "/" + repo, Branch: status.HeadBranch, HeadSHA: status.HeadSHA,
+		RepoSource: "manual", BranchSource: "manual", LinkedAt: now, UpdatedAt: now,
+	}
+	if err := p.store.SetCodeContext(ctx, taskID, codeContext); err != nil {
+		return err
+	}
 	meta := &store.PRMeta{
-		Repo:         owner + "/" + repo,
-		Branch:       status.HeadBranch,
 		PRNumber:     status.Number,
 		PRURL:        status.URL,
 		State:        status.State,
@@ -98,6 +112,9 @@ func (p *prTrackingService) LinkPR(ctx context.Context, taskID string, owner, re
 		CheckStatus:  status.CheckStatus,
 		CommentCount: status.CommentCount,
 		UpdatedAt:    now,
+		Pinned:       true,
+		MatchMethod:  "manual",
+		SyncOutcome:  "linked",
 	}
 
 	raw, err := store.MarshalPRMeta(meta)
@@ -121,6 +138,80 @@ func (p *prTrackingService) UnlinkBranch(ctx context.Context, taskID string) err
 	return p.store.UpdatePRMeta(ctx, taskID, nil)
 }
 
+func (p *prTrackingService) SetCodeContext(ctx context.Context, taskID string, codeContext *store.CodeContext) error {
+	return p.store.SetCodeContext(ctx, taskID, codeContext)
+}
+
+func (p *prTrackingService) GetCodeContext(ctx context.Context, taskID string) (*store.CodeContext, error) {
+	task, err := p.store.GetTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return store.ParseCodeContext(task.CodeContext)
+}
+
+func (p *prTrackingService) RefreshPR(ctx context.Context, taskID string) error {
+	task, err := p.store.GetTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	codeContext, err := store.ParseCodeContext(task.CodeContext)
+	if err != nil {
+		return err
+	}
+	meta, err := store.ParsePRMeta(task.PRMeta)
+	if err != nil {
+		return err
+	}
+	if codeContext == nil || codeContext.Repo == "" || meta == nil || meta.PRNumber == 0 {
+		return fmt.Errorf("task %s has no linked PR with repository context", taskID)
+	}
+	owner, repo, ok := splitRepo(codeContext.Repo)
+	if !ok {
+		return fmt.Errorf("repository must be owner/name")
+	}
+	status, err := p.gh.FetchPRByNumber(owner, repo, meta.PRNumber)
+	if err != nil {
+		p.applyDiscoveryOutcome(ctx, taskID, "error", err.Error())
+		return err
+	}
+	p.applyContextStatus(ctx, taskID, status, meta.MatchMethod)
+	return nil
+}
+
+func (p *prTrackingService) RediscoverPR(ctx context.Context, taskID string) error {
+	task, err := p.store.GetTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	codeContext, err := store.ParseCodeContext(task.CodeContext)
+	if err != nil {
+		return err
+	}
+	if codeContext == nil || codeContext.Repo == "" {
+		return fmt.Errorf("task %s has no repository context", taskID)
+	}
+	if err := p.store.UpdatePRMeta(ctx, taskID, nil); err != nil {
+		return err
+	}
+	owner, repo, ok := splitRepo(codeContext.Repo)
+	if !ok {
+		return fmt.Errorf("repository must be owner/name")
+	}
+	prs, err := p.gh.ListRepositoryPRs(owner, repo)
+	if err != nil {
+		p.applyDiscoveryOutcome(ctx, taskID, "error", err.Error())
+		return err
+	}
+	status, method, outcome := matchContextPR(taskID, codeContext.Repo, codeContext, prs)
+	if status == nil {
+		p.applyDiscoveryOutcome(ctx, taskID, outcome, "")
+		return nil
+	}
+	p.applyContextStatus(ctx, taskID, status, method)
+	return nil
+}
+
 // PollAll fetches PR status for all tracked tasks regardless of resolved state.
 // Used on startup to ensure all data is fresh.
 func (p *prTrackingService) PollAll(ctx context.Context) error {
@@ -142,7 +233,7 @@ func (p *prTrackingService) PollOnce(ctx context.Context) error {
 }
 
 func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool) error {
-	tasks, err := p.store.ListPRTrackedTasks(ctx)
+	tasks, err := p.store.ListPRSyncCandidates(ctx)
 	if err != nil {
 		return err
 	}
@@ -158,11 +249,43 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		meta   *store.PRMeta
 	}
 	var shaTargets []shaTarget
+	type contextTarget struct {
+		taskID  string
+		context *store.CodeContext
+	}
+	contextByRepo := make(map[string][]contextTarget)
 	branchToTasks := make(map[string][]string) // branch → task IDs
 	branchRepos := make(map[string]string)     // branch → repo (first seen)
 	for _, t := range tasks {
 		meta, err := store.ParsePRMeta(t.PRMeta)
-		if err != nil || meta == nil || meta.Branch == "" {
+		if err != nil {
+			continue
+		}
+		codeContext, err := store.ParseCodeContext(t.CodeContext)
+		if err != nil {
+			continue
+		}
+		if codeContext != nil && codeContext.Repo != "" {
+			if meta != nil && meta.PRNumber > 0 {
+				if skipResolved {
+					continue
+				}
+				owner, name, ok := splitRepo(codeContext.Repo)
+				if !ok {
+					continue
+				}
+				status, fetchErr := p.gh.FetchPRByNumber(owner, name, meta.PRNumber)
+				if fetchErr != nil {
+					p.applyDiscoveryOutcome(ctx, t.ID, "error", fetchErr.Error())
+				} else {
+					p.applyContextStatus(ctx, t.ID, status, meta.MatchMethod)
+				}
+				continue
+			}
+			contextByRepo[codeContext.Repo] = append(contextByRepo[codeContext.Repo], contextTarget{taskID: t.ID, context: codeContext})
+			continue
+		}
+		if meta == nil || meta.Branch == "" {
 			continue
 		}
 		// Skip resolved PRs (already have a PR number) when not due.
@@ -183,11 +306,37 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		}
 	}
 
-	if len(branchToTasks) == 0 && len(shaTargets) == 0 {
+	if len(branchToTasks) == 0 && len(shaTargets) == 0 && len(contextByRepo) == 0 {
 		return nil
 	}
 
 	changed := false
+
+	for repo, targets := range contextByRepo {
+		owner, name, ok := splitRepo(repo)
+		if !ok {
+			continue
+		}
+		prs, err := p.gh.ListRepositoryPRs(owner, name)
+		if err != nil {
+			for _, target := range targets {
+				if p.applyDiscoveryOutcome(ctx, target.taskID, "error", err.Error()) {
+					changed = true
+				}
+			}
+			continue
+		}
+		for _, target := range targets {
+			status, method, outcome := matchContextPR(target.taskID, repo, target.context, prs)
+			if status != nil {
+				if p.applyContextStatus(ctx, target.taskID, status, method) {
+					changed = true
+				}
+			} else if p.applyDiscoveryOutcome(ctx, target.taskID, outcome, "") {
+				changed = true
+			}
+		}
+	}
 
 	for _, st := range shaTargets {
 		status := p.discoverPR(st.meta)
@@ -225,6 +374,145 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 	}
 
 	return nil
+}
+
+func matchContextPR(taskID, repo string, codeContext *store.CodeContext, prs []github.PRStatus) (*github.PRStatus, string, string) {
+	if codeContext.HeadSHA != "" {
+		matches := filterPRs(prs, func(pr github.PRStatus) bool { return pr.HeadSHA == codeContext.HeadSHA })
+		if len(matches) == 1 {
+			return &matches[0], "commit", "linked"
+		}
+		if len(matches) > 1 {
+			return nil, "", "ambiguous"
+		}
+	}
+	if codeContext.Branch != "" && !isDefaultBranch(codeContext.Branch, codeContext.BaseBranch) {
+		matches := filterPRs(prs, func(pr github.PRStatus) bool {
+			return pr.HeadBranch == codeContext.Branch && (pr.HeadRepo == "" || pr.HeadRepo == repo)
+		})
+		if len(matches) == 1 {
+			return &matches[0], "branch", "linked"
+		}
+		if len(matches) > 1 {
+			best := pickServicePR(matches)
+			return &best, "branch", "linked"
+		}
+	}
+	matches := filterPRs(prs, func(pr github.PRStatus) bool {
+		return !isDefaultBranch(pr.HeadBranch, codeContext.BaseBranch) && branchContainsKey(pr.HeadBranch, taskID)
+	})
+	if len(matches) == 1 {
+		return &matches[0], "ticket_key", "linked"
+	}
+	if len(matches) > 1 {
+		return nil, "", "ambiguous"
+	}
+	return nil, "", "no_match"
+}
+
+func filterPRs(prs []github.PRStatus, keep func(github.PRStatus) bool) []github.PRStatus {
+	matches := make([]github.PRStatus, 0)
+	for _, pr := range prs {
+		if keep(pr) {
+			matches = append(matches, pr)
+		}
+	}
+	return matches
+}
+
+func pickServicePR(prs []github.PRStatus) github.PRStatus {
+	best := prs[0]
+	for _, pr := range prs[1:] {
+		bestOpen := strings.EqualFold(best.State, "OPEN")
+		prOpen := strings.EqualFold(pr.State, "OPEN")
+		if prOpen != bestOpen {
+			if prOpen {
+				best = pr
+			}
+			continue
+		}
+		if pr.CreatedAt > best.CreatedAt {
+			best = pr
+		}
+	}
+	return best
+}
+
+func branchContainsKey(branch, key string) bool {
+	branch = strings.ToLower(branch)
+	key = strings.ToLower(key)
+	for start := 0; ; {
+		index := strings.Index(branch[start:], key)
+		if index < 0 {
+			return false
+		}
+		index += start
+		leftOK := index == 0 || !isKeyCharacter(branch[index-1])
+		end := index + len(key)
+		rightOK := end == len(branch) || !isKeyCharacter(branch[end])
+		if leftOK && rightOK {
+			return true
+		}
+		start = index + 1
+	}
+}
+
+func isKeyCharacter(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= '0' && value <= '9'
+}
+
+func isDefaultBranch(branch, configured string) bool {
+	return branch == "" || branch == "HEAD" || branch == "main" || branch == "master" || configured != "" && branch == configured
+}
+
+func (p *prTrackingService) applyContextStatus(ctx context.Context, taskID string, status *github.PRStatus, method string) bool {
+	task, err := p.store.GetTask(ctx, taskID)
+	if err != nil {
+		return false
+	}
+	old, _ := store.ParsePRMeta(task.PRMeta)
+	meta := &store.PRMeta{
+		PRNumber: status.Number, PRURL: status.URL, State: status.State,
+		IsDraft: status.IsDraft, ReviewDecision: status.ReviewDecision,
+		CheckStatus: status.CheckStatus, CommentCount: status.CommentCount,
+		UpdatedAt: time.Now().UTC().Format(time.RFC3339), MatchMethod: method, SyncOutcome: "linked",
+	}
+	if old != nil && old.Pinned && old.PRNumber != status.Number {
+		return false
+	}
+	if old != nil {
+		meta.Pinned = old.Pinned
+		if meta.MatchMethod == "" {
+			meta.MatchMethod = old.MatchMethod
+		}
+	}
+	raw, err := store.MarshalPRMeta(meta)
+	if err != nil || p.store.UpdatePRMeta(ctx, taskID, raw) != nil {
+		return false
+	}
+	return true
+}
+
+func (p *prTrackingService) applyDiscoveryOutcome(ctx context.Context, taskID, outcome, syncError string) bool {
+	task, err := p.store.GetTask(ctx, taskID)
+	if err != nil {
+		return false
+	}
+	meta, _ := store.ParsePRMeta(task.PRMeta)
+	if meta == nil {
+		meta = &store.PRMeta{}
+	}
+	if meta.SyncOutcome == outcome && meta.SyncError == syncError {
+		return false
+	}
+	meta.SyncOutcome = outcome
+	meta.SyncError = syncError
+	meta.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	raw, err := store.MarshalPRMeta(meta)
+	if err != nil || p.store.UpdatePRMeta(ctx, taskID, raw) != nil {
+		return false
+	}
+	return true
 }
 
 // discoverPR resolves the PR for an unresolved link. When a head SHA was

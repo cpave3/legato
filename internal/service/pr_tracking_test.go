@@ -13,19 +13,34 @@ import (
 )
 
 type mockGitHub struct {
-	statuses       map[string]*github.PRStatus
-	prByNumber     map[int]*github.PRStatus
-	prsByCommit    map[string]*github.PRStatus // sha → status
-	commitErr      error
-	fetchErr       error
-	branch         string
-	branchErr      error
-	owner, repo    string
-	repoErr        error
-	commentCnt     int
-	commentErr     error
+	statuses        map[string]*github.PRStatus
+	prByNumber      map[int]*github.PRStatus
+	prsByCommit     map[string]*github.PRStatus // sha → status
+	commitErr       error
+	fetchErr        error
+	branch          string
+	branchErr       error
+	owner, repo     string
+	repoErr         error
+	commentCnt      int
+	commentErr      error
 	queriedBranches []string // tracks branches passed to BatchFetchPRStatusWithRepo
 	queriedSHAs     []string // tracks SHAs passed to FetchPRsForCommit
+	repositoryPRs   map[string][]github.PRStatus
+	repositoryErr   error
+	repositoryCalls map[string]int
+}
+
+func (m *mockGitHub) ListRepositoryPRs(owner, repo string) ([]github.PRStatus, error) {
+	key := owner + "/" + repo
+	if m.repositoryCalls == nil {
+		m.repositoryCalls = make(map[string]int)
+	}
+	m.repositoryCalls[key]++
+	if m.repositoryErr != nil {
+		return nil, m.repositoryErr
+	}
+	return m.repositoryPRs[key], nil
 }
 
 func (m *mockGitHub) FetchPRsForCommit(owner, repo, sha string) (*github.PRStatus, error) {
@@ -124,6 +139,29 @@ func createPRTask(t *testing.T, s *store.Store, id string) {
 	}
 }
 
+func TestLinkPRPinsManualAssociationAndStoresCodeContext(t *testing.T) {
+	s := newTestPRStore(t)
+	ctx := context.Background()
+	createPRTask(t, s, "task1")
+	gh := &mockGitHub{prByNumber: map[int]*github.PRStatus{42: {
+		HasPR: true, Number: 42, State: "OPEN", URL: "https://github.com/acme/widget/pull/42",
+		HeadBranch: "feature/TASK-42", HeadSHA: "abc123", HeadRepo: "acme/widget",
+	}}}
+	svc := NewPRTrackingService(s, events.New(), gh, time.Minute, 10*time.Minute)
+	if err := svc.LinkPR(ctx, "task1", "acme", "widget", 42); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := s.GetTask(ctx, "task1")
+	codeContext, _ := store.ParseCodeContext(task.CodeContext)
+	meta, _ := store.ParsePRMeta(task.PRMeta)
+	if codeContext == nil || codeContext.Repo != "acme/widget" || codeContext.Branch != "feature/TASK-42" || codeContext.HeadSHA != "abc123" {
+		t.Fatalf("code context = %#v", codeContext)
+	}
+	if meta == nil || !meta.Pinned || meta.MatchMethod != "manual" || meta.PRNumber != 42 {
+		t.Fatalf("PR metadata = %#v", meta)
+	}
+}
+
 func TestLinkBranch(t *testing.T) {
 	s := newTestPRStore(t)
 	bus := events.New()
@@ -141,21 +179,16 @@ func TestLinkBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify pr_meta was set
 	task, err := s.GetTask(ctx, "task1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.PRMeta == nil {
-		t.Fatal("expected pr_meta to be set")
-	}
-
-	meta, err := store.ParsePRMeta(task.PRMeta)
+	codeContext, err := store.ParseCodeContext(task.CodeContext)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if meta.Branch != "feature/auth" {
-		t.Errorf("Branch = %q, want feature/auth", meta.Branch)
+	if codeContext == nil || codeContext.Branch != "feature/auth" || codeContext.BranchSource != "manual" {
+		t.Fatalf("code context = %#v", codeContext)
 	}
 }
 
@@ -372,18 +405,12 @@ func TestAutoLinkBranch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.PRMeta == nil {
-		t.Fatal("expected pr_meta to be set after auto-link")
-	}
-	meta, err := store.ParsePRMeta(task.PRMeta)
+	codeContext, err := store.ParseCodeContext(task.CodeContext)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if meta.Branch != "feature/auto" {
-		t.Errorf("Branch = %q, want feature/auto", meta.Branch)
-	}
-	if meta.Repo != "myorg/myrepo" {
-		t.Errorf("Repo = %q, want myorg/myrepo", meta.Repo)
+	if codeContext == nil || codeContext.Branch != "feature/auto" || codeContext.Repo != "myorg/myrepo" {
+		t.Fatalf("code context = %#v", codeContext)
 	}
 }
 
@@ -534,8 +561,12 @@ func TestLinkPR(t *testing.T) {
 	if meta.PRNumber != 42 {
 		t.Errorf("PRNumber = %d, want 42", meta.PRNumber)
 	}
-	if meta.Branch != "feature/auth" {
-		t.Errorf("Branch = %q, want feature/auth", meta.Branch)
+	codeContext, err := store.ParseCodeContext(task.CodeContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codeContext == nil || codeContext.Branch != "feature/auth" {
+		t.Fatalf("code context = %#v", codeContext)
 	}
 	if meta.State != "OPEN" {
 		t.Errorf("State = %q, want OPEN", meta.State)
@@ -579,6 +610,144 @@ func TestPRMetaChanged(t *testing.T) {
 	modified.CheckStatus = "fail"
 	if !prMetaChanged(base, &modified) {
 		t.Error("different check_status should be changed")
+	}
+}
+
+func TestPollDiscoversUntrackedTaskFromCodeContextWithOneRepositoryListing(t *testing.T) {
+	s := newTestPRStore(t)
+	ctx := context.Background()
+	for _, id := range []string{"TASK-1", "TASK-2"} {
+		createPRTask(t, s, id)
+		if err := s.SetCodeContext(ctx, id, &store.CodeContext{Repo: "acme/widget", Branch: "feature/" + id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gh := &mockGitHub{repositoryPRs: map[string][]github.PRStatus{
+		"acme/widget": {
+			{HasPR: true, Number: 1, State: "OPEN", URL: "https://github.com/acme/widget/pull/1", HeadBranch: "feature/TASK-1", HeadRepo: "acme/widget"},
+			{HasPR: true, Number: 2, State: "OPEN", URL: "https://github.com/acme/widget/pull/2", HeadBranch: "feature/TASK-2", HeadRepo: "acme/widget"},
+		},
+	}}
+	svc := NewPRTrackingService(s, events.New(), gh, time.Minute, 10*time.Minute)
+	if err := svc.PollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if gh.repositoryCalls["acme/widget"] != 1 {
+		t.Fatalf("repository list calls = %d, want 1", gh.repositoryCalls["acme/widget"])
+	}
+	for number, id := range []string{"TASK-1", "TASK-2"} {
+		task, err := s.GetTask(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		meta, err := store.ParsePRMeta(task.PRMeta)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if meta == nil || meta.PRNumber != number+1 || meta.MatchMethod != "branch" {
+			t.Fatalf("%s PR metadata = %#v", id, meta)
+		}
+	}
+}
+
+func TestPollInfersOnlyUniqueBoundaryAwareTicketKeyBranch(t *testing.T) {
+	s := newTestPRStore(t)
+	ctx := context.Background()
+	createPRTask(t, s, "TASK-1")
+	if err := s.SetCodeContext(ctx, "TASK-1", &store.CodeContext{Repo: "acme/widget"}); err != nil {
+		t.Fatal(err)
+	}
+	gh := &mockGitHub{repositoryPRs: map[string][]github.PRStatus{
+		"acme/widget": {
+			{HasPR: true, Number: 1, State: "OPEN", HeadBranch: "feature/TASK-10-wrong", HeadRepo: "acme/widget"},
+			{HasPR: true, Number: 2, State: "OPEN", HeadBranch: "feature/TASK-1-right", HeadRepo: "acme/widget"},
+		},
+	}}
+	svc := NewPRTrackingService(s, events.New(), gh, time.Minute, 10*time.Minute)
+	if err := svc.PollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := s.GetTask(ctx, "TASK-1")
+	meta, _ := store.ParsePRMeta(task.PRMeta)
+	if meta == nil || meta.PRNumber != 2 || meta.MatchMethod != "ticket_key" {
+		t.Fatalf("PR metadata = %#v", meta)
+	}
+}
+
+func TestPollRefusesAmbiguousTicketKeyMatches(t *testing.T) {
+	s := newTestPRStore(t)
+	ctx := context.Background()
+	createPRTask(t, s, "TASK-1")
+	if err := s.SetCodeContext(ctx, "TASK-1", &store.CodeContext{Repo: "acme/widget"}); err != nil {
+		t.Fatal(err)
+	}
+	gh := &mockGitHub{repositoryPRs: map[string][]github.PRStatus{
+		"acme/widget": {
+			{HasPR: true, Number: 1, State: "OPEN", HeadBranch: "TASK-1-first"},
+			{HasPR: true, Number: 2, State: "OPEN", HeadBranch: "TASK-1-second"},
+		},
+	}}
+	svc := NewPRTrackingService(s, events.New(), gh, time.Minute, 10*time.Minute)
+	if err := svc.PollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := s.GetTask(ctx, "TASK-1")
+	meta, _ := store.ParsePRMeta(task.PRMeta)
+	if meta == nil || meta.PRNumber != 0 || meta.SyncOutcome != "ambiguous" {
+		t.Fatalf("PR metadata = %#v", meta)
+	}
+}
+
+func TestPollAPIErrorPreservesLastGoodPRState(t *testing.T) {
+	s := newTestPRStore(t)
+	ctx := context.Background()
+	createPRTask(t, s, "TASK-1")
+	if err := s.SetCodeContext(ctx, "TASK-1", &store.CodeContext{Repo: "acme/widget", Branch: "feature/TASK-1"}); err != nil {
+		t.Fatal(err)
+	}
+	old := `{"pr_number":42,"state":"OPEN","sync_outcome":"linked"}`
+	if err := s.UpdatePRMeta(ctx, "TASK-1", &old); err != nil {
+		t.Fatal(err)
+	}
+	gh := &mockGitHub{repositoryErr: &github.APIError{Kind: github.ErrorAuthentication, StatusCode: 401, Message: "Bad credentials"}}
+	svc := NewPRTrackingService(s, events.New(), gh, time.Minute, 0)
+	if err := svc.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := s.GetTask(ctx, "TASK-1")
+	meta, _ := store.ParsePRMeta(task.PRMeta)
+	if meta == nil || meta.PRNumber != 42 || meta.State != "OPEN" || meta.SyncOutcome != "error" || meta.SyncError == "" {
+		t.Fatalf("PR metadata = %#v", meta)
+	}
+}
+
+func TestRediscoverPRRetainsContextAndReplacesWrongLink(t *testing.T) {
+	s := newTestPRStore(t)
+	ctx := context.Background()
+	createPRTask(t, s, "TASK-1")
+	codeContext := &store.CodeContext{Repo: "acme/widget", Branch: "feature/TASK-1", RepoSource: "manual", BranchSource: "manual"}
+	if err := s.SetCodeContext(ctx, "TASK-1", codeContext); err != nil {
+		t.Fatal(err)
+	}
+	wrong := `{"pr_number":9,"state":"OPEN","pinned":true,"match_method":"manual"}`
+	if err := s.UpdatePRMeta(ctx, "TASK-1", &wrong); err != nil {
+		t.Fatal(err)
+	}
+	gh := &mockGitHub{repositoryPRs: map[string][]github.PRStatus{
+		"acme/widget": {{HasPR: true, Number: 42, State: "OPEN", HeadBranch: "feature/TASK-1", HeadRepo: "acme/widget"}},
+	}}
+	svc := NewPRTrackingService(s, events.New(), gh, time.Minute, 10*time.Minute).(PRTaskActions)
+	if err := svc.RediscoverPR(ctx, "TASK-1"); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := s.GetTask(ctx, "TASK-1")
+	gotContext, _ := store.ParseCodeContext(task.CodeContext)
+	meta, _ := store.ParsePRMeta(task.PRMeta)
+	if gotContext == nil || gotContext.Repo != codeContext.Repo || gotContext.Branch != codeContext.Branch {
+		t.Fatalf("code context = %#v", gotContext)
+	}
+	if meta == nil || meta.PRNumber != 42 || meta.Pinned || meta.MatchMethod != "branch" {
+		t.Fatalf("PR metadata = %#v", meta)
 	}
 }
 
