@@ -1,16 +1,92 @@
 ## GitHub PR Tracking
 
-Read-only PR enrichment orthogonal to ticket providers — any task (local or Jira-synced) can track a PR. Uses `gh` CLI (no token management, leverages existing auth). Graceful degradation if `gh` not installed.
+Read-only PR enrichment is independent of ticket providers: local and Jira tasks can discover and track pull requests without Staccato or the `gh` executable. GitHub synchronization is enabled when `github.token` is configured.
 
-- **PR metadata**: stored as JSON in `tasks.pr_meta` column (separate from `remote_meta`). `store.PRMeta` struct with `MarshalPRMeta`/`ParsePRMeta` helpers. Fields: repo (owner/repo), branch, pr_number, pr_url, state, is_draft, review_decision, check_status, comment_count, updated_at, head_sha (commit SHA recorded at link time — anchors PR discovery), linked_at (RFC3339 link time — discovery rejects PRs created before it)
-- **GitHub client**: `internal/engine/github/` — `FetchPRStatus(branch, repo...)` shells out to `gh pr list --head <branch> --limit 10 [--repo owner/repo] --json ...` and ranks candidates via `pickBestPR` (open beats closed/merged, then newest `createdAt`) so reused branch names don't resurrect old PRs. `FetchPRsForCommit(owner, repo, sha)` resolves PRs by exact commit identity via `gh api repos/{o}/{r}/commits/{sha}/pulls` (same open-first/newest ranking; immune to branch-name reuse and fork collisions). `FetchPRByNumber(owner, repo, number)` fetches single PR via `gh api repos/{owner}/{repo}/pulls/{n}`. `BatchFetchPRStatusWithRepo(queries)` fans out with semaphore(5) and per-branch repo scoping. `Options` struct with injectable `LookPath` and `ExecCommand` for testing. `deriveCheckStatus` aggregates CI rollup (pass/fail/pending/""). `PRStatus.HeadBranch` populated by `FetchPRByNumber`/`FetchPRsForCommit`; `PRStatus.CreatedAt` populated by list/commit queries
-- **PR tracking service**: `internal/service/pr_tracking.go` — `PRTrackingService` interface with `LinkBranch`, `LinkPR`, `UnlinkBranch`, `PollOnce`, `StartPolling`, `GetPRStatus`, `DetectRepo`, `FetchPRByNumber`. `LinkBranch(ctx, taskID, branch, repo)` stores branch+repo in `pr_meta` + triggers immediate fetch. `LinkPR(ctx, taskID, owner, repo, prNumber)` fetches full PR data by number and stores complete PRMeta (used by link overlay). `PollOnce` uses stored `PRMeta.Repo` for repo-scoped queries — **skips branches with empty repo** to avoid `gh` failures from non-git directories. `StartPolling` returns stop func (same pattern as `SyncService.StartScheduler`). `AutoLinkBranch` detects both git branch and repo on agent spawn — skips if either detection fails (prevents linking wrong repo context, e.g. dotfiles from `~`) and skips default branches (`main`/`master` are never the PR branch)
-- **PR discovery**: unresolved links (no PR number yet) with a recorded `head_sha` are resolved per-task via `discoverPR` — commit lookup (`FetchPRsForCommit`) first, branch query fallback. All discovered candidates pass through `passesLinkFilter`: when `linked_at` is set, a PR created more than 5 minutes before the link is rejected as stale (reused branch name). `applyStatus` preserves `repo`/`head_sha`/`linked_at` across poll writes; the filter only applies to unresolved links so an already-linked PR is never dropped
-- **CLI**: `legato task link <id> [--branch <branch>] [--repo <owner/repo>] [--sha <commit-sha>]` and `legato task unlink <id>`. Auto-detects branch via `git rev-parse --abbrev-ref HEAD`. `--repo` stores owner/repo for repo-scoped polling. `--sha` records `head_sha` + `linked_at` as the discovery anchor. Linking a **different branch** than currently stored resets stale PR fields (a new branch means a new PR); same-branch re-links preserve enriched PR data. Broadcasts `pr_linked` IPC message
-- **Link PR overlay**: `p` from board opens two-phase overlay — input phase (repo + PR number fields, tab to cycle) → fetch → confirm phase (shows title/branch/state, `y` confirms, `n` cancels). Repo pre-filled from git remote if detectable. Calls `PRTrackingService.LinkPR` on confirm
-- **Board cards**: `CardData` includes `PRCheckStatus`, `PRReviewDecision`, `PRCommentCount`, `PRIsDraft`, `PRNumber`. `renderPRLine()` shows compact CI/review/comment indicators. `SetPRStates()` populates from `pr_meta` during `DataLoadedMsg`
-- **Detail view**: PR section in header shows PR number, review decision, CI status, comment count. "Branch: <name> — No PR found" when linked but no PR. `o` keybinding: if both provider URL and PR URL exist, opens URL picker overlay (`j` = Jira, `g` = GitHub PR, `esc` = cancel); if only one URL exists, opens it directly
-- **Polling cadence**: `PollOnce` (periodic) skips resolved PRs unless `resolvedInterval` has elapsed — unresolved PRs poll faster to discover new PRs. `PollAll` (startup + manual `r`) fetches everything regardless of cadence. `lastResolvedPoll` timestamp tracks when resolved PRs were last checked
-- **Manual refresh**: `r` from board triggers `manualRefresh()` — runs Jira sync + `PollAll` in one goroutine, shows "syncing..." status bar, clears on completion via `manualRefreshDoneMsg`
-- **Events**: `EventPRStatusUpdated` published after poll detects changes. TUI subscribes to all sync event types (`EventSyncStarted/Completed/Failed` + error events) via per-type channels. `EventBusMsg.ch` carries source channel for re-subscribing. IPC `pr_linked` message also triggers refresh
-- **Auto-link**: `AgentService.SpawnAgent` calls `PRTrackingService.AutoLinkBranch` (best-effort, skips if already linked, not in git repo, or repo detection fails)
+### Configuration
+
+Prefer environment expansion so the PAT is not written directly into the config file:
+
+```yaml
+github:
+  token: ${LEGATO_GITHUB_TOKEN}
+  poll_interval_seconds: 600
+  resolved_poll_interval_seconds: 600
+
+repositories:
+  - name: legato
+    repo: cpave3/legato
+    primary_dir: /home/me/Projects/legato
+    base_branch: main
+    jira_projects: [LEG]
+    workspaces: [Legato]
+```
+
+Use a fine-grained PAT with read-only access to the selected repositories. Repository metadata and pull requests are required; grant checks/status read access for CI indicators. Private repositories must be selected explicitly. The token is only held in process memory and is never persisted in SQLite, included in API responses, or written to logs. `github.api_base_url` may point at a GitHub Enterprise API.
+
+`repositories` is the shared catalog for workflow inputs, task context discovery, and workspace/Jira mappings. Legacy `workflows.repositories` is loaded when no shared catalog exists, but new configuration should use the top-level key.
+
+### Durable code context
+
+Repository identity is stored separately from fetched PR state in `tasks.code_context`:
+
+- repository (`owner/repo`), branch, head SHA, working directory, and base branch;
+- independent repository/branch provenance;
+- linked and updated timestamps.
+
+`tasks.pr_meta` is a remote cache: PR number/URL/state, reviews, checks, comments, pin/match method, and the latest discovery outcome/error. Clearing or rediscovering a PR does not discard code context.
+
+Context precedence is `manual > worktree > agent directory > repository mapping > inferred ticket-key branch`:
+
+1. Manual context is never overwritten automatically.
+2. Yggdrasil creation inspects the returned worktree path. External `legato task worktree set` updates route through the same checkout inspector.
+3. Agent launch inspects the exact selected working directory, not Legato's process directory.
+4. Exactly one matching Jira-project or workspace repository preset establishes repository context for tasks without a checkout.
+5. Once a repository is known, synchronization may infer a branch from one unambiguous task/ticket-key token match.
+
+Tasks without repository context remain fully usable. GitHub discovery skips them and reports missing context rather than scanning arbitrary repositories or matching titles.
+
+### GitHub client and synchronization
+
+`internal/engine/github` uses the GitHub HTTP API with bearer authentication, API-version headers, bounded request concurrency, and typed authentication/authorization/not-found/rate-limit/server/response errors. Local `git` remains responsible only for inspecting explicit checkout paths.
+
+Periodic synchronization lists all active, non-ephemeral tasks and groups unresolved discovery by repository. Each repository's recent pull requests are fetched once per cycle, then indexed in memory. Matching is conservative:
+
+1. exact head SHA;
+2. exact repository and branch;
+3. one boundary-aware task/remote-ticket key in a branch.
+
+Default/detached branches and title-only matches never auto-link. Fork repository identity participates in exact branch matching. Duplicate ticket-key candidates produce `ambiguous`; zero candidates produce `no_match`. API failures produce `error` while preserving the last-good PR cache.
+
+Resolved and manually pinned PRs refresh by repository and number on the slower cadence. Polling never replaces a pinned link. Existing numbered links are pinned by migration; branch-only legacy/Staccato links are backfilled as discoverable code context.
+
+### User actions
+
+- **Refresh PR** refetches the currently linked PR by number without reconsidering identity.
+- **Rediscover PR** clears only cached/derived PR state, retains code context, removes pinning, and immediately reruns matching.
+- **Edit context** records a manual repository/branch/SHA/base branch with highest precedence.
+- Explicit PR-number linking remains pinned until rediscovery.
+
+CLI:
+
+```bash
+legato task github context TASK-123 --repo acme/widget --branch feature/TASK-123
+legato task github refresh TASK-123
+legato task github rediscover TASK-123
+```
+
+`legato task link` remains compatible for hooks and scripts but now writes durable code context. `legato task unlink` clears both the PR cache and code context. Staccato can still call these commands, but is no longer required.
+
+TUI: lowercase `p` links a known PR, uppercase `R` refreshes the selected task's PR, uppercase `P` rediscovers it, and lowercase `r` performs the existing global Jira + GitHub synchronization. Task detail shows repository/branch plus `no match`, `ambiguous`, and API error outcomes.
+
+Web/API task detail includes `code_context` and enriched `pr_meta`. Authenticated targeted endpoints are:
+
+- `PUT /api/tasks/{id}/code-context`
+- `POST /api/tasks/{id}/refresh-pr`
+- `POST /api/tasks/{id}/rediscover-pr`
+- existing `POST /api/tasks/{id}/link-pr` and `POST /api/tasks/{id}/unlink-pr`
+
+The web detail panel displays repository context and exposes refresh/rediscover controls.
+
+### Events and cadence
+
+`PollOnce` uses the unresolved interval and only refreshes resolved PRs when their cadence is due. `PollAll` is used at startup and by global manual refresh. Meaningful changes publish `EventPRStatusUpdated`; CLI mutations broadcast `pr_linked` IPC so running TUI/web clients reload.

@@ -650,6 +650,13 @@ func (b *boardService) addAttachments(detail *CardDetail) error {
 	return nil
 }
 
+func valueOrEmpty(context *store.CodeContext, value func(*store.CodeContext) string) string {
+	if context == nil {
+		return ""
+	}
+	return value(context)
+}
+
 func taskToCardDetail(t *store.Task) *CardDetail {
 	createdAt, _ := time.Parse(time.RFC3339, t.CreatedAt)
 	updatedAt, _ := time.Parse(time.RFC3339, t.UpdatedAt)
@@ -679,12 +686,20 @@ func taskToCardDetail(t *store.Task) *CardDetail {
 	}
 	detail.Metadata, _ = store.ParseTaskMetadata(t.Metadata)
 
+	codeContext, _ := store.ParseCodeContext(t.CodeContext)
+	if codeContext != nil {
+		detail.CodeContext = &CodeContextView{
+			Repo: codeContext.Repo, Branch: codeContext.Branch, HeadSHA: codeContext.HeadSHA,
+			WorkingDir: codeContext.WorkingDir, BaseBranch: codeContext.BaseBranch,
+			RepoSource: codeContext.RepoSource, BranchSource: codeContext.BranchSource,
+		}
+	}
 	if t.PRMeta != nil {
 		prMeta, err := store.ParsePRMeta(t.PRMeta)
 		if err == nil && prMeta != nil {
 			detail.PRMeta = &PRMetaView{
-				Repo:           prMeta.Repo,
-				Branch:         prMeta.Branch,
+				Repo:           valueOrEmpty(codeContext, func(context *store.CodeContext) string { return context.Repo }),
+				Branch:         valueOrEmpty(codeContext, func(context *store.CodeContext) string { return context.Branch }),
 				PRNumber:       prMeta.PRNumber,
 				PRURL:          prMeta.PRURL,
 				State:          prMeta.State,
@@ -692,6 +707,10 @@ func taskToCardDetail(t *store.Task) *CardDetail {
 				ReviewDecision: prMeta.ReviewDecision,
 				CheckStatus:    prMeta.CheckStatus,
 				CommentCount:   prMeta.CommentCount,
+				Pinned:         prMeta.Pinned,
+				MatchMethod:    prMeta.MatchMethod,
+				SyncOutcome:    prMeta.SyncOutcome,
+				SyncError:      prMeta.SyncError,
 			}
 		}
 	}

@@ -149,7 +149,22 @@ func (p *prTrackingService) UnlinkBranch(ctx context.Context, taskID string) err
 }
 
 func (p *prTrackingService) SetCodeContext(ctx context.Context, taskID string, codeContext *store.CodeContext) error {
-	return p.store.SetCodeContext(ctx, taskID, codeContext)
+	task, err := p.store.GetTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	existing, err := store.ParseCodeContext(task.CodeContext)
+	if err != nil {
+		return err
+	}
+	identityChanged := existing != nil && codeContext != nil && (existing.Repo != codeContext.Repo || existing.Branch != codeContext.Branch)
+	if err := p.store.SetCodeContext(ctx, taskID, codeContext); err != nil {
+		return err
+	}
+	if identityChanged {
+		return p.store.UpdatePRMeta(ctx, taskID, nil)
+	}
+	return nil
 }
 
 func (p *prTrackingService) GetCodeContext(ctx context.Context, taskID string) (*store.CodeContext, error) {

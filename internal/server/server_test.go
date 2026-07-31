@@ -286,6 +286,30 @@ func (m *mockSyncService) PushMove(_ context.Context, taskID, targetColumn strin
 	return nil
 }
 
+type mockPRTaskActions struct {
+	mockPRTrackingService
+	contextTaskID string
+	context       *store.CodeContext
+	refreshed     string
+	rediscovered  string
+}
+
+func (m *mockPRTaskActions) SetCodeContext(_ context.Context, taskID string, value *store.CodeContext) error {
+	m.contextTaskID, m.context = taskID, value
+	return nil
+}
+func (m *mockPRTaskActions) GetCodeContext(context.Context, string) (*store.CodeContext, error) {
+	return m.context, nil
+}
+func (m *mockPRTaskActions) RefreshPR(_ context.Context, taskID string) error {
+	m.refreshed = taskID
+	return nil
+}
+func (m *mockPRTaskActions) RediscoverPR(_ context.Context, taskID string) error {
+	m.rediscovered = taskID
+	return nil
+}
+
 type mockPRTrackingService struct {
 	linkedTaskID string
 	linkPRFunc   func(ctx context.Context, taskID, owner, repo string, prNumber int) error
@@ -1463,6 +1487,36 @@ func TestPRPreviewHandler_NilService_Returns503(t *testing.T) {
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", w.Code)
+	}
+}
+
+func TestTargetedPRAndCodeContextHandlersForwardTaskActions(t *testing.T) {
+	board := &mockBoardService{}
+	actions := &mockPRTaskActions{}
+	srv := New(board, nil, nil, ":0")
+	srv.SetPRTrackingService(actions)
+
+	contextBody := `{"repo":"acme/widget","branch":"feature/TASK-1"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/tasks/TASK-1/code-context", strings.NewReader(contextBody))
+	req.SetPathValue("id", "TASK-1")
+	response := httptest.NewRecorder()
+	srv.codeContextHandler().ServeHTTP(response, req)
+	if response.Code != http.StatusOK || actions.contextTaskID != "TASK-1" || actions.context == nil || actions.context.RepoSource != "manual" {
+		t.Fatalf("code=%d task=%q context=%#v body=%s", response.Code, actions.contextTaskID, actions.context, response.Body.String())
+	}
+
+	for endpoint, target := range map[string]*string{"refresh-pr": &actions.refreshed, "rediscover-pr": &actions.rediscovered} {
+		req = httptest.NewRequest(http.MethodPost, "/api/tasks/TASK-1/"+endpoint, nil)
+		req.SetPathValue("id", "TASK-1")
+		response = httptest.NewRecorder()
+		if endpoint == "refresh-pr" {
+			srv.refreshPRHandler().ServeHTTP(response, req)
+		} else {
+			srv.rediscoverPRHandler().ServeHTTP(response, req)
+		}
+		if response.Code != http.StatusOK || *target != "TASK-1" {
+			t.Fatalf("%s code=%d target=%q", endpoint, response.Code, *target)
+		}
 	}
 }
 

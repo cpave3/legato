@@ -190,7 +190,89 @@ func (c *Client) FetchPRByNumber(owner, repo string, number int) (*PRStatus, err
 		return nil, err
 	}
 	status := statusFromAPI(raw)
+	var enrichErr error
+	status.ReviewDecision, enrichErr = c.fetchReviewDecision(owner, repo, number)
+	if enrichErr != nil {
+		return nil, fmt.Errorf("fetching PR reviews: %w", enrichErr)
+	}
+	if status.HeadSHA != "" {
+		status.CheckStatus, enrichErr = c.fetchCheckStatus(owner, repo, status.HeadSHA)
+		if enrichErr != nil {
+			return nil, fmt.Errorf("fetching PR checks: %w", enrichErr)
+		}
+	}
 	return &status, nil
+}
+
+func (c *Client) fetchReviewDecision(owner, repo string, number int) (string, error) {
+	var reviews []struct {
+		State       string `json:"state"`
+		SubmittedAt string `json:"submitted_at"`
+		User        struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	}
+	path := fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews", url.PathEscape(owner), url.PathEscape(repo), number)
+	if err := c.get(path, url.Values{"per_page": {"100"}}, &reviews); err != nil {
+		return "", err
+	}
+	latest := make(map[string]struct{ state, submitted string })
+	for _, review := range reviews {
+		if review.User.Login == "" || review.SubmittedAt == "" || review.State == "COMMENTED" || review.State == "DISMISSED" || review.State == "PENDING" {
+			continue
+		}
+		current := latest[review.User.Login]
+		if review.SubmittedAt > current.submitted {
+			latest[review.User.Login] = struct{ state, submitted string }{review.State, review.SubmittedAt}
+		}
+	}
+	approved := false
+	for _, review := range latest {
+		if review.state == "CHANGES_REQUESTED" {
+			return "CHANGES_REQUESTED", nil
+		}
+		if review.state == "APPROVED" {
+			approved = true
+		}
+	}
+	if approved {
+		return "APPROVED", nil
+	}
+	return "", nil
+}
+
+func (c *Client) fetchCheckStatus(owner, repo, sha string) (string, error) {
+	var response struct {
+		CheckRuns []struct {
+			Status     string  `json:"status"`
+			Conclusion *string `json:"conclusion"`
+		} `json:"check_runs"`
+	}
+	path := fmt.Sprintf("/repos/%s/%s/commits/%s/check-runs", url.PathEscape(owner), url.PathEscape(repo), url.PathEscape(sha))
+	if err := c.get(path, url.Values{"per_page": {"100"}}, &response); err != nil {
+		return "", err
+	}
+	if len(response.CheckRuns) == 0 {
+		return "", nil
+	}
+	pending := false
+	for _, run := range response.CheckRuns {
+		if run.Status != "completed" || run.Conclusion == nil {
+			pending = true
+			continue
+		}
+		switch *run.Conclusion {
+		case "failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale":
+			return "fail", nil
+		case "neutral", "skipped", "success":
+		default:
+			pending = true
+		}
+	}
+	if pending {
+		return "pending", nil
+	}
+	return "pass", nil
 }
 
 // FetchPRsForCommit resolves PRs containing an exact commit.

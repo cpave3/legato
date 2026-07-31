@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,9 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
+	"github.com/cpave3/legato/internal/engine/events"
+	gh "github.com/cpave3/legato/internal/engine/github"
+	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -39,6 +43,8 @@ func runTaskContract(args []string) int {
 		return runTaskUnlinkContract(args[1:])
 	case "worktree":
 		return runTaskWorktreeContract(args[1:])
+	case "github":
+		return runTaskGitHubContract(args[1:])
 	default:
 		return renderCommandError("task", usageError("unknown_command", fmt.Sprintf("unknown task command %q", args[0])), false)
 	}
@@ -401,6 +407,65 @@ func runLegacyTaskContextMutation(command string, args []string, mutate func(*st
 		return renderCommandError(command, commandDomainError(err), jsonMode)
 	}
 	return writeCommandSuccess(command, map[string]any{"task_id": taskID, "updated": true}, "", jsonMode)
+}
+
+func runTaskGitHubContract(args []string) int {
+	if len(args) == 0 {
+		return renderCommandError("task.github", usageError("missing_argument", "task github requires context, refresh, or rediscover"), false)
+	}
+	command := "task.github." + args[0]
+	parsed, parseErr := parseCommandArgs(args[1:], commandFlagSpecs("task", "github", args[0]))
+	jsonMode := parsed.Present["json"]
+	if parseErr != nil {
+		return renderCommandError(command, parseErr, jsonMode)
+	}
+	taskID, rest, idErr := resolveTaskID(parsed.Positionals)
+	if idErr != nil {
+		return renderCommandError(command, idErr, jsonMode)
+	}
+	if len(rest) != 0 {
+		return renderCommandError(command, usageError("unexpected_argument", command+" accepts one task ID"), jsonMode)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return renderCommandError(command, commandDomainError(err), jsonMode)
+	}
+	db, code := openCommandStore(command, jsonMode)
+	if db == nil {
+		return code
+	}
+	defer db.Close()
+	client, err := gh.New(gh.Options{Token: cfg.GitHub.Token, BaseURL: cfg.GitHub.APIBaseURL})
+	if err != nil {
+		return renderCommandError(command, commandDomainError(err), jsonMode)
+	}
+	svc := service.NewPRTrackingService(db, events.New(), client, 0, 0, githubRepositoryMappings(cfg)...)
+	actions := svc.(service.PRTaskActions)
+	switch args[0] {
+	case "context":
+		repo := parsed.Values["repo"]
+		parts := strings.Split(repo, "/")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return renderCommandError(command, usageError("invalid_value", "--repo must be owner/name"), jsonMode)
+		}
+		codeContext := &store.CodeContext{Repo: repo, Branch: parsed.Values["branch"], HeadSHA: parsed.Values["sha"], BaseBranch: parsed.Values["base-branch"], RepoSource: "manual", BranchSource: "manual"}
+		err = actions.SetCodeContext(context.Background(), taskID, codeContext)
+	case "refresh":
+		err = actions.RefreshPR(context.Background(), taskID)
+	case "rediscover":
+		err = actions.RediscoverPR(context.Background(), taskID)
+	default:
+		return renderCommandError("task.github", usageError("unknown_command", fmt.Sprintf("unknown github command %q", args[0])), jsonMode)
+	}
+	if err != nil {
+		return renderCommandError(command, commandDomainError(err), jsonMode)
+	}
+	ipc.Broadcast(ipc.Message{Type: "pr_linked", TaskID: taskID})
+	data, err := taskJSONData(db, taskID)
+	if err != nil {
+		return renderCommandError(command, commandDomainError(err), jsonMode)
+	}
+	return writeCommandSuccess(command, data, "", jsonMode)
 }
 
 func runTaskWorktreeContract(args []string) int {

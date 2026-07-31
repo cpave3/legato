@@ -388,6 +388,13 @@ func cardDetailToResponse(d *service.CardDetail) CardDetailResponse {
 		UpdatedAt:       d.UpdatedAt.Format(time.RFC3339),
 		Notes:           d.Notes,
 	}
+	if d.CodeContext != nil {
+		resp.CodeContext = &CodeContextResponse{
+			Repo: d.CodeContext.Repo, Branch: d.CodeContext.Branch, HeadSHA: d.CodeContext.HeadSHA,
+			WorkingDir: d.CodeContext.WorkingDir, BaseBranch: d.CodeContext.BaseBranch,
+			RepoSource: d.CodeContext.RepoSource, BranchSource: d.CodeContext.BranchSource,
+		}
+	}
 	if d.PRMeta != nil {
 		resp.PRMeta = &PRMetaResponse{
 			Repo:           d.PRMeta.Repo,
@@ -399,6 +406,10 @@ func cardDetailToResponse(d *service.CardDetail) CardDetailResponse {
 			ReviewDecision: d.PRMeta.ReviewDecision,
 			CheckStatus:    d.PRMeta.CheckStatus,
 			CommentCount:   d.PRMeta.CommentCount,
+			Pinned:         d.PRMeta.Pinned,
+			MatchMethod:    d.PRMeta.MatchMethod,
+			SyncOutcome:    d.PRMeta.SyncOutcome,
+			SyncError:      d.PRMeta.SyncError,
 		}
 	}
 	return resp
@@ -543,6 +554,78 @@ func (s *Server) linkPRHandler() http.HandlerFunc {
 		ctx := context.Background()
 		if err := s.prTracking.LinkPR(ctx, id, req.Owner, req.Repo, req.PRNumber); err != nil {
 			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+func (s *Server) prTaskActions(w http.ResponseWriter) (service.PRTaskActions, bool) {
+	if s.prTracking == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "PR tracking service not available")
+		return nil, false
+	}
+	actions, ok := s.prTracking.(service.PRTaskActions)
+	if !ok {
+		s.writeError(w, http.StatusServiceUnavailable, "targeted PR actions not available")
+		return nil, false
+	}
+	return actions, true
+}
+
+func (s *Server) codeContextHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		actions, ok := s.prTaskActions(w)
+		if !ok {
+			return
+		}
+		var context store.CodeContext
+		if err := json.NewDecoder(r.Body).Decode(&context); err != nil {
+			s.writeError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+		parts := strings.Split(context.Repo, "/")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			s.writeError(w, http.StatusBadRequest, "repo must be owner/name")
+			return
+		}
+		context.RepoSource, context.BranchSource = "manual", "manual"
+		if err := actions.SetCodeContext(r.Context(), r.PathValue("id"), &context); err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+func (s *Server) refreshPRHandler() http.HandlerFunc {
+	return s.targetedPRHandler(func(ctx context.Context, actions service.PRTaskActions, taskID string) error {
+		return actions.RefreshPR(ctx, taskID)
+	})
+}
+
+func (s *Server) rediscoverPRHandler() http.HandlerFunc {
+	return s.targetedPRHandler(func(ctx context.Context, actions service.PRTaskActions, taskID string) error {
+		return actions.RediscoverPR(ctx, taskID)
+	})
+}
+
+func (s *Server) targetedPRHandler(action func(context.Context, service.PRTaskActions, string) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		actions, ok := s.prTaskActions(w)
+		if !ok {
+			return
+		}
+		if err := action(r.Context(), actions, r.PathValue("id")); err != nil {
+			s.writeError(w, http.StatusBadGateway, err.Error())
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

@@ -444,7 +444,7 @@ func AgentSummary(s *store.Store, excludeTaskID string) (string, error) {
 	return strings.Join(parts, " #[fg=colour240]· "), nil
 }
 
-// TaskLink associates a git branch with a task's PR metadata.
+// TaskLink associates durable repository context with a task.
 // If branch is empty, auto-detects the current git branch.
 // A non-empty sha records the head commit as a discovery anchor: PR polling
 // resolves it via the exact commits/{sha}/pulls lookup, and the recorded
@@ -466,33 +466,27 @@ func TaskLink(s *store.Store, taskID, branch, repo, sha string) error {
 		}
 	}
 
-	// Preserve existing PR metadata if already linked (don't overwrite enriched data).
-	meta := &store.PRMeta{Branch: branch, Repo: repo}
-	if task.PRMeta != nil {
-		existing, _ := store.ParsePRMeta(task.PRMeta)
-		if existing != nil && existing.PRNumber > 0 && existing.Branch == branch {
-			// Same branch, already has PR data — just update repo if provided.
-			if repo != "" {
-				existing.Repo = repo
-			}
-			meta = existing
-		}
-		// A different branch means a different PR: fall through to the fresh
-		// meta so stale PR data (e.g. from spawn-time auto-link) is reset.
+	existing, _ := store.ParseCodeContext(task.CodeContext)
+	if existing == nil {
+		existing = &store.CodeContext{}
 	}
-	if sha != "" {
-		meta.HeadSHA = sha
-		meta.LinkedAt = time.Now().UTC().Format(time.RFC3339)
+	branchChanged := existing.Branch != "" && existing.Branch != branch
+	existing.Branch = branch
+	existing.BranchSource = "manual"
+	if repo != "" {
+		existing.Repo = repo
+		existing.RepoSource = "manual"
 	}
-
-	raw, err := json.Marshal(meta)
-	if err != nil {
-		return err
-	}
-	rawStr := string(raw)
-
-	if err := s.UpdatePRMeta(ctx, taskID, &rawStr); err != nil {
+	existing.HeadSHA = sha
+	existing.LinkedAt = time.Now().UTC().Format(time.RFC3339)
+	existing.UpdatedAt = existing.LinkedAt
+	if err := s.SetCodeContext(ctx, taskID, existing); err != nil {
 		return fmt.Errorf("linking branch: %w", err)
+	}
+	if branchChanged {
+		if err := s.UpdatePRMeta(ctx, taskID, nil); err != nil {
+			return fmt.Errorf("resetting stale PR association: %w", err)
+		}
 	}
 
 	ipc.Broadcast(ipc.Message{
@@ -514,7 +508,10 @@ func TaskUnlink(s *store.Store, taskID string) error {
 	}
 
 	if err := s.UpdatePRMeta(ctx, taskID, nil); err != nil {
-		return fmt.Errorf("unlinking branch: %w", err)
+		return fmt.Errorf("unlinking PR: %w", err)
+	}
+	if err := s.SetCodeContext(ctx, taskID, nil); err != nil {
+		return fmt.Errorf("clearing repository context: %w", err)
 	}
 
 	ipc.Broadcast(ipc.Message{
@@ -536,11 +533,22 @@ type taskDetailJSON struct {
 	RemoteMeta      map[string]string `json:"remote_meta"`
 	WorkspaceID     *int              `json:"workspace_id"`
 	PRMeta          *prMetaJSON       `json:"pr_meta"`
+	CodeContext     *codeContextJSON  `json:"code_context"`
 	SwarmActiveStep int               `json:"swarm_active_step"`
 	SwarmStepNames  []string          `json:"swarm_step_names"`
 	CreatedAt       time.Time         `json:"created_at"`
 	UpdatedAt       time.Time         `json:"updated_at"`
 	Notes           []store.TaskNote  `json:"notes"`
+}
+
+type codeContextJSON struct {
+	Repo         string `json:"repo"`
+	Branch       string `json:"branch"`
+	HeadSHA      string `json:"head_sha"`
+	WorkingDir   string `json:"working_dir"`
+	BaseBranch   string `json:"base_branch"`
+	RepoSource   string `json:"repo_source"`
+	BranchSource string `json:"branch_source"`
 }
 
 type prMetaJSON struct {
@@ -553,6 +561,10 @@ type prMetaJSON struct {
 	ReviewDecision string `json:"review_decision"`
 	CheckStatus    string `json:"check_status"`
 	CommentCount   int    `json:"comment_count"`
+	Pinned         bool   `json:"pinned"`
+	MatchMethod    string `json:"match_method"`
+	SyncOutcome    string `json:"sync_outcome"`
+	SyncError      string `json:"sync_error"`
 }
 
 func taskDetailJSONFromService(detail *service.CardDetail) taskDetailJSON {
@@ -578,6 +590,13 @@ func taskDetailJSONFromService(detail *service.CardDetail) taskDetailJSON {
 	if resp.SwarmStepNames == nil {
 		resp.SwarmStepNames = []string{}
 	}
+	if detail.CodeContext != nil {
+		resp.CodeContext = &codeContextJSON{
+			Repo: detail.CodeContext.Repo, Branch: detail.CodeContext.Branch, HeadSHA: detail.CodeContext.HeadSHA,
+			WorkingDir: detail.CodeContext.WorkingDir, BaseBranch: detail.CodeContext.BaseBranch,
+			RepoSource: detail.CodeContext.RepoSource, BranchSource: detail.CodeContext.BranchSource,
+		}
+	}
 	if detail.PRMeta != nil {
 		resp.PRMeta = &prMetaJSON{
 			Repo:           detail.PRMeta.Repo,
@@ -589,6 +608,10 @@ func taskDetailJSONFromService(detail *service.CardDetail) taskDetailJSON {
 			ReviewDecision: detail.PRMeta.ReviewDecision,
 			CheckStatus:    detail.PRMeta.CheckStatus,
 			CommentCount:   detail.PRMeta.CommentCount,
+			Pinned:         detail.PRMeta.Pinned,
+			MatchMethod:    detail.PRMeta.MatchMethod,
+			SyncOutcome:    detail.PRMeta.SyncOutcome,
+			SyncError:      detail.PRMeta.SyncError,
 		}
 	}
 	return resp

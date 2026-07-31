@@ -11,6 +11,8 @@ interface DetailPanelProps {
   onMove: () => void
   onDelete: () => void
   onLinkPR: () => void
+  onRefreshPR?: () => void
+  onRediscoverPR?: () => void
   onCopyDescription: () => void
   onCopyFull: () => void
   onOpenURL: () => void
@@ -25,6 +27,8 @@ export function DetailPanel({
   onMove,
   onDelete,
   onLinkPR,
+  onRefreshPR,
+  onRediscoverPR,
   onCopyDescription,
   onCopyFull,
   onOpenURL,
@@ -89,6 +93,12 @@ export function DetailPanel({
               </a>
             </div>
           )}
+          {card.code_context && (
+            <>
+              <div><span className="text-zinc-600">Repository:</span> {card.code_context.repo}</div>
+              {card.code_context.branch && <div><span className="text-zinc-600">Branch:</span> {card.code_context.branch}</div>}
+            </>
+          )}
           {card.pr_meta && (
             <>
               {card.pr_meta.pr_number > 0 && (
@@ -119,8 +129,8 @@ export function DetailPanel({
                   )}
                 </div>
               )}
-              {card.pr_meta.branch && !card.pr_meta.pr_number && (
-                <div className="col-span-2 text-zinc-500">Branch: {card.pr_meta.branch} — No PR found</div>
+              {!card.pr_meta.pr_number && card.pr_meta.sync_outcome && (
+                <div className="col-span-2 text-zinc-500">PR sync: {card.pr_meta.sync_outcome.replaceAll("_", " ")}{card.pr_meta.sync_error && ` — ${card.pr_meta.sync_error}`}</div>
               )}
             </>
           )}
@@ -148,6 +158,12 @@ export function DetailPanel({
           <button onClick={onLinkPR} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">
             Link PR (p)
           </button>
+          {(card.pr_meta?.pr_number ?? 0) > 0 && (
+            <button onClick={onRefreshPR} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">Refresh PR</button>
+          )}
+          {card.code_context?.repo && (
+            <button onClick={onRediscoverPR} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">Rediscover PR</button>
+          )}
           <button onClick={onCopyDescription} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">
             Copy desc (y)
           </button>

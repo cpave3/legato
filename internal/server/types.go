@@ -75,22 +75,33 @@ type WorkspaceResponse struct {
 
 // CardDetailResponse is the JSON response for GET /api/tasks/{id}.
 type CardDetailResponse struct {
-	ID              string            `json:"id"`
-	Title           string            `json:"title"`
-	DescriptionMD   string            `json:"description_md"`
-	Status          string            `json:"status"`
-	Priority        string            `json:"priority"`
-	Provider        string            `json:"provider"`
-	RemoteID        string            `json:"remote_id"`
-	RemoteMeta      map[string]string `json:"remote_meta,omitempty"`
-	Metadata        map[string]any    `json:"metadata"`
-	WorkspaceID     *int              `json:"workspace_id,omitempty"`
-	PRMeta          *PRMetaResponse   `json:"pr_meta,omitempty"`
-	SwarmActiveStep int               `json:"swarm_active_step"`
-	SwarmStepNames  []string          `json:"swarm_step_names,omitempty"`
-	CreatedAt       string            `json:"created_at"`
-	UpdatedAt       string            `json:"updated_at"`
-	Notes           []store.TaskNote  `json:"notes"`
+	ID              string               `json:"id"`
+	Title           string               `json:"title"`
+	DescriptionMD   string               `json:"description_md"`
+	Status          string               `json:"status"`
+	Priority        string               `json:"priority"`
+	Provider        string               `json:"provider"`
+	RemoteID        string               `json:"remote_id"`
+	RemoteMeta      map[string]string    `json:"remote_meta,omitempty"`
+	Metadata        map[string]any       `json:"metadata"`
+	WorkspaceID     *int                 `json:"workspace_id,omitempty"`
+	PRMeta          *PRMetaResponse      `json:"pr_meta,omitempty"`
+	CodeContext     *CodeContextResponse `json:"code_context,omitempty"`
+	SwarmActiveStep int                  `json:"swarm_active_step"`
+	SwarmStepNames  []string             `json:"swarm_step_names,omitempty"`
+	CreatedAt       string               `json:"created_at"`
+	UpdatedAt       string               `json:"updated_at"`
+	Notes           []store.TaskNote     `json:"notes"`
+}
+
+type CodeContextResponse struct {
+	Repo         string `json:"repo,omitempty"`
+	Branch       string `json:"branch,omitempty"`
+	HeadSHA      string `json:"head_sha,omitempty"`
+	WorkingDir   string `json:"working_dir,omitempty"`
+	BaseBranch   string `json:"base_branch,omitempty"`
+	RepoSource   string `json:"repo_source,omitempty"`
+	BranchSource string `json:"branch_source,omitempty"`
 }
 
 // PRMetaResponse is the JSON representation of PR metadata linked to a task.
@@ -104,6 +115,10 @@ type PRMetaResponse struct {
 	ReviewDecision string `json:"review_decision,omitempty"`
 	CheckStatus    string `json:"check_status,omitempty"`
 	CommentCount   int    `json:"comment_count"`
+	Pinned         bool   `json:"pinned"`
+	MatchMethod    string `json:"match_method,omitempty"`
+	SyncOutcome    string `json:"sync_outcome,omitempty"`
+	SyncError      string `json:"sync_error,omitempty"`
 }
 
 // PRPreviewResponse is the JSON response for GET /api/tasks/{id}/pr-preview.

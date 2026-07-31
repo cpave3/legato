@@ -744,22 +744,22 @@ func TestTaskLink_WithSHARecordsAnchor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	meta, err := store.ParsePRMeta(task.PRMeta)
+	codeContext, err := store.ParseCodeContext(task.CodeContext)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if meta.Branch != "fix-tests" {
-		t.Errorf("Branch = %q, want fix-tests", meta.Branch)
+	if codeContext.Branch != "fix-tests" {
+		t.Errorf("Branch = %q, want fix-tests", codeContext.Branch)
 	}
-	if meta.HeadSHA != "abc123" {
-		t.Errorf("HeadSHA = %q, want abc123", meta.HeadSHA)
+	if codeContext.HeadSHA != "abc123" {
+		t.Errorf("HeadSHA = %q, want abc123", codeContext.HeadSHA)
 	}
-	if meta.LinkedAt == "" {
+	if codeContext.LinkedAt == "" {
 		t.Fatal("LinkedAt should be set when SHA is provided")
 	}
-	linked, err := time.Parse(time.RFC3339, meta.LinkedAt)
+	linked, err := time.Parse(time.RFC3339, codeContext.LinkedAt)
 	if err != nil {
-		t.Fatalf("LinkedAt %q not RFC3339: %v", meta.LinkedAt, err)
+		t.Fatalf("LinkedAt %q not RFC3339: %v", codeContext.LinkedAt, err)
 	}
 	if linked.Before(before) || linked.After(time.Now().UTC().Add(time.Second)) {
 		t.Errorf("LinkedAt = %v, want ~now", linked)
@@ -776,12 +776,12 @@ func TestTaskLink_WithoutSHALeavesAnchorEmpty(t *testing.T) {
 	}
 
 	task, _ := s.GetTask(context.Background(), "task1")
-	meta, err := store.ParsePRMeta(task.PRMeta)
+	codeContext, err := store.ParseCodeContext(task.CodeContext)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if meta.HeadSHA != "" || meta.LinkedAt != "" {
-		t.Errorf("HeadSHA/LinkedAt should be empty without --sha, got %q/%q", meta.HeadSHA, meta.LinkedAt)
+	if codeContext.HeadSHA != "" || codeContext.LinkedAt == "" {
+		t.Errorf("HeadSHA should be empty and LinkedAt set, got %q/%q", codeContext.HeadSHA, codeContext.LinkedAt)
 	}
 }
 
@@ -798,24 +798,24 @@ func TestTaskLink_NewBranchResetsStalePRData(t *testing.T) {
 	if err := s.UpdatePRMeta(ctx, "task1", &stale); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.SetCodeContext(ctx, "task1", &store.CodeContext{Repo: "o/r", Branch: "parent-branch"}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := cli.TaskLink(s, "task1", "new-branch", "o/r", "abc123"); err != nil {
 		t.Fatal(err)
 	}
 
 	task, _ := s.GetTask(ctx, "task1")
-	meta, err := store.ParsePRMeta(task.PRMeta)
+	codeContext, err := store.ParseCodeContext(task.CodeContext)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if meta.Branch != "new-branch" {
-		t.Errorf("Branch = %q, want new-branch", meta.Branch)
+	if codeContext.Branch != "new-branch" || codeContext.HeadSHA != "abc123" {
+		t.Fatalf("code context = %#v", codeContext)
 	}
-	if meta.PRNumber != 0 {
-		t.Errorf("PRNumber = %d, want 0 (stale PR data must be reset on branch change)", meta.PRNumber)
-	}
-	if meta.HeadSHA != "abc123" {
-		t.Errorf("HeadSHA = %q, want abc123", meta.HeadSHA)
+	if task.PRMeta != nil {
+		t.Errorf("stale PR data was not reset: %s", *task.PRMeta)
 	}
 }
 
@@ -827,6 +827,9 @@ func TestTaskLink_SameBranchKeepsPRData(t *testing.T) {
 	ctx := context.Background()
 	existing := `{"branch":"fix-tests","repo":"o/r","pr_number":42,"pr_url":"https://github.com/o/r/pull/42","state":"OPEN"}`
 	if err := s.UpdatePRMeta(ctx, "task1", &existing); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetCodeContext(ctx, "task1", &store.CodeContext{Repo: "o/r", Branch: "fix-tests"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -842,7 +845,11 @@ func TestTaskLink_SameBranchKeepsPRData(t *testing.T) {
 	if meta.PRNumber != 42 {
 		t.Errorf("PRNumber = %d, want 42 (same-branch re-link must keep PR data)", meta.PRNumber)
 	}
-	if meta.HeadSHA != "def456" {
-		t.Errorf("HeadSHA = %q, want def456", meta.HeadSHA)
+	codeContext, err := store.ParseCodeContext(task.CodeContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codeContext.HeadSHA != "def456" {
+		t.Errorf("HeadSHA = %q, want def456", codeContext.HeadSHA)
 	}
 }

@@ -860,6 +860,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case board.OpenLinkPRMsg:
 		return a.openLinkPROverlay(msg.CardKey)
 
+	case board.RefreshPRMsg:
+		return a.runTargetedPRAction(msg.CardKey, false)
+
+	case board.RediscoverPRMsg:
+		return a.runTargetedPRAction(msg.CardKey, true)
+
 	case overlay.ImportQueryChangedMsg:
 		return a.handleImportQuery(msg)
 
@@ -1821,6 +1827,30 @@ func (a App) manualRefresh() (tea.Model, tea.Cmd) {
 			prSvc.PollAll(context.Background())
 		}
 		return manualRefreshDoneMsg{}
+	}
+}
+
+func (a App) runTargetedPRAction(taskID string, rediscover bool) (tea.Model, tea.Cmd) {
+	actions, ok := a.prSvc.(service.PRTaskActions)
+	if !ok {
+		return a, func() tea.Msg { return statusbar.ErrorMsg{Text: "targeted PR actions unavailable"} }
+	}
+	verb := "refreshing"
+	if rediscover {
+		verb = "rediscovering"
+	}
+	a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{Text: verb + " PR for " + taskID + "..."})
+	return a, func() tea.Msg {
+		var err error
+		if rediscover {
+			err = actions.RediscoverPR(context.Background(), taskID)
+		} else {
+			err = actions.RefreshPR(context.Background(), taskID)
+		}
+		if err != nil {
+			return statusbar.ErrorMsg{Text: verb + " PR failed: " + err.Error()}
+		}
+		return boardRefreshMsg{}
 	}
 }
 

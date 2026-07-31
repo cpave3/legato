@@ -6,11 +6,33 @@ import (
 	"testing"
 )
 
+func TestFetchPRByNumberEnrichesReviewsAndChecks(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/repos/acme/widget/pulls/42":
+			_, _ = w.Write([]byte(`{"number":42,"state":"open","head":{"ref":"feature/TASK-42","sha":"abc123","repo":{"full_name":"acme/widget"}}}`))
+		case "/repos/acme/widget/pulls/42/reviews":
+			_, _ = w.Write([]byte(`[{"user":{"login":"alice"},"state":"APPROVED","submitted_at":"2026-07-01T00:00:00Z"},{"user":{"login":"bob"},"state":"CHANGES_REQUESTED","submitted_at":"2026-07-02T00:00:00Z"}]`))
+		case "/repos/acme/widget/commits/abc123/check-runs":
+			_, _ = w.Write([]byte(`{"check_runs":[{"status":"completed","conclusion":"success"},{"status":"in_progress","conclusion":null}]}`))
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	client, _ := New(Options{Token: "token", BaseURL: server.URL, HTTPClient: server.Client()})
+	status, err := client.FetchPRByNumber("acme", "widget", 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.ReviewDecision != "CHANGES_REQUESTED" || status.CheckStatus != "pending" {
+		t.Fatalf("status = %+v", status)
+	}
+}
+
 func TestFetchPRByNumberUsesTokenAuthenticatedAPI(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/repos/acme/widget/pulls/42" {
-			t.Fatalf("path = %q", r.URL.Path)
-		}
 		if got := r.Header.Get("Authorization"); got != "Bearer secret-token" {
 			t.Fatalf("Authorization = %q", got)
 		}
@@ -18,7 +40,16 @@ func TestFetchPRByNumberUsesTokenAuthenticatedAPI(t *testing.T) {
 			t.Fatal("missing GitHub API version header")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"number":42,"title":"Fix widget","state":"open","draft":false,"merged":false,"html_url":"https://github.com/acme/widget/pull/42","comments":2,"review_comments":3,"created_at":"2026-07-01T00:00:00Z","head":{"ref":"feature/TASK-42","sha":"abc123","repo":{"full_name":"acme/widget"}}}`))
+		switch r.URL.Path {
+		case "/repos/acme/widget/pulls/42":
+			_, _ = w.Write([]byte(`{"number":42,"title":"Fix widget","state":"open","draft":false,"merged":false,"html_url":"https://github.com/acme/widget/pull/42","comments":2,"review_comments":3,"created_at":"2026-07-01T00:00:00Z","head":{"ref":"feature/TASK-42","sha":"abc123","repo":{"full_name":"acme/widget"}}}`))
+		case "/repos/acme/widget/pulls/42/reviews":
+			_, _ = w.Write([]byte(`[]`))
+		case "/repos/acme/widget/commits/abc123/check-runs":
+			_, _ = w.Write([]byte(`{"check_runs":[]}`))
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
 	}))
 	defer server.Close()
 

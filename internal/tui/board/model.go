@@ -140,6 +140,9 @@ type OpenLinkPRMsg struct {
 	CardKey string
 }
 
+type RefreshPRMsg struct{ CardKey string }
+type RediscoverPRMsg struct{ CardKey string }
+
 // Update handles messages.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -216,6 +219,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 		if card := m.SelectedCard(); card != nil {
 			key := card.Key
 			return m, func() tea.Msg { return OpenLinkPRMsg{CardKey: key} }
+		}
+	case "R":
+		if card := m.SelectedCard(); card != nil {
+			key := card.Key
+			return m, func() tea.Msg { return RefreshPRMsg{CardKey: key} }
+		}
+	case "P":
+		if card := m.SelectedCard(); card != nil {
+			key := card.Key
+			return m, func() tea.Msg { return RediscoverPRMsg{CardKey: key} }
 		}
 	case "w":
 		return m, func() tea.Msg { return OpenWorkspaceMsg{} }

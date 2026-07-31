@@ -42,8 +42,11 @@ See `docs/workflows.md` for the schema and lifecycle. Workflow commands currentl
 - `legato agent state <task-id> --activity <working|waiting|"">` — update agent activity state on a card
 - `legato agent summary [--exclude <task-id>]` — output tmux-formatted agent session counts (working/waiting/idle) for use in tmux status bar `#()` expansion
 - `legato agent status <task-id> --format tmux` — output a swarm-aware tmux status-line string for the given task. For swarm participants it shows `x/y done`, the last event kind + age, active sibling count, and a scope-warning icon; for solo agents it falls back to the same output as `agent summary --exclude <task-id>`. Auto-injected into `status-right` by `SpawnAgent` for swarm sessions; solo sessions keep the summary command. The CLI opens a new SQLite connection each call (the in-process `SwarmService.LatestSnapshot` cache is unreachable across process boundaries) so latency is bounded by SQLite open + two aggregate queries
-- `legato task link <task-id> [--branch <branch>] [--repo <owner/repo>] [--sha <commit-sha>]` — link a git branch to a task for PR tracking (auto-detects branch if `--branch` omitted, `--repo` enables repo-scoped polling, `--sha` anchors PR discovery to the exact head commit)
-- `legato task unlink <task-id>` — remove branch/PR association from a task
+- `legato task link <task-id> [--branch <branch>] [--repo <owner/repo>] [--sha <commit-sha>]` — compatibility command for hooks/scripts; records durable task code context and resets cached PR data when the branch changes.
+- `legato task github context <task-id> --repo <owner/repo> [--branch <branch>] [--sha <commit>] [--base-branch <branch>]` — set manual repository context with highest precedence.
+- `legato task github refresh <task-id>` — refetch the currently linked PR without reconsidering its association.
+- `legato task github rediscover <task-id>` — retain repository context, clear cached/pinned PR identity, and immediately rerun conservative discovery.
+- `legato task unlink <task-id>` — clear both the PR cache and repository context.
 - `legato hooks install --tool <tool[,tool...]>` — install hooks for one or more explicitly selected AI tools; for example `--tool claude-code,codex,chimera` (claude-code: `.claude/hooks/`, staccato: `~/.config/staccato/hooks/`, chimera: `~/.chimera/hooks/`, codex: `.codex/hooks/`, yggdrasil: `.yggdrasil.toml`)
 - `legato hooks uninstall --tool <tool[,tool...]>` — remove hooks for one or more explicitly selected tools
 - `legato auth token` — print the web UI auth token to stdout
@@ -60,7 +63,7 @@ stdout with the result.
 
 Task-scoped commands resolve identity in this order: explicit task ID, then
 `LEGATO_TASK_ID`. This applies to task show/notes/update/description/note/link/unlink,
-task worktree set/clear, and agent state/status. Task creation never consumes
+task github context/refresh/rediscover, task worktree set/clear, and agent state/status. Task creation never consumes
 the environment identity.
 
 Stable exit categories are: `0` success, `2` usage or invalid input, `3`

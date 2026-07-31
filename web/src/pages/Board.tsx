@@ -775,6 +775,26 @@ export function BoardPage() {
               setOverlay({ kind: "linkPR", card: { id: detailCard.id, title: detailCard.title } as BoardCard })
             }
           }}
+          onRefreshPR={async () => {
+            const response = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(detailCard.id)}/refresh-pr`, { method: "POST" })
+            if (!response.ok) {
+              addToast(await response.text(), "error")
+              return
+            }
+            await refresh()
+            await openDetail(detailCard.id)
+            addToast("PR refreshed", "success")
+          }}
+          onRediscoverPR={async () => {
+            const response = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(detailCard.id)}/rediscover-pr`, { method: "POST" })
+            if (!response.ok) {
+              addToast(await response.text(), "error")
+              return
+            }
+            await refresh()
+            await openDetail(detailCard.id)
+            addToast("PR rediscovered", "success")
+          }}
           onCopyDescription={handleCopyDesc}
           onCopyFull={handleCopyFull}
           onOpenURL={() => {

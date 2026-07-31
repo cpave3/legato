@@ -58,6 +58,7 @@ export interface CardDetail {
   remote_meta: Record<string, string>
   workspace_id: number | null
   pr_meta: PRMetaView | null
+  code_context: CodeContextView | null
   swarm_active_step: number
   swarm_step_names: string[]
   swarm_stats?: SwarmStats
@@ -65,6 +66,16 @@ export interface CardDetail {
   created_at: string
   updated_at: string
   notes?: { id: string; task_id: string; body: string; source: string; remote_id?: string; created_at: string }[]
+}
+
+export interface CodeContextView {
+  repo: string
+  branch: string
+  head_sha: string
+  working_dir: string
+  base_branch: string
+  repo_source: string
+  branch_source: string
 }
 
 export interface PRMetaView {
@@ -77,6 +88,10 @@ export interface PRMetaView {
   review_decision: string
   check_status: string
   comment_count: number
+  pinned: boolean
+  match_method: string
+  sync_outcome: string
+  sync_error: string
 }
 
 export interface RemoteSearchResult {

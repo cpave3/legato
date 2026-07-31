@@ -89,6 +89,26 @@ func newTestModel() Model {
 	return m
 }
 
+func TestTargetedPRKeysEmitSelectedTaskActions(t *testing.T) {
+	m := newTestModel()
+	for key, wantType := range map[string]any{"R": RefreshPRMsg{}, "P": RediscoverPRMsg{}} {
+		_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+		if cmd == nil {
+			t.Fatalf("%s returned no command", key)
+		}
+		switch wantType.(type) {
+		case RefreshPRMsg:
+			if msg, ok := cmd().(RefreshPRMsg); !ok || msg.CardKey == "" {
+				t.Fatalf("%s message = %#v", key, cmd())
+			}
+		case RediscoverPRMsg:
+			if msg, ok := cmd().(RediscoverPRMsg); !ok || msg.CardKey == "" {
+				t.Fatalf("%s message = %#v", key, cmd())
+			}
+		}
+	}
+}
+
 func TestLoadDataPreservesWorktreeIndicator(t *testing.T) {
 	m := newTestModel()
 	cards := m.cards["Doing"]

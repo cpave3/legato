@@ -78,19 +78,19 @@ type DescriptionEditedMsg struct {
 
 // Model is the detail view Bubbletea model.
 type Model struct {
-	card        *service.CardDetail
-	taskID      string
-	svc         service.BoardService
-	clip        *clipboard.Clipboard
-	editor      string
-	viewport    viewport.Model
-	width       int
-	height      int
-	loading     bool
-	feedback    string
-	headerStr   string
-	subtasks    []service.SwarmSubtaskInfo
-	subtaskIdx  int
+	card       *service.CardDetail
+	taskID     string
+	svc        service.BoardService
+	clip       *clipboard.Clipboard
+	editor     string
+	viewport   viewport.Model
+	width      int
+	height     int
+	loading    bool
+	feedback   string
+	headerStr  string
+	subtasks   []service.SwarmSubtaskInfo
+	subtaskIdx int
 }
 
 // SetSubtasks attaches swarm sub-task info to the detail view (read-only render).
@@ -607,7 +607,11 @@ func (m Model) renderHeader() string {
 		addMeta("URL", m.card.RemoteMeta["url"])
 	}
 
-	// PR status section
+	// Repository context and PR status section.
+	if m.card.CodeContext != nil {
+		addMeta("Repository", m.card.CodeContext.Repo)
+		addMeta("Branch", m.card.CodeContext.Branch)
+	}
 	if m.card.PRMeta != nil {
 		pr := m.card.PRMeta
 		if pr.PRNumber > 0 {
@@ -638,8 +642,12 @@ func (m Model) renderHeader() string {
 			if pr.CommentCount > 0 {
 				addMeta("Comments", fmt.Sprintf("%d", pr.CommentCount))
 			}
-		} else if pr.Branch != "" {
-			addMeta("Branch", pr.Branch+" — No PR found")
+		} else if pr.SyncOutcome != "" {
+			outcome := strings.ReplaceAll(pr.SyncOutcome, "_", " ")
+			if pr.SyncError != "" {
+				outcome += ": " + pr.SyncError
+			}
+			addMeta("PR sync", outcome)
 		}
 	}
 

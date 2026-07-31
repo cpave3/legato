@@ -34,6 +34,8 @@ var (
 		{"Y", "Copy full context"},
 		{"r", "Force sync"},
 		{"p", "Link PR to task"},
+		{"R", "Refresh linked PR"},
+		{"P", "Rediscover task PR"},
 		{"X", "Archive done cards"},
 		{"B", "Browse archived tasks"},
 		{"s", "Decompose into swarm"},

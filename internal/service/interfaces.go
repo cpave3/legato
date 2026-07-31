@@ -8,10 +8,21 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
-// PRMetaView holds parsed PR metadata for display.
+// CodeContextView holds durable repository identity for display and editing.
+type CodeContextView struct {
+	Repo         string
+	Branch       string
+	HeadSHA      string
+	WorkingDir   string
+	BaseBranch   string
+	RepoSource   string
+	BranchSource string
+}
+
+// PRMetaView holds parsed remote PR metadata for display.
 type PRMetaView struct {
-	Repo           string // owner/repo
-	Branch         string
+	Repo           string // populated from code context for compatibility
+	Branch         string // populated from code context for compatibility
 	PRNumber       int
 	PRURL          string
 	State          string
@@ -19,6 +30,10 @@ type PRMetaView struct {
 	ReviewDecision string
 	CheckStatus    string
 	CommentCount   int
+	Pinned         bool
+	MatchMethod    string
+	SyncOutcome    string
+	SyncError      string
 }
 
 // ExportFormat defines the output format for card context export.
@@ -70,6 +85,7 @@ type CardDetail struct {
 	Metadata        map[string]any
 	WorkspaceID     *int
 	PRMeta          *PRMetaView
+	CodeContext     *CodeContextView
 	SwarmActiveStep int
 	SwarmStepNames  []string
 	CreatedAt       time.Time
