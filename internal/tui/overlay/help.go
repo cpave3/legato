@@ -81,7 +81,7 @@ func (m HelpOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case tea.KeyMsg:
-		if msg.String() == "esc" || msg.String() == "?" {
+		if msg.String() == "esc" || msg.String() == "?" || msg.String() == "q" {
 			return m, func() tea.Msg { return HelpClosedMsg{} }
 		}
 	}
@@ -108,7 +108,7 @@ func (m HelpOverlay) View() string {
 
 	fullContext := m.context
 	fullContext.Predicates = hotkey.NewPredicates(hotkey.PredicateLocalTask, hotkey.PredicateEditor, hotkey.PredicateSwarmNext)
-	for _, section := range m.registry.AllSections(fullContext, hotkey.FullHelp) {
+	for _, section := range m.registry.Sections(fullContext, hotkey.FullHelp) {
 		lines = append(lines, sectionStyle.Render(section.Name))
 		for _, binding := range section.Bindings {
 			lines = append(lines, fmt.Sprintf("  %s%s", keyStyle.Render(hotkey.DisplayKey(binding)), descStyle.Render(binding.Help)))

@@ -31,6 +31,18 @@ func TestHelpOverlayQuestionMarkDismisses(t *testing.T) {
 	}
 }
 
+func TestHelpOverlayQDismisses(t *testing.T) {
+	m := NewHelp(80, 24)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmd == nil {
+		t.Fatal("q should dismiss help")
+	}
+	msg := cmd()
+	if _, ok := msg.(HelpClosedMsg); !ok {
+		t.Fatalf("expected HelpClosedMsg, got %T", msg)
+	}
+}
+
 func TestHelpOverlayIgnoresOtherKeys(t *testing.T) {
 	m := NewHelp(80, 24)
 	for _, key := range []rune{'j', 'k', 'h', 'l', 'a', 'z'} {
@@ -50,10 +62,15 @@ func TestHelpOverlayShowsKeybindings(t *testing.T) {
 			t.Errorf("view should contain %q", expected)
 		}
 	}
-	// Actions across page scopes are included in the full reference.
-	for _, expected := range []string{"Open task detail", "Move task", "Copy full task context", "Search tasks", "Return to board"} {
+	// Only actions available on the current page are included.
+	for _, expected := range []string{"Open task detail", "Move task", "Search tasks"} {
 		if !strings.Contains(view, expected) {
 			t.Errorf("view should contain %q", expected)
+		}
+	}
+	for _, unexpected := range []string{"Copy full task context", "Return to board"} {
+		if strings.Contains(view, unexpected) {
+			t.Errorf("board help should not contain other-page action %q", unexpected)
 		}
 	}
 	// General section
