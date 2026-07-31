@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/hotkey"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -167,73 +168,85 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	switch msg.String() {
-	case "h":
+	binding, ok := hotkey.DefaultRegistry().Resolve(msg, hotkey.Context{Page: hotkey.PageBoard, Capabilities: hotkey.NewCapabilities(hotkey.CapabilitySync, hotkey.CapabilityPR)})
+	if !ok || binding.Target != hotkey.TargetPage {
+		return m, nil
+	}
+	return m.HandleAction(binding.ID)
+}
+
+// HandleAction executes a registry action owned by the board model.
+func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
+	switch action {
+	case hotkey.ActionBoardLeft:
 		if m.cursorCol > 0 {
 			m.cursorCol--
 			m.clampRow()
 		}
-	case "l":
+	case hotkey.ActionBoardRight:
 		if m.cursorCol < len(m.columns)-1 {
 			m.cursorCol++
 			m.clampRow()
 		}
-	case "j":
+	case hotkey.ActionBoardDown:
 		max := m.currentColumnCardCount() - 1
 		if m.cursorRow < max {
 			m.cursorRow++
 		}
 		m.syncScrollOffset()
-	case "k":
+	case hotkey.ActionBoardUp:
 		if m.cursorRow > 0 {
 			m.cursorRow--
 		}
 		m.syncScrollOffset()
-	case "g":
+	case hotkey.ActionBoardFirst:
 		m.cursorRow = 0
 		m.syncScrollOffset()
-	case "G":
+	case hotkey.ActionBoardLast:
 		max := m.currentColumnCardCount() - 1
 		if max >= 0 {
 			m.cursorRow = max
 		}
 		m.syncScrollOffset()
-	case "enter":
+	case hotkey.ActionBoardOpen:
 		if card := m.SelectedCard(); card != nil {
 			key := card.Key
 			return m, func() tea.Msg { return OpenDetailMsg{CardKey: key} }
 		}
-	case "m":
+	case hotkey.ActionBoardMove:
 		if card := m.SelectedCard(); card != nil {
 			key := card.Key
 			return m, func() tea.Msg { return OpenMoveMsg{CardKey: key} }
 		}
-	case "d":
+	case hotkey.ActionBoardDelete:
 		if card := m.SelectedCard(); card != nil {
 			key := card.Key
 			return m, func() tea.Msg { return OpenDeleteMsg{CardKey: key} }
 		}
-	case "i":
+	case hotkey.ActionBoardImport:
 		return m, func() tea.Msg { return OpenImportMsg{} }
-	case "p":
+	case hotkey.ActionBoardLinkPR:
 		if card := m.SelectedCard(); card != nil {
 			key := card.Key
 			return m, func() tea.Msg { return OpenLinkPRMsg{CardKey: key} }
 		}
-	case "ctrl+r":
+	case hotkey.ActionBoardRefreshPR:
 		if card := m.SelectedCard(); card != nil {
 			key := card.Key
 			return m, func() tea.Msg { return RefreshPRMsg{CardKey: key} }
 		}
-	case "ctrl+p":
+	case hotkey.ActionBoardRediscoverPR:
 		if card := m.SelectedCard(); card != nil {
 			key := card.Key
 			return m, func() tea.Msg { return RediscoverPRMsg{CardKey: key} }
 		}
-	case "w":
+	case hotkey.ActionBoardWorkspace:
 		return m, func() tea.Msg { return OpenWorkspaceMsg{} }
-	case "1", "2", "3", "4", "5":
-		idx := int(msg.String()[0]-'0') - 1
+	case hotkey.ActionBoardColumn1, hotkey.ActionBoardColumn2, hotkey.ActionBoardColumn3, hotkey.ActionBoardColumn4, hotkey.ActionBoardColumn5:
+		idx := map[hotkey.ActionID]int{
+			hotkey.ActionBoardColumn1: 0, hotkey.ActionBoardColumn2: 1, hotkey.ActionBoardColumn3: 2,
+			hotkey.ActionBoardColumn4: 3, hotkey.ActionBoardColumn5: 4,
+		}[action]
 		if idx < len(m.columns) {
 			m.cursorCol = idx
 			m.clampRow()

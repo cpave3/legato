@@ -21,6 +21,7 @@ import (
 	"github.com/cpave3/legato/internal/tui/board"
 	"github.com/cpave3/legato/internal/tui/clipboard"
 	"github.com/cpave3/legato/internal/tui/detail"
+	"github.com/cpave3/legato/internal/tui/hotkey"
 	"github.com/cpave3/legato/internal/tui/overlay"
 	"github.com/cpave3/legato/internal/tui/plan"
 	"github.com/cpave3/legato/internal/tui/report"
@@ -191,6 +192,8 @@ type App struct {
 	groupDefaults        []string
 	workflowTriggers     *service.WorkflowTriggerCoordinator
 	workflowRepositories []workflowengine.RepositoryPreset
+	hotkeys              *hotkey.Registry
+	ntfyConfigured       bool
 }
 
 // SetWebServerRunning tells the TUI that the web server was auto-started
@@ -237,6 +240,7 @@ func (a *App) SetWebServerRunning(port string) {
 // SetNtfyConfigured tells the agent view and status bar whether a
 // notification channel is available, so the 'n' keybinding shows conditionally.
 func (a *App) SetNtfyConfigured(v bool) {
+	a.ntfyConfigured = v
 	a.agentView.SetNtfyConfigured(v)
 	a.statusBar, _ = a.statusBar.Update(statusbar.NtfyMsg{Configured: v})
 }
@@ -289,6 +293,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		webServerPort: "3080",
 		swarmSvc:      swarmSvc,
 		macros:        macrosList,
+		hotkeys:       hotkey.DefaultRegistry(),
 	}
 	if len(reviewServices) > 0 && reviewServices[0] != nil {
 		app.SetReviewService(reviewServices[0])
@@ -524,13 +529,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// ? opens help unless an active text input owns printable keys.
-		if msg.String() == "?" && !(a.active == viewReview && a.reviewView.InputFocused()) && !(a.active == viewPlans && a.planView.InputFocused()) {
-			return a.openHelpOverlay()
-		}
-
-		// Overlay intercepts all keys when active
+		// Help explicitly overrides non-input overlays; all other keys stay with
+		// the active overlay.
 		if a.overlayType != overlayNone {
+			if msg.String() == "?" {
+				return a.openHelpOverlay()
+			}
 			var cmd tea.Cmd
 			a.activeOverlay, cmd = a.activeOverlay.Update(msg)
 			if cmd != nil {
@@ -539,81 +543,21 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Batch(cmds...)
 		}
 
-		switch msg.String() {
-		case "esc":
-			// Escape during recording cancels the recording without
-			// transcribing — stops arecord and discards the audio.
-			if a.voiceRecording {
-				a.voiceRecording = false
-				a.voiceSvc.Stop()
-				a.voiceSvc.Cleanup()
-				a.agentView, _ = a.agentView.Update(agents.VoiceRecordingMsg{Recording: false})
-				return a, func() tea.Msg {
-					return statusbar.InfoMsg{Text: "voice: cancelled"}
-				}
-			}
-			return a.delegateKey(msg)
-		case "q", "ctrl+c":
-			if a.active == viewBoard {
-				return a, tea.Quit
-			}
-			// In detail or agent view, q goes back to board
-			if a.active == viewAgents {
-				a.agentView.StopPolling()
-			}
-			a = a.setMode(viewBoard)
-			return a, nil
-		case "/":
-			if a.active == viewBoard {
-				return a.openSearchOverlay()
-			}
-			return a.delegateKey(msg)
-		case "r":
-			if a.active == viewBoard {
-				return a.manualRefresh()
-			}
-			return a.delegateKey(msg)
-		case "n":
-			if a.active == viewBoard {
-				return a.openCreateOverlay()
-			}
-			return a.delegateKey(msg)
-		case "S":
-			if a.active == viewBoard && a.swarmSvc != nil {
-				return a.openSwarmInitOverlay()
-			}
-			return a.delegateKey(msg)
-		case "C":
-			if a.active == viewBoard && a.swarmSvc != nil {
-				return a.openSwarmCancelOverlay()
-			}
-			return a.delegateKey(msg)
-		case "R":
-			if a.active == viewBoard {
-				return a.switchToReportView()
-			}
-			return a.delegateKey(msg)
-		case "V":
-			if a.active == viewBoard && a.reviewSvc != nil {
-				a = a.setMode(viewReview)
-				return a, a.reviewView.Init()
-			}
-			return a.delegateKey(msg)
-		case "P":
-			if a.active == viewBoard && a.planSvc != nil {
-				a = a.setMode(viewPlans)
-				return a, a.planView.Init()
-			}
-			return a.delegateKey(msg)
-		case "I":
-			if a.active == viewBoard && a.attentionSvc != nil {
-				a = a.setMode(viewAttention)
-				return a, a.attentionView.Init()
-			}
-			return a.delegateKey(msg)
-		default:
+		// Escape during recording cancels without transcribing.
+		if msg.Type == tea.KeyEsc && a.voiceRecording {
+			a.voiceRecording = false
+			a.voiceSvc.Stop()
+			a.voiceSvc.Cleanup()
+			a.agentView, _ = a.agentView.Update(agents.VoiceRecordingMsg{Recording: false})
+			return a, func() tea.Msg { return statusbar.InfoMsg{Text: "voice: cancelled"} }
+		}
+
+		ctx := a.hotkeyContext()
+		binding, ok := a.hotkeys.Resolve(msg, ctx)
+		if !ok {
 			return a.delegateKey(msg)
 		}
+		return a.dispatchHotkey(binding, msg)
 
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
@@ -2683,6 +2627,147 @@ func (a App) handleBoardSpawnAgent() (tea.Model, tea.Cmd) {
 
 	// Open spawn overlay so user can pick agent + CWD
 	return a.openAgentSpawnOverlay(taskID, card.Title)
+}
+
+func (a App) hotkeyContext() hotkey.Context {
+	ctx := hotkey.Context{Page: viewToHotkeyPage(a.active), Capabilities: hotkey.NewCapabilities()}
+	if a.syncSvc != nil {
+		ctx.Capabilities[hotkey.CapabilitySync] = true
+	}
+	if a.prSvc != nil {
+		ctx.Capabilities[hotkey.CapabilityPR] = true
+	}
+	if a.swarmSvc != nil {
+		ctx.Capabilities[hotkey.CapabilitySwarm] = true
+	}
+	if a.worktreesEnabled {
+		ctx.Capabilities[hotkey.CapabilityWorktrees] = true
+	}
+	if a.reviewSvc != nil {
+		ctx.Capabilities[hotkey.CapabilityReview] = true
+	}
+	if a.planSvc != nil {
+		ctx.Capabilities[hotkey.CapabilityPlans] = true
+	}
+	if a.attentionSvc != nil {
+		ctx.Capabilities[hotkey.CapabilityAttention] = true
+	}
+	if a.voiceEnabled {
+		ctx.Capabilities[hotkey.CapabilityVoice] = true
+	}
+	if a.ntfyConfigured {
+		ctx.Capabilities[hotkey.CapabilityNotifications] = true
+	}
+	if a.active == viewReview {
+		ctx.InputFocused = a.reviewView.InputFocused()
+		ctx.Mode = hotkey.ModeQueue
+	}
+	if a.active == viewPlans {
+		ctx.InputFocused = a.planView.InputFocused()
+		ctx.Mode = hotkey.ModeQueue
+	}
+	return ctx
+}
+
+func viewToHotkeyPage(v viewType) hotkey.Page {
+	switch v {
+	case viewDetail:
+		return hotkey.PageDetail
+	case viewAgents:
+		return hotkey.PageAgents
+	case viewReport:
+		return hotkey.PageReport
+	case viewReview:
+		return hotkey.PageReview
+	case viewPlans:
+		return hotkey.PagePlans
+	case viewAttention:
+		return hotkey.PageAttention
+	default:
+		return hotkey.PageBoard
+	}
+}
+
+func (a App) dispatchHotkey(binding hotkey.Binding, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if binding.ID == hotkey.ActionBack && msg.String() == "q" {
+		if a.active == viewAgents {
+			a.agentView.StopPolling()
+		}
+		a = a.setMode(viewBoard)
+		return a, nil
+	}
+	if binding.Target == hotkey.TargetPage {
+		if a.active == viewBoard {
+			var cmd tea.Cmd
+			a.board, cmd = a.board.HandleAction(binding.ID)
+			return a, cmd
+		}
+		return a.delegateKey(msg)
+	}
+	switch binding.ID {
+	case hotkey.ActionBack:
+		if msg.String() == "q" {
+			if a.active == viewAgents {
+				a.agentView.StopPolling()
+			}
+			a = a.setMode(viewBoard)
+			return a, nil
+		}
+		return a.delegateKey(msg)
+	case hotkey.ActionHelp:
+		return a.openHelpOverlay()
+	case hotkey.ActionQuit:
+		if a.active == viewBoard {
+			return a, tea.Quit
+		}
+		if a.active == viewAgents {
+			a.agentView.StopPolling()
+		}
+		a = a.setMode(viewBoard)
+		return a, nil
+	case hotkey.ActionBoardSearch:
+		return a.openSearchOverlay()
+	case hotkey.ActionBoardRefresh:
+		return a.manualRefresh()
+	case hotkey.ActionBoardCreate:
+		return a.openCreateOverlay()
+	case hotkey.ActionBoardStartSwarm:
+		return a.openSwarmInitOverlay()
+	case hotkey.ActionBoardCancelSwarm:
+		return a.openSwarmCancelOverlay()
+	case hotkey.ActionViewReport:
+		return a.switchToReportView()
+	case hotkey.ActionViewReview:
+		a = a.setMode(viewReview)
+		return a, a.reviewView.Init()
+	case hotkey.ActionViewPlans:
+		a = a.setMode(viewPlans)
+		return a, a.planView.Init()
+	case hotkey.ActionViewAttention:
+		a = a.setMode(viewAttention)
+		return a, a.attentionView.Init()
+	case hotkey.ActionViewAgents:
+		return a.switchToAgentView()
+	case hotkey.ActionBoardArchive:
+		return a.openArchiveOverlay()
+	case hotkey.ActionBoardArchived:
+		return a.openArchivedOverlay()
+	case hotkey.ActionBoardToggleWeb:
+		return a.toggleWebServer()
+	case hotkey.ActionBoardWorktree:
+		card := a.board.SelectedCard()
+		if card == nil {
+			return a, nil
+		}
+		branch := strings.ToLower(strings.ReplaceAll(card.Key, "_", "-"))
+		model := overlay.NewWorktree(card.Key, a.workDir, branch)
+		sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+		a.activeOverlay, a.overlayType = sized, overlayWorktree
+		return a, nil
+	case hotkey.ActionBoardSpawnAgent, hotkey.ActionBoardTerminal:
+		return a.handleBoardSpawnAgent()
+	}
+	return a.delegateKey(msg)
 }
 
 func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
