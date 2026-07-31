@@ -500,6 +500,44 @@ func TestReviewAPIUnavailableWithoutService(t *testing.T) {
 	}
 }
 
+func TestAttentionAPIConsumedByStreamDeckIncludesOnlyReadyReviews(t *testing.T) {
+	f := newReviewServerFixture(t)
+	ctx := context.Background()
+	attention := service.NewAttentionService(f.store, nil)
+	adapter := service.NewReviewAttentionAdapter(f.svc)
+	if err := attention.RegisterProducer(adapter); err != nil {
+		t.Fatal(err)
+	}
+	if err := attention.Reconcile(ctx, adapter.Producer()); err != nil {
+		t.Fatal(err)
+	}
+	f.server.SetAttentionService(attention)
+
+	assertTotal := func(want int) {
+		t.Helper()
+		response := httptest.NewRecorder()
+		f.server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/attention", nil))
+		var body struct {
+			Total int `json:"total"`
+		}
+		if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body.Total != want {
+			t.Fatalf("attention total = %d, want %d", body.Total, want)
+		}
+	}
+	assertTotal(1)
+
+	if err := f.svc.RestartWithFeedback(ctx, f.tourID, "continue capturing"); err != nil {
+		t.Fatal(err)
+	}
+	if err := attention.Reconcile(ctx, adapter.Producer()); err != nil {
+		t.Fatal(err)
+	}
+	assertTotal(0)
+}
+
 func TestReviewQueueHidesCapturingToursUnlessRequested(t *testing.T) {
 	f := newReviewServerFixture(t)
 	if err := os.WriteFile(filepath.Join(f.repo, "capture.go"), []byte("package capture\n"), 0o644); err != nil {
