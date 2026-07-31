@@ -16,6 +16,7 @@ import (
 	gitpkg "github.com/cpave3/legato/internal/engine/git"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/hotkey"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -151,79 +152,101 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if m.confirmingDelete {
 		return m.handleDeleteKey(msg)
 	}
-	switch m.mode {
-	case modeTour:
-		return m.handleTourKey(msg)
-	default:
-		return m.handleQueueKey(msg)
+	ctx := hotkey.Context{Page: hotkey.PageReview, Mode: m.HotkeyMode()}
+	binding, ok := hotkey.DefaultRegistry().Resolve(msg, ctx)
+	if !ok || binding.Target != hotkey.TargetPage {
+		return m, nil
 	}
+	return m.HandleAction(binding.ID)
 }
 
-func (m Model) handleQueueKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	switch msg.String() {
-	case "j", "down":
+// HotkeyMode reports the effective registry mode.
+func (m Model) HotkeyMode() hotkey.Mode {
+	if m.confirmingDelete {
+		return hotkey.ModeDeleteConfirm
+	}
+	if m.asking {
+		return hotkey.ModeQuestionInput
+	}
+	if m.mode == modeTour {
+		return hotkey.ModeTour
+	}
+	return hotkey.ModeQueue
+}
+
+// HandleAction executes a registry action owned by the review model.
+func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
+	if m.mode == modeTour {
+		return m.handleTourAction(action)
+	}
+	return m.handleQueueAction(action)
+}
+
+func (m Model) handleQueueAction(action hotkey.ActionID) (Model, tea.Cmd) {
+	switch action {
+	case hotkey.ActionReviewDown:
 		if m.queueCursor < len(m.queue)-1 {
 			m.queueCursor++
 		}
-	case "k", "up":
+	case hotkey.ActionReviewUp:
 		if m.queueCursor > 0 {
 			m.queueCursor--
 		}
-	case "enter":
+	case hotkey.ActionReviewOpen:
 		if len(m.queue) > 0 {
 			cmd := m.loadTour(m.queue[m.queueCursor].TourID)
 			return m, cmd
 		}
-	case "r":
+	case hotkey.ActionReviewRefresh:
 		return m, m.loadQueue()
-	case "x":
+	case hotkey.ActionReviewDelete:
 		if len(m.queue) > 0 {
 			m.confirmingDelete = true
 		}
-	case "esc", "q":
+	case hotkey.ActionBack:
 		return m, func() tea.Msg { return ReturnToBoardMsg{} }
 	}
 	return m, nil
 }
 
-func (m Model) handleTourKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	switch msg.String() {
-	case "j", "down":
+func (m Model) handleTourAction(action hotkey.ActionID) (Model, tea.Cmd) {
+	switch action {
+	case hotkey.ActionReviewDown:
 		if m.view != nil && m.stepIdx < len(m.view.Steps)-1 {
 			m.stepIdx++
 			m.diff = nil
 			m.refreshViewport()
 			return m, m.loadDiff()
 		}
-	case "k", "up":
+	case hotkey.ActionReviewUp:
 		if m.stepIdx > 0 {
 			m.stepIdx--
 			m.diff = nil
 			m.refreshViewport()
 			return m, m.loadDiff()
 		}
-	case "d", "ctrl+d":
+	case hotkey.ActionReviewHalfDown:
 		m.viewport.HalfViewDown()
-	case "u", "ctrl+u":
+	case hotkey.ActionReviewHalfUp:
 		m.viewport.HalfViewUp()
-	case "g":
+	case hotkey.ActionReviewTop:
 		m.viewport.GotoTop()
-	case "G":
+	case hotkey.ActionReviewBottom:
 		m.viewport.GotoBottom()
-	case " ", "space":
+	case hotkey.ActionReviewToggle:
 		if step := m.currentStep(); step != nil {
 			return m, m.toggleReviewed(step.ID, step.ReviewedAt == nil)
 		}
-	case "a":
+	case hotkey.ActionReviewAsk:
 		if m.currentStep() != nil {
 			m.asking = true
 			m.input = ""
 		}
-	case "c":
+	case hotkey.ActionReviewComplete:
 		return m, m.complete()
-	case "x":
+	case hotkey.ActionReviewDelete:
 		m.confirmingDelete = true
-	case "esc", "q":
+	case hotkey.ActionBack:
 		m.mode = modeQueue
 		m.view = nil
 		m.diff = nil

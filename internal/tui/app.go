@@ -2660,11 +2660,11 @@ func (a App) hotkeyContext() hotkey.Context {
 	}
 	if a.active == viewReview {
 		ctx.InputFocused = a.reviewView.InputFocused()
-		ctx.Mode = hotkey.ModeQueue
+		ctx.Mode = a.reviewView.HotkeyMode()
 	}
 	if a.active == viewPlans {
 		ctx.InputFocused = a.planView.InputFocused()
-		ctx.Mode = hotkey.ModeQueue
+		ctx.Mode = a.planView.HotkeyMode()
 	}
 	return ctx
 }
@@ -2697,12 +2697,26 @@ func (a App) dispatchHotkey(binding hotkey.Binding, msg tea.KeyMsg) (tea.Model, 
 		return a, nil
 	}
 	if binding.Target == hotkey.TargetPage {
-		if a.active == viewBoard {
-			var cmd tea.Cmd
+		var cmd tea.Cmd
+		switch a.active {
+		case viewBoard:
 			a.board, cmd = a.board.HandleAction(binding.ID)
-			return a, cmd
+		case viewDetail:
+			var model tea.Model
+			model, cmd = a.detail.HandleAction(binding.ID)
+			a.detail = model.(detail.Model)
+		case viewAgents:
+			a.agentView, cmd = a.agentView.HandleAction(binding.ID)
+		case viewReport:
+			a.reportView, cmd = a.reportView.HandleAction(binding.ID)
+		case viewReview:
+			a.reviewView, cmd = a.reviewView.HandleAction(binding.ID)
+		case viewPlans:
+			a.planView, cmd = a.planView.HandleAction(binding.ID)
+		case viewAttention:
+			a.attentionView, cmd = a.attentionView.HandleAction(binding.ID)
 		}
-		return a.delegateKey(msg)
+		return a, cmd
 	}
 	switch binding.ID {
 	case hotkey.ActionBack:

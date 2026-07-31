@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/engine/analytics"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/hotkey"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -67,36 +68,45 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	switch msg.String() {
-	case "tab":
+	binding, ok := hotkey.DefaultRegistry().Resolve(msg, hotkey.Context{Page: hotkey.PageReport})
+	if !ok || binding.Target != hotkey.TargetPage {
+		return m, nil
+	}
+	return m.HandleAction(binding.ID)
+}
+
+// HandleAction executes a registry action owned by the report model.
+func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
+	switch action {
+	case hotkey.ActionReportPeriod:
 		m.periodType = (m.periodType + 1) % 3
 		return m, m.loadCurrentPeriod()
-	case "h", "left":
+	case hotkey.ActionReportPrevious:
 		prev := analytics.Previous(m.period)
 		return m, m.loadReport(prev)
-	case "l", "right":
+	case hotkey.ActionReportNext:
 		next := analytics.Next(m.period)
 		if next.Start.Equal(m.period.Start) {
 			return m, nil // already at current
 		}
 		return m, m.loadReport(next)
-	case "j", "down":
+	case hotkey.ActionReportDown:
 		if m.report != nil && m.taskScroll < len(m.report.ByTask)-1 {
 			m.taskScroll++
 		}
 		return m, nil
-	case "k", "up":
+	case hotkey.ActionReportUp:
 		if m.taskScroll > 0 {
 			m.taskScroll--
 		}
 		return m, nil
-	case "C":
+	case hotkey.ActionReportCopy:
 		if m.report != nil {
 			md := service.ExportReportMarkdown(m.report)
 			return m, func() tea.Msg { return CopyReportMsg{Markdown: md} }
 		}
 		return m, nil
-	case "esc":
+	case hotkey.ActionBack:
 		return m, func() tea.Msg { return ReturnToBoardMsg{} }
 	}
 	return m, nil

@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/hotkey"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -122,58 +123,81 @@ func (m Model) key(key tea.KeyMsg) (Model, tea.Cmd) {
 	if m.inputMode != inputNone {
 		return m.inputKey(key)
 	}
+	binding, ok := hotkey.DefaultRegistry().Resolve(key, hotkey.Context{Page: hotkey.PagePlans, Mode: m.HotkeyMode()})
+	if !ok || binding.Target != hotkey.TargetPage {
+		return m, nil
+	}
+	return m.HandleAction(binding.ID)
+}
+
+// HotkeyMode reports the effective registry mode.
+func (m Model) HotkeyMode() hotkey.Mode {
+	if m.inputMode == inputApproveCleanup {
+		return hotkey.ModeApproval
+	}
+	if m.inputMode != inputNone {
+		return hotkey.ModeTextInput
+	}
+	if m.mode == readerMode {
+		return hotkey.ModeReader
+	}
+	return hotkey.ModeQueue
+}
+
+// HandleAction executes a registry action owned by the plan model.
+func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 	if m.mode == queueMode {
-		switch key.String() {
-		case "j", "down":
+		switch action {
+		case hotkey.ActionPlanDown:
 			if m.cursor < len(m.queue)-1 {
 				m.cursor++
 			}
-		case "k", "up":
+		case hotkey.ActionPlanUp:
 			if m.cursor > 0 {
 				m.cursor--
 			}
-		case "enter":
+		case hotkey.ActionPlanOpen:
 			if len(m.queue) > 0 {
 				return m, m.loadPlan(m.queue[m.cursor].PlanID)
 			}
-		case "esc", "q":
+		case hotkey.ActionBack:
 			return m, func() tea.Msg { return ReturnToBoardMsg{} }
 		}
 		return m, nil
 	}
-	switch key.String() {
-	case "esc", "q":
+	switch action {
+	case hotkey.ActionBack:
 		m.mode = queueMode
 		m.view = nil
 		return m, m.loadQueue()
-	case "j", "down":
+	case hotkey.ActionPlanDown:
 		m.viewport.LineDown(1)
-	case "k", "up":
+	case hotkey.ActionPlanUp:
 		m.viewport.LineUp(1)
-	case "tab":
+	case hotkey.ActionPlanNextQuestion:
 		if m.view != nil && len(m.view.Questions) > 0 {
 			m.questionCursor = (m.questionCursor + 1) % len(m.view.Questions)
 		}
 		m.refresh()
-	case "e":
+	case hotkey.ActionPlanAnswer:
 		if m.view != nil && len(m.view.Questions) > 0 {
 			m.inputMode = inputAnswer
 			m.input = ""
 		}
-	case "c":
+	case hotkey.ActionPlanComment:
 		m.inputMode = inputComment
 		m.input = ""
-	case "?":
+	case hotkey.ActionPlanQuestion:
 		m.inputMode = inputQuestion
 		m.input = ""
-	case "a":
+	case hotkey.ActionPlanApprove:
 		m.inputMode = inputApproveCleanup
 		return m, nil
-	case "x":
+	case hotkey.ActionPlanReject:
 		return m, m.action("Plan rejected", func(ctx context.Context, id string) error { return m.svc.Reject(ctx, id) })
-	case "r":
+	case hotkey.ActionPlanChanges:
 		return m, m.action("Changes requested", func(ctx context.Context, id string) error { return m.svc.RequestChanges(ctx, id) })
-	case "o":
+	case hotkey.ActionPlanReopen:
 		return m, m.action("Plan reopened", func(ctx context.Context, id string) error { return m.svc.Reopen(ctx, id) })
 	}
 	return m, nil

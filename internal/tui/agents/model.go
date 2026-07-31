@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/hotkey"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -304,42 +305,60 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	switch msg.String() {
-	case "j":
+	ctx := hotkey.Context{Page: hotkey.PageAgents, Capabilities: hotkey.NewCapabilities()}
+	if m.ntfyConfigured {
+		ctx.Capabilities[hotkey.CapabilityNotifications] = true
+	}
+	if m.voiceEnabled {
+		ctx.Capabilities[hotkey.CapabilityVoice] = true
+	}
+	// The page still checks whether the selected agent belongs to a swarm.
+	ctx.Capabilities[hotkey.CapabilitySwarm] = true
+	binding, ok := hotkey.DefaultRegistry().Resolve(msg, ctx)
+	if !ok || binding.Target != hotkey.TargetPage {
+		return m, nil
+	}
+	return m.HandleAction(binding.ID)
+}
+
+// HandleAction executes a registry action owned by the agents model.
+func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
+	switch action {
+	case hotkey.ActionAgentsDown:
 		if m.selected < len(m.agents)-1 {
 			m.selected++
 			m.termContent = "" // clear stale content while new capture loads
 		}
 		return m, nil
-	case "k":
+	case hotkey.ActionAgentsUp:
 		if m.selected > 0 {
 			m.selected--
 			m.termContent = ""
 		}
 		return m, nil
-	case "s":
+	case hotkey.ActionAgentsSpawn:
 		return m, func() tea.Msg { return OpenAgentSpawnMsg{} }
-	case "X":
+	case hotkey.ActionAgentsKill:
 		if a := m.SelectedAgent(); a != nil {
 			return m, func() tea.Msg { return KillAgentMsg{TaskID: a.TaskID} }
 		}
 		return m, nil
-	case "enter", "tab":
+	case hotkey.ActionAgentsAttach:
 		if a := m.SelectedAgent(); a != nil {
 			session := a.TmuxSession
 			return m, func() tea.Msg { return AttachSessionMsg{TmuxSession: session} }
 		}
 		return m, nil
-	case "esc":
+	case hotkey.ActionBack:
 		return m, func() tea.Msg { return ReturnToBoardMsg{} }
-	case "m":
+	case hotkey.ActionAgentsMacro:
 		return m, func() tea.Msg { return OpenMacroPickerMsg{} }
-	case "g":
+	case hotkey.ActionAgentsGroup:
 		if a := m.SelectedAgent(); a != nil {
 			return m, func() tea.Msg { return OpenGroupMsg{TaskID: a.TaskID, Group: a.Group} }
 		}
 		return m, nil
-	case "M":
+	case hotkey.ActionAgentsActions:
 		// Action menu is swarm-only; no-op for solo agents.
 		if a := m.SelectedAgent(); a != nil && a.ParentTaskID != "" {
 			return m, func() tea.Msg {
@@ -351,20 +370,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 			}
 		}
 		return m, nil
-	case "l":
+	case hotkey.ActionAgentsDetails:
 		// Toggle worker details pane (swarm workers only).
 		if a := m.SelectedAgent(); a != nil && a.ParentTaskID != "" && a.Role != "conductor" {
 			m.showWorkerDetails = !m.showWorkerDetails
 		}
 		return m, nil
-	case "n":
+	case hotkey.ActionAgentsNotify:
 		if m.ntfyConfigured {
 			if a := m.SelectedAgent(); a != nil {
 				return m, func() tea.Msg { return ToggleNotifyMsg{TaskID: a.TaskID} }
 			}
 		}
 		return m, nil
-	case "v":
+	case hotkey.ActionAgentsVoice:
 		if m.voiceEnabled {
 			if a := m.SelectedAgent(); a != nil && a.Status == "running" {
 				return m, func() tea.Msg {

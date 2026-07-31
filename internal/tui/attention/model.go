@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/hotkey"
 )
 
 type Service interface {
@@ -26,11 +27,11 @@ type ChangedMsg struct{}
 type ReturnToBoardMsg struct{}
 
 type Model struct {
-	svc          Service
-	items        []service.AttentionItem
-	cursor       int
-	err          error
-	info         string
+	svc           Service
+	items         []service.AttentionItem
+	cursor        int
+	err           error
+	info          string
 	width, height int
 }
 
@@ -80,16 +81,25 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) key(key tea.KeyMsg) (Model, tea.Cmd) {
-	switch key.String() {
-	case "j", "down":
+	binding, ok := hotkey.DefaultRegistry().Resolve(key, hotkey.Context{Page: hotkey.PageAttention})
+	if !ok || binding.Target != hotkey.TargetPage {
+		return m, nil
+	}
+	return m.HandleAction(binding.ID)
+}
+
+// HandleAction executes a registry action owned by the attention model.
+func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
+	switch action {
+	case hotkey.ActionAttentionDown:
 		if m.cursor < len(m.items)-1 {
 			m.cursor++
 		}
-	case "k", "up":
+	case hotkey.ActionAttentionUp:
 		if m.cursor > 0 {
 			m.cursor--
 		}
-	case "enter":
+	case hotkey.ActionAttentionExecute:
 		if len(m.items) > 0 {
 			item := m.items[m.cursor]
 			for _, action := range item.Actions {
@@ -98,12 +108,12 @@ func (m Model) key(key tea.KeyMsg) (Model, tea.Cmd) {
 				}
 			}
 		}
-	case "d":
+	case hotkey.ActionAttentionDismiss:
 		if len(m.items) > 0 {
 			item := m.items[m.cursor]
 			return m, m.dismiss(item)
 		}
-	case "esc", "q":
+	case hotkey.ActionBack:
 		return m, func() tea.Msg { return ReturnToBoardMsg{} }
 	}
 	return m, nil

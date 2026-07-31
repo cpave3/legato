@@ -78,13 +78,15 @@ func Special(keyType tea.KeyType, display string) Key {
 }
 
 func (k Key) Matches(msg tea.KeyMsg) bool {
-	if msg.Type != k.Type {
-		return false
+	if msg.Type == k.Type {
+		if k.Type == tea.KeyRunes {
+			return string(msg.Runes) == k.Runes
+		}
+		return true
 	}
-	if k.Type == tea.KeyRunes {
-		return string(msg.Runes) == k.Runes
-	}
-	return true
+	// Bubble Tea tests and pasted input can encode named keys as runes. Match
+	// the canonical display name without conflating control keys with letters.
+	return msg.Type == tea.KeyRunes && string(msg.Runes) == k.Display && k.Type != tea.KeyRunes
 }
 
 func (k Key) identity() string { return fmt.Sprintf("%d:%s", k.Type, k.Runes) }

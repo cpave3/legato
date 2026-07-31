@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/clipboard"
+	"github.com/cpave3/legato/internal/tui/hotkey"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -209,39 +210,58 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
+	ctx := hotkey.Context{Page: hotkey.PageDetail, Predicates: hotkey.NewPredicates()}
+	if m.card != nil && m.card.Provider == "" {
+		ctx.Predicates[hotkey.PredicateLocalTask] = true
+	}
+	if m.editor != "" {
+		ctx.Predicates[hotkey.PredicateEditor] = true
+	}
+	if m.swarmCanAdvance() {
+		ctx.Predicates[hotkey.PredicateSwarmNext] = true
+	}
+	binding, ok := hotkey.DefaultRegistry().Resolve(msg, ctx)
+	if !ok || binding.Target != hotkey.TargetPage {
+		return m, nil
+	}
+	return m.HandleAction(binding.ID)
+}
+
+// HandleAction executes a registry action owned by the detail model.
+func (m Model) HandleAction(action hotkey.ActionID) (tea.Model, tea.Cmd) {
+	switch action {
+	case hotkey.ActionBack:
 		return m, func() tea.Msg { return BackToBoard{} }
-	case "j":
+	case hotkey.ActionDetailDown:
 		m.viewport.ScrollDown(1)
-	case "k":
+	case hotkey.ActionDetailUp:
 		m.viewport.ScrollUp(1)
-	case "d":
+	case hotkey.ActionDetailHalfDown:
 		m.viewport.HalfPageDown()
-	case "u":
+	case hotkey.ActionDetailHalfUp:
 		m.viewport.HalfPageUp()
-	case "g":
+	case hotkey.ActionDetailTop:
 		m.viewport.GotoTop()
-	case "G":
+	case hotkey.ActionDetailBottom:
 		m.viewport.GotoBottom()
-	case "y":
+	case hotkey.ActionDetailCopyDescription:
 		return m.copyContext(service.ExportFormatDescription, "Copied description!")
-	case "Y":
+	case hotkey.ActionDetailCopyFull:
 		return m.copyContext(service.ExportFormatFull, "Copied full context!")
-	case "o":
+	case hotkey.ActionDetailOpenURL:
 		return m.openURL()
-	case "m":
+	case hotkey.ActionDetailMove:
 		if m.card != nil {
 			return m, func() tea.Msg { return OpenMoveOverlay{TaskID: m.card.ID} }
 		}
-	case "D":
+	case hotkey.ActionDetailDelete:
 		if m.card != nil {
 			id := m.card.ID
 			return m, func() tea.Msg { return OpenDeleteOverlay{TaskID: id} }
 		}
-	case "e":
+	case hotkey.ActionDetailEditDescription:
 		return m.editDescription()
-	case "t":
+	case hotkey.ActionDetailEditTitle:
 		if m.card != nil {
 			if m.card.Provider != "" {
 				m.feedback = "Cannot edit remote task title"
@@ -251,7 +271,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return OpenTitleEditOverlay{TaskID: m.card.ID, Title: m.card.Title}
 			}
 		}
-	case "s":
+	case hotkey.ActionDetailNextSwarmStep:
 		if m.card != nil && len(m.subtasks) > 0 {
 			var activeSubs []service.SwarmSubtaskInfo
 			for _, st := range m.subtasks {
@@ -424,6 +444,19 @@ func (m *Model) renderContent() {
 
 func isTerminalStatus(status string) bool {
 	return status == "done" || status == "cancelled"
+}
+
+func (m Model) swarmCanAdvance() bool {
+	if len(m.subtasks) == 0 || m.card == nil {
+		return false
+	}
+	var active []service.SwarmSubtaskInfo
+	for _, subtask := range m.subtasks {
+		if subtask.StepIndex == m.card.SwarmActiveStep {
+			active = append(active, subtask)
+		}
+	}
+	return stepIsTerminal(active)
 }
 
 func stepIsTerminal(subs []service.SwarmSubtaskInfo) bool {
