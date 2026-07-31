@@ -7,12 +7,13 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/cpave3/legato/internal/tui/hotkey"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
 // MoveSelectedMsg is sent when the user selects a target column.
 type MoveSelectedMsg struct {
-	TaskID     string
+	TaskID       string
 	TargetColumn string
 }
 
@@ -26,8 +27,8 @@ type OpenMoveWorkspaceMsg struct {
 
 // MoveOverlay lets the user pick a target column.
 type MoveOverlay struct {
-	taskID      string
-	title       string
+	taskID        string
+	title         string
 	columns       []string
 	shortcuts     map[rune]string // shortcut key → column name
 	currentColumn string
@@ -39,7 +40,7 @@ type MoveOverlay struct {
 // NewMove creates a move overlay.
 func NewMove(taskID string, columns []string, currentColumn string) MoveOverlay {
 	m := MoveOverlay{
-		taskID:      taskID,
+		taskID:        taskID,
 		columns:       columns,
 		currentColumn: currentColumn,
 		shortcuts:     buildShortcuts(columns),
@@ -58,13 +59,19 @@ func (m MoveOverlay) WithTitle(title string) MoveOverlay {
 func buildShortcuts(columns []string) map[rune]string {
 	shortcuts := make(map[rune]string)
 	used := make(map[rune]bool)
+	registry := hotkey.DefaultRegistry()
+	context := hotkey.Context{Overlay: hotkey.OverlayMove}
+	reserved := func(key rune) bool {
+		_, found := registry.IsReserved(hotkey.Rune(key), context)
+		return found
+	}
 
 	for _, col := range columns {
 		if len(col) == 0 {
 			continue
 		}
 		key := unicode.ToLower(rune(col[0]))
-		if !used[key] {
+		if !used[key] && !reserved(key) {
 			shortcuts[key] = col
 			used[key] = true
 		}
@@ -79,6 +86,9 @@ func buildShortcuts(columns []string) map[rune]string {
 				assigned = true
 				break
 			}
+		}
+		for num <= '9' && reserved(num) {
+			num++
 		}
 		if !assigned && num <= '9' {
 			shortcuts[num] = col

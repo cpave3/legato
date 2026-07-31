@@ -532,7 +532,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Help explicitly overrides non-input overlays; all other keys stay with
 		// the active overlay.
 		if a.overlayType != overlayNone {
-			if msg.String() == "?" {
+			if msg.String() == "?" && !overlay.ConsumesPrintableInput(a.activeOverlay) {
 				return a.openHelpOverlay()
 			}
 			var cmd tea.Cmd

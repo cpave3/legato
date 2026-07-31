@@ -39,7 +39,7 @@ type LinkPRResultMsg struct {
 type linkPRPhase int
 
 const (
-	phaseInput   linkPRPhase = iota
+	phaseInput linkPRPhase = iota
 	phaseLoading
 	phaseConfirm
 )

@@ -252,6 +252,12 @@ func (r *Registry) ReservedKeys(ctx Context) map[string]ActionID {
 	return result
 }
 
+// IsReserved reports whether a dynamic key would collide with a fixed binding.
+func (r *Registry) IsReserved(key Key, ctx Context) (ActionID, bool) {
+	action, ok := r.ReservedKeys(ctx)[key.identity()]
+	return action, ok
+}
+
 func (b Binding) active(ctx Context) bool {
 	for _, capability := range b.Requires {
 		if !ctx.Capabilities[capability] {

@@ -31,7 +31,7 @@ const (
 
 // AgentSpawnOverlay lets the user configure and spawn an agent.
 type AgentSpawnOverlay struct {
-	taskID       string   // empty for ephemeral agents
+	taskID       string // empty for ephemeral agents
 	title        string
 	agentIndex   int      // index into agentOptions
 	agentOptions []string // display labels

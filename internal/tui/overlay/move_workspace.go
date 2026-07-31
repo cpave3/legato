@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/hotkey"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -71,13 +72,16 @@ func NewMoveWorkspace(taskID string, workspaces []service.Workspace, currentWork
 func buildMWShortcuts(entries []mwEntry) map[rune]int {
 	shortcuts := make(map[rune]int)
 	used := make(map[rune]bool)
+	registry := hotkey.DefaultRegistry()
+	ctx := hotkey.Context{Overlay: hotkey.OverlayMoveWorkspace}
+	reserved := func(key rune) bool { _, ok := registry.IsReserved(hotkey.Rune(key), ctx); return ok }
 
 	for i, e := range entries {
 		if len(e.label) == 0 {
 			continue
 		}
 		key := unicode.ToLower(rune(e.label[0]))
-		if !used[key] {
+		if !used[key] && !reserved(key) {
 			shortcuts[key] = i
 			used[key] = true
 		}
@@ -91,6 +95,9 @@ func buildMWShortcuts(entries []mwEntry) map[rune]int {
 				assigned = true
 				break
 			}
+		}
+		for num <= '9' && reserved(num) {
+			num++
 		}
 		if !assigned && num <= '9' {
 			shortcuts[num] = i

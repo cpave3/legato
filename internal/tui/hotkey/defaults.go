@@ -111,6 +111,20 @@ const (
 )
 
 const (
+	OverlayMove          Overlay = "move"
+	OverlayWorkspace     Overlay = "workspace"
+	OverlayMoveWorkspace Overlay = "move-workspace"
+)
+
+const (
+	ActionOverlayDown   ActionID = "overlay.down"
+	ActionOverlayUp     ActionID = "overlay.up"
+	ActionOverlaySelect ActionID = "overlay.select"
+	ActionOverlayCancel ActionID = "overlay.cancel"
+	ActionMoveWorkspace ActionID = "overlay.move.workspace"
+)
+
+const (
 	ModeQueue         Mode = "queue"
 	ModeReader        Mode = "reader"
 	ModeTour          Mode = "tour"
@@ -176,7 +190,19 @@ func DefaultBindings() []Binding {
 	add(ActionViewAttention, board, TargetRoot, []Key{Rune('I')}, "attention", "Open attention inbox", "Views", 40, 50, FullHelp, CapabilityAttention)
 
 	addPageBindings(&bindings, add)
+	addOverlayBindings(add)
 	return bindings
+}
+
+func addOverlayBindings(add func(ActionID, Scope, Target, []Key, string, string, string, int, int, Surface, ...Capability)) {
+	for _, overlay := range []Overlay{OverlayMove, OverlayWorkspace, OverlayMoveWorkspace} {
+		scope := OverlayScope(overlay)
+		add(ActionOverlayDown, scope, TargetOverlay, []Key{Rune('j'), Special(tea.KeyDown, "down")}, "select", "Select next item", "Overlay", 100, 10, 0)
+		add(ActionOverlayUp, scope, TargetOverlay, []Key{Rune('k'), Special(tea.KeyUp, "up")}, "select", "Select previous item", "Overlay", 100, 11, 0)
+		add(ActionOverlaySelect, scope, TargetOverlay, []Key{Special(tea.KeyEnter, "enter")}, "select", "Choose selected item", "Overlay", 100, 20, 0)
+		add(ActionOverlayCancel, scope, TargetOverlay, []Key{Special(tea.KeyEsc, "esc"), Rune('q')}, "cancel", "Close overlay", "Overlay", 100, 30, 0)
+	}
+	add(ActionMoveWorkspace, OverlayScope(OverlayMove), TargetOverlay, []Key{Rune('w')}, "workspace", "Assign workspace", "Overlay", 100, 25, 0)
 }
 
 func addPageBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Key, string, string, string, int, int, Surface, ...Capability)) {

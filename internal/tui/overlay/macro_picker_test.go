@@ -65,5 +65,3 @@ func TestMacroPickerCancel(t *testing.T) {
 		t.Fatalf("expected MacroCancelledMsg, got %T", msg)
 	}
 }
-
-
