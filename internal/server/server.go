@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/macros"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/server/static"
@@ -51,6 +52,7 @@ type Server struct {
 	workflowGlobalDir    string
 	workflowProjectDir   string
 	workflowRepositories []workflowengine.RepositoryPreset
+	notifyTaskChanged    func(string)
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -74,6 +76,9 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 		hub:            newHub(),
 		streams:        sm,
 		chimeraStreams: newChimeraStreamManager(),
+		notifyTaskChanged: func(taskID string) {
+			ipc.Broadcast(ipc.Message{Type: "task_update", TaskID: taskID})
+		},
 	}
 	s.chimeraStreams.agents = agents
 	// When a pipe-pane stream ends (shell exit), reconcile DB state

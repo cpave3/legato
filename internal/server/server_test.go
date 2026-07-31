@@ -1401,6 +1401,8 @@ func TestPatchTaskRoutesEdits(t *testing.T) {
 	t.Run("column", func(t *testing.T) {
 		svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
 		srv := New(svc, nil, nil, ":0")
+		var notified string
+		srv.notifyTaskChanged = func(taskID string) { notified = taskID }
 		handler := srv.Handler()
 		body := `{"column":"Doing"}`
 		req := httptest.NewRequest("PATCH", "/api/tasks/t1", strings.NewReader(body))
@@ -1412,6 +1414,9 @@ func TestPatchTaskRoutesEdits(t *testing.T) {
 		}
 		if svc.movedTo != "Doing" {
 			t.Errorf("movedTo = %q, want Doing", svc.movedTo)
+		}
+		if notified != "t1" {
+			t.Errorf("notified task = %q, want t1", notified)
 		}
 	})
 

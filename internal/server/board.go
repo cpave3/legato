@@ -355,6 +355,7 @@ func (s *Server) taskHandler() http.HandlerFunc {
 				}
 				response.Triggers = requests
 			}
+			s.notifyTaskChanged(id)
 			s.writeJSON(w, http.StatusOK, response)
 
 		case http.MethodDelete:

@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cpave3/legato/internal/engine/analytics"
+	"github.com/cpave3/legato/internal/engine/events"
 	gitpkg "github.com/cpave3/legato/internal/engine/git"
 	"github.com/cpave3/legato/internal/engine/github"
 	"github.com/cpave3/legato/internal/engine/macros"
@@ -216,6 +217,30 @@ func TestMoveSelectedUsesSyncAwareMove(t *testing.T) {
 
 	if syncSvc.movedTaskID != "REX-1" || syncSvc.movedTo != "Triage" {
 		t.Fatalf("sync move = (%q, %q)", syncSvc.movedTaskID, syncSvc.movedTo)
+	}
+}
+
+func TestCardMovedEventReloadsBoard(t *testing.T) {
+	bus := events.New()
+	boardSvc := &fakeBoardService{}
+	app := NewApp(boardSvc, nil, nil, nil, nil, theme.NewIcons("unicode"), bus, "", nil, nil, "", nil, nil)
+
+	if app.cardMoveSub == nil {
+		t.Fatal("card move subscription not configured")
+	}
+	bus.Publish(events.Event{Type: events.EventCardMoved})
+	msg := app.listenCardMoves()()
+	if _, ok := msg.(cardUpdateMsg); !ok {
+		t.Fatalf("message = %T, want cardUpdateMsg", msg)
+	}
+
+	model, cmd := app.Update(msg)
+	updated := model.(App)
+	if cmd == nil {
+		t.Fatal("card move did not schedule board reload")
+	}
+	if updated.cardMoveSub == nil {
+		t.Fatal("card move listener was not retained")
 	}
 }
 

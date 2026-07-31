@@ -165,6 +165,7 @@ type App struct {
 	eventBus             *events.Bus
 	eventSubs            []<-chan events.Event // sync lifecycle events (started/completed/failed/errors)
 	cardUpdateSub        <-chan events.Event
+	cardMoveSub          <-chan events.Event
 	prSub                <-chan events.Event
 	swarmSub             <-chan events.Event
 	planSub              <-chan events.Event
@@ -309,6 +310,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 			bus.Subscribe(events.EventTransitionFailed),
 		}
 		app.cardUpdateSub = bus.Subscribe(events.EventCardUpdated)
+		app.cardMoveSub = bus.Subscribe(events.EventCardMoved)
 		app.prSub = bus.Subscribe(events.EventPRStatusUpdated)
 		app.swarmSub = bus.Subscribe(events.EventSwarmChanged)
 		app.planSub = bus.Subscribe(events.EventPlanProposed)
@@ -327,6 +329,9 @@ func (a App) Init() tea.Cmd {
 	}
 	if a.cardUpdateSub != nil {
 		cmds = append(cmds, a.listenCardUpdates())
+	}
+	if a.cardMoveSub != nil {
+		cmds = append(cmds, a.listenCardMoves())
 	}
 	if a.prSub != nil {
 		cmds = append(cmds, a.listenPRUpdates())
@@ -374,7 +379,14 @@ type cardUpdateMsg struct{}
 
 // listenCardUpdates returns a command that listens for EventCardUpdated and triggers a refresh.
 func (a App) listenCardUpdates() tea.Cmd {
-	ch := a.cardUpdateSub
+	return listenCardChanges(a.cardUpdateSub)
+}
+
+func (a App) listenCardMoves() tea.Cmd {
+	return listenCardChanges(a.cardMoveSub)
+}
+
+func listenCardChanges(ch <-chan events.Event) tea.Cmd {
 	return func() tea.Msg {
 		_, ok := <-ch
 		if !ok {
@@ -1133,6 +1145,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if a.cardUpdateSub != nil {
 			cmds = append(cmds, a.listenCardUpdates())
+		}
+		if a.cardMoveSub != nil {
+			cmds = append(cmds, a.listenCardMoves())
 		}
 		return a, tea.Batch(cmds...)
 
