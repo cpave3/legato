@@ -8,6 +8,7 @@ import type {
   RepoDetectResponse,
   PRPreviewResponse,
   ArchiveDoneResponse,
+  TaskWorktree,
 } from "./board-types"
 
 export async function fetchBoard(baseUrl: string, workspace?: string): Promise<BoardResponse> {
@@ -75,6 +76,16 @@ export async function patchTask(
   })
   if (!res.ok) throw new Error(`patchTask failed: ${res.status}`)
   return res.json() as Promise<PatchTaskResult>
+}
+
+export async function createWorktree(baseUrl: string, taskId: string, body: { primary_dir: string; branch: string; base_branch: string }): Promise<TaskWorktree> {
+  const response = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(taskId)}/worktree`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!response.ok) throw new Error(await response.text())
+  return response.json() as Promise<TaskWorktree>
 }
 
 export async function deleteTask(baseUrl: string, id: string): Promise<void> {

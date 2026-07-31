@@ -49,24 +49,24 @@ func (s *Server) sparklineParams() (time.Duration, int) {
 
 // AgentResponse is the JSON representation of an agent session.
 type AgentResponse struct {
-	ID                int        `json:"id"`
-	TaskID            string     `json:"task_id"`
-	Title             string     `json:"task_title"`
-	TmuxSession       string     `json:"tmux_session"`
-	Command           string     `json:"command"`
-	AgentKind         string     `json:"agent_kind"`
-	Status            string     `json:"status"`
-	Activity          string     `json:"activity"`
-	Role              string     `json:"role,omitempty"`
-	ParentTaskID      string     `json:"parent_task_id,omitempty"`
-	SubtaskID         string     `json:"subtask_id,omitempty"`
-	StartedAt         time.Time  `json:"started_at"`
-	EndedAt           *time.Time `json:"ended_at,omitempty"`
-	WorkingSeconds    float64    `json:"working_seconds"`
-	WaitingSeconds    float64    `json:"waiting_seconds"`
-	StateTimeline     []string   `json:"state_timeline,omitempty"`
-	NotifyEnabled     bool       `json:"notify_enabled"`
-	HasChimeraEndpoint bool     `json:"has_chimera_endpoint"`
+	ID                 int        `json:"id"`
+	TaskID             string     `json:"task_id"`
+	Title              string     `json:"task_title"`
+	TmuxSession        string     `json:"tmux_session"`
+	Command            string     `json:"command"`
+	AgentKind          string     `json:"agent_kind"`
+	Status             string     `json:"status"`
+	Activity           string     `json:"activity"`
+	Role               string     `json:"role,omitempty"`
+	ParentTaskID       string     `json:"parent_task_id,omitempty"`
+	SubtaskID          string     `json:"subtask_id,omitempty"`
+	StartedAt          time.Time  `json:"started_at"`
+	EndedAt            *time.Time `json:"ended_at,omitempty"`
+	WorkingSeconds     float64    `json:"working_seconds"`
+	WaitingSeconds     float64    `json:"waiting_seconds"`
+	StateTimeline      []string   `json:"state_timeline,omitempty"`
+	NotifyEnabled      bool       `json:"notify_enabled"`
+	HasChimeraEndpoint bool       `json:"has_chimera_endpoint"`
 }
 
 func (s *Server) spawnAgentHandler() http.HandlerFunc {
@@ -299,6 +299,7 @@ func (s *Server) tasksHandler() http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			s.notifyTaskChanged(card.ID)
 			resp := CardResponse{ID: card.ID, Title: card.Title, Priority: card.Priority, Status: card.Status}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)

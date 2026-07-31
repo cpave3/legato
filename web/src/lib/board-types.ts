@@ -16,6 +16,7 @@ export interface BoardCard {
   status: string
   provider: string
   has_warning: boolean
+  has_worktree?: boolean
   agent_active: boolean
   agent_state: string
   working_seconds: number

@@ -42,13 +42,14 @@ const (
 	viewAttention
 )
 
-// VoiceService is the interface the TUI uses for voice dictation. The
-// concrete implementation is service.VoiceService.
+// WorktreeService is the task worktree lifecycle used by the TUI.
 type WorktreeService interface {
 	Create(ctx context.Context, taskID, primaryDir, branch, baseBranch string) (*store.TaskWorktree, error)
 	Path(ctx context.Context, taskID string) (string, error)
 }
 
+// VoiceService is the interface the TUI uses for voice dictation. The
+// concrete implementation is service.VoiceService.
 type VoiceService interface {
 	StartRecording(device string) error
 	IsRecording() bool

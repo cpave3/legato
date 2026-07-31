@@ -2,8 +2,12 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -53,6 +57,25 @@ func (w *WorktreeWorkflow) Path(ctx context.Context, taskID string) (string, err
 }
 
 func (w *WorktreeWorkflow) Create(ctx context.Context, taskID, primaryDir, branch, baseBranch string) (*store.TaskWorktree, error) {
+	lockName := fmt.Sprintf("legato-worktree-%x.lock", sha256.Sum256([]byte(taskID)))
+	lock, err := os.OpenFile(filepath.Join(os.TempDir(), lockName), os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("opening worktree lock: %w", err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return nil, fmt.Errorf("locking worktree creation: %w", err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN) //nolint:errcheck
+
+	task, err := w.store.GetTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task.WorktreePath != nil {
+		return nil, fmt.Errorf("task %s already has a worktree", taskID)
+	}
+
 	path, err := w.runner.Create(ctx, taskID, primaryDir, branch, baseBranch)
 	if err != nil {
 		return nil, err

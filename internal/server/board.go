@@ -56,6 +56,7 @@ func (s *Server) boardHandler() http.HandlerFunc {
 					Status:         c.Status,
 					Provider:       c.Provider,
 					HasWarning:     c.HasWarning,
+					HasWorktree:    c.HasWorktree,
 					WorkspaceName:  c.WorkspaceName,
 					WorkspaceColor: c.WorkspaceColor,
 				}
@@ -274,6 +275,12 @@ func (s *Server) taskHandler() http.HandlerFunc {
 			}
 			var raw map[string]json.RawMessage
 			_ = json.Unmarshal(body, &raw)
+			mutated := false
+			defer func() {
+				if mutated {
+					s.notifyTaskChanged(id)
+				}
+			}()
 
 			if req.Title != nil {
 				if err := s.board.UpdateTaskTitle(ctx, id, *req.Title); err != nil {
@@ -284,6 +291,7 @@ func (s *Server) taskHandler() http.HandlerFunc {
 					s.writeError(w, http.StatusInternalServerError, err.Error())
 					return
 				}
+				mutated = true
 			}
 			if req.Description != nil {
 				if err := s.board.UpdateTaskDescription(ctx, id, *req.Description); err != nil {
@@ -294,6 +302,7 @@ func (s *Server) taskHandler() http.HandlerFunc {
 					s.writeError(w, http.StatusInternalServerError, err.Error())
 					return
 				}
+				mutated = true
 			}
 			if _, ok := raw["workspace_id"]; ok {
 				if err := s.board.UpdateTaskWorkspace(ctx, id, req.WorkspaceID); err != nil {
@@ -304,6 +313,7 @@ func (s *Server) taskHandler() http.HandlerFunc {
 					s.writeError(w, http.StatusInternalServerError, err.Error())
 					return
 				}
+				mutated = true
 			}
 			if req.Metadata != nil {
 				metadata, ok := s.board.(service.TaskMetadataService)
@@ -316,6 +326,7 @@ func (s *Server) taskHandler() http.HandlerFunc {
 						s.writeError(w, http.StatusBadRequest, err.Error())
 						return
 					}
+					mutated = true
 				}
 			}
 			if req.Column != nil {
@@ -333,6 +344,7 @@ func (s *Server) taskHandler() http.HandlerFunc {
 					s.writeError(w, http.StatusInternalServerError, err.Error())
 					return
 				}
+				mutated = true
 			}
 			response := struct {
 				Status   string                         `json:"status"`
@@ -355,7 +367,6 @@ func (s *Server) taskHandler() http.HandlerFunc {
 				}
 				response.Triggers = requests
 			}
-			s.notifyTaskChanged(id)
 			s.writeJSON(w, http.StatusOK, response)
 
 		case http.MethodDelete:
@@ -367,6 +378,7 @@ func (s *Server) taskHandler() http.HandlerFunc {
 				s.writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
+			s.notifyTaskChanged(id)
 			s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 
 		default:
@@ -446,6 +458,7 @@ func (s *Server) archiveTaskHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.notifyTaskChanged(id)
 		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	}
 }
@@ -475,7 +488,8 @@ func (s *Server) restoreTaskHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		if err := s.board.RestoreTask(r.Context(), r.PathValue("id")); err != nil {
+		id := r.PathValue("id")
+		if err := s.board.RestoreTask(r.Context(), id); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				s.writeError(w, http.StatusNotFound, "archived task not found")
 				return
@@ -483,6 +497,7 @@ func (s *Server) restoreTaskHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		s.notifyTaskChanged(id)
 		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	}
 }
@@ -500,6 +515,9 @@ func (s *Server) archiveDoneHandler() http.HandlerFunc {
 		if err != nil {
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if count > 0 {
+			s.notifyTaskChanged("")
 		}
 		s.writeJSON(w, http.StatusOK, ArchiveDoneResponse{Archived: count})
 	}

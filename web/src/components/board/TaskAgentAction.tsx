@@ -17,11 +17,14 @@ export function TaskAgentAction({ taskId, worktreePath = "" }: { taskId: string;
   const [repositoryPreset, setRepositoryPreset] = useState("")
   const [adapters, setAdapters] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
+  const [initialized, setInitialized] = useState(false)
   const [error, setError] = useState("")
 
   useEffect(() => {
     if (!open) return
     setRepositoryPreset("")
+    setWorkingDir(worktreePath)
+    setInitialized(false)
     Promise.all([apiFetch(baseUrl, "/api/adapters"), apiFetch(baseUrl, "/api/settings")]).then(async ([adaptersResponse, settingsResponse]) => {
       if (adaptersResponse.ok) {
         const data = await adaptersResponse.json()
@@ -29,10 +32,10 @@ export function TaskAgentAction({ taskId, worktreePath = "" }: { taskId: string;
       }
       if (settingsResponse.ok) {
         const data = await settingsResponse.json()
-        setWorkingDir(worktreePath || data.working_dir || "")
+        if (!worktreePath) setWorkingDir(data.working_dir || "")
         setRepositories(data.repositories ?? [])
       }
-    })
+    }).finally(() => setInitialized(true))
   }, [open, baseUrl, worktreePath])
 
   async function launch() {
@@ -89,7 +92,7 @@ export function TaskAgentAction({ taskId, worktreePath = "" }: { taskId: string;
         {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
         <div className="mt-4 flex gap-2">
           <button onClick={() => setOpen(false)} className="min-h-11 flex-1 rounded border border-zinc-700">Cancel</button>
-          <button onClick={() => void launch()} disabled={busy} className="min-h-11 flex-1 rounded bg-indigo-600 text-white">{busy ? "Opening…" : "Open agent"}</button>
+          <button onClick={() => void launch()} disabled={busy || !initialized} className="min-h-11 flex-1 rounded bg-indigo-600 text-white disabled:opacity-60">{busy ? "Opening…" : initialized ? "Open agent" : "Loading…"}</button>
         </div>
       </div>
     </div>}

@@ -29,9 +29,11 @@ type fakeWorktreeRunner struct {
 	removedFrom string
 	removed     string
 	force       bool
+	createCalls int
 }
 
 func (f *fakeWorktreeRunner) Create(context.Context, string, string, string, string) (string, error) {
+	f.createCalls++
 	return f.path, f.createErr
 }
 func (f *fakeWorktreeRunner) Remove(_ context.Context, primaryDir, branch string, force bool) error {
@@ -59,6 +61,19 @@ func TestWorktreeWorkflowCreatePersistsMetadata(t *testing.T) {
 	}
 	if task.WorktreePath == nil || *task.WorktreePath != runner.path || task.WorktreeBranch == nil || *task.WorktreeBranch != "feature" {
 		t.Fatalf("task metadata = %#v", task)
+	}
+}
+
+func TestWorktreeWorkflowCreateRejectsExistingWorktreeBeforeRunner(t *testing.T) {
+	s := newServiceTestStore(t)
+	createServiceTestTask(t, s, "task-1")
+	if err := s.SetTaskWorktree(context.Background(), "task-1", &store.TaskWorktree{PrimaryDir: "/repo", Path: "/existing", Branch: "old", BaseBranch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeWorktreeRunner{path: "/new"}
+	_, err := NewWorktreeWorkflow(s, runner).Create(context.Background(), "task-1", "/repo", "new", "main")
+	if err == nil || runner.createCalls != 0 {
+		t.Fatalf("error=%v create calls=%d", err, runner.createCalls)
 	}
 }
 
@@ -103,7 +118,7 @@ func TestWorktreeWorkflowCreateCapturesCheckoutCodeContext(t *testing.T) {
 	}
 }
 
-func TestWorktreeWorkflowCreateRemovesWorktreeWhenPersistenceFails(t *testing.T) {
+func TestWorktreeWorkflowCreateMissingTaskDoesNotInvokeRunner(t *testing.T) {
 	s := newServiceTestStore(t)
 	runner := &fakeWorktreeRunner{path: "/projects/legato.feature"}
 
@@ -111,8 +126,8 @@ func TestWorktreeWorkflowCreateRemovesWorktreeWhenPersistenceFails(t *testing.T)
 	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("error = %v, want ErrNotFound", err)
 	}
-	if runner.removedFrom != "/projects/legato" || runner.removed != "feature" {
-		t.Fatalf("cleanup = (%q, %q)", runner.removedFrom, runner.removed)
+	if runner.createCalls != 0 {
+		t.Fatalf("create calls = %d, want 0", runner.createCalls)
 	}
 }
 

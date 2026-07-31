@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -27,6 +28,7 @@ type mockBoardService struct {
 	workspaceCards   map[string][]service.Card
 	workspaces       []service.Workspace
 	cardDetail       *service.CardDetail
+	cardErr          error
 	searchResults    []service.Card
 	createdCard      *service.Card
 	archiveCount     int
@@ -39,6 +41,7 @@ type mockBoardService struct {
 	updatedDesc      string
 	updatedWorkspace *int
 	movedTo          string
+	moveErr          error
 }
 
 func (m *mockBoardService) ListColumns(_ context.Context) ([]service.Column, error) {
@@ -59,6 +62,9 @@ func (m *mockBoardService) ListCardsByWorkspace(_ context.Context, column string
 }
 
 func (m *mockBoardService) GetCard(_ context.Context, id string) (*service.CardDetail, error) {
+	if m.cardErr != nil {
+		return nil, m.cardErr
+	}
 	if m.cardDetail == nil {
 		return nil, store.ErrNotFound
 	}
@@ -70,7 +76,7 @@ func (m *mockBoardService) GetCard(_ context.Context, id string) (*service.CardD
 }
 func (m *mockBoardService) MoveCard(_ context.Context, _ string, col string) error {
 	m.movedTo = col
-	return nil
+	return m.moveErr
 }
 func (m *mockBoardService) ReorderCard(_ context.Context, _ string, _ int) error { return nil }
 func (m *mockBoardService) SearchCards(_ context.Context, query string) ([]service.Card, error) {
@@ -1433,6 +1439,32 @@ func TestPatchTaskRoutesEdits(t *testing.T) {
 		}
 		if notified != "t1" {
 			t.Errorf("notified task = %q, want t1", notified)
+		}
+	})
+
+	t.Run("failed column move does not notify", func(t *testing.T) {
+		svc := &mockBoardService{moveErr: errors.New("move failed")}
+		srv := New(svc, nil, nil, ":0")
+		notified := false
+		srv.notifyTaskChanged = func(string) { notified = true }
+		req := httptest.NewRequest("PATCH", "/api/tasks/t1", strings.NewReader(`{"column":"Doing"}`))
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusInternalServerError || notified {
+			t.Fatalf("status=%d notified=%v", rec.Code, notified)
+		}
+	})
+
+	t.Run("partial mutation still notifies", func(t *testing.T) {
+		svc := &mockBoardService{moveErr: errors.New("move failed")}
+		srv := New(svc, nil, nil, ":0")
+		notified := false
+		srv.notifyTaskChanged = func(string) { notified = true }
+		req := httptest.NewRequest("PATCH", "/api/tasks/t1", strings.NewReader(`{"title":"changed","column":"Doing"}`))
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusInternalServerError || !notified || svc.updatedTitle != "changed" {
+			t.Fatalf("status=%d notified=%v title=%q", rec.Code, notified, svc.updatedTitle)
 		}
 	})
 

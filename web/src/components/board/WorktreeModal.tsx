@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useServer } from "../../hooks/useServer"
-import { apiFetch } from "../../lib/api"
+import { createWorktree } from "../../lib/board"
 import type { TaskWorktree } from "../../lib/board-types"
 import { RepositoryPresetSelect, type RepositoryPreset } from "../RepositoryPresetSelect"
 
@@ -38,13 +38,11 @@ export function WorktreeModal({ open, taskId, defaultPrimaryDir, repositories, o
     setBusy(true)
     setError("")
     try {
-      const response = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(taskId)}/worktree`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ primary_dir: primaryDir.trim(), branch: branch.trim(), base_branch: baseBranch.trim() }),
-      })
-      if (!response.ok) throw new Error(await response.text())
-      onCreated(await response.json() as TaskWorktree)
+      onCreated(await createWorktree(baseUrl, taskId, {
+        primary_dir: primaryDir.trim(),
+        branch: branch.trim(),
+        base_branch: baseBranch.trim(),
+      }))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
       setBusy(false)

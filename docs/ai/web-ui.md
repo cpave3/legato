@@ -34,7 +34,7 @@ Remote web interface for monitoring and interacting with agent sessions from any
 
 **Key sending**: `send_keys` WebSocket message. Text ending in `\n` → literal text via `tmux send-keys --` then named `Enter`. No `\n` → space-separated named keys sent in sequence (e.g. `"Down Enter"` → two `SendKey` calls). Used by prompt action buttons, Mode (BTab), Stop (Escape), and free text input.
 
-**Settings API**: `GET /api/settings` returns `{"ca_cert_available": true/false}`. `GET /api/ca-cert` serves the auto-generated CA certificate as a PEM download (`Content-Disposition: attachment; filename="legato-ca.pem"`). Returns 404 when using custom TLS config (no auto-generated CA). `Server.SetCACertPath(path)` wired in `main.go` from `resolveTLS` return value.
+**Settings API**: `GET /api/settings` returns runtime capability/configuration state: `ca_cert_available`, `working_dir`, `ntfy_configured`, `voice_enabled`, `worktrees_enabled`, and repository presets. `GET /api/ca-cert` serves the auto-generated CA certificate as a PEM download (`Content-Disposition: attachment; filename="legato-ca.pem"`). Returns 404 when using custom TLS config (no auto-generated CA). `Server.SetCACertPath(path)` wired in `main.go` from `resolveTLS` return value.
 
 **Macros API**: `GET /api/macros` returns `{"macros": [{name, keys}, ...]}` from the configured `macros:` YAML list. Auth-protected like other `/api/*` routes. `Server.SetMacros([]macros.Macro)` is called from `cmd/legato/main.go` after `NewWithSwarm`. The `PromptBar` web component fetches via `apiFetch(baseUrl, "/api/macros")` and renders a Macros dropdown next to the action buttons; clicking a macro sends a `send_keys` WS message with the macro's `keys` payload.
 

@@ -73,6 +73,30 @@ func TestTaskWorktreeEndpointRejectsUnavailableAndExistingWorktrees(t *testing.T
 	})
 }
 
+func TestTaskWorktreeEndpointValidatesTaskAndRequest(t *testing.T) {
+	tests := []struct {
+		name  string
+		board *mockBoardService
+		body  string
+		want  int
+	}{
+		{name: "missing task", board: &mockBoardService{cardErr: store.ErrNotFound}, body: `{}`, want: http.StatusNotFound},
+		{name: "malformed JSON", board: &mockBoardService{cardDetail: &service.CardDetail{ID: "T-1"}}, body: `{`, want: http.StatusBadRequest},
+		{name: "blank fields", board: &mockBoardService{cardDetail: &service.CardDetail{ID: "T-1"}}, body: `{"primary_dir":" ","branch":"t-1","base_branch":"main"}`, want: http.StatusBadRequest},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			srv := New(test.board, nil, nil, ":0")
+			srv.SetWorktreeService(&worktreeServiceFake{})
+			rec := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/tasks/T-1/worktree", strings.NewReader(test.body)))
+			if rec.Code != test.want {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestTaskWorktreeEndpointSurfacesWorkflowFailureWithoutNotification(t *testing.T) {
 	board := &mockBoardService{cardDetail: &service.CardDetail{ID: "T-1"}}
 	srv := New(board, nil, nil, ":0")
