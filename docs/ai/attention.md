@@ -78,8 +78,10 @@ All endpoints require the configured auth token.
 | Producer | Source | Inclusion rule | Actions |
 |---|---|---|---|
 | `plans` | `PlanService.Queue` | `proposed` or `changes_requested` | Open plan (navigate), Approve (execute, requires confirm) |
-| `reviews` | `ReviewService.Queue` | ready/reviewed/capturing with unreviewed work | Review changes (navigate), Mark reviewed (execute, requires confirm) |
+| `reviews` | `ReviewService.Queue` | explicitly ready tours with unreviewed work | Review changes (navigate), Mark reviewed (execute, requires confirm) |
 | `workflows` | `WorkflowService.ListRuns` + `Show` | `needs_attention` on run | Open run (navigate), Trigger/Retry/Prompt (execute) |
+
+Capturing review tours never enter attention, notification counts, or Stream Deck attention tiles. They are available only through the web review page's default-off **Show incomplete captures** toggle; reviewed tours with newly synced work remain quiet until explicitly marked ready again.
 
 ## Web
 

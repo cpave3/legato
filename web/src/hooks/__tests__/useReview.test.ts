@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { useReviewTour } from "../useReview"
+import { useReviewQueue, useReviewTour } from "../useReview"
 import type { WSMessage } from "../useWebSocket"
 
 const mockFetch = vi.fn()
@@ -27,6 +27,17 @@ const response = (summary: string) => ({
     steps: [],
     messages: [],
   }),
+})
+
+describe("useReviewQueue", () => {
+  it("requests capturing tours only when explicitly enabled", async () => {
+    mockSubscribe.mockReturnValue(() => undefined)
+    mockFetch.mockResolvedValue({ ok: true, json: async () => [] })
+    const { rerender } = renderHook(({ include }) => useReviewQueue(include), { initialProps: { include: false } })
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("/api/review/queue", expect.anything()))
+    rerender({ include: true })
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("/api/review/queue?include_capturing=true", expect.anything()))
+  })
 })
 
 describe("useReviewTour", () => {

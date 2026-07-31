@@ -46,7 +46,8 @@ function errorMessage(error: unknown): string {
 
 export function ReviewQueuePage() {
   const { baseUrl } = useServer()
-  const { data, loading, error, refresh } = useReviewQueue()
+  const [showCapturing, setShowCapturing] = useState(false)
+  const { data, loading, error, refresh } = useReviewQueue(showCapturing)
   const items = useMemo(() => sortQueueItems(data ?? []), [data])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [confirming, setConfirming] = useState(false)
@@ -104,9 +105,15 @@ export function ReviewQueuePage() {
           <h1 className="text-lg font-semibold">Review queue</h1>
           <p className="mt-0.5 text-xs text-zinc-500">Walk through agent changes before completing work.</p>
         </div>
-        <button onClick={() => void refresh()} className="rounded p-2 text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200" title="Refresh review queue">
-          <RefreshCw size={16} />
-        </button>
+        <div className="flex items-center gap-3">
+          <label className="flex min-h-10 cursor-pointer items-center gap-2 text-xs text-zinc-400">
+            <input type="checkbox" checked={showCapturing} onChange={(event) => setShowCapturing(event.target.checked)} className="size-4 accent-indigo-500" />
+            Show incomplete captures
+          </label>
+          <button onClick={() => void refresh()} className="rounded p-2 text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200" title="Refresh review queue">
+            <RefreshCw size={16} />
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-3 md:p-6">
@@ -150,7 +157,9 @@ export function ReviewQueuePage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-mono text-xs text-zinc-500">{item.task_id}</span>
-                      <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">{item.status}</span>
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] uppercase ${item.status === "capturing" ? "bg-violet-950 text-violet-300" : "bg-zinc-800 text-zinc-400"}`}>
+                        {item.status === "capturing" ? "Incomplete — not marked ready" : item.status}
+                      </span>
                     </div>
                     <h2 className="mt-1 font-semibold text-zinc-100">{reviewLabel(item)}</h2>
                     {item.summary && <p className="mt-2 text-sm text-zinc-400">{item.summary}</p>}

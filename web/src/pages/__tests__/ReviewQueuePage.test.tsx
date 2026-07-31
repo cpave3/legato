@@ -6,6 +6,7 @@ import { ReviewQueuePage } from "../ReviewQueuePage"
 const mocks = vi.hoisted(() => ({
   bulkDeleteReviews: vi.fn(),
   refresh: vi.fn(),
+  hookCalls: [] as boolean[],
 }))
 
 vi.mock("../../hooks/useServer", () => ({
@@ -18,15 +19,18 @@ vi.mock("../../lib/review", async (importOriginal) => ({
 }))
 
 vi.mock("../../hooks/useReview", () => ({
-  useReviewQueue: () => ({
+  useReviewQueue: (includeCapturing = false) => {
+    mocks.hookCalls.push(includeCapturing)
+    return ({
     data: [
       { task_id: "T-1", tour_id: "rt-task-1", name: "Review auth flow", title: "Review auth flow", status: "ready", summary: "Adds token refresh", unreviewed: 2, updated_at: "2026-07-17T09:00:00Z", activity_at: "2026-07-17T00:00:00Z" },
       { task_id: "T-2", tour_id: "rt-task-2", name: "Already checked", title: "Already checked", status: "ready", summary: "Ready to complete", unreviewed: 0, updated_at: "2026-07-17T09:00:00Z", activity_at: "2026-07-17T02:00:00Z" },
+      ...(includeCapturing ? [{ task_id: "T-3", tour_id: "rt-task-3", name: "Work in progress", title: "Work in progress", status: "capturing", summary: "", unreviewed: 1, updated_at: "2026-07-17T10:00:00Z", activity_at: "2026-07-17T10:00:00Z" }] : []),
     ],
     loading: false,
     error: null,
     refresh: mocks.refresh,
-  }),
+  })},
 }))
 
 function renderPage() {
@@ -41,6 +45,7 @@ describe("ReviewQueuePage", () => {
     mocks.bulkDeleteReviews.mockResolvedValue(2)
     mocks.refresh.mockReset()
     mocks.refresh.mockResolvedValue(undefined)
+    mocks.hookCalls.length = 0
   })
 
   it("shows queued work with progress and links into each tour", () => {
@@ -51,6 +56,17 @@ describe("ReviewQueuePage", () => {
     expect(screen.getByText("2 unreviewed")).toBeTruthy()
     expect(screen.getByText("Ready to complete")).toBeTruthy()
     expect(screen.getByRole("link", { name: /Review auth flow/ }).getAttribute("href")).toBe("/review/rt-task-1")
+  })
+
+  it("hides capturing reviews by default and reveals them explicitly", () => {
+    renderPage()
+    expect(mocks.hookCalls[0]).toBe(false)
+    expect(screen.queryByText("Work in progress")).toBeNull()
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Show incomplete captures" }))
+    expect(mocks.hookCalls.at(-1)).toBe(true)
+    expect(screen.getByText("Work in progress")).toBeTruthy()
+    expect(screen.getByText("Incomplete — not marked ready")).toBeTruthy()
   })
 
   it("selects visible reviews and removes them after confirmation", async () => {

@@ -168,8 +168,9 @@ async function expectOK(response: Response): Promise<void> {
 const tourPath = (tourId: string) => `/api/review/tours/${encodeURIComponent(tourId)}`
 const stepPath = (tourId: string, stepId: string) => `${tourPath(tourId)}/steps/${encodeURIComponent(stepId)}`
 
-export async function fetchReviewQueue(baseUrl: string): Promise<ReviewQueueItem[]> {
-  return expectJSON<ReviewQueueItem[]>(await apiFetch(baseUrl, "/api/review/queue"))
+export async function fetchReviewQueue(baseUrl: string, includeCapturing = false): Promise<ReviewQueueItem[]> {
+  const query = includeCapturing ? "?include_capturing=true" : ""
+  return expectJSON<ReviewQueueItem[]>(await apiFetch(baseUrl, `/api/review/queue${query}`))
 }
 
 export async function bulkDeleteReviews(baseUrl: string, tourIds: string[]): Promise<number> {

@@ -14,7 +14,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export function useReviewQueue(): AsyncReviewState<ReviewQueueItem[]> {
+export function useReviewQueue(includeCapturing = false): AsyncReviewState<ReviewQueueItem[]> {
   const { baseUrl } = useServer()
   const { subscribe } = useWebSocket()
   const [data, setData] = useState<ReviewQueueItem[] | null>(null)
@@ -24,13 +24,13 @@ export function useReviewQueue(): AsyncReviewState<ReviewQueueItem[]> {
   const refresh = useCallback(async () => {
     try {
       setError(null)
-      setData(await fetchReviewQueue(baseUrl))
+      setData(await fetchReviewQueue(baseUrl, includeCapturing))
     } catch (cause) {
       setError(errorMessage(cause))
     } finally {
       setLoading(false)
     }
-  }, [baseUrl])
+  }, [baseUrl, includeCapturing])
 
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => subscribe((message) => {

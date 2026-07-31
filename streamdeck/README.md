@@ -98,7 +98,7 @@ Create a profile named **Legato Attention**:
 - Keys 1–15: Assign the **"Legato → Attention Tile"** action to each
 - Key 16: "Switch Profile" back to "Legato"
 
-Same dynamic mapping as agents — attention items fill slots in order.
+Same dynamic mapping as agents — attention items fill slots in order. Review tiles appear only after an agent explicitly marks the review tour ready; incomplete capturing tours are excluded by the Legato attention API.
 
 ## Recovery
 
