@@ -17,7 +17,7 @@ import (
 
 var workflowServiceFactory = func(db *store.Store, cfg *config.Config) (*service.WorkflowService, error) {
 	wd, _ := os.Getwd()
-	return buildWorkflowService(db, cfg, nil, nil, nil, wd)
+	return buildWorkflowService(db, cfg, nil, nil, nil, nil, wd)
 }
 
 func workflowDirs() (string, string) {

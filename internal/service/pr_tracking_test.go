@@ -789,6 +789,38 @@ func TestRefreshPRUpdatesPinnedAssociationWithoutChangingIdentity(t *testing.T) 
 	}
 }
 
+func TestSetTaskCodeContextClearsPROnlyWhenIdentityChanges(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		next       *store.CodeContext
+		wantPRMeta bool
+	}{
+		{name: "unchanged identity", next: &store.CodeContext{Repo: "acme/widget", Branch: "feature/TASK-1"}, wantPRMeta: true},
+		{name: "changed repository", next: &store.CodeContext{Repo: "acme/other", Branch: "feature/TASK-1"}},
+		{name: "changed branch", next: &store.CodeContext{Repo: "acme/widget", Branch: "feature/TASK-2"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			s := newTestPRStore(t)
+			ctx := context.Background()
+			createPRTask(t, s, "TASK-1")
+			if err := s.SetCodeContext(ctx, "TASK-1", &store.CodeContext{Repo: "acme/widget", Branch: "feature/TASK-1"}); err != nil {
+				t.Fatal(err)
+			}
+			pr := `{"pr_number":42,"pinned":true}`
+			if err := s.UpdatePRMeta(ctx, "TASK-1", &pr); err != nil {
+				t.Fatal(err)
+			}
+			if err := SetTaskCodeContext(ctx, s, "TASK-1", test.next); err != nil {
+				t.Fatal(err)
+			}
+			task, _ := s.GetTask(ctx, "TASK-1")
+			if (task.PRMeta != nil) != test.wantPRMeta {
+				t.Fatalf("PR metadata present = %v, want %v", task.PRMeta != nil, test.wantPRMeta)
+			}
+		})
+	}
+}
+
 func TestSetTaskCodeContextRequiresNoGitHubClient(t *testing.T) {
 	s := newTestPRStore(t)
 	ctx := context.Background()

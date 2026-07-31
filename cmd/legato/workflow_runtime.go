@@ -29,17 +29,19 @@ func checkoutInspector() service.CheckoutInspector {
 	})
 }
 
-func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, existingAgents service.AgentService, existingPR service.PRTrackingService, workDir string) (*service.WorkflowService, error) {
+func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, existingAgents service.AgentService, existingPR service.PRTrackingService, existingPRErr error, workDir string) (*service.WorkflowService, error) {
 	if bus == nil {
 		bus = events.New()
 	}
 	prSvc := existingPR
-	if prSvc == nil {
+	prErr := existingPRErr
+	if prSvc == nil && prErr == nil {
 		client, _, err := buildGitHubClient(cfg, nil)
 		if err != nil {
-			return nil, fmt.Errorf("GitHub workflows require authentication: %w", err)
+			prErr = err
+		} else {
+			prSvc = service.NewPRTrackingService(db, bus, client, 10*time.Minute, 10*time.Minute, githubRepositoryMappings(cfg)...)
 		}
-		prSvc = service.NewPRTrackingService(db, bus, client, 10*time.Minute, 10*time.Minute, githubRepositoryMappings(cfg)...)
 	}
 	agentSvc := existingAgents
 	if agentSvc == nil {
@@ -79,10 +81,12 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary), service.NewTaskNoteExecutor(db, publishers), service.NewTaskMetadataExecutor(db)}
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector())
-		executors = append(executors,
-			service.NewGitHubPRPrepareExecutor(prSvc, gitengine.ExactFetcher{}, worktrees, prSvc),
-			service.NewWorktreeRemoveExecutor(worktrees),
-		)
+		if prSvc != nil {
+			executors = append(executors, service.NewGitHubPRPrepareExecutor(prSvc, gitengine.ExactFetcher{}, worktrees, prSvc))
+		} else {
+			executors = append(executors, service.NewUnavailableGitHubPRPrepareExecutor(prErr))
+		}
+		executors = append(executors, service.NewWorktreeRemoveExecutor(worktrees))
 	}
 	dataDir := filepath.Join(filepath.Dir(config.ResolveDBPath(cfg)), "artifacts")
 	workflows := service.NewWorkflowServiceWithOutputs(db, executors, dataDir)

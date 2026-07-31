@@ -1412,7 +1412,7 @@ func runServeCmd(args []string) int {
 	srv.SetArtifactService(artifactSvc)
 	var workflowSvc *service.WorkflowService
 	var triggerCoordinator *service.WorkflowTriggerCoordinator
-	if built, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, nil, wd); workflowErr == nil {
+	if built, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, nil, nil, wd); workflowErr == nil {
 		workflowSvc = built
 		globalWorkflows, projectWorkflows := workflowDirs()
 		srv.SetWorkflowService(workflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
@@ -1724,7 +1724,7 @@ func runTUI() int {
 	// Build workflow service for both web and TUI attention producers.
 	var tuiWorkflowSvc *service.WorkflowService
 	var triggerCoordinator *service.WorkflowTriggerCoordinator
-	if built, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, prSvc, wd); workflowErr == nil {
+	if built, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, prSvc, ghErr, wd); workflowErr == nil {
 		tuiWorkflowSvc = built
 		triggerCoordinator = buildWorkflowTriggerCoordinator(db, tuiWorkflowSvc, bus)
 		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()

@@ -26,6 +26,19 @@ func (r *runtimeTokenCommand) Run(name string, args ...string) ([]byte, error) {
 	return r.out, r.err
 }
 
+func TestBuildWorkflowServiceDoesNotRequireGitHubAuthenticationForLocalWorkflows(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "legato.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cfg := &config.Config{GitHub: config.GitHubConfig{Auth: "token"}}
+	workflowService, err := buildWorkflowService(db, cfg, nil, nil, nil, nil, t.TempDir())
+	if err != nil || workflowService == nil {
+		t.Fatalf("service=%v err=%v", workflowService, err)
+	}
+}
+
 func TestTaskGitHubContextDoesNotRequireAuthentication(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "legato.db")
 	db, err := store.New(dbPath)

@@ -24,6 +24,25 @@ type workflowPRLinker interface {
 	LinkPR(context.Context, string, string, string, int) error
 }
 
+type UnavailableGitHubPRPrepareExecutor struct{ err error }
+
+func NewUnavailableGitHubPRPrepareExecutor(err error) *UnavailableGitHubPRPrepareExecutor {
+	if err == nil {
+		err = fmt.Errorf("run gh auth login or configure github.token")
+	}
+	return &UnavailableGitHubPRPrepareExecutor{err: err}
+}
+func (e *UnavailableGitHubPRPrepareExecutor) Type() string { return "github.pr.prepare" }
+func (e *UnavailableGitHubPRPrepareExecutor) Start(context.Context, ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
+	return WorkflowExecutionResult{}, fmt.Errorf("GitHub authentication unavailable: %w", e.err)
+}
+func (e *UnavailableGitHubPRPrepareExecutor) Resume(context.Context, store.WorkflowStepAttempt, map[string]any) (WorkflowExecutionResult, error) {
+	return WorkflowExecutionResult{}, fmt.Errorf("GitHub authentication unavailable: %w", e.err)
+}
+func (e *UnavailableGitHubPRPrepareExecutor) Cancel(context.Context, store.WorkflowStepAttempt) error {
+	return nil
+}
+
 type GitHubPRPrepareExecutor struct {
 	github    workflowPRFetcher
 	exact     workflowExactFetcher

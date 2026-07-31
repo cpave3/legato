@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/github"
@@ -37,6 +39,14 @@ type fakePRLinker struct {
 func (f *fakePRLinker) LinkPR(_ context.Context, task, owner, repo string, number int) error {
 	f.task, f.owner, f.repo, f.number = task, owner, repo, number
 	return nil
+}
+
+func TestUnavailableGitHubPRPrepareExecutorDefersAuthErrorUntilInvoked(t *testing.T) {
+	executor := NewUnavailableGitHubPRPrepareExecutor(fmt.Errorf("run gh auth login"))
+	_, err := executor.Start(context.Background(), ResolvedWorkflowStep{})
+	if err == nil || !strings.Contains(err.Error(), "gh auth login") {
+		t.Fatalf("error = %v", err)
+	}
 }
 
 func TestGitHubPRPrepareExecutorFetchesExactForkHeadBeforeWorktree(t *testing.T) {

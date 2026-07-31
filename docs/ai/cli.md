@@ -157,7 +157,7 @@ Legato-spawned tmux sessions get a custom status bar showing live context. Solo 
 
 **Flow**: Staccato `post-pr-create` fires when browser opens to PR creation page (PR may not exist yet) → hook reads `LEGATO_TASK_ID` (injected by legato's tmux session) + `ST_REPO_PATH` + `ST_BRANCH` → detects owner/repo from git remote + captures head commit SHA via `git rev-parse HEAD` → calls `legato task link $LEGATO_TASK_ID --branch $ST_BRANCH --repo owner/repo --sha $SHA` → IPC broadcast triggers immediate poll → background polling discovers PR when it actually exists.
 
-**Key detail**: the hook is optional. `task link` writes durable `CodeContext` (repository/branch/SHA), and token-backed background synchronization discovers the PR by exact SHA, exact repository+branch, or a unique ticket-key branch match. Worktree and agent launch paths capture the same context without Staccato.
+**Key detail**: the hook is optional. `task link` writes durable `CodeContext` (repository/branch/SHA), and authenticated background synchronization discovers the PR by exact SHA, exact repository+branch, or a unique ticket-key branch match. Worktree and agent launch paths capture the same context without Staccato.
 
 ## Chimera Integration
 
