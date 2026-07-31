@@ -23,7 +23,6 @@ import (
 	"github.com/cpave3/legato/internal/engine/auth"
 	"github.com/cpave3/legato/internal/engine/certs"
 	"github.com/cpave3/legato/internal/engine/events"
-	gh "github.com/cpave3/legato/internal/engine/github"
 	"github.com/cpave3/legato/internal/engine/hooks"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/jira"
@@ -1581,9 +1580,9 @@ func runTUI() int {
 		defer stopSync()
 	}
 
-	// Set up token-authenticated GitHub PR tracking when configured.
+	// Set up read-only GitHub PR tracking when authentication is available.
 	var prSvc service.PRTrackingService
-	ghClient, ghErr := gh.New(gh.Options{Token: cfg.GitHub.Token})
+	ghClient, _, ghErr := buildGitHubClient(cfg, nil)
 	if ghErr == nil {
 		interval := time.Duration(cfg.GitHub.PollIntervalSeconds) * time.Second
 		resolvedInterval := time.Duration(cfg.GitHub.ResolvedPollIntervalSeconds) * time.Second

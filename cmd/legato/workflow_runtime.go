@@ -10,7 +10,6 @@ import (
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/events"
 	gitengine "github.com/cpave3/legato/internal/engine/git"
-	gh "github.com/cpave3/legato/internal/engine/github"
 	"github.com/cpave3/legato/internal/engine/hooks"
 	"github.com/cpave3/legato/internal/engine/jira"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -36,9 +35,9 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 	}
 	prSvc := existingPR
 	if prSvc == nil {
-		client, err := gh.New(gh.Options{Token: cfg.GitHub.Token})
+		client, _, err := buildGitHubClient(cfg, nil)
 		if err != nil {
-			return nil, fmt.Errorf("GitHub workflows require a configured token: %w", err)
+			return nil, fmt.Errorf("GitHub workflows require authentication: %w", err)
 		}
 		prSvc = service.NewPRTrackingService(db, bus, client, 10*time.Minute, 10*time.Minute, githubRepositoryMappings(cfg)...)
 	}

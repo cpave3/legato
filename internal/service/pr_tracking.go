@@ -152,7 +152,13 @@ func (p *prTrackingService) UnlinkBranch(ctx context.Context, taskID string) err
 }
 
 func (p *prTrackingService) SetCodeContext(ctx context.Context, taskID string, codeContext *store.CodeContext) error {
-	task, err := p.store.GetTask(ctx, taskID)
+	return SetTaskCodeContext(ctx, p.store, taskID, codeContext)
+}
+
+// SetTaskCodeContext updates local repository identity and clears a stale PR
+// association when that identity changes. It requires no GitHub authentication.
+func SetTaskCodeContext(ctx context.Context, taskStore *store.Store, taskID string, codeContext *store.CodeContext) error {
+	task, err := taskStore.GetTask(ctx, taskID)
 	if err != nil {
 		return err
 	}
@@ -161,11 +167,11 @@ func (p *prTrackingService) SetCodeContext(ctx context.Context, taskID string, c
 		return err
 	}
 	identityChanged := existing != nil && codeContext != nil && (existing.Repo != codeContext.Repo || existing.Branch != codeContext.Branch)
-	if err := p.store.SetCodeContext(ctx, taskID, codeContext); err != nil {
+	if err := taskStore.SetCodeContext(ctx, taskID, codeContext); err != nil {
 		return err
 	}
 	if identityChanged {
-		return p.store.UpdatePRMeta(ctx, taskID, nil)
+		return taskStore.UpdatePRMeta(ctx, taskID, nil)
 	}
 	return nil
 }

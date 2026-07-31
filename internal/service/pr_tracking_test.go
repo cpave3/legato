@@ -789,6 +789,21 @@ func TestRefreshPRUpdatesPinnedAssociationWithoutChangingIdentity(t *testing.T) 
 	}
 }
 
+func TestSetTaskCodeContextRequiresNoGitHubClient(t *testing.T) {
+	s := newTestPRStore(t)
+	ctx := context.Background()
+	createPRTask(t, s, "TASK-1")
+	codeContext := &store.CodeContext{Repo: "acme/widget", Branch: "feature/TASK-1", RepoSource: "manual", BranchSource: "manual"}
+	if err := SetTaskCodeContext(ctx, s, "TASK-1", codeContext); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := s.GetTask(ctx, "TASK-1")
+	got, _ := store.ParseCodeContext(task.CodeContext)
+	if got == nil || got.Repo != codeContext.Repo || got.Branch != codeContext.Branch {
+		t.Fatalf("code context = %#v", got)
+	}
+}
+
 func TestRediscoverPRRetainsContextAndReplacesWrongLink(t *testing.T) {
 	s := newTestPRStore(t)
 	ctx := context.Background()

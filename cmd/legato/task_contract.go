@@ -12,7 +12,6 @@ import (
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/events"
-	gh "github.com/cpave3/legato/internal/engine/github"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
@@ -435,27 +434,29 @@ func runTaskGitHubContract(args []string) int {
 		return code
 	}
 	defer db.Close()
-	client, err := gh.New(gh.Options{Token: cfg.GitHub.Token})
-	if err != nil {
-		return renderCommandError(command, commandDomainError(err), jsonMode)
-	}
-	svc := service.NewPRTrackingService(db, events.New(), client, 0, 0, githubRepositoryMappings(cfg)...)
-	actions := svc.(service.PRTaskActions)
-	switch args[0] {
-	case "context":
+	if args[0] == "context" {
 		repo := parsed.Values["repo"]
 		parts := strings.Split(repo, "/")
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 			return renderCommandError(command, usageError("invalid_value", "--repo must be owner/name"), jsonMode)
 		}
 		codeContext := &store.CodeContext{Repo: repo, Branch: parsed.Values["branch"], HeadSHA: parsed.Values["sha"], BaseBranch: parsed.Values["base-branch"], RepoSource: "manual", BranchSource: "manual"}
-		err = actions.SetCodeContext(context.Background(), taskID, codeContext)
-	case "refresh":
-		err = actions.RefreshPR(context.Background(), taskID)
-	case "rediscover":
-		err = actions.RediscoverPR(context.Background(), taskID)
-	default:
-		return renderCommandError("task.github", usageError("unknown_command", fmt.Sprintf("unknown github command %q", args[0])), jsonMode)
+		err = service.SetTaskCodeContext(context.Background(), db, taskID, codeContext)
+	} else {
+		client, _, clientErr := buildGitHubClient(cfg, nil)
+		if clientErr != nil {
+			return renderCommandError(command, commandDomainError(clientErr), jsonMode)
+		}
+		svc := service.NewPRTrackingService(db, events.New(), client, 0, 0, githubRepositoryMappings(cfg)...)
+		actions := svc.(service.PRTaskActions)
+		switch args[0] {
+		case "refresh":
+			err = actions.RefreshPR(context.Background(), taskID)
+		case "rediscover":
+			err = actions.RediscoverPR(context.Background(), taskID)
+		default:
+			return renderCommandError("task.github", usageError("unknown_command", fmt.Sprintf("unknown github command %q", args[0])), jsonMode)
+		}
 	}
 	if err != nil {
 		return renderCommandError(command, commandDomainError(err), jsonMode)
