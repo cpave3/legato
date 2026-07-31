@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/cpave3/legato/internal/tui/hotkey"
 )
 
 func TestInitialState(t *testing.T) {
@@ -121,7 +122,7 @@ func TestBoardModeHints(t *testing.T) {
 func TestDetailModeHints(t *testing.T) {
 	m := New()
 	m.width = 120
-	m, _ = m.Update(ModeMsg{Mode: ModeDetail})
+	m, _ = m.Update(HotkeyContextMsg{Registry: hotkey.DefaultRegistry(), Context: hotkey.Context{Page: hotkey.PageDetail, Predicates: hotkey.NewPredicates(hotkey.PredicateLocalTask, hotkey.PredicateEditor)}})
 	view := m.View()
 	for _, expected := range []string{"back", "edit", "delete", "copy", "keys"} {
 		if !strings.Contains(view, expected) {
@@ -133,7 +134,7 @@ func TestDetailModeHints(t *testing.T) {
 func TestAgentsModeHints(t *testing.T) {
 	m := New()
 	m.width = 120
-	m, _ = m.Update(ModeMsg{Mode: ModeAgents})
+	m, _ = m.Update(HotkeyContextMsg{Registry: hotkey.DefaultRegistry(), Context: hotkey.Context{Page: hotkey.PageAgents}})
 	view := m.View()
 	for _, expected := range []string{"select", "spawn", "kill", "macro", "attach", "board", "keys"} {
 		if !strings.Contains(view, expected) {
@@ -152,7 +153,7 @@ func TestAgentsModeHints(t *testing.T) {
 func TestAgentsModeNtfyHint(t *testing.T) {
 	m := New()
 	m.width = 120
-	m, _ = m.Update(ModeMsg{Mode: ModeAgents})
+	m, _ = m.Update(HotkeyContextMsg{Registry: hotkey.DefaultRegistry(), Context: hotkey.Context{Page: hotkey.PageAgents}})
 	m, _ = m.Update(NtfyMsg{Configured: true})
 	view := m.View()
 	if !strings.Contains(view, "notify") {
@@ -163,7 +164,7 @@ func TestAgentsModeNtfyHint(t *testing.T) {
 func TestAgentsModeVoiceHint(t *testing.T) {
 	m := New()
 	m.width = 120
-	m, _ = m.Update(ModeMsg{Mode: ModeAgents})
+	m, _ = m.Update(HotkeyContextMsg{Registry: hotkey.DefaultRegistry(), Context: hotkey.Context{Page: hotkey.PageAgents}})
 	m, _ = m.Update(VoiceMsg{Enabled: true})
 	view := m.View()
 	if !strings.Contains(view, "voice") {
@@ -174,7 +175,7 @@ func TestAgentsModeVoiceHint(t *testing.T) {
 func TestReportModeHints(t *testing.T) {
 	m := New()
 	m.width = 120
-	m, _ = m.Update(ModeMsg{Mode: ModeReport})
+	m, _ = m.Update(HotkeyContextMsg{Registry: hotkey.DefaultRegistry(), Context: hotkey.Context{Page: hotkey.PageReport}})
 	view := m.View()
 	for _, expected := range []string{"back", "copy", "keys"} {
 		if !strings.Contains(view, expected) {
@@ -186,7 +187,7 @@ func TestReportModeHints(t *testing.T) {
 func TestReviewModeHintsIncludeDelete(t *testing.T) {
 	m := New()
 	m.width = 120
-	m, _ = m.Update(ModeMsg{Mode: ModeReview})
+	m, _ = m.Update(HotkeyContextMsg{Registry: hotkey.DefaultRegistry(), Context: hotkey.Context{Page: hotkey.PageReview, Mode: hotkey.ModeTour}})
 	view := m.View()
 	for _, expected := range []string{"select", "reviewed", "ask", "delete"} {
 		if !strings.Contains(view, expected) {
@@ -295,7 +296,7 @@ func TestNarrowTerminalTruncatesHints(t *testing.T) {
 func TestStatusBarContentStaysSingleLine(t *testing.T) {
 	m := New()
 	m.width = 120
-	m, _ = m.Update(ModeMsg{Mode: ModeAgents})
+	m, _ = m.Update(HotkeyContextMsg{Registry: hotkey.DefaultRegistry(), Context: hotkey.Context{Page: hotkey.PageAgents}})
 	m, _ = m.Update(NtfyMsg{Configured: true})
 	m, _ = m.Update(VoiceMsg{Enabled: true})
 	view := m.View()
@@ -310,7 +311,7 @@ func TestStatusBarContentStaysSingleLine(t *testing.T) {
 func TestStatusBarDoesNotOverflow(t *testing.T) {
 	m := New()
 	m.width = 80
-	m, _ = m.Update(ModeMsg{Mode: ModeAgents})
+	m, _ = m.Update(HotkeyContextMsg{Registry: hotkey.DefaultRegistry(), Context: hotkey.Context{Page: hotkey.PageAgents}})
 	m, _ = m.Update(NtfyMsg{Configured: true})
 	m, _ = m.Update(VoiceMsg{Enabled: true})
 	m, _ = m.Update(WorkspaceMsg{Name: "Acme", Color: "#4A9EEF"})

@@ -11,6 +11,35 @@ func TestTextEntryOverlaysConsumePrintableGlobalKeys(t *testing.T) {
 	}
 }
 
+func TestMixedModeOverlaysConsumeOnlyFocusedTextInput(t *testing.T) {
+	action := NewAgentAction("task", "parent", "builder")
+	if ConsumesPrintableInput(action) {
+		t.Fatal("agent action menu should yield printable globals")
+	}
+	action.mode = agentActionMessageInput
+	if !ConsumesPrintableInput(action) {
+		t.Fatal("agent action message input should consume printable globals")
+	}
+
+	plan := PlanApprovalOverlay{}
+	if ConsumesPrintableInput(plan) {
+		t.Fatal("plan review should yield printable globals")
+	}
+	plan.mode = planModeRejecting
+	if !ConsumesPrintableInput(plan) {
+		t.Fatal("plan rejection input should consume printable globals")
+	}
+
+	link := LinkPROverlay{phase: phaseConfirm}
+	if ConsumesPrintableInput(link) {
+		t.Fatal("PR confirmation should yield printable globals")
+	}
+	link.phase = phaseInput
+	if !ConsumesPrintableInput(link) {
+		t.Fatal("PR input should consume printable globals")
+	}
+}
+
 func TestMoveShortcutsReserveFixedOverlayControls(t *testing.T) {
 	shortcuts := buildShortcuts([]string{"Queue", "Workspace", "Jump", "Keep"})
 	for _, reserved := range []rune{'q', 'w', 'j', 'k'} {

@@ -79,4 +79,13 @@ func TestControlCAlwaysQuits(t *testing.T) {
 			t.Fatalf("view %v: ctrl+c did not quit", view)
 		}
 	}
+	app := initTestApp()
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	_, cmd := app.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Fatal("ctrl+c with overlay produced no command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("ctrl+c with overlay did not quit")
+	}
 }

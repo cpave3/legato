@@ -21,18 +21,6 @@ const (
 	StateError
 )
 
-// Mode identifies which top-level view is active so the status bar can show
-// only the hints relevant to that view.
-type Mode int
-
-const (
-	ModeBoard Mode = iota
-	ModeDetail
-	ModeAgents
-	ModeReport
-	ModeReview
-)
-
 // Messages
 type SyncStartedMsg struct{}
 type SyncCompletedMsg struct{ At time.Time }
@@ -49,7 +37,6 @@ type WorkspaceMsg struct {
 	Name  string
 	Color string
 }
-type ModeMsg struct{ Mode Mode }
 type HotkeyContextMsg struct {
 	Registry *hotkey.Registry
 	Context  hotkey.Context
@@ -66,7 +53,6 @@ type VoiceMsg struct{ Enabled bool }
 // Model is the status bar Bubbletea model.
 type Model struct {
 	state          SyncState
-	mode           Mode
 	lastSync       time.Time
 	warning        string
 	errorText      string
@@ -86,7 +72,6 @@ type Model struct {
 func New() Model {
 	return Model{
 		state:         StateOffline,
-		mode:          ModeBoard,
 		hotkeys:       hotkey.DefaultRegistry(),
 		hotkeyContext: hotkey.Context{Page: hotkey.PageBoard, Predicates: hotkey.NewPredicates(hotkey.PredicateLocalTask, hotkey.PredicateEditor)},
 		now:           time.Now,
@@ -135,14 +120,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case WorkspaceMsg:
 		m.workspaceName = msg.Name
 		m.workspaceColor = msg.Color
-	case ModeMsg:
-		m.mode = msg.Mode
-		m.hotkeyContext.Page = statusModePage(msg.Mode)
-		if msg.Mode == ModeReview {
-			m.hotkeyContext.Mode = hotkey.ModeTour
-		} else {
-			m.hotkeyContext.Mode = ""
-		}
 	case HotkeyContextMsg:
 		m.hotkeys = msg.Registry
 		m.hotkeyContext = msg.Context
@@ -314,21 +291,6 @@ func truncateHints(hints []string, maxWidth int) string {
 
 // hintsForMode returns the compact key-hint set for the active view. The full
 // reference is always available via the ? overlay.
-func statusModePage(mode Mode) hotkey.Page {
-	switch mode {
-	case ModeDetail:
-		return hotkey.PageDetail
-	case ModeAgents:
-		return hotkey.PageAgents
-	case ModeReport:
-		return hotkey.PageReport
-	case ModeReview:
-		return hotkey.PageReview
-	default:
-		return hotkey.PageBoard
-	}
-}
-
 func (m Model) hintsForMode() []struct{ key, label string } {
 	if m.hotkeys == nil {
 		return nil

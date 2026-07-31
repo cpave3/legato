@@ -14,9 +14,8 @@ func ConsumesPrintableInput(model any) bool {
 	}
 	switch model.(type) {
 	case SearchOverlay, CreateOverlay, ImportOverlay, TitleEditOverlay,
-		LinkPROverlay, AgentSpawnOverlay, SwarmInitOverlay, GroupOverlay,
-		WorkflowTriggerOverlay, PlanApprovalOverlay, AgentActionOverlay,
-		WorktreeOverlay:
+		AgentSpawnOverlay, SwarmInitOverlay, GroupOverlay,
+		WorkflowTriggerOverlay, WorktreeOverlay:
 		return true
 	default:
 		return false

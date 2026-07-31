@@ -432,7 +432,7 @@ func (m Model) viewQueue() string {
 		lines = append(lines, "", lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).
 			Render(fmt.Sprintf("Delete review for %s? y confirm · n/esc cancel", m.queue[m.queueCursor].TourID)))
 	} else {
-		line := "j/k move · enter open · x delete · r refresh · esc back"
+		line := m.hotkeyFooter(hotkey.ModeQueue)
 		if m.info != "" {
 			line = m.info + " · " + line
 		}
@@ -535,6 +535,15 @@ func (m Model) renderStepList(height int) string {
 	return cropLines(strings.Join(cards, "\n"), height)
 }
 
+func (m Model) hotkeyFooter(mode hotkey.Mode) string {
+	bindings := hotkey.DefaultRegistry().Bindings(hotkey.Context{Page: hotkey.PageReview, Mode: mode}, hotkey.ShortcutBar)
+	parts := make([]string, 0, len(bindings))
+	for _, binding := range bindings {
+		parts = append(parts, hotkey.DisplayKey(binding)+" "+binding.Label)
+	}
+	return strings.Join(parts, " · ")
+}
+
 func (m Model) renderTourFooter() string {
 	dimStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
 	if m.asking {
@@ -545,7 +554,7 @@ func (m Model) renderTourFooter() string {
 		return lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).
 			Render(fmt.Sprintf("Delete review for %s? y confirm · n/esc cancel", m.tourID))
 	}
-	line := "j/k step · d/u scroll · space reviewed · a ask · c complete · x delete · esc queue"
+	line := m.hotkeyFooter(hotkey.ModeTour)
 	if m.info != "" {
 		line = m.info + " · " + line
 	}

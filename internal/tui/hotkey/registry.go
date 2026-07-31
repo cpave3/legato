@@ -136,6 +136,7 @@ type Binding struct {
 	Surfaces     Surface
 	Requires     []Capability
 	When         []Predicate
+	DisplayWhen  []Predicate
 	Target       Target
 	Precedence   Precedence
 }
@@ -196,7 +197,7 @@ func (r *Registry) Resolve(msg tea.KeyMsg, ctx Context) (Binding, bool) {
 	}
 	var candidates []Binding
 	for _, binding := range r.bindings {
-		if !binding.capabilitiesActive(ctx) || !scopeApplies(binding.Scope, ctx) {
+		if !binding.active(ctx) || !scopeApplies(binding.Scope, ctx) {
 			continue
 		}
 		for _, key := range binding.Keys {
@@ -227,7 +228,7 @@ func (r *Registry) AllBindings(ctx Context, surface Surface) []Binding {
 func (r *Registry) orderedBindings(ctx Context, surface Surface, scoped bool) []Binding {
 	result := make([]Binding, 0)
 	for _, binding := range r.bindings {
-		if binding.Surfaces&surface != 0 && binding.active(ctx) && (!scoped || displayScopeApplies(binding.Scope, ctx)) {
+		if binding.Surfaces&surface != 0 && binding.displayActive(ctx) && (!scoped || displayScopeApplies(binding.Scope, ctx)) {
 			result = append(result, binding)
 		}
 	}
@@ -281,6 +282,18 @@ func (b Binding) active(ctx Context) bool {
 		return false
 	}
 	for _, predicate := range b.When {
+		if !ctx.Predicates[predicate] {
+			return false
+		}
+	}
+	return true
+}
+
+func (b Binding) displayActive(ctx Context) bool {
+	if !b.active(ctx) {
+		return false
+	}
+	for _, predicate := range b.DisplayWhen {
 		if !ctx.Predicates[predicate] {
 			return false
 		}

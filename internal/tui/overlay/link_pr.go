@@ -91,6 +91,8 @@ func (m LinkPROverlay) SetError(err string) LinkPROverlay {
 	return m
 }
 
+func (m LinkPROverlay) ConsumesPrintableInput() bool { return m.phase == phaseInput }
+
 func (m LinkPROverlay) Init() tea.Cmd {
 	return nil
 }

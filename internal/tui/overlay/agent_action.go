@@ -74,6 +74,10 @@ func NewAgentAction(taskID, parentTaskID, role string) AgentActionOverlay {
 	}
 }
 
+func (m AgentActionOverlay) ConsumesPrintableInput() bool {
+	return m.mode == agentActionMessageInput || m.mode == agentActionFinishSummary
+}
+
 // Init returns no command.
 func (m AgentActionOverlay) Init() tea.Cmd { return nil }
 

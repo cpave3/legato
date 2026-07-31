@@ -102,6 +102,8 @@ func WithExtension(isExt bool) func(*PlanApprovalOverlay) {
 // ParentTaskID returns the parent task ID being reviewed in this overlay.
 func (m PlanApprovalOverlay) ParentTaskID() string { return m.parentTaskID }
 
+func (m PlanApprovalOverlay) ConsumesPrintableInput() bool { return m.mode == planModeRejecting }
+
 func (m PlanApprovalOverlay) Init() tea.Cmd { return nil }
 
 func (m PlanApprovalOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

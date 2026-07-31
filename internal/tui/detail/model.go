@@ -209,17 +209,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	ctx := hotkey.Context{Page: hotkey.PageDetail, Predicates: hotkey.NewPredicates()}
+func (m Model) HotkeyPredicates() hotkey.Predicates {
+	predicates := hotkey.NewPredicates()
 	if m.card != nil && m.card.Provider == "" {
-		ctx.Predicates[hotkey.PredicateLocalTask] = true
+		predicates[hotkey.PredicateLocalTask] = true
 	}
 	if m.editor != "" {
-		ctx.Predicates[hotkey.PredicateEditor] = true
+		predicates[hotkey.PredicateEditor] = true
 	}
 	if m.swarmCanAdvance() {
-		ctx.Predicates[hotkey.PredicateSwarmNext] = true
+		predicates[hotkey.PredicateSwarmNext] = true
 	}
+	return predicates
+}
+
+func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	ctx := hotkey.Context{Page: hotkey.PageDetail, Predicates: m.HotkeyPredicates()}
 	binding, ok := hotkey.DefaultRegistry().Resolve(msg, ctx)
 	if !ok || binding.Target != hotkey.TargetPage {
 		return m, nil
@@ -719,16 +724,7 @@ func (m Model) renderStatusBar() string {
 		return theme.StatusBar.Width(m.width).Render(m.feedback)
 	}
 
-	ctx := hotkey.Context{Page: hotkey.PageDetail, Predicates: hotkey.NewPredicates()}
-	if m.card != nil && m.card.Provider == "" {
-		ctx.Predicates[hotkey.PredicateLocalTask] = true
-	}
-	if m.editor != "" {
-		ctx.Predicates[hotkey.PredicateEditor] = true
-	}
-	if m.swarmCanAdvance() {
-		ctx.Predicates[hotkey.PredicateSwarmNext] = true
-	}
+	ctx := hotkey.Context{Page: hotkey.PageDetail, Predicates: m.HotkeyPredicates()}
 	bindings := hotkey.DefaultRegistry().Bindings(ctx, hotkey.InlineHint)
 	var parts []string
 	for _, binding := range bindings {

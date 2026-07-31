@@ -334,6 +334,15 @@ func (m *Model) refresh() {
 	}
 	m.viewport.SetContent(b.String())
 }
+func (m Model) hotkeyFooter(mode hotkey.Mode) string {
+	bindings := hotkey.DefaultRegistry().Bindings(hotkey.Context{Page: hotkey.PagePlans, Mode: mode}, hotkey.ShortcutBar)
+	parts := make([]string, 0, len(bindings))
+	for _, binding := range bindings {
+		parts = append(parts, hotkey.DisplayKey(binding)+" "+binding.Label)
+	}
+	return strings.Join(parts, " • ")
+}
+
 func (m Model) View() string {
 	title := lipgloss.NewStyle().Bold(true).Foreground(theme.AccentPurple)
 	if m.mode == queueMode {
@@ -353,14 +362,14 @@ func (m Model) View() string {
 			}
 			b.WriteByte('\n')
 		}
-		b.WriteString("\nenter open • j/k move • q board")
+		b.WriteString("\n" + m.hotkeyFooter(hotkey.ModeQueue))
 		return b.String()
 	}
 	if m.view == nil {
 		return "Loading plan…"
 	}
 	header := fmt.Sprintf("%s  rev %d  [%s]", title.Render(m.view.Plan.Title), m.view.Plan.LatestRevision, m.view.Plan.Status)
-	footer := "j/k scroll • tab choice • e answer • c comment • ? ask • a approve • r changes • x reject • q queue"
+	footer := m.hotkeyFooter(hotkey.ModeReader)
 	if m.inputMode == inputApproveCleanup {
 		footer = "Clean up plan files after successful implementation? y yes • n no • esc cancel"
 	} else if m.inputMode != inputNone {

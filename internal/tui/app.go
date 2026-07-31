@@ -532,6 +532,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Help explicitly overrides non-input overlays; all other keys stay with
 		// the active overlay.
 		if a.overlayType != overlayNone {
+			if msg.Type == tea.KeyCtrlC {
+				return a, tea.Quit
+			}
 			if msg.String() == "?" && !overlay.ConsumesPrintableInput(a.activeOverlay) {
 				return a.openHelpOverlay()
 			}
@@ -1434,7 +1437,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // hints match the current context.
 func (a App) setMode(v viewType) App {
 	a.active = v
-	a.statusBar, _ = a.statusBar.Update(statusbar.ModeMsg{Mode: viewToStatusMode(v)})
 	a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
 	return a
 }
@@ -1446,21 +1448,6 @@ func (a App) boardHasTask(taskID string) bool {
 		}
 	}
 	return false
-}
-
-func viewToStatusMode(v viewType) statusbar.Mode {
-	switch v {
-	case viewDetail:
-		return statusbar.ModeDetail
-	case viewAgents:
-		return statusbar.ModeAgents
-	case viewReport:
-		return statusbar.ModeReport
-	case viewReview, viewPlans:
-		return statusbar.ModeReview
-	default:
-		return statusbar.ModeBoard
-	}
 }
 
 func (a App) openMoveOverlay(taskID string) (tea.Model, tea.Cmd) {
@@ -2646,6 +2633,9 @@ func (a App) hotkeyContext() hotkey.Context {
 	}
 	if a.ntfyConfigured {
 		ctx.Capabilities[hotkey.CapabilityNotifications] = true
+	}
+	if a.active == viewDetail {
+		ctx.Predicates = a.detail.HotkeyPredicates()
 	}
 	if a.active == viewReview {
 		ctx.InputFocused = a.reviewView.InputFocused()
