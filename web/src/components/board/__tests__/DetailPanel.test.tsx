@@ -40,6 +40,18 @@ function renderPanel(card = makeCard(), overrides: Partial<React.ComponentProps<
 }
 
 describe("DetailPanel", () => {
+  it("offers creation only when enabled and displays an existing worktree", () => {
+    const onCreateWorktree = vi.fn()
+    const rendered = renderPanel(makeCard(), { worktreesEnabled: true, onCreateWorktree })
+    fireEvent.click(screen.getByRole("button", { name: "Create worktree" }))
+    expect(onCreateWorktree).toHaveBeenCalledOnce()
+
+    const worktree = { primary_dir: "/repo", path: "/trees/t-1", branch: "t-1", base_branch: "main" }
+    rendered.rerender(<DetailPanel {...rendered.props} card={makeCard({ worktree })} worktreesEnabled />)
+    expect(screen.queryByRole("button", { name: "Create worktree" })).toBeNull()
+    expect(screen.getByText("/trees/t-1")).toBeTruthy()
+  })
+
   it("shows context and invokes targeted PR actions", () => {
     const onRefreshPR = vi.fn()
     const onRediscoverPR = vi.fn()

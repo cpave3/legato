@@ -47,6 +47,13 @@ export interface Workspace {
   color: string
 }
 
+export interface TaskWorktree {
+  primary_dir: string
+  path: string
+  branch: string
+  base_branch: string
+}
+
 export interface CardDetail {
   id: string
   title: string
@@ -59,6 +66,7 @@ export interface CardDetail {
   workspace_id: number | null
   pr_meta: PRMetaView | null
   code_context: CodeContextView | null
+  worktree?: TaskWorktree
   swarm_active_step: number
   swarm_step_names: string[]
   swarm_stats?: SwarmStats

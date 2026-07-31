@@ -28,6 +28,7 @@ import { EditDescriptionModal } from "../components/board/EditDescriptionModal"
 import { HelpModal } from "../components/board/HelpModal"
 import { OpenURLPicker } from "../components/board/OpenURLPicker"
 import { CancelSwarmModal } from "../components/board/CancelSwarmModal"
+import { WorktreeModal } from "../components/board/WorktreeModal"
 import { useToast } from "../hooks/useToast"
 import { apiFetch } from "../lib/api"
 import { WorkflowTriggerInputModal } from "../components/WorkflowTriggerInputModal"
@@ -49,6 +50,7 @@ type Overlay =
   | { kind: "help" }
   | { kind: "openURL"; providerURL: string; prURL: string }
   | { kind: "cancelSwarm"; card: BoardCard }
+  | { kind: "worktree" }
   | { kind: "workflowInput"; request: WorkflowTriggerRequest }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -68,7 +70,13 @@ export function BoardPage() {
   const [detailId, setDetailId] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<string | null>(null)
   const [repositories, setRepositories] = useState<RepositoryPreset[]>([])
-  useEffect(()=>{apiFetch(baseUrl,"/api/settings").then(r=>r.ok?r.json():null).then(data=>setRepositories(data?.repositories??[])).catch(()=>{})},[baseUrl])
+  const [defaultWorkingDir, setDefaultWorkingDir] = useState("")
+  const [worktreesEnabled, setWorktreesEnabled] = useState(false)
+  useEffect(()=>{apiFetch(baseUrl,"/api/settings").then(r=>r.ok?r.json():null).then(data=>{
+    setRepositories(data?.repositories??[])
+    setDefaultWorkingDir(data?.working_dir??"")
+    setWorktreesEnabled(Boolean(data?.worktrees_enabled))
+  }).catch(()=>{})},[baseUrl])
   const boardRef = useRef<HTMLDivElement>(null)
   const movedCardIdRef = useRef<string | null>(null)
 
@@ -740,6 +748,20 @@ export function BoardPage() {
         onClose={() => setOverlay({ kind: "none" })}
       />
 
+      <WorktreeModal
+        open={overlay.kind === "worktree"}
+        taskId={detailCard?.id ?? ""}
+        defaultPrimaryDir={defaultWorkingDir}
+        repositories={repositories}
+        onClose={() => setOverlay({ kind: "none" })}
+        onCreated={async () => {
+          setOverlay({ kind: "none" })
+          await refresh()
+          if (detailCard) await openDetail(detailCard.id)
+          addToast("Worktree created", "success")
+        }}
+      />
+
       {overlay.kind === "workflowInput" && <WorkflowTriggerInputModal baseUrl={baseUrl} request={overlay.request} repositories={repositories} onClose={()=>setOverlay({kind:"none"})} onStarted={()=>{setOverlay({kind:"none"});addToast("Workflow started","success")}}/>}
 
       {/* Detail panel */}
@@ -811,6 +833,8 @@ export function BoardPage() {
               setOverlay({ kind: "cancelSwarm", card: { id: detailCard.id, title: detailCard.title } as BoardCard })
             }
           }}
+          worktreesEnabled={worktreesEnabled}
+          onCreateWorktree={() => setOverlay({ kind: "worktree" })}
         />
       )}
 

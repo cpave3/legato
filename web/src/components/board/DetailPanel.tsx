@@ -17,6 +17,8 @@ interface DetailPanelProps {
   onCopyFull: () => void
   onOpenURL: () => void
   onCancelSwarm: () => void
+  onCreateWorktree?: () => void
+  worktreesEnabled?: boolean
 }
 
 export function DetailPanel({
@@ -33,6 +35,8 @@ export function DetailPanel({
   onCopyFull,
   onOpenURL,
   onCancelSwarm,
+  onCreateWorktree = () => {},
+  worktreesEnabled = false,
 }: DetailPanelProps) {
   const isLocal = !card.provider
   return (
@@ -93,6 +97,12 @@ export function DetailPanel({
               </a>
             </div>
           )}
+          {card.worktree && (
+            <>
+              <div><span className="text-zinc-600">Worktree:</span> {card.worktree.path}</div>
+              <div><span className="text-zinc-600">Worktree branch:</span> {card.worktree.branch}</div>
+            </>
+          )}
           {card.code_context && (
             <>
               <div><span className="text-zinc-600">Repository:</span> {card.code_context.repo}</div>
@@ -138,7 +148,10 @@ export function DetailPanel({
 
         {/* Action bar */}
         <div className="flex flex-wrap items-center gap-1 border-b border-zinc-800 px-3 py-2 md:px-5">
-          <TaskAgentAction taskId={card.id}/>
+          <TaskAgentAction taskId={card.id} worktreePath={card.worktree?.path}/>
+          {worktreesEnabled && !card.worktree && (
+            <button onClick={onCreateWorktree} className="min-h-11 rounded bg-violet-700 px-3 text-xs font-medium text-white md:min-h-0 md:py-1">Create worktree</button>
+          )}
           {isLocal && (
             <button onClick={onEditTitle} className="min-h-11 rounded px-3 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 md:min-h-0 md:px-2 md:py-1 md:text-[10px]">
               Edit title (t)

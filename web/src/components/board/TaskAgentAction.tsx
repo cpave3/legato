@@ -6,7 +6,7 @@ import { useAgentSelection } from "../../hooks/useAgentSelection"
 import { apiFetch } from "../../lib/api"
 import { RepositoryPresetSelect, type RepositoryPreset } from "../RepositoryPresetSelect"
 
-export function TaskAgentAction({ taskId }: { taskId: string }) {
+export function TaskAgentAction({ taskId, worktreePath = "" }: { taskId: string; worktreePath?: string }) {
   const { baseUrl } = useServer()
   const navigate = useNavigate()
   const { setSelectedAgentId } = useAgentSelection()
@@ -29,11 +29,11 @@ export function TaskAgentAction({ taskId }: { taskId: string }) {
       }
       if (settingsResponse.ok) {
         const data = await settingsResponse.json()
-        setWorkingDir(data.working_dir ?? "")
+        setWorkingDir(worktreePath || data.working_dir || "")
         setRepositories(data.repositories ?? [])
       }
     })
-  }, [open, baseUrl])
+  }, [open, baseUrl, worktreePath])
 
   async function launch() {
     setBusy(true)
