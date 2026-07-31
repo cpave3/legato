@@ -137,26 +137,26 @@ func (m MoveWorkspaceOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "esc", "q":
-			return m, func() tea.Msg { return WorkspaceAssignCancelledMsg{} }
-		case "j", "down":
-			if m.cursor < len(m.entries)-1 {
-				m.cursor++
-			}
-		case "k", "up":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-		case "enter":
-			return m.selectCurrent()
-		default:
-			if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-				r := msg.Runes[0]
-				if idx, ok := m.shortcuts[r]; ok {
-					m.cursor = idx
-					return m.selectCurrent()
+		binding, fixed := hotkey.DefaultRegistry().Resolve(msg, hotkey.Context{Overlay: hotkey.OverlayMoveWorkspace})
+		if fixed {
+			switch binding.ID {
+			case hotkey.ActionOverlayCancel:
+				return m, func() tea.Msg { return WorkspaceAssignCancelledMsg{} }
+			case hotkey.ActionOverlayDown:
+				if m.cursor < len(m.entries)-1 {
+					m.cursor++
 				}
+			case hotkey.ActionOverlayUp:
+				if m.cursor > 0 {
+					m.cursor--
+				}
+			case hotkey.ActionOverlaySelect:
+				return m.selectCurrent()
+			}
+		} else if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+			if idx, ok := m.shortcuts[msg.Runes[0]]; ok {
+				m.cursor = idx
+				return m.selectCurrent()
 			}
 		}
 	}

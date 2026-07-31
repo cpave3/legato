@@ -555,7 +555,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		ctx := a.hotkeyContext()
 		binding, ok := a.hotkeys.Resolve(msg, ctx)
 		if !ok {
-			return a.delegateKey(msg)
+			if ctx.InputFocused {
+				return a.delegateKey(msg)
+			}
+			return a, nil
 		}
 		return a.dispatchHotkey(binding, msg)
 
@@ -2674,8 +2677,13 @@ func viewToHotkeyPage(v viewType) hotkey.Page {
 	}
 }
 
+func (a App) nestedPageMode() bool {
+	return (a.active == viewReview && a.reviewView.HotkeyMode() == hotkey.ModeTour) ||
+		(a.active == viewPlans && a.planView.HotkeyMode() == hotkey.ModeReader)
+}
+
 func (a App) dispatchHotkey(binding hotkey.Binding, msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if binding.ID == hotkey.ActionBack && msg.String() == "q" {
+	if binding.ID == hotkey.ActionBack && msg.String() == "q" && !a.nestedPageMode() {
 		if a.active == viewAgents {
 			a.agentView.StopPolling()
 		}
@@ -2705,26 +2713,10 @@ func (a App) dispatchHotkey(binding hotkey.Binding, msg tea.KeyMsg) (tea.Model, 
 		return a, cmd
 	}
 	switch binding.ID {
-	case hotkey.ActionBack:
-		if msg.String() == "q" {
-			if a.active == viewAgents {
-				a.agentView.StopPolling()
-			}
-			a = a.setMode(viewBoard)
-			return a, nil
-		}
-		return a.delegateKey(msg)
 	case hotkey.ActionHelp:
 		return a.openHelpOverlay()
 	case hotkey.ActionQuit:
-		if a.active == viewBoard {
-			return a, tea.Quit
-		}
-		if a.active == viewAgents {
-			a.agentView.StopPolling()
-		}
-		a = a.setMode(viewBoard)
-		return a, nil
+		return a, tea.Quit
 	case hotkey.ActionBoardSearch:
 		return a.openSearchOverlay()
 	case hotkey.ActionBoardRefresh:
@@ -2774,40 +2766,6 @@ func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	switch a.active {
 	case viewBoard:
-		if msg.String() == "B" {
-			return a.openArchivedOverlay()
-		}
-		// 'X' opens archive confirmation for done cards
-		if msg.String() == "X" {
-			return a.openArchiveOverlay()
-		}
-		// 'A' switches to agent view
-		if msg.String() == "A" {
-			return a.switchToAgentView()
-		}
-		// 'W' toggles web server
-		if msg.String() == "W" {
-			return a.toggleWebServer()
-		}
-		if msg.String() == "b" && a.worktreesEnabled {
-			card := a.board.SelectedCard()
-			if card == nil {
-				return a, nil
-			}
-			branch := strings.ToLower(strings.ReplaceAll(card.Key, "_", "-"))
-			model := overlay.NewWorktree(card.Key, a.workDir, branch)
-			sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
-			a.activeOverlay, a.overlayType = sized, overlayWorktree
-			return a, nil
-		}
-		// 'a' spawns agent on selected card
-		if msg.String() == "a" {
-			return a.handleBoardSpawnAgent()
-		}
-		// 't' opens terminal for selected card (spawns if needed)
-		if msg.String() == "t" {
-			return a.handleBoardSpawnAgent()
-		}
 		var cmd tea.Cmd
 		a.board, cmd = a.board.Update(msg)
 		if cmd != nil {

@@ -123,44 +123,39 @@ func (m MoveOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "esc", "q":
-			return m, func() tea.Msg { return MoveCancelledMsg{} }
-		case "j", "down":
-			if m.cursor < len(m.columns)-1 {
-				m.cursor++
-			}
-		case "k", "up":
-			if m.cursor > 0 {
-				m.cursor--
-			}
-		case "w":
-			id := m.taskID
-			return m, func() tea.Msg { return OpenMoveWorkspaceMsg{TaskID: id} }
-		case "enter":
-			if m.cursor < len(m.columns) {
-				target := m.columns[m.cursor]
-				if target == m.currentColumn {
-					return m, func() tea.Msg { return MoveCancelledMsg{} }
+		binding, fixed := hotkey.DefaultRegistry().Resolve(msg, hotkey.Context{Overlay: hotkey.OverlayMove})
+		if fixed {
+			switch binding.ID {
+			case hotkey.ActionOverlayCancel:
+				return m, func() tea.Msg { return MoveCancelledMsg{} }
+			case hotkey.ActionOverlayDown:
+				if m.cursor < len(m.columns)-1 {
+					m.cursor++
 				}
+			case hotkey.ActionOverlayUp:
+				if m.cursor > 0 {
+					m.cursor--
+				}
+			case hotkey.ActionMoveWorkspace:
 				id := m.taskID
-				return m, func() tea.Msg {
-					return MoveSelectedMsg{TaskID: id, TargetColumn: target}
-				}
-			}
-		default:
-			// Check shortcut keys
-			if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
-				r := msg.Runes[0]
-				if col, ok := m.shortcuts[r]; ok {
-					if col == m.currentColumn {
+				return m, func() tea.Msg { return OpenMoveWorkspaceMsg{TaskID: id} }
+			case hotkey.ActionOverlaySelect:
+				if m.cursor < len(m.columns) {
+					target := m.columns[m.cursor]
+					if target == m.currentColumn {
 						return m, func() tea.Msg { return MoveCancelledMsg{} }
 					}
 					id := m.taskID
-					return m, func() tea.Msg {
-						return MoveSelectedMsg{TaskID: id, TargetColumn: col}
-					}
+					return m, func() tea.Msg { return MoveSelectedMsg{TaskID: id, TargetColumn: target} }
 				}
+			}
+		} else if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+			if col, ok := m.shortcuts[msg.Runes[0]]; ok {
+				if col == m.currentColumn {
+					return m, func() tea.Msg { return MoveCancelledMsg{} }
+				}
+				id := m.taskID
+				return m, func() tea.Msg { return MoveSelectedMsg{TaskID: id, TargetColumn: col} }
 			}
 		}
 	}
