@@ -7,6 +7,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 // mockProvider implements TicketProvider for testing.
 type mockProvider struct {
+	mu            sync.Mutex
 	tickets       []RemoteTicket
 	transitions   []RemoteTransition
 	searchErr     error
@@ -62,6 +64,8 @@ func (m *mockProvider) ListTransitions(_ context.Context, _ string) ([]RemoteTra
 }
 
 func (m *mockProvider) DoTransition(_ context.Context, id string, transitionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.doTransCalls = append(m.doTransCalls, doTransCall{ID: id, TransitionID: transitionID})
 	return m.doTransErr
 }
@@ -1059,12 +1063,16 @@ func TestPushRetryOnManualSync(t *testing.T) {
 	}
 
 	// First push fails
+	provider.mu.Lock()
 	provider.doTransErr = fmt.Errorf("network error")
+	provider.mu.Unlock()
 	svc.PushMove(ctx, "TEST-1", "Doing")
 	time.Sleep(100 * time.Millisecond)
 
 	// Now fix the error and retry via sync
+	provider.mu.Lock()
 	provider.doTransErr = nil
+	provider.mu.Unlock()
 	provider.tickets = []RemoteTicket{
 		{ID: "TEST-1", Summary: "Test", Status: "To Do", UpdatedAt: now},
 	}
@@ -1072,8 +1080,11 @@ func TestPushRetryOnManualSync(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Check that retry was attempted
-	if len(provider.doTransCalls) < 2 {
-		t.Errorf("expected at least 2 transition calls (initial + retry), got %d", len(provider.doTransCalls))
+	provider.mu.Lock()
+	calls := len(provider.doTransCalls)
+	provider.mu.Unlock()
+	if calls < 2 {
+		t.Errorf("expected at least 2 transition calls (initial + retry), got %d", calls)
 	}
 }
 
