@@ -6,52 +6,61 @@ import (
 
 	"github.com/cpave3/legato/internal/engine/analytics"
 	"github.com/cpave3/legato/internal/engine/store"
-	"github.com/jmoiron/sqlx"
 )
 
+type reportQueries interface {
+	QueryDurations(context.Context, analytics.TimeRange) (analytics.DurationResult, error)
+	QueryDailyBreakdown(context.Context, analytics.TimeRange) ([]analytics.DayEntry, error)
+	QueryTaskBreakdown(context.Context, analytics.TimeRange) ([]analytics.TaskDuration, error)
+	QueryThroughput(context.Context, analytics.TimeRange) (analytics.Throughput, error)
+	QueryWorkspaceBreakdown(context.Context, analytics.TimeRange) ([]analytics.WorkspaceBreakdown, error)
+	QueryDirectoryBreakdown(context.Context, analytics.TimeRange) ([]analytics.DirectoryBreakdown, error)
+	QuerySwarmBreakdown(context.Context, analytics.TimeRange) ([]analytics.SwarmBreakdown, error)
+}
+
 type reportService struct {
-	db    *sqlx.DB
-	store *store.Store
+	queries reportQueries
+	store   *store.Store
 }
 
 // NewReportService creates a new ReportService.
 func NewReportService(s *store.Store) ReportService {
-	return &reportService{db: s.DB(), store: s}
+	return &reportService{queries: s, store: s}
 }
 
 func (r *reportService) GenerateReport(ctx context.Context, period analytics.TimeRange) (*Report, error) {
 	// Run all analytics queries
-	durations, err := analytics.QueryDurations(ctx, r.db, period)
+	durations, err := r.queries.QueryDurations(ctx, period)
 	if err != nil {
 		return nil, err
 	}
 
-	dailyBreakdown, err := analytics.QueryDailyBreakdown(ctx, r.db, period)
+	dailyBreakdown, err := r.queries.QueryDailyBreakdown(ctx, period)
 	if err != nil {
 		return nil, err
 	}
 
-	taskBreakdown, err := analytics.QueryTaskBreakdown(ctx, r.db, period)
+	taskBreakdown, err := r.queries.QueryTaskBreakdown(ctx, period)
 	if err != nil {
 		return nil, err
 	}
 
-	throughput, err := analytics.QueryThroughput(ctx, r.db, period)
+	throughput, err := r.queries.QueryThroughput(ctx, period)
 	if err != nil {
 		return nil, err
 	}
 
-	wsBreakdown, err := analytics.QueryWorkspaceBreakdown(ctx, r.db, period)
+	wsBreakdown, err := r.queries.QueryWorkspaceBreakdown(ctx, period)
 	if err != nil {
 		return nil, err
 	}
 
-	dirBreakdown, err := analytics.QueryDirectoryBreakdown(ctx, r.db, period)
+	dirBreakdown, err := r.queries.QueryDirectoryBreakdown(ctx, period)
 	if err != nil {
 		return nil, err
 	}
 
-	swarmBreakdown, err := analytics.QuerySwarmBreakdown(ctx, r.db, period)
+	swarmBreakdown, err := r.queries.QuerySwarmBreakdown(ctx, period)
 	if err != nil {
 		return nil, err
 	}

@@ -26,7 +26,7 @@ func runColumnsSyncContract(args []string) int {
 	if err != nil {
 		return renderCommandError(command, &commandError{Code: "config_invalid", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
 	}
-	db, err := store.New(config.ResolveDBPath(cfg))
+	db, err := openStore(cfg)
 	if err != nil {
 		return renderCommandError(command, &commandError{Code: "database_unavailable", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
 	}

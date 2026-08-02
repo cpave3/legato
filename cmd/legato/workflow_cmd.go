@@ -48,7 +48,7 @@ func runWorkflowCmd(args []string) int {
 	if err != nil {
 		return renderCommandError("workflow."+args[0], workflowCommandError(err), flags["json"] != "")
 	}
-	db, err := store.New(config.ResolveDBPath(cfg))
+	db, err := openStore(cfg)
 	if err != nil {
 		return renderCommandError("workflow."+args[0], workflowCommandError(err), flags["json"] != "")
 	}

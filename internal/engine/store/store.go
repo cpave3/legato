@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/jmoiron/sqlx"
@@ -16,8 +18,31 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
+const sqliteBusyTimeoutMS = 5000
+
+var migrations = embeddedMigrationNames()
+
+func embeddedMigrationNames() []string {
+	entries, err := migrationsFS.ReadDir("migrations")
+	if err != nil {
+		panic(fmt.Sprintf("reading embedded migrations: %v", err))
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") {
+			names = append(names, entry.Name())
+		}
+	}
+	return names
+}
+
 type Store struct {
 	db *sqlx.DB
+}
+
+type SchemaStatus struct {
+	Current   int
+	Supported int
 }
 
 func New(dbPath string) (*Store, error) {
@@ -25,22 +50,23 @@ func New(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("creating db directory: %w", err)
 	}
 
-	db, err := sqlx.Open("sqlite", dbPath)
+	db, err := sqlx.Open("sqlite", sqliteDSN(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
 
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+	var journalMode string
+	if err := db.Get(&journalMode, "PRAGMA journal_mode"); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("enabling WAL: %w", err)
+		return nil, fmt.Errorf("reading journal mode: %w", err)
 	}
-	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("enabling foreign keys: %w", err)
-	}
-	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("setting busy timeout: %w", err)
+	if strings.ToLower(journalMode) != "wal" {
+		if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("enabling WAL: %w", err)
+		}
 	}
 
 	s := &Store{db: db}
@@ -52,6 +78,14 @@ func New(dbPath string) (*Store, error) {
 	return s, nil
 }
 
+func sqliteDSN(path string) string {
+	query := url.Values{}
+	query.Add("_pragma", "busy_timeout("+strconv.Itoa(sqliteBusyTimeoutMS)+")")
+	query.Add("_pragma", "foreign_keys(ON)")
+	query.Set("_txlock", "immediate")
+	return "file:" + path + "?" + query.Encode()
+}
+
 func (s *Store) Close() error {
 	return s.db.Close()
 }
@@ -61,45 +95,72 @@ func (s *Store) DB() *sqlx.DB {
 	return s.db
 }
 
+func (s *Store) SchemaStatus() (SchemaStatus, error) {
+	var current int
+	if err := s.db.Get(&current, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations"); err != nil {
+		return SchemaStatus{}, err
+	}
+	return SchemaStatus{Current: current, Supported: len(migrations)}, nil
+}
+
 func (s *Store) migrate() error {
-	var version int
-	if err := s.db.Get(&version, "PRAGMA user_version"); err != nil {
+	tx, err := s.db.Beginx()
+	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
-	migrations := []string{"001_init.sql", "002_stale_and_move_tracking.sql", "003_rename_jira_to_remote.sql", "004_agent_sessions.sql", "005_tasks.sql", "006_agent_activity.sql", "007_state_intervals.sql", "008_workspaces.sql", "009_archive.sql", "010_pr_meta.sql", "011_ephemeral.sql", "012_swarm.sql", "013_agent_role.sql", "014_swarm_v1.sql", "015_swarm_events.sql", "016_state_interval_working_dir.sql", "017_swarm_step_index.sql", "018_swarm_active_step.sql", "019_swarm_pending_plans.sql", "020_swarm_tier.sql", "021_state_intervals_drop_fk.sql", "022_agent_kind.sql", "023_task_prefs.sql", "024_chimera_session.sql", "025_task_worktree.sql", "026_task_group.sql", "027_review_tours.sql", "028_review_repository.sql", "029_review_hunk_notes.sql", "030_review_chapters.sql", "031_named_review_tours.sql", "032_review_note_lines.sql", "033_plans.sql", "034_plan_completion.sql", "035_review_passes.sql", "036_review_findings.sql", "037_artifact_interactions.sql", "038_workflows.sql", "039_workflow_related_task.sql", "040_task_notes.sql", "041_workflow_related_task_backfill.sql", "042_attention_items.sql", "043_chimera_discovery.sql", "044_task_metadata.sql", "045_workflow_triggers.sql", "046_workflow_run_trigger.sql", "047_task_code_context.sql", "048_workflow_trigger_definition.sql"}
+	var legacyVersion int
+	if err := tx.Get(&legacyVersion, "PRAGMA user_version"); err != nil {
+		return err
+	}
+	if legacyVersion > len(migrations) {
+		return fmt.Errorf("database schema version %d is newer than this Legato binary supports (%d)", legacyVersion, len(migrations))
+	}
+	if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version INTEGER PRIMARY KEY,
+		name TEXT NOT NULL,
+		applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+	)`); err != nil {
+		return fmt.Errorf("creating migration ledger: %w", err)
+	}
+	for i := 0; i < legacyVersion; i++ {
+		if _, err := tx.Exec(`INSERT INTO schema_migrations(version, name) VALUES (?, ?) ON CONFLICT(version) DO NOTHING`, i+1, migrations[i]); err != nil {
+			return fmt.Errorf("bootstrapping migration ledger: %w", err)
+		}
+	}
+	var version int
+	if err := tx.Get(&version, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations"); err != nil {
+		return err
+	}
+	if version > 0 && legacyVersion != version {
+		return fmt.Errorf("database schema markers disagree: migration ledger is %d but SQLite user_version is %d", version, legacyVersion)
+	}
+	if version > len(migrations) {
+		return fmt.Errorf("database schema version %d is newer than this Legato binary supports (%d)", version, len(migrations))
+	}
 
 	for i := version; i < len(migrations); i++ {
 		data, err := migrationsFS.ReadFile("migrations/" + migrations[i])
 		if err != nil {
 			return fmt.Errorf("reading migration %s: %w", migrations[i], err)
 		}
-
-		tx, err := s.db.Begin()
-		if err != nil {
-			return err
-		}
-
 		if _, err := tx.Exec(string(data)); err != nil {
 			// Tolerate "duplicate column name" errors from ALTER TABLE ADD COLUMN
 			// so that migrations adding columns can be re-run after a partial failure.
 			if !strings.Contains(err.Error(), "duplicate column name") {
-				tx.Rollback()
 				return fmt.Errorf("executing migration %s: %w", migrations[i], err)
 			}
 		}
-
-		if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", i+1)); err != nil {
-			tx.Rollback()
-			return err
+		if _, err := tx.Exec(`INSERT INTO schema_migrations(version, name) VALUES (?, ?)`, i+1, migrations[i]); err != nil {
+			return fmt.Errorf("recording migration %s: %w", migrations[i], err)
 		}
-
-		if err := tx.Commit(); err != nil {
+		if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", i+1)); err != nil {
 			return err
 		}
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 // Task CRUD

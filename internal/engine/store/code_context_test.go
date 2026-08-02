@@ -71,7 +71,7 @@ func TestMigrationBackfillsCodeContextAndPinsNumberedPR(t *testing.T) {
 	if _, err := legacy.DB().Exec(`ALTER TABLE tasks DROP COLUMN code_context`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := legacy.DB().Exec(`PRAGMA user_version = 46`); err != nil {
+	if _, err := legacy.DB().Exec(`DELETE FROM schema_migrations WHERE version > 46; PRAGMA user_version = 46`); err != nil {
 		t.Fatal(err)
 	}
 	if err := legacy.Close(); err != nil {

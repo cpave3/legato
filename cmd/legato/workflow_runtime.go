@@ -88,7 +88,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 		}
 		executors = append(executors, service.NewWorktreeRemoveExecutor(worktrees))
 	}
-	dataDir := filepath.Join(filepath.Dir(config.ResolveDBPath(cfg)), "artifacts")
+	dataDir := filepath.Join(config.ResolveDataDir(cfg), "artifacts")
 	workflows := service.NewWorkflowServiceWithOutputs(db, executors, dataDir)
 	workflows.SetRepositoryPresets(workflowRepositoryPresets(cfg))
 	return workflows, nil

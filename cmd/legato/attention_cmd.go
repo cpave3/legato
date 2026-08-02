@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/config"
-	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -28,7 +27,7 @@ func runAttentionCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
-	db, err := store.New(config.ResolveDBPath(cfg))
+	db, err := openStore(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "database: %v\n", err)
 		return 1

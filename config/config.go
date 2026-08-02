@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/cpave3/legato/internal/engine/macros"
 	"gopkg.in/yaml.v3"
@@ -18,6 +19,7 @@ type Config struct {
 	Editor         string                   `yaml:"editor"`
 	Keybindings    KeybindingsConfig        `yaml:"keybindings"`
 	DB             DBConfig                 `yaml:"db"`
+	DataDir        string                   `yaml:"data_dir"`
 	Agents         AgentsConfig             `yaml:"agents"`
 	GitHub         GitHubConfig             `yaml:"github"`
 	Web            WebConfig                `yaml:"web"`
@@ -242,7 +244,13 @@ type KeybindingsConfig struct {
 }
 
 type DBConfig struct {
-	Path string `yaml:"path"`
+	Driver string `yaml:"driver"`
+	Path   string `yaml:"path"`
+}
+
+type ResolvedDatabase struct {
+	Driver string
+	Path   string
 }
 
 // ResolveConfigPath returns the config file path using precedence:
@@ -366,6 +374,24 @@ func ResolveDBPath(cfg *Config) string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".local", "share", "legato", "legato.db")
+}
+
+func ResolveDatabase(cfg *Config) (ResolvedDatabase, error) {
+	driver := strings.ToLower(strings.TrimSpace(cfg.DB.Driver))
+	if driver == "" {
+		driver = "sqlite"
+	}
+	if driver != "sqlite" {
+		return ResolvedDatabase{}, fmt.Errorf("database driver %q is not supported", driver)
+	}
+	return ResolvedDatabase{Driver: driver, Path: ResolveDBPath(cfg)}, nil
+}
+
+func ResolveDataDir(cfg *Config) string {
+	if cfg.DataDir != "" {
+		return cfg.DataDir
+	}
+	return filepath.Dir(ResolveDBPath(cfg))
 }
 
 func defaults() *Config {

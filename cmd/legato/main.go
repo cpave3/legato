@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -104,7 +103,7 @@ func runWorkspaceCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
-	db, err := store.New(config.ResolveDBPath(cfg))
+	db, err := openStore(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "database: %v\n", err)
 		return 1
@@ -130,7 +129,7 @@ func runPlanCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
-	db, err := store.New(config.ResolveDBPath(cfg))
+	db, err := openStore(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "database: %v\n", err)
 		return 1
@@ -284,7 +283,7 @@ func runReviewCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
-	db, err := store.New(config.ResolveDBPath(cfg))
+	db, err := openStore(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "database: %v\n", err)
 		return 1
@@ -762,8 +761,7 @@ func runTaskCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
-	dbPath := config.ResolveDBPath(cfg)
-	db, err := store.New(dbPath)
+	db, err := openStore(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "database: %v\n", err)
 		return 1
@@ -1097,7 +1095,7 @@ func runAgentSessionCreated(args []string) int {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
-	db, err := store.New(config.ResolveDBPath(cfg))
+	db, err := openStore(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "database: %v\n", err)
 		return 1
@@ -1133,8 +1131,7 @@ func runAgentState(args []string) int {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
-	dbPath := config.ResolveDBPath(cfg)
-	db, err := store.New(dbPath)
+	db, err := openStore(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "database: %v\n", err)
 		return 1
@@ -1171,8 +1168,7 @@ func runAgentSummary(args []string) int {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
-	dbPath := config.ResolveDBPath(cfg)
-	db, err := store.New(dbPath)
+	db, err := openStore(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "database: %v\n", err)
 		return 1
@@ -1213,8 +1209,7 @@ func runAgentStatus(args []string) int {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
-	dbPath := config.ResolveDBPath(cfg)
-	db, err := store.New(dbPath)
+	db, err := openStore(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "database: %v\n", err)
 		return 1
@@ -1332,8 +1327,7 @@ func runServeCmd(args []string) int {
 		return 1
 	}
 
-	dbPath := config.ResolveDBPath(cfg)
-	db, err := store.New(dbPath)
+	db, err := openStore(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "database: %v\n", err)
 		return 1
@@ -1441,7 +1435,7 @@ func runServeCmd(args []string) int {
 	}
 
 	// Auth token — auto-generated on first run.
-	dataDir := filepath.Dir(config.ResolveDBPath(cfg))
+	dataDir := config.ResolveDataDir(cfg)
 	if token, err := auth.EnsureToken(dataDir); err != nil {
 		log.Printf("auth: %v (web UI will run without auth)", err)
 	} else {
@@ -1509,8 +1503,7 @@ func runTUI() int {
 		return 1
 	}
 
-	dbPath := config.ResolveDBPath(cfg)
-	db, err := store.New(dbPath)
+	db, err := openStore(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "database: %v\n", err)
 		return 1
@@ -1773,7 +1766,7 @@ func runTUI() int {
 			if caCertFile != "" {
 				webSrv.SetCACertPath(caCertFile)
 			}
-			if token, err := auth.EnsureToken(filepath.Dir(dbPath)); err == nil {
+			if token, err := auth.EnsureToken(config.ResolveDataDir(cfg)); err == nil {
 				webSrv.SetAuthToken(token)
 			}
 			webSrv.StartSwarmEvents()
@@ -1919,9 +1912,7 @@ func tlsEnabled(cfg *config.Config) bool {
 }
 
 func resolveDataDir(cfg *config.Config) string {
-	// Reuse the same base directory as the database.
-	dbPath := config.ResolveDBPath(cfg)
-	return filepath.Dir(dbPath)
+	return config.ResolveDataDir(cfg)
 }
 
 func runAuthCmd(args []string) int {
@@ -2253,8 +2244,7 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return nil, nil, 1
 	}
-	dbPath := config.ResolveDBPath(cfg)
-	db, err := store.New(dbPath)
+	db, err := openStore(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "database: %v\n", err)
 		return nil, nil, 1
