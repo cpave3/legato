@@ -9,13 +9,13 @@ import (
 )
 
 type reportQueries interface {
-	QueryDurations(context.Context, analytics.TimeRange) (analytics.DurationResult, error)
-	QueryDailyBreakdown(context.Context, analytics.TimeRange) ([]analytics.DayEntry, error)
-	QueryTaskBreakdown(context.Context, analytics.TimeRange) ([]analytics.TaskDuration, error)
-	QueryThroughput(context.Context, analytics.TimeRange) (analytics.Throughput, error)
-	QueryWorkspaceBreakdown(context.Context, analytics.TimeRange) ([]analytics.WorkspaceBreakdown, error)
-	QueryDirectoryBreakdown(context.Context, analytics.TimeRange) ([]analytics.DirectoryBreakdown, error)
-	QuerySwarmBreakdown(context.Context, analytics.TimeRange) ([]analytics.SwarmBreakdown, error)
+	QueryDurations(context.Context, store.ReportRange) (store.DurationResult, error)
+	QueryDailyBreakdown(context.Context, store.ReportRange) ([]store.DayEntry, error)
+	QueryTaskBreakdown(context.Context, store.ReportRange) ([]store.TaskDuration, error)
+	QueryThroughput(context.Context, store.ReportRange) (store.Throughput, error)
+	QueryWorkspaceBreakdown(context.Context, store.ReportRange) ([]store.WorkspaceBreakdown, error)
+	QueryDirectoryBreakdown(context.Context, store.ReportRange) ([]store.DirectoryBreakdown, error)
+	QuerySwarmBreakdown(context.Context, store.ReportRange) ([]store.SwarmBreakdown, error)
 }
 
 type reportService struct {
@@ -29,38 +29,39 @@ func NewReportService(s *store.Store) ReportService {
 }
 
 func (r *reportService) GenerateReport(ctx context.Context, period analytics.TimeRange) (*Report, error) {
+	queryRange := store.ReportRange{Start: period.Start, End: period.End}
 	// Run all analytics queries
-	durations, err := r.queries.QueryDurations(ctx, period)
+	durations, err := r.queries.QueryDurations(ctx, queryRange)
 	if err != nil {
 		return nil, err
 	}
 
-	dailyBreakdown, err := r.queries.QueryDailyBreakdown(ctx, period)
+	dailyBreakdown, err := r.queries.QueryDailyBreakdown(ctx, queryRange)
 	if err != nil {
 		return nil, err
 	}
 
-	taskBreakdown, err := r.queries.QueryTaskBreakdown(ctx, period)
+	taskBreakdown, err := r.queries.QueryTaskBreakdown(ctx, queryRange)
 	if err != nil {
 		return nil, err
 	}
 
-	throughput, err := r.queries.QueryThroughput(ctx, period)
+	throughput, err := r.queries.QueryThroughput(ctx, queryRange)
 	if err != nil {
 		return nil, err
 	}
 
-	wsBreakdown, err := r.queries.QueryWorkspaceBreakdown(ctx, period)
+	wsBreakdown, err := r.queries.QueryWorkspaceBreakdown(ctx, queryRange)
 	if err != nil {
 		return nil, err
 	}
 
-	dirBreakdown, err := r.queries.QueryDirectoryBreakdown(ctx, period)
+	dirBreakdown, err := r.queries.QueryDirectoryBreakdown(ctx, queryRange)
 	if err != nil {
 		return nil, err
 	}
 
-	swarmBreakdown, err := r.queries.QuerySwarmBreakdown(ctx, period)
+	swarmBreakdown, err := r.queries.QuerySwarmBreakdown(ctx, queryRange)
 	if err != nil {
 		return nil, err
 	}

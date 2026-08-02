@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -27,6 +28,7 @@ type mockProvider struct {
 	transErr      error
 	doTransErr    error
 	doTransCalls  []doTransCall
+	doTransEvents chan doTransCall
 	downloads     map[string]string
 	downloadCalls []string
 }
@@ -66,7 +68,11 @@ func (m *mockProvider) ListTransitions(_ context.Context, _ string) ([]RemoteTra
 func (m *mockProvider) DoTransition(_ context.Context, id string, transitionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.doTransCalls = append(m.doTransCalls, doTransCall{ID: id, TransitionID: transitionID})
+	call := doTransCall{ID: id, TransitionID: transitionID}
+	m.doTransCalls = append(m.doTransCalls, call)
+	if m.doTransEvents != nil {
+		m.doTransEvents <- call
+	}
 	return m.doTransErr
 }
 
@@ -1046,6 +1052,33 @@ func TestPushSyncFailure(t *testing.T) {
 	}
 }
 
+func awaitSyncLogAction(t *testing.T, s *store.Store, taskID, action string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		logs, err := s.ListSyncLogs(context.Background(), taskID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, log := range logs {
+			if log.TaskID == taskID && log.Action == action {
+				return
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s sync log", action)
+}
+
+func awaitTransitionCall(t *testing.T, calls <-chan doTransCall) {
+	t.Helper()
+	select {
+	case <-calls:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for transition call")
+	}
+}
+
 // Retry failed pushes on manual sync
 func TestPushRetryOnManualSync(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
@@ -1062,12 +1095,13 @@ func TestPushRetryOnManualSync(t *testing.T) {
 		}
 	}
 
+	provider.doTransEvents = make(chan doTransCall, 2)
 	// First push fails
 	provider.mu.Lock()
 	provider.doTransErr = fmt.Errorf("network error")
 	provider.mu.Unlock()
 	svc.PushMove(ctx, "TEST-1", "Doing")
-	time.Sleep(100 * time.Millisecond)
+	awaitTransitionCall(t, provider.doTransEvents)
 
 	// Now fix the error and retry via sync
 	provider.mu.Lock()
@@ -1077,14 +1111,15 @@ func TestPushRetryOnManualSync(t *testing.T) {
 		{ID: "TEST-1", Summary: "Test", Status: "To Do", UpdatedAt: now},
 	}
 	svc.Sync(ctx)
-	time.Sleep(100 * time.Millisecond)
+	awaitTransitionCall(t, provider.doTransEvents)
+	awaitSyncLogAction(t, s, "TEST-1", "push_success")
 
-	// Check that retry was attempted
 	provider.mu.Lock()
-	calls := len(provider.doTransCalls)
+	calls := append([]doTransCall(nil), provider.doTransCalls...)
 	provider.mu.Unlock()
-	if calls < 2 {
-		t.Errorf("expected at least 2 transition calls (initial + retry), got %d", calls)
+	want := []doTransCall{{ID: "TEST-1", TransitionID: "21"}, {ID: "TEST-1", TransitionID: "21"}}
+	if !reflect.DeepEqual(calls, want) {
+		t.Errorf("transition calls = %#v, want %#v", calls, want)
 	}
 }
 

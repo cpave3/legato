@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/cpave3/legato/config"
@@ -88,8 +87,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 		}
 		executors = append(executors, service.NewWorktreeRemoveExecutor(worktrees))
 	}
-	dataDir := filepath.Join(config.ResolveDataDir(cfg), "artifacts")
-	workflows := service.NewWorkflowServiceWithOutputs(db, executors, dataDir)
+	workflows := service.NewWorkflowServiceWithOutputs(db, executors, workflowArtifactRoot(cfg))
 	workflows.SetRepositoryPresets(workflowRepositoryPresets(cfg))
 	return workflows, nil
 }

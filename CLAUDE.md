@@ -24,7 +24,7 @@ internal/engine/  → infrastructure (imports only stdlib + 3rd-party)
 config/           → configuration (standalone, no internal imports)
 ```
 
-**Import rules are enforced by convention, not tooling.** engine/ must never import service/ or tui/. service/ must never import tui/.
+Import rules are enforced by architecture tests. Engine packages must not import sibling engine packages, service, or TUI; service must never import TUI. Production database callers use store behavior rather than `Store.DB()`/`sqlx`, command entry points open databases through `openStore`, and filesystem state resolves from `config.ResolveDataDir` rather than the database path.
 
 ## Commands
 

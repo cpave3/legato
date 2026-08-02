@@ -11,6 +11,25 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
+func captureStderrWithCode(t *testing.T, run func() int) (string, int) {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	code := run()
+	w.Close()
+	os.Stderr = old
+	buffer := new(bytes.Buffer)
+	if _, err := buffer.ReadFrom(r); err != nil {
+		t.Fatal(err)
+	}
+	r.Close()
+	return buffer.String(), code
+}
+
 func TestParseCommandArgsRejectsUnknownAndDuplicateFlags(t *testing.T) {
 	specs := map[string]flagSpec{"status": {}}
 	if _, err := parseCommandArgs([]string{"--wat", "x"}, specs); err == nil || err.Code != "unknown_flag" {
@@ -40,6 +59,34 @@ func TestReadTextInputPreservesMultilineStdin(t *testing.T) {
 	}
 	if got != "one\n\ntwo\n" {
 		t.Fatalf("description = %q", got)
+	}
+}
+
+func TestTaskCommandRejectsUnsupportedConfiguredDatabaseDriver(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("db:\n  driver: mysql\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_CONFIG", configPath)
+
+	out, code := captureStderrWithCode(t, func() int {
+		return runCLI([]string{"--json", "task", "list"})
+	})
+	if code != exitEnvironment {
+		t.Fatalf("exit code = %d, want %d", code, exitEnvironment)
+	}
+	var envelope struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+		t.Fatalf("JSON: %v\n%s", err, out)
+	}
+	if envelope.OK || envelope.Error.Code != "database_unavailable" || envelope.Error.Message != `database driver "mysql" is not supported` {
+		t.Fatalf("envelope = %#v", envelope)
 	}
 }
 

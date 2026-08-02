@@ -1,13 +1,20 @@
-package analytics
+package store
 
 import (
 	"context"
 	"fmt"
 	"sort"
 	"time"
-
-	"github.com/jmoiron/sqlx"
 )
+
+// ReportRange bounds a reporting query.
+type ReportRange struct {
+	Start time.Time
+	End   time.Time
+}
+
+func (r ReportRange) StartUTC() time.Time { return r.Start.UTC() }
+func (r ReportRange) EndUTC() time.Time   { return r.End.UTC() }
 
 // DurationResult holds aggregated working and waiting durations.
 type DurationResult struct {
@@ -72,11 +79,11 @@ type SwarmBreakdown struct {
 // QueryDurations aggregates total working/waiting durations from state_intervals
 // within the given time range. Intervals that span boundaries are clipped.
 // Open intervals use the current time as end.
-func QueryDurations(ctx context.Context, db *sqlx.DB, tr TimeRange) (DurationResult, error) {
+func (s *Store) QueryDurations(ctx context.Context, tr ReportRange) (DurationResult, error) {
 	// Clip intervals to the range: effective_start = MAX(started_at, range_start),
 	// effective_end = MIN(COALESCE(ended_at, now), range_end).
 	// Duration = effective_end - effective_start (only if positive).
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT state,
 			SUM(
 				CAST(ROUND(
@@ -119,7 +126,7 @@ func QueryDurations(ctx context.Context, db *sqlx.DB, tr TimeRange) (DurationRes
 
 // QueryDailyBreakdown returns per-day duration totals within the time range.
 // Every calendar day in the range gets an entry, even if zero.
-func QueryDailyBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]DayEntry, error) {
+func (s *Store) QueryDailyBreakdown(ctx context.Context, tr ReportRange) ([]DayEntry, error) {
 	// Query per-day aggregations using date(started_at, 'localtime') would be wrong
 	// because intervals can span days. Instead, we iterate days and query each.
 	// For simplicity and correctness with range clipping, we use a single query
@@ -147,8 +154,8 @@ func QueryDailyBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]DayE
 		if dayEnd.After(tr.End) {
 			dayEnd = tr.End
 		}
-		dayRange := TimeRange{Start: dayStart, End: dayEnd}
-		dur, err := QueryDurations(ctx, db, dayRange)
+		dayRange := ReportRange{Start: dayStart, End: dayEnd}
+		dur, err := s.QueryDurations(ctx, dayRange)
 		if err != nil {
 			return nil, err
 		}
@@ -161,8 +168,8 @@ func QueryDailyBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]DayE
 
 // QueryTaskBreakdown returns working/waiting durations grouped by task
 // within the time range.
-func QueryTaskBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]TaskDuration, error) {
-	rows, err := db.QueryContext(ctx, `
+func (s *Store) QueryTaskBreakdown(ctx context.Context, tr ReportRange) ([]TaskDuration, error) {
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT task_id, state,
 			SUM(
 				CAST(ROUND(
@@ -216,13 +223,13 @@ func QueryTaskBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]TaskD
 
 // QueryThroughput counts tasks created, completed, agent sessions started,
 // and PRs merged within the time range.
-func QueryThroughput(ctx context.Context, db *sqlx.DB, tr TimeRange) (Throughput, error) {
+func (s *Store) QueryThroughput(ctx context.Context, tr ReportRange) (Throughput, error) {
 	var result Throughput
 	startFmt := tr.StartUTC().Format(sqliteDatetime)
 	endFmt := tr.EndUTC().Format(sqliteDatetime)
 
 	// Tasks created
-	err := db.QueryRowContext(ctx,
+	err := s.db.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM tasks WHERE created_at >= ? AND created_at < ?",
 		startFmt, endFmt).Scan(&result.TasksCreated)
 	if err != nil {
@@ -230,7 +237,7 @@ func QueryThroughput(ctx context.Context, db *sqlx.DB, tr TimeRange) (Throughput
 	}
 
 	// Tasks completed (archived)
-	err = db.QueryRowContext(ctx,
+	err = s.db.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM tasks WHERE archived_at >= ? AND archived_at < ?",
 		startFmt, endFmt).Scan(&result.TasksCompleted)
 	if err != nil {
@@ -238,7 +245,7 @@ func QueryThroughput(ctx context.Context, db *sqlx.DB, tr TimeRange) (Throughput
 	}
 
 	// Agent sessions started
-	err = db.QueryRowContext(ctx,
+	err = s.db.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM agent_sessions WHERE started_at >= ? AND started_at < ?",
 		startFmt, endFmt).Scan(&result.AgentSessions)
 	if err != nil {
@@ -246,7 +253,7 @@ func QueryThroughput(ctx context.Context, db *sqlx.DB, tr TimeRange) (Throughput
 	}
 
 	// PRs merged — pr_meta is a JSON TEXT column, check state="MERGED" and updated_at in range
-	err = db.QueryRowContext(ctx, `
+	err = s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM tasks
 		WHERE pr_meta IS NOT NULL
 		  AND json_extract(pr_meta, '$.state') = 'MERGED'
@@ -261,11 +268,11 @@ func QueryThroughput(ctx context.Context, db *sqlx.DB, tr TimeRange) (Throughput
 }
 
 // QueryWorkspaceBreakdown returns duration and task count metrics grouped by workspace.
-func QueryWorkspaceBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]WorkspaceBreakdown, error) {
+func (s *Store) QueryWorkspaceBreakdown(ctx context.Context, tr ReportRange) ([]WorkspaceBreakdown, error) {
 	startFmt := tr.StartUTC().Format(sqliteDatetime)
 	endFmt := tr.EndUTC().Format(sqliteDatetime)
 
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT t.workspace_id, COALESCE(w.name, 'Unassigned') as workspace_name,
 			si.state,
 			SUM(
@@ -324,7 +331,7 @@ func QueryWorkspaceBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]
 	}
 
 	// Count distinct tasks per workspace in the range
-	countRows, err := db.QueryContext(ctx, `
+	countRows, err := s.db.QueryContext(ctx, `
 		SELECT t.workspace_id,
 			COUNT(DISTINCT si.task_id) as task_count
 		FROM state_intervals si
@@ -364,11 +371,11 @@ func QueryWorkspaceBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]
 // QueryDirectoryBreakdown returns working/waiting durations grouped by working
 // directory within the time range. Per-interval working_dir takes precedence;
 // if NULL for older rows, falls back to the task's swarm_working_dir.
-func QueryDirectoryBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]DirectoryBreakdown, error) {
+func (s *Store) QueryDirectoryBreakdown(ctx context.Context, tr ReportRange) ([]DirectoryBreakdown, error) {
 	startFmt := tr.StartUTC().Format(sqliteDatetime)
 	endFmt := tr.EndUTC().Format(sqliteDatetime)
 
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT COALESCE(si.working_dir, t.swarm_working_dir, 'Unknown') as dir,
 			si.state,
 			SUM(
@@ -413,7 +420,7 @@ func QueryDirectoryBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]
 	}
 
 	// Count distinct tasks per directory in the range
-	countRows, err := db.QueryContext(ctx, `
+	countRows, err := s.db.QueryContext(ctx, `
 		SELECT COALESCE(si.working_dir, t.swarm_working_dir, 'Unknown') as dir,
 			COUNT(DISTINCT si.task_id) as task_count
 		FROM state_intervals si
@@ -453,7 +460,7 @@ func QueryDirectoryBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]
 // Open intervals are clipped to the current time. Swarms whose parent task row
 // has been deleted are skipped. Only swarms with non-zero working or waiting
 // time in the range are returned.
-func QuerySwarmBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]SwarmBreakdown, error) {
+func (s *Store) QuerySwarmBreakdown(ctx context.Context, tr ReportRange) ([]SwarmBreakdown, error) {
 	startFmt := tr.StartUTC().Format(sqliteDatetime)
 	endFmt := tr.EndUTC().Format(sqliteDatetime)
 
@@ -464,7 +471,7 @@ func QuerySwarmBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]Swar
 		subtaskCount int
 	}
 	var swarms []swarmMeta
-	rows, err := db.QueryContext(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT s.parent_task_id,
 			COALESCE(t.title, '') as title,
 			COUNT(*) as subtask_count
@@ -493,7 +500,7 @@ func QuerySwarmBreakdown(ctx context.Context, db *sqlx.DB, tr TimeRange) ([]Swar
 	// Fetch every clipped interval for every swarm, then aggregate in Go.
 	// This lets us compute wall-clock as the *union* of all intervals
 	// rather than simply span(end) - span(start) which includes idle gaps.
-	resRows, err := db.QueryContext(ctx, `
+	resRows, err := s.db.QueryContext(ctx, `
 		WITH swarm_tasks(parent_task_id, task_id, is_subtask) AS (
 			SELECT parent_task_id, id, 1 FROM swarm_subtasks
 			UNION ALL

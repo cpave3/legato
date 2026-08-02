@@ -1335,7 +1335,7 @@ func runServeCmd(args []string) int {
 	defer db.Close()
 
 	bus := events.New()
-	attachmentCache := attachments.NewCache(attachments.DefaultRoot(), cfg.Jira.AttachmentMaxSizeBytes)
+	attachmentCache := attachments.NewCache(attachmentRoot(cfg), cfg.Jira.AttachmentMaxSizeBytes)
 	boardSvc := service.NewBoardService(db, bus, attachmentCache)
 	wd, _ := os.Getwd()
 
@@ -1544,7 +1544,7 @@ func runTUI() int {
 	}
 
 	bus := events.New()
-	attachmentCache := attachments.NewCache(attachments.DefaultRoot(), cfg.Jira.AttachmentMaxSizeBytes)
+	attachmentCache := attachments.NewCache(attachmentRoot(cfg), cfg.Jira.AttachmentMaxSizeBytes)
 	boardSvc := service.NewBoardService(db, bus, attachmentCache)
 
 	// Start IPC server for CLI→TUI communication.

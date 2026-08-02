@@ -1,4 +1,4 @@
-package analytics_test
+package store_test
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-func newTestDB(t *testing.T) *sqlx.DB {
+func newTestDB(t *testing.T) (*store.Store, *sqlx.DB) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	s, err := store.New(dbPath)
@@ -22,7 +22,7 @@ func newTestDB(t *testing.T) *sqlx.DB {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	return s.DB()
+	return s, s.DB()
 }
 
 // seedTask creates a task with the given id and created_at timestamp.
@@ -74,7 +74,7 @@ func seedSubtask(t *testing.T, db *sqlx.DB, id, parentID, title string) {
 }
 
 func TestQueryDurations_FullInRange(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
@@ -87,7 +87,7 @@ func TestQueryDurations_FullInRange(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	result, err := analytics.QueryDurations(ctx, db, tr)
+	result, err := reportStore.QueryDurations(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestQueryDurations_FullInRange(t *testing.T) {
 }
 
 func TestQueryDurations_PartialOverlap(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	// Interval from 22:00 on the 19th to 02:00 on the 20th (4h total)
@@ -115,7 +115,7 @@ func TestQueryDurations_PartialOverlap(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	result, err := analytics.QueryDurations(ctx, db, tr)
+	result, err := reportStore.QueryDurations(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestQueryDurations_PartialOverlap(t *testing.T) {
 }
 
 func TestQueryDurations_OpenInterval(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	// Open interval started 30 minutes ago — should contribute >0 working time
@@ -138,7 +138,7 @@ func TestQueryDurations_OpenInterval(t *testing.T) {
 		End:    time.Now().UTC().Add(1 * time.Hour),
 		Period: analytics.PeriodDay,
 	}
-	result, err := analytics.QueryDurations(ctx, db, tr)
+	result, err := reportStore.QueryDurations(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestQueryDurations_OpenInterval(t *testing.T) {
 }
 
 func TestQueryDurations_EmptyRange(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, _ := newTestDB(t)
 	ctx := context.Background()
 
 	tr := analytics.TimeRange{
@@ -156,7 +156,7 @@ func TestQueryDurations_EmptyRange(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	result, err := analytics.QueryDurations(ctx, db, tr)
+	result, err := reportStore.QueryDurations(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestQueryDurations_EmptyRange(t *testing.T) {
 }
 
 func TestQueryDailyBreakdown_7Days(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC) // Monday
@@ -182,7 +182,7 @@ func TestQueryDailyBreakdown_7Days(t *testing.T) {
 		End:    base.AddDate(0, 0, 7),
 		Period: analytics.PeriodWeek,
 	}
-	days, err := analytics.QueryDailyBreakdown(ctx, db, tr)
+	days, err := reportStore.QueryDailyBreakdown(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestQueryDailyBreakdown_7Days(t *testing.T) {
 }
 
 func TestQueryTaskBreakdown(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
@@ -224,14 +224,14 @@ func TestQueryTaskBreakdown(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	tasks, err := analytics.QueryTaskBreakdown(ctx, db, tr)
+	tasks, err := reportStore.QueryTaskBreakdown(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(tasks) != 2 {
 		t.Fatalf("expected 2 tasks, got %d", len(tasks))
 	}
-	taskMap := make(map[string]analytics.TaskDuration)
+	taskMap := make(map[string]store.TaskDuration)
 	for _, td := range tasks {
 		taskMap[td.TaskID] = td
 	}
@@ -250,7 +250,7 @@ func TestQueryTaskBreakdown(t *testing.T) {
 }
 
 func TestQueryThroughput(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	rangeStart := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
@@ -292,7 +292,7 @@ func TestQueryThroughput(t *testing.T) {
 	}
 
 	tr := analytics.TimeRange{Start: rangeStart, End: rangeEnd, Period: analytics.PeriodDay}
-	result, err := analytics.QueryThroughput(ctx, db, tr)
+	result, err := reportStore.QueryThroughput(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +311,7 @@ func TestQueryThroughput(t *testing.T) {
 }
 
 func TestQueryWorkspaceBreakdown(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
@@ -348,7 +348,7 @@ func TestQueryWorkspaceBreakdown(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	results, err := analytics.QueryWorkspaceBreakdown(ctx, db, tr)
+	results, err := reportStore.QueryWorkspaceBreakdown(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +356,7 @@ func TestQueryWorkspaceBreakdown(t *testing.T) {
 		t.Fatalf("expected 3 workspace groups, got %d", len(results))
 	}
 
-	wsMap := make(map[string]analytics.WorkspaceBreakdown)
+	wsMap := make(map[string]store.WorkspaceBreakdown)
 	for _, ws := range results {
 		wsMap[ws.WorkspaceName] = ws
 	}
@@ -375,7 +375,7 @@ func TestQueryWorkspaceBreakdown(t *testing.T) {
 }
 
 func TestQueryDirectoryBreakdown(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
@@ -411,7 +411,7 @@ func TestQueryDirectoryBreakdown(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	results, err := analytics.QueryDirectoryBreakdown(ctx, db, tr)
+	results, err := reportStore.QueryDirectoryBreakdown(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +419,7 @@ func TestQueryDirectoryBreakdown(t *testing.T) {
 		t.Fatalf("expected 2 directory groups, got %d", len(results))
 	}
 
-	dirMap := make(map[string]analytics.DirectoryBreakdown)
+	dirMap := make(map[string]store.DirectoryBreakdown)
 	for _, d := range results {
 		dirMap[d.Directory] = d
 	}
@@ -441,7 +441,7 @@ func TestQueryDirectoryBreakdown(t *testing.T) {
 }
 
 func TestQueryDirectoryBreakdown_FallsBackToSwarmDir(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
@@ -460,7 +460,7 @@ func TestQueryDirectoryBreakdown_FallsBackToSwarmDir(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	results, err := analytics.QueryDirectoryBreakdown(ctx, db, tr)
+	results, err := reportStore.QueryDirectoryBreakdown(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +476,7 @@ func TestQueryDirectoryBreakdown_FallsBackToSwarmDir(t *testing.T) {
 }
 
 func TestQuerySwarmBreakdown_ConductorOnly(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
@@ -491,7 +491,7 @@ func TestQuerySwarmBreakdown_ConductorOnly(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	results, err := reportStore.QuerySwarmBreakdown(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,7 +523,7 @@ func TestQuerySwarmBreakdown_ConductorOnly(t *testing.T) {
 }
 
 func TestQuerySwarmBreakdown_WorkerOnly(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
@@ -537,7 +537,7 @@ func TestQuerySwarmBreakdown_WorkerOnly(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	results, err := reportStore.QuerySwarmBreakdown(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -563,7 +563,7 @@ func TestQuerySwarmBreakdown_WorkerOnly(t *testing.T) {
 }
 
 func TestQuerySwarmBreakdown_Mixed(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
@@ -580,7 +580,7 @@ func TestQuerySwarmBreakdown_Mixed(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	results, err := reportStore.QuerySwarmBreakdown(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,7 +609,7 @@ func TestQuerySwarmBreakdown_Mixed(t *testing.T) {
 }
 
 func TestQuerySwarmBreakdown_OutOfRangeExcluded(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
@@ -628,7 +628,7 @@ func TestQuerySwarmBreakdown_OutOfRangeExcluded(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	results, err := reportStore.QuerySwarmBreakdown(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -639,7 +639,7 @@ func TestQuerySwarmBreakdown_OutOfRangeExcluded(t *testing.T) {
 }
 
 func TestQuerySwarmBreakdown_WaitingOnlyStillIncluded(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
@@ -653,7 +653,7 @@ func TestQuerySwarmBreakdown_WaitingOnlyStillIncluded(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	results, err := reportStore.QuerySwarmBreakdown(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -676,7 +676,7 @@ func TestQuerySwarmBreakdown_WaitingOnlyStillIncluded(t *testing.T) {
 }
 
 func TestQuerySwarmBreakdown_NonSwarmExcluded(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
@@ -689,7 +689,7 @@ func TestQuerySwarmBreakdown_NonSwarmExcluded(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	results, err := reportStore.QuerySwarmBreakdown(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -700,7 +700,7 @@ func TestQuerySwarmBreakdown_NonSwarmExcluded(t *testing.T) {
 }
 
 func TestQuerySwarmBreakdown_DeletedParentSkipped(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
@@ -718,7 +718,7 @@ func TestQuerySwarmBreakdown_DeletedParentSkipped(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	results, err := reportStore.QuerySwarmBreakdown(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -728,7 +728,7 @@ func TestQuerySwarmBreakdown_DeletedParentSkipped(t *testing.T) {
 }
 
 func TestQuerySwarmBreakdown_ParallelWorkers(t *testing.T) {
-	db := newTestDB(t)
+	reportStore, db := newTestDB(t)
 	ctx := context.Background()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
@@ -744,7 +744,7 @@ func TestQuerySwarmBreakdown_ParallelWorkers(t *testing.T) {
 		End:    time.Date(2026, 3, 21, 0, 0, 0, 0, time.UTC),
 		Period: analytics.PeriodDay,
 	}
-	results, err := analytics.QuerySwarmBreakdown(ctx, db, tr)
+	results, err := reportStore.QuerySwarmBreakdown(ctx, store.ReportRange{Start: tr.Start, End: tr.End})
 	if err != nil {
 		t.Fatal(err)
 	}

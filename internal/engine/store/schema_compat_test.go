@@ -19,6 +19,9 @@ func TestNewRejectsSchemaNewerThanBinaryWithoutWriting(t *testing.T) {
 		t.Fatal(err)
 	}
 	future := len(migrations) + 1
+	if _, err := db.Exec("PRAGMA journal_mode=DELETE"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec("PRAGMA user_version = " + migrationVersionString(future)); err != nil {
 		t.Fatal(err)
 	}
@@ -46,6 +49,13 @@ func TestNewRejectsSchemaNewerThanBinaryWithoutWriting(t *testing.T) {
 	}
 	if version != future {
 		t.Fatalf("user_version = %d, want unchanged %d", version, future)
+	}
+	var journalMode string
+	if err := db.QueryRow("PRAGMA journal_mode").Scan(&journalMode); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ToLower(journalMode) != "delete" {
+		t.Fatalf("journal mode = %q, want unchanged delete", journalMode)
 	}
 	var applicationTables int
 	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type = 'table'").Scan(&applicationTables); err != nil {

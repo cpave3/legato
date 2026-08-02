@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -38,6 +40,59 @@ func TestNewConfiguresEveryPooledSQLiteConnection(t *testing.T) {
 		if timeout != sqliteBusyTimeoutMS || foreignKeys != 1 {
 			t.Fatalf("connection %d settings: busy_timeout=%d foreign_keys=%d", i, timeout, foreignKeys)
 		}
+	}
+}
+
+func TestNewWaitsForSQLiteLockBeforeEnablingWAL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wal-lock.db")
+	initial, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := initial.db.Exec(`PRAGMA journal_mode=DELETE`); err != nil {
+		t.Fatal(err)
+	}
+	if err := initial.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	locker, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer locker.Close()
+	tx, err := locker.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`UPDATE tasks SET updated_at = updated_at`); err != nil {
+		t.Fatal(err)
+	}
+
+	result := make(chan error, 1)
+	go func() {
+		s, err := New(path)
+		if err == nil {
+			var mode string
+			err = s.db.Get(&mode, `PRAGMA journal_mode`)
+			if err == nil && mode != "wal" {
+				err = fmt.Errorf("journal mode = %q", mode)
+			}
+			s.Close()
+		}
+		result <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("open after lock release: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for opener")
 	}
 }
 
