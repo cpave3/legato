@@ -204,6 +204,9 @@ type LearningProposal struct {
 	CanonicalLearningID    string `db:"canonical_learning_id" json:"canonical_learning_id,omitempty"`
 	Scope                  string `db:"scope" json:"scope,omitempty"`
 	ProjectKey             string `db:"project_key" json:"project_key,omitempty"`
+	Claim                  string `db:"claim" json:"claim,omitempty"`
+	Rationale              string `db:"rationale" json:"rationale,omitempty"`
+	Kind                   string `db:"kind" json:"kind,omitempty"`
 	EvidenceIDsJSON        string `db:"evidence_ids_json" json:"evidence_ids_json"`
 	Reason                 string `db:"reason" json:"reason,omitempty"`
 	Status                 string `db:"status" json:"status"`

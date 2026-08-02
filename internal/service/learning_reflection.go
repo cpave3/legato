@@ -173,6 +173,9 @@ func (s *LearningService) SubmitReflectionJSON(ctx context.Context, requestID st
 	if err := decoder.Decode(&document); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidReflection, err)
 	}
+	if document.Observations == nil {
+		return nil, fmt.Errorf("%w: observations must be an array", ErrInvalidReflection)
+	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		if err == nil {
@@ -187,8 +190,8 @@ func validateReflectionDocument(document *ReflectionDocument) error {
 	if document.SchemaVersion != ReflectionSchemaVersion {
 		return fmt.Errorf("%w: schema_version must be %d", ErrInvalidReflection, ReflectionSchemaVersion)
 	}
-	if len(document.Observations) == 0 || len(document.Observations) > MaxReflectionObservations {
-		return fmt.Errorf("%w: observations count must be between 1 and %d", ErrInvalidReflection, MaxReflectionObservations)
+	if len(document.Observations) > MaxReflectionObservations {
+		return fmt.Errorf("%w: observations count must not exceed %d", ErrInvalidReflection, MaxReflectionObservations)
 	}
 	for i := range document.Observations {
 		observation := &document.Observations[i]

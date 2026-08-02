@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -223,6 +224,151 @@ func TestSubmitCuratorOperationsPersistsHumanDecisionProposals(t *testing.T) {
 	}
 	if view.Learning.Status != "duplicate" || view.Learning.CanonicalLearningID == nil || *view.Learning.CanonicalLearningID != "learn-canonical" {
 		t.Fatalf("learning = %+v", view.Learning)
+	}
+}
+
+func TestLearningServiceAcceptsReviseProposalAndPreservesEvidence(t *testing.T) {
+	db := newServiceTestStore(t)
+	ctx := context.Background()
+	svc := NewLearningService(db, nil)
+	seedCurationEvidence(t, db, "lev-revise", "TASK", "repo:one", "specific incident evidence")
+	seedCurationLearning(t, db, "learn-revise", "project", "repo:one", "After ticket TASK, change WidgetView.")
+	if _, err := db.DB().Exec(`INSERT INTO learning_evidence_links (learning_id,evidence_id,relation) VALUES ('learn-revise','lev-revise','support')`); err != nil {
+		t.Fatal(err)
+	}
+	packet, err := svc.PrepareLearningPacket(ctx, PrepareLearningPacketInput{
+		AttemptID: "revise-proposal", TaskID: "TASK", ProjectKey: "repo:one", MaxItems: 20, MaxBytes: 64 * 1024,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := CuratorOperationsDocument{SchemaVersion: 1, PacketDigest: packet.Packet.PacketDigest, Operations: []CuratorOperation{{
+		Operation: "revise", LearningID: "learn-revise", Claim: "Refresh canonical server state after lifecycle mutations.",
+		Rationale: "State-dependent controls otherwise render stale transitions.", Kind: "process_improvement",
+		Scope: "project", ProjectKey: "repo:one", Reason: "remove incident-only detail",
+	}}}
+	if _, err := svc.SubmitCuratorOperations(ctx, "revise-proposal", doc); err != nil {
+		t.Fatal(err)
+	}
+	proposals, err := svc.ListProposals(ctx, "pending")
+	if err != nil || len(proposals) != 1 {
+		t.Fatalf("proposals = %+v, err = %v", proposals, err)
+	}
+	if err := svc.DecideProposal(ctx, proposals[0].ID, proposals[0].Revision, true); err != nil {
+		t.Fatal(err)
+	}
+	view, err := svc.Show(ctx, "learn-revise")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Learning.Claim != doc.Operations[0].Claim || view.Learning.Rationale != doc.Operations[0].Rationale || view.Learning.Kind != "process_improvement" || view.Learning.Revision != 2 {
+		t.Fatalf("revised learning = %+v", view.Learning)
+	}
+	if len(view.Evidence) != 1 || view.Evidence[0].ID != "lev-revise" {
+		t.Fatalf("revised evidence = %+v", view.Evidence)
+	}
+	found, err := svc.Search(ctx, "canonical server state", LearningFilter{Limit: 10})
+	if err != nil || len(found) != 1 || found[0].ID != "learn-revise" {
+		t.Fatalf("revised search = %+v, err = %v", found, err)
+	}
+	old, err := svc.Search(ctx, "WidgetView", LearningFilter{Limit: 10})
+	if err != nil || len(old) != 0 {
+		t.Fatalf("old wording remained searchable = %+v, err = %v", old, err)
+	}
+}
+
+func TestLearningServiceRejectsReviseWithoutEvidence(t *testing.T) {
+	db := newServiceTestStore(t)
+	ctx := context.Background()
+	svc := NewLearningService(db, nil)
+	seedCurationLearning(t, db, "learn-no-evidence", "user", "", "specific")
+	packet, err := svc.PrepareLearningPacket(ctx, PrepareLearningPacketInput{AttemptID: "no-evidence-revise", MaxItems: 20, MaxBytes: 64 * 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := CuratorOperationsDocument{SchemaVersion: 1, PacketDigest: packet.Packet.PacketDigest, Operations: []CuratorOperation{{
+		Operation: "revise", LearningID: "learn-no-evidence", Claim: "general", Kind: "pitfall", Scope: "user", Reason: "generalize",
+	}}}
+	if _, err := svc.SubmitCuratorOperations(ctx, "no-evidence-revise", doc); !errors.Is(err, ErrInvalidCuratorOperations) {
+		t.Fatalf("error = %v, want invalid curator operations", err)
+	}
+}
+
+func TestLearningServiceRejectsReviseThatBroadensProjectLearningToUserScope(t *testing.T) {
+	db := newServiceTestStore(t)
+	ctx := context.Background()
+	svc := NewLearningService(db, nil)
+	seedCurationLearning(t, db, "learn-project-revise", "project", "repo:one", "project rule")
+	seedCurationEvidence(t, db, "lev-project-linked", "OTHER", "repo:one", "linked evidence")
+	if _, err := db.DB().Exec(`INSERT INTO learning_evidence_links (learning_id,evidence_id,relation) VALUES ('learn-project-revise','lev-project-linked','support')`); err != nil {
+		t.Fatal(err)
+	}
+	packet, err := svc.PrepareLearningPacket(ctx, PrepareLearningPacketInput{AttemptID: "broad-revise", ProjectKey: "repo:one", MaxItems: 20, MaxBytes: 64 * 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := CuratorOperationsDocument{SchemaVersion: 1, PacketDigest: packet.Packet.PacketDigest, Operations: []CuratorOperation{{
+		Operation: "revise", LearningID: "learn-project-revise", Claim: "global rule", Kind: "pitfall", Scope: "user", Reason: "generalize",
+	}}}
+	if _, err := svc.SubmitCuratorOperations(ctx, "broad-revise", doc); !errors.Is(err, ErrInvalidCuratorOperations) {
+		t.Fatalf("error = %v, want invalid curator operations", err)
+	}
+}
+
+func TestLearningServiceRejectsOversizedReviseProposal(t *testing.T) {
+	db := newServiceTestStore(t)
+	ctx := context.Background()
+	svc := NewLearningService(db, nil)
+	seedCurationLearning(t, db, "learn-oversized-revise", "user", "", "specific")
+	seedCurationEvidence(t, db, "lev-oversized-linked", "OTHER", "", "linked evidence")
+	if _, err := db.DB().Exec(`INSERT INTO learning_evidence_links (learning_id,evidence_id,relation) VALUES ('learn-oversized-revise','lev-oversized-linked','support')`); err != nil {
+		t.Fatal(err)
+	}
+	packet, err := svc.PrepareLearningPacket(ctx, PrepareLearningPacketInput{AttemptID: "oversized-revise", MaxItems: 20, MaxBytes: 64 * 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := CuratorOperationsDocument{SchemaVersion: 1, PacketDigest: packet.Packet.PacketDigest, Operations: []CuratorOperation{{
+		Operation: "revise", LearningID: "learn-oversized-revise", Claim: strings.Repeat("x", MaxLearningClaimBytes+1), Kind: "pitfall", Scope: "user", Reason: "generalize",
+	}}}
+	if _, err := svc.SubmitCuratorOperations(ctx, "oversized-revise", doc); !errors.Is(err, ErrInvalidCuratorOperations) {
+		t.Fatalf("error = %v, want invalid curator operations", err)
+	}
+}
+
+func TestLearningServiceStaleReviseProposalConflictsAndStaysPending(t *testing.T) {
+	db := newServiceTestStore(t)
+	ctx := context.Background()
+	svc := NewLearningService(db, nil)
+	seedCurationEvidence(t, db, "lev-stale-revise", "TASK", "repo:one", "evidence")
+	seedCurationLearning(t, db, "learn-stale-revise", "project", "repo:one", "specific")
+	seedCurationEvidence(t, db, "lev-stale-linked", "OTHER", "repo:one", "linked evidence")
+	if _, err := db.DB().Exec(`INSERT INTO learning_evidence_links (learning_id,evidence_id,relation) VALUES ('learn-stale-revise','lev-stale-linked','support')`); err != nil {
+		t.Fatal(err)
+	}
+	packet, err := svc.PrepareLearningPacket(ctx, PrepareLearningPacketInput{AttemptID: "stale-revise", TaskID: "TASK", ProjectKey: "repo:one", MaxItems: 20, MaxBytes: 64 * 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := CuratorOperationsDocument{SchemaVersion: 1, PacketDigest: packet.Packet.PacketDigest, Operations: []CuratorOperation{{
+		Operation: "revise", LearningID: "learn-stale-revise", Claim: "general", Kind: "pitfall", Scope: "project", ProjectKey: "repo:one", Reason: "generalize",
+	}}}
+	if _, err := svc.SubmitCuratorOperations(ctx, "stale-revise", doc); err != nil {
+		t.Fatal(err)
+	}
+	proposals, err := svc.ListProposals(ctx, "pending")
+	if err != nil || len(proposals) != 1 {
+		t.Fatalf("proposals = %+v, err = %v", proposals, err)
+	}
+	if _, err := svc.Accept(ctx, "learn-stale-revise", 1, "concurrent edit", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DecideProposal(ctx, proposals[0].ID, proposals[0].Revision, true); !errors.Is(err, ErrLearningConflict) {
+		t.Fatalf("error = %v, want learning conflict", err)
+	}
+	pending, err := svc.ListProposals(ctx, "pending")
+	if err != nil || len(pending) != 1 || pending[0].ID != proposals[0].ID || pending[0].Revision != 1 {
+		t.Fatalf("pending proposals = %+v, err = %v", pending, err)
 	}
 }
 

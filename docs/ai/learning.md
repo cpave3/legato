@@ -22,7 +22,7 @@ The `LearningService` owns policy. CLI, HTTP, workflows, Attention, and agent la
 
 Evidence is an attributable observation in `learning_evidence`. It records source kind/reference, content and SHA-256 digest, author, and optional task, agent session, workflow run, and project identity. Evidence can support or counter a learning through `learning_evidence_links`.
 
-Evidence is not automatically standing guidance. Agent reflections produce evidence first; curation may link it to an existing learning, create a candidate, or discard it from consideration. The full evidence record remains the provenance shown with a learning.
+Evidence is not automatically standing guidance. Agent reflections produce evidence first; curation may link it to an existing learning, create a candidate, or discard it from consideration. Evidence is intentionally allowed to remain session-specific: ticket IDs, filenames, exact reproduction values, and the incident that exposed a rule belong here. The full evidence record remains the provenance shown with a learning.
 
 ### Learning
 
@@ -30,7 +30,9 @@ A learning is a concise claim in the `learnings` ledger. It has `user` or `proje
 
 `candidate` → `validated` → `action_proposed` → `incorporated`
 
-A proposal can instead become `rejected`; verified material can later become `stale`. Curator agents may propose creates, evidence reinforcement/counters, duplicate/supersession/scope operations, destinations, or discards, but they do **not** accept or reject on the user's behalf. Current deterministic ingestion persists new candidates, evidence links, and destination proposals; human decisions remain service operations.
+A proposal can instead become `rejected`; verified material can later become `stale`. Curator and critic agents may propose creates, evidence reinforcement/counters, duplicate/supersession/scope operations, reviewable wording revisions, destinations, or discards, but they do **not** accept or reject on the user's behalf. Current deterministic ingestion persists new candidates, evidence links, destination proposals, and pending semantic revisions; human decisions remain service operations.
+
+A candidate claim should be less specific than its evidence while retaining the boundary needed to apply it. Curation applies six checks: novelty, a future trigger, transfer to another task of the same class, scope no broader than the evidence, actionability, and non-duplication. A repository-specific learning may name a subsystem or domain concept; it should not retain incident identifiers or exact reproduction details unless they are themselves a reusable invariant. Zero candidates is a valid and preferred outcome when nothing meets this bar.
 
 Every mutating decision requires the current revision. Refresh with `legato learn show` after a conflict rather than retrying a stale decision.
 
@@ -51,12 +53,13 @@ Only a **verified** `prompt_profile` incorporation makes a validated/incorporate
 `legato learn curate --task <task-id>` launches the built-in `legato-learning` workflow:
 
 1. `agent.interview` borrows the task's existing live agent and asks for a structured reflection. It does not launch a replacement. If no active task agent exists, the step succeeds with `available: false` and curation continues.
-2. The agent submits the reflection through the CLI callback described below. Valid observations become attributable evidence.
+2. The agent submits the reflection through the CLI callback described below. Valid observations become attributable evidence. An empty observation list is a successful result and creates no evidence.
 3. `learning.packet.prepare` creates and persists canonical, bounded JSON containing unlinked relevant evidence and existing user/matching-project learnings. Whole records are included; records are never silently truncated. Item/byte exclusions are recorded, and the packet has a digest.
-4. A configured ordinary `agent.run` curator receives the packet explicitly labelled as untrusted data and returns schema-versioned operations.
-5. `learning.proposals.submit` strictly validates schema, packet digest, IDs, bounds, and operations, then applies deterministic mutations transactionally. Exact retries are replay-safe; changed retries conflict.
+4. A configured ordinary `agent.run` curator receives the packet explicitly labelled as untrusted data and returns draft schema-versioned operations. An empty operations array is valid.
+5. A second ordinary `agent.run` acts as an independent precision-first critic. It receives the same bounded packet and the untrusted curator draft, applies the six-part quality contract, and may preserve, rewrite, replace, or remove operations. It uses the curator adapter/tier and has no fallback to uncriticized output.
+6. `learning.proposals.submit` consumes only critic output, strictly validates schema, packet digest, IDs, bounds, and operations, then applies deterministic mutations transactionally. Exact retries are replay-safe; changed retries conflict.
 
-`legato learn consolidate` uses the same packet, curator, and deterministic ingestion path over existing user or project learnings, without the interview step. Consolidation is currently manual.
+`legato learn consolidate` uses the same packet, curator, critic, and deterministic ingestion path over existing user or project learnings, without the interview step. Consolidation is currently manual. It may propose a `revise` operation for over-specific but evidence-backed wording. Accepting that proposal updates the learning under optimistic revision control and preserves its evidence; rejection leaves it unchanged. Existing records are never rewritten automatically.
 
 ### Workflow agent communication uses CLI callbacks
 
@@ -65,13 +68,13 @@ Legato does not infer success from terminal output or tmux exit. The borrowed ta
 ```bash
 cat >reflection.json <<'JSON'
 {"schema_version":1,"observations":[
-  {"kind":"preference","content":"Prefer table-driven tests for parsers.","rationale":"Requested and confirmed during this task"}
+  {"kind":"pitfall","content":"When retrying callbacks, bind completion to the active attempt rather than the workflow run alone.","rationale":"A stale callback reproduced advancement of a newer attempt."}
 ]}
 JSON
 legato learn reflection submit --request <request-id> --file reflection.json
 ```
 
-The request can also come from `LEGATO_LEARNING_REQUEST_ID`; omitting `--file` or using `--file -` reads stdin. Submission validates and persists the reflection **before** completing the exact workflow run/step/attempt associated with the request. An exact replay is idempotent; a changed or stale replay fails. Limits currently include one to 32 observations, 64 KiB per document, and 8 KiB per observation content/rationale.
+The request can also come from `LEGATO_LEARNING_REQUEST_ID`; omitting `--file` or using `--file -` reads stdin. Submission validates and persists the reflection **before** completing the exact workflow run/step/attempt associated with the request. An exact replay is idempotent; a changed or stale replay fails. Submit `{"schema_version":1,"observations":[]}` when nothing durable was learned; this completes normally and creates no evidence. Limits currently include zero to 32 observations, 64 KiB per document, and 8 KiB per observation content/rationale.
 
 The curator is a normal workflow agent. It completes its `agent.run` contract with the declared `operations` output, normally via:
 
@@ -79,7 +82,7 @@ The curator is a normal workflow agent. It completes its `agent.run` contract wi
 legato workflow step complete --output operations='<schema-versioned JSON>' --json
 ```
 
-This is followed by the deterministic `learning.proposals.submit` executor. See [workflows](../workflows.md) for the general callback contract.
+The critic completes the same output contract after reviewing that draft. Only the critic output is followed by the deterministic `learning.proposals.submit` executor. See [workflows](../workflows.md) for the general callback contract.
 
 ## Configuration and opt-in behavior
 

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -43,6 +44,35 @@ func TestLearningServiceCreateAndSubmitReflection(t *testing.T) {
 	}
 }
 
+func TestLearningServiceSubmitEmptyReflectionCompletesWithoutEvidence(t *testing.T) {
+	db := newServiceTestStore(t)
+	svc := NewLearningService(db, nil)
+	ctx := context.Background()
+	req, err := svc.CreateReflectionRequest(ctx, CreateReflectionRequestInput{
+		WorkflowRunID: "run-empty", StepID: "reflect", AttemptID: "attempt-empty", TaskID: "task-empty",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	doc := ReflectionDocument{SchemaVersion: ReflectionSchemaVersion, Observations: []ReflectionObservation{}}
+	result, err := svc.SubmitReflection(ctx, req.ID, doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Request.Status != "submitted" || len(result.Evidence) != 0 || result.Replayed {
+		t.Fatalf("empty reflection result = %+v", result)
+	}
+
+	replay, err := svc.SubmitReflection(ctx, req.ID, doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replay.Replayed || len(replay.Evidence) != 0 {
+		t.Fatalf("empty reflection replay = %+v", replay)
+	}
+}
+
 func TestLearningServiceDefaultsReflectionToFutureUsefulGuidance(t *testing.T) {
 	db := newServiceTestStore(t)
 	svc := NewLearningService(db, nil)
@@ -52,7 +82,15 @@ func TestLearningServiceDefaultsReflectionToFutureUsefulGuidance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, guidance := range []string{"future task", "module-specific", "Do not submit a task recap"} {
+	for _, guidance := range []string{
+		"future task",
+		"module-specific",
+		"Do not submit a task recap",
+		"learned or discovered",
+		"merely requested or implemented",
+		"zero observations",
+		"future trigger",
+	} {
 		if !strings.Contains(req.Prompt, guidance) {
 			t.Errorf("default reflection prompt missing %q: %q", guidance, req.Prompt)
 		}
@@ -76,7 +114,6 @@ func TestLearningServiceReflectionValidationRejectsMalformedAndBoundedInput(t *t
 		doc  ReflectionDocument
 	}{
 		{"wrong version", ReflectionDocument{SchemaVersion: 2, Observations: []ReflectionObservation{{Kind: "fact", Content: "x"}}}},
-		{"empty observations", ReflectionDocument{SchemaVersion: 1}},
 		{"too many", ReflectionDocument{SchemaVersion: 1, Observations: make([]ReflectionObservation, MaxReflectionObservations+1)}},
 		{"empty kind", ReflectionDocument{SchemaVersion: 1, Observations: []ReflectionObservation{{Content: "x"}}}},
 		{"empty content", ReflectionDocument{SchemaVersion: 1, Observations: []ReflectionObservation{{Kind: "fact"}}}},
@@ -96,6 +133,24 @@ func TestLearningServiceReflectionValidationRejectsMalformedAndBoundedInput(t *t
 				t.Fatalf("request status = %q after invalid submission", request.Status)
 			}
 		})
+	}
+}
+
+func TestLearningServiceSubmitReflectionJSONRequiresExplicitObservationArray(t *testing.T) {
+	db := newServiceTestStore(t)
+	svc := NewLearningService(db, nil)
+	ctx := context.Background()
+	for i, data := range [][]byte{
+		[]byte(`{"schema_version":1}`),
+		[]byte(`{"schema_version":1,"observations":null}`),
+	} {
+		req, err := svc.CreateReflectionRequest(ctx, CreateReflectionRequestInput{WorkflowRunID: "run", StepID: "reflect", AttemptID: fmt.Sprintf("explicit-array-%d", i), TaskID: "task"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.SubmitReflectionJSON(ctx, req.ID, data); !errors.Is(err, ErrInvalidReflection) {
+			t.Fatalf("document %s error = %v, want invalid reflection", data, err)
+		}
 	}
 }
 

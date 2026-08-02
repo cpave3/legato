@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,6 +68,67 @@ func TestLearningAttentionSnapshotIncludesPendingAndStaleItems(t *testing.T) {
 	}
 	if got := byKey["incorporation:"+staleInc.ID]; got.SourceRevision != "incorporation:stale:3" || got.Urgency != "high" || actionIDs(got.Actions) != "open" {
 		t.Fatalf("stale incorporation = %+v", got)
+	}
+}
+
+func TestLearningAttentionShowsProposedRevisionWording(t *testing.T) {
+	db := newServiceTestStore(t)
+	svc := NewLearningService(db, nil)
+	ctx := context.Background()
+	seedCurationLearning(t, db, "learn-attention-revise", "user", "", "session-specific claim")
+	seedCurationEvidence(t, db, "lev-attention-revise", "OTHER", "", "linked evidence")
+	if _, err := db.DB().Exec(`INSERT INTO learning_evidence_links (learning_id,evidence_id,relation) VALUES ('learn-attention-revise','lev-attention-revise','support')`); err != nil {
+		t.Fatal(err)
+	}
+	packet, err := svc.PrepareLearningPacket(ctx, PrepareLearningPacketInput{AttemptID: "attention-revise", MaxItems: 20, MaxBytes: 64 * 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := CuratorOperationsDocument{SchemaVersion: 1, PacketDigest: packet.Packet.PacketDigest, Operations: []CuratorOperation{{
+		Operation: "revise", LearningID: "learn-attention-revise", Claim: "General rule", Rationale: "Reusable reason", Kind: "pitfall", Scope: "user", Reason: "Remove incident detail",
+	}}}
+	if _, err := svc.SubmitCuratorOperations(ctx, "attention-revise", doc); err != nil {
+		t.Fatal(err)
+	}
+	items, err := NewLearningAttentionAdapter(svc).Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var proposal AttentionInput
+	for _, item := range items {
+		if strings.HasPrefix(item.SourceKey, "proposal:") {
+			proposal = item
+			break
+		}
+	}
+	if proposal.Title != "Revise learning: General rule" || proposal.Detail != "Remove incident detail\n\nReusable reason" || actionIDs(proposal.Actions) != "open,accept,reject" {
+		t.Fatalf("revision attention = %+v", proposal)
+	}
+	attention := NewAttentionService(db, nil)
+	adapter := NewLearningAttentionAdapter(svc)
+	if err := attention.RegisterProducer(adapter); err != nil {
+		t.Fatal(err)
+	}
+	if err := attention.RegisterHandler(adapter.Producer(), adapter); err != nil {
+		t.Fatal(err)
+	}
+	if err := attention.Reconcile(ctx, adapter.Producer()); err != nil {
+		t.Fatal(err)
+	}
+	storedItems, err := attention.List(ctx, AttentionFilter{Producer: adapter.Producer()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := findAttentionItem(t, storedItems, proposal.SourceKey)
+	if err := attention.Execute(ctx, stored.ID, AttentionActionRequest{ActionID: "accept", ExpectedRevision: stored.SourceRevision, Confirmed: true}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := svc.Show(ctx, "learn-attention-revise")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Learning.Claim != "General rule" || view.Learning.Revision != 2 {
+		t.Fatalf("accepted revision = %+v", view.Learning)
 	}
 }
 

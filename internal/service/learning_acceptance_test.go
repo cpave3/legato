@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +30,7 @@ func (f *acceptanceAgentTransport) PromptAgent(_ context.Context, _ string, prom
 func (f *acceptanceAgentTransport) SpawnWorkflowAgent(ctx context.Context, taskID, _ string, opts AgentSpawnOptions) (*store.AgentSession, error) {
 	f.assignments = append(f.assignments, opts)
 	if _, err := f.store.InsertAgentSessionReturningID(ctx, store.AgentSession{
-		TaskID: taskID, TmuxSession: "fake-" + taskID, AgentKind: opts.AgentKind, Status: "running",
+		TaskID: taskID, TmuxSession: fmt.Sprintf("fake-%s-%d", taskID, len(f.assignments)), AgentKind: opts.AgentKind, Status: "running",
 	}); err != nil {
 		return nil, err
 	}
@@ -120,7 +122,33 @@ func TestLegatoLearnConnectedAcceptance(t *testing.T) {
 	if err := json.Unmarshal([]byte(run.Steps[1].OutputsJSON), &packetOutputs); err != nil {
 		t.Fatal(err)
 	}
-	operations := CuratorOperationsDocument{
+	curatorOperations := CuratorOperationsDocument{
+		SchemaVersion: CuratorOperationsSchemaVersion,
+		PacketDigest:  packetOutputs.PacketDigest,
+		Operations: []CuratorOperation{{
+			Operation: "create", NewLearningID: "learn-curator-session-specific", EvidenceIDs: []string{reflection.Evidence[0].ID},
+			Claim: "During Fix callback ordering, change this callback.", Kind: "technical_fact",
+			Scope: "project", ProjectKey: "repo:acme/legato", Confidence: 0.9,
+		}},
+	}
+	encodedCuratorOperations, err := json.Marshal(curatorOperations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err = workflow.Complete(ctx, run.Run.ID, curatorStep, curatorAttempt.ID,
+		map[string]string{"operations": string(encodedCuratorOperations)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := learning.Show(ctx, "learn-acceptance-callback"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("curator draft was ingested before critic approval: %v", err)
+	}
+	criticStep := definition.Steps[3].ID
+	criticAttempt := activeAcceptanceAttempt(t, run, criticStep)
+	if len(agents.assignments) != 2 || !strings.Contains(agents.assignments[1].Assignment, "Curator draft operations") {
+		t.Fatalf("critic assignment was not delivered: %+v", agents.assignments)
+	}
+	criticOperations := CuratorOperationsDocument{
 		SchemaVersion: CuratorOperationsSchemaVersion,
 		PacketDigest:  packetOutputs.PacketDigest,
 		Operations: []CuratorOperation{{
@@ -129,19 +157,22 @@ func TestLegatoLearnConnectedAcceptance(t *testing.T) {
 			Scope: "project", ProjectKey: "repo:acme/legato", Confidence: 0.9,
 		}},
 	}
-	encodedOperations, err := json.Marshal(operations)
+	encodedCriticOperations, err := json.Marshal(criticOperations)
 	if err != nil {
 		t.Fatal(err)
 	}
-	run, err = workflow.Complete(ctx, run.Run.ID, curatorStep, curatorAttempt.ID,
-		map[string]string{"operations": string(encodedOperations)}, nil)
+	run, err = workflow.Complete(ctx, run.Run.ID, criticStep, criticAttempt.ID,
+		map[string]string{"operations": string(encodedCriticOperations)}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run.Run.Status != "succeeded" || run.Steps[3].Status != "succeeded" {
-		t.Fatalf("workflow did not deterministically submit proposals: %+v", run)
+	if run.Run.Status != "succeeded" || run.Steps[4].Status != "succeeded" {
+		t.Fatalf("workflow did not deterministically submit critic proposals: %+v", run)
 	}
 
+	if _, err := learning.Show(ctx, "learn-curator-session-specific"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("critic rewrite did not replace curator draft: %v", err)
+	}
 	candidate, err := learning.Show(ctx, "learn-acceptance-callback")
 	if err != nil {
 		t.Fatal(err)
@@ -262,6 +293,75 @@ func TestLegatoLearnConnectedAcceptance(t *testing.T) {
 	stale, err := learning.Show(ctx, accepted.Learning.ID)
 	if err != nil || stale.Learning.Status != "stale" {
 		t.Fatalf("learning after drift = %+v, %v", stale, err)
+	}
+}
+
+func TestLegatoLearnEmptyReflectionCompletesWithoutLearning(t *testing.T) {
+	ctx := context.Background()
+	db := newServiceTestStore(t)
+	bus := events.New()
+	learning := NewLearningService(db, bus)
+	board := NewBoardService(db, bus)
+	task, err := board.CreateTask(ctx, "No durable lesson", "Routine work", "Backlog", "Low", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: task.ID, TmuxSession: "empty-task-agent", AgentKind: "fake", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	agents := &acceptanceAgentTransport{store: db}
+	definition, err := BuiltInLearningWorkflow(LearningWorkflowOptions{Adapter: "fake", WorkingDir: t.TempDir(), PacketMaxItems: 20, PacketMaxBytes: 64 * 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := NewWorkflowService(db, []WorkflowExecutor{
+		NewAgentInterviewExecutor(learning, agents, db), NewLearningPacketPrepareExecutor(learning),
+		NewAgentRunExecutor(agents), NewLearningProposalsSubmitExecutor(learning),
+	})
+	run, err := workflow.Start(ctx, definition, map[string]string{"task": task.ID, "project_key": "repo:acme/empty", "project_label": "acme/empty"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interviewAttempt := activeAcceptanceAttempt(t, run, "interview")
+	request, err := db.GetLearningReflectionRequestByAttempt(ctx, interviewAttempt.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := learning.SubmitReflection(ctx, request.ID, ReflectionDocument{SchemaVersion: ReflectionSchemaVersion, Observations: []ReflectionObservation{}}); err != nil {
+		t.Fatal(err)
+	}
+	run, err = workflow.Complete(ctx, run.Run.ID, "interview", interviewAttempt.ID, map[string]string{"available": "true", "request_id": request.ID}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var packetOutputs struct {
+		PacketDigest string `json:"packet_digest"`
+	}
+	if err := json.Unmarshal([]byte(run.Steps[1].OutputsJSON), &packetOutputs); err != nil {
+		t.Fatal(err)
+	}
+	empty, err := json.Marshal(CuratorOperationsDocument{SchemaVersion: CuratorOperationsSchemaVersion, PacketDigest: packetOutputs.PacketDigest, Operations: []CuratorOperation{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	curatorAttempt := activeAcceptanceAttempt(t, run, "curator")
+	run, err = workflow.Complete(ctx, run.Run.ID, "curator", curatorAttempt.ID, map[string]string{"operations": string(empty)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	criticAttempt := activeAcceptanceAttempt(t, run, "critic")
+	run, err = workflow.Complete(ctx, run.Run.ID, "critic", criticAttempt.ID, map[string]string{"operations": string(empty)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Run.Status != "succeeded" {
+		t.Fatalf("workflow status = %s", run.Run.Status)
+	}
+	if evidence, err := db.ListLearningEvidenceByReflection(ctx, request.ID); err != nil || len(evidence) != 0 {
+		t.Fatalf("evidence = %+v, err = %v", evidence, err)
+	}
+	if proposals, err := learning.ListProposals(ctx, "pending"); err != nil || len(proposals) != 0 {
+		t.Fatalf("proposals = %+v, err = %v", proposals, err)
 	}
 }
 

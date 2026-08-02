@@ -44,6 +44,34 @@ func TestStaleLearningProposalAcceptConflictsAndStaysPending(t *testing.T) {
 	}
 }
 
+func TestRejectedReviseProposalLeavesLearningUnchanged(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	_, err := s.DB().Exec(`INSERT INTO learnings (id,scope,kind,claim,rationale,status,revision) VALUES ('learn-revise','user','fact','original','original reason','candidate',1)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.DB().Exec(`INSERT INTO learning_curation_generations (id,attempt_id,packet_digest,packet_json,status) VALUES ('gen-revise','attempt-revise','digest','{}','completed')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.DB().Exec(`INSERT INTO learning_proposals (id,generation_id,operation,learning_id,scope,claim,rationale,kind,reason,status,revision,target_learning_revision) VALUES ('proposal-revise','gen-revise','revise','learn-revise','user','general','general reason','pitfall','improve transfer','pending',1,1)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.ApplyLearningProposalDecision(ctx, "proposal-revise", 1, false); err != nil {
+		t.Fatal(err)
+	}
+	var learning Learning
+	if err := s.DB().Get(&learning, `SELECT * FROM learnings WHERE id = 'learn-revise'`); err != nil {
+		t.Fatal(err)
+	}
+	if learning.Claim != "original" || learning.Rationale != "original reason" || learning.Kind != "fact" || learning.Revision != 1 {
+		t.Fatalf("learning changed: %+v", learning)
+	}
+}
+
 func TestDiscardProposalDoesNotRequireOrChangeLearning(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

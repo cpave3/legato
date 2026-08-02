@@ -13,11 +13,14 @@ func TestBuiltInLearningWorkflowUsesInterviewAndConfiguredAgentRun(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if definition.Source != "builtin:legato-learning" || len(definition.Steps) != 4 {
+	if definition.Source != "builtin:legato-learning" || len(definition.Steps) != 5 {
 		t.Fatalf("definition = %#v", definition)
 	}
-	if definition.Steps[0].Type != "agent.interview" || definition.Steps[1].Type != "learning.packet.prepare" || definition.Steps[2].Type != "agent.run" || definition.Steps[3].Type != "learning.proposals.submit" {
-		t.Fatalf("steps = %#v", definition.Steps)
+	wantTypes := []string{"agent.interview", "learning.packet.prepare", "agent.run", "agent.run", "learning.proposals.submit"}
+	for i, want := range wantTypes {
+		if definition.Steps[i].Type != want {
+			t.Fatalf("step %d type = %q, want %q", i, definition.Steps[i].Type, want)
+		}
 	}
 	curator := definition.Steps[2]
 	if curator.With["agent"] != "chimera" || curator.With["tier"] != "careful" || curator.With["working_dir"] != "/tmp/project" {
@@ -28,14 +31,30 @@ func TestBuiltInLearningWorkflowUsesInterviewAndConfiguredAgentRun(t *testing.T)
 		t.Fatalf("curator prompt = %q", prompt)
 	}
 	for _, guidance := range []string{
-		"change a decision on a future task",
-		"user-global, repository-wide, or module-specific",
-		"Do not create task recaps",
-		"implementation detail tied only to this task",
+		"Novelty",
+		"Future trigger",
+		"Transfer",
+		"Correct boundary",
+		"Actionability",
+		"Non-duplication",
+		"empty operations array",
 	} {
 		if !strings.Contains(prompt, guidance) {
 			t.Errorf("curator prompt missing %q: %q", guidance, prompt)
 		}
+	}
+	critic := definition.Steps[3]
+	criticPrompt := critic.With["prompt"].(string)
+	if critic.With["agent"] != "chimera" || critic.With["tier"] != "careful" || critic.With["working_dir"] != "/tmp/project" {
+		t.Fatalf("critic config = %#v", critic.With)
+	}
+	for _, reference := range []string{"steps.packet.outputs.packet", "steps.curator.outputs.operations", "untrusted", "empty operations array"} {
+		if !strings.Contains(criticPrompt, reference) {
+			t.Errorf("critic prompt missing %q: %q", reference, criticPrompt)
+		}
+	}
+	if got := definition.Steps[4].With["operations"]; got != "${{ steps.critic.outputs.operations }}" {
+		t.Fatalf("submit operations = %v, want critic output", got)
 	}
 }
 
@@ -44,8 +63,10 @@ func TestBuiltInLearningWorkflowUsesTaskWorkingDirectoryWhenNoOverride(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := definition.Steps[2].With["working_dir"]; got != "${{ workflow.inputs.working_dir }}" {
-		t.Fatalf("curator working_dir = %v", got)
+	for _, index := range []int{2, 3} {
+		if got := definition.Steps[index].With["working_dir"]; got != "${{ workflow.inputs.working_dir }}" {
+			t.Fatalf("agent step %d working_dir = %v", index, got)
+		}
 	}
 }
 
@@ -56,7 +77,7 @@ func TestBuiltInConsolidationWorkflowUsesNormalAgentAndScopedPacket(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(definition.Steps) != 3 || definition.Steps[1].Type != "agent.run" {
+	if len(definition.Steps) != 4 || definition.Steps[1].Type != "agent.run" || definition.Steps[2].Type != "agent.run" || definition.Steps[3].Type != "learning.proposals.submit" {
 		t.Fatalf("steps = %#v", definition.Steps)
 	}
 	project := definition.Steps[0].With["project"].(map[string]any)
@@ -66,6 +87,9 @@ func TestBuiltInConsolidationWorkflowUsesNormalAgentAndScopedPacket(t *testing.T
 	prompt := definition.Steps[1].With["prompt"].(string)
 	if !strings.Contains(prompt, "Consolidate") || !strings.Contains(prompt, "do not make human acceptance decisions") {
 		t.Fatalf("prompt = %q", prompt)
+	}
+	if got := definition.Steps[3].With["operations"]; got != "${{ steps.critic.outputs.operations }}" {
+		t.Fatalf("consolidation submit operations = %v, want critic output", got)
 	}
 }
 

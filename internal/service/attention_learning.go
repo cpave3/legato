@@ -97,11 +97,18 @@ func (a *LearningAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInp
 		})
 	}
 	for _, proposal := range proposals {
-		title := "Curator proposal: " + proposal.Operation
+		title := "Learning proposal: " + proposal.Operation
 		detail := proposal.Reason
+		if proposal.Operation == "revise" {
+			title = "Revise learning: " + proposal.Claim
+			detail = proposal.Rationale
+			if proposal.Reason != "" {
+				detail = proposal.Reason + "\n\n" + detail
+			}
+		}
 		items = append(items, AttentionInput{
 			SourceKey: "proposal:" + proposal.ID, SourceRevision: learningAttentionRevision("proposal", proposal.Status, proposal.Revision),
-			Title: title, Reason: "Curator recommendation is awaiting your decision", Detail: detail,
+			Title: title, Reason: "Critic-reviewed learning proposal is awaiting your decision", Detail: detail,
 			Category: "learning", Urgency: "normal", Navigation: AttentionNavigation{Kind: "learning", Target: proposal.LearningID},
 			Actions: []AttentionAction{{ID: "open", Label: "Open learning", Kind: "navigate", Intent: "primary"},
 				{ID: "accept", Label: "Accept", Kind: "execute", RequiresConfirm: true}, {ID: "reject", Label: "Reject", Kind: "execute", RequiresConfirm: true}},

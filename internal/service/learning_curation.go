@@ -21,6 +21,9 @@ const (
 	CuratorOperationsSchemaVersion = 1
 	MaxCuratorOperations           = 128
 	MaxCuratorDocumentBytes        = 256 * 1024
+	MaxLearningClaimBytes          = 8 * 1024
+	MaxLearningRationaleBytes      = 8 * 1024
+	MaxLearningKindBytes           = 128
 )
 
 var (
@@ -298,12 +301,14 @@ func (s *LearningService) SubmitCuratorOperations(ctx context.Context, attemptID
 	evidenceIDs := map[string]bool{}
 	learningIDs := map[string]bool{}
 	learningRevisions := map[string]int{}
+	learningScopes := map[string]string{}
 	for _, e := range packet.Evidence {
 		evidenceIDs[e.ID] = true
 	}
 	for _, l := range packet.Learnings {
 		learningIDs[l.ID] = true
 		learningRevisions[l.ID] = l.Revision
+		learningScopes[l.ID] = l.Scope
 	}
 	encoded, err := json.Marshal(document)
 	if err != nil {
@@ -314,8 +319,17 @@ func (s *LearningService) SubmitCuratorOperations(ctx context.Context, attemptID
 	for i := range document.Operations {
 		op := &document.Operations[i]
 		normalizeOperation(op)
-		if err := validateCuratorOperation(op, evidenceIDs, learningIDs, newIDs, packet.Context.ProjectKey); err != nil {
+		if err := validateCuratorOperation(op, evidenceIDs, learningIDs, learningScopes, newIDs, packet.Context.ProjectKey); err != nil {
 			return nil, fmt.Errorf("%w: operation %d: %v", ErrInvalidCuratorOperations, i, err)
+		}
+		if op.Operation == "revise" {
+			view, viewErr := s.store.GetLearningView(ctx, op.LearningID)
+			if viewErr != nil {
+				return nil, viewErr
+			}
+			if len(view.Evidence) == 0 {
+				return nil, fmt.Errorf("%w: operation %d: revise requires an evidence-backed learning", ErrInvalidCuratorOperations, i)
+			}
 		}
 		switch op.Operation {
 		case "create":
@@ -336,11 +350,12 @@ func (s *LearningService) SubmitCuratorOperations(ctx context.Context, attemptID
 		case "destination":
 			apply.Incorporations = append(apply.Incorporations, store.LearningIncorporation{ID: newLearningID("linc-"), LearningID: op.LearningID,
 				Destination: op.Destination, Target: op.Target, Action: op.Action, Status: "proposed", Revision: 1, ReferencesJSON: "[]"})
-		case "duplicate", "supersede", "scope", "discard":
+		case "duplicate", "supersede", "scope", "revise", "discard":
 			evidenceJSON, _ := json.Marshal(op.EvidenceIDs)
 			apply.Proposals = append(apply.Proposals, store.LearningProposal{ID: newLearningID("lprop-"), GenerationID: generation.ID,
 				Operation: op.Operation, LearningID: op.LearningID, CanonicalLearningID: op.CanonicalLearningID,
-				Scope: op.Scope, ProjectKey: op.ProjectKey, EvidenceIDsJSON: string(evidenceJSON), Reason: op.Reason,
+				Scope: op.Scope, ProjectKey: op.ProjectKey, Claim: op.Claim, Rationale: op.Rationale, Kind: op.Kind,
+				EvidenceIDsJSON: string(evidenceJSON), Reason: op.Reason,
 				Status: "pending", Revision: 1, TargetLearningRevision: learningRevisions[op.LearningID]})
 		}
 	}
@@ -392,8 +407,8 @@ func normalizeOperation(op *CuratorOperation) {
 	}
 }
 
-func validateCuratorOperation(op *CuratorOperation, evidence, learnings, newIDs map[string]bool, packetProjectKey string) error {
-	allowed := map[string]bool{"create": true, "reinforce": true, "counter": true, "duplicate": true, "supersede": true, "scope": true, "destination": true, "discard": true}
+func validateCuratorOperation(op *CuratorOperation, evidence, learnings map[string]bool, learningScopes map[string]string, newIDs map[string]bool, packetProjectKey string) error {
+	allowed := map[string]bool{"create": true, "reinforce": true, "counter": true, "duplicate": true, "supersede": true, "scope": true, "revise": true, "destination": true, "discard": true}
 	if !allowed[op.Operation] {
 		return fmt.Errorf("operation %q is not allowed", op.Operation)
 	}
@@ -410,7 +425,7 @@ func validateCuratorOperation(op *CuratorOperation, evidence, learnings, newIDs 
 		}
 		seen[id] = true
 	}
-	needsLearning := map[string]bool{"reinforce": true, "counter": true, "duplicate": true, "supersede": true, "scope": true, "destination": true}
+	needsLearning := map[string]bool{"reinforce": true, "counter": true, "duplicate": true, "supersede": true, "scope": true, "revise": true, "destination": true}
 	if needsLearning[op.Operation] && (!strictLearningID.MatchString(op.LearningID) || !learnings[op.LearningID]) {
 		return fmt.Errorf("learning ID %q is absent from packet", op.LearningID)
 	}
@@ -422,6 +437,9 @@ func validateCuratorOperation(op *CuratorOperation, evidence, learnings, newIDs 
 		newIDs[op.NewLearningID] = true
 		if op.Claim == "" || op.Kind == "" || len(op.EvidenceIDs) == 0 {
 			return errors.New("create requires claim, kind, and evidence_ids")
+		}
+		if err := validateLearningProposalText(op); err != nil {
+			return err
 		}
 		if op.Scope != "user" && op.Scope != "project" {
 			return errors.New("create scope must be user or project")
@@ -447,6 +465,22 @@ func validateCuratorOperation(op *CuratorOperation, evidence, learnings, newIDs 
 		if op.Scope == "project" && (packetProjectKey == "" || op.ProjectKey != packetProjectKey) {
 			return errors.New("project scope project_key must exactly match the resolved packet project")
 		}
+	case "revise":
+		if learningScopes[op.LearningID] == "project" && op.Scope != "project" {
+			return errors.New("revise cannot broaden a project learning to user scope")
+		}
+		if op.Claim == "" || op.Kind == "" || op.Reason == "" {
+			return errors.New("revise requires claim, kind, and reason")
+		}
+		if err := validateLearningProposalText(op); err != nil {
+			return err
+		}
+		if op.Scope != "user" && op.Scope != "project" {
+			return errors.New("revise scope must be user or project")
+		}
+		if op.Scope == "project" && (packetProjectKey == "" || op.ProjectKey != packetProjectKey) {
+			return errors.New("revise project_key must exactly match the resolved packet project")
+		}
 	case "destination":
 		if op.Destination == "" {
 			return errors.New("destination is required")
@@ -455,6 +489,13 @@ func validateCuratorOperation(op *CuratorOperation, evidence, learnings, newIDs 
 		if len(op.EvidenceIDs) == 0 || op.Reason == "" {
 			return errors.New("discard requires evidence_ids and reason")
 		}
+	}
+	return nil
+}
+
+func validateLearningProposalText(op *CuratorOperation) error {
+	if len([]byte(op.Claim)) > MaxLearningClaimBytes || len([]byte(op.Rationale)) > MaxLearningRationaleBytes || len([]byte(op.Kind)) > MaxLearningKindBytes {
+		return errors.New("claim, rationale, or kind exceeds field bounds")
 	}
 	return nil
 }

@@ -123,6 +123,26 @@ func (s *Store) ApplyLearningProposalDecision(ctx context.Context, id string, ex
 			if rows != 1 {
 				return ErrConflict
 			}
+		case "revise":
+			result, err := tx.ExecContext(ctx, `UPDATE learnings SET claim = ?, rationale = ?, kind = ?, scope = ?, project_key = ?, revision = revision + 1, updated_at = datetime('now')
+					WHERE id = ? AND revision = ? AND status NOT IN ('rejected','superseded','duplicate','incorporated')`,
+				proposal.Claim, proposal.Rationale, proposal.Kind, proposal.Scope, proposal.ProjectKey, proposal.LearningID, proposal.TargetLearningRevision)
+			if err != nil {
+				return err
+			}
+			rows, err := result.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if rows != 1 {
+				return ErrConflict
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM learnings_fts WHERE learning_id = ?`, proposal.LearningID); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO learnings_fts (learning_id, claim, rationale) VALUES (?, ?, ?)`, proposal.LearningID, proposal.Claim, proposal.Rationale); err != nil {
+				return err
+			}
 		case "discard":
 			// Discard classifies evidence as intentionally processed; it does not alter a learning.
 		default:
@@ -198,8 +218,8 @@ func (s *Store) ApplyLearningCuration(ctx context.Context, apply LearningCuratio
 	}
 	for _, proposal := range apply.Proposals {
 		if _, err := tx.NamedExecContext(ctx, `INSERT INTO learning_proposals
-			(id, generation_id, operation, learning_id, canonical_learning_id, scope, project_key, evidence_ids_json, reason, status, revision, target_learning_revision)
-			VALUES (:id, :generation_id, :operation, :learning_id, :canonical_learning_id, :scope, :project_key, :evidence_ids_json, :reason, :status, :revision, :target_learning_revision)`, proposal); err != nil {
+			(id, generation_id, operation, learning_id, canonical_learning_id, scope, project_key, claim, rationale, kind, evidence_ids_json, reason, status, revision, target_learning_revision)
+			VALUES (:id, :generation_id, :operation, :learning_id, :canonical_learning_id, :scope, :project_key, :claim, :rationale, :kind, :evidence_ids_json, :reason, :status, :revision, :target_learning_revision)`, proposal); err != nil {
 			return false, err
 		}
 	}
