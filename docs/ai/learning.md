@@ -52,7 +52,7 @@ Only a **verified** `prompt_profile` incorporation makes a validated/incorporate
 
 `legato learn curate --task <task-id>` launches the built-in `legato-learning` workflow:
 
-1. `agent.interview` borrows the task's existing live agent and asks for a structured reflection. It does not launch a replacement. If no active task agent exists, the step succeeds with `available: false` and curation continues.
+1. `agent.interview` borrows the task's existing live agent and asks for a structured reflection. It does not launch a replacement. If no active task agent exists, the workflow fails at the interview step and no packet, curator, critic, or submission step runs.
 2. The agent submits the reflection through the CLI callback described below. Valid observations become attributable evidence. An empty observation list is a successful result and creates no evidence.
 3. `learning.packet.prepare` creates and persists canonical, bounded JSON containing unlinked relevant evidence and existing user/matching-project learnings. Whole records are included; records are never silently truncated. Item/byte exclusions are recorded, and the packet has a digest.
 4. A configured ordinary `agent.run` curator receives the packet explicitly labelled as untrusted data and returns draft schema-versioned operations. An empty operations array is valid.

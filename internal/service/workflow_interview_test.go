@@ -84,16 +84,45 @@ func TestAgentInterviewExecutorBorrowsExistingSession(t *testing.T) {
 	}
 }
 
-func TestAgentInterviewExecutorReturnsTypedUnavailableWithoutSession(t *testing.T) {
+func TestLearningWorkflowFailsAtInterviewWhenTaskHasNoAgent(t *testing.T) {
 	db := newServiceTestStore(t)
-	requests := &fakeReflectionRequestCreator{}
-	executor := NewAgentInterviewExecutor(requests, &fakeInterviewPrompter{}, db)
-	result, err := executor.Start(context.Background(), ResolvedWorkflowStep{With: map[string]any{"task": "LEG-missing"}})
+	ctx := context.Background()
+	if err := db.CreateTask(ctx, store.Task{ID: "LEG-no-agent", Title: "task", Status: "Review"}); err != nil {
+		t.Fatal(err)
+	}
+	learning := NewLearningService(db, nil)
+	interview := NewAgentInterviewExecutor(learning, &fakeInterviewPrompter{}, db)
+	packet := &fakeWorkflowExecutor{typeName: "learning.packet.prepare", result: WorkflowExecutionResult{Status: "succeeded"}}
+	agent := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent"}}
+	submit := &fakeWorkflowExecutor{typeName: "learning.proposals.submit", result: WorkflowExecutionResult{Status: "succeeded"}}
+	definition, err := BuiltInLearningWorkflow(LearningWorkflowOptions{Adapter: "chimera", PacketMaxItems: 20, PacketMaxBytes: 64 * 1024})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "succeeded" || result.Outputs["available"] != false || result.Outputs["reason"] == "" {
-		t.Fatalf("result = %#v", result)
+
+	view, err := NewWorkflowService(db, []WorkflowExecutor{interview, packet, agent, submit}).Start(ctx, definition, map[string]string{
+		"task": "LEG-no-agent", "project_key": "repo:acme/widget", "project_label": "acme/widget",
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Run.Status != "failed" || view.Run.CurrentStepID != "interview" || !strings.Contains(view.Run.Error, "no active agent session") {
+		t.Fatalf("run = %+v", view.Run)
+	}
+	if view.Steps[0].Status != "failed" || view.Steps[1].Status != "pending" || view.Steps[2].Status != "pending" || view.Steps[3].Status != "pending" || view.Steps[4].Status != "pending" {
+		t.Fatalf("steps = %+v", view.Steps)
+	}
+	if len(packet.starts) != 0 || len(agent.starts) != 0 || len(submit.starts) != 0 {
+		t.Fatalf("downstream starts: packet=%d agent=%d submit=%d", len(packet.starts), len(agent.starts), len(submit.starts))
+	}
+}
+
+func TestAgentInterviewExecutorFailsWithoutSession(t *testing.T) {
+	db := newServiceTestStore(t)
+	requests := &fakeReflectionRequestCreator{}
+	executor := NewAgentInterviewExecutor(requests, &fakeInterviewPrompter{}, db)
+	if _, err := executor.Start(context.Background(), ResolvedWorkflowStep{With: map[string]any{"task": "LEG-missing"}}); err == nil || !strings.Contains(err.Error(), "no active agent session for task LEG-missing") {
+		t.Fatalf("error = %v", err)
 	}
 	if requests.calls != 0 {
 		t.Fatalf("created %d requests without a session", requests.calls)

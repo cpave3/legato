@@ -59,10 +59,7 @@ func (e *AgentInterviewExecutor) Start(ctx context.Context, step ResolvedWorkflo
 	session, err := e.store.GetAgentSessionByTaskID(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return WorkflowExecutionResult{Status: "succeeded", Outputs: map[string]any{
-				"available": false,
-				"reason":    "no active agent session for task " + taskID,
-			}}, nil
+			return WorkflowExecutionResult{}, fmt.Errorf("no active agent session for task %s", taskID)
 		}
 		return WorkflowExecutionResult{}, fmt.Errorf("find interview session: %w", err)
 	}
