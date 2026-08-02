@@ -9,6 +9,22 @@ export interface NativeBangItem {
   timedOut: boolean
 }
 
+export interface NativeSubagentActivity {
+  key: string
+  text: string
+  callId?: string
+  toolName?: string
+}
+
+export interface NativeSubagentState {
+  subagentId: string
+  childSessionId?: string
+  purpose: string
+  status: "running" | "finished" | "error"
+  reason?: string
+  activities: NativeSubagentActivity[]
+}
+
 export interface NativeToolItem {
   key: string
   toolName: string
@@ -18,6 +34,7 @@ export interface NativeToolItem {
   durationMs?: number
   skillName?: string
   skillSource?: "project" | "user" | "claude-compat"
+  subagent?: NativeSubagentState
 }
 
 export interface NativeConversationItem {
@@ -73,6 +90,12 @@ export interface NativeEvent {
   usedContextTokens?: number
   skillName?: string
   source?: "project" | "user" | "claude-compat"
+  subagentId?: string
+  parentCallId?: string
+  childSessionId?: string
+  purpose?: string
+  reason?: string
+  event?: Omit<NativeEvent, "eventId">
 }
 
 const nativeEventHistoryLimit = 1000
@@ -181,13 +204,26 @@ export function reconcileNativeSnapshot(
   queuedEvents: NativeEvent[],
 ): NativeSyncState {
   let next = stateFromNativeSnapshot(snapshot)
-  const previousSkills = new Map(previous.items.flatMap((item) => item.tool?.skillName
-    ? [[item.tool.key, { skillName: item.tool.skillName, skillSource: item.tool.skillSource }] as const]
+  const previousToolState = new Map(previous.items.flatMap((item) => item.tool
+    ? [[item.tool.key, { skillName: item.tool.skillName, skillSource: item.tool.skillSource, subagent: item.tool.subagent }] as const]
     : []))
   next.items = next.items.map((item) => {
     if (!item.tool) return item
-    const skill = previousSkills.get(item.tool.key)
-    return skill ? { ...item, tool: { ...item.tool, ...skill } } : item
+    const preserved = previousToolState.get(item.tool.key)
+    if (!preserved) return item
+    return {
+      ...item,
+      tool: {
+        ...item.tool,
+        ...(preserved.skillName ? { skillName: preserved.skillName, skillSource: preserved.skillSource } : {}),
+        ...(preserved.subagent ? {
+          subagent: {
+            ...preserved.subagent,
+            ...subagentCompletionFromResult(item.tool.result),
+          },
+        } : {}),
+      },
+    }
   })
   next.cursor = previous.cursor
   next.eventIds = new Set(previous.eventIds)
@@ -298,6 +334,34 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
         })
       }
       break
+    case "subagent_spawned":
+      if (event.parentCallId && event.subagentId) {
+        updateTool(next.items, event.parentCallId, (tool) => ({
+          ...tool,
+          subagent: {
+            subagentId: event.subagentId!,
+            childSessionId: event.childSessionId,
+            purpose: event.purpose || String(tool.args.purpose || "Subagent"),
+            status: "running",
+            activities: tool.subagent?.activities ?? [],
+          },
+        }))
+      }
+      break
+    case "subagent_event":
+      if (event.subagentId && event.event) {
+        updateSubagent(next.items, event.subagentId, (subagent) => applySubagentEvent(subagent, event.event!))
+      }
+      break
+    case "subagent_finished":
+      if (event.subagentId) {
+        updateSubagent(next.items, event.subagentId, (subagent) => ({
+          ...subagent,
+          status: event.reason === "stop" ? "finished" : "error",
+          reason: event.reason,
+        }))
+      }
+      break
     case "permission_request":
       next.busy = false
       if (event.requestId) next.items.push({ key: event.requestId, role: "system", text: "", toolName: event.toolName })
@@ -316,6 +380,63 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
   }
 
   return next
+}
+
+function updateTool(items: NativeConversationItem[], callId: string, update: (tool: NativeToolItem) => NativeToolItem) {
+  const index = items.findIndex((item) => item.tool?.key === callId)
+  if (index < 0 || !items[index].tool) return
+  items[index] = { ...items[index], tool: update(items[index].tool!) }
+}
+
+function updateSubagent(
+  items: NativeConversationItem[],
+  subagentId: string,
+  update: (subagent: NativeSubagentState) => NativeSubagentState,
+) {
+  const index = items.findIndex((item) => item.tool?.subagent?.subagentId === subagentId)
+  if (index < 0 || !items[index].tool?.subagent) return
+  items[index] = {
+    ...items[index],
+    tool: {
+      ...items[index].tool,
+      subagent: update(items[index].tool.subagent),
+    },
+  }
+}
+
+function subagentCompletionFromResult(result?: Record<string, unknown>): Pick<NativeSubagentState, "status" | "reason"> | Record<string, never> {
+  const reason = typeof result?.reason === "string" ? result.reason : undefined
+  if (!reason) return {}
+  return { status: reason === "stop" ? "finished" : "error", reason }
+}
+
+function applySubagentEvent(subagent: NativeSubagentState, event: Omit<NativeEvent, "eventId">): NativeSubagentState {
+  const activities = [...subagent.activities]
+  if ((event.type === "assistant_text_done" || event.type === "reasoning_text_done") && event.text) {
+    activities.push({ key: `${subagent.subagentId}-${activities.length}`, text: event.text })
+  } else if (event.type === "tool_call_start" && event.name) {
+    const summary = event.display?.summary
+    activities.push({
+      key: `${subagent.subagentId}-${event.callId || activities.length}`,
+      callId: event.callId,
+      toolName: event.name,
+      text: summary ? `${event.name}: ${summary}` : event.name,
+    })
+  } else if (event.type === "tool_call_result" && event.callId && event.display?.summary) {
+    const index = activities.findIndex((activity) => activity.callId === event.callId)
+    if (index >= 0) {
+      const activity = activities[index]
+      activities[index] = {
+        ...activity,
+        text: activity.toolName ? `${activity.toolName}: ${event.display.summary}` : event.display.summary,
+      }
+    }
+  } else if (event.type === "tool_call_error" && event.error) {
+    activities.push({ key: `${subagent.subagentId}-${activities.length}`, text: `Tool error: ${event.error}` })
+  } else if (event.type === "run_finished" && event.reason && event.reason !== "stop") {
+    activities.push({ key: `${subagent.subagentId}-${activities.length}`, text: event.error || `Run ${event.reason}` })
+  }
+  return { ...subagent, activities }
 }
 
 function addEventID(state: NativeSyncState, eventID: string) {

@@ -85,10 +85,10 @@ func (m *chimeraStreamManager) subscribe(client *wsClient, taskID, cursor string
 		m.streams[taskID] = stream
 		created = true
 	}
-	m.mu.Unlock()
 
 	subscriber := &chimeraSubscriber{messages: make(chan WSMessage, chimeraReplayLimit+16)}
 	stream.mu.Lock()
+	m.mu.Unlock()
 	if stream.cleanupTimer != nil {
 		stream.cleanupTimer.Stop()
 		stream.cleanupTimer = nil
@@ -97,6 +97,9 @@ func (m *chimeraStreamManager) subscribe(client *wsClient, taskID, cursor string
 	replay, cursorKnown := stream.eventsAfter(cursor)
 	if !created && cursor == "" {
 		subscriber.messages <- WSMessage{Type: MsgChimeraSyncRequired, AgentID: taskID}
+		for _, event := range stream.events {
+			subscriber.messages <- chimeraWSMessage(taskID, event)
+		}
 	} else if cursor != "" && !cursorKnown {
 		subscriber.messages <- WSMessage{Type: MsgChimeraSyncRequired, AgentID: taskID}
 	} else {

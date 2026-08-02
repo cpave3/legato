@@ -69,6 +69,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   const queuedEventsRef = useRef<ChimeraEvent[] | null>(null)
   const syncGenerationRef = useRef(0)
   const runFinishTimerRef = useRef<number | null>(null)
+  const hydratedAgentRef = useRef<string | null>(null)
   const [draft, setDraft] = useState("")
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -265,12 +266,14 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   useEffect(() => {
     replaceSyncState(createNativeSyncState())
     initialScrollDone.current = false
-    void resync(true)
+    hydratedAgentRef.current = null
+    queuedEventsRef.current = []
     return () => {
       queuedEventsRef.current = null
+      hydratedAgentRef.current = null
       if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
     }
-  }, [agentId, replaceSyncState, resync])
+  }, [agentId, replaceSyncState])
 
   const [bangQueue, setBangQueue] = useState<string[]>([])
   const [bangRunning, setBangRunning] = useState(false)
@@ -293,16 +296,6 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       setBangRunning(false)
     }
   }, [agentId, baseUrl, resync, replaceSyncState, scrollToBottomAfterRender])
-
-  // Subscribe with the last accepted cursor on every WebSocket connection.
-  useEffect(() => {
-    if (connected) {
-      send({ type: "subscribe_agent", agent_id: agentId, cursor: syncStateRef.current.cursor })
-    }
-    return () => {
-      if (connected) send({ type: "unsubscribe_agent", agent_id: agentId })
-    }
-  }, [agentId, connected, send])
 
   useEffect(() => {
     const unsubscribe = subscribe((msg: WSMessage) => {
@@ -339,8 +332,18 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
         replaceSyncState({ ...syncStateRef.current, error: "Invalid Chimera event; refresh from snapshot" })
       }
     })
-    return unsubscribe
-  }, [subscribe, agentId, applyEvent, replaceSyncState, resync, executeBang])
+    if (connected) {
+      send({ type: "subscribe_agent", agent_id: agentId, cursor: syncStateRef.current.cursor })
+      if (hydratedAgentRef.current !== agentId) {
+        hydratedAgentRef.current = agentId
+        void resync(true)
+      }
+    }
+    return () => {
+      unsubscribe()
+      if (connected) send({ type: "unsubscribe_agent", agent_id: agentId })
+    }
+  }, [subscribe, agentId, applyEvent, replaceSyncState, resync, executeBang, connected, send])
 
   const handleBuiltinSlash = useCallback(async (raw: string) => {
     const parts = raw.split(/\s+/)
@@ -810,10 +813,63 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   )
 }
 
+const SubagentCard = memo(function SubagentCard({ tool }: { tool: ToolCallItem }) {
+  const [expanded, setExpanded] = useState(true)
+  const args = tool.args || {}
+  const result = tool.result || {}
+  const subagent = tool.subagent
+  const purpose = subagent?.purpose || String(args.purpose || "Subagent")
+  const prompt = String(args.prompt || "")
+  const agent = String(args.agent || "default")
+  const model = String(args.model || "inherited")
+  const mode = String(args.mode || "default")
+  const status = subagent?.status || (result.reason ? (result.reason === "stop" ? "finished" : "error") : "spawning")
+  const steps = result.steps as number | undefined
+  const toolCalls = result.tool_calls_count as number | undefined
+
+  return (
+    <div data-testid={`subagent-card-${tool.key}`} className="mx-4 my-2 overflow-hidden rounded-lg border border-indigo-700/60 bg-indigo-950/20">
+      <button className="flex w-full items-center gap-2 px-3 py-2 text-left" onClick={() => setExpanded(!expanded)}>
+        <span className="rounded bg-indigo-600/70 px-1.5 py-0.5 font-mono text-xs text-white">subagent</span>
+        <span className="truncate text-sm font-medium text-indigo-100">{purpose}</span>
+        <span className={`ml-auto text-xs ${status === "error" ? "text-red-400" : status === "finished" ? "text-green-400" : "text-indigo-300"}`}>{status}</span>
+        <span className="text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
+      </button>
+      {expanded && (
+        <div className="border-t border-indigo-900/60 px-3 py-2">
+          <div className="mb-2 flex flex-wrap gap-1.5 text-[11px]">
+            <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">agent <span className="font-mono text-zinc-100">{agent}</span></span>
+            <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">model <span className="font-mono text-zinc-100">{model}</span></span>
+            <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">mode <span className="font-mono text-zinc-100">{mode}</span></span>
+          </div>
+          {prompt && <div className="mb-2 whitespace-pre-wrap rounded bg-zinc-900/70 px-2 py-1.5 text-xs text-zinc-300">{prompt}</div>}
+          {subagent?.activities.length ? (
+            <div className="space-y-1 border-l border-indigo-700/50 pl-3">
+              {subagent.activities.map((activity) => <div key={activity.key} className="text-xs text-zinc-300">{activity.text}</div>)}
+            </div>
+          ) : (
+            <div className="text-xs text-zinc-500">
+              {status === "spawning" || status === "running" ? "Waiting for activity…" : "No live activity captured"}
+            </div>
+          )}
+          {(steps !== undefined || toolCalls !== undefined) && (
+            <div className="mt-2 text-[11px] text-zinc-500">
+              {steps !== undefined && `${steps} step${steps === 1 ? "" : "s"}`}
+              {steps !== undefined && toolCalls !== undefined && " · "}
+              {toolCalls !== undefined && `${toolCalls} tool call${toolCalls === 1 ? "" : "s"}`}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+})
+
 const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCallItem }) {
   const [expanded, setExpanded] = useState(tool.toolName === "edit")
 
   const name = tool.toolName
+  if (name === "spawn_agent") return <SubagentCard tool={tool} />
   const args = tool.args || {}
   const summary = tool.summary || ""
   const result = tool.result || {}

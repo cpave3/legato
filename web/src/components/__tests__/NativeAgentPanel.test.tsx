@@ -608,6 +608,194 @@ describe("NativeAgentPanel", () => {
     expect(within(view.container).getByText("Live during failed refresh")).not.toBeNull()
   })
 
+  it("captures replayed subagents immediately when loading during an active run", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+    send.mockImplementation((message) => {
+      if (message.type !== "subscribe_agent") return
+      websocketHandler?.({
+        type: "chimera_event",
+        agent_id: "task-1",
+        content: JSON.stringify({
+          eventId: "replayed-call",
+          type: "tool_call_start",
+          callId: "call-active",
+          name: "spawn_agent",
+          args: { purpose: "Already running", prompt: "Inspect the active work" },
+        }),
+      })
+      websocketHandler?.({
+        type: "chimera_event",
+        agent_id: "task-1",
+        content: JSON.stringify({
+          eventId: "replayed-spawn",
+          type: "subagent_spawned",
+          subagentId: "sub-active",
+          parentCallId: "call-active",
+          purpose: "Already running",
+        }),
+      })
+    })
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+
+    const card = await within(view.container).findByTestId("subagent-card-call-active")
+    expect(within(card).getByText("Already running")).not.toBeNull()
+    expect(within(card).getByText("running")).not.toBeNull()
+  })
+
+  it("labels completed subagents without captured events accurately", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({
+          id: "session-1",
+          status: "idle",
+          messages: [
+            { role: "user", content: "system" },
+            { role: "assistant", content: [{ type: "tool-call" }] },
+          ],
+          toolCalls: [{
+            callId: "finished-call",
+            name: "spawn_agent",
+            args: { purpose: "Completed review", prompt: "Review it" },
+            result: { reason: "stop", steps: 2, tool_calls_count: 1 },
+          }],
+        }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+
+    const card = await within(view.container).findByTestId("subagent-card-finished-call")
+    expect(within(card).getByText("finished")).not.toBeNull()
+    expect(within(card).getByText("No live activity captured")).not.toBeNull()
+    expect(within(card).queryByText("Waiting for activity…")).toBeNull()
+  })
+
+  it("renders live subagent metadata and activity inside its spawn card", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({
+        eventId: "spawn-call",
+        type: "tool_call_start",
+        callId: "call-1",
+        name: "spawn_agent",
+        args: {
+          purpose: "Review correctness",
+          prompt: "Inspect the current changes for regressions.",
+          agent: "review-correctness",
+          model: "manticore/gpt",
+        },
+      }),
+    }))
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({
+        eventId: "spawned",
+        type: "subagent_spawned",
+        subagentId: "sub-1",
+        parentCallId: "call-1",
+        childSessionId: "child-1",
+        purpose: "Review correctness",
+      }),
+    }))
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({
+        eventId: "child-read",
+        type: "subagent_event",
+        subagentId: "sub-1",
+        event: {
+          type: "tool_call_start",
+          callId: "child-call-1",
+          name: "read",
+          args: { path: "internal/service/agent.go" },
+          display: { summary: "internal/service/agent.go" },
+        },
+      }),
+    }))
+
+    const card = within(view.container).getByTestId("subagent-card-call-1")
+    expect(within(card).getByText("Review correctness")).not.toBeNull()
+    expect(within(card).getByText("review-correctness")).not.toBeNull()
+    expect(within(card).getByText("manticore/gpt")).not.toBeNull()
+    expect(within(card).getByText("Inspect the current changes for regressions.")).not.toBeNull()
+    expect(within(card).getByText("read: internal/service/agent.go")).not.toBeNull()
+    expect(within(card).getByText("running")).not.toBeNull()
+
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({
+        eventId: "finished",
+        type: "subagent_finished",
+        subagentId: "sub-1",
+        parentCallId: "call-1",
+        result: "No regressions found.",
+        reason: "stop",
+      }),
+    }))
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({
+        eventId: "spawn-result",
+        type: "tool_call_result",
+        callId: "call-1",
+        result: { reason: "stop", steps: 3, tool_calls_count: 1 },
+      }),
+    }))
+
+    expect(within(card).getByText("finished")).not.toBeNull()
+    expect(within(card).getByText("3 steps · 1 tool call")).not.toBeNull()
+  })
+
+  it("keeps parallel subagent activity in the matching spawn cards", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+
+    for (const [callId, purpose] of [["call-a", "Correctness"], ["call-b", "Tests and docs"]]) {
+      act(() => websocketHandler?.({
+        type: "chimera_event",
+        agent_id: "task-1",
+        content: JSON.stringify({ eventId: `call-${callId}`, type: "tool_call_start", callId, name: "spawn_agent", args: { purpose, prompt: purpose } }),
+      }))
+      act(() => websocketHandler?.({
+        type: "chimera_event",
+        agent_id: "task-1",
+        content: JSON.stringify({ eventId: `spawn-${callId}`, type: "subagent_spawned", subagentId: `sub-${callId}`, parentCallId: callId, purpose }),
+      }))
+    }
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({
+        eventId: "activity-b",
+        type: "subagent_event",
+        subagentId: "sub-call-b",
+        event: { type: "assistant_text_done", text: "Documentation needs an update" },
+      }),
+    }))
+
+    const correctness = within(view.container).getByTestId("subagent-card-call-a")
+    const testsDocs = within(view.container).getByTestId("subagent-card-call-b")
+    expect(within(correctness).queryByText("Documentation needs an update")).toBeNull()
+    expect(within(testsDocs).getByText("Documentation needs an update")).not.toBeNull()
+  })
+
   it("renders a snapshot tool call only at the assistant message that made it", async () => {
     const snapshot = {
       id: "session-1",

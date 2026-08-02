@@ -84,6 +84,88 @@ describe("native agent synchronization", () => {
     expect(state.items[0]?.tool?.skillName).toBe("coworker-walkthrough")
   })
 
+  it("preserves live subagent activity when a snapshot reconciles the parent tool call", () => {
+    let state = createNativeSyncState()
+    state = reduceNativeEvent(state, {
+      eventId: "call",
+      type: "tool_call_start",
+      callId: "spawn-1",
+      name: "spawn_agent",
+      args: { purpose: "Review", prompt: "Inspect changes" },
+    })
+    state = reduceNativeEvent(state, {
+      eventId: "spawned",
+      type: "subagent_spawned",
+      subagentId: "sub-1",
+      parentCallId: "spawn-1",
+      childSessionId: "child-1",
+      purpose: "Review",
+    })
+    state = reduceNativeEvent(state, {
+      eventId: "activity",
+      type: "subagent_event",
+      subagentId: "sub-1",
+      event: { type: "assistant_text_done", text: "Found a regression" },
+    })
+
+    state = reconcileNativeSnapshot({
+      messages: [
+        { role: "user", content: "system" },
+        { role: "assistant", content: [{ type: "tool-call" }] },
+      ],
+      toolCalls: [{
+        callId: "spawn-1",
+        name: "spawn_agent",
+        args: { purpose: "Review", prompt: "Inspect changes" },
+        result: { reason: "stop", steps: 2, tool_calls_count: 1 },
+      }],
+    }, state, [])
+
+    expect(state.items[0]?.tool?.subagent).toMatchObject({
+      subagentId: "sub-1",
+      status: "finished",
+      reason: "stop",
+      activities: [{ text: "Found a regression" }],
+    })
+  })
+
+  it("renders forwarded child reasoning, updated tool summaries, and failures", () => {
+    let state = createNativeSyncState()
+    state = reduceNativeEvent(state, {
+      eventId: "call", type: "tool_call_start", callId: "spawn-1", name: "spawn_agent", args: {},
+    })
+    state = reduceNativeEvent(state, {
+      eventId: "spawned", type: "subagent_spawned", subagentId: "sub-1", parentCallId: "spawn-1", purpose: "Review",
+    })
+    state = reduceNativeEvent(state, {
+      eventId: "reasoning", type: "subagent_event", subagentId: "sub-1",
+      event: { type: "reasoning_text_done", text: "Checking the lifecycle" },
+    })
+    state = reduceNativeEvent(state, {
+      eventId: "tool-start", type: "subagent_event", subagentId: "sub-1",
+      event: { type: "tool_call_start", callId: "child-tool", name: "bash", display: { summary: "go test ./..." } },
+    })
+    state = reduceNativeEvent(state, {
+      eventId: "tool-result", type: "subagent_event", subagentId: "sub-1",
+      event: { type: "tool_call_result", callId: "child-tool", display: { summary: "exit 1" } },
+    })
+    state = reduceNativeEvent(state, {
+      eventId: "tool-error", type: "subagent_event", subagentId: "sub-1",
+      event: { type: "tool_call_error", error: "test failed" },
+    })
+    state = reduceNativeEvent(state, {
+      eventId: "run-error", type: "subagent_event", subagentId: "sub-1",
+      event: { type: "run_finished", reason: "error", error: "child stopped" },
+    })
+
+    expect(state.items[0]?.tool?.subagent?.activities.map((activity) => activity.text)).toEqual([
+      "Checking the lifecycle",
+      "bash: exit 1",
+      "Tool error: test failed",
+      "child stopped",
+    ])
+  })
+
   it("applies duplicate event and tool call IDs exactly once", () => {
     let state = createNativeSyncState()
     const message = { eventId: "1", type: "assistant_text_done", id: "a", text: "Done" }

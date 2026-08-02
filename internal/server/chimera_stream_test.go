@@ -67,6 +67,28 @@ func TestChimeraStreamRemovesDisconnectedClientAfterGrace(t *testing.T) {
 	}
 }
 
+func TestChimeraStreamReplaysRetainedEventsAfterSyncForCursorlessSubscriber(t *testing.T) {
+	manager, emit := newTestChimeraStreamManager(t)
+	first := newRecordingWSClient()
+	manager.subscribe(first.wsClient, "task-1", "")
+	emit(chimera.EventEnvelope{EventID: "spawn-call", Type: "tool_call_start"})
+	emit(chimera.EventEnvelope{EventID: "spawned", Type: "subagent_spawned"})
+
+	loadedMidRun := newRecordingWSClient()
+	manager.subscribe(loadedMidRun.wsClient, "task-1", "")
+
+	messages := loadedMidRun.messages(3)
+	if len(messages) != 3 || messages[0].Type != MsgChimeraSyncRequired {
+		t.Fatalf("messages = %+v", messages)
+	}
+	if got := eventID(t, messages[1]); got != "spawn-call" {
+		t.Fatalf("first retained event = %q", got)
+	}
+	if got := eventID(t, messages[2]); got != "spawned" {
+		t.Fatalf("second retained event = %q", got)
+	}
+}
+
 func TestChimeraStreamRequestsSyncForUnknownCursor(t *testing.T) {
 	manager, _ := newTestChimeraStreamManager(t)
 	client := newRecordingWSClient()
