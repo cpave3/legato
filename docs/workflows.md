@@ -37,6 +37,7 @@ Version 1 executes steps in declaration order and supports these executors:
 - `worktree.remove`: validate and remove the shared task's worktree through Yggdrasil, then clear task metadata.
 - `task.note`: add Markdown to a selected task. Pass a resolved `task` input plus either inline `body` or a managed/file `body_path`. Local notes are stored in Legato and shown in task detail; Jira-backed notes are also published as Jira comments. Provider failures fail the step rather than silently dropping the note.
 - `task.metadata.set`: atomically set one or more dotted local metadata paths on a task. Provider sync preserves this metadata.
+- Built-in Learn definitions additionally own `agent.interview`, `learning.packet.prepare`, and `learning.proposals.submit`. They are internal orchestration contracts rather than general-purpose user workflow examples; see [Legato Learn](ai/learning.md).
 
 Task inputs expose `${{ workflow.inputs.task.metadata.<path> }}`. Metadata is arbitrary JSON, local to Legato, and separate from provider-owned `remote_meta`.
 
@@ -203,7 +204,7 @@ Report an unrecoverable failure:
 legato workflow step fail "review tool unavailable" --json
 ```
 
-Agent or tmux exit alone never means success. Missing or invalid outputs leave the step incomplete or failed. Completion is persisted and downstream steps are advanced before Legato removes the completed agent session, because the callback may be running inside that session. Managed artifact collection is replay-safe: rerunning an interrupted completion callback reuses an existing `(attempt, output)` artifact only when its source path and digest still match; changed content is rejected.
+Agent or tmux exit alone never means success. Missing or invalid outputs leave the step incomplete or failed. Learn's borrowed-agent interview follows the same rule through `legato learn reflection submit`, which persists the typed reflection before completing its exact waiting attempt; see [Legato Learn](ai/learning.md). Completion is persisted and downstream steps are advanced before Legato removes the completed agent session, because the callback may be running inside that session. Managed artifact collection is replay-safe: rerunning an interrupted completion callback reuses an existing `(attempt, output)` artifact only when its source path and digest still match; changed content is rejected.
 
 ## Artifacts and security
 

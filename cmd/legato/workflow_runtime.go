@@ -42,6 +42,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 			prSvc = service.NewPRTrackingServiceWithInspector(db, bus, client, 10*time.Minute, 10*time.Minute, checkoutInspector(), githubRepositoryMappings(cfg)...)
 		}
 	}
+	learningSvc := service.NewLearningService(db, bus, service.NewProjectIdentityResolver(checkoutInspector()))
 	agentSvc := existingAgents
 	if agentSvc == nil {
 		mgr, err := tmux.New(tmux.Options{})
@@ -69,7 +70,11 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 		configure(chimera)
 		configure(codex)
 		adapters := map[string]service.AIToolAdapter{claude.Name(): claude, chimera.Name(): chimera, codex.Name(): codex}
-		agentSvc = service.NewAgentService(db, mgr, workDir, service.AgentServiceOptions{Adapter: chimera, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions})
+		var promptProvider service.LearningPromptProvider
+		if cfg.Learning.PromptEnabled {
+			promptProvider = learningSvc
+		}
+		agentSvc = service.NewAgentService(db, mgr, workDir, service.AgentServiceOptions{Adapter: chimera, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes})
 	}
 	binary, _ := os.Executable()
 	runner := service.NewWorkflowAgentRunner(agentSvc, db, binary)
@@ -77,7 +82,9 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 	if cfg.Jira.BaseURL != "" && cfg.Jira.Email != "" && cfg.Jira.APIToken != "" {
 		publishers["jira"] = jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second)
 	}
-	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary), service.NewTaskNoteExecutor(db, publishers), service.NewTaskMetadataExecutor(db)}
+	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary)}
+	executors = append(executors, learningWorkflowExecutors(db, learningSvc, runner, binary)...)
+	executors = append(executors, service.NewTaskNoteExecutor(db, publishers), service.NewTaskMetadataExecutor(db))
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector())
 		if prSvc != nil {
@@ -90,6 +97,21 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 	workflows := service.NewWorkflowServiceWithOutputs(db, executors, workflowArtifactRoot(cfg))
 	workflows.SetRepositoryPresets(workflowRepositoryPresets(cfg))
 	return workflows, nil
+}
+
+func learningWorkflowExecutors(db *store.Store, learning *service.LearningService, runner *service.WorkflowAgentRunner, binary string) []service.WorkflowExecutor {
+	return []service.WorkflowExecutor{
+		service.NewAgentInterviewExecutor(learning, runner, db, binary),
+		service.NewLearningPacketPrepareExecutor(learning),
+		service.NewLearningProposalsSubmitExecutor(learning),
+	}
+}
+
+func learningPromptProvider(cfg *config.Config, db *store.Store, bus *events.Bus) service.LearningPromptProvider {
+	if !cfg.Learning.PromptEnabled {
+		return nil
+	}
+	return service.NewLearningService(db, bus, service.NewProjectIdentityResolver(checkoutInspector()))
 }
 
 func githubRepositoryMappings(cfg *config.Config) []service.RepositoryMapping {

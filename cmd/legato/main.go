@@ -56,7 +56,7 @@ func runCLI(args []string) int {
 	if len(args) == 0 {
 		return renderCommandError("legato", usageError("missing_argument", "command is required"), false)
 	}
-	if args[0] == "help" || args[0] == "learn" {
+	if args[0] == "help" {
 		fmt.Print(agentPrimer)
 		return 0
 	}
@@ -1366,8 +1366,9 @@ func runServeCmd(args []string) int {
 			osNotifier = service.NewOSNotifier()
 		}
 		agentSvc = service.NewAgentService(db, mgr, wd, service.AgentServiceOptions{
-			Notifier:   notifier,
-			OSNotifier: osNotifier,
+			Notifier: notifier, OSNotifier: osNotifier,
+			LearningPromptProvider: learningPromptProvider(cfg, db, bus),
+			LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
 		})
 	}
 
@@ -1400,6 +1401,7 @@ func runServeCmd(args []string) int {
 	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
+	srv.SetLearningService(service.NewLearningService(db, bus, service.NewProjectIdentityResolver(checkoutInspector())))
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		srv.SetWorktreeService(service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector()))
 	}
@@ -1413,7 +1415,8 @@ func runServeCmd(args []string) int {
 		workflowSvc = built
 		globalWorkflows, projectWorkflows := workflowDirs()
 		srv.SetWorkflowService(workflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
-		triggerCoordinator = buildWorkflowTriggerCoordinator(db, workflowSvc, bus)
+		srv.SetReflectionWorkflowService(workflowSvc)
+		triggerCoordinator = buildWorkflowTriggerCoordinator(db, workflowSvc, cfg, bus)
 		srv.SetWorkflowTriggerCoordinator(triggerCoordinator)
 		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()
 	} else {
@@ -1479,6 +1482,7 @@ func runServeCmd(args []string) int {
 	srv.StartReviewEvents()
 	srv.StartPlanEvents()
 	srv.StartBoardEvents()
+	srv.StartLearningEvents()
 
 	scheme := "http"
 	if certFile != "" {
@@ -1682,8 +1686,9 @@ func runTUI() int {
 			BinaryPath:        legatoBin,
 			EventBus:          service.AgentDiedPublisher{Bus: bus},
 			BriefKickoffDelay: time.Duration(cfg.Swarm.BriefKickoffDelayMs) * time.Millisecond,
-			Notifier:          notifier,
-			OSNotifier:        osNotifier,
+			Notifier:          notifier, OSNotifier: osNotifier,
+			LearningPromptProvider: learningPromptProvider(cfg, db, bus),
+			LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
 		})
 	}
 
@@ -1722,7 +1727,7 @@ func runTUI() int {
 	var triggerCoordinator *service.WorkflowTriggerCoordinator
 	if built, workflowErr := buildWorkflowService(db, cfg, bus, agentSvc, prSvc, ghErr, wd); workflowErr == nil {
 		tuiWorkflowSvc = built
-		triggerCoordinator = buildWorkflowTriggerCoordinator(db, tuiWorkflowSvc, bus)
+		triggerCoordinator = buildWorkflowTriggerCoordinator(db, tuiWorkflowSvc, cfg, bus)
 		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()
 	} else {
 		log.Printf("workflows: %v", workflowErr)
@@ -1741,6 +1746,7 @@ func runTUI() int {
 			log.Printf("web: port %s unavailable: %v", cfg.Web.Port, listenErr)
 		} else {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
+			webSrv.SetLearningService(service.NewLearningService(db, bus, service.NewProjectIdentityResolver(checkoutInspector())))
 			if worktreeSvc != nil {
 				webSrv.SetWorktreeService(worktreeSvc)
 			}
@@ -1750,6 +1756,7 @@ func runTUI() int {
 			if tuiWorkflowSvc != nil {
 				globalWorkflows, projectWorkflows := workflowDirs()
 				webSrv.SetWorkflowService(tuiWorkflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
+				webSrv.SetReflectionWorkflowService(tuiWorkflowSvc)
 				webSrv.SetWorkflowTriggerCoordinator(triggerCoordinator)
 				wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, tuiWorkflowSvc, triggerCoordinator)
 			}
@@ -1774,6 +1781,7 @@ func runTUI() int {
 			webSrv.StartReviewEvents()
 			webSrv.StartPlanEvents()
 			webSrv.StartBoardEvents()
+			webSrv.StartLearningEvents()
 			go func() {
 				if err := webSrv.Serve(ln); err != nil && err.Error() != "http: Server closed" {
 					log.Printf("web server: %v", err)
@@ -1790,6 +1798,9 @@ func runTUI() int {
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
 	app.SetPlanService(planSvc)
 	attentionSvc := service.NewAttentionService(db, bus)
+	learningAdapter := service.NewLearningAttentionAdapter(service.NewLearningService(db, bus))
+	_ = attentionSvc.RegisterProducerWithEvents(learningAdapter, events.EventLearningChanged)
+	_ = attentionSvc.RegisterHandler(learningAdapter.Producer(), learningAdapter)
 	if planSvc != nil {
 		planAdapter := service.NewPlanAttentionAdapter(planSvc)
 		_ = attentionSvc.RegisterProducerWithEvents(planAdapter, events.EventPlanChanged)
@@ -2312,10 +2323,12 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		codexAdapter.Name():   codexAdapter,
 	}
 	agents := service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
-		Adapter:           defaultAdapter,
-		Adapters:          adapters,
-		EventBus:          service.AgentDiedPublisher{Bus: bus},
-		BriefKickoffDelay: time.Duration(cfg.Swarm.BriefKickoffDelayMs) * time.Millisecond,
+		Adapter:                defaultAdapter,
+		Adapters:               adapters,
+		EventBus:               service.AgentDiedPublisher{Bus: bus},
+		BriefKickoffDelay:      time.Duration(cfg.Swarm.BriefKickoffDelayMs) * time.Millisecond,
+		LearningPromptProvider: learningPromptProvider(cfg, db, bus),
+		LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
 	})
 
 	swCfg := service.SwarmConfig{

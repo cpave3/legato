@@ -583,7 +583,7 @@ func (s *Store) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
 
 // EnsureWorkspace inserts a workspace if it doesn't exist by name, or updates color/sort_order if it does.
 func (s *Store) EnsureWorkspace(ctx context.Context, w Workspace) (int, error) {
-	result, err := s.db.NamedExecContext(ctx, `
+	_, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO workspaces (name, color, sort_order)
 		VALUES (:name, :color, :sort_order)
 		ON CONFLICT(name) DO UPDATE SET
@@ -591,8 +591,11 @@ func (s *Store) EnsureWorkspace(ctx context.Context, w Workspace) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	id, err := result.LastInsertId()
-	return int(id), err
+	var id int
+	if err := s.db.GetContext(ctx, &id, `SELECT id FROM workspaces WHERE name = ?`, w.Name); err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 // Column Mapping CRUD

@@ -1,6 +1,6 @@
 # Voice — Requirements (separate suite app)
 
-> **Scope**: This document describes a planned **separate app** in the legato suite, not a feature to be built into legato itself. Voice is a system-wide input device, not a developer-workflow tool, and it does not belong inside the legato TUI/server. The integration point with legato is via the planned MCP server (see `openspec/changes/knowledge-memory/`).
+> **Scope**: This document describes a planned **separate app** in the legato suite, not a feature to be built into legato itself. Voice is a system-wide input device, not a developer-workflow tool, and it does not belong inside the legato TUI/server. Any future Legato integration must use a separately approved external interface.
 >
 > **Working name**: TBD (placeholder: `legato-voice`).
 

@@ -20,8 +20,8 @@ type Report struct {
 
 // ReportSummary holds top-level aggregate metrics.
 type ReportSummary struct {
-	TotalWorking  time.Duration
-	TotalWaiting  time.Duration
+	TotalWorking   time.Duration
+	TotalWaiting   time.Duration
 	TasksCompleted int
 	TasksCreated   int
 	AgentSessions  int

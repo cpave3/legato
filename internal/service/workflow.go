@@ -125,6 +125,11 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 	if err := s.store.CreateTask(ctx, store.Task{ID: taskID, Title: definition.Title, Description: "Workflow run " + runID, DescriptionMD: "Workflow run " + runID, Status: "Backlog", WorkspaceID: workspaceID, CreatedAt: now, UpdatedAt: now}); err != nil {
 		return nil, err
 	}
+	if isBuiltInLearningDefinition(definition.Source) {
+		if err := s.store.SetTaskMetadata(ctx, taskID, []string{"legato", "learning_workflow"}, true); err != nil {
+			return nil, fmt.Errorf("mark learning workflow task: %w", err)
+		}
+	}
 	definitionJSON, _ := json.Marshal(definition)
 	inputsJSON, _ := json.Marshal(inputs)
 	run := store.WorkflowRun{ID: runID, WorkflowName: definition.Name, WorkflowTitle: definition.Title, DefinitionSource: definition.Source, DefinitionDigest: digestBytes(definitionJSON), DefinitionJSON: string(definitionJSON), InputsJSON: string(inputsJSON), Status: "running", CurrentStepID: definition.Steps[0].ID, TaskID: taskID, RelatedTaskID: relatedTaskID, TriggerRequestID: triggerRequestID}
@@ -170,7 +175,14 @@ func workflowTaskContext(task *store.Task) map[string]any {
 		description = task.Description
 	}
 	metadata, _ := store.ParseTaskMetadata(task.Metadata)
-	return map[string]any{"id": task.ID, "title": task.Title, "description": description, "status": task.Status, "priority": task.Priority, "provider": provider, "remote_id": remoteID, "metadata": metadata}
+	workingDir := ""
+	if codeContext, err := store.ParseCodeContext(task.CodeContext); err == nil && codeContext != nil {
+		workingDir = codeContext.WorkingDir
+	}
+	if workingDir == "" && task.WorktreePath != nil {
+		workingDir = *task.WorktreePath
+	}
+	return map[string]any{"id": task.ID, "title": task.Title, "description": description, "status": task.Status, "priority": task.Priority, "provider": provider, "remote_id": remoteID, "working_dir": workingDir, "metadata": metadata}
 }
 
 func (s *WorkflowService) Artifact(ctx context.Context, artifactID string) (*store.WorkflowArtifact, error) {

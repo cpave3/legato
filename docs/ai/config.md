@@ -36,6 +36,26 @@ For workflow launches, the preset control appears only when the definition decla
 - `workspaces` field: list of `{name, color}` objects defining workspaces. Seeded to DB on startup via `service.SeedWorkspaces`. Color is hex string (e.g. `"#4A9EEF"`)
 - `web.enabled` field: bool, auto-start web server alongside TUI. On startup, probes the port — if free, starts server in background goroutine sharing the same services. If port is in use (another instance), it skips silently. Server shuts down cleanly when TUI exits. Status bar shows `Web :<port>` indicator. `web.port` field: string (default `"3080"`). HTTP is the default. Set `web.tls.enabled: true` to enable HTTPS with an auto-generated CA and server certificate at `<resolved data_dir>/certs/` (`$XDG_DATA_HOME/legato/certs/` or `~/.local/share/legato/certs/` when `data_dir` is omitted). Setting both `web.tls.cert` and `web.tls.key` also enables HTTPS and uses those files. Auto-generated server certificates include SANs for localhost, loopback, all current local network IPs, and optional `web.tls.hostname`. They regenerate when local IPs or the hostname change while retaining the CA.
 - `github.auth`: `auto` (default), `gh`, or `token`. `auto` prefers `github.token` and otherwise retrieves the active GitHub CLI credential with exactly `gh auth token`; `gh` requires CLI authentication and `token` requires explicit configuration. Credentials remain memory-only. GitHub data access uses a GET-only HTTP transport—`gh` is not used for API or mutation commands. `github.poll_interval_seconds` controls unresolved discovery (default 600s); `github.resolved_poll_interval_seconds` controls linked refresh (default 600s). Manual `r` bypasses intervals.
+- `learning` block: opt-in learning workflow settings. `learning.enabled` defaults to `false`; configuration alone does not start learning or alter task behavior. Example:
+  ```yaml
+  learning:
+    enabled: false          # automatic reflection/curation
+    prompt_enabled: false  # global prompt-composition kill switch
+    transition_columns: [Review]
+    curator_adapter: chimera
+    curator_tier: careful
+    # Optional global override; omit to use each task's checkout/worktree.
+    # curator_working_dir: /home/user/Projects/legato
+    packet_max_items: 100
+    packet_max_bytes: 262144
+    reflection_timeout: 5m
+    reflection_retries: 3
+    prompt_max_items: 20
+    prompt_max_bytes: 16384
+    consolidation_automatic: false
+    consolidation_threshold: 50
+  ```
+  Limits, retry counts, the consolidation threshold, and the reflection timeout must be positive. When enabled, transition columns must name configured board columns. `learning.curator_adapter` overrides `swarm.default_agent`; the resolved adapter must exist under `adapters`, and a configured curator tier must exist for it. Task curation uses the target task's checkout/worktree by default; `curator_working_dir`, when set, is a global absolute-path override. `enabled` gates automatic column-entry triggers. `prompt_enabled` independently gates launch-time prompt composition and defaults off. Neither setting disables the ledger or manual CLI/API/web access. `reflection_timeout`, `reflection_retries`, `consolidation_automatic`, and `consolidation_threshold` are reserved settings: they are parsed and validated but currently have no operational effect. Consolidation remains manual. See [Legato Learn](learning.md) for exact behavior, privacy, and prompt eligibility.
 - `swarm` block: swarm-orchestration settings.
   - `swarm.default_agent` (string): adapter name used by any worker that doesn't specify an `agent:` in its plan entry (e.g. `claude-code`, `chimera`, `codex`). When unset, falls back to the first registered adapter. Also used as the conductor's adapter unless `conductor_agent` is set.
   - `swarm.conductor_agent` (string, optional): adapter name used exclusively for the conductor. When set, overrides `default_agent` for the conductor; workers still fall back to `default_agent` when no explicit `agent:` is set in the plan. Allows splitting tools — e.g. Claude Code conducts while Chimera workers run sandboxed.

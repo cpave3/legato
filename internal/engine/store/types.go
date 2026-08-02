@@ -114,6 +114,138 @@ type Task struct {
 	UpdatedAt          string  `db:"updated_at"`
 }
 
+type ReflectionRequestStatus string
+
+const (
+	ReflectionRequestPending     ReflectionRequestStatus = "pending"
+	ReflectionRequestSubmitted   ReflectionRequestStatus = "submitted"
+	ReflectionRequestUnavailable ReflectionRequestStatus = "unavailable"
+)
+
+// LearningReflectionRequest is a durable callback target for one workflow attempt.
+type LearningReflectionRequest struct {
+	ID               string                  `db:"id" json:"id"`
+	WorkflowRunID    string                  `db:"workflow_run_id" json:"workflow_run_id"`
+	StepID           string                  `db:"step_id" json:"step_id"`
+	AttemptID        string                  `db:"attempt_id" json:"attempt_id"`
+	TaskID           string                  `db:"task_id" json:"task_id"`
+	AgentSessionID   *int                    `db:"agent_session_id" json:"agent_session_id,omitempty"`
+	SchemaVersion    int                     `db:"schema_version" json:"schema_version"`
+	Prompt           string                  `db:"prompt" json:"prompt"`
+	Status           ReflectionRequestStatus `db:"status" json:"status"`
+	ObservationsJSON string                  `db:"observations_json" json:"observations_json"`
+	Error            string                  `db:"error" json:"error,omitempty"`
+	DeliveredAt      *string                 `db:"delivered_at" json:"delivered_at,omitempty"`
+	SubmittedAt      *string                 `db:"submitted_at" json:"submitted_at,omitempty"`
+	CreatedAt        string                  `db:"created_at" json:"created_at"`
+	UpdatedAt        string                  `db:"updated_at" json:"updated_at"`
+}
+
+type LearningEvidence struct {
+	ID             string `db:"id" json:"id"`
+	SourceKind     string `db:"source_kind" json:"source_kind"`
+	SourceRef      string `db:"source_ref" json:"source_ref"`
+	Content        string `db:"content" json:"content"`
+	ContentDigest  string `db:"content_digest" json:"content_digest"`
+	Author         string `db:"author" json:"author"`
+	TaskID         string `db:"task_id" json:"task_id,omitempty"`
+	AgentSessionID *int   `db:"agent_session_id" json:"agent_session_id,omitempty"`
+	WorkflowRunID  string `db:"workflow_run_id" json:"workflow_run_id,omitempty"`
+	ProjectKey     string `db:"project_key" json:"project_key,omitempty"`
+	ProjectLabel   string `db:"project_label" json:"project_label,omitempty"`
+	MetadataJSON   string `db:"metadata_json" json:"metadata_json,omitempty"`
+	CreatedAt      string `db:"created_at" json:"created_at"`
+}
+
+type Learning struct {
+	ID                  string  `db:"id" json:"id"`
+	Scope               string  `db:"scope" json:"scope"`
+	ProjectKey          string  `db:"project_key" json:"project_key,omitempty"`
+	Kind                string  `db:"kind" json:"kind"`
+	Claim               string  `db:"claim" json:"claim"`
+	Rationale           string  `db:"rationale" json:"rationale,omitempty"`
+	Status              string  `db:"status" json:"status"`
+	Confidence          float64 `db:"confidence" json:"confidence"`
+	PromptEnabled       bool    `db:"prompt_enabled" json:"prompt_enabled"`
+	PromptDecided       bool    `db:"prompt_decided" json:"prompt_decided"`
+	Revision            int     `db:"revision" json:"revision"`
+	CanonicalLearningID *string `db:"canonical_learning_id" json:"canonical_learning_id,omitempty"`
+	CuratorRunID        string  `db:"curator_run_id" json:"curator_run_id,omitempty"`
+	CreatedAt           string  `db:"created_at" json:"created_at"`
+	UpdatedAt           string  `db:"updated_at" json:"updated_at"`
+}
+
+// LearningCurationGeneration is the durable, attempt-scoped input and result of
+// one curator run. PacketJSON and OperationsJSON are canonical JSON documents.
+type LearningCurationGeneration struct {
+	ID             string  `db:"id" json:"id"`
+	WorkflowRunID  string  `db:"workflow_run_id" json:"workflow_run_id,omitempty"`
+	AttemptID      string  `db:"attempt_id" json:"attempt_id"`
+	PacketDigest   string  `db:"packet_digest" json:"packet_digest"`
+	PacketJSON     string  `db:"packet_json" json:"packet_json"`
+	OperationsJSON string  `db:"operations_json" json:"operations_json"`
+	Status         string  `db:"status" json:"status"`
+	CreatedAt      string  `db:"created_at" json:"created_at"`
+	CompletedAt    *string `db:"completed_at" json:"completed_at,omitempty"`
+}
+
+// LearningEvidenceLink is an atomic curator mutation.
+type LearningEvidenceLink struct {
+	LearningID string
+	EvidenceID string
+	Relation   string
+}
+
+type LearningProposal struct {
+	ID                     string `db:"id" json:"id"`
+	GenerationID           string `db:"generation_id" json:"generation_id"`
+	Operation              string `db:"operation" json:"operation"`
+	LearningID             string `db:"learning_id" json:"learning_id,omitempty"`
+	CanonicalLearningID    string `db:"canonical_learning_id" json:"canonical_learning_id,omitempty"`
+	Scope                  string `db:"scope" json:"scope,omitempty"`
+	ProjectKey             string `db:"project_key" json:"project_key,omitempty"`
+	EvidenceIDsJSON        string `db:"evidence_ids_json" json:"evidence_ids_json"`
+	Reason                 string `db:"reason" json:"reason,omitempty"`
+	Status                 string `db:"status" json:"status"`
+	Revision               int    `db:"revision" json:"revision"`
+	TargetLearningRevision int    `db:"target_learning_revision" json:"target_learning_revision"`
+	CreatedAt              string `db:"created_at" json:"created_at"`
+	UpdatedAt              string `db:"updated_at" json:"updated_at"`
+}
+
+// LearningCurationApply contains only deterministic mutations already
+// validated by the service layer.
+type LearningCurationApply struct {
+	GenerationID   string
+	AttemptID      string
+	PacketDigest   string
+	OperationsJSON string
+	Learnings      []Learning
+	Links          []LearningEvidenceLink
+	Incorporations []LearningIncorporation
+	Proposals      []LearningProposal
+}
+
+type LearningIncorporation struct {
+	ID                   string  `db:"id" json:"id"`
+	LearningID           string  `db:"learning_id" json:"learning_id"`
+	Destination          string  `db:"destination" json:"destination"`
+	Target               string  `db:"target" json:"target,omitempty"`
+	Action               string  `db:"action" json:"action,omitempty"`
+	Status               string  `db:"status" json:"status"`
+	Revision             int     `db:"revision" json:"revision"`
+	ImplementationTaskID string  `db:"implementation_task_id" json:"implementation_task_id,omitempty"`
+	WorkflowRunID        string  `db:"workflow_run_id" json:"workflow_run_id,omitempty"`
+	ReviewTourID         string  `db:"review_tour_id" json:"review_tour_id,omitempty"`
+	ReferencesJSON       string  `db:"references_json" json:"references_json"`
+	VerificationKind     string  `db:"verification_kind" json:"verification_kind,omitempty"`
+	VerificationResult   string  `db:"verification_result" json:"verification_result,omitempty"`
+	TargetDigest         string  `db:"target_digest" json:"target_digest,omitempty"`
+	VerifiedAt           *string `db:"verified_at" json:"verified_at,omitempty"`
+	CreatedAt            string  `db:"created_at" json:"created_at"`
+	UpdatedAt            string  `db:"updated_at" json:"updated_at"`
+}
+
 type TaskNote struct {
 	ID        string `db:"id" json:"id"`
 	TaskID    string `db:"task_id" json:"task_id"`

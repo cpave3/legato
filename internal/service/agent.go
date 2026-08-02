@@ -151,6 +151,12 @@ type AgentMessageQueuer interface {
 	QueueMessage(ctx context.Context, taskID, message string) error
 }
 
+// LearningPromptProvider is the narrow launch-time dependency used to resolve
+// durable standing context without coupling AgentService to LearningService.
+type LearningPromptProvider interface {
+	CompileLearningPrompt(context.Context, LearningPromptCompileInput) (*CompiledLearningPrompt, error)
+}
+
 type agentService struct {
 	store             *store.Store
 	tmux              TmuxManager
@@ -166,6 +172,9 @@ type agentService struct {
 	briefKickoffDelay time.Duration
 	notifier          Notifier
 	osNotifier        Notifier
+	learning          LearningPromptProvider
+	learningMaxItems  int
+	learningMaxBytes  int
 
 	sendKeysAdapter AgentInteraction
 	chimeraAdapter  AgentInteraction
@@ -282,6 +291,16 @@ func generalPromptForAdapter(adapter AIToolAdapter) string {
 	return ""
 }
 
+func joinPromptSections(parts ...string) string {
+	nonempty := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if strings.TrimSpace(part) != "" {
+			nonempty = append(nonempty, part)
+		}
+	}
+	return strings.Join(nonempty, "\n\n---\n\n")
+}
+
 // EventPublisher publishes events. Wraps *events.Bus to keep the service layer
 // loosely coupled.
 type EventPublisher interface {
@@ -298,16 +317,19 @@ type AgentServiceOptions struct {
 	// Adapters is the per-name registry consulted when AgentSpawnOptions.AgentKind
 	// is non-empty. Lets a single agent service support multiple AI tools
 	// (e.g. one swarm using Chimera workers + Claude reviewers).
-	Adapters          map[string]AIToolAdapter
-	SocketPath        string
-	TmuxOptions       map[string]string
-	PRService         PRTrackingService
-	CheckoutInspector CheckoutInspector
-	BinaryPath        string // Absolute path to legato binary for tmux status line
-	EventBus          EventPublisher
-	BriefKickoffDelay time.Duration // override the default brief-kickoff send-keys delay
-	Notifier          Notifier
-	OSNotifier        Notifier // OS-native desktop notifications (Linux/macOS)
+	Adapters               map[string]AIToolAdapter
+	SocketPath             string
+	TmuxOptions            map[string]string
+	PRService              PRTrackingService
+	CheckoutInspector      CheckoutInspector
+	BinaryPath             string // Absolute path to legato binary for tmux status line
+	EventBus               EventPublisher
+	BriefKickoffDelay      time.Duration // override the default brief-kickoff send-keys delay
+	Notifier               Notifier
+	OSNotifier             Notifier // OS-native desktop notifications (Linux/macOS)
+	LearningPromptProvider LearningPromptProvider
+	LearningPromptMaxItems int
+	LearningPromptMaxBytes int
 }
 
 // NewAgentService creates an AgentService.
@@ -327,6 +349,9 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		}
 		svc.notifier = opts[0].Notifier
 		svc.osNotifier = opts[0].OSNotifier
+		svc.learning = opts[0].LearningPromptProvider
+		svc.learningMaxItems = opts[0].LearningPromptMaxItems
+		svc.learningMaxBytes = opts[0].LearningPromptMaxBytes
 	}
 	// Wire the interaction adapters. The send-keys adapter is always
 	// available (it wraps the tmux manager). The Chimera adapter is only
@@ -453,14 +478,36 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	} else {
 		rolePrompt = generalPromptForAdapter(adapter)
 	}
+	var promptManifestID string
+	if a.learning != nil && adapter != nil {
+		projectKey := ""
+		if task, taskErr := a.store.GetTask(ctx, taskID); taskErr == nil {
+			codeContext, parseErr := store.ParseCodeContext(task.CodeContext)
+			if parseErr != nil {
+				return fmt.Errorf("parsing task code context: %w", parseErr)
+			}
+			if identity, identityErr := ResolveProjectIdentity(codeContext, workDir, a.checkoutInspector); identityErr == nil {
+				projectKey = identity.Key
+			}
+		}
+		compiled, compileErr := a.learning.CompileLearningPrompt(ctx, LearningPromptCompileInput{
+			TaskID: taskID, Adapter: agentKind, Role: opt.Role, ProjectKey: projectKey,
+			MaxItems: a.learningMaxItems, MaxBytes: a.learningMaxBytes,
+		})
+		if compileErr != nil {
+			return fmt.Errorf("compiling learning prompt: %w", compileErr)
+		}
+		promptManifestID = compiled.Manifest.ID
+		rolePrompt = joinPromptSections(rolePrompt, compiled.Rendered)
+	}
+
 	assignment := opt.Brief
 	if opt.Assignment != "" {
 		assignment = opt.Assignment
-		// Self-kickoff adapters use LEGATO_ROLE_PROMPT_FILE as their first
-		// user turn. A workflow assignment must therefore replace the generic
-		// standalone prompt rather than wait in an undelivered brief file.
+		// Keep assignment distinct in the brief while ensuring self-kickoff
+		// launches receive it in their first turn alongside standing context.
 		if kickoff, ok := adapter.(LaunchSelfKickoff); ok && kickoff.LaunchIsSelfKickoff() {
-			rolePrompt = opt.Assignment
+			rolePrompt = joinPromptSections(rolePrompt, "## Assignment\n"+opt.Assignment)
 		} else if rolePrompt == "" {
 			rolePrompt = opt.Assignment
 		}
@@ -544,10 +591,25 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		st := opt.SubtaskID
 		sess.SubtaskID = &st
 	}
-	if err := a.store.InsertAgentSession(ctx, sess); err != nil {
-		// Roll back tmux session on DB failure
+	sessionID, err := a.store.InsertAgentSessionReturningID(ctx, sess)
+	if err != nil {
 		a.tmux.Kill(sessionName)
 		return fmt.Errorf("recording agent session: %w", err)
+	}
+	if promptManifestID != "" {
+		if err := a.store.BindLearningPromptManifestSession(ctx, promptManifestID, sessionID); err != nil {
+			a.tmux.Kill(sessionName)
+			_ = a.store.UpdateAgentSessionStatus(ctx, taskID, "dead")
+			return fmt.Errorf("binding learning prompt manifest: %w", err)
+		}
+	}
+
+	// Capture the lockfile baseline before launching Chimera. Fast agents can
+	// write their lockfile synchronously during SendKeysShellCommand; taking this
+	// snapshot in the discovery goroutine would incorrectly classify it as old.
+	var chimeraLockfilesBeforeLaunch map[string]bool
+	if agentKind == "chimera" {
+		chimeraLockfilesBeforeLaunch = snapshotChimeraLockfiles()
 	}
 
 	// Auto-launch: if the adapter knows how to start its AI tool, send-keys
@@ -599,7 +661,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// The endpoint and session ID are persisted on the agent session row
 	// so the web UI can proxy the SSE stream and send follow-ups via HTTP.
 	if agentKind == "chimera" {
-		go a.discoverChimeraLockfile(context.Background(), taskID, workDir)
+		go a.discoverChimeraLockfile(context.Background(), taskID, workDir, chimeraLockfilesBeforeLaunch)
 	}
 
 	// Capture repository identity from the exact agent working directory and
@@ -1078,25 +1140,31 @@ func (a *agentService) resolveInteractionAdapter(ctx context.Context, taskID str
 // The lockfile is named <pid>.json and contains the server URL and session
 // ID. We don't know the PID ahead of time, so we scan the instances directory
 // for a lockfile whose cwd matches our working directory.
-func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, spawnWorkDir string) {
+func snapshotChimeraLockfiles() map[string]bool {
+	preExisting := map[string]bool{}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return preExisting
+	}
+	entries, err := os.ReadDir(filepath.Join(home, ".chimera", "instances"))
+	if err != nil {
+		return preExisting
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".json") {
+			preExisting[entry.Name()] = true
+		}
+	}
+	return preExisting
+}
+
+func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, spawnWorkDir string, preExisting map[string]bool) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		log.Printf("chimera lockfile discovery for %s: %v", taskID, err)
 		return
 	}
 	instancesDir := filepath.Join(home, ".chimera", "instances")
-
-	// Snapshot lockfiles that already exist before spawn so we can
-	// detect new ones. Matching by cwd is unreliable because worktree
-	// paths resolve to the main repo directory inside Chimera.
-	preExisting := map[string]bool{}
-	if entries, err := os.ReadDir(instancesDir); err == nil {
-		for _, e := range entries {
-			if strings.HasSuffix(e.Name(), ".json") {
-				preExisting[e.Name()] = true
-			}
-		}
-	}
 
 	// Poll for up to 30 seconds — Chimera may take a few seconds to boot.
 	for i := 0; i < 60; i++ {

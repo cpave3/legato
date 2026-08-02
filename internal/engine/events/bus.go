@@ -31,6 +31,7 @@ const (
 	EventWorkflowChanged
 	EventWorkflowTriggerChanged
 	EventAttentionChanged
+	EventLearningChanged
 )
 
 // ErrorPayload carries structured error information for error events.
@@ -86,6 +87,11 @@ type PlanChangedPayload struct {
 	PlanID     string
 	TaskID     string
 	RevisionID string
+	Kind       string
+}
+
+type LearningChangedPayload struct {
+	LearningID string
 	Kind       string
 }
 

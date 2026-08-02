@@ -52,6 +52,7 @@ The service subscribes to source events and re-reconciles the matching producer 
 | `plans` | `EventPlanChanged` | IPC `plan_changed` → bus, or direct `PlanService` mutation |
 | `reviews` | `EventReviewChanged` | IPC `review_changed` → bus, or direct `ReviewService` mutation |
 | `workflows` | `EventWorkflowChanged`, `EventAgentDied`, `EventAgentCompleted` | IPC `workflow_changed` → bus, or `Server.NotifyWorkflowChanged`, or agent lifecycle |
+| `learnings` | `EventLearningChanged` | Learning decisions, incorporation submission/verification, or drift state changes |
 
 `RegisterProducerWithEvents(producer, eventTypes...)` maps events to producers. `StartEventReconciliation(ctx)` subscribes and launches goroutines. Call it once after all producers are registered.
 
@@ -103,6 +104,10 @@ Capturing review tours never enter attention, notification counts, or Stream Dec
 ## Deferred
 
 Agents, parent-aggregated swarms, PR feedback/CI, live permission prompts, and the durable orchestration mailbox are deferred per the approved plan until their underlying sources provide stable structured signals.
+
+## Learning producer
+
+The `learnings` producer surfaces candidate and stale learnings plus verification-pending and stale incorporations. Candidate decisions and incorporation verification delegate to the revision-aware LearningService; stale records are high urgency. Navigation uses `kind: learning`. The dedicated web Learning pages support that target, although the current generic Attention web navigation mapper does not yet render a learning Open link. See [Legato Learn](learning.md).
 
 ## Workflow trigger producer
 

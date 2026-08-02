@@ -118,8 +118,15 @@ func TestAttentionUrgent(t *testing.T) {
 	}
 }
 
+func TestAttentionLearningUsesLightbulbIcon(t *testing.T) {
+	svg := Attention("learnings", "normal", "learn-1234", 0, 1)
+	if !strings.Contains(svg, `data-icon="learning-lightbulb"`) {
+		t.Fatalf("learning attention should use lightbulb icon: %s", svg)
+	}
+}
+
 func TestAttentionProducerIcons(t *testing.T) {
-	producers := []string{"plans", "reviews", "workflows", "workflow_triggers", "unknown"}
+	producers := []string{"plans", "reviews", "workflows", "workflow_triggers", "learnings", "unknown"}
 	for _, p := range producers {
 		svg := Attention(p, "normal", "test1234", 0, 1)
 		if !strings.Contains(svg, "<path") && !strings.Contains(svg, "<rect") {

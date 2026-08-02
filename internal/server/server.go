@@ -54,6 +54,8 @@ type Server struct {
 	workflows            WorkflowService
 	workflowTriggers     *service.WorkflowTriggerCoordinator
 	attention            *service.AttentionService
+	learning             LearningService
+	reflectionWorkflows  ReflectionWorkflowService
 	workflowGlobalDir    string
 	workflowProjectDir   string
 	workflowRepositories []workflowengine.RepositoryPreset
@@ -154,6 +156,22 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/attention", s.attentionHandler())
 	mux.HandleFunc("/api/attention/{id}/actions/{action_id}", s.attentionActionHandler())
 	mux.HandleFunc("/api/attention/{id}/dismiss", s.attentionDismissHandler())
+	mux.HandleFunc("/api/learnings", s.learningsHandler())
+	mux.HandleFunc("/api/learnings/search", s.learningSearchHandler())
+	mux.HandleFunc("/api/learnings/context", s.learningContextHandler())
+	mux.HandleFunc("/api/learnings/prompt-preview", s.learningPromptPreviewHandler())
+	mux.HandleFunc("/api/learnings/{id}", s.learningShowHandler())
+	mux.HandleFunc("/api/learnings/{id}/accept", s.learningDecisionHandler("accept"))
+	mux.HandleFunc("/api/learnings/{id}/edit", s.learningDecisionHandler("edit"))
+	mux.HandleFunc("/api/learnings/{id}/reject", s.learningDecisionHandler("reject"))
+	mux.HandleFunc("/api/learnings/{id}/prompt", s.learningPromptActivationHandler())
+	mux.HandleFunc("/api/learnings/{id}/incorporations", s.learningIncorporationProposeHandler())
+	mux.HandleFunc("/api/learning-incorporations/{id}/submit", s.learningIncorporationSubmitHandler())
+	mux.HandleFunc("/api/learning-incorporations/{id}/verify", s.learningIncorporationVerifyHandler())
+	mux.HandleFunc("/api/learning-incorporations/{id}/verify-target", s.learningIncorporationVerifyTargetHandler())
+	mux.HandleFunc("/api/learning-incorporations/drift", s.learningIncorporationDriftHandler())
+	mux.HandleFunc("/api/learning-reflections/{id}/submit", s.learningReflectionSubmitHandler())
+	mux.HandleFunc("/api/learning-prompt-manifests/{id}", s.learningPromptManifestHandler())
 	mux.HandleFunc("/api/workflows", s.workflowsHandler())
 	mux.HandleFunc("/api/workflows/{name}/runs", s.workflowStartHandler())
 	mux.HandleFunc("/api/workflow-triggers/{request_id}", s.workflowTriggerRequestHandler())
@@ -224,6 +242,9 @@ func (s *Server) SetAuthToken(token string) {
 // SetWorkflowService sets the workflow lifecycle and definition locations.
 func (s *Server) SetWorkflowService(svc WorkflowService, globalDir, projectDir string, repositories ...workflowengine.RepositoryPreset) {
 	s.workflows = svc
+	if completion, ok := svc.(ReflectionWorkflowService); ok {
+		s.reflectionWorkflows = completion
+	}
 	s.workflowGlobalDir = globalDir
 	s.workflowProjectDir = projectDir
 	s.workflowRepositories = append([]workflowengine.RepositoryPreset(nil), repositories...)
@@ -231,6 +252,18 @@ func (s *Server) SetWorkflowService(svc WorkflowService, globalDir, projectDir s
 
 func (s *Server) SetWorkflowTriggerCoordinator(coordinator *service.WorkflowTriggerCoordinator) {
 	s.workflowTriggers = coordinator
+}
+
+// SetLearningService enables the authenticated learning API.
+func (s *Server) SetLearningService(learning LearningService) {
+	s.learning = learning
+}
+
+// SetReflectionWorkflowService enables reflection callbacks to complete their
+// persisted workflow attempt. SetWorkflowService configures this automatically
+// when the service supports completion.
+func (s *Server) SetReflectionWorkflowService(workflows ReflectionWorkflowService) {
+	s.reflectionWorkflows = workflows
 }
 
 func (s *Server) SetWorktreeService(worktrees WorktreeService) {
@@ -538,6 +571,20 @@ func (s *Server) StartAttentionEvents() {
 		for ev := range ch {
 			if p, ok := ev.Payload.(events.AttentionChangedPayload); ok {
 				s.hub.Broadcast(WSMessage{Type: MsgAttentionChanged, ItemID: p.ItemID, Producer: p.Producer, SourceKey: p.SourceKey, Kind: p.Kind})
+			}
+		}
+	}()
+}
+
+func (s *Server) StartLearningEvents() {
+	if s.bus == nil {
+		return
+	}
+	ch := s.bus.Subscribe(events.EventLearningChanged)
+	go func() {
+		for ev := range ch {
+			if p, ok := ev.Payload.(events.LearningChangedPayload); ok {
+				s.hub.Broadcast(WSMessage{Type: MsgLearningChanged, LearningID: p.LearningID, Kind: p.Kind})
 			}
 		}
 	}()

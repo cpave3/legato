@@ -24,6 +24,10 @@ legato workflow step fail "reason" --json
 
 See `docs/workflows.md` for the schema and lifecycle. Workflow commands currently emit raw JSON for successful structured output; errors use the standard CLI error rendering.
 
+## Legato Learn
+
+`legato learn` records, retrieves, curates, decides, incorporates, verifies, and checks drift for evidence-backed durable learnings. Commands include `record`, `show`, `list`, `search`, `context`, `curate`, `consolidate`, `accept`, `edit`, `reject`, `incorporate`, `incorporation submit`, `verify`, `drift`, and the workflow callback `reflection submit`. Mutation commands use optimistic `--revision`; reflection and incorporation documents can be read from `--file` or stdin. Successful Learn commands emit raw JSON. See [Legato Learn](learning.md) for exact flags, schemas, privacy boundaries, and lifecycle semantics.
+
 ## Subcommands
 
 `legato` binary supports subcommand dispatch alongside the default TUI mode:

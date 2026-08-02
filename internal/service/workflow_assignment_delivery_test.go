@@ -33,8 +33,9 @@ func TestSpawnAgentUsesWorkflowAssignmentAsSelfKickoffPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "WORKFLOW-ASSIGNMENT" {
-		t.Fatalf("launch prompt=%q", data)
+	prompt := string(data)
+	if !strings.Contains(prompt, "GENERIC-PROMPT") || !strings.Contains(prompt, "WORKFLOW-ASSIGNMENT") {
+		t.Fatalf("launch prompt must retain standing context and assignment: %q", data)
 	}
 	if lines := mt.sentLinesFor("legato-task-1"); len(lines) == 0 || !strings.Contains(lines[0], "LEGATO_ROLE_PROMPT_FILE") {
 		t.Fatalf("launch lines=%v", lines)

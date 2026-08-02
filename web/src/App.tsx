@@ -12,6 +12,8 @@ import { PlanPage } from "./pages/PlanPage"
 import { WorkflowsPage } from "./pages/WorkflowsPage"
 import { WorkflowRunPage } from "./pages/WorkflowRunPage"
 import { AttentionPage } from "./pages/AttentionPage"
+import { LearningsPage } from "./pages/LearningsPage"
+import { LearningDetailPage } from "./pages/LearningDetailPage"
 import { authHeaders, clearToken } from "./lib/auth"
 
 export default function App() {
@@ -57,6 +59,8 @@ export default function App() {
           <Route path="/workflows" element={<WorkflowsPage />} />
           <Route path="/workflows/runs/:runId" element={<WorkflowRunPage />} />
           <Route path="/attention" element={<AttentionPage />} />
+          <Route path="/learning" element={<LearningsPage />} />
+          <Route path="/learning/:learningId" element={<LearningDetailPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/agents" replace />} />
         </Route>

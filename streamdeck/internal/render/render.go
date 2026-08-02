@@ -24,12 +24,12 @@ const (
 
 // Base colors.
 const (
-	Green  = "#22c55e"
-	Amber  = "#f59e0b"
-	Red    = "#ef4444"
-	Gray   = "#52525b"
+	Green    = "#22c55e"
+	Amber    = "#f59e0b"
+	Red      = "#ef4444"
+	Gray     = "#52525b"
 	DarkGray = "#27272a"
-	Purple = "#a855f7"
+	Purple   = "#a855f7"
 )
 
 // DataURI wraps raw SVG bytes as a data URI.
@@ -175,6 +175,9 @@ func Attention(producer, urgency, navTarget string, index, total int) string {
 	case "workflow_triggers":
 		// Lightning bolt
 		iconSVG = `<path d="M78 28L52 70h20l-8 26 24-42H66z" fill="{color}"/>`
+	case "learnings":
+		// Lightbulb: learned insight awaiting a decision.
+		iconSVG = `<g data-icon="learning-lightbulb" fill="none" stroke="{color}" stroke-linecap="round" stroke-linejoin="round"><path d="M72 28a28 28 0 0 0-17 50c6 5 7 9 7 14h20c0-5 1-9 7-14a28 28 0 0 0-17-50z" stroke-width="6"/><path d="M62 102h20M66 112h12" stroke-width="6"/></g>`
 	default:
 		// Filled square
 		iconSVG = `<rect x="54" y="44" width="36" height="36" rx="8" fill="{color}"/>`

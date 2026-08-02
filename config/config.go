@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/macros"
 	"gopkg.in/yaml.v3"
@@ -33,7 +34,31 @@ type Config struct {
 	Groups         GroupsConfig             `yaml:"groups"`
 	Workflows      WorkflowsConfig          `yaml:"workflows"`
 	Repositories   []RepositoryConfig       `yaml:"repositories"`
+	Learning       LearningConfig           `yaml:"learning"`
 	SSHAgentSocket string                   `yaml:"ssh_agent_socket"`
+}
+
+// LearningConfig controls opt-in learning automation and its bounded inputs.
+type LearningConfig struct {
+	Enabled           bool     `yaml:"enabled"`
+	PromptEnabled     bool     `yaml:"prompt_enabled"`
+	TransitionColumns []string `yaml:"transition_columns"`
+	CuratorAdapter    string   `yaml:"curator_adapter"`
+	CuratorTier       string   `yaml:"curator_tier"`
+	CuratorWorkingDir string   `yaml:"curator_working_dir"`
+	PacketMaxItems    int      `yaml:"packet_max_items"`
+	PacketMaxBytes    int      `yaml:"packet_max_bytes"`
+	// ReflectionTimeout and ReflectionRetries are reserved for future
+	// reflection execution policy. They are validated but currently no-ops.
+	ReflectionTimeout string `yaml:"reflection_timeout"`
+	ReflectionRetries int    `yaml:"reflection_retries"`
+	PromptMaxItems    int    `yaml:"prompt_max_items"`
+	PromptMaxBytes    int    `yaml:"prompt_max_bytes"`
+	// ConsolidationAutomatic and ConsolidationThreshold are reserved for
+	// future automatic consolidation scheduling. They are validated but
+	// currently no-ops; consolidation is launched manually.
+	ConsolidationAutomatic bool `yaml:"consolidation_automatic"`
+	ConsolidationThreshold int  `yaml:"consolidation_threshold"`
 }
 
 // WorkflowsConfig holds workflow launch conveniences.
@@ -304,6 +329,9 @@ func Load() (*Config, error) {
 	if cfg.GitHub.Auth != "auto" && cfg.GitHub.Auth != "gh" && cfg.GitHub.Auth != "token" {
 		return nil, fmt.Errorf("github.auth must be auto, gh, or token")
 	}
+	if err := ValidateLearningConfig(cfg); err != nil {
+		return nil, err
+	}
 	return cfg, nil
 }
 
@@ -344,6 +372,79 @@ func ValidateConductorTier(cfg *Config) error {
 	}
 	if _, ok := ac.Tiers[tier]; !ok {
 		return fmt.Errorf("swarm.conductor_tier %q is not configured for adapter %q", tier, agent)
+	}
+	return nil
+}
+
+// ValidateLearningConfig validates bounded learning settings and, when enabled,
+// verifies trigger columns and curator references against the loaded config.
+func ValidateLearningConfig(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	learning := cfg.Learning
+	positive := []struct {
+		name  string
+		value int
+	}{
+		{"learning.packet_max_items", learning.PacketMaxItems},
+		{"learning.packet_max_bytes", learning.PacketMaxBytes},
+		{"learning.reflection_retries", learning.ReflectionRetries},
+		{"learning.prompt_max_items", learning.PromptMaxItems},
+		{"learning.prompt_max_bytes", learning.PromptMaxBytes},
+		{"learning.consolidation_threshold", learning.ConsolidationThreshold},
+	}
+	for _, limit := range positive {
+		if limit.value <= 0 {
+			return fmt.Errorf("%s must be positive", limit.name)
+		}
+	}
+	timeout, err := time.ParseDuration(learning.ReflectionTimeout)
+	if err != nil || timeout <= 0 {
+		return fmt.Errorf("learning.reflection_timeout must be a positive duration")
+	}
+
+	if learning.CuratorWorkingDir != "" && !filepath.IsAbs(learning.CuratorWorkingDir) {
+		return fmt.Errorf("learning.curator_working_dir must be an absolute path")
+	}
+	if !learning.Enabled {
+		return nil
+	}
+	if len(learning.TransitionColumns) == 0 {
+		return fmt.Errorf("learning.transition_columns must contain at least one board column when learning is enabled")
+	}
+	columns := make(map[string]struct{}, len(cfg.Board.Columns))
+	for _, column := range cfg.Board.Columns {
+		columns[column.Name] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(learning.TransitionColumns))
+	for _, column := range learning.TransitionColumns {
+		if strings.TrimSpace(column) == "" {
+			return fmt.Errorf("learning.transition_columns must not contain an empty column")
+		}
+		if _, ok := columns[column]; !ok {
+			return fmt.Errorf("learning.transition_columns contains unknown board column %q", column)
+		}
+		if _, ok := seen[column]; ok {
+			return fmt.Errorf("learning.transition_columns contains duplicate board column %q", column)
+		}
+		seen[column] = struct{}{}
+	}
+	adapter := learning.CuratorAdapter
+	if adapter == "" {
+		adapter = cfg.Swarm.DefaultAgent
+	}
+	if adapter == "" {
+		return fmt.Errorf("learning.curator_adapter or swarm.default_agent is required when learning is enabled")
+	}
+	adapterConfig, ok := cfg.Adapters[adapter]
+	if !ok {
+		return fmt.Errorf("learning.curator_adapter %q is not configured", adapter)
+	}
+	if tier := learning.CuratorTier; tier != "" {
+		if _, ok := adapterConfig.Tiers[tier]; !ok {
+			return fmt.Errorf("learning.curator_tier %q is not configured for adapter %q", tier, adapter)
+		}
 	}
 	return nil
 }
@@ -407,6 +508,15 @@ func defaults() *Config {
 		Theme: "default",
 		Keybindings: KeybindingsConfig{
 			VimMode: true,
+		},
+		Learning: LearningConfig{
+			PacketMaxItems:         100,
+			PacketMaxBytes:         256 * 1024,
+			ReflectionTimeout:      "5m",
+			ReflectionRetries:      3,
+			PromptMaxItems:         20,
+			PromptMaxBytes:         16 * 1024,
+			ConsolidationThreshold: 50,
 		},
 	}
 }

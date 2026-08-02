@@ -34,6 +34,26 @@ This produces `streamdeck/dist/com.cpave3.legato.sdPlugin/` with the manifest, i
 
 2. Restart OpenDeck (or reload plugins from Settings → Plugins).
 
+### Safely update without losing layouts
+
+OpenDeck stores key layouts under its `profiles/` directory, separately from plugin files. From the Legato project root, package the new plugin, back up the layouts, and copy the replacement files over the existing plugin directory:
+
+```bash
+task streamdeck:package
+
+cp -a \
+  "$HOME/.var/app/me.amankhanna.opendeck/config/opendeck/profiles" \
+  /tmp/opendeck-profiles-backup
+
+cp -a \
+  streamdeck/dist/com.cpave3.legato.sdPlugin/. \
+  "$HOME/.var/app/me.amankhanna.opendeck/config/opendeck/plugins/com.cpave3.legato.sdPlugin/"
+```
+
+Then restart OpenDeck or reload plugins from **Settings → Plugins**.
+
+Do not delete OpenDeck's `profiles/` directory or reinstall the plugin under a different UUID. The Legato action UUIDs remain stable, so existing key assignments continue to work. The path above is for the Flatpak installation; for a non-Flatpak OpenDeck installation, replace only the destination plugin path with `$HOME/.local/share/opendeck/plugins/com.cpave3.legato.sdPlugin/`.
+
 ## Configure
 
 The plugin needs the Legato server URL and auth token. It searches for a `streamdeck.yaml` config file in three locations (first match wins):

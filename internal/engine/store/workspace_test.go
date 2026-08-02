@@ -87,17 +87,37 @@ func TestEnsureWorkspace_UpdatesExisting(t *testing.T) {
 	ctx := context.Background()
 
 	color1 := "#111"
-	s.EnsureWorkspace(ctx, Workspace{Name: "Work", Color: &color1, SortOrder: 0})
+	firstID, err := s.EnsureWorkspace(ctx, Workspace{Name: "Work", Color: &color1, SortOrder: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Advance SQLite's last insert row ID so an UPSERT that incorrectly returns
+	// LastInsertId exposes an unrelated value rather than passing by accident.
+	if _, err := s.EnsureWorkspace(ctx, Workspace{Name: "Other", SortOrder: 1}); err != nil {
+		t.Fatal(err)
+	}
 
 	color2 := "#222"
-	s.EnsureWorkspace(ctx, Workspace{Name: "Work", Color: &color2, SortOrder: 5})
+	secondID, err := s.EnsureWorkspace(ctx, Workspace{Name: "Work", Color: &color2, SortOrder: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondID != firstID {
+		t.Fatalf("updated workspace ID = %d, want existing ID %d", secondID, firstID)
+	}
 
 	ws, _ := s.ListWorkspaces(ctx)
-	if len(ws) != 1 {
-		t.Fatalf("expected 1 workspace, got %d", len(ws))
+	if len(ws) != 2 {
+		t.Fatalf("expected 2 workspaces, got %d", len(ws))
 	}
-	if ws[0].Color == nil || *ws[0].Color != "#222" {
-		t.Errorf("color not updated: got %v", ws[0].Color)
+	var updated *Workspace
+	for i := range ws {
+		if ws[i].Name == "Work" {
+			updated = &ws[i]
+		}
+	}
+	if updated == nil || updated.Color == nil || *updated.Color != "#222" {
+		t.Errorf("workspace not updated: %+v", updated)
 	}
 }
 

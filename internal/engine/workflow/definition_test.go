@@ -6,6 +6,28 @@ import (
 	"github.com/cpave3/legato/internal/engine/workflow"
 )
 
+func TestValidateAgentInterviewStep(t *testing.T) {
+	_, err := workflow.Parse("interview.yaml", []byte(`
+schema_version: 1
+name: interview
+title: Interview
+inputs:
+  task: {type: task, required: true}
+steps:
+  - id: reflect
+    title: Reflect
+    type: agent.interview
+    with:
+      task: ${{ workflow.inputs.task }}
+    outputs:
+      available: {type: boolean}
+      reason: {type: string}
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+}
+
 func TestResolveManagedArtifactPathForLaterStep(t *testing.T) {
 	definition, err := workflow.Parse("task.yaml", []byte(`
 schema_version: 1

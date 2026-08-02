@@ -64,3 +64,4 @@ Post-v0: Unified attention inbox (complete) — durable generic registry with so
 @docs/ai/web-ui.md
 @docs/ai/swarm.md
 @docs/ai/attention.md
+@docs/ai/learning.md

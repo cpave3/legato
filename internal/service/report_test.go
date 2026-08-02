@@ -199,7 +199,7 @@ func TestReportService_WithWorkspace(t *testing.T) {
 	if len(report.ByDirectory) != 1 {
 		t.Fatalf("expected 1 directory, got %d", len(report.ByDirectory))
 	}
-	
+
 	if report.ByDirectory[0].Directory != wd {
 		t.Errorf("expected directory %q, got %q", wd, report.ByDirectory[0].Directory)
 	}

@@ -31,11 +31,11 @@ type Recorder interface {
 // via a whisper-compatible endpoint, and deliver the text to an agent's tmux
 // pane with adapter-appropriate trailing Enters.
 type VoiceService struct {
-	whisper  WhisperClient
-	recorder Recorder
-	tmux     TmuxManager
-	agents   AgentService
-	autoSend bool
+	whisper   WhisperClient
+	recorder  Recorder
+	tmux      TmuxManager
+	agents    AgentService
+	autoSend  bool
 	micDevice string
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -692,6 +693,49 @@ func TestListAgentsOverridesCommandWithLiveValue(t *testing.T) {
 	if agents[0].AgentKind != "shell" {
 		t.Errorf("AgentKind = %q, want shell", agents[0].AgentKind)
 	}
+}
+
+func TestSpawnAgentDiscoversChimeraLockfileCreatedDuringLaunch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	instancesDir := filepath.Join(home, ".chimera", "instances")
+	if err := os.MkdirAll(instancesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	mt := newMockTmux()
+	adapter := &fakeAdapter{name: "chimera", launchFn: func(map[string]string, string, string) string {
+		lockfile := `{"sessionId":"task-fast","url":"http://127.0.0.1:43210"}`
+		if err := os.WriteFile(filepath.Join(instancesDir, "123.json"), []byte(lockfile), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return "chimera"
+	}}
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{Adapter: adapter})
+	ctx := context.Background()
+	createTask(t, s, "task-fast")
+
+	if err := svc.SpawnAgent(ctx, "task-fast", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		session, err := s.GetAgentSessionByTaskID(ctx, "task-fast")
+		if err == nil && session.ChimeraEndpoint != nil {
+			if *session.ChimeraEndpoint != "http://127.0.0.1:43210" || session.ChimeraSessionID == nil || *session.ChimeraSessionID != "task-fast" {
+				t.Fatalf("discovery = %#v", session)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("fast Chimera lockfile was not discovered")
 }
 
 func TestSpawnAgentPersistsResolvedAdapterKind(t *testing.T) {

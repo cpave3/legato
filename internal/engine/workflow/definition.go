@@ -109,8 +109,11 @@ func (d *Definition) Validate() error {
 		if step.Trigger != "automatic" && step.Trigger != "manual" {
 			return fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger)
 		}
-		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "worktree.remove" && step.Type != "task.note" && step.Type != "task.metadata.set" {
+		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.interview" && step.Type != "worktree.remove" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" {
 			return fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type)
+		}
+		if err := validateLearningStep(*step); err != nil {
+			return fmt.Errorf("step %q: %w", step.ID, err)
 		}
 		for field, value := range step.With {
 			if err := validateReferences(value, d.Inputs, step.Outputs, availableOutputs); err != nil {
@@ -128,6 +131,27 @@ func (d *Definition) Validate() error {
 			declared[key] = true
 		}
 		availableOutputs[step.ID] = declared
+	}
+	return nil
+}
+
+func validateLearningStep(step Step) error {
+	required := []string{}
+	switch step.Type {
+	case "learning.packet.prepare":
+		required = []string{"task", "limits"}
+	case "learning.proposals.submit":
+		required = []string{"operations"}
+		if _, attempt := step.With["attempt_id"]; !attempt {
+			if _, generation := step.With["generation"]; !generation {
+				return fmt.Errorf("with requires attempt_id or generation")
+			}
+		}
+	}
+	for _, field := range required {
+		if _, ok := step.With[field]; !ok {
+			return fmt.Errorf("with requires %s", field)
+		}
 	}
 	return nil
 }
