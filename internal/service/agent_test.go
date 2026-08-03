@@ -724,7 +724,7 @@ func TestListAgentsOverridesCommandWithLiveValue(t *testing.T) {
 	}
 }
 
-func TestSpawnAgentDiscoversChimeraLockfileCreatedDuringLaunch(t *testing.T) {
+func TestSpawnAgentMatchesChimeraLockfileByExpectedSession(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	instancesDir := filepath.Join(home, ".chimera", "instances")
@@ -740,9 +740,14 @@ func TestSpawnAgentDiscoversChimeraLockfileCreatedDuringLaunch(t *testing.T) {
 	t.Cleanup(func() { s.Close() })
 	mt := newMockTmux()
 	adapter := &fakeAdapter{name: "chimera", launchFn: func(map[string]string, string, string) string {
-		lockfile := `{"sessionId":"task-fast","url":"http://127.0.0.1:43210"}`
-		if err := os.WriteFile(filepath.Join(instancesDir, "123.json"), []byte(lockfile), 0o600); err != nil {
-			t.Fatal(err)
+		lockfiles := map[string]string{
+			"100.json": `{"sessionId":"other-task","url":"http://127.0.0.1:43100"}`,
+			"200.json": `{"sessionId":"task-fast","url":"http://127.0.0.1:43210"}`,
+		}
+		for name, lockfile := range lockfiles {
+			if err := os.WriteFile(filepath.Join(instancesDir, name), []byte(lockfile), 0o600); err != nil {
+				t.Fatal(err)
+			}
 		}
 		return "chimera"
 	}}
@@ -764,7 +769,7 @@ func TestSpawnAgentDiscoversChimeraLockfileCreatedDuringLaunch(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("fast Chimera lockfile was not discovered")
+	t.Fatal("expected Chimera lockfile was not discovered")
 }
 
 func TestSpawnAgentPersistsResolvedAdapterKind(t *testing.T) {

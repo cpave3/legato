@@ -662,6 +662,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// write their lockfile synchronously during SendKeysShellCommand; taking this
 	// snapshot in the discovery goroutine would incorrectly classify it as old.
 	var chimeraLockfilesBeforeLaunch map[string]bool
+	expectedChimeraSessionID := envMap["LEGATO_CHIMERA_SESSION_ID"]
 	if agentKind == "chimera" {
 		chimeraLockfilesBeforeLaunch = snapshotChimeraLockfiles()
 	}
@@ -715,7 +716,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// The endpoint and session ID are persisted on the agent session row
 	// so the web UI can proxy the SSE stream and send follow-ups via HTTP.
 	if agentKind == "chimera" {
-		go a.discoverChimeraLockfile(context.Background(), taskID, workDir, chimeraLockfilesBeforeLaunch)
+		go a.discoverChimeraLockfile(context.Background(), taskID, expectedChimeraSessionID, chimeraLockfilesBeforeLaunch)
 	}
 
 	// Capture repository identity from the exact agent working directory and
@@ -1260,7 +1261,7 @@ func (a *agentService) resolveInteractionAdapter(ctx context.Context, taskID str
 //
 // The lockfile is named <pid>.json and contains the server URL and session
 // ID. We don't know the PID ahead of time, so we scan the instances directory
-// for a lockfile whose cwd matches our working directory.
+// for the exact session ID assigned before launch.
 func snapshotChimeraLockfiles() map[string]bool {
 	preExisting := map[string]bool{}
 	home, err := os.UserHomeDir()
@@ -1279,7 +1280,7 @@ func snapshotChimeraLockfiles() map[string]bool {
 	return preExisting
 }
 
-func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, spawnWorkDir string, preExisting map[string]bool) {
+func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, expectedSessionID string, preExisting map[string]bool) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		log.Printf("chimera lockfile discovery for %s: %v", taskID, err)
@@ -1313,10 +1314,11 @@ func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, spaw
 				continue
 			}
 			lf, err := chimera.ParseLockfile(data)
-			if err != nil {
+			if err != nil || (expectedSessionID != "" && lf.SessionID != expectedSessionID) {
 				continue
 			}
-			// Found a new lockfile. Persist the discovery.
+			// Prefer the session assigned before launch. Ephemeral agents have no
+			// assigned ID and retain the new-lockfile fallback.
 			if err := a.store.UpdateChimeraDiscovery(ctx, taskID, lf.SessionID, lf.URL); err != nil {
 				log.Printf("chimera lockfile discovery for %s: persisting: %v", taskID, err)
 			} else {
