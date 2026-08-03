@@ -24,20 +24,24 @@ export interface ReportTask { task_id: string; display_id: string; title: string
 export interface ReportWorkspace { workspace_id: number | null; workspace_name: string; workspace_color: string; working_seconds: number; waiting_seconds: number; task_count: number }
 export interface ReportDirectory { directory: string; working_seconds: number; waiting_seconds: number; task_count: number }
 export interface ReportSwarm { parent_task_id: string; title: string; working_seconds: number; waiting_seconds: number; wall_clock_seconds: number; parallel_ratio: number; worker_count: number; subtask_count: number }
+export interface ReportExecution { id: string; kind: string; status: string; task_id: string; task_title: string; workflow_run_id: string; working_seconds: number; waiting_seconds: number; wall_clock_seconds: number; started_at: string; ended_at: string | null }
 
 export interface Report {
   period: ReportPeriod
+  activity_epoch: string
+  activity_available: boolean
   summary: ReportSummary
   by_day: ReportDay[]
   by_task: ReportTask[]
   by_workspace: ReportWorkspace[]
   by_directory: ReportDirectory[]
   by_swarm: ReportSwarm[]
+  by_execution: ReportExecution[]
 }
 
 export interface ReportEnvelope {
   report: Report
-  comparison: { period: ReportPeriod; summary: ReportSummary }
+  comparison: { period: ReportPeriod; activity_available: boolean; summary: ReportSummary }
 }
 
 export interface ReportRequest { period: ReportPeriodKind; offset: number; signal?: AbortSignal }

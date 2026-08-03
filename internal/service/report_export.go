@@ -15,6 +15,9 @@ func ExportReportMarkdown(r *Report) string {
 	var b strings.Builder
 
 	b.WriteString(fmt.Sprintf("# %s Report\n\n", r.Period.Label))
+	if !r.ActivityEpoch.IsZero() {
+		b.WriteString(fmt.Sprintf("_Agent activity is recorded from %s. Active time is additive across parallel executions and is not elapsed wall-clock time._\n\n", r.ActivityEpoch.Format(time.RFC3339)))
+	}
 
 	// Check if there's any activity
 	if r.Summary.TotalWorking == 0 && r.Summary.TotalWaiting == 0 &&
@@ -27,12 +30,12 @@ func ExportReportMarkdown(r *Report) string {
 	b.WriteString("## Summary\n\n")
 	b.WriteString("| Metric | Value |\n")
 	b.WriteString("|--------|-------|\n")
-	b.WriteString(fmt.Sprintf("| Working Time | %s |\n", fmtDuration(r.Summary.TotalWorking)))
+	b.WriteString(fmt.Sprintf("| Agent Active Time | %s |\n", fmtDuration(r.Summary.TotalWorking)))
 	b.WriteString(fmt.Sprintf("| Waiting Time | %s |\n", fmtDuration(r.Summary.TotalWaiting)))
 	if r.Summary.TotalWorking > 0 || r.Summary.TotalWaiting > 0 {
 		total := r.Summary.TotalWorking + r.Summary.TotalWaiting
 		ratio := float64(r.Summary.TotalWorking) / float64(total) * 100
-		b.WriteString(fmt.Sprintf("| Working Ratio | %.0f%% |\n", ratio))
+		b.WriteString(fmt.Sprintf("| Active Ratio | %.0f%% |\n", ratio))
 	}
 	b.WriteString(fmt.Sprintf("| Tasks Created | %d |\n", r.Summary.TasksCreated))
 	b.WriteString(fmt.Sprintf("| Tasks Completed | %d |\n", r.Summary.TasksCompleted))
@@ -65,6 +68,20 @@ func ExportReportMarkdown(r *Report) string {
 			}
 			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
 				t.DisplayID, title, fmtDuration(t.Working), fmtDuration(t.Waiting)))
+		}
+		b.WriteString("\n")
+	}
+
+	if len(r.ByExecution) > 0 {
+		b.WriteString("## Executions\n\n")
+		b.WriteString("| Execution | Kind | Status | Task | Active | Waiting | Wall Clock |\n")
+		b.WriteString("|-----------|------|--------|------|--------|---------|------------|\n")
+		for _, execution := range r.ByExecution {
+			task := execution.TaskTitle
+			if task == "" {
+				task = execution.TaskID
+			}
+			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s |\n", execution.ID, execution.Kind, execution.Status, task, fmtDuration(execution.Working), fmtDuration(execution.Waiting), fmtDuration(execution.WallClock)))
 		}
 		b.WriteString("\n")
 	}

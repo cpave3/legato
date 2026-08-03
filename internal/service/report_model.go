@@ -9,13 +9,16 @@ import (
 // Report is the complete analytics report for a time period.
 // It contains only plain data types — no rendering logic.
 type Report struct {
-	Period      analytics.TimeRange
-	Summary     ReportSummary
-	ByDay       []DayBreakdown
-	ByTask      []TaskStats
-	ByWorkspace []WorkspaceStats
-	BySwarm     []SwarmStats
-	ByDirectory []DirectoryStats
+	Period            analytics.TimeRange
+	ActivityEpoch     time.Time
+	ActivityAvailable bool
+	Summary           ReportSummary
+	ByDay             []DayBreakdown
+	ByTask            []TaskStats
+	ByWorkspace       []WorkspaceStats
+	BySwarm           []SwarmStats
+	ByDirectory       []DirectoryStats
+	ByExecution       []ExecutionStats
 }
 
 // ReportSummary holds top-level aggregate metrics.
@@ -62,6 +65,20 @@ type DirectoryStats struct {
 	Working   time.Duration
 	Waiting   time.Duration
 	TaskCount int
+}
+
+type ExecutionStats struct {
+	ID            string
+	Kind          string
+	Status        string
+	TaskID        string
+	TaskTitle     string
+	WorkflowRunID string
+	Working       time.Duration
+	Waiting       time.Duration
+	WallClock     time.Duration
+	StartedAt     time.Time
+	EndedAt       *time.Time
 }
 
 // SwarmStats holds per-swarm analytics.

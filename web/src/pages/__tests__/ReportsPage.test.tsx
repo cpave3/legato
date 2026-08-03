@@ -17,6 +17,8 @@ function reportFixture(overrides: Record<string, unknown> = {}) {
   return {
     report: {
       period: { kind: "week", offset: 0, label: "This Week", start: "2026-08-03T00:00:00+10:00", end: "2026-08-03T14:30:00+10:00" },
+      activity_epoch: "2026-08-03T09:00:00+10:00",
+      activity_available: true,
       summary: { working_seconds: 10800, waiting_seconds: 1800, tasks_created: 4, tasks_completed: 3, agent_sessions: 7, prs_merged: 2 },
       by_day: [{ date: "2026-08-03", working_seconds: 10800, waiting_seconds: 1800 }],
       by_task: [
@@ -26,10 +28,12 @@ function reportFixture(overrides: Record<string, unknown> = {}) {
       by_workspace: [{ workspace_id: 1, workspace_name: "Legato", workspace_color: "#6366f1", working_seconds: 9000, waiting_seconds: 1500, task_count: 2 }],
       by_directory: [{ directory: "/home/dev/very/long/path/to/legato", working_seconds: 9000, waiting_seconds: 1500, task_count: 2 }],
       by_swarm: [{ parent_task_id: "task-1", title: "Reporting swarm", working_seconds: 7200, waiting_seconds: 1200, wall_clock_seconds: 3600, parallel_ratio: 2.3, worker_count: 3, subtask_count: 4 }],
+      by_execution: [{ id: "ex-1", kind: "workflow_agent", status: "succeeded", task_id: "task-1", task_title: "Build reports", workflow_run_id: "run-1", working_seconds: 7200, waiting_seconds: 600, wall_clock_seconds: 4800, started_at: "2026-08-03T09:00:00+10:00", ended_at: "2026-08-03T10:20:00+10:00" }],
       ...overrides,
     },
     comparison: {
       period: { kind: "week", offset: -1, label: "Week of Jul 27 – Aug 2", start: "2026-07-27T00:00:00+10:00", end: "2026-08-03T00:00:00+10:00" },
+      activity_available: true,
       summary: { working_seconds: 7200, waiting_seconds: 2400, tasks_created: 3, tasks_completed: 2, agent_sessions: 6, prs_merged: 1 },
     },
   }
@@ -58,6 +62,8 @@ describe("ReportsPage", () => {
     expect(screen.getByRole("img", { name: /(Aug 3|3 Aug).*3h working.*30m waiting/i })).toBeTruthy()
     expect(screen.getByText("LEG-42")).toBeTruthy()
     expect(screen.getByText("Build reports")).toBeTruthy()
+    expect(screen.getByText(/Active time is additive across parallel executions/)).toBeTruthy()
+    expect(screen.getByText("Agent active time")).toBeTruthy()
   })
 
   it("navigates offsets, disables next at current, and resets to current when changing period", async () => {
@@ -91,6 +97,15 @@ describe("ReportsPage", () => {
     expect(screen.queryByRole("heading", { name: "Stale Week" })).toBeNull()
   })
 
+  it("suppresses activity deltas when the comparison predates the reporting epoch", async () => {
+    const fixture = reportFixture()
+    fixture.comparison.activity_available = false
+    mockedApiFetch.mockResolvedValue(jsonResponse(fixture))
+    renderPage()
+    await screen.findByRole("heading", { name: "This Week" })
+    expect(screen.getAllByText("Comparison unavailable before activity history began").length).toBe(3)
+  })
+
   it("does not render Infinity or NaN when comparison values are zero", async () => {
     const fixture = reportFixture()
     fixture.comparison.summary = { working_seconds: 0, waiting_seconds: 0, tasks_created: 0, tasks_completed: 0, agent_sessions: 0, prs_merged: 0 }
@@ -119,6 +134,10 @@ describe("ReportsPage", () => {
     await waitFor(() => expect(screen.getByRole("tab", { name: "Swarms 0" })).toBeTruthy())
     fireEvent.click(screen.getByRole("tab", { name: "Swarms 0" }))
     expect(screen.getByText("No swarm activity for this period")).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("tab", { name: "Executions 1" }))
+    expect(screen.getByRole("table", { name: "Executions breakdown" })).toBeTruthy()
+    expect(screen.getByText("workflow agent")).toBeTruthy()
   })
 
   it("copies server-rendered Markdown and announces success", async () => {
@@ -133,7 +152,7 @@ describe("ReportsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy Markdown" }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("# This Week Report"))
     expect(mockedApiFetch).toHaveBeenLastCalledWith("https://remote.example", "/api/report?period=week&offset=0&format=markdown")
-    expect(screen.getByRole("status").textContent).toContain("Markdown copied")
+    expect(screen.getByText("Markdown copied")).toBeTruthy()
   })
 
   it("surfaces request failures and retries successfully", async () => {
@@ -152,6 +171,6 @@ describe("ReportsPage", () => {
     renderPage()
     await screen.findByRole("heading", { name: "This Week" })
     expect(screen.getByText("No activity recorded for this period")).toBeTruthy()
-    expect(screen.queryByText("Working ratio")).toBeNull()
+    expect(screen.queryByText("Active ratio")).toBeNull()
   })
 })

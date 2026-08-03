@@ -60,6 +60,20 @@ type reportDirectoryResponse struct {
 	TaskCount      int    `json:"task_count"`
 }
 
+type reportExecutionResponse struct {
+	ID               string  `json:"id"`
+	Kind             string  `json:"kind"`
+	Status           string  `json:"status"`
+	TaskID           string  `json:"task_id"`
+	TaskTitle        string  `json:"task_title"`
+	WorkflowRunID    string  `json:"workflow_run_id"`
+	WorkingSeconds   int64   `json:"working_seconds"`
+	WaitingSeconds   int64   `json:"waiting_seconds"`
+	WallClockSeconds int64   `json:"wall_clock_seconds"`
+	StartedAt        string  `json:"started_at"`
+	EndedAt          *string `json:"ended_at"`
+}
+
 type reportSwarmResponse struct {
 	ParentTaskID     string  `json:"parent_task_id"`
 	Title            string  `json:"title"`
@@ -72,18 +86,22 @@ type reportSwarmResponse struct {
 }
 
 type reportResponse struct {
-	Period      reportPeriodResponse      `json:"period"`
-	Summary     reportSummaryResponse     `json:"summary"`
-	ByDay       []reportDayResponse       `json:"by_day"`
-	ByTask      []reportTaskResponse      `json:"by_task"`
-	ByWorkspace []reportWorkspaceResponse `json:"by_workspace"`
-	ByDirectory []reportDirectoryResponse `json:"by_directory"`
-	BySwarm     []reportSwarmResponse     `json:"by_swarm"`
+	Period            reportPeriodResponse      `json:"period"`
+	ActivityEpoch     string                    `json:"activity_epoch"`
+	ActivityAvailable bool                      `json:"activity_available"`
+	Summary           reportSummaryResponse     `json:"summary"`
+	ByDay             []reportDayResponse       `json:"by_day"`
+	ByTask            []reportTaskResponse      `json:"by_task"`
+	ByWorkspace       []reportWorkspaceResponse `json:"by_workspace"`
+	ByDirectory       []reportDirectoryResponse `json:"by_directory"`
+	BySwarm           []reportSwarmResponse     `json:"by_swarm"`
+	ByExecution       []reportExecutionResponse `json:"by_execution"`
 }
 
 type reportComparisonResponse struct {
-	Period  reportPeriodResponse  `json:"period"`
-	Summary reportSummaryResponse `json:"summary"`
+	Period            reportPeriodResponse  `json:"period"`
+	ActivityAvailable bool                  `json:"activity_available"`
+	Summary           reportSummaryResponse `json:"summary"`
 }
 
 type reportEnvelopeResponse struct {
@@ -154,8 +172,9 @@ func (s *Server) reportHandler() http.HandlerFunc {
 		s.writeJSON(w, http.StatusOK, reportEnvelopeResponse{
 			Report: mapReportResponse(report, periodKind, offset),
 			Comparison: reportComparisonResponse{
-				Period:  mapReportPeriod(comparisonRange, periodKind, offset-1),
-				Summary: mapReportSummary(comparison.Summary),
+				Period:            mapReportPeriod(comparisonRange, periodKind, offset-1),
+				ActivityAvailable: comparison.ActivityAvailable,
+				Summary:           mapReportSummary(comparison.Summary),
 			},
 		})
 	}
@@ -175,14 +194,21 @@ func currentReportRange(kind string) (analytics.TimeRange, bool) {
 }
 
 func mapReportResponse(report *service.Report, kind string, offset int) reportResponse {
+	activityEpoch := ""
+	if !report.ActivityEpoch.IsZero() {
+		activityEpoch = report.ActivityEpoch.Format(time.RFC3339Nano)
+	}
 	response := reportResponse{
-		Period:      mapReportPeriod(report.Period, kind, offset),
-		Summary:     mapReportSummary(report.Summary),
-		ByDay:       make([]reportDayResponse, len(report.ByDay)),
-		ByTask:      make([]reportTaskResponse, len(report.ByTask)),
-		ByWorkspace: make([]reportWorkspaceResponse, len(report.ByWorkspace)),
-		ByDirectory: make([]reportDirectoryResponse, len(report.ByDirectory)),
-		BySwarm:     make([]reportSwarmResponse, len(report.BySwarm)),
+		Period:            mapReportPeriod(report.Period, kind, offset),
+		ActivityEpoch:     activityEpoch,
+		ActivityAvailable: report.ActivityAvailable,
+		Summary:           mapReportSummary(report.Summary),
+		ByDay:             make([]reportDayResponse, len(report.ByDay)),
+		ByTask:            make([]reportTaskResponse, len(report.ByTask)),
+		ByWorkspace:       make([]reportWorkspaceResponse, len(report.ByWorkspace)),
+		ByDirectory:       make([]reportDirectoryResponse, len(report.ByDirectory)),
+		BySwarm:           make([]reportSwarmResponse, len(report.BySwarm)),
+		ByExecution:       make([]reportExecutionResponse, len(report.ByExecution)),
 	}
 	for i, day := range report.ByDay {
 		response.ByDay[i] = reportDayResponse{Date: day.Date.Format("2006-01-02"), WorkingSeconds: durationSeconds(day.Working), WaitingSeconds: durationSeconds(day.Waiting)}
@@ -198,6 +224,14 @@ func mapReportResponse(report *service.Report, kind string, offset int) reportRe
 	}
 	for i, swarm := range report.BySwarm {
 		response.BySwarm[i] = reportSwarmResponse{ParentTaskID: swarm.ParentTaskID, Title: swarm.Title, WorkingSeconds: durationSeconds(swarm.Working), WaitingSeconds: durationSeconds(swarm.Waiting), WallClockSeconds: durationSeconds(swarm.WallClock), ParallelRatio: swarm.ParallelRatio, WorkerCount: swarm.WorkerCount, SubtaskCount: swarm.SubtaskCount}
+	}
+	for i, execution := range report.ByExecution {
+		var endedAt *string
+		if execution.EndedAt != nil {
+			formatted := execution.EndedAt.Format(time.RFC3339Nano)
+			endedAt = &formatted
+		}
+		response.ByExecution[i] = reportExecutionResponse{ID: execution.ID, Kind: execution.Kind, Status: execution.Status, TaskID: execution.TaskID, TaskTitle: execution.TaskTitle, WorkflowRunID: execution.WorkflowRunID, WorkingSeconds: durationSeconds(execution.Working), WaitingSeconds: durationSeconds(execution.Waiting), WallClockSeconds: durationSeconds(execution.WallClock), StartedAt: execution.StartedAt.Format(time.RFC3339Nano), EndedAt: endedAt}
 	}
 	return response
 }

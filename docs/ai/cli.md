@@ -1,5 +1,11 @@
 ## CLI
 
+## Agent execution identity
+
+Legato creates a durable execution before spawning every hook-bearing agent and injects `LEGATO_EXECUTION_ID` beside `LEGATO_TASK_ID`. Generated Claude Code, Codex, and Chimera hooks call `legato agent state <task-id> --execution-id <id> --activity <working|waiting|"">`. The command rejects missing, unknown, terminal, or mismatched execution IDs; it never falls back to the latest task session. Provider IDs such as `CHIMERA_SESSION_ID` remain validation/readiness metadata, and child Chimera hooks do not mutate parent execution activity.
+
+Terminal outcomes are explicit: user/workflow cancellation → `cancelled`, launch/runtime failure → `failed`, missing session reconciliation → `lost`, and successful workflow callback → `succeeded`.
+
 ## Workflows
 
 `legato workflow` manages reusable hybrid workflows:
@@ -14,6 +20,8 @@ legato workflow trigger <run-id> <step-id> --json
 legato workflow retry <run-id> <step-id> --json
 legato workflow cancel <run-id> --json
 ```
+
+Each `agent.run` attempt owns a distinct durable execution; retries create new executions. Task-triggered runs attribute active time to `workflow_runs.related_task_id` while retaining the synthetic workflow task and run/attempt IDs for drill-down. Repository-only runs remain project/workflow activity. Successful callbacks terminalize the execution before deleting the operational agent session.
 
 Agent callbacks use `LEGATO_WORKFLOW_RUN_ID`, `LEGATO_WORKFLOW_STEP_ID`, and `LEGATO_WORKFLOW_ATTEMPT_ID` automatically:
 

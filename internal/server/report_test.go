@@ -117,12 +117,14 @@ func TestReportAPIEncodesStableSecondsDTOAndEmptyArrays(t *testing.T) {
 	day := time.Date(2026, time.August, 3, 0, 0, 0, 0, time.Local)
 	fake := &fakeReportService{reports: []*service.Report{
 		{
+			ActivityEpoch: time.Date(2026, time.August, 3, 9, 0, 0, 0, time.UTC), ActivityAvailable: true,
 			Summary:     service.ReportSummary{TotalWorking: 90 * time.Minute, TotalWaiting: 15 * time.Minute, TasksCreated: 4, TasksCompleted: 3, AgentSessions: 7, PRsMerged: 2},
 			ByDay:       []service.DayBreakdown{{Date: day, Working: time.Hour, Waiting: 10 * time.Minute}},
 			ByTask:      []service.TaskStats{{TaskID: "task-1", DisplayID: "LEG-42", Title: "Build reports", WorkspaceName: "Legato", Provider: "jira", Working: time.Hour, Waiting: 5 * time.Minute}},
 			ByWorkspace: []service.WorkspaceStats{{WorkspaceID: &workspaceID, WorkspaceName: "Legato", WorkspaceColor: "#abc123", Working: time.Hour, Waiting: 5 * time.Minute, TaskCount: 2}},
 			ByDirectory: []service.DirectoryStats{{Directory: "/work/legato", Working: 45 * time.Minute, Waiting: 3 * time.Minute, TaskCount: 1}},
 			BySwarm:     []service.SwarmStats{{ParentTaskID: "task-1", Title: "Report swarm", Working: 2 * time.Hour, Waiting: 30 * time.Minute, WallClock: time.Hour, ParallelRatio: 2.5, WorkerCount: 3, SubtaskCount: 4}},
+			ByExecution: []service.ExecutionStats{{ID: "ex-1", Kind: "workflow_agent", Status: "succeeded", TaskID: "task-1", TaskTitle: "Build reports", WorkflowRunID: "run-1", Working: time.Hour, Waiting: 5 * time.Minute, WallClock: 70 * time.Minute, StartedAt: day, EndedAt: func() *time.Time { ended := day.Add(70 * time.Minute); return &ended }()}},
 		},
 		{Summary: service.ReportSummary{TotalWorking: time.Hour, TotalWaiting: 20 * time.Minute, TasksCreated: 2, TasksCompleted: 1, AgentSessions: 4, PRsMerged: 1}},
 	}}
@@ -137,6 +139,9 @@ func TestReportAPIEncodesStableSecondsDTOAndEmptyArrays(t *testing.T) {
 		t.Fatal(err)
 	}
 	report := body["report"].(map[string]any)
+	if report["activity_epoch"] == "" || report["activity_available"] != true {
+		t.Fatalf("activity metadata = %#v", report)
+	}
 	period := report["period"].(map[string]any)
 	if period["kind"] != "week" || period["offset"] != float64(0) || period["start"] == "" || period["end"] == "" {
 		t.Fatalf("period = %#v", period)
@@ -167,6 +172,10 @@ func TestReportAPIEncodesStableSecondsDTOAndEmptyArrays(t *testing.T) {
 	if swarm["wall_clock_seconds"] != float64(3600) || swarm["parallel_ratio"] != 2.5 || swarm["worker_count"] != float64(3) {
 		t.Fatalf("swarm = %#v", swarm)
 	}
+	execution := report["by_execution"].([]any)[0].(map[string]any)
+	if execution["id"] != "ex-1" || execution["kind"] != "workflow_agent" || execution["wall_clock_seconds"] != float64(4200) {
+		t.Fatalf("execution = %#v", execution)
+	}
 	comparison := body["comparison"].(map[string]any)
 	if comparison["summary"].(map[string]any)["working_seconds"] != float64(3600) {
 		t.Fatalf("comparison = %#v", comparison)
@@ -183,12 +192,13 @@ func TestReportAPIEncodesStableSecondsDTOAndEmptyArrays(t *testing.T) {
 			ByWorkspace []any `json:"by_workspace"`
 			ByDirectory []any `json:"by_directory"`
 			BySwarm     []any `json:"by_swarm"`
+			ByExecution []any `json:"by_execution"`
 		} `json:"report"`
 	}
 	if err := json.Unmarshal(empty.Body.Bytes(), &emptyBody); err != nil {
 		t.Fatal(err)
 	}
-	if emptyBody.Report.ByDay == nil || emptyBody.Report.ByTask == nil || emptyBody.Report.ByWorkspace == nil || emptyBody.Report.ByDirectory == nil || emptyBody.Report.BySwarm == nil {
+	if emptyBody.Report.ByDay == nil || emptyBody.Report.ByTask == nil || emptyBody.Report.ByWorkspace == nil || emptyBody.Report.ByDirectory == nil || emptyBody.Report.BySwarm == nil || emptyBody.Report.ByExecution == nil {
 		t.Fatalf("empty arrays encoded as null: %s", empty.Body.String())
 	}
 }
@@ -207,7 +217,7 @@ func TestReportAPIMarkdownUsesSelectedReportOnly(t *testing.T) {
 	if len(fake.ranges) != 1 {
 		t.Fatalf("GenerateReport calls = %d, want 1", len(fake.ranges))
 	}
-	if !strings.Contains(rec.Body.String(), "# "+fake.ranges[0].Label+" Report") || !strings.Contains(rec.Body.String(), "| Working Time | 1h |") {
+	if !strings.Contains(rec.Body.String(), "# "+fake.ranges[0].Label+" Report") || !strings.Contains(rec.Body.String(), "| Agent Active Time | 1h |") {
 		t.Fatalf("markdown = %q", rec.Body.String())
 	}
 }

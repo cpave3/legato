@@ -183,7 +183,12 @@ func (m Model) View() string {
 	// Hints
 	hints := m.renderHints(contentWidth)
 
-	sections := []string{header, summary}
+	sections := []string{header}
+	if !m.report.ActivityEpoch.IsZero() {
+		sections = append(sections, lipgloss.NewStyle().Foreground(theme.TextTertiary).Render(
+			fmt.Sprintf("Activity recorded from %s · active time is additive across parallel executions", m.report.ActivityEpoch.Format("2006-01-02 15:04"))))
+	}
+	sections = append(sections, summary)
 	if chart != "" {
 		sections = append(sections, chart)
 	}
@@ -259,9 +264,9 @@ func (m Model) renderSummary(width int) string {
 	}
 
 	row1 := fmt.Sprintf("%s %s   %s %s   %s %s",
-		metricStyle.Render("Working:"), workingStyle.Render(fmtDuration(s.TotalWorking)),
+		metricStyle.Render("Active:"), workingStyle.Render(fmtDuration(s.TotalWorking)),
 		metricStyle.Render("Waiting:"), waitingStyle.Render(fmtDuration(s.TotalWaiting)),
-		metricStyle.Render("Ratio:"), valueStyle.Render(ratioStr),
+		metricStyle.Render("Active Ratio:"), valueStyle.Render(ratioStr),
 	)
 	row2 := fmt.Sprintf("%s %s   %s %s   %s %s   %s %s",
 		metricStyle.Render("Created:"), valueStyle.Render(fmt.Sprintf("%d", s.TasksCreated)),

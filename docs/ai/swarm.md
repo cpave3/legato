@@ -1,4 +1,9 @@
-## Swarm Conductor
+## Swarm
+
+## Reporting executions
+
+A swarm conductor and every worker are distinct durable executions. All attribute activity to the parent task while retaining `swarm_id` and worker `swarm_subtask_id`. Active time is additive across these executions and can exceed swarm wall-clock time; parallel ratio is total active+waiting execution time divided by the union wall clock. Completion, cancellation, spawn failure, and reconciliation terminalize each execution before operational session cleanup.
+## Conductor
 
 Swarm orchestration in legato is conductor-driven: pressing `S` on a card spawns a single LLM agent (the **conductor**) that explores the codebase, drafts a plan, asks the user to approve it, then dispatches workers and supervises them. Workers are ephemeral focused agents; the conductor is the only "thinking" agent that holds the global picture.
 

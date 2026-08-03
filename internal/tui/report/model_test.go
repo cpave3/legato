@@ -27,7 +27,8 @@ func (m *mockReportService) GenerateReport(_ context.Context, period analytics.T
 
 func sampleReport() *service.Report {
 	return &service.Report{
-		Period: analytics.TimeRange{Label: "Today", Period: analytics.PeriodDay},
+		Period:        analytics.TimeRange{Label: "Today", Period: analytics.PeriodDay},
+		ActivityEpoch: time.Date(2026, 8, 3, 9, 0, 0, 0, time.UTC),
 		Summary: service.ReportSummary{
 			TotalWorking: 3 * time.Hour,
 			TotalWaiting: 1 * time.Hour,
@@ -37,6 +38,15 @@ func sampleReport() *service.Report {
 			{TaskID: "t1", Title: "Task 1", Working: 2 * time.Hour},
 			{TaskID: "t2", Title: "Task 2", Working: 1 * time.Hour},
 		},
+	}
+}
+
+func TestModel_ViewExplainsExecutionActivitySemantics(t *testing.T) {
+	m := New(&mockReportService{report: sampleReport()})
+	m.width, m.height, m.report = 120, 40, sampleReport()
+	view := m.View()
+	if !strings.Contains(view, "Activity recorded from 2026-08-03 09:00") || !strings.Contains(view, "additive across parallel executions") || !strings.Contains(view, "Active:") {
+		t.Fatalf("view does not explain active-time semantics:\n%s", view)
 	}
 }
 

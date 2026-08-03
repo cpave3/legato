@@ -14,10 +14,20 @@ Migration SQL remains embedded and SQLite-specific. The backend-neutral `schema_
 
 Store tests use real temporary SQLite files and cover fresh creation, reopen durability, legacy bootstrap, future/mismatched schema refusal, per-connection PRAGMAs, and racing migration openers. Architecture tests prevent production packages from importing `sqlx`, calling `Store.DB()`, bypassing the shared command opener, or creating sibling dependencies between engine packages.
 
-### Schema
+### Execution activity and reporting
+
+An **execution** is one independently startable and terminable unit of agent work. Interactive agents, workflow `agent.run` attempts, swarm conductors, and swarm workers each receive a Legato-generated `LEGATO_EXECUTION_ID` before spawn. Provider session IDs, tmux names, task IDs, and workflow IDs are metadata and must never select an activity stream.
+
+`executions` durably owns lifecycle (`running` → `succeeded|failed|cancelled|lost`), task/project/workflow/swarm attribution, provider-session links, and start/end timestamps. `execution_activity` stores its `working` and `waiting` spans with at most one open span per execution. Terminalization atomically sets `ended_at` and closes open activity; reporting additionally clips every span to execution end. Parallel execution active time is additive and may exceed workflow/swarm wall-clock time.
+
+Migration 055 intentionally drops `state_intervals` without importing it because task-keyed intervals cannot be reliably associated with concurrent executions and include known orphan inflation. `reporting_metadata.activity_epoch` records the reset boundary. Tasks, workflows, attempts, sessions, swarms, reviews, plans, and non-duration history are preserved. Product reports treat pre-epoch activity as unavailable, not proven zero.
+
+Execution history is not deleted during normal session cleanup or task deletion. `agent_sessions` remains operational and may be removed only after its linked execution is terminal. Task-triggered workflow executions retain their synthetic task as `execution_task_id` but attribute report totals to `workflow_runs.related_task_id`; repository-only workflow activity remains project/workflow-only.
+
+## Schema
 
 - SQLite file location: `cfg.DB.Path` > `$XDG_DATA_HOME/legato/legato.db` > `~/.local/share/legato/legato.db`
-- Core schema includes `tasks`, `column_mappings`, `sync_log`, `agent_sessions`, `state_intervals`, `workspaces`, swarm tables, review tours/passes/findings, plans/revisions/comments/interactions, workflow runs/steps/attempts/artifacts, `task_notes`, and the evidence-backed learning ledger.
+- Core schema includes `tasks`, `column_mappings`, `sync_log`, `agent_sessions`, `executions`, `execution_activity`, `reporting_metadata`, `workspaces`, swarm tables, review tours/passes/findings, plans/revisions/comments/interactions, workflow runs/steps/attempts/artifacts, `task_notes`, and the evidence-backed learning ledger.
 - `tasks` table: core fields (id, title, description, description_md, status, priority, sort_order, workspace_id, archived_at, created_at, updated_at) + nullable provider link (provider, remote_id, remote_meta JSON) + nullable `code_context` TEXT (durable repository/branch/SHA/path/provenance JSON) + nullable `pr_meta` TEXT (refreshable PR number/URL/state/review/check/comment/pin/outcome JSON). `archived_at` is nullable DATETIME — NULL means active, non-NULL means archived (hidden from board but retained in DB)
 - `workspaces` table: id (INTEGER PRIMARY KEY), name (TEXT UNIQUE), color (TEXT), sort_order (INTEGER)
 - Local tasks: provider/remote_id/remote_meta are NULL. Synced tasks: provider='jira', remote_id=Jira key, remote_meta=JSON with remote_status, issue_type, assignee, labels, etc.

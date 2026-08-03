@@ -6,6 +6,7 @@ import {
   fetchReport,
   fetchReportMarkdown,
   type ReportDirectory,
+  type ReportExecution,
   type ReportEnvelope,
   type ReportPeriodKind,
   type ReportSummary,
@@ -14,7 +15,7 @@ import {
   type ReportWorkspace,
 } from "../lib/report"
 
-type Breakdown = "tasks" | "workspaces" | "projects" | "swarms"
+type Breakdown = "tasks" | "workspaces" | "projects" | "swarms" | "executions"
 type SortDirection = "asc" | "desc"
 
 function formatDuration(seconds: number): string {
@@ -42,7 +43,8 @@ function ratio(summary: ReportSummary): number {
   return total === 0 ? 0 : summary.working_seconds / total
 }
 
-function Delta({ current, previous, ratioPoints = false }: { current: number; previous: number; ratioPoints?: boolean }) {
+function Delta({ current, previous, available, ratioPoints = false }: { current: number; previous: number; available: boolean; ratioPoints?: boolean }) {
+  if (!available) return <span>Comparison unavailable before activity history began</span>
   if (ratioPoints) {
     const points = (current - previous) * 100
     if (points === 0) return <span>— vs previous period</span>
@@ -65,14 +67,14 @@ function MetricCard({ label, value, children, secondary }: { label: string; valu
   </article>
 }
 
-function SummaryCards({ current, previous }: { current: ReportSummary; previous: ReportSummary }) {
+function SummaryCards({ current, previous, comparisonAvailable }: { current: ReportSummary; previous: ReportSummary; comparisonAvailable: boolean }) {
   return <section aria-label="Summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-    <MetricCard label="Working time" value={formatDuration(current.working_seconds)}><Delta current={current.working_seconds} previous={previous.working_seconds} /></MetricCard>
-    <MetricCard label="Waiting time" value={formatDuration(current.waiting_seconds)}><Delta current={current.waiting_seconds} previous={previous.waiting_seconds} /></MetricCard>
-    <MetricCard label="Working ratio" value={`${(ratio(current) * 100).toFixed(0)}%`}><Delta current={ratio(current)} previous={ratio(previous)} ratioPoints /></MetricCard>
-    <MetricCard label="Tasks completed" value={String(current.tasks_completed)} secondary={`${current.tasks_created} created`}><Delta current={current.tasks_completed} previous={previous.tasks_completed} /></MetricCard>
-    <MetricCard label="Agent sessions" value={String(current.agent_sessions)}><Delta current={current.agent_sessions} previous={previous.agent_sessions} /></MetricCard>
-    <MetricCard label="PRs merged" value={String(current.prs_merged)}><Delta current={current.prs_merged} previous={previous.prs_merged} /></MetricCard>
+    <MetricCard label="Agent active time" value={formatDuration(current.working_seconds)}><Delta current={current.working_seconds} previous={previous.working_seconds} available={comparisonAvailable} /></MetricCard>
+    <MetricCard label="Waiting time" value={formatDuration(current.waiting_seconds)}><Delta current={current.waiting_seconds} previous={previous.waiting_seconds} available={comparisonAvailable} /></MetricCard>
+    <MetricCard label="Active ratio" value={`${(ratio(current) * 100).toFixed(0)}%`}><Delta current={ratio(current)} previous={ratio(previous)} available={comparisonAvailable} ratioPoints /></MetricCard>
+    <MetricCard label="Tasks completed" value={String(current.tasks_completed)} secondary={`${current.tasks_created} created`}><Delta current={current.tasks_completed} previous={previous.tasks_completed} available /></MetricCard>
+    <MetricCard label="Agent sessions" value={String(current.agent_sessions)}><Delta current={current.agent_sessions} previous={previous.agent_sessions} available /></MetricCard>
+    <MetricCard label="PRs merged" value={String(current.prs_merged)}><Delta current={current.prs_merged} previous={previous.prs_merged} available /></MetricCard>
   </section>
 }
 
@@ -111,7 +113,7 @@ function BreakdownTable({ active, envelope }: { active: Breakdown; envelope: Rep
   const [sort, setSort] = useState({ field: "working_seconds", direction: "desc" as SortDirection })
   useEffect(() => setSort({ field: "working_seconds", direction: "desc" }), [active])
   const onSort = (field: string) => setSort(current => ({ field, direction: current.field === field && current.direction === "desc" ? "asc" : "desc" }))
-  const rows = active === "tasks" ? envelope.report.by_task : active === "workspaces" ? envelope.report.by_workspace : active === "projects" ? envelope.report.by_directory : envelope.report.by_swarm
+  const rows = active === "tasks" ? envelope.report.by_task : active === "workspaces" ? envelope.report.by_workspace : active === "projects" ? envelope.report.by_directory : active === "swarms" ? envelope.report.by_swarm : envelope.report.by_execution
   const sorted = [...rows].sort((a, b) => {
     const value = (row: unknown) => {
       const record = row as Record<string, unknown>
@@ -124,6 +126,8 @@ function BreakdownTable({ active, envelope }: { active: Breakdown; envelope: Rep
   if (sorted.length === 0) return <div className="rounded-lg border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">No {active === "projects" ? "project" : active.slice(0, -1)} activity for this period</div>
 
   if (active === "tasks") return <div className="overflow-x-auto"><table aria-label="Tasks breakdown" className="w-full"><thead><tr><th className={th}>ID</th><th className={th}>Title</th><th className={th}>Workspace</th><th className={th}>Provider</th>{["working_seconds", "waiting_seconds", "total"].map(field => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={field === "working_seconds" ? "Working" : field === "waiting_seconds" ? "Waiting" : "Total"} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{(sorted as ReportTask[]).map(row => <tr key={row.task_id} className="border-t border-zinc-800"><td className={td}>{row.display_id}</td><td className={td}>{row.title}</td><td className={td}>{row.workspace_name || "—"}</td><td className={td}>{row.provider || "Local"}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.working_seconds + row.waiting_seconds)}</td></tr>)}</tbody></table></div>
+
+  if (active === "executions") return <div className="overflow-x-auto"><table aria-label="Executions breakdown" className="w-full"><thead><tr><th className={th}>Execution</th><th className={th}>Kind</th><th className={th}>Status</th><th className={th}>Task</th>{[["working_seconds", "Active"], ["waiting_seconds", "Waiting"], ["wall_clock_seconds", "Wall clock"]].map(([field, label]) => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={label} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{(sorted as ReportExecution[]).map(row => <tr key={row.id} className="border-t border-zinc-800"><td className={td}>{row.id}</td><td className={td}>{row.kind.replaceAll("_", " ")}</td><td className={td}>{row.status}</td><td className={td}>{row.task_title || row.task_id || "Project execution"}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.wall_clock_seconds)}</td></tr>)}</tbody></table></div>
 
   if (active === "swarms") return <div className="overflow-x-auto"><table aria-label="Swarms breakdown" className="w-full"><thead><tr><th className={th}>Title</th>{[["working_seconds", "Working"], ["waiting_seconds", "Waiting"], ["wall_clock_seconds", "Wall clock"], ["parallel_ratio", "Parallel ratio"], ["worker_count", "Workers"], ["subtask_count", "Subtasks"]].map(([field, label]) => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={label} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{(sorted as ReportSwarm[]).map(row => <tr key={row.parent_task_id} className="border-t border-zinc-800"><td className={td}>{row.title || row.parent_task_id}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.wall_clock_seconds)}</td><td className={td}>{row.parallel_ratio ? `${row.parallel_ratio.toFixed(1)}x` : "—"}</td><td className={td}>{row.worker_count}</td><td className={td}>{row.subtask_count}</td></tr>)}</tbody></table></div>
 
@@ -181,6 +185,7 @@ export function ReportsPage() {
     { id: "workspaces" as const, label: "Workspaces", count: data.report.by_workspace.length },
     { id: "projects" as const, label: "Projects", count: data.report.by_directory.length },
     { id: "swarms" as const, label: "Swarms", count: data.report.by_swarm.length },
+    { id: "executions" as const, label: "Executions", count: data.report.by_execution.length },
   ] : [], [data])
 
   if (!data && loading) return <div className="p-8" role="status" aria-label="Loading report"><div className="h-8 w-56 animate-pulse rounded bg-zinc-800" /><div className="mt-6 grid gap-3 sm:grid-cols-3">{Array.from({ length: 6 }, (_, i) => <div key={i} className="h-28 animate-pulse rounded-xl bg-zinc-900" />)}</div></div>
@@ -201,8 +206,10 @@ export function ReportsPage() {
         {loading && <p role="status" className="flex items-center gap-2 text-xs text-zinc-500"><RefreshCw className="animate-spin" size={13} />Updating report</p>}
       </header>
 
+      {data.report.activity_epoch && <InlineNotice>Agent activity is recorded from {new Date(data.report.activity_epoch).toLocaleString()}. Active time is additive across parallel executions, not elapsed wall-clock time.</InlineNotice>}
+
       {!hasActivity(data.report.summary) ? <section className="rounded-xl border border-dashed border-zinc-800 px-4 py-16 text-center"><h2 className="text-lg font-medium">No activity recorded for this period</h2><p className="mt-2 text-sm text-zinc-500">Try an earlier period or a broader range.</p></section> : <>
-        <SummaryCards current={data.report.summary} previous={data.comparison.summary} />
+        <SummaryCards current={data.report.summary} previous={data.comparison.summary} comparisonAvailable={data.comparison.activity_available} />
         {data.report.by_day.length > 0 && <DailyActivity days={data.report.by_day} />}
         <section className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
           <div role="tablist" aria-label="Report breakdowns" className="mb-4 flex gap-1 overflow-x-auto border-b border-zinc-800">{tabs.map(tab => <button key={tab.id} role="tab" aria-selected={active === tab.id} onClick={() => setActive(tab.id)} className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm ${active === tab.id ? "border-indigo-400 text-indigo-300" : "border-transparent text-zinc-500"}`}>{tab.label} <span className="ml-1 rounded bg-zinc-800 px-1.5 py-0.5 text-xs">{tab.count}</span></button>)}</div>

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"sort"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/analytics"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -16,6 +17,8 @@ type reportQueries interface {
 	QueryWorkspaceBreakdown(context.Context, store.ReportRange) ([]store.WorkspaceBreakdown, error)
 	QueryDirectoryBreakdown(context.Context, store.ReportRange) ([]store.DirectoryBreakdown, error)
 	QuerySwarmBreakdown(context.Context, store.ReportRange) ([]store.SwarmBreakdown, error)
+	QueryExecutionBreakdown(context.Context, store.ReportRange) ([]store.ExecutionBreakdown, error)
+	ActivityEpoch(context.Context) (time.Time, error)
 }
 
 type reportService struct {
@@ -62,6 +65,14 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 	}
 
 	swarmBreakdown, err := r.queries.QuerySwarmBreakdown(ctx, queryRange)
+	if err != nil {
+		return nil, err
+	}
+	executionBreakdown, err := r.queries.QueryExecutionBreakdown(ctx, queryRange)
+	if err != nil {
+		return nil, err
+	}
+	activityEpoch, err := r.queries.ActivityEpoch(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -171,8 +182,18 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 		}
 	}
 
+	executionStats := make([]ExecutionStats, len(executionBreakdown))
+	for i, execution := range executionBreakdown {
+		executionStats[i] = ExecutionStats{
+			ID: execution.ID, Kind: execution.Kind, Status: execution.Status,
+			TaskID: execution.TaskID, TaskTitle: execution.TaskTitle, WorkflowRunID: execution.WorkflowRunID,
+			Working: execution.Working, Waiting: execution.Waiting, WallClock: execution.WallClock,
+			StartedAt: execution.StartedAt, EndedAt: execution.EndedAt,
+		}
+	}
+
 	return &Report{
-		Period: period,
+		Period: period, ActivityEpoch: activityEpoch, ActivityAvailable: period.End.After(activityEpoch),
 		Summary: ReportSummary{
 			TotalWorking:   durations.Working,
 			TotalWaiting:   durations.Waiting,
@@ -186,5 +207,6 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 		ByWorkspace: wsStats,
 		ByDirectory: dirStats,
 		BySwarm:     swarmStats,
+		ByExecution: executionStats,
 	}, nil
 }
