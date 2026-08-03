@@ -53,6 +53,7 @@ describe("Board card context menu", () => {
   it("opens an eligible workflow with the selected card bound read-only", () => {
     const element = renderBoard()
     fireEvent.contextMenu(element, { clientX: 40, clientY: 60 })
+    fireEvent.mouseEnter(screen.getByRole("menuitem", { name: "Workflows" }))
     fireEvent.click(screen.getByRole("menuitem", { name: "Triage card" }))
     expect(screen.getByRole("dialog", { name: "Run Triage card" })).toBeTruthy()
     const task = screen.getByLabelText("subject") as HTMLInputElement

@@ -53,7 +53,7 @@ run_title: Review PR #${{ workflow.inputs.pr_number }}
 
 ### Run from a board card
 
-Press `c` on a selected TUI board card, or right-click a web board card, and choose a workflow to list definitions with exactly one `task` input. Web cards also expose an action button for keyboard, touch, and assistive-technology access. The input key can have any name and receives the selected card automatically. Definitions with zero task inputs are unrelated to the card, while definitions with multiple task inputs are ambiguous, so neither is shown. Column-entry triggers do not exclude an otherwise eligible workflow.
+Press `c` on a selected TUI board card, or right-click a web board card, and choose a workflow from the Workflows flyout to list definitions with exactly one `task` input. The web flyout scrolls independently and flips around viewport edges; web cards also expose an action button for keyboard, touch, and assistive-technology access. The input key can have any name and receives the selected card automatically. Definitions with zero task inputs are unrelated to the card, while definitions with multiple task inputs are ambiguous, so neither is shown. Column-entry triggers do not exclude an otherwise eligible workflow.
 
 Declared defaults and unambiguous repository context are prefilled. The form collects remaining string, integer, boolean, JSON, and repository values, honors choices, masks secret values, and leaves validation to the normal workflow start path. Discovery and launch failures remain visible in the menu/form for correction.
 
