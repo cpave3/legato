@@ -3,6 +3,7 @@ import { ArrowDown, ArrowLeftRight, Zap, MoreHorizontal, RefreshCw, Unplug, Skul
 import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
+import { dispatchAgentInput } from "../lib/agentInput"
 import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
 import { ReviewMessageBody } from "./ReviewMessageBody"
 import { Button } from "./ui/Button"
@@ -468,10 +469,18 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   }, [agentId, baseUrl])
 
   const handleMacro = useCallback((keys: string) => {
-    // For native sessions, macros send text via the message API
-    send({ type: "agent_message", agent_id: agentId, content: keys })
+    dispatchAgentInput(keys, {
+      executeBang: (command) => {
+        if (busy) {
+          setBangQueue((prev) => [...prev, command])
+        } else {
+          void executeBang(command)
+        }
+      },
+      sendMessage: (content) => send({ type: "agent_message", agent_id: agentId, content }),
+    })
     setMacrosOpen(false)
-  }, [agentId, send])
+  }, [agentId, busy, executeBang, send])
 
   if (loading) {
     return (

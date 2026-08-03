@@ -32,6 +32,33 @@ describe("NativeAgentPanel", () => {
     vi.restoreAllMocks()
   })
 
+  it("executes a bang macro instead of sending it as a literal message", async () => {
+    const macro = "!legato task show $LEGATO_TASK_ID --format full"
+    const requests: string[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      requests.push(url)
+      if (url.endsWith("/snapshot")) {
+        return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      }
+      if (url.endsWith("/api/macros")) {
+        return new Response(JSON.stringify({ macros: [{ name: "Show task", keys: macro }] }), { status: 200 })
+      }
+      if (url.includes("/chimera/bang")) {
+        return new Response(JSON.stringify({ stdout: "task", exit_code: 0 }), { status: 200 })
+      }
+      return new Response("[]", { status: 200 })
+    })
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    await screen.findByText("Session ready — send a message to start")
+    fireEvent.click(screen.getByRole("button", { name: /macros/i }))
+    fireEvent.click(await screen.findByRole("button", { name: /show task/i }))
+
+    await waitFor(() => expect(requests.some((url) => url.includes("/api/agents/task-1/chimera/bang"))).toBe(true))
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent_message", content: macro }))
+  })
+
   it("keeps queue and interrupt controls in one bounded equal-width composer rail", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
