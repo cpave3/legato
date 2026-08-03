@@ -18,6 +18,7 @@ vi.mock("../../hooks/useBoard", () => ({
   }),
 }))
 vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
+vi.mock("../../hooks/useWorkflow", () => ({ useWorkflows: () => ({ data: null, loading: false, error: null }) }))
 
 describe("Board search", () => {
   beforeEach(() => {

@@ -1,5 +1,5 @@
 import { cn } from "../../lib/utils"
-import type { DragEvent } from "react"
+import type { DragEvent, MouseEvent } from "react"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
 import {
   Globe,
@@ -16,6 +16,7 @@ import {
   Play,
   Pause,
   ListChecks,
+  MoreHorizontal,
 } from "lucide-react"
 
 interface BoardCardProps {
@@ -24,6 +25,8 @@ interface BoardCardProps {
   column: string
   showWorkspace: boolean
   onClick: () => void
+  onContextMenu?: (position: { x: number; y: number }) => void
+  onActionMenu?: (position: { x: number; y: number }) => void
   onDragStart?: (event: DragEvent<HTMLDivElement>) => void
 }
 
@@ -80,7 +83,7 @@ function providerIcon(provider: string, selected: boolean) {
   }
 }
 
-export function BoardCard({ card, selected, column, showWorkspace, onClick, onDragStart }: BoardCardProps) {
+export function BoardCard({ card, selected, column, showWorkspace, onClick, onContextMenu, onActionMenu, onDragStart }: BoardCardProps) {
   const isDone = column === "Done"
   const workingDur = formatDuration(card.working_seconds || 0)
   const waitingDur = formatDuration(card.waiting_seconds || 0)
@@ -89,6 +92,11 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onDr
   return (
     <div
       onClick={onClick}
+      onContextMenu={(event: MouseEvent<HTMLDivElement>) => {
+        if (!onContextMenu) return
+        event.preventDefault()
+        onContextMenu({ x: event.clientX, y: event.clientY })
+      }}
       draggable
       onDragStart={onDragStart}
       className={cn(
@@ -100,6 +108,7 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onDr
         isDone && !selected && "opacity-60"
       )}
     >
+      {onActionMenu && <button type="button" aria-label={`Open actions for ${card.title}`} onClick={event => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); onActionMenu({ x: rect.right, y: rect.bottom }) }} className="absolute right-1 top-1 z-10 flex h-7 w-7 items-center justify-center rounded text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><MoreHorizontal size={15} /></button>}
       {/* Key line */}
       <div className="flex items-center gap-1.5">
         {providerIcon(card.provider, selected)}

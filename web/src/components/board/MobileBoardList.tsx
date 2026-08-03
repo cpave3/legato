@@ -17,10 +17,12 @@ export function MobileBoardList({
   columns,
   showWorkspace,
   onCardClick,
+  onCardContextMenu,
 }: {
   columns: BoardColumn[]
   showWorkspace: boolean
   onCardClick: (column: number, row: number) => void
+  onCardContextMenu?: (card: BoardColumn["cards"][number], position: { x: number; y: number }) => void
 }) {
   const [collapsed, setCollapsed] = useState(initialCollapsed)
 
@@ -68,13 +70,15 @@ export function MobileBoardList({
                       selected={false}
                       showWorkspace={showWorkspace}
                       onClick={() => onCardClick(columnIndex, rowIndex)}
+                      onContextMenu={(position) => onCardContextMenu?.(card, position)}
                     />
                     <button
                       type="button"
                       aria-label={`Open actions for ${card.title}`}
                       onClick={(event) => {
                         event.stopPropagation()
-                        onCardClick(columnIndex, rowIndex)
+                        const rect = event.currentTarget.getBoundingClientRect()
+                        onCardContextMenu?.(card, { x: rect.right, y: rect.bottom })
                       }}
                       className="absolute right-1 top-1 flex h-11 w-11 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
                     >

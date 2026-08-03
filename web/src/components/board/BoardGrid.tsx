@@ -7,10 +7,11 @@ interface BoardGridProps {
   cursorRow: number
   showWorkspace: boolean
   onCardClick: (colIndex: number, cardIndex: number) => void
+  onCardContextMenu?: (card: BoardColumn["cards"][number], position: { x: number; y: number }) => void
   onCardMove?: (cardId: string, targetColumn: string) => void
 }
 
-export function BoardGrid({ columns, cursorCol, cursorRow, showWorkspace, onCardClick, onCardMove }: BoardGridProps) {
+export function BoardGrid({ columns, cursorCol, cursorRow, showWorkspace, onCardClick, onCardContextMenu, onCardMove }: BoardGridProps) {
   return (
     <div className="flex h-full gap-1 overflow-x-auto overflow-y-hidden px-2 pb-2" style={{ scrollbarWidth: "thin" }}>
       {columns.map((col, i) => (
@@ -22,6 +23,7 @@ export function BoardGrid({ columns, cursorCol, cursorRow, showWorkspace, onCard
           isActive={cursorCol === i}
           showWorkspace={showWorkspace}
           onCardClick={onCardClick}
+          onCardContextMenu={onCardContextMenu}
           colIndex={i}
           onCardDrop={onCardMove}
         />

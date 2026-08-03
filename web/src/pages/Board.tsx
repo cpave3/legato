@@ -29,6 +29,10 @@ import { HelpModal } from "../components/board/HelpModal"
 import { OpenURLPicker } from "../components/board/OpenURLPicker"
 import { CancelSwarmModal } from "../components/board/CancelSwarmModal"
 import { WorktreeModal } from "../components/board/WorktreeModal"
+import { CardContextMenu, type CardContextAction } from "../components/board/CardContextMenu"
+import { cardWorkflowOptions, type CardWorkflowOption } from "../lib/card-workflows"
+import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
+import { useWorkflows } from "../hooks/useWorkflow"
 import { useToast } from "../hooks/useToast"
 import { apiFetch } from "../lib/api"
 import { WorkflowTriggerInputModal } from "../components/WorkflowTriggerInputModal"
@@ -63,9 +67,12 @@ export function BoardPage() {
   const { addToast } = useToast()
   const [workspaceFilter, setWorkspaceFilter] = useState<string>("all")
   const { columns, workspaces, loading, error, refresh } = useBoard(workspaceFilter)
+  const workflowDiscovery = useWorkflows()
   const [cursorCol, setCursorCol] = useState(0)
   const [cursorRow, setCursorRow] = useState(0)
   const [overlay, setOverlay] = useState<Overlay>({ kind: "none" })
+  const [contextMenu, setContextMenu] = useState<{ card: BoardCard; position: { x: number; y: number } } | null>(null)
+  const [cardWorkflow, setCardWorkflow] = useState<{ card: BoardCard; workflow: CardWorkflowOption } | null>(null)
   const [detailCard, setDetailCard] = useState<CardDetail | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<string | null>(null)
@@ -384,6 +391,27 @@ export function BoardPage() {
 
   const showWorkspace = workspaceFilter === "all"
 
+  const handleCardContextMenu = useCallback((card: BoardCard, position: { x: number; y: number }) => {
+    setContextMenu({ card, position })
+  }, [])
+
+  const handleContextAction = useCallback((action: CardContextAction) => {
+    if (!contextMenu) return
+    const card = contextMenu.card
+    setContextMenu(null)
+    switch (action) {
+      case "open":
+        void openDetail(card.id)
+        break
+      case "move":
+        setOverlay({ kind: "move", card })
+        break
+      case "delete":
+        setOverlay({ kind: "delete", card })
+        break
+    }
+  }, [contextMenu, openDetail])
+
   const handleCreate = async (values: {
     title: string
     description: string
@@ -616,11 +644,12 @@ export function BoardPage() {
                 cursorRow={cursorRow}
                 showWorkspace={showWorkspace}
                 onCardClick={handleCardClick}
+                onCardContextMenu={handleCardContextMenu}
                 onCardMove={handleDragMove}
               />
             </div>
             <div className="h-full md:hidden">
-              <MobileBoardList columns={columns} showWorkspace={showWorkspace} onCardClick={handleCardClick} />
+              <MobileBoardList columns={columns} showWorkspace={showWorkspace} onCardClick={handleCardClick} onCardContextMenu={handleCardContextMenu} />
             </div>
           </>
         )}
@@ -638,6 +667,18 @@ export function BoardPage() {
           <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-500">{filterLabel}</span>
         )}
       </div>
+
+      {contextMenu && <CardContextMenu
+        card={contextMenu.card}
+        position={contextMenu.position}
+        workflows={cardWorkflowOptions(workflowDiscovery.data?.definitions ?? [])}
+        workflowLoading={workflowDiscovery.loading}
+        workflowWarning={(workflowDiscovery.data?.errors ?? []).map(item => `${item.path}: ${item.error}`).join("; ") || (workflowDiscovery.error ?? "")}
+        onAction={handleContextAction}
+        onWorkflow={workflow => { setCardWorkflow({ card: contextMenu.card, workflow }); setContextMenu(null) }}
+        onClose={() => setContextMenu(null)}
+      />}
+      {cardWorkflow && <RunWorkflowDialog definition={cardWorkflow.workflow.definition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ [cardWorkflow.workflow.taskInput]: cardWorkflow.card.id }} readOnlyInputs={[cardWorkflow.workflow.taskInput]} onClose={() => setCardWorkflow(null)} />}
 
       {/* Overlays */}
       <CreateTaskModal

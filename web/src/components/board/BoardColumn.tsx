@@ -10,6 +10,7 @@ interface BoardColumnProps {
   isActive: boolean
   showWorkspace: boolean
   onCardClick: (colIndex: number, cardIndex: number) => void
+  onCardContextMenu?: (card: BoardCardType, position: { x: number; y: number }) => void
   colIndex: number
   onCardDrop?: (cardId: string, column: string) => void
 }
@@ -38,6 +39,7 @@ export function BoardColumn({
   isActive,
   showWorkspace,
   onCardClick,
+  onCardContextMenu,
   colIndex,
   onCardDrop,
 }: BoardColumnProps) {
@@ -88,6 +90,8 @@ export function BoardColumn({
             column={name}
             showWorkspace={showWorkspace}
             onClick={() => onCardClick(colIndex, i)}
+            onContextMenu={(position) => onCardContextMenu?.(card, position)}
+            onActionMenu={(position) => onCardContextMenu?.(card, position)}
             onDragStart={(event) => {
               event.dataTransfer.effectAllowed = "move"
               event.dataTransfer.setData("text/plain", card.id)
