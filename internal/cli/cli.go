@@ -403,13 +403,6 @@ func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifie
 	if err != nil {
 		return fmt.Errorf("getting agent session: %w", err)
 	}
-	if report.ExecutionID == "" {
-		return errors.New("execution ID is required")
-	}
-	if session.ExecutionID != report.ExecutionID {
-		return fmt.Errorf("execution %q does not own running task session %s", report.ExecutionID, report.TaskID)
-	}
-
 	if report.SessionID != "" && session.ChimeraSessionID == nil {
 		return fmt.Errorf("resolving Chimera session %q for task %s: parent session ID is unavailable", report.SessionID, report.TaskID)
 	}
@@ -430,11 +423,18 @@ func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifie
 		return nil
 	}
 
+	if report.ExecutionID != "" && session.ExecutionID != report.ExecutionID {
+		return fmt.Errorf("execution %q does not own running task session %s", report.ExecutionID, report.TaskID)
+	}
 	if err := s.UpdateAgentActivity(ctx, report.TaskID, report.Activity); err != nil {
 		return fmt.Errorf("updating agent activity: %w", err)
 	}
-	if err := s.RecordExecutionActivity(ctx, report.ExecutionID, report.Activity, report.WorkingDir); err != nil {
-		return fmt.Errorf("recording execution activity: %w", err)
+	// Legacy hooks omit execution identity. Keep the live operational status
+	// useful, but never infer an execution or write reporting activity.
+	if report.ExecutionID != "" {
+		if err := s.RecordExecutionActivity(ctx, report.ExecutionID, report.Activity, report.WorkingDir); err != nil {
+			return fmt.Errorf("recording execution activity: %w", err)
+		}
 	}
 	if session.Activity == "working" && (report.Activity == "waiting" || report.Activity == "") {
 		service.MaybeNotify(s, pushNotifier, osNotifier, report.TaskID, report.Activity)

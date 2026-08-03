@@ -37,8 +37,8 @@ func runAgentStateContract(args []string) int {
 	if idErr != nil {
 		return renderCommandError(command, idErr, jsonMode)
 	}
-	if len(rest) != 0 || !parsed.Present["activity"] || !parsed.Present["execution-id"] {
-		return renderCommandError(command, usageError("missing_argument", "agent state requires --activity and --execution-id"), jsonMode)
+	if len(rest) != 0 || !parsed.Present["activity"] {
+		return renderCommandError(command, usageError("missing_argument", "agent state requires --activity"), jsonMode)
 	}
 	cfg, err := config.Load()
 	if err != nil {

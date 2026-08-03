@@ -538,6 +538,35 @@ func linkTestExecution(t *testing.T, s *store.Store, taskID string) string {
 	return id
 }
 
+func TestAgentState_LegacyHookUpdatesOperationalStatusWithoutReporting(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Doing")
+	ctx := context.Background()
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "abc123", TmuxSession: "legato-abc123", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	linkTestExecution(t, s, "abc123")
+
+	if err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "working"}, nil, nil); err != nil {
+		t.Fatalf("legacy AgentState: %v", err)
+	}
+	session, err := s.GetAgentSessionByTaskID(ctx, "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Activity != "working" {
+		t.Fatalf("activity = %q, want working", session.Activity)
+	}
+	var activityRows int
+	if err := s.DB().Get(&activityRows, `SELECT COUNT(*) FROM execution_activity WHERE execution_id='exec-abc123'`); err != nil {
+		t.Fatal(err)
+	}
+	if activityRows != 0 {
+		t.Fatalf("legacy hook created %d reporting rows", activityRows)
+	}
+}
+
 func TestAgentState_UpdatesActivity(t *testing.T) {
 	s := newTestStore(t)
 	seedColumns(t, s)

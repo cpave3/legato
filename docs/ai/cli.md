@@ -2,7 +2,7 @@
 
 ## Agent execution identity
 
-Legato creates a durable execution before spawning every hook-bearing agent and injects `LEGATO_EXECUTION_ID` beside `LEGATO_TASK_ID`. Generated Claude Code, Codex, and Chimera hooks call `legato agent state <task-id> --execution-id <id> --activity <working|waiting|"">`. The command rejects missing, unknown, terminal, or mismatched execution IDs; it never falls back to the latest task session. Provider IDs such as `CHIMERA_SESSION_ID` remain validation/readiness metadata, and child Chimera hooks do not mutate parent execution activity.
+Legato creates a durable execution before spawning every hook-bearing agent and injects `LEGATO_EXECUTION_ID` beside `LEGATO_TASK_ID`. Generated Claude Code, Codex, and Chimera hooks call `legato agent state <task-id> --execution-id <id> --activity <working|waiting|"">`. New hooks always provide the execution ID. For compatibility with already-installed legacy hooks, an omitted execution ID updates only the live `agent_sessions.activity` status and notifications; it never infers an execution or writes reporting activity. Provided unknown, terminal, or mismatched execution IDs are rejected. Provider IDs such as `CHIMERA_SESSION_ID` remain validation/readiness metadata, and child Chimera hooks do not mutate parent execution activity.
 
 Terminal outcomes are explicit: user/workflow cancellation → `cancelled`, launch/runtime failure → `failed`, missing session reconciliation → `lost`, and successful workflow callback → `succeeded`.
 
