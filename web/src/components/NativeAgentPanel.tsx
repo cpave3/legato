@@ -5,6 +5,7 @@ import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
 import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
 import { ReviewMessageBody } from "./ReviewMessageBody"
+import { Button } from "./ui/Button"
 import {
   createNativeSyncState,
   reconcileNativeSnapshot,
@@ -761,8 +762,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
             ))}
           </div>
         )}
-        <div className="flex items-end gap-2">
-          <div className="relative flex-1 min-w-0">
+        <div data-testid="agent-composer" className="flex items-stretch gap-2">
+          <div className="relative min-w-0 flex-1">
             {isBang && (
               <div className="absolute left-2.5 top-1.5 flex items-center gap-1 text-amber-400 pointer-events-none">
                 <Terminal size={13} />
@@ -776,24 +777,22 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
               onKeyDown={handleKeyDown}
               placeholder={busy ? "Queue a message..." : "Send a message..."}
               rows={2}
-              className={`w-full resize-none rounded-lg border bg-zinc-900 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none disabled:opacity-50 ${isBang ? "border-amber-500/60 focus:border-amber-400 pt-7" : "border-zinc-700 focus:border-zinc-500"}`}
+              className={`h-full min-h-24 w-full resize-none rounded-lg border bg-zinc-900 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none disabled:opacity-50 ${isBang ? "border-amber-500/60 pt-7 focus:border-amber-400" : "border-zinc-700 focus:border-zinc-500"}`}
             />
           </div>
-          <div className="flex flex-col items-center gap-2">
-            <button
+          <div data-testid="composer-actions" className="grid w-24 shrink-0 grid-rows-2 gap-2">
+            <Button
+              size="sm"
               onClick={handleSend}
               disabled={!draft.trim() || bangRunning}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500 disabled:opacity-40"
+              className="h-full min-h-11 w-full"
             >
               {bangRunning ? "Running…" : isBang ? "Run" : busy ? "Queue" : "Send"}
-            </button>
+            </Button>
             {busy ? (
-              <button
-                onClick={handleInterrupt}
-                className="rounded-lg bg-red-700/60 px-4 py-2 text-xs text-white hover:bg-red-600/60"
-              >
+              <Button variant="destructive" size="sm" onClick={handleInterrupt} className="h-full min-h-11 w-full">
                 Interrupt
-              </button>
+              </Button>
             ) : voiceEnabled ? (
               <VoiceRecorder
                 ref={voiceRef}
@@ -805,7 +804,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
                   setDraft((prev) => prev ? prev + " " + text : text)
                 }}
               />
-            ) : null}
+            ) : <div aria-hidden="true" />}
           </div>
         </div>
       </div>

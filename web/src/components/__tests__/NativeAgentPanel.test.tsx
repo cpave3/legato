@@ -32,6 +32,26 @@ describe("NativeAgentPanel", () => {
     vi.restoreAllMocks()
   })
 
+  it("keeps queue and interrupt controls in one bounded equal-width composer rail", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    const composer = await within(view.container).findByTestId("agent-composer")
+    const rail = within(composer).getByTestId("composer-actions")
+    fireEvent.change(within(composer).getByPlaceholderText("Queue a message..."), { target: { value: "Next" } })
+    const queue = within(rail).getByRole("button", { name: "Queue" })
+    const interrupt = within(rail).getByRole("button", { name: "Interrupt" })
+
+    expect(composer.className).toContain("items-stretch")
+    expect(within(composer).getByPlaceholderText("Queue a message...").className).toContain("min-h-24")
+    expect(rail.className).toContain("w-24")
+    expect(rail.className).toContain("grid-rows-2")
+    expect(queue.className).toContain("w-full")
+    expect(interrupt.className).toContain("w-full")
+  })
+
   it("expands edit diffs by default without expanding other tool calls", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
       ? new Response(JSON.stringify({
