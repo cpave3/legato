@@ -14,6 +14,8 @@ describe("WorktreeModal", () => {
     const onCreated = vi.fn()
     render(<WorktreeModal open taskId="T_1" defaultPrimaryDir="/projects/app" repositories={[]} onClose={vi.fn()} onCreated={onCreated} />)
 
+    expect(screen.getByRole("dialog", { name: "Create worktree" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Close dialog" })).toBeTruthy()
     expect((screen.getByLabelText("Primary directory") as HTMLInputElement).value).toBe("/projects/app")
     expect((screen.getByLabelText("Branch") as HTMLInputElement).value).toBe("t-1")
     expect((screen.getByLabelText("Base branch") as HTMLInputElement).value).toBe("main")

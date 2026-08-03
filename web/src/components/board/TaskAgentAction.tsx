@@ -5,6 +5,9 @@ import { useServer } from "../../hooks/useServer"
 import { useAgentSelection } from "../../hooks/useAgentSelection"
 import { apiFetch } from "../../lib/api"
 import { RepositoryPresetSelect, type RepositoryPreset } from "../RepositoryPresetSelect"
+import { Button } from "../ui/Button"
+import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "../ui/Dialog"
+import { InlineNotice } from "../ui/InlineNotice"
 
 export function TaskAgentAction({ taskId, worktreePath = "" }: { taskId: string; worktreePath?: string }) {
   const { baseUrl } = useServer()
@@ -57,18 +60,18 @@ export function TaskAgentAction({ taskId, worktreePath = "" }: { taskId: string;
   }
 
   return <>
-    <button onClick={() => setOpen(true)} className="flex min-h-10 items-center gap-2 rounded bg-indigo-600 px-3 text-xs font-medium text-white"><Bot size={14} />Open agent</button>
-    {open && <div className="fixed inset-0 z-50 flex items-end bg-black/70 p-2 sm:items-center sm:justify-center">
-      <div role="dialog" className="w-full rounded-xl border border-zinc-700 bg-zinc-900 p-4 sm:max-w-md">
-        <h3 className="font-semibold">Create or resume task agent</h3>
-        <p className="mt-1 text-xs text-zinc-500">A running agent will be resumed automatically.</p>
-        <label className="mt-4 block text-xs text-zinc-400">Agent
-          <select aria-label="Agent" value={agentKind} onChange={(event) => setAgentKind(event.target.value)} className="mt-1 min-h-11 w-full rounded border border-zinc-700 bg-zinc-950 px-3">
-            <option value="">Default</option>
-            {adapters.map((value) => <option key={value}>{value}</option>)}
-          </select>
-        </label>
-        <div className="mt-3">
+    <Button data-task-primary-action size="sm" onClick={() => setOpen(true)}><Bot size={14} />Open agent</Button>
+    <Dialog open={open} onClose={() => setOpen(false)} dismissible={!busy}>
+      <DialogPanel>
+        <DialogHeader><DialogTitle>Open task agent</DialogTitle><DialogClose disabled={busy} /></DialogHeader>
+        <DialogBody className="space-y-4">
+          <p className="text-xs text-zinc-500">Create a new agent or resume the task's running agent.</p>
+          <label className="block text-xs text-zinc-400">Agent
+            <select aria-label="Agent" value={agentKind} onChange={(event) => setAgentKind(event.target.value)} className="mt-1 min-h-11 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 outline-none focus:border-indigo-500">
+              <option value="">Default</option>
+              {adapters.map((value) => <option key={value}>{value}</option>)}
+            </select>
+          </label>
           <RepositoryPresetSelect
             repositories={repositories}
             value={repositoryPreset}
@@ -77,24 +80,24 @@ export function TaskAgentAction({ taskId, worktreePath = "" }: { taskId: string;
               if (repository) setWorkingDir(repository.primary_dir)
             }}
           />
-        </div>
-        <label className="mt-3 block text-xs text-zinc-400">Working directory
-          <input
-            aria-label="Working directory"
-            value={workingDir}
-            onChange={(event) => {
-              setWorkingDir(event.target.value)
-              setRepositoryPreset("")
-            }}
-            className="mt-1 min-h-11 w-full rounded border border-zinc-700 bg-zinc-950 px-3"
-          />
-        </label>
-        {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
-        <div className="mt-4 flex gap-2">
-          <button onClick={() => setOpen(false)} className="min-h-11 flex-1 rounded border border-zinc-700">Cancel</button>
-          <button onClick={() => void launch()} disabled={busy || !initialized} className="min-h-11 flex-1 rounded bg-indigo-600 text-white disabled:opacity-60">{busy ? "Opening…" : initialized ? "Open agent" : "Loading…"}</button>
-        </div>
-      </div>
-    </div>}
+          <label className="block text-xs text-zinc-400">Working directory
+            <input
+              aria-label="Working directory"
+              value={workingDir}
+              onChange={(event) => {
+                setWorkingDir(event.target.value)
+                setRepositoryPreset("")
+              }}
+              className="mt-1 min-h-11 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 outline-none focus:border-indigo-500"
+            />
+          </label>
+          {error && <InlineNotice variant="error" className="text-xs">{error}</InlineNotice>}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => setOpen(false)}>Cancel</Button>
+          <Button size="sm" onClick={() => void launch()} disabled={busy || !initialized}>{busy ? "Opening…" : initialized ? "Open agent" : "Loading…"}</Button>
+        </DialogFooter>
+      </DialogPanel>
+    </Dialog>
   </>
 }

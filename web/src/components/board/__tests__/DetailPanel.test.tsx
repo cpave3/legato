@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach, vi } from "vitest"
 import { render, screen, cleanup, fireEvent } from "@testing-library/react"
 import { DetailPanel } from "../DetailPanel"
 import type { CardDetail } from "../../../lib/board-types"
-vi.mock("../TaskAgentAction",()=>({TaskAgentAction:()=>null}))
+vi.mock("../TaskAgentAction",()=>({TaskAgentAction:()=> <button data-task-primary-action className="min-h-9" type="button">Open agent</button>}))
 vi.mock("../TaskActivityTabs",()=>({TaskActivityTabs:()=>null}))
 
 afterEach(() => {
@@ -40,6 +40,17 @@ function renderPanel(card = makeCard(), overrides: Partial<React.ComponentProps<
 }
 
 describe("DetailPanel", () => {
+  it("presents one intentional primary action and consistent secondary controls", () => {
+    const { container } = renderPanel(makeCard(), { worktreesEnabled: true })
+    const bar = container.querySelector("[data-task-actions]")
+    expect(bar?.querySelectorAll("[data-task-primary-action]")).toHaveLength(1)
+    for (const action of Array.from(bar?.querySelectorAll("button") ?? [])) {
+      expect(action.className).toContain("min-h-9")
+    }
+    expect(screen.getByRole("button", { name: "Edit description" }).className).toContain("border-zinc-700")
+    expect(screen.getByRole("button", { name: "Delete task" }).className).toContain("text-red")
+  })
+
   it("offers creation only when enabled and displays an existing worktree", () => {
     const onCreateWorktree = vi.fn()
     const rendered = renderPanel(makeCard(), { worktreesEnabled: true, onCreateWorktree })

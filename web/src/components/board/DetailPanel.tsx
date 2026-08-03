@@ -2,6 +2,7 @@ import type { CardDetail } from "../../lib/board-types"
 import { X } from "lucide-react"
 import { TaskActivityTabs } from "./TaskActivityTabs"
 import { TaskAgentAction } from "./TaskAgentAction"
+import { Button } from "../ui/Button"
 
 interface DetailPanelProps {
   card: CardDetail
@@ -59,12 +60,9 @@ export function DetailPanel({
             </div>
             <h3 className="mt-1 text-sm font-semibold text-zinc-200">{card.title}</h3>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
-          >
+          <Button variant="ghost" size="icon-sm" aria-label="Close task details" onClick={onClose}>
             <X size={16} />
-          </button>
+          </Button>
         </div>
 
         {/* Metadata grid */}
@@ -147,55 +145,22 @@ export function DetailPanel({
         </div>
 
         {/* Action bar */}
-        <div className="flex flex-wrap items-center gap-1 border-b border-zinc-800 px-3 py-2 md:px-5">
+        <div data-task-actions className="flex flex-wrap items-center gap-2 border-b border-zinc-800 px-3 py-2 md:px-5">
           <TaskAgentAction taskId={card.id} worktreePath={card.worktree?.path}/>
           {worktreesEnabled && !card.worktree && (
-            <button onClick={onCreateWorktree} className="min-h-11 rounded bg-violet-700 px-3 text-xs font-medium text-white md:min-h-0 md:py-1">Create worktree</button>
+            <Button variant="outline" size="sm" onClick={onCreateWorktree}>Create worktree</Button>
           )}
-          {isLocal && (
-            <button onClick={onEditTitle} className="min-h-11 rounded px-3 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 md:min-h-0 md:px-2 md:py-1 md:text-[10px]">
-              Edit title (t)
-            </button>
-          )}
-          {isLocal && (
-            <button onClick={onEditDescription} className="min-h-11 rounded px-3 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 md:min-h-0 md:px-2 md:py-1 md:text-[10px]">
-              Edit desc (e)
-            </button>
-          )}
-          <button onClick={onMove} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">
-            Move (m)
-          </button>
-          <button onClick={onDelete} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-red-300">
-            Delete (D)
-          </button>
-          <button onClick={onLinkPR} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">
-            Link PR (p)
-          </button>
-          {(card.pr_meta?.pr_number ?? 0) > 0 && (
-            <button onClick={onRefreshPR} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">Refresh PR</button>
-          )}
-          {card.code_context?.repo && (
-            <button onClick={onRediscoverPR} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">Rediscover PR</button>
-          )}
-          <button onClick={onCopyDescription} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">
-            Copy desc (y)
-          </button>
-          <button onClick={onCopyFull} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">
-            Copy full (Y)
-          </button>
-          {(card.remote_meta?.url || card.pr_meta?.pr_url) && (
-            <button onClick={onOpenURL} className="rounded px-2 py-1 text-[10px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">
-              Open URL (o)
-            </button>
-          )}
-          {(card.swarm_stats || card.swarm_working_dir) && (
-            <button
-              onClick={onCancelSwarm}
-              className="rounded px-2 py-1 text-[10px] text-red-400 hover:bg-zinc-800 hover:text-red-300"
-            >
-              Cancel swarm
-            </button>
-          )}
+          {isLocal && <Button variant="outline" size="sm" title="Shortcut: t" onClick={onEditTitle}>Edit title</Button>}
+          {isLocal && <Button variant="outline" size="sm" title="Shortcut: e" onClick={onEditDescription}>Edit description</Button>}
+          <Button variant="ghost" size="sm" title="Shortcut: m" onClick={onMove}>Move</Button>
+          <Button variant="ghost" size="sm" title="Shortcut: p" onClick={onLinkPR}>Link PR</Button>
+          {(card.pr_meta?.pr_number ?? 0) > 0 && <Button variant="ghost" size="sm" onClick={onRefreshPR}>Refresh PR</Button>}
+          {card.code_context?.repo && <Button variant="ghost" size="sm" onClick={onRediscoverPR}>Rediscover PR</Button>}
+          <Button variant="ghost" size="sm" title="Shortcut: y" onClick={onCopyDescription}>Copy description</Button>
+          <Button variant="ghost" size="sm" title="Shortcut: Shift+y" onClick={onCopyFull}>Copy full task</Button>
+          {(card.remote_meta?.url || card.pr_meta?.pr_url) && <Button variant="ghost" size="sm" title="Shortcut: o" onClick={onOpenURL}>Open URL</Button>}
+          {(card.swarm_stats || card.swarm_working_dir) && <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300" onClick={onCancelSwarm}>Cancel swarm</Button>}
+          <Button variant="ghost" size="sm" title="Shortcut: Shift+d" className="text-red-400 hover:text-red-300" onClick={onDelete}>Delete task</Button>
         </div>
 
         {/* Scrollable body */}

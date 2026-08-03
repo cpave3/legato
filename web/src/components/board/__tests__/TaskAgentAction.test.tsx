@@ -26,7 +26,11 @@ describe("TaskAgentAction", () => {
     ))
 
     render(<MemoryRouter><TaskAgentAction taskId="T-1" worktreePath="/trees/t-1" /></MemoryRouter>)
-    fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+    const trigger = screen.getByRole("button", { name: "Open agent" })
+    expect(trigger.getAttribute("data-task-primary-action")).not.toBeNull()
+    expect(trigger.className).toContain("min-h-9")
+    fireEvent.click(trigger)
+    expect(screen.getByRole("dialog", { name: "Open task agent" })).toBeTruthy()
     expect((await screen.findByLabelText("Working directory") as HTMLInputElement).value).toBe("/trees/t-1")
     fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
     await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
