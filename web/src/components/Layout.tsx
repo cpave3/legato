@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react"
 import { Outlet, NavLink, useLocation } from "react-router-dom"
-import { Monitor, LayoutGrid, Settings, Server, ListChecks, ClipboardList, Workflow, Bell, MoreHorizontal, X, BookOpen } from "lucide-react"
+import { Monitor, LayoutGrid, Settings, Server, ListChecks, ClipboardList, Workflow, Bell, MoreHorizontal, X, BookOpen, ChartNoAxesCombined } from "lucide-react"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
@@ -54,6 +54,7 @@ export function Layout() {
     { to: "/plans", label: "Plans", icon: ClipboardList, count: planCount, badge: "bg-indigo-400" },
     { to: "/workflows", label: "Flows", icon: Workflow, count: workflowAttentionCount, badge: "bg-red-400" },
     { to: "/learning", label: "Learning", icon: BookOpen },
+    { to: "/reports", label: "Reports", icon: ChartNoAxesCombined },
     { to: "/settings", label: "Settings", icon: Settings },
   ]
 
@@ -135,6 +136,7 @@ export function Layout() {
         </NavLink>
         <NavLink to="/workflows" className={({isActive})=>cn("flex h-10 w-10 items-center justify-center rounded-lg transition-colors",isActive?"bg-zinc-800 text-zinc-100":"text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300")} title="Workflows"><Workflow size={20}/></NavLink>
         <NavLink to="/learning" className={({isActive})=>cn("flex h-10 w-10 items-center justify-center rounded-lg transition-colors",isActive?"bg-zinc-800 text-zinc-100":"text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300")} title="Learning"><BookOpen size={20}/></NavLink>
+        <NavLink to="/reports" aria-label="Reports" className={({isActive})=>cn("flex h-10 w-10 items-center justify-center rounded-lg transition-colors",isActive?"bg-zinc-800 text-zinc-100":"text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300")} title="Reports"><ChartNoAxesCombined size={20}/></NavLink>
 
         {/* Settings + server switcher + connection status at bottom */}
         <div className="mt-auto flex flex-col items-center gap-4">
