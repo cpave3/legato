@@ -226,6 +226,13 @@ describe("ReviewTourPage", () => {
     expect((composer as HTMLTextAreaElement).value).toBe("First line\nSecond line\nDictated follow-up")
   })
 
+  it("lets mobile header actions wrap without forcing page overflow", () => {
+    const { container } = renderPage()
+    const actions = container.querySelector("[data-review-actions]")
+    expect(actions?.className).toContain("flex-wrap")
+    expect(actions?.className).toContain("w-full")
+  })
+
   it("starts with a wider Q&A pane and lets the reviewer resize it", () => {
     const { container } = renderPage()
 

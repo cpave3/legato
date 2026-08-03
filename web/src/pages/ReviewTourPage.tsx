@@ -225,7 +225,7 @@ export function ReviewTourPage() {
           </div>
           <h1 className="mt-1 truncate text-lg font-semibold">{data.tour.name || data.tour.summary || decodedTourId}</h1>
         </div>
-        <div className="flex shrink-0 items-center gap-2 md:gap-3">
+        <div data-review-actions className="flex w-full flex-wrap items-center gap-2 md:w-auto md:flex-nowrap md:gap-3">
           <GoToAgentButton taskId={data.tour.task_id} />
           <Button variant="outline" size="sm" onClick={() => setStepsOpen(true)} className="min-h-11 lg:hidden"><List size={15}/> Steps</Button>
           <Button variant="outline" size="sm" onClick={() => setQAOpen(true)} className="min-h-11 lg:hidden"><MessageSquare size={15}/> Notes</Button>

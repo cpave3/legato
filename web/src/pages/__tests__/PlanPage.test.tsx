@@ -127,6 +127,12 @@ describe("PlanPage block comments",()=>{
     planData.comments=[]
   })
 
+  it("lets mobile header actions wrap without forcing page overflow",()=>{
+    const { container }=renderPage()
+    expect(container.querySelector("[data-plan-actions]")?.className).toContain("flex-wrap")
+    expect(container.querySelector("[data-plan-actions]")?.className).toContain("w-full")
+  })
+
   it("approves with cleanup unchecked by default or checked by the reviewer",async()=>{
     renderPage()
     const checkbox=screen.getByRole("checkbox",{name:/Clean up plan files/})
