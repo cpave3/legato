@@ -19,6 +19,7 @@ const (
 	ActionBoardColumn4      ActionID = "board.column.4"
 	ActionBoardColumn5      ActionID = "board.column.5"
 	ActionBoardOpen         ActionID = "board.open"
+	ActionBoardContext      ActionID = "board.context"
 	ActionBoardMove         ActionID = "board.move"
 	ActionBoardDelete       ActionID = "board.delete"
 	ActionBoardImport       ActionID = "board.import"
@@ -167,6 +168,7 @@ func DefaultBindings() []Binding {
 		add(id, board, TargetPage, []Key{Rune(key)}, "column", "Jump to column", "Navigation", 10, 70+i, FullHelp)
 	}
 	add(ActionBoardOpen, board, TargetPage, []Key{Special(tea.KeyEnter, "enter")}, "detail", "Open task detail", "Actions", 20, 10, FullHelp|Shortlist|ShortcutBar)
+	add(ActionBoardContext, board, TargetPage, []Key{Rune('c')}, "context", "Open task context menu", "Actions", 20, 15, FullHelp)
 	add(ActionBoardMove, board, TargetPage, []Key{Rune('m')}, "move", "Move task to column", "Actions", 20, 20, FullHelp|Shortlist|ShortcutBar)
 	add(ActionBoardCreate, board, TargetRoot, []Key{Rune('n')}, "new", "Create new task", "Actions", 20, 30, FullHelp|Shortlist|ShortcutBar)
 	add(ActionBoardDelete, board, TargetPage, []Key{Rune('d')}, "delete", "Delete task", "Actions", 20, 40, FullHelp)

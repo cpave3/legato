@@ -10,11 +10,17 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
-func buildWorkflowTriggerCoordinator(db *store.Store, workflows *service.WorkflowService, cfg *config.Config, bus ...*events.Bus) *service.WorkflowTriggerCoordinator {
+func workflowDiscoveryProvider(cfg *config.Config) func() workflowengine.DiscoveryResult {
 	global, project := workflowDirs()
-	coordinator := service.NewWorkflowTriggerCoordinator(db, workflows, func() workflowengine.DiscoveryResult {
-		return injectBuiltInLearningTriggers(workflowengine.DiscoverPaths(global, project), cfg)
-	})
+	return func() workflowengine.DiscoveryResult {
+		result := injectBuiltInLearningTriggers(workflowengine.DiscoverPaths(legacyWorkflowDir(), global, project), cfg)
+		result.Repositories = workflowRepositoryPresets(cfg)
+		return result
+	}
+}
+
+func buildWorkflowTriggerCoordinator(db *store.Store, workflows *service.WorkflowService, cfg *config.Config, bus ...*events.Bus) *service.WorkflowTriggerCoordinator {
+	coordinator := service.NewWorkflowTriggerCoordinator(db, workflows, workflowDiscoveryProvider(cfg))
 	if len(bus) > 0 {
 		coordinator.SetEventBus(bus[0])
 	}

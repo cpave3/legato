@@ -48,6 +48,12 @@ type WorktreeService interface {
 	Path(ctx context.Context, taskID string) (string, error)
 }
 
+// TaskWorkflowLauncher discovers and starts workflows that consume a selected card.
+type TaskWorkflowLauncher interface {
+	List(ctx context.Context, taskID string) ([]service.TaskWorkflowOption, error)
+	Start(ctx context.Context, name string, inputs map[string]string) (*service.TaskWorkflowRun, error)
+}
+
 // VoiceService is the interface the TUI uses for voice dictation. The
 // concrete implementation is service.VoiceService.
 type VoiceService interface {
@@ -89,6 +95,7 @@ const (
 	overlayWorktree
 	overlayGroup
 	overlayWorkflowTrigger
+	overlayCardContext
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -135,6 +142,16 @@ type worktreeCreateDoneMsg struct {
 
 // manualRefreshDoneMsg triggers a board reload and clears the sync indicator.
 type manualRefreshDoneMsg struct{}
+
+type taskWorkflowsLoadedMsg struct {
+	Workflows []service.TaskWorkflowOption
+	Err       error
+}
+
+type taskWorkflowStartedMsg struct {
+	Run *service.TaskWorkflowRun
+	Err error
+}
 
 // App is the root Bubbletea model.
 type App struct {
@@ -194,6 +211,7 @@ type App struct {
 	groupDefaults        []string
 	workflowTriggers     *service.WorkflowTriggerCoordinator
 	workflowRepositories []workflowengine.RepositoryPreset
+	taskWorkflows        TaskWorkflowLauncher
 	hotkeys              *hotkey.Registry
 	ntfyConfigured       bool
 }
@@ -227,6 +245,10 @@ func (a *App) SetPlanService(svc plan.Service) {
 func (a *App) SetWorkflowTriggerCoordinator(coordinator *service.WorkflowTriggerCoordinator, repositories []workflowengine.RepositoryPreset) {
 	a.workflowTriggers = coordinator
 	a.workflowRepositories = append([]workflowengine.RepositoryPreset(nil), repositories...)
+}
+
+func (a *App) SetTaskWorkflowLauncher(launcher TaskWorkflowLauncher) {
+	a.taskWorkflows = launcher
 }
 
 func (a *App) SetAttentionService(svc attention.Service) {
@@ -612,6 +634,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Propagate to status bar
 		a.statusBar, _ = a.statusBar.Update(msg)
 
+	case board.OpenContextMsg:
+		model := overlay.NewCardContext(msg.CardKey)
+		sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+		a.activeOverlay, a.overlayType = sized, overlayCardContext
+		return a, nil
+
 	case board.OpenDetailMsg:
 		a = a.setMode(viewDetail)
 		// Load card synchronously — GetCard hits local SQLite, not remote API
@@ -730,9 +758,52 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case overlay.MoveSelectedMsg:
 		return a.handleMoveSelected(msg)
 
-	case overlay.MoveCancelledMsg, overlay.WorkflowTriggerCancelledMsg:
+	case overlay.MoveCancelledMsg, overlay.WorkflowTriggerCancelledMsg, overlay.CardContextCancelledMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
+		return a, nil
+	case overlay.CardContextActionMsg:
+		a.overlayType, a.activeOverlay = overlayNone, nil
+		switch msg.Action {
+		case overlay.CardContextOpen:
+			return a.Update(board.OpenDetailMsg{CardKey: msg.TaskID})
+		case overlay.CardContextMove:
+			return a.Update(board.OpenMoveMsg{CardKey: msg.TaskID})
+		case overlay.CardContextDelete:
+			return a.Update(board.OpenDeleteMsg{CardKey: msg.TaskID})
+		}
+	case overlay.CardContextLoadWorkflowsMsg:
+		if a.taskWorkflows == nil {
+			return a.Update(taskWorkflowsLoadedMsg{Err: fmt.Errorf("workflow launcher is unavailable")})
+		}
+		launcher, taskID := a.taskWorkflows, msg.TaskID
+		return a, func() tea.Msg {
+			workflows, err := launcher.List(context.Background(), taskID)
+			return taskWorkflowsLoadedMsg{Workflows: workflows, Err: err}
+		}
+	case taskWorkflowsLoadedMsg:
+		if model, ok := a.activeOverlay.(overlay.CardContextOverlay); ok {
+			a.activeOverlay = model.SetWorkflows(msg.Workflows, msg.Err)
+		}
+		return a, nil
+	case overlay.CardContextStartWorkflowMsg:
+		if a.taskWorkflows == nil {
+			return a.Update(taskWorkflowStartedMsg{Err: fmt.Errorf("workflow launcher is unavailable")})
+		}
+		launcher, name, inputs := a.taskWorkflows, msg.Name, msg.Inputs
+		return a, func() tea.Msg {
+			run, err := launcher.Start(context.Background(), name, inputs)
+			return taskWorkflowStartedMsg{Run: run, Err: err}
+		}
+	case taskWorkflowStartedMsg:
+		if msg.Err != nil {
+			if model, ok := a.activeOverlay.(overlay.CardContextOverlay); ok {
+				a.activeOverlay = model.SetError(msg.Err)
+			}
+			return a, nil
+		}
+		a.overlayType, a.activeOverlay = overlayNone, nil
+		a.statusBar, _ = a.statusBar.Update(statusbar.InfoMsg{Text: fmt.Sprintf("Started %s (%s)", msg.Run.Title, msg.Run.ID)})
 		return a, nil
 	case overlay.WorkflowTriggerSubmitMsg:
 		if a.workflowTriggers != nil {

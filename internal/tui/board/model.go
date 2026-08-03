@@ -120,6 +120,11 @@ type OpenDetailMsg struct {
 	CardKey string
 }
 
+// OpenContextMsg signals the app to open the context menu for a card.
+type OpenContextMsg struct {
+	CardKey string
+}
+
 // OpenMoveMsg signals the app to open the move overlay for a card.
 type OpenMoveMsg struct {
 	CardKey string
@@ -212,6 +217,11 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 		if card := m.SelectedCard(); card != nil {
 			key := card.Key
 			return m, func() tea.Msg { return OpenDetailMsg{CardKey: key} }
+		}
+	case hotkey.ActionBoardContext:
+		if card := m.SelectedCard(); card != nil {
+			key := card.Key
+			return m, func() tea.Msg { return OpenContextMsg{CardKey: key} }
 		}
 	case hotkey.ActionBoardMove:
 		if card := m.SelectedCard(); card != nil {

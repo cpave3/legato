@@ -42,6 +42,21 @@ Version 1 executes steps in declaration order and supports these executors:
 
 Task inputs expose `${{ workflow.inputs.task.metadata.<path> }}`. Metadata is arbitrary JSON, local to Legato, and separate from provider-owned `remote_meta`.
 
+Definitions may set `run_title` to distinguish individual runs while keeping `title` as the reusable workflow label:
+
+```yaml
+title: Review pull request
+run_title: Review PR #${{ workflow.inputs.pr_number }}
+```
+
+`run_title` supports declared `workflow.inputs` references, including expanded task fields and metadata, but not step outputs. It resolves after typed input and task/repository expansion and must produce a non-empty string. The resolved value is stored on the run and used for its Workflows execution task; omitting it preserves the definition `title`.
+
+### Run from a board card
+
+Press `c` on a selected TUI board card and choose **Workflows** to list definitions with exactly one `task` input. The input key can have any name and receives the selected card automatically. Definitions with zero task inputs are unrelated to the card, while definitions with multiple task inputs are ambiguous, so neither is shown. Column-entry triggers do not exclude an otherwise eligible workflow.
+
+Declared defaults and unambiguous repository context are prefilled. The form collects remaining string, integer, boolean, JSON, and repository values, honors choices, masks secret values, and leaves validation to the normal workflow start path. Discovery and launch failures remain visible in the menu/form for correction.
+
 ### Column-entry triggers and conditions
 
 A workflow may remain manually runnable while also declaring an automatic local column-entry trigger:

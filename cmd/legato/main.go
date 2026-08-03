@@ -1818,6 +1818,9 @@ func runTUI() int {
 		_ = attentionSvc.RegisterProducerWithEvents(workflowAdapter, events.EventWorkflowChanged, events.EventAgentDied, events.EventAgentCompleted)
 		_ = attentionSvc.RegisterHandler(workflowAdapter.Producer(), workflowAdapter)
 	}
+	if tuiWorkflowSvc != nil {
+		app.SetTaskWorkflowLauncher(service.NewTaskWorkflowLauncher(db, tuiWorkflowSvc, workflowDiscoveryProvider(cfg)))
+	}
 	if triggerCoordinator != nil {
 		triggerAdapter := service.NewWorkflowTriggerAttentionAdapter(triggerCoordinator, db)
 		_ = attentionSvc.RegisterProducerWithEvents(triggerAdapter, events.EventWorkflowTriggerChanged)
