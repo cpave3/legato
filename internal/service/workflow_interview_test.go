@@ -93,7 +93,6 @@ func TestLearningWorkflowFailsAtInterviewWhenTaskHasNoAgent(t *testing.T) {
 	learning := NewLearningService(db, nil)
 	interview := NewAgentInterviewExecutor(learning, &fakeInterviewPrompter{}, db)
 	packet := &fakeWorkflowExecutor{typeName: "learning.packet.prepare", result: WorkflowExecutionResult{Status: "succeeded"}}
-	stop := &fakeWorkflowExecutor{typeName: "agent.stop", result: WorkflowExecutionResult{Status: "succeeded"}}
 	agent := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent"}}
 	submit := &fakeWorkflowExecutor{typeName: "learning.proposals.submit", result: WorkflowExecutionResult{Status: "succeeded"}}
 	definition, err := BuiltInLearningWorkflow(LearningWorkflowOptions{Adapter: "chimera", PacketMaxItems: 20, PacketMaxBytes: 64 * 1024})
@@ -101,7 +100,7 @@ func TestLearningWorkflowFailsAtInterviewWhenTaskHasNoAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	view, err := NewWorkflowService(db, []WorkflowExecutor{interview, packet, stop, agent, submit}).Start(ctx, definition, map[string]string{
+	view, err := NewWorkflowService(db, []WorkflowExecutor{interview, packet, agent, submit}).Start(ctx, definition, map[string]string{
 		"task": "LEG-no-agent", "project_key": "repo:acme/widget", "project_label": "acme/widget",
 	})
 	if err != nil {
@@ -110,11 +109,16 @@ func TestLearningWorkflowFailsAtInterviewWhenTaskHasNoAgent(t *testing.T) {
 	if view.Run.Status != "failed" || view.Run.CurrentStepID != "interview" || !strings.Contains(view.Run.Error, "no active agent session") {
 		t.Fatalf("run = %+v", view.Run)
 	}
-	if view.Steps[0].Status != "failed" || view.Steps[1].Status != "pending" || view.Steps[2].Status != "pending" || view.Steps[3].Status != "pending" || view.Steps[4].Status != "pending" || view.Steps[5].Status != "pending" {
+	if view.Steps[0].Status != "failed" {
 		t.Fatalf("steps = %+v", view.Steps)
 	}
-	if len(packet.starts) != 0 || len(stop.starts) != 0 || len(agent.starts) != 0 || len(submit.starts) != 0 {
-		t.Fatalf("downstream starts: packet=%d stop=%d agent=%d submit=%d", len(packet.starts), len(stop.starts), len(agent.starts), len(submit.starts))
+	for _, step := range view.Steps[1:] {
+		if step.Status != "pending" {
+			t.Fatalf("steps = %+v", view.Steps)
+		}
+	}
+	if len(packet.starts) != 0 || len(agent.starts) != 0 || len(submit.starts) != 0 {
+		t.Fatalf("downstream starts: packet=%d agent=%d submit=%d", len(packet.starts), len(agent.starts), len(submit.starts))
 	}
 }
 

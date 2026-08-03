@@ -82,7 +82,6 @@ func BuiltInLearningWorkflow(options LearningWorkflowOptions) (*workflowengine.D
 		Steps: []workflowengine.Step{
 			{ID: "interview", Title: "Request task reflection", Type: "agent.interview", With: map[string]any{"task": "${{ workflow.inputs.task }}"}, Outputs: map[string]workflowengine.Output{"available": {Type: "boolean"}, "request_id": {Type: "string"}}},
 			learningPacketStep(options, "${{ workflow.inputs.task }}", map[string]any{"key": "${{ workflow.inputs.project_key }}", "label": "${{ workflow.inputs.project_label }}"}),
-			{ID: "handoff", Title: "Stop reflected task agent", Type: "agent.stop", With: map[string]any{"task": "${{ workflow.inputs.task }}"}},
 			learningAgentStep(options, "curator", "Curate task learning", curatorPrompt(false), "${{ workflow.inputs.working_dir }}"),
 			learningCriticStep(options, "${{ workflow.inputs.working_dir }}"),
 			learningSubmitStep(),

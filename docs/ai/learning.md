@@ -97,7 +97,7 @@ legato learn reflection submit --request <request-id> --file reflection.json
 
 The request can also come from `LEGATO_LEARNING_REQUEST_ID`; omitting `--file` or using `--file -` reads stdin. Submission validates and persists the reflection **before** completing the exact workflow run/step/attempt associated with the request. An exact replay is idempotent; a changed or stale replay fails. Submit `{"schema_version":1,"observations":[]}` when nothing durable was learned; this completes normally and creates no evidence. Limits currently include zero to 32 observations, 64 KiB per document, and 8 KiB per observation content/rationale.
 
-After reflection is persisted and the bounded packet is prepared, the built-in task-learning workflow runs `agent.stop` for the borrowed task agent before launching the curator under the same task identity. The stop is idempotent, so retries remain safe.
+After reflection is persisted and the bounded packet is prepared, the borrowed task agent remains online and associated with its original task. Curator and critic agents run under the separate generated workflow task, so their lifecycle does not require or affect the interviewed session.
 
 The curator is a normal workflow agent. It completes its `agent.run` contract with the declared `operations` output, normally via:
 

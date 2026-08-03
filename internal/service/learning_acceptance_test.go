@@ -17,9 +17,11 @@ import (
 // acceptanceAgentTransport is the boundary fake for agent/tmux work. The
 // workflow executors, workflow service, learning service, and store are real.
 type acceptanceAgentTransport struct {
-	store       *store.Store
-	deliveries  []string
-	assignments []AgentSpawnOptions
+	store         *store.Store
+	deliveries    []string
+	assignments   []AgentSpawnOptions
+	spawnTaskIDs  []string
+	killedTaskIDs []string
 }
 
 func (f *acceptanceAgentTransport) PromptAgent(_ context.Context, _ string, prompt string) error {
@@ -29,6 +31,7 @@ func (f *acceptanceAgentTransport) PromptAgent(_ context.Context, _ string, prom
 
 func (f *acceptanceAgentTransport) SpawnWorkflowAgent(ctx context.Context, taskID, _ string, opts AgentSpawnOptions) (*store.AgentSession, error) {
 	f.assignments = append(f.assignments, opts)
+	f.spawnTaskIDs = append(f.spawnTaskIDs, taskID)
 	if _, err := f.store.InsertAgentSessionReturningID(ctx, store.AgentSession{
 		TaskID: taskID, TmuxSession: fmt.Sprintf("fake-%s-%d", taskID, len(f.assignments)), AgentKind: opts.AgentKind, Status: "running",
 	}); err != nil {
@@ -38,6 +41,7 @@ func (f *acceptanceAgentTransport) SpawnWorkflowAgent(ctx context.Context, taskI
 }
 
 func (f *acceptanceAgentTransport) KillAgent(ctx context.Context, taskID string) error {
+	f.killedTaskIDs = append(f.killedTaskIDs, taskID)
 	session, err := f.store.GetAgentSessionByTaskID(ctx, taskID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
@@ -66,9 +70,10 @@ func TestLegatoLearnConnectedAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.InsertAgentSessionReturningID(ctx, store.AgentSession{
+	originalSessionID, err := db.InsertAgentSessionReturningID(ctx, store.AgentSession{
 		TaskID: task.ID, TmuxSession: "fake-task-agent", AgentKind: "fake", Status: "running",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,7 +87,6 @@ func TestLegatoLearnConnectedAcceptance(t *testing.T) {
 	workflow := NewWorkflowService(db, []WorkflowExecutor{
 		NewAgentInterviewExecutor(learning, agents, db),
 		NewLearningPacketPrepareExecutor(learning),
-		NewAgentStopExecutor(agents),
 		NewAgentRunExecutor(agents),
 		NewLearningProposalsSubmitExecutor(learning),
 	})
@@ -124,10 +128,20 @@ func TestLegatoLearnConnectedAcceptance(t *testing.T) {
 
 	// Packet preparation ran synchronously through its real executor. The fake
 	// curator is now waiting and returns its declared output through Complete.
-	curatorStep := definition.Steps[3].ID
+	curatorStep := definition.Steps[2].ID
 	curatorAttempt := activeAcceptanceAttempt(t, run, curatorStep)
 	if len(agents.assignments) != 1 || !strings.Contains(agents.assignments[0].Assignment, "Bounded packet") {
 		t.Fatalf("curator assignment was not delivered: %+v", agents.assignments)
+	}
+	originalSession, err := db.GetAgentSessionByID(ctx, originalSessionID)
+	if err != nil || originalSession.Status != "running" || originalSession.TaskID != task.ID {
+		t.Fatalf("borrowed task agent after interview = %+v, %v", originalSession, err)
+	}
+	if len(agents.killedTaskIDs) != 0 {
+		t.Fatalf("learning workflow killed borrowed task agents: %v", agents.killedTaskIDs)
+	}
+	if len(agents.spawnTaskIDs) != 1 || agents.spawnTaskIDs[0] != run.Run.TaskID || agents.spawnTaskIDs[0] == task.ID {
+		t.Fatalf("curator spawn task IDs = %v, workflow task = %q, interviewed task = %q", agents.spawnTaskIDs, run.Run.TaskID, task.ID)
 	}
 	var packetOutputs struct {
 		PacketDigest string `json:"packet_digest"`
@@ -156,7 +170,7 @@ func TestLegatoLearnConnectedAcceptance(t *testing.T) {
 	if _, err := learning.Show(ctx, "learn-acceptance-callback"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("curator draft was ingested before critic approval: %v", err)
 	}
-	criticStep := definition.Steps[4].ID
+	criticStep := definition.Steps[3].ID
 	criticAttempt := activeAcceptanceAttempt(t, run, criticStep)
 	if len(agents.assignments) != 2 || !strings.Contains(agents.assignments[1].Assignment, "Curator draft operations") {
 		t.Fatalf("critic assignment was not delivered: %+v", agents.assignments)
@@ -179,7 +193,7 @@ func TestLegatoLearnConnectedAcceptance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run.Run.Status != "succeeded" || run.Steps[4].Status != "succeeded" {
+	if run.Run.Status != "succeeded" || run.Steps[3].Status != "succeeded" {
 		t.Fatalf("workflow did not deterministically submit critic proposals: %+v", run)
 	}
 
@@ -329,7 +343,7 @@ func TestLegatoLearnEmptyReflectionCompletesWithoutLearning(t *testing.T) {
 	}
 	workflow := NewWorkflowService(db, []WorkflowExecutor{
 		NewAgentInterviewExecutor(learning, agents, db), NewLearningPacketPrepareExecutor(learning),
-		NewAgentStopExecutor(agents), NewAgentRunExecutor(agents), NewLearningProposalsSubmitExecutor(learning),
+		NewAgentRunExecutor(agents), NewLearningProposalsSubmitExecutor(learning),
 	})
 	run, err := workflow.Start(ctx, definition, map[string]string{"task": task.ID, "project_key": "repo:acme/empty", "project_label": "acme/empty"})
 	if err != nil {
