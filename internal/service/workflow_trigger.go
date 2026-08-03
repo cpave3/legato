@@ -112,7 +112,7 @@ func (c *WorkflowTriggerCoordinator) process(ctx context.Context, transition sto
 	if len(missing) > 0 {
 		return c.update(ctx, request.ID, "waiting_input", "", string(encodedInputs), string(encodedMissing), "")
 	}
-	view, err := c.workflows.StartTriggered(ctx, definition, inputs, nil, request.ID)
+	view, err := c.workflows.StartTriggered(ctx, definition, inputs, request.ID)
 	if err != nil {
 		if existing, findErr := c.store.FindWorkflowRunByTriggerRequest(ctx, request.ID); findErr == nil {
 			view = existing

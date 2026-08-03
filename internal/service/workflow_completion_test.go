@@ -38,7 +38,7 @@ steps:
 	}
 	first := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent", WorkingDir: workDir}}
 	svc := NewWorkflowServiceWithOutputs(db, []WorkflowExecutor{first}, t.TempDir())
-	view, err := svc.Start(context.Background(), definition, nil, nil)
+	view, err := svc.Start(context.Background(), definition, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

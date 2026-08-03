@@ -40,7 +40,7 @@ func TestWorkflowCompleteStopsAgentBeforeNextSharedTaskStep(t *testing.T) {
 	definition, _ := workflowengine.Parse("test.yaml", []byte("schema_version: 1\nname: chain\ntitle: Chain\nsteps:\n  - id: one\n    title: One\n    type: agent.run\n    with: {prompt: one}\n  - id: two\n    title: Two\n    type: agent.run\n    with: {prompt: two}\n"))
 	executor := &killingWorkflowExecutor{store: db, fakeWorkflowExecutor: fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent"}}}
 	svc := NewWorkflowServiceWithOutputs(db, []WorkflowExecutor{executor}, t.TempDir())
-	view, err := svc.Start(context.Background(), definition, nil, nil)
+	view, err := svc.Start(context.Background(), definition, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

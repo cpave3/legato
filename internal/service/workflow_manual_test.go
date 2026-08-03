@@ -39,7 +39,7 @@ func TestWorkflowWaitsBeforeStartingManualStep(t *testing.T) {
 	defer db.Close()
 	definition, automatic, cleanup := newManualWorkflow(t)
 	svc := NewWorkflowService(db, []WorkflowExecutor{automatic, cleanup})
-	view, err := svc.Start(context.Background(), definition, nil, nil)
+	view, err := svc.Start(context.Background(), definition, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestCancelWaitingManualStepDoesNotRunIt(t *testing.T) {
 	defer db.Close()
 	definition, automatic, cleanup := newManualWorkflow(t)
 	svc := NewWorkflowService(db, []WorkflowExecutor{automatic, cleanup})
-	view, err := svc.Start(context.Background(), definition, nil, nil)
+	view, err := svc.Start(context.Background(), definition, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestTriggerManualWorktreeRemovalCanSelectForce(t *testing.T) {
 	defer db.Close()
 	definition, automatic, cleanup := newManualWorkflow(t)
 	svc := NewWorkflowService(db, []WorkflowExecutor{automatic, cleanup})
-	view, err := svc.Start(context.Background(), definition, nil, nil)
+	view, err := svc.Start(context.Background(), definition, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestTriggerManualStepStartsItExactlyOnce(t *testing.T) {
 	defer db.Close()
 	definition, automatic, cleanup := newManualWorkflow(t)
 	svc := NewWorkflowService(db, []WorkflowExecutor{automatic, cleanup})
-	view, err := svc.Start(context.Background(), definition, nil, nil)
+	view, err := svc.Start(context.Background(), definition, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

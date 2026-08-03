@@ -76,7 +76,7 @@ func TestLegatoLearnConnectedAcceptance(t *testing.T) {
 
 	run, err := workflow.Start(ctx, definition, map[string]string{
 		"task": task.ID, "project_key": "repo:acme/legato", "project_label": "acme/legato",
-	}, nil)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestLegatoLearnEmptyReflectionCompletesWithoutLearning(t *testing.T) {
 		NewAgentInterviewExecutor(learning, agents, db), NewLearningPacketPrepareExecutor(learning),
 		NewAgentRunExecutor(agents), NewLearningProposalsSubmitExecutor(learning),
 	})
-	run, err := workflow.Start(ctx, definition, map[string]string{"task": task.ID, "project_key": "repo:acme/empty", "project_label": "acme/empty"}, nil)
+	run, err := workflow.Start(ctx, definition, map[string]string{"task": task.ID, "project_key": "repo:acme/empty", "project_label": "acme/empty"})
 	if err != nil {
 		t.Fatal(err)
 	}

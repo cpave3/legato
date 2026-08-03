@@ -62,15 +62,15 @@ func (s *WorkflowService) SetRepositoryPresets(presets []workflowengine.Reposito
 	s.repositories = append([]workflowengine.RepositoryPreset(nil), presets...)
 }
 
-func (s *WorkflowService) Start(ctx context.Context, definition *workflowengine.Definition, rawInputs map[string]string, workspaceID *int) (*store.WorkflowRunView, error) {
-	return s.start(ctx, definition, rawInputs, workspaceID, "")
+func (s *WorkflowService) Start(ctx context.Context, definition *workflowengine.Definition, rawInputs map[string]string) (*store.WorkflowRunView, error) {
+	return s.start(ctx, definition, rawInputs, "")
 }
 
-func (s *WorkflowService) StartTriggered(ctx context.Context, definition *workflowengine.Definition, rawInputs map[string]string, workspaceID *int, triggerRequestID string) (*store.WorkflowRunView, error) {
-	return s.start(ctx, definition, rawInputs, workspaceID, triggerRequestID)
+func (s *WorkflowService) StartTriggered(ctx context.Context, definition *workflowengine.Definition, rawInputs map[string]string, triggerRequestID string) (*store.WorkflowRunView, error) {
+	return s.start(ctx, definition, rawInputs, triggerRequestID)
 }
 
-func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.Definition, rawInputs map[string]string, workspaceID *int, triggerRequestID string) (*store.WorkflowRunView, error) {
+func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.Definition, rawInputs map[string]string, triggerRequestID string) (*store.WorkflowRunView, error) {
 	inputs, err := definition.NormalizeInputs(rawInputs)
 	if err != nil {
 		return nil, err
@@ -111,14 +111,12 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 			return nil, fmt.Errorf("workflow executor %q is not registered", step.Type)
 		}
 	}
-	if workspaceID == nil {
-		color := "#6366f1"
-		id, workspaceErr := s.store.EnsureWorkspace(ctx, store.Workspace{Name: "Workflows", Color: &color, SortOrder: 1000})
-		if workspaceErr != nil {
-			return nil, fmt.Errorf("ensure workflow workspace: %w", workspaceErr)
-		}
-		workspaceID = &id
+	color := "#6366f1"
+	id, workspaceErr := s.store.EnsureWorkspace(ctx, store.Workspace{Name: store.WorkflowWorkspaceName, Color: &color, SortOrder: 1000})
+	if workspaceErr != nil {
+		return nil, fmt.Errorf("ensure workflow workspace: %w", workspaceErr)
 	}
+	workspaceID := &id
 	runID := workflowID("wr-")
 	taskID := store.GenerateTaskID()
 	now := time.Now().UTC().Format(time.RFC3339)

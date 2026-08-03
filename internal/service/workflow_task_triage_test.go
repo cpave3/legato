@@ -50,7 +50,7 @@ steps:
 	}
 	agent := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent", WorkingDir: working}}
 	svc := NewWorkflowServiceWithOutputs(db, []WorkflowExecutor{agent, NewTaskNoteExecutor(db, nil)}, filepath.Join(t.TempDir(), "artifacts"))
-	view, err := svc.Start(context.Background(), definition, map[string]string{"task": "task-1"}, nil)
+	view, err := svc.Start(context.Background(), definition, map[string]string{"task": "task-1"})
 	if err != nil {
 		t.Fatal(err)
 	}

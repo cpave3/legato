@@ -41,7 +41,7 @@ steps:
 	}
 	executor := &fakeWorkflowExecutor{typeName: "agent.run"}
 	svc := NewWorkflowService(db, []WorkflowExecutor{executor})
-	view, err := svc.Start(context.Background(), definition, map[string]string{"task": "LEG-42"}, nil)
+	view, err := svc.Start(context.Background(), definition, map[string]string{"task": "LEG-42"})
 	if err != nil {
 		t.Fatal(err)
 	}

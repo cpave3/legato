@@ -38,7 +38,7 @@ steps:
 	}
 	svc := NewWorkflowService(db, []WorkflowExecutor{NewTaskMetadataExecutor(db)})
 	svc.SetRepositoryPresets([]workflowengine.RepositoryPreset{{Name: "legato", Repo: "cpave3/legato", PrimaryDir: "/projects/legato", BaseBranch: "main"}})
-	view, err := svc.Start(context.Background(), definition, map[string]string{"task": "LEG-1", "repository": "legato"}, nil)
+	view, err := svc.Start(context.Background(), definition, map[string]string{"task": "LEG-1", "repository": "legato"})
 	if err != nil {
 		t.Fatal(err)
 	}

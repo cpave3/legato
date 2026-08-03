@@ -96,7 +96,7 @@ func runLearnCmd(args []string) int {
 			return fail(err)
 		}
 		return runLearningOutput(func(w io.Writer) error {
-			return cli.WorkflowRun(ctx, workflows, definition, map[string]string{"task": taskID, "project_key": projectKey, "project_label": projectLabel, "working_dir": workingDir}, nil, w)
+			return cli.WorkflowRun(ctx, workflows, definition, map[string]string{"task": taskID, "project_key": projectKey, "project_label": projectLabel, "working_dir": workingDir}, w)
 		}, fail)
 	case "consolidate":
 		if len(parsed.Positionals) != 0 {
@@ -119,7 +119,7 @@ func runLearnCmd(args []string) int {
 		if err != nil {
 			return fail(err)
 		}
-		return runLearningOutput(func(w io.Writer) error { return cli.WorkflowRun(ctx, workflows, definition, nil, nil, w) }, fail)
+		return runLearningOutput(func(w io.Writer) error { return cli.WorkflowRun(ctx, workflows, definition, nil, w) }, fail)
 	case "record":
 		if len(parsed.Positionals) > 1 {
 			return fail(fmt.Errorf("usage: legato learn record [claim] --kind <kind> [flags]"))

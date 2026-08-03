@@ -177,7 +177,7 @@ legato workflow cancel <run-id> --json
 
 For a `worktree.remove` step, `--force` forwards Yggdrasil's force option and discards uncommitted worktree changes. It can be selected when first triggering a manual removal or when retrying a failed removal; other step types reject it.
 
-A run creates one shared local execution task. Unless an explicit workspace is supplied, Legato places it in an automatically managed **Workflows** workspace. When the run succeeds, the execution task moves to **Done**; failed or cancelled runs remain in their current column for intervention. When a workflow accepts a `task` input, the selected target is stored separately as `related_task_id`; agent sessions continue to use the execution task so an existing task's active agent session is not replaced. Deterministic steps execute synchronously until an agent step starts. The run then advances when that agent explicitly completes or fails its step.
+A run creates one shared local execution task in the automatically managed **Workflows** workspace. The default **All** workspace view excludes these tasks; select **Workflows** explicitly to inspect active runs. When the run succeeds, the execution task moves to **Done** and is archived immediately; failed or cancelled runs remain active in their current column for intervention. When a workflow accepts a `task` input, the selected target is stored separately as `related_task_id`; agent sessions continue to use the execution task so an existing task's active agent session is not replaced. Deterministic steps execute synchronously until an agent step starts. The run then advances when that agent explicitly completes or fails its step.
 
 ## Agent completion
 

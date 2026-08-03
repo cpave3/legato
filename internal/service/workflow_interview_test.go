@@ -102,7 +102,7 @@ func TestLearningWorkflowFailsAtInterviewWhenTaskHasNoAgent(t *testing.T) {
 
 	view, err := NewWorkflowService(db, []WorkflowExecutor{interview, packet, agent, submit}).Start(ctx, definition, map[string]string{
 		"task": "LEG-no-agent", "project_key": "repo:acme/widget", "project_label": "acme/widget",
-	}, nil)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ steps:
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err := NewWorkflowService(db, []WorkflowExecutor{interview, packet}).Start(ctx, definition, map[string]string{"task": "LEG-10"}, nil)
+	view, err := NewWorkflowService(db, []WorkflowExecutor{interview, packet}).Start(ctx, definition, map[string]string{"task": "LEG-10"})
 	if err != nil {
 		t.Fatal(err)
 	}

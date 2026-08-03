@@ -25,7 +25,7 @@ func TestWorkflowShowFlagsIdleAgentAsNeedingAttention(t *testing.T) {
 	definition, _ := workflowengine.Parse("test.yaml", []byte("schema_version: 1\nname: attention\ntitle: Attention\nsteps:\n  - id: run\n    title: Run\n    type: agent.run\n    with: {prompt: run}\n"))
 	executor := &promptingWorkflowExecutor{fakeWorkflowExecutor: fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent", AgentSession: &store.AgentSession{ID: 7, TaskID: "placeholder", TmuxSession: "legato-placeholder", AgentKind: "chimera", Status: "running"}}}}
 	svc := NewWorkflowService(db, []WorkflowExecutor{executor})
-	view, err := svc.Start(context.Background(), definition, nil, nil)
+	view, err := svc.Start(context.Background(), definition, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestNotifyOnCompleteSurfacesAttentionItem(t *testing.T) {
 
 	executor := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "succeeded"}}
 	svc := NewWorkflowService(db, []WorkflowExecutor{executor})
-	view, err := svc.Start(context.Background(), definition, nil, nil)
+	view, err := svc.Start(context.Background(), definition, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestNotifyOnCompleteFalseDoesNotSurface(t *testing.T) {
 
 	executor := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "succeeded"}}
 	svc := NewWorkflowService(db, []WorkflowExecutor{executor})
-	view, err := svc.Start(context.Background(), definition, nil, nil)
+	view, err := svc.Start(context.Background(), definition, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

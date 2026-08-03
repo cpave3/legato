@@ -55,7 +55,7 @@ steps:
 	agent := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent"}}
 	svc := NewWorkflowService(s, []WorkflowExecutor{prepare, agent})
 
-	view, err := svc.Start(context.Background(), definition, map[string]string{"repo": "acme/app"}, nil)
+	view, err := svc.Start(context.Background(), definition, map[string]string{"repo": "acme/app"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

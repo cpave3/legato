@@ -18,7 +18,7 @@ func legacyWorkflowDirPath() string {
 }
 
 type WorkflowService interface {
-	Start(context.Context, *workflowengine.Definition, map[string]string, *int) (*store.WorkflowRunView, error)
+	Start(context.Context, *workflowengine.Definition, map[string]string) (*store.WorkflowRunView, error)
 	ListRuns(context.Context, string, int) ([]store.WorkflowRun, error)
 	Show(context.Context, string) (*store.WorkflowRunView, error)
 	Cancel(context.Context, string, string) (*store.WorkflowRunView, error)
@@ -69,7 +69,7 @@ func (s *Server) workflowStartHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		view, err := s.workflows.Start(r.Context(), definition, body.Inputs, nil)
+		view, err := s.workflows.Start(r.Context(), definition, body.Inputs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

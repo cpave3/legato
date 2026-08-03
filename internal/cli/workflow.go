@@ -17,8 +17,8 @@ func WorkflowDefinitions(globalDir, projectDir string) workflowengine.DiscoveryR
 func WorkflowValidate(path string, data []byte) (*workflowengine.Definition, error) {
 	return workflowengine.Parse(path, data)
 }
-func WorkflowRun(ctx context.Context, svc *service.WorkflowService, definition *workflowengine.Definition, inputs map[string]string, workspaceID *int, w io.Writer) error {
-	view, err := svc.Start(ctx, definition, inputs, workspaceID)
+func WorkflowRun(ctx context.Context, svc *service.WorkflowService, definition *workflowengine.Definition, inputs map[string]string, w io.Writer) error {
+	view, err := svc.Start(ctx, definition, inputs)
 	if err != nil {
 		return err
 	}

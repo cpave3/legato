@@ -99,7 +99,7 @@ func runWorkflowCmd(args []string) int {
 		if err != nil {
 			return fail(err)
 		}
-		if err := cli.WorkflowRun(ctx, svc, definition, inputs, nil, os.Stdout); err != nil {
+		if err := cli.WorkflowRun(ctx, svc, definition, inputs, os.Stdout); err != nil {
 			return fail(err)
 		}
 	case "cancel":

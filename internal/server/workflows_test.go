@@ -18,7 +18,7 @@ type forceWorkflowService struct {
 	retryForce   bool
 }
 
-func (f *forceWorkflowService) Start(context.Context, *workflowengine.Definition, map[string]string, *int) (*store.WorkflowRunView, error) {
+func (f *forceWorkflowService) Start(context.Context, *workflowengine.Definition, map[string]string) (*store.WorkflowRunView, error) {
 	return nil, nil
 }
 func (f *forceWorkflowService) ListRuns(context.Context, string, int) ([]store.WorkflowRun, error) {

@@ -30,7 +30,7 @@ func TestWorkflowRetryStartsSecondAttemptAndKeepsHistory(t *testing.T) {
 	definition, _ := workflowengine.Parse("test.yaml", []byte("schema_version: 1\nname: retry\ntitle: Retry\nsteps:\n  - id: run\n    title: Run\n    type: agent.run\n    with: {prompt: run}\n"))
 	executor := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent"}}
 	svc := NewWorkflowService(db, []WorkflowExecutor{executor})
-	view, err := svc.Start(context.Background(), definition, nil, nil)
+	view, err := svc.Start(context.Background(), definition, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ steps:
 	}
 	executor := &forceRetryExecutor{}
 	svc := NewWorkflowService(db, []WorkflowExecutor{executor})
-	view, err := svc.Start(context.Background(), definition, nil, nil)
+	view, err := svc.Start(context.Background(), definition, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

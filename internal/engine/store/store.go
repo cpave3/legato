@@ -500,12 +500,20 @@ const (
 	ViewWorkspace
 )
 
+const WorkflowWorkspaceName = "Workflows"
+
 // ListTasksByStatusAndWorkspace returns tasks filtered by status and workspace view.
 func (s *Store) ListTasksByStatusAndWorkspace(ctx context.Context, status string, view WorkspaceView) ([]Task, error) {
 	var tasks []Task
 	switch view.Kind {
 	case ViewAll:
-		return s.ListTasksByStatus(ctx, status)
+		err := s.db.SelectContext(ctx, &tasks, `
+			SELECT tasks.* FROM tasks
+			LEFT JOIN workspaces ON workspaces.id = tasks.workspace_id
+			WHERE tasks.status = ? AND tasks.archived_at IS NULL AND tasks.ephemeral = 0
+				AND (workspaces.name IS NULL OR workspaces.name <> ?)
+			ORDER BY tasks.sort_order ASC`, status, WorkflowWorkspaceName)
+		return tasks, err
 	case ViewUnassigned:
 		err := s.db.SelectContext(ctx, &tasks,
 			"SELECT * FROM tasks WHERE status = ? AND workspace_id IS NULL AND archived_at IS NULL AND ephemeral = 0 ORDER BY sort_order ASC", status)

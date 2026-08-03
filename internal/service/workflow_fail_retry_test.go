@@ -21,7 +21,7 @@ func TestWorkflowFailStopsAgentAndAllowsRetry(t *testing.T) {
 	}
 	executor := &killingWorkflowExecutor{fakeWorkflowExecutor: fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent"}}}
 	svc := NewWorkflowService(db, []WorkflowExecutor{executor})
-	view, err := svc.Start(context.Background(), definition, nil, nil)
+	view, err := svc.Start(context.Background(), definition, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
