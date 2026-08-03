@@ -424,12 +424,8 @@ func (s *Store) QuerySwarmBreakdown(ctx context.Context, tr ReportRange) ([]Swar
 
 // interval is a time span used for swarm aggregation and union calculations.
 type interval struct {
-	parentID  string
-	state     string
-	isSubtask bool
-	taskID    string
-	start     time.Time
-	end       time.Time
+	start time.Time
+	end   time.Time
 }
 
 // unionDuration merges a collection of intervals and returns the total duration
