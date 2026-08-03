@@ -312,6 +312,8 @@ func (s *Server) tasksHandler() http.HandlerFunc {
 
 type taskAgentService interface {
 	CaptureOutput(context.Context, string) (string, error)
+	DefaultAdapter() string
+	GetTaskChimeraSessionID(context.Context, string) (string, error)
 	SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error
 }
 
@@ -350,7 +352,19 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 		if req.WorkingDir == "" {
 			req.WorkingDir = s.workDir
 		}
-		if err := agents.SpawnAgent(r.Context(), taskID, 0, 0, service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, ChimeraSessionExists: "resume"}); err != nil {
+		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir}
+		if req.AgentKind == "chimera" || (req.AgentKind == "" && agents.DefaultAdapter() == "chimera") {
+			sessionID, err := agents.GetTaskChimeraSessionID(r.Context(), taskID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if sessionID != "" {
+				opts.ChimeraSessionID = sessionID
+				opts.ChimeraSessionExists = "resume"
+			}
+		}
+		if err := agents.SpawnAgent(r.Context(), taskID, 0, 0, opts); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
