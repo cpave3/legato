@@ -387,11 +387,12 @@ func TaskNote(s *store.Store, taskID, message string) error {
 
 // AgentStateReport is an activity update from an AI-tool integration.
 type AgentStateReport struct {
-	TaskID     string
-	Activity   string
-	WorkingDir string
-	SessionID  string
-	Event      string
+	TaskID      string
+	ExecutionID string
+	Activity    string
+	WorkingDir  string
+	SessionID   string
+	Event       string
 }
 
 // AgentState applies an activity report. Reports from Chimera child sessions
@@ -401,6 +402,12 @@ func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifie
 	session, err := s.GetAgentSessionByTaskID(ctx, report.TaskID)
 	if err != nil {
 		return fmt.Errorf("getting agent session: %w", err)
+	}
+	if report.ExecutionID == "" {
+		return errors.New("execution ID is required")
+	}
+	if session.ExecutionID != report.ExecutionID {
+		return fmt.Errorf("execution %q does not own running task session %s", report.ExecutionID, report.TaskID)
 	}
 
 	if report.SessionID != "" && session.ChimeraSessionID == nil {
@@ -426,8 +433,8 @@ func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifie
 	if err := s.UpdateAgentActivity(ctx, report.TaskID, report.Activity); err != nil {
 		return fmt.Errorf("updating agent activity: %w", err)
 	}
-	if err := s.RecordStateTransition(ctx, report.TaskID, report.Activity, report.WorkingDir); err != nil {
-		return fmt.Errorf("recording state transition: %w", err)
+	if err := s.RecordExecutionActivity(ctx, report.ExecutionID, report.Activity, report.WorkingDir); err != nil {
+		return fmt.Errorf("recording execution activity: %w", err)
 	}
 	if session.Activity == "working" && (report.Activity == "waiting" || report.Activity == "") {
 		service.MaybeNotify(s, pushNotifier, osNotifier, report.TaskID, report.Activity)

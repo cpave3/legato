@@ -37,26 +37,50 @@ func seedTask(t *testing.T, db *sqlx.DB, id string, createdAt time.Time) {
 	}
 }
 
-// seedInterval creates a state_interval with explicit timestamps.
+var seededExecution int
+
+// seedInterval creates a terminal execution with one explicit activity span.
 func seedInterval(t *testing.T, db *sqlx.DB, taskID, state string, start, end time.Time) {
 	t.Helper()
-	_, err := db.Exec(
-		"INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, ?, ?, ?)",
-		taskID, state,
-		start.UTC().Format("2006-01-02 15:04:05"),
-		end.UTC().Format("2006-01-02 15:04:05"))
+	seededExecution++
+	id := fmt.Sprintf("exec-%d", seededExecution)
+	attributionID, executionTaskID, kind, swarmID, subtaskID := taskID, taskID, store.ExecutionInteractive, "", ""
+	var parent string
+	if err := db.Get(&parent, `SELECT parent_task_id FROM swarm_subtasks WHERE id = ?`, taskID); err == nil {
+		attributionID, kind, swarmID, subtaskID = parent, store.ExecutionSwarmWorker, parent, taskID
+	} else {
+		var children int
+		if err := db.Get(&children, `SELECT COUNT(*) FROM swarm_subtasks WHERE parent_task_id = ?`, taskID); err == nil && children > 0 {
+			kind, swarmID = store.ExecutionSwarmConductor, taskID
+		}
+	}
+	var workingDir string
+	_ = db.Get(&workingDir, `SELECT COALESCE(swarm_working_dir, '') FROM tasks WHERE id = ?`, taskID)
+	_, err := db.Exec(`INSERT INTO executions
+		(id, kind, status, task_id, execution_task_id, task_title, swarm_id, swarm_subtask_id, working_dir, started_at, ended_at)
+		VALUES (?, ?, 'succeeded', ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?)`,
+		id, kind, attributionID, executionTaskID, "Task "+attributionID, swarmID, subtaskID, workingDir,
+		start.UTC().Format("2006-01-02 15:04:05"), end.UTC().Format("2006-01-02 15:04:05"))
+	if err == nil {
+		_, err = db.Exec(`INSERT INTO execution_activity (execution_id, state, started_at, ended_at) VALUES (?, ?, ?, ?)`,
+			id, state, start.UTC().Format("2006-01-02 15:04:05"), end.UTC().Format("2006-01-02 15:04:05"))
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
-// seedOpenInterval creates an open (ended_at=NULL) state_interval.
+// seedOpenInterval creates a running execution with one open activity span.
 func seedOpenInterval(t *testing.T, db *sqlx.DB, taskID, state string, start time.Time) {
 	t.Helper()
-	_, err := db.Exec(
-		"INSERT INTO state_intervals (task_id, state, started_at) VALUES (?, ?, ?)",
-		taskID, state,
-		start.UTC().Format("2006-01-02 15:04:05"))
+	seededExecution++
+	id := fmt.Sprintf("exec-%d", seededExecution)
+	_, err := db.Exec(`INSERT INTO executions
+		(id, kind, status, task_id, execution_task_id, task_title, started_at)
+		VALUES (?, 'interactive', 'running', ?, ?, ?, ?)`, id, taskID, taskID, "Task "+taskID, start.UTC().Format("2006-01-02 15:04:05"))
+	if err == nil {
+		_, err = db.Exec(`INSERT INTO execution_activity (execution_id, state, started_at) VALUES (?, ?, ?)`, id, state, start.UTC().Format("2006-01-02 15:04:05"))
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,26 +407,13 @@ func TestQueryDirectoryBreakdown(t *testing.T) {
 	seedTask(t, db, "t1", base)
 	seedTask(t, db, "t2", base)
 
-	// Intervals with explicit working dirs
-	_, err := db.Exec(
-		"INSERT INTO state_intervals (task_id, state, started_at, ended_at, working_dir) VALUES (?, ?, ?, ?, ?)",
-		"t1", "working", base.Format("2006-01-02 15:04:05"),
-		base.Add(2*time.Hour).Format("2006-01-02 15:04:05"), "/projects/frontend")
-	if err != nil {
+	seedInterval(t, db, "t1", "working", base, base.Add(2*time.Hour))
+	seedInterval(t, db, "t2", "working", base, base.Add(time.Hour))
+	seedInterval(t, db, "t2", "waiting", base.Add(time.Hour), base.Add(2*time.Hour))
+	if _, err := db.Exec(`UPDATE executions SET working_dir='/projects/frontend' WHERE execution_task_id='t1'`); err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.Exec(
-		"INSERT INTO state_intervals (task_id, state, started_at, ended_at, working_dir) VALUES (?, ?, ?, ?, ?)",
-		"t2", "working", base.Format("2006-01-02 15:04:05"),
-		base.Add(1*time.Hour).Format("2006-01-02 15:04:05"), "/projects/backend")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(
-		"INSERT INTO state_intervals (task_id, state, started_at, ended_at, working_dir) VALUES (?, ?, ?, ?, ?)",
-		"t2", "waiting", base.Add(1*time.Hour).Format("2006-01-02 15:04:05"),
-		base.Add(2*time.Hour).Format("2006-01-02 15:04:05"), "/projects/backend")
-	if err != nil {
+	if _, err := db.Exec(`UPDATE executions SET working_dir='/projects/backend' WHERE execution_task_id='t2'`); err != nil {
 		t.Fatal(err)
 	}
 

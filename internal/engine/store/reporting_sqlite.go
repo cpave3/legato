@@ -76,49 +76,39 @@ type SwarmBreakdown struct {
 	SubtaskCount  int
 }
 
-// QueryDurations aggregates total working/waiting durations from state_intervals
-// within the given time range. Intervals that span boundaries are clipped.
-// Open intervals use the current time as end.
+// QueryDurations aggregates execution-bounded working/waiting activity within
+// the range. Parallel executions are additive; open activity cannot outlive a
+// terminal execution.
 func (s *Store) QueryDurations(ctx context.Context, tr ReportRange) (DurationResult, error) {
-	// Clip intervals to the range: effective_start = MAX(started_at, range_start),
-	// effective_end = MIN(COALESCE(ended_at, now), range_end).
-	// Duration = effective_end - effective_start (only if positive).
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT state,
-			SUM(
-				CAST(ROUND(
-					MAX(0,
-						(julianday(MIN(COALESCE(ended_at, datetime('now')), ?)) -
-						 julianday(MAX(started_at, ?))) * 86400
-					)) AS INTEGER
-				)
-			) as total_seconds
-		FROM state_intervals
-		WHERE started_at < ? AND (ended_at IS NULL OR ended_at > ?)
-		GROUP BY state`,
-		tr.EndUTC().Format(sqliteDatetime),
-		tr.StartUTC().Format(sqliteDatetime),
-		tr.EndUTC().Format(sqliteDatetime),
-		tr.StartUTC().Format(sqliteDatetime),
-	)
+		SELECT a.state,
+			CAST(ROUND(SUM(MAX(0,
+				(julianday(MIN(COALESCE(a.ended_at, e.ended_at, datetime('now')), COALESCE(e.ended_at, datetime('now')), ?)) -
+				 julianday(MAX(a.started_at, ?))) * 86400
+			))) AS INTEGER) AS total_seconds
+		FROM execution_activity a
+		JOIN executions e ON e.id = a.execution_id
+		WHERE a.started_at < ?
+		  AND MIN(COALESCE(a.ended_at, e.ended_at, datetime('now')), COALESCE(e.ended_at, datetime('now'))) > ?
+		GROUP BY a.state`,
+		tr.EndUTC().Format(sqliteDatetime), tr.StartUTC().Format(sqliteDatetime),
+		tr.EndUTC().Format(sqliteDatetime), tr.StartUTC().Format(sqliteDatetime))
 	if err != nil {
 		return DurationResult{}, err
 	}
 	defer rows.Close()
-
 	var result DurationResult
 	for rows.Next() {
 		var state string
-		var totalSeconds int64
-		if err := rows.Scan(&state, &totalSeconds); err != nil {
+		var seconds int64
+		if err := rows.Scan(&state, &seconds); err != nil {
 			return DurationResult{}, err
 		}
-		d := time.Duration(totalSeconds) * time.Second
-		switch state {
-		case "working":
-			result.Working = d
-		case "waiting":
-			result.Waiting = d
+		if state == ActivityWorking {
+			result.Working = time.Duration(seconds) * time.Second
+		}
+		if state == ActivityWaiting {
+			result.Waiting = time.Duration(seconds) * time.Second
 		}
 	}
 	return result, rows.Err()
@@ -170,53 +160,45 @@ func (s *Store) QueryDailyBreakdown(ctx context.Context, tr ReportRange) ([]DayE
 // within the time range.
 func (s *Store) QueryTaskBreakdown(ctx context.Context, tr ReportRange) ([]TaskDuration, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT task_id, state,
-			SUM(
-				CAST(ROUND(
-					MAX(0,
-						(julianday(MIN(COALESCE(ended_at, datetime('now')), ?)) -
-						 julianday(MAX(started_at, ?))) * 86400
-					)) AS INTEGER
-				)
-			) as total_seconds
-		FROM state_intervals
-		WHERE started_at < ? AND (ended_at IS NULL OR ended_at > ?)
-		GROUP BY task_id, state`,
-		tr.EndUTC().Format(sqliteDatetime),
-		tr.StartUTC().Format(sqliteDatetime),
-		tr.EndUTC().Format(sqliteDatetime),
-		tr.StartUTC().Format(sqliteDatetime),
-	)
+		SELECT e.task_id, a.state,
+			CAST(ROUND(SUM(MAX(0,
+				(julianday(MIN(COALESCE(a.ended_at, e.ended_at, datetime('now')), COALESCE(e.ended_at, datetime('now')), ?)) -
+				 julianday(MAX(a.started_at, ?))) * 86400
+			))) AS INTEGER) AS total_seconds
+		FROM execution_activity a
+		JOIN executions e ON e.id = a.execution_id
+		WHERE e.task_id IS NOT NULL AND a.started_at < ?
+		  AND MIN(COALESCE(a.ended_at, e.ended_at, datetime('now')), COALESCE(e.ended_at, datetime('now'))) > ?
+		GROUP BY e.task_id, a.state`,
+		tr.EndUTC().Format(sqliteDatetime), tr.StartUTC().Format(sqliteDatetime),
+		tr.EndUTC().Format(sqliteDatetime), tr.StartUTC().Format(sqliteDatetime))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	taskMap := make(map[string]*TaskDuration)
+	byTask := map[string]*TaskDuration{}
 	for rows.Next() {
 		var taskID, state string
-		var totalSeconds int64
-		if err := rows.Scan(&taskID, &state, &totalSeconds); err != nil {
+		var seconds int64
+		if err := rows.Scan(&taskID, &state, &seconds); err != nil {
 			return nil, err
 		}
-		if taskMap[taskID] == nil {
-			taskMap[taskID] = &TaskDuration{TaskID: taskID}
+		if byTask[taskID] == nil {
+			byTask[taskID] = &TaskDuration{TaskID: taskID}
 		}
-		d := time.Duration(totalSeconds) * time.Second
-		switch state {
-		case "working":
-			taskMap[taskID].Working = d
-		case "waiting":
-			taskMap[taskID].Waiting = d
+		if state == ActivityWorking {
+			byTask[taskID].Working = time.Duration(seconds) * time.Second
+		}
+		if state == ActivityWaiting {
+			byTask[taskID].Waiting = time.Duration(seconds) * time.Second
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-
-	result := make([]TaskDuration, 0, len(taskMap))
-	for _, td := range taskMap {
-		result = append(result, *td)
+	result := make([]TaskDuration, 0, len(byTask))
+	for _, item := range byTask {
+		result = append(result, *item)
 	}
 	return result, nil
 }
@@ -269,101 +251,57 @@ func (s *Store) QueryThroughput(ctx context.Context, tr ReportRange) (Throughput
 
 // QueryWorkspaceBreakdown returns duration and task count metrics grouped by workspace.
 func (s *Store) QueryWorkspaceBreakdown(ctx context.Context, tr ReportRange) ([]WorkspaceBreakdown, error) {
-	startFmt := tr.StartUTC().Format(sqliteDatetime)
-	endFmt := tr.EndUTC().Format(sqliteDatetime)
-
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT t.workspace_id, COALESCE(w.name, 'Unassigned') as workspace_name,
-			si.state,
-			SUM(
-				CAST(ROUND(
-					MAX(0,
-						(julianday(MIN(COALESCE(si.ended_at, datetime('now')), ?)) -
-						 julianday(MAX(si.started_at, ?))) * 86400
-					)) AS INTEGER
-				)
-			) as total_seconds
-		FROM state_intervals si
-		JOIN tasks t ON si.task_id = t.id
-		LEFT JOIN workspaces w ON t.workspace_id = w.id
-		WHERE si.started_at < ? AND (si.ended_at IS NULL OR si.ended_at > ?)
-		GROUP BY t.workspace_id, si.state`,
-		endFmt, startFmt, endFmt, startFmt,
-	)
+		SELECT t.workspace_id, COALESCE(w.name, 'Unassigned'), a.state,
+			CAST(ROUND(SUM(MAX(0,
+				(julianday(MIN(COALESCE(a.ended_at, e.ended_at, datetime('now')), COALESCE(e.ended_at, datetime('now')), ?)) -
+				 julianday(MAX(a.started_at, ?))) * 86400))) AS INTEGER),
+			COUNT(DISTINCT e.task_id)
+		FROM execution_activity a
+		JOIN executions e ON e.id=a.execution_id
+		JOIN tasks t ON t.id=e.task_id
+		LEFT JOIN workspaces w ON w.id=t.workspace_id
+		WHERE a.started_at < ? AND MIN(COALESCE(a.ended_at,e.ended_at,datetime('now')),COALESCE(e.ended_at,datetime('now'))) > ?
+		GROUP BY t.workspace_id, a.state`, tr.EndUTC().Format(sqliteDatetime), tr.StartUTC().Format(sqliteDatetime), tr.EndUTC().Format(sqliteDatetime), tr.StartUTC().Format(sqliteDatetime))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	// Use workspace_id string as map key to avoid name collisions (e.g. user-created "Unassigned")
-	wsIDKey := func(id *int) string {
+	key := func(id *int) string {
 		if id == nil {
 			return "<nil>"
 		}
-		return fmt.Sprintf("%d", *id)
+		return fmt.Sprint(*id)
 	}
-
-	wsMap := make(map[string]*WorkspaceBreakdown)
+	items := map[string]*WorkspaceBreakdown{}
 	for rows.Next() {
-		var wsID *int
-		var wsName, state string
-		var totalSeconds int64
-		if err := rows.Scan(&wsID, &wsName, &state, &totalSeconds); err != nil {
+		var id *int
+		var name, state string
+		var seconds int64
+		var count int
+		if err := rows.Scan(&id, &name, &state, &seconds, &count); err != nil {
 			return nil, err
 		}
-		key := wsIDKey(wsID)
-		if wsMap[key] == nil {
-			wsMap[key] = &WorkspaceBreakdown{
-				WorkspaceID:   wsID,
-				WorkspaceName: wsName,
-			}
+		k := key(id)
+		if items[k] == nil {
+			items[k] = &WorkspaceBreakdown{WorkspaceID: id, WorkspaceName: name}
 		}
-		d := time.Duration(totalSeconds) * time.Second
-		switch state {
-		case "working":
-			wsMap[key].Working = d
-		case "waiting":
-			wsMap[key].Waiting = d
+		if state == ActivityWorking {
+			items[k].Working = time.Duration(seconds) * time.Second
+		}
+		if state == ActivityWaiting {
+			items[k].Waiting = time.Duration(seconds) * time.Second
+		}
+		if count > items[k].TaskCount {
+			items[k].TaskCount = count
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-
-	// Count distinct tasks per workspace in the range
-	countRows, err := s.db.QueryContext(ctx, `
-		SELECT t.workspace_id,
-			COUNT(DISTINCT si.task_id) as task_count
-		FROM state_intervals si
-		JOIN tasks t ON si.task_id = t.id
-		LEFT JOIN workspaces w ON t.workspace_id = w.id
-		WHERE si.started_at < ? AND (si.ended_at IS NULL OR si.ended_at > ?)
-		GROUP BY t.workspace_id`,
-		endFmt, startFmt,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer countRows.Close()
-
-	for countRows.Next() {
-		var wsID *int
-		var count int
-		if err := countRows.Scan(&wsID, &count); err != nil {
-			return nil, err
-		}
-		key := wsIDKey(wsID)
-		if ws := wsMap[key]; ws != nil {
-			ws.TaskCount = count
-		}
-	}
-	if err := countRows.Err(); err != nil {
-		return nil, err
-	}
-
-	result := make([]WorkspaceBreakdown, 0, len(wsMap))
-	for _, ws := range wsMap {
-		result = append(result, *ws)
+	result := make([]WorkspaceBreakdown, 0, len(items))
+	for _, v := range items {
+		result = append(result, *v)
 	}
 	return result, nil
 }
@@ -372,85 +310,44 @@ func (s *Store) QueryWorkspaceBreakdown(ctx context.Context, tr ReportRange) ([]
 // directory within the time range. Per-interval working_dir takes precedence;
 // if NULL for older rows, falls back to the task's swarm_working_dir.
 func (s *Store) QueryDirectoryBreakdown(ctx context.Context, tr ReportRange) ([]DirectoryBreakdown, error) {
-	startFmt := tr.StartUTC().Format(sqliteDatetime)
-	endFmt := tr.EndUTC().Format(sqliteDatetime)
-
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT COALESCE(si.working_dir, t.swarm_working_dir, 'Unknown') as dir,
-			si.state,
-			SUM(
-				CAST(ROUND(
-					MAX(0,
-						(julianday(MIN(COALESCE(si.ended_at, datetime('now')), ?)) -
-						 julianday(MAX(si.started_at, ?))) * 86400
-					)) AS INTEGER
-				)
-			) as total_seconds
-		FROM state_intervals si
-		JOIN tasks t ON si.task_id = t.id
-		WHERE si.started_at < ? AND (si.ended_at IS NULL OR si.ended_at > ?)
-		GROUP BY dir, si.state`,
-		endFmt, startFmt, endFmt, startFmt,
-	)
+		SELECT COALESCE(NULLIF(a.working_dir,''), NULLIF(e.working_dir,''), 'Unknown'), a.state,
+			CAST(ROUND(SUM(MAX(0,(julianday(MIN(COALESCE(a.ended_at,e.ended_at,datetime('now')),COALESCE(e.ended_at,datetime('now')),?))-julianday(MAX(a.started_at,?)))*86400))) AS INTEGER),
+			COUNT(DISTINCT COALESCE(e.task_id,e.id))
+		FROM execution_activity a JOIN executions e ON e.id=a.execution_id
+		WHERE a.started_at < ? AND MIN(COALESCE(a.ended_at,e.ended_at,datetime('now')),COALESCE(e.ended_at,datetime('now'))) > ?
+		GROUP BY 1,a.state`, tr.EndUTC().Format(sqliteDatetime), tr.StartUTC().Format(sqliteDatetime), tr.EndUTC().Format(sqliteDatetime), tr.StartUTC().Format(sqliteDatetime))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	dirMap := make(map[string]*DirectoryBreakdown)
+	items := map[string]*DirectoryBreakdown{}
 	for rows.Next() {
 		var dir, state string
-		var totalSeconds int64
-		if err := rows.Scan(&dir, &state, &totalSeconds); err != nil {
+		var seconds int64
+		var count int
+		if err := rows.Scan(&dir, &state, &seconds, &count); err != nil {
 			return nil, err
 		}
-		if dirMap[dir] == nil {
-			dirMap[dir] = &DirectoryBreakdown{Directory: dir}
+		if items[dir] == nil {
+			items[dir] = &DirectoryBreakdown{Directory: dir}
 		}
-		d := time.Duration(totalSeconds) * time.Second
-		switch state {
-		case "working":
-			dirMap[dir].Working = d
-		case "waiting":
-			dirMap[dir].Waiting = d
+		if state == ActivityWorking {
+			items[dir].Working = time.Duration(seconds) * time.Second
+		}
+		if state == ActivityWaiting {
+			items[dir].Waiting = time.Duration(seconds) * time.Second
+		}
+		if count > items[dir].TaskCount {
+			items[dir].TaskCount = count
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-
-	// Count distinct tasks per directory in the range
-	countRows, err := s.db.QueryContext(ctx, `
-		SELECT COALESCE(si.working_dir, t.swarm_working_dir, 'Unknown') as dir,
-			COUNT(DISTINCT si.task_id) as task_count
-		FROM state_intervals si
-		JOIN tasks t ON si.task_id = t.id
-		WHERE si.started_at < ? AND (si.ended_at IS NULL OR si.ended_at > ?)
-		GROUP BY dir`,
-		endFmt, startFmt,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer countRows.Close()
-
-	for countRows.Next() {
-		var dir string
-		var count int
-		if err := countRows.Scan(&dir, &count); err != nil {
-			return nil, err
-		}
-		if d := dirMap[dir]; d != nil {
-			d.TaskCount = count
-		}
-	}
-	if err := countRows.Err(); err != nil {
-		return nil, err
-	}
-
-	result := make([]DirectoryBreakdown, 0, len(dirMap))
-	for _, d := range dirMap {
-		result = append(result, *d)
+	result := make([]DirectoryBreakdown, 0, len(items))
+	for _, v := range items {
+		result = append(result, *v)
 	}
 	return result, nil
 }
@@ -461,154 +358,67 @@ func (s *Store) QueryDirectoryBreakdown(ctx context.Context, tr ReportRange) ([]
 // has been deleted are skipped. Only swarms with non-zero working or waiting
 // time in the range are returned.
 func (s *Store) QuerySwarmBreakdown(ctx context.Context, tr ReportRange) ([]SwarmBreakdown, error) {
-	startFmt := tr.StartUTC().Format(sqliteDatetime)
-	endFmt := tr.EndUTC().Format(sqliteDatetime)
-
-	// Identify swarms (parents with >=1 subtask) and collect subtask counts
-	type swarmMeta struct {
-		parentID     string
-		title        string
-		subtaskCount int
-	}
-	var swarms []swarmMeta
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT s.parent_task_id,
-			COALESCE(t.title, '') as title,
-			COUNT(*) as subtask_count
-		FROM swarm_subtasks s
-		JOIN tasks t ON s.parent_task_id = t.id
-		GROUP BY s.parent_task_id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT e.swarm_id,COALESCE(e.swarm_subtask_id,''),a.state,MAX(a.started_at,?),MIN(COALESCE(a.ended_at,e.ended_at,datetime('now')),COALESCE(e.ended_at,datetime('now')),?)
+		FROM execution_activity a JOIN executions e ON e.id=a.execution_id
+		JOIN tasks parent ON parent.id=e.swarm_id
+		WHERE e.swarm_id IS NOT NULL AND a.started_at < ? AND MIN(COALESCE(a.ended_at,e.ended_at,datetime('now')),COALESCE(e.ended_at,datetime('now'))) > ?`, tr.StartUTC().Format(sqliteDatetime), tr.EndUTC().Format(sqliteDatetime), tr.EndUTC().Format(sqliteDatetime), tr.StartUTC().Format(sqliteDatetime))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
+	type agg struct {
+		working, waiting time.Duration
+		workers          map[string]struct{}
+		intervals        []interval
+	}
+	items := map[string]*agg{}
 	for rows.Next() {
-		var m swarmMeta
-		if err := rows.Scan(&m.parentID, &m.title, &m.subtaskCount); err != nil {
+		var parent, subtask, state, startRaw, endRaw string
+		if err := rows.Scan(&parent, &subtask, &state, &startRaw, &endRaw); err != nil {
 			return nil, err
 		}
-		swarms = append(swarms, m)
+		start, err := time.Parse(sqliteDatetime, startRaw)
+		if err != nil {
+			return nil, err
+		}
+		end, err := time.Parse(sqliteDatetime, endRaw)
+		if err != nil {
+			return nil, err
+		}
+		if !end.After(start) {
+			continue
+		}
+		if items[parent] == nil {
+			items[parent] = &agg{workers: map[string]struct{}{}}
+		}
+		d := end.Sub(start)
+		if state == ActivityWorking {
+			items[parent].working += d
+		} else if state == ActivityWaiting {
+			items[parent].waiting += d
+		}
+		if subtask != "" {
+			items[parent].workers[subtask] = struct{}{}
+		}
+		items[parent].intervals = append(items[parent].intervals, interval{start: start, end: end})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-
-	if len(swarms) == 0 {
-		return nil, nil
+	result := []SwarmBreakdown{}
+	for parent, a := range items {
+		var title string
+		_ = s.db.GetContext(ctx, &title, `SELECT title FROM tasks WHERE id=?`, parent)
+		var count int
+		_ = s.db.GetContext(ctx, &count, `SELECT COUNT(*) FROM swarm_subtasks WHERE parent_task_id=?`, parent)
+		wall := unionDuration(a.intervals)
+		ratio := 0.0
+		if wall > 0 {
+			ratio = float64(a.working+a.waiting) / float64(wall)
+		}
+		result = append(result, SwarmBreakdown{ParentTaskID: parent, Title: title, Working: a.working, Waiting: a.waiting, WallClock: wall, ParallelRatio: ratio, WorkerCount: len(a.workers), SubtaskCount: count})
 	}
-
-	// Fetch every clipped interval for every swarm, then aggregate in Go.
-	// This lets us compute wall-clock as the *union* of all intervals
-	// rather than simply span(end) - span(start) which includes idle gaps.
-	resRows, err := s.db.QueryContext(ctx, `
-		WITH swarm_tasks(parent_task_id, task_id, is_subtask) AS (
-			SELECT parent_task_id, id, 1 FROM swarm_subtasks
-			UNION ALL
-			SELECT t.id, t.id, 0 FROM tasks t
-			WHERE t.id IN (SELECT parent_task_id FROM swarm_subtasks)
-		)
-		SELECT
-			st.parent_task_id,
-			st.is_subtask,
-			si.task_id,
-			si.state,
-			MAX(si.started_at, ?) as eff_start,
-			MIN(COALESCE(si.ended_at, datetime('now')), ?) as eff_end
-		FROM swarm_tasks st
-		JOIN state_intervals si ON si.task_id = st.task_id
-		WHERE si.started_at < ? AND (si.ended_at IS NULL OR si.ended_at > ?)`,
-		startFmt, endFmt, endFmt, startFmt)
-	if err != nil {
-		return nil, err
-	}
-	defer resRows.Close()
-
-	var rawIntervals []interval
-
-	for resRows.Next() {
-		var iv interval
-		var effStart, effEnd string
-		if err := resRows.Scan(&iv.parentID, &iv.isSubtask, &iv.taskID, &iv.state, &effStart, &effEnd); err != nil {
-			return nil, err
-		}
-
-		start, err := time.Parse(sqliteDatetime, effStart)
-		if err != nil {
-			return nil, fmt.Errorf("parsing eff_start: %w", err)
-		}
-		end, err := time.Parse(sqliteDatetime, effEnd)
-		if err != nil {
-			return nil, fmt.Errorf("parsing eff_end: %w", err)
-		}
-		if end.After(start) {
-			iv.start = start
-			iv.end = end
-			rawIntervals = append(rawIntervals, iv)
-		}
-	}
-	if err := resRows.Err(); err != nil {
-		return nil, err
-	}
-
-	// Aggregate in Go per swarm.
-	type swarmAgg struct {
-		working       time.Duration
-		waiting       time.Duration
-		workerTaskIDs map[string]struct{}
-		intervals     []interval
-	}
-	perSwarm := make(map[string]*swarmAgg)
-	for _, iv := range rawIntervals {
-		agg, ok := perSwarm[iv.parentID]
-		if !ok {
-			agg = &swarmAgg{workerTaskIDs: make(map[string]struct{})}
-			perSwarm[iv.parentID] = agg
-		}
-		d := iv.end.Sub(iv.start)
-		switch iv.state {
-		case "working":
-			agg.working += d
-		case "waiting":
-			agg.waiting += d
-		}
-		if iv.isSubtask {
-			agg.workerTaskIDs[iv.taskID] = struct{}{}
-		}
-		agg.intervals = append(agg.intervals, iv)
-	}
-
-	// Build final SwarmBreakdowns
-	result := make([]SwarmBreakdown, 0, len(swarms))
-	for _, sw := range swarms {
-		agg := perSwarm[sw.parentID]
-		if agg == nil {
-			continue
-		}
-		totalDur := agg.working + agg.waiting
-		if totalDur == 0 {
-			continue
-		}
-		wc := unionDuration(agg.intervals)
-		var ratio float64
-		if wc > 0 {
-			ratio = float64(totalDur) / float64(wc)
-		}
-		result = append(result, SwarmBreakdown{
-			ParentTaskID:  sw.parentID,
-			Title:         sw.title,
-			Working:       agg.working,
-			Waiting:       agg.waiting,
-			WallClock:     wc,
-			ParallelRatio: ratio,
-			WorkerCount:   len(agg.workerTaskIDs),
-			SubtaskCount:  sw.subtaskCount,
-		})
-	}
-
-	// Sort by Working descending
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Working > result[j].Working
-	})
+	sort.Slice(result, func(i, j int) bool { return result[i].Working > result[j].Working })
 	return result, nil
 }
 

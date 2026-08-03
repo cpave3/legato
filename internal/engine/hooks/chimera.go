@@ -330,9 +330,10 @@ func chimeraAgentStateScript(legatoBin, event, activity string) string {
 # Called by Chimera's hook system to update agent activity state.
 
 [ -z "$LEGATO_TASK_ID" ] && exit 0
+[ -z "$LEGATO_EXECUTION_ID" ] && exit 1
 [ -z "$CHIMERA_SESSION_ID" ] && exit 0
 
-%s agent state "$LEGATO_TASK_ID" --activity "%s" --working-dir "$PWD" --session-id "$CHIMERA_SESSION_ID" --event "%s"
+%s agent state "$LEGATO_TASK_ID" --execution-id "$LEGATO_EXECUTION_ID" --activity "%s" --working-dir "$PWD" --session-id "$CHIMERA_SESSION_ID" --event "%s"
 exit 0
 `, legatoBin, activity, event)
 }

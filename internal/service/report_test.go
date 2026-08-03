@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"path/filepath"
 	"testing"
@@ -23,10 +24,40 @@ func newTestStoreForReport(t *testing.T) *store.Store {
 	return s
 }
 
+var reportExecutionID int
+
+func seedReportExecution(t *testing.T, s *store.Store, executionTaskID, state string, start, end time.Time) {
+	t.Helper()
+	reportExecutionID++
+	ctx := context.Background()
+	kind, taskID, swarmID, subtaskID := store.ExecutionInteractive, executionTaskID, "", ""
+	if subtask, err := s.GetSubtask(ctx, executionTaskID); err == nil {
+		kind, taskID, swarmID, subtaskID = store.ExecutionSwarmWorker, subtask.ParentTaskID, subtask.ParentTaskID, executionTaskID
+	} else {
+		var subtaskCount int
+		if err := s.DB().Get(&subtaskCount, `SELECT COUNT(*) FROM swarm_subtasks WHERE parent_task_id = ?`, executionTaskID); err == nil && subtaskCount > 0 {
+			kind, swarmID = store.ExecutionSwarmConductor, executionTaskID
+		}
+	}
+	workingDir := ""
+	if task, err := s.GetTask(ctx, executionTaskID); err == nil && task.SwarmWorkingDir != nil {
+		workingDir = *task.SwarmWorkingDir
+	}
+	id := fmt.Sprintf("report-exec-%d", reportExecutionID)
+	if err := s.CreateExecution(ctx, store.Execution{ID: id, Kind: kind, Status: store.ExecutionRunning, TaskID: taskID, ExecutionTaskID: executionTaskID, TaskTitle: taskID, SwarmID: swarmID, SwarmSubtaskID: subtaskID, WorkingDir: workingDir, StartedAt: start}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordExecutionActivityAt(ctx, id, state, "", start); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.TerminalizeExecutionAt(ctx, id, store.ExecutionSucceeded, end); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReportService_GenerateReport(t *testing.T) {
 	s := newTestStoreForReport(t)
 	ctx := context.Background()
-	db := s.DB()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
 
@@ -54,28 +85,9 @@ func TestReportService_GenerateReport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Seed intervals
-	_, err = db.Exec(
-		"INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, ?, ?, ?)",
-		"t1", "working", base.Format("2006-01-02 15:04:05"),
-		base.Add(2*time.Hour).Format("2006-01-02 15:04:05"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(
-		"INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, ?, ?, ?)",
-		"t2", "working", base.Format("2006-01-02 15:04:05"),
-		base.Add(1*time.Hour).Format("2006-01-02 15:04:05"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec(
-		"INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, ?, ?, ?)",
-		"t2", "waiting", base.Add(1*time.Hour).Format("2006-01-02 15:04:05"),
-		base.Add(2*time.Hour).Format("2006-01-02 15:04:05"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	seedReportExecution(t, s, "t1", store.ActivityWorking, base, base.Add(2*time.Hour))
+	seedReportExecution(t, s, "t2", store.ActivityWorking, base, base.Add(time.Hour))
+	seedReportExecution(t, s, "t2", store.ActivityWaiting, base.Add(time.Hour), base.Add(2*time.Hour))
 
 	period := analytics.TimeRange{
 		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
@@ -121,7 +133,6 @@ func TestReportService_GenerateReport(t *testing.T) {
 func TestReportService_WithWorkspace(t *testing.T) {
 	s := newTestStoreForReport(t)
 	ctx := context.Background()
-	db := s.DB()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
 
@@ -155,14 +166,7 @@ func TestReportService_WithWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Seed interval
-	_, err = db.Exec(
-		"INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, ?, ?, ?)",
-		"t1", "working", base.Format("2006-01-02 15:04:05"),
-		base.Add(2*time.Hour).Format("2006-01-02 15:04:05"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	seedReportExecution(t, s, "t1", store.ActivityWorking, base, base.Add(2*time.Hour))
 
 	period := analytics.TimeRange{
 		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
@@ -213,7 +217,6 @@ func strPtr(s string) *string { return &s }
 func TestReportService_SwarmBreakdown(t *testing.T) {
 	s := newTestStoreForReport(t)
 	ctx := context.Background()
-	db := s.DB()
 
 	base := time.Date(2026, 3, 20, 10, 0, 0, 0, time.UTC)
 
@@ -257,22 +260,9 @@ func TestReportService_SwarmBreakdown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Intervals: conductor working 1h, worker1 working 2h, worker2 waiting 30m
-	_, err = db.Exec("INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, ?, ?, ?)",
-		"parent-1", "working", base.Format("2006-01-02 15:04:05"), base.Add(1*time.Hour).Format("2006-01-02 15:04:05"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec("INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, ?, ?, ?)",
-		"st-w1", "working", base.Format("2006-01-02 15:04:05"), base.Add(2*time.Hour).Format("2006-01-02 15:04:05"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = db.Exec("INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, ?, ?, ?)",
-		"st-w2", "waiting", base.Format("2006-01-02 15:04:05"), base.Add(30*time.Minute).Format("2006-01-02 15:04:05"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	seedReportExecution(t, s, "parent-1", store.ActivityWorking, base, base.Add(time.Hour))
+	seedReportExecution(t, s, "st-w1", store.ActivityWorking, base, base.Add(2*time.Hour))
+	seedReportExecution(t, s, "st-w2", store.ActivityWaiting, base, base.Add(30*time.Minute))
 
 	period := analytics.TimeRange{
 		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),

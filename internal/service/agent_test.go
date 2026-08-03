@@ -416,7 +416,7 @@ func TestKillAgentDestroysSessionAndUpdatesDB(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Record a working interval so we can verify it gets closed on kill
-	if err := s.RecordStateTransition(ctx, "REX-1238", "working", ""); err != nil {
+	if err := svc.SetAgentActivity(ctx, "REX-1238", "working", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -441,7 +441,7 @@ func TestKillAgentDestroysSessionAndUpdatesDB(t *testing.T) {
 	// Any open intervals for the killed task should now be closed
 	var openCount int
 	if err := s.DB().QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM state_intervals WHERE task_id = ? AND ended_at IS NULL", "REX-1238").Scan(&openCount); err != nil {
+		"SELECT COUNT(*) FROM execution_activity a JOIN executions e ON e.id=a.execution_id WHERE e.execution_task_id = ? AND a.ended_at IS NULL", "REX-1238").Scan(&openCount); err != nil {
 		t.Fatal(err)
 	}
 	if openCount != 0 {
@@ -520,7 +520,7 @@ func TestSpawnAgentWithStaleDBSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Record a working interval so we can verify it gets closed during stale cleanup
-	if err := s.RecordStateTransition(ctx, "REX-1238", "working", ""); err != nil {
+	if err := svc.SetAgentActivity(ctx, "REX-1238", "working", ""); err != nil {
 		t.Fatal(err)
 	}
 	// Kill tmux session externally (DB still says "running")
@@ -539,11 +539,10 @@ func TestSpawnAgentWithStaleDBSession(t *testing.T) {
 	// Any open intervals from the stale session should now be closed
 	var openCount int
 	if err := s.DB().QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM state_intervals WHERE task_id = ? AND ended_at IS NULL", "REX-1238").Scan(&openCount); err != nil {
+		"SELECT COUNT(*) FROM execution_activity a JOIN executions e ON e.id=a.execution_id WHERE e.execution_task_id = ? AND a.ended_at IS NULL", "REX-1238").Scan(&openCount); err != nil {
 		t.Fatal(err)
 	}
-	// The stale interval was closed by RecordStateTransition and the re-spawn will have opened
-	// a new one. We just need to verify there aren't multiple open intervals leaking.
+	// The stale execution was terminalized before the replacement was created.
 	if openCount > 1 {
 		t.Errorf("expected at most 1 open interval after stale-session re-spawn, got %d", openCount)
 	}
@@ -625,8 +624,9 @@ func TestSpawnAgentSkipsEnvVarsWithoutAdapter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(mt.envVarsFor("legato-task2")) != 0 {
-		t.Errorf("expected no env vars without adapter, got %v", mt.envVarsFor("legato-task2"))
+	env := mt.envVarsFor("legato-task2")
+	if len(env) != 1 || env["LEGATO_EXECUTION_ID"] == "" {
+		t.Errorf("expected only durable execution identity without adapter, got %v", env)
 	}
 }
 
@@ -809,7 +809,7 @@ func TestReconcileClosesOrphanedIntervals(t *testing.T) {
 	}
 
 	// Record a working interval
-	if err := s.RecordStateTransition(ctx, "REX-1238", "working", ""); err != nil {
+	if err := svc.SetAgentActivity(ctx, "REX-1238", "working", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -833,11 +833,25 @@ func TestReconcileClosesOrphanedIntervals(t *testing.T) {
 	// Verify no open intervals remain
 	var openCount int
 	if err := s.DB().GetContext(ctx, &openCount,
-		"SELECT COUNT(*) FROM state_intervals WHERE task_id = ? AND ended_at IS NULL", "REX-1238"); err != nil {
+		"SELECT COUNT(*) FROM execution_activity a JOIN executions e ON e.id=a.execution_id WHERE e.execution_task_id = ? AND a.ended_at IS NULL", "REX-1238"); err != nil {
 		t.Fatal(err)
 	}
 	if openCount != 0 {
 		t.Errorf("got %d open intervals, want 0 after reconcile", openCount)
+	}
+}
+
+func seedAgentTestExecution(t *testing.T, s *store.Store, id, taskID, state string, start, end time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	if err := s.CreateExecution(ctx, store.Execution{ID: id, Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: taskID, ExecutionTaskID: taskID, TaskTitle: taskID, StartedAt: start}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordExecutionActivityAt(ctx, id, state, "", start); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.TerminalizeExecutionAt(ctx, id, store.ExecutionSucceeded, end); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -847,16 +861,10 @@ func TestGetTaskDurations(t *testing.T) {
 	createTask(t, s, "task1")
 	createTask(t, s, "task2")
 
-	// Insert intervals with known durations directly
-	s.DB().ExecContext(ctx,
-		"INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, 'working', datetime('now', '-60 seconds'), datetime('now', '-30 seconds'))",
-		"task1")
-	s.DB().ExecContext(ctx,
-		"INSERT INTO state_intervals (task_id, state, started_at) VALUES (?, 'waiting', datetime('now', '-10 seconds'))",
-		"task1")
-	s.DB().ExecContext(ctx,
-		"INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES (?, 'working', datetime('now', '-120 seconds'), datetime('now', '-60 seconds'))",
-		"task2")
+	start := time.Now().UTC().Add(-2 * time.Minute)
+	seedAgentTestExecution(t, s, "exec-task1-work", "task1", store.ActivityWorking, start, start.Add(30*time.Second))
+	seedAgentTestExecution(t, s, "exec-task1-wait", "task1", store.ActivityWaiting, start.Add(40*time.Second), start.Add(50*time.Second))
+	seedAgentTestExecution(t, s, "exec-task2-work", "task2", store.ActivityWorking, start, start.Add(time.Minute))
 
 	result, err := svc.GetTaskDurations(ctx, []string{"task1", "task2"})
 	if err != nil {
@@ -1285,15 +1293,9 @@ func TestGetStateTimelineReturnsBuckets(t *testing.T) {
 	ctx := context.Background()
 	createTask(t, s, "task1")
 
-	// Seed intervals via the store's direct SQL (same as store tests).
-	_, err := s.DB().ExecContext(ctx, `
-		INSERT INTO state_intervals (task_id, state, started_at, ended_at) VALUES
-		(?, 'working', datetime('now', '-6 minutes'), datetime('now', '-4 minutes')),
-		(?, 'waiting', datetime('now', '-4 minutes'), datetime('now', '-2 minutes'))`,
-		"task1", "task1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	now := time.Now().UTC()
+	seedAgentTestExecution(t, s, "exec-timeline-work", "task1", store.ActivityWorking, now.Add(-6*time.Minute), now.Add(-4*time.Minute))
+	seedAgentTestExecution(t, s, "exec-timeline-wait", "task1", store.ActivityWaiting, now.Add(-4*time.Minute), now.Add(-2*time.Minute))
 
 	window := 6 * time.Minute
 	buckets := 3

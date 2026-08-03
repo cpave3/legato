@@ -8,215 +8,130 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// LatestTaskWorkingDir returns the newest non-empty repository directory
-// recorded for a task's agent activity.
+// LatestTaskWorkingDir returns the newest non-empty directory recorded by an
+// execution attributed to the task.
 func (s *Store) LatestTaskWorkingDir(ctx context.Context, taskID string) (string, error) {
 	var dir string
 	err := s.db.GetContext(ctx, &dir, `
-		SELECT working_dir FROM state_intervals
-		WHERE task_id = ? AND working_dir IS NOT NULL AND working_dir != ''
-		ORDER BY id DESC LIMIT 1`, taskID)
+		SELECT COALESCE(a.working_dir, e.working_dir)
+		FROM executions e
+		LEFT JOIN execution_activity a ON a.execution_id = e.id
+		WHERE e.task_id = ?
+		  AND COALESCE(a.working_dir, e.working_dir) != ''
+		ORDER BY COALESCE(a.started_at, e.started_at) DESC LIMIT 1`, taskID)
 	if err == sql.ErrNoRows {
 		return "", ErrNotFound
 	}
 	return dir, err
 }
 
-func (s *Store) RecordStateTransition(ctx context.Context, taskID, state, workingDir string) error {
-	var current StateInterval
-	err := s.db.GetContext(ctx, &current,
-		"SELECT * FROM state_intervals WHERE task_id = ? AND ended_at IS NULL", taskID)
-
-	hasOpen := err == nil
-	if err != nil && err != sql.ErrNoRows {
-		return err
-	}
-
-	if hasOpen && current.State == state {
-		return nil
-	}
-
-	if hasOpen {
-		_, err := s.db.ExecContext(ctx,
-			"UPDATE state_intervals SET ended_at = datetime('now') WHERE id = ?", current.ID)
-		if err != nil {
-			return err
-		}
-	}
-
-	if state != "" {
-		if workingDir != "" {
-			_, err := s.db.ExecContext(ctx,
-				"INSERT INTO state_intervals (task_id, state, working_dir) VALUES (?, ?, ?)",
-				taskID, state, workingDir)
-			if err != nil {
-				return err
-			}
-		} else {
-			_, err := s.db.ExecContext(ctx,
-				"INSERT INTO state_intervals (task_id, state) VALUES (?, ?)", taskID, state)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
+// GetStateDurations returns execution-bounded activity durations attributed to a task.
 func (s *Store) GetStateDurations(ctx context.Context, taskID string) (map[string]time.Duration, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT state,
-			SUM(
-				CAST((julianday(COALESCE(ended_at, datetime('now'))) - julianday(started_at)) * 86400 AS INTEGER)
-			) as total_seconds
-		FROM state_intervals
-		WHERE task_id = ?
-		GROUP BY state`, taskID)
+	batch, err := s.GetStateDurationsBatch(ctx, []string{taskID})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	result := make(map[string]time.Duration)
-	for rows.Next() {
-		var state string
-		var totalSeconds int64
-		if err := rows.Scan(&state, &totalSeconds); err != nil {
-			return nil, err
-		}
-		result[state] = time.Duration(totalSeconds) * time.Second
+	if batch[taskID] == nil {
+		return map[string]time.Duration{}, nil
 	}
-	return result, rows.Err()
+	return batch[taskID], nil
 }
 
-// GetStateTimeline returns a per-bucket state label sequence over the last
-// window. The task ID may be either a tasks.id or a swarm_subtasks.id —
-// state_intervals lost its FK in migration 021 so both are valid lookups.
+// GetStateTimeline returns the majority activity state in each bucket over the window.
 func (s *Store) GetStateTimeline(ctx context.Context, taskID string, window time.Duration, buckets int) ([]string, error) {
 	if buckets <= 0 {
 		return []string{}, nil
 	}
-
 	now := time.Now().UTC()
 	slotDuration := window / time.Duration(buckets)
+	windowStart := now.Add(-window)
 
 	var rows []struct {
 		State     string `db:"state"`
 		StartedAt int64  `db:"started_at"`
-		EndedAt   *int64 `db:"ended_at"`
+		EndedAt   int64  `db:"ended_at"`
 	}
 	err := s.db.SelectContext(ctx, &rows, `
-		SELECT state,
-			CAST(strftime('%s', started_at) AS INTEGER) as started_at,
-			CAST(strftime('%s', ended_at) AS INTEGER) as ended_at
-		FROM state_intervals
-		WHERE task_id = ?
-		ORDER BY started_at ASC`, taskID)
+		SELECT a.state,
+			CAST(strftime('%s', a.started_at) AS INTEGER) AS started_at,
+			CAST(strftime('%s', MIN(COALESCE(a.ended_at, e.ended_at, datetime('now')), COALESCE(e.ended_at, datetime('now')))) AS INTEGER) AS ended_at
+		FROM execution_activity a
+		JOIN executions e ON e.id = a.execution_id
+		WHERE e.task_id = ? AND a.started_at < ?
+		  AND MIN(COALESCE(a.ended_at, e.ended_at, datetime('now')), COALESCE(e.ended_at, datetime('now'))) > ?
+		ORDER BY a.started_at`, taskID, formatExecutionTime(now), formatExecutionTime(windowStart))
 	if err != nil {
 		return nil, err
 	}
-
-	type slotAcc struct {
-		working time.Duration
-		waiting time.Duration
-	}
+	type slotAcc struct{ working, waiting time.Duration }
 	acc := make([]slotAcc, buckets)
-
-	nowUnix := now.Unix()
-	for _, r := range rows {
-		var ended int64
-		if r.EndedAt != nil {
-			ended = *r.EndedAt
-		} else {
-			ended = nowUnix
-		}
-
-		for b := 0; b < buckets; b++ {
-			windowStart := nowUnix - int64(window.Seconds())
-			slotStart := windowStart + int64(b)*int64(slotDuration.Seconds())
-			slotEnd := slotStart + int64(slotDuration.Seconds())
-
-			// Interval is entirely before window
-			if ended <= windowStart {
+	for _, row := range rows {
+		start := time.Unix(row.StartedAt, 0)
+		end := time.Unix(row.EndedAt, 0)
+		for i := range acc {
+			slotStart := windowStart.Add(time.Duration(i) * slotDuration)
+			slotEnd := slotStart.Add(slotDuration)
+			effectiveStart, effectiveEnd := start, end
+			if effectiveStart.Before(slotStart) {
+				effectiveStart = slotStart
+			}
+			if effectiveEnd.After(slotEnd) {
+				effectiveEnd = slotEnd
+			}
+			if !effectiveEnd.After(effectiveStart) {
 				continue
 			}
-			// Interval is entirely after window
-			if r.StartedAt >= nowUnix {
-				continue
-			}
-
-			interStart := r.StartedAt
-			if interStart < slotStart {
-				interStart = slotStart
-			}
-			interEnd := ended
-			if interEnd > slotEnd {
-				interEnd = slotEnd
-			}
-			if interEnd <= interStart {
-				continue
-			}
-
-			dur := time.Duration(interEnd-interStart) * time.Second
-			switch r.State {
-			case "working":
-				acc[b].working += dur
-			case "waiting":
-				acc[b].waiting += dur
+			if row.State == ActivityWorking {
+				acc[i].working += effectiveEnd.Sub(effectiveStart)
+			} else if row.State == ActivityWaiting {
+				acc[i].waiting += effectiveEnd.Sub(effectiveStart)
 			}
 		}
 	}
-
-	timeline := make([]string, buckets)
-	for i := 0; i < buckets; i++ {
-		state := ""
+	result := make([]string, buckets)
+	for i := range acc {
 		if acc[i].working > acc[i].waiting {
-			state = "working"
+			result[i] = ActivityWorking
 		} else if acc[i].waiting > acc[i].working {
-			state = "waiting"
+			result[i] = ActivityWaiting
 		}
-		timeline[i] = state
 	}
-
-	return timeline, nil
+	return result, nil
 }
 
 func (s *Store) GetStateDurationsBatch(ctx context.Context, taskIDs []string) (map[string]map[string]time.Duration, error) {
 	if len(taskIDs) == 0 {
-		return make(map[string]map[string]time.Duration), nil
+		return map[string]map[string]time.Duration{}, nil
 	}
-
 	query, args, err := sqlx.In(`
-		SELECT task_id, state,
-			SUM(
-				CAST((julianday(COALESCE(ended_at, datetime('now'))) - julianday(started_at)) * 86400 AS INTEGER)
-			) as total_seconds
-		FROM state_intervals
-		WHERE task_id IN (?)
-		GROUP BY task_id, state`, taskIDs)
+		SELECT e.task_id, a.state,
+			CAST(ROUND(SUM(MAX(0,
+				(julianday(MIN(COALESCE(a.ended_at, e.ended_at, datetime('now')), COALESCE(e.ended_at, datetime('now')))) - julianday(a.started_at)) * 86400
+			))) AS INTEGER) AS total_seconds
+		FROM execution_activity a
+		JOIN executions e ON e.id = a.execution_id
+		WHERE e.task_id IN (?)
+		GROUP BY e.task_id, a.state`, taskIDs)
 	if err != nil {
 		return nil, err
 	}
 	query = s.db.Rebind(query)
-
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
 	result := make(map[string]map[string]time.Duration)
 	for rows.Next() {
 		var taskID, state string
-		var totalSeconds int64
-		if err := rows.Scan(&taskID, &state, &totalSeconds); err != nil {
+		var seconds int64
+		if err := rows.Scan(&taskID, &state, &seconds); err != nil {
 			return nil, err
 		}
 		if result[taskID] == nil {
-			result[taskID] = make(map[string]time.Duration)
+			result[taskID] = map[string]time.Duration{}
 		}
-		result[taskID][state] = time.Duration(totalSeconds) * time.Second
+		result[taskID][state] = time.Duration(seconds) * time.Second
 	}
 	return result, rows.Err()
 }

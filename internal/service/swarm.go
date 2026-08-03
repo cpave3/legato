@@ -598,12 +598,15 @@ func (s *swarmService) StartSwarm(ctx context.Context, parentID, workingDir stri
 	}
 
 	if err := s.agents.SpawnAgent(ctx, parentID, 0, 0, AgentSpawnOptions{
-		Role:         "conductor",
-		ParentTaskID: parentID,
-		WorkingDir:   workingDir,
-		AgentKind:    conductorAgent,
-		Tier:         s.cfg.ConductorTier,
-		Brief:        brief,
+		Role:              "conductor",
+		ParentTaskID:      parentID,
+		ExecutionKind:     store.ExecutionSwarmConductor,
+		AttributionTaskID: parentID,
+		SwarmID:           parentID,
+		WorkingDir:        workingDir,
+		AgentKind:         conductorAgent,
+		Tier:              s.cfg.ConductorTier,
+		Brief:             brief,
 	}); err != nil {
 		// Roll back the working dir on failure.
 		_ = s.store.SetTaskSwarmWorkingDir(ctx, parentID, nil)
@@ -986,15 +989,18 @@ func (s *swarmService) Dispatch(ctx context.Context, subtaskID string) error {
 	}
 
 	if err := s.agents.SpawnAgent(ctx, subtaskID, 0, 0, AgentSpawnOptions{
-		Role:         st.Role,
-		ParentTaskID: st.ParentTaskID,
-		SubtaskID:    subtaskID,
-		Scope:        scope,
-		WorkingDir:   workingDir,
-		AgentKind:    agentKind,
-		Tier:         st.Tier,
-		Brief:        brief,
-		StrictScope:  s.cfg.StrictScope,
+		Role:              st.Role,
+		ParentTaskID:      st.ParentTaskID,
+		SubtaskID:         subtaskID,
+		ExecutionKind:     store.ExecutionSwarmWorker,
+		AttributionTaskID: st.ParentTaskID,
+		SwarmID:           st.ParentTaskID,
+		Scope:             scope,
+		WorkingDir:        workingDir,
+		AgentKind:         agentKind,
+		Tier:              st.Tier,
+		Brief:             brief,
+		StrictScope:       s.cfg.StrictScope,
 	}); err != nil {
 		return fmt.Errorf("spawn worker: %w", err)
 	}

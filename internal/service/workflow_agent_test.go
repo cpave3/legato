@@ -50,7 +50,7 @@ func TestAgentRunExecutorLaunchesExplicitWorkflowAssignment(t *testing.T) {
 	agents := &fakeWorkflowAgentService{}
 	executor := NewAgentRunExecutor(agents, "/opt/legato current/legato")
 	result, err := executor.Start(context.Background(), ResolvedWorkflowStep{
-		RunID: "wr-1", AttemptID: "wa-1", TaskID: "task-1", StepID: "review", Type: "agent.run",
+		RunID: "wr-1", AttemptID: "wa-1", TaskID: "workflow-task", RelatedTaskID: "task-1", StepID: "review", Type: "agent.run",
 		With:    map[string]any{"name": "PR Review - 123", "agent": "chimera", "tier": "large", "working_dir": "/tmp/wt", "prompt": "Run 3-tier-review"},
 		Outputs: map[string]workflowengine.Output{"review": {Type: "file", Path: "review.md"}},
 	})
@@ -65,6 +65,9 @@ func TestAgentRunExecutorLaunchesExplicitWorkflowAssignment(t *testing.T) {
 	}
 	if agents.opts.ExtraEnv["LEGATO_WORKFLOW_RUN_ID"] != "wr-1" || agents.opts.WorkingDir != "/tmp/wt" || agents.opts.AgentKind != "chimera" {
 		t.Fatalf("opts = %+v", agents.opts)
+	}
+	if agents.opts.ExecutionKind != store.ExecutionWorkflowAgent || agents.opts.AttributionTaskID != "task-1" || agents.opts.WorkflowAttemptID != "wa-1" {
+		t.Fatalf("execution attribution = %+v", agents.opts)
 	}
 	if !strings.Contains(agents.opts.Assignment, "'/opt/legato current/legato' workflow step complete") {
 		t.Fatalf("assignment lacks exact callback binary: %s", agents.opts.Assignment)

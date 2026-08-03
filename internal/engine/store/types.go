@@ -1,6 +1,9 @@
 package store
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 // CodeContext identifies the local repository state associated with a task.
 type CodeContext struct {
@@ -310,18 +313,56 @@ type SyncLogEntry struct {
 	CreatedAt string `db:"created_at"`
 }
 
-type StateInterval struct {
-	ID         int     `db:"id"`
-	TaskID     string  `db:"task_id"`
-	State      string  `db:"state"`
-	StartedAt  string  `db:"started_at"`
-	EndedAt    *string `db:"ended_at"`
-	WorkingDir *string `db:"working_dir"`
+const (
+	ExecutionInteractive    = "interactive"
+	ExecutionWorkflowAgent  = "workflow_agent"
+	ExecutionSwarmConductor = "swarm_conductor"
+	ExecutionSwarmWorker    = "swarm_worker"
+
+	ExecutionRunning   = "running"
+	ExecutionSucceeded = "succeeded"
+	ExecutionFailed    = "failed"
+	ExecutionCancelled = "cancelled"
+	ExecutionLost      = "lost"
+
+	ActivityWorking = "working"
+	ActivityWaiting = "waiting"
+)
+
+// Execution is one independently startable and terminable unit of agent work.
+type Execution struct {
+	ID                string     `db:"id"`
+	Kind              string     `db:"kind"`
+	Status            string     `db:"status"`
+	TaskID            string     `db:"task_id"`
+	ExecutionTaskID   string     `db:"execution_task_id"`
+	TaskTitle         string     `db:"task_title"`
+	WorkflowRunID     string     `db:"workflow_run_id"`
+	WorkflowAttemptID string     `db:"workflow_attempt_id"`
+	SwarmID           string     `db:"swarm_id"`
+	SwarmSubtaskID    string     `db:"swarm_subtask_id"`
+	AgentSessionID    *int       `db:"agent_session_id"`
+	AgentKind         string     `db:"agent_kind"`
+	Role              string     `db:"role"`
+	WorkingDir        string     `db:"working_dir"`
+	ProviderSessionID string     `db:"provider_session_id"`
+	StartedAt         time.Time  `db:"started_at"`
+	EndedAt           *time.Time `db:"ended_at"`
+}
+
+type ExecutionActivity struct {
+	ID          int        `db:"id"`
+	ExecutionID string     `db:"execution_id"`
+	State       string     `db:"state"`
+	StartedAt   time.Time  `db:"started_at"`
+	EndedAt     *time.Time `db:"ended_at"`
+	WorkingDir  string     `db:"working_dir"`
 }
 
 type AgentSession struct {
 	ID               int     `db:"id"`
 	TaskID           string  `db:"task_id"`
+	ExecutionID      string  `db:"execution_id"`
 	TmuxSession      string  `db:"tmux_session"`
 	Command          string  `db:"command"`
 	AgentKind        string  `db:"agent_kind"`

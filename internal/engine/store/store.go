@@ -436,20 +436,7 @@ func (s *Store) SetTaskSwarmWorkingDir(ctx context.Context, taskID string, worki
 }
 
 func (s *Store) DeleteTask(ctx context.Context, id string) error {
-	// state_intervals lost its ON DELETE CASCADE in migration 021
-	// (the FK was dropped so sub-task IDs could be recorded).
-	// Clean up the parent's intervals plus any swarm-subtask
-	// intervals here, before the cascade deletes the
-	// swarm_subtasks rows that name those sub-task IDs.
-	_, err := s.db.ExecContext(ctx, `
-		DELETE FROM state_intervals
-		WHERE task_id = ?
-		   OR task_id IN (SELECT id FROM swarm_subtasks WHERE parent_task_id = ?)`,
-		id, id)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
+	_, err := s.db.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
 	return err
 }
 

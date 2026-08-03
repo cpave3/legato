@@ -523,6 +523,21 @@ func TestTaskUpdate_NonexistentTask(t *testing.T) {
 	}
 }
 
+func linkTestExecution(t *testing.T, s *store.Store, taskID string) string {
+	t.Helper()
+	ctx := context.Background()
+	session, err := s.GetAgentSessionByTaskID(ctx, taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := "exec-" + taskID
+	now := time.Now().UTC()
+	if err := s.CreateExecution(ctx, store.Execution{ID: id, Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: taskID, ExecutionTaskID: taskID, TaskTitle: "Test " + taskID, AgentSessionID: &session.ID, StartedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
 func TestAgentState_UpdatesActivity(t *testing.T) {
 	s := newTestStore(t)
 	seedColumns(t, s)
@@ -536,7 +551,8 @@ func TestAgentState_UpdatesActivity(t *testing.T) {
 		Status:      "running",
 	})
 
-	err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "working"}, nil, nil)
+	linkTestExecution(t, s, "abc123")
+	err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", ExecutionID: "exec-abc123", Activity: "working"}, nil, nil)
 	if err != nil {
 		t.Fatalf("AgentState: %v", err)
 	}
@@ -576,7 +592,8 @@ func TestAgentState_SubagentCompletionNotifiesWithoutClearingParent(t *testing.T
 	if err := s.UpdateAgentActivity(ctx, "abc123", "working"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RecordStateTransition(ctx, "abc123", "working", "/repo"); err != nil {
+	executionID := linkTestExecution(t, s, "abc123")
+	if err := s.RecordExecutionActivity(ctx, executionID, store.ActivityWorking, "/repo"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.UpdateTaskNotifyEnabled(ctx, "abc123", true); err != nil {
@@ -592,13 +609,13 @@ func TestAgentState_SubagentCompletionNotifiesWithoutClearingParent(t *testing.T
 	}
 
 	notifier := &recordingNotifier{}
-	if err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "", WorkingDir: "/repo", SessionID: "child-1", Event: "Stop"}, notifier, notifier); err != nil {
+	if err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", ExecutionID: "exec-abc123", Activity: "", WorkingDir: "/repo", SessionID: "child-1", Event: "Stop"}, notifier, notifier); err != nil {
 		t.Fatalf("AgentState Stop: %v", err)
 	}
 	if len(notifier.calls) != 0 {
 		t.Fatalf("Stop notifications = %+v", notifier.calls)
 	}
-	if err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "", WorkingDir: "/repo", SessionID: "child-1", Event: "SessionEnd"}, notifier, notifier); err != nil {
+	if err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", ExecutionID: "exec-abc123", Activity: "", WorkingDir: "/repo", SessionID: "child-1", Event: "SessionEnd"}, notifier, notifier); err != nil {
 		t.Fatalf("AgentState SessionEnd: %v", err)
 	}
 
@@ -635,7 +652,8 @@ func TestAgentState_ParentSessionStillClearsActivity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "", SessionID: "parent-1"}, nil, nil); err != nil {
+	linkTestExecution(t, s, "abc123")
+	if err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", ExecutionID: "exec-abc123", Activity: "", SessionID: "parent-1"}, nil, nil); err != nil {
 		t.Fatalf("AgentState: %v", err)
 	}
 	session, _ := s.GetAgentSessionByTaskID(ctx, "abc123")
@@ -656,7 +674,8 @@ func TestAgentState_UnresolvedSessionDoesNotMutateParent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "", SessionID: "unknown-child"}, nil, nil)
+	linkTestExecution(t, s, "abc123")
+	err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", ExecutionID: "exec-abc123", Activity: "", SessionID: "unknown-child"}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "unknown-child") || !strings.Contains(err.Error(), "abc123") {
 		t.Fatalf("error = %v", err)
 	}
@@ -685,7 +704,8 @@ func TestAgentState_SubagentLookupFailureDoesNotMutateParent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "", SessionID: "child-1", Event: "SessionEnd"}, nil, nil)
+	linkTestExecution(t, s, "abc123")
+	err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", ExecutionID: "exec-abc123", Activity: "", SessionID: "child-1", Event: "SessionEnd"}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "503") || !strings.Contains(err.Error(), "child-1") {
 		t.Fatalf("error = %v", err)
 	}
@@ -708,8 +728,9 @@ func TestAgentState_ClearsActivity(t *testing.T) {
 		Status:      "running",
 	})
 
-	cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "working"}, nil, nil)
-	cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: ""}, nil, nil)
+	linkTestExecution(t, s, "abc123")
+	cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", ExecutionID: "exec-abc123", Activity: "working"}, nil, nil)
+	cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", ExecutionID: "exec-abc123", Activity: ""}, nil, nil)
 
 	session, _ := s.GetAgentSessionByTaskID(ctx, "abc123")
 	if session.Activity != "" {
@@ -717,7 +738,7 @@ func TestAgentState_ClearsActivity(t *testing.T) {
 	}
 }
 
-func TestAgentState_RecordsStateInterval(t *testing.T) {
+func TestAgentState_RecordsExecutionActivity(t *testing.T) {
 	s := newTestStore(t)
 	seedColumns(t, s)
 	seedTask(t, s, "abc123", "Doing")
@@ -730,7 +751,8 @@ func TestAgentState_RecordsStateInterval(t *testing.T) {
 		Status:      "running",
 	})
 
-	cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "working"}, nil, nil)
+	linkTestExecution(t, s, "abc123")
+	cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", ExecutionID: "exec-abc123", Activity: "working"}, nil, nil)
 
 	durations, err := s.GetStateDurations(ctx, "abc123")
 	if err != nil {
@@ -754,8 +776,13 @@ func TestAgentState_TransitionClosesAndOpensInterval(t *testing.T) {
 		Status:      "running",
 	})
 
-	cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "working"}, nil, nil)
-	cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "waiting"}, nil, nil)
+	linkTestExecution(t, s, "abc123")
+	if err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", ExecutionID: "exec-abc123", Activity: "working"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", ExecutionID: "exec-abc123", Activity: "waiting"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
 
 	durations, err := s.GetStateDurations(ctx, "abc123")
 	if err != nil {
@@ -764,8 +791,12 @@ func TestAgentState_TransitionClosesAndOpensInterval(t *testing.T) {
 	if _, ok := durations["working"]; !ok {
 		t.Error("expected working duration after transition")
 	}
-	if _, ok := durations["waiting"]; !ok {
-		t.Error("expected waiting duration after transition")
+	var waitingOpen int
+	if err := s.DB().Get(&waitingOpen, `SELECT COUNT(*) FROM execution_activity WHERE execution_id='exec-abc123' AND state='waiting' AND ended_at IS NULL`); err != nil {
+		t.Fatal(err)
+	}
+	if waitingOpen != 1 {
+		t.Fatalf("open waiting spans = %d, want 1", waitingOpen)
 	}
 }
 

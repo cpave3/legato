@@ -85,7 +85,7 @@ func TestChimeraAdapter_InstallHooks(t *testing.T) {
 		if !strings.Contains(content, "[ -z \"$CHIMERA_SESSION_ID\" ] && exit 0") {
 			t.Errorf("%s: missing CHIMERA_SESSION_ID guard", ev.dir)
 		}
-		wantCmd := fmt.Sprintf("%s agent state \"$LEGATO_TASK_ID\" --activity %q --working-dir \"$PWD\" --session-id \"$CHIMERA_SESSION_ID\" --event %q", "/usr/bin/legato", ev.activity, ev.dir)
+		wantCmd := fmt.Sprintf("%s agent state \"$LEGATO_TASK_ID\" --execution-id \"$LEGATO_EXECUTION_ID\" --activity %q --working-dir \"$PWD\" --session-id \"$CHIMERA_SESSION_ID\" --event %q", "/usr/bin/legato", ev.activity, ev.dir)
 		if ev.dir == "SessionCreated" {
 			wantCmd = `/usr/bin/legato agent session-created "$LEGATO_TASK_ID" "$CHIMERA_SESSION_ID"`
 		}

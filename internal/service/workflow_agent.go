@@ -57,6 +57,15 @@ func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt s
 	if attempt.AgentSessionID == nil {
 		return nil
 	}
+	session, err := r.store.GetAgentSessionByID(ctx, *attempt.AgentSessionID)
+	if err != nil && err != store.ErrNotFound {
+		return err
+	}
+	if session != nil && session.ExecutionID != "" {
+		if err := r.store.TerminalizeExecution(ctx, session.ExecutionID, store.ExecutionSucceeded); err != nil {
+			return err
+		}
+	}
 	if err := r.store.FinishAgentSession(ctx, *attempt.AgentSessionID); err != nil && err != store.ErrNotFound {
 		return err
 	}
@@ -128,9 +137,14 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 	tier, _ := workflowString(step.With, "tier", false)
 	workingDir, _ := workflowString(step.With, "working_dir", false)
 	assignment := buildWorkflowAssignment(prompt, step, e.binaryPath)
-	opts := AgentSpawnOptions{AgentKind: kind, Tier: tier, WorkingDir: workingDir, Assignment: assignment, ExtraEnv: map[string]string{
-		"LEGATO_WORKFLOW_RUN_ID": step.RunID, "LEGATO_WORKFLOW_STEP_ID": step.StepID, "LEGATO_WORKFLOW_ATTEMPT_ID": step.AttemptID,
-	}}
+	opts := AgentSpawnOptions{
+		AgentKind: kind, Tier: tier, WorkingDir: workingDir, Assignment: assignment,
+		ExecutionKind: store.ExecutionWorkflowAgent, AttributionTaskID: step.RelatedTaskID,
+		WorkflowRunID: step.RunID, WorkflowAttemptID: step.AttemptID,
+		ExtraEnv: map[string]string{
+			"LEGATO_WORKFLOW_RUN_ID": step.RunID, "LEGATO_WORKFLOW_STEP_ID": step.StepID, "LEGATO_WORKFLOW_ATTEMPT_ID": step.AttemptID,
+		},
+	}
 	session, err := e.agents.SpawnWorkflowAgent(ctx, step.TaskID, name, opts)
 	if err != nil {
 		return WorkflowExecutionResult{}, err

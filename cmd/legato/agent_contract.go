@@ -37,8 +37,8 @@ func runAgentStateContract(args []string) int {
 	if idErr != nil {
 		return renderCommandError(command, idErr, jsonMode)
 	}
-	if len(rest) != 0 || !parsed.Present["activity"] {
-		return renderCommandError(command, usageError("missing_argument", "agent state requires --activity"), jsonMode)
+	if len(rest) != 0 || !parsed.Present["activity"] || !parsed.Present["execution-id"] {
+		return renderCommandError(command, usageError("missing_argument", "agent state requires --activity and --execution-id"), jsonMode)
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -57,7 +57,7 @@ func runAgentStateContract(args []string) int {
 	if cfg.Notifications.OS.Enabled {
 		osNotifier = service.NewOSNotifier()
 	}
-	report := cli.AgentStateReport{TaskID: taskID, Activity: parsed.Values["activity"], WorkingDir: parsed.Values["working-dir"], SessionID: parsed.Values["session-id"], Event: parsed.Values["event"]}
+	report := cli.AgentStateReport{TaskID: taskID, ExecutionID: parsed.Values["execution-id"], Activity: parsed.Values["activity"], WorkingDir: parsed.Values["working-dir"], SessionID: parsed.Values["session-id"], Event: parsed.Values["event"]}
 	if err := cli.AgentState(db, report, pushNotifier, osNotifier); err != nil {
 		return renderCommandError(command, commandDomainError(err), jsonMode)
 	}

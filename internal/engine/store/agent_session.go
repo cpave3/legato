@@ -6,6 +6,10 @@ import (
 	"fmt"
 )
 
+const agentSessionSelect = `SELECT a.*,
+	COALESCE((SELECT e.id FROM executions e WHERE e.agent_session_id = a.id LIMIT 1), '') AS execution_id
+	FROM agent_sessions a`
+
 func (s *Store) InsertAgentSession(ctx context.Context, a AgentSession) error {
 	result, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO agent_sessions (task_id, tmux_session, command, agent_kind, status, role, parent_task_id, subtask_id)
@@ -39,16 +43,25 @@ func (s *Store) InsertAgentSessionReturningID(ctx context.Context, a AgentSessio
 func (s *Store) ListAgentSessions(ctx context.Context) ([]AgentSession, error) {
 	var sessions []AgentSession
 	err := s.db.SelectContext(ctx, &sessions,
-		"SELECT * FROM agent_sessions WHERE status = 'running' ORDER BY started_at DESC")
+		agentSessionSelect+" WHERE a.status = 'running' ORDER BY a.started_at DESC")
 	return sessions, err
 }
 
 func (s *Store) GetAgentSessionByTaskID(ctx context.Context, taskID string) (*AgentSession, error) {
 	var a AgentSession
 	err := s.db.GetContext(ctx, &a,
-		"SELECT * FROM agent_sessions WHERE task_id = ? AND status = 'running' ORDER BY started_at DESC LIMIT 1", taskID)
+		agentSessionSelect+" WHERE a.task_id = ? AND a.status = 'running' ORDER BY a.started_at DESC LIMIT 1", taskID)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("agent session for task %s: %w", taskID, ErrNotFound)
+	}
+	return &a, err
+}
+
+func (s *Store) GetAgentSessionByID(ctx context.Context, id int) (*AgentSession, error) {
+	var a AgentSession
+	err := s.db.GetContext(ctx, &a, agentSessionSelect+" WHERE a.id = ?", id)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
 	}
 	return &a, err
 }
@@ -56,7 +69,7 @@ func (s *Store) GetAgentSessionByTaskID(ctx context.Context, taskID string) (*Ag
 func (s *Store) GetAgentSessionByTmuxName(ctx context.Context, tmuxSession string) (*AgentSession, error) {
 	var a AgentSession
 	err := s.db.GetContext(ctx, &a,
-		"SELECT * FROM agent_sessions WHERE tmux_session = ?", tmuxSession)
+		agentSessionSelect+" WHERE a.tmux_session = ?", tmuxSession)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("agent session %s: %w", tmuxSession, ErrNotFound)
 	}

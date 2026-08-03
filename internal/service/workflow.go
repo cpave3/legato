@@ -15,14 +15,15 @@ import (
 )
 
 type ResolvedWorkflowStep struct {
-	RunID     string
-	AttemptID string
-	TaskID    string
-	StepID    string
-	Title     string
-	Type      string
-	With      map[string]any
-	Outputs   map[string]workflowengine.Output
+	RunID         string
+	AttemptID     string
+	TaskID        string
+	RelatedTaskID string
+	StepID        string
+	Title         string
+	Type          string
+	With          map[string]any
+	Outputs       map[string]workflowengine.Output
 }
 
 type WorkflowExecutionResult struct {
@@ -414,7 +415,9 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 	if executor, ok := s.executors[attempt.ExecutorType].(interface {
 		Finish(context.Context, store.WorkflowStepAttempt) error
 	}); ok {
-		_ = executor.Finish(ctx, *attempt)
+		if err := executor.Finish(ctx, *attempt); err != nil {
+			return completed, fmt.Errorf("finishing workflow execution: %w", err)
+		}
 	}
 	return completed, nil
 }
@@ -488,7 +491,7 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		if err := s.store.StartWorkflowStepAttempt(ctx, attempt, string(resolvedJSON)); err != nil {
 			return err
 		}
-		result, execErr := s.executors[step.Type].Start(ctx, ResolvedWorkflowStep{RunID: runID, AttemptID: attemptID, TaskID: taskID, StepID: step.ID, Title: step.Title, Type: step.Type, With: resolved.With, Outputs: step.Outputs})
+		result, execErr := s.executors[step.Type].Start(ctx, ResolvedWorkflowStep{RunID: runID, AttemptID: attemptID, TaskID: taskID, RelatedTaskID: view.Run.RelatedTaskID, StepID: step.ID, Title: step.Title, Type: step.Type, With: resolved.With, Outputs: step.Outputs})
 		if execErr != nil {
 			_ = s.store.FailWorkflowStep(ctx, runID, step.ID, attemptID, execErr.Error())
 			return execErr

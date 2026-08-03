@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -49,6 +50,14 @@ func TestSubagentCompletionDoesNotCreateWorkflowIdleAttention(t *testing.T) {
 	if err := db.InsertAgentSession(ctx, store.AgentSession{TaskID: started.Run.TaskID, TmuxSession: "legato-" + started.Run.TaskID, AgentKind: "chimera", Status: "running"}); err != nil {
 		t.Fatal(err)
 	}
+	session, err := db.GetAgentSessionByTaskID(ctx, started.Run.TaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionID := "exec-workflow-subagent"
+	if err := db.CreateExecution(ctx, store.Execution{ID: executionID, Kind: store.ExecutionWorkflowAgent, Status: store.ExecutionRunning, ExecutionTaskID: started.Run.TaskID, WorkflowRunID: started.Run.ID, AgentSessionID: &session.ID, StartedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.UpdateAgentActivity(ctx, started.Run.TaskID, "working"); err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +69,7 @@ func TestSubagentCompletionDoesNotCreateWorkflowIdleAttention(t *testing.T) {
 	if err := db.UpdateChimeraDiscovery(ctx, started.Run.TaskID, "parent-1", srv.URL); err != nil {
 		t.Fatal(err)
 	}
-	if err := cli.AgentState(db, cli.AgentStateReport{TaskID: started.Run.TaskID, Activity: "", SessionID: "child-1"}, nil, nil); err != nil {
+	if err := cli.AgentState(db, cli.AgentStateReport{TaskID: started.Run.TaskID, ExecutionID: executionID, Activity: "", SessionID: "child-1"}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 

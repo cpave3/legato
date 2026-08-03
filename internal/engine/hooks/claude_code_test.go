@@ -214,6 +214,9 @@ func TestClaudeCodeAdapter_HookScriptChecksEnvVar(t *testing.T) {
 	if !strings.Contains(script, "agent state") {
 		t.Error("hook script should call 'legato agent state', not 'legato task update'")
 	}
+	if !strings.Contains(script, `--execution-id "$LEGATO_EXECUTION_ID"`) || !strings.Contains(script, `[ -z "$LEGATO_EXECUTION_ID" ] && exit 1`) {
+		t.Error("hook script must require and report the owning execution ID")
+	}
 }
 
 func TestClaudeCodeAdapter_HookScriptActivities(t *testing.T) {

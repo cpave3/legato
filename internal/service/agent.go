@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -87,6 +88,11 @@ type AgentSpawnOptions struct {
 	Ephemeral            bool              // internal: omit task-linked session identity
 	Assignment           string            // standalone workflow assignment; distinct from swarm role prompts
 	ExtraEnv             map[string]string // trusted Legato-owned workflow identity values
+	ExecutionKind        string            // reporting execution kind; defaults from workflow/swarm context
+	AttributionTaskID    string            // user-facing reporting task; defaults to taskID
+	WorkflowRunID        string            // owning workflow run, when applicable
+	WorkflowAttemptID    string            // owning workflow attempt, when applicable
+	SwarmID              string            // owning swarm parent ID, when applicable
 }
 
 // AgentSpawnConflict describes a scope-overlap warning encountered at spawn time.
@@ -407,9 +413,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		if aliveErr == nil && alive {
 			return fmt.Errorf("agent already running for task %s", taskID)
 		}
-		// Tmux session is gone — mark it dead so we can re-spawn.
-		// Close any open interval so duration tracking stops.
-		_ = a.store.RecordStateTransition(ctx, taskID, "", "")
+		// Tmux session is gone — terminalize its durable execution before
+		// marking the operational session dead so reporting cannot leak.
+		if existing.ExecutionID != "" {
+			_ = a.store.TerminalizeExecution(ctx, existing.ExecutionID, store.ExecutionLost)
+		}
 		_ = a.store.UpdateAgentSessionStatus(ctx, taskID, "dead")
 	}
 
@@ -530,6 +538,39 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 
+	executionID := "ex-" + store.GenerateTaskID()
+	executionKind := opt.ExecutionKind
+	if executionKind == "" {
+		switch {
+		case opt.SubtaskID != "":
+			executionKind = store.ExecutionSwarmWorker
+		case opt.Role == "conductor" || opt.ParentTaskID != "":
+			executionKind = store.ExecutionSwarmConductor
+		default:
+			executionKind = store.ExecutionInteractive
+		}
+	}
+	attributionTaskID := opt.AttributionTaskID
+	if attributionTaskID == "" && executionKind != store.ExecutionWorkflowAgent {
+		attributionTaskID = taskID
+	}
+	taskTitle := ""
+	if task, taskErr := a.store.GetTask(ctx, attributionTaskID); taskErr == nil {
+		taskTitle = task.Title
+	}
+	execution := store.Execution{
+		ID: executionID, Kind: executionKind, Status: store.ExecutionRunning,
+		TaskID: attributionTaskID, ExecutionTaskID: taskID, TaskTitle: taskTitle,
+		WorkflowRunID: opt.WorkflowRunID, WorkflowAttemptID: opt.WorkflowAttemptID,
+		SwarmID: opt.SwarmID, SwarmSubtaskID: opt.SubtaskID,
+		AgentKind: agentKind, Role: opt.Role, WorkingDir: workDir, StartedAt: time.Now().UTC(),
+	}
+	if err := a.store.CreateExecution(ctx, execution); err != nil {
+		return fmt.Errorf("creating execution: %w", err)
+	}
+	envMap["LEGATO_EXECUTION_ID"] = executionID
+	failExecution := func() { _ = a.store.TerminalizeExecution(ctx, executionID, store.ExecutionFailed) }
+
 	envVars := make([]string, 0, len(envMap))
 	for k, v := range envMap {
 		envVars = append(envVars, k+"="+v)
@@ -544,6 +585,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 
 	if err := a.tmux.Spawn(sessionName, workDir, width, height, envVars...); err != nil {
+		failExecution()
 		return fmt.Errorf("spawning tmux session: %w", err)
 	}
 
@@ -564,6 +606,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		for k, v := range statusDefaults {
 			if err := a.tmux.SetOption(sessionName, k, v); err != nil {
 				a.tmux.Kill(sessionName)
+				failExecution()
 				return fmt.Errorf("setting tmux status option %s: %w", k, err)
 			}
 		}
@@ -572,12 +615,14 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	for k, v := range a.tmuxOptions {
 		if err := a.tmux.SetOption(sessionName, k, v); err != nil {
 			a.tmux.Kill(sessionName)
+			failExecution()
 			return fmt.Errorf("setting tmux option %s: %w", k, err)
 		}
 	}
 
 	sess := store.AgentSession{
 		TaskID:      taskID,
+		ExecutionID: executionID,
 		TmuxSession: sessionName,
 		Command:     "shell",
 		AgentKind:   agentKind,
@@ -595,12 +640,20 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	sessionID, err := a.store.InsertAgentSessionReturningID(ctx, sess)
 	if err != nil {
 		a.tmux.Kill(sessionName)
+		failExecution()
 		return fmt.Errorf("recording agent session: %w", err)
+	}
+	if err := a.store.LinkExecutionAgentSession(ctx, executionID, sessionID); err != nil {
+		a.tmux.Kill(sessionName)
+		_ = a.store.UpdateAgentSessionStatus(ctx, taskID, "dead")
+		failExecution()
+		return fmt.Errorf("linking execution to agent session: %w", err)
 	}
 	if promptManifestID != "" {
 		if err := a.store.BindLearningPromptManifestSession(ctx, promptManifestID, sessionID); err != nil {
 			a.tmux.Kill(sessionName)
 			_ = a.store.UpdateAgentSessionStatus(ctx, taskID, "dead")
+			failExecution()
 			return fmt.Errorf("binding learning prompt manifest: %w", err)
 		}
 	}
@@ -808,9 +861,11 @@ func (a *agentService) KillAgent(ctx context.Context, taskID string) error {
 
 	a.tmux.Kill(session.TmuxSession)
 
-	// Close any open state interval so duration tracking stops at the
-	// moment the agent dies rather than leaking until the next report.
-	_ = a.store.RecordStateTransition(ctx, taskID, "", "")
+	if session.ExecutionID != "" {
+		if err := a.store.TerminalizeExecution(ctx, session.ExecutionID, store.ExecutionCancelled); err != nil {
+			return err
+		}
+	}
 
 	if err := a.store.UpdateAgentSessionStatus(ctx, taskID, "dead"); err != nil {
 		return err
@@ -935,11 +990,14 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 
 	for _, s := range sessions {
 		if s.Status == "running" && !live[s.TmuxSession] {
+			if s.ExecutionID != "" {
+				if err := a.store.TerminalizeExecution(ctx, s.ExecutionID, store.ExecutionLost); err != nil {
+					return err
+				}
+			}
 			if err := a.store.UpdateAgentSessionStatus(ctx, s.TaskID, "dead"); err != nil {
 				return err
 			}
-			// Close any orphaned state intervals for this task
-			_ = a.store.RecordStateTransition(ctx, s.TaskID, "", "")
 			// Notify swarm orchestrator that an agent died (best-effort).
 			if a.bus != nil {
 				parent := ""
@@ -1008,16 +1066,20 @@ func (a *agentService) GetAgentSummary(ctx context.Context, excludeTaskID string
 }
 
 func (a *agentService) SetAgentActivity(ctx context.Context, taskID, activity, workingDir string) error {
-	oldActivity := ""
-	if sess, err := a.store.GetAgentSessionByTaskID(ctx, taskID); err == nil {
-		oldActivity = sess.Activity
+	sess, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	if err != nil {
+		return err
 	}
+	if sess.ExecutionID == "" {
+		return errors.New("running agent session has no execution identity")
+	}
+	oldActivity := sess.Activity
 
 	if err := a.store.UpdateAgentActivity(ctx, taskID, activity); err != nil {
 		return fmt.Errorf("updating agent activity: %w", err)
 	}
-	if err := a.store.RecordStateTransition(ctx, taskID, activity, workingDir); err != nil {
-		return fmt.Errorf("recording state transition: %w", err)
+	if err := a.store.RecordExecutionActivity(ctx, sess.ExecutionID, activity, workingDir); err != nil {
+		return fmt.Errorf("recording execution activity: %w", err)
 	}
 
 	if oldActivity == "working" && (activity == "waiting" || activity == "") {

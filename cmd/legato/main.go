@@ -1109,18 +1109,21 @@ func runAgentSessionCreated(args []string) int {
 }
 
 func runAgentState(args []string) int {
-	// Parse: legato agent state <task-id> --activity <working|waiting|""> [--working-dir <dir>]
+	// Parse: legato agent state <task-id> --execution-id <id> --activity <working|waiting|""> [--working-dir <dir>]
 	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: legato agent state <task-id> --activity <working|waiting|\"\"> [--working-dir <dir>]\n")
+		fmt.Fprintf(os.Stderr, "usage: legato agent state <task-id> --execution-id <id> --activity <working|waiting|\"\"> [--working-dir <dir>]\n")
 		return 1
 	}
 
 	taskID := args[0]
 	activity := ""
+	executionID := ""
 	workingDir := ""
 	for i := 1; i < len(args)-1; i++ {
 		if args[i] == "--activity" {
 			activity = args[i+1]
+		} else if args[i] == "--execution-id" {
+			executionID = args[i+1]
 		} else if args[i] == "--working-dir" {
 			workingDir = args[i+1]
 		}
@@ -1146,7 +1149,7 @@ func runAgentState(args []string) int {
 	if cfg.Notifications.OS.Enabled {
 		osNotifier = service.NewOSNotifier()
 	}
-	if err := cli.AgentState(db, cli.AgentStateReport{TaskID: taskID, Activity: activity, WorkingDir: workingDir}, pushNotifier, osNotifier); err != nil {
+	if err := cli.AgentState(db, cli.AgentStateReport{TaskID: taskID, ExecutionID: executionID, Activity: activity, WorkingDir: workingDir}, pushNotifier, osNotifier); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
