@@ -1013,6 +1013,20 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 		}
 	}
 
+	reconciled, err := a.store.ReconcileLostExecutions(ctx)
+	if err != nil {
+		return err
+	}
+	if reconciled > 0 {
+		log.Printf("executions: terminalized %d orphaned running execution(s) as lost", reconciled)
+	}
+	count, oldest, err := a.store.ExecutionHealth(ctx)
+	if err != nil {
+		return err
+	}
+	if count > 0 && oldest != nil && time.Since(*oldest) > 24*time.Hour {
+		log.Printf("executions: %d running; oldest started %s", count, oldest.Format(time.RFC3339))
+	}
 	return nil
 }
 

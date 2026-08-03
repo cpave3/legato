@@ -195,6 +195,40 @@ func (s *Store) GetExecutionDurations(ctx context.Context, executionID string) (
 	return result, rows.Err()
 }
 
+func (s *Store) ReconcileLostExecutions(ctx context.Context) (int, error) {
+	var ids []string
+	if err := s.db.SelectContext(ctx, &ids, `
+		SELECT e.id FROM executions e
+		LEFT JOIN agent_sessions a ON a.id=e.agent_session_id
+		WHERE e.status='running' AND (e.agent_session_id IS NULL OR a.id IS NULL OR a.status!='running')`); err != nil {
+		return 0, err
+	}
+	for _, id := range ids {
+		if err := s.TerminalizeExecution(ctx, id, ExecutionLost); err != nil {
+			return 0, err
+		}
+	}
+	return len(ids), nil
+}
+
+func (s *Store) ExecutionHealth(ctx context.Context) (int, *time.Time, error) {
+	var row struct {
+		Count  int     `db:"count"`
+		Oldest *string `db:"oldest"`
+	}
+	if err := s.db.GetContext(ctx, &row, `SELECT COUNT(*) AS count, MIN(started_at) AS oldest FROM executions WHERE status='running'`); err != nil {
+		return 0, nil, err
+	}
+	if row.Oldest == nil {
+		return row.Count, nil, nil
+	}
+	oldest, err := time.Parse(executionTimestamp, *row.Oldest)
+	if err != nil {
+		return 0, nil, err
+	}
+	return row.Count, &oldest, nil
+}
+
 func (s *Store) ActivityEpoch(ctx context.Context) (time.Time, error) {
 	var epoch time.Time
 	err := s.db.GetContext(ctx, &epoch, `SELECT activity_epoch FROM reporting_metadata WHERE id = 1`)
