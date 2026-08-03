@@ -8,6 +8,8 @@ import { useServer } from "../hooks/useServer"
 import { addPlanComment, askPlanQuestion, planAction, respondToPlanQuestion, updatePlanComment, type PlanComment, type PlanOption, type PlanQuestion } from "../lib/plan"
 import { ReviewMessageBody } from "../components/ReviewMessageBody"
 import { GoToAgentButton } from "../components/GoToAgentButton"
+import { Button } from "../components/ui/Button"
+import { InlineNotice } from "../components/ui/InlineNotice"
 
 type SourcePosition = { start?: { offset?: number }; end?: { offset?: number } }
 type SelectedBlock = { start: number; end: number; characterStart: number; characterEnd: number; text: string; label: string }
@@ -135,7 +137,7 @@ export function PlanPage() {
   const [cleanupAfterImplementation, setCleanupAfterImplementation] = useState(false)
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [info, setInfo] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ message: string; variant: "success" | "warning" } | null>(null)
 
   useEffect(() => {
     if (data) setLocalComments(data.comments)
@@ -232,7 +234,9 @@ export function PlanPage() {
     await run(async () => {
       const result = await askPlanQuestion(baseUrl, id, question.trim())
       setQuestion("")
-      setInfo(result.warning ?? "Question sent")
+      setNotice(result.warning
+        ? { message: result.warning, variant: "warning" }
+        : { message: "Question sent", variant: "success" })
     })
   }
 
@@ -255,9 +259,10 @@ export function PlanPage() {
   return <div className="flex h-full min-h-0 flex-col bg-[#0a0a0f] text-zinc-200">
     <header data-plan-header className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-3 py-2 md:px-5 md:py-3">
       <div><Link to="/plans" className="flex items-center gap-1 text-xs text-zinc-500"><ArrowLeft size={13}/> Plan queue</Link><h1 className="mt-1 text-lg font-semibold">{data.plan.title}</h1><div className="text-xs text-zinc-500">revision {data.plan.latest_revision} · {data.plan.status.replace("_", " ")}</div></div>
-      <div className="flex items-center gap-2"><button onClick={() => setFeedbackOpen(true)} className="flex min-h-11 items-center gap-1 rounded border border-zinc-700 px-3 text-xs lg:hidden"><PanelRight size={15}/> Feedback</button><GoToAgentButton taskId={data.plan.task_id} />{data.plan.status === "proposed" && <><label className="mr-2 hidden max-w-52 items-center gap-2 text-xs text-zinc-400 md:flex" title="Remove the editable plan bundle after successful implementation; collaboration history is retained"><input type="checkbox" checked={cleanupAfterImplementation} disabled={busy} onChange={event => setCleanupAfterImplementation(event.target.checked)} className="accent-indigo-500"/>Clean up plan files after implementation</label><button disabled={busy} onClick={() => void verdict("reject")} className="hidden rounded border border-red-900 px-3 py-1.5 text-xs text-red-300 sm:block">Reject</button><button disabled={busy} onClick={() => void verdict("request-changes")} className="min-h-11 rounded border border-amber-800 px-3 text-xs text-amber-300 md:min-h-0 md:py-1.5">Request changes</button><button title={unanswered ? "Answer required choices first" : "Approve plan"} disabled={busy || unanswered > 0} onClick={() => void verdict("approve")} className="min-h-11 rounded bg-emerald-700 px-3 text-xs text-white disabled:opacity-40 md:min-h-0 md:py-1.5">Approve</button></>}{data.plan.status === "rejected" && <button onClick={() => void verdict("reopen")} className="rounded bg-indigo-600 px-3 py-1.5 text-xs">Reopen</button>}</div>
+      <div className="flex items-center gap-2"><Button variant="outline" size="sm" onClick={() => setFeedbackOpen(true)} className="min-h-11 lg:hidden"><PanelRight size={15}/> Feedback</Button><GoToAgentButton taskId={data.plan.task_id} />{data.plan.status === "proposed" && <><label className="mr-2 hidden max-w-52 items-center gap-2 text-xs text-zinc-400 md:flex" title="Remove the editable plan bundle after successful implementation; collaboration history is retained"><input type="checkbox" checked={cleanupAfterImplementation} disabled={busy} onChange={event => setCleanupAfterImplementation(event.target.checked)} className="accent-indigo-500"/>Clean up plan files after implementation</label><Button variant="destructive" size="sm" disabled={busy} onClick={() => void verdict("reject")} className="hidden sm:inline-flex">Reject</Button><Button variant="warning" size="sm" disabled={busy} onClick={() => void verdict("request-changes")} className="min-h-11 md:min-h-9">Request changes</Button><Button variant="success" size="sm" title={unanswered ? "Answer required choices first" : "Approve plan"} disabled={busy || unanswered > 0} onClick={() => void verdict("approve")} className="min-h-11 md:min-h-9">Approve</Button></>}{data.plan.status === "rejected" && <Button size="sm" onClick={() => void verdict("reopen")}>Reopen</Button>}</div>
     </header>
-    {actionError && <div role="alert" className="border-b border-red-900 bg-red-950/40 px-5 py-2 text-xs text-red-300">{actionError}</div>}{info && <div className="border-b border-zinc-800 px-5 py-2 text-xs text-zinc-400">{info}</div>}
+    {actionError && <InlineNotice variant="error" className="rounded-none border-x-0 border-t-0 px-5 py-2 text-xs">{actionError}</InlineNotice>}
+    {notice && <InlineNotice variant={notice.variant} className="rounded-none border-x-0 border-t-0 px-5 py-2 text-xs">{notice.message}</InlineNotice>}
     <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_25rem]">
       <main data-plan-document className="overflow-y-auto p-3 md:p-6"><div className="mx-auto max-w-4xl">
         <article className="rounded border border-zinc-800 bg-zinc-950 p-5 leading-7">
@@ -294,10 +299,10 @@ export function PlanPage() {
         <div className="mt-4 border-t border-zinc-800 pt-4"><h2 className="text-xs font-semibold uppercase text-zinc-500">{selectedBlock ? (selectedBlock.label === "Comment on selected blocks" ? "Comment on selected blocks" : "Comment on selected block") : "General comment"}</h2>
           {selectedBlock && <div className="mt-2 rounded bg-indigo-950/40 p-2 text-xs text-indigo-200"><span className="line-clamp-3">{selectedBlock.text}</span><button aria-label="Clear selected block" onClick={() => setSelectedBlock(null)} className="mt-1 flex items-center gap-1 text-zinc-400"><X size={12}/> Clear</button></div>}
           <textarea ref={commentInput} aria-label={selectedBlock ? (selectedBlock.label === "Comment on selected blocks" ? "Comment on selected blocks" : "Comment on selected block") : "General plan comment"} value={comment} onChange={event => setComment(event.target.value)} onKeyDown={event => keyboardSubmit(event, () => void submitComment(), busy || !comment.trim())} placeholder={selectedBlock ? "Comment on this block…" : "Leave general feedback…"} className="mt-2 w-full rounded border border-zinc-700 bg-zinc-900 p-2 text-sm"/>
-          <button disabled={busy || !comment.trim()} onClick={() => void submitComment()} className="mt-2 rounded bg-indigo-600 px-3 py-1.5 text-xs disabled:opacity-40">{busy ? "Saving…" : "Add draft comment"}</button>
+          <Button size="sm" disabled={busy || !comment.trim()} onClick={() => void submitComment()} className="mt-2">{busy ? "Saving…" : "Add draft comment"}</Button>
           {priorRevisionComments.length > 0 && <details className="mt-4 text-sm text-zinc-400"><summary className="cursor-pointer text-xs font-semibold uppercase text-zinc-500">Prior revision feedback ({priorRevisionComments.length})</summary><div className="mt-2 space-y-2">{priorRevisionComments.map(item => <div key={item.id} className="rounded border border-zinc-800 p-2"><blockquote className="line-clamp-2 border-l border-zinc-700 pl-2 text-xs text-zinc-500">{item.selected_text}</blockquote><p className="mt-1">{item.body}</p></div>)}</div></details>}
         </div>
-        <div className="mt-6 border-t border-zinc-800 pt-4"><h2 className="text-xs font-semibold uppercase text-zinc-500">Questions & answers</h2><div className="my-3 space-y-2">{data.messages.map(message => <div key={message.id} className={`rounded p-2 ${message.author === "user" ? "bg-indigo-950/40" : "bg-zinc-900"}`}><ReviewMessageBody body={message.body}/></div>)}</div><div className="flex gap-2"><textarea aria-label="Question for plan agent" value={question} onChange={event => setQuestion(event.target.value)} onKeyDown={event => keyboardSubmit(event, () => void ask(), busy || !question.trim())} className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 p-2 text-sm" placeholder="Ask the agent…"/><button aria-label="Ask plan agent" disabled={busy || !question.trim()} onClick={() => void ask()} className="rounded bg-zinc-800 p-2"><Send size={15}/></button></div></div>
+        <div className="mt-6 border-t border-zinc-800 pt-4"><h2 className="text-xs font-semibold uppercase text-zinc-500">Questions & answers</h2><div className="my-3 space-y-2">{data.messages.map(message => <div key={message.id} className={`rounded p-2 ${message.author === "user" ? "bg-indigo-950/40" : "bg-zinc-900"}`}><ReviewMessageBody body={message.body}/></div>)}</div><div className="flex gap-2"><textarea aria-label="Question for plan agent" value={question} onChange={event => setQuestion(event.target.value)} onKeyDown={event => keyboardSubmit(event, () => void ask(), busy || !question.trim())} className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 p-2 text-sm" placeholder="Ask the agent…"/><Button variant="secondary" size="icon" aria-label="Ask plan agent" disabled={busy || !question.trim()} onClick={() => void ask()}><Send size={15}/></Button></div></div>
       </aside>
     </div>
   </div>

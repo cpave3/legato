@@ -77,10 +77,26 @@ describe("ReviewTourPage", () => {
       "/api/review/tours/rt-task-1/steps/S-1/question",
       expect.objectContaining({ body: JSON.stringify({ text: "What prevents duplicate refreshes?" }) }),
     ))
+    const success = await screen.findByRole("status")
+    expect(success.textContent).toContain("Question sent")
+    expect(success.className).toContain("emerald")
 
     fireEvent.click(screen.getByRole("button", { name: "Complete review" }))
     await waitFor(() => expect(screen.getByText("Queue destination")).toBeTruthy())
     expect(mockFetch).toHaveBeenCalledWith("/api/review/tours/rt-task-1/complete", expect.objectContaining({ method: "POST" }))
+  })
+
+  it("announces API delivery warnings distinctly from successful questions", async () => {
+    renderPage()
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ warning: "Agent delivery is delayed" }) })
+
+    fireEvent.change(screen.getByLabelText("Question for agent"), { target: { value: "Will this arrive?" } })
+    fireEvent.click(screen.getByRole("button", { name: "Ask agent" }))
+
+    const warning = await screen.findByRole("status")
+    expect(warning.textContent).toContain("Agent delivery is delayed")
+    expect(warning.className).toContain("amber")
   })
 
   it("sends selected diff lines with a question and clears the selection", async () => {
@@ -185,7 +201,7 @@ describe("ReviewTourPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete review" }))
     fireEvent.click(within(screen.getByRole("dialog", { name: "Delete review" })).getByRole("button", { name: "Delete review" }))
 
-    expect((await screen.findByText("review is still capturing")).getAttribute("role")).toBe("alert")
+    expect((await screen.findByText("review is still capturing")).closest('[role="alert"]')).toBeTruthy()
     expect(screen.getByRole("heading", { name: "Auth review" })).toBeTruthy()
   })
 

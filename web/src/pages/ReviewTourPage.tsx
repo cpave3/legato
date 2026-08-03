@@ -7,6 +7,9 @@ import { DiffView } from "../components/DiffView"
 import { ReviewMessageBody } from "../components/ReviewMessageBody"
 import { GoToAgentButton } from "../components/GoToAgentButton"
 import { VoiceRecorder } from "../components/VoiceRecorder"
+import { Button } from "../components/ui/Button"
+import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "../components/ui/Dialog"
+import { InlineNotice } from "../components/ui/InlineNotice"
 import { useReviewTour } from "../hooks/useReview"
 import { useServer } from "../hooks/useServer"
 import { useVoiceEnabled } from "../hooks/useVoiceEnabled"
@@ -42,7 +45,7 @@ export function ReviewTourPage() {
   const [diff, setDiff] = useState<FileDiff[]>([])
   const [diffLoading, setDiffLoading] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [actionInfo, setActionInfo] = useState<string | null>(null)
+  const [actionNotice, setActionNotice] = useState<{ message: string; variant: "success" | "warning" } | null>(null)
   const [busy, setBusy] = useState(false)
   const [question, setQuestion] = useState("")
   const [selection, setSelection] = useState<DiffSelection | null>(null)
@@ -87,7 +90,7 @@ export function ReviewTourPage() {
   async function runAction(action: () => Promise<void>) {
     setBusy(true)
     setActionError(null)
-    setActionInfo(null)
+    setActionNotice(null)
     try {
       await action()
       await refresh()
@@ -109,7 +112,9 @@ export function ReviewTourPage() {
       const warning = await askReviewQuestion(baseUrl, decodedTourId, selectedStep.id, text, selection)
       setQuestion("")
       setSelection(null)
-      setActionInfo(warning ?? "Question sent")
+      setActionNotice(warning
+        ? { message: warning, variant: "warning" }
+        : { message: "Question sent", variant: "success" })
     })
   }
 
@@ -120,7 +125,7 @@ export function ReviewTourPage() {
       setFindingDraft("")
       setSelection(null)
       setSelectedFindingIDs((current) => [...current, finding.id])
-      setActionInfo("Change flagged")
+      setActionNotice({ message: "Change flagged", variant: "success" })
     })
   }
 
@@ -129,7 +134,9 @@ export function ReviewTourPage() {
     await runAction(async () => {
       const warning = await requestFollowUpPlan(baseUrl, decodedTourId, selectedFindingIDs)
       setSelectedFindingIDs([])
-      setActionInfo(warning ?? "Follow-up plan requested")
+      setActionNotice(warning
+        ? { message: warning, variant: "warning" }
+        : { message: "Follow-up plan requested", variant: "success" })
     })
   }
 
@@ -140,7 +147,7 @@ export function ReviewTourPage() {
       setRegenerationFeedback("")
       setRegenerating(false)
       setSelectedStepId(null)
-      setActionInfo("Review regeneration requested")
+      setActionNotice({ message: "Review regeneration requested", variant: "success" })
     })
   }
 
@@ -182,7 +189,7 @@ export function ReviewTourPage() {
   async function complete() {
     setBusy(true)
     setActionError(null)
-    setActionInfo(null)
+    setActionNotice(null)
     try {
       await completeReview(baseUrl, decodedTourId)
       navigate("/review")
@@ -220,54 +227,48 @@ export function ReviewTourPage() {
         </div>
         <div className="flex shrink-0 items-center gap-2 md:gap-3">
           <GoToAgentButton taskId={data.tour.task_id} />
-          <button onClick={() => setStepsOpen(true)} className="flex h-11 items-center gap-1 rounded border border-zinc-700 px-3 text-xs lg:hidden"><List size={15}/> Steps</button>
-          <button onClick={() => setQAOpen(true)} className="flex h-11 items-center gap-1 rounded border border-zinc-700 px-3 text-xs lg:hidden"><MessageSquare size={15}/> Notes</button>
+          <Button variant="outline" size="sm" onClick={() => setStepsOpen(true)} className="min-h-11 lg:hidden"><List size={15}/> Steps</Button>
+          <Button variant="outline" size="sm" onClick={() => setQAOpen(true)} className="min-h-11 lg:hidden"><MessageSquare size={15}/> Notes</Button>
           <span className="text-xs text-zinc-400">{reviewedCount}/{reviewableCount} reviewed</span>
-          <button disabled={busy} onClick={() => setRegenerating(true)} className="hidden items-center gap-1 rounded border border-amber-800 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-950/50 disabled:opacity-50 sm:flex">
+          <Button variant="warning" size="sm" disabled={busy} onClick={() => setRegenerating(true)} className="hidden sm:inline-flex">
             <RefreshCw size={13} /> Regenerate review
-          </button>
-          <button disabled={busy} onClick={() => setConfirmingDelete(true)} className="hidden rounded border border-red-900 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-950/50 disabled:opacity-50 md:block">
+          </Button>
+          <Button variant="destructive" size="sm" disabled={busy} onClick={() => setConfirmingDelete(true)} className="hidden md:inline-flex">
             Delete review
-          </button>
-          <button disabled={busy || reviewableCount === 0} onClick={() => void complete()} className="min-h-11 rounded bg-indigo-600 px-3 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50 md:min-h-0 md:py-1.5">
+          </Button>
+          <Button size="sm" disabled={busy || reviewableCount === 0} onClick={() => void complete()} className="min-h-11 md:min-h-9">
             Complete review
-          </button>
+          </Button>
         </div>
       </header>
 
-      {regenerating && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="regenerate-review-title" className="w-full max-w-lg rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
-            <div className="border-b border-zinc-800 px-5 py-3"><h2 id="regenerate-review-title" className="text-sm font-semibold">Regenerate review</h2></div>
-            <div className="space-y-3 px-5 py-4">
-              <p className="text-xs text-zinc-400">Replace the current pass and tell the agent how to regenerate it.</p>
-              <textarea aria-label="Regeneration feedback" rows={5} value={regenerationFeedback} onChange={(event) => setRegenerationFeedback(event.target.value)} className="w-full rounded border border-zinc-700 bg-zinc-950 p-3 text-sm outline-none focus:border-amber-600" placeholder="Focus on API compatibility, reduce chapter size…" />
-            </div>
-            <div className="flex justify-end gap-2 border-t border-zinc-800 px-5 py-3">
-              <button disabled={busy} onClick={() => setRegenerating(false)} className="rounded border border-zinc-700 px-3 py-1.5 text-xs">Cancel</button>
-              <button disabled={busy || !regenerationFeedback.trim()} onClick={() => void regenerate()} className="rounded bg-amber-600 px-3 py-1.5 text-xs text-black disabled:opacity-40">Regenerate</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog open={regenerating} onClose={() => setRegenerating(false)} dismissible={!busy}>
+        <DialogPanel className="max-w-lg">
+          <DialogHeader><DialogTitle>Regenerate review</DialogTitle><DialogClose disabled={busy} /></DialogHeader>
+          <DialogBody className="space-y-3">
+            <p className="text-xs text-zinc-400">Replace the current pass and tell the agent how to regenerate it.</p>
+            <textarea aria-label="Regeneration feedback" rows={5} value={regenerationFeedback} onChange={(event) => setRegenerationFeedback(event.target.value)} className="w-full rounded border border-zinc-700 bg-zinc-950 p-3 text-sm outline-none focus:border-amber-600" placeholder="Focus on API compatibility, reduce chapter size…" />
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => setRegenerating(false)}>Cancel</Button>
+            <Button variant="warning" size="sm" disabled={busy || !regenerationFeedback.trim()} onClick={() => void regenerate()}>Regenerate</Button>
+          </DialogFooter>
+        </DialogPanel>
+      </Dialog>
 
-      {confirmingDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="delete-review-title" className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
-            <div className="border-b border-zinc-800 px-5 py-3">
-              <h2 id="delete-review-title" className="text-sm font-semibold text-zinc-200">Delete review</h2>
-            </div>
-            <div className="px-5 py-4 text-sm text-zinc-400">Delete the review and all of its steps, questions, and notes?</div>
-            <div className="flex justify-end gap-2 border-t border-zinc-800 px-5 py-3">
-              <button disabled={busy} onClick={() => setConfirmingDelete(false)} className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-50">Cancel</button>
-              <button disabled={busy} onClick={() => void removeReview()} className="rounded bg-red-600 px-3 py-1.5 text-xs text-white hover:bg-red-500 disabled:opacity-50">Delete review</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Dialog open={confirmingDelete} onClose={() => setConfirmingDelete(false)} dismissible={!busy}>
+        <DialogPanel className="max-w-sm">
+          <DialogHeader><DialogTitle>Delete review</DialogTitle><DialogClose disabled={busy} /></DialogHeader>
+          <DialogBody className="text-sm text-zinc-400">Delete the review and all of its steps, questions, and notes?</DialogBody>
+          <DialogFooter>
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => setConfirmingDelete(false)}>Cancel</Button>
+            <Button variant="destructive" size="sm" disabled={busy} onClick={() => void removeReview()}>Delete review</Button>
+          </DialogFooter>
+        </DialogPanel>
+      </Dialog>
 
-      {actionError && <div role="alert" className="border-b border-red-900 bg-red-950/50 px-5 py-2 text-xs text-red-300">{actionError}</div>}
-      {actionInfo && <div role="status" className="border-b border-amber-900 bg-amber-950/40 px-5 py-2 text-xs text-amber-200">{actionInfo}</div>}
+      {actionError && <InlineNotice variant="error" className="rounded-none border-x-0 border-t-0 px-5 py-2 text-xs">{actionError}</InlineNotice>}
+      {actionNotice && <InlineNotice variant={actionNotice.variant} className="rounded-none border-x-0 border-t-0 px-5 py-2 text-xs">{actionNotice.message}</InlineNotice>}
 
       <div
         data-review-layout
@@ -393,8 +394,8 @@ export function ReviewTourPage() {
               </label>)}
               <textarea aria-label="Requested change" rows={2} value={findingDraft} onChange={(event) => setFindingDraft(event.target.value)} placeholder={selection ? "Describe the change for selected lines…" : "Describe a required change…"} className="w-full rounded border border-zinc-700 bg-zinc-900 p-2 text-xs" />
               <div className="flex gap-2">
-                <button disabled={busy || !selectedStep || !findingDraft.trim()} onClick={() => void flagChange()} className="flex items-center gap-1 rounded border border-amber-800 px-2 py-1 text-xs text-amber-300 disabled:opacity-40"><Flag size={12}/> Flag change</button>
-                <button disabled={busy || selectedFindingIDs.length === 0} onClick={() => void requestPlan()} className="rounded bg-indigo-700 px-2 py-1 text-xs disabled:opacity-40">Request follow-up plan</button>
+                <Button variant="warning" size="sm" disabled={busy || !selectedStep || !findingDraft.trim()} onClick={() => void flagChange()}><Flag size={12}/> Flag change</Button>
+                <Button size="sm" disabled={busy || selectedFindingIDs.length === 0} onClick={() => void requestPlan()}>Request follow-up plan</Button>
               </div>
             </div>
           </section>
@@ -430,7 +431,7 @@ export function ReviewTourPage() {
             />
             <div className="flex shrink-0 flex-col gap-2">
               {voiceEnabled && <VoiceRecorder baseUrl={baseUrl} transcriptionOnly onTranscription={(text) => setQuestion((current) => current ? `${current}\n${text}` : text)} />}
-              <button aria-label="Ask agent" title="Send question (Ctrl+Enter)" disabled={busy || !question.trim()} onClick={() => void askQuestion()} className="rounded bg-zinc-800 p-2 text-zinc-300 hover:bg-zinc-700 disabled:opacity-40"><Send size={15} /></button>
+              <Button variant="secondary" size="icon" aria-label="Ask agent" title="Send question (Ctrl+Enter)" disabled={busy || !question.trim()} onClick={() => void askQuestion()}><Send size={15} /></Button>
             </div>
           </div>
         </aside>
