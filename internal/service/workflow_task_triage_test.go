@@ -10,14 +10,19 @@ import (
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
 
-func TestTaskTriageWorkflowAddsAgentReportAsTaskNote(t *testing.T) {
+func TestConcurrentTaskTriageRunsPublishTheirOwnReports(t *testing.T) {
 	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if err := db.CreateTask(context.Background(), store.Task{ID: "task-1", Title: "Broken export", DescriptionMD: "Export hangs", Status: "Backlog"}); err != nil {
-		t.Fatal(err)
+	for _, task := range []store.Task{
+		{ID: "task-1", Title: "Broken export", DescriptionMD: "Export hangs", Status: "Backlog"},
+		{ID: "task-2", Title: "Missing import", DescriptionMD: "Import is absent", Status: "Backlog"},
+	} {
+		if err := db.CreateTask(context.Background(), task); err != nil {
+			t.Fatal(err)
+		}
 	}
 	working := t.TempDir()
 	definition, err := workflowengine.Parse("triage.yaml", []byte(`
@@ -31,10 +36,10 @@ steps:
     title: Triage
     type: agent.run
     with:
-      prompt: Triage ${{ workflow.inputs.task.title }}
+      prompt: Triage ${{ workflow.inputs.task.title }} to ${{ outputs.report.path }}
       working_dir: `+working+`
     outputs:
-      report: {type: file, path: triage.md}
+      report: {type: file, path: "task-triage-${{ workflow.inputs.task.id }}.md"}
   - id: note
     title: Add triage note
     type: task.note
@@ -44,35 +49,58 @@ steps:
     outputs:
       note_id: {type: string}
       task_id: {type: string}
+  - id: cleanup
+    title: Remove triage report
+    type: file.remove
+    with:
+      working_dir: `+working+`
+      path: "task-triage-${{ workflow.inputs.task.id }}.md"
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
 	agent := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent", WorkingDir: working}}
-	svc := NewWorkflowServiceWithOutputs(db, []WorkflowExecutor{agent, NewTaskNoteExecutor(db, nil)}, filepath.Join(t.TempDir(), "artifacts"))
-	view, err := svc.Start(context.Background(), definition, map[string]string{"task": "task-1"})
-	if err != nil {
-		t.Fatal(err)
+	svc := NewWorkflowServiceWithOutputs(db, []WorkflowExecutor{agent, NewTaskNoteExecutor(db, nil), NewFileRemoveExecutor()}, filepath.Join(t.TempDir(), "artifacts"))
+	runs := map[string]*store.WorkflowRunView{}
+	for _, taskID := range []string{"task-1", "task-2"} {
+		view, err := svc.Start(context.Background(), definition, map[string]string{"task": taskID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		runs[taskID] = view
 	}
-	if err := os.WriteFile(filepath.Join(working, "triage.md"), []byte("## Solution\n\nAdd a bounded context."), 0600); err != nil {
-		t.Fatal(err)
+
+	reports := map[string]string{
+		"task-1": "## Export solution\n\nAdd a bounded context.",
+		"task-2": "## Import solution\n\nRestore the import.",
 	}
-	attempt := view.Attempts[0]
-	view, err = svc.Complete(context.Background(), view.Run.ID, "triage", attempt.ID, nil, map[string]string{"report": "triage.md"})
-	if err != nil {
-		t.Fatal(err)
+	for _, taskID := range []string{"task-2", "task-1"} {
+		filename := "task-triage-" + taskID + ".md"
+		reportPath := filepath.Join(working, filename)
+		if err := os.WriteFile(reportPath, []byte(reports[taskID]), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		view := runs[taskID]
+		attempt := view.Attempts[0]
+		view, err = svc.Complete(context.Background(), view.Run.ID, "triage", attempt.ID, nil, map[string]string{"report": filename})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if view.Run.Status != "succeeded" || len(view.Artifacts) != 1 || view.Artifacts[0].MediaType != "text/markdown" {
+			t.Fatalf("run = %+v artifacts = %#v", view.Run, view.Artifacts)
+		}
+		if _, err := os.Stat(reportPath); !os.IsNotExist(err) {
+			t.Fatalf("source report still exists: %v", err)
+		}
 	}
-	if view.Run.Status != "succeeded" {
-		t.Fatalf("run = %+v", view.Run)
-	}
-	if len(view.Artifacts) != 1 || view.Artifacts[0].MediaType != "text/markdown" {
-		t.Fatalf("artifacts = %#v, want one Markdown artifact", view.Artifacts)
-	}
-	notes, err := db.ListTaskNotes(context.Background(), "task-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(notes) != 1 || notes[0].Body != "## Solution\n\nAdd a bounded context." {
-		t.Fatalf("notes = %#v", notes)
+
+	for taskID, want := range reports {
+		notes, err := db.ListTaskNotes(context.Background(), taskID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(notes) != 1 || notes[0].Body != want {
+			t.Fatalf("task %s notes = %#v", taskID, notes)
+		}
 	}
 }

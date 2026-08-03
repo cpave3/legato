@@ -84,7 +84,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 	}
 	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary), service.NewAgentStopExecutor(runner)}
 	executors = append(executors, learningWorkflowExecutors(db, learningSvc, runner, binary)...)
-	executors = append(executors, service.NewTaskNoteExecutor(db, publishers), service.NewTaskMetadataExecutor(db))
+	executors = append(executors, service.NewTaskNoteExecutor(db, publishers), service.NewTaskMetadataExecutor(db), service.NewFileRemoveExecutor())
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector())
 		if prSvc != nil {

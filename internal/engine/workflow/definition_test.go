@@ -61,6 +61,61 @@ steps:
 	}
 }
 
+func TestResolveStepResolvesFileOutputPathFromTaskInput(t *testing.T) {
+	definition, err := workflow.Parse("triage.yaml", []byte(`
+schema_version: 1
+name: triage
+title: Triage
+inputs:
+  task: {type: task, required: true}
+steps:
+  - id: inspect
+    title: Inspect
+    type: agent.run
+    with:
+      prompt: Write report to ${{ outputs.report.path }}
+    outputs:
+      report: {type: file, path: "task-triage-${{ workflow.inputs.task.id }}.md"}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := definition.ResolveStep("inspect", map[string]any{"task": map[string]any{"id": "LEG-42"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resolved.Outputs["report"].Path; got != "task-triage-LEG-42.md" {
+		t.Fatalf("output path = %q", got)
+	}
+	if got := resolved.With["prompt"]; got != "Write report to task-triage-LEG-42.md" {
+		t.Fatalf("prompt = %#v", got)
+	}
+}
+
+func TestResolveStepRejectsUnsafeResolvedFileOutputPath(t *testing.T) {
+	definition, err := workflow.Parse("triage.yaml", []byte(`
+schema_version: 1
+name: triage
+title: Triage
+inputs:
+  task: {type: task, required: true}
+steps:
+  - id: inspect
+    title: Inspect
+    type: agent.run
+    with: {prompt: inspect}
+    outputs:
+      report: {type: file, path: "task-triage-${{ workflow.inputs.task.id }}.md"}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = definition.ResolveStep("inspect", map[string]any{"task": map[string]any{"id": "x/../../outside"}}, nil)
+	if err == nil {
+		t.Fatal("expected unsafe resolved path to fail")
+	}
+}
+
 func TestParseValidateAndRenderWorkflow(t *testing.T) {
 	raw := []byte(`
 schema_version: 1

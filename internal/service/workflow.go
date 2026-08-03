@@ -380,6 +380,10 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 		return nil, err
 	}
 	step := definition.Steps[index]
+	resolved, err := definition.ResolveStep(step.ID, inputs, prior)
+	if err != nil {
+		return nil, err
+	}
 	var attempt *store.WorkflowStepAttempt
 	for i := range view.Attempts {
 		if view.Attempts[i].ID == attemptID {
@@ -390,7 +394,7 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 	if attempt == nil || attempt.StepID != stepID || attempt.Status != "waiting_agent" {
 		return nil, store.ErrWorkflowStateConflict
 	}
-	outputs, err := s.collector.Collect(ctx, WorkflowOutputRequest{RunID: runID, StepID: stepID, AttemptID: attemptID, TaskID: view.Run.TaskID, WorkingDir: attempt.WorkingDir, Declared: step.Outputs, Values: values, Artifacts: artifacts})
+	outputs, err := s.collector.Collect(ctx, WorkflowOutputRequest{RunID: runID, StepID: stepID, AttemptID: attemptID, TaskID: view.Run.TaskID, WorkingDir: attempt.WorkingDir, Declared: resolved.Outputs, Values: values, Artifacts: artifacts})
 	if err != nil {
 		return nil, err
 	}
@@ -491,7 +495,7 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		if err := s.store.StartWorkflowStepAttempt(ctx, attempt, string(resolvedJSON)); err != nil {
 			return err
 		}
-		result, execErr := s.executors[step.Type].Start(ctx, ResolvedWorkflowStep{RunID: runID, AttemptID: attemptID, TaskID: taskID, RelatedTaskID: view.Run.RelatedTaskID, StepID: step.ID, Title: step.Title, Type: step.Type, With: resolved.With, Outputs: step.Outputs})
+		result, execErr := s.executors[step.Type].Start(ctx, ResolvedWorkflowStep{RunID: runID, AttemptID: attemptID, TaskID: taskID, RelatedTaskID: view.Run.RelatedTaskID, StepID: step.ID, Title: step.Title, Type: step.Type, With: resolved.With, Outputs: resolved.Outputs})
 		if execErr != nil {
 			_ = s.store.FailWorkflowStep(ctx, runID, step.ID, attemptID, execErr.Error())
 			return execErr

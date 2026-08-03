@@ -113,7 +113,7 @@ func (d *Definition) Validate() error {
 		if step.Trigger != "automatic" && step.Trigger != "manual" {
 			return fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger)
 		}
-		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.interview" && step.Type != "agent.stop" && step.Type != "worktree.remove" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" {
+		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.interview" && step.Type != "agent.stop" && step.Type != "worktree.remove" && step.Type != "file.remove" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" {
 			return fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type)
 		}
 		if err := validateLearningStep(*step); err != nil {
@@ -129,8 +129,13 @@ func (d *Definition) Validate() error {
 			if !validValueType(output.Type, true) {
 				return fmt.Errorf("step %q output %q has unsupported type %q", step.ID, key, output.Type)
 			}
-			if output.Type == "file" && (output.Path == "" || !safeRelativePath(output.Path)) {
-				return fmt.Errorf("step %q output %q requires a safe relative path", step.ID, key)
+			if output.Type == "file" {
+				if output.Path == "" || !safeRelativePath(output.Path) {
+					return fmt.Errorf("step %q output %q requires a safe relative path", step.ID, key)
+				}
+				if err := validateReferences(output.Path, d.Inputs, nil, availableOutputs); err != nil {
+					return fmt.Errorf("step %q output %q path: %w", step.ID, key, err)
+				}
 			}
 			declared[key] = true
 		}
@@ -338,15 +343,30 @@ func (d *Definition) ResolveStep(stepID string, inputs map[string]any, outputs m
 	if selected == nil {
 		return nil, fmt.Errorf("workflow step %q not found", stepID)
 	}
+	resolvedOutputs := make(map[string]Output, len(selected.Outputs))
+	for key, output := range selected.Outputs {
+		if output.Type == "file" {
+			resolved, err := resolveValue(output.Path, nil, inputs, outputs)
+			if err != nil {
+				return nil, fmt.Errorf("step %q output %q path: %w", stepID, key, err)
+			}
+			path, ok := resolved.(string)
+			if !ok || !safeRelativePath(path) {
+				return nil, fmt.Errorf("step %q output %q resolved to an unsafe path", stepID, key)
+			}
+			output.Path = path
+		}
+		resolvedOutputs[key] = output
+	}
 	with := make(map[string]any, len(selected.With))
 	for key, value := range selected.With {
-		resolved, err := resolveValue(value, selected.Outputs, inputs, outputs)
+		resolved, err := resolveValue(value, resolvedOutputs, inputs, outputs)
 		if err != nil {
 			return nil, fmt.Errorf("step %q field %q: %w", stepID, key, err)
 		}
 		with[key] = resolved
 	}
-	return &ResolvedStep{ID: selected.ID, Title: selected.Title, Type: selected.Type, With: with, Outputs: selected.Outputs}, nil
+	return &ResolvedStep{ID: selected.ID, Title: selected.Title, Type: selected.Type, With: with, Outputs: resolvedOutputs}, nil
 }
 
 func resolveValue(value any, current map[string]Output, inputs map[string]any, outputs map[string]map[string]any) (any, error) {
