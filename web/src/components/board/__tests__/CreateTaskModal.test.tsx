@@ -18,12 +18,22 @@ describe("CreateTaskModal", () => {
 
     expect(screen.getByRole("dialog", { name: "New Task" })).toBeTruthy()
     expect(screen.getByRole("button", { name: "Close dialog" })).toBeTruthy()
+    const dialog = screen.getByRole("dialog", { name: "New Task" })
+    expect(dialog.className).toContain("max-w-2xl")
+    expect(screen.getByRole("group", { name: "Task details" })).toBeTruthy()
+    expect(screen.getByRole("group", { name: "Placement" })).toBeTruthy()
+    expect(dialog.querySelector("[data-create-task-layout]")?.className).toContain("md:grid-cols-[minmax(0,1fr)_15rem]")
+    expect((screen.getByLabelText("Description") as HTMLTextAreaElement).rows).toBe(10)
+    expect(screen.getByText("Markdown supported")).toBeTruthy()
 
     const titleInput = screen.getByLabelText(/Title/i)
     fireEvent.change(titleInput, { target: { value: "New task title" } })
 
     const descInput = screen.getByLabelText(/Description/i)
     fireEvent.change(descInput, { target: { value: "Description text" } })
+    expect((screen.getByRole("combobox", { name: "Column" }) as HTMLSelectElement).value).toBe("Doing")
+    expect((screen.getByRole("combobox", { name: "Priority" }) as HTMLSelectElement).value).toBe("")
+    expect((screen.getByRole("combobox", { name: "Workspace" }) as HTMLSelectElement).value).toBe("")
 
     const createBtn = screen.getByRole("button", { name: /Create/i })
     fireEvent.click(createBtn)
