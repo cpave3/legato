@@ -45,6 +45,13 @@ export function Dialog({ open, onClose, children, dismissible = true }: DialogPr
   const titleId = useId()
   const containerRef = useRef<HTMLDivElement>(null)
   const restoreFocusRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+  const dismissibleRef = useRef(dismissible)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+    dismissibleRef.current = dismissible
+  }, [dismissible, onClose])
 
   useEffect(() => {
     if (!open) return
@@ -55,9 +62,9 @@ export function Dialog({ open, onClose, children, dismissible = true }: DialogPr
     focusable[0]?.focus()
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && dismissible) {
+      if (event.key === "Escape" && dismissibleRef.current) {
         event.preventDefault()
-        onClose()
+        onCloseRef.current()
         return
       }
       if (event.key !== "Tab") return
@@ -80,7 +87,7 @@ export function Dialog({ open, onClose, children, dismissible = true }: DialogPr
       document.removeEventListener("keydown", handleKeyDown)
       restoreFocusRef.current?.focus()
     }
-  }, [dismissible, onClose, open])
+  }, [open])
 
   if (!open) return null
 

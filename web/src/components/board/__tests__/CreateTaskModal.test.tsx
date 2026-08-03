@@ -1,6 +1,11 @@
-import { describe, expect, it, vi } from "vitest"
-import { render, screen, fireEvent } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { CreateTaskModal } from "../CreateTaskModal"
+
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 describe("CreateTaskModal", () => {
   it("submits with correct payload", () => {
@@ -45,6 +50,44 @@ describe("CreateTaskModal", () => {
       priority: "",
       workspace_id: null,
     })
+  })
+
+  it("keeps the title focused and editable across open rerenders", () => {
+    vi.useFakeTimers()
+    const onSubmit = vi.fn()
+    const firstOnClose = vi.fn()
+    const latestOnClose = vi.fn()
+    const { rerender } = render(
+      <CreateTaskModal
+        open={true}
+        columns={["Backlog", "Doing"]}
+        currentColumn="Backlog"
+        workspaces={[]}
+        onClose={firstOnClose}
+        onSubmit={onSubmit}
+      />
+    )
+
+    act(() => vi.advanceTimersByTime(50))
+    const titleInput = screen.getByLabelText(/Title/i)
+    expect(titleInput).toBe(document.activeElement)
+    fireEvent.change(titleInput, { target: { value: "Keep" } })
+
+    rerender(
+      <CreateTaskModal
+        open={true}
+        columns={["Backlog", "Doing"]}
+        currentColumn="Backlog"
+        workspaces={[]}
+        onClose={latestOnClose}
+        onSubmit={onSubmit}
+        loading={true}
+      />
+    )
+
+    expect(titleInput).toBe(document.activeElement)
+    fireEvent.change(titleInput, { target: { value: "Keep typing" } })
+    expect((titleInput as HTMLInputElement).value).toBe("Keep typing")
   })
 
   it("preserves form data while an open request is loading", () => {
