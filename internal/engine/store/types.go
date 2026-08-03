@@ -158,21 +158,42 @@ type LearningEvidence struct {
 }
 
 type Learning struct {
-	ID                  string  `db:"id" json:"id"`
-	Scope               string  `db:"scope" json:"scope"`
-	ProjectKey          string  `db:"project_key" json:"project_key,omitempty"`
-	Kind                string  `db:"kind" json:"kind"`
-	Claim               string  `db:"claim" json:"claim"`
-	Rationale           string  `db:"rationale" json:"rationale,omitempty"`
-	Status              string  `db:"status" json:"status"`
-	Confidence          float64 `db:"confidence" json:"confidence"`
-	PromptEnabled       bool    `db:"prompt_enabled" json:"prompt_enabled"`
-	PromptDecided       bool    `db:"prompt_decided" json:"prompt_decided"`
-	Revision            int     `db:"revision" json:"revision"`
-	CanonicalLearningID *string `db:"canonical_learning_id" json:"canonical_learning_id,omitempty"`
-	CuratorRunID        string  `db:"curator_run_id" json:"curator_run_id,omitempty"`
-	CreatedAt           string  `db:"created_at" json:"created_at"`
-	UpdatedAt           string  `db:"updated_at" json:"updated_at"`
+	ID                  string   `db:"id" json:"id"`
+	Scope               string   `db:"scope" json:"scope"`
+	ProjectKey          string   `db:"project_key" json:"project_key,omitempty"`
+	Kind                string   `db:"kind" json:"kind"`
+	Category            string   `db:"category" json:"category,omitempty"`
+	Tags                []string `db:"-" json:"tags"`
+	Claim               string   `db:"claim" json:"claim"`
+	Rationale           string   `db:"rationale" json:"rationale,omitempty"`
+	Status              string   `db:"status" json:"status"`
+	Confidence          float64  `db:"confidence" json:"confidence"`
+	PromptEnabled       bool     `db:"prompt_enabled" json:"prompt_enabled"`
+	PromptDecided       bool     `db:"prompt_decided" json:"prompt_decided"`
+	Revision            int      `db:"revision" json:"revision"`
+	CanonicalLearningID *string  `db:"canonical_learning_id" json:"canonical_learning_id,omitempty"`
+	CuratorRunID        string   `db:"curator_run_id" json:"curator_run_id,omitempty"`
+	CreatedAt           string   `db:"created_at" json:"created_at"`
+	UpdatedAt           string   `db:"updated_at" json:"updated_at"`
+}
+
+type LearningEmbedding struct {
+	LearningID    string    `db:"learning_id" json:"learning_id"`
+	Revision      int       `db:"revision" json:"revision"`
+	ContentDigest string    `db:"content_digest" json:"content_digest"`
+	Provider      string    `db:"provider" json:"provider,omitempty"`
+	Model         string    `db:"model" json:"model"`
+	Dimensions    int       `db:"dimensions" json:"dimensions"`
+	VectorJSON    string    `db:"vector_json" json:"-"`
+	Vector        []float32 `db:"-" json:"-"`
+	Status        string    `db:"status" json:"status"`
+	Error         string    `db:"error" json:"error,omitempty"`
+	UpdatedAt     string    `db:"updated_at" json:"updated_at"`
+}
+
+type SemanticLearningResult struct {
+	Learning Learning
+	Score    float64
 }
 
 // LearningCurationGeneration is the durable, attempt-scoped input and result of

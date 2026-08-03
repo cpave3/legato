@@ -34,6 +34,7 @@ Version 1 executes steps in declaration order and supports these executors:
 
 - `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
 - `agent.run`: launch a configured Legato agent with an explicit assignment and completion contract. Set `with.name` to customize the agent's visible name; workflow input references are supported.
+- `agent.stop`: idempotently stop the active agent for the resolved `with.task`. Built-in Learn uses it after reflection persistence and before launching curator/critic agents under the same task identity.
 - `worktree.remove`: validate and remove the shared task's worktree through Yggdrasil, then clear task metadata.
 - `task.note`: add Markdown to a selected task. Pass a resolved `task` input plus either inline `body` or a managed/file `body_path`. Local notes are stored in Legato and shown in task detail; Jira-backed notes are also published as Jira comments. Provider failures fail the step rather than silently dropping the note.
 - `task.metadata.set`: atomically set one or more dotted local metadata paths on a task. Provider sync preserves this metadata.

@@ -41,7 +41,23 @@ describe("learning curation pages", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
     const [, init] = fetchMock.mock.calls[1]
     expect(fetchMock.mock.calls[1][0]).toBe("/api/learnings/learn-1/edit")
-    expect(JSON.parse(init.body)).toEqual({ revision: 3, claim: "Edited claim", scope: "user", project_key: "" })
+    expect(JSON.parse(init.body)).toEqual({ revision: 3, claim: "Edited claim", rationale: "They are clear", scope: "user", project_key: "", category: "", tags: [] })
+  })
+
+  it("searches by category and tags and shows hybrid mode", async () => {
+    const fetchMock = vi.fn((url: string) => url.includes("/search")
+      ? response({ items: [learning], mode: "hybrid", semantic_status: "available" })
+      : response([learning]))
+    vi.stubGlobal("fetch", fetchMock)
+    render(<MemoryRouter><LearningsPage /></MemoryRouter>)
+    fireEvent.change(screen.getByPlaceholderText("Search claims and rationale"), { target: { value: "callbacks" } })
+    fireEvent.change(screen.getByLabelText("Category filter"), { target: { value: "workflow" } })
+    fireEvent.change(screen.getByLabelText("Tag filters"), { target: { value: "agents, callbacks" } })
+    fireEvent.click(screen.getByRole("button", { name: "Search" }))
+    await screen.findByText("hybrid search")
+    const searchURL = fetchMock.mock.calls.map(call => call[0]).find(url => url.includes("/search"))
+    expect(searchURL).toContain("category=workflow")
+    expect(searchURL).toContain("tag=agents")
   })
 
   it("toggles prompt activation for a validated learning", async () => {

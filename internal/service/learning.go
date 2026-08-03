@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"sort"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/events"
@@ -17,6 +18,8 @@ type LearningService struct {
 	store    *store.Store
 	bus      *events.Bus
 	resolver *ProjectIdentityResolver
+	embedder EmbeddingProvider
+	semantic SemanticIndex
 }
 
 // NewLearningService accepts an optional project resolver. Omitting it keeps
@@ -31,16 +34,18 @@ func NewLearningService(s *store.Store, bus *events.Bus, resolvers ...*ProjectId
 }
 
 type LearningRecordInput struct {
-	Scope        string `json:"scope"`
-	ProjectKey   string `json:"project_key,omitempty"`
-	ProjectLabel string `json:"project_label,omitempty"`
-	Kind         string `json:"kind"`
-	Claim        string `json:"claim"`
-	Rationale    string `json:"rationale,omitempty"`
-	TaskID       string `json:"task_id,omitempty"`
-	SourceKind   string `json:"source_kind"`
-	SourceRef    string `json:"source_ref"`
-	Author       string `json:"author"`
+	Scope        string   `json:"scope"`
+	ProjectKey   string   `json:"project_key,omitempty"`
+	ProjectLabel string   `json:"project_label,omitempty"`
+	Kind         string   `json:"kind"`
+	Category     string   `json:"category,omitempty"`
+	Tags         []string `json:"tags,omitempty"`
+	Claim        string   `json:"claim"`
+	Rationale    string   `json:"rationale,omitempty"`
+	TaskID       string   `json:"task_id,omitempty"`
+	SourceKind   string   `json:"source_kind"`
+	SourceRef    string   `json:"source_ref"`
+	Author       string   `json:"author"`
 }
 
 type LearningView = store.LearningView
@@ -50,6 +55,8 @@ var ErrLearningConflict = errors.New("learning changed; refresh and try again")
 func (s *LearningService) Record(ctx context.Context, input LearningRecordInput) (*LearningView, error) {
 	input.Claim = strings.TrimSpace(input.Claim)
 	input.Rationale = strings.TrimSpace(input.Rationale)
+	input.Category = normalizeLearningLabel(input.Category)
+	input.Tags = normalizeLearningTags(input.Tags)
 	if input.Scope != "user" && input.Scope != "project" {
 		return nil, LearningValidationError("scope must be user or project")
 	}
@@ -72,12 +79,17 @@ func (s *LearningService) Record(ctx context.Context, input LearningRecordInput)
 		Content: input.Claim, ContentDigest: digestText, Author: input.Author, TaskID: input.TaskID,
 		ProjectKey: input.ProjectKey, ProjectLabel: input.ProjectLabel, MetadataJSON: `{}`}
 	learning := store.Learning{ID: learningID, Scope: input.Scope, ProjectKey: input.ProjectKey, Kind: input.Kind,
-		Claim: input.Claim, Rationale: input.Rationale, Status: "candidate", Revision: 1}
+		Category: input.Category, Tags: input.Tags, Claim: input.Claim, Rationale: input.Rationale, Status: "candidate", Revision: 1}
 	if err := s.store.InsertExplicitLearning(ctx, evidence, learning); err != nil {
 		return nil, err
 	}
 	s.publish(learningID, "recorded")
-	return s.store.GetLearningView(ctx, learningID)
+	view, err := s.store.GetLearningView(ctx, learningID)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.indexLearning(ctx, view.Learning)
+	return view, nil
 }
 
 func (s *LearningService) Show(ctx context.Context, id string) (*LearningView, error) {
@@ -100,6 +112,87 @@ func (s *LearningService) Accept(ctx context.Context, id string, expectedRevisio
 	}
 	s.publish(id, "accepted")
 	return s.Show(ctx, id)
+}
+
+type LearningEditInput struct {
+	Claim      string   `json:"claim"`
+	Rationale  string   `json:"rationale"`
+	Scope      string   `json:"scope"`
+	ProjectKey string   `json:"project_key"`
+	Category   string   `json:"category"`
+	Tags       []string `json:"tags"`
+}
+
+func (s *LearningService) Edit(ctx context.Context, id string, expectedRevision int, input LearningEditInput) (*LearningView, error) {
+	current, err := s.Show(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if input.Claim == "" {
+		input.Claim = current.Learning.Claim
+	}
+	if input.Rationale == "" {
+		input.Rationale = current.Learning.Rationale
+	}
+	if input.Scope == "" {
+		input.Scope = current.Learning.Scope
+	}
+	if input.ProjectKey == "" && input.Scope == "project" {
+		input.ProjectKey = current.Learning.ProjectKey
+	}
+	if input.Category == "" {
+		input.Category = current.Learning.Category
+	}
+	if input.Tags == nil {
+		input.Tags = current.Learning.Tags
+	}
+	input.Claim = strings.TrimSpace(input.Claim)
+	input.Rationale = strings.TrimSpace(input.Rationale)
+	input.Category = normalizeLearningLabel(input.Category)
+	input.Tags = normalizeLearningTags(input.Tags)
+	if input.Claim == "" {
+		return nil, LearningValidationError("claim is required")
+	}
+	if input.Scope != "user" && input.Scope != "project" {
+		return nil, LearningValidationError("scope must be user or project")
+	}
+	if input.Scope == "project" && strings.TrimSpace(input.ProjectKey) == "" {
+		return nil, LearningValidationError("project_key is required for project scope")
+	}
+	if input.Scope == "user" {
+		input.ProjectKey = ""
+	}
+	if err := s.store.EditLearning(ctx, id, expectedRevision, input.Claim, input.Rationale, input.Scope, input.ProjectKey, input.Category, input.Tags); err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			return nil, ErrLearningConflict
+		}
+		return nil, err
+	}
+	s.publish(id, "edited")
+	view, err := s.Show(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.indexLearning(ctx, view.Learning)
+	return view, nil
+}
+
+func normalizeLearningLabel(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func normalizeLearningTags(values []string) []string {
+	seen := make(map[string]bool, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = normalizeLearningLabel(value)
+		if value != "" && !seen[value] {
+			seen[value] = true
+			result = append(result, value)
+		}
+	}
+	sort.Strings(result)
+	return result
 }
 
 func (s *LearningService) Reject(ctx context.Context, id string, expectedRevision int) (*LearningView, error) {

@@ -36,6 +36,27 @@ A candidate claim should be less specific than its evidence while retaining the 
 
 Every mutating decision requires the current revision. Refresh with `legato learn show` after a conflict rather than retrying a stale decision.
 
+### Searchable knowledge base
+
+The learning ledger is also Legato's unified durable memory and knowledge base. Repository- or module-specific knowledge should remain project-scoped and carry a concise category plus normalized tags. It remains searchable without being injected into prompts; prompt activation is an explicit separate decision for high-leverage guidance.
+
+`legato learn search <query>` is the agent-facing recall command. It always performs lexical FTS search. When `learning.embedding` is enabled, it also embeds the query, retrieves semantic candidates, and combines ranked lists with Reciprocal Rank Fusion. CLI search defaults to the current repository, validated/incorporated knowledge, a 0.55 minimum semantic cosine score, and 10 results. Use `--all-projects`, `--status all` (or a specific status), `--min-score`, and `--limit` to override those defaults. JSON items expose lexical/semantic ranks, semantic cosine score, and fused relevance score; the envelope reports effective `mode`, `semantic_status`, and fallback details. API and web search use the same underlying operation but supply their own filters.
+
+```yaml
+learning:
+  embedding:
+    enabled: true
+    provider: openai-compatible
+    model: text-embedding-nomic-embed-text-v1.5
+    base_url: http://localhost:1234/v1
+    api_key_env: OPENAI_API_KEY # optional for self-hosted endpoints
+    timeout: 30s
+    dimensions: 768             # 0 accepts provider dimensions
+    batch_size: 32              # reserved for future batch backfill
+```
+
+Learning writes remain durable when embedding generation fails. Index state records the failure and later searches retry bounded stale/missing entries while lexical search remains available. Vectors live in additive ordinary SQLite tables and are ranked in Go behind `SemanticIndex`; PostgreSQL can replace the lexical adapter with `tsvector`/`tsquery` and the semantic adapter with pgvector without changing callers.
+
 ### Incorporation
 
 An incorporation is a proposed use of an accepted learning, not another name for acceptance. It identifies a destination, optional target, and action. For example, a learning may be incorporated into documentation or into the special `prompt_profile` destination.
@@ -75,6 +96,8 @@ legato learn reflection submit --request <request-id> --file reflection.json
 ```
 
 The request can also come from `LEGATO_LEARNING_REQUEST_ID`; omitting `--file` or using `--file -` reads stdin. Submission validates and persists the reflection **before** completing the exact workflow run/step/attempt associated with the request. An exact replay is idempotent; a changed or stale replay fails. Submit `{"schema_version":1,"observations":[]}` when nothing durable was learned; this completes normally and creates no evidence. Limits currently include zero to 32 observations, 64 KiB per document, and 8 KiB per observation content/rationale.
+
+After reflection is persisted and the bounded packet is prepared, the built-in task-learning workflow runs `agent.stop` for the borrowed task agent before launching the curator under the same task identity. The stop is idempotent, so retries remain safe.
 
 The curator is a normal workflow agent. It completes its `agent.run` contract with the declared `operations` output, normally via:
 
@@ -157,7 +180,10 @@ legato learn record [claim] --kind <kind>
 legato learn show <learning-id> [--json]
 legato learn list [--scope user|project] [--status <status>]
   [--project <project-key>] [--limit <count>] [--json]
-legato learn search <query> [the same filters] [--json]
+legato learn search <query> [--scope user|project]
+  [--status <status>|all] [--project <project-key> | --all-projects]
+  [--category <category>] [--tags <tag,...>] [--min-score <0..1>]
+  [--limit <count>] [--json]
 legato learn context --task <task-id> [--limit <count>] [--json]
 legato learn curate --task <task-id> [--json]
 legato learn consolidate --scope user|project [--project <project-key>] [--json]

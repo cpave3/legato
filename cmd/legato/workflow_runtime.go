@@ -42,7 +42,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 			prSvc = service.NewPRTrackingServiceWithInspector(db, bus, client, 10*time.Minute, 10*time.Minute, checkoutInspector(), githubRepositoryMappings(cfg)...)
 		}
 	}
-	learningSvc := service.NewLearningService(db, bus, service.NewProjectIdentityResolver(checkoutInspector()))
+	learningSvc := configuredLearningService(cfg, db, bus, service.NewProjectIdentityResolver(checkoutInspector()))
 	agentSvc := existingAgents
 	if agentSvc == nil {
 		mgr, err := tmux.New(tmux.Options{})
@@ -82,7 +82,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 	if cfg.Jira.BaseURL != "" && cfg.Jira.Email != "" && cfg.Jira.APIToken != "" {
 		publishers["jira"] = jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second)
 	}
-	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary)}
+	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary), service.NewAgentStopExecutor(runner)}
 	executors = append(executors, learningWorkflowExecutors(db, learningSvc, runner, binary)...)
 	executors = append(executors, service.NewTaskNoteExecutor(db, publishers), service.NewTaskMetadataExecutor(db))
 	if cfg.Worktrees.Yggdrasil.Enabled {
@@ -111,7 +111,7 @@ func learningPromptProvider(cfg *config.Config, db *store.Store, bus *events.Bus
 	if !cfg.Learning.PromptEnabled {
 		return nil
 	}
-	return service.NewLearningService(db, bus, service.NewProjectIdentityResolver(checkoutInspector()))
+	return configuredLearningService(cfg, db, bus, service.NewProjectIdentityResolver(checkoutInspector()))
 }
 
 func githubRepositoryMappings(cfg *config.Config) []service.RepositoryMapping {

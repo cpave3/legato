@@ -12,7 +12,10 @@ export function LearningDetailPage() {
   const { baseUrl } = useServer()
   const [view, setView] = useState<LearningView | null>(null)
   const [claim, setClaim] = useState("")
+  const [rationale, setRationale] = useState("")
   const [scope, setScope] = useState("")
+  const [category, setCategory] = useState("")
+  const [tags, setTags] = useState("")
   const [projectKey, setProjectKey] = useState("")
   const [loading, setLoading] = useState(true)
   const [pending, setPending] = useState(false)
@@ -22,7 +25,7 @@ export function LearningDetailPage() {
     setLoading(true); setError(null)
     try {
       const next = await fetchLearning(baseUrl, learningId)
-      setView(next); setClaim(next.learning.claim); setScope(next.learning.scope); setProjectKey(next.learning.project_key ?? "")
+      setView(next); setClaim(next.learning.claim); setRationale(next.learning.rationale ?? ""); setScope(next.learning.scope); setProjectKey(next.learning.project_key ?? ""); setCategory(next.learning.category ?? ""); setTags(next.learning.tags?.join(", ") ?? "")
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
     finally { setLoading(false) }
   }, [baseUrl, learningId])
@@ -33,10 +36,10 @@ export function LearningDetailPage() {
     if (!view) return
     setPending(true); setError(null)
     try {
-      const body = action === "edit" ? { revision: view.learning.revision, claim, scope, project_key: scope === "project" ? projectKey : "" } : { revision: view.learning.revision }
+      const body = action === "edit" ? { revision: view.learning.revision, claim, rationale, scope, project_key: scope === "project" ? projectKey : "", category, tags: tags.split(",").map(value => value.trim()).filter(Boolean) } : { revision: view.learning.revision }
       await decideLearning(baseUrl, learningId, action, body)
       const next = await fetchLearning(baseUrl, learningId)
-      setView(next); setClaim(next.learning.claim); setScope(next.learning.scope); setProjectKey(next.learning.project_key ?? "")
+      setView(next); setClaim(next.learning.claim); setRationale(next.learning.rationale ?? ""); setScope(next.learning.scope); setProjectKey(next.learning.project_key ?? ""); setCategory(next.learning.category ?? ""); setTags(next.learning.tags?.join(", ") ?? "")
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
     finally { setPending(false) }
   }
@@ -67,8 +70,9 @@ export function LearningDetailPage() {
 
       <form onSubmit={e => decide("edit", e)} className="space-y-3 rounded-xl border border-zinc-800 p-4">
         <h2 className="font-medium">Curate</h2><label className="block text-xs text-zinc-400">Claim<textarea aria-label="Claim" className={`${inputClass} mt-1 min-h-24`} value={claim} onChange={e => setClaim(e.target.value)} required /></label>
-        <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs text-zinc-400">Scope<select aria-label="Edit scope" className={`${inputClass} mt-1`} value={scope} onChange={e => setScope(e.target.value)}><option value="user">user</option><option value="project">project</option></select></label>{scope === "project" && <label className="text-xs text-zinc-400">Project key<input aria-label="Project key" className={`${inputClass} mt-1`} value={projectKey} onChange={e => setProjectKey(e.target.value)} required /></label>}</div>
-        <p className="text-xs text-zinc-500">Actions will submit revision {learning.revision}.</p><div className="flex flex-wrap gap-2"><button disabled={pending || learning.status !== "candidate"} className="rounded-lg border border-zinc-700 px-4 py-2 text-sm disabled:opacity-50">Save edit</button>{learning.status === "candidate" && <><button type="button" disabled={pending} onClick={() => decide("accept")} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium disabled:opacity-50">Accept</button><button type="button" disabled={pending} onClick={() => decide("reject")} className="rounded-lg bg-red-600/80 px-4 py-2 text-sm font-medium disabled:opacity-50">Reject</button></>}</div>
+        <label className="block text-xs text-zinc-400">Rationale<textarea aria-label="Rationale" className={`${inputClass} mt-1 min-h-16`} value={rationale} onChange={e => setRationale(e.target.value)} /></label>
+        <div className="grid gap-3 sm:grid-cols-2"><label className="text-xs text-zinc-400">Scope<select aria-label="Edit scope" className={`${inputClass} mt-1`} value={scope} onChange={e => setScope(e.target.value)}><option value="user">user</option><option value="project">project</option></select></label>{scope === "project" && <label className="text-xs text-zinc-400">Project key<input aria-label="Project key" className={`${inputClass} mt-1`} value={projectKey} onChange={e => setProjectKey(e.target.value)} required /></label>}<label className="text-xs text-zinc-400">Category<input aria-label="Category" className={`${inputClass} mt-1`} value={category} onChange={e => setCategory(e.target.value)} /></label><label className="text-xs text-zinc-400">Tags<input aria-label="Tags" className={`${inputClass} mt-1`} value={tags} onChange={e => setTags(e.target.value)} placeholder="agents, callbacks" /></label></div>
+        <p className="text-xs text-zinc-500">Actions will submit revision {learning.revision}.</p><div className="flex flex-wrap gap-2"><button disabled={pending || learning.status === "rejected"} className="rounded-lg border border-zinc-700 px-4 py-2 text-sm disabled:opacity-50">Save edit</button>{learning.status === "candidate" && <><button type="button" disabled={pending} onClick={() => decide("accept")} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium disabled:opacity-50">Accept</button><button type="button" disabled={pending} onClick={() => decide("reject")} className="rounded-lg bg-red-600/80 px-4 py-2 text-sm font-medium disabled:opacity-50">Reject</button></>}</div>
       </form>
 
       {(learning.status === "validated" || learning.status === "incorporated") && <section className="space-y-3 rounded-xl border border-indigo-900/60 bg-indigo-950/20 p-4"><div className="flex items-center justify-between gap-4"><div><h2 className="font-medium">Agent prompt activation</h2><p className="mt-1 text-sm text-zinc-400">{learning.scope === "user" ? "Applies to new agents in every repository." : `Applies only when the task resolves to ${learning.project_key}.`} Existing sessions are unchanged.</p></div><button type="button" role="switch" aria-checked={learning.prompt_enabled} disabled={pending} onClick={() => togglePrompt(!learning.prompt_enabled)} className={`rounded-full px-4 py-2 text-sm font-medium ${learning.prompt_enabled ? "bg-emerald-600" : "bg-zinc-700"}`}>{learning.prompt_enabled ? "Enabled" : "Disabled"}</button></div>{!learning.prompt_decided && <p className="text-xs text-amber-300">Newly accepted learnings start disabled. Choose whether to enable this one; you can change it later.</p>}</section>}

@@ -14,7 +14,8 @@ func TestMigration052AddsRevisionContentToExistingLearningProposals(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.Exec(`CREATE TABLE learning_proposals (
+	_, err = db.Exec(`CREATE TABLE learnings (id TEXT PRIMARY KEY);
+	CREATE TABLE learning_proposals (
 		id TEXT PRIMARY KEY, generation_id TEXT NOT NULL, operation TEXT NOT NULL,
 		learning_id TEXT NOT NULL DEFAULT '', canonical_learning_id TEXT NOT NULL DEFAULT '',
 		scope TEXT NOT NULL DEFAULT '', project_key TEXT NOT NULL DEFAULT '', evidence_ids_json TEXT NOT NULL DEFAULT '[]',

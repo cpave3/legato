@@ -304,6 +304,7 @@ func joinPromptSections(parts ...string) string {
 // EventPublisher publishes events. Wraps *events.Bus to keep the service layer
 // loosely coupled.
 type EventPublisher interface {
+	PublishAgentStarted(taskID string)
 	PublishAgentDied(taskID, parentTaskID, subtaskID, role string)
 	PublishAgentChimeraDiscovered(taskID string)
 }
@@ -669,6 +670,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// inspection or GitHub synchronization is unavailable.
 	if a.checkoutInspector != nil {
 		go a.captureAgentCodeContext(taskID, workDir)
+	}
+	if a.bus != nil {
+		a.bus.PublishAgentStarted(taskID)
 	}
 
 	return nil

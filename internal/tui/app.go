@@ -309,6 +309,8 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 			bus.Subscribe(events.EventAuthFailed),
 			bus.Subscribe(events.EventRateLimited),
 			bus.Subscribe(events.EventTransitionFailed),
+			bus.Subscribe(events.EventAgentStarted),
+			bus.Subscribe(events.EventAgentDied),
 		}
 		app.cardUpdateSub = bus.Subscribe(events.EventCardUpdated)
 		app.cardMoveSub = bus.Subscribe(events.EventCardMoved)
@@ -1126,6 +1128,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case events.EventSyncError, events.EventAuthFailed, events.EventRateLimited, events.EventTransitionFailed:
 			if p, ok := msg.Event.Payload.(events.ErrorPayload); ok {
 				a.statusBar, _ = a.statusBar.Update(statusbar.ErrorMsg{Text: p.Message})
+			}
+		case events.EventAgentStarted, events.EventAgentDied:
+			if a.active == viewAgents && a.agentSvc != nil {
+				svc := a.agentSvc
+				cmds = append(cmds, func() tea.Msg {
+					agentList, _ := svc.ListAgents(context.Background())
+					return agents.AgentsRefreshedMsg{Agents: agentList}
+				})
 			}
 		}
 		// Continue listening on the same channel

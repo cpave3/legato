@@ -1401,7 +1401,7 @@ func runServeCmd(args []string) int {
 	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
-	srv.SetLearningService(service.NewLearningService(db, bus, service.NewProjectIdentityResolver(checkoutInspector())))
+	srv.SetLearningService(configuredLearningService(cfg, db, bus, service.NewProjectIdentityResolver(checkoutInspector())))
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		srv.SetWorktreeService(service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector()))
 	}
@@ -1478,6 +1478,7 @@ func runServeCmd(args []string) int {
 		defer swarmStop()
 	}
 	srv.StartSwarmEvents()
+	srv.StartAgentLifecycleEvents()
 	srv.StartChimeraDiscoveryEvents()
 	srv.StartReviewEvents()
 	srv.StartPlanEvents()
@@ -1746,7 +1747,7 @@ func runTUI() int {
 			log.Printf("web: port %s unavailable: %v", cfg.Web.Port, listenErr)
 		} else {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
-			webSrv.SetLearningService(service.NewLearningService(db, bus, service.NewProjectIdentityResolver(checkoutInspector())))
+			webSrv.SetLearningService(configuredLearningService(cfg, db, bus, service.NewProjectIdentityResolver(checkoutInspector())))
 			if worktreeSvc != nil {
 				webSrv.SetWorktreeService(worktreeSvc)
 			}
@@ -1777,6 +1778,7 @@ func runTUI() int {
 				webSrv.SetAuthToken(token)
 			}
 			webSrv.StartSwarmEvents()
+			webSrv.StartAgentLifecycleEvents()
 			webSrv.StartChimeraDiscoveryEvents()
 			webSrv.StartReviewEvents()
 			webSrv.StartPlanEvents()

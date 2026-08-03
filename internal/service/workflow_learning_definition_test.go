@@ -13,16 +13,16 @@ func TestBuiltInLearningWorkflowUsesInterviewAndConfiguredAgentRun(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if definition.Source != "builtin:legato-learning" || len(definition.Steps) != 5 {
+	if definition.Source != "builtin:legato-learning" || len(definition.Steps) != 6 {
 		t.Fatalf("definition = %#v", definition)
 	}
-	wantTypes := []string{"agent.interview", "learning.packet.prepare", "agent.run", "agent.run", "learning.proposals.submit"}
+	wantTypes := []string{"agent.interview", "learning.packet.prepare", "agent.stop", "agent.run", "agent.run", "learning.proposals.submit"}
 	for i, want := range wantTypes {
 		if definition.Steps[i].Type != want {
 			t.Fatalf("step %d type = %q, want %q", i, definition.Steps[i].Type, want)
 		}
 	}
-	curator := definition.Steps[2]
+	curator := definition.Steps[3]
 	if curator.With["agent"] != "chimera" || curator.With["tier"] != "careful" || curator.With["working_dir"] != "/tmp/project" {
 		t.Fatalf("curator config = %#v", curator.With)
 	}
@@ -43,7 +43,7 @@ func TestBuiltInLearningWorkflowUsesInterviewAndConfiguredAgentRun(t *testing.T)
 			t.Errorf("curator prompt missing %q: %q", guidance, prompt)
 		}
 	}
-	critic := definition.Steps[3]
+	critic := definition.Steps[4]
 	criticPrompt := critic.With["prompt"].(string)
 	if critic.With["agent"] != "chimera" || critic.With["tier"] != "careful" || critic.With["working_dir"] != "/tmp/project" {
 		t.Fatalf("critic config = %#v", critic.With)
@@ -53,7 +53,7 @@ func TestBuiltInLearningWorkflowUsesInterviewAndConfiguredAgentRun(t *testing.T)
 			t.Errorf("critic prompt missing %q: %q", reference, criticPrompt)
 		}
 	}
-	if got := definition.Steps[4].With["operations"]; got != "${{ steps.critic.outputs.operations }}" {
+	if got := definition.Steps[5].With["operations"]; got != "${{ steps.critic.outputs.operations }}" {
 		t.Fatalf("submit operations = %v, want critic output", got)
 	}
 }
@@ -63,7 +63,7 @@ func TestBuiltInLearningWorkflowUsesTaskWorkingDirectoryWhenNoOverride(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, index := range []int{2, 3} {
+	for _, index := range []int{3, 4} {
 		if got := definition.Steps[index].With["working_dir"]; got != "${{ workflow.inputs.working_dir }}" {
 			t.Fatalf("agent step %d working_dir = %v", index, got)
 		}

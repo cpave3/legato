@@ -10,10 +10,13 @@ import (
 
 // LearningFilter controls scoped list and search retrieval.
 type LearningFilter struct {
-	Status     string `json:"status,omitempty"`
-	Scope      string `json:"scope,omitempty"`
-	ProjectKey string `json:"project_key,omitempty"`
-	Limit      int    `json:"limit,omitempty"`
+	Status     string   `json:"status,omitempty"`
+	Statuses   []string `json:"statuses,omitempty"`
+	Scope      string   `json:"scope,omitempty"`
+	ProjectKey string   `json:"project_key,omitempty"`
+	Category   string   `json:"category,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
+	Limit      int      `json:"limit,omitempty"`
 }
 
 func validateLearningFilter(filter LearningFilter) error {
@@ -30,8 +33,9 @@ func validateLearningFilter(filter LearningFilter) error {
 }
 
 func storeLearningQuery(filter LearningFilter) store.LearningQuery {
-	return store.LearningQuery{Status: strings.TrimSpace(filter.Status), Scope: filter.Scope,
-		ProjectKey: strings.TrimSpace(filter.ProjectKey), Limit: filter.Limit}
+	return store.LearningQuery{Status: strings.TrimSpace(filter.Status), Statuses: filter.Statuses, Scope: filter.Scope,
+		ProjectKey: strings.TrimSpace(filter.ProjectKey), Category: normalizeLearningLabel(filter.Category),
+		Tags: normalizeLearningTags(filter.Tags), Limit: filter.Limit}
 }
 
 func (s *LearningService) List(ctx context.Context, filter LearningFilter) ([]store.Learning, error) {

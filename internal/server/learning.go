@@ -29,7 +29,7 @@ func learningLimit(r *http.Request) (int, error) {
 
 func learningFilter(r *http.Request) (service.LearningFilter, error) {
 	limit, err := learningLimit(r)
-	return service.LearningFilter{Status: r.URL.Query().Get("status"), Scope: r.URL.Query().Get("scope"), ProjectKey: r.URL.Query().Get("project_key"), Limit: limit}, err
+	return service.LearningFilter{Status: r.URL.Query().Get("status"), Scope: r.URL.Query().Get("scope"), ProjectKey: r.URL.Query().Get("project_key"), Category: r.URL.Query().Get("category"), Tags: r.URL.Query()["tag"], Limit: limit}, err
 }
 
 func (s *Server) learningError(w http.ResponseWriter, err error) {
@@ -119,7 +119,7 @@ func (s *Server) learningSearchHandler() http.HandlerFunc {
 		if query == "" {
 			query = r.URL.Query().Get("query")
 		}
-		items, err := s.learning.Search(r.Context(), query, filter)
+		items, err := s.learning.SearchKnowledge(r.Context(), query, service.LearningSearchFilter{LearningFilter: filter})
 		if err != nil {
 			s.learningError(w, err)
 			return
@@ -198,10 +198,13 @@ func (s *Server) learningShowHandler() http.HandlerFunc {
 }
 
 type learningDecisionRequest struct {
-	Revision   int    `json:"revision"`
-	Claim      string `json:"claim,omitempty"`
-	Scope      string `json:"scope,omitempty"`
-	ProjectKey string `json:"project_key,omitempty"`
+	Revision   int      `json:"revision"`
+	Claim      string   `json:"claim,omitempty"`
+	Rationale  string   `json:"rationale,omitempty"`
+	Scope      string   `json:"scope,omitempty"`
+	ProjectKey string   `json:"project_key,omitempty"`
+	Category   string   `json:"category,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 func (s *Server) learningDecisionHandler(action string) http.HandlerFunc {
@@ -226,11 +229,11 @@ func (s *Server) learningDecisionHandler(action string) http.HandlerFunc {
 		var err error
 		if action == "reject" {
 			view, err = s.learning.Reject(r.Context(), r.PathValue("id"), body.Revision)
+		} else if action == "edit" {
+			view, err = s.learning.Edit(r.Context(), r.PathValue("id"), body.Revision, service.LearningEditInput{
+				Claim: body.Claim, Rationale: body.Rationale, Scope: body.Scope, ProjectKey: body.ProjectKey, Category: body.Category, Tags: body.Tags,
+			})
 		} else {
-			if action == "edit" && body.Claim == "" && body.Scope == "" && body.ProjectKey == "" {
-				s.learningError(w, learningInputError("edit requires claim, scope, or project_key"))
-				return
-			}
 			view, err = s.learning.Accept(r.Context(), r.PathValue("id"), body.Revision, body.Claim, body.Scope, body.ProjectKey)
 		}
 		if err != nil {

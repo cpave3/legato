@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/events"
@@ -48,6 +49,37 @@ func TestLearningServiceRecordCreatesCandidateWithEvidence(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected learning changed event")
+	}
+}
+
+func TestLearningServiceRecordsCategorizesTagsAndEditsValidatedKnowledge(t *testing.T) {
+	db := newServiceTestStore(t)
+	svc := NewLearningService(db, nil)
+	view, err := svc.Record(context.Background(), LearningRecordInput{
+		Scope: "project", ProjectKey: "repo:github.com/acme/widget", Kind: "technical_fact",
+		Category: " Workflow ", Tags: []string{"Agents", " callbacks ", "agents"},
+		Claim: "Callbacks carry attempt identity.", Rationale: "Prevents stale completion.",
+		SourceKind: "explicit_user_entry", SourceRef: "feedback:kb", Author: "user",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Learning.Category != "workflow" || fmt.Sprint(view.Learning.Tags) != "[agents callbacks]" {
+		t.Fatalf("classification = category %q tags %v", view.Learning.Category, view.Learning.Tags)
+	}
+	accepted, err := svc.Accept(context.Background(), view.Learning.ID, view.Learning.Revision, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited, err := svc.Edit(context.Background(), accepted.Learning.ID, accepted.Learning.Revision, LearningEditInput{
+		Claim: "Callbacks must carry the active attempt identity.", Rationale: "Rejects stale completion.",
+		Scope: "project", ProjectKey: "repo:github.com/acme/widget", Category: "workflow-runtime", Tags: []string{"callbacks", "retries"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if edited.Learning.Status != "validated" || edited.Learning.Claim != "Callbacks must carry the active attempt identity." || edited.Learning.Rationale != "Rejects stale completion." || edited.Learning.Category != "workflow-runtime" || fmt.Sprint(edited.Learning.Tags) != "[callbacks retries]" {
+		t.Fatalf("edited = %+v", edited.Learning)
 	}
 }
 

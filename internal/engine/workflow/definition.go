@@ -109,7 +109,7 @@ func (d *Definition) Validate() error {
 		if step.Trigger != "automatic" && step.Trigger != "manual" {
 			return fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger)
 		}
-		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.interview" && step.Type != "worktree.remove" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" {
+		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.interview" && step.Type != "agent.stop" && step.Type != "worktree.remove" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" {
 			return fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type)
 		}
 		if err := validateLearningStep(*step); err != nil {
@@ -138,6 +138,8 @@ func (d *Definition) Validate() error {
 func validateLearningStep(step Step) error {
 	required := []string{}
 	switch step.Type {
+	case "agent.stop":
+		required = []string{"task"}
 	case "learning.packet.prepare":
 		required = []string{"task", "limits"}
 	case "learning.proposals.submit":

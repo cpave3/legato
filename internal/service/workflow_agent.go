@@ -86,6 +86,24 @@ func (r *WorkflowAgentRunner) PromptAgent(ctx context.Context, taskID, prompt st
 	return tmuxer.Tmux().SendKeysLine(session.TmuxSession, prompt)
 }
 
+type AgentStopExecutor struct{ agents workflowAgentRunner }
+
+func NewAgentStopExecutor(agents workflowAgentRunner) *AgentStopExecutor {
+	return &AgentStopExecutor{agents: agents}
+}
+func (e *AgentStopExecutor) Type() string { return "agent.stop" }
+func (e *AgentStopExecutor) Start(ctx context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
+	taskID, err := interviewTaskID(step.With["task"])
+	if err != nil {
+		return WorkflowExecutionResult{}, err
+	}
+	if err := e.agents.KillAgent(ctx, taskID); err != nil {
+		return WorkflowExecutionResult{}, err
+	}
+	return WorkflowExecutionResult{Status: "succeeded"}, nil
+}
+func (e *AgentStopExecutor) Cancel(context.Context, store.WorkflowStepAttempt) error { return nil }
+
 type AgentRunExecutor struct {
 	agents     workflowAgentRunner
 	binaryPath string

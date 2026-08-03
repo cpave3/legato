@@ -37,7 +37,19 @@ func (f *acceptanceAgentTransport) SpawnWorkflowAgent(ctx context.Context, taskI
 	return f.store.GetAgentSessionByTaskID(ctx, taskID)
 }
 
-func (f *acceptanceAgentTransport) KillAgent(context.Context, string) error { return nil }
+func (f *acceptanceAgentTransport) KillAgent(ctx context.Context, taskID string) error {
+	session, err := f.store.GetAgentSessionByTaskID(ctx, taskID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := f.store.FinishAgentSession(ctx, session.ID); err != nil {
+		return err
+	}
+	return f.store.DeleteAgentSession(ctx, session.ID)
+}
 func (f *acceptanceAgentTransport) FinishWorkflowAgent(context.Context, store.WorkflowStepAttempt) error {
 	return nil
 }
@@ -70,6 +82,7 @@ func TestLegatoLearnConnectedAcceptance(t *testing.T) {
 	workflow := NewWorkflowService(db, []WorkflowExecutor{
 		NewAgentInterviewExecutor(learning, agents, db),
 		NewLearningPacketPrepareExecutor(learning),
+		NewAgentStopExecutor(agents),
 		NewAgentRunExecutor(agents),
 		NewLearningProposalsSubmitExecutor(learning),
 	})
@@ -111,7 +124,7 @@ func TestLegatoLearnConnectedAcceptance(t *testing.T) {
 
 	// Packet preparation ran synchronously through its real executor. The fake
 	// curator is now waiting and returns its declared output through Complete.
-	curatorStep := definition.Steps[2].ID
+	curatorStep := definition.Steps[3].ID
 	curatorAttempt := activeAcceptanceAttempt(t, run, curatorStep)
 	if len(agents.assignments) != 1 || !strings.Contains(agents.assignments[0].Assignment, "Bounded packet") {
 		t.Fatalf("curator assignment was not delivered: %+v", agents.assignments)
@@ -143,7 +156,7 @@ func TestLegatoLearnConnectedAcceptance(t *testing.T) {
 	if _, err := learning.Show(ctx, "learn-acceptance-callback"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("curator draft was ingested before critic approval: %v", err)
 	}
-	criticStep := definition.Steps[3].ID
+	criticStep := definition.Steps[4].ID
 	criticAttempt := activeAcceptanceAttempt(t, run, criticStep)
 	if len(agents.assignments) != 2 || !strings.Contains(agents.assignments[1].Assignment, "Curator draft operations") {
 		t.Fatalf("critic assignment was not delivered: %+v", agents.assignments)
@@ -316,7 +329,7 @@ func TestLegatoLearnEmptyReflectionCompletesWithoutLearning(t *testing.T) {
 	}
 	workflow := NewWorkflowService(db, []WorkflowExecutor{
 		NewAgentInterviewExecutor(learning, agents, db), NewLearningPacketPrepareExecutor(learning),
-		NewAgentRunExecutor(agents), NewLearningProposalsSubmitExecutor(learning),
+		NewAgentStopExecutor(agents), NewAgentRunExecutor(agents), NewLearningProposalsSubmitExecutor(learning),
 	})
 	run, err := workflow.Start(ctx, definition, map[string]string{"task": task.ID, "project_key": "repo:acme/empty", "project_label": "acme/empty"})
 	if err != nil {

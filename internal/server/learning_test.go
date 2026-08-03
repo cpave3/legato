@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -81,7 +82,7 @@ func TestLearningAPIRecordListShowSearchAndContext(t *testing.T) {
 		t.Fatalf("accept status=%d body=%s", accepted.Code, accepted.Body.String())
 	}
 
-	for _, path := range []string{"/api/learnings", "/api/learnings/search?q=table", "/api/learnings/context"} {
+	for _, path := range []string{"/api/learnings", "/api/learnings/context"} {
 		rec := learningRequest(t, srv, http.MethodGet, path, nil)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("GET %s status=%d body=%s", path, rec.Code, rec.Body.String())
@@ -94,6 +95,14 @@ func TestLearningAPIRecordListShowSearchAndContext(t *testing.T) {
 			t.Fatalf("GET %s items=%+v", path, items)
 		}
 	}
+	search := learningRequest(t, srv, http.MethodGet, "/api/learnings/search?q=table", nil)
+	var searchResult service.LearningSearchResult
+	if err := json.Unmarshal(search.Body.Bytes(), &searchResult); err != nil {
+		t.Fatal(err)
+	}
+	if searchResult.Mode != "lexical" || len(searchResult.Items) != 1 || searchResult.Items[0].ID != view.Learning.ID {
+		t.Fatalf("search result=%+v", searchResult)
+	}
 	show := learningRequest(t, srv, http.MethodGet, "/api/learnings/"+view.Learning.ID, nil)
 	if show.Code != http.StatusOK {
 		t.Fatalf("show status=%d body=%s", show.Code, show.Body.String())
@@ -104,6 +113,29 @@ func TestLearningAPIRecordListShowSearchAndContext(t *testing.T) {
 	}
 	if shown.Incorporations == nil {
 		t.Fatal("show must return an incorporation history array")
+	}
+}
+
+func TestLearningAPIEditPreservesOmittedFieldsForValidatedEntry(t *testing.T) {
+	srv, svc, _ := newLearningAPITestServer(t)
+	view, err := svc.Record(context.Background(), service.LearningRecordInput{Scope: "user", Kind: "fact", Category: "workflow", Tags: []string{"agents"}, Claim: "Original claim", Rationale: "Original rationale", SourceKind: "test", SourceRef: "edit", Author: "user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err = svc.Accept(context.Background(), view.Learning.ID, view.Learning.Revision, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := learningRequest(t, srv, http.MethodPost, "/api/learnings/"+view.Learning.ID+"/edit", map[string]any{"revision": view.Learning.Revision, "claim": "Updated claim"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var edited service.LearningView
+	if err := json.Unmarshal(rec.Body.Bytes(), &edited); err != nil {
+		t.Fatal(err)
+	}
+	if edited.Learning.Status != "validated" || edited.Learning.Rationale != "Original rationale" || edited.Learning.Category != "workflow" || fmt.Sprint(edited.Learning.Tags) != "[agents]" {
+		t.Fatalf("edited=%+v", edited.Learning)
 	}
 }
 
@@ -334,6 +366,22 @@ func TestLearningVerifyTargetAndDriftPublicPaths(t *testing.T) {
 	badDrift := learningRequest(t, srv, http.MethodPost, "/api/learning-incorporations/drift", map[string]any{"repository_root": ""})
 	if badDrift.Code != http.StatusBadRequest {
 		t.Fatalf("unsafe drift status=%d body=%s", badDrift.Code, badDrift.Body.String())
+	}
+}
+
+func TestStartAgentLifecycleEventsBroadcastsAgentsChanged(t *testing.T) {
+	bus := events.New()
+	srv := NewWithSwarm(nil, nil, nil, "", nil, bus, "")
+	client := newRecordingWSClient()
+	srv.hub.add(client.wsClient)
+
+	srv.StartAgentLifecycleEvents()
+	bus.Publish(events.Event{Type: events.EventAgentStarted})
+	bus.Publish(events.Event{Type: events.EventAgentDied})
+
+	messages := client.messages(2)
+	if len(messages) != 2 || messages[0].Type != MsgAgentsChanged || messages[1].Type != MsgAgentsChanged {
+		t.Fatalf("messages = %+v", messages)
 	}
 }
 

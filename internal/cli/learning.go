@@ -23,7 +23,7 @@ type LearningListService interface {
 }
 
 type LearningSearchService interface {
-	Search(context.Context, string, service.LearningFilter) ([]store.Learning, error)
+	SearchKnowledge(context.Context, string, service.LearningSearchFilter) (*service.LearningSearchResult, error)
 }
 
 type LearningContextService interface {
@@ -32,6 +32,10 @@ type LearningContextService interface {
 
 type LearningAcceptService interface {
 	Accept(context.Context, string, int, string, string, string) (*service.LearningView, error)
+}
+
+type LearningEditService interface {
+	Edit(context.Context, string, int, service.LearningEditInput) (*service.LearningView, error)
 }
 
 type LearningPromptActivationService interface {
@@ -93,19 +97,19 @@ func LearningShow(ctx context.Context, svc LearningCLIService, id string, w io.W
 	return json.NewEncoder(w).Encode(view)
 }
 
-func LearningList(ctx context.Context, svc LearningListService, scope, status, projectKey string, limit int, w io.Writer) error {
-	items, err := svc.List(ctx, service.LearningFilter{Scope: scope, Status: status, ProjectKey: projectKey, Limit: limit})
+func LearningList(ctx context.Context, svc LearningListService, scope, status, projectKey, category string, tags []string, limit int, w io.Writer) error {
+	items, err := svc.List(ctx, service.LearningFilter{Scope: scope, Status: status, ProjectKey: projectKey, Category: category, Tags: tags, Limit: limit})
 	if err != nil {
 		return err
 	}
 	return json.NewEncoder(w).Encode(items)
 }
 
-func LearningSearch(ctx context.Context, svc LearningSearchService, query, scope, status, projectKey string, limit int, w io.Writer) error {
+func LearningSearch(ctx context.Context, svc LearningSearchService, query string, filter service.LearningSearchFilter, w io.Writer) error {
 	if query == "" {
 		return fmt.Errorf("search query is required")
 	}
-	items, err := svc.Search(ctx, query, service.LearningFilter{Scope: scope, Status: status, ProjectKey: projectKey, Limit: limit})
+	items, err := svc.SearchKnowledge(ctx, query, filter)
 	if err != nil {
 		return err
 	}
@@ -126,13 +130,18 @@ func LearningAccept(ctx context.Context, svc LearningAcceptService, id string, r
 	return json.NewEncoder(w).Encode(view)
 }
 
-// LearningEdit applies wording/scope changes through the service's revision-aware
-// acceptance operation; edited proposals are therefore accepted atomically.
-func LearningEdit(ctx context.Context, svc LearningAcceptService, id string, revision int, claim, scope, project string, w io.Writer) error {
-	if claim == "" && scope == "" && project == "" {
-		return fmt.Errorf("edit requires at least one of claim, scope, or project")
+func LearningEdit(ctx context.Context, svc LearningEditService, id string, revision int, input service.LearningEditInput, w io.Writer) error {
+	if id == "" {
+		return fmt.Errorf("learning ID is required")
 	}
-	return LearningAccept(ctx, svc, id, revision, claim, scope, project, w)
+	if revision <= 0 {
+		return fmt.Errorf("revision must be a positive integer")
+	}
+	view, err := svc.Edit(ctx, id, revision, input)
+	if err != nil {
+		return fmt.Errorf("edit learning %q: %w", id, err)
+	}
+	return json.NewEncoder(w).Encode(view)
 }
 
 func LearningReject(ctx context.Context, svc LearningRejectService, id string, revision int, w io.Writer) error {

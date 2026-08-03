@@ -197,11 +197,16 @@ func (s simpleAdapter) EnvVars(taskID, socket string) map[string]string {
 
 // recordingPublisher captures EventAgentDied calls for assertions.
 type recordingPublisher struct {
-	calls []recordedDied
+	calls  []recordedDied
+	starts []string
 }
 
 type recordedDied struct {
 	taskID, parentTaskID, subtaskID, role string
+}
+
+func (r *recordingPublisher) PublishAgentStarted(taskID string) {
+	r.starts = append(r.starts, taskID)
 }
 
 func (r *recordingPublisher) PublishAgentDied(taskID, parentTaskID, subtaskID, role string) {
@@ -433,6 +438,26 @@ func TestSpawnAgent_PreambleNotInjectedForPlainSpawn(t *testing.T) {
 		data, _ := os.ReadFile(rolePath)
 		t.Errorf("LEGATO_ROLE_PROMPT_FILE set to %q with swarm content %q; preamble must not reach a plain spawn",
 			rolePath, string(data))
+	}
+}
+
+func TestSpawnAgent_PublishesEventAgentStarted(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	pub := &recordingPublisher{}
+	svc := NewAgentService(s, newMockTmux(), t.TempDir(), AgentServiceOptions{EventBus: pub})
+	createTask(t, s, "task-1")
+
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(pub.starts) != 1 || pub.starts[0] != "task-1" {
+		t.Fatalf("PublishAgentStarted calls = %v, want [task-1]", pub.starts)
 	}
 }
 

@@ -513,6 +513,22 @@ func (s *Server) StartSwarmEvents() {
 	}()
 }
 
+// StartAgentLifecycleEvents broadcasts agent list invalidations for lifecycle
+// changes from any caller, including workflows and the TUI.
+func (s *Server) StartAgentLifecycleEvents() {
+	if s.bus == nil {
+		return
+	}
+	for _, eventType := range []events.EventType{events.EventAgentStarted, events.EventAgentDied} {
+		ch := s.bus.Subscribe(eventType)
+		go func() {
+			for range ch {
+				s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
+			}
+		}()
+	}
+}
+
 // StartChimeraDiscoveryEvents subscribes to Chimera lockfile discovery events
 // and broadcasts agents_changed so connected web clients re-fetch the agent
 // list and switch to the NativeAgentPanel when an endpoint is discovered.

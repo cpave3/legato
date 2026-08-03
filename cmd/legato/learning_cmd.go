@@ -14,8 +14,52 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
-var learningServiceFactory = func(db *store.Store) cli.LearningCLIService {
-	return service.NewLearningService(db, nil)
+var learningServiceFactory = func(cfg *config.Config, db *store.Store) cli.LearningCLIService {
+	return configuredLearningService(cfg, db, nil)
+}
+
+type projectIdentityResolverFunc func() (service.ProjectIdentity, error)
+
+func learningSearchFilter(parsed parsedArgs, resolveProject projectIdentityResolverFunc) (service.LearningSearchFilter, error) {
+	filter := service.LearningSearchFilter{LearningFilter: service.LearningFilter{
+		Scope: parsed.Values["scope"], ProjectKey: strings.TrimSpace(parsed.Values["project"]),
+		Category: parsed.Values["category"], Tags: splitLearningTags(parsed.Values["tags"]), Limit: 10,
+	}, MinScore: 0.55}
+	if parsed.Present["all-projects"] && parsed.Present["project"] {
+		return filter, fmt.Errorf("--all-projects cannot be combined with --project")
+	}
+	if !parsed.Present["project"] && !parsed.Present["all-projects"] {
+		identity, err := resolveProject()
+		if err != nil {
+			return filter, fmt.Errorf("resolve current repository (use --all-projects to search globally): %w", err)
+		}
+		filter.ProjectKey = identity.Key
+	}
+	status := strings.TrimSpace(parsed.Values["status"])
+	switch {
+	case status == "" && !parsed.Present["status"]:
+		filter.Statuses = []string{"validated", "incorporated"}
+	case status == "all":
+	case status != "":
+		filter.Statuses = []string{status}
+	default:
+		return filter, fmt.Errorf("--status requires a status or all")
+	}
+	if parsed.Present["limit"] {
+		limit, err := strconv.Atoi(parsed.Values["limit"])
+		if err != nil || limit <= 0 || limit > 200 {
+			return filter, fmt.Errorf("--limit must be between 1 and 200")
+		}
+		filter.Limit = limit
+	}
+	if parsed.Present["min-score"] {
+		score, err := strconv.ParseFloat(parsed.Values["min-score"], 64)
+		if err != nil || score < 0 || score > 1 {
+			return filter, fmt.Errorf("--min-score must be between 0 and 1")
+		}
+		filter.MinScore = score
+	}
+	return filter, nil
 }
 
 func learningCommandError(err error) *commandError {
@@ -71,7 +115,7 @@ func runLearnCmd(args []string) int {
 		return fail(err)
 	}
 	defer db.Close()
-	learning := learningServiceFactory(db)
+	learning := learningServiceFactory(cfg, db)
 	ctx := context.Background()
 
 	switch verb {
@@ -131,7 +175,7 @@ func runLearnCmd(args []string) int {
 			}
 			claim = parsed.Positionals[0]
 		}
-		input := service.LearningRecordInput{Scope: parsed.Values["scope"], ProjectKey: parsed.Values["project"], ProjectLabel: parsed.Values["project-label"], Kind: parsed.Values["kind"], Claim: claim, Rationale: parsed.Values["rationale"], TaskID: parsed.Values["task"], SourceKind: parsed.Values["source-kind"], SourceRef: parsed.Values["source-ref"], Author: parsed.Values["author"]}
+		input := service.LearningRecordInput{Scope: parsed.Values["scope"], ProjectKey: parsed.Values["project"], ProjectLabel: parsed.Values["project-label"], Kind: parsed.Values["kind"], Category: parsed.Values["category"], Tags: splitLearningTags(parsed.Values["tags"]), Claim: claim, Rationale: parsed.Values["rationale"], TaskID: parsed.Values["task"], SourceKind: parsed.Values["source-kind"], SourceRef: parsed.Values["source-ref"], Author: parsed.Values["author"]}
 		if input.Scope == "" {
 			input.Scope = "user"
 		}
@@ -156,7 +200,7 @@ func runLearnCmd(args []string) int {
 			return fail(fmt.Errorf("learning list is not available in this service build"))
 		}
 		return runLearningOutput(func(w io.Writer) error {
-			return cli.LearningList(ctx, svc, parsed.Values["scope"], parsed.Values["status"], parsed.Values["project"], limit, w)
+			return cli.LearningList(ctx, svc, parsed.Values["scope"], parsed.Values["status"], parsed.Values["project"], parsed.Values["category"], splitLearningTags(parsed.Values["tags"]), limit, w)
 		}, fail)
 	case "search":
 		if len(parsed.Positionals) != 1 {
@@ -166,8 +210,14 @@ func runLearnCmd(args []string) int {
 		if !ok {
 			return fail(fmt.Errorf("learning search is not available in this service build"))
 		}
+		filter, err := learningSearchFilter(parsed, func() (service.ProjectIdentity, error) {
+			return service.ResolveProjectIdentity(nil, currentWorkingDirectory(), checkoutInspector())
+		})
+		if err != nil {
+			return fail(err)
+		}
 		return runLearningOutput(func(w io.Writer) error {
-			return cli.LearningSearch(ctx, svc, parsed.Positionals[0], parsed.Values["scope"], parsed.Values["status"], parsed.Values["project"], limit, w)
+			return cli.LearningSearch(ctx, svc, parsed.Positionals[0], filter, w)
 		}, fail)
 	case "accept", "edit", "reject", "enable", "disable":
 		if len(parsed.Positionals) != 1 {
@@ -193,14 +243,20 @@ func runLearnCmd(args []string) int {
 			}
 			return runLearningOutput(func(w io.Writer) error { return cli.LearningReject(ctx, svc, id, revision, w) }, fail)
 		}
+		if verb == "edit" {
+			svc, ok := learning.(cli.LearningEditService)
+			if !ok {
+				return fail(fmt.Errorf("learning editing is not available in this service build"))
+			}
+			return runLearningOutput(func(w io.Writer) error {
+				return cli.LearningEdit(ctx, svc, id, revision, service.LearningEditInput{Claim: parsed.Values["claim"], Rationale: parsed.Values["rationale"], Scope: parsed.Values["scope"], ProjectKey: parsed.Values["project"], Category: parsed.Values["category"], Tags: splitLearningTags(parsed.Values["tags"])}, w)
+			}, fail)
+		}
 		svc, ok := learning.(cli.LearningAcceptService)
 		if !ok {
 			return fail(fmt.Errorf("learning acceptance is not available in this service build"))
 		}
 		return runLearningOutput(func(w io.Writer) error {
-			if verb == "edit" {
-				return cli.LearningEdit(ctx, svc, id, revision, parsed.Values["claim"], parsed.Values["scope"], parsed.Values["project"], w)
-			}
 			return cli.LearningAccept(ctx, svc, id, revision, parsed.Values["claim"], parsed.Values["scope"], parsed.Values["project"], w)
 		}, fail)
 	case "incorporate":
@@ -290,6 +346,20 @@ func runLearnCmd(args []string) int {
 	default:
 		return fail(fmt.Errorf("unknown learn command %q", verb))
 	}
+}
+
+func splitLearningTags(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
 }
 
 func learningWorkflowOptions(cfg *config.Config) service.LearningWorkflowOptions {

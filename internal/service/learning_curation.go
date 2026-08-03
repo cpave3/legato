@@ -243,6 +243,8 @@ type CuratorOperation struct {
 	EvidenceIDs         []string `json:"evidence_ids,omitempty"`
 	Claim               string   `json:"claim,omitempty"`
 	Kind                string   `json:"kind,omitempty"`
+	Category            string   `json:"category,omitempty"`
+	Tags                []string `json:"tags,omitempty"`
 	Rationale           string   `json:"rationale,omitempty"`
 	Scope               string   `json:"scope,omitempty"`
 	ProjectKey          string   `json:"project_key,omitempty"`
@@ -333,7 +335,7 @@ func (s *LearningService) SubmitCuratorOperations(ctx context.Context, attemptID
 		}
 		switch op.Operation {
 		case "create":
-			learning := store.Learning{ID: op.NewLearningID, Scope: op.Scope, ProjectKey: op.ProjectKey, Kind: op.Kind, Claim: op.Claim,
+			learning := store.Learning{ID: op.NewLearningID, Scope: op.Scope, ProjectKey: op.ProjectKey, Kind: op.Kind, Category: op.Category, Tags: op.Tags, Claim: op.Claim,
 				Rationale: op.Rationale, Status: "candidate", Confidence: op.Confidence, Revision: 1, CuratorRunID: generation.ID}
 			apply.Learnings = append(apply.Learnings, learning)
 			for _, id := range op.EvidenceIDs {
@@ -394,6 +396,8 @@ func normalizeOperation(op *CuratorOperation) {
 	op.NewLearningID = strings.TrimSpace(op.NewLearningID)
 	op.Claim = strings.TrimSpace(op.Claim)
 	op.Kind = strings.TrimSpace(op.Kind)
+	op.Category = normalizeLearningLabel(op.Category)
+	op.Tags = normalizeLearningTags(op.Tags)
 	op.Rationale = strings.TrimSpace(op.Rationale)
 	op.Scope = strings.TrimSpace(op.Scope)
 	op.ProjectKey = strings.TrimSpace(op.ProjectKey)

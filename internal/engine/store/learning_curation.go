@@ -203,9 +203,14 @@ func (s *Store) ApplyLearningCuration(ctx context.Context, apply LearningCuratio
 
 	for _, learning := range apply.Learnings {
 		if _, err := tx.NamedExecContext(ctx, `INSERT INTO learnings
-			(id, scope, project_key, kind, claim, rationale, status, confidence, revision, curator_run_id)
-			VALUES (:id, :scope, :project_key, :kind, :claim, :rationale, :status, :confidence, :revision, :curator_run_id)`, learning); err != nil {
+			(id, scope, project_key, kind, category, claim, rationale, status, confidence, revision, curator_run_id)
+			VALUES (:id, :scope, :project_key, :kind, :category, :claim, :rationale, :status, :confidence, :revision, :curator_run_id)`, learning); err != nil {
 			return false, err
+		}
+		for _, tag := range learning.Tags {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO learning_tags (learning_id, tag) VALUES (?, ?)`, learning.ID, tag); err != nil {
+				return false, err
+			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO learnings_fts (learning_id, claim, rationale) VALUES (?, ?, ?)`, learning.ID, learning.Claim, learning.Rationale); err != nil {
 			return false, err

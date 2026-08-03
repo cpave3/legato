@@ -11,11 +11,13 @@ import (
 type LearningService interface {
 	List(context.Context, service.LearningFilter) ([]store.Learning, error)
 	Search(context.Context, string, service.LearningFilter) ([]store.Learning, error)
+	SearchKnowledge(context.Context, string, service.LearningSearchFilter) (*service.LearningSearchResult, error)
 	Context(context.Context, string, int) ([]store.Learning, error)
 	ContextForTask(context.Context, string, int) ([]store.Learning, error)
 	Record(context.Context, service.LearningRecordInput) (*service.LearningView, error)
 	Show(context.Context, string) (*service.LearningView, error)
 	Accept(context.Context, string, int, string, string, string) (*service.LearningView, error)
+	Edit(context.Context, string, int, service.LearningEditInput) (*service.LearningView, error)
 	Reject(context.Context, string, int) (*service.LearningView, error)
 	SetPromptEnabled(context.Context, string, int, bool) (*service.LearningView, error)
 	ProposeIncorporationLinked(context.Context, string, int, string, string, string, string, string, string) (*store.LearningIncorporation, error)

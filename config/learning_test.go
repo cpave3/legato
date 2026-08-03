@@ -85,6 +85,27 @@ learning:
 	}
 }
 
+func TestLearningEmbeddingConfigParsesSelfHostedProvider(t *testing.T) {
+	writeTestConfig(t, `
+learning:
+  embedding:
+    enabled: true
+    provider: openai-compatible
+    model: nomic
+    base_url: http://192.168.1.146:1234/v1
+    timeout: 15s
+    dimensions: 768
+    batch_size: 16
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Learning.Embedding.Enabled || cfg.Learning.Embedding.Model != "nomic" || cfg.Learning.Embedding.Dimensions != 768 {
+		t.Fatalf("embedding config = %+v", cfg.Learning.Embedding)
+	}
+}
+
 func TestLearningConfigRejectsNonPositiveLimits(t *testing.T) {
 	cases := []struct {
 		name  string

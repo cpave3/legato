@@ -12,17 +12,39 @@ type fakeWorkflowAgentService struct {
 	taskID string
 	name   string
 	opts   AgentSpawnOptions
+	calls  []string
 }
 
 func (f *fakeWorkflowAgentService) SpawnWorkflowAgent(_ context.Context, taskID, name string, opts AgentSpawnOptions) (*store.AgentSession, error) {
 	f.taskID, f.name, f.opts = taskID, name, opts
+	f.calls = append(f.calls, "spawn:"+taskID)
 	return &store.AgentSession{ID: 7, TaskID: taskID, TmuxSession: "legato-" + taskID, AgentKind: opts.AgentKind, Status: "running"}, nil
 }
-func (f *fakeWorkflowAgentService) KillAgent(context.Context, string) error { return nil }
+func (f *fakeWorkflowAgentService) KillAgent(_ context.Context, taskID string) error {
+	f.calls = append(f.calls, "stop:"+taskID)
+	return nil
+}
 func (f *fakeWorkflowAgentService) FinishWorkflowAgent(context.Context, store.WorkflowStepAttempt) error {
 	return nil
 }
 func (f *fakeWorkflowAgentService) PromptAgent(context.Context, string, string) error { return nil }
+
+func TestAgentStopExecutorStopsTaskAgentIdempotently(t *testing.T) {
+	agents := &fakeWorkflowAgentService{}
+	executor := NewAgentStopExecutor(agents)
+	for range 2 {
+		result, err := executor.Start(context.Background(), ResolvedWorkflowStep{TaskID: "workflow-task", With: map[string]any{"task": map[string]any{"id": "task-1"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Status != "succeeded" {
+			t.Fatalf("result = %+v", result)
+		}
+	}
+	if strings.Join(agents.calls, ",") != "stop:task-1,stop:task-1" {
+		t.Fatalf("calls = %v", agents.calls)
+	}
+}
 
 func TestAgentRunExecutorLaunchesExplicitWorkflowAssignment(t *testing.T) {
 	agents := &fakeWorkflowAgentService{}

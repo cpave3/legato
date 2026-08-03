@@ -5,6 +5,8 @@ export interface Learning {
   scope: "user" | "project"
   project_key?: string
   kind: string
+  category?: string
+  tags: string[]
   claim: string
   rationale?: string
   status: string
@@ -59,15 +61,27 @@ async function json<T>(response: Response): Promise<T> {
   return response.json() as Promise<T>
 }
 
-export function fetchLearnings(baseUrl: string, filters: { query?: string; status?: string; scope?: string; projectKey?: string } = {}) {
+export interface LearningSearchResult {
+  items: Learning[]
+  mode: "lexical" | "hybrid"
+  semantic_status: "disabled" | "available" | "failed"
+  fallback?: string
+}
+
+export function fetchLearnings(baseUrl: string, filters: { query?: string; status?: string; scope?: string; projectKey?: string; category?: string; tags?: string[] } = {}): Promise<LearningSearchResult> {
   const params = new URLSearchParams()
   if (filters.status) params.set("status", filters.status)
   if (filters.scope) params.set("scope", filters.scope)
   if (filters.projectKey) params.set("project_key", filters.projectKey)
+  if (filters.category) params.set("category", filters.category)
+  filters.tags?.forEach(tag => params.append("tag", tag))
   if (filters.query) params.set("q", filters.query)
   const endpoint = filters.query ? "/api/learnings/search" : "/api/learnings"
   const suffix = params.size ? `?${params}` : ""
-  return apiFetch(baseUrl, endpoint + suffix).then(json<Learning[]>)
+  return apiFetch(baseUrl, endpoint + suffix).then(async response => {
+    if (filters.query) return json<LearningSearchResult>(response)
+    return { items: await json<Learning[]>(response), mode: "lexical", semantic_status: "disabled" }
+  })
 }
 
 export function fetchLearning(baseUrl: string, id: string) {
@@ -110,7 +124,7 @@ export function verifyIncorporationTarget(baseUrl: string, id: string, revision:
   }).then(json<LearningIncorporation>)
 }
 
-export function decideLearning(baseUrl: string, id: string, action: "accept" | "edit" | "reject", body: { revision: number; claim?: string; scope?: string; project_key?: string }) {
+export function decideLearning(baseUrl: string, id: string, action: "accept" | "edit" | "reject", body: { revision: number; claim?: string; rationale?: string; scope?: string; project_key?: string; category?: string; tags?: string[] }) {
   return apiFetch(baseUrl, `/api/learnings/${encodeURIComponent(id)}/${action}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

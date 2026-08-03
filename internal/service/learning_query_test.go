@@ -43,6 +43,91 @@ func TestLearningListAndSearchApplyScopedFilters(t *testing.T) {
 	assertLearningIDs(t, users, user.ID)
 }
 
+func TestLearningListAndSearchFilterCategoryAndTags(t *testing.T) {
+	db := newServiceTestStore(t)
+	svc := NewLearningService(db, nil)
+	ctx := context.Background()
+	first, err := svc.Record(ctx, LearningRecordInput{Scope: "project", ProjectKey: "repo:widget", Kind: "fact", Category: "workflow", Tags: []string{"agents", "callbacks"}, Claim: "Quartz handoff callback", SourceKind: "test", SourceRef: "classified-1", Author: "user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Record(ctx, LearningRecordInput{Scope: "project", ProjectKey: "repo:widget", Kind: "fact", Category: "database", Tags: []string{"sqlite"}, Claim: "Quartz migration", SourceKind: "test", SourceRef: "classified-2", Author: "user"}); err != nil {
+		t.Fatal(err)
+	}
+
+	listed, err := svc.List(ctx, LearningFilter{ProjectKey: "repo:widget", Category: "workflow", Tags: []string{"agents"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLearningIDs(t, listed, first.Learning.ID)
+	found, err := svc.Search(ctx, "quartz", LearningFilter{ProjectKey: "repo:widget", Tags: []string{"callbacks"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertLearningIDs(t, found, first.Learning.ID)
+}
+
+type fakeEmbeddingProvider struct {
+	vectors map[string][]float32
+	err     error
+}
+
+func (f fakeEmbeddingProvider) Embed(_ context.Context, text string) ([]float32, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.vectors[text], nil
+}
+func (f fakeEmbeddingProvider) Model() string { return "test-model" }
+
+func TestLearningSearchCombinesLexicalAndSemanticResultsWithFallback(t *testing.T) {
+	db := newServiceTestStore(t)
+	provider := fakeEmbeddingProvider{vectors: map[string][]float32{
+		"Database transaction boundaries": {1, 0},
+		"Keep writes atomic":              {0.9, 0.1},
+		"Use bright terminal colors":      {0, 1},
+	}}
+	svc := NewLearningServiceWithEmbeddings(db, nil, provider, db)
+	ctx := context.Background()
+	semantic, err := svc.Record(ctx, LearningRecordInput{Scope: "user", Kind: "fact", Claim: "Keep writes atomic", SourceKind: "test", SourceRef: "semantic", Author: "user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lexical, err := svc.Record(ctx, LearningRecordInput{Scope: "user", Kind: "fact", Claim: "Database transaction boundaries", SourceKind: "test", SourceRef: "lexical", Author: "user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Record(ctx, LearningRecordInput{Scope: "user", Kind: "fact", Claim: "Use bright terminal colors", SourceKind: "test", SourceRef: "other", Author: "user"}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.SearchKnowledge(ctx, "Database transaction boundaries", LearningSearchFilter{LearningFilter: LearningFilter{Limit: 10}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Mode != "hybrid" || len(result.Items) < 2 || result.Items[0].ID != lexical.Learning.ID || result.Items[1].ID != semantic.Learning.ID {
+		t.Fatalf("hybrid result = %+v", result)
+	}
+
+	svc.embedder = fakeEmbeddingProvider{err: fmt.Errorf("offline")}
+	fallback, err := svc.SearchKnowledge(ctx, "Database", LearningSearchFilter{LearningFilter: LearningFilter{Limit: 10}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallback.Mode != "lexical" || fallback.SemanticStatus != "failed" || fallback.Fallback == "" || len(fallback.Items) != 1 {
+		t.Fatalf("fallback = %+v", fallback)
+	}
+}
+
+func TestLearningSearchThresholdDropsWeakSemanticOnlyMatchesButKeepsLexicalMatches(t *testing.T) {
+	lexical := store.Learning{ID: "lexical", Claim: "Date arithmetic"}
+	weak := store.SemanticLearningResult{Learning: store.Learning{ID: "weak", Claim: "Terminal colors"}, Score: 0.2}
+	items := reciprocalRankFusion([]store.Learning{lexical}, []store.SemanticLearningResult{weak}, 0.55, 10)
+	if len(items) != 1 || items[0].ID != lexical.ID || items[0].LexicalRank != 1 || items[0].SemanticRank != 0 {
+		t.Fatalf("items = %+v", items)
+	}
+}
+
 func TestLearningContextIncludesOnlyActiveUserAndMatchingProject(t *testing.T) {
 	db := newServiceTestStore(t)
 	svc := NewLearningService(db, nil)

@@ -25,20 +25,20 @@ func TestBuiltInTriggeredLearningWorkflowsAreStableValidAndPerColumn(t *testing.
 		if err := definition.Validate(); err != nil {
 			t.Fatalf("definition %d invalid: %v", i, err)
 		}
-		wantTypes := []string{"agent.interview", "learning.packet.prepare", "agent.run", "agent.run", "learning.proposals.submit"}
+		wantTypes := []string{"agent.interview", "learning.packet.prepare", "agent.stop", "agent.run", "agent.run", "learning.proposals.submit"}
 		for step, want := range wantTypes {
 			if definition.Steps[step].Type != want {
 				t.Fatalf("step %d type = %q, want %q", step, definition.Steps[step].Type, want)
 			}
 		}
-		curator := definition.Steps[2]
+		curator := definition.Steps[3]
 		if curator.With["working_dir"] != "/repo" {
 			t.Fatalf("configured working directory override = %v", curator.With["working_dir"])
 		}
 		if curator.Outputs["operations"].Type != "json" || !strings.Contains(curator.With["prompt"].(string), "--output operations='<json>'") {
 			t.Fatalf("curator lacks declared JSON completion contract: %+v", curator)
 		}
-		critic := definition.Steps[3]
+		critic := definition.Steps[4]
 		if critic.With["working_dir"] != "/repo" || critic.Outputs["operations"].Type != "json" {
 			t.Fatalf("critic config = %+v", critic)
 		}

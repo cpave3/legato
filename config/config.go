@@ -57,8 +57,20 @@ type LearningConfig struct {
 	// ConsolidationAutomatic and ConsolidationThreshold are reserved for
 	// future automatic consolidation scheduling. They are validated but
 	// currently no-ops; consolidation is launched manually.
-	ConsolidationAutomatic bool `yaml:"consolidation_automatic"`
-	ConsolidationThreshold int  `yaml:"consolidation_threshold"`
+	ConsolidationAutomatic bool                    `yaml:"consolidation_automatic"`
+	ConsolidationThreshold int                     `yaml:"consolidation_threshold"`
+	Embedding              LearningEmbeddingConfig `yaml:"embedding"`
+}
+
+type LearningEmbeddingConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	Provider   string `yaml:"provider"`
+	Model      string `yaml:"model"`
+	BaseURL    string `yaml:"base_url"`
+	APIKeyEnv  string `yaml:"api_key_env"`
+	Timeout    string `yaml:"timeout"`
+	Dimensions int    `yaml:"dimensions"`
+	BatchSize  int    `yaml:"batch_size"`
 }
 
 // WorkflowsConfig holds workflow launch conveniences.
@@ -404,6 +416,21 @@ func ValidateLearningConfig(cfg *Config) error {
 		return fmt.Errorf("learning.reflection_timeout must be a positive duration")
 	}
 
+	if learning.Embedding.Enabled {
+		if learning.Embedding.Provider != "openai-compatible" {
+			return fmt.Errorf("learning.embedding.provider must be openai-compatible")
+		}
+		if strings.TrimSpace(learning.Embedding.Model) == "" || strings.TrimSpace(learning.Embedding.BaseURL) == "" {
+			return fmt.Errorf("learning.embedding.model and base_url are required when embeddings are enabled")
+		}
+		if timeout, err := time.ParseDuration(learning.Embedding.Timeout); err != nil || timeout <= 0 {
+			return fmt.Errorf("learning.embedding.timeout must be a positive duration")
+		}
+		if learning.Embedding.Dimensions < 0 || learning.Embedding.BatchSize <= 0 {
+			return fmt.Errorf("learning.embedding.dimensions must not be negative and batch_size must be positive")
+		}
+	}
+
 	if learning.CuratorWorkingDir != "" && !filepath.IsAbs(learning.CuratorWorkingDir) {
 		return fmt.Errorf("learning.curator_working_dir must be an absolute path")
 	}
@@ -517,6 +544,7 @@ func defaults() *Config {
 			PromptMaxItems:         20,
 			PromptMaxBytes:         16 * 1024,
 			ConsolidationThreshold: 50,
+			Embedding:              LearningEmbeddingConfig{Provider: "openai-compatible", BaseURL: "https://api.openai.com/v1", APIKeyEnv: "OPENAI_API_KEY", Timeout: "30s", BatchSize: 32},
 		},
 	}
 }

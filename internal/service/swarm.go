@@ -1603,6 +1603,13 @@ type AgentDiedPublisher struct {
 	Bus *events.Bus
 }
 
+func (p AgentDiedPublisher) PublishAgentStarted(taskID string) {
+	if p.Bus == nil {
+		return
+	}
+	p.Bus.Publish(events.Event{Type: events.EventAgentStarted, Payload: taskID})
+}
+
 func (p AgentDiedPublisher) PublishAgentDied(taskID, parentTaskID, subtaskID, role string) {
 	if p.Bus == nil {
 		return

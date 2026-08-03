@@ -198,9 +198,14 @@ func (s *Store) InsertExplicitLearning(ctx context.Context, evidence LearningEvi
 		return err
 	}
 	if _, err := tx.NamedExecContext(ctx, `INSERT INTO learnings
-		(id, scope, project_key, kind, claim, rationale, status, confidence, revision, curator_run_id)
-		VALUES (:id, :scope, :project_key, :kind, :claim, :rationale, :status, :confidence, :revision, :curator_run_id)`, learning); err != nil {
+		(id, scope, project_key, kind, category, claim, rationale, status, confidence, revision, curator_run_id)
+		VALUES (:id, :scope, :project_key, :kind, :category, :claim, :rationale, :status, :confidence, :revision, :curator_run_id)`, learning); err != nil {
 		return err
+	}
+	for _, tag := range learning.Tags {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO learning_tags (learning_id, tag) VALUES (?, ?)`, learning.ID, tag); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO learning_evidence_links (learning_id, evidence_id, relation) VALUES (?, ?, 'support')`, learning.ID, evidence.ID); err != nil {
 		return err
@@ -250,6 +255,38 @@ func (s *Store) UpdateLearningDecision(ctx context.Context, id string, expectedR
 		if _, err := tx.ExecContext(ctx, `UPDATE learnings_fts SET claim = ? WHERE learning_id = ?`, claim, id); err != nil {
 			return err
 		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) EditLearning(ctx context.Context, id string, expectedRevision int, claim, rationale, scope, projectKey, category string, tags []string) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE learnings SET claim = ?, rationale = ?, scope = ?, project_key = ?, category = ?, revision = revision + 1, updated_at = datetime('now')
+		WHERE id = ? AND revision = ? AND status IN ('candidate', 'validated', 'action_proposed', 'incorporated', 'stale')`, claim, rationale, scope, projectKey, category, id, expectedRevision)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrConflict
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM learning_tags WHERE learning_id = ?`, id); err != nil {
+		return err
+	}
+	for _, tag := range tags {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO learning_tags (learning_id, tag) VALUES (?, ?)`, id, tag); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE learnings_fts SET claim = ?, rationale = ? WHERE learning_id = ?`, claim, rationale, id); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -479,6 +516,14 @@ func (s *Store) GetLearningView(ctx context.Context, id string) (*LearningView, 
 		WHERE link.learning_id = ? ORDER BY e.created_at, e.id`, id); err != nil {
 		return nil, err
 	}
+	var tags []string
+	if err := s.db.SelectContext(ctx, &tags, `SELECT tag FROM learning_tags WHERE learning_id = ? ORDER BY tag`, id); err != nil {
+		return nil, err
+	}
+	view.Learning.Tags = tags
+	if view.Learning.Tags == nil {
+		view.Learning.Tags = []string{}
+	}
 	if view.Evidence == nil {
 		view.Evidence = []LearningEvidence{}
 	}
@@ -496,8 +541,11 @@ func (s *Store) GetLearningView(ctx context.Context, id string) (*LearningView, 
 // scope never includes learnings from a different project.
 type LearningQuery struct {
 	Status     string
+	Statuses   []string
 	Scope      string
 	ProjectKey string
+	Category   string
+	Tags       []string
 	Limit      int
 }
 
@@ -520,6 +568,12 @@ func learningFilters(query LearningQuery, alias string) (string, []any) {
 	if query.Status != "" {
 		clauses = append(clauses, alias+"status = ?")
 		args = append(args, query.Status)
+	} else if len(query.Statuses) > 0 {
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(query.Statuses)), ",")
+		clauses = append(clauses, alias+"status IN ("+placeholders+")")
+		for _, status := range query.Statuses {
+			args = append(args, status)
+		}
 	}
 	if query.Scope != "" {
 		clauses = append(clauses, alias+"scope = ?")
@@ -531,6 +585,14 @@ func learningFilters(query LearningQuery, alias string) (string, []any) {
 	} else if query.Scope == "project" {
 		// Project-scoped data requires an explicit project identity.
 		clauses = append(clauses, "0")
+	}
+	if query.Category != "" {
+		clauses = append(clauses, alias+"category = ?")
+		args = append(args, query.Category)
+	}
+	for _, tag := range query.Tags {
+		clauses = append(clauses, "EXISTS (SELECT 1 FROM learning_tags lt WHERE lt.learning_id = "+alias+"id AND lt.tag = ?)")
+		args = append(args, tag)
 	}
 	if len(clauses) == 0 {
 		return "", args
@@ -547,6 +609,9 @@ func (s *Store) ListLearnings(ctx context.Context, query LearningQuery) ([]Learn
 		` ORDER BY l.updated_at DESC, l.id ASC LIMIT ?`, args...)
 	if learnings == nil {
 		learnings = []Learning{}
+	}
+	if err == nil {
+		err = s.hydrateLearningTags(ctx, learnings)
 	}
 	return learnings, err
 }
@@ -575,6 +640,9 @@ func (s *Store) SearchLearnings(ctx context.Context, text string, query Learning
 	if err != nil {
 		return nil, fmt.Errorf("search learnings: %w", err)
 	}
+	if err := s.hydrateLearningTags(ctx, learnings); err != nil {
+		return nil, err
+	}
 	return learnings, nil
 }
 
@@ -597,5 +665,22 @@ func (s *Store) ListLearningContext(ctx context.Context, projectKey string, limi
 	if learnings == nil {
 		learnings = []Learning{}
 	}
+	if err == nil {
+		err = s.hydrateLearningTags(ctx, learnings)
+	}
 	return learnings, err
+}
+
+func (s *Store) hydrateLearningTags(ctx context.Context, learnings []Learning) error {
+	for i := range learnings {
+		var tags []string
+		if err := s.db.SelectContext(ctx, &tags, `SELECT tag FROM learning_tags WHERE learning_id = ? ORDER BY tag`, learnings[i].ID); err != nil {
+			return err
+		}
+		if tags == nil {
+			tags = []string{}
+		}
+		learnings[i].Tags = tags
+	}
+	return nil
 }
