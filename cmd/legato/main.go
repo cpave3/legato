@@ -1401,6 +1401,7 @@ func runServeCmd(args []string) int {
 	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
+	srv.SetReportService(service.NewReportService(db))
 	srv.SetLearningService(configuredLearningService(cfg, db, bus, service.NewProjectIdentityResolver(checkoutInspector())))
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		srv.SetWorktreeService(service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector()))
@@ -1734,6 +1735,7 @@ func runTUI() int {
 		log.Printf("workflows: %v", workflowErr)
 	}
 
+	reportSvc := service.NewReportService(db)
 	var worktreeSvc *service.WorktreeWorkflow
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		worktreeSvc = service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector())
@@ -1747,6 +1749,7 @@ func runTUI() int {
 			log.Printf("web: port %s unavailable: %v", cfg.Web.Port, listenErr)
 		} else {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
+			webSrv.SetReportService(reportSvc)
 			webSrv.SetLearningService(configuredLearningService(cfg, db, bus, service.NewProjectIdentityResolver(checkoutInspector())))
 			if worktreeSvc != nil {
 				webSrv.SetWorktreeService(worktreeSvc)
@@ -1794,8 +1797,6 @@ func runTUI() int {
 
 	// Load workspaces for TUI
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
-
-	reportSvc := service.NewReportService(db)
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
 	app.SetPlanService(planSvc)

@@ -55,6 +55,7 @@ type Server struct {
 	workflowTriggers     *service.WorkflowTriggerCoordinator
 	attention            *service.AttentionService
 	learning             LearningService
+	report               service.ReportService
 	reflectionWorkflows  ReflectionWorkflowService
 	workflowGlobalDir    string
 	workflowProjectDir   string
@@ -154,6 +155,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/plans/{plan_id}/reject", s.planRejectHandler())
 	mux.HandleFunc("/api/plans/{plan_id}/reopen", s.planReopenHandler())
 	mux.HandleFunc("/api/attention", s.attentionHandler())
+	mux.HandleFunc("/api/report", s.reportHandler())
 	mux.HandleFunc("/api/attention/{id}/actions/{action_id}", s.attentionActionHandler())
 	mux.HandleFunc("/api/attention/{id}/dismiss", s.attentionDismissHandler())
 	mux.HandleFunc("/api/learnings", s.learningsHandler())
@@ -257,6 +259,11 @@ func (s *Server) SetWorkflowTriggerCoordinator(coordinator *service.WorkflowTrig
 // SetLearningService enables the authenticated learning API.
 func (s *Server) SetLearningService(learning LearningService) {
 	s.learning = learning
+}
+
+// SetReportService enables the authenticated reporting API.
+func (s *Server) SetReportService(report service.ReportService) {
+	s.report = report
 }
 
 // SetReflectionWorkflowService enables reflection callbacks to complete their
