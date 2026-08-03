@@ -1026,24 +1026,40 @@ func (a *agentService) SetAgentActivity(ctx context.Context, taskID, activity, w
 	return nil
 }
 
+// NotificationContext identifies the parent task and, for child agents, the
+// human-readable actor that became ready.
+type NotificationContext struct {
+	TaskID string
+	Actor  string
+}
+
 // MaybeNotify sends notifications when an agent transitions from working to
 // waiting or idle. pushNotifier is gated by per-task notify preference and
 // rate limits; osNotifier fires unconditionally when configured.
 func MaybeNotify(store *store.Store, pushNotifier, osNotifier Notifier, taskID, activity string) {
-	label := taskID
-	if task, err := store.GetTask(context.Background(), taskID); err == nil && task.Title != "" {
+	MaybeNotifyAgent(store, pushNotifier, osNotifier, NotificationContext{TaskID: taskID}, activity)
+}
+
+// MaybeNotifyAgent sends a readiness notification with optional child-agent context.
+func MaybeNotifyAgent(store *store.Store, pushNotifier, osNotifier Notifier, notification NotificationContext, activity string) {
+	label := notification.TaskID
+	if task, err := store.GetTask(context.Background(), notification.TaskID); err == nil && task.Title != "" {
 		label = task.Title
 	}
 
+	actor := label
+	if notification.Actor != "" {
+		actor = notification.Actor + " for " + label
+	}
 	title := "Agent ready"
-	msg := fmt.Sprintf("Agent %s is now waiting", label)
+	msg := fmt.Sprintf("Agent %s is now waiting", actor)
 	if activity == "" {
-		msg = fmt.Sprintf("Agent %s is now idle", label)
+		msg = fmt.Sprintf("Agent %s is now idle", actor)
 	}
 
 	if pushNotifier != nil && pushNotifier.Configured() {
-		enabled, err := store.GetTaskNotifyEnabled(context.Background(), taskID)
-		if err == nil && enabled && pushNotifier.CanNotify(taskID) {
+		enabled, err := store.GetTaskNotifyEnabled(context.Background(), notification.TaskID)
+		if err == nil && enabled && pushNotifier.CanNotify(notification.TaskID) {
 			_ = pushNotifier.Notify(title, msg)
 		}
 	}

@@ -1146,7 +1146,7 @@ func runAgentState(args []string) int {
 	if cfg.Notifications.OS.Enabled {
 		osNotifier = service.NewOSNotifier()
 	}
-	if err := cli.AgentState(db, taskID, activity, workingDir, pushNotifier, osNotifier); err != nil {
+	if err := cli.AgentState(db, cli.AgentStateReport{TaskID: taskID, Activity: activity, WorkingDir: workingDir}, pushNotifier, osNotifier); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}

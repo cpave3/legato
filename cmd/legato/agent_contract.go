@@ -57,7 +57,8 @@ func runAgentStateContract(args []string) int {
 	if cfg.Notifications.OS.Enabled {
 		osNotifier = service.NewOSNotifier()
 	}
-	if err := cli.AgentState(db, taskID, parsed.Values["activity"], parsed.Values["working-dir"], pushNotifier, osNotifier); err != nil {
+	report := cli.AgentStateReport{TaskID: taskID, Activity: parsed.Values["activity"], WorkingDir: parsed.Values["working-dir"], SessionID: parsed.Values["session-id"], Event: parsed.Values["event"]}
+	if err := cli.AgentState(db, report, pushNotifier, osNotifier); err != nil {
 		return renderCommandError(command, commandDomainError(err), jsonMode)
 	}
 	return writeCommandSuccess(command, map[string]any{

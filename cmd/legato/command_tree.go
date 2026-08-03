@@ -139,7 +139,7 @@ func commandTree() *commandDef {
 	agent := group("agent", "Report and inspect AI-agent activity",
 		leaf("state", "Report agent activity for a task", runAgentStateContract,
 			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")},
-			[]commandFlag{valueFlag("activity", "working|waiting|empty", "Current activity"), valueFlag("working-dir", "path", "Agent working directory"), jsonFlag},
+			[]commandFlag{valueFlag("activity", "working|waiting|empty", "Current activity"), valueFlag("working-dir", "path", "Agent working directory"), valueFlag("session-id", "id", "Reporting integration session ID"), valueFlag("event", "name", "Reporting integration lifecycle event"), jsonFlag},
 			"legato agent state <task-id> --activity working"),
 		leaf("session-created", "Record an integration-created agent session", runAgentSessionCreatedContract,
 			[]argumentDef{arg("task-id", "Task ID"), arg("session-id", "External session ID")}, []commandFlag{jsonFlag},

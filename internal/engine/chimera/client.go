@@ -73,6 +73,15 @@ type SessionContext struct {
 	LastPromptTokens *int `json:"lastPromptTokens"`
 }
 
+// Subagent describes a Chimera child session returned by a parent session.
+type Subagent struct {
+	SubagentID string `json:"subagentId"`
+	SessionID  string `json:"sessionId"`
+	Purpose    string `json:"purpose"`
+	URL        string `json:"url"`
+	Status     string `json:"status"`
+}
+
 // EventEnvelope is a single SSE event from Chimera's event stream.
 // The Data field contains the raw JSON payload; the caller is responsible
 // for decoding it into the appropriate AgentEvent type.
@@ -154,6 +163,15 @@ func (c *Client) GetSessionContext(ctx context.Context, sessionID string) (*Sess
 		return nil, err
 	}
 	return &sessionContext, nil
+}
+
+// ListSubagents returns the child sessions currently registered by a parent session.
+func (c *Client) ListSubagents(ctx context.Context, sessionID string) ([]Subagent, error) {
+	var subagents []Subagent
+	if err := c.getJSON(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/subagents", &subagents); err != nil {
+		return nil, err
+	}
+	return subagents, nil
 }
 
 // PostMessage sends a user message to the session via POST /v1/sessions/:id/messages.

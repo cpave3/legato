@@ -3,6 +3,9 @@ package cli_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -533,7 +536,7 @@ func TestAgentState_UpdatesActivity(t *testing.T) {
 		Status:      "running",
 	})
 
-	err := cli.AgentState(s, "abc123", "working", "", nil, nil)
+	err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "working"}, nil, nil)
 	if err != nil {
 		t.Fatalf("AgentState: %v", err)
 	}
@@ -544,6 +547,151 @@ func TestAgentState_UpdatesActivity(t *testing.T) {
 	}
 	if session.Activity != "working" {
 		t.Errorf("activity = %q, want %q", session.Activity, "working")
+	}
+}
+
+type recordingNotifier struct {
+	calls []struct{ title, message string }
+	keys  []string
+}
+
+func (n *recordingNotifier) Notify(title, message string) error {
+	n.calls = append(n.calls, struct{ title, message string }{title, message})
+	return nil
+}
+func (n *recordingNotifier) Configured() bool { return true }
+func (n *recordingNotifier) CanNotify(key string) bool {
+	n.keys = append(n.keys, key)
+	return true
+}
+
+func TestAgentState_SubagentCompletionNotifiesWithoutClearingParent(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Doing")
+	ctx := context.Background()
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "abc123", TmuxSession: "legato-abc123", AgentKind: "chimera", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateAgentActivity(ctx, "abc123", "working"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordStateTransition(ctx, "abc123", "working", "/repo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateTaskNotifyEnabled(ctx, "abc123", true); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `[{"subagentId":"sub-1","sessionId":"child-1","purpose":"Review tests","status":"running"}]`)
+	}))
+	defer srv.Close()
+	if err := s.UpdateChimeraDiscovery(ctx, "abc123", "parent-1", srv.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	notifier := &recordingNotifier{}
+	if err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "", WorkingDir: "/repo", SessionID: "child-1", Event: "Stop"}, notifier, notifier); err != nil {
+		t.Fatalf("AgentState Stop: %v", err)
+	}
+	if len(notifier.calls) != 0 {
+		t.Fatalf("Stop notifications = %+v", notifier.calls)
+	}
+	if err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "", WorkingDir: "/repo", SessionID: "child-1", Event: "SessionEnd"}, notifier, notifier); err != nil {
+		t.Fatalf("AgentState SessionEnd: %v", err)
+	}
+
+	session, err := s.GetAgentSessionByTaskID(ctx, "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Activity != "working" {
+		t.Fatalf("parent activity = %q, want working", session.Activity)
+	}
+	if len(notifier.calls) != 2 {
+		t.Fatalf("notifications = %+v", notifier.calls)
+	}
+	if len(notifier.keys) != 1 || notifier.keys[0] != "abc123" {
+		t.Fatalf("notification keys = %v", notifier.keys)
+	}
+	if want := "Agent Review tests for Test abc123 is now idle"; notifier.calls[0].message != want {
+		t.Fatalf("message = %q, want %q", notifier.calls[0].message, want)
+	}
+}
+
+func TestAgentState_ParentSessionStillClearsActivity(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Doing")
+	ctx := context.Background()
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "abc123", TmuxSession: "legato-abc123", AgentKind: "chimera", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateAgentActivity(ctx, "abc123", "working"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateChimeraDiscovery(ctx, "abc123", "parent-1", "http://127.0.0.1:1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "", SessionID: "parent-1"}, nil, nil); err != nil {
+		t.Fatalf("AgentState: %v", err)
+	}
+	session, _ := s.GetAgentSessionByTaskID(ctx, "abc123")
+	if session.Activity != "" {
+		t.Fatalf("activity = %q, want idle", session.Activity)
+	}
+}
+
+func TestAgentState_UnresolvedSessionDoesNotMutateParent(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Doing")
+	ctx := context.Background()
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "abc123", TmuxSession: "legato-abc123", AgentKind: "chimera", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateAgentActivity(ctx, "abc123", "working"); err != nil {
+		t.Fatal(err)
+	}
+
+	err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "", SessionID: "unknown-child"}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "unknown-child") || !strings.Contains(err.Error(), "abc123") {
+		t.Fatalf("error = %v", err)
+	}
+	session, _ := s.GetAgentSessionByTaskID(ctx, "abc123")
+	if session.Activity != "working" {
+		t.Fatalf("parent activity = %q, want working", session.Activity)
+	}
+}
+
+func TestAgentState_SubagentLookupFailureDoesNotMutateParent(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Doing")
+	ctx := context.Background()
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "abc123", TmuxSession: "legato-abc123", AgentKind: "chimera", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateAgentActivity(ctx, "abc123", "working"); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "registry unavailable", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	if err := s.UpdateChimeraDiscovery(ctx, "abc123", "parent-1", srv.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "", SessionID: "child-1", Event: "SessionEnd"}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "503") || !strings.Contains(err.Error(), "child-1") {
+		t.Fatalf("error = %v", err)
+	}
+	session, _ := s.GetAgentSessionByTaskID(ctx, "abc123")
+	if session.Activity != "working" {
+		t.Fatalf("parent activity = %q, want working", session.Activity)
 	}
 }
 
@@ -560,8 +708,8 @@ func TestAgentState_ClearsActivity(t *testing.T) {
 		Status:      "running",
 	})
 
-	cli.AgentState(s, "abc123", "working", "", nil, nil)
-	cli.AgentState(s, "abc123", "", "", nil, nil)
+	cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "working"}, nil, nil)
+	cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: ""}, nil, nil)
 
 	session, _ := s.GetAgentSessionByTaskID(ctx, "abc123")
 	if session.Activity != "" {
@@ -582,7 +730,7 @@ func TestAgentState_RecordsStateInterval(t *testing.T) {
 		Status:      "running",
 	})
 
-	cli.AgentState(s, "abc123", "working", "", nil, nil)
+	cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "working"}, nil, nil)
 
 	durations, err := s.GetStateDurations(ctx, "abc123")
 	if err != nil {
@@ -606,8 +754,8 @@ func TestAgentState_TransitionClosesAndOpensInterval(t *testing.T) {
 		Status:      "running",
 	})
 
-	cli.AgentState(s, "abc123", "working", "", nil, nil)
-	cli.AgentState(s, "abc123", "waiting", "", nil, nil)
+	cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "working"}, nil, nil)
+	cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", Activity: "waiting"}, nil, nil)
 
 	durations, err := s.GetStateDurations(ctx, "abc123")
 	if err != nil {

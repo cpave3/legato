@@ -86,7 +86,7 @@ func TestEveryCommandLevelHasGeneratedHelp(t *testing.T) {
 func TestInstalledHookCommandLinesResolve(t *testing.T) {
 	root := commandTree()
 	for _, args := range [][]string{
-		{"agent", "state", "task-id", "--activity", "working", "--working-dir", "/tmp/work"},
+		{"agent", "state", "task-id", "--activity", "working", "--working-dir", "/tmp/work", "--session-id", "chimera-child", "--event", "Stop"},
 		{"agent", "session-created", "task-id", "session-id"},
 		{"task", "link", "task-id", "--repo", "owner/repo", "--sha", "abc"},
 		{"task", "worktree", "set", "task-id", "--path", "/tmp/work"},

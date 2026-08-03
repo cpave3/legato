@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/chimera"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -384,42 +385,83 @@ func TaskNote(s *store.Store, taskID, message string) error {
 	return nil
 }
 
-// AgentState updates the activity state of an agent session for a task.
-// Valid activities: "working", "waiting", "" (clear).
-// workingDir, when non-empty, is recorded on the interval to help track
-// time spent in directories as a proxy for project focus.
-// Broadcasts an IPC notification to all running Legato instances.
-// If notifier is non-nil and configured, a push notification is sent when
-// the transition is working -> waiting or working -> idle and the task
-// has notifications enabled.
-func AgentState(s *store.Store, taskID, activity, workingDir string, pushNotifier, osNotifier service.Notifier) error {
-	ctx := context.Background()
+// AgentStateReport is an activity update from an AI-tool integration.
+type AgentStateReport struct {
+	TaskID     string
+	Activity   string
+	WorkingDir string
+	SessionID  string
+	Event      string
+}
 
-	oldActivity := ""
-	if sess, err := s.GetAgentSessionByTaskID(ctx, taskID); err == nil {
-		oldActivity = sess.Activity
+// AgentState applies an activity report. Reports from Chimera child sessions
+// produce child readiness notifications without mutating the parent session.
+func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifier service.Notifier) error {
+	ctx := context.Background()
+	session, err := s.GetAgentSessionByTaskID(ctx, report.TaskID)
+	if err != nil {
+		return fmt.Errorf("getting agent session: %w", err)
 	}
 
-	if err := s.UpdateAgentActivity(ctx, taskID, activity); err != nil {
+	if report.SessionID != "" && session.ChimeraSessionID == nil {
+		return fmt.Errorf("resolving Chimera session %q for task %s: parent session ID is unavailable", report.SessionID, report.TaskID)
+	}
+	if report.SessionID != "" && report.SessionID != *session.ChimeraSessionID {
+		if session.ChimeraEndpoint == nil {
+			return fmt.Errorf("resolving Chimera session %q for task %s: parent endpoint is unavailable", report.SessionID, report.TaskID)
+		}
+		subagent, err := findChimeraSubagent(ctx, *session.ChimeraEndpoint, *session.ChimeraSessionID, report.SessionID, 3)
+		if err != nil {
+			return fmt.Errorf("resolving Chimera session %q for task %s: %w", report.SessionID, report.TaskID, err)
+		}
+		if subagent == nil {
+			return fmt.Errorf("resolving Chimera session %q for task %s: subagent not found", report.SessionID, report.TaskID)
+		}
+		if report.Activity == "" && (report.Event == "" || report.Event == "SessionEnd") {
+			service.MaybeNotifyAgent(s, pushNotifier, osNotifier, service.NotificationContext{TaskID: report.TaskID, Actor: subagent.Purpose}, report.Activity)
+		}
+		return nil
+	}
+
+	if err := s.UpdateAgentActivity(ctx, report.TaskID, report.Activity); err != nil {
 		return fmt.Errorf("updating agent activity: %w", err)
 	}
-
-	// Record state interval for duration tracking
-	if err := s.RecordStateTransition(ctx, taskID, activity, workingDir); err != nil {
+	if err := s.RecordStateTransition(ctx, report.TaskID, report.Activity, report.WorkingDir); err != nil {
 		return fmt.Errorf("recording state transition: %w", err)
 	}
-
-	if oldActivity == "working" && (activity == "waiting" || activity == "") {
-		service.MaybeNotify(s, pushNotifier, osNotifier, taskID, activity)
+	if session.Activity == "working" && (report.Activity == "waiting" || report.Activity == "") {
+		service.MaybeNotify(s, pushNotifier, osNotifier, report.TaskID, report.Activity)
 	}
-
-	ipc.Broadcast(ipc.Message{
-		Type:   "agent_state",
-		TaskID: taskID,
-		Status: activity,
-	})
-
+	ipc.Broadcast(ipc.Message{Type: "agent_state", TaskID: report.TaskID, Status: report.Activity})
 	return nil
+}
+
+func findChimeraSubagent(ctx context.Context, endpoint, parentID, reportingID string, depth int) (*chimera.Subagent, error) {
+	subagents, err := chimera.NewClient(endpoint).ListSubagents(ctx, parentID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range subagents {
+		if subagents[i].SessionID == reportingID {
+			return &subagents[i], nil
+		}
+	}
+	if depth <= 1 {
+		return nil, nil
+	}
+	for _, child := range subagents {
+		if child.URL == "" {
+			continue
+		}
+		found, err := findChimeraSubagent(ctx, child.URL, child.SessionID, reportingID, depth-1)
+		if err != nil {
+			return nil, err
+		}
+		if found != nil {
+			return found, nil
+		}
+	}
+	return nil, nil
 }
 
 // AgentSummary returns a tmux-formatted string showing agent session counts by activity state.

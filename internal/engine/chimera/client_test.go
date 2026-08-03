@@ -55,6 +55,39 @@ func TestGetSession(t *testing.T) {
 	}
 }
 
+func TestListSubagents(t *testing.T) {
+	var requestURI string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestURI = r.URL.RequestURI()
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `[{"subagentId":"sub-1","sessionId":"child-1","purpose":"Review tests","url":"http://example.test","status":"running"},{"subagentId":"sub-2","sessionId":"child-2","purpose":"Check docs","status":"idle"}]`)
+	}))
+	defer srv.Close()
+
+	subagents, err := NewClient(srv.URL).ListSubagents(context.Background(), "parent/one")
+	if err != nil {
+		t.Fatalf("ListSubagents: %v", err)
+	}
+	if requestURI != "/v1/sessions/parent%2Fone/subagents" {
+		t.Fatalf("request URI = %q", requestURI)
+	}
+	if len(subagents) != 2 || subagents[0].SessionID != "child-1" || subagents[0].Purpose != "Review tests" {
+		t.Fatalf("subagents = %+v", subagents)
+	}
+}
+
+func TestListSubagentsReportsHTTPFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "subagents unavailable", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	_, err := NewClient(srv.URL).ListSubagents(context.Background(), "parent")
+	if err == nil || !strings.Contains(err.Error(), "404") || !strings.Contains(err.Error(), "subagents unavailable") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestGetSessionContext(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/sessions/sess-1/context" {
