@@ -41,6 +41,75 @@ func TestCollectWorkflowOutputsCopiesArtifactAndKeepsNativeValues(t *testing.T) 
 	}
 }
 
+func TestCollectWorkflowOutputsInfersMarkdownMediaType(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	seedWorkflowOutputAttempt(t, db)
+	workDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workDir, "report.md"), []byte("# Report\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	outputs, err := NewWorkflowOutputCollector(db, t.TempDir()).Collect(context.Background(), WorkflowOutputRequest{
+		RunID: "wr", StepID: "review", AttemptID: "wa", TaskID: "task", WorkingDir: workDir,
+		Declared:  map[string]workflowengine.Output{"report": {Type: "file", Path: "report.md"}},
+		Artifacts: map[string]string{"report": "report.md"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := outputs["report"].(map[string]any)["media_type"]; got != "text/markdown" {
+		t.Fatalf("returned media type = %q, want text/markdown", got)
+	}
+	artifact, err := db.GetWorkflowArtifactByAttemptOutput(context.Background(), "wa", "report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.MediaType != "text/markdown" {
+		t.Fatalf("persisted media type = %q, want text/markdown", artifact.MediaType)
+	}
+}
+
+func TestCollectWorkflowOutputsResolvesFileMediaTypes(t *testing.T) {
+	tests := []struct {
+		name, path, declared, want string
+	}{
+		{name: "long markdown extension", path: "report.markdown", want: "text/markdown"},
+		{name: "explicit type overrides extension", path: "report.md", declared: "application/vnd.legato.report", want: "application/vnd.legato.report"},
+		{name: "known text extension is normalized", path: "report.txt", want: "text/plain"},
+		{name: "unknown extension stays binary", path: "report.legato-unknown", want: "application/octet-stream"},
+		{name: "extensionless file stays binary", path: "report", want: "application/octet-stream"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			seedWorkflowOutputAttempt(t, db)
+			workDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(workDir, tt.path), []byte("report"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			outputs, err := NewWorkflowOutputCollector(db, t.TempDir()).Collect(context.Background(), WorkflowOutputRequest{
+				RunID: "wr", StepID: "review", AttemptID: "wa", TaskID: "task", WorkingDir: workDir,
+				Declared:  map[string]workflowengine.Output{"report": {Type: "file", Path: tt.path, MediaType: tt.declared}},
+				Artifacts: map[string]string{"report": tt.path},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := outputs["report"].(map[string]any)["media_type"]; got != tt.want {
+				t.Fatalf("media type = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func seedWorkflowOutputAttempt(t *testing.T, db *store.Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -66,7 +135,7 @@ func TestCollectWorkflowOutputsReusesMatchingManagedArtifact(t *testing.T) {
 	source := filepath.Join(workDir, "review.md")
 	_ = os.WriteFile(source, []byte("# Review\n"), 0600)
 	collector := NewWorkflowOutputCollector(db, dataDir)
-	req := WorkflowOutputRequest{RunID: "wr", StepID: "review", AttemptID: "wa", TaskID: "task", WorkingDir: workDir, Declared: map[string]workflowengine.Output{"review": {Type: "file", Path: "review.md", MediaType: "text/markdown"}}, Artifacts: map[string]string{"review": "review.md"}}
+	req := WorkflowOutputRequest{RunID: "wr", StepID: "review", AttemptID: "wa", TaskID: "task", WorkingDir: workDir, Declared: map[string]workflowengine.Output{"review": {Type: "file", Path: "review.md"}}, Artifacts: map[string]string{"review": "review.md"}}
 	first, err := collector.Collect(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +146,9 @@ func TestCollectWorkflowOutputsReusesMatchingManagedArtifact(t *testing.T) {
 	}
 	if first["review"].(map[string]any)["artifact_id"] != second["review"].(map[string]any)["artifact_id"] {
 		t.Fatalf("first=%#v second=%#v", first, second)
+	}
+	if got := second["review"].(map[string]any)["media_type"]; got != "text/markdown" {
+		t.Fatalf("replayed media type = %q, want text/markdown", got)
 	}
 }
 

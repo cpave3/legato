@@ -34,7 +34,7 @@ steps:
       prompt: Triage ${{ workflow.inputs.task.title }}
       working_dir: `+working+`
     outputs:
-      report: {type: file, path: triage.md, media_type: text/markdown}
+      report: {type: file, path: triage.md}
   - id: note
     title: Add triage note
     type: task.note
@@ -64,6 +64,9 @@ steps:
 	}
 	if view.Run.Status != "succeeded" {
 		t.Fatalf("run = %+v", view.Run)
+	}
+	if len(view.Artifacts) != 1 || view.Artifacts[0].MediaType != "text/markdown" {
+		t.Fatalf("artifacts = %#v, want one Markdown artifact", view.Artifacts)
 	}
 	notes, err := db.ListTaskNotes(context.Background(), "task-1")
 	if err != nil {

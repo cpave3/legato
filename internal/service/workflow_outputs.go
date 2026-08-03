@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -237,14 +238,30 @@ func (c *WorkflowOutputCollector) collectFile(ctx context.Context, req WorkflowO
 	if err != nil {
 		return nil, err
 	}
-	mediaType := spec.MediaType
-	if mediaType == "" {
-		mediaType = "application/octet-stream"
-	}
+	mediaType := workflowArtifactMediaType(spec.MediaType, relative)
 	artifact := &store.WorkflowArtifact{ID: artifactID, RunID: req.RunID, StepID: req.StepID, AttemptID: req.AttemptID, TaskID: req.TaskID, OutputKey: key, ManagedPath: destination, OriginalPath: relative, MediaType: mediaType, SizeBytes: info.Size(), Digest: digestText}
 	if err := c.store.InsertWorkflowArtifact(ctx, *artifact); err != nil {
 		_ = os.Remove(destination)
 		return nil, err
 	}
 	return artifact, nil
+}
+
+func workflowArtifactMediaType(declared, path string) string {
+	if declared != "" {
+		return declared
+	}
+	extension := strings.ToLower(filepath.Ext(path))
+	if extension == ".md" || extension == ".markdown" {
+		return "text/markdown"
+	}
+	inferred := mime.TypeByExtension(extension)
+	if inferred == "" {
+		return "application/octet-stream"
+	}
+	mediaType, _, err := mime.ParseMediaType(inferred)
+	if err != nil {
+		return "application/octet-stream"
+	}
+	return mediaType
 }

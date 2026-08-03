@@ -16,6 +16,7 @@ import (
 type forceWorkflowService struct {
 	triggerForce bool
 	retryForce   bool
+	artifact     *store.WorkflowArtifact
 }
 
 func (f *forceWorkflowService) Start(context.Context, *workflowengine.Definition, map[string]string) (*store.WorkflowRunView, error) {
@@ -42,7 +43,7 @@ func (f *forceWorkflowService) PromptStep(context.Context, string, string) (*sto
 	return nil, nil
 }
 func (f *forceWorkflowService) Artifact(context.Context, string) (*store.WorkflowArtifact, error) {
-	return nil, nil
+	return f.artifact, nil
 }
 
 func TestWorkflowStepEndpointsForwardForce(t *testing.T) {
@@ -59,6 +60,41 @@ func TestWorkflowStepEndpointsForwardForce(t *testing.T) {
 	}
 	if !workflows.triggerForce || !workflows.retryForce {
 		t.Fatalf("trigger force=%v retry force=%v", workflows.triggerForce, workflows.retryForce)
+	}
+}
+
+func TestWorkflowArtifactEndpointServesTextInlineAndBinaryWithSafeFilename(t *testing.T) {
+	tests := []struct {
+		name, mediaType, originalPath, wantType, wantDisposition string
+	}{
+		{name: "Markdown remains inline", mediaType: "text/markdown", originalPath: "reports/triage.md", wantType: "text/markdown"},
+		{name: "binary uses original basename", mediaType: "application/zip", originalPath: "nested/reports/archive.zip", wantType: "application/octet-stream", wantDisposition: "attachment; filename=archive.zip"},
+		{name: "unsafe filename is encoded", mediaType: "application/zip", originalPath: "nested/evil\r\nX-Legato: injected.zip", wantType: "application/octet-stream", wantDisposition: "attachment; filename*=utf-8''evil%0D%0AX-Legato%3A%20injected.zip"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			managed := filepath.Join(t.TempDir(), "artifact")
+			if err := os.WriteFile(managed, []byte("artifact body"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			workflows := &forceWorkflowService{artifact: &store.WorkflowArtifact{ID: "wfa-1", ManagedPath: managed, OriginalPath: tt.originalPath, OutputKey: "artifact", MediaType: tt.mediaType}}
+			s := New(nil, nil, nil, "")
+			s.SetWorkflowService(workflows, "", "")
+			rec := httptest.NewRecorder()
+			s.server.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workflow-artifacts/wfa-1", nil))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			if got := rec.Header().Get("Content-Type"); got != tt.wantType {
+				t.Fatalf("Content-Type = %q, want %q", got, tt.wantType)
+			}
+			if got := rec.Header().Get("Content-Disposition"); got != tt.wantDisposition {
+				t.Fatalf("Content-Disposition = %q, want %q", got, tt.wantDisposition)
+			}
+			if got := rec.Header().Get("X-Legato"); got != "" {
+				t.Fatalf("injected header = %q", got)
+			}
+		})
 	}
 }
 

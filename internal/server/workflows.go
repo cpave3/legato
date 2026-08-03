@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -237,7 +238,11 @@ func (s *Server) workflowArtifactHandler() http.HandlerFunc {
 			w.Header().Set("Content-Type", artifact.MediaType)
 		} else {
 			w.Header().Set("Content-Type", "application/octet-stream")
-			w.Header().Set("Content-Disposition", "attachment")
+			filename := filepath.Base(artifact.OriginalPath)
+			if filename == "." || filename == string(filepath.Separator) || filename == "" {
+				filename = artifact.OutputKey
+			}
+			w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 		}
 		http.ServeFile(w, r, artifact.ManagedPath)
 	}

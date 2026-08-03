@@ -9,7 +9,7 @@ export type WorkflowDiscovery = { definitions:WorkflowDefinition[] | null; error
 export type WorkflowRun = { id:string; workflow_name:string; workflow_title:string; definition_source:string; definition_digest:string; inputs_json:string; status:string; current_step_id:string; task_id?:string; error?:string; needs_attention?:boolean; attention_reason?:string; created_at:string; started_at?:string; completed_at?:string }
 export type WorkflowStepRun = { run_id:string; step_id:string; step_order:number; title:string; executor_type:string; resolved_inputs_json:string; outputs_json:string; status:string; latest_attempt:number; error?:string; started_at?:string; completed_at?:string }
 export type WorkflowAttempt = { id:string; run_id:string; step_id:string; attempt_number:number; executor_type:string; agent_session_id?:number; task_id?:string; tmux_session?:string; agent_kind?:string; tier?:string; working_dir?:string; status:string; error?:string; agent_activity?:string; needs_attention?:boolean; attention_reason?:string; started_at:string; ended_at?:string }
-export type WorkflowArtifact = { id:string; run_id:string; step_id:string; attempt_id:string; output_key:string; media_type:string; size_bytes:number; digest:string; created_at:string }
+export type WorkflowArtifact = { id:string; run_id:string; step_id:string; attempt_id:string; output_key:string; original_path?:string; media_type:string; size_bytes:number; digest:string; created_at:string }
 export type WorkflowRunView = { run:WorkflowRun; steps:WorkflowStepRun[] | null; attempts:WorkflowAttempt[] | null; artifacts:WorkflowArtifact[] | null }
 
 async function decode<T>(response:Response):Promise<T> { if (!response.ok) throw new Error(await response.text()); return response.json() }
