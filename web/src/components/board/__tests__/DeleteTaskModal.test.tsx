@@ -1,5 +1,5 @@
-import { describe, expect, it, afterEach } from "vitest"
-import { render, screen, cleanup } from "@testing-library/react"
+import { describe, expect, it, afterEach, vi } from "vitest"
+import { render, screen, cleanup, fireEvent } from "@testing-library/react"
 import { DeleteTaskModal } from "../DeleteTaskModal"
 
 afterEach(() => {
@@ -18,6 +18,8 @@ describe("DeleteTaskModal", () => {
         onConfirm={() => {}}
       />
     )
+    expect(screen.getByRole("dialog", { name: "Delete T-1" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Close dialog" })).toBeTruthy()
     expect(screen.getByText(/remove the local reference only/)).toBeTruthy()
   })
 
@@ -33,6 +35,23 @@ describe("DeleteTaskModal", () => {
       />
     )
     expect(screen.queryByText(/remove the local reference only/)).toBeNull()
+  })
+
+  it("confirms with the y shortcut", () => {
+    const onConfirm = vi.fn()
+    render(
+      <DeleteTaskModal
+        open={true}
+        taskId="T-1"
+        taskTitle="A task"
+        isRemote={false}
+        onClose={() => {}}
+        onConfirm={onConfirm}
+      />
+    )
+
+    fireEvent.keyDown(window, { key: "y" })
+    expect(onConfirm).toHaveBeenCalledOnce()
   })
 
   it("disables duplicate confirmation while deleting", () => {

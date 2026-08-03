@@ -16,6 +16,9 @@ describe("CreateTaskModal", () => {
       />
     )
 
+    expect(screen.getByRole("dialog", { name: "New Task" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Close dialog" })).toBeTruthy()
+
     const titleInput = screen.getByLabelText(/Title/i)
     fireEvent.change(titleInput, { target: { value: "New task title" } })
 

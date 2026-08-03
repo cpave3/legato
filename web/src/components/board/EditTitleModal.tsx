@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 
-import { X } from "lucide-react"
+import { Button } from "../ui/Button"
+import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "../ui/Dialog"
 
 interface EditTitleModalProps {
   open: boolean
@@ -20,53 +21,35 @@ export function EditTitleModal({ open, currentTitle, onClose, onSave, loading = 
     setTimeout(() => inputRef.current?.focus(), 50)
   }, [open, currentTitle])
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (title.trim()) {
-      onSave(title.trim())
-    }
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (title.trim()) onSave(title.trim())
   }
 
-  if (!open) return null
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
-          <h2 className="text-sm font-semibold text-zinc-200">Edit Title</h2>
-          <button onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
-            <X size={16} />
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="px-5 py-4 space-y-3">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-zinc-400">Title</label>
-            <input
-              ref={inputRef}
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500"
-            />
-          </div>
-          <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="rounded bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-500 disabled:cursor-wait disabled:opacity-50"
-            >
-              {loading ? "Saving…" : "Save"}
-            </button>
-          </div>
+    <Dialog open={open} onClose={onClose} dismissible={!loading}>
+      <DialogPanel className="max-w-sm">
+        <DialogHeader><DialogTitle>Edit Title</DialogTitle><DialogClose disabled={loading} /></DialogHeader>
+        <form onSubmit={handleSubmit}>
+          <DialogBody className="space-y-3">
+            <div className="space-y-1.5">
+              <label htmlFor="edit-task-title" className="text-xs font-medium text-zinc-400">Title</label>
+              <input
+                id="edit-task-title"
+                ref={inputRef}
+                type="text"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500"
+              />
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="outline" size="sm" disabled={loading} onClick={onClose}>Cancel</Button>
+            <Button type="submit" size="sm" disabled={loading}>{loading ? "Saving…" : "Save"}</Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogPanel>
+    </Dialog>
   )
 }

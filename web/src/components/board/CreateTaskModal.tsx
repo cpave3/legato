@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react"
-import { cn } from "../../lib/utils"
-import { X } from "lucide-react"
+import { Button } from "../ui/Button"
+import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "../ui/Dialog"
+import { InlineNotice } from "../ui/InlineNotice"
 
 interface CreateTaskModalProps {
   open: boolean
@@ -61,21 +62,13 @@ export function CreateTaskModal({ open, columns, currentColumn, workspaces, onCl
     })
   }
 
-  if (!open) return null
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
-          <h2 className="text-sm font-semibold text-zinc-200">New Task</h2>
-          <button onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
-            <X size={16} />
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
-          {error && (
-            <div role="alert" className="rounded border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-300">{error}</div>
-          )}
+    <Dialog open={open} onClose={onClose} dismissible={!loading}>
+      <DialogPanel>
+        <DialogHeader><DialogTitle>New Task</DialogTitle><DialogClose disabled={loading} /></DialogHeader>
+        <form onSubmit={handleSubmit}>
+          <DialogBody className="space-y-4">
+          {error && <InlineNotice variant="error" className="text-xs">{error}</InlineNotice>}
           <div className="space-y-1.5">
             <label htmlFor="create-title" className="text-xs font-medium text-zinc-400">Title</label>
             <input
@@ -92,19 +85,16 @@ export function CreateTaskModal({ open, columns, currentColumn, workspaces, onCl
             <label className="text-xs font-medium text-zinc-400">Column</label>
             <div className="flex flex-wrap gap-1">
               {columns.map((c) => (
-                <button
+                <Button
                   key={c}
                   type="button"
+                  variant={c === column ? "primary" : "outline"}
+                  size="sm"
+                  aria-pressed={c === column}
                   onClick={() => setColumn(c)}
-                  className={cn(
-                    "rounded px-2 py-1 text-xs font-medium transition-colors",
-                    c === column
-                      ? "bg-indigo-600 text-white"
-                      : "border border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-                  )}
                 >
                   {c}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -112,19 +102,16 @@ export function CreateTaskModal({ open, columns, currentColumn, workspaces, onCl
             <label className="text-xs font-medium text-zinc-400">Priority</label>
             <div className="flex flex-wrap gap-1">
               {priorities.map((p) => (
-                <button
+                <Button
                   key={p || "none"}
                   type="button"
+                  variant={p === priority ? "primary" : "outline"}
+                  size="sm"
+                  aria-pressed={p === priority}
                   onClick={() => setPriority(p)}
-                  className={cn(
-                    "rounded px-2 py-1 text-xs font-medium transition-colors",
-                    p === priority
-                      ? "bg-indigo-600 text-white"
-                      : "border border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-                  )}
                 >
                   {p || "none"}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -155,17 +142,13 @@ export function CreateTaskModal({ open, columns, currentColumn, workspaces, onCl
               className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500"
             />
           </div>
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={loading}
-              className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:cursor-wait disabled:opacity-50"
-            >
-              {loading ? "Creating…" : "Create"}
-            </button>
-          </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button type="button" variant="outline" size="sm" disabled={loading} onClick={onClose}>Cancel</Button>
+            <Button type="submit" size="sm" disabled={loading}>{loading ? "Creating…" : "Create"}</Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogPanel>
+    </Dialog>
   )
 }
