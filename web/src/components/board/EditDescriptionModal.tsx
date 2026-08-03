@@ -28,17 +28,21 @@ export function EditDescriptionModal({ open, currentDescription, onClose, onSave
 
   return (
     <Dialog open={open} onClose={onClose} dismissible={!loading}>
-      <DialogPanel className="flex h-[min(80vh,42rem)] max-w-xl flex-col">
-        <DialogHeader><DialogTitle>Edit description</DialogTitle><DialogClose disabled={loading} /></DialogHeader>
-        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-          <DialogBody className="flex min-h-0 flex-1 flex-col">
-            <label htmlFor="edit-task-description" className="mb-1.5 text-xs font-medium text-zinc-400">Description</label>
+      <DialogPanel className="flex max-h-[calc(100dvh-2rem)] max-w-2xl flex-col">
+        <DialogHeader><div><DialogTitle>Edit description</DialogTitle><p className="mt-0.5 text-xs text-zinc-500">Update the task context agents and reviewers will read.</p></div><DialogClose disabled={loading} /></DialogHeader>
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-col">
+          <DialogBody className="min-h-0 overflow-y-auto">
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <label htmlFor="edit-task-description" className="text-xs font-medium text-zinc-400">Description</label>
+              <span className="text-[10px] text-zinc-600">Markdown supported</span>
+            </div>
             <textarea
               id="edit-task-description"
               ref={textareaRef}
+              rows={14}
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              className="min-h-48 flex-1 resize-none rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500"
+              className="block min-h-64 w-full resize-y rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm leading-6 text-zinc-200 outline-none focus:border-indigo-500"
             />
           </DialogBody>
           <DialogFooter>

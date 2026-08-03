@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach, vi } from "vitest"
 import { render, screen, cleanup, fireEvent } from "@testing-library/react"
 import { DetailPanel } from "../DetailPanel"
 import type { CardDetail } from "../../../lib/board-types"
-vi.mock("../TaskAgentAction",()=>({TaskAgentAction:()=> <button data-task-primary-action className="min-h-9" type="button">Open agent</button>}))
+vi.mock("../TaskAgentAction",()=>({TaskAgentAction:()=> <button data-task-primary-action className="min-h-9 w-full" type="button">Open agent</button>}))
 vi.mock("../TaskActivityTabs",()=>({TaskActivityTabs:()=>null}))
 
 afterEach(() => {
@@ -40,14 +40,22 @@ function renderPanel(card = makeCard(), overrides: Partial<React.ComponentProps<
 }
 
 describe("DetailPanel", () => {
-  it("presents one intentional primary action and consistent secondary controls", () => {
+  it("composes task content and grouped actions into a deliberate two-column layout", () => {
     const { container } = renderPanel(makeCard(), { worktreesEnabled: true })
-    const bar = container.querySelector("[data-task-actions]")
-    expect(bar?.querySelectorAll("[data-task-primary-action]")).toHaveLength(1)
-    for (const action of Array.from(bar?.querySelectorAll("button") ?? [])) {
-      expect(action.className).toContain("min-h-9")
+    const dialog = screen.getByRole("dialog", { name: "Test title" })
+    expect(dialog.className).toContain("max-w-5xl")
+    expect(container.querySelector("[data-task-detail-layout]")?.className).toContain("lg:grid-cols-[minmax(0,1fr)_18rem]")
+    expect(screen.getByRole("main", { name: "Task content" })).toBeTruthy()
+    expect(screen.getByRole("complementary", { name: "Task properties and actions" })).toBeTruthy()
+    expect(screen.getByRole("heading", { name: "Work" })).toBeTruthy()
+    expect(screen.getByRole("heading", { name: "Edit" })).toBeTruthy()
+    expect(screen.getByRole("heading", { name: "More actions" })).toBeTruthy()
+
+    const actions = container.querySelector("[data-task-actions]")
+    expect(actions?.querySelectorAll("[data-task-primary-action]")).toHaveLength(1)
+    for (const action of Array.from(actions?.querySelectorAll("button") ?? [])) {
+      expect(action.className).toContain("w-full")
     }
-    expect(screen.getByRole("button", { name: "Edit description" }).className).toContain("border-zinc-700")
     expect(screen.getByRole("button", { name: "Delete task" }).className).toContain("text-red")
   })
 
@@ -72,8 +80,8 @@ describe("DetailPanel", () => {
     }), { onRefreshPR, onRediscoverPR })
     expect(screen.getByText("acme/widget")).toBeTruthy()
     expect(screen.getByText("feature/T-1")).toBeTruthy()
-    fireEvent.click(screen.getByText("Refresh PR"))
-    fireEvent.click(screen.getByText("Rediscover PR"))
+    fireEvent.click(screen.getByRole("button", { name: "Refresh pull request" }))
+    fireEvent.click(screen.getByRole("button", { name: "Rediscover pull request" }))
     expect(onRefreshPR).toHaveBeenCalledOnce()
     expect(onRediscoverPR).toHaveBeenCalledOnce()
   })

@@ -60,7 +60,7 @@ export function TaskAgentAction({ taskId, worktreePath = "" }: { taskId: string;
   }
 
   return <>
-    <Button data-task-primary-action size="sm" onClick={() => setOpen(true)}><Bot size={14} />Open agent</Button>
+    <Button data-task-primary-action size="sm" className="w-full justify-start" onClick={() => setOpen(true)}><Bot size={14} />Open agent</Button>
     <Dialog open={open} onClose={() => setOpen(false)} dismissible={!busy}>
       <DialogPanel>
         <DialogHeader><DialogTitle>Open task agent</DialogTitle><DialogClose disabled={busy} /></DialogHeader>
