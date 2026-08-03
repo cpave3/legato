@@ -779,7 +779,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
               className={`w-full resize-none rounded-lg border bg-zinc-900 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none disabled:opacity-50 ${isBang ? "border-amber-500/60 focus:border-amber-400 pt-7" : "border-zinc-700 focus:border-zinc-500"}`}
             />
           </div>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col items-center gap-2">
             <button
               onClick={handleSend}
               disabled={!draft.trim() || bangRunning}

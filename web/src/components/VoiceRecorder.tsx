@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, forwardRef, useImperativeHandle } from "react"
 import { apiFetch } from "../lib/api"
 import { Mic, Loader2, X, Check } from "lucide-react"
+import { Button } from "./ui/Button"
 
 interface VoiceRecorderProps {
   agentId?: string
@@ -165,41 +166,48 @@ export const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>
 
   if (state === "idle") {
     return (
-      <button
+      <Button
+        variant="outline"
+        size="icon"
+        aria-label="Voice dictation"
         onClick={startRecording}
-        className="rounded p-1.5 text-zinc-400 border border-zinc-700 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+        className="self-center"
         title="Voice dictation (V)"
       >
         <Mic size={16} />
-      </button>
+      </Button>
     )
   }
 
   if (state === "recording") {
     return (
-      <div className="flex items-center gap-1.5">
-        <button
+      <div className="flex self-center items-center gap-1.5">
+        <Button
+          variant="destructive"
+          size="sm"
           onClick={stopAndSend}
-          className="flex items-center gap-1 rounded px-2 py-1.5 text-xs text-red-400 border border-red-900 transition-colors hover:bg-red-950 hover:text-red-300 animate-pulse"
+          className="animate-pulse"
           title={transcriptionOnly ? "Click to add transcription" : "Click to transcribe and send (V)"}
         >
-          <span className="inline-block w-2 h-2 rounded-full bg-red-500" />
+          <span className="size-2 rounded-full bg-red-200" />
           <span>{transcriptionOnly ? "Add" : "Send"}</span>
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Cancel recording"
           onClick={cancel}
-          className="rounded p-1.5 text-zinc-500 border border-zinc-700 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
           title="Cancel recording (Esc)"
         >
           <X size={16} />
-        </button>
+        </Button>
       </div>
     )
   }
 
   if (state === "transcribing") {
     return (
-      <div className="flex items-center gap-1 rounded px-2 py-1.5 text-xs text-indigo-400 border border-indigo-900">
+      <div className="flex self-center items-center gap-1 rounded border border-indigo-900 px-2 py-1.5 text-xs text-indigo-400">
         <Loader2 size={16} className="animate-spin" />
         <span>Transcribing...</span>
       </div>
@@ -208,7 +216,7 @@ export const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>
 
   if (state === "sent") {
     return (
-      <div className="flex items-center gap-1 rounded px-2 py-1.5 text-xs text-emerald-400 border border-emerald-900">
+      <div className="flex self-center items-center gap-1 rounded border border-emerald-900 px-2 py-1.5 text-xs text-emerald-400">
         <Check size={16} />
         <span>{transcriptionOnly ? "Added" : "Sent"}</span>
       </div>
@@ -218,7 +226,7 @@ export const VoiceRecorder = forwardRef<VoiceRecorderHandle, VoiceRecorderProps>
   // error
   return (
     <div
-      className="flex items-center gap-1 rounded px-2 py-1.5 text-xs text-red-400 border border-red-900 cursor-help"
+      className="flex self-center cursor-help items-center gap-1 rounded border border-red-900 px-2 py-1.5 text-xs text-red-400"
       title={errorMsg}
       onClick={() => setState("idle")}
     >

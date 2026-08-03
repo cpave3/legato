@@ -28,7 +28,10 @@ describe("VoiceRecorder", () => {
     const onTranscription = vi.fn()
     render(<VoiceRecorder baseUrl="" transcriptionOnly onTranscription={onTranscription} />)
 
-    fireEvent.click(screen.getByTitle("Voice dictation (V)"))
+    const dictate = screen.getByRole("button", { name: "Voice dictation" })
+    expect(dictate.className).toContain("size-11")
+    expect(dictate.className).toContain("self-center")
+    fireEvent.click(dictate)
     await screen.findByTitle("Click to add transcription")
     fireEvent.click(screen.getByTitle("Click to add transcription"))
 
