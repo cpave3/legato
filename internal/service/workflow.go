@@ -106,6 +106,10 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 			inputs[key] = map[string]any{"name": preset.Name, "repo": preset.Repo, "primary_dir": preset.PrimaryDir, "base_branch": preset.BaseBranch}
 		}
 	}
+	runTitle, err := definition.ResolveRunTitle(inputs)
+	if err != nil {
+		return nil, err
+	}
 	for _, step := range definition.Steps {
 		if _, ok := s.executors[step.Type]; !ok {
 			return nil, fmt.Errorf("workflow executor %q is not registered", step.Type)
@@ -120,7 +124,7 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 	runID := workflowID("wr-")
 	taskID := store.GenerateTaskID()
 	now := time.Now().UTC().Format(time.RFC3339)
-	if err := s.store.CreateTask(ctx, store.Task{ID: taskID, Title: definition.Title, Description: "Workflow run " + runID, DescriptionMD: "Workflow run " + runID, Status: "Backlog", WorkspaceID: workspaceID, CreatedAt: now, UpdatedAt: now}); err != nil {
+	if err := s.store.CreateTask(ctx, store.Task{ID: taskID, Title: runTitle, Description: "Workflow run " + runID, DescriptionMD: "Workflow run " + runID, Status: "Backlog", WorkspaceID: workspaceID, CreatedAt: now, UpdatedAt: now}); err != nil {
 		return nil, err
 	}
 	if isBuiltInLearningDefinition(definition.Source) {
@@ -130,7 +134,7 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 	}
 	definitionJSON, _ := json.Marshal(definition)
 	inputsJSON, _ := json.Marshal(inputs)
-	run := store.WorkflowRun{ID: runID, WorkflowName: definition.Name, WorkflowTitle: definition.Title, DefinitionSource: definition.Source, DefinitionDigest: digestBytes(definitionJSON), DefinitionJSON: string(definitionJSON), InputsJSON: string(inputsJSON), Status: "running", CurrentStepID: definition.Steps[0].ID, TaskID: taskID, RelatedTaskID: relatedTaskID, TriggerRequestID: triggerRequestID}
+	run := store.WorkflowRun{ID: runID, WorkflowName: definition.Name, WorkflowTitle: runTitle, DefinitionSource: definition.Source, DefinitionDigest: digestBytes(definitionJSON), DefinitionJSON: string(definitionJSON), InputsJSON: string(inputsJSON), Status: "running", CurrentStepID: definition.Steps[0].ID, TaskID: taskID, RelatedTaskID: relatedTaskID, TriggerRequestID: triggerRequestID}
 	steps := make([]store.WorkflowStepRun, len(definition.Steps))
 	for i, step := range definition.Steps {
 		encoded, _ := json.Marshal(step)

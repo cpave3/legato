@@ -20,6 +20,7 @@ type Definition struct {
 	SchemaVersion    int              `yaml:"schema_version" json:"schema_version"`
 	Name             string           `yaml:"name" json:"name"`
 	Title            string           `yaml:"title" json:"title"`
+	RunTitle         string           `yaml:"run_title,omitempty" json:"run_title,omitempty"`
 	Description      string           `yaml:"description,omitempty" json:"description,omitempty"`
 	NotifyOnComplete bool             `yaml:"notify_on_complete,omitempty" json:"notify_on_complete,omitempty"`
 	Inputs           map[string]Input `yaml:"inputs,omitempty" json:"inputs,omitempty"`
@@ -94,6 +95,9 @@ func (d *Definition) Validate() error {
 		if !validValueType(input.Type, false) {
 			return fmt.Errorf("input %q has unsupported type %q", key, input.Type)
 		}
+	}
+	if err := validateReferences(d.RunTitle, d.Inputs, nil, nil); err != nil {
+		return fmt.Errorf("run_title: %w", err)
 	}
 	seen := make(map[string]bool, len(d.Steps))
 	availableOutputs := make(map[string]map[string]bool, len(d.Steps))
@@ -306,6 +310,21 @@ func parseValue(valueType, value string) (any, error) {
 	default:
 		return nil, fmt.Errorf("unsupported type %q", valueType)
 	}
+}
+
+func (d *Definition) ResolveRunTitle(inputs map[string]any) (string, error) {
+	if d.RunTitle == "" {
+		return d.Title, nil
+	}
+	resolved, err := resolveValue(d.RunTitle, nil, inputs, nil)
+	if err != nil {
+		return "", fmt.Errorf("resolve run_title: %w", err)
+	}
+	title, ok := resolved.(string)
+	if !ok || strings.TrimSpace(title) == "" {
+		return "", fmt.Errorf("resolved run_title must be a non-empty string")
+	}
+	return title, nil
 }
 
 func (d *Definition) ResolveStep(stepID string, inputs map[string]any, outputs map[string]map[string]any) (*ResolvedStep, error) {

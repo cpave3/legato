@@ -3,7 +3,7 @@ import { apiFetch } from "./api"
 export type WorkflowInput = { type: "string"|"integer"|"boolean"|"json"|"task"|"repository"; required?: boolean; default?: unknown; description?: string; secret?: boolean; choices?: unknown[] }
 export type WorkflowOutput = { type: string; path?: string; media_type?: string; description?: string }
 export type WorkflowStepDefinition = { id:string; title:string; type:string; trigger?:"automatic"|"manual"; with:Record<string,unknown>; outputs?:Record<string,WorkflowOutput> }
-export type WorkflowDefinition = { schema_version:number; name:string; title:string; description?:string; inputs?:Record<string,WorkflowInput>; steps:WorkflowStepDefinition[]; source:string }
+export type WorkflowDefinition = { schema_version:number; name:string; title:string; run_title?:string; description?:string; inputs?:Record<string,WorkflowInput>; steps:WorkflowStepDefinition[]; source:string }
 export type WorkflowRepositoryPreset = { name:string; repo:string; primary_dir:string; base_branch?:string }
 export type WorkflowDiscovery = { definitions:WorkflowDefinition[] | null; errors:{path:string;error:string}[] | null; repositories?:WorkflowRepositoryPreset[] | null }
 export type WorkflowRun = { id:string; workflow_name:string; workflow_title:string; definition_source:string; definition_digest:string; inputs_json:string; status:string; current_step_id:string; task_id?:string; error?:string; needs_attention?:boolean; attention_reason?:string; created_at:string; started_at?:string; completed_at?:string }

@@ -1,6 +1,7 @@
 schema_version: 1
 name: review-pr
 title: Review pull request
+run_title: Review PR #${{ workflow.inputs.pr_number }}
 description: Prepare an exact GitHub PR head and review it with Chimera.
 inputs:
   repo:
