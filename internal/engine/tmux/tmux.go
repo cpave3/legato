@@ -294,6 +294,23 @@ func (m *Manager) SetEnv(sessionName, key, value string) error {
 	return nil
 }
 
+// SessionEnvironment returns the environment stored on a tmux session.
+func (m *Manager) SessionEnvironment(sessionName string) ([]string, error) {
+	cmd := exec.Command(m.tmuxPath, "show-environment", "-t", sessionName)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("tmux show-environment: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	env := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line != "" && !strings.HasPrefix(line, "-") {
+			env = append(env, line)
+		}
+	}
+	return env, nil
+}
+
 // PaneCommands returns a map of legato-prefixed session names to their
 // current foreground process name. Returns an empty map when no sessions match.
 func (m *Manager) PaneCommands() (map[string]string, error) {

@@ -33,9 +33,10 @@ func TestBangEndpointExecutesAndAppends(t *testing.T) {
 	agents := &promptAgentService{}
 	agents.chimeraEndpoint = chimeraSrv.URL
 	agents.chimeraSessionID = "sess-1"
+	agents.agentEnvironment = []string{"LEGATO_TASK_ID=task-1"}
 	s := New(nil, agents, nil, "")
 
-	body := `{"command":"echo hello"}`
+	body := `{"command":"printf '%s' \"$LEGATO_TASK_ID\""}`
 	req := httptest.NewRequest(http.MethodPost, "/api/agents/task-1/chimera/bang", strings.NewReader(body))
 	rec := httptest.NewRecorder()
 	s.server.Handler.ServeHTTP(rec, req)
@@ -48,13 +49,13 @@ func TestBangEndpointExecutesAndAppends(t *testing.T) {
 		ExitCode int    `json:"exit_code"`
 	}
 	json.NewDecoder(rec.Body).Decode(&result)
-	if result.Stdout != "hello\n" {
+	if result.Stdout != "task-1" {
 		t.Fatalf("stdout=%q", result.Stdout)
 	}
 	if result.ExitCode != 0 {
 		t.Fatalf("exit_code=%d", result.ExitCode)
 	}
-	if !strings.Contains(appendedContent, "!echo hello (exit 0)") || !strings.Contains(appendedContent, "hello") {
+	if !strings.Contains(appendedContent, `!printf '%s' "$LEGATO_TASK_ID" (exit 0)`) || !strings.Contains(appendedContent, "task-1") {
 		t.Fatalf("appended=%q", appendedContent)
 	}
 }

@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/chimera"
+	"github.com/cpave3/legato/internal/service"
 )
 
 const (
@@ -60,7 +62,17 @@ func (s *Server) chimeraBangHandler() http.HandlerFunc {
 			return
 		}
 
-		result := executeBang(r.Context(), req.Command, snap.CWD)
+		environments, ok := s.agents.(service.AgentEnvironmentProvider)
+		if !ok {
+			http.Error(w, "agent environment is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		env, err := environments.GetAgentEnvironment(r.Context(), taskID)
+		if err != nil {
+			http.Error(w, "agent environment: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		result := executeBang(r.Context(), req.Command, snap.CWD, env)
 
 		formatted := formatBangResult(req.Command, result)
 		_ = client.PostMessageAppend(context.Background(), sessionID, formatted)
@@ -77,12 +89,13 @@ type bangResult struct {
 	TimedOut bool   `json:"timed_out"`
 }
 
-func executeBang(ctx context.Context, command, cwd string) bangResult {
+func executeBang(ctx context.Context, command, cwd string, env []string) bangResult {
 	ctx, cancel := context.WithTimeout(ctx, bangTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Dir = cwd
+	cmd.Env = append(os.Environ(), env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

@@ -1213,6 +1213,31 @@ func (a *agentService) HasChimeraEndpoint(ctx context.Context, taskID string) bo
 	return session.ChimeraEndpoint != nil && session.ChimeraSessionID != nil
 }
 
+// AgentEnvironmentProvider exposes the exact launch environment of an active
+// agent to out-of-process interactions such as web bang commands.
+type AgentEnvironmentProvider interface {
+	GetAgentEnvironment(ctx context.Context, taskID string) ([]string, error)
+}
+
+type tmuxEnvironmentReader interface {
+	SessionEnvironment(sessionName string) ([]string, error)
+}
+
+// GetAgentEnvironment returns the exact environment stored on the active tmux
+// session. SpawnAgent writes all injected variables there, so later consumers
+// automatically inherit additions without maintaining a second variable list.
+func (a *agentService) GetAgentEnvironment(ctx context.Context, taskID string) ([]string, error) {
+	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	reader, ok := a.tmux.(tmuxEnvironmentReader)
+	if !ok {
+		return nil, fmt.Errorf("tmux session environment is unavailable")
+	}
+	return reader.SessionEnvironment(session.TmuxSession)
+}
+
 // GetAgentSession returns the raw agent session row for the given task.
 func (a *agentService) GetAgentSession(ctx context.Context, taskID string) (*store.AgentSession, error) {
 	return a.store.GetAgentSessionByTaskID(ctx, taskID)

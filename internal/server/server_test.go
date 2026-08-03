@@ -220,6 +220,7 @@ type promptAgentService struct {
 	queuedMessage    string
 	chimeraEndpoint  string
 	chimeraSessionID string
+	agentEnvironment []string
 }
 
 func (p *promptAgentService) SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error {
@@ -268,6 +269,9 @@ func (p *promptAgentService) GetTaskNotifyEnabled(context.Context, string) (bool
 }
 func (p *promptAgentService) GetTaskChimeraSessionID(context.Context, string) (string, error) {
 	return "", nil
+}
+func (p *promptAgentService) GetAgentEnvironment(context.Context, string) ([]string, error) {
+	return p.agentEnvironment, nil
 }
 func (p *promptAgentService) SendMessage(context.Context, string, string) error {
 	return nil

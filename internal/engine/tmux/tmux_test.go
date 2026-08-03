@@ -61,6 +61,31 @@ func TestAttachCmdFormation(t *testing.T) {
 	}
 }
 
+func TestSessionEnvironmentReturnsSpawnedVariables(t *testing.T) {
+	skipWithoutTmux(t)
+
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "legato-test-environment"
+	t.Cleanup(func() { m.Kill(name) })
+	if err := m.Spawn(name, t.TempDir(), 0, 0, "LEGATO_TASK_ID=task-env", "LEGATO_FUTURE_VALUE=future"); err != nil {
+		t.Fatal(err)
+	}
+
+	env, err := m.SessionEnvironment(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(env, "\n")
+	for _, want := range []string{"LEGATO_TASK_ID=task-env", "LEGATO_FUTURE_VALUE=future"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("session environment missing %q: %v", want, env)
+		}
+	}
+}
+
 func TestSpawnAndKillIntegration(t *testing.T) {
 	skipWithoutTmux(t)
 

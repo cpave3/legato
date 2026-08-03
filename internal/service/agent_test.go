@@ -72,6 +72,19 @@ func (m *mockTmux) Spawn(name, workDir string, width, height int, envVars ...str
 	return nil
 }
 
+func (m *mockTmux) SessionEnvironment(name string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.sessions[name] {
+		return nil, fmt.Errorf("session %s not found", name)
+	}
+	env := make([]string, 0, len(m.envVars[name]))
+	for key, value := range m.envVars[name] {
+		env = append(env, key+"="+value)
+	}
+	return env, nil
+}
+
 func (m *mockTmux) Kill(name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -575,7 +588,8 @@ func (a *testAdapter) InstallHooks(projectDir string) error   { return nil }
 func (a *testAdapter) UninstallHooks(projectDir string) error { return nil }
 func (a *testAdapter) EnvVars(taskID, socketPath string) map[string]string {
 	return map[string]string{
-		"LEGATO_TASK_ID": taskID,
+		"LEGATO_TASK_ID":    taskID,
+		"LEGATO_FUTURE_ENV": "available",
 	}
 }
 
@@ -609,6 +623,21 @@ func TestSpawnAgentInjectsEnvVarsWhenAdapterConfigured(t *testing.T) {
 	}
 	if _, ok := envs["LEGATO_TASK_EPHEMERAL"]; ok {
 		t.Error("LEGATO_TASK_EPHEMERAL should not be set for a board-card task")
+	}
+
+	provided, ok := svc.(AgentEnvironmentProvider)
+	if !ok {
+		t.Fatal("agent service does not provide its launch environment")
+	}
+	env, err := provided.GetAgentEnvironment(ctx, "task1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(env, "\n")
+	for _, want := range []string{"LEGATO_TASK_ID=task1", "LEGATO_FUTURE_ENV=available"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("provided environment missing %q: %v", want, env)
+		}
 	}
 	if _, ok := envs["LEGATO_SOCKET"]; ok {
 		t.Error("LEGATO_SOCKET should not be set (CLI uses broadcast)")
