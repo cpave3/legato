@@ -122,7 +122,7 @@ func TestChimeraAdapterLaunchCommand(t *testing.T) {
 	}
 }
 
-func TestChimeraAdapterLaunchCommandResumeOmitsPrompt(t *testing.T) {
+func TestChimeraAdapterLaunchCommandResumesStoredSession(t *testing.T) {
 	a := NewChimeraAdapter("/usr/bin/legato")
 
 	got := a.LaunchCommand(map[string]string{
@@ -131,14 +131,13 @@ func TestChimeraAdapterLaunchCommandResumeOmitsPrompt(t *testing.T) {
 		"LEGATO_ROLE_PROMPT_FILE":       "/tmp/role.md",
 	}, "", "")
 
-	if !strings.Contains(got, "--session-id existing-session") {
-		t.Errorf("expected existing session ID in launch command, got %q", got)
+	if !strings.Contains(got, "--session existing-session") {
+		t.Errorf("expected direct session resume in launch command, got %q", got)
 	}
-	if !strings.Contains(got, "--session-exists resume") {
-		t.Errorf("expected resume policy in launch command, got %q", got)
-	}
-	if strings.Contains(got, "--prompt") {
-		t.Errorf("resume launch command must not include --prompt, got %q", got)
+	for _, unwanted := range []string{"--session-id", "--session-exists", "--session-name", "--prompt"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("resume launch command must not include %s, got %q", unwanted, got)
+		}
 	}
 }
 
@@ -187,10 +186,8 @@ func TestChimeraAdapterLaunchCommandWithTaskSession(t *testing.T) {
 		"LEGATO_CHIMERA_SESSION_NAME":   "TASK-42",
 		"LEGATO_CHIMERA_SESSION_EXISTS": "resume",
 	}, "", "")
-	for _, want := range []string{"--session-name TASK-42", "--session-id TASK-42", "--session-exists resume"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("LaunchCommand() = %q, missing %q", got, want)
-		}
+	if !strings.Contains(got, "--session TASK-42") {
+		t.Errorf("LaunchCommand() = %q, missing direct session resume", got)
 	}
 }
 

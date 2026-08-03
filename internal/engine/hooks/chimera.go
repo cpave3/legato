@@ -228,17 +228,22 @@ func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief, tier string
 		return ""
 	}
 	cmd := "chimera"
-	if name := env["LEGATO_CHIMERA_SESSION_NAME"]; name != "" {
-		cmd += " --session-name " + shellQuote(name)
-	}
-	if id := env["LEGATO_CHIMERA_SESSION_ID"]; id != "" {
-		cmd += " --session-id " + shellQuote(id)
-	}
-	if policy := env["LEGATO_CHIMERA_SESSION_EXISTS"]; policy != "" {
-		cmd += " --session-exists " + shellQuote(policy)
-	}
-	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; ok && env["LEGATO_CHIMERA_SESSION_EXISTS"] != "resume" {
-		cmd += ` --prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)"`
+	policy := env["LEGATO_CHIMERA_SESSION_EXISTS"]
+	if id := env["LEGATO_CHIMERA_SESSION_ID"]; policy == "resume" && id != "" {
+		cmd += " --session " + shellQuote(id)
+	} else {
+		if name := env["LEGATO_CHIMERA_SESSION_NAME"]; name != "" {
+			cmd += " --session-name " + shellQuote(name)
+		}
+		if id != "" {
+			cmd += " --session-id " + shellQuote(id)
+		}
+		if policy != "" {
+			cmd += " --session-exists " + shellQuote(policy)
+		}
+		if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; ok {
+			cmd += ` --prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)"`
+		}
 	}
 
 	// Auto-activate a Chimera mode based on the agent's role. Mapping comes
