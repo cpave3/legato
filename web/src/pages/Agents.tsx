@@ -199,10 +199,10 @@ export function AgentsPage() {
     setPromptState(null)
   }, [promptState])
 
-  const handleSubmitText = useCallback(
-    (keys: string) => {
+  const handleSubmitMessage = useCallback(
+    (content: string) => {
       if (selectedId) {
-        send({ type: "send_keys", agent_id: selectedId, keys })
+        send({ type: "agent_message", agent_id: selectedId, content })
         // User submitted input — clear dismissed state so future prompts show.
         dismissedPromptTypeRef.current = null
       }
@@ -434,7 +434,7 @@ export function AgentsPage() {
               ref={promptBarRef}
               promptState={isPromptDetectionEnabled ? promptState : null}
               onSendKeys={handleSendKeys}
-              onSubmitText={handleSubmitText}
+              onSubmitMessage={handleSubmitMessage}
               onDismissPrompt={handleDismissPrompt}
               onDetectPrompt={handleDetectPrompt}
               onDisconnect={handleDisconnect}

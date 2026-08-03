@@ -93,7 +93,7 @@ function ActionList({ actions, type, onSelect, onDismiss }: ActionListProps) {
 interface PromptBarProps {
   promptState: PromptState | null
   onSendKeys: (keys: string) => void
-  onSubmitText: (keys: string) => void
+  onSubmitMessage: (content: string) => void
   onDismissPrompt: () => void
   onDetectPrompt: () => void
   onDisconnect: () => void
@@ -123,7 +123,7 @@ export interface PromptBarHandle {
   voiceIsRecording: () => boolean
 }
 
-export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitText, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled }, ref) {
+export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled }, ref) {
   const { baseUrl } = useServer()
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
   const [menuOpen, setMenuOpen] = useState(false)
@@ -221,7 +221,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   const handleSubmit = () => {
     const trimmed = input.trim()
     if (trimmed) {
-      onSubmitText(trimmed + "\n")
+      onSubmitMessage(trimmed)
       setInput("")
       localStorage.removeItem(draftKey(agentId))
     }
@@ -314,7 +314,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
                     <button
                       key={macro.name}
                       onClick={() => {
-                        onSendKeys(macro.keys)
+                        onSubmitMessage(macro.keys)
                         setMacrosOpen(false)
                       }}
                       className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
@@ -434,6 +434,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
             <button
               onClick={handleSubmit}
               disabled={!input.trim() || connected === false}
+              title="Send"
               className="rounded bg-indigo-600 p-1.5 text-white transition-colors hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 mb-0.5"
             >
               <Send size={16} />
