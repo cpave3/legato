@@ -103,6 +103,7 @@ func (b *boardService) ListCardsByWorkspace(ctx context.Context, column string, 
 			SortOrder:   t.SortOrder,
 			HasWarning:  hasPushFailure(ctx, b.store, t.ID),
 			HasWorktree: t.WorktreePath != nil && *t.WorktreePath != "",
+			WorkspaceID: t.WorkspaceID,
 		}
 		if wsLookup != nil && t.WorkspaceID != nil {
 			if ws, ok := wsLookup[*t.WorkspaceID]; ok {

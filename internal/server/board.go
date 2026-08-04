@@ -57,6 +57,7 @@ func (s *Server) boardHandler() http.HandlerFunc {
 					Provider:       c.Provider,
 					HasWarning:     c.HasWarning,
 					HasWorktree:    c.HasWorktree,
+					WorkspaceID:    c.WorkspaceID,
 					WorkspaceName:  c.WorkspaceName,
 					WorkspaceColor: c.WorkspaceColor,
 				}

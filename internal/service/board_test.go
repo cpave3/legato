@@ -24,6 +24,38 @@ func setupTestBoard(t *testing.T) (*store.Store, *events.Bus, BoardService) {
 	return s, bus, svc
 }
 
+func TestListCardsByWorkspacePreservesWorkspaceIdentity(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	ctx := context.Background()
+	seedColumns(t, s)
+	workspaceID, err := s.CreateWorkspace(ctx, store.Workspace{Name: "Platform"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(ctx, store.Task{ID: "LEG-42", Title: "Assigned", Status: "Backlog", WorkspaceID: &workspaceID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(ctx, store.Task{ID: "LEG-43", Title: "Unassigned", Status: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+
+	assigned, err := svc.ListCardsByWorkspace(ctx, "Backlog", store.WorkspaceView{Kind: store.ViewWorkspace, WorkspaceID: workspaceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assigned) != 1 || assigned[0].WorkspaceID == nil || *assigned[0].WorkspaceID != workspaceID {
+		t.Fatalf("assigned cards = %+v, want workspace ID %d", assigned, workspaceID)
+	}
+
+	unassigned, err := svc.ListCardsByWorkspace(ctx, "Backlog", store.WorkspaceView{Kind: store.ViewUnassigned})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unassigned) != 1 || unassigned[0].WorkspaceID != nil {
+		t.Fatalf("unassigned cards = %+v, want nil workspace ID", unassigned)
+	}
+}
+
 func TestListArchivedTasksPreservesWorkspace(t *testing.T) {
 	s, _, svc := setupTestBoard(t)
 	ctx := context.Background()

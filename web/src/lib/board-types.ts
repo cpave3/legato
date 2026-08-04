@@ -22,6 +22,7 @@ export interface BoardCard {
   working_seconds: number
   waiting_seconds: number
   error_seconds: number
+  workspace_id: number | null
   workspace_name: string
   workspace_color: string
   pr_check_status: string

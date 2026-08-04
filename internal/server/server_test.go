@@ -909,13 +909,14 @@ func TestClearDetectorWaitingClearsOnlyOwnedWaiting(t *testing.T) {
 // ---------- New board endpoint tests ----------
 
 func TestBoardEndpointReturnsShape(t *testing.T) {
+	workspaceID := 1
 	svc := &mockBoardService{
 		columns: []service.Column{
 			{Name: "Backlog", SortOrder: 0},
 		},
 		cards: map[string][]service.Card{
 			"Backlog": {
-				{ID: "t1", Title: "Task one", Status: "Backlog", Priority: "High", IssueType: "Bug", Provider: "jira", HasWarning: true, WorkspaceName: "Work", WorkspaceColor: "#4A9EEF"},
+				{ID: "t1", Title: "Task one", Status: "Backlog", Priority: "High", IssueType: "Bug", Provider: "jira", HasWarning: true, WorkspaceID: &workspaceID, WorkspaceName: "Work", WorkspaceColor: "#4A9EEF"},
 			},
 		},
 		workspaces: []service.Workspace{
@@ -962,6 +963,9 @@ func TestBoardEndpointReturnsShape(t *testing.T) {
 	}
 	if card.WorkspaceName != "Work" {
 		t.Errorf("card.workspace_name = %q, want Work", card.WorkspaceName)
+	}
+	if card.WorkspaceID == nil || *card.WorkspaceID != workspaceID {
+		t.Errorf("card.workspace_id = %v, want %d", card.WorkspaceID, workspaceID)
 	}
 	if len(resp.Workspaces) != 1 {
 		t.Fatalf("workspaces = %d, want 1", len(resp.Workspaces))

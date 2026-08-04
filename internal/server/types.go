@@ -30,6 +30,7 @@ type CardResponse struct {
 	Provider         string              `json:"provider"`
 	HasWarning       bool                `json:"has_warning"`
 	HasWorktree      bool                `json:"has_worktree"`
+	WorkspaceID      *int                `json:"workspace_id"`
 	WorkspaceName    string              `json:"workspace_name"`
 	WorkspaceColor   string              `json:"workspace_color"`
 	AgentActive      bool                `json:"agent_active"`

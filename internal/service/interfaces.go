@@ -61,6 +61,7 @@ type Card struct {
 	SortOrder      int
 	HasWarning     bool
 	HasWorktree    bool
+	WorkspaceID    *int
 	WorkspaceName  string
 	WorkspaceColor string
 }
