@@ -301,7 +301,7 @@ legato    # launch the TUI
 | `o` | Open ticket in browser |
 | `m` | Move card to another column |
 | `D` | Delete task |
-| `e` | Edit description in `$EDITOR` (local tasks only) |
+| `e` | Edit Legato-owned details in `$EDITOR` (all tasks) |
 | `t` | Edit title (local tasks only) |
 | `esc` | Back to board |
 

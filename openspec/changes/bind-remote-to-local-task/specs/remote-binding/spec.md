@@ -7,7 +7,7 @@ The system SHALL allow binding a remote ticket to an existing local task. Bindin
 #### Scenario: Successful bind
 
 - **WHEN** a user binds a remote ticket (e.g., `REX-123`) to a local task (e.g., `a1b2c3d4`)
-- **THEN** the task's `provider` SHALL be set to the provider name, `remote_id` to the remote ticket key, and `remote_meta` to the fetched remote metadata. The task's `id` SHALL remain `a1b2c3d4`. Title and description SHALL be updated from the remote ticket.
+- **THEN** the task's `provider` SHALL be set to the provider name, `remote_id` to the remote ticket key, and `remote_meta` to the fetched remote metadata. The task's `id` SHALL remain `a1b2c3d4`. Title and `remote_description_md` SHALL be updated from the remote ticket while the Legato-owned description is preserved.
 
 #### Scenario: Reject bind on already-bound task
 

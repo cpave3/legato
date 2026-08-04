@@ -2,7 +2,7 @@
 
 ### Requirement: Description-only export format
 
-The system SHALL support an `ExportFormatDescription` format that produces a markdown string suitable for quick paste into an AI agent prompt. The output MUST begin with a level-2 heading containing the issue key and summary, followed by the card's markdown description body.
+The system SHALL support an `ExportFormatDescription` format that produces a markdown string suitable for quick paste into an AI agent prompt. The output MUST begin with a level-2 heading containing the issue key and summary, followed by the card's effective markdown description body. For provider-backed tasks, effective Markdown is provider text followed by local text under `## Legato details`; local tasks are unchanged.
 
 #### Scenario: Standard card with description
 

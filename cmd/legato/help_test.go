@@ -29,7 +29,7 @@ func TestHelpRequestAtEveryLevel(t *testing.T) {
 
 func TestTaskUpdateHelpExplainsProviderRestrictions(t *testing.T) {
 	out := helpText([]string{"task", "update"})
-	for _, want := range []string{"--status", "--title", "--description", "Jira-backed"} {
+	for _, want := range []string{"--status", "--title", "--description", "Provider-backed", "Legato-owned"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("help missing %q:\n%s", want, out)
 		}

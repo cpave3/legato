@@ -7,12 +7,12 @@ The sync service SHALL pull tickets from Jira and convert them into legato tasks
 #### Scenario: New ticket from Jira
 
 - **WHEN** a pull sync finds a Jira issue that does not exist as a task in SQLite
-- **THEN** a new task is created with `provider='jira'`, `remote_id` set to the Jira key, title from summary, description from ADF conversion, status from column mapping, and Jira-specific fields packed into `remote_meta`
+- **THEN** a new task is created with `provider='jira'`, `remote_id` set to the Jira key, title from summary, `remote_description_md` from ADF conversion, status from column mapping, and Jira-specific fields packed into `remote_meta`
 
 #### Scenario: Updated ticket from Jira
 
 - **WHEN** a pull sync finds a Jira issue that exists as a task and the Jira `updated` timestamp is newer
-- **THEN** the task's title, description, priority, and `remote_meta` fields are updated
+- **THEN** the task's title, `remote_description_md`, priority, and `remote_meta` fields are updated while local `description`/`description_md` are preserved
 
 #### Scenario: Jira status changed externally with no pending local move
 
@@ -27,7 +27,7 @@ The sync service SHALL pull tickets from Jira and convert them into legato tasks
 #### Scenario: ADF description conversion on pull
 
 - **WHEN** a task is synced from Jira with an ADF description
-- **THEN** the ADF is converted to Markdown and stored in `description_md`
+- **THEN** the ADF is converted to Markdown and stored in `remote_description_md`; local `description_md` is not changed
 
 ### Requirement: Stale Ticket Handling
 

@@ -119,7 +119,7 @@ The detail view MUST support opening the ticket's Jira URL in the default system
 
 ### Requirement: Detail View Status Bar
 
-The detail view MUST display a status bar at the bottom showing available keybindings: `esc` back, `y` copy description, `Y` copy full context, `m` move, `D` delete, `o` open in browser, and `e` edit (for local tasks).
+The detail view MUST display a status bar at the bottom showing available keybindings: `esc` back, `y` copy description, `Y` copy full context, `m` move, `D` delete, `o` open in browser, and `e` edit Legato details (for all tasks when an editor is configured).
 
 #### Scenario: Status bar displays keybinding hints
 
@@ -138,7 +138,7 @@ The detail view MUST display a status bar at the bottom showing available keybin
 
 ### Requirement: Edit description from detail view
 
-The detail view SHALL allow the user to edit the description of a local task by pressing `e`, which opens the configured terminal editor.
+The detail view SHALL allow the user to edit a task's Legato-owned description by pressing `e`, which opens the configured terminal editor. Provider-owned Markdown remains read-only.
 
 #### Scenario: Edit local task description
 
@@ -155,10 +155,10 @@ The detail view SHALL allow the user to edit the description of a local task by 
 - **WHEN** the editor process exits with a non-zero exit code
 - **THEN** the system SHALL discard any changes, clean up the temporary file, and display a feedback message in the status bar
 
-#### Scenario: Edit blocked for remote tasks
+#### Scenario: Edit Legato details for a remote task
 
-- **WHEN** the user presses `e` in the detail view of a remote/synced task (provider is non-nil)
-- **THEN** the system SHALL display a feedback message "Cannot edit remote task description" and take no further action
+- **WHEN** the user presses `e` in the detail view of a remote/synced task
+- **THEN** the editor SHALL contain only raw Legato-owned Markdown, and after save the view SHALL render provider Markdown followed by `## Legato details` without copying provider text into the editable field
 
 #### Scenario: Edit key shown in status bar
 

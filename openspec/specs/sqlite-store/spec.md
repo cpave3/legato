@@ -38,7 +38,7 @@ The store SHALL apply schema migrations on startup using embedded SQL files. Mig
 
 ### Requirement: Tasks Table Schema
 
-The database SHALL contain a `tasks` table with columns: `id` (TEXT PRIMARY KEY), `title` (TEXT NOT NULL), `description` (TEXT NOT NULL DEFAULT ''), `description_md` (TEXT NOT NULL DEFAULT ''), `status` (TEXT NOT NULL DEFAULT ''), `priority` (TEXT NOT NULL DEFAULT ''), `sort_order` (INTEGER NOT NULL DEFAULT 0), `workspace_id` (INTEGER, nullable FK to workspaces), `provider` (TEXT, nullable), `remote_id` (TEXT, nullable), `remote_meta` (TEXT, nullable -- JSON), `pr_meta` (TEXT, nullable -- JSON), `archived_at` (DATETIME, nullable), `created_at` (DATETIME NOT NULL), `updated_at` (DATETIME NOT NULL).
+The database SHALL contain a `tasks` table with columns: `id` (TEXT PRIMARY KEY), `title` (TEXT NOT NULL), `description` (TEXT NOT NULL DEFAULT ''), `description_md` (TEXT NOT NULL DEFAULT ''), `remote_description_md` (TEXT NOT NULL DEFAULT ''), `status` (TEXT NOT NULL DEFAULT ''), `priority` (TEXT NOT NULL DEFAULT ''), `sort_order` (INTEGER NOT NULL DEFAULT 0), `workspace_id` (INTEGER, nullable FK to workspaces), `provider` (TEXT, nullable), `remote_id` (TEXT, nullable), `remote_meta` (TEXT, nullable -- JSON), `pr_meta` (TEXT, nullable -- JSON), `archived_at` (DATETIME, nullable), `created_at` (DATETIME NOT NULL), `updated_at` (DATETIME NOT NULL).
 
 #### Scenario: Tasks table exists after migration
 - **WHEN** the database is initialized or migrated

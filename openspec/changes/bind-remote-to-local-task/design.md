@@ -53,4 +53,4 @@ The board `i` (import) continues to work as before — creates a new task. The d
 
 **[Risk] Sync conflict on first pull after bind** → The remote ticket's status may differ from the local task's column. Mitigation: Same conflict resolution as normal sync — local wins within 5-minute window, then remote state accepted. The bind operation sets `local_move_at` in `remote_meta` to give the user the 5-minute grace period.
 
-**[Risk] Title/description divergence** → Local task may have a different title/description than the remote ticket. Mitigation: On bind, update title and description from remote (same as import). User can see the diff in the bind confirmation overlay before accepting.
+**[Risk] Title/description divergence** → Local task may have a different title/description than the remote ticket. Mitigation: On bind, update the provider-owned title and `remote_description_md` from remote while preserving the task's Legato-owned description. User can see the diff in the bind confirmation overlay before accepting.

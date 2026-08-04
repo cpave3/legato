@@ -16,7 +16,7 @@ Tracked Jira tickets cache `image/*` attachments during import and every sync. E
 The cache lives under `$XDG_RUNTIME_DIR/legato/jira-attachments` when available, otherwise under the user's system temporary directory. Absolute paths appear in `legato task show` output and swarm briefs so agents can inspect images locally. Configure `jira.attachment_max_size_bytes` to limit each image; the default is 25 MiB. Non-image attachments are not downloaded.
 
 
-- **Pull**: periodic fetch via provider → **update existing tracked tasks only** (new tickets must be imported manually via `i` overlay or `ImportRemoteTask`). Status-to-column mapping, stale detection via remote_meta. Archived tasks skipped. Untracked remote tickets are silently ignored — pull never auto-imports
+- **Pull**: periodic fetch via provider → **update existing tracked tasks only** (new tickets must be imported manually via `i` overlay or `ImportRemoteTask`). Provider Markdown refreshes `remote_description_md` while preserving editable Legato `description_md`; status-to-column mapping and stale detection use remote_meta. Archived tasks skipped. Untracked remote tickets are silently ignored — pull never auto-imports
 - **Push**: local SQLite update first (non-blocking), then async remote transition; skipped for local tasks (provider=NULL); failure logs to `sync_log` and preserves local column
 - **Conflict resolution**: local wins within 5-minute window of `local_move_at` (stored in remote_meta); after window, remote state accepted on next pull
 - **Scheduler**: configurable interval (default 60s), publishes SyncStarted/SyncCompleted/SyncFailed events

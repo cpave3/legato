@@ -22,7 +22,7 @@
 
 - [ ] 5.1 Add `i` keybinding to detail view for local tasks — opens bind overlay (reuses import search overlay pattern). No-op for remote tasks or when sync service is nil.
 - [ ] 5.2 Create bind overlay (or adapt import overlay) — same search UI, but on selection calls `SyncService.BindRemoteTicket(currentTaskID, selectedRemoteID)` instead of `ImportRemoteTask`. Show confirmation before binding. Return to detail view on success.
-- [ ] 5.3 After bind completes, refresh detail view to show updated remote metadata, provider fields, and disable local-only keybindings (e/t).
+- [ ] 5.3 After bind completes, refresh detail view to show updated remote metadata, provider fields, and disable local-only title editing (`t`) while retaining Legato-details editing (`e`).
 
 ## 6. Integration
 

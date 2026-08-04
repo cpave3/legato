@@ -105,8 +105,8 @@ Legato is a local kanban task manager and AI-agent orchestrator. Commands use
 	}
 	out.WriteString("```\n\n")
 	out.WriteString(`Task IDs are opaque: preserve them exactly. Status names must match a configured
-board column. Jira-backed tasks may be moved between statuses, but their title
-and description are read-only in Legato.
+board column. Jira-backed task titles and provider descriptions are read-only,
+but their Legato-owned Markdown details remain editable.
 
 Inside an agent session, task-scoped commands can use ` + "`LEGATO_TASK_ID`" + ` when
 the task ID is omitted. Agent activity changes the UI indicator; use

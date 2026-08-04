@@ -18,7 +18,7 @@ When working with AI agents, a common flow is: create a local task to start work
 
 ### Modified Capabilities
 - `jira-sync`: Pull/push sync must handle tasks where `id != remote_id` (local ID retained, remote_id stored separately). Currently `ImportRemoteTask` uses `rt.ID` as the task ID — binding creates a task where these differ.
-- `local-task-management`: Detail view gains `i` keybinding for local tasks to trigger remote binding. After binding, description/title editing restrictions apply (task is now remote-tracked).
+- `local-task-management`: Detail view gains `i` keybinding for local tasks to trigger remote binding. After binding, title editing becomes restricted while Legato-owned description details remain editable.
 
 ## Impact
 

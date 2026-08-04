@@ -2,7 +2,7 @@
 
 ### Requirement: Task data model
 
-The system SHALL represent all board items as tasks with a core schema: `id` (TEXT PRIMARY KEY), `title`, `description`, `description_md`, `status`, `priority`, `sort_order`, `workspace_id` (nullable INTEGER FK to workspaces), `created_at`, `updated_at`. Tasks optionally link to an external provider via nullable `provider`, `remote_id`, and `remote_meta` (JSON) fields.
+The system SHALL represent all board items as tasks with a core schema: `id` (TEXT PRIMARY KEY), `title`, locally owned `description` and `description_md`, provider-owned `remote_description_md`, `status`, `priority`, `sort_order`, `workspace_id` (nullable INTEGER FK to workspaces), `created_at`, `updated_at`. Tasks optionally link to an external provider via nullable `provider`, `remote_id`, and `remote_meta` (JSON) fields.
 
 #### Scenario: Local task with no provider
 
@@ -103,17 +103,17 @@ The `remote_meta` field SHALL store provider-specific data as a JSON string. The
 
 ### Requirement: Update task description via service
 
-The `BoardService` SHALL expose an `UpdateTaskDescription(ctx, id, description)` method that updates the description of a local task.
+The `BoardService` SHALL expose an `UpdateTaskDescription(ctx, id, description)` method that updates a task's Legato-owned description without modifying provider-owned Markdown.
 
 #### Scenario: Successful description update
 
 - **WHEN** `UpdateTaskDescription` is called with a valid local task ID and new description content
 - **THEN** the service SHALL update both `description` and `description_md` fields on the task, persist via the store, and publish a cards-refreshed event
 
-#### Scenario: Reject editing remote task description
+#### Scenario: Edit Legato details on a remote task
 
-- **WHEN** `UpdateTaskDescription` is called with a task ID that has a non-nil provider (remote/synced task)
-- **THEN** the service SHALL return an error indicating that remote task descriptions cannot be edited locally
+- **WHEN** `UpdateTaskDescription` is called with a task ID that has a non-nil provider
+- **THEN** the service SHALL replace `description` and `description_md`, preserve `remote_description_md`, and expose provider Markdown followed by the local Markdown under `## Legato details`
 
 #### Scenario: Task not found
 

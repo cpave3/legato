@@ -55,17 +55,17 @@ The `remote_meta` field SHALL store provider-specific data as a JSON string. The
 
 ### Requirement: Update task description via service
 
-The `BoardService` SHALL expose an `UpdateTaskDescription(ctx, id, description)` method that updates the description of a local task.
+The `BoardService` SHALL expose an `UpdateTaskDescription(ctx, id, description)` method that updates the Legato-owned description of any task.
 
 #### Scenario: Successful description update
 
 - **WHEN** `UpdateTaskDescription` is called with a valid local task ID and new description content
 - **THEN** the service SHALL update both `description` and `description_md` fields on the task, persist via the store, and publish a cards-refreshed event
 
-#### Scenario: Reject editing remote task description
+#### Scenario: Edit a bound task's Legato details
 
-- **WHEN** `UpdateTaskDescription` is called with a task ID that has a non-nil provider (remote/synced task, including bound tasks)
-- **THEN** the service SHALL return an error indicating that remote task descriptions cannot be edited locally
+- **WHEN** `UpdateTaskDescription` is called for a bound or imported remote task
+- **THEN** local `description`/`description_md` SHALL be updated and provider-owned `remote_description_md` SHALL remain unchanged
 
 #### Scenario: Task not found
 

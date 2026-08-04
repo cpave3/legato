@@ -83,9 +83,9 @@ func commandTree() *commandDef {
 			"legato task show --format full"),
 		leaf("update", "Update task fields or move its status", runTaskUpdateContract,
 			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")},
-			[]commandFlag{valueFlag("status", "status", "Move to a configured column"), valueFlag("title", "title", "Replace a local task title"), valueFlag("description", "text", "Replace local task Markdown details"), valueFlag("description-file", "path|-", "Read replacement details from a file or stdin"), valueFlag("workspace", "name", `Assign by workspace name; "none" clears it`), jsonFlag},
+			[]commandFlag{valueFlag("status", "status", "Move to a configured column"), valueFlag("title", "title", "Replace a local task title"), valueFlag("description", "text", "Replace Legato-owned Markdown details"), valueFlag("description-file", "path|-", "Read replacement details from a file or stdin"), valueFlag("workspace", "name", `Assign by workspace name; "none" clears it`), jsonFlag},
 			"legato task update --status Doing", `legato task update <task-id> --title "Clarify failure"`),
-		leaf("description", "Replace a local task description", runTaskDescriptionContract,
+		leaf("description", "Replace a task's Legato-owned description", runTaskDescriptionContract,
 			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID"), optionalArg("text", "Replacement Markdown")},
 			[]commandFlag{valueFlag("description", "text", "Replacement Markdown"), valueFlag("description-file", "path|-", "Read Markdown from a file or stdin"), jsonFlag},
 			`legato task description <task-id> --description-file details.md`),
@@ -216,7 +216,7 @@ func commandTree() *commandDef {
 	)
 	markCapabilities(root)
 	if update, ok := findCommand(root, []string{"task", "update"}); ok {
-		update.Description = "Status can be changed for any task. Jira-backed task titles and descriptions are read-only; those fields may only be changed on local tasks."
+		update.Description = "Status and Legato-owned descriptions can be changed for any task. Provider-backed titles and provider descriptions remain read-only."
 	}
 	return root
 }

@@ -12,12 +12,12 @@ The sync service SHALL pull tickets from Jira and convert them into legato tasks
 #### Scenario: Updated ticket matching by remote_id
 
 - **WHEN** a pull sync finds a Jira issue whose key matches a task's `remote_id` (but not its `id`, i.e., a bound task)
-- **THEN** the task SHALL be updated with the latest title, description, priority, and `remote_meta` fields, same as a normally-imported task
+- **THEN** the task SHALL be updated with the latest title, `remote_description_md`, priority, and `remote_meta` fields while preserving its Legato-owned description, same as a normally-imported task
 
 #### Scenario: Updated ticket from Jira
 
 - **WHEN** a pull sync finds a Jira issue that exists as a task and the Jira `updated` timestamp is newer
-- **THEN** the task's title, description, priority, and `remote_meta` fields are updated
+- **THEN** the task's title, `remote_description_md`, priority, and `remote_meta` fields are updated while local description fields are preserved
 
 #### Scenario: Jira status changed externally with no pending local move
 
@@ -32,7 +32,7 @@ The sync service SHALL pull tickets from Jira and convert them into legato tasks
 #### Scenario: ADF description conversion on pull
 
 - **WHEN** a task is synced from Jira with an ADF description
-- **THEN** the ADF is converted to Markdown and stored in `description_md`
+- **THEN** the ADF is converted to Markdown and stored in `remote_description_md`
 
 ### Requirement: Push Sync from Local to Jira
 
