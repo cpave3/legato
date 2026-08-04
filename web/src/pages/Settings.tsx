@@ -1,15 +1,19 @@
 import { useState } from "react"
-import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus } from "lucide-react"
+import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw } from "lucide-react"
 import { setToken } from "../lib/auth"
 import { useServer } from "../hooks/useServer"
 import { QRScanner } from "../components/QRScanner"
 import { useSettings } from "../hooks/useSettings"
+import { useToast } from "../hooks/useToast"
+import { apiFetch } from "../lib/api"
 import { useSearchParams } from "react-router-dom"
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { baseUrl, servers, addServer, removeServer, setActiveServer } = useServer()
   const settings = useSettings()
+  const { addToast } = useToast()
+  const [buildStarting, setBuildStarting] = useState(false)
   const [glitchEnabled, setGlitchEnabled] = useState(() => {
     return localStorage.getItem("legato:glitch-effect") !== "false"
   })
@@ -38,6 +42,22 @@ export function SettingsPage() {
   const handleSwitchModifier = (value: string) => {
     setSwitchModifier(value)
     localStorage.setItem("legato:switch-modifier", value)
+  }
+
+  const handleFullBuild = async () => {
+    if (buildStarting) return
+    setBuildStarting(true)
+    try {
+      const response = await apiFetch(baseUrl, "/api/hot-reload/build", { method: "POST" })
+      if (!response.ok) {
+        throw new Error(await response.text().catch(() => "Failed to start full rebuild"))
+      }
+      addToast("Full rebuild started", "success")
+      setBuildStarting(false)
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : "Failed to start full rebuild", "error")
+      setBuildStarting(false)
+    }
   }
 
   const [showScanner, setShowScanner] = useState(() => searchParams.get("pair") === "qr")
@@ -156,6 +176,33 @@ export function SettingsPage() {
           </div>
         </div>
       </section>
+
+      {settings.data?.hot_reload_enabled && (
+        <section className="max-w-lg mb-8">
+          <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">
+            Development
+          </h2>
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+            <div className="flex items-start gap-3">
+              <RefreshCw size={20} className="text-indigo-400 mt-0.5 shrink-0" />
+              <div className="flex flex-1 flex-col gap-2">
+                <p className="text-sm text-zinc-300">Rebuild web application</p>
+                <p className="text-xs text-zinc-500">
+                  Build and embed the latest web UI, then hot reload Legato. This connection will briefly disconnect and reconnect.
+                </p>
+                <button
+                  onClick={handleFullBuild}
+                  disabled={buildStarting}
+                  className="mt-1 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 disabled:cursor-wait disabled:opacity-60 sm:w-fit"
+                >
+                  <RefreshCw size={14} className={buildStarting ? "animate-spin" : ""} />
+                  {buildStarting ? "Starting rebuild…" : "Rebuild and hot reload"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="max-w-lg mb-8">
         <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">

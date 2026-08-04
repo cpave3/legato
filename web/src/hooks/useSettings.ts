@@ -16,6 +16,7 @@ export interface Settings {
   voice_enabled: boolean
   voice_auto_send: boolean
   worktrees_enabled: boolean
+  hot_reload_enabled: boolean
   working_dir: string
   repositories: RepositorySetting[]
 }

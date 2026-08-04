@@ -25,43 +25,44 @@ type WorktreeService interface {
 }
 
 type Server struct {
-	board                service.BoardService
-	agents               service.AgentService
-	swarm                SwarmService
-	sync                 service.SyncService
-	prTracking           service.PRTrackingService
-	tmux                 service.TmuxManager
-	bus                  *events.Bus
-	addr                 string
-	workDir              string // default CWD for agent spawn
-	server               *http.Server
-	hub                  *Hub
-	streams              *streamManager
-	chimeraStreams       *chimeraStreamManager
-	tlsCert              string
-	tlsKey               string
-	caCertPath           string
-	authToken            string
-	macros               []macros.Macro
-	sparklineWindow      time.Duration
-	sparklineBuckets     int
-	ntfyConfigured       bool
-	voiceSvc             VoiceService
-	voiceAutoSend        bool
-	reviews              ReviewService
-	plans                PlanService
-	artifacts            ArtifactService
-	workflows            WorkflowService
-	workflowTriggers     *service.WorkflowTriggerCoordinator
-	attention            *service.AttentionService
-	learning             LearningService
-	report               service.ReportService
-	reflectionWorkflows  ReflectionWorkflowService
-	workflowGlobalDir    string
-	workflowProjectDir   string
-	workflowRepositories []workflowengine.RepositoryPreset
-	worktrees            WorktreeService
-	notifyTaskChanged    func(string)
+	board                 service.BoardService
+	agents                service.AgentService
+	swarm                 SwarmService
+	sync                  service.SyncService
+	prTracking            service.PRTrackingService
+	tmux                  service.TmuxManager
+	bus                   *events.Bus
+	addr                  string
+	workDir               string // default CWD for agent spawn
+	server                *http.Server
+	hub                   *Hub
+	streams               *streamManager
+	chimeraStreams        *chimeraStreamManager
+	tlsCert               string
+	tlsKey                string
+	caCertPath            string
+	authToken             string
+	macros                []macros.Macro
+	sparklineWindow       time.Duration
+	sparklineBuckets      int
+	ntfyConfigured        bool
+	voiceSvc              VoiceService
+	voiceAutoSend         bool
+	reviews               ReviewService
+	plans                 PlanService
+	artifacts             ArtifactService
+	workflows             WorkflowService
+	workflowTriggers      *service.WorkflowTriggerCoordinator
+	attention             *service.AttentionService
+	learning              LearningService
+	report                service.ReportService
+	reflectionWorkflows   ReflectionWorkflowService
+	workflowGlobalDir     string
+	workflowProjectDir    string
+	workflowRepositories  []workflowengine.RepositoryPreset
+	worktrees             WorktreeService
+	notifyTaskChanged     func(string)
+	hotReloadBuildTrigger func(<-chan struct{}) (bool, error)
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -127,6 +128,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/board/archive-done", s.archiveDoneHandler())
 	mux.HandleFunc("/api/workspaces", s.workspacesHandler())
 	mux.HandleFunc("/api/settings", s.settingsHandler())
+	mux.HandleFunc("/api/hot-reload/build", s.hotReloadBuildHandler())
 	mux.HandleFunc("/api/navigation-summary", s.navigationSummaryHandler())
 	mux.HandleFunc("/api/ca-cert", s.caCertHandler())
 	mux.HandleFunc("/api/adapters", s.adaptersHandler())
@@ -298,6 +300,11 @@ func (s *Server) SetPRTrackingService(svc service.PRTrackingService) {
 	s.prTracking = svc
 }
 
+// SetHotReloadBuildTrigger exposes the development rebuild capability.
+func (s *Server) SetHotReloadBuildTrigger(trigger func(<-chan struct{}) (bool, error)) {
+	s.hotReloadBuildTrigger = trigger
+}
+
 // corsMiddleware adds CORS headers to all responses so the PWA served from
 // one legato instance can talk to another. Wildcard origin is acceptable
 // because the server runs on a local network with self-signed TLS — the CA
@@ -385,6 +392,7 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			NtfyConfigured   bool                              `json:"ntfy_configured"`
 			VoiceEnabled     bool                              `json:"voice_enabled"`
 			WorktreesEnabled bool                              `json:"worktrees_enabled"`
+			HotReloadEnabled bool                              `json:"hot_reload_enabled"`
 			Repositories     []workflowengine.RepositoryPreset `json:"repositories"`
 		}{
 			CaCertAvailable:  hasCACert,
@@ -392,9 +400,38 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			NtfyConfigured:   s.ntfyConfigured,
 			VoiceEnabled:     s.voiceSvc != nil,
 			WorktreesEnabled: s.worktrees != nil,
+			HotReloadEnabled: s.hotReloadBuildTrigger != nil,
 			Repositories:     append([]workflowengine.RepositoryPreset(nil), s.workflowRepositories...),
 		}
 		_ = json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func (s *Server) hotReloadBuildHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if s.hotReloadBuildTrigger == nil {
+			http.NotFound(w, r)
+			return
+		}
+		start := make(chan struct{})
+		started, err := s.hotReloadBuildTrigger(start)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !started {
+			http.Error(w, "a hot reload build is already running", http.StatusConflict)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		close(start)
 	}
 }
 

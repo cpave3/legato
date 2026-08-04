@@ -145,6 +145,98 @@ func TestSettingsEndpointReportsWorktreeCapability(t *testing.T) {
 	}
 }
 
+func TestSettingsEndpointReportsHotReloadBuildCapability(t *testing.T) {
+	s := New(nil, nil, nil, "")
+	request := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+
+	response := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(response, request)
+	var disabled struct {
+		HotReloadEnabled bool `json:"hot_reload_enabled"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&disabled); err != nil {
+		t.Fatal(err)
+	}
+	if disabled.HotReloadEnabled {
+		t.Fatal("hot reload build capability reported without a configured trigger")
+	}
+
+	s.SetHotReloadBuildTrigger(func(<-chan struct{}) (bool, error) { return true, nil })
+	response = httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(response, request)
+	var enabled struct {
+		HotReloadEnabled bool `json:"hot_reload_enabled"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&enabled); err != nil {
+		t.Fatal(err)
+	}
+	if !enabled.HotReloadEnabled {
+		t.Fatal("configured hot reload build capability not reported")
+	}
+}
+
+func TestHotReloadBuildEndpointStartsConfiguredBuild(t *testing.T) {
+	s := New(nil, nil, nil, "")
+	calls := 0
+	released := make(chan struct{}, 1)
+	s.SetHotReloadBuildTrigger(func(start <-chan struct{}) (bool, error) {
+		calls++
+		go func() {
+			<-start
+			released <- struct{}{}
+		}()
+		return true, nil
+	})
+
+	response := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hot-reload/build", nil))
+
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if calls != 1 {
+		t.Fatalf("build trigger calls=%d", calls)
+	}
+	select {
+	case <-released:
+	case <-time.After(time.Second):
+		t.Fatal("build was not released after the response was written")
+	}
+}
+
+func TestHotReloadBuildEndpointRejectsUnavailableAndRunningBuilds(t *testing.T) {
+	s := New(nil, nil, nil, "")
+	response := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hot-reload/build", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("unconfigured status=%d", response.Code)
+	}
+
+	s.SetHotReloadBuildTrigger(func(<-chan struct{}) (bool, error) { return false, nil })
+	response = httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hot-reload/build", nil))
+	if response.Code != http.StatusConflict {
+		t.Fatalf("running status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestHotReloadBuildEndpointReportsTriggerErrorsAndRejectsOtherMethods(t *testing.T) {
+	s := New(nil, nil, nil, "")
+	s.SetHotReloadBuildTrigger(func(<-chan struct{}) (bool, error) { return false, errors.New("cannot prepare build") })
+
+	response := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/hot-reload/build", nil))
+	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), "cannot prepare build") {
+		t.Fatalf("trigger error status=%d body=%s", response.Code, response.Body.String())
+	}
+
+	response = httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/hot-reload/build", nil))
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("method status=%d", response.Code)
+	}
+}
+
 func TestSettingsEndpointIncludesRepositoryPresets(t *testing.T) {
 	s := New(nil, nil, nil, "")
 	s.SetWorkflowService(nil, "", "", workflowengine.RepositoryPreset{

@@ -113,6 +113,8 @@ The original process watches the exact executable that launched it. After a succ
 
 Use `task build:full` when frontend changes must be included. The build emits a new embedded frontend identity; connected web/PWA clients detect it on reconnect, update the service worker, and reload once. A Go-only `task build` retains the current embedded web identity and does not reload same-build browser tabs.
 
+When the active server is a hot-reload child launched from a Legato checkout, Settings shows **Rebuild and hot reload**. This authenticated action starts `task build:full` in the checkout, allowing a phone or other remote web client to request the same rebuild without terminal access. The button confirms when the build starts; output is written to `.legato/run/hot-reload-build.log`, and concurrent requests are rejected until that build exits. The action is absent from normal, installed, or non-checkout servers.
+
 Hot reload is a foreground Unix development workflow, not zero-downtime deployment or daemon management. `task server:restart` remains the explicit detached standalone-server helper.
 
 ## Setup
