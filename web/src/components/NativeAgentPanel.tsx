@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react"
 import { ArrowDown, ArrowLeftRight, Zap, MoreHorizontal, RefreshCw, Unplug, Skull, Bell, BellOff, Terminal } from "lucide-react"
 import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
+import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
 import { apiFetch } from "../lib/api"
 import { dispatchAgentInput } from "../lib/agentInput"
 import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
@@ -197,16 +198,15 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft])
 
-  // Fetch macros
+  // Fetch macros eagerly so numbered shortcuts are ready when the menu opens.
   useEffect(() => {
-    if (!macrosOpen) return
     apiFetch(baseUrl, "/api/macros")
       .then((r) => r.ok ? r.json() : { macros: [] })
       .then((data: { macros?: { name: string; keys: string }[] }) => {
-        if (Array.isArray(data.macros)) setMacros(data.macros)
+        setMacros(Array.isArray(data.macros) ? data.macros : [])
       })
       .catch(() => setMacros([]))
-  }, [baseUrl, macrosOpen])
+  }, [baseUrl])
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -482,6 +482,10 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     setMacrosOpen(false)
   }, [agentId, busy, executeBang, send])
 
+  const openMacros = useCallback(() => setMacrosOpen(true), [])
+  const closeMacros = useCallback(() => setMacrosOpen(false), [])
+  useMacroHotkeys({ macros, open: macrosOpen, onOpen: openMacros, onClose: closeMacros, onSelect: handleMacro })
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -657,7 +661,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
             <button
               onClick={() => setMacrosOpen((v) => !v)}
               className={"flex items-center gap-1 rounded px-2 py-1 text-xs border transition-colors " + (macrosOpen ? "text-zinc-200 bg-zinc-800 border-zinc-600" : "text-zinc-400 border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200")}
-              title="Macros"
+              title="Macros (M)"
+              aria-keyshortcuts="m"
             >
               <Zap size={12} />
               <span>Macros</span>
@@ -667,16 +672,21 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
                 {macros.length === 0 ? (
                   <div className="px-3 py-1.5 text-xs text-zinc-500">(no macros configured)</div>
                 ) : (
-                  macros.map((macro) => (
-                    <button
-                      key={macro.name}
-                      onClick={() => handleMacro(macro.keys)}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
-                    >
-                      <Zap size={12} />
-                      {macro.name}
-                    </button>
-                  ))
+                  macros.map((macro, index) => {
+                    const shortcut = index < 9 ? String(index + 1) : undefined
+                    return (
+                      <button
+                        key={macro.name}
+                        onClick={() => handleMacro(macro.keys)}
+                        aria-keyshortcuts={shortcut}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                      >
+                        {shortcut && <kbd className="w-4 rounded border border-zinc-700 text-center font-mono text-[10px] text-zinc-500">{shortcut}</kbd>}
+                        <Zap size={12} />
+                        {macro.name}
+                      </button>
+                    )
+                  })
                 )}
               </div>
             )}

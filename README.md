@@ -190,7 +190,7 @@ Legato looks for config in this order:
 
 ## Macros
 
-Macros are named send-keys snippets you can fire into an agent's tmux pane from the TUI or web UI. A trailing `\n` in the `keys` field sends Enter.
+Macros are named snippets you can fire into an agent from the TUI or web UI. In the TUI, a trailing `\n` in the `keys` field sends Enter to the tmux pane.
 
 ### Why macros
 
@@ -211,9 +211,11 @@ macros:
 ```
 
 - `name` — label shown in the macro picker / web dropdown
-- `keys` — raw text sent verbatim to the focused agent's tmux pane via `send_keys`
+- `keys` — text executed by the active surface's normal macro transport
 
-No env-var expansion or placeholder substitution — strings are sent exactly as written.
+On the web Agents view, with no input, textarea, select, or content-editable field focused, press `M` to open the active agent's macro menu. Press `1`–`9` to run the corresponding first nine macros in configured list order; later macros remain available by clicking them. Native Chimera agents preserve bang handling for leading `!` macros and use `agent_message` for ordinary macros, while tmux-backed web agents submit macros through their normal message transport. The TUI continues to send macro keys directly to tmux.
+
+No env-var expansion or placeholder substitution — strings are used exactly as written.
 
 ## Claude Code Integration
 

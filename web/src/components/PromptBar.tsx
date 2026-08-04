@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, type KeyboardEvent } from "react"
 import type { PromptState } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
+import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
 import { apiFetch } from "../lib/api"
 import { cn } from "../lib/utils"
 import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff, Terminal, Zap, Bell, BellOff } from "lucide-react"
@@ -136,18 +137,15 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   const prevAgentIdRef = useRef(agentId)
   const voiceRef = useRef<VoiceRecorderHandle>(null)
 
-  // Fetch macros from /api/macros when dropdown opens.
+  // Fetch macros eagerly so numbered shortcuts are ready when the menu opens.
   useEffect(() => {
-    if (!macrosOpen) return
     apiFetch(baseUrl, "/api/macros")
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data.macros)) {
-          setMacros(data.macros)
-        }
+      .then((r) => r.ok ? r.json() : { macros: [] })
+      .then((data: { macros?: { name: string; keys: string }[] }) => {
+        setMacros(Array.isArray(data.macros) ? data.macros : [])
       })
       .catch(() => setMacros([]))
-  }, [baseUrl, macrosOpen])
+  }, [baseUrl])
 
   useImperativeHandle(ref, () => ({
     focus: () => textareaRef.current?.focus(),
@@ -227,6 +225,14 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
     }
   }
 
+  const handleMacro = useCallback((keys: string) => {
+    onSubmitMessage(keys)
+    setMacrosOpen(false)
+  }, [onSubmitMessage])
+  const openMacros = useCallback(() => setMacrosOpen(true), [])
+  const closeMacros = useCallback(() => setMacrosOpen(false), [])
+  useMacroHotkeys({ macros, open: macrosOpen, onOpen: openMacros, onClose: closeMacros, onSelect: handleMacro })
+
   const handleKeyDown = (e: KeyboardEvent) => {
     // When input is empty, pass navigation keys through to the terminal
     // so the user can arrow through choices and press Enter to select.
@@ -300,7 +306,8 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
                   ? "text-zinc-200 bg-zinc-800 border-zinc-600"
                   : "text-zinc-400 border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200"
               )}
-              title="Macros"
+              title="Macros (M)"
+              aria-keyshortcuts="m"
             >
               <Zap size={12} />
               <span>Macros</span>
@@ -310,19 +317,21 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
                 {macros.length === 0 ? (
                   <div className="px-3 py-1.5 text-xs text-zinc-500">(no macros configured)</div>
                 ) : (
-                  macros.map((macro) => (
-                    <button
-                      key={macro.name}
-                      onClick={() => {
-                        onSubmitMessage(macro.keys)
-                        setMacrosOpen(false)
-                      }}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
-                    >
-                      <Zap size={12} />
-                      {macro.name}
-                    </button>
-                  ))
+                  macros.map((macro, index) => {
+                    const shortcut = index < 9 ? String(index + 1) : undefined
+                    return (
+                      <button
+                        key={macro.name}
+                        onClick={() => handleMacro(macro.keys)}
+                        aria-keyshortcuts={shortcut}
+                        className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                      >
+                        {shortcut && <kbd className="w-4 rounded border border-zinc-700 text-center font-mono text-[10px] text-zinc-500">{shortcut}</kbd>}
+                        <Zap size={12} />
+                        {macro.name}
+                      </button>
+                    )
+                  })
                 )}
               </div>
             )}

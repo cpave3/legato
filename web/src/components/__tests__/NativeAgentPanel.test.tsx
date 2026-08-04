@@ -59,6 +59,116 @@ describe("NativeAgentPanel", () => {
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent_message", content: macro }))
   })
 
+  it("opens macros with M and runs the numbered bang macro through native dispatch", async () => {
+    const macros = [
+      { name: "First macro", keys: "first" },
+      { name: "Second macro", keys: "second" },
+      { name: "Third macro", keys: "!echo third" },
+      { name: "Fourth macro", keys: "fourth" },
+    ]
+    const requests: string[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      requests.push(url)
+      if (url.endsWith("/snapshot")) {
+        return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      }
+      if (url.endsWith("/api/macros")) {
+        return new Response(JSON.stringify({ macros }), { status: 200 })
+      }
+      if (url.includes("/chimera/bang")) {
+        return new Response(JSON.stringify({ stdout: "third", exit_code: 0 }), { status: 200 })
+      }
+      return new Response("[]", { status: 200 })
+    })
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const composer = await screen.findByPlaceholderText("Send a message...")
+    await waitFor(() => expect(requests).toContain("/api/macros"))
+    composer.focus()
+    composer.blur()
+
+    fireEvent.keyDown(window, { key: "M" })
+    const thirdMacro = screen.getByRole("button", { name: /3.*third macro/i })
+    expect(thirdMacro.getAttribute("aria-keyshortcuts")).toBe("3")
+
+    fireEvent.keyDown(window, { key: "3" })
+
+    await waitFor(() => expect(requests.some((url) => url.includes("/api/agents/task-1/chimera/bang"))).toBe(true))
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent_message", content: "!echo third" }))
+    expect(screen.queryByRole("button", { name: /third macro/i })).toBeNull()
+  })
+
+  it("guards native macro hotkeys and closes the menu with Escape", async () => {
+    const macros = [{ name: "First macro", keys: "first" }]
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/snapshot")) {
+        return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      }
+      if (url.endsWith("/api/macros")) {
+        return new Response(JSON.stringify({ macros }), { status: 200 })
+      }
+      return new Response("[]", { status: 200 })
+    })
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const composer = await screen.findByPlaceholderText("Send a message...")
+    await waitFor(() => expect(screen.getByTitle("Macros (M)").getAttribute("aria-keyshortcuts")).toBe("m"))
+
+    fireEvent.keyDown(composer, { key: "m" })
+    expect(screen.queryByRole("button", { name: /first macro/i })).toBeNull()
+    composer.blur()
+
+    const contentEditable = document.createElement("div")
+    contentEditable.setAttribute("contenteditable", "true")
+    const editableTargets = [
+      document.createElement("input"),
+      document.createElement("select"),
+      contentEditable,
+    ]
+    for (const target of editableTargets) {
+      document.body.appendChild(target)
+      fireEvent.keyDown(target, { key: "m" })
+      target.remove()
+    }
+    for (const modifier of ["ctrlKey", "altKey", "metaKey", "shiftKey"] as const) {
+      fireEvent.keyDown(window, { key: "m", [modifier]: true })
+    }
+    fireEvent.keyDown(window, { key: "m", repeat: true })
+    const handled = new KeyboardEvent("keydown", { key: "m", cancelable: true })
+    handled.preventDefault()
+    window.dispatchEvent(handled)
+    expect(screen.queryByRole("button", { name: /first macro/i })).toBeNull()
+
+    fireEvent.keyDown(window, { key: "m" })
+    expect(screen.getByRole("button", { name: /first macro/i })).not.toBeNull()
+    fireEvent.keyDown(window, { key: "9" })
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent_message", content: "first" }))
+    expect(screen.getByRole("button", { name: /first macro/i })).not.toBeNull()
+    fireEvent.keyDown(window, { key: "Escape" })
+    expect(screen.queryByRole("button", { name: /first macro/i })).toBeNull()
+  })
+
+  it("keeps failed macro loading empty and digit selection inert", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/snapshot")) {
+        return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      }
+      if (url.endsWith("/api/macros")) throw new Error("unavailable")
+      return new Response("[]", { status: 200 })
+    })
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const composer = await screen.findByPlaceholderText("Send a message...")
+    composer.blur()
+    fireEvent.keyDown(window, { key: "m" })
+    expect(screen.getByText("(no macros configured)")).not.toBeNull()
+    fireEvent.keyDown(window, { key: "1" })
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent_message" }))
+  })
+
   it("keeps queue and interrupt controls in one bounded equal-width composer rail", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
