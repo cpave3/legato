@@ -1,23 +1,76 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { MemoryRouter } from "react-router-dom"
+import { MemoryRouter, useLocation } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TaskAgentAction } from "../TaskAgentAction"
 
-const { apiFetch, select } = vi.hoisted(() => ({ apiFetch: vi.fn(), select: vi.fn() }))
+const { apiFetch, select, runningAgentState } = vi.hoisted(() => ({
+  apiFetch: vi.fn(),
+  select: vi.fn(),
+  runningAgentState: { agent: null as null | { task_id: string; task_title: string; status: string }, loading: false },
+}))
 
 vi.mock("../../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 vi.mock("../../../hooks/useAgentSelection", () => ({ useAgentSelection: () => ({ setSelectedAgentId: select }) }))
+vi.mock("../../../hooks/useRunningAgent", () => ({ useRunningAgent: () => runningAgentState }))
 vi.mock("../../../hooks/useSettings", () => {
   const data = { working_dir: "/default", repositories: [{ name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato" }] }
   return { useSettings: () => ({ data }) }
 })
 vi.mock("../../../lib/api", () => ({ apiFetch }))
 
+function CurrentPath() {
+  return <span data-testid="current-path">{useLocation().pathname}</span>
+}
+
 describe("TaskAgentAction", () => {
   beforeEach(() => {
     cleanup()
     apiFetch.mockReset()
     select.mockReset()
+    runningAgentState.agent = null
+    runningAgentState.loading = false
+  })
+
+  it("goes directly to the running agent without opening or launching", () => {
+    runningAgentState.agent = { task_id: "running-T-1", task_title: "Running task", status: "running" }
+
+    render(<MemoryRouter initialEntries={["/board"]}>
+      <TaskAgentAction taskId="T-1" />
+      <CurrentPath />
+    </MemoryRouter>)
+
+    fireEvent.click(screen.getByRole("button", { name: "Go to agent" }))
+
+    expect(select).toHaveBeenCalledWith("running-T-1")
+    expect(screen.getByTestId("current-path").textContent).toBe("/agents")
+    expect(screen.queryByRole("dialog", { name: "Open task agent" })).toBeNull()
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it("does not offer agent launch while running state is loading", () => {
+    runningAgentState.loading = true
+
+    render(<MemoryRouter><TaskAgentAction taskId="T-1" /></MemoryRouter>)
+
+    const action = screen.getByRole("button", { name: "Checking agent…" }) as HTMLButtonElement
+    expect(action.disabled).toBe(true)
+    fireEvent.click(action)
+    expect(screen.queryByRole("dialog", { name: "Open task agent" })).toBeNull()
+  })
+
+  it("updates the action when running agent state changes", () => {
+    const view = render(<MemoryRouter><TaskAgentAction taskId="T-1" /></MemoryRouter>)
+    expect(screen.getByRole("button", { name: "Open agent" })).toBeTruthy()
+
+    runningAgentState.agent = { task_id: "running-T-1", task_title: "Running task", status: "running" }
+    view.rerender(<MemoryRouter><TaskAgentAction taskId="T-1" /></MemoryRouter>)
+    expect(screen.getByRole("button", { name: "Go to agent" })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Open agent" })).toBeNull()
+
+    runningAgentState.agent = null
+    view.rerender(<MemoryRouter><TaskAgentAction taskId="T-1" /></MemoryRouter>)
+    expect(screen.getByRole("button", { name: "Open agent" })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Go to agent" })).toBeNull()
   })
 
   it("defaults agent launch to the task worktree", async () => {
