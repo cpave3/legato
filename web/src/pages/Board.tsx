@@ -35,6 +35,7 @@ import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
 import { useWorkflows } from "../hooks/useWorkflow"
 import { useToast } from "../hooks/useToast"
 import { useVoiceEnabled } from "../hooks/useVoiceEnabled"
+import { useSettings } from "../hooks/useSettings"
 import { apiFetch } from "../lib/api"
 import { WorkflowTriggerInputModal } from "../components/WorkflowTriggerInputModal"
 import type { WorkflowTriggerRequest } from "../lib/board"
@@ -89,14 +90,10 @@ export function BoardPage() {
   const [detailCard, setDetailCard] = useState<CardDetail | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<string | null>(null)
-  const [repositories, setRepositories] = useState<RepositoryPreset[]>([])
-  const [defaultWorkingDir, setDefaultWorkingDir] = useState("")
-  const [worktreesEnabled, setWorktreesEnabled] = useState(false)
-  useEffect(()=>{apiFetch(baseUrl,"/api/settings").then(r=>r.ok?r.json():null).then(data=>{
-    setRepositories(data?.repositories??[])
-    setDefaultWorkingDir(data?.working_dir??"")
-    setWorktreesEnabled(Boolean(data?.worktrees_enabled))
-  }).catch(()=>{})},[baseUrl])
+  const settings = useSettings()
+  const repositories = (settings.data?.repositories ?? []) as RepositoryPreset[]
+  const defaultWorkingDir = settings.data?.working_dir ?? ""
+  const worktreesEnabled = Boolean(settings.data?.worktrees_enabled)
   const boardRef = useRef<HTMLDivElement>(null)
   const movedCardIdRef = useRef<string | null>(null)
 

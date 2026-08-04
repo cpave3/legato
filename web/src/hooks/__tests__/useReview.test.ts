@@ -1,132 +1,46 @@
-import { act, renderHook, waitFor } from "@testing-library/react"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { createElement } from "react"
+import { renderHook, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { createQueryClient } from "../../lib/query"
 import { useReviewQueue, useReviewTour } from "../useReview"
-import type { WSMessage } from "../useWebSocket"
 
 const mockFetch = vi.fn()
-const mockSubscribe = vi.fn()
 vi.stubGlobal("fetch", mockFetch)
+vi.mock("../useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 
-vi.mock("../useWebSocket", () => ({
-  useWebSocket: () => ({ subscribe: mockSubscribe }),
-}))
+function wrapper() {
+  const client = createQueryClient()
+  return ({ children }: { children: React.ReactNode }) => createElement(QueryClientProvider, { client }, children)
+}
 
-vi.mock("../useServer", () => ({
-  useServer: () => ({ baseUrl: "" }),
-}))
-
-beforeEach(() => {
-  mockFetch.mockReset()
-  mockSubscribe.mockReset()
-})
-
-const response = (summary: string) => ({
-  ok: true,
-  json: async () => ({
-    tour: { id: "rt-task-1", task_id: "T-1", name: "Auth review", status: "ready", summary },
-    steps: [],
-    messages: [],
-  }),
-})
+beforeEach(() => mockFetch.mockReset())
 
 describe("useReviewQueue", () => {
-  it("requests capturing tours only when explicitly enabled", async () => {
-    mockSubscribe.mockReturnValue(() => undefined)
+  it("uses distinct shared keys for ready and capturing queues", async () => {
     mockFetch.mockResolvedValue({ ok: true, json: async () => [] })
-    const { rerender } = renderHook(({ include }) => useReviewQueue(include), { initialProps: { include: false } })
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("/api/review/queue", expect.anything()))
-    rerender({ include: true })
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("/api/review/queue?include_capturing=true", expect.anything()))
-  })
+    const sharedWrapper = wrapper()
+    const ready = renderHook(() => useReviewQueue(false), { wrapper: sharedWrapper })
+    const secondReady = renderHook(() => useReviewQueue(false), { wrapper: sharedWrapper })
+    await waitFor(() => expect(ready.result.current.data).toEqual([]))
+    await waitFor(() => expect(secondReady.result.current.data).toEqual([]))
+    expect(mockFetch).toHaveBeenCalledTimes(1)
 
-  it("coalesces a burst of review changes into one queue refresh", async () => {
-    let handler: ((message: WSMessage) => void) | undefined
-    mockSubscribe.mockImplementation((next) => {
-      handler = next
-      return () => undefined
-    })
-    mockFetch.mockResolvedValue({ ok: true, json: async () => [] })
-
-    renderHook(() => useReviewQueue())
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
-
-    vi.useFakeTimers()
-    try {
-      act(() => {
-        for (let index = 0; index < 20; index++) {
-          handler?.({ type: "review_changed", tour_id: `rt-${index}`, kind: "deleted" })
-        }
-      })
-      expect(mockFetch).toHaveBeenCalledTimes(1)
-
-      await act(async () => { await vi.advanceTimersByTimeAsync(50) })
-      expect(mockFetch).toHaveBeenCalledTimes(2)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it("ignores an expanded response after captures are hidden again", async () => {
-    mockSubscribe.mockReturnValue(() => undefined)
-    let resolveExpanded!: (value: unknown) => void
-    mockFetch.mockImplementation((path: string) => {
-      if (path.includes("include_capturing")) return new Promise(resolve => { resolveExpanded = resolve })
-      return Promise.resolve({ ok: true, json: async () => [{ tour_id: "ready" }] })
-    })
-    const { result, rerender } = renderHook(({ include }) => useReviewQueue(include), { initialProps: { include: false } })
-    await waitFor(() => expect(result.current.data).toEqual([{ tour_id: "ready" }]))
-    rerender({ include: true })
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("/api/review/queue?include_capturing=true", expect.anything()))
-    rerender({ include: false })
-    await waitFor(() => expect(result.current.data).toEqual([{ tour_id: "ready" }]))
-    resolveExpanded({ ok: true, json: async () => [{ tour_id: "capture" }] })
-    await act(async () => {})
-    expect(result.current.data).toEqual([{ tour_id: "ready" }])
+    const capturing = renderHook(() => useReviewQueue(true), { wrapper: sharedWrapper })
+    await waitFor(() => expect(capturing.result.current.data).toEqual([]))
+    expect(mockFetch).toHaveBeenCalledWith("/api/review/queue?include_capturing=true", expect.anything())
+    expect(mockFetch).toHaveBeenCalledTimes(2)
   })
 })
 
 describe("useReviewTour", () => {
-  it("refetches only when review_changed belongs to its tour", async () => {
-    let handler: ((message: WSMessage) => void) | undefined
-    mockSubscribe.mockImplementation((next) => {
-      handler = next
-      return () => undefined
-    })
-    mockFetch.mockResolvedValueOnce(response("Initial")).mockResolvedValueOnce(response("Updated"))
-
-    const { result } = renderHook(() => useReviewTour("rt-task-1"))
-    await waitFor(() => expect(result.current.data?.tour.summary).toBe("Initial"))
-
-    act(() => handler?.({ type: "review_changed", tour_id: "rt-task-2" }))
+  it("shares a settled tour snapshot", async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ tour: { id: "rt-1", summary: "Ready" }, steps: [], messages: [] }) })
+    const sharedWrapper = wrapper()
+    const first = renderHook(() => useReviewTour("rt-1"), { wrapper: sharedWrapper })
+    await waitFor(() => expect(first.result.current.data?.tour.summary).toBe("Ready"))
+    const second = renderHook(() => useReviewTour("rt-1"), { wrapper: sharedWrapper })
+    await waitFor(() => expect(second.result.current.data?.tour.summary).toBe("Ready"))
     expect(mockFetch).toHaveBeenCalledTimes(1)
-
-    act(() => handler?.({ type: "review_changed", tour_id: "rt-task-1", step_id: "S-1", kind: "answer" }))
-    await waitFor(() => expect(result.current.data?.tour.summary).toBe("Updated"))
-    expect(mockFetch).toHaveBeenCalledTimes(2)
-  })
-
-  it("keeps the newest tour snapshot when overlapping refreshes finish out of order", async () => {
-    let handler: ((message: WSMessage) => void) | undefined
-    let resolveInitial: (value: ReturnType<typeof response>) => void = () => undefined
-    let resolveAnswer: (value: ReturnType<typeof response>) => void = () => undefined
-    mockSubscribe.mockImplementation((next) => {
-      handler = next
-      return () => undefined
-    })
-    mockFetch
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveInitial = resolve }))
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveAnswer = resolve }))
-
-    const { result } = renderHook(() => useReviewTour("rt-task-1"))
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
-
-    act(() => handler?.({ type: "review_changed", tour_id: "rt-task-1", step_id: "S-1", kind: "answer" }))
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
-
-    await act(async () => { resolveAnswer(response("Includes answer")) })
-    await waitFor(() => expect(result.current.data?.tour.summary).toBe("Includes answer"))
-
-    await act(async () => { resolveInitial(response("Before answer")) })
-    expect(result.current.data?.tour.summary).toBe("Includes answer")
   })
 })

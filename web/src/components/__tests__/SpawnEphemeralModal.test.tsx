@@ -5,6 +5,10 @@ import { SpawnEphemeralModal } from "../SpawnEphemeralModal"
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
+vi.mock("../../hooks/useSettings", () => {
+  const data = { working_dir: "/default", repositories: [{ name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato" }] }
+  return { useSettings: () => ({ data }) }
+})
 vi.mock("../../lib/api", () => ({ apiFetch }))
 
 describe("SpawnEphemeralModal", () => {

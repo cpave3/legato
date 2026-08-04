@@ -1,30 +1,18 @@
-import { useCallback, useEffect, useState } from "react"
-import { useServer } from "./useServer"
-import { useWebSocket } from "./useWebSocket"
+import { useQuery } from "@tanstack/react-query"
 import { fetchAttention, type AttentionItem } from "../lib/attention"
+import { queryKeys } from "../lib/query"
+import { useServer } from "./useServer"
 
 export function useAttention() {
   const { baseUrl } = useServer()
-  const { subscribe } = useWebSocket()
-  const [data, setData] = useState<AttentionItem[] | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  const refresh = useCallback(async () => {
-    try {
-      setError(null)
-      setData(await fetchAttention(baseUrl))
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      setLoading(false)
-    }
-  }, [baseUrl])
-
-  useEffect(() => { void refresh() }, [refresh])
-  useEffect(() => subscribe((message) => {
-    if (message.type === "attention_changed") void refresh()
-  }), [refresh, subscribe])
-
-  return { data, loading, error, refresh }
+  const query = useQuery<AttentionItem[], Error>({
+    queryKey: queryKeys.attention(baseUrl),
+    queryFn: () => fetchAttention(baseUrl),
+  })
+  return {
+    data: query.data ?? null,
+    loading: query.isPending,
+    error: query.error?.message ?? null,
+    refresh: async () => { await query.refetch() },
+  }
 }

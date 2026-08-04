@@ -1,19 +1,15 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus } from "lucide-react"
 import { setToken } from "../lib/auth"
 import { useServer } from "../hooks/useServer"
-import { apiFetch } from "../lib/api"
 import { QRScanner } from "../components/QRScanner"
+import { useSettings } from "../hooks/useSettings"
 import { useSearchParams } from "react-router-dom"
-
-interface SettingsData {
-  ca_cert_available: boolean
-}
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { baseUrl, servers, addServer, removeServer, setActiveServer } = useServer()
-  const [settings, setSettings] = useState<SettingsData | null>(null)
+  const settings = useSettings()
   const [glitchEnabled, setGlitchEnabled] = useState(() => {
     return localStorage.getItem("legato:glitch-effect") !== "false"
   })
@@ -26,12 +22,6 @@ export function SettingsPage() {
     return /Mac|iPhone|iPad/.test(navigator.platform) ? "Alt" : "Control"
   })
 
-  useEffect(() => {
-    apiFetch(baseUrl, "/api/settings")
-      .then((r) => r.json())
-      .then(setSettings)
-      .catch(() => setSettings(null))
-  }, [baseUrl])
 
   const toggleGlitch = () => {
     const next = !glitchEnabled
@@ -284,7 +274,7 @@ export function SettingsPage() {
                 On Android: Settings &rarr; Security &rarr; Install a
                 certificate &rarr; CA certificate.
               </p>
-              {settings?.ca_cert_available ? (
+              {settings.data?.ca_cert_available ? (
                 <a
                   href={baseUrl ? `${baseUrl}/api/ca-cert` : "/api/ca-cert"}
                   download="legato-ca.pem"

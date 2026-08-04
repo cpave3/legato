@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
 import { useServer } from "../hooks/useServer"
+import { useSettings } from "../hooks/useSettings"
 import { apiFetch } from "../lib/api"
 import { X, Plus } from "lucide-react"
 import { RepositoryPresetSelect, type RepositoryPreset } from "./RepositoryPresetSelect"
@@ -7,12 +8,6 @@ import { RepositoryPresetSelect, type RepositoryPreset } from "./RepositoryPrese
 interface AdapterInfo {
   adapters: string[]
   default: string
-}
-
-interface SettingsInfo {
-  ca_cert_available: boolean
-  working_dir: string
-  repositories?: RepositoryPreset[]
 }
 
 export function SpawnEphemeralModal({
@@ -25,6 +20,7 @@ export function SpawnEphemeralModal({
   onSpawned?: () => void
 }) {
   const { baseUrl } = useServer()
+  const settings = useSettings()
   const [title, setTitle] = useState("Ephemeral session")
   const [agentKind, setAgentKind] = useState("")
   const [workingDir, setWorkingDir] = useState("")
@@ -42,27 +38,17 @@ export function SpawnEphemeralModal({
     setAgentKind("")
     setRepositoryPreset("")
 
-    // Fetch adapters and default cwd.
-    Promise.all([
-      apiFetch(baseUrl, "/api/adapters"),
-      apiFetch(baseUrl, "/api/settings"),
-    ])
-      .then(async ([adapterRes, settingsRes]) => {
-        if (adapterRes.ok) {
-          const data: AdapterInfo = await adapterRes.json()
-          setAdapters(data)
-          setAgentKind("") // default
-        }
-        if (settingsRes.ok) {
-          const data: SettingsInfo = await settingsRes.json()
-          setWorkingDir(data.working_dir || "")
-          setRepositories(data.repositories ?? [])
-        }
+    setWorkingDir(settings.data?.working_dir ?? "")
+    setRepositories((settings.data?.repositories ?? []) as RepositoryPreset[])
+    apiFetch(baseUrl, "/api/adapters")
+      .then(async (response) => {
+        if (!response.ok) return
+        const data: AdapterInfo = await response.json()
+        setAdapters(data)
+        setAgentKind("")
       })
-      .catch(() => {
-        // ignore fetch errors
-      })
-  }, [open, baseUrl])
+      .catch(() => {})
+  }, [open, baseUrl, settings.data])
 
   const agentOptions = [
     { label: adapters?.default ? `default (${adapters.default})` : "default", value: "" },

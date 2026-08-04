@@ -1,6 +1,9 @@
 import { useState, type KeyboardEvent } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { KeyRound, QrCode } from "lucide-react"
-import { setToken, authHeaders } from "../lib/auth"
+import { setToken } from "../lib/auth"
+import { fetchSettings } from "../hooks/useSettings"
+import { queryKeys } from "../lib/query"
 import { QRScanner } from "./QRScanner"
 
 interface TokenPromptProps {
@@ -8,6 +11,7 @@ interface TokenPromptProps {
 }
 
 export function TokenPrompt({ onAuthenticated }: TokenPromptProps) {
+  const queryClient = useQueryClient()
   const [input, setInput] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
@@ -18,16 +22,14 @@ export function TokenPrompt({ onAuthenticated }: TokenPromptProps) {
     setError("")
     setToken(token)
     try {
-      const res = await fetch("/api/settings", { headers: authHeaders() })
-      if (res.status === 401) {
-        setToken("")
-        setError("Invalid token")
-        setLoading(false)
-        return
-      }
+      await queryClient.fetchQuery({
+        queryKey: queryKeys.settings(""),
+        queryFn: () => fetchSettings(""),
+      })
       onAuthenticated()
-    } catch {
-      setError("Unable to reach server")
+    } catch (cause) {
+      setToken("")
+      setError(cause instanceof Error && "status" in cause && cause.status === 401 ? "Invalid token" : "Unable to reach server")
       setLoading(false)
     }
   }

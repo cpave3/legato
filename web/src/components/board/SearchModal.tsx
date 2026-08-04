@@ -60,12 +60,13 @@ export function SearchModal({ open, onClose, onSelect }: SearchModalProps) {
   }, [open])
 
   useEffect(() => {
+    if (!open) return
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => doSearch(query), 300)
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [query, doSearch])
+  }, [open, query, doSearch])
 
   useEffect(() => {
     if (!open) return

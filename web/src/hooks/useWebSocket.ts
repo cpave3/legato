@@ -72,6 +72,7 @@ type MessageHandler = (msg: WSMessage) => void
 
 interface WebSocketContextValue {
   connected: boolean
+  connectionGeneration: number
   send: (msg: WSMessage) => void
   subscribe: (handler: MessageHandler) => () => void
 }
@@ -84,6 +85,7 @@ export function useWebSocket() {
 
 export function useWebSocketProvider(wsUrl: string) {
   const [connected, setConnected] = useState(false)
+  const [connectionGeneration, setConnectionGeneration] = useState(0)
   const wsRef = useRef<WebSocket | null>(null)
   const handlersRef = useRef<Set<MessageHandler>>(new Set())
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -104,6 +106,7 @@ export function useWebSocketProvider(wsUrl: string) {
 
     ws.onopen = () => {
       setConnected(true)
+      setConnectionGeneration((generation) => generation + 1)
       attemptRef.current = 0
     }
 
@@ -161,5 +164,5 @@ export function useWebSocketProvider(wsUrl: string) {
     }
   }, [])
 
-  return { connected, send, subscribe, Provider: WebSocketContext.Provider }
+  return { connected, connectionGeneration, send, subscribe, Provider: WebSocketContext.Provider }
 }

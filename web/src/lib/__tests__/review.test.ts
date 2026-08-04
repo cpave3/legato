@@ -20,19 +20,15 @@ describe("review API", () => {
     )
   })
 
-  it("shares an in-flight review queue request across callers", async () => {
-    let resolveRequest!: (value: unknown) => void
-    mockFetch.mockImplementationOnce(() => new Promise((resolve) => { resolveRequest = resolve }))
+  it("requests capturing tours only when explicitly enabled", async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => [] })
 
-    const first = fetchReviewQueue("https://legato.example")
-    const second = fetchReviewQueue("https://legato.example")
-    expect(mockFetch).toHaveBeenCalledTimes(1)
+    await fetchReviewQueue("https://legato.example", true)
 
-    resolveRequest({ ok: true, json: async () => [{ tour_id: "rt-task-1" }] })
-    await expect(Promise.all([first, second])).resolves.toEqual([
-      [{ tour_id: "rt-task-1" }],
-      [{ tour_id: "rt-task-1" }],
-    ])
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://legato.example/api/review/queue?include_capturing=true",
+      expect.objectContaining({ headers: {} }),
+    )
   })
 
   it("sends reviewed state and exposes a server failure", async () => {

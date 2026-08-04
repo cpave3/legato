@@ -168,21 +168,9 @@ async function expectOK(response: Response): Promise<void> {
 const tourPath = (tourId: string) => `/api/review/tours/${encodeURIComponent(tourId)}`
 const stepPath = (tourId: string, stepId: string) => `${tourPath(tourId)}/steps/${encodeURIComponent(stepId)}`
 
-const reviewQueueRequests = new Map<string, Promise<ReviewQueueItem[]>>()
-
 export function fetchReviewQueue(baseUrl: string, includeCapturing = false): Promise<ReviewQueueItem[]> {
   const query = includeCapturing ? "?include_capturing=true" : ""
-  const path = `/api/review/queue${query}`
-  const key = `${baseUrl}${path}`
-  const pending = reviewQueueRequests.get(key)
-  if (pending) return pending
-
-  const request = apiFetch(baseUrl, path).then(expectJSON<ReviewQueueItem[]>)
-  reviewQueueRequests.set(key, request)
-  queueMicrotask(() => {
-    if (reviewQueueRequests.get(key) === request) reviewQueueRequests.delete(key)
-  })
-  return request
+  return apiFetch(baseUrl, `/api/review/queue${query}`).then(expectJSON<ReviewQueueItem[]>)
 }
 
 export async function bulkDeleteReviews(baseUrl: string, tourIds: string[]): Promise<number> {

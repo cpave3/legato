@@ -6,25 +6,18 @@ import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
 import { OfflineDialog } from "./OfflineDialog"
 import { cn } from "../lib/utils"
-import { useReviewQueue } from "../hooks/useReview"
-import { usePlanQueue } from "../hooks/usePlan"
-import { useAttention } from "../hooks/useAttention"
 import { AgentSelectionProvider } from "../hooks/useAgentSelection"
-import { useWorkflowRuns } from "../hooks/useWorkflow"
-import { useAgentCount } from "../hooks/useAgentCount"
+import { useNavigationSummary } from "../hooks/useNavigationSummary"
 
 export function Layout() {
   const { connected } = useWebSocket()
   const { servers, activeServerName, baseUrl, setActiveServer } = useServer()
-  const agentCount = useAgentCount()
-  const { data: reviewQueue } = useReviewQueue()
-  const reviewCount = reviewQueue?.length ?? 0
-  const { data: planQueue } = usePlanQueue()
-  const planCount = planQueue?.length ?? 0
-  const { data: workflowRuns } = useWorkflowRuns()
-  const workflowAttentionCount = (workflowRuns??[]).filter(run=>run.needs_attention).length
-  const { data: attentionItems } = useAttention()
-  const attentionCount = attentionItems?.length ?? 0
+  const { data: summary } = useNavigationSummary()
+  const agentCount = summary?.agents ?? 0
+  const reviewCount = summary?.review ?? 0
+  const planCount = summary?.plans ?? 0
+  const workflowAttentionCount = summary?.workflow_attention ?? 0
+  const attentionCount = summary?.attention ?? 0
   const [switcherOpen, setSwitcherOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const switcherRef = useRef<HTMLDivElement>(null)

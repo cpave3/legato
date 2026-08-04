@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState } from "react"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { Layout } from "./components/Layout"
 import { TokenPrompt } from "./components/TokenPrompt"
@@ -15,29 +15,27 @@ import { AttentionPage } from "./pages/AttentionPage"
 import { LearningsPage } from "./pages/LearningsPage"
 import { LearningDetailPage } from "./pages/LearningDetailPage"
 import { ReportsPage } from "./pages/ReportsPage"
-import { authHeaders, clearToken } from "./lib/auth"
+import { clearToken } from "./lib/auth"
+import { SettingsRequestError, useSettings } from "./hooks/useSettings"
 
 export default function App() {
   const [authState, setAuthState] = useState<"checking" | "ok" | "needs_token">("checking")
-
-  const checkAuth = useCallback(async () => {
-    try {
-      const res = await fetch("/api/settings", { headers: authHeaders() })
-      if (res.status === 401) {
-        clearToken()
-        setAuthState("needs_token")
-      } else {
-        setAuthState("ok")
-      }
-    } catch {
-      // Network error — let the offline dialog handle it.
-      setAuthState("ok")
-    }
-  }, [])
+  const settings = useSettings("")
 
   useEffect(() => {
-    checkAuth()
-  }, [checkAuth])
+    if (settings.isSuccess) {
+      setAuthState("ok")
+      return
+    }
+    if (!settings.isError) return
+    if (settings.error instanceof SettingsRequestError && settings.error.status === 401) {
+      clearToken()
+      setAuthState("needs_token")
+      return
+    }
+    // Network errors are handled by the offline dialog.
+    setAuthState("ok")
+  }, [settings.error, settings.isError, settings.isSuccess])
 
   if (authState === "checking") {
     return null

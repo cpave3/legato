@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { Bot } from "lucide-react"
 import { useServer } from "../../hooks/useServer"
 import { useAgentSelection } from "../../hooks/useAgentSelection"
+import { useSettings } from "../../hooks/useSettings"
 import { apiFetch } from "../../lib/api"
 import { RepositoryPresetSelect, type RepositoryPreset } from "../RepositoryPresetSelect"
 import { Button } from "../ui/Button"
@@ -11,6 +12,7 @@ import { InlineNotice } from "../ui/InlineNotice"
 
 export function TaskAgentAction({ taskId, worktreePath = "", hasChimeraSession = false }: { taskId: string; worktreePath?: string; hasChimeraSession?: boolean }) {
   const { baseUrl } = useServer()
+  const settings = useSettings()
   const navigate = useNavigate()
   const { setSelectedAgentId } = useAgentSelection()
   const [open, setOpen] = useState(false)
@@ -31,19 +33,15 @@ export function TaskAgentAction({ taskId, worktreePath = "", hasChimeraSession =
     setWorkingDir(worktreePath)
     setChimeraSessionPolicy("resume")
     setInitialized(false)
-    Promise.all([apiFetch(baseUrl, "/api/adapters"), apiFetch(baseUrl, "/api/settings")]).then(async ([adaptersResponse, settingsResponse]) => {
-      if (adaptersResponse.ok) {
-        const data = await adaptersResponse.json()
-        setAdapters(data.adapters ?? [])
-        setDefaultAdapter(data.default ?? "")
-      }
-      if (settingsResponse.ok) {
-        const data = await settingsResponse.json()
-        if (!worktreePath) setWorkingDir(data.working_dir || "")
-        setRepositories(data.repositories ?? [])
-      }
+    if (!worktreePath) setWorkingDir(settings.data?.working_dir ?? "")
+    setRepositories((settings.data?.repositories ?? []) as RepositoryPreset[])
+    apiFetch(baseUrl, "/api/adapters").then(async (response) => {
+      if (!response.ok) return
+      const data = await response.json()
+      setAdapters(data.adapters ?? [])
+      setDefaultAdapter(data.default ?? "")
     }).finally(() => setInitialized(true))
-  }, [open, baseUrl, worktreePath])
+  }, [open, baseUrl, worktreePath, settings.data])
 
   const offersChimeraSessionChoice = hasChimeraSession && (agentKind === "chimera" || (agentKind === "" && defaultAdapter === "chimera"))
 

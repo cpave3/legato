@@ -1,59 +1,30 @@
-import { describe, expect, it, vi, beforeEach } from "vitest"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { createElement } from "react"
 import { renderHook, waitFor } from "@testing-library/react"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { createQueryClient } from "../../lib/query"
 import { useBoard } from "../useBoard"
 
 const mockFetch = vi.fn()
-const mockSubscribe = vi.fn()
-
-beforeEach(() => {
-  vi.resetAllMocks()
-})
-
 vi.stubGlobal("fetch", mockFetch)
+vi.mock("../useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 
-vi.mock("../useWebSocket", () => ({
-  useWebSocket: () => ({
-    subscribe: (handler: (msg: { type: string }) => void) => mockSubscribe(handler),
-  }),
-}))
-
-vi.mock("../useServer", () => ({
-  useServer: () => ({ baseUrl: "" }),
-}))
+beforeEach(() => mockFetch.mockReset())
 
 describe("useBoard", () => {
-  it("refetches on cards_changed WS message", async () => {
-    mockFetch.mockResolvedValueOnce({
+  it("shares a settled board snapshot between consumers", async () => {
+    mockFetch.mockResolvedValue({
       ok: true,
-      json: async () => ({
-        columns: [{ name: "Backlog", cards: [{ id: "T-1", title: "First" }] }],
-        workspaces: [],
-      }),
+      json: async () => ({ columns: [{ name: "Backlog", cards: [{ id: "T-1", title: "First" }] }], workspaces: [] }),
     })
+    const client = createQueryClient()
+    const wrapper = ({ children }: { children: React.ReactNode }) => createElement(QueryClientProvider, { client }, children)
 
-    let capturedHandler: ((msg: { type: string }) => void) | null = null
-    mockSubscribe.mockImplementation((h: (msg: { type: string }) => void) => {
-      capturedHandler = h
-      return () => {}
-    })
+    const first = renderHook(() => useBoard("all"), { wrapper })
+    await waitFor(() => expect(first.result.current.columns[0]?.cards[0]?.title).toBe("First"))
+    const second = renderHook(() => useBoard("all"), { wrapper })
+    await waitFor(() => expect(second.result.current.columns[0]?.cards[0]?.title).toBe("First"))
 
-    const { result } = renderHook(() => useBoard("all"))
-
-    await waitFor(() => expect(result.current.columns.length).toBe(1))
-    expect(result.current.columns[0].cards[0].title).toBe("First")
-
-    // Second fetch for refresh after cards_changed
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        columns: [{ name: "Backlog", cards: [{ id: "T-2", title: "Second" }] }],
-        workspaces: [],
-      }),
-    })
-
-    // Simulate WS event
-    ;(capturedHandler as unknown as (msg: { type: string }) => void)({ type: "cards_changed" })
-
-    await waitFor(() => expect(result.current.columns[0].cards[0].title).toBe("Second"))
+    expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 })

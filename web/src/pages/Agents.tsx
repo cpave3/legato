@@ -15,6 +15,7 @@ import { useSwarmEvents } from "../hooks/useSwarmEvents"
 import { useTaskActivity } from "../hooks/useTaskActivity"
 import { apiFetch, toggleAgentNotify } from "../lib/api"
 import { useAgentSelection } from "../hooks/useAgentSelection"
+import { useSettings } from "../hooks/useSettings"
 
 const GLITCH_DURATION_MS = 500
 
@@ -62,8 +63,9 @@ export function AgentsPage() {
   const [showStartSwarm, setShowStartSwarm] = useState(false)
   const [startSwarmPreselect, setStartSwarmPreselect] = useState<string | undefined>(undefined)
   const [showSpawn, setShowSpawn] = useState(false)
-  const [ntfyConfigured, setNtfyConfigured] = useState(false)
-  const [voiceEnabled, setVoiceEnabled] = useState(false)
+  const settings = useSettings()
+  const ntfyConfigured = Boolean(settings.data?.ntfy_configured)
+  const voiceEnabled = Boolean(settings.data?.voice_enabled)
   const voiceEnabledRef = useRef(false)
 
   useEffect(() => {
@@ -104,16 +106,6 @@ export function AgentsPage() {
 
   useEffect(() => {
     fetchAgents()
-    apiFetch(baseUrl, "/api/settings")
-      .then((r) => r.json())
-      .then((data) => {
-        setNtfyConfigured(!!data.ntfy_configured)
-        setVoiceEnabled(!!data.voice_enabled)
-      })
-      .catch(() => {
-        setNtfyConfigured(false)
-        setVoiceEnabled(false)
-      })
     return subscribe((msg: WSMessage) => {
       if (msg.type === "agent_list" && msg.agents) {
         setAgents(msg.agents)

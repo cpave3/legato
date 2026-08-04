@@ -1,0 +1,29 @@
+import { QueryClient } from "@tanstack/react-query"
+
+export const queryKeys = {
+  settings: (baseUrl: string) => [baseUrl, "settings"] as const,
+  navigationSummary: (baseUrl: string) => [baseUrl, "navigation-summary"] as const,
+  board: (baseUrl: string, workspace?: string) => [baseUrl, "board", workspace ?? ""] as const,
+  reviewQueue: (baseUrl: string, includeCapturing: boolean) => [baseUrl, "review-queue", includeCapturing] as const,
+  reviewTour: (baseUrl: string, tourId: string) => [baseUrl, "review-tour", tourId] as const,
+  planQueue: (baseUrl: string) => [baseUrl, "plan-queue"] as const,
+  plan: (baseUrl: string, planId: string) => [baseUrl, "plan", planId] as const,
+  attention: (baseUrl: string) => [baseUrl, "attention"] as const,
+  workflowDefinitions: (baseUrl: string) => [baseUrl, "workflow-definitions"] as const,
+  workflowRuns: (baseUrl: string) => [baseUrl, "workflow-runs"] as const,
+  workflowRun: (baseUrl: string, runId: string) => [baseUrl, "workflow-run", runId] as const,
+  agents: (baseUrl: string) => [baseUrl, "agents"] as const,
+}
+
+export function createQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: Infinity,
+        retry: false,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
+      },
+    },
+  })
+}

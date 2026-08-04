@@ -17,6 +17,7 @@ const cursorCard = { ...selectedCard, id: "TASK-1", title: "Cursor task", status
 
 vi.stubGlobal("fetch", mockFetch)
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
+vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ data: { repositories: [], working_dir: "", worktrees_enabled: false } }) }))
 vi.mock("../../hooks/useBoard", () => ({
   useBoard: () => ({
     columns: [{ name: "Backlog", cards: [cursorCard] }, { name: "Doing", cards: [selectedCard] }],

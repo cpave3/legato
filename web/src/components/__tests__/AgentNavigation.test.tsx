@@ -5,7 +5,7 @@ import { Layout } from "../Layout"
 
 const { state } = vi.hoisted(() => ({ state: { agentCount: 0 } }))
 
-vi.mock("../../hooks/useAgentCount", () => ({ useAgentCount: () => state.agentCount }))
+vi.mock("../../hooks/useNavigationSummary", () => ({ useNavigationSummary: () => ({ data: { agents: state.agentCount, attention: 0, review: 0, plans: 0, workflow_attention: 0 } }) }))
 vi.mock("../../hooks/useWebSocket", () => ({ useWebSocket: () => ({ connected: true }) }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ servers: [], activeServerName: "Local", baseUrl: "", setActiveServer: vi.fn() }) }))
 vi.mock("../../hooks/useReview", () => ({ useReviewQueue: () => ({ data: [] }) }))
