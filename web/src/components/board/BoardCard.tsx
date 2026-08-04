@@ -87,6 +87,7 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
   const isDone = column === "Done"
   const workingDur = formatDuration(card.working_seconds || 0)
   const waitingDur = formatDuration(card.waiting_seconds || 0)
+  const errorDur = formatDuration(card.error_seconds || 0)
   const hasSwarm = card.swarm_stats && card.swarm_stats.total > 0
 
   return (
@@ -231,7 +232,7 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
       )}
 
       {/* Duration line */}
-      {(workingDur || waitingDur) && (
+      {(workingDur || waitingDur || errorDur) && (
         <div className="mt-1 flex items-center gap-2 text-[10px]">
           {workingDur && (
             <span className={cn("flex items-center gap-0.5", selected ? "text-[#287828]" : "text-[#1D9E75]")}>
@@ -241,6 +242,11 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
           {waitingDur && (
             <span className={cn("flex items-center gap-0.5", selected ? "text-[#285878]" : "text-[#E5C07B]")}>
               <Pause size={8} /> <span className={cn(selected ? "text-zinc-500" : "text-zinc-600")}>{waitingDur}</span>
+            </span>
+          )}
+          {errorDur && (
+            <span className={cn("flex items-center gap-0.5", selected ? "text-red-700" : "text-red-400")}>
+              <AlertTriangle size={8} /> <span className={cn(selected ? "text-zinc-500" : "text-zinc-600")}>{errorDur}</span>
             </span>
           )}
         </div>

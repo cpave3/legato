@@ -56,6 +56,7 @@ export interface AgentInfo {
   ended_at?: string
   working_seconds: number
   waiting_seconds: number
+  error_seconds: number
   state_timeline?: string[]
   notify_enabled?: boolean
   has_chimera_endpoint?: boolean

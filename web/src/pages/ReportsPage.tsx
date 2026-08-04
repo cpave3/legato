@@ -39,7 +39,7 @@ function formatRange(start: string, end: string): string {
 }
 
 function ratio(summary: ReportSummary): number {
-  const total = summary.working_seconds + summary.waiting_seconds
+  const total = summary.working_seconds + summary.waiting_seconds + summary.error_seconds
   return total === 0 ? 0 : summary.working_seconds / total
 }
 
@@ -71,6 +71,7 @@ function SummaryCards({ current, previous, comparisonAvailable }: { current: Rep
   return <section aria-label="Summary" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
     <MetricCard label="Agent active time" value={formatDuration(current.working_seconds)}><Delta current={current.working_seconds} previous={previous.working_seconds} available={comparisonAvailable} /></MetricCard>
     <MetricCard label="Waiting time" value={formatDuration(current.waiting_seconds)}><Delta current={current.waiting_seconds} previous={previous.waiting_seconds} available={comparisonAvailable} /></MetricCard>
+    <MetricCard label="Error time" value={formatDuration(current.error_seconds)}><Delta current={current.error_seconds} previous={previous.error_seconds} available={comparisonAvailable} /></MetricCard>
     <MetricCard label="Active ratio" value={`${(ratio(current) * 100).toFixed(0)}%`}><Delta current={ratio(current)} previous={ratio(previous)} available={comparisonAvailable} ratioPoints /></MetricCard>
     <MetricCard label="Tasks completed" value={String(current.tasks_completed)} secondary={`${current.tasks_created} created`}><Delta current={current.tasks_completed} previous={previous.tasks_completed} available /></MetricCard>
     <MetricCard label="Agent sessions" value={String(current.agent_sessions)}><Delta current={current.agent_sessions} previous={previous.agent_sessions} available /></MetricCard>
@@ -79,20 +80,21 @@ function SummaryCards({ current, previous, comparisonAvailable }: { current: Rep
 }
 
 function DailyActivity({ days }: { days: ReportEnvelope["report"]["by_day"] }) {
-  const maximum = Math.max(1, ...days.map(day => day.working_seconds + day.waiting_seconds))
+  const maximum = Math.max(1, ...days.map(day => day.working_seconds + day.waiting_seconds + day.error_seconds))
   return <section className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4" aria-labelledby="daily-activity-title">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h2 id="daily-activity-title" className="font-semibold">Daily activity</h2>
-      <div className="flex gap-4 text-xs text-zinc-400"><span className="flex items-center gap-1.5"><i className="size-2 rounded-sm bg-indigo-500" />Working</span><span className="flex items-center gap-1.5"><i className="size-2 rounded-sm bg-amber-500" />Waiting</span></div>
+      <div className="flex gap-4 text-xs text-zinc-400"><span className="flex items-center gap-1.5"><i className="size-2 rounded-sm bg-indigo-500" />Working</span><span className="flex items-center gap-1.5"><i className="size-2 rounded-sm bg-amber-500" />Waiting</span><span className="flex items-center gap-1.5"><i className="size-2 rounded-sm bg-red-500" />Error</span></div>
     </div>
     <div className="mt-4 space-y-4">
       {days.map(day => {
         const workingWidth = day.working_seconds / maximum * 100
         const waitingWidth = day.waiting_seconds / maximum * 100
-        const label = `${formatDate(day.date)}: ${formatDuration(day.working_seconds)} working, ${formatDuration(day.waiting_seconds)} waiting`
+        const errorWidth = day.error_seconds / maximum * 100
+        const label = `${formatDate(day.date)}: ${formatDuration(day.working_seconds)} working, ${formatDuration(day.waiting_seconds)} waiting, ${formatDuration(day.error_seconds)} error`
         return <div key={day.date} role="img" aria-label={label}>
-          <div className="mb-1 flex justify-between gap-3 text-xs"><span className="text-zinc-300">{formatDate(day.date)}</span><span className="text-zinc-500">{formatDuration(day.working_seconds)} working · {formatDuration(day.waiting_seconds)} waiting</span></div>
-          <div className="flex h-3 overflow-hidden rounded-full bg-zinc-800"><span className="bg-indigo-500" style={{ width: `${workingWidth}%` }} /><span className="bg-amber-500" style={{ width: `${waitingWidth}%` }} /></div>
+          <div className="mb-1 flex justify-between gap-3 text-xs"><span className="text-zinc-300">{formatDate(day.date)}</span><span className="text-zinc-500">{formatDuration(day.working_seconds)} working · {formatDuration(day.waiting_seconds)} waiting · {formatDuration(day.error_seconds)} error</span></div>
+          <div className="flex h-3 overflow-hidden rounded-full bg-zinc-800"><span className="bg-indigo-500" style={{ width: `${workingWidth}%` }} /><span className="bg-amber-500" style={{ width: `${waitingWidth}%` }} /><span className="bg-red-500" style={{ width: `${errorWidth}%` }} /></div>
         </div>
       })}
     </div>
@@ -118,30 +120,30 @@ function BreakdownTable({ active, envelope }: { active: Breakdown; envelope: Rep
     const value = (row: unknown) => {
       const record = row as Record<string, unknown>
       return sort.field === "total"
-        ? Number(record.working_seconds ?? 0) + Number(record.waiting_seconds ?? 0)
+        ? Number(record.working_seconds ?? 0) + Number(record.waiting_seconds ?? 0) + Number(record.error_seconds ?? 0)
         : Number(record[sort.field] ?? 0)
     }
     return (value(a) - value(b)) * (sort.direction === "asc" ? 1 : -1)
   })
   if (sorted.length === 0) return <div className="rounded-lg border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">No {active === "projects" ? "project" : active.slice(0, -1)} activity for this period</div>
 
-  if (active === "tasks") return <div className="overflow-x-auto"><table aria-label="Tasks breakdown" className="w-full"><thead><tr><th className={th}>ID</th><th className={th}>Title</th><th className={th}>Workspace</th><th className={th}>Provider</th>{["working_seconds", "waiting_seconds", "total"].map(field => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={field === "working_seconds" ? "Working" : field === "waiting_seconds" ? "Waiting" : "Total"} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{(sorted as ReportTask[]).map(row => <tr key={row.task_id} className="border-t border-zinc-800"><td className={td}>{row.display_id}</td><td className={td}>{row.title}</td><td className={td}>{row.workspace_name || "—"}</td><td className={td}>{row.provider || "Local"}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.working_seconds + row.waiting_seconds)}</td></tr>)}</tbody></table></div>
+  if (active === "tasks") return <div className="overflow-x-auto"><table aria-label="Tasks breakdown" className="w-full"><thead><tr><th className={th}>ID</th><th className={th}>Title</th><th className={th}>Workspace</th><th className={th}>Provider</th>{["working_seconds", "waiting_seconds", "error_seconds", "total"].map(field => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={field === "working_seconds" ? "Working" : field === "waiting_seconds" ? "Waiting" : field === "error_seconds" ? "Error" : "Total"} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{(sorted as ReportTask[]).map(row => <tr key={row.task_id} className="border-t border-zinc-800"><td className={td}>{row.display_id}</td><td className={td}>{row.title}</td><td className={td}>{row.workspace_name || "—"}</td><td className={td}>{row.provider || "Local"}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.error_seconds)}</td><td className={td}>{formatDuration(row.working_seconds + row.waiting_seconds + row.error_seconds)}</td></tr>)}</tbody></table></div>
 
-  if (active === "executions") return <div className="overflow-x-auto"><table aria-label="Executions breakdown" className="w-full"><thead><tr><th className={th}>Execution</th><th className={th}>Kind</th><th className={th}>Status</th><th className={th}>Task</th>{[["working_seconds", "Active"], ["waiting_seconds", "Waiting"], ["wall_clock_seconds", "Wall clock"]].map(([field, label]) => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={label} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{(sorted as ReportExecution[]).map(row => <tr key={row.id} className="border-t border-zinc-800"><td className={td}>{row.id}</td><td className={td}>{row.kind.replaceAll("_", " ")}</td><td className={td}>{row.status}</td><td className={td}>{row.task_title || row.task_id || "Project execution"}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.wall_clock_seconds)}</td></tr>)}</tbody></table></div>
+  if (active === "executions") return <div className="overflow-x-auto"><table aria-label="Executions breakdown" className="w-full"><thead><tr><th className={th}>Execution</th><th className={th}>Kind</th><th className={th}>Status</th><th className={th}>Task</th>{[["working_seconds", "Active"], ["waiting_seconds", "Waiting"], ["error_seconds", "Error"], ["wall_clock_seconds", "Wall clock"]].map(([field, label]) => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={label} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{(sorted as ReportExecution[]).map(row => <tr key={row.id} className="border-t border-zinc-800"><td className={td}>{row.id}</td><td className={td}>{row.kind.replaceAll("_", " ")}</td><td className={td}>{row.status}</td><td className={td}>{row.task_title || row.task_id || "Project execution"}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.error_seconds)}</td><td className={td}>{formatDuration(row.wall_clock_seconds)}</td></tr>)}</tbody></table></div>
 
-  if (active === "swarms") return <div className="overflow-x-auto"><table aria-label="Swarms breakdown" className="w-full"><thead><tr><th className={th}>Title</th>{[["working_seconds", "Working"], ["waiting_seconds", "Waiting"], ["wall_clock_seconds", "Wall clock"], ["parallel_ratio", "Parallel ratio"], ["worker_count", "Workers"], ["subtask_count", "Subtasks"]].map(([field, label]) => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={label} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{(sorted as ReportSwarm[]).map(row => <tr key={row.parent_task_id} className="border-t border-zinc-800"><td className={td}>{row.title || row.parent_task_id}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.wall_clock_seconds)}</td><td className={td}>{row.parallel_ratio ? `${row.parallel_ratio.toFixed(1)}x` : "—"}</td><td className={td}>{row.worker_count}</td><td className={td}>{row.subtask_count}</td></tr>)}</tbody></table></div>
+  if (active === "swarms") return <div className="overflow-x-auto"><table aria-label="Swarms breakdown" className="w-full"><thead><tr><th className={th}>Title</th>{[["working_seconds", "Working"], ["waiting_seconds", "Waiting"], ["error_seconds", "Error"], ["wall_clock_seconds", "Wall clock"], ["parallel_ratio", "Parallel ratio"], ["worker_count", "Workers"], ["subtask_count", "Subtasks"]].map(([field, label]) => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={label} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{(sorted as ReportSwarm[]).map(row => <tr key={row.parent_task_id} className="border-t border-zinc-800"><td className={td}>{row.title || row.parent_task_id}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.error_seconds)}</td><td className={td}>{formatDuration(row.wall_clock_seconds)}</td><td className={td}>{row.parallel_ratio ? `${row.parallel_ratio.toFixed(1)}x` : "—"}</td><td className={td}>{row.worker_count}</td><td className={td}>{row.subtask_count}</td></tr>)}</tbody></table></div>
 
   const namedRows = sorted as (ReportWorkspace | ReportDirectory)[]
   const nameLabel = active === "projects" ? "Project path" : "Workspace"
-  return <div className="overflow-x-auto"><table aria-label={`${active === "projects" ? "Projects" : "Workspaces"} breakdown`} className="w-full"><thead><tr><th className={th}>{nameLabel}</th>{[["task_count", "Tasks"], ["working_seconds", "Working"], ["waiting_seconds", "Waiting"], ["total", "Total"]].map(([field, label]) => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={label} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{namedRows.map(row => {
+  return <div className="overflow-x-auto"><table aria-label={`${active === "projects" ? "Projects" : "Workspaces"} breakdown`} className="w-full"><thead><tr><th className={th}>{nameLabel}</th>{[["task_count", "Tasks"], ["working_seconds", "Working"], ["waiting_seconds", "Waiting"], ["error_seconds", "Error"], ["total", "Total"]].map(([field, label]) => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={label} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{namedRows.map(row => {
     const project = "directory" in row
     const name = project ? row.directory : row.workspace_name
-    return <tr key={project ? row.directory : String(row.workspace_id ?? row.workspace_name)} className="border-t border-zinc-800"><td className={`${td} max-w-80 truncate`} title={name}>{name || "Unassigned"}</td><td className={td}>{row.task_count}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.working_seconds + row.waiting_seconds)}</td></tr>
+    return <tr key={project ? row.directory : String(row.workspace_id ?? row.workspace_name)} className="border-t border-zinc-800"><td className={`${td} max-w-80 truncate`} title={name}>{name || "Unassigned"}</td><td className={td}>{row.task_count}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.error_seconds)}</td><td className={td}>{formatDuration(row.working_seconds + row.waiting_seconds + row.error_seconds)}</td></tr>
   })}</tbody></table></div>
 }
 
 function hasActivity(summary: ReportSummary): boolean {
-  return summary.working_seconds > 0 || summary.waiting_seconds > 0 || summary.tasks_created > 0 || summary.tasks_completed > 0 || summary.agent_sessions > 0 || summary.prs_merged > 0
+  return summary.working_seconds > 0 || summary.waiting_seconds > 0 || summary.error_seconds > 0 || summary.tasks_created > 0 || summary.tasks_completed > 0 || summary.agent_sessions > 0 || summary.prs_merged > 0
 }
 
 export function ReportsPage() {

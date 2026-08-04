@@ -23,7 +23,7 @@ beforeEach(() => {
 function makeAgent(taskId: string, status: string): AgentInfo {
   return {
     id: 1, task_id: taskId, task_title: "Test", tmux_session: "", command: "",
-    agent_kind: "chimera", status, activity: "", started_at: "", working_seconds: 0, waiting_seconds: 0,
+    agent_kind: "chimera", status, activity: "", started_at: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0,
   }
 }
 

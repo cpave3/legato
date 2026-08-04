@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react"
 import type { AgentInfo } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
-import { ChevronDown, Play, Pause } from "lucide-react"
+import { ChevronDown, Play, Pause, AlertTriangle } from "lucide-react"
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) return "<1m"
@@ -136,7 +136,7 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
 
                 <div className="flex items-center gap-2 pl-4">
                   <ActivityLabel activity={agent.activity} />
-                  {(agent.working_seconds >= 60 || agent.waiting_seconds >= 60) && (
+                  {(agent.working_seconds >= 60 || agent.waiting_seconds >= 60 || agent.error_seconds >= 60) && (
                     <span className="text-[10px] text-zinc-500">·</span>
                   )}
                   {agent.working_seconds >= 60 && (
@@ -149,6 +149,12 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
                     <span className="flex items-center gap-0.5 text-[10px] text-yellow-700">
                       <Pause size={8} />
                       {formatDuration(agent.waiting_seconds)}
+                    </span>
+                  )}
+                  {agent.error_seconds >= 60 && (
+                    <span className="flex items-center gap-0.5 text-[10px] text-red-600">
+                      <AlertTriangle size={8} />
+                      {formatDuration(agent.error_seconds)}
                     </span>
                   )}
                 </div>

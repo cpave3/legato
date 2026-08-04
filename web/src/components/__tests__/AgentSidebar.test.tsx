@@ -15,6 +15,7 @@ const longAgent: AgentInfo = {
   started_at: "2026-07-27T12:00:00Z",
   working_seconds: 120,
   waiting_seconds: 0,
+  error_seconds: 0,
 }
 
 afterEach(cleanup)

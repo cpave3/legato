@@ -13,18 +13,19 @@ export interface ReportPeriod {
 export interface ReportSummary {
   working_seconds: number
   waiting_seconds: number
+  error_seconds: number
   tasks_created: number
   tasks_completed: number
   agent_sessions: number
   prs_merged: number
 }
 
-export interface ReportDay { date: string; working_seconds: number; waiting_seconds: number }
-export interface ReportTask { task_id: string; display_id: string; title: string; workspace_name: string; provider: string; working_seconds: number; waiting_seconds: number }
-export interface ReportWorkspace { workspace_id: number | null; workspace_name: string; workspace_color: string; working_seconds: number; waiting_seconds: number; task_count: number }
-export interface ReportDirectory { directory: string; working_seconds: number; waiting_seconds: number; task_count: number }
-export interface ReportSwarm { parent_task_id: string; title: string; working_seconds: number; waiting_seconds: number; wall_clock_seconds: number; parallel_ratio: number; worker_count: number; subtask_count: number }
-export interface ReportExecution { id: string; kind: string; status: string; task_id: string; task_title: string; workflow_run_id: string; working_seconds: number; waiting_seconds: number; wall_clock_seconds: number; started_at: string; ended_at: string | null }
+export interface ReportDay { date: string; working_seconds: number; waiting_seconds: number; error_seconds: number }
+export interface ReportTask { task_id: string; display_id: string; title: string; workspace_name: string; provider: string; working_seconds: number; waiting_seconds: number; error_seconds: number }
+export interface ReportWorkspace { workspace_id: number | null; workspace_name: string; workspace_color: string; working_seconds: number; waiting_seconds: number; error_seconds: number; task_count: number }
+export interface ReportDirectory { directory: string; working_seconds: number; waiting_seconds: number; error_seconds: number; task_count: number }
+export interface ReportSwarm { parent_task_id: string; title: string; working_seconds: number; waiting_seconds: number; error_seconds: number; wall_clock_seconds: number; parallel_ratio: number; worker_count: number; subtask_count: number }
+export interface ReportExecution { id: string; kind: string; status: string; task_id: string; task_title: string; workflow_run_id: string; working_seconds: number; waiting_seconds: number; error_seconds: number; wall_clock_seconds: number; started_at: string; ended_at: string | null }
 
 export interface Report {
   period: ReportPeriod

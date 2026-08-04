@@ -5,7 +5,7 @@ import { AgentSelectionProvider } from "../../hooks/useAgentSelection"
 import { BoardPage } from "../Board"
 
 const mockFetch = vi.fn()
-const card = { id: "TASK-1", title: "Context task", status: "Backlog", priority: "High", issue_type: "Task", provider: "", has_warning: false, agent_active: false, agent_state: "", working_seconds: 0, waiting_seconds: 0, workspace_name: "", workspace_color: "", pr_check_status: "", pr_review_decision: "", pr_comment_count: 0, pr_is_draft: false, pr_number: 0 }
+const card = { id: "TASK-1", title: "Context task", status: "Backlog", priority: "High", issue_type: "Task", provider: "", has_warning: false, agent_active: false, agent_state: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0, workspace_name: "", workspace_color: "", pr_check_status: "", pr_review_decision: "", pr_comment_count: 0, pr_is_draft: false, pr_number: 0 }
 
 vi.stubGlobal("fetch", mockFetch)
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))

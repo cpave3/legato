@@ -1,6 +1,6 @@
 import type { AgentInfo } from "../hooks/useWebSocket";
 import { cn } from "../lib/utils";
-import { Plus, Play, Pause, Layers, Bell } from "lucide-react";
+import { Plus, Play, Pause, Layers, Bell, AlertTriangle } from "lucide-react";
 import { AgentActionMenu } from "./AgentActionMenu";
 
 function formatDuration(seconds: number): string {
@@ -231,7 +231,8 @@ export function AgentSidebar({
                     {agent.command}
                   </span>
                   {(agent.working_seconds >= 60 ||
-                    agent.waiting_seconds >= 60) && (
+                    agent.waiting_seconds >= 60 ||
+                    agent.error_seconds >= 60) && (
                     <div className="flex items-center gap-2 pl-4 text-[10px]">
                       {agent.working_seconds >= 60 && (
                         <span className="flex items-center gap-0.5 text-emerald-800">
@@ -243,6 +244,12 @@ export function AgentSidebar({
                         <span className="flex items-center gap-0.5 text-yellow-800">
                           <Pause size={8} />
                           {formatDuration(agent.waiting_seconds)}
+                        </span>
+                      )}
+                      {agent.error_seconds >= 60 && (
+                        <span className="flex items-center gap-0.5 text-red-800">
+                          <AlertTriangle size={8} />
+                          {formatDuration(agent.error_seconds)}
                         </span>
                       )}
                     </div>
