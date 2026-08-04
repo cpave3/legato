@@ -820,7 +820,7 @@ export function BoardPage() {
             }
           }}
           onEditDescription={() => {
-            if (detailCard && !detailCard.provider) {
+            if (detailCard) {
               setOverlay({ kind: "editDescription", card: { id: detailCard.id, title: detailCard.title } as BoardCard })
             }
           }}

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter } from "react-router-dom"
 import { AgentSelectionProvider } from "../../hooks/useAgentSelection"
@@ -21,7 +21,7 @@ describe("Board card context menu", () => {
     mockFetch.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes("/api/settings")) return { ok: true, json: async () => ({ repositories: [] }) }
-      if (url.includes("/api/tasks/TASK-1")) return { ok: true, json: async () => ({ ...card, description_md: "Context details" }) }
+      if (url.includes("/api/tasks/TASK-1")) return { ok: true, json: async () => ({ ...card, provider: "jira", description_md: "Provider details", local_description_md: "Legato details", remote_description_md: "Provider details" }) }
       throw new Error(`unexpected fetch: ${url}`)
     })
   })
@@ -47,7 +47,18 @@ describe("Board card context menu", () => {
     const element = renderBoard()
     fireEvent.contextMenu(element, { clientX: 40, clientY: 60 })
     fireEvent.click(screen.getByRole("menuitem", { name: "Open details" }))
-    await waitFor(() => expect(screen.getByText("Context details")).toBeTruthy())
+    await waitFor(() => expect(screen.getByText("Provider details")).toBeTruthy())
+  })
+
+  it("opens Legato detail editing for a provider-backed task", async () => {
+    const element = renderBoard()
+    fireEvent.contextMenu(element, { clientX: 40, clientY: 60 })
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open details" }))
+    const edit = await screen.findAllByRole("button", { name: "Edit Legato details" })
+    fireEvent.click(edit[0])
+    const dialog = screen.getByRole("dialog", { name: "Edit Legato details" })
+    expect(dialog).toBeTruthy()
+    expect((within(dialog).getByLabelText("Description") as HTMLTextAreaElement).value).toBe("Legato details")
   })
 
   it("opens an eligible workflow with the selected card bound read-only", () => {
