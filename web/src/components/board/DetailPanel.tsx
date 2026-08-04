@@ -79,7 +79,7 @@ export function DetailPanel({
             <section aria-labelledby="task-description-heading">
               <div className="flex items-center justify-between gap-3">
                 <h3 id="task-description-heading" className="text-sm font-semibold text-zinc-200">Description</h3>
-                {isLocal && <Button variant="ghost" size="sm" title="Shortcut: e" onClick={onEditDescription}>Edit</Button>}
+                <Button variant="ghost" size="sm" title="Shortcut: e" onClick={onEditDescription}>{isLocal ? "Edit" : "Edit Legato details"}</Button>
               </div>
               {card.description_md
                 ? <pre className="mt-3 whitespace-pre-wrap font-sans text-sm leading-6 text-zinc-400">{card.description_md}</pre>
@@ -124,11 +124,11 @@ export function DetailPanel({
                 <Button variant="outline" size="sm" className={sidebarButtonClass} title="Shortcut: m" onClick={onMove}>Move task</Button>
               </section>
 
-              {isLocal && <section aria-labelledby="task-edit-heading" className="space-y-2">
+              <section aria-labelledby="task-edit-heading" className="space-y-2">
                 <h3 id="task-edit-heading" className={sectionHeadingClass}>Edit</h3>
-                <Button variant="outline" size="sm" className={sidebarButtonClass} title="Shortcut: t" onClick={onEditTitle}>Edit title</Button>
-                <Button variant="outline" size="sm" className={sidebarButtonClass} title="Shortcut: e" onClick={onEditDescription}>Edit description</Button>
-              </section>}
+                {isLocal && <Button variant="outline" size="sm" className={sidebarButtonClass} title="Shortcut: t" onClick={onEditTitle}>Edit title</Button>}
+                <Button variant="outline" size="sm" className={sidebarButtonClass} title="Shortcut: e" onClick={onEditDescription}>{isLocal ? "Edit description" : "Edit Legato details"}</Button>
+              </section>
 
               <section aria-labelledby="task-more-heading" className="space-y-1">
                 <h3 id="task-more-heading" className={sectionHeadingClass}>More actions</h3>

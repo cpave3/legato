@@ -60,6 +60,8 @@ export interface CardDetail {
   id: string
   title: string
   description_md: string
+  local_description_md: string
+  remote_description_md: string
   status: string
   priority: string
   provider: string

@@ -421,18 +421,39 @@ func TestEditKeyOnLocalTaskProducesExecCmd(t *testing.T) {
 	}
 }
 
-func TestEditKeyOnRemoteTaskShowsFeedback(t *testing.T) {
-	card := testCard() // has Provider="jira"
+func TestEditKeyOnRemoteTaskProducesExecCmd(t *testing.T) {
+	card := testCard()
+	card.LocalDescriptionMD = "Legato detail"
 	m := New(card, nil, nil, "")
 	m.editor = "vi"
 	m.width = 120
 	m.height = 40
 	m.renderContent()
 
-	updated, _ := m.Update(keyMsg('e'))
-	m2 := updated.(Model)
-	if m2.feedback != "Cannot edit remote task description" {
-		t.Errorf("feedback = %q, want 'Cannot edit remote task description'", m2.feedback)
+	updated, cmd := m.Update(keyMsg('e'))
+	if cmd == nil {
+		t.Fatal("expected exec command from remote task edit")
+	}
+	if feedback := updated.(Model).feedback; feedback != "" {
+		t.Fatalf("feedback = %q", feedback)
+	}
+}
+
+func TestDescriptionEditedReloadsEffectiveRemoteDescription(t *testing.T) {
+	initial := testCard()
+	initial.DescriptionMD = "Provider old"
+	initial.LocalDescriptionMD = "old local"
+	refreshed := *initial
+	refreshed.DescriptionMD = "Provider old\n\n## Legato details\n\nnew local"
+	refreshed.LocalDescriptionMD = "new local"
+	svc := &fakeBoardService{card: &refreshed}
+	m := New(initial, svc, nil, "vi")
+	m.width, m.height = 120, 40
+
+	updated, _ := m.Update(DescriptionEditedMsg{Content: "new local"})
+	got := updated.(Model)
+	if got.card.DescriptionMD != refreshed.DescriptionMD || got.card.LocalDescriptionMD != "new local" {
+		t.Fatalf("card after edit = %#v", got.card)
 	}
 }
 
@@ -497,18 +518,18 @@ func TestStatusBarShowsTitleEditHintForLocalTask(t *testing.T) {
 	mustContain(t, bar, "edit title")
 }
 
-func TestStatusBarNoEditHintForRemoteTask(t *testing.T) {
-	card := testCard() // remote
+func TestStatusBarShowsDetailsEditButNotTitleEditForRemoteTask(t *testing.T) {
+	card := testCard()
 	m := New(card, nil, nil, "")
 	m.editor = "vi"
 	m.width = 120
 	m.height = 40
 	m.renderContent()
 
-	// renderStatusBar should not contain "e edit" for remote tasks
 	bar := m.renderStatusBar()
-	if containsStr(bar, "edit") {
-		t.Error("remote task status bar should not show 'edit' hint")
+	mustContain(t, bar, "edit details")
+	if containsStr(bar, "edit title") {
+		t.Error("remote task status bar should not show title edit hint")
 	}
 }
 

@@ -14,6 +14,8 @@ function makeCard(overrides: Partial<CardDetail> = {}): CardDetail {
     id: "T-1",
     title: "Test title",
     description_md: "Desc text",
+    local_description_md: "Desc text",
+    remote_description_md: "",
     status: "Doing",
     priority: "High",
     provider: "",
@@ -104,10 +106,14 @@ describe("DetailPanel", () => {
     expect(screen.getByText(/Edit desc/)).toBeTruthy()
   })
 
-  it("hides edit buttons for remote task", () => {
-    render(<DetailPanel card={makeCard({ provider: "jira" })} onClose={() => {}} onEditTitle={() => {}} onEditDescription={() => {}} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />)
+  it("offers Legato detail editing but not title editing for a remote task", () => {
+    const onEditDescription = vi.fn()
+    render(<DetailPanel card={makeCard({ provider: "jira" })} onClose={() => {}} onEditTitle={() => {}} onEditDescription={onEditDescription} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />)
     expect(screen.queryByText(/Edit title/)).toBeNull()
-    expect(screen.queryByText(/Edit desc/)).toBeNull()
+    const buttons = screen.getAllByRole("button", { name: "Edit Legato details" })
+    expect(buttons.length).toBeGreaterThan(0)
+    fireEvent.click(buttons[0])
+    expect(onEditDescription).toHaveBeenCalledOnce()
   })
 
   it("shows cancel swarm button when swarm_working_dir is present", () => {

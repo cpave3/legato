@@ -225,8 +225,8 @@ func addPageBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Ke
 	add(ActionDetailOpenURL, detail, TargetPage, []Key{Rune('o')}, "open", "Open remote task", "Detail", 20, 24, FullHelp|InlineHint)
 	add(ActionDetailEditTitle, detail, TargetPage, []Key{Rune('t')}, "edit title", "Edit task title", "Detail", 20, 25, FullHelp|InlineHint)
 	(*bindings)[len(*bindings)-1].DisplayWhen = []Predicate{PredicateLocalTask}
-	add(ActionDetailEditDescription, detail, TargetPage, []Key{Rune('e')}, "edit desc", "Edit task description", "Detail", 20, 26, FullHelp|Shortlist|ShortcutBar|InlineHint)
-	(*bindings)[len(*bindings)-1].DisplayWhen = []Predicate{PredicateLocalTask, PredicateEditor}
+	add(ActionDetailEditDescription, detail, TargetPage, []Key{Rune('e')}, "edit details", "Edit Legato task details", "Detail", 20, 26, FullHelp|Shortlist|ShortcutBar|InlineHint)
+	(*bindings)[len(*bindings)-1].DisplayWhen = []Predicate{PredicateEditor}
 	add(ActionDetailNextSwarmStep, detail, TargetPage, []Key{Rune('s')}, "next step", "Advance swarm to next step", "Detail", 20, 27, InlineHint)
 	(*bindings)[len(*bindings)-1].When = []Predicate{PredicateSwarmNext}
 

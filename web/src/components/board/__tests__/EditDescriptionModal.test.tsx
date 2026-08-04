@@ -1,6 +1,8 @@
-import { describe, expect, it, vi } from "vitest"
-import { render, screen, fireEvent } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { cleanup, render, screen, fireEvent } from "@testing-library/react"
 import { EditDescriptionModal } from "../EditDescriptionModal"
+
+afterEach(cleanup)
 
 describe("EditDescriptionModal", () => {
   it("submits with current content", () => {
@@ -19,5 +21,15 @@ describe("EditDescriptionModal", () => {
     const saveBtn = screen.getByRole("button", { name: /Save/i })
     fireEvent.click(saveBtn)
     expect(onSave).toHaveBeenCalledWith("Old desc")
+  })
+
+  it("explains provider ownership and edits only the supplied Legato details", () => {
+    const onSave = vi.fn()
+    render(<EditDescriptionModal open currentDescription="Local only" providerBacked onClose={() => {}} onSave={onSave} />)
+    expect(screen.getByRole("dialog", { name: "Edit Legato details" })).toBeTruthy()
+    expect(screen.getByText(/provider description is read-only/i)).toBeTruthy()
+    expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe("Local only")
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    expect(onSave).toHaveBeenCalledWith("Local only")
   })
 })

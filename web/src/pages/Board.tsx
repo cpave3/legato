@@ -542,7 +542,7 @@ export function BoardPage() {
       await patchTask(baseUrl, currentCard.id, { description })
       setOverlay({ kind: "none" })
       if (detailCard && detailCard.id === currentCard.id) {
-        setDetailCard({ ...detailCard, description_md: description })
+        setDetailCard(await fetchCard(baseUrl, currentCard.id))
       }
       refresh()
       addToast("Task description updated", "success")
@@ -770,7 +770,8 @@ export function BoardPage() {
 
       <EditDescriptionModal
         open={overlay.kind === "editDescription"}
-        currentDescription={detailCard?.description_md || ""}
+        currentDescription={detailCard?.local_description_md || ""}
+        providerBacked={Boolean(detailCard?.provider)}
         onClose={() => setOverlay({ kind: "none" })}
         onSave={handleSaveDescription}
         loading={pendingAction === "description"}

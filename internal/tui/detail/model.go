@@ -187,10 +187,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.card != nil {
-			m.card.DescriptionMD = msg.Content
+			if m.svc != nil {
+				if card, err := m.svc.GetCard(context.Background(), m.card.ID); err == nil {
+					m.card = card
+				} else {
+					m.feedback = fmt.Sprintf("Reload failed: %v", err)
+					return m, nil
+				}
+			} else {
+				m.card.DescriptionMD = msg.Content
+				m.card.LocalDescriptionMD = msg.Content
+			}
 			m.renderContent()
 		}
-		m.feedback = "Description updated"
+		m.feedback = "Legato details updated"
 		return m, nil
 
 	case tea.WindowSizeMsg:
@@ -298,9 +308,11 @@ func (m Model) editDescription() (tea.Model, tea.Cmd) {
 	if m.card == nil {
 		return m, nil
 	}
-	if m.card.Provider != "" {
-		m.feedback = "Cannot edit remote task description"
-		return m, nil
+	// Write the Legato-owned description to a temp file. The effective rendered
+	// description may also include read-only provider text.
+	currentDescription := m.card.LocalDescriptionMD
+	if m.card.Provider == "" && currentDescription == "" {
+		currentDescription = m.card.DescriptionMD
 	}
 
 	// Write current description to temp file
@@ -309,7 +321,7 @@ func (m Model) editDescription() (tea.Model, tea.Cmd) {
 		m.feedback = fmt.Sprintf("Error: %v", err)
 		return m, nil
 	}
-	if _, err := tmpFile.WriteString(m.card.DescriptionMD); err != nil {
+	if _, err := tmpFile.WriteString(currentDescription); err != nil {
 		tmpFile.Close()
 		os.Remove(tmpFile.Name())
 		m.feedback = fmt.Sprintf("Error: %v", err)

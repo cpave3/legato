@@ -8,10 +8,11 @@ interface EditDescriptionModalProps {
   currentDescription: string
   onClose: () => void
   onSave: (description: string) => void
+  providerBacked?: boolean
   loading?: boolean
 }
 
-export function EditDescriptionModal({ open, currentDescription, onClose, onSave, loading = false }: EditDescriptionModalProps) {
+export function EditDescriptionModal({ open, currentDescription, onClose, onSave, providerBacked = false, loading = false }: EditDescriptionModalProps) {
   const [description, setDescription] = useState(currentDescription)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -29,7 +30,7 @@ export function EditDescriptionModal({ open, currentDescription, onClose, onSave
   return (
     <Dialog open={open} onClose={onClose} dismissible={!loading}>
       <DialogPanel className="flex max-h-[calc(100dvh-2rem)] max-w-2xl flex-col">
-        <DialogHeader><div><DialogTitle>Edit description</DialogTitle><p className="mt-0.5 text-xs text-zinc-500">Update the task context agents and reviewers will read.</p></div><DialogClose disabled={loading} /></DialogHeader>
+        <DialogHeader><div><DialogTitle>{providerBacked ? "Edit Legato details" : "Edit description"}</DialogTitle><p className="mt-0.5 text-xs text-zinc-500">{providerBacked ? "The provider description is read-only. These details stay in Legato and are included in task context." : "Update the task context agents and reviewers will read."}</p></div><DialogClose disabled={loading} /></DialogHeader>
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-col">
           <DialogBody className="min-h-0 overflow-y-auto">
             <div className="mb-1.5 flex items-center justify-between gap-3">
