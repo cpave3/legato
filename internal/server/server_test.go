@@ -244,8 +244,8 @@ func (p *promptAgentService) AttachCmd(context.Context, string) (*exec.Cmd, erro
 func (p *promptAgentService) GetTaskDurations(context.Context, []string) (map[string]service.DurationData, error) {
 	return nil, nil
 }
-func (p *promptAgentService) GetAgentSummary(context.Context, string) (int, int, int, error) {
-	return 0, 0, 0, nil
+func (p *promptAgentService) GetAgentSummary(context.Context, string) (int, int, int, int, error) {
+	return 0, 0, 0, 0, nil
 }
 func (p *promptAgentService) SetAgentActivity(_ context.Context, _ string, activity, workingDir string) error {
 	p.setActivities = append(p.setActivities, activity)

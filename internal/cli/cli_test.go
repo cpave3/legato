@@ -610,6 +610,89 @@ func (n *recordingNotifier) CanNotify(key string) bool {
 	return true
 }
 
+func TestAgentState_OnErrorPersistsAndNotifiesOnce(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Doing")
+	ctx := context.Background()
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "abc123", TmuxSession: "legato-abc123", AgentKind: "chimera", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	executionID := linkTestExecution(t, s, "abc123")
+	if err := s.UpdateTaskNotifyEnabled(ctx, "abc123", true); err != nil {
+		t.Fatal(err)
+	}
+	notifier := &recordingNotifier{}
+	report := cli.AgentStateReport{TaskID: "abc123", ExecutionID: executionID, Activity: store.ActivityError, Event: "OnError"}
+	if err := cli.AgentState(s, report, notifier, notifier); err != nil {
+		t.Fatalf("AgentState OnError: %v", err)
+	}
+	if err := cli.AgentState(s, report, notifier, notifier); err != nil {
+		t.Fatalf("repeated AgentState OnError: %v", err)
+	}
+
+	session, err := s.GetAgentSessionByTaskID(ctx, "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Activity != store.ActivityError {
+		t.Fatalf("activity = %q, want error", session.Activity)
+	}
+	var open int
+	if err := s.DB().Get(&open, `SELECT COUNT(*) FROM execution_activity WHERE execution_id=? AND state='error' AND ended_at IS NULL`, executionID); err != nil {
+		t.Fatal(err)
+	}
+	if open != 1 {
+		t.Fatalf("open error spans = %d, want 1", open)
+	}
+	if len(notifier.calls) != 2 {
+		t.Fatalf("notifications = %+v, want one per channel", notifier.calls)
+	}
+	for _, call := range notifier.calls {
+		if call.title != "Agent error" || call.message != "Agent Test abc123 had an error" {
+			t.Fatalf("notification = %+v", call)
+		}
+	}
+}
+
+func TestAgentState_ChildOnErrorNotifiesWithoutMutatingParent(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Doing")
+	ctx := context.Background()
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "abc123", TmuxSession: "legato-abc123", AgentKind: "chimera", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateAgentActivity(ctx, "abc123", store.ActivityWorking); err != nil {
+		t.Fatal(err)
+	}
+	executionID := linkTestExecution(t, s, "abc123")
+	if err := s.UpdateTaskNotifyEnabled(ctx, "abc123", true); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `[{"subagentId":"sub-1","sessionId":"child-1","purpose":"Review tests","status":"running"}]`)
+	}))
+	defer srv.Close()
+	if err := s.UpdateChimeraDiscovery(ctx, "abc123", "parent-1", srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	notifier := &recordingNotifier{}
+	if err := cli.AgentState(s, cli.AgentStateReport{TaskID: "abc123", ExecutionID: executionID, Activity: store.ActivityError, SessionID: "child-1", Event: "OnError"}, notifier, notifier); err != nil {
+		t.Fatalf("AgentState child OnError: %v", err)
+	}
+	session, err := s.GetAgentSessionByTaskID(ctx, "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Activity != store.ActivityWorking {
+		t.Fatalf("parent activity = %q, want working", session.Activity)
+	}
+	if len(notifier.calls) != 2 || notifier.calls[0].title != "Agent error" || notifier.calls[0].message != "Agent Review tests for Test abc123 had an error" {
+		t.Fatalf("notifications = %+v", notifier.calls)
+	}
+}
+
 func TestAgentState_SubagentCompletionNotifiesWithoutClearingParent(t *testing.T) {
 	s := newTestStore(t)
 	seedColumns(t, s)
@@ -835,13 +918,16 @@ func TestAgentSummary_MixedStates(t *testing.T) {
 	seedTask(t, s, "task1", "Doing")
 	seedTask(t, s, "task2", "Doing")
 	seedTask(t, s, "task3", "Doing")
+	seedTask(t, s, "task4", "Doing")
 
 	ctx := context.Background()
 	s.InsertAgentSession(ctx, store.AgentSession{TaskID: "task1", TmuxSession: "legato-task1", Command: "shell", Status: "running"})
 	s.InsertAgentSession(ctx, store.AgentSession{TaskID: "task2", TmuxSession: "legato-task2", Command: "shell", Status: "running"})
 	s.InsertAgentSession(ctx, store.AgentSession{TaskID: "task3", TmuxSession: "legato-task3", Command: "shell", Status: "running"})
+	s.InsertAgentSession(ctx, store.AgentSession{TaskID: "task4", TmuxSession: "legato-task4", Command: "shell", Status: "running"})
 	s.UpdateAgentActivity(ctx, "task1", "working")
 	s.UpdateAgentActivity(ctx, "task2", "waiting")
+	s.UpdateAgentActivity(ctx, "task4", "error")
 	// task3 idle
 
 	out, err := cli.AgentSummary(s, "")
@@ -854,6 +940,9 @@ func TestAgentSummary_MixedStates(t *testing.T) {
 	}
 	if !strings.Contains(out, "1 waiting") {
 		t.Errorf("output missing waiting count: %q", out)
+	}
+	if !strings.Contains(out, "#[fg=red]1 error") {
+		t.Errorf("output missing red error count: %q", out)
 	}
 	if !strings.Contains(out, "1 idle") {
 		t.Errorf("output missing idle count: %q", out)

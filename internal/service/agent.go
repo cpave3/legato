@@ -50,7 +50,7 @@ type AgentSession struct {
 	Command       string
 	AgentKind     string
 	Status        string
-	Activity      string // "working", "waiting", or "" (idle)
+	Activity      string // "working", "waiting", "error", or "" (idle)
 	Role          string // "conductor", "" for non-swarm, or worker role label
 	ParentTaskID  string // when set, this session belongs to a swarm
 	SubtaskID     string // when set, this session is a swarm worker
@@ -116,7 +116,7 @@ type AgentService interface {
 	CaptureOutput(ctx context.Context, taskID string) (string, error)
 	AttachCmd(ctx context.Context, taskID string) (*exec.Cmd, error)
 	GetTaskDurations(ctx context.Context, taskIDs []string) (map[string]DurationData, error)
-	GetAgentSummary(ctx context.Context, excludeTaskID string) (working, waiting, idle int, err error)
+	GetAgentSummary(ctx context.Context, excludeTaskID string) (working, waiting, errors, idle int, err error)
 	SetAgentActivity(ctx context.Context, taskID, activity, workingDir string) error
 	SpawnEphemeralAgent(ctx context.Context, title string, width, height int, opts ...AgentSpawnOptions) error
 	LastSpawnConflicts() []AgentSpawnConflict
@@ -1073,9 +1073,9 @@ func (a *agentService) GetTaskDurations(ctx context.Context, taskIDs []string) (
 	return result, nil
 }
 
-func (a *agentService) GetAgentSummary(ctx context.Context, excludeTaskID string) (working, waiting, idle int, err error) {
+func (a *agentService) GetAgentSummary(ctx context.Context, excludeTaskID string) (working, waiting, errors, idle int, err error) {
 	if err := a.ReconcileSessions(ctx); err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, 0, err
 	}
 	return a.store.GetAgentActivityCounts(ctx, excludeTaskID)
 }
@@ -1097,7 +1097,8 @@ func (a *agentService) SetAgentActivity(ctx context.Context, taskID, activity, w
 		return fmt.Errorf("recording execution activity: %w", err)
 	}
 
-	if oldActivity == "working" && (activity == "waiting" || activity == "") {
+	if (oldActivity == store.ActivityWorking && (activity == store.ActivityWaiting || activity == "")) ||
+		(activity == store.ActivityError && oldActivity != store.ActivityError) {
 		a.maybeNotify(taskID, activity)
 	}
 	return nil
@@ -1110,17 +1111,17 @@ type NotificationContext struct {
 	Actor  string
 }
 
-// MaybeNotify sends notifications when an agent transitions from working to
-// waiting or idle. pushNotifier is gated by per-task notify preference and
-// rate limits; osNotifier fires unconditionally when configured.
+// MaybeNotify sends notifications when an agent becomes ready or enters error.
+// pushNotifier is gated by per-task notify preference and rate limits;
+// osNotifier fires unconditionally when configured.
 func MaybeNotify(store *store.Store, pushNotifier, osNotifier Notifier, taskID, activity string) {
 	MaybeNotifyAgent(store, pushNotifier, osNotifier, NotificationContext{TaskID: taskID}, activity)
 }
 
-// MaybeNotifyAgent sends a readiness notification with optional child-agent context.
-func MaybeNotifyAgent(store *store.Store, pushNotifier, osNotifier Notifier, notification NotificationContext, activity string) {
+// MaybeNotifyAgent sends a readiness or error notification with optional child-agent context.
+func MaybeNotifyAgent(db *store.Store, pushNotifier, osNotifier Notifier, notification NotificationContext, activity string) {
 	label := notification.TaskID
-	if task, err := store.GetTask(context.Background(), notification.TaskID); err == nil && task.Title != "" {
+	if task, err := db.GetTask(context.Background(), notification.TaskID); err == nil && task.Title != "" {
 		label = task.Title
 	}
 
@@ -1130,12 +1131,16 @@ func MaybeNotifyAgent(store *store.Store, pushNotifier, osNotifier Notifier, not
 	}
 	title := "Agent ready"
 	msg := fmt.Sprintf("Agent %s is now waiting", actor)
-	if activity == "" {
+	switch activity {
+	case "":
 		msg = fmt.Sprintf("Agent %s is now idle", actor)
+	case store.ActivityError:
+		title = "Agent error"
+		msg = fmt.Sprintf("Agent %s had an error", actor)
 	}
 
 	if pushNotifier != nil && pushNotifier.Configured() {
-		enabled, err := store.GetTaskNotifyEnabled(context.Background(), notification.TaskID)
+		enabled, err := db.GetTaskNotifyEnabled(context.Background(), notification.TaskID)
 		if err == nil && enabled && pushNotifier.CanNotify(notification.TaskID) {
 			_ = pushNotifier.Notify(title, msg)
 		}

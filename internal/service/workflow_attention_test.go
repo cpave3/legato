@@ -50,6 +50,31 @@ func TestWorkflowShowFlagsIdleAgentAsNeedingAttention(t *testing.T) {
 	}
 }
 
+func TestWorkflowShowFlagsAgentErrorAsNeedingAttention(t *testing.T) {
+	db, _ := store.New(filepath.Join(t.TempDir(), "test.db"))
+	defer db.Close()
+	definition, _ := workflowengine.Parse("test.yaml", []byte("schema_version: 1\nname: attention-error\ntitle: Attention\nsteps:\n  - id: run\n    title: Run\n    type: agent.run\n    with: {prompt: run}\n"))
+	executor := &promptingWorkflowExecutor{fakeWorkflowExecutor: fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent", AgentSession: &store.AgentSession{ID: 7, TaskID: "placeholder", TmuxSession: "legato-placeholder", AgentKind: "chimera", Status: "running"}}}}
+	svc := NewWorkflowService(db, []WorkflowExecutor{executor})
+	view, err := svc.Start(context.Background(), definition, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.InsertAgentSession(context.Background(), store.AgentSession{TaskID: view.Run.TaskID, TmuxSession: "legato-" + view.Run.TaskID, AgentKind: "chimera", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpdateAgentActivity(context.Background(), view.Run.TaskID, store.ActivityError); err != nil {
+		t.Fatal(err)
+	}
+	view, err = svc.Show(context.Background(), view.Run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !view.Attempts[0].NeedsAttention || view.Attempts[0].AgentActivity != store.ActivityError || view.Attempts[0].AttentionReason != "agent error before step completion" {
+		t.Fatalf("attempt=%+v", view.Attempts[0])
+	}
+}
+
 func TestNotifyOnCompleteSurfacesAttentionItem(t *testing.T) {
 	db, _ := store.New(filepath.Join(t.TempDir(), "test.db"))
 	defer db.Close()

@@ -1074,7 +1074,7 @@ func TestGetAgentSummary_MixedStates(t *testing.T) {
 	s.UpdateAgentActivity(ctx, "task2", "waiting")
 	// task3 stays idle
 
-	working, waiting, idle, err := svc.GetAgentSummary(ctx, "")
+	working, waiting, _, idle, err := svc.GetAgentSummary(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1101,7 +1101,7 @@ func TestGetAgentSummary_ExcludesTask(t *testing.T) {
 	s.UpdateAgentActivity(ctx, "task1", "working")
 	s.UpdateAgentActivity(ctx, "task2", "working")
 
-	working, _, _, err := svc.GetAgentSummary(ctx, "task1")
+	working, _, _, _, err := svc.GetAgentSummary(ctx, "task1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1125,7 +1125,7 @@ func TestGetAgentSummary_ReconcilesCleansDeadSessions(t *testing.T) {
 	// Simulate task2 tmux session dying
 	mt.markSessionDead("legato-task2")
 
-	working, _, _, err := svc.GetAgentSummary(ctx, "")
+	working, _, _, _, err := svc.GetAgentSummary(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1397,6 +1397,63 @@ func TestSetAgentActivity_FiresNotification(t *testing.T) {
 	wantMsg := "Agent Test REX-1238 is now waiting"
 	if fn.calls[0].message != wantMsg {
 		t.Errorf("message = %q, want %q", fn.calls[0].message, wantMsg)
+	}
+}
+
+func TestSetAgentActivity_ErrorNotifiesOnEntryOnly(t *testing.T) {
+	push := &fakeNotifier{configured: true, canNotify: true}
+	osNotifier := &fakeNotifier{configured: true, canNotify: true}
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	svc := NewAgentService(s, newMockTmux(), t.TempDir(), AgentServiceOptions{Notifier: push, OSNotifier: osNotifier})
+	ctx := context.Background()
+	createTask(t, s, "REX-1238")
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetTaskNotifyEnabled(ctx, "REX-1238", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetAgentActivity(ctx, "REX-1238", store.ActivityError, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetAgentActivity(ctx, "REX-1238", store.ActivityError, ""); err != nil {
+		t.Fatal(err)
+	}
+	for name, notifier := range map[string]*fakeNotifier{"push": push, "os": osNotifier} {
+		if len(notifier.calls) != 1 {
+			t.Fatalf("%s notifications = %+v", name, notifier.calls)
+		}
+		if notifier.calls[0].title != "Agent error" || notifier.calls[0].message != "Agent Test REX-1238 had an error" {
+			t.Fatalf("%s notification = %+v", name, notifier.calls[0])
+		}
+	}
+}
+
+func TestSetAgentActivity_ErrorOSNotificationIgnoresPushPreference(t *testing.T) {
+	push := &fakeNotifier{configured: true, canNotify: true}
+	osNotifier := &fakeNotifier{configured: true, canNotify: true}
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	svc := NewAgentService(s, newMockTmux(), t.TempDir(), AgentServiceOptions{Notifier: push, OSNotifier: osNotifier})
+	ctx := context.Background()
+	createTask(t, s, "REX-1238")
+	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetAgentActivity(ctx, "REX-1238", store.ActivityError, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(push.calls) != 0 || len(osNotifier.calls) != 1 {
+		t.Fatalf("push=%+v os=%+v", push.calls, osNotifier.calls)
 	}
 }
 

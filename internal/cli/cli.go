@@ -396,7 +396,7 @@ type AgentStateReport struct {
 }
 
 // AgentState applies an activity report. Reports from Chimera child sessions
-// produce child readiness notifications without mutating the parent session.
+// produce child readiness or error notifications without mutating the parent session.
 func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifier service.Notifier) error {
 	ctx := context.Background()
 	session, err := s.GetAgentSessionByTaskID(ctx, report.TaskID)
@@ -417,7 +417,7 @@ func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifie
 		if subagent == nil {
 			return fmt.Errorf("resolving Chimera session %q for task %s: subagent not found", report.SessionID, report.TaskID)
 		}
-		if report.Activity == "" && (report.Event == "" || report.Event == "SessionEnd") {
+		if report.Activity == store.ActivityError || (report.Activity == "" && (report.Event == "" || report.Event == "SessionEnd")) {
 			service.MaybeNotifyAgent(s, pushNotifier, osNotifier, service.NotificationContext{TaskID: report.TaskID, Actor: subagent.Purpose}, report.Activity)
 		}
 		return nil
@@ -436,7 +436,8 @@ func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifie
 			return fmt.Errorf("recording execution activity: %w", err)
 		}
 	}
-	if session.Activity == "working" && (report.Activity == "waiting" || report.Activity == "") {
+	if (session.Activity == store.ActivityWorking && (report.Activity == store.ActivityWaiting || report.Activity == "")) ||
+		(report.Activity == store.ActivityError && session.Activity != store.ActivityError) {
 		service.MaybeNotify(s, pushNotifier, osNotifier, report.TaskID, report.Activity)
 	}
 	ipc.Broadcast(ipc.Message{Type: "agent_state", TaskID: report.TaskID, Status: report.Activity})
@@ -476,7 +477,7 @@ func findChimeraSubagent(ctx context.Context, endpoint, parentID, reportingID st
 func AgentSummary(s *store.Store, excludeTaskID string) (string, error) {
 	ctx := context.Background()
 
-	working, waiting, idle, err := s.GetAgentActivityCounts(ctx, excludeTaskID)
+	working, waiting, errors, idle, err := s.GetAgentActivityCounts(ctx, excludeTaskID)
 	if err != nil {
 		return "", fmt.Errorf("querying agent counts: %w", err)
 	}
@@ -487,6 +488,9 @@ func AgentSummary(s *store.Store, excludeTaskID string) (string, error) {
 	}
 	if waiting > 0 {
 		parts = append(parts, fmt.Sprintf("#[fg=yellow]%d waiting", waiting))
+	}
+	if errors > 0 {
+		parts = append(parts, fmt.Sprintf("#[fg=red]%d error", errors))
 	}
 	parts = append(parts, fmt.Sprintf("#[fg=colour245]%d idle", idle))
 

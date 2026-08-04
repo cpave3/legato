@@ -223,9 +223,12 @@ func (s *WorkflowService) enrichWorkflowAttention(ctx context.Context, view *sto
 		attempt.AgentActivity = session.Activity
 		if session.Activity != "working" {
 			attempt.NeedsAttention = true
-			if session.Activity == "waiting" {
+			switch session.Activity {
+			case store.ActivityWaiting:
 				attempt.AttentionReason = "agent waiting for input"
-			} else {
+			case store.ActivityError:
+				attempt.AttentionReason = "agent error before step completion"
+			default:
 				attempt.AttentionReason = "agent idle before step completion"
 			}
 		}
