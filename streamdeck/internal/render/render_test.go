@@ -12,6 +12,13 @@ func TestAgentWorkingGreen(t *testing.T) {
 	}
 }
 
+func TestAgentError(t *testing.T) {
+	svg := Agent("error", "AG-ERROR", 0, 0, -1, false)
+	if !strings.Contains(svg, `fill="`+Red+`"`) {
+		t.Error("error agent should use red state bar")
+	}
+}
+
 func TestAgentWaiting(t *testing.T) {
 	svg := Agent("waiting", "AG-9632", 0, 60, -1, false)
 	if !strings.Contains(svg, `fill="#f59e0b"`) {

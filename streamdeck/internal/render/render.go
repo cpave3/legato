@@ -5,7 +5,7 @@
 //
 // Design philosophy: color and shape as primary signals, minimal text.
 // Agent tiles use a rectangular layout:
-// - Top: state bar (green=working, amber=waiting, gray=idle)
+// - Top: state bar (green=working, amber=waiting, red=error, gray=idle)
 // - Middle: context pressure bar (green→amber→red as context fills)
 // - Bottom: last 4 chars of task ID
 // - Corner: purple dot if notify enabled
@@ -74,7 +74,7 @@ func pressureColor(pressure float64) string {
 // Agent renders a rectangular tile for an agent.
 //
 // Layout (144×144):
-// - Top bar (y=8-14): state color — always green for working, amber for waiting, gray for idle
+// - Top bar (y=8-14): state color — green for working, amber for waiting, red for error, gray for idle
 // - Middle (y=30-110): context pressure bar — fills left-to-right, colored by pressure
 // - Bottom (y=126): last 4 chars of task ID in monospace
 // - Top-right corner: purple dot if notify enabled
@@ -86,6 +86,8 @@ func Agent(activity, taskID string, workingSeconds, waitingSeconds, contextPress
 		stateColor = Green
 	case "waiting":
 		stateColor = Amber
+	case "error":
+		stateColor = Red
 	default:
 		stateColor = Gray
 	}

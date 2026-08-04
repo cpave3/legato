@@ -43,6 +43,21 @@ func newTestModel() Model {
 	return m
 }
 
+func TestErrorAgentRendersErrorAcrossSelectedView(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents([]service.AgentSession{{ID: 1, TaskID: "ERR-1", Command: "chimera", Status: "running", Activity: "error"}})
+	m.SetTimelines(map[string][]string{"ERR-1": {"error"}})
+	m.SetSize(120, 40)
+
+	out := m.View()
+	if strings.Count(out, "ERROR") < 2 {
+		t.Fatalf("error agent should render ERROR in sidebar and header: %q", out)
+	}
+	if strings.Contains(out, "IDLE") {
+		t.Fatalf("error agent should not render IDLE: %q", out)
+	}
+}
+
 func TestNavigationJK(t *testing.T) {
 	m := newTestModel()
 

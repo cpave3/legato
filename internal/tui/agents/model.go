@@ -729,6 +729,9 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 		case a.Activity == "waiting":
 			statusLine = selIndicator(selDim, true).
 				Render(m.icons.AgentWaiting + " WAITING")
+		case a.Activity == "error":
+			statusLine = selIndicator(lipgloss.Color("#993C1D"), true).
+				Render(m.icons.Warning + " ERROR")
 		default:
 			statusLine = selIndicator(selDim, false).
 				Render(m.icons.Terminal + " IDLE")
@@ -745,6 +748,9 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 		case a.Activity == "waiting":
 			statusLine = lipgloss.NewStyle().Foreground(theme.ColReady).Bold(true).
 				Render(m.icons.AgentWaiting + " WAITING")
+		case a.Activity == "error":
+			statusLine = lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).
+				Render(m.icons.Warning + " ERROR")
 		default:
 			statusLine = lipgloss.NewStyle().Foreground(theme.TextTertiary).
 				Render(m.icons.Terminal + " IDLE")
@@ -809,6 +815,8 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 				bar = lipgloss.NewStyle().Foreground(theme.SyncOK).Render("█")
 			case "waiting":
 				bar = lipgloss.NewStyle().Foreground(theme.ColReady).Render("█")
+			case "error":
+				bar = lipgloss.NewStyle().Foreground(theme.SyncError).Render("█")
 			default:
 				bar = lipgloss.NewStyle().Foreground(theme.TextTertiary).Render("░")
 			}
@@ -909,6 +917,8 @@ func (m Model) renderTerminalHeader(width int) string {
 		statusDot = lipgloss.NewStyle().Foreground(theme.SyncOK).Bold(true).Render("●")
 	case a.Activity == "waiting":
 		statusDot = lipgloss.NewStyle().Foreground(theme.ColReady).Render("●")
+	case a.Activity == "error":
+		statusDot = lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).Render("●")
 	default:
 		if a.Status == "running" {
 			statusDot = lipgloss.NewStyle().Foreground(theme.SyncOK).Render("●")
@@ -966,6 +976,8 @@ func (m Model) renderTerminalHeader(width int) string {
 		liveLabel = lipgloss.NewStyle().Foreground(theme.SyncOK).Bold(true).Render(m.icons.AgentWorking + " RUNNING")
 	case a.Activity == "waiting":
 		liveLabel = lipgloss.NewStyle().Foreground(theme.ColReady).Bold(true).Render(m.icons.AgentWaiting + " WAITING")
+	case a.Activity == "error":
+		liveLabel = lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).Render(m.icons.Warning + " ERROR")
 	default:
 		liveLabel = lipgloss.NewStyle().Foreground(theme.TextTertiary).Render(m.icons.Terminal + " IDLE")
 	}

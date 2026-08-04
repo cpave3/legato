@@ -204,6 +204,19 @@ func TestCardWithWaitingAgentState(t *testing.T) {
 	}
 }
 
+func TestCardWithErrorAgentState(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test task", AgentActive: true, AgentState: "error"}
+	for _, selected := range []bool{false, true} {
+		out := RenderCard(card, 30, selected, "Doing", testIcons)
+		if !strings.Contains(out, "ERROR") {
+			t.Errorf("selected=%v: error card should contain ERROR: %q", selected, out)
+		}
+		if strings.Contains(out, "IDLE") {
+			t.Errorf("selected=%v: error card should not contain IDLE: %q", selected, out)
+		}
+	}
+}
+
 func TestCardWithDurationHistoryNoAgent(t *testing.T) {
 	card := CardData{
 		Key:             "task1",

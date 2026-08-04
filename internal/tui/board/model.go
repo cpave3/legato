@@ -291,7 +291,7 @@ func (m *Model) SetActiveAgents(taskIDs map[string]bool) {
 }
 
 // SetAgentStates updates the agent activity state for each card.
-// States: "working", "waiting", or "" (idle/no agent).
+// States: "working", "waiting", "error", or "" (idle/no agent).
 func (m *Model) SetAgentStates(states map[string]string) {
 	for colName, cards := range m.cards {
 		for i := range cards {

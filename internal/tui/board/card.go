@@ -18,7 +18,7 @@ type CardData struct {
 	Provider         string // "jira", "github", or "" for local
 	Warning          bool
 	AgentActive      bool          // true if any agent session is running for this task
-	AgentState       string        // "working", "waiting", or "" (idle/no agent)
+	AgentState       string        // "working", "waiting", "error", or "" (idle/no agent)
 	WorkingDuration  time.Duration // cumulative working time
 	WaitingDuration  time.Duration // cumulative waiting time
 	WorkspaceName    string        // workspace name (populated in "All" view)
@@ -245,6 +245,9 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 	case "waiting":
 		agentStyle := lipgloss.NewStyle().Foreground(theme.ColReady).Bold(true)
 		agentPrefix = agentStyle.Render(icons.AgentWaiting+" WAITING") + " "
+	case "error":
+		agentStyle := lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true)
+		agentPrefix = agentStyle.Render(icons.Warning+" ERROR") + " "
 	default:
 		if card.AgentActive {
 			agentStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
@@ -315,6 +318,8 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 			sAgentPrefix = s(lipgloss.Color("#287828")).Bold(true).Render(icons.AgentWorking + " RUNNING ")
 		case "waiting":
 			sAgentPrefix = s(lipgloss.Color("#285878")).Bold(true).Render(icons.AgentWaiting + " WAITING ")
+		case "error":
+			sAgentPrefix = s(lipgloss.Color("#993C1D")).Bold(true).Render(icons.Warning + " ERROR ")
 		default:
 			if card.AgentActive {
 				sAgentPrefix = s(dimText).Render(icons.Terminal + " IDLE ")

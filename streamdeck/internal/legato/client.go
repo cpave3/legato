@@ -23,19 +23,19 @@ import (
 
 // Agent represents a running agent session from GET /api/agents.
 type Agent struct {
-	ID             int     `json:"id"`
-	TaskID         string  `json:"task_id"`
-	Title          string  `json:"task_title"`
-	AgentKind      string  `json:"agent_kind"`
-	Status         string  `json:"status"`
-	Activity       string  `json:"activity"` // "working", "waiting", or "" (idle)
-	Role           string  `json:"role,omitempty"`
-	ParentTaskID   string  `json:"parent_task_id,omitempty"`
-	SubtaskID      string  `json:"subtask_id,omitempty"`
-	WorkingSeconds float64 `json:"working_seconds"`
-	WaitingSeconds float64 `json:"waiting_seconds"`
-	NotifyEnabled  bool    `json:"notify_enabled"`
-	HasChimeraEndpoint bool `json:"has_chimera_endpoint"`
+	ID                 int     `json:"id"`
+	TaskID             string  `json:"task_id"`
+	Title              string  `json:"task_title"`
+	AgentKind          string  `json:"agent_kind"`
+	Status             string  `json:"status"`
+	Activity           string  `json:"activity"` // "working", "waiting", "error", or "" (idle)
+	Role               string  `json:"role,omitempty"`
+	ParentTaskID       string  `json:"parent_task_id,omitempty"`
+	SubtaskID          string  `json:"subtask_id,omitempty"`
+	WorkingSeconds     float64 `json:"working_seconds"`
+	WaitingSeconds     float64 `json:"waiting_seconds"`
+	NotifyEnabled      bool    `json:"notify_enabled"`
+	HasChimeraEndpoint bool    `json:"has_chimera_endpoint"`
 
 	// Context pressure (0-1), fetched from chimera snapshot. -1 = unknown.
 	ContextPressure float64 `json:"-"`
@@ -200,8 +200,8 @@ func (c *Client) FetchContextPressure(ctx context.Context, taskID string) (float
 		return -1, fmt.Errorf("snapshot: %s", resp.Status)
 	}
 	var snap struct {
-		ContextWindow      int   `json:"contextWindow"`
-		UsedContextTokens  *int  `json:"usedContextTokens"`
+		ContextWindow     int  `json:"contextWindow"`
+		UsedContextTokens *int `json:"usedContextTokens"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&snap); err != nil {
 		return -1, err
