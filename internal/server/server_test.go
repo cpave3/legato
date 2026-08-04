@@ -37,11 +37,12 @@ type mockBoardService struct {
 	listCardsCalls   int
 
 	// call-tracking fields for patch verification
-	updatedTitle     string
-	updatedDesc      string
-	updatedWorkspace *int
-	movedTo          string
-	moveErr          error
+	updatedTitle           string
+	updatedDesc            string
+	updatedWorkspace       *int
+	updatedWorkspaceCalled bool
+	movedTo                string
+	moveErr                error
 }
 
 func (m *mockBoardService) ListColumns(_ context.Context) ([]service.Column, error) {
@@ -106,6 +107,7 @@ func (m *mockBoardService) UpdateTaskTitle(_ context.Context, _, title string) e
 	return nil
 }
 func (m *mockBoardService) UpdateTaskWorkspace(_ context.Context, _ string, ws *int) error {
+	m.updatedWorkspaceCalled = true
 	m.updatedWorkspace = ws
 	return nil
 }
@@ -1434,6 +1436,23 @@ func TestPatchTaskRoutesEdits(t *testing.T) {
 		}
 		if svc.updatedWorkspace == nil || *svc.updatedWorkspace != 3 {
 			t.Errorf("updatedWorkspace = %v, want 3", svc.updatedWorkspace)
+		}
+	})
+
+	t.Run("workspace_id null", func(t *testing.T) {
+		svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+		srv := New(svc, nil, nil, ":0")
+		handler := srv.Handler()
+		body := `{"workspace_id":null}`
+		req := httptest.NewRequest("PATCH", "/api/tasks/t1", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", w.Code)
+		}
+		if !svc.updatedWorkspaceCalled || svc.updatedWorkspace != nil {
+			t.Errorf("workspace update called = %v with %v, want called with nil", svc.updatedWorkspaceCalled, svc.updatedWorkspace)
 		}
 	})
 
