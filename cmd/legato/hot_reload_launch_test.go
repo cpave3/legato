@@ -39,6 +39,7 @@ func TestParseLaunchRejectsUnsupportedHotReloadShapes(t *testing.T) {
 	for _, args := range [][]string{
 		{"--hot-reload", "task", "list"},
 		{"--hot-reload", "--hot-reload"},
+		{"--hot-reload", "serve", "--hot-reload"},
 		{"serve", "--hot-reload"},
 	} {
 		if _, err := parseLaunch(args, false); err == nil {

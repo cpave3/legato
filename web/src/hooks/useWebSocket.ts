@@ -99,9 +99,13 @@ export function useWebSocketProvider(wsUrl: string) {
 
   const connect = useCallback(() => {
     let url = wsUrlRef.current
-    // Derive the base URL for token lookup — strip /ws and protocol.
-    const baseUrl = url.replace(/^wss?:\/\//, "https://").replace(/\/ws$/, "")
-    const isOrigin = new URL(url.replace(/^wss?:/, "https:")).host === window.location.host
+    // Derive the matching HTTP URL for metadata and token lookup.
+    const httpUrl = new URL(url)
+    httpUrl.protocol = httpUrl.protocol === "wss:" ? "https:" : "http:"
+    httpUrl.pathname = httpUrl.pathname.replace(/\/ws$/, "")
+    httpUrl.search = ""
+    const isOrigin = httpUrl.host === window.location.host
+    const baseUrl = isOrigin ? "" : httpUrl.toString().replace(/\/$/, "")
     const token = getToken(isOrigin ? undefined : baseUrl)
     if (token) {
       url += `?token=${encodeURIComponent(token)}`
