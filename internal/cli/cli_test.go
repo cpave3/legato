@@ -155,16 +155,17 @@ func TestTaskShow_JSONFormat(t *testing.T) {
 	provider := "jira"
 	remoteID := "T-1"
 	if err := s.CreateTask(ctx, store.Task{
-		ID:            "abc123",
-		Title:         "Fetch task content",
-		DescriptionMD: "JSON body.",
-		Status:        "Backlog",
-		Priority:      "Medium",
-		Provider:      &provider,
-		RemoteID:      &remoteID,
-		RemoteMeta:    &remoteMeta,
-		CreatedAt:     "2024-01-01T00:00:00Z",
-		UpdatedAt:     "2024-01-01T00:00:00Z",
+		ID:                  "abc123",
+		Title:               "Fetch task content",
+		DescriptionMD:       "Local JSON body.",
+		RemoteDescriptionMD: "Provider JSON body.",
+		Status:              "Backlog",
+		Priority:            "Medium",
+		Provider:            &provider,
+		RemoteID:            &remoteID,
+		RemoteMeta:          &remoteMeta,
+		CreatedAt:           "2024-01-01T00:00:00Z",
+		UpdatedAt:           "2024-01-01T00:00:00Z",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -181,8 +182,11 @@ func TestTaskShow_JSONFormat(t *testing.T) {
 	if got["id"] != "abc123" {
 		t.Errorf("id = %v, want abc123", got["id"])
 	}
-	if got["description_md"] != "JSON body." {
-		t.Errorf("description_md = %v, want JSON body.", got["description_md"])
+	if got["description_md"] != "Provider JSON body.\n\n## Legato details\n\nLocal JSON body." {
+		t.Errorf("description_md = %v", got["description_md"])
+	}
+	if got["local_description_md"] != "Local JSON body." || got["remote_description_md"] != "Provider JSON body." {
+		t.Errorf("raw descriptions = %v / %v", got["local_description_md"], got["remote_description_md"])
 	}
 	if got["provider"] != "jira" {
 		t.Errorf("provider = %v, want jira", got["provider"])
@@ -338,19 +342,25 @@ func TestTaskDescription_UpdatesLocalTask(t *testing.T) {
 	}
 }
 
-func TestTaskDescription_RejectsJiraTask(t *testing.T) {
+func TestTaskDescription_UpdatesJiraTaskLegatoDetails(t *testing.T) {
 	s := newTestStore(t)
 	seedColumns(t, s)
 	provider := "jira"
 	if err := s.CreateTask(context.Background(), store.Task{
-		ID: "JIRA-1", Title: "Remote", Status: "Backlog", Provider: &provider,
+		ID: "JIRA-1", Title: "Remote", RemoteDescriptionMD: "Provider", Status: "Backlog", Provider: &provider,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	err := cli.TaskDescription(s, "JIRA-1", "Do not update")
-	if err == nil || !strings.Contains(err.Error(), "cannot edit description") {
-		t.Fatalf("error = %v, want remote edit rejection", err)
+	if err := cli.TaskDescription(s, "JIRA-1", "Legato detail"); err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.GetTask(context.Background(), "JIRA-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.DescriptionMD != "Legato detail" || task.RemoteDescriptionMD != "Provider" {
+		t.Fatalf("descriptions = %q / %q", task.DescriptionMD, task.RemoteDescriptionMD)
 	}
 }
 

@@ -390,21 +390,23 @@ func (s *Server) taskHandler() http.HandlerFunc {
 
 func cardDetailToResponse(d *service.CardDetail) CardDetailResponse {
 	resp := CardDetailResponse{
-		ID:              d.ID,
-		Title:           d.Title,
-		DescriptionMD:   d.DescriptionMD,
-		Status:          d.Status,
-		Priority:        d.Priority,
-		Provider:        d.Provider,
-		RemoteID:        d.RemoteID,
-		RemoteMeta:      d.RemoteMeta,
-		Metadata:        d.Metadata,
-		WorkspaceID:     d.WorkspaceID,
-		SwarmActiveStep: d.SwarmActiveStep,
-		SwarmStepNames:  d.SwarmStepNames,
-		CreatedAt:       d.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:       d.UpdatedAt.Format(time.RFC3339),
-		Notes:           d.Notes,
+		ID:                  d.ID,
+		Title:               d.Title,
+		DescriptionMD:       d.DescriptionMD,
+		LocalDescriptionMD:  d.LocalDescriptionMD,
+		RemoteDescriptionMD: d.RemoteDescriptionMD,
+		Status:              d.Status,
+		Priority:            d.Priority,
+		Provider:            d.Provider,
+		RemoteID:            d.RemoteID,
+		RemoteMeta:          d.RemoteMeta,
+		Metadata:            d.Metadata,
+		WorkspaceID:         d.WorkspaceID,
+		SwarmActiveStep:     d.SwarmActiveStep,
+		SwarmStepNames:      d.SwarmStepNames,
+		CreatedAt:           d.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:           d.UpdatedAt.Format(time.RFC3339),
+		Notes:               d.Notes,
 	}
 	if d.Worktree != nil {
 		resp.Worktree = &TaskWorktreeResponse{

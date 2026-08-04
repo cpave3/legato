@@ -84,6 +84,46 @@ func TestTaskUpdateFieldsMissingTask(t *testing.T) {
 	}
 }
 
+func TestTaskUpdateFieldsProviderDescriptionIsEditable(t *testing.T) {
+	s := newInternalTestStore(t)
+	seedInternalColumns(t, s)
+	provider := "jira"
+	seedInternalTask(t, s, store.Task{
+		ID: "jira-detail", Title: "Before", RemoteDescriptionMD: "Provider details",
+		Status: "Backlog", Provider: &provider,
+	})
+
+	if err := TaskUpdateFields(s, "jira-detail", TaskUpdateOptions{Status: strptr("Doing"), Description: strptr("Legato details")}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.GetTask(context.Background(), "jira-detail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != "Doing" || task.DescriptionMD != "Legato details" || task.RemoteDescriptionMD != "Provider details" {
+		t.Fatalf("updated task = %#v", task)
+	}
+}
+
+func TestTaskUpdateFieldsProviderDescriptionRollsBackOnValidationFailure(t *testing.T) {
+	s := newInternalTestStore(t)
+	seedInternalColumns(t, s)
+	provider := "jira"
+	seedInternalTask(t, s, store.Task{ID: "jira-invalid", Title: "Before", RemoteDescriptionMD: "Provider", Status: "Backlog", Provider: &provider})
+
+	err := TaskUpdateFields(s, "jira-invalid", TaskUpdateOptions{Status: strptr("Missing"), Description: strptr("New local")})
+	if err == nil {
+		t.Fatal("expected invalid status error")
+	}
+	task, getErr := s.GetTask(context.Background(), "jira-invalid")
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if task.Status != "Backlog" || task.DescriptionMD != "" || task.RemoteDescriptionMD != "Provider" {
+		t.Fatalf("task changed after validation failure: %#v", task)
+	}
+}
+
 func TestTaskUpdateFieldsProviderRestrictionIsAtomic(t *testing.T) {
 	s := newInternalTestStore(t)
 	seedInternalColumns(t, s)

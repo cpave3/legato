@@ -134,9 +134,8 @@ func TaskList(s *store.Store, opts TaskListOptions) ([]TaskListItem, error) {
 	return result, nil
 }
 
-// TaskDescription replaces the description of a local task. The board service
-// rejects Jira and other provider-backed tasks so remote details remain
-// authoritative.
+// TaskDescription replaces a task's Legato-owned description. Provider-owned
+// details remain authoritative and are not modified.
 func TaskDescription(s *store.Store, taskID, description string) error {
 	if strings.TrimSpace(taskID) == "" {
 		return fmt.Errorf("task ID is required")
@@ -337,9 +336,6 @@ func TaskUpdateFields(s *store.Store, taskID string, opts TaskUpdateOptions) err
 	}
 
 	if opts.Description != nil {
-		if task.Provider != nil {
-			return fmt.Errorf("cannot edit description of remote task %s", taskID)
-		}
 		task.Description = *opts.Description
 		task.DescriptionMD = *opts.Description
 	}
@@ -366,6 +362,9 @@ func TaskNote(s *store.Store, taskID, message string) error {
 	task, err := s.GetTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("task %q not found: %w", taskID, err)
+	}
+	if task.Provider != nil {
+		return fmt.Errorf("cannot append note to remote task %s", taskID)
 	}
 
 	timestamp := time.Now().UTC().Format("2006-01-02 15:04")
@@ -576,22 +575,24 @@ func TaskUnlink(s *store.Store, taskID string) error {
 }
 
 type taskDetailJSON struct {
-	ID              string            `json:"id"`
-	Title           string            `json:"title"`
-	DescriptionMD   string            `json:"description_md"`
-	Status          string            `json:"status"`
-	Priority        string            `json:"priority"`
-	Provider        string            `json:"provider"`
-	RemoteID        string            `json:"remote_id"`
-	RemoteMeta      map[string]string `json:"remote_meta"`
-	WorkspaceID     *int              `json:"workspace_id"`
-	PRMeta          *prMetaJSON       `json:"pr_meta"`
-	CodeContext     *codeContextJSON  `json:"code_context"`
-	SwarmActiveStep int               `json:"swarm_active_step"`
-	SwarmStepNames  []string          `json:"swarm_step_names"`
-	CreatedAt       time.Time         `json:"created_at"`
-	UpdatedAt       time.Time         `json:"updated_at"`
-	Notes           []store.TaskNote  `json:"notes"`
+	ID                  string            `json:"id"`
+	Title               string            `json:"title"`
+	DescriptionMD       string            `json:"description_md"`
+	LocalDescriptionMD  string            `json:"local_description_md"`
+	RemoteDescriptionMD string            `json:"remote_description_md"`
+	Status              string            `json:"status"`
+	Priority            string            `json:"priority"`
+	Provider            string            `json:"provider"`
+	RemoteID            string            `json:"remote_id"`
+	RemoteMeta          map[string]string `json:"remote_meta"`
+	WorkspaceID         *int              `json:"workspace_id"`
+	PRMeta              *prMetaJSON       `json:"pr_meta"`
+	CodeContext         *codeContextJSON  `json:"code_context"`
+	SwarmActiveStep     int               `json:"swarm_active_step"`
+	SwarmStepNames      []string          `json:"swarm_step_names"`
+	CreatedAt           time.Time         `json:"created_at"`
+	UpdatedAt           time.Time         `json:"updated_at"`
+	Notes               []store.TaskNote  `json:"notes"`
 }
 
 type codeContextJSON struct {
@@ -622,20 +623,22 @@ type prMetaJSON struct {
 
 func taskDetailJSONFromService(detail *service.CardDetail) taskDetailJSON {
 	resp := taskDetailJSON{
-		ID:              detail.ID,
-		Title:           detail.Title,
-		DescriptionMD:   detail.DescriptionMD,
-		Status:          detail.Status,
-		Priority:        detail.Priority,
-		Provider:        detail.Provider,
-		RemoteID:        detail.RemoteID,
-		RemoteMeta:      detail.RemoteMeta,
-		WorkspaceID:     detail.WorkspaceID,
-		SwarmActiveStep: detail.SwarmActiveStep,
-		SwarmStepNames:  detail.SwarmStepNames,
-		CreatedAt:       detail.CreatedAt,
-		UpdatedAt:       detail.UpdatedAt,
-		Notes:           detail.Notes,
+		ID:                  detail.ID,
+		Title:               detail.Title,
+		DescriptionMD:       detail.DescriptionMD,
+		LocalDescriptionMD:  detail.LocalDescriptionMD,
+		RemoteDescriptionMD: detail.RemoteDescriptionMD,
+		Status:              detail.Status,
+		Priority:            detail.Priority,
+		Provider:            detail.Provider,
+		RemoteID:            detail.RemoteID,
+		RemoteMeta:          detail.RemoteMeta,
+		WorkspaceID:         detail.WorkspaceID,
+		SwarmActiveStep:     detail.SwarmActiveStep,
+		SwarmStepNames:      detail.SwarmStepNames,
+		CreatedAt:           detail.CreatedAt,
+		UpdatedAt:           detail.UpdatedAt,
+		Notes:               detail.Notes,
 	}
 	if resp.RemoteMeta == nil {
 		resp.RemoteMeta = map[string]string{}
