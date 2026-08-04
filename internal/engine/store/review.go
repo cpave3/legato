@@ -436,6 +436,34 @@ func (s *Store) DeleteReviewChapter(ctx context.Context, stepID string) error {
 	return tx.Commit()
 }
 
+// CountReadyReviewTours returns the number of ready tours with persisted,
+// visible unreviewed work. It mirrors the service's authored-chapter visibility
+// rules without invoking repository reconciliation.
+func (s *Store) CountReadyReviewTours(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.GetContext(ctx, &count, `
+		SELECT COUNT(*)
+		FROM review_tours t
+		WHERE t.status = 'ready'
+		AND EXISTS (
+			SELECT 1 FROM review_steps s
+			WHERE s.tour_id = t.id
+			AND s.reviewed_at IS NULL
+			AND s.orphaned_at IS NULL
+			AND (
+				t.last_reviewed_sha != ''
+				OR s.kind = 'chapter'
+				OR NOT EXISTS (
+					SELECT 1
+					FROM review_steps chapter
+					JOIN review_chapter_hunks h ON h.step_id = chapter.id AND h.generated = 0
+					WHERE chapter.tour_id = t.id AND chapter.kind = 'chapter'
+				)
+			)
+		)`)
+	return count, err
+}
+
 // ListReviewTours returns all tours, most recently updated first.
 func (s *Store) ListReviewTours(ctx context.Context) ([]ReviewTour, error) {
 	var tours []ReviewTour

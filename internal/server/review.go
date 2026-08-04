@@ -16,6 +16,7 @@ import (
 
 // ReviewService is the subset of review operations exposed over HTTP.
 type ReviewService interface {
+	Sync(context.Context, string) error
 	Queue(context.Context) ([]service.ReviewQueueItem, error)
 	CapturingQueue(context.Context) ([]service.ReviewQueueItem, error)
 	Tour(ctx context.Context, tourID string) (*service.ReviewTourView, error)
@@ -58,6 +59,23 @@ func (s *Server) reviewHandler() http.HandlerFunc {
 			return
 		}
 		s.writeJSON(w, http.StatusOK, tour)
+	}
+}
+
+func (s *Server) reviewSyncHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !s.requireReviewService(w) {
+			return
+		}
+		if err := s.reviews.Sync(r.Context(), r.PathValue("tour_id")); err != nil {
+			s.writeReviewError(w, err)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "synced"})
 	}
 }
 

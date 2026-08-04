@@ -89,6 +89,40 @@ func newReviewServerFixture(t *testing.T) *reviewServerFixture {
 	return &reviewServerFixture{server: server, store: s, svc: svc, tourID: tour.ID, repo: repo, git: git}
 }
 
+func TestReviewGETDoesNotSyncAndExplicitSyncDoes(t *testing.T) {
+	f := newReviewServerFixture(t)
+	ctx := context.Background()
+	before, err := f.store.ListReviewSteps(ctx, f.tourID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.repo, "later.go"), []byte("package later\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f.git("add", ".")
+	f.git("commit", "-m", "later change")
+
+	get := httptest.NewRecorder()
+	f.server.server.Handler.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/api/review/tours/"+f.tourID, nil))
+	if get.Code != http.StatusOK {
+		t.Fatalf("GET status=%d body=%s", get.Code, get.Body.String())
+	}
+	afterGET, err := f.store.ListReviewSteps(ctx, f.tourID)
+	if err != nil || len(afterGET) != len(before) {
+		t.Fatalf("GET changed steps: before=%d after=%d err=%v", len(before), len(afterGET), err)
+	}
+
+	sync := httptest.NewRecorder()
+	f.server.server.Handler.ServeHTTP(sync, httptest.NewRequest(http.MethodPost, "/api/review/tours/"+f.tourID+"/sync", nil))
+	if sync.Code != http.StatusOK {
+		t.Fatalf("sync status=%d body=%s", sync.Code, sync.Body.String())
+	}
+	afterSync, err := f.store.ListReviewSteps(ctx, f.tourID)
+	if err != nil || len(afterSync) != len(before)+1 {
+		t.Fatalf("sync steps: before=%d after=%d err=%v", len(before), len(afterSync), err)
+	}
+}
+
 func TestReviewTourAndStepDiff(t *testing.T) {
 	f := newReviewServerFixture(t)
 	tourView, err := f.svc.Tour(context.Background(), f.tourID)

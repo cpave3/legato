@@ -1074,12 +1074,9 @@ type ReviewChapterDetail struct {
 	HunkNotes []store.ReviewHunkNote `json:"hunk_notes"`
 }
 
-// Chapters syncs and returns every chapter in review order with its durable
+// Chapters returns every persisted chapter in review order with its durable
 // memberships. Generated chapters remain identifiable to automation.
 func (r *ReviewService) Chapters(ctx context.Context, tourID string) (*ReviewChaptersView, error) {
-	if err := r.Sync(ctx, tourID); err != nil {
-		return nil, err
-	}
 	tour, err := r.store.GetReviewTour(ctx, tourID)
 	if err != nil {
 		return nil, err
@@ -1105,9 +1102,6 @@ func (r *ReviewService) Chapters(ctx context.Context, tourID string) (*ReviewCha
 // Chapter returns one chapter selected by full ID or unambiguous prefix,
 // including only the base-to-head hunks assigned to it.
 func (r *ReviewService) Chapter(ctx context.Context, tourID, stepPrefix string) (*ReviewChapterDetail, error) {
-	if err := r.Sync(ctx, tourID); err != nil {
-		return nil, err
-	}
 	tour, err := r.store.GetReviewTour(ctx, tourID)
 	if err != nil {
 		return nil, err
@@ -1180,11 +1174,8 @@ type ReviewTourView struct {
 	HunkNotes []store.ReviewHunkNote `json:"hunk_notes"`
 }
 
-// Tour syncs and returns the full tour: header, ordered steps, transcript.
+// Tour returns the persisted tour projection: header, ordered steps, transcript.
 func (r *ReviewService) Tour(ctx context.Context, tourID string) (*ReviewTourView, error) {
-	if err := r.Sync(ctx, tourID); err != nil {
-		return nil, err
-	}
 	tour, err := r.store.GetReviewTour(ctx, tourID)
 	if err != nil {
 		return nil, err
@@ -1582,10 +1573,10 @@ type ReviewQueueItem struct {
 	ActivityAt string `json:"activity_at"`
 }
 
-// QueueCount returns the number of explicitly ready tours with unreviewed work.
+// QueueCount returns the persisted number of explicitly ready tours with
+// visible unreviewed work. Reconciliation is an explicit command.
 func (r *ReviewService) QueueCount(ctx context.Context) (int, error) {
-	items, err := r.queueByStatus(ctx, "ready")
-	return len(items), err
+	return r.store.CountReadyReviewTours(ctx)
 }
 
 // Queue lists explicitly ready tours with unreviewed work.
@@ -1600,15 +1591,6 @@ func (r *ReviewService) CapturingQueue(ctx context.Context) ([]ReviewQueueItem, 
 
 func (r *ReviewService) queueByStatus(ctx context.Context, status string) ([]ReviewQueueItem, error) {
 	tours, err := r.store.ListReviewTours(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, tour := range tours {
-		// A stale or missing worktree makes only that tour unavailable; it must
-		// not hide reviewable work from other tasks.
-		_ = r.Sync(ctx, tour.ID)
-	}
-	tours, err = r.store.ListReviewTours(ctx)
 	if err != nil {
 		return nil, err
 	}

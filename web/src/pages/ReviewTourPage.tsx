@@ -22,6 +22,7 @@ import {
   regenerateReview,
   requestFollowUpPlan,
   setStepReviewed,
+  syncReviewTour,
   type DiffSelection,
   type FileDiff,
   type ReviewStep,
@@ -99,6 +100,10 @@ export function ReviewTourPage() {
     } finally {
       setBusy(false)
     }
+  }
+
+  async function syncChanges() {
+    await runAction(() => syncReviewTour(baseUrl, decodedTourId))
   }
 
   async function toggleReviewed(step: ReviewStep) {
@@ -227,6 +232,9 @@ export function ReviewTourPage() {
         </div>
         <div data-review-actions className="flex w-full flex-wrap items-center gap-2 md:w-auto md:flex-nowrap md:gap-3">
           <GoToAgentButton taskId={data.tour.task_id} />
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => void syncChanges()} title="Reconcile this review with its Git repository">
+            <RefreshCw size={13} /> Sync changes
+          </Button>
           <Button variant="outline" size="sm" onClick={() => setStepsOpen(true)} className="min-h-11 lg:hidden"><List size={15}/> Steps</Button>
           <Button variant="outline" size="sm" onClick={() => setQAOpen(true)} className="min-h-11 lg:hidden"><MessageSquare size={15}/> Notes</Button>
           <span className="text-xs text-zinc-400">{reviewedCount}/{reviewableCount} reviewed</span>

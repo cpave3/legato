@@ -186,6 +186,10 @@ export async function fetchReviewTour(baseUrl: string, tourId: string): Promise<
   return expectJSON<ReviewTourView>(await apiFetch(baseUrl, tourPath(tourId)))
 }
 
+export async function syncReviewTour(baseUrl: string, tourId: string): Promise<void> {
+  await expectOK(await apiFetch(baseUrl, `${tourPath(tourId)}/sync`, { method: "POST" }))
+}
+
 export async function fetchStepDiff(baseUrl: string, tourId: string, stepId: string): Promise<FileDiff[]> {
   return expectJSON<FileDiff[]>(await apiFetch(baseUrl, `${stepPath(tourId, stepId)}/diff`))
 }

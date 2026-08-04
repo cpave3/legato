@@ -320,6 +320,9 @@ func TestAdvancePassPreservesPriorPassAndStartsNextPass(t *testing.T) {
 	if err := f.svc.AdvancePass(ctx, f.tourID, "Address reviewer feedback"); err != nil {
 		t.Fatal(err)
 	}
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
+		t.Fatal(err)
+	}
 	view, err := f.svc.Tour(ctx, f.tourID)
 	if err != nil {
 		t.Fatal(err)
@@ -491,6 +494,27 @@ func TestUnreviewedCountsPreferChaptersOverHiddenCommitSteps(t *testing.T) {
 	}
 }
 
+func TestQueueCountMatchesAuthoredChapterVisibility(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "a.go", "package a\n")
+	gitCommitAll(t, f.repo, "add a")
+	if _, err := f.svc.CreateChapter(ctx, f.tourID, ChapterArgs{Title: "Package A", Includes: []ChapterInclude{{FilePath: "a.go", Hunk: 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.Ready(ctx, f.tourID, "ready"); err != nil {
+		t.Fatal(err)
+	}
+	queue, err := f.svc.Queue(ctx)
+	if err != nil || len(queue) != 1 || queue[0].Unreviewed != 1 {
+		t.Fatalf("queue = %+v, err = %v", queue, err)
+	}
+	count, err := f.svc.QueueCount(ctx)
+	if err != nil || count != len(queue) {
+		t.Fatalf("count = %d, queue = %d, err = %v", count, len(queue), err)
+	}
+}
+
 func TestReadyFreezesHeadAndCreatesRemainingChangesChapter(t *testing.T) {
 	f := newReviewFixture(t)
 	ctx := context.Background()
@@ -586,6 +610,9 @@ func TestReviewSyncWithoutWorktreeUsesRecordedRepository(t *testing.T) {
 	}
 	writeRepoFile(t, repo, "plain.go", "package plain\n")
 	gitCommitAll(t, repo, "plain repository commit")
+	if err := svc.Sync(context.Background(), tour.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	view, err := svc.Tour(context.Background(), tour.ID)
 	if err != nil {
@@ -596,6 +623,45 @@ func TestReviewSyncWithoutWorktreeUsesRecordedRepository(t *testing.T) {
 	}
 	if view.Messages == nil {
 		t.Fatal("empty transcript must be an empty slice, not nil")
+	}
+}
+
+func TestReviewReadsUsePersistedProjectionUntilExplicitSync(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "first.go", "package first\n")
+	gitCommitAll(t, f.repo, "first")
+	if err := f.svc.Ready(ctx, f.tourID, "ready"); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := f.store.ListReviewSteps(ctx, f.tourID)
+	if err != nil || len(before) != 1 {
+		t.Fatalf("before steps = %+v, err = %v", before, err)
+	}
+	writeRepoFile(t, f.repo, "second.go", "package second\n")
+	gitCommitAll(t, f.repo, "second")
+
+	if count, err := f.svc.QueueCount(ctx); err != nil || count != 1 {
+		t.Fatalf("queue count = %d, err = %v", count, err)
+	}
+	if queue, err := f.svc.Queue(ctx); err != nil || len(queue) != 1 || queue[0].Unreviewed != 1 {
+		t.Fatalf("queue = %+v, err = %v", queue, err)
+	}
+	if view, err := f.svc.Tour(ctx, f.tourID); err != nil || len(view.Steps) != 1 {
+		t.Fatalf("tour = %+v, err = %v", view, err)
+	}
+	afterReads, err := f.store.ListReviewSteps(ctx, f.tourID)
+	if err != nil || len(afterReads) != 1 {
+		t.Fatalf("reads changed persisted steps = %+v, err = %v", afterReads, err)
+	}
+
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
+		t.Fatal(err)
+	}
+	afterSync, err := f.store.ListReviewSteps(ctx, f.tourID)
+	if err != nil || len(afterSync) != 2 {
+		t.Fatalf("explicit sync steps = %+v, err = %v", afterSync, err)
 	}
 }
 
@@ -1417,6 +1483,9 @@ func TestReviewTourAndStepDiff(t *testing.T) {
 	writeRepoFile(t, f.repo, "a.go", "package a\n")
 	gitCommitAll(t, f.repo, "add a")
 	writeRepoFile(t, f.repo, "wip.go", "package wip\n")
+	if err := f.svc.Sync(ctx, f.tourID); err != nil {
+		t.Fatal(err)
+	}
 
 	view, err := f.svc.Tour(ctx, f.tourID)
 	if err != nil {

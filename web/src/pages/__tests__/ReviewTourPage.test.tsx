@@ -57,6 +57,18 @@ function renderPage() {
 }
 
 describe("ReviewTourPage", () => {
+  it("synchronizes Git only through the explicit action", async () => {
+    renderPage()
+
+    fireEvent.click(screen.getByRole("button", { name: "Sync changes" }))
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(
+      "/api/review/tours/rt-task-1/sync",
+      expect.objectContaining({ method: "POST" }),
+    ))
+    expect(mockRefresh).toHaveBeenCalledTimes(1)
+  })
+
   it("lets a reviewer inspect, mark, question, and complete a tour", async () => {
     renderPage()
 

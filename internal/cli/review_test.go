@@ -81,6 +81,9 @@ func TestReviewShowHumanReadable(t *testing.T) {
 
 func TestReviewShowJSON(t *testing.T) {
 	svc, _, tourID := newReviewCLIFixture(t)
+	if err := ReviewSync(svc, tourID); err != nil {
+		t.Fatal(err)
+	}
 
 	var out strings.Builder
 	if err := ReviewShow(svc, tourID, true, &out); err != nil {
