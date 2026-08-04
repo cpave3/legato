@@ -3,10 +3,14 @@ import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ReviewTourPage } from "../ReviewTourPage"
 
-const mockFetch = vi.fn()
-const mockRefresh = vi.fn()
+const { mockFetch, mockRefresh, renderMermaid } = vi.hoisted(() => ({
+  mockFetch: vi.fn(),
+  mockRefresh: vi.fn(),
+  renderMermaid: vi.fn(),
+}))
 vi.stubGlobal("fetch", mockFetch)
 
+vi.mock("mermaid", () => ({ default: { initialize: vi.fn(), render: renderMermaid } }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 vi.mock("../../hooks/useVoiceEnabled", () => ({ useVoiceEnabled: () => true }))
 vi.mock("../../hooks/useRunningAgent", () => ({ useRunningAgent: () => ({ agent: null, loading: false }) }))
@@ -19,6 +23,19 @@ vi.mock("../../hooks/useReview", () => ({
   useReviewTour: () => ({
     data: {
       tour: { id: "rt-task-1", task_id: "T-1", name: "Auth review", status: "ready", summary: "Review the authentication changes" },
+      passes: [{
+        pass: { id: "rp-1", number: 1, status: "ready", summary: "", guidance: "" },
+        captured_plan: { plan_id: "pl-1", revision_id: "pr-1", revision: 1, title: "Auth plan", markdown: "```mermaid\ngraph TD\n  Login --> Token\n```\n\n```go\nfmt.Println(\"code\")\n```" },
+        steps: [
+          { id: "S-1", task_id: "T-1", kind: "chapter", commit_sha: "", title: "Refresh expired tokens", narration: "Retries once after refreshing.", risk: "medium", reviewed_at: null, orphaned_at: null },
+          { id: "S-2", task_id: "T-1", kind: "commit", commit_sha: "abcdef123456", title: "Commit: auth refactor", narration: "", risk: "", reviewed_at: "2026-01-01", orphaned_at: null },
+        ],
+        messages: [{ id: 1, step_id: "S-1", author: "agent", kind: "answer", body: "The refresh is **single-flight**." }],
+        hunk_notes: [
+          { id: "N-1", task_id: "T-1", step_id: "S-1", file_path: "src/auth.ts", hunk_anchor: "missing-anchor", body: "This note lost its hunk.", created_at: "2026-01-01" },
+          { id: "N-2", task_id: "T-1", step_id: "S-2", file_path: "src/other.ts", hunk_anchor: "other-anchor", body: "Other step note.", created_at: "2026-01-01" },
+        ], findings: [], plan_requests: [],
+      }],
       steps: [
         { id: "S-1", task_id: "T-1", kind: "chapter", commit_sha: "", title: "Refresh expired tokens", narration: "Retries once after refreshing.", risk: "medium", reviewed_at: null, orphaned_at: null },
         { id: "S-2", task_id: "T-1", kind: "commit", commit_sha: "abcdef123456", title: "Commit: auth refactor", narration: "", risk: "", reviewed_at: "2026-01-01", orphaned_at: null },
@@ -42,6 +59,8 @@ afterEach(cleanup)
 beforeEach(() => {
   mockFetch.mockReset()
   mockRefresh.mockReset()
+  renderMermaid.mockReset()
+  renderMermaid.mockResolvedValue({ svg: "<svg><text>Captured plan diagram</text></svg>" })
   mockFetch.mockResolvedValue({ ok: true, json: async () => [] })
 })
 
@@ -57,6 +76,15 @@ function renderPage() {
 }
 
 describe("ReviewTourPage", () => {
+  it("renders Mermaid diagrams only in captured plan context", async () => {
+    renderPage()
+
+    fireEvent.click(screen.getByText("Plan context: Auth plan · revision 1"))
+    expect(await screen.findByText("Captured plan diagram")).toBeTruthy()
+    expect(screen.getByText('fmt.Println("code")')).toBeTruthy()
+    expect(renderMermaid.mock.calls.every(([, source]) => source === "graph TD\n  Login --> Token\n")).toBe(true)
+  })
+
   it("synchronizes Git only through the explicit action", async () => {
     renderPage()
 

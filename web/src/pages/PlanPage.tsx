@@ -10,6 +10,7 @@ import { ReviewMessageBody } from "../components/ReviewMessageBody"
 import { GoToAgentButton } from "../components/GoToAgentButton"
 import { Button } from "../components/ui/Button"
 import { InlineNotice } from "../components/ui/InlineNotice"
+import { MermaidMarkdownPre } from "../components/MermaidDiagram"
 
 type SourcePosition = { start?: { offset?: number }; end?: { offset?: number } }
 type SelectedBlock = { start: number; end: number; characterStart: number; characterEnd: number; text: string; label: string }
@@ -276,7 +277,7 @@ export function PlanPage() {
             p: props => block(props, "paragraph", <p className="my-3 text-zinc-300">{props.children}</p>),
             li: ({ children }) => <li className="ml-5 list-item">{children}</li>,
             blockquote: props => block(props, "blockquote", <blockquote className="my-3 border-l-2 border-zinc-700 pl-3 text-zinc-400">{props.children}</blockquote>),
-            pre: props => block(props, "code block", <pre className="my-3 overflow-x-auto rounded bg-black/40 p-3">{props.children}</pre>),
+            pre: props => block(props, "code block", <MermaidMarkdownPre>{props.children}</MermaidMarkdownPre>),
             tr: ({ children }) => <div role="row" className="grid grid-flow-col border-b border-zinc-800">{children}</div>,
             ul: props => block(props, "list", <ul className="my-3 list-disc">{props.children}</ul>),
             ol: props => block(props, "list", <ol className="my-3 list-decimal">{props.children}</ol>),

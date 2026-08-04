@@ -4,13 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { PlanPage } from "../PlanPage"
 import type { PlanComment } from "../../lib/plan"
 
-const { refresh, addPlanComment, updatePlanComment, askPlanQuestion, respondToPlanQuestion, planAction } = vi.hoisted(() => ({
+const { refresh, addPlanComment, updatePlanComment, askPlanQuestion, respondToPlanQuestion, planAction, initializeMermaid, renderMermaid } = vi.hoisted(() => ({
   refresh: vi.fn(async () => undefined),
   addPlanComment: vi.fn(),
   updatePlanComment: vi.fn(),
   askPlanQuestion: vi.fn(),
   respondToPlanQuestion: vi.fn(),
   planAction: vi.fn(),
+  initializeMermaid: vi.fn(),
+  renderMermaid: vi.fn(),
 }))
 
 const markdown = "# Block comments\n\nRepeat this paragraph.\n\nRepeat this paragraph.\n\n- First nested item\n- Second nested item\n\n```go\nfmt.Println(\"hello\")\n```\n"
@@ -21,6 +23,7 @@ const planData = {
   questions: [], responses: [], comments: [] as PlanComment[], messages: [],
 }
 
+vi.mock("mermaid",()=>({default:{initialize:initializeMermaid,render:renderMermaid}}))
 vi.mock("../../hooks/useServer",()=>({useServer:()=>({baseUrl:""})}))
 vi.mock("../../hooks/useRunningAgent",()=>({useRunningAgent:()=>({agent:null,loading:false})}))
 vi.mock("../../hooks/usePlan",()=>({usePlan:()=>({data:planData,loading:false,error:null,refresh})}))
@@ -31,7 +34,10 @@ vi.mock("../../lib/plan", async importOriginal => {
 
 afterEach(cleanup)
 beforeEach(()=>{
-  refresh.mockClear(); addPlanComment.mockReset(); updatePlanComment.mockReset(); askPlanQuestion.mockReset(); respondToPlanQuestion.mockReset(); planAction.mockReset()
+  planData.revision.markdown=markdown
+  planData.comments=[]
+  refresh.mockClear(); addPlanComment.mockReset(); updatePlanComment.mockReset(); askPlanQuestion.mockReset(); respondToPlanQuestion.mockReset(); planAction.mockReset(); renderMermaid.mockReset()
+  renderMermaid.mockResolvedValue({svg:"<svg><text>Rendered diagram</text></svg>"})
   addPlanComment.mockResolvedValue({id:"comment-1",revision_id:"rev-1",body:"Clarify this",selection_start:secondStart,selection_end:secondStart+22,selected_text:"Repeat this paragraph.",prefix:"",suffix:"",created_at:""})
   askPlanQuestion.mockResolvedValue({thread_id:"thread-1"})
 })
@@ -73,6 +79,71 @@ describe("PlanPage block comments",()=>{
     const fenced="```go\nfmt.Println(\"hello\")\n```"
     const start=markdown.indexOf(fenced)
     await waitFor(()=>expect(addPlanComment).toHaveBeenCalledWith("","pl-1",expect.objectContaining({selection_start:start,selection_end:start+fenced.length,selected_text:fenced})))
+  })
+
+  it("renders Mermaid fences as diagrams while preserving exact whole-fence byte anchors",async()=>{
+    const originalMarkdown=planData.revision.markdown
+    const mermaidFence="```mermaid\ngraph TD\n  A --> B\n```"
+    const goFence="```go\nfmt.Println(\"still code\")\n```"
+    planData.revision.markdown=`# Dïagrams\n\n${mermaidFence}\n\n${goFence}\n`
+    const characterStart=planData.revision.markdown.indexOf(mermaidFence)
+    const byteStart=new TextEncoder().encode(planData.revision.markdown.slice(0,characterStart)).length
+    const byteEnd=byteStart+new TextEncoder().encode(mermaidFence).length
+    addPlanComment.mockResolvedValue({id:"diagram-comment",revision_id:"rev-1",body:"Clarify this flow",selection_start:byteStart,selection_end:byteEnd,selected_text:mermaidFence,prefix:"",suffix:"",created_at:""})
+
+    renderPage()
+
+    expect(await screen.findByText("Rendered diagram")).toBeTruthy()
+    expect(screen.getByText('fmt.Println("still code")')).toBeTruthy()
+    expect(renderMermaid).toHaveBeenCalledWith(expect.stringMatching(/^mermaid-diagram-/),"graph TD\n  A --> B\n")
+    expect(renderMermaid.mock.calls.every(([,source])=>source==="graph TD\n  A --> B\n")).toBe(true)
+
+    const diagramControl=screen.getAllByRole("button",{name:/Comment on code block beginning/})[0]
+    fireEvent.click(diagramControl)
+    const composer=screen.getByLabelText("Comment on selected block")
+    fireEvent.change(composer,{target:{value:"Clarify this flow"}})
+    fireEvent.keyDown(composer,{key:"Enter",metaKey:true})
+
+    await waitFor(()=>expect(addPlanComment).toHaveBeenCalledWith("","pl-1",{
+      body:"Clarify this flow",selection_start:byteStart,selection_end:byteEnd,selected_text:mermaidFence,
+    }))
+    expect(await screen.findByText("Clarify this flow")).toBeTruthy()
+    expect(screen.getAllByRole("button",{name:/Comment on code block beginning/})[0].getAttribute("data-commented")).toBe("draft")
+
+    fireEvent.click(screen.getByRole("button",{name:"Request changes"}))
+    await waitFor(()=>expect(planAction).toHaveBeenCalledWith("","pl-1","request-changes",undefined))
+    planData.revision.markdown=originalMarkdown
+  })
+
+  it("renders duplicate and case-insensitive Mermaid fences independently without treating inline or unknown code as diagrams",async()=>{
+    const originalMarkdown=planData.revision.markdown
+    planData.revision.markdown="`mermaid`\n\n```MERMAID\ngraph TD\nA-->B\n```\n\n```mermaid\ngraph TD\nA-->B\n```\n\n```unknown\nmermaid\n```\n\n```\nmermaid\n```\n"
+
+    renderPage()
+
+    await waitFor(()=>expect(screen.getAllByRole("img",{name:"Mermaid diagram"})).toHaveLength(2))
+    const renderIDs=renderMermaid.mock.calls.map(([id])=>id)
+    expect(new Set(renderIDs).size).toBe(renderIDs.length)
+    expect(renderMermaid.mock.calls.every(([,source])=>source==="graph TD\nA-->B\n")).toBe(true)
+    expect(screen.getAllByRole("button",{name:/Comment on code block beginning/})).toHaveLength(4)
+    expect(screen.getAllByText("mermaid").length).toBeGreaterThanOrEqual(3)
+    planData.revision.markdown=originalMarkdown
+  })
+
+  it("keeps diagram comments and plan actions usable when Mermaid rejects malformed source",async()=>{
+    const originalMarkdown=planData.revision.markdown
+    planData.revision.markdown="```mermaid\nnot valid mermaid\n```\n"
+    renderMermaid.mockRejectedValue(new Error("Parse error"))
+
+    renderPage()
+
+    expect(await screen.findByText("Diagram could not be rendered. Mermaid source:")).toBeTruthy()
+    expect(screen.getByText("not valid mermaid")).toBeTruthy()
+    const control=screen.getByRole("button",{name:/Comment on code block beginning/})
+    fireEvent.click(control)
+    expect(screen.getByLabelText("Comment on selected block")).toBeTruthy()
+    expect(screen.getByRole("button",{name:"Approve"})).toBeTruthy()
+    planData.revision.markdown=originalMarkdown
   })
 
   it("drag-selects a contiguous range of outer blocks",async()=>{
