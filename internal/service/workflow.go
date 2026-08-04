@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -236,7 +237,7 @@ func (s *WorkflowService) ActiveAgentAttemptsByTask(ctx context.Context, taskID 
 }
 
 func (s *WorkflowService) AttentionCount(ctx context.Context) (int, error) {
-	runs, err := s.ListRuns(ctx, "", 100)
+	runs, err := s.ListRuns(ctx, "", math.MaxInt)
 	if err != nil {
 		return 0, err
 	}

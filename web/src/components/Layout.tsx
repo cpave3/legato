@@ -135,7 +135,9 @@ export function Layout() {
         <NavLink to="/plans" className={({isActive})=>cn("relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors",isActive?"bg-zinc-800 text-zinc-100":"text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300")} title={planCount>0?`Plan queue: ${planCount} plans`:"Plan queue"}>
           <ClipboardList size={20}/>{planCount>0&&<span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-indigo-400 px-1 text-center text-[9px] font-bold leading-4 text-zinc-950">{planCount>99?"99+":planCount}</span>}
         </NavLink>
-        <NavLink to="/workflows" className={({isActive})=>cn("flex h-10 w-10 items-center justify-center rounded-lg transition-colors",isActive?"bg-zinc-800 text-zinc-100":"text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300")} title="Workflows"><Workflow size={20}/></NavLink>
+        <NavLink to="/workflows" className={({isActive})=>cn("relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors",isActive?"bg-zinc-800 text-zinc-100":"text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300")} title={workflowAttentionCount>0?`Workflows: ${workflowAttentionCount} need attention`:"Workflows"}>
+          <Workflow size={20}/>{workflowAttentionCount>0&&<span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-red-500 px-1 text-center text-[9px] font-bold leading-4 text-white">{workflowAttentionCount>99?"99+":workflowAttentionCount}</span>}
+        </NavLink>
         <NavLink to="/learning" className={({isActive})=>cn("flex h-10 w-10 items-center justify-center rounded-lg transition-colors",isActive?"bg-zinc-800 text-zinc-100":"text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300")} title="Learning"><BookOpen size={20}/></NavLink>
         <NavLink to="/reports" aria-label="Reports" className={({isActive})=>cn("flex h-10 w-10 items-center justify-center rounded-lg transition-colors",isActive?"bg-zinc-800 text-zinc-100":"text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300")} title="Reports"><ChartNoAxesCombined size={20}/></NavLink>
 

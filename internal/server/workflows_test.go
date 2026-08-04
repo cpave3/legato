@@ -20,6 +20,7 @@ type forceWorkflowService struct {
 	retryForce   bool
 	artifact     *store.WorkflowArtifact
 	attempts     []store.WorkflowStepAttempt
+	lookupTaskID string
 }
 
 func (f *forceWorkflowService) Start(context.Context, *workflowengine.Definition, map[string]string) (*store.WorkflowRunView, error) {
@@ -28,7 +29,8 @@ func (f *forceWorkflowService) Start(context.Context, *workflowengine.Definition
 func (f *forceWorkflowService) ListRuns(context.Context, string, int) ([]store.WorkflowRun, error) {
 	return nil, nil
 }
-func (f *forceWorkflowService) ActiveAgentAttemptsByTask(context.Context, string) ([]store.WorkflowStepAttempt, error) {
+func (f *forceWorkflowService) ActiveAgentAttemptsByTask(_ context.Context, taskID string) ([]store.WorkflowStepAttempt, error) {
+	f.lookupTaskID = taskID
 	return f.attempts, nil
 }
 func (f *forceWorkflowService) Show(context.Context, string) (*store.WorkflowRunView, error) {
@@ -60,6 +62,9 @@ func TestNotifyAgentChangedEmitsTargetedWorkflowEvent(t *testing.T) {
 	changed := bus.Subscribe(events.EventWorkflowChanged)
 
 	s.NotifyAgentChanged("task-1")
+	if workflows.lookupTaskID != "task-1" {
+		t.Fatalf("lookup task ID = %q", workflows.lookupTaskID)
+	}
 
 	select {
 	case event := <-changed:

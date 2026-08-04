@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Layout } from "../components/Layout"
 import { QuerySyncProvider } from "../components/QuerySyncProvider"
 import { PlanQueuePage } from "../pages/PlanQueuePage"
-import { BoardPage } from "../pages/Board"
+import App from "../App"
+import { useWorkflowRun, useWorkflowRuns, useWorkflows } from "../hooks/useWorkflow"
+import { useNavigationSummary } from "../hooks/useNavigationSummary"
 import { createQueryClient } from "../lib/query"
 import type { WSMessage } from "../hooks/useWebSocket"
 
@@ -13,10 +15,11 @@ const { websocket } = vi.hoisted(() => ({
   websocket: {
     handler: undefined as ((message: WSMessage) => void) | undefined,
     connectionGeneration: 1,
+    baseUrl: "",
   },
 }))
 
-vi.mock("../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "", servers: [], activeServerName: "Local", setActiveServer: vi.fn() }) }))
+vi.mock("../hooks/useServer", () => ({ useServer: () => ({ baseUrl: websocket.baseUrl, servers: [], activeServerName: "Local", setActiveServer: vi.fn() }) }))
 vi.mock("../hooks/useWebSocket", () => ({
   useWebSocket: () => ({
     connected: true,
@@ -39,9 +42,19 @@ function requestPath(input: RequestInfo | URL) {
   return new URL(String(input), "http://legato.test").pathname
 }
 
+function WorkflowObservers() {
+  useWorkflows()
+  useWorkflowRuns()
+  useWorkflowRun("run-a")
+  useWorkflowRun("run-b")
+  useNavigationSummary()
+  return null
+}
+
 beforeEach(() => {
   websocket.handler = undefined
   websocket.connectionGeneration = 1
+  websocket.baseUrl = ""
 })
 
 describe("web request traffic", () => {
@@ -57,8 +70,9 @@ describe("web request traffic", () => {
       throw new Error(`unexpected request: ${path}`)
     }))
 
+    window.history.pushState({}, "", "/board")
     const client = createQueryClient()
-    render(<QueryClientProvider client={client}><QuerySyncProvider><MemoryRouter initialEntries={["/board"]}><Routes><Route element={<Layout/>}><Route path="/board" element={<BoardPage/>}/></Route></Routes></MemoryRouter></QuerySyncProvider></QueryClientProvider>)
+    render(<QueryClientProvider client={client}><QuerySyncProvider><App/></QuerySyncProvider></QueryClientProvider>)
 
     await waitFor(() => expect([...counts.values()].reduce((total, count) => total + count, 0)).toBe(4))
     expect(Object.fromEntries(counts)).toEqual({
@@ -82,6 +96,54 @@ describe("web request traffic", () => {
         "/api/board": 2,
         "/api/workflows": 1,
         "/api/settings": 1,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("revalidates cached snapshots when switching servers", async () => {
+    const client = createQueryClient()
+    client.setQueryData(["https://remote.example", "navigation-summary"], { attention: 0, review: 0, plans: 0, workflow_attention: 0, agents: 0 })
+    function Probe() {
+      useNavigationSummary()
+      return null
+    }
+    const fetchMock = vi.fn(() => response({ attention: 0, review: 0, plans: 0, workflow_attention: 0, agents: 0 }))
+    vi.stubGlobal("fetch", fetchMock)
+    const view = render(<QueryClientProvider client={client}><QuerySyncProvider><Probe/></QuerySyncProvider></QueryClientProvider>)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+    websocket.baseUrl = "https://remote.example"
+    view.rerender(<QueryClientProvider client={client}><QuerySyncProvider><Probe/></QuerySyncProvider></QueryClientProvider>)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  })
+
+  it("scopes workflow events to runs and never refreshes definitions", async () => {
+    const counts = new Map<string, number>()
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = requestPath(input)
+      counts.set(path, (counts.get(path) ?? 0) + 1)
+      if (path === "/api/workflows") return response({ definitions: [], errors: [], repositories: [] })
+      if (path === "/api/workflow-runs") return response([])
+      if (path === "/api/workflow-runs/run-a" || path === "/api/workflow-runs/run-b") return response({ run: { id: path.endsWith("run-a") ? "run-a" : "run-b" }, steps: [], attempts: [], artifacts: [] })
+      if (path === "/api/navigation-summary") return response({ attention: 0, review: 0, plans: 0, workflow_attention: 0, agents: 0 })
+      throw new Error(`unexpected request: ${path}`)
+    }))
+    const client = createQueryClient()
+    render(<QueryClientProvider client={client}><QuerySyncProvider><WorkflowObservers/></QuerySyncProvider></QueryClientProvider>)
+    await waitFor(() => expect([...counts.values()].reduce((total, count) => total + count, 0)).toBe(5))
+
+    vi.useFakeTimers()
+    try {
+      act(() => { for (let index = 0; index < 20; index++) websocket.handler?.({ type: "workflow_changed", workflow_run_id: "run-a" }) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(75) })
+      expect(Object.fromEntries(counts)).toEqual({
+        "/api/workflows": 1,
+        "/api/workflow-runs": 2,
+        "/api/workflow-runs/run-a": 2,
+        "/api/workflow-runs/run-b": 1,
+        "/api/navigation-summary": 2,
       })
     } finally {
       vi.useRealTimers()

@@ -12,7 +12,6 @@ export const queryKeys = {
   workflowDefinitions: (baseUrl: string) => [baseUrl, "workflow-definitions"] as const,
   workflowRuns: (baseUrl: string) => [baseUrl, "workflow-runs"] as const,
   workflowRun: (baseUrl: string, runId: string) => [baseUrl, "workflow-run", runId] as const,
-  agents: (baseUrl: string) => [baseUrl, "agents"] as const,
 }
 
 export function createQueryClient() {

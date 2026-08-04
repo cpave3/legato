@@ -56,12 +56,10 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           invalidate([baseUrl, "board"], false)
           break
         case "agents_changed":
-          invalidate(queryKeys.agents(baseUrl))
           invalidate(queryKeys.navigationSummary(baseUrl))
           break
         case "agent_list":
           if (message.agents) {
-            queryClient.setQueryData(queryKeys.agents(baseUrl), message.agents)
             queryClient.setQueryData<NavigationSummary>(queryKeys.navigationSummary(baseUrl), (current) => current ? {
               ...current,
               agents: countActiveAgents(message.agents ?? []),
@@ -83,6 +81,10 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
     const state = connectionState.current
     if (state.baseUrl !== baseUrl) {
       connectionState.current = { baseUrl, generation: connectionGeneration, awaitingFirstOpen: true }
+      void queryClient.refetchQueries({
+        type: "active",
+        predicate: (query) => query.queryKey[0] === baseUrl,
+      })
       return
     }
     if (connectionGeneration === state.generation) return

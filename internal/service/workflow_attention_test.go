@@ -2,12 +2,34 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
+
+func TestWorkflowAttentionCountIncludesRunsBeyondListPage(t *testing.T) {
+	db, _ := store.New(filepath.Join(t.TempDir(), "test.db"))
+	defer db.Close()
+	ctx := context.Background()
+	for i := 0; i < 101; i++ {
+		runID := fmt.Sprintf("run-%03d", i)
+		run := store.WorkflowRun{ID: runID, WorkflowName: "manual", WorkflowTitle: "Manual", DefinitionSource: "test", DefinitionDigest: "sha", DefinitionJSON: `{}`, InputsJSON: `{}`, Status: "waiting", CurrentStepID: "approve"}
+		steps := []store.WorkflowStepRun{{RunID: runID, StepID: "approve", StepOrder: 0, Title: "Approve", ExecutorType: "manual", DefinitionJSON: `{}`, Status: "waiting_manual"}}
+		if err := db.CreateWorkflowRun(ctx, run, steps); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count, err := NewWorkflowService(db, nil).AttentionCount(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 101 {
+		t.Fatalf("count = %d, want 101", count)
+	}
+}
 
 type promptingWorkflowExecutor struct {
 	fakeWorkflowExecutor

@@ -54,11 +54,12 @@ export function ImportRemoteModal({ open, onClose, onImported }: ImportRemoteMod
     setTimeout(() => inputRef.current?.focus(), 50)
   }, [open])
 
-  // Debounce search.
+  // Debounce search while the dialog is visible.
   useEffect(() => {
+    if (!open) return
     const t = setTimeout(() => doSearch(query), 400)
     return () => clearTimeout(t)
-  }, [query, doSearch])
+  }, [open, query, doSearch])
 
   // Keyboard nav.
   useEffect(() => {
