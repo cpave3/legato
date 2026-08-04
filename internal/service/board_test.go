@@ -616,28 +616,54 @@ func TestUpdateTaskDescription_Success(t *testing.T) {
 	}
 }
 
-func TestUpdateTaskDescription_RemoteTaskRejected(t *testing.T) {
-	s, _, svc := setupTestBoard(t)
+func TestUpdateTaskDescription_RemoteTaskUpdatesLegatoDetails(t *testing.T) {
+	s, bus, svc := setupTestBoard(t)
 	seedColumns(t, s)
-
-	// Create a remote task
 	ctx := context.Background()
-	now := time.Now().UTC().Format(time.RFC3339)
 	provider := "jira"
 	remoteID := "REX-123"
-	meta := `{"remote_status":"In Progress"}`
 	task := store.Task{
-		ID: "REX-123", Title: "Remote", Status: "Backlog",
-		Priority: "High", SortOrder: 0, CreatedAt: now, UpdatedAt: now,
-		Provider: &provider, RemoteID: &remoteID, RemoteMeta: &meta,
+		ID: "REX-123", Title: "Remote", Description: "", DescriptionMD: "old local",
+		RemoteDescriptionMD: "Provider details", Status: "Backlog", Provider: &provider, RemoteID: &remoteID,
 	}
 	if err := s.CreateTask(ctx, task); err != nil {
 		t.Fatal(err)
 	}
+	ch := bus.Subscribe(events.EventCardsRefreshed)
 
-	err := svc.UpdateTaskDescription(ctx, "REX-123", "new desc")
-	if err == nil {
-		t.Fatal("expected error for remote task")
+	if err := svc.UpdateTaskDescription(ctx, task.ID, "new **local** detail"); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Description != "new **local** detail" || stored.DescriptionMD != "new **local** detail" || stored.RemoteDescriptionMD != "Provider details" {
+		t.Fatalf("stored descriptions = %q / %q / %q", stored.Description, stored.DescriptionMD, stored.RemoteDescriptionMD)
+	}
+	detail, err := svc.GetCard(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Provider details\n\n## Legato details\n\nnew **local** detail"
+	if detail.DescriptionMD != want || detail.LocalDescriptionMD != "new **local** detail" || detail.RemoteDescriptionMD != "Provider details" {
+		t.Fatalf("detail descriptions = %q / %q / %q", detail.DescriptionMD, detail.LocalDescriptionMD, detail.RemoteDescriptionMD)
+	}
+	select {
+	case <-ch:
+	default:
+		t.Fatal("expected cards-refreshed event")
+	}
+
+	if err := svc.UpdateTaskDescription(ctx, task.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	detail, err = svc.GetCard(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.DescriptionMD != "Provider details" || detail.LocalDescriptionMD != "" {
+		t.Fatalf("cleared detail = %#v", detail)
 	}
 }
 

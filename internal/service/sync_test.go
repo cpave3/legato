@@ -650,6 +650,43 @@ func TestPushFailurePublishesTransitionFailedEvent(t *testing.T) {
 	}
 }
 
+func TestSyncRefreshesProviderDescriptionAndPreservesLegatoDetails(t *testing.T) {
+	svc, s, provider, _ := newTestSync(t)
+	ctx := context.Background()
+	oldUpdate := time.Now().Add(-time.Hour)
+	createSyncedTask(t, s, "TEST-42", "Old title", "Backlog", "To Do", oldUpdate, nil)
+	task, err := s.GetTask(ctx, "TEST-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Description = "Local detail"
+	task.DescriptionMD = "Local detail"
+	task.RemoteDescriptionMD = "Old provider detail"
+	if err := s.UpdateTask(ctx, *task); err != nil {
+		t.Fatal(err)
+	}
+	provider.tickets = []RemoteTicket{{ID: "TEST-42", Summary: "New title", DescriptionMD: "New provider detail", Status: "To Do", UpdatedAt: oldUpdate.Add(30 * time.Minute)}}
+
+	if _, err := svc.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := s.GetTask(ctx, "TEST-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Title != "New title" || stored.DescriptionMD != "Local detail" || stored.RemoteDescriptionMD != "New provider detail" {
+		t.Fatalf("synced task = %#v", stored)
+	}
+	board := NewBoardService(s, events.New())
+	detail, err := board.GetCard(ctx, "TEST-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detail.DescriptionMD != "New provider detail\n\n## Legato details\n\nLocal detail" {
+		t.Fatalf("effective description = %q", detail.DescriptionMD)
+	}
+}
+
 // SearchRemote tests
 
 func TestSearchRemoteReturnsMatchingTickets(t *testing.T) {
@@ -765,6 +802,9 @@ func TestImportRemoteTaskCreatesLocalTask(t *testing.T) {
 	}
 	if task.Status != "Doing" { // "In Progress" maps to "Doing"
 		t.Errorf("status = %q, want Doing", task.Status)
+	}
+	if task.DescriptionMD != "" || task.RemoteDescriptionMD != "## Details\nBuild it." {
+		t.Fatalf("descriptions = %q / %q", task.DescriptionMD, task.RemoteDescriptionMD)
 	}
 }
 

@@ -272,6 +272,25 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 		migrationSQL = strings.Replace(migrationSQL, "DROP INDEX idx_review_steps_commit;", "DROP INDEX IF EXISTS idx_review_steps_commit;", 1)
 		migrationSQL = strings.ReplaceAll(migrationSQL, "CREATE INDEX idx_review_", "CREATE INDEX IF NOT EXISTS idx_review_")
 	}
+	if name == "057_remote_description.sql" {
+		var taskTables, descriptionColumns int
+		if err := queryer.Get(&taskTables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`); err != nil {
+			return "", err
+		}
+		if taskTables == 0 {
+			return "", nil
+		}
+		if err := queryer.Get(&descriptionColumns, `SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name IN ('description', 'description_md')`); err != nil {
+			return "", err
+		}
+		if descriptionColumns != 2 {
+			migrationSQL = strings.Replace(migrationSQL, `UPDATE tasks
+SET remote_description_md = description_md,
+    description = '',
+    description_md = ''
+WHERE provider IS NOT NULL;`, "", 1)
+		}
+	}
 	var checkErr error
 	filtered := addColumnStatement.ReplaceAllStringFunc(migrationSQL, func(statement string) string {
 		matches := addColumnStatement.FindStringSubmatch(statement)
@@ -329,10 +348,10 @@ func existingColumnMatches(queryer migrationQueryer, migration, table, column, d
 
 func (s *Store) CreateTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO tasks (id, title, description, description_md, status,
+		INSERT INTO tasks (id, title, description, description_md, remote_description_md, status,
 			priority, sort_order, provider, remote_id, remote_meta, metadata,
 			workspace_id, ephemeral, swarm_working_dir, task_group, created_at, updated_at)
-		VALUES (:id, :title, :description, :description_md, :status,
+		VALUES (:id, :title, :description, :description_md, :remote_description_md, :status,
 			:priority, :sort_order, :provider, :remote_id, :remote_meta, :metadata,
 			:workspace_id, :ephemeral, :swarm_working_dir, :task_group, :created_at, :updated_at)`, t)
 	return err
@@ -381,6 +400,7 @@ func (s *Store) UpdateTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		UPDATE tasks SET
 			title = :title, description = :description, description_md = :description_md,
+			remote_description_md = :remote_description_md,
 			status = :status, priority = :priority, sort_order = :sort_order,
 			provider = :provider, remote_id = :remote_id, remote_meta = :remote_meta,
 			metadata = COALESCE(:metadata, tasks.metadata), workspace_id = :workspace_id, swarm_working_dir = :swarm_working_dir,
@@ -443,14 +463,15 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 // UpsertTask inserts a task or updates it if it already exists.
 func (s *Store) UpsertTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO tasks (id, title, description, description_md, status,
+		INSERT INTO tasks (id, title, description, description_md, remote_description_md, status,
 			priority, sort_order, provider, remote_id, remote_meta, metadata,
 			workspace_id, ephemeral, swarm_working_dir, created_at, updated_at)
-		VALUES (:id, :title, :description, :description_md, :status,
+		VALUES (:id, :title, :description, :description_md, :remote_description_md, :status,
 			:priority, :sort_order, :provider, :remote_id, :remote_meta, :metadata,
 			:workspace_id, :ephemeral, :swarm_working_dir, :created_at, :updated_at)
 		ON CONFLICT(id) DO UPDATE SET
 			title = :title, description = :description, description_md = :description_md,
+			remote_description_md = :remote_description_md,
 			status = :status, priority = :priority, sort_order = :sort_order,
 			provider = :provider, remote_id = :remote_id, remote_meta = :remote_meta,
 			metadata = COALESCE(:metadata, tasks.metadata), workspace_id = :workspace_id,
@@ -537,9 +558,9 @@ func (s *Store) CreateEphemeralTask(ctx context.Context, title string) (string, 
 	id := GenerateTaskID()
 	now := "datetime('now')"
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO tasks (id, title, description, description_md, status,
+		INSERT INTO tasks (id, title, description, description_md, remote_description_md, status,
 			priority, sort_order, ephemeral, created_at, updated_at)
-		VALUES (?, ?, '', '', ?, '', 0, 1, `+now+`, `+now+`)`,
+		VALUES (?, ?, '', '', '', ?, '', 0, 1, `+now+`, `+now+`)`,
 		id, title, status)
 	if err != nil {
 		return "", fmt.Errorf("creating ephemeral task: %w", err)

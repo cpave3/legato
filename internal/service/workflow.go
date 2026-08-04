@@ -173,10 +173,11 @@ func workflowTaskContext(task *store.Task) map[string]any {
 	if task.RemoteID != nil {
 		remoteID = *task.RemoteID
 	}
-	description := task.DescriptionMD
-	if description == "" {
-		description = task.Description
+	localDescription := task.DescriptionMD
+	if localDescription == "" {
+		localDescription = task.Description
 	}
+	description := taskDescriptionMD(task.Provider, task.RemoteDescriptionMD, localDescription)
 	metadata, _ := store.ParseTaskMetadata(task.Metadata)
 	workingDir := ""
 	if codeContext, err := store.ParseCodeContext(task.CodeContext); err == nil && codeContext != nil {

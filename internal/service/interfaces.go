@@ -74,25 +74,27 @@ type Workspace struct {
 
 // CardDetail contains all metadata for a single task.
 type CardDetail struct {
-	ID              string
-	Title           string
-	DescriptionMD   string
-	Status          string
-	Priority        string
-	Provider        string
-	RemoteID        string
-	RemoteMeta      map[string]string
-	Metadata        map[string]any
-	WorkspaceID     *int
-	PRMeta          *PRMetaView
-	CodeContext     *CodeContextView
-	Worktree        *store.TaskWorktree
-	SwarmActiveStep int
-	SwarmStepNames  []string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	Attachments     []LocalAttachment
-	Notes           []store.TaskNote
+	ID                  string
+	Title               string
+	DescriptionMD       string
+	LocalDescriptionMD  string
+	RemoteDescriptionMD string
+	Status              string
+	Priority            string
+	Provider            string
+	RemoteID            string
+	RemoteMeta          map[string]string
+	Metadata            map[string]any
+	WorkspaceID         *int
+	PRMeta              *PRMetaView
+	CodeContext         *CodeContextView
+	Worktree            *store.TaskWorktree
+	SwarmActiveStep     int
+	SwarmStepNames      []string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	Attachments         []LocalAttachment
+	Notes               []store.TaskNote
 }
 
 // LocalAttachment describes a cached attachment available to agents.

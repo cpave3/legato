@@ -42,9 +42,8 @@ func seedTaskForExport(t *testing.T, s *store.Store) {
 
 	if err := s.CreateTask(ctx, store.Task{
 		ID: "REX-1238", Title: "Refactor user service",
-		Description:   "Refactor the user service to use the new repository pattern.\n\nThis includes updating all endpoints.",
-		DescriptionMD: "Refactor the user service to use the new repository pattern.\n\nThis includes updating all endpoints.",
-		Status:        "Backlog", Priority: "High",
+		RemoteDescriptionMD: "Refactor the user service to use the new repository pattern.\n\nThis includes updating all endpoints.",
+		Status:              "Backlog", Priority: "High",
 		Provider: &provider, RemoteID: &remoteID, RemoteMeta: &metaStr,
 		CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
@@ -65,6 +64,24 @@ func TestFormatDescription_Standard(t *testing.T) {
 	}
 	if !strings.Contains(out, "new repository pattern") {
 		t.Error("description body not found")
+	}
+}
+
+func TestEffectiveDescriptionMD(t *testing.T) {
+	tests := []struct {
+		name, provider, remote, local, want string
+	}{
+		{name: "local unchanged", local: "  local text  ", want: "  local text  "},
+		{name: "provider only", provider: "jira", remote: "  provider text\n", want: "provider text"},
+		{name: "local only remote task", provider: "jira", local: "\nlocal text  ", want: "## Legato details\n\nlocal text"},
+		{name: "combined", provider: "jira", remote: "provider text\n\n", local: "\nlocal text", want: "provider text\n\n## Legato details\n\nlocal text"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := effectiveDescriptionMD(test.provider, test.remote, test.local); got != test.want {
+				t.Fatalf("effective description = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 

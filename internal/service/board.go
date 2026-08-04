@@ -441,9 +441,6 @@ func (b *boardService) UpdateTaskDescription(ctx context.Context, id, descriptio
 	if err != nil {
 		return err
 	}
-	if t.Provider != nil {
-		return fmt.Errorf("%w: cannot edit description of remote task %s", ErrRemoteTaskReadOnly, id)
-	}
 	t.Description = description
 	t.DescriptionMD = description
 	t.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
@@ -662,20 +659,24 @@ func taskToCardDetail(t *store.Task) *CardDetail {
 	createdAt, _ := time.Parse(time.RFC3339, t.CreatedAt)
 	updatedAt, _ := time.Parse(time.RFC3339, t.UpdatedAt)
 
+	provider := ""
+	if t.Provider != nil {
+		provider = *t.Provider
+	}
 	detail := &CardDetail{
-		ID:            t.ID,
-		Title:         t.Title,
-		DescriptionMD: t.DescriptionMD,
-		Status:        t.Status,
-		Priority:      t.Priority,
-		WorkspaceID:   t.WorkspaceID,
-		CreatedAt:     createdAt,
-		UpdatedAt:     updatedAt,
+		ID:                  t.ID,
+		Title:               t.Title,
+		DescriptionMD:       effectiveDescriptionMD(provider, t.RemoteDescriptionMD, t.DescriptionMD),
+		LocalDescriptionMD:  t.DescriptionMD,
+		RemoteDescriptionMD: t.RemoteDescriptionMD,
+		Status:              t.Status,
+		Priority:            t.Priority,
+		WorkspaceID:         t.WorkspaceID,
+		CreatedAt:           createdAt,
+		UpdatedAt:           updatedAt,
 	}
 
-	if t.Provider != nil {
-		detail.Provider = *t.Provider
-	}
+	detail.Provider = provider
 	if t.RemoteID != nil {
 		detail.RemoteID = *t.RemoteID
 	}

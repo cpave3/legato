@@ -194,7 +194,7 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 
 		// Update fields from remote
 		existing.Title = rt.Summary
-		existing.DescriptionMD = rt.DescriptionMD
+		existing.RemoteDescriptionMD = rt.DescriptionMD
 		existing.Priority = rt.Priority
 		existing.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
@@ -577,17 +577,17 @@ func (s *syncService) ImportRemoteTask(ctx context.Context, ticketID string, wor
 		URL:             rt.URL,
 	}
 	task := store.Task{
-		ID:            rt.ID,
-		Title:         rt.Summary,
-		DescriptionMD: rt.DescriptionMD,
-		Status:        column,
-		Priority:      rt.Priority,
-		Provider:      &provider,
-		RemoteID:      &remoteID,
-		RemoteMeta:    encodeRemoteMeta(meta),
-		WorkspaceID:   workspaceID,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ID:                  rt.ID,
+		Title:               rt.Summary,
+		RemoteDescriptionMD: rt.DescriptionMD,
+		Status:              column,
+		Priority:            rt.Priority,
+		Provider:            &provider,
+		RemoteID:            &remoteID,
+		RemoteMeta:          encodeRemoteMeta(meta),
+		WorkspaceID:         workspaceID,
+		CreatedAt:           now,
+		UpdatedAt:           now,
 	}
 	if err := s.reconcileAttachments(ctx, *rt); err != nil {
 		return nil, err

@@ -94,6 +94,47 @@ func TestNewCreatesDBAndTables(t *testing.T) {
 	}
 }
 
+func TestRemoteDescriptionMDRoundTripsThroughTaskWrites(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	task := Task{ID: "REX-REMOTE", Title: "Remote", DescriptionMD: "Local details", RemoteDescriptionMD: "Provider details", Status: "Backlog"}
+
+	if err := s.CreateTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DescriptionMD != "Local details" || got.RemoteDescriptionMD != "Provider details" {
+		t.Fatalf("created descriptions = %q / %q", got.DescriptionMD, got.RemoteDescriptionMD)
+	}
+
+	got.RemoteDescriptionMD = "Provider update"
+	if err := s.UpdateTask(ctx, *got); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DescriptionMD != "Local details" || got.RemoteDescriptionMD != "Provider update" {
+		t.Fatalf("updated descriptions = %q / %q", got.DescriptionMD, got.RemoteDescriptionMD)
+	}
+
+	got.RemoteDescriptionMD = "Provider upsert"
+	if err := s.UpsertTask(ctx, *got); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DescriptionMD != "Local details" || got.RemoteDescriptionMD != "Provider upsert" {
+		t.Fatalf("upserted descriptions = %q / %q", got.DescriptionMD, got.RemoteDescriptionMD)
+	}
+}
+
 func TestCreateAndGetTask(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
