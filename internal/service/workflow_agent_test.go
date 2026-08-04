@@ -63,8 +63,11 @@ func TestAgentRunExecutorLaunchesExplicitWorkflowAssignment(t *testing.T) {
 	if agents.name != "PR Review - 123" {
 		t.Fatalf("name = %q, want %q", agents.name, "PR Review - 123")
 	}
-	if agents.opts.ExtraEnv["LEGATO_WORKFLOW_RUN_ID"] != "wr-1" || agents.opts.WorkingDir != "/tmp/wt" || agents.opts.AgentKind != "chimera" {
+	if agents.opts.ExtraEnv["LEGATO_TASK_ID"] != "workflow-task" || agents.opts.ExtraEnv["LEGATO_WORKFLOW_RUN_ID"] != "wr-1" || agents.opts.WorkingDir != "/tmp/wt" || agents.opts.AgentKind != "chimera" {
 		t.Fatalf("opts = %+v", agents.opts)
+	}
+	if !strings.Contains(agents.opts.Assignment, "Workflow task ID: workflow-task") {
+		t.Fatalf("assignment lacks workflow task ID: %s", agents.opts.Assignment)
 	}
 	if agents.opts.ExecutionKind != store.ExecutionWorkflowAgent || agents.opts.AttributionTaskID != "task-1" || agents.opts.WorkflowAttemptID != "wa-1" {
 		t.Fatalf("execution attribution = %+v", agents.opts)

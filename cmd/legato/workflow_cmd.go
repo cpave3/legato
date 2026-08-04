@@ -7,9 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
+	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/jira"
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/service"
@@ -17,7 +20,17 @@ import (
 
 var workflowServiceFactory = func(db *store.Store, cfg *config.Config) (*service.WorkflowService, error) {
 	wd, _ := os.Getwd()
-	return buildWorkflowService(db, cfg, nil, nil, nil, nil, wd)
+	bus := events.New()
+	board := service.NewBoardService(db, bus)
+	var syncService service.SyncService
+	publishers := map[string]service.TaskNotePublisher{}
+	if cfg.Jira.BaseURL != "" && cfg.Jira.Email != "" && cfg.Jira.APIToken != "" {
+		jiraProvider := jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second)
+		publishers["jira"] = jiraProvider
+		provider := service.NewJiraProvider(jiraProvider)
+		syncService = service.NewSyncService(db, bus, provider, cfg.Jira.JQLFilter, cfg.Jira.ProjectKeys, time.Duration(cfg.Jira.SyncIntervalSeconds)*time.Second, cfg.Jira.StatusSyncEnabled)
+	}
+	return buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: board, Sync: syncService, WorkDir: wd, NotePublishers: publishers})
 }
 
 func workflowDirs() (string, string) {

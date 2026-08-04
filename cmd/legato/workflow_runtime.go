@@ -28,12 +28,28 @@ func checkoutInspector() service.CheckoutInspector {
 	})
 }
 
-func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, existingAgents service.AgentService, existingPR service.PRTrackingService, existingPRErr error, workDir string) (*service.WorkflowService, error) {
+type workflowRuntimeOptions struct {
+	Bus            *events.Bus
+	Board          service.BoardService
+	Sync           service.SyncService
+	Agents         service.AgentService
+	PR             service.PRTrackingService
+	PRErr          error
+	WorkDir        string
+	NotePublishers map[string]service.TaskNotePublisher
+}
+
+func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRuntimeOptions) (*service.WorkflowService, error) {
+	bus := opts.Bus
 	if bus == nil {
 		bus = events.New()
 	}
-	prSvc := existingPR
-	prErr := existingPRErr
+	board := opts.Board
+	if board == nil {
+		board = service.NewBoardService(db, bus)
+	}
+	prSvc := opts.PR
+	prErr := opts.PRErr
 	if prSvc == nil && prErr == nil {
 		client, _, err := buildGitHubClient(cfg, nil)
 		if err != nil {
@@ -43,7 +59,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 		}
 	}
 	learningSvc := configuredLearningService(cfg, db, bus, service.NewProjectIdentityResolver(checkoutInspector()))
-	agentSvc := existingAgents
+	agentSvc := opts.Agents
 	if agentSvc == nil {
 		mgr, err := tmux.New(tmux.Options{})
 		if err != nil {
@@ -74,17 +90,24 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, bus *events.Bus, 
 		if cfg.Learning.PromptEnabled {
 			promptProvider = learningSvc
 		}
-		agentSvc = service.NewAgentService(db, mgr, workDir, service.AgentServiceOptions{Adapter: chimera, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes})
+		agentSvc = service.NewAgentService(db, mgr, opts.WorkDir, service.AgentServiceOptions{Adapter: chimera, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes})
 	}
 	binary, _ := os.Executable()
 	runner := service.NewWorkflowAgentRunner(agentSvc, db, binary)
-	publishers := map[string]service.TaskNotePublisher{}
-	if cfg.Jira.BaseURL != "" && cfg.Jira.Email != "" && cfg.Jira.APIToken != "" {
+	publishers := opts.NotePublishers
+	if publishers == nil {
+		publishers = map[string]service.TaskNotePublisher{}
+	}
+	if _, configured := publishers["jira"]; !configured && cfg.Jira.BaseURL != "" && cfg.Jira.Email != "" && cfg.Jira.APIToken != "" {
 		publishers["jira"] = jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second)
 	}
 	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary), service.NewAgentStopExecutor(runner)}
 	executors = append(executors, learningWorkflowExecutors(db, learningSvc, runner, binary)...)
-	executors = append(executors, service.NewTaskNoteExecutor(db, publishers), service.NewTaskMetadataExecutor(db), service.NewFileRemoveExecutor())
+	var moveSync service.CardMoveSync
+	if configured, ok := opts.Sync.(service.CardMoveSync); ok {
+		moveSync = configured
+	}
+	executors = append(executors, service.NewTaskNoteExecutor(db, publishers), service.NewTaskMetadataExecutor(db), service.NewTaskMoveExecutor(service.NewWorkflowTaskMover(board, moveSync)), service.NewFileRemoveExecutor())
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector())
 		if prSvc != nil {

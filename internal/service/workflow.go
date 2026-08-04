@@ -380,7 +380,7 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 		return nil, err
 	}
 	step := definition.Steps[index]
-	resolved, err := definition.ResolveStep(step.ID, inputs, prior)
+	resolved, err := s.resolveStep(ctx, definition, step.ID, inputs, prior, view.Run.TaskID)
 	if err != nil {
 		return nil, err
 	}
@@ -460,11 +460,19 @@ func (s *WorkflowService) loadExecution(ctx context.Context, runID, stepID strin
 	return view, &definition, inputs, prior, index, nil
 }
 
+func (s *WorkflowService) resolveStep(ctx context.Context, definition *workflowengine.Definition, stepID string, inputs map[string]any, prior map[string]map[string]any, taskID string) (*workflowengine.ResolvedStep, error) {
+	task, err := s.store.GetTask(ctx, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("load workflow task %q: %w", taskID, err)
+	}
+	return definition.ResolveStep(stepID, inputs, workflowTaskContext(task), prior)
+}
+
 func (s *WorkflowService) advance(ctx context.Context, definition *workflowengine.Definition, inputs map[string]any, runID, taskID string, index int, prior map[string]map[string]any, selectedStep string, force bool) error {
 	for index < len(definition.Steps) {
 		step := definition.Steps[index]
 		isTriggered := selectedStep == step.ID
-		resolved, err := definition.ResolveStep(step.ID, inputs, prior)
+		resolved, err := s.resolveStep(ctx, definition, step.ID, inputs, prior, taskID)
 		if err != nil {
 			return err
 		}

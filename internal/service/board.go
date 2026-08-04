@@ -170,18 +170,6 @@ func moveCard(ctx context.Context, taskStore *store.Store, bus *events.Bus, id s
 		return err
 	}
 
-	// No-op if already in target column
-	if t.Status == targetColumn {
-		if recordLocalMove && t.Provider != nil {
-			t.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-			meta := parseRemoteMeta(t.RemoteMeta)
-			meta.LocalMoveAt = t.UpdatedAt
-			t.RemoteMeta = encodeRemoteMeta(meta)
-			return taskStore.UpdateTask(ctx, *t)
-		}
-		return nil
-	}
-
 	// Validate target column exists
 	mappings, err := taskStore.ListColumnMappings(ctx)
 	if err != nil {
@@ -196,6 +184,19 @@ func moveCard(ctx context.Context, taskStore *store.Store, bus *events.Bus, id s
 	}
 	if !found {
 		return fmt.Errorf("column %q not found", targetColumn)
+	}
+
+	// No-op locally if already in target column. Provider-aware moves still
+	// refresh conflict metadata so a failed remote transition can be retried.
+	if t.Status == targetColumn {
+		if recordLocalMove && t.Provider != nil {
+			t.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			meta := parseRemoteMeta(t.RemoteMeta)
+			meta.LocalMoveAt = t.UpdatedAt
+			t.RemoteMeta = encodeRemoteMeta(meta)
+			return taskStore.UpdateTask(ctx, *t)
+		}
+		return nil
 	}
 
 	// Find max sort_order in target column to place at end

@@ -28,6 +28,117 @@ steps:
 	}
 }
 
+func TestResolveWorkflowTaskIntrinsic(t *testing.T) {
+	definition, err := workflow.Parse("intrinsic.yaml", []byte(`
+schema_version: 1
+name: intrinsic
+title: Intrinsic
+steps:
+  - id: inspect
+    title: Inspect
+    type: agent.run
+    with:
+      task: ${{ workflow.task }}
+      id: ${{ workflow.task.id }}
+      prompt: "Task ${{ workflow.task.title }} at ${{ workflow.task.working_dir }}: ${{ workflow.task.metadata.repository.name }}"
+      nested:
+        owner: ${{ workflow.task.metadata.owner }}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowTask := map[string]any{
+		"id": "workflow-1", "title": "Intrinsic", "working_dir": "/tmp/workflow",
+		"metadata": map[string]any{"repository": map[string]any{"name": "legato"}, "owner": "platform"},
+	}
+	resolved, err := definition.ResolveStep("inspect", nil, workflowTask, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resolved.With["task"].(map[string]any)["id"]; got != "workflow-1" {
+		t.Fatalf("task id = %#v", got)
+	}
+	if got := resolved.With["id"]; got != "workflow-1" {
+		t.Fatalf("id = %#v", got)
+	}
+	if got := resolved.With["prompt"]; got != "Task Intrinsic at /tmp/workflow: legato" {
+		t.Fatalf("prompt = %#v", got)
+	}
+	if got := resolved.With["nested"].(map[string]any)["owner"]; got != "platform" {
+		t.Fatalf("nested owner = %#v", got)
+	}
+}
+
+func TestWorkflowTaskIntrinsicValidationRejectsUnsupportedReferences(t *testing.T) {
+	for _, expression := range []string{
+		"${{ workflow.tasks }}",
+		"${{ workflow.task.unknown }}",
+		"${{ workflow.task.title.extra }}",
+	} {
+		t.Run(expression, func(t *testing.T) {
+			_, err := workflow.Parse("invalid.yaml", []byte(`
+schema_version: 1
+name: invalid
+title: Invalid
+steps:
+  - id: inspect
+    title: Inspect
+    type: agent.run
+    with:
+      prompt: "`+expression+`"
+`))
+			if err == nil {
+				t.Fatalf("expected %s to fail validation", expression)
+			}
+		})
+	}
+}
+
+func TestTaskMoveRequiresTaskAndNonEmptyColumn(t *testing.T) {
+	for name, with := range map[string]string{
+		"missing task":   "column: Ready",
+		"missing column": "task: ${{ workflow.task }}",
+		"empty column":   "task: ${{ workflow.task }}\n      column: ' '",
+		"non-string":     "task: ${{ workflow.task }}\n      column: 42",
+		"literal task":   "task: subject-1\n      column: Ready",
+		"field task":     "task: ${{ workflow.task.id }}\n      column: Ready",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := workflow.Parse("move.yaml", []byte(`
+schema_version: 1
+name: move
+title: Move
+steps:
+  - id: move
+    title: Move
+    type: task.move
+    with:
+      `+with+`
+`))
+			if err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
+
+func TestWorkflowTaskIntrinsicIsUnavailableInRunTitle(t *testing.T) {
+	_, err := workflow.Parse("invalid.yaml", []byte(`
+schema_version: 1
+name: invalid
+title: Invalid
+run_title: Run ${{ workflow.task.id }}
+steps:
+  - id: inspect
+    title: Inspect
+    type: agent.run
+    with: {prompt: inspect}
+`))
+	if err == nil {
+		t.Fatal("expected workflow.task in run_title to fail validation")
+	}
+}
+
 func TestResolveManagedArtifactPathForLaterStep(t *testing.T) {
 	definition, err := workflow.Parse("task.yaml", []byte(`
 schema_version: 1
@@ -52,7 +163,7 @@ steps:
 	if err != nil {
 		t.Fatal(err)
 	}
-	step, err := definition.ResolveStep("note", map[string]any{"task": map[string]any{"id": "LEG-1"}}, map[string]map[string]any{"triage": {"report": map[string]any{"path": "/managed/triage.md", "artifact_id": "a1"}}})
+	step, err := definition.ResolveStep("note", map[string]any{"task": map[string]any{"id": "LEG-1"}}, nil, map[string]map[string]any{"triage": {"report": map[string]any{"path": "/managed/triage.md", "artifact_id": "a1"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +191,7 @@ steps:
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolved, err := definition.ResolveStep("inspect", map[string]any{"task": map[string]any{"id": "LEG-42"}}, nil)
+	resolved, err := definition.ResolveStep("inspect", map[string]any{"task": map[string]any{"id": "LEG-42"}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +221,7 @@ steps:
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = definition.ResolveStep("inspect", map[string]any{"task": map[string]any{"id": "x/../../outside"}}, nil)
+	_, err = definition.ResolveStep("inspect", map[string]any{"task": map[string]any{"id": "x/../../outside"}}, nil, nil)
 	if err == nil {
 		t.Fatal("expected unsafe resolved path to fail")
 	}
@@ -168,7 +279,7 @@ steps:
 		t.Fatalf("pr_number = %#v, want int64(42)", got)
 	}
 
-	resolved, err := definition.ResolveStep("review", inputs, map[string]map[string]any{
+	resolved, err := definition.ResolveStep("review", inputs, nil, map[string]map[string]any{
 		"prepare": {
 			"worktree_path": "/tmp/app-pr-42",
 			"metadata":      map[string]any{"head_sha": "abc123"},

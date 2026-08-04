@@ -142,7 +142,7 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 		ExecutionKind: store.ExecutionWorkflowAgent, AttributionTaskID: step.RelatedTaskID,
 		WorkflowRunID: step.RunID, WorkflowAttemptID: step.AttemptID,
 		ExtraEnv: map[string]string{
-			"LEGATO_WORKFLOW_RUN_ID": step.RunID, "LEGATO_WORKFLOW_STEP_ID": step.StepID, "LEGATO_WORKFLOW_ATTEMPT_ID": step.AttemptID,
+			"LEGATO_TASK_ID": step.TaskID, "LEGATO_WORKFLOW_RUN_ID": step.RunID, "LEGATO_WORKFLOW_STEP_ID": step.StepID, "LEGATO_WORKFLOW_ATTEMPT_ID": step.AttemptID,
 		},
 	}
 	session, err := e.agents.SpawnWorkflowAgent(ctx, step.TaskID, name, opts)
@@ -173,7 +173,7 @@ func buildWorkflowAssignment(prompt string, step ResolvedWorkflowStep, binaryPat
 		command = shellWorkflowCommand(binaryPath)
 	}
 	return prompt + "\n\n## Workflow completion contract\n" +
-		"Run ID: " + step.RunID + "\nStep ID: " + step.StepID + "\nAttempt ID: " + step.AttemptID + "\n" +
+		"Workflow task ID: " + step.TaskID + "\nRun ID: " + step.RunID + "\nStep ID: " + step.StepID + "\nAttempt ID: " + step.AttemptID + "\n" +
 		"Declared outputs: " + string(encoded) + "\n" +
 		"When all outputs are ready, run `" + command + " workflow step complete` with the output/artifact flags. On unrecoverable failure run `" + command + " workflow step fail \"reason\"`."
 }

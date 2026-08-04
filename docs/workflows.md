@@ -39,6 +39,7 @@ Version 1 executes steps in declaration order and supports these executors:
 - `file.remove`: idempotently remove one regular file beneath an explicit working directory. Absolute paths, traversal, symlink escapes, and directories are rejected.
 - `task.note`: add Markdown to a selected task. Pass a resolved `task` input plus either inline `body` or a managed/file `body_path`. Local notes are stored in Legato and shown in task detail; Jira-backed notes are also published as Jira comments. Provider failures fail the step rather than silently dropping the note.
 - `task.metadata.set`: atomically set one or more dotted local metadata paths on a task. Provider sync preserves this metadata.
+- `task.move`: move the required structured `with.task` to the required non-empty, exact case-sensitive configured column named by `with.column`. A real move appends the task to the end of that column and uses normal transitions, events, and column-entry triggers; use trigger conditions to avoid authoring loops. Moving to the current column is an idempotent local no-op with no new transition or event. In a configured provider runtime, `PushMove` may still queue the mapped Jira transition so a previously failed remote push can recover; workflow success confirms local persistence and queueing, not remote completion.
 - Built-in Learn definitions additionally own `agent.interview`, `learning.packet.prepare`, and `learning.proposals.submit`. They are internal orchestration contracts rather than general-purpose user workflow examples; see [Legato Learn](ai/learning.md).
 
 Task inputs expose `${{ workflow.inputs.task.metadata.<path> }}`. Metadata is arbitrary JSON, local to Legato, and separate from provider-owned `remote_meta`.
@@ -50,7 +51,7 @@ title: Review pull request
 run_title: Review PR #${{ workflow.inputs.pr_number }}
 ```
 
-`run_title` supports declared `workflow.inputs` references, including expanded task fields and metadata, but not step outputs. It resolves after typed input and task/repository expansion and must produce a non-empty string. The resolved value is stored on the run and used for its Workflows execution task; omitting it preserves the definition `title`.
+`run_title` supports declared `workflow.inputs` references, including expanded task fields and metadata, but not step outputs or `${{ workflow.task }}`. The intrinsic workflow task does not exist until after the run title resolves, so using it here is rejected as circular. The title resolves after typed input and task/repository expansion and must produce a non-empty string. The resolved value is stored on the run and used for its Workflows execution task; omitting it preserves the definition `title`.
 
 ### Run from a board card
 
@@ -124,10 +125,11 @@ steps:
         type: json
 ```
 
-Inputs support `string`, `integer`, `boolean`, `json`, `task`, and `repository`. A task input is supplied as an existing Legato task ID and resolves to structured `id`, `title`, `description`, `status`, `priority`, `provider`, `remote_id`, and local `metadata` fields. A repository input accepts a configured preset name or Custom JSON and resolves to `name`, `repo`, `primary_dir`, and `base_branch`. The web form groups selectable tasks by workspace and hides Done and archived tasks by default; enable **Show done and archived tasks** in the selector to include them. Outputs support scalar/JSON types plus `file`. File output paths support declared workflow input references and resolve separately for each run; for example, `path: "task-triage-${{ workflow.inputs.task.id }}.md"` prevents concurrent task runs from sharing a source file. File outputs infer a media type from known filename extensions when `media_type` is omitted, including `text/markdown` for `.md` and `.markdown`; unknown or extensionless files use `application/octet-stream`. Declare `media_type` when the format is known—an explicit value always overrides inference. Steps default to `trigger: automatic`; set `trigger: manual` to pause the run before that executor starts. A manual step creates no attempt until explicitly triggered with `legato workflow trigger <run-id> <step-id>`. While waiting, the run is non-terminal and contributes to the Workflows attention badge. Unknown fields, unsupported executors, unsafe paths, forward references, and undeclared references fail validation before a run starts.
+Inputs support `string`, `integer`, `boolean`, `json`, `task`, and `repository`. A task input is supplied as an existing Legato task ID and resolves to structured `id`, `title`, `description`, `status`, `priority`, `provider`, `remote_id`, `working_dir`, and local `metadata` fields. A repository input accepts a configured preset name or Custom JSON and resolves to `name`, `repo`, `primary_dir`, and `base_branch`. The web form groups selectable tasks by workspace and hides Done and archived tasks by default; enable **Show done and archived tasks** in the selector to include them. Outputs support scalar/JSON types plus `file`. File output paths support declared workflow input references and resolve separately for each run; for example, `path: "task-triage-${{ workflow.inputs.task.id }}.md"` prevents concurrent task runs from sharing a source file. File outputs infer a media type from known filename extensions when `media_type` is omitted, including `text/markdown` for `.md` and `.markdown`; unknown or extensionless files use `application/octet-stream`. Declare `media_type` when the format is known—an explicit value always overrides inference. Steps default to `trigger: automatic`; set `trigger: manual` to pause the run before that executor starts. A manual step creates no attempt until explicitly triggered with `legato workflow trigger <run-id> <step-id>`. While waiting, the run is non-terminal and contributes to the Workflows attention badge. Unknown fields, unsupported executors, unsafe paths, forward references, and undeclared references fail validation before a run starts.
 
 Templates support only:
 
+- `${{ workflow.task }}`, `${{ workflow.task.<field> }}`, and `${{ workflow.task.metadata.<path> }}` for the generated workflow execution task
 - `${{ workflow.inputs.<key> }}`
 - `${{ workflow.inputs.<task-key>.<field> }}` and `${{ workflow.inputs.<task-key>.metadata.<path> }}`
 - `${{ workflow.inputs.<repository-key>.<name|repo|primary_dir|base_branch> }}`
@@ -135,7 +137,7 @@ Templates support only:
 - `${{ steps.<earlier-step>.outputs.<file-key>.path }}`
 - `${{ outputs.<current-file-output>.path }}`
 
-Whole-field references preserve native types. Values interpolated into text use scalar or canonical JSON formatting.
+Whole-field references preserve native types. Values interpolated into text use scalar or canonical JSON formatting. `${{ workflow.task }}` is intrinsic and is not declared or supplied as an input; it has the same task fields as a declared task input and is reloaded before each step so mutable fields reflect earlier changes. It identifies the generated execution task, while `${{ workflow.inputs.task }}` identifies a workflow's selected subject.
 
 A task-triage workflow can remain manually runnable while also reacting to a local column entry:
 
@@ -180,7 +182,15 @@ steps:
     with:
       working_dir: ${{ workflow.inputs.repository.primary_dir }}
       path: "task-triage-${{ workflow.inputs.task.id }}.md"
+  - id: ready
+    title: Move task to Ready
+    type: task.move
+    with:
+      task: ${{ workflow.inputs.task }}
+      column: Ready
 ```
+
+Keep the move last: if investigation, note publication, metadata, or cleanup fails, the subject remains in its original column.
 
 ## Running and inspecting
 
@@ -200,17 +210,20 @@ legato workflow cancel <run-id> --json
 
 For a `worktree.remove` step, `--force` forwards Yggdrasil's force option and discards uncommitted worktree changes. It can be selected when first triggering a manual removal or when retrying a failed removal; other step types reject it.
 
-A run creates one shared local execution task in the automatically managed **Workflows** workspace. The default **All** workspace view excludes these tasks; select **Workflows** explicitly to inspect active runs. When the run succeeds, the execution task moves to **Done** and is archived immediately; failed or cancelled runs remain active in their current column for intervention. When a workflow accepts a `task` input, the selected target is stored separately as `related_task_id`; agent sessions continue to use the execution task so an existing task's active agent session is not replaced. Deterministic steps execute synchronously until an agent step starts. The run then advances when that agent explicitly completes or fails its step.
+A run creates one shared local execution task in the automatically managed **Workflows** workspace. The default **All** workspace view excludes these tasks; select **Workflows** explicitly to inspect active runs. `${{ workflow.task }}` and `LEGATO_TASK_ID` expose this task for explicit references or nonstandard operations; they do not replace normal lifecycle handling. When the run succeeds, the execution task moves to **Done** and is archived immediately; failed or cancelled runs remain active in their current column for intervention. When a workflow accepts a `task` input, the selected target is stored separately as `related_task_id`; agent sessions continue to use the execution task so an existing task's active agent session is not replaced. Deterministic steps execute synchronously until an agent step starts. The run then advances when that agent explicitly completes or fails its step.
 
 ## Agent completion
 
 Workflow agents receive these environment variables:
 
 ```text
+LEGATO_TASK_ID
 LEGATO_WORKFLOW_RUN_ID
 LEGATO_WORKFLOW_STEP_ID
 LEGATO_WORKFLOW_ATTEMPT_ID
 ```
+
+`LEGATO_TASK_ID` is the generated workflow execution task ID and is also printed in the assignment completion contract.
 
 Complete a step using declared output names:
 

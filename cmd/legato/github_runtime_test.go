@@ -33,7 +33,7 @@ func TestBuildWorkflowServiceDoesNotRequireGitHubAuthenticationForLocalWorkflows
 	}
 	defer db.Close()
 	cfg := &config.Config{GitHub: config.GitHubConfig{Auth: "token"}}
-	workflowService, err := buildWorkflowService(db, cfg, nil, nil, nil, nil, t.TempDir())
+	workflowService, err := buildWorkflowService(db, cfg, workflowRuntimeOptions{WorkDir: t.TempDir()})
 	if err != nil || workflowService == nil {
 		t.Fatalf("service=%v err=%v", workflowService, err)
 	}

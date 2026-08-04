@@ -96,6 +96,12 @@ func (d *Definition) Validate() error {
 			return fmt.Errorf("input %q has unsupported type %q", key, input.Type)
 		}
 	}
+	for _, match := range expressionPattern.FindAllStringSubmatch(d.RunTitle, -1) {
+		expr := strings.TrimSpace(match[1])
+		if expr == "workflow.task" || strings.HasPrefix(expr, "workflow.task.") {
+			return fmt.Errorf("run_title: workflow.task is unavailable before the workflow task is created")
+		}
+	}
 	if err := validateReferences(d.RunTitle, d.Inputs, nil, nil); err != nil {
 		return fmt.Errorf("run_title: %w", err)
 	}
@@ -113,10 +119,10 @@ func (d *Definition) Validate() error {
 		if step.Trigger != "automatic" && step.Trigger != "manual" {
 			return fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger)
 		}
-		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.interview" && step.Type != "agent.stop" && step.Type != "worktree.remove" && step.Type != "file.remove" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" {
+		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.interview" && step.Type != "agent.stop" && step.Type != "worktree.remove" && step.Type != "file.remove" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "task.move" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" {
 			return fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type)
 		}
-		if err := validateLearningStep(*step); err != nil {
+		if err := validateStepContract(*step, d.Inputs); err != nil {
 			return fmt.Errorf("step %q: %w", step.ID, err)
 		}
 		for field, value := range step.With {
@@ -144,9 +150,19 @@ func (d *Definition) Validate() error {
 	return nil
 }
 
-func validateLearningStep(step Step) error {
+func validateStepContract(step Step, inputs map[string]Input) error {
 	required := []string{}
 	switch step.Type {
+	case "task.move":
+		required = []string{"task", "column"}
+		if task, ok := step.With["task"]; ok && !wholeTaskReference(task, inputs) {
+			return fmt.Errorf("with task must be a whole task reference")
+		}
+		if column, ok := step.With["column"]; ok {
+			if text, literal := column.(string); !literal || (len(expressionPattern.FindAllStringSubmatch(text, -1)) == 0 && strings.TrimSpace(text) == "") {
+				return fmt.Errorf("with column must be a non-empty string")
+			}
+		}
 	case "agent.stop":
 		required = []string{"task"}
 	case "learning.packet.prepare":
@@ -167,13 +183,33 @@ func validateLearningStep(step Step) error {
 	return nil
 }
 
+func wholeTaskReference(value any, inputs map[string]Input) bool {
+	text, ok := value.(string)
+	if !ok {
+		return false
+	}
+	matches := expressionPattern.FindAllStringSubmatchIndex(text, -1)
+	if len(matches) != 1 || matches[0][0] != 0 || matches[0][1] != len(text) {
+		return false
+	}
+	parts := strings.Split(strings.TrimSpace(text[matches[0][2]:matches[0][3]]), ".")
+	if len(parts) == 2 && parts[0] == "workflow" && parts[1] == "task" {
+		return true
+	}
+	if len(parts) != 3 || parts[0] != "workflow" || parts[1] != "inputs" {
+		return false
+	}
+	input, ok := inputs[parts[2]]
+	return ok && input.Type == "task"
+}
+
 func validValueType(valueType string, file bool) bool {
 	return valueType == "string" || valueType == "integer" || valueType == "boolean" || valueType == "json" || (!file && (valueType == "task" || valueType == "repository")) || (file && valueType == "file")
 }
 
 func validTaskField(field string) bool {
 	switch field {
-	case "id", "title", "description", "status", "priority", "provider", "remote_id", "metadata":
+	case "id", "title", "description", "status", "priority", "provider", "remote_id", "working_dir", "metadata":
 		return true
 	}
 	return false
@@ -224,6 +260,12 @@ func validateReferences(value any, inputs map[string]Input, current map[string]O
 		expr := strings.TrimSpace(match[1])
 		parts := strings.Split(expr, ".")
 		switch {
+		case len(parts) == 2 && parts[0] == "workflow" && parts[1] == "task":
+		case len(parts) >= 3 && parts[0] == "workflow" && parts[1] == "task":
+			valid := validTaskField(parts[2]) && (len(parts) == 3 || parts[2] == "metadata")
+			if !valid {
+				return fmt.Errorf("workflow task has no field path %q", strings.Join(parts[2:], "."))
+			}
 		case len(parts) == 3 && parts[0] == "workflow" && parts[1] == "inputs":
 			if _, ok := inputs[parts[2]]; !ok {
 				return fmt.Errorf("input %q is not declared", parts[2])
@@ -321,7 +363,7 @@ func (d *Definition) ResolveRunTitle(inputs map[string]any) (string, error) {
 	if d.RunTitle == "" {
 		return d.Title, nil
 	}
-	resolved, err := resolveValue(d.RunTitle, nil, inputs, nil)
+	resolved, err := resolveValue(d.RunTitle, nil, inputs, nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("resolve run_title: %w", err)
 	}
@@ -332,7 +374,7 @@ func (d *Definition) ResolveRunTitle(inputs map[string]any) (string, error) {
 	return title, nil
 }
 
-func (d *Definition) ResolveStep(stepID string, inputs map[string]any, outputs map[string]map[string]any) (*ResolvedStep, error) {
+func (d *Definition) ResolveStep(stepID string, inputs, workflowTask map[string]any, outputs map[string]map[string]any) (*ResolvedStep, error) {
 	var selected *Step
 	for i := range d.Steps {
 		if d.Steps[i].ID == stepID {
@@ -346,7 +388,7 @@ func (d *Definition) ResolveStep(stepID string, inputs map[string]any, outputs m
 	resolvedOutputs := make(map[string]Output, len(selected.Outputs))
 	for key, output := range selected.Outputs {
 		if output.Type == "file" {
-			resolved, err := resolveValue(output.Path, nil, inputs, outputs)
+			resolved, err := resolveValue(output.Path, nil, inputs, workflowTask, outputs)
 			if err != nil {
 				return nil, fmt.Errorf("step %q output %q path: %w", stepID, key, err)
 			}
@@ -360,7 +402,7 @@ func (d *Definition) ResolveStep(stepID string, inputs map[string]any, outputs m
 	}
 	with := make(map[string]any, len(selected.With))
 	for key, value := range selected.With {
-		resolved, err := resolveValue(value, resolvedOutputs, inputs, outputs)
+		resolved, err := resolveValue(value, resolvedOutputs, inputs, workflowTask, outputs)
 		if err != nil {
 			return nil, fmt.Errorf("step %q field %q: %w", stepID, key, err)
 		}
@@ -369,12 +411,12 @@ func (d *Definition) ResolveStep(stepID string, inputs map[string]any, outputs m
 	return &ResolvedStep{ID: selected.ID, Title: selected.Title, Type: selected.Type, With: with, Outputs: resolvedOutputs}, nil
 }
 
-func resolveValue(value any, current map[string]Output, inputs map[string]any, outputs map[string]map[string]any) (any, error) {
+func resolveValue(value any, current map[string]Output, inputs, workflowTask map[string]any, outputs map[string]map[string]any) (any, error) {
 	switch nested := value.(type) {
 	case map[string]any:
 		resolved := make(map[string]any, len(nested))
 		for key, item := range nested {
-			value, err := resolveValue(item, current, inputs, outputs)
+			value, err := resolveValue(item, current, inputs, workflowTask, outputs)
 			if err != nil {
 				return nil, err
 			}
@@ -384,7 +426,7 @@ func resolveValue(value any, current map[string]Output, inputs map[string]any, o
 	case []any:
 		resolved := make([]any, len(nested))
 		for i, item := range nested {
-			value, err := resolveValue(item, current, inputs, outputs)
+			value, err := resolveValue(item, current, inputs, workflowTask, outputs)
 			if err != nil {
 				return nil, err
 			}
@@ -401,13 +443,13 @@ func resolveValue(value any, current map[string]Output, inputs map[string]any, o
 		return text, nil
 	}
 	if len(matches) == 1 && matches[0][0] == 0 && matches[0][1] == len(text) {
-		return resolveExpression(strings.TrimSpace(text[matches[0][2]:matches[0][3]]), current, inputs, outputs)
+		return resolveExpression(strings.TrimSpace(text[matches[0][2]:matches[0][3]]), current, inputs, workflowTask, outputs)
 	}
 	var result strings.Builder
 	last := 0
 	for _, match := range matches {
 		result.WriteString(text[last:match[0]])
-		resolved, err := resolveExpression(strings.TrimSpace(text[match[2]:match[3]]), current, inputs, outputs)
+		resolved, err := resolveExpression(strings.TrimSpace(text[match[2]:match[3]]), current, inputs, workflowTask, outputs)
 		if err != nil {
 			return nil, err
 		}
@@ -426,8 +468,28 @@ func resolveValue(value any, current map[string]Output, inputs map[string]any, o
 	return result.String(), nil
 }
 
-func resolveExpression(expr string, current map[string]Output, inputs map[string]any, outputs map[string]map[string]any) (any, error) {
+func resolveExpression(expr string, current map[string]Output, inputs, workflowTask map[string]any, outputs map[string]map[string]any) (any, error) {
 	parts := strings.Split(expr, ".")
+	if len(parts) >= 2 && parts[0] == "workflow" && parts[1] == "task" {
+		if workflowTask == nil {
+			return nil, fmt.Errorf("workflow task is unavailable")
+		}
+		if len(parts) == 2 {
+			return workflowTask, nil
+		}
+		var field any = workflowTask
+		for _, part := range parts[2:] {
+			object, ok := field.(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("workflow task field path %q is unavailable", strings.Join(parts[2:], "."))
+			}
+			field, ok = object[part]
+			if !ok {
+				return nil, fmt.Errorf("workflow task field path %q is unavailable", strings.Join(parts[2:], "."))
+			}
+		}
+		return field, nil
+	}
 	if len(parts) >= 3 && parts[0] == "workflow" && parts[1] == "inputs" {
 		value, ok := inputs[parts[2]]
 		if !ok {
