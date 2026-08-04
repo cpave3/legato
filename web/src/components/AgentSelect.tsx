@@ -18,6 +18,8 @@ function ActivityDot({ activity }: { activity: string }) {
       return <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" title="Working" />
     case "waiting":
       return <span className="inline-flex h-2 w-2 rounded-full bg-yellow-500" title="Waiting" />
+    case "error":
+      return <span className="inline-flex h-2 w-2 rounded-full bg-red-500" title="Error" />
     default:
       return <span className="inline-flex h-2 w-2 rounded-full bg-zinc-600" title="Idle" />
   }
@@ -29,6 +31,8 @@ function ActivityLabel({ activity }: { activity: string }) {
       return <span className="text-[10px] font-medium uppercase text-emerald-400">Working</span>
     case "waiting":
       return <span className="text-[10px] font-medium uppercase text-yellow-400">Waiting</span>
+    case "error":
+      return <span className="text-[10px] font-medium uppercase text-red-400">Error</span>
     default:
       return <span className="text-[10px] font-medium uppercase text-zinc-500">Idle</span>
   }

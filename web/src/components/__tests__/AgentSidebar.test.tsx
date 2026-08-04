@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { cleanup, render, screen } from "@testing-library/react"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { AgentSidebar } from "../AgentSidebar"
 import type { AgentInfo } from "../../hooks/useWebSocket"
 
@@ -17,7 +17,22 @@ const longAgent: AgentInfo = {
   waiting_seconds: 0,
 }
 
+afterEach(cleanup)
+
 describe("AgentSidebar", () => {
+  it("renders error activity and timeline in red", () => {
+    render(
+      <AgentSidebar
+        agents={[{ ...longAgent, activity: "error", state_timeline: ["error"] }]}
+        selectedId={longAgent.task_id}
+        onSelect={() => {}}
+        onSpawn={() => {}}
+      />,
+    )
+    expect(screen.getByTitle("Error").className).toContain("bg-red-500")
+    expect(document.querySelector('[data-state="error"]')?.getAttribute("style")).toContain("rgb(239, 68, 68)")
+  })
+
   it("constrains long agent metadata to the fixed sidebar width", () => {
     render(
       <AgentSidebar

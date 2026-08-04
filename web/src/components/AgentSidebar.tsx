@@ -37,6 +37,13 @@ function activityBadge(activity: string) {
           title="Waiting"
         />
       );
+    case "error":
+      return (
+        <span
+          className="inline-flex h-2 w-2 rounded-full bg-red-500"
+          title="Error"
+        />
+      );
     default:
       return (
         <span
@@ -245,6 +252,7 @@ export function AgentSidebar({
                       {agent.state_timeline.map((s, idx) => (
                         <div
                           key={idx}
+                          data-state={s}
                           className="h-2 flex-1 rounded-sm"
                           style={{
                             backgroundColor:
@@ -252,7 +260,9 @@ export function AgentSidebar({
                                 ? "#10b981"
                                 : s === "waiting"
                                   ? "#eab308"
-                                  : "#71717a",
+                                  : s === "error"
+                                    ? "#ef4444"
+                                    : "#71717a",
                           }}
                         />
                       ))}

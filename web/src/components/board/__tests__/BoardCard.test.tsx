@@ -56,6 +56,14 @@ describe("BoardCard", () => {
     expect(screen.getByText("Draft")).toBeTruthy()
   })
 
+  it("shows ERROR in red instead of idle for an errored agent", () => {
+    const card = makeCard({ agent_state: "error" })
+    render(<BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
+    const error = screen.getByText(/ERROR/)
+    expect(error.className).toContain("text-red-400")
+    expect(screen.queryByText(/IDLE/)).toBeNull()
+  })
+
   it("shows IDLE when agent_active but no state", () => {
     const card = makeCard({ agent_state: "" })
     render(<BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
