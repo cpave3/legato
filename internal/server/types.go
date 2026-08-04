@@ -92,6 +92,7 @@ type CardDetailResponse struct {
 	PRMeta              *PRMetaResponse       `json:"pr_meta,omitempty"`
 	CodeContext         *CodeContextResponse  `json:"code_context,omitempty"`
 	Worktree            *TaskWorktreeResponse `json:"worktree,omitempty"`
+	HasChimeraSession   bool                  `json:"has_chimera_session"`
 	SwarmActiveStep     int                   `json:"swarm_active_step"`
 	SwarmStepNames      []string              `json:"swarm_step_names,omitempty"`
 	CreatedAt           string                `json:"created_at"`

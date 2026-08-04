@@ -1213,6 +1213,7 @@ func TestGetTaskDetail_Returns200(t *testing.T) {
 			RemoteDescriptionMD: "provider",
 			Status:              "Doing",
 			Priority:            "High",
+			HasChimeraSession:   true,
 			CreatedAt:           time.Now(),
 			UpdatedAt:           time.Now(),
 			Notes:               []store.TaskNote{{ID: "tn-1", TaskID: "task-1", Body: "Triage note", Source: "workflow"}},
@@ -1242,6 +1243,9 @@ func TestGetTaskDetail_Returns200(t *testing.T) {
 	}
 	if len(resp.Notes) != 1 || resp.Notes[0].Body != "Triage note" {
 		t.Fatalf("notes = %#v", resp.Notes)
+	}
+	if !resp.HasChimeraSession {
+		t.Fatal("has_chimera_session = false, want true")
 	}
 	if resp.PRMeta == nil {
 		t.Fatal("pr_meta is nil")

@@ -89,6 +89,7 @@ type CardDetail struct {
 	PRMeta              *PRMetaView
 	CodeContext         *CodeContextView
 	Worktree            *store.TaskWorktree
+	HasChimeraSession   bool
 	SwarmActiveStep     int
 	SwarmStepNames      []string
 	CreatedAt           time.Time

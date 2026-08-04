@@ -672,6 +672,7 @@ func taskToCardDetail(t *store.Task) *CardDetail {
 		Status:              t.Status,
 		Priority:            t.Priority,
 		WorkspaceID:         t.WorkspaceID,
+		HasChimeraSession:   t.ChimeraSessionID != nil && *t.ChimeraSessionID != "",
 		CreatedAt:           createdAt,
 		UpdatedAt:           updatedAt,
 	}

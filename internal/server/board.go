@@ -402,6 +402,7 @@ func cardDetailToResponse(d *service.CardDetail) CardDetailResponse {
 		RemoteMeta:          d.RemoteMeta,
 		Metadata:            d.Metadata,
 		WorkspaceID:         d.WorkspaceID,
+		HasChimeraSession:   d.HasChimeraSession,
 		SwarmActiveStep:     d.SwarmActiveStep,
 		SwarmStepNames:      d.SwarmStepNames,
 		CreatedAt:           d.CreatedAt.Format(time.RFC3339),

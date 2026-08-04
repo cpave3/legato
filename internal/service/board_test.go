@@ -218,6 +218,24 @@ func TestGetCardIncludesPersistedWorktree(t *testing.T) {
 	}
 }
 
+func TestGetCardReportsPersistedChimeraSession(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	seedColumns(t, s)
+	seedTasks(t, s)
+	ctx := context.Background()
+	if err := s.SetTaskChimeraSessionID(ctx, "T-1", "chimera-session"); err != nil {
+		t.Fatal(err)
+	}
+
+	card, err := svc.GetCard(ctx, "T-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !card.HasChimeraSession {
+		t.Fatal("HasChimeraSession = false, want true")
+	}
+}
+
 func TestGetCardIncludesTaskNotes(t *testing.T) {
 	s, _, svc := setupTestBoard(t)
 	seedColumns(t, s)
