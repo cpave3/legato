@@ -21,8 +21,13 @@ export function useReviewQueue(includeCapturing = false): AsyncReviewState<Revie
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const requestIdRef = useRef(0)
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const refresh = useCallback(async () => {
+    if (refreshTimeoutRef.current !== null) {
+      clearTimeout(refreshTimeoutRef.current)
+      refreshTimeoutRef.current = null
+    }
     const requestId = ++requestIdRef.current
     try {
       setError(null)
@@ -36,9 +41,20 @@ export function useReviewQueue(includeCapturing = false): AsyncReviewState<Revie
   }, [baseUrl, includeCapturing])
 
   useEffect(() => { void refresh() }, [refresh])
-  useEffect(() => subscribe((message) => {
-    if (message.type === "review_changed") void refresh()
-  }), [refresh, subscribe])
+  useEffect(() => {
+    const unsubscribe = subscribe((message) => {
+      if (message.type !== "review_changed") return
+      if (refreshTimeoutRef.current !== null) clearTimeout(refreshTimeoutRef.current)
+      refreshTimeoutRef.current = setTimeout(() => {
+        refreshTimeoutRef.current = null
+        void refresh()
+      }, 50)
+    })
+    return () => {
+      unsubscribe()
+      if (refreshTimeoutRef.current !== null) clearTimeout(refreshTimeoutRef.current)
+    }
+  }, [refresh, subscribe])
 
   return { data, loading, error, refresh }
 }

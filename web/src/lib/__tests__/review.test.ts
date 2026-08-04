@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { fetchReviewTour, setStepReviewed } from "../review"
+import { fetchReviewQueue, fetchReviewTour, setStepReviewed } from "../review"
 
 const mockFetch = vi.fn()
 vi.stubGlobal("fetch", mockFetch)
@@ -18,6 +18,21 @@ describe("review API", () => {
       "https://legato.example/api/review/tours/rt-task-1",
       expect.objectContaining({ headers: {} }),
     )
+  })
+
+  it("shares an in-flight review queue request across callers", async () => {
+    let resolveRequest!: (value: unknown) => void
+    mockFetch.mockImplementationOnce(() => new Promise((resolve) => { resolveRequest = resolve }))
+
+    const first = fetchReviewQueue("https://legato.example")
+    const second = fetchReviewQueue("https://legato.example")
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+
+    resolveRequest({ ok: true, json: async () => [{ tour_id: "rt-task-1" }] })
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      [{ tour_id: "rt-task-1" }],
+      [{ tour_id: "rt-task-1" }],
+    ])
   })
 
   it("sends reviewed state and exposes a server failure", async () => {

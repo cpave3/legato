@@ -39,6 +39,33 @@ describe("useReviewQueue", () => {
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("/api/review/queue?include_capturing=true", expect.anything()))
   })
 
+  it("coalesces a burst of review changes into one queue refresh", async () => {
+    let handler: ((message: WSMessage) => void) | undefined
+    mockSubscribe.mockImplementation((next) => {
+      handler = next
+      return () => undefined
+    })
+    mockFetch.mockResolvedValue({ ok: true, json: async () => [] })
+
+    renderHook(() => useReviewQueue())
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
+
+    vi.useFakeTimers()
+    try {
+      act(() => {
+        for (let index = 0; index < 20; index++) {
+          handler?.({ type: "review_changed", tour_id: `rt-${index}`, kind: "deleted" })
+        }
+      })
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("ignores an expanded response after captures are hidden again", async () => {
     mockSubscribe.mockReturnValue(() => undefined)
     let resolveExpanded!: (value: unknown) => void
