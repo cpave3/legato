@@ -1,5 +1,5 @@
 import type { ReactNode } from "react"
-import { X } from "lucide-react"
+import { ChevronRight, X } from "lucide-react"
 
 import type { CardDetail } from "../../lib/board-types"
 import { Button } from "../ui/Button"
@@ -33,6 +33,20 @@ function Property({ label, children, wide = false }: { label: string; children: 
 
 const sectionHeadingClass = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500"
 const sidebarButtonClass = "w-full justify-start"
+
+function DescriptionSection({ kind, title, markdown, emptyLabel }: { kind: "remote" | "local"; title: string; markdown: string; emptyLabel: string }) {
+  return <details open data-description-section={kind} className="group rounded-lg border border-zinc-800 bg-zinc-950/30">
+    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-semibold text-zinc-200 marker:hidden">
+      <ChevronRight size={16} className="shrink-0 text-zinc-500 transition-transform group-open:rotate-90" />
+      {title}
+    </summary>
+    <div className="border-t border-zinc-800 px-4 py-3">
+      {markdown
+        ? <pre className="whitespace-pre-wrap font-sans text-sm leading-6 text-zinc-400">{markdown}</pre>
+        : <p className="text-sm italic text-zinc-600">{emptyLabel}</p>}
+    </div>
+  </details>
+}
 
 export function DetailPanel({
   card,
@@ -81,9 +95,14 @@ export function DetailPanel({
                 <h3 id="task-description-heading" className="text-sm font-semibold text-zinc-200">Description</h3>
                 <Button variant="ghost" size="sm" title="Shortcut: e" onClick={onEditDescription}>{isLocal ? "Edit" : "Edit Legato details"}</Button>
               </div>
-              {card.description_md
-                ? <pre className="mt-3 whitespace-pre-wrap font-sans text-sm leading-6 text-zinc-400">{card.description_md}</pre>
-                : <p className="mt-3 text-sm italic text-zinc-600">No description</p>}
+              {isLocal
+                ? card.description_md
+                  ? <pre className="mt-3 whitespace-pre-wrap font-sans text-sm leading-6 text-zinc-400">{card.description_md}</pre>
+                  : <p className="mt-3 text-sm italic text-zinc-600">No description</p>
+                : <div className="mt-3 space-y-3">
+                  <DescriptionSection kind="remote" title="Remote ticket details" markdown={card.remote_description_md} emptyLabel="No remote ticket details" />
+                  <DescriptionSection kind="local" title="Legato details" markdown={card.local_description_md} emptyLabel="No Legato details" />
+                </div>}
             </section>
             <div className="mt-6 border-t border-zinc-800 pt-5">
               <TaskActivityTabs taskId={card.id} notes={card.notes ?? []}/>

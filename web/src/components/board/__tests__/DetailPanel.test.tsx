@@ -106,6 +106,35 @@ describe("DetailPanel", () => {
     expect(screen.getByText(/Edit desc/)).toBeTruthy()
   })
 
+  it("shows remote and Legato details as independent expanded accordions", () => {
+    const { container } = renderPanel(makeCard({
+      provider: "jira",
+      description_md: "A long remote description\n\n## Legato details\n\nA long local description",
+      remote_description_md: "A long remote description",
+      local_description_md: "A long local description",
+    }))
+
+    const remote = container.querySelector("[data-description-section='remote']") as HTMLDetailsElement
+    const local = container.querySelector("[data-description-section='local']") as HTMLDetailsElement
+    expect(remote.open).toBe(true)
+    expect(local.open).toBe(true)
+    expect(screen.getByText("A long remote description")).toBeTruthy()
+    expect(screen.getByText("A long local description")).toBeTruthy()
+    expect(screen.queryByText(/## Legato details/)).toBeNull()
+
+    fireEvent.click(screen.getByText("Remote ticket details"))
+    expect(remote.open).toBe(false)
+    expect(local.open).toBe(true)
+    fireEvent.click(screen.getByText("Legato details"))
+    expect(local.open).toBe(false)
+  })
+
+  it("shows empty Legato details separately from provider content", () => {
+    renderPanel(makeCard({ provider: "jira", description_md: "Provider only", remote_description_md: "Provider only", local_description_md: "" }))
+    expect(screen.getByText("Provider only")).toBeTruthy()
+    expect(screen.getByText("No Legato details")).toBeTruthy()
+  })
+
   it("offers Legato detail editing but not title editing for a remote task", () => {
     const onEditDescription = vi.fn()
     render(<DetailPanel card={makeCard({ provider: "jira" })} onClose={() => {}} onEditTitle={() => {}} onEditDescription={onEditDescription} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />)
