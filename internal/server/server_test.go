@@ -1206,14 +1206,16 @@ func TestGetTaskDetail_Returns200(t *testing.T) {
 		columns: []service.Column{},
 		cards:   map[string][]service.Card{},
 		cardDetail: &service.CardDetail{
-			ID:            "task-1",
-			Title:         "Test task",
-			DescriptionMD: "description",
-			Status:        "Doing",
-			Priority:      "High",
-			CreatedAt:     time.Now(),
-			UpdatedAt:     time.Now(),
-			Notes:         []store.TaskNote{{ID: "tn-1", TaskID: "task-1", Body: "Triage note", Source: "workflow"}},
+			ID:                  "task-1",
+			Title:               "Test task",
+			DescriptionMD:       "provider\n\n## Legato details\n\nlocal",
+			LocalDescriptionMD:  "local",
+			RemoteDescriptionMD: "provider",
+			Status:              "Doing",
+			Priority:            "High",
+			CreatedAt:           time.Now(),
+			UpdatedAt:           time.Now(),
+			Notes:               []store.TaskNote{{ID: "tn-1", TaskID: "task-1", Body: "Triage note", Source: "workflow"}},
 			PRMeta: &service.PRMetaView{
 				Repo:     "acme/app",
 				Branch:   "feat/x",
@@ -1234,6 +1236,9 @@ func TestGetTaskDetail_Returns200(t *testing.T) {
 	var resp CardDetailResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp.DescriptionMD != "provider\n\n## Legato details\n\nlocal" || resp.LocalDescriptionMD != "local" || resp.RemoteDescriptionMD != "provider" {
+		t.Fatalf("descriptions = %q / %q / %q", resp.DescriptionMD, resp.LocalDescriptionMD, resp.RemoteDescriptionMD)
 	}
 	if len(resp.Notes) != 1 || resp.Notes[0].Body != "Triage note" {
 		t.Fatalf("notes = %#v", resp.Notes)

@@ -283,6 +283,42 @@ func TestListTasksByStatusOrderedBySortOrder(t *testing.T) {
 	}
 }
 
+func TestUpdateTaskFromProviderPreservesConcurrentLocalDescription(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	provider := "jira"
+	task := Task{ID: "REX-SYNC", Title: "Old", Description: "Old local", DescriptionMD: "Old local", RemoteDescriptionMD: "Old remote", Status: "Backlog", Provider: &provider}
+	if err := s.CreateTask(ctx, task); err != nil {
+		t.Fatal(err)
+	}
+	staleProviderSnapshot, err := s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localEdit, err := s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localEdit.Description = "Concurrent local"
+	localEdit.DescriptionMD = "Concurrent local"
+	if err := s.UpdateTask(ctx, *localEdit); err != nil {
+		t.Fatal(err)
+	}
+
+	staleProviderSnapshot.Title = "New provider title"
+	staleProviderSnapshot.RemoteDescriptionMD = "New remote"
+	if err := s.UpdateTaskFromProvider(ctx, *staleProviderSnapshot); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DescriptionMD != "Concurrent local" || got.RemoteDescriptionMD != "New remote" || got.Title != "New provider title" {
+		t.Fatalf("task after provider update = %#v", got)
+	}
+}
+
 func TestUpdateTaskPersistsChanges(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

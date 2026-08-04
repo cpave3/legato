@@ -79,7 +79,7 @@ The board page (`BoardPage` in `web/src/components/board/BoardPage.tsx`) is a ke
 
 **Per-card indicators.** Each card shows: priority-colored left border, provider icon (Jira, GitHub, local), warning dot if sync failed, workspace tag in "All" view, branch/PR status pill when a PR is linked, and swarm stat dots (total sub-tasks with done/in-progress counts) when the card has an active swarm. Cards with running agents show a terminal icon.
 
-**Overlay set.** Create overlay (`CreateTaskOverlay`), Import overlay (`ImportOverlay`), workspace switcher (`WorkspaceOverlay`), archive confirmation (`ArchiveOverlay`), link-PR modal (`LinkPRModal`), help (`HelpOverlay`), and a detail slide-out (`TaskDetail`) for viewing full card context. Only one overlay is active at a time; Escape dismisses. The detail pane shows description markdown, remote metadata, PR branch info, and swarm step list with active step highlighted.
+**Overlay set.** Create overlay (`CreateTaskOverlay`), Import overlay (`ImportOverlay`), workspace switcher (`WorkspaceOverlay`), archive confirmation (`ArchiveOverlay`), link-PR modal (`LinkPRModal`), help (`HelpOverlay`), and a detail slide-out (`TaskDetail`) for viewing full card context. Only one overlay is active at a time; Escape dismisses. The detail pane shows effective description Markdown, remote metadata, PR branch info, and swarm step list with active step highlighted. Provider-backed tasks expose **Edit Legato details**: the modal receives raw `local_description_md`, provider `remote_description_md` remains read-only, and the pane refetches the server-composed `description_md` after save.
 
 ### Swarm controls
 

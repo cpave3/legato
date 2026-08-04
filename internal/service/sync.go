@@ -187,7 +187,7 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 			if existingMeta.StaleAt != "" {
 				existingMeta.StaleAt = ""
 				existing.RemoteMeta = encodeRemoteMeta(existingMeta)
-				_ = s.store.UpdateTask(ctx, *existing)
+				_ = s.store.UpdateTaskRemoteMeta(ctx, existing.ID, existing.RemoteMeta)
 			}
 			continue
 		}
@@ -229,7 +229,7 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 		}
 
 		existing.RemoteMeta = encodeRemoteMeta(existingMeta)
-		if err := s.store.UpdateTask(ctx, *existing); err != nil {
+		if err := s.store.UpdateTaskFromProvider(ctx, *existing); err != nil {
 			return nil, err
 		}
 		synced++
@@ -244,7 +244,7 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 		if meta.StaleAt == "" {
 			meta.StaleAt = time.Now().UTC().Format(time.RFC3339)
 			task.RemoteMeta = encodeRemoteMeta(meta)
-			s.store.UpdateTask(ctx, task)
+			s.store.UpdateTaskRemoteMeta(ctx, task.ID, task.RemoteMeta)
 		}
 	}
 

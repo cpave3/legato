@@ -583,9 +583,10 @@ func (s *swarmService) StartSwarm(ctx context.Context, parentID, workingDir stri
 		return fmt.Errorf("persist working dir: %w", err)
 	}
 
+	parentDescription := taskDescriptionMD(parent.Provider, parent.RemoteDescriptionMD, parent.DescriptionMD)
 	brief := fmt.Sprintf(
 		"You are the swarm conductor for task **%s — %s**.\n\nWorking directory: %s\n\n## Parent task description\n\n%s",
-		parent.ID, parent.Title, workingDir, parent.Description,
+		parent.ID, parent.Title, workingDir, parentDescription,
 	) + s.attachmentBrief(parent.ID)
 
 	if catalog := formatTierCatalog(s.cfg.TierCatalog); catalog != "" {
@@ -1175,7 +1176,9 @@ func (s *swarmService) Finish(ctx context.Context, parentID, summary string) err
 		return err
 	}
 	header := fmt.Sprintf("\n\n---\n## Swarm summary (%s)\n\n", time.Now().UTC().Format(time.RFC3339))
-	parent.Description = parent.Description + header + summary
+	localDescription := parent.DescriptionMD + header + summary
+	parent.Description = localDescription
+	parent.DescriptionMD = localDescription
 	parent.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	if err := s.store.UpdateTask(ctx, *parent); err != nil {
 		return err
@@ -1387,9 +1390,10 @@ func (s *swarmService) defaultBrief(parent *store.Task, st *store.Subtask) strin
 	if len(scope) > 0 {
 		scopeLine = strings.Join(scope, ", ")
 	}
+	parentDescription := taskDescriptionMD(parent.Provider, parent.RemoteDescriptionMD, parent.DescriptionMD)
 	return fmt.Sprintf(
 		"## Sub-task: %s\n\nParent task: %s — %s\n\n## Parent task description\n\n%s\n\n## Your scope\n\n%s\n\n## When done\n\nRun: legato swarm built $LEGATO_SUBTASK_ID",
-		st.Title, parent.ID, parent.Title, parent.Description, scopeLine,
+		st.Title, parent.ID, parent.Title, parentDescription, scopeLine,
 	) + s.attachmentBrief(parent.ID)
 }
 

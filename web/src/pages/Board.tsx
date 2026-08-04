@@ -151,7 +151,7 @@ export function BoardPage() {
           setOverlay({ kind: "editTitle", card: detailAsCard })
           return
         }
-        if (e.key === "e" && !detailCard.provider) {
+        if (e.key === "e") {
           e.preventDefault()
           setOverlay({ kind: "editDescription", card: detailAsCard })
           return

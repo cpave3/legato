@@ -396,6 +396,24 @@ func (s *Store) ListTasksByStatus(ctx context.Context, status string) ([]Task, e
 	return tasks, err
 }
 
+// UpdateTaskFromProvider updates only provider-owned and synchronized fields so
+// concurrent edits to Legato-owned task details cannot be overwritten.
+func (s *Store) UpdateTaskFromProvider(ctx context.Context, t Task) error {
+	_, err := s.db.NamedExecContext(ctx, `
+		UPDATE tasks SET title = :title, remote_description_md = :remote_description_md,
+			status = :status, priority = :priority, remote_meta = :remote_meta,
+			updated_at = :updated_at
+		WHERE id = :id`, t)
+	return err
+}
+
+// UpdateTaskRemoteMeta updates provider synchronization metadata without
+// rewriting locally owned task fields.
+func (s *Store) UpdateTaskRemoteMeta(ctx context.Context, taskID string, remoteMeta *string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE tasks SET remote_meta = ?, updated_at = datetime('now') WHERE id = ?`, remoteMeta, taskID)
+	return err
+}
+
 func (s *Store) UpdateTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		UPDATE tasks SET
