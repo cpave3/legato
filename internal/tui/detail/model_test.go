@@ -360,6 +360,19 @@ func TestMoveOverlay(t *testing.T) {
 	}
 }
 
+func TestWorkspaceMoveKeyEmitsTaskID(t *testing.T) {
+	card := testCard()
+	m := New(card, nil, nil, "")
+	_, cmd := m.Update(keyMsg('v'))
+	if cmd == nil {
+		t.Fatal("expected cmd from v")
+	}
+	msg, ok := cmd().(OpenMoveWorkspaceOverlay)
+	if !ok || msg.TaskID != "REX-1238" {
+		t.Fatalf("message = %#v, want task REX-1238", cmd())
+	}
+}
+
 // Delete keybinding
 func TestDeleteKeyEmitsOpenDeleteOverlay(t *testing.T) {
 	card := testCard()

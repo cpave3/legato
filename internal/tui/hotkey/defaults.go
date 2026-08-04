@@ -7,42 +7,43 @@ const (
 	ActionQuit ActionID = "global.quit"
 	ActionBack ActionID = "global.back"
 
-	ActionBoardLeft         ActionID = "board.left"
-	ActionBoardRight        ActionID = "board.right"
-	ActionBoardDown         ActionID = "board.down"
-	ActionBoardUp           ActionID = "board.up"
-	ActionBoardFirst        ActionID = "board.first"
-	ActionBoardLast         ActionID = "board.last"
-	ActionBoardColumn1      ActionID = "board.column.1"
-	ActionBoardColumn2      ActionID = "board.column.2"
-	ActionBoardColumn3      ActionID = "board.column.3"
-	ActionBoardColumn4      ActionID = "board.column.4"
-	ActionBoardColumn5      ActionID = "board.column.5"
-	ActionBoardOpen         ActionID = "board.open"
-	ActionBoardContext      ActionID = "board.context"
-	ActionBoardMove         ActionID = "board.move"
-	ActionBoardDelete       ActionID = "board.delete"
-	ActionBoardImport       ActionID = "board.import"
-	ActionBoardLinkPR       ActionID = "board.link-pr"
-	ActionBoardRefreshPR    ActionID = "board.refresh-pr"
-	ActionBoardRediscoverPR ActionID = "board.rediscover-pr"
-	ActionBoardWorkspace    ActionID = "board.workspace"
-	ActionBoardSearch       ActionID = "board.search"
-	ActionBoardRefresh      ActionID = "board.refresh"
-	ActionBoardCreate       ActionID = "board.create"
-	ActionBoardStartSwarm   ActionID = "board.start-swarm"
-	ActionBoardCancelSwarm  ActionID = "board.cancel-swarm"
-	ActionBoardArchive      ActionID = "board.archive"
-	ActionBoardArchived     ActionID = "board.archived"
-	ActionBoardWorktree     ActionID = "board.worktree"
-	ActionBoardSpawnAgent   ActionID = "board.spawn-agent"
-	ActionBoardTerminal     ActionID = "board.terminal"
-	ActionBoardToggleWeb    ActionID = "board.toggle-web"
-	ActionViewAgents        ActionID = "view.agents"
-	ActionViewReport        ActionID = "view.reporting"
-	ActionViewReview        ActionID = "view.reviews"
-	ActionViewPlans         ActionID = "view.plans"
-	ActionViewAttention     ActionID = "view.attention"
+	ActionBoardLeft          ActionID = "board.left"
+	ActionBoardRight         ActionID = "board.right"
+	ActionBoardDown          ActionID = "board.down"
+	ActionBoardUp            ActionID = "board.up"
+	ActionBoardFirst         ActionID = "board.first"
+	ActionBoardLast          ActionID = "board.last"
+	ActionBoardColumn1       ActionID = "board.column.1"
+	ActionBoardColumn2       ActionID = "board.column.2"
+	ActionBoardColumn3       ActionID = "board.column.3"
+	ActionBoardColumn4       ActionID = "board.column.4"
+	ActionBoardColumn5       ActionID = "board.column.5"
+	ActionBoardOpen          ActionID = "board.open"
+	ActionBoardContext       ActionID = "board.context"
+	ActionBoardMove          ActionID = "board.move"
+	ActionBoardMoveWorkspace ActionID = "board.move-workspace"
+	ActionBoardDelete        ActionID = "board.delete"
+	ActionBoardImport        ActionID = "board.import"
+	ActionBoardLinkPR        ActionID = "board.link-pr"
+	ActionBoardRefreshPR     ActionID = "board.refresh-pr"
+	ActionBoardRediscoverPR  ActionID = "board.rediscover-pr"
+	ActionBoardWorkspace     ActionID = "board.workspace"
+	ActionBoardSearch        ActionID = "board.search"
+	ActionBoardRefresh       ActionID = "board.refresh"
+	ActionBoardCreate        ActionID = "board.create"
+	ActionBoardStartSwarm    ActionID = "board.start-swarm"
+	ActionBoardCancelSwarm   ActionID = "board.cancel-swarm"
+	ActionBoardArchive       ActionID = "board.archive"
+	ActionBoardArchived      ActionID = "board.archived"
+	ActionBoardWorktree      ActionID = "board.worktree"
+	ActionBoardSpawnAgent    ActionID = "board.spawn-agent"
+	ActionBoardTerminal      ActionID = "board.terminal"
+	ActionBoardToggleWeb     ActionID = "board.toggle-web"
+	ActionViewAgents         ActionID = "view.agents"
+	ActionViewReport         ActionID = "view.reporting"
+	ActionViewReview         ActionID = "view.reviews"
+	ActionViewPlans          ActionID = "view.plans"
+	ActionViewAttention      ActionID = "view.attention"
 
 	ActionDetailDown            ActionID = "detail.down"
 	ActionDetailUp              ActionID = "detail.up"
@@ -54,6 +55,7 @@ const (
 	ActionDetailCopyFull        ActionID = "detail.copy-full"
 	ActionDetailOpenURL         ActionID = "detail.open-url"
 	ActionDetailMove            ActionID = "detail.move"
+	ActionDetailMoveWorkspace   ActionID = "detail.move-workspace"
 	ActionDetailDelete          ActionID = "detail.delete"
 	ActionDetailEditDescription ActionID = "detail.edit-description"
 	ActionDetailEditTitle       ActionID = "detail.edit-title"
@@ -169,7 +171,8 @@ func DefaultBindings() []Binding {
 	}
 	add(ActionBoardOpen, board, TargetPage, []Key{Special(tea.KeyEnter, "enter")}, "detail", "Open task detail", "Actions", 20, 10, FullHelp|Shortlist|ShortcutBar)
 	add(ActionBoardContext, board, TargetPage, []Key{Rune('c')}, "context", "Open task context menu", "Actions", 20, 15, FullHelp)
-	add(ActionBoardMove, board, TargetPage, []Key{Rune('m')}, "move", "Move task to column", "Actions", 20, 20, FullHelp|Shortlist|ShortcutBar)
+	add(ActionBoardMove, board, TargetPage, []Key{Rune('m')}, "move", "Move task", "Actions", 20, 20, FullHelp|Shortlist|ShortcutBar)
+	add(ActionBoardMoveWorkspace, board, TargetPage, []Key{Rune('v')}, "move workspace", "Move task to workspace", "Actions", 20, 25, FullHelp|Shortlist|ShortcutBar)
 	add(ActionBoardCreate, board, TargetRoot, []Key{Rune('n')}, "new", "Create new task", "Actions", 20, 30, FullHelp|Shortlist|ShortcutBar)
 	add(ActionBoardDelete, board, TargetPage, []Key{Rune('d')}, "delete", "Delete task", "Actions", 20, 40, FullHelp)
 	add(ActionBoardImport, board, TargetPage, []Key{Rune('i')}, "import", "Import remote ticket", "Actions", 20, 50, FullHelp, CapabilitySync)
@@ -221,7 +224,8 @@ func addPageBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Ke
 	add(ActionDetailCopyDescription, detail, TargetPage, []Key{Rune('y')}, "copy desc", "Copy description", "Detail", 20, 20, FullHelp|Shortlist|ShortcutBar|InlineHint)
 	add(ActionDetailCopyFull, detail, TargetPage, []Key{Rune('Y')}, "copy full", "Copy full task context", "Detail", 20, 21, FullHelp|InlineHint)
 	add(ActionDetailMove, detail, TargetPage, []Key{Rune('m')}, "move", "Move task", "Detail", 20, 22, FullHelp|Shortlist|ShortcutBar|InlineHint)
-	add(ActionDetailDelete, detail, TargetPage, []Key{Rune('D')}, "delete", "Delete task", "Detail", 20, 23, FullHelp|Shortlist|ShortcutBar|InlineHint)
+	add(ActionDetailMoveWorkspace, detail, TargetPage, []Key{Rune('v')}, "move workspace", "Move task to workspace", "Detail", 20, 23, FullHelp|Shortlist|ShortcutBar|InlineHint)
+	add(ActionDetailDelete, detail, TargetPage, []Key{Rune('D')}, "delete", "Delete task", "Detail", 20, 24, FullHelp|Shortlist|ShortcutBar|InlineHint)
 	add(ActionDetailOpenURL, detail, TargetPage, []Key{Rune('o')}, "open", "Open remote task", "Detail", 20, 24, FullHelp|InlineHint)
 	add(ActionDetailEditTitle, detail, TargetPage, []Key{Rune('t')}, "edit title", "Edit task title", "Detail", 20, 25, FullHelp|InlineHint)
 	(*bindings)[len(*bindings)-1].DisplayWhen = []Predicate{PredicateLocalTask}

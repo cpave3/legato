@@ -751,9 +751,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleSparklineTick()
 	case detail.OpenMoveOverlay:
 		return a.openMoveOverlay(msg.TaskID)
+	case detail.OpenMoveWorkspaceOverlay:
+		return a.openMoveWorkspaceOverlay(msg.TaskID)
 
 	case board.OpenMoveMsg:
 		return a.openMoveOverlay(msg.CardKey)
+	case board.OpenMoveWorkspaceMsg:
+		return a.openMoveWorkspaceOverlay(msg.CardKey)
 
 	case overlay.MoveSelectedMsg:
 		return a.handleMoveSelected(msg)

@@ -43,6 +43,11 @@ type OpenMoveOverlay struct {
 	TaskID string
 }
 
+// OpenMoveWorkspaceOverlay signals the app to open workspace assignment for this task.
+type OpenMoveWorkspaceOverlay struct {
+	TaskID string
+}
+
 // OpenDeleteOverlay signals the app to open the delete confirmation for this task.
 type OpenDeleteOverlay struct {
 	TaskID string
@@ -268,6 +273,10 @@ func (m Model) HandleAction(action hotkey.ActionID) (tea.Model, tea.Cmd) {
 	case hotkey.ActionDetailMove:
 		if m.card != nil {
 			return m, func() tea.Msg { return OpenMoveOverlay{TaskID: m.card.ID} }
+		}
+	case hotkey.ActionDetailMoveWorkspace:
+		if m.card != nil {
+			return m, func() tea.Msg { return OpenMoveWorkspaceOverlay{TaskID: m.card.ID} }
 		}
 	case hotkey.ActionDetailDelete:
 		if m.card != nil {

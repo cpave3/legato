@@ -89,6 +89,18 @@ func newTestModel() Model {
 	return m
 }
 
+func TestWorkspaceMoveKeyEmitsSelectedTask(t *testing.T) {
+	m := newTestModel()
+	_, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	if cmd == nil {
+		t.Fatal("v returned no command")
+	}
+	msg, ok := cmd().(OpenMoveWorkspaceMsg)
+	if !ok || msg.CardKey != "REX-1" {
+		t.Fatalf("message = %#v, want selected task REX-1", cmd())
+	}
+}
+
 func TestTargetedPRKeysEmitSelectedTaskActions(t *testing.T) {
 	m := newTestModel()
 	for _, test := range []struct {

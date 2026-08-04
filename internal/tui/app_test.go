@@ -67,8 +67,11 @@ func (f *fakeTargetedPRService) GetCodeContext(context.Context, string) (*store.
 }
 
 type fakeBoardService struct {
-	imported    []service.Card
-	hasWorktree bool
+	imported       []service.Card
+	hasWorktree    bool
+	workspaceTask  string
+	workspaceID    *int
+	workspaceError error
 }
 
 func (f *fakeBoardService) ListColumns(_ context.Context) ([]service.Column, error) {
@@ -134,8 +137,10 @@ func (f *fakeBoardService) UpdateTaskTitle(_ context.Context, _, _ string) error
 func (f *fakeBoardService) ListCardsByWorkspace(_ context.Context, column string, _ store.WorkspaceView) ([]service.Card, error) {
 	return f.ListCards(context.Background(), column)
 }
-func (f *fakeBoardService) UpdateTaskWorkspace(_ context.Context, _ string, _ *int) error {
-	return nil
+func (f *fakeBoardService) UpdateTaskWorkspace(_ context.Context, taskID string, workspaceID *int) error {
+	f.workspaceTask = taskID
+	f.workspaceID = workspaceID
+	return f.workspaceError
 }
 func (f *fakeBoardService) ListWorkspaces(_ context.Context) ([]service.Workspace, error) {
 	return nil, nil
@@ -326,6 +331,10 @@ func (f *fakeSwarmService) StartEventLoop(_ context.Context) func()             
 
 func newTestApp() App {
 	return NewApp(&fakeBoardService{}, nil, nil, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
+}
+
+func newTestAppWithBoardService(svc *fakeBoardService) App {
+	return NewApp(svc, nil, nil, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
 }
 
 func newTestAppWithSwarm() App {
@@ -612,6 +621,54 @@ func TestClipboardWarningWhenUnavailable(t *testing.T) {
 	// Check that the init returns a clipboard warning cmd
 	// The actual warning is handled via Init in the real app
 	// For this test we just verify the app handles it gracefully
+}
+
+func TestDirectWorkspaceMoveMessagesOpenExistingPicker(t *testing.T) {
+	for _, msg := range []tea.Msg{
+		board.OpenMoveWorkspaceMsg{CardKey: "REX-1"},
+		detail.OpenMoveWorkspaceOverlay{TaskID: "REX-1"},
+	} {
+		app := initTestApp()
+		updated, _ := updateApp(app, msg)
+		if updated.overlayType != overlayMoveWorkspace {
+			t.Fatalf("message %T opened overlay %v, want workspace picker", msg, updated.overlayType)
+		}
+		if _, ok := updated.activeOverlay.(overlay.MoveWorkspaceOverlay); !ok {
+			t.Fatalf("message %T opened %T, want MoveWorkspaceOverlay", msg, updated.activeOverlay)
+		}
+	}
+}
+
+func TestWorkspaceAssignmentUsesServiceAndRefreshesBoard(t *testing.T) {
+	svc := &fakeBoardService{}
+	app := newTestAppWithBoardService(svc)
+	workspaceID := 7
+	updated, cmd := updateApp(app, overlay.WorkspaceAssignedMsg{TaskID: "REX-1", WorkspaceID: &workspaceID})
+	if svc.workspaceTask != "REX-1" || svc.workspaceID == nil || *svc.workspaceID != workspaceID {
+		t.Fatalf("workspace update = %q %v", svc.workspaceTask, svc.workspaceID)
+	}
+	if cmd == nil {
+		t.Fatal("successful assignment did not refresh board")
+	}
+	if _, ok := cmd().(board.DataLoadedMsg); !ok {
+		t.Fatalf("refresh command returned %T", cmd())
+	}
+	if updated.overlayType != overlayNone {
+		t.Fatal("successful assignment did not close overlay")
+	}
+}
+
+func TestWorkspaceAssignmentErrorReachesStatusBar(t *testing.T) {
+	svc := &fakeBoardService{workspaceError: errors.New("denied")}
+	app := newTestAppWithBoardService(svc)
+	_, cmd := updateApp(app, overlay.WorkspaceAssignedMsg{TaskID: "REX-1"})
+	if cmd == nil {
+		t.Fatal("failed assignment returned no feedback")
+	}
+	msg, ok := cmd().(statusbar.ErrorMsg)
+	if !ok || msg.Text != "workspace: denied" {
+		t.Fatalf("feedback = %#v", cmd())
+	}
 }
 
 func TestMoveOverlayRoutesKeysAndReturnsResult(t *testing.T) {

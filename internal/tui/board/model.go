@@ -130,6 +130,11 @@ type OpenMoveMsg struct {
 	CardKey string
 }
 
+// OpenMoveWorkspaceMsg signals the app to open workspace assignment for a card.
+type OpenMoveWorkspaceMsg struct {
+	CardKey string
+}
+
 // OpenDeleteMsg signals the app to open the delete confirmation for a card.
 type OpenDeleteMsg struct {
 	CardKey string
@@ -227,6 +232,11 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 		if card := m.SelectedCard(); card != nil {
 			key := card.Key
 			return m, func() tea.Msg { return OpenMoveMsg{CardKey: key} }
+		}
+	case hotkey.ActionBoardMoveWorkspace:
+		if card := m.SelectedCard(); card != nil {
+			key := card.Key
+			return m, func() tea.Msg { return OpenMoveWorkspaceMsg{CardKey: key} }
 		}
 	case hotkey.ActionBoardDelete:
 		if card := m.SelectedCard(); card != nil {
