@@ -261,6 +261,20 @@ func (p *PlanService) Plan(ctx context.Context, planID string) (*PlanView, error
 	return &PlanView{Plan: *plan, Revision: *revision, Questions: questions, Responses: responses, Comments: comments, Messages: messages, Origins: origins}, nil
 }
 
+func (p *PlanService) QueueCount(ctx context.Context) (int, error) {
+	plans, err := p.store.ListPlans(ctx)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, plan := range plans {
+		if plan.Status == "proposed" || plan.Status == "changes_requested" {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (p *PlanService) Queue(ctx context.Context) ([]PlanQueueItem, error) {
 	plans, err := p.store.ListPlans(ctx)
 	if err != nil {

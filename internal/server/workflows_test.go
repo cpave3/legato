@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
@@ -17,6 +19,7 @@ type forceWorkflowService struct {
 	triggerForce bool
 	retryForce   bool
 	artifact     *store.WorkflowArtifact
+	attempts     []store.WorkflowStepAttempt
 }
 
 func (f *forceWorkflowService) Start(context.Context, *workflowengine.Definition, map[string]string) (*store.WorkflowRunView, error) {
@@ -24,6 +27,9 @@ func (f *forceWorkflowService) Start(context.Context, *workflowengine.Definition
 }
 func (f *forceWorkflowService) ListRuns(context.Context, string, int) ([]store.WorkflowRun, error) {
 	return nil, nil
+}
+func (f *forceWorkflowService) ActiveAgentAttemptsByTask(context.Context, string) ([]store.WorkflowStepAttempt, error) {
+	return f.attempts, nil
 }
 func (f *forceWorkflowService) Show(context.Context, string) (*store.WorkflowRunView, error) {
 	return nil, nil
@@ -44,6 +50,26 @@ func (f *forceWorkflowService) PromptStep(context.Context, string, string) (*sto
 }
 func (f *forceWorkflowService) Artifact(context.Context, string) (*store.WorkflowArtifact, error) {
 	return f.artifact, nil
+}
+
+func TestNotifyAgentChangedEmitsTargetedWorkflowEvent(t *testing.T) {
+	bus := events.New()
+	workflows := &forceWorkflowService{attempts: []store.WorkflowStepAttempt{{RunID: "wr-1", StepID: "agent"}}}
+	s := NewWithSwarm(nil, nil, nil, "", nil, bus, "")
+	s.SetWorkflowService(workflows, "", "")
+	changed := bus.Subscribe(events.EventWorkflowChanged)
+
+	s.NotifyAgentChanged("task-1")
+
+	select {
+	case event := <-changed:
+		payload, ok := event.Payload.(events.WorkflowChangedPayload)
+		if !ok || payload.RunID != "wr-1" || payload.StepID != "agent" {
+			t.Fatalf("payload=%+v", event.Payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for targeted workflow event")
+	}
 }
 
 func TestWorkflowStepEndpointsForwardForce(t *testing.T) {

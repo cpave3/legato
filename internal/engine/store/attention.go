@@ -82,6 +82,20 @@ func (s *Store) GetAttentionItemBySource(ctx context.Context, producer, sourceKe
 	return &item, nil
 }
 
+func (s *Store) CountAttentionItems(ctx context.Context, status string) (int, error) {
+	var count int
+	query := "SELECT COUNT(*) FROM attention_items"
+	args := []any{}
+	if status != "" {
+		query += " WHERE status = ?"
+		args = append(args, status)
+	}
+	if err := s.db.GetContext(ctx, &count, query, args...); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (s *Store) ListAttentionItems(ctx context.Context, status string) ([]AttentionItem, error) {
 	items := []AttentionItem{}
 	query := "SELECT * FROM attention_items"

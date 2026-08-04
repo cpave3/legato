@@ -96,9 +96,9 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 		if agents != nil {
 			_ = agents.ReconcileSessions(context.Background())
 		}
-		s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
+		s.NotifyAgentChanged(agentID)
 	}
-	sm.onAgentActivityChanged = s.NotifyAgentsChanged
+	sm.onAgentActivityChanged = s.NotifyAgentChanged
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler())
 	mux.HandleFunc("/api/meta", mobileMetaHandler())
@@ -126,6 +126,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/board/archive-done", s.archiveDoneHandler())
 	mux.HandleFunc("/api/workspaces", s.workspacesHandler())
 	mux.HandleFunc("/api/settings", s.settingsHandler())
+	mux.HandleFunc("/api/navigation-summary", s.navigationSummaryHandler())
 	mux.HandleFunc("/api/ca-cert", s.caCertHandler())
 	mux.HandleFunc("/api/adapters", s.adaptersHandler())
 	mux.HandleFunc("/api/macros", s.macrosHandler())
@@ -464,8 +465,31 @@ func (s *Server) Addr() string {
 	return s.addr
 }
 
-// NotifyAgentsChanged broadcasts agent and card refresh messages to all WebSocket clients.
-// Call this from IPC message handlers when agent state changes.
+type workflowAgentAttemptLookup interface {
+	ActiveAgentAttemptsByTask(context.Context, string) ([]store.WorkflowStepAttempt, error)
+}
+
+// NotifyAgentChanged broadcasts generic agent/card refreshes and a targeted workflow
+// refresh when the changed task backs an active agent workflow attempt.
+func (s *Server) NotifyAgentChanged(taskID string) {
+	s.NotifyAgentsChanged()
+	if taskID == "" {
+		return
+	}
+	lookup, ok := s.workflows.(workflowAgentAttemptLookup)
+	if !ok {
+		return
+	}
+	attempts, err := lookup.ActiveAgentAttemptsByTask(context.Background(), taskID)
+	if err != nil {
+		return
+	}
+	for _, attempt := range attempts {
+		s.NotifyWorkflowChanged(attempt.RunID, attempt.StepID)
+	}
+}
+
+// NotifyAgentsChanged broadcasts global agent and card refresh messages.
 func (s *Server) NotifyAgentsChanged() {
 	s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
 	s.hub.Broadcast(WSMessage{Type: MsgCardsChanged})

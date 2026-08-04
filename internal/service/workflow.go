@@ -231,6 +231,24 @@ func (s *WorkflowService) enrichWorkflowAttention(ctx context.Context, view *sto
 		}
 	}
 }
+func (s *WorkflowService) ActiveAgentAttemptsByTask(ctx context.Context, taskID string) ([]store.WorkflowStepAttempt, error) {
+	return s.store.ListActiveWorkflowAgentAttemptsByTask(ctx, taskID)
+}
+
+func (s *WorkflowService) AttentionCount(ctx context.Context) (int, error) {
+	runs, err := s.ListRuns(ctx, "", 100)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, run := range runs {
+		if run.NeedsAttention {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (s *WorkflowService) ListRuns(ctx context.Context, status string, limit int) ([]store.WorkflowRun, error) {
 	runs, err := s.store.ListWorkflowRuns(ctx, status, limit)
 	if err != nil {

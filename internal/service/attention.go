@@ -235,6 +235,10 @@ func (s *AttentionService) Upsert(ctx context.Context, input AttentionInput) (*A
 	return decodeAttentionItem(*stored)
 }
 
+func (s *AttentionService) Count(ctx context.Context) (int, error) {
+	return s.store.CountAttentionItems(ctx, "open")
+}
+
 func (s *AttentionService) List(ctx context.Context, filter AttentionFilter) ([]AttentionItem, error) {
 	stored, err := s.store.ListAttentionItems(ctx, "open")
 	if err != nil {

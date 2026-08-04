@@ -43,7 +43,7 @@ type streamManager struct {
 	tmux                   service.TmuxManager
 	agents                 service.AgentService
 	onStreamEnd            func(agentID string) // called when a pipe-pane stream ends (e.g. shell exit)
-	onAgentActivityChanged func()
+	onAgentActivityChanged func(taskID string)
 }
 
 func newStreamManager(tmux service.TmuxManager, agents ...service.AgentService) *streamManager {
@@ -568,7 +568,7 @@ func (sm *streamManager) applyPromptActivity(agentID, currentActivity string, bl
 				sm.mu.Lock()
 				sm.detectorWaiting[agentID] = true
 				sm.mu.Unlock()
-				sm.notifyAgentActivityChanged()
+				sm.notifyAgentActivityChanged(agentID)
 			}
 		}
 		return
@@ -584,7 +584,7 @@ func (sm *streamManager) applyPromptActivity(agentID, currentActivity string, bl
 
 	if currentActivity == "waiting" {
 		if err := sm.agents.SetAgentActivity(context.Background(), agentID, "", ""); err == nil {
-			sm.notifyAgentActivityChanged()
+			sm.notifyAgentActivityChanged(agentID)
 		}
 	}
 }
@@ -609,13 +609,13 @@ func (sm *streamManager) clearDetectorWaiting(agentID string) {
 		return
 	}
 	if err := sm.agents.SetAgentActivity(context.Background(), agentID, "", ""); err == nil {
-		sm.notifyAgentActivityChanged()
+		sm.notifyAgentActivityChanged(agentID)
 	}
 }
 
-func (sm *streamManager) notifyAgentActivityChanged() {
+func (sm *streamManager) notifyAgentActivityChanged(taskID string) {
 	if sm.onAgentActivityChanged != nil {
-		sm.onAgentActivityChanged()
+		sm.onAgentActivityChanged(taskID)
 	}
 }
 

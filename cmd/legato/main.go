@@ -1454,7 +1454,7 @@ func runServeCmd(args []string) int {
 	ipcSrv, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
 		switch msg.Type {
 		case "task_update", "task_note", "agent_state", "pr_linked":
-			srv.NotifyAgentsChanged()
+			srv.NotifyAgentChanged(msg.TaskID)
 		case "review_changed", "plan_changed":
 			handleIPCMessage(msg, bus, nil)
 		case "workflow_changed":

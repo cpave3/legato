@@ -1582,6 +1582,12 @@ type ReviewQueueItem struct {
 	ActivityAt string `json:"activity_at"`
 }
 
+// QueueCount returns the number of explicitly ready tours with unreviewed work.
+func (r *ReviewService) QueueCount(ctx context.Context) (int, error) {
+	items, err := r.queueByStatus(ctx, "ready")
+	return len(items), err
+}
+
 // Queue lists explicitly ready tours with unreviewed work.
 func (r *ReviewService) Queue(ctx context.Context) ([]ReviewQueueItem, error) {
 	return r.queueByStatus(ctx, "ready")
