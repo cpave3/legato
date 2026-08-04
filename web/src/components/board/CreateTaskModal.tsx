@@ -1,13 +1,17 @@
 import { useState, useEffect, useRef } from "react"
+import { VoiceRecorder } from "../VoiceRecorder"
 import { Button } from "../ui/Button"
 import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "../ui/Dialog"
 import { InlineNotice } from "../ui/InlineNotice"
+import { useTextareaTranscription } from "./useTextareaTranscription"
 
 interface CreateTaskModalProps {
   open: boolean
   columns: string[]
   currentColumn: string
   workspaces: { id: number; name: string; color: string }[]
+  baseUrl: string
+  voiceEnabled: boolean
   onClose: () => void
   onSubmit: (values: {
     title: string
@@ -26,9 +30,10 @@ const priorities = [
   { value: "High", label: "High" },
 ]
 
-export function CreateTaskModal({ open, columns, currentColumn, workspaces, onClose, onSubmit, loading = false }: CreateTaskModalProps) {
+export function CreateTaskModal({ open, columns, currentColumn, workspaces, baseUrl, voiceEnabled, onClose, onSubmit, loading = false }: CreateTaskModalProps) {
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
+  const { textareaRef, rememberSelection, insertTranscription } = useTextareaTranscription(setDescription)
   const [column, setColumn] = useState(currentColumn || (columns[0] ?? ""))
   const [priority, setPriority] = useState("")
   const [workspaceId, setWorkspaceId] = useState<number | null>(null)
@@ -93,12 +98,18 @@ export function CreateTaskModal({ open, columns, currentColumn, workspaces, onCl
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-3">
                     <label htmlFor="create-desc" className="text-xs font-medium text-zinc-300">Description</label>
-                    <span className="text-[10px] text-zinc-600">Markdown supported</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-zinc-600">Markdown supported</span>
+                      {voiceEnabled && <VoiceRecorder baseUrl={baseUrl} transcriptionOnly onTranscription={insertTranscription} />}
+                    </div>
                   </div>
                   <textarea
                     id="create-desc"
+                    ref={textareaRef}
                     value={description}
                     onChange={(event) => setDescription(event.target.value)}
+                    onSelect={rememberSelection}
+                    onBlur={rememberSelection}
                     rows={10}
                     placeholder="Add context, constraints, and acceptance criteria…"
                     className="block min-h-56 w-full resize-y rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm leading-6 text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-indigo-500"

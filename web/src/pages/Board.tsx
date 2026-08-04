@@ -34,6 +34,7 @@ import { cardWorkflowOptions, type CardWorkflowOption } from "../lib/card-workfl
 import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
 import { useWorkflows } from "../hooks/useWorkflow"
 import { useToast } from "../hooks/useToast"
+import { useVoiceEnabled } from "../hooks/useVoiceEnabled"
 import { apiFetch } from "../lib/api"
 import { WorkflowTriggerInputModal } from "../components/WorkflowTriggerInputModal"
 import type { WorkflowTriggerRequest } from "../lib/board"
@@ -64,6 +65,7 @@ function errorMessage(error: unknown, fallback: string): string {
 
 export function BoardPage() {
   const { baseUrl } = useServer()
+  const voiceEnabled = useVoiceEnabled(baseUrl)
   const { addToast } = useToast()
   const [workspaceFilter, setWorkspaceFilter] = useState<string>("all")
   const { columns, workspaces, loading, error, refresh } = useBoard(workspaceFilter)
@@ -686,6 +688,8 @@ export function BoardPage() {
         columns={columnNames}
         currentColumn={activeColumn?.name || (columnNames[0] ?? "")}
         workspaces={workspaces}
+        baseUrl={baseUrl}
+        voiceEnabled={voiceEnabled}
         onClose={() => setOverlay({ kind: "none" })}
         onSubmit={handleCreate}
         loading={pendingAction === "create"}
@@ -772,6 +776,8 @@ export function BoardPage() {
         open={overlay.kind === "editDescription"}
         currentDescription={detailCard?.local_description_md || ""}
         providerBacked={Boolean(detailCard?.provider)}
+        baseUrl={baseUrl}
+        voiceEnabled={voiceEnabled}
         onClose={() => setOverlay({ kind: "none" })}
         onSave={handleSaveDescription}
         loading={pendingAction === "description"}

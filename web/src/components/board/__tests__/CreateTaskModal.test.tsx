@@ -2,12 +2,94 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { CreateTaskModal } from "../CreateTaskModal"
 
+vi.mock("../../VoiceRecorder", () => ({
+  VoiceRecorder: ({ baseUrl, transcriptionOnly, onTranscription }: { baseUrl: string; transcriptionOnly?: boolean; onTranscription?: (text: string) => void }) => (
+    <button type="button" aria-label="Dictate description" data-base-url={baseUrl} data-transcription-only={transcriptionOnly} onClick={() => onTranscription?.("dictated text")}>Dictate</button>
+  ),
+}))
+
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
 })
 
 describe("CreateTaskModal", () => {
+  it("inserts dictation into the selected description and creates only on submit", () => {
+    const onSubmit = vi.fn()
+    render(
+      <CreateTaskModal
+        open
+        columns={["Backlog"]}
+        currentColumn="Backlog"
+        workspaces={[]}
+        baseUrl="http://legato.test"
+        voiceEnabled
+        onClose={() => {}}
+        onSubmit={onSubmit}
+      />
+    )
+
+    fireEvent.change(screen.getByLabelText(/Title/i), { target: { value: "Dictated task" } })
+    const description = screen.getByLabelText("Description") as HTMLTextAreaElement
+    fireEvent.change(description, { target: { value: "Before replace after" } })
+    description.focus()
+    description.setSelectionRange(7, 14)
+
+    const dictate = screen.getByRole("button", { name: "Dictate description" })
+    expect(dictate.getAttribute("data-base-url")).toBe("http://legato.test")
+    expect(dictate.getAttribute("data-transcription-only")).toBe("true")
+    fireEvent.click(dictate)
+
+    expect(description.value).toBe("Before dictated text after")
+    expect(description).toBe(document.activeElement)
+    expect(description.selectionStart).toBe(20)
+    expect(description.selectionEnd).toBe(20)
+    expect(onSubmit).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: "Create" }))
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ description: "Before dictated text after" }))
+  })
+
+  it("hides dictation when voice is disabled", () => {
+    render(
+      <CreateTaskModal
+        open
+        columns={["Backlog"]}
+        currentColumn="Backlog"
+        workspaces={[]}
+        baseUrl="http://legato.test"
+        voiceEnabled={false}
+        onClose={() => {}}
+        onSubmit={() => {}}
+      />
+    )
+
+    expect(screen.queryByRole("button", { name: "Dictate description" })).toBeNull()
+  })
+
+  it("appends dictation on a new line when no textarea selection is available", () => {
+    render(
+      <CreateTaskModal
+        open
+        columns={["Backlog"]}
+        currentColumn="Backlog"
+        workspaces={[]}
+        baseUrl="http://legato.test"
+        voiceEnabled
+        onClose={() => {}}
+        onSubmit={() => {}}
+      />
+    )
+
+    const description = screen.getByLabelText("Description") as HTMLTextAreaElement
+    fireEvent.change(description, { target: { value: "Existing paragraph" } })
+
+    fireEvent.click(screen.getByRole("button", { name: "Dictate description" }))
+
+    expect(description.value).toBe("Existing paragraph\ndictated text")
+    expect(description.selectionStart).toBe(32)
+  })
+
   it("submits with correct payload", () => {
     const onSubmit = vi.fn()
     render(
@@ -16,6 +98,8 @@ describe("CreateTaskModal", () => {
         columns={["Backlog", "Doing"]}
         currentColumn="Doing"
         workspaces={[{ id: 1, name: "W1", color: "#fff" }]}
+        baseUrl=""
+        voiceEnabled={false}
         onClose={() => {}}
         onSubmit={onSubmit}
       />
@@ -63,6 +147,8 @@ describe("CreateTaskModal", () => {
         columns={["Backlog", "Doing"]}
         currentColumn="Backlog"
         workspaces={[]}
+        baseUrl=""
+        voiceEnabled={false}
         onClose={firstOnClose}
         onSubmit={onSubmit}
       />
@@ -79,6 +165,8 @@ describe("CreateTaskModal", () => {
         columns={["Backlog", "Doing"]}
         currentColumn="Backlog"
         workspaces={[]}
+        baseUrl=""
+        voiceEnabled={false}
         onClose={latestOnClose}
         onSubmit={onSubmit}
         loading={true}
@@ -98,6 +186,8 @@ describe("CreateTaskModal", () => {
         columns={["Backlog", "Doing"]}
         currentColumn="Backlog"
         workspaces={[]}
+        baseUrl=""
+        voiceEnabled={false}
         onClose={() => {}}
         onSubmit={onSubmit}
       />
@@ -112,6 +202,8 @@ describe("CreateTaskModal", () => {
         columns={[...["Backlog", "Doing"]]}
         currentColumn="Backlog"
         workspaces={[]}
+        baseUrl=""
+        voiceEnabled={false}
         onClose={() => {}}
         onSubmit={onSubmit}
         loading={true}

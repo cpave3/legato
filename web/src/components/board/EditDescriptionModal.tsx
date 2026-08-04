@@ -1,20 +1,24 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 
+import { VoiceRecorder } from "../VoiceRecorder"
 import { Button } from "../ui/Button"
 import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "../ui/Dialog"
+import { useTextareaTranscription } from "./useTextareaTranscription"
 
 interface EditDescriptionModalProps {
   open: boolean
   currentDescription: string
+  baseUrl: string
+  voiceEnabled: boolean
   onClose: () => void
   onSave: (description: string) => void
   providerBacked?: boolean
   loading?: boolean
 }
 
-export function EditDescriptionModal({ open, currentDescription, onClose, onSave, providerBacked = false, loading = false }: EditDescriptionModalProps) {
+export function EditDescriptionModal({ open, currentDescription, baseUrl, voiceEnabled, onClose, onSave, providerBacked = false, loading = false }: EditDescriptionModalProps) {
   const [description, setDescription] = useState(currentDescription)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const { textareaRef, rememberSelection, insertTranscription } = useTextareaTranscription(setDescription)
 
   useEffect(() => {
     if (!open) return
@@ -35,7 +39,10 @@ export function EditDescriptionModal({ open, currentDescription, onClose, onSave
           <DialogBody className="min-h-0 overflow-y-auto">
             <div className="mb-1.5 flex items-center justify-between gap-3">
               <label htmlFor="edit-task-description" className="text-xs font-medium text-zinc-400">Description</label>
-              <span className="text-[10px] text-zinc-600">Markdown supported</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-zinc-600">Markdown supported</span>
+                {voiceEnabled && <VoiceRecorder baseUrl={baseUrl} transcriptionOnly onTranscription={insertTranscription} />}
+              </div>
             </div>
             <textarea
               id="edit-task-description"
@@ -43,6 +50,8 @@ export function EditDescriptionModal({ open, currentDescription, onClose, onSave
               rows={14}
               value={description}
               onChange={(event) => setDescription(event.target.value)}
+              onSelect={rememberSelection}
+              onBlur={rememberSelection}
               className="block min-h-64 w-full resize-y rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm leading-6 text-zinc-200 outline-none focus:border-indigo-500"
             />
           </DialogBody>
