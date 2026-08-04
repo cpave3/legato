@@ -10,7 +10,7 @@ import { AgentSelectionProvider } from "../hooks/useAgentSelection"
 import { useNavigationSummary } from "../hooks/useNavigationSummary"
 
 export function Layout() {
-  const { connected } = useWebSocket()
+  const { connected, updateRequired, retryUpdate } = useWebSocket()
   const { servers, activeServerName, baseUrl, setActiveServer } = useServer()
   const { data: summary } = useNavigationSummary()
   const agentCount = summary?.agents ?? 0
@@ -286,6 +286,12 @@ export function Layout() {
         </div>
       )}
 
+      {updateRequired && (
+        <div role="alert" className="fixed inset-x-4 top-4 z-[70] mx-auto flex max-w-xl items-center justify-between gap-4 rounded-lg border border-amber-500/50 bg-zinc-950 p-4 text-sm text-zinc-200 shadow-xl">
+          <span>A newer Legato web build is available, but it could not be activated automatically.</span>
+          <button className="shrink-0 rounded bg-amber-400 px-3 py-1.5 font-medium text-zinc-950" onClick={retryUpdate}>Reload update</button>
+        </div>
+      )}
       <OfflineDialog />
       <PlanApprovalModal />
       </div>

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"runtime/debug"
+
+	"github.com/cpave3/legato/internal/server/static"
 )
 
 func healthHandler() http.HandlerFunc {
@@ -17,6 +19,14 @@ func healthHandler() http.HandlerFunc {
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			http.Error(w, "encode error", http.StatusInternalServerError)
 		}
+	}
+}
+
+func frontendMetaHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		_ = json.NewEncoder(w).Encode(map[string]string{"build_id": static.BuildID()})
 	}
 }
 

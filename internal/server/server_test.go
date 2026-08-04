@@ -452,6 +452,29 @@ func TestAgentsEndpointNoService(t *testing.T) {
 	}
 }
 
+func TestFrontendMetaIsPublicAndNotCached(t *testing.T) {
+	srv := New(&mockBoardService{}, nil, nil, ":0")
+	srv.SetAuthToken("secret")
+	req := httptest.NewRequest(http.MethodGet, "/frontend-meta", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Fatalf("Cache-Control = %q", got)
+	}
+	var meta struct {
+		BuildID string `json:"build_id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.BuildID == "" || meta.BuildID == "dev" {
+		t.Fatalf("build ID = %q", meta.BuildID)
+	}
+}
+
 func TestMobileMetaIsPublicAndVersioned(t *testing.T) {
 	srv := New(&mockBoardService{}, nil, nil, ":0")
 	srv.SetAuthToken("secret")

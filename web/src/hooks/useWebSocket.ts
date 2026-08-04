@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, createContext, useContext } from "react"
 import { getToken } from "../lib/auth"
+import { clearFrontendUpdateAttempt, coordinateFrontendUpdate, updateRegisteredServiceWorkers } from "../lib/frontendUpdate"
 
 export interface WSMessage {
   type: "agent_output" | "agent_list" | "agents_changed" | "prompt_state" | "error" | "chimera_event" | "chimera_sync_required"
@@ -75,6 +76,8 @@ interface WebSocketContextValue {
   connectionGeneration: number
   send: (msg: WSMessage) => void
   subscribe: (handler: MessageHandler) => () => void
+  updateRequired: boolean
+  retryUpdate: () => void
 }
 
 const WebSocketContext = createContext<WebSocketContextValue>(null as unknown as WebSocketContextValue)
@@ -86,6 +89,7 @@ export function useWebSocket() {
 export function useWebSocketProvider(wsUrl: string) {
   const [connected, setConnected] = useState(false)
   const [connectionGeneration, setConnectionGeneration] = useState(0)
+  const [updateRequired, setUpdateRequired] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const handlersRef = useRef<Set<MessageHandler>>(new Set())
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -108,6 +112,18 @@ export function useWebSocketProvider(wsUrl: string) {
       setConnected(true)
       setConnectionGeneration((generation) => generation + 1)
       attemptRef.current = 0
+      void coordinateFrontendUpdate(__LEGATO_FRONTEND_BUILD_ID__, {
+        fetchBuildID: async () => {
+          const response = await fetch(`${baseUrl}/frontend-meta`, { cache: "no-store" })
+          if (!response.ok) return null
+          const meta = await response.json() as { build_id?: string }
+          return meta.build_id ?? null
+        },
+        storage: window.sessionStorage,
+        updateServiceWorker: updateRegisteredServiceWorkers,
+        reload: () => window.location.reload(),
+        onUpdateRequired: () => setUpdateRequired(true),
+      })
     }
 
     ws.onclose = () => {
@@ -164,5 +180,11 @@ export function useWebSocketProvider(wsUrl: string) {
     }
   }, [])
 
-  return { connected, connectionGeneration, send, subscribe, Provider: WebSocketContext.Provider }
+  const retryUpdate = useCallback(() => {
+    clearFrontendUpdateAttempt(window.sessionStorage)
+    setUpdateRequired(false)
+    window.location.reload()
+  }, [])
+
+  return { connected, connectionGeneration, send, subscribe, updateRequired, retryUpdate, Provider: WebSocketContext.Provider }
 }
