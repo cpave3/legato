@@ -40,10 +40,12 @@ import { WorkflowTriggerInputModal } from "../components/WorkflowTriggerInputMod
 import type { WorkflowTriggerRequest } from "../lib/board"
 import type { RepositoryPreset } from "../components/RepositoryPresetSelect"
 
+type MoveCard = Pick<BoardCard, "id" | "title" | "status" | "workspace_id">
+
 type Overlay =
   | { kind: "none" }
   | { kind: "create" }
-  | { kind: "move"; card: BoardCard }
+  | { kind: "move"; card: MoveCard }
   | { kind: "delete"; card: BoardCard }
   | { kind: "archive" }
   | { kind: "archived" }
@@ -61,6 +63,15 @@ type Overlay =
 function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message
   return fallback
+}
+
+function detailMoveCard(card: CardDetail): MoveCard {
+  return {
+    id: card.id,
+    title: card.title,
+    status: card.status,
+    workspace_id: card.workspace_id,
+  }
 }
 
 export function BoardPage() {
@@ -160,7 +171,7 @@ export function BoardPage() {
         }
         if (e.key === "m") {
           e.preventDefault()
-          setOverlay({ kind: "move", card: detailAsCard })
+          setOverlay({ kind: "move", card: detailMoveCard(detailCard) })
           return
         }
         if (e.key === "D") {
@@ -456,6 +467,23 @@ export function BoardPage() {
     }
   }
 
+  const handleMoveWorkspace = async (workspaceId: number | null) => {
+    const card = overlay.kind === "move" ? overlay.card : null
+    if (!card || pendingAction || card.workspace_id === workspaceId) return
+    setPendingAction("move")
+    try {
+      await patchTask(baseUrl, card.id, { workspace_id: workspaceId })
+      setOverlay({ kind: "none" })
+      refresh()
+      const workspaceName = workspaces.find((workspace) => workspace.id === workspaceId)?.name ?? "Unassigned"
+      addToast(`Moved task to ${workspaceName}`, "success")
+    } catch (error) {
+      addToast(errorMessage(error, "Could not move the task to a workspace"), "error")
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
   const handleDragMove = async (cardId: string, targetColumn: string) => {
     const card = allCards.find((candidate) => candidate.id === cardId)
     if (!card || card.status === targetColumn || pendingAction) return
@@ -700,9 +728,12 @@ export function BoardPage() {
         taskId={overlay.kind === "move" ? overlay.card.id : ""}
         taskTitle={overlay.kind === "move" ? overlay.card.title : ""}
         columns={columnNames}
-        currentColumn={activeColumn?.name || ""}
+        currentColumn={overlay.kind === "move" ? overlay.card.status : ""}
+        workspaces={workspaces}
+        currentWorkspaceId={overlay.kind === "move" ? overlay.card.workspace_id : null}
         onClose={() => setOverlay({ kind: "none" })}
-        onMove={handleMove}
+        onMoveColumn={handleMove}
+        onMoveWorkspace={handleMoveWorkspace}
         loading={pendingAction === "move"}
       />
 
@@ -832,7 +863,7 @@ export function BoardPage() {
           }}
           onMove={() => {
             if (detailCard) {
-              setOverlay({ kind: "move", card: { id: detailCard.id, title: detailCard.title } as BoardCard })
+              setOverlay({ kind: "move", card: detailMoveCard(detailCard) })
             }
           }}
           onDelete={() => {

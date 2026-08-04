@@ -21,7 +21,7 @@ function makeCard(overrides: Partial<BoardCardType> = {}): BoardCardType {
     working_seconds: 0,
     waiting_seconds: 0,
     error_seconds: 0,
-    workspace_name: "",
+    workspace_id: null, workspace_name: "",
     workspace_color: "",
     pr_check_status: "",
     pr_review_decision: "",
