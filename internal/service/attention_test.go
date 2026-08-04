@@ -5,7 +5,9 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -67,6 +69,62 @@ type staticAttentionProducer struct {
 func (p *staticAttentionProducer) Producer() string { return p.name }
 func (p *staticAttentionProducer) Snapshot(context.Context) ([]AttentionInput, error) {
 	return p.items, p.err
+}
+
+func TestAttentionReconcilePublishesOnlyWhenItemChanges(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "attention-events.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	bus := events.New()
+	changed := bus.Subscribe(events.EventAttentionChanged)
+	t.Cleanup(func() { bus.Unsubscribe(changed) })
+	svc := NewAttentionService(db, bus)
+	producer := &staticAttentionProducer{name: "example", items: []AttentionInput{{
+		SourceKey: "one", SourceRevision: "1", Title: "One", Reason: "Needs attention",
+		Category: "approval", Urgency: "normal",
+		Navigation: AttentionNavigation{Kind: "example", Target: "one"},
+	}}}
+	if err := svc.RegisterProducer(producer); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.Reconcile(context.Background(), "example"); err != nil {
+		t.Fatal(err)
+	}
+	assertAttentionEvent(t, changed)
+
+	if err := svc.Reconcile(context.Background(), "example"); err != nil {
+		t.Fatal(err)
+	}
+	assertNoAttentionEvent(t, changed)
+
+	producer.items[0].SourceRevision = "2"
+	producer.items[0].Reason = "Still needs attention"
+	if err := svc.Reconcile(context.Background(), "example"); err != nil {
+		t.Fatal(err)
+	}
+	assertAttentionEvent(t, changed)
+}
+
+func assertAttentionEvent(t *testing.T, ch <-chan events.Event) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(time.Second):
+		t.Fatal("attention change event was not published")
+	}
+}
+
+func assertNoAttentionEvent(t *testing.T, ch <-chan events.Event) {
+	t.Helper()
+	select {
+	case event := <-ch:
+		t.Fatalf("unexpected attention change event: %+v", event)
+	case <-time.After(25 * time.Millisecond):
+	}
 }
 
 func TestAttentionReconcileResolvesMissingOnlyAfterSuccessfulSnapshot(t *testing.T) {

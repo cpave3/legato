@@ -220,7 +220,7 @@ func (s *AttentionService) Upsert(ctx context.Context, input AttentionInput) (*A
 	}
 	navigation, _ := json.Marshal(input.Navigation)
 	actions, _ := json.Marshal(input.Actions)
-	stored, err := s.store.UpsertAttentionItem(ctx, store.AttentionItem{
+	stored, changed, err := s.store.UpsertAttentionItem(ctx, store.AttentionItem{
 		ID: randomPlanID("att-"), Producer: input.Producer, SourceKey: input.SourceKey,
 		SourceRevision: input.SourceRevision, TaskID: input.TaskID, WorkspaceID: input.WorkspaceID,
 		Title: input.Title, Reason: input.Reason, Detail: input.Detail, Category: input.Category,
@@ -229,7 +229,9 @@ func (s *AttentionService) Upsert(ctx context.Context, input AttentionInput) (*A
 	if err != nil {
 		return nil, err
 	}
-	s.publish(stored, "upserted")
+	if changed {
+		s.publish(stored, "upserted")
+	}
 	return decodeAttentionItem(*stored)
 }
 

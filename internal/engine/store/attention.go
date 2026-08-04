@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-func (s *Store) UpsertAttentionItem(ctx context.Context, item AttentionItem) (*AttentionItem, error) {
-	_, err := s.db.NamedExecContext(ctx, `
+func (s *Store) UpsertAttentionItem(ctx context.Context, item AttentionItem) (*AttentionItem, bool, error) {
+	result, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO attention_items
 			(id, producer, source_key, source_revision, task_id, workspace_id, title, reason,
 			 detail, category, urgency, navigation_json, actions_json, status)
@@ -36,11 +36,28 @@ func (s *Store) UpsertAttentionItem(ctx context.Context, item AttentionItem) (*A
 				 AND attention_items.dismissed_revision = excluded.source_revision
 				THEN attention_items.dismissed_revision ELSE '' END,
 			resolved_at = NULL,
-			updated_at = datetime('now')`, item)
+			updated_at = datetime('now')
+		WHERE attention_items.source_revision != excluded.source_revision
+			OR attention_items.task_id IS NOT excluded.task_id
+			OR attention_items.workspace_id IS NOT excluded.workspace_id
+			OR attention_items.title != excluded.title
+			OR attention_items.reason != excluded.reason
+			OR attention_items.detail != excluded.detail
+			OR attention_items.category != excluded.category
+			OR attention_items.urgency != excluded.urgency
+			OR attention_items.navigation_json != excluded.navigation_json
+			OR attention_items.actions_json != excluded.actions_json
+			OR attention_items.status = 'resolved'
+			OR (attention_items.status = 'dismissed' AND attention_items.dismissed_revision != excluded.source_revision)`, item)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return s.GetAttentionItemBySource(ctx, item.Producer, item.SourceKey)
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return nil, false, err
+	}
+	stored, err := s.GetAttentionItemBySource(ctx, item.Producer, item.SourceKey)
+	return stored, rows > 0, err
 }
 
 func (s *Store) GetAttentionItem(ctx context.Context, id string) (*AttentionItem, error) {
