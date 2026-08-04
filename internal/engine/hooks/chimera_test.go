@@ -23,6 +23,7 @@ var chimeraEvents = []struct {
 	{"PostToolUse", "legato-post-tool-use.sh", "working"},
 	{"PermissionRequest", "legato-permission.sh", "waiting"},
 	{"Stop", "legato-stop.sh", ""},
+	{"OnError", "legato-on-error.sh", "error"},
 	{"SessionEnd", "legato-session-end.sh", ""},
 	{"Interrupt", "legato-interrupt.sh", ""},
 	{"Timeout", "legato-timeout.sh", ""},
