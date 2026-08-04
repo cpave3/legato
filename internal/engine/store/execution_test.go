@@ -88,6 +88,42 @@ func TestExecutionActivityTransitionsAllowOnlyOneOpenSpan(t *testing.T) {
 	}
 }
 
+func TestExecutionActivityCanEnterAndRecoverFromError(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	start := time.Date(2026, 8, 3, 1, 0, 0, 0, time.UTC)
+	if err := s.CreateExecution(ctx, executionAt("exec-error", "task-error", start)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordExecutionActivityAt(ctx, "exec-error", ActivityWorking, "/repo", start); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordExecutionActivityAt(ctx, "exec-error", "error", "/repo", start.Add(time.Minute)); err != nil {
+		t.Fatalf("entering error activity: %v", err)
+	}
+	if err := s.RecordExecutionActivityAt(ctx, "exec-error", ActivityWorking, "/repo", start.Add(3*time.Minute)); err != nil {
+		t.Fatalf("recovering from error activity: %v", err)
+	}
+	if err := s.RecordExecutionActivityAt(ctx, "exec-error", "", "/repo", start.Add(4*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	var open int
+	if err := s.db.Get(&open, `SELECT COUNT(*) FROM execution_activity WHERE execution_id='exec-error' AND ended_at IS NULL`); err != nil {
+		t.Fatal(err)
+	}
+	if open != 0 {
+		t.Fatalf("open activity rows = %d, want 0", open)
+	}
+	durations, err := s.GetExecutionDurations(ctx, "exec-error")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if durations["error"] != 2*time.Minute {
+		t.Fatalf("error duration = %v, want 2m", durations["error"])
+	}
+}
+
 func TestConcurrentExecutionsForOneTaskRemainIndependent(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

@@ -63,7 +63,7 @@ func (s *Store) GetStateTimeline(ctx context.Context, taskID string, window time
 	if err != nil {
 		return nil, err
 	}
-	type slotAcc struct{ working, waiting time.Duration }
+	type slotAcc struct{ working, waiting, failed time.Duration }
 	acc := make([]slotAcc, buckets)
 	for _, row := range rows {
 		start := time.Unix(row.StartedAt, 0)
@@ -81,19 +81,25 @@ func (s *Store) GetStateTimeline(ctx context.Context, taskID string, window time
 			if !effectiveEnd.After(effectiveStart) {
 				continue
 			}
-			if row.State == ActivityWorking {
+			switch row.State {
+			case ActivityWorking:
 				acc[i].working += effectiveEnd.Sub(effectiveStart)
-			} else if row.State == ActivityWaiting {
+			case ActivityWaiting:
 				acc[i].waiting += effectiveEnd.Sub(effectiveStart)
+			case ActivityError:
+				acc[i].failed += effectiveEnd.Sub(effectiveStart)
 			}
 		}
 	}
 	result := make([]string, buckets)
 	for i := range acc {
-		if acc[i].working > acc[i].waiting {
-			result[i] = ActivityWorking
-		} else if acc[i].waiting > acc[i].working {
+		switch {
+		case acc[i].failed > 0 && acc[i].failed >= acc[i].waiting && acc[i].failed >= acc[i].working:
+			result[i] = ActivityError
+		case acc[i].waiting > 0 && acc[i].waiting >= acc[i].working:
 			result[i] = ActivityWaiting
+		case acc[i].working > 0:
+			result[i] = ActivityWorking
 		}
 	}
 	return result, nil

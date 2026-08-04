@@ -168,13 +168,15 @@ func TestGetAgentActivityCounts_MixedStates(t *testing.T) {
 	createTestTask(t, s, "task2")
 	createTestTask(t, s, "task3")
 	createTestTask(t, s, "task4")
+	createTestTask(t, s, "task5")
 
-	// 2 working, 1 waiting, 1 idle
+	// 2 working, 1 waiting, 1 error, 1 idle
 	for _, sess := range []AgentSession{
 		{TaskID: "task1", TmuxSession: "legato-task1", Command: "shell", Status: "running"},
 		{TaskID: "task2", TmuxSession: "legato-task2", Command: "shell", Status: "running"},
 		{TaskID: "task3", TmuxSession: "legato-task3", Command: "shell", Status: "running"},
 		{TaskID: "task4", TmuxSession: "legato-task4", Command: "shell", Status: "running"},
+		{TaskID: "task5", TmuxSession: "legato-task5", Command: "shell", Status: "running"},
 	} {
 		if err := s.InsertAgentSession(ctx, sess); err != nil {
 			t.Fatal(err)
@@ -183,8 +185,9 @@ func TestGetAgentActivityCounts_MixedStates(t *testing.T) {
 	s.UpdateAgentActivity(ctx, "task1", "working")
 	s.UpdateAgentActivity(ctx, "task2", "working")
 	s.UpdateAgentActivity(ctx, "task3", "waiting")
+	s.UpdateAgentActivity(ctx, "task4", "error")
 
-	working, waiting, idle, err := s.GetAgentActivityCounts(ctx, "")
+	working, waiting, errors, idle, err := s.GetAgentActivityCounts(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,6 +196,9 @@ func TestGetAgentActivityCounts_MixedStates(t *testing.T) {
 	}
 	if waiting != 1 {
 		t.Errorf("waiting = %d, want 1", waiting)
+	}
+	if errors != 1 {
+		t.Errorf("errors = %d, want 1", errors)
 	}
 	if idle != 1 {
 		t.Errorf("idle = %d, want 1", idle)
@@ -211,7 +217,7 @@ func TestGetAgentActivityCounts_ExcludeTask(t *testing.T) {
 	s.UpdateAgentActivity(ctx, "task1", "working")
 	s.UpdateAgentActivity(ctx, "task2", "working")
 
-	working, _, _, err := s.GetAgentActivityCounts(ctx, "task1")
+	working, _, _, _, err := s.GetAgentActivityCounts(ctx, "task1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,12 +230,12 @@ func TestGetAgentActivityCounts_NoSessions(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	working, waiting, idle, err := s.GetAgentActivityCounts(ctx, "")
+	working, waiting, errors, idle, err := s.GetAgentActivityCounts(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if working != 0 || waiting != 0 || idle != 0 {
-		t.Errorf("got working=%d waiting=%d idle=%d, want all 0", working, waiting, idle)
+	if working != 0 || waiting != 0 || errors != 0 || idle != 0 {
+		t.Errorf("got working=%d waiting=%d errors=%d idle=%d, want all 0", working, waiting, errors, idle)
 	}
 }
 
@@ -248,7 +254,7 @@ func TestGetAgentActivityCounts_IgnoresDeadSessions(t *testing.T) {
 	// Kill task2
 	s.UpdateAgentSessionStatus(ctx, "task2", "dead")
 
-	working, _, _, err := s.GetAgentActivityCounts(ctx, "")
+	working, _, _, _, err := s.GetAgentActivityCounts(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}

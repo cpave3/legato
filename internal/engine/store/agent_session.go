@@ -113,7 +113,7 @@ func (s *Store) UpdateAgentActivity(ctx context.Context, taskID string, activity
 
 // GetAgentActivityCounts returns the count of running agent sessions grouped by activity state.
 // If excludeTaskID is non-empty, that task's session is excluded from counts.
-func (s *Store) GetAgentActivityCounts(ctx context.Context, excludeTaskID string) (working, waiting, idle int, err error) {
+func (s *Store) GetAgentActivityCounts(ctx context.Context, excludeTaskID string) (working, waiting, errors, idle int, err error) {
 	type row struct {
 		Activity string `db:"activity"`
 		Count    int    `db:"cnt"`
@@ -130,7 +130,7 @@ func (s *Store) GetAgentActivityCounts(ctx context.Context, excludeTaskID string
 		err = s.db.SelectContext(ctx, &rows, query)
 	}
 	if err != nil {
-		return 0, 0, 0, err
+		return 0, 0, 0, 0, err
 	}
 
 	for _, r := range rows {
@@ -139,11 +139,13 @@ func (s *Store) GetAgentActivityCounts(ctx context.Context, excludeTaskID string
 			working = r.Count
 		case "waiting":
 			waiting = r.Count
+		case "error":
+			errors = r.Count
 		default:
 			idle += r.Count
 		}
 	}
-	return working, waiting, idle, nil
+	return working, waiting, errors, idle, nil
 }
 
 func (s *Store) FinishAgentSession(ctx context.Context, id int) error {

@@ -59,6 +59,23 @@ func TestLatestTaskWorkingDirUsesNewestExecutionActivity(t *testing.T) {
 	}
 }
 
+func TestGetStateTimelineGivesErrorTiePrecedence(t *testing.T) {
+	s := newTestStore(t)
+	now := time.Now().UTC()
+	start := now.Add(-90 * time.Second)
+	end := now.Add(-30 * time.Second)
+	seedExecutionActivity(t, s, "exec-working", "task-error", ActivityWorking, "", start, end)
+	seedExecutionActivity(t, s, "exec-error", "task-error", ActivityError, "", start, end)
+
+	got, err := s.GetStateTimeline(context.Background(), "task-error", 2*time.Minute, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != ActivityError {
+		t.Fatalf("timeline = %#v, want [error]", got)
+	}
+}
+
 func TestGetStateTimelineUsesExecutionBoundedActivity(t *testing.T) {
 	s := newTestStore(t)
 	now := time.Now().UTC()

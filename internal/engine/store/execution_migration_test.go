@@ -1,12 +1,69 @@
 package store
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/jmoiron/sqlx"
 )
+
+func TestExecutionActivityErrorMigrationPreservesRowsAndIndexes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pre-error.db")
+	db, err := sqlx.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, name := range migrations {
+		if i >= 55 {
+			break
+		}
+		data, err := migrationsFS.ReadFile("migrations/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sqlText, err := prepareMigration(db, name, string(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(sqlText); err != nil {
+			t.Fatalf("apply %s: %v", name, err)
+		}
+	}
+	_, err = db.Exec(`
+		INSERT INTO executions (id, kind, status, task_id, execution_task_id, task_title, started_at)
+		VALUES ('exec-preserved', 'interactive', 'running', 'task-1', 'task-1', 'Task', '2026-08-03 01:00:00');
+		INSERT INTO execution_activity (execution_id, state, started_at, working_dir)
+		VALUES ('exec-preserved', 'working', '2026-08-03 01:00:00', '/repo');
+		PRAGMA user_version = 55;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var state string
+	if err := s.db.Get(&state, `SELECT state FROM execution_activity WHERE execution_id='exec-preserved'`); err != nil || state != ActivityWorking {
+		t.Fatalf("preserved state=%q err=%v", state, err)
+	}
+	if err := s.RecordExecutionActivity(context.Background(), "exec-preserved", ActivityError, "/repo"); err != nil {
+		t.Fatalf("record error after migration: %v", err)
+	}
+	for _, index := range []string{"idx_execution_activity_execution_time", "idx_execution_activity_range", "idx_execution_activity_one_open"} {
+		var count int
+		if err := s.db.Get(&count, `SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?`, index); err != nil || count != 1 {
+			t.Fatalf("index %s count=%d err=%v", index, count, err)
+		}
+	}
+}
 
 func TestExecutionMigrationDropsLegacyActivityAndPreservesDomainHistory(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy.db")

@@ -327,6 +327,7 @@ const (
 
 	ActivityWorking = "working"
 	ActivityWaiting = "waiting"
+	ActivityError   = "error"
 )
 
 // Execution is one independently startable and terminable unit of agent work.

@@ -90,7 +90,7 @@ func (s *Store) RecordExecutionActivity(ctx context.Context, executionID, state,
 }
 
 func (s *Store) RecordExecutionActivityAt(ctx context.Context, executionID, state, workingDir string, at time.Time) error {
-	if state != "" && state != ActivityWorking && state != ActivityWaiting {
+	if state != "" && state != ActivityWorking && state != ActivityWaiting && state != ActivityError {
 		return fmt.Errorf("invalid execution activity %q", state)
 	}
 	tx, err := s.db.BeginTxx(ctx, nil)
