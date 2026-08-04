@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { describe, expect, it, vi } from "vitest"
 import { Layout } from "../Layout"
 
+vi.mock("../../hooks/useAgentCount", () => ({ useAgentCount: () => 0 }))
 vi.mock("../../hooks/useWebSocket", () => ({ useWebSocket: () => ({ connected: true }) }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ servers: [], activeServerName: "Local", baseUrl: "", setActiveServer: vi.fn() }) }))
 vi.mock("../../hooks/useReview", () => ({ useReviewQueue: () => ({ data: [] }) }))

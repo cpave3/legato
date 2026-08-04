@@ -11,10 +11,12 @@ import { usePlanQueue } from "../hooks/usePlan"
 import { useAttention } from "../hooks/useAttention"
 import { AgentSelectionProvider } from "../hooks/useAgentSelection"
 import { useWorkflowRuns } from "../hooks/useWorkflow"
+import { useAgentCount } from "../hooks/useAgentCount"
 
 export function Layout() {
   const { connected } = useWebSocket()
   const { servers, activeServerName, baseUrl, setActiveServer } = useServer()
+  const agentCount = useAgentCount()
   const { data: reviewQueue } = useReviewQueue()
   const reviewCount = reviewQueue?.length ?? 0
   const { data: planQueue } = usePlanQueue()
@@ -46,7 +48,7 @@ export function Layout() {
   const primaryNav = [
     { to: "/attention", label: "Attention", icon: Bell, count: attentionCount, badge: "bg-amber-500" },
     { to: "/board", label: "Board", icon: LayoutGrid },
-    { to: "/agents", label: "Agents", icon: Monitor },
+    { to: "/agents", label: "Agents", icon: Monitor, count: agentCount, badge: "bg-emerald-500" },
     { to: "/review", label: "Review", icon: ListChecks, count: reviewCount, badge: "bg-amber-500" },
   ]
 
@@ -86,17 +88,23 @@ export function Layout() {
         </NavLink>
         <NavLink
           to="/agents"
+          aria-label={agentCount > 0 ? `Agents: ${agentCount} non-idle` : "Agents"}
           className={({ isActive }) =>
             cn(
-              "flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+              "relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
               isActive
                 ? "bg-zinc-800 text-zinc-100"
                 : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
             )
           }
-          title="Agents"
+          title={agentCount > 0 ? `Agents: ${agentCount} non-idle` : "Agents"}
         >
           <Monitor size={20} />
+          {agentCount > 0 && (
+            <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-emerald-500 px-1 text-center text-[9px] font-bold leading-4 text-zinc-950">
+              {agentCount > 99 ? "99+" : agentCount}
+            </span>
+          )}
         </NavLink>
         <NavLink
           to="/board"
@@ -221,6 +229,7 @@ export function Layout() {
           <NavLink
             key={to}
             to={to}
+            aria-label={to === "/agents" && count ? `Agents: ${count} non-idle` : label}
             className={({ isActive }) => cn(
               "relative flex min-h-14 flex-col items-center justify-center gap-0.5 text-[10px]",
               isActive ? "text-indigo-300" : "text-zinc-500",
