@@ -9,7 +9,7 @@ import { Button } from "../ui/Button"
 import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "../ui/Dialog"
 import { InlineNotice } from "../ui/InlineNotice"
 
-export function TaskAgentAction({ taskId, worktreePath = "" }: { taskId: string; worktreePath?: string }) {
+export function TaskAgentAction({ taskId, worktreePath = "", hasChimeraSession = false }: { taskId: string; worktreePath?: string; hasChimeraSession?: boolean }) {
   const { baseUrl } = useServer()
   const navigate = useNavigate()
   const { setSelectedAgentId } = useAgentSelection()
@@ -19,6 +19,8 @@ export function TaskAgentAction({ taskId, worktreePath = "" }: { taskId: string;
   const [repositories, setRepositories] = useState<RepositoryPreset[]>([])
   const [repositoryPreset, setRepositoryPreset] = useState("")
   const [adapters, setAdapters] = useState<string[]>([])
+  const [defaultAdapter, setDefaultAdapter] = useState("")
+  const [chimeraSessionPolicy, setChimeraSessionPolicy] = useState<"resume" | "new">("resume")
   const [busy, setBusy] = useState(false)
   const [initialized, setInitialized] = useState(false)
   const [error, setError] = useState("")
@@ -27,11 +29,13 @@ export function TaskAgentAction({ taskId, worktreePath = "" }: { taskId: string;
     if (!open) return
     setRepositoryPreset("")
     setWorkingDir(worktreePath)
+    setChimeraSessionPolicy("resume")
     setInitialized(false)
     Promise.all([apiFetch(baseUrl, "/api/adapters"), apiFetch(baseUrl, "/api/settings")]).then(async ([adaptersResponse, settingsResponse]) => {
       if (adaptersResponse.ok) {
         const data = await adaptersResponse.json()
         setAdapters(data.adapters ?? [])
+        setDefaultAdapter(data.default ?? "")
       }
       if (settingsResponse.ok) {
         const data = await settingsResponse.json()
@@ -41,14 +45,21 @@ export function TaskAgentAction({ taskId, worktreePath = "" }: { taskId: string;
     }).finally(() => setInitialized(true))
   }, [open, baseUrl, worktreePath])
 
+  const offersChimeraSessionChoice = hasChimeraSession && (agentKind === "chimera" || (agentKind === "" && defaultAdapter === "chimera"))
+
   async function launch() {
     setBusy(true)
     setError("")
     try {
+      const body: { agent_kind: string; working_dir: string; chimera_session_policy?: "resume" | "new" } = {
+        agent_kind: agentKind,
+        working_dir: workingDir,
+      }
+      if (offersChimeraSessionChoice) body.chimera_session_policy = chimeraSessionPolicy
       const response = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(taskId)}/agent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agent_kind: agentKind, working_dir: workingDir }),
+        body: JSON.stringify(body),
       })
       if (!response.ok) throw new Error(await response.text())
       setSelectedAgentId(taskId)
@@ -72,6 +83,17 @@ export function TaskAgentAction({ taskId, worktreePath = "" }: { taskId: string;
               {adapters.map((value) => <option key={value}>{value}</option>)}
             </select>
           </label>
+          {offersChimeraSessionChoice && <fieldset className="space-y-2 rounded-md border border-zinc-800 p-3">
+            <legend className="px-1 text-xs font-medium text-zinc-300">Existing Chimera session</legend>
+            <label className="flex items-start gap-2 text-xs text-zinc-300">
+              <input type="radio" name="chimera-session-policy" value="resume" aria-label="Resume previous session" checked={chimeraSessionPolicy === "resume"} onChange={() => setChimeraSessionPolicy("resume")} className="mt-0.5" />
+              <span><span className="block font-medium">Resume previous session</span><span className="text-zinc-500">Continue with the previous Chimera context.</span></span>
+            </label>
+            <label className="flex items-start gap-2 text-xs text-zinc-300">
+              <input type="radio" name="chimera-session-policy" value="new" aria-label="Start new session" checked={chimeraSessionPolicy === "new"} onChange={() => setChimeraSessionPolicy("new")} className="mt-0.5" />
+              <span><span className="block font-medium">Start new session</span><span className="text-zinc-500">Start fresh for this Legato task.</span></span>
+            </label>
+          </fieldset>}
           <RepositoryPresetSelect
             repositories={repositories}
             value={repositoryPreset}

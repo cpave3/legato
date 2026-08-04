@@ -138,7 +138,7 @@ export function DetailPanel({
             <div data-task-actions className="mt-6 space-y-5 border-t border-zinc-800 pt-5">
               <section aria-labelledby="task-work-heading" className="space-y-2">
                 <h3 id="task-work-heading" className={sectionHeadingClass}>Work</h3>
-                <TaskAgentAction taskId={card.id} worktreePath={card.worktree?.path}/>
+                <TaskAgentAction taskId={card.id} worktreePath={card.worktree?.path} hasChimeraSession={card.has_chimera_session}/>
                 {worktreesEnabled && !card.worktree && <Button variant="outline" size="sm" className={sidebarButtonClass} onClick={onCreateWorktree}>Create worktree</Button>}
                 <Button variant="outline" size="sm" className={sidebarButtonClass} title="Shortcut: m" onClick={onMove}>Move task</Button>
               </section>

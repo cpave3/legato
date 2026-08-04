@@ -38,6 +38,93 @@ describe("TaskAgentAction", () => {
     })))
   })
 
+  it("offers persisted Chimera sessions and resumes by default", async () => {
+    apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
+      path === "/api/adapters"
+        ? new Response(JSON.stringify({ adapters: ["chimera"], default: "claude" }), { status: 200 })
+        : path === "/api/settings"
+          ? new Response(JSON.stringify({ working_dir: "/default", repositories: [] }), { status: 200 })
+          : new Response(JSON.stringify({ task_id: "T-1", created: true }), { status: 201 }),
+    ))
+
+    render(<MemoryRouter><TaskAgentAction taskId="T-1" hasChimeraSession /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+    await screen.findByRole("option", { name: "chimera" })
+    fireEvent.change(screen.getByLabelText("Agent"), { target: { value: "chimera" } })
+
+    expect((screen.getByRole("radio", { name: "Resume previous session" }) as HTMLInputElement).checked).toBe(true)
+    expect(screen.getByRole("radio", { name: "Start new session" })).toBeTruthy()
+    fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
+
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
+      body: JSON.stringify({ agent_kind: "chimera", working_dir: "/default", chimera_session_policy: "resume" }),
+    })))
+  })
+
+  it("starts a new persisted Chimera session when selected", async () => {
+    apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
+      path === "/api/adapters"
+        ? new Response(JSON.stringify({ adapters: ["chimera"], default: "chimera" }), { status: 200 })
+        : path === "/api/settings"
+          ? new Response(JSON.stringify({ working_dir: "/default", repositories: [] }), { status: 200 })
+          : new Response(JSON.stringify({ task_id: "T-1", created: true }), { status: 201 }),
+    ))
+
+    render(<MemoryRouter><TaskAgentAction taskId="T-1" hasChimeraSession /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+    fireEvent.click(await screen.findByRole("radio", { name: "Start new session" }))
+    fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
+
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
+      body: JSON.stringify({ agent_kind: "", working_dir: "/default", chimera_session_policy: "new" }),
+    })))
+  })
+
+  it("hides the session choice when switching away from Chimera", async () => {
+    apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
+      path === "/api/adapters"
+        ? new Response(JSON.stringify({ adapters: ["chimera", "claude"], default: "chimera" }), { status: 200 })
+        : new Response(JSON.stringify({ working_dir: "/default", repositories: [] }), { status: 200 }),
+    ))
+
+    render(<MemoryRouter><TaskAgentAction taskId="T-1" hasChimeraSession /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+    expect(await screen.findByRole("radio", { name: "Resume previous session" })).toBeTruthy()
+    fireEvent.change(screen.getByLabelText("Agent"), { target: { value: "claude" } })
+    expect(screen.queryByRole("radio", { name: "Resume previous session" })).toBeNull()
+  })
+
+  it("does not offer a session choice for a first Chimera launch", async () => {
+    apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
+      path === "/api/adapters"
+        ? new Response(JSON.stringify({ adapters: ["chimera"], default: "chimera" }), { status: 200 })
+        : new Response(JSON.stringify({ working_dir: "/default", repositories: [] }), { status: 200 }),
+    ))
+
+    render(<MemoryRouter><TaskAgentAction taskId="T-1" /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+    await screen.findByRole("option", { name: "chimera" })
+    expect(screen.queryByRole("radio", { name: "Resume previous session" })).toBeNull()
+  })
+
+  it("keeps a failed session launch open with the server error", async () => {
+    apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
+      path === "/api/adapters"
+        ? new Response(JSON.stringify({ adapters: ["chimera"], default: "chimera" }), { status: 200 })
+        : path === "/api/settings"
+          ? new Response(JSON.stringify({ working_dir: "/default", repositories: [] }), { status: 200 })
+          : new Response("the task no longer has a Chimera session to resume", { status: 409 }),
+    ))
+
+    render(<MemoryRouter><TaskAgentAction taskId="T-1" hasChimeraSession /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+    await screen.findByRole("radio", { name: "Resume previous session" })
+    fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
+
+    expect(await screen.findByText("the task no longer has a Chimera session to resume")).toBeTruthy()
+    expect(screen.getByRole("dialog", { name: "Open task agent" })).toBeTruthy()
+  })
+
   it("creates or resumes the task agent with a manually overridden repository preset", async () => {
     apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
       path === "/api/adapters"

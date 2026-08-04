@@ -24,6 +24,7 @@ function makeCard(overrides: Partial<CardDetail> = {}): CardDetail {
     workspace_id: null,
     pr_meta: null,
     code_context: null,
+    has_chimera_session: false,
     swarm_active_step: 0,
     swarm_step_names: [],
     created_at: "2025-01-01",
