@@ -2,7 +2,7 @@
 
 ## Agent execution identity
 
-Legato creates a durable execution before spawning every hook-bearing agent and injects `LEGATO_EXECUTION_ID` beside `LEGATO_TASK_ID`. Generated Claude Code, Codex, and Chimera hooks call `legato agent state <task-id> --execution-id <id> --activity <working|waiting|"">`. New hooks always provide the execution ID. For compatibility with already-installed legacy hooks, an omitted execution ID updates only the live `agent_sessions.activity` status and notifications; it never infers an execution or writes reporting activity. Provided unknown, terminal, or mismatched execution IDs are rejected. Provider IDs such as `CHIMERA_SESSION_ID` remain validation/readiness metadata, and child Chimera hooks do not mutate parent execution activity.
+Legato creates a durable execution before spawning every hook-bearing agent and injects `LEGATO_EXECUTION_ID` beside `LEGATO_TASK_ID`. Generated Claude Code, Codex, and Chimera hooks call `legato agent state <task-id> --execution-id <id> --activity <working|waiting|error|"">`. New hooks always provide the execution ID. For compatibility with already-installed legacy hooks, an omitted execution ID updates only the live `agent_sessions.activity` status and notifications; it never infers an execution or writes reporting activity. Provided unknown, terminal, or mismatched execution IDs are rejected. Provider IDs such as `CHIMERA_SESSION_ID` remain validation/readiness metadata, and child Chimera hooks do not mutate parent execution activity.
 
 Terminal outcomes are explicit: user/workflow cancellation → `cancelled`, launch/runtime failure → `failed`, missing session reconciliation → `lost`, and successful workflow callback → `succeeded`.
 
@@ -51,8 +51,8 @@ See `docs/workflows.md` for the schema and lifecycle. Workflow commands currentl
 - `legato task description <task-id> <text>` — replace a local task's description (convenience alias for `task update --description`)
 - `legato task note <task-id> <message>` — legacy convenience command that appends timestamped text to a local task description; Jira-backed tasks are rejected. Durable workflow notes are separate records written by the `task.note` workflow executor and read with `task notes` or full/JSON `task show`.
 - `legato workspace list [--format text|json]` — list configured workspaces. Text output prints exact names suitable for `--workspace`; JSON includes IDs, names, and colors.
-- `legato agent state <task-id> --activity <working|waiting|"">` — update agent activity state on a card
-- `legato agent summary [--exclude <task-id>]` — output tmux-formatted agent session counts (working/waiting/idle) for use in tmux status bar `#()` expansion
+- `legato agent state <task-id> --activity <working|waiting|error|"">` — update agent activity state on a card
+- `legato agent summary [--exclude <task-id>]` — output tmux-formatted agent session counts (working/waiting/error/idle) for use in tmux status bar `#()` expansion
 - `legato agent status <task-id> --format tmux` — output a swarm-aware tmux status-line string for the given task. For swarm participants it shows `x/y done`, the last event kind + age, active sibling count, and a scope-warning icon; for solo agents it falls back to the same output as `agent summary --exclude <task-id>`. Auto-injected into `status-right` by `SpawnAgent` for swarm sessions; solo sessions keep the summary command. The CLI opens a new SQLite connection each call (the in-process `SwarmService.LatestSnapshot` cache is unreachable across process boundaries) so latency is bounded by SQLite open + two aggregate queries
 - `legato task link <task-id> [--branch <branch>] [--repo <owner/repo>] [--sha <commit-sha>]` — compatibility command for hooks/scripts; records durable task code context and resets cached PR data when the branch changes.
 - `legato task github context <task-id> --repo <owner/repo> [--branch <branch>] [--sha <commit>] [--base-branch <branch>]` — set manual repository context with highest precedence.
@@ -159,7 +159,7 @@ Legato-spawned tmux sessions get a custom status bar showing live context. Solo 
 
 - **Injection**: `SpawnAgent` sets `status-right`, `status-interval` (5s), `status-style`, `status-left` on the session *before* user `tmux_options` — user config can override
 - **Binary path**: Resolved once at startup via `os.Executable()`, passed to `AgentServiceOptions.BinaryPath`, embedded as absolute path in the `status-right` command
-- **Solo vs swarm**: when `AgentSpawnOptions.ParentTaskID` is empty, `status-right` invokes `legato agent summary --exclude <taskID>` (working/waiting/idle counts for *other* sessions). When `ParentTaskID` is set, `status-right` invokes `legato agent status <taskID> --format tmux`, which prints swarm-local context (`x/y done`, last event + age, active sibling count, scope-warning icon).
+- **Solo vs swarm**: when `AgentSpawnOptions.ParentTaskID` is empty, `status-right` invokes `legato agent summary --exclude <taskID>` (working/waiting/error/idle counts for *other* sessions). When `ParentTaskID` is set, `status-right` invokes `legato agent status <taskID> --format tmux`, which prints swarm-local context (`x/y done`, last event + age, active sibling count, scope-warning icon).
 - **Output format**: `legato agent summary` outputs tmux-native style markup (`#[fg=green]2 working #[fg=colour240]· #[fg=yellow]1 waiting #[fg=colour240]· #[fg=colour245]0 idle`). Zero-count working/waiting states omitted; idle always shown
 - **Performance**: Opens SQLite, runs single `GROUP BY` aggregate query, exits. Sub-10ms typical execution
 

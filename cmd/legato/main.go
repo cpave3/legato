@@ -1109,9 +1109,9 @@ func runAgentSessionCreated(args []string) int {
 }
 
 func runAgentState(args []string) int {
-	// Parse: legato agent state <task-id> --execution-id <id> --activity <working|waiting|""> [--working-dir <dir>]
+	// Parse: legato agent state <task-id> --execution-id <id> --activity <working|waiting|error|""> [--working-dir <dir>]
 	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: legato agent state <task-id> --execution-id <id> --activity <working|waiting|\"\"> [--working-dir <dir>]\n")
+		fmt.Fprintf(os.Stderr, "usage: legato agent state <task-id> --execution-id <id> --activity <working|waiting|error|\"\"> [--working-dir <dir>]\n")
 		return 1
 	}
 
