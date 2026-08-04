@@ -22,10 +22,10 @@ function mermaidCodeSource(children: ReactNode) {
   return typeof source === "string" ? source : null
 }
 
-export function MermaidMarkdownPre({ children }: { children?: ReactNode }) {
+export function MermaidMarkdownPre({ children, fallbackClassName = "my-3 overflow-x-auto rounded bg-black/40 p-3" }: { children?: ReactNode; fallbackClassName?: string }) {
   const source = mermaidCodeSource(children)
   return source === null
-    ? <pre className="my-3 overflow-x-auto rounded bg-black/40 p-3">{children}</pre>
+    ? <pre className={fallbackClassName}>{children}</pre>
     : <MermaidDiagram source={source}/>
 }
 
