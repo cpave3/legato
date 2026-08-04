@@ -210,10 +210,12 @@ func commandTree() *commandDef {
 
 	root := group("", "Legato task management and AI-agent orchestration",
 		task, workspace, columns, agent, plan, review, workflow, swarm, attention, learn, hooks,
-		leaf("serve", "Run the Legato web server", runServeCmd, nil, []commandFlag{valueFlag("port", "port", "Listening port")}, "legato serve --port 3080"),
+		leaf("serve", "Run the Legato web server", runServeCmd, nil, []commandFlag{valueFlag("port", "port", "Listening port"), boolFlag("hot-reload", "Supervise this foreground server and restart after binary replacement")}, "legato serve --port 3080", "legato --hot-reload serve --port 3080"),
 		authGroup,
 		leaf("pair", "Pair a device with the Legato web UI", runPairContract, nil, []commandFlag{valueFlag("host", "host|ip", "Address this device uses to reach this specific Legato instance"), valueFlag("port", "port", "Server port"), jsonFlag}, "legato pair --host 192.168.1.20"),
 	)
+	root.Flags = []commandFlag{boolFlag("hot-reload", "Supervise the default TUI or serve process and restart after binary replacement")}
+	root.Examples = []string{"legato --hot-reload", "legato --hot-reload serve --port 3080"}
 	markCapabilities(root)
 	if update, ok := findCommand(root, []string{"task", "update"}); ok {
 		update.Description = "Status and Legato-owned descriptions can be changed for any task. Provider-backed titles and provider descriptions remain read-only."

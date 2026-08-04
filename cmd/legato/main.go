@@ -23,6 +23,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/certs"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/hooks"
+	"github.com/cpave3/legato/internal/engine/hotreload"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/jira"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -38,13 +39,28 @@ import (
 )
 
 func main() {
-	// Subcommand dispatch: if args present, handle CLI mode.
-	if len(os.Args) > 1 {
-		os.Exit(runCLI(os.Args[1:]))
+	launch, err := parseLaunch(os.Args[1:], os.Getenv(hotReloadChildEnv) == "1")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n\n%s", err, helpText(nil))
+		os.Exit(exitUsage)
 	}
+	if launch.HotReload {
+		wd, wdErr := os.Getwd()
+		if wdErr != nil {
+			fmt.Fprintf(os.Stderr, "hot reload: working directory: %v\n", wdErr)
+			os.Exit(1)
+		}
+		env := append(os.Environ(), hotReloadChildEnv+"=1")
+		os.Exit(hotreload.Run(hotreload.Options{Args: launch.Args, Env: env, Dir: wd}))
+	}
+	os.Exit(runApplication(launch.Args))
+}
 
-	// Default: launch TUI.
-	os.Exit(runTUI())
+func runApplication(args []string) int {
+	if len(args) > 0 {
+		return runCLI(args)
+	}
+	return runTUI()
 }
 
 func runCLI(args []string) int {
