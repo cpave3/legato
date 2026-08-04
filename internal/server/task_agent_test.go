@@ -87,11 +87,90 @@ func TestTaskAgentEndpointResumesPersistedChimeraSession(t *testing.T) {
 	}
 }
 
+func TestTaskAgentEndpointExplicitlyResumesPersistedChimeraSession(t *testing.T) {
+	agents := &taskAgentFake{chimeraSessionID: "persisted-session"}
+	board := &mockBoardService{cardDetail: &service.CardDetail{ID: "T-1"}}
+	server := New(board, agents, nil, ":0")
+	request := httptest.NewRequest(http.MethodPost, "/api/tasks/T-1/agent", strings.NewReader(`{"agent_kind":"chimera","chimera_session_policy":"resume"}`))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if agents.opts.ChimeraSessionID != "persisted-session" || agents.opts.ChimeraSessionExists != "resume" {
+		t.Fatalf("resume options=%+v", agents.opts)
+	}
+}
+
+func TestTaskAgentEndpointStartsNewPersistedChimeraSession(t *testing.T) {
+	agents := &taskAgentFake{chimeraSessionID: "persisted-session"}
+	board := &mockBoardService{cardDetail: &service.CardDetail{ID: "T-1"}}
+	server := New(board, agents, nil, ":0")
+	request := httptest.NewRequest(http.MethodPost, "/api/tasks/T-1/agent", strings.NewReader(`{"agent_kind":"chimera","chimera_session_policy":"new"}`))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if agents.opts.ChimeraSessionID != "persisted-session" || agents.opts.ChimeraSessionExists != "new" {
+		t.Fatalf("new session options=%+v", agents.opts)
+	}
+}
+
+func TestTaskAgentEndpointRejectsStaleChimeraSessionChoice(t *testing.T) {
+	for _, policy := range []string{"resume", "new"} {
+		t.Run(policy, func(t *testing.T) {
+			agents := &taskAgentFake{}
+			board := &mockBoardService{cardDetail: &service.CardDetail{ID: "T-1"}}
+			server := New(board, agents, nil, ":0")
+			request := httptest.NewRequest(http.MethodPost, "/api/tasks/T-1/agent", strings.NewReader(`{"agent_kind":"chimera","chimera_session_policy":"`+policy+`"}`))
+			response := httptest.NewRecorder()
+			server.Handler().ServeHTTP(response, request)
+			if response.Code != http.StatusConflict {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if agents.spawned != "" {
+				t.Fatalf("spawned=%q", agents.spawned)
+			}
+		})
+	}
+}
+
+func TestTaskAgentEndpointRejectsInvalidChimeraSessionPolicy(t *testing.T) {
+	agents := &taskAgentFake{chimeraSessionID: "persisted-session"}
+	board := &mockBoardService{cardDetail: &service.CardDetail{ID: "T-1"}}
+	server := New(board, agents, nil, ":0")
+	request := httptest.NewRequest(http.MethodPost, "/api/tasks/T-1/agent", strings.NewReader(`{"agent_kind":"chimera","chimera_session_policy":"replace"}`))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if agents.spawned != "" {
+		t.Fatalf("spawned=%q", agents.spawned)
+	}
+}
+
+func TestTaskAgentEndpointRejectsChimeraSessionPolicyForOtherAdapter(t *testing.T) {
+	agents := &taskAgentFake{defaultAdapter: "claude"}
+	board := &mockBoardService{cardDetail: &service.CardDetail{ID: "T-1"}}
+	server := New(board, agents, nil, ":0")
+	request := httptest.NewRequest(http.MethodPost, "/api/tasks/T-1/agent", strings.NewReader(`{"agent_kind":"claude","chimera_session_policy":"resume"}`))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if agents.spawned != "" {
+		t.Fatalf("spawned=%q", agents.spawned)
+	}
+}
+
 func TestTaskAgentEndpointResumesLiveAgentWithoutSpawning(t *testing.T) {
 	agents := &taskAgentFake{live: true}
 	board := &mockBoardService{cardDetail: &service.CardDetail{ID: "T-1"}}
 	server := New(board, agents, nil, ":0")
-	request := httptest.NewRequest(http.MethodPost, "/api/tasks/T-1/agent", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/tasks/T-1/agent", strings.NewReader(`{"chimera_session_policy":"invalid"}`))
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK {

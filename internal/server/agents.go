@@ -344,8 +344,9 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			return
 		}
 		var req struct {
-			AgentKind  string `json:"agent_kind"`
-			WorkingDir string `json:"working_dir"`
+			AgentKind            string `json:"agent_kind"`
+			WorkingDir           string `json:"working_dir"`
+			ChimeraSessionPolicy string `json:"chimera_session_policy"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -355,15 +356,34 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			req.WorkingDir = s.workDir
 		}
 		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir}
-		if req.AgentKind == "chimera" || (req.AgentKind == "" && agents.DefaultAdapter() == "chimera") {
+		effectiveAdapter := req.AgentKind
+		if effectiveAdapter == "" {
+			effectiveAdapter = agents.DefaultAdapter()
+		}
+		if req.ChimeraSessionPolicy != "" && req.ChimeraSessionPolicy != "resume" && req.ChimeraSessionPolicy != "new" {
+			http.Error(w, "chimera_session_policy must be resume or new", http.StatusBadRequest)
+			return
+		}
+		if req.ChimeraSessionPolicy != "" && effectiveAdapter != "chimera" {
+			http.Error(w, "chimera_session_policy requires the Chimera adapter", http.StatusBadRequest)
+			return
+		}
+		if effectiveAdapter == "chimera" {
 			sessionID, err := agents.GetTaskChimeraSessionID(r.Context(), taskID)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
+			if req.ChimeraSessionPolicy != "" && sessionID == "" {
+				http.Error(w, "the task no longer has a Chimera session to "+req.ChimeraSessionPolicy, http.StatusConflict)
+				return
+			}
 			if sessionID != "" {
 				opts.ChimeraSessionID = sessionID
-				opts.ChimeraSessionExists = "resume"
+				opts.ChimeraSessionExists = req.ChimeraSessionPolicy
+				if opts.ChimeraSessionExists == "" {
+					opts.ChimeraSessionExists = "resume"
+				}
 			}
 		}
 		if err := agents.SpawnAgent(r.Context(), taskID, 0, 0, opts); err != nil {
