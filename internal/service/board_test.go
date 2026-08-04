@@ -578,6 +578,61 @@ func TestDeleteTask_LocalTask(t *testing.T) {
 	}
 }
 
+func TestDeleteTask_WorkflowAssociatedTask(t *testing.T) {
+	s, bus, svc := setupTestBoard(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, store.Task{ID: "T-WORKFLOW", Title: "Workflow task", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.GetTask(ctx, "T-WORKFLOW")
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Status = "Done"
+	if err := s.RecordTaskTransition(ctx, store.TaskTransition{
+		ID: "transition-workflow", TaskID: task.ID, Source: "local",
+		FromColumn: "Doing", ToColumn: "Done", TaskJSON: `{}`,
+	}, *task); err != nil {
+		t.Fatal(err)
+	}
+	request, err := s.UpsertWorkflowTriggerRequest(ctx, store.WorkflowTriggerRequest{
+		ID: "request-workflow", TransitionID: "transition-workflow", WorkflowName: "on-done",
+		DefinitionSource: "test", DefinitionDigest: "sha256:service", DefinitionJSON: `{}`,
+		InputsJSON: `{}`, MissingInputsJSON: `[]`, Status: "started", RunID: "run-workflow",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := store.WorkflowRun{
+		ID: "run-workflow", WorkflowName: "on-done", WorkflowTitle: "On done",
+		DefinitionSource: "test", DefinitionDigest: "sha256:service", DefinitionJSON: `{}`,
+		InputsJSON: `{}`, Status: "running", CurrentStepID: "record",
+		RelatedTaskID: task.ID, TriggerRequestID: request.ID,
+	}
+	if err := s.CreateWorkflowRun(ctx, run, []store.WorkflowStepRun{{
+		RunID: run.ID, StepID: "record", StepOrder: 0, Title: "Record",
+		ExecutorType: "agent.run", DefinitionJSON: `{}`, Status: "pending",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	ch := bus.Subscribe(events.EventCardsRefreshed)
+	if err := svc.DeleteTask(ctx, task.ID); err != nil {
+		t.Fatalf("DeleteTask: %v", err)
+	}
+	if _, err := svc.GetCard(ctx, task.ID); err == nil {
+		t.Fatal("expected GetCard error after deleting workflow-associated task")
+	}
+	select {
+	case evt := <-ch:
+		if evt.Type != events.EventCardsRefreshed {
+			t.Errorf("expected EventCardsRefreshed, got %d", evt.Type)
+		}
+	default:
+		t.Error("expected EventCardsRefreshed event")
+	}
+}
+
 func TestDeleteTask_RemoteTask_RemovesLocalOnly(t *testing.T) {
 	s, _, svc := setupTestBoard(t)
 	seedColumns(t, s)

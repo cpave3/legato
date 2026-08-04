@@ -474,8 +474,23 @@ func (s *Store) SetTaskSwarmWorkingDir(ctx context.Context, taskID string, worki
 }
 
 func (s *Store) DeleteTask(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
-	return err
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE workflow_runs SET related_task_id = NULL WHERE related_task_id = ?`, id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE workflow_runs SET trigger_request_id = NULL
+			WHERE trigger_request_id IN (
+				SELECT r.id
+				FROM workflow_trigger_requests r
+				JOIN task_transitions t ON t.id = r.transition_id
+				WHERE t.task_id = ?
+			)`, id); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
+		return err
+	})
 }
 
 // UpsertTask inserts a task or updates it if it already exists.

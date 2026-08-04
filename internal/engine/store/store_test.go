@@ -395,6 +395,80 @@ func TestDeleteTaskPreservesExecutionHistory(t *testing.T) {
 	}
 }
 
+func TestDeleteTaskDetachesWorkflowAssociationsAndPreservesHistory(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "subject-1")
+
+	task, err := s.GetTask(ctx, "subject-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	task.Status = "Done"
+	if err := s.RecordTaskTransition(ctx, TaskTransition{
+		ID: "transition-1", TaskID: task.ID, Source: "local",
+		FromColumn: "Doing", ToColumn: "Done", TaskJSON: `{}`,
+	}, *task); err != nil {
+		t.Fatal(err)
+	}
+	request, err := s.UpsertWorkflowTriggerRequest(ctx, WorkflowTriggerRequest{
+		ID: "request-1", TransitionID: "transition-1", WorkflowName: "on-done",
+		DefinitionSource: "test", DefinitionDigest: "sha256:test", DefinitionJSON: `{}`,
+		InputsJSON: `{}`, MissingInputsJSON: `[]`, Status: "started", RunID: "run-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := WorkflowRun{
+		ID: "run-1", WorkflowName: "on-done", WorkflowTitle: "On done",
+		DefinitionSource: "test", DefinitionDigest: "sha256:test", DefinitionJSON: `{}`,
+		InputsJSON: `{}`, Status: "running", CurrentStepID: "record",
+		RelatedTaskID: task.ID, TriggerRequestID: request.ID,
+	}
+	steps := []WorkflowStepRun{{
+		RunID: run.ID, StepID: "record", StepOrder: 0, Title: "Record",
+		ExecutorType: "agent.run", DefinitionJSON: `{}`, Status: "pending",
+	}}
+	if err := s.CreateWorkflowRun(ctx, run, steps); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteTask(ctx, task.ID); err != nil {
+		t.Fatalf("DeleteTask: %v", err)
+	}
+	if _, err := s.GetTask(ctx, task.ID); err != ErrNotFound {
+		t.Fatalf("GetTask error = %v, want ErrNotFound", err)
+	}
+	if _, err := s.GetTaskTransition(ctx, "transition-1"); err != ErrNotFound {
+		t.Fatalf("GetTaskTransition error = %v, want ErrNotFound", err)
+	}
+	if _, err := s.GetWorkflowTriggerRequest(ctx, request.ID); err != ErrNotFound {
+		t.Fatalf("GetWorkflowTriggerRequest error = %v, want ErrNotFound", err)
+	}
+	view, err := s.GetWorkflowRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetWorkflowRun: %v", err)
+	}
+	if view.Run.RelatedTaskID != "" || view.Run.TriggerRequestID != "" {
+		t.Fatalf("retained workflow associations = related %q, trigger %q", view.Run.RelatedTaskID, view.Run.TriggerRequestID)
+	}
+	if len(view.Steps) != 1 || view.Steps[0].StepID != "record" {
+		t.Fatalf("retained workflow steps = %+v", view.Steps)
+	}
+
+	rows, err := s.db.QueryxContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		t.Fatal("foreign key violation remains after task deletion")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDeleteNonExistentTaskIsNoop(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
