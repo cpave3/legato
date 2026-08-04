@@ -266,7 +266,7 @@ The **Workflows** destination includes:
 
 Board task detail also shows related workflow runs and their downloadable managed artifacts when the run selected that task through a `task` input.
 
-Run views update through `workflow_changed` and agent activity WebSocket events. An unfinished `agent.run` step is marked as needing attention when its session becomes waiting, idle, or disappears. The Workflows navigation item shows a red count, run cards explain the stall, and the run page offers **Prompt to continue** for a live stalled agent. Legato does not prompt automatically, avoiding duplicate or unsafe agent work. Mobile layouts use stacked step cards, contained JSON/code scrolling, touch-sized actions, and safe-area navigation spacing.
+Run views update through targeted `workflow_changed` events. When an agent activity transition belongs to an active `agent.run` attempt, the server resolves its task to the persisted run/step identity and emits that targeted event; unrelated `agents_changed` events do not reload workflow runs or definitions. An unfinished `agent.run` step is marked as needing attention when its session becomes waiting, idle, or disappears. The Workflows navigation item gets its red count from the lightweight navigation summary, run cards explain the stall, and the run page offers **Prompt to continue** for a live stalled agent. Definitions and runs are lazy tabs and only the visible tab loads. Legato does not prompt automatically, avoiding duplicate or unsafe agent work. Mobile layouts use stacked step cards, contained JSON/code scrolling, touch-sized actions, and safe-area navigation spacing.
 
 ## Extension model
 
