@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -10,14 +11,22 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-const applicationShutdownTimeout = 10 * time.Second
+const (
+	applicationShutdownTimeout = 10 * time.Second
+	tuiShutdownTimeout         = 2 * time.Second
+)
 
 type teaProgram interface {
 	Run() (tea.Model, error)
 	Quit()
+	Kill()
 }
 
 func runProgram(program teaProgram, signals <-chan os.Signal) error {
+	return runProgramWithTimeout(program, signals, tuiShutdownTimeout)
+}
+
+func runProgramWithTimeout(program teaProgram, signals <-chan os.Signal, timeout time.Duration) error {
 	var ownedSignals chan os.Signal
 	if signals == nil {
 		ownedSignals = make(chan os.Signal, 1)
@@ -32,11 +41,29 @@ func runProgram(program teaProgram, signals <-chan os.Signal) error {
 	}()
 	select {
 	case err := <-done:
-		return err
+		return normalizeProgramShutdownError(err)
 	case <-signals:
 		program.Quit()
-		return <-done
+		select {
+		case err := <-done:
+			return normalizeProgramShutdownError(err)
+		case <-time.After(timeout):
+			program.Kill()
+		}
+		select {
+		case err := <-done:
+			return normalizeProgramShutdownError(err)
+		case <-time.After(timeout):
+			return context.DeadlineExceeded
+		}
 	}
+}
+
+func normalizeProgramShutdownError(err error) error {
+	if errors.Is(err, tea.ErrProgramKilled) {
+		return nil
+	}
+	return err
 }
 
 func stopWithTimeout(timeout time.Duration, stop func(context.Context) error) error {

@@ -95,10 +95,7 @@ func Run(options Options) int {
 			if active == nil {
 				return 0
 			}
-			if sig != nil {
-				_ = active.cmd.Process.Signal(sig)
-			}
-			return exitCode((<-active.done).err)
+			return stopChild(active, sig, options.ShutdownTimeout)
 		case result := <-activeDone:
 			return exitCode(result.err)
 		case <-ticker.C:
@@ -121,10 +118,8 @@ func Run(options Options) int {
 				continue
 			}
 
-			if active != nil && !stopForReload(active, options.ShutdownTimeout) {
-				fmt.Fprintln(options.Stderr, "hot reload: child did not stop before the graceful shutdown timeout; keeping the current child")
-				current, stable = candidate, 0
-				continue
+			if active != nil {
+				stopChild(active, syscall.SIGTERM, options.ShutdownTimeout)
 			}
 			replacement, startErr := startChild(options)
 			if startErr != nil {
@@ -165,7 +160,7 @@ func defaults(options *Options) {
 		options.StablePolls = 2
 	}
 	if options.ShutdownTimeout <= 0 {
-		options.ShutdownTimeout = 10 * time.Second
+		options.ShutdownTimeout = 15 * time.Second
 	}
 	if options.StartupWindow <= 0 {
 		options.StartupWindow = time.Second
@@ -193,16 +188,19 @@ func observeStartup(active *child, window time.Duration) (childResult, bool) {
 	}
 }
 
-func stopForReload(active *child, timeout time.Duration) bool {
-	if err := active.cmd.Process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return false
+func stopChild(active *child, signal os.Signal, timeout time.Duration) int {
+	if signal != nil {
+		if err := active.cmd.Process.Signal(signal); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			_ = active.cmd.Process.Kill()
+		}
 	}
 	select {
-	case <-active.done:
-		return true
+	case result := <-active.done:
+		return exitCode(result.err)
 	case <-time.After(timeout):
-		return false
 	}
+	_ = active.cmd.Process.Kill()
+	return exitCode((<-active.done).err)
 }
 
 func fileIdentity(path string) (identity, error) {

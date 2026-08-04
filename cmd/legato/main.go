@@ -1887,7 +1887,7 @@ func runTUI() int {
 	// and stray log writes corrupt the UI.
 	log.SetOutput(io.Discard)
 
-	p := tea.NewProgram(app, tea.WithAltScreen())
+	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithoutSignalHandler())
 	if err := runProgram(p, nil); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1

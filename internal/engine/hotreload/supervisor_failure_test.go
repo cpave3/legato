@@ -14,12 +14,12 @@ import (
 	"time"
 )
 
-func TestRunDoesNotOverlapWhenGracefulShutdownTimesOut(t *testing.T) {
+func TestRunForceStopsTimedOutChildBeforeReplacement(t *testing.T) {
 	dir := t.TempDir()
 	binary := filepath.Join(dir, "app")
 	logPath := filepath.Join(dir, "events")
 	pidPath := filepath.Join(dir, "pid")
-	writeHelper(t, binary, fmt.Sprintf("echo $$ > %q\necho old:start >> %q\ntrap '' TERM INT\nwhile :; do sleep 0.05; done\n", pidPath, logPath))
+	writeHelper(t, binary, fmt.Sprintf("trap '' TERM INT\necho $$ > %q\necho old:start >> %q\nwhile :; do sleep 0.05; done\n", pidPath, logPath))
 	var stderr bytes.Buffer
 	signals := make(chan os.Signal, 1)
 	done := make(chan int, 1)
@@ -28,28 +28,59 @@ func TestRunDoesNotOverlapWhenGracefulShutdownTimesOut(t *testing.T) {
 	}()
 	waitForText(t, logPath, "old:start")
 	replacement := filepath.Join(dir, "replacement")
-	writeLongRunningHelper(t, replacement, "new", logPath)
+	writeHelper(t, replacement, fmt.Sprintf("if kill -0 $(cat %q) 2>/dev/null; then echo overlap >> %q; fi\necho new:start >> %q\ntrap 'exit 0' TERM INT\nwhile :; do sleep 0.05; done\n", pidPath, logPath, logPath))
 	if err := os.Rename(replacement, binary); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for !strings.Contains(stderr.String(), "graceful shutdown timeout") && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if strings.Contains(readString(logPath), "new:start") {
-		t.Fatalf("replacement overlapped timed-out child:\n%s", readString(logPath))
-	}
+	waitForText(t, logPath, "new:start")
 	pid, err := strconv.Atoi(strings.TrimSpace(readString(pidPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+	if err := syscall.Kill(pid, 0); err == nil {
+		t.Fatalf("timed-out child %d is still running", pid)
+	}
+	if strings.Contains(readString(logPath), "overlap") {
+		t.Fatalf("replacement started before old child exited:\n%s", readString(logPath))
+	}
+	signals <- syscall.SIGTERM
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("Run = %d, stderr = %s", code, stderr.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("supervisor did not stop")
+	}
+	if strings.Contains(stderr.String(), "keeping the current child") {
+		t.Fatalf("supervisor retained the timed-out child: %s", stderr.String())
+	}
+}
+
+func TestRunForceStopsChildWhenSupervisorIsTerminated(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "app")
+	pidPath := filepath.Join(dir, "pid")
+	writeHelper(t, binary, fmt.Sprintf("trap '' TERM INT\necho pid:$$ > %q\nwhile :; do sleep 0.05; done\n", pidPath))
+	signals := make(chan os.Signal, 1)
+	done := make(chan int, 1)
+	go func() {
+		done <- Run(Options{Path: binary, Env: os.Environ(), Dir: dir, PollInterval: time.Second, ShutdownTimeout: 40 * time.Millisecond, Signals: signals})
+	}()
+	waitForText(t, pidPath, "pid:")
+	pid, err := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(readString(pidPath)), "pid:"))
+	if err != nil {
 		t.Fatal(err)
 	}
+
+	signals <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("supervisor did not observe helper exit")
+	case <-time.After(time.Second):
+		t.Fatal("supervisor remained blocked on signal-ignoring child")
+	}
+	if err := syscall.Kill(pid, 0); err == nil {
+		t.Fatalf("child %d is still running after supervisor shutdown", pid)
 	}
 }
 
