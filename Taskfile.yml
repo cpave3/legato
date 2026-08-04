@@ -27,6 +27,7 @@ tasks:
     cmds:
       - task: web:build
       - test -f internal/server/static/dist/.gitkeep
+      - test -s internal/server/static/dist/build-id
       - go test ./internal/server/static -count=1
 
   test:race:
@@ -62,6 +63,16 @@ tasks:
     desc: Run the application
     cmds:
       - go run ./cmd/legato
+
+  run:hot:
+    desc: Run the built TUI and reload it after successful binary rebuilds
+    cmds:
+      - ./legato --hot-reload
+
+  server:hot:
+    desc: Run the built web server and reload it after successful binary rebuilds
+    cmds:
+      - ./legato --hot-reload serve --port ${LEGATO_SERVER_PORT:-3080}
 
   install:
     desc: Install legato to $GOPATH/bin

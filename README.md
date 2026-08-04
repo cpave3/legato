@@ -95,6 +95,26 @@ task build:full
 
 **Without the frontend build**, `legato serve` only serves API endpoints — the SPA fallback route is omitted when no assets are present. The TUI works identically either way.
 
+### Development hot reload
+
+Build the stable repository binary once, then launch either foreground mode through the supervisor:
+
+```bash
+task build
+task run:hot
+
+# Or run only the web server (LEGATO_SERVER_PORT defaults to 3080).
+task server:hot
+```
+
+`./legato --hot-reload` supervises the normal TUI, including its configured in-process web server. `./legato --hot-reload serve --port 3080` supervises standalone serve mode. Other CLI commands reject the flag because they are short-lived.
+
+The original process watches the exact executable that launched it. After a successful `task build`, it asks the old child to shut down, waits for database, IPC, HTTP, and terminal cleanup, then starts exactly one child from the replacement binary with the same arguments, environment, working directory, and terminal. There is a brief disconnect and transient TUI navigation state is reset. Failed or incomplete builds leave the healthy child running; a shutdown timeout is reported and never escalated to a kill or overlapping child.
+
+Use `task build:full` when frontend changes must be included. The build emits a new embedded frontend identity; connected web/PWA clients detect it on reconnect, update the service worker, and reload once. A Go-only `task build` retains the current embedded web identity and does not reload same-build browser tabs.
+
+Hot reload is a foreground Unix development workflow, not zero-downtime deployment or daemon management. `task server:restart` remains the explicit detached standalone-server helper.
+
 ## Setup
 
 On first launch with an empty database, Legato runs an interactive setup wizard that:
