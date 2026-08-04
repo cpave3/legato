@@ -1484,13 +1484,16 @@ func runServeCmd(args []string) int {
 		defer ipcSrv.Close()
 	}
 
-	// Handle SIGINT/SIGTERM.
+	// Handle SIGINT/SIGTERM with a bounded graceful HTTP shutdown.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 	go func() {
 		<-sigCh
 		fmt.Println("\nShutting down...")
-		srv.Stop(context.Background())
+		if err := stopWithTimeout(applicationShutdownTimeout, srv.Stop); err != nil {
+			fmt.Fprintf(os.Stderr, "server shutdown: %v\n", err)
+		}
 	}()
 
 	if swarmSvc != nil {
@@ -1885,14 +1888,16 @@ func runTUI() int {
 	log.SetOutput(io.Discard)
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
+	if err := runProgram(p, nil); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
 	}
 
 	// Shut down the web server so the process can exit cleanly.
 	if webSrv != nil {
-		webSrv.Stop(context.Background())
+		if err := stopWithTimeout(applicationShutdownTimeout, webSrv.Stop); err != nil {
+			fmt.Fprintf(os.Stderr, "web server shutdown: %v\n", err)
+		}
 	}
 
 	return 0
