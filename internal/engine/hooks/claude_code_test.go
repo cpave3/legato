@@ -1,8 +1,10 @@
 package hooks_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -77,6 +79,30 @@ func TestClaudeCodeAdapter_InstallHooks(t *testing.T) {
 		if _, ok := hooksMap[event]; !ok {
 			t.Errorf("settings.json missing %s hook", event)
 		}
+	}
+}
+
+func TestClaudeCodeAdapter_InstallHooks_PostToolUseConsumesStdin(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectDir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
+	if err := adapter.InstallHooks(projectDir); err != nil {
+		t.Fatalf("InstallHooks: %v", err)
+	}
+
+	payload := bytes.NewReader(bytes.Repeat([]byte("x"), 1<<20))
+	script := filepath.Join(projectDir, ".claude", "hooks", "legato-post-tool-use.sh")
+	cmd := exec.Command(script)
+	cmd.Env = envWithoutLegatoSession()
+	cmd.Stdin = payload
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("running PostToolUse hook: %v", err)
+	}
+	if payload.Len() != 0 {
+		t.Fatalf("PostToolUse hook left %d of %d stdin bytes unread", payload.Len(), 1<<20)
 	}
 }
 

@@ -206,7 +206,7 @@ For swarm auto-launch, Legato injects the conductor/worker role prompt as Codex 
 | `PermissionRequest` | `legato-permission-request.sh` | `waiting` |
 | `Stop`              | `legato-stop.sh`             | (clear)   |
 
-**Flow**: Codex hooks read JSON input on `stdin` and write JSON output on `stdout`. Each Legato hook script is a thin wrapper that gates on `LEGATO_TASK_ID` (injected by legato's tmux session) — outside a Legato-spawned session it's a no-op. Inside, it calls `legato agent state $LEGATO_TASK_ID --activity <state>`, which updates `agent_sessions.activity` and broadcasts IPC like Claude Code's hooks.
+**Flow**: Codex sends each hook's JSON payload on `stdin`. Each Legato hook script drains that payload before gating on `LEGATO_TASK_ID` (injected by legato's tmux session) — outside a Legato-spawned session it's a no-op. Inside, it calls `legato agent state $LEGATO_TASK_ID --activity <state>`, which updates `agent_sessions.activity` and broadcasts IPC like Claude Code's hooks. Legato does not emit a hook decision or other JSON output.
 
 **Hook trust**: Codex requires users to review and trust non-managed hooks before they run. After installing, open the Codex CLI and run `/hooks` to inspect, review, and trust the Legato hook entries. Alternatively, pass `--dangerously-bypass-hook-trust` for one-off automation.
 

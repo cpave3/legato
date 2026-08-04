@@ -1,9 +1,12 @@
 package hooks_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,6 +26,16 @@ var codexEvents = []struct {
 	{"PostToolUse", "legato-post-tool-use.sh", "working"},
 	{"PermissionRequest", "legato-permission-request.sh", "waiting"},
 	{"Stop", "legato-stop.sh", ""},
+}
+
+func envWithoutLegatoSession() []string {
+	var env []string
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "LEGATO_TASK_ID=") && !strings.HasPrefix(entry, "LEGATO_EXECUTION_ID=") {
+			env = append(env, entry)
+		}
+	}
+	return env
 }
 
 func TestCodexAdapter_Name(t *testing.T) {
@@ -56,6 +69,85 @@ func TestCodexAdapter_InstallHooks_CreatesDirectoryAndFiles(t *testing.T) {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			t.Errorf("expected %s to exist", path)
 		}
+	}
+}
+
+func TestCodexAdapter_InstallHooks_PostToolUseConsumesStdin(t *testing.T) {
+	projectDir := t.TempDir()
+	adapter := hooks.NewCodexAdapter("/usr/bin/legato")
+	if err := adapter.InstallHooks(projectDir); err != nil {
+		t.Fatalf("InstallHooks: %v", err)
+	}
+
+	payload := bytes.NewReader(bytes.Repeat([]byte("x"), 1<<20))
+	script := filepath.Join(projectDir, ".codex", "hooks", "legato-post-tool-use.sh")
+	cmd := exec.Command(script)
+	cmd.Env = envWithoutLegatoSession()
+	cmd.Stdin = payload
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("running PostToolUse hook: %v", err)
+	}
+	if payload.Len() != 0 {
+		t.Fatalf("PostToolUse hook left %d of %d stdin bytes unread", payload.Len(), 1<<20)
+	}
+}
+
+func TestCodexAdapter_InstallHooks_PostToolUseRequiresExecutionAfterConsumingStdin(t *testing.T) {
+	projectDir := t.TempDir()
+	adapter := hooks.NewCodexAdapter("/usr/bin/legato")
+	if err := adapter.InstallHooks(projectDir); err != nil {
+		t.Fatalf("InstallHooks: %v", err)
+	}
+
+	payload := bytes.NewReader(bytes.Repeat([]byte("x"), 1<<20))
+	script := filepath.Join(projectDir, ".codex", "hooks", "legato-post-tool-use.sh")
+	cmd := exec.Command(script)
+	cmd.Env = append(envWithoutLegatoSession(), "LEGATO_TASK_ID=task-123")
+	cmd.Stdin = payload
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		t.Fatalf("PostToolUse hook error = %v, want exit status 1", err)
+	}
+	if payload.Len() != 0 {
+		t.Fatalf("PostToolUse hook left %d of %d stdin bytes unread", payload.Len(), 1<<20)
+	}
+}
+
+func TestCodexAdapter_InstallHooks_PostToolUseReportsWorking(t *testing.T) {
+	projectDir := t.TempDir()
+	capturePath := filepath.Join(projectDir, "args")
+	legatoBin := filepath.Join(projectDir, "legato")
+	fakeLegato := "#!/bin/sh\nprintf '%s\\n' \"$@\" >\"$CAPTURE_PATH\"\n"
+	if err := os.WriteFile(legatoBin, []byte(fakeLegato), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := hooks.NewCodexAdapter(legatoBin)
+	if err := adapter.InstallHooks(projectDir); err != nil {
+		t.Fatalf("InstallHooks: %v", err)
+	}
+
+	script := filepath.Join(projectDir, ".codex", "hooks", "legato-post-tool-use.sh")
+	cmd := exec.Command(script)
+	cmd.Dir = projectDir
+	cmd.Env = append(envWithoutLegatoSession(),
+		"LEGATO_TASK_ID=task-123",
+		"LEGATO_EXECUTION_ID=execution-456",
+		"CAPTURE_PATH="+capturePath,
+	)
+	cmd.Stdin = strings.NewReader(`{"tool":"shell"}`)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("running PostToolUse hook: %v", err)
+	}
+
+	args, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatalf("reading captured arguments: %v", err)
+	}
+	want := "agent\nstate\ntask-123\n--execution-id\nexecution-456\n--activity\nworking\n--working-dir\n" + projectDir + "\n"
+	if string(args) != want {
+		t.Errorf("legato arguments = %q, want %q", args, want)
 	}
 }
 
@@ -151,15 +243,36 @@ func TestCodexAdapter_InstallHooks_MergesWithExisting(t *testing.T) {
 	}
 }
 
-func TestCodexAdapter_InstallHooks_Idempotent(t *testing.T) {
+func TestCodexAdapter_InstallHooks_ReinstallOverwritesWithoutDuplicating(t *testing.T) {
 	projectDir := t.TempDir()
-	adapter := hooks.NewCodexAdapter("/usr/bin/legato")
+	codexDir := filepath.Join(projectDir, ".codex")
+	if err := os.MkdirAll(codexDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	userHooks := `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"user-hook.sh"}]}]}}`
+	if err := os.WriteFile(filepath.Join(codexDir, "hooks.json"), []byte(userHooks), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
+	adapter := hooks.NewCodexAdapter("/usr/bin/legato")
 	if err := adapter.InstallHooks(projectDir); err != nil {
 		t.Fatalf("InstallHooks first: %v", err)
 	}
+
+	scriptPath := filepath.Join(projectDir, ".codex", "hooks", "legato-post-tool-use.sh")
+	if err := os.WriteFile(scriptPath, []byte("stale managed script\n"), 0o755); err != nil {
+		t.Fatalf("seeding stale script: %v", err)
+	}
 	if err := adapter.InstallHooks(projectDir); err != nil {
 		t.Fatalf("InstallHooks second: %v", err)
+	}
+
+	script, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatalf("reading reinstalled script: %v", err)
+	}
+	if strings.Contains(string(script), "stale managed script") || !strings.Contains(string(script), "cat >/dev/null") {
+		t.Error("reinstall should replace stale managed script with the current generated script")
 	}
 
 	data, _ := os.ReadFile(filepath.Join(projectDir, ".codex", "hooks.json"))
@@ -173,6 +286,9 @@ func TestCodexAdapter_InstallHooks_Idempotent(t *testing.T) {
 	}
 	json.Unmarshal(data, &cfg)
 
+	if _, ok := cfg.Hooks["PreToolUse"]; !ok {
+		t.Error("reinstall should preserve unrelated hook entries")
+	}
 	// Should have exactly one entry per event, not duplicated.
 	for _, s := range codexEvents {
 		groups := cfg.Hooks[s.event]
