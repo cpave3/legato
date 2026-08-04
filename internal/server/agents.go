@@ -64,6 +64,7 @@ type AgentResponse struct {
 	EndedAt            *time.Time `json:"ended_at,omitempty"`
 	WorkingSeconds     float64    `json:"working_seconds"`
 	WaitingSeconds     float64    `json:"waiting_seconds"`
+	ErrorSeconds       float64    `json:"error_seconds"`
 	StateTimeline      []string   `json:"state_timeline,omitempty"`
 	NotifyEnabled      bool       `json:"notify_enabled"`
 	HasChimeraEndpoint bool       `json:"has_chimera_endpoint"`
@@ -194,6 +195,7 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 			if d, ok := durations[a.TaskID]; ok {
 				r.WorkingSeconds = d.Working.Seconds()
 				r.WaitingSeconds = d.Waiting.Seconds()
+				r.ErrorSeconds = d.Error.Seconds()
 			}
 			window, buckets := s.sparklineParams()
 			timeline, tlErr := s.agents.GetStateTimeline(context.Background(), a.TaskID, window, buckets)

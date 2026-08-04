@@ -88,6 +88,7 @@ func TestReportService_GenerateReport(t *testing.T) {
 	seedReportExecution(t, s, "t1", store.ActivityWorking, base, base.Add(2*time.Hour))
 	seedReportExecution(t, s, "t2", store.ActivityWorking, base, base.Add(time.Hour))
 	seedReportExecution(t, s, "t2", store.ActivityWaiting, base.Add(time.Hour), base.Add(2*time.Hour))
+	seedReportExecution(t, s, "t2", store.ActivityError, base.Add(2*time.Hour), base.Add(3*time.Hour))
 
 	period := analytics.TimeRange{
 		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
@@ -108,6 +109,9 @@ func TestReportService_GenerateReport(t *testing.T) {
 	}
 	if report.Summary.TotalWaiting != 1*time.Hour {
 		t.Errorf("expected 1h waiting, got %v", report.Summary.TotalWaiting)
+	}
+	if report.Summary.TotalError != 1*time.Hour {
+		t.Errorf("expected 1h error, got %v", report.Summary.TotalError)
 	}
 	if report.Summary.TasksCreated != 2 {
 		t.Errorf("expected 2 tasks created, got %d", report.Summary.TasksCreated)

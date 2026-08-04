@@ -73,6 +73,7 @@ func (s *Server) boardHandler() http.HandlerFunc {
 				if r, ok := cardRefs[id]; ok {
 					resp.Columns[r.col].Cards[r.card].WorkingSeconds = d.Working.Seconds()
 					resp.Columns[r.col].Cards[r.card].WaitingSeconds = d.Waiting.Seconds()
+					resp.Columns[r.col].Cards[r.card].ErrorSeconds = d.Error.Seconds()
 				}
 			}
 		}

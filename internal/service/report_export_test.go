@@ -15,27 +15,28 @@ func TestExportReportMarkdown_Full(t *testing.T) {
 		Summary: service.ReportSummary{
 			TotalWorking:   6*time.Hour + 30*time.Minute,
 			TotalWaiting:   2 * time.Hour,
+			TotalError:     45 * time.Minute,
 			TasksCompleted: 4,
 			TasksCreated:   7,
 			AgentSessions:  12,
 			PRsMerged:      2,
 		},
 		ByDay: []service.DayBreakdown{
-			{Date: time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC), Working: 2 * time.Hour, Waiting: 30 * time.Minute},
-			{Date: time.Date(2026, 3, 17, 0, 0, 0, 0, time.UTC), Working: 4*time.Hour + 30*time.Minute, Waiting: 1*time.Hour + 30*time.Minute},
+			{Date: time.Date(2026, 3, 16, 0, 0, 0, 0, time.UTC), Working: 2 * time.Hour, Waiting: 30 * time.Minute, Error: 15 * time.Minute},
+			{Date: time.Date(2026, 3, 17, 0, 0, 0, 0, time.UTC), Working: 4*time.Hour + 30*time.Minute, Waiting: 1*time.Hour + 30*time.Minute, Error: 30 * time.Minute},
 		},
 		ByTask: []service.TaskStats{
-			{TaskID: "t1", DisplayID: "t1", Title: "Build analytics", Working: 4 * time.Hour, Waiting: 1 * time.Hour},
-			{TaskID: "t2", DisplayID: "REX-123", Title: "Fix auth", Provider: "jira", Working: 2 * time.Hour, Waiting: 30 * time.Minute},
+			{TaskID: "t1", DisplayID: "t1", Title: "Build analytics", Working: 4 * time.Hour, Waiting: 1 * time.Hour, Error: 30 * time.Minute},
+			{TaskID: "t2", DisplayID: "REX-123", Title: "Fix auth", Provider: "jira", Working: 2 * time.Hour, Waiting: 30 * time.Minute, Error: 15 * time.Minute},
 		},
 		ByWorkspace: []service.WorkspaceStats{
-			{WorkspaceName: "frontend", Working: 3 * time.Hour, Waiting: 1 * time.Hour, TaskCount: 2},
+			{WorkspaceName: "frontend", Working: 3 * time.Hour, Waiting: 1 * time.Hour, Error: 45 * time.Minute, TaskCount: 2},
 		},
 		ByDirectory: []service.DirectoryStats{
-			{Directory: "/projects/app", Working: 3 * time.Hour, Waiting: 1 * time.Hour, TaskCount: 2},
+			{Directory: "/projects/app", Working: 3 * time.Hour, Waiting: 1 * time.Hour, Error: 45 * time.Minute, TaskCount: 2},
 		},
 		BySwarm: []service.SwarmStats{
-			{ParentTaskID: "swarm-1", Title: "Fix auth flow", Working: 2 * time.Hour, Waiting: 30 * time.Minute, WallClock: 1 * time.Hour, ParallelRatio: 2.5, WorkerCount: 3, SubtaskCount: 5},
+			{ParentTaskID: "swarm-1", Title: "Fix auth flow", Working: 2 * time.Hour, Waiting: 30 * time.Minute, Error: 15 * time.Minute, WallClock: 1 * time.Hour, ParallelRatio: 2.5, WorkerCount: 3, SubtaskCount: 5},
 		},
 	}
 
@@ -56,11 +57,14 @@ func TestExportReportMarkdown_Full(t *testing.T) {
 	if !strings.Contains(md, "frontend") {
 		t.Error("missing workspace")
 	}
-	if !strings.Contains(md, "76%") {
+	if !strings.Contains(md, "70%") {
 		t.Error("missing working ratio")
 	}
 	if !strings.Contains(md, "/projects/app") {
 		t.Error("missing directory")
+	}
+	if !strings.Contains(md, "| Error Time | 45m |") {
+		t.Error("missing error time in summary")
 	}
 	if !strings.Contains(md, "## Directories") {
 		t.Error("missing directories section")

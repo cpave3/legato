@@ -22,6 +22,7 @@ type reportPeriodResponse struct {
 type reportSummaryResponse struct {
 	WorkingSeconds int64 `json:"working_seconds"`
 	WaitingSeconds int64 `json:"waiting_seconds"`
+	ErrorSeconds   int64 `json:"error_seconds"`
 	TasksCreated   int   `json:"tasks_created"`
 	TasksCompleted int   `json:"tasks_completed"`
 	AgentSessions  int   `json:"agent_sessions"`
@@ -32,6 +33,7 @@ type reportDayResponse struct {
 	Date           string `json:"date"`
 	WorkingSeconds int64  `json:"working_seconds"`
 	WaitingSeconds int64  `json:"waiting_seconds"`
+	ErrorSeconds   int64  `json:"error_seconds"`
 }
 
 type reportTaskResponse struct {
@@ -42,6 +44,7 @@ type reportTaskResponse struct {
 	Provider       string `json:"provider"`
 	WorkingSeconds int64  `json:"working_seconds"`
 	WaitingSeconds int64  `json:"waiting_seconds"`
+	ErrorSeconds   int64  `json:"error_seconds"`
 }
 
 type reportWorkspaceResponse struct {
@@ -50,6 +53,7 @@ type reportWorkspaceResponse struct {
 	WorkspaceColor string `json:"workspace_color"`
 	WorkingSeconds int64  `json:"working_seconds"`
 	WaitingSeconds int64  `json:"waiting_seconds"`
+	ErrorSeconds   int64  `json:"error_seconds"`
 	TaskCount      int    `json:"task_count"`
 }
 
@@ -57,6 +61,7 @@ type reportDirectoryResponse struct {
 	Directory      string `json:"directory"`
 	WorkingSeconds int64  `json:"working_seconds"`
 	WaitingSeconds int64  `json:"waiting_seconds"`
+	ErrorSeconds   int64  `json:"error_seconds"`
 	TaskCount      int    `json:"task_count"`
 }
 
@@ -69,6 +74,7 @@ type reportExecutionResponse struct {
 	WorkflowRunID    string  `json:"workflow_run_id"`
 	WorkingSeconds   int64   `json:"working_seconds"`
 	WaitingSeconds   int64   `json:"waiting_seconds"`
+	ErrorSeconds     int64   `json:"error_seconds"`
 	WallClockSeconds int64   `json:"wall_clock_seconds"`
 	StartedAt        string  `json:"started_at"`
 	EndedAt          *string `json:"ended_at"`
@@ -79,6 +85,7 @@ type reportSwarmResponse struct {
 	Title            string  `json:"title"`
 	WorkingSeconds   int64   `json:"working_seconds"`
 	WaitingSeconds   int64   `json:"waiting_seconds"`
+	ErrorSeconds     int64   `json:"error_seconds"`
 	WallClockSeconds int64   `json:"wall_clock_seconds"`
 	ParallelRatio    float64 `json:"parallel_ratio"`
 	WorkerCount      int     `json:"worker_count"`
@@ -211,19 +218,19 @@ func mapReportResponse(report *service.Report, kind string, offset int) reportRe
 		ByExecution:       make([]reportExecutionResponse, len(report.ByExecution)),
 	}
 	for i, day := range report.ByDay {
-		response.ByDay[i] = reportDayResponse{Date: day.Date.Format("2006-01-02"), WorkingSeconds: durationSeconds(day.Working), WaitingSeconds: durationSeconds(day.Waiting)}
+		response.ByDay[i] = reportDayResponse{Date: day.Date.Format("2006-01-02"), WorkingSeconds: durationSeconds(day.Working), WaitingSeconds: durationSeconds(day.Waiting), ErrorSeconds: durationSeconds(day.Error)}
 	}
 	for i, task := range report.ByTask {
-		response.ByTask[i] = reportTaskResponse{TaskID: task.TaskID, DisplayID: task.DisplayID, Title: task.Title, WorkspaceName: task.WorkspaceName, Provider: task.Provider, WorkingSeconds: durationSeconds(task.Working), WaitingSeconds: durationSeconds(task.Waiting)}
+		response.ByTask[i] = reportTaskResponse{TaskID: task.TaskID, DisplayID: task.DisplayID, Title: task.Title, WorkspaceName: task.WorkspaceName, Provider: task.Provider, WorkingSeconds: durationSeconds(task.Working), WaitingSeconds: durationSeconds(task.Waiting), ErrorSeconds: durationSeconds(task.Error)}
 	}
 	for i, workspace := range report.ByWorkspace {
-		response.ByWorkspace[i] = reportWorkspaceResponse{WorkspaceID: workspace.WorkspaceID, WorkspaceName: workspace.WorkspaceName, WorkspaceColor: workspace.WorkspaceColor, WorkingSeconds: durationSeconds(workspace.Working), WaitingSeconds: durationSeconds(workspace.Waiting), TaskCount: workspace.TaskCount}
+		response.ByWorkspace[i] = reportWorkspaceResponse{WorkspaceID: workspace.WorkspaceID, WorkspaceName: workspace.WorkspaceName, WorkspaceColor: workspace.WorkspaceColor, WorkingSeconds: durationSeconds(workspace.Working), WaitingSeconds: durationSeconds(workspace.Waiting), ErrorSeconds: durationSeconds(workspace.Error), TaskCount: workspace.TaskCount}
 	}
 	for i, directory := range report.ByDirectory {
-		response.ByDirectory[i] = reportDirectoryResponse{Directory: directory.Directory, WorkingSeconds: durationSeconds(directory.Working), WaitingSeconds: durationSeconds(directory.Waiting), TaskCount: directory.TaskCount}
+		response.ByDirectory[i] = reportDirectoryResponse{Directory: directory.Directory, WorkingSeconds: durationSeconds(directory.Working), WaitingSeconds: durationSeconds(directory.Waiting), ErrorSeconds: durationSeconds(directory.Error), TaskCount: directory.TaskCount}
 	}
 	for i, swarm := range report.BySwarm {
-		response.BySwarm[i] = reportSwarmResponse{ParentTaskID: swarm.ParentTaskID, Title: swarm.Title, WorkingSeconds: durationSeconds(swarm.Working), WaitingSeconds: durationSeconds(swarm.Waiting), WallClockSeconds: durationSeconds(swarm.WallClock), ParallelRatio: swarm.ParallelRatio, WorkerCount: swarm.WorkerCount, SubtaskCount: swarm.SubtaskCount}
+		response.BySwarm[i] = reportSwarmResponse{ParentTaskID: swarm.ParentTaskID, Title: swarm.Title, WorkingSeconds: durationSeconds(swarm.Working), WaitingSeconds: durationSeconds(swarm.Waiting), ErrorSeconds: durationSeconds(swarm.Error), WallClockSeconds: durationSeconds(swarm.WallClock), ParallelRatio: swarm.ParallelRatio, WorkerCount: swarm.WorkerCount, SubtaskCount: swarm.SubtaskCount}
 	}
 	for i, execution := range report.ByExecution {
 		var endedAt *string
@@ -231,7 +238,7 @@ func mapReportResponse(report *service.Report, kind string, offset int) reportRe
 			formatted := execution.EndedAt.Format(time.RFC3339Nano)
 			endedAt = &formatted
 		}
-		response.ByExecution[i] = reportExecutionResponse{ID: execution.ID, Kind: execution.Kind, Status: execution.Status, TaskID: execution.TaskID, TaskTitle: execution.TaskTitle, WorkflowRunID: execution.WorkflowRunID, WorkingSeconds: durationSeconds(execution.Working), WaitingSeconds: durationSeconds(execution.Waiting), WallClockSeconds: durationSeconds(execution.WallClock), StartedAt: execution.StartedAt.Format(time.RFC3339Nano), EndedAt: endedAt}
+		response.ByExecution[i] = reportExecutionResponse{ID: execution.ID, Kind: execution.Kind, Status: execution.Status, TaskID: execution.TaskID, TaskTitle: execution.TaskTitle, WorkflowRunID: execution.WorkflowRunID, WorkingSeconds: durationSeconds(execution.Working), WaitingSeconds: durationSeconds(execution.Waiting), ErrorSeconds: durationSeconds(execution.Error), WallClockSeconds: durationSeconds(execution.WallClock), StartedAt: execution.StartedAt.Format(time.RFC3339Nano), EndedAt: endedAt}
 	}
 	return response
 }
@@ -241,7 +248,7 @@ func mapReportPeriod(period analytics.TimeRange, kind string, offset int) report
 }
 
 func mapReportSummary(summary service.ReportSummary) reportSummaryResponse {
-	return reportSummaryResponse{WorkingSeconds: durationSeconds(summary.TotalWorking), WaitingSeconds: durationSeconds(summary.TotalWaiting), TasksCreated: summary.TasksCreated, TasksCompleted: summary.TasksCompleted, AgentSessions: summary.AgentSessions, PRsMerged: summary.PRsMerged}
+	return reportSummaryResponse{WorkingSeconds: durationSeconds(summary.TotalWorking), WaitingSeconds: durationSeconds(summary.TotalWaiting), ErrorSeconds: durationSeconds(summary.TotalError), TasksCreated: summary.TasksCreated, TasksCompleted: summary.TasksCompleted, AgentSessions: summary.AgentSessions, PRsMerged: summary.PRsMerged}
 }
 
 func durationSeconds(duration time.Duration) int64 {

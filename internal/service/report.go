@@ -109,6 +109,7 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 			TaskID:  td.TaskID,
 			Working: td.Working,
 			Waiting: td.Waiting,
+			Error:   td.Error,
 		}
 		ts.DisplayID = td.TaskID
 		if t, ok := taskLookup[td.TaskID]; ok {
@@ -138,6 +139,7 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 			Date:    d.Date,
 			Working: d.Working,
 			Waiting: d.Waiting,
+			Error:   d.Error,
 		}
 	}
 
@@ -149,6 +151,7 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 			WorkspaceName: ws.WorkspaceName,
 			Working:       ws.Working,
 			Waiting:       ws.Waiting,
+			Error:         ws.Error,
 			TaskCount:     ws.TaskCount,
 		}
 		if ws.WorkspaceID != nil {
@@ -163,6 +166,7 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 			Directory: d.Directory,
 			Working:   d.Working,
 			Waiting:   d.Waiting,
+			Error:     d.Error,
 			TaskCount: d.TaskCount,
 		}
 	}
@@ -175,6 +179,7 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 			Title:         s.Title,
 			Working:       s.Working,
 			Waiting:       s.Waiting,
+			Error:         s.Error,
 			WallClock:     s.WallClock,
 			ParallelRatio: s.ParallelRatio,
 			WorkerCount:   s.WorkerCount,
@@ -187,7 +192,7 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 		executionStats[i] = ExecutionStats{
 			ID: execution.ID, Kind: execution.Kind, Status: execution.Status,
 			TaskID: execution.TaskID, TaskTitle: execution.TaskTitle, WorkflowRunID: execution.WorkflowRunID,
-			Working: execution.Working, Waiting: execution.Waiting, WallClock: execution.WallClock,
+			Working: execution.Working, Waiting: execution.Waiting, Error: execution.Error, WallClock: execution.WallClock,
 			StartedAt: execution.StartedAt, EndedAt: execution.EndedAt,
 		}
 	}
@@ -197,6 +202,7 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 		Summary: ReportSummary{
 			TotalWorking:   durations.Working,
 			TotalWaiting:   durations.Waiting,
+			TotalError:     durations.Error,
 			TasksCompleted: throughput.TasksCompleted,
 			TasksCreated:   throughput.TasksCreated,
 			AgentSessions:  throughput.AgentSessions,

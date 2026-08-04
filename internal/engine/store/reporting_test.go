@@ -105,6 +105,7 @@ func TestQueryDurations_FullInRange(t *testing.T) {
 	seedTask(t, db, "t1", base)
 	seedInterval(t, db, "t1", "working", base, base.Add(2*time.Hour))
 	seedInterval(t, db, "t1", "waiting", base.Add(2*time.Hour), base.Add(3*time.Hour))
+	seedInterval(t, db, "t1", "error", base.Add(3*time.Hour), base.Add(4*time.Hour))
 
 	tr := analytics.TimeRange{
 		Start:  time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
@@ -120,6 +121,9 @@ func TestQueryDurations_FullInRange(t *testing.T) {
 	}
 	if result.Waiting != 1*time.Hour {
 		t.Errorf("expected 1h waiting, got %v", result.Waiting)
+	}
+	if result.Error != 1*time.Hour {
+		t.Errorf("expected 1h error, got %v", result.Error)
 	}
 }
 
@@ -238,6 +242,7 @@ func TestQueryTaskBreakdown(t *testing.T) {
 	seedInterval(t, db, "t1", "working", base, base.Add(1*time.Hour))
 	seedInterval(t, db, "t2", "working", base, base.Add(2*time.Hour))
 	seedInterval(t, db, "t2", "waiting", base.Add(2*time.Hour), base.Add(3*time.Hour))
+	seedInterval(t, db, "t1", "error", base.Add(1*time.Hour), base.Add(90*time.Minute))
 	// t3 interval is outside the range
 	seedInterval(t, db, "t3", "working",
 		time.Date(2026, 3, 10, 10, 0, 0, 0, time.UTC),
@@ -267,6 +272,9 @@ func TestQueryTaskBreakdown(t *testing.T) {
 	}
 	if taskMap["t2"].Waiting != 1*time.Hour {
 		t.Errorf("t2: expected 1h waiting, got %v", taskMap["t2"].Waiting)
+	}
+	if taskMap["t1"].Error != 30*time.Minute {
+		t.Errorf("t1: expected 30m error, got %v", taskMap["t1"].Error)
 	}
 	if _, ok := taskMap["t3"]; ok {
 		t.Error("t3 should not appear (outside range)")

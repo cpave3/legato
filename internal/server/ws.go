@@ -255,6 +255,7 @@ func (s *Server) sendAgentList(client *wsClient) {
 		if d, ok := durations[a.TaskID]; ok {
 			r.WorkingSeconds = d.Working.Seconds()
 			r.WaitingSeconds = d.Waiting.Seconds()
+			r.ErrorSeconds = d.Error.Seconds()
 		}
 		r.HasChimeraEndpoint = s.agents.HasChimeraEndpoint(context.Background(), a.TaskID)
 		resp[i] = r

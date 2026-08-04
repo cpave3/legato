@@ -36,6 +36,7 @@ type CardResponse struct {
 	AgentState       string              `json:"agent_state"`
 	WorkingSeconds   float64             `json:"working_seconds"`
 	WaitingSeconds   float64             `json:"waiting_seconds"`
+	ErrorSeconds     float64             `json:"error_seconds"`
 	PRNumber         int                 `json:"pr_number"`
 	PRCheckStatus    string              `json:"pr_check_status"`
 	PRReviewDecision string              `json:"pr_review_decision"`

@@ -16,10 +16,11 @@ type ReportRange struct {
 func (r ReportRange) StartUTC() time.Time { return r.Start.UTC() }
 func (r ReportRange) EndUTC() time.Time   { return r.End.UTC() }
 
-// DurationResult holds aggregated working and waiting durations.
+// DurationResult holds aggregated working, waiting, and error durations.
 type DurationResult struct {
 	Working time.Duration
 	Waiting time.Duration
+	Error   time.Duration
 }
 
 // DayEntry holds duration totals for a single calendar day.
@@ -27,6 +28,7 @@ type DayEntry struct {
 	Date    time.Time
 	Working time.Duration
 	Waiting time.Duration
+	Error   time.Duration
 }
 
 // TaskDuration holds duration totals for a single task.
@@ -34,6 +36,7 @@ type TaskDuration struct {
 	TaskID  string
 	Working time.Duration
 	Waiting time.Duration
+	Error   time.Duration
 }
 
 // Throughput holds task/session/PR counts for a time range.
@@ -50,6 +53,7 @@ type WorkspaceBreakdown struct {
 	WorkspaceName string
 	Working       time.Duration
 	Waiting       time.Duration
+	Error         time.Duration
 	TaskCount     int
 }
 
@@ -60,6 +64,7 @@ type DirectoryBreakdown struct {
 	Directory string
 	Working   time.Duration
 	Waiting   time.Duration
+	Error     time.Duration
 	TaskCount int
 }
 
@@ -70,6 +75,7 @@ type SwarmBreakdown struct {
 	Title         string
 	Working       time.Duration
 	Waiting       time.Duration
+	Error         time.Duration
 	WallClock     time.Duration // earliest effective_start → latest effective_end across intervals
 	ParallelRatio float64       // (Working+Waiting) / WallClock; 0 if WallClock==0
 	WorkerCount   int
@@ -109,6 +115,9 @@ func (s *Store) QueryDurations(ctx context.Context, tr ReportRange) (DurationRes
 		}
 		if state == ActivityWaiting {
 			result.Waiting = time.Duration(seconds) * time.Second
+		}
+		if state == ActivityError {
+			result.Error = time.Duration(seconds) * time.Second
 		}
 	}
 	return result, rows.Err()
@@ -151,6 +160,7 @@ func (s *Store) QueryDailyBreakdown(ctx context.Context, tr ReportRange) ([]DayE
 		}
 		days[i].Working = dur.Working
 		days[i].Waiting = dur.Waiting
+		days[i].Error = dur.Error
 	}
 
 	return days, nil
@@ -191,6 +201,9 @@ func (s *Store) QueryTaskBreakdown(ctx context.Context, tr ReportRange) ([]TaskD
 		}
 		if state == ActivityWaiting {
 			byTask[taskID].Waiting = time.Duration(seconds) * time.Second
+		}
+		if state == ActivityError {
+			byTask[taskID].Error = time.Duration(seconds) * time.Second
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -292,6 +305,9 @@ func (s *Store) QueryWorkspaceBreakdown(ctx context.Context, tr ReportRange) ([]
 		if state == ActivityWaiting {
 			items[k].Waiting = time.Duration(seconds) * time.Second
 		}
+		if state == ActivityError {
+			items[k].Error = time.Duration(seconds) * time.Second
+		}
 		if count > items[k].TaskCount {
 			items[k].TaskCount = count
 		}
@@ -338,6 +354,9 @@ func (s *Store) QueryDirectoryBreakdown(ctx context.Context, tr ReportRange) ([]
 		if state == ActivityWaiting {
 			items[dir].Waiting = time.Duration(seconds) * time.Second
 		}
+		if state == ActivityError {
+			items[dir].Error = time.Duration(seconds) * time.Second
+		}
 		if count > items[dir].TaskCount {
 			items[dir].TaskCount = count
 		}
@@ -367,9 +386,9 @@ func (s *Store) QuerySwarmBreakdown(ctx context.Context, tr ReportRange) ([]Swar
 	}
 	defer rows.Close()
 	type agg struct {
-		working, waiting time.Duration
-		workers          map[string]struct{}
-		intervals        []interval
+		working, waiting, failed time.Duration
+		workers                  map[string]struct{}
+		intervals                []interval
 	}
 	items := map[string]*agg{}
 	for rows.Next() {
@@ -396,6 +415,8 @@ func (s *Store) QuerySwarmBreakdown(ctx context.Context, tr ReportRange) ([]Swar
 			items[parent].working += d
 		} else if state == ActivityWaiting {
 			items[parent].waiting += d
+		} else if state == ActivityError {
+			items[parent].failed += d
 		}
 		if subtask != "" {
 			items[parent].workers[subtask] = struct{}{}
@@ -416,7 +437,7 @@ func (s *Store) QuerySwarmBreakdown(ctx context.Context, tr ReportRange) ([]Swar
 		if wall > 0 {
 			ratio = float64(a.working+a.waiting) / float64(wall)
 		}
-		result = append(result, SwarmBreakdown{ParentTaskID: parent, Title: title, Working: a.working, Waiting: a.waiting, WallClock: wall, ParallelRatio: ratio, WorkerCount: len(a.workers), SubtaskCount: count})
+		result = append(result, SwarmBreakdown{ParentTaskID: parent, Title: title, Working: a.working, Waiting: a.waiting, Error: a.failed, WallClock: wall, ParallelRatio: ratio, WorkerCount: len(a.workers), SubtaskCount: count})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Working > result[j].Working })
 	return result, nil

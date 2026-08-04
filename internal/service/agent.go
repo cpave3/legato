@@ -68,6 +68,7 @@ type AgentSession struct {
 type DurationData struct {
 	Working time.Duration
 	Waiting time.Duration
+	Error   time.Duration
 }
 
 // AgentSpawnOptions controls per-spawn behavior — used by swarm orchestration
@@ -1068,6 +1069,7 @@ func (a *agentService) GetTaskDurations(ctx context.Context, taskIDs []string) (
 		result[taskID] = DurationData{
 			Working: durations["working"],
 			Waiting: durations["waiting"],
+			Error:   durations["error"],
 		}
 	}
 	return result, nil

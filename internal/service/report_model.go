@@ -25,6 +25,7 @@ type Report struct {
 type ReportSummary struct {
 	TotalWorking   time.Duration
 	TotalWaiting   time.Duration
+	TotalError     time.Duration
 	TasksCompleted int
 	TasksCreated   int
 	AgentSessions  int
@@ -36,6 +37,7 @@ type DayBreakdown struct {
 	Date    time.Time
 	Working time.Duration
 	Waiting time.Duration
+	Error   time.Duration
 }
 
 // TaskStats holds per-task analytics for the report.
@@ -47,6 +49,7 @@ type TaskStats struct {
 	Provider      string // "" for local, "jira" for synced, etc.
 	Working       time.Duration
 	Waiting       time.Duration
+	Error         time.Duration
 }
 
 // WorkspaceStats holds per-workspace analytics.
@@ -56,6 +59,7 @@ type WorkspaceStats struct {
 	WorkspaceColor string
 	Working        time.Duration
 	Waiting        time.Duration
+	Error          time.Duration
 	TaskCount      int
 }
 
@@ -64,6 +68,7 @@ type DirectoryStats struct {
 	Directory string
 	Working   time.Duration
 	Waiting   time.Duration
+	Error     time.Duration
 	TaskCount int
 }
 
@@ -76,6 +81,7 @@ type ExecutionStats struct {
 	WorkflowRunID string
 	Working       time.Duration
 	Waiting       time.Duration
+	Error         time.Duration
 	WallClock     time.Duration
 	StartedAt     time.Time
 	EndedAt       *time.Time
@@ -87,6 +93,7 @@ type SwarmStats struct {
 	Title         string
 	Working       time.Duration
 	Waiting       time.Duration
+	Error         time.Duration
 	WallClock     time.Duration // earliest effective_start → latest effective_end across intervals
 	ParallelRatio float64       // (Working+Waiting) / WallClock; 0 if WallClock==0
 	WorkerCount   int
