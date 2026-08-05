@@ -23,14 +23,12 @@ var workflowServiceFactory = func(db *store.Store, cfg *config.Config) (*service
 	bus := events.New()
 	board := service.NewBoardService(db, bus)
 	var syncService service.SyncService
-	publishers := map[string]service.TaskNotePublisher{}
 	if cfg.Jira.BaseURL != "" && cfg.Jira.Email != "" && cfg.Jira.APIToken != "" {
 		jiraProvider := jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second)
-		publishers["jira"] = jiraProvider
 		provider := service.NewJiraProvider(jiraProvider)
 		syncService = service.NewSyncService(db, bus, provider, cfg.Jira.JQLFilter, cfg.Jira.ProjectKeys, time.Duration(cfg.Jira.SyncIntervalSeconds)*time.Second, cfg.Jira.StatusSyncEnabled)
 	}
-	return buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: board, Sync: syncService, WorkDir: wd, NotePublishers: publishers})
+	return buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: board, Sync: syncService, WorkDir: wd})
 }
 
 func workflowDirs() (string, string) {

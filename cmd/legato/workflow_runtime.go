@@ -10,7 +10,6 @@ import (
 	"github.com/cpave3/legato/internal/engine/events"
 	gitengine "github.com/cpave3/legato/internal/engine/git"
 	"github.com/cpave3/legato/internal/engine/hooks"
-	"github.com/cpave3/legato/internal/engine/jira"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/tmux"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
@@ -29,14 +28,13 @@ func checkoutInspector() service.CheckoutInspector {
 }
 
 type workflowRuntimeOptions struct {
-	Bus            *events.Bus
-	Board          service.BoardService
-	Sync           service.SyncService
-	Agents         service.AgentService
-	PR             service.PRTrackingService
-	PRErr          error
-	WorkDir        string
-	NotePublishers map[string]service.TaskNotePublisher
+	Bus     *events.Bus
+	Board   service.BoardService
+	Sync    service.SyncService
+	Agents  service.AgentService
+	PR      service.PRTrackingService
+	PRErr   error
+	WorkDir string
 }
 
 func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRuntimeOptions) (*service.WorkflowService, error) {
@@ -94,20 +92,13 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	}
 	binary, _ := os.Executable()
 	runner := service.NewWorkflowAgentRunner(agentSvc, db, binary)
-	publishers := opts.NotePublishers
-	if publishers == nil {
-		publishers = map[string]service.TaskNotePublisher{}
-	}
-	if _, configured := publishers["jira"]; !configured && cfg.Jira.BaseURL != "" && cfg.Jira.Email != "" && cfg.Jira.APIToken != "" {
-		publishers["jira"] = jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second)
-	}
 	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary), service.NewAgentStopExecutor(runner)}
 	executors = append(executors, learningWorkflowExecutors(db, learningSvc, runner, binary)...)
 	var moveSync service.CardMoveSync
 	if configured, ok := opts.Sync.(service.CardMoveSync); ok {
 		moveSync = configured
 	}
-	executors = append(executors, service.NewTaskNoteExecutor(db, publishers), service.NewTaskMetadataExecutor(db), service.NewTaskMoveExecutor(service.NewWorkflowTaskMover(board, moveSync)), service.NewFileRemoveExecutor())
+	executors = append(executors, service.NewTaskNoteExecutor(db), service.NewTaskMetadataExecutor(db), service.NewTaskMoveExecutor(service.NewWorkflowTaskMover(board, moveSync)), service.NewFileRemoveExecutor())
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector())
 		if prSvc != nil {

@@ -9,14 +9,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
-type recordingTaskNotePublisher struct{ taskID, body string }
-
-func (p *recordingTaskNotePublisher) AddTaskNote(_ context.Context, taskID, body string) error {
-	p.taskID, p.body = taskID, body
-	return nil
-}
-
-func TestTaskNoteExecutorPersistsAndPublishesJiraNote(t *testing.T) {
+func TestTaskNoteExecutorPersistsJiraBackedNoteLocally(t *testing.T) {
 	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -30,8 +23,7 @@ func TestTaskNoteExecutorPersistsAndPublishesJiraNote(t *testing.T) {
 	if err := os.WriteFile(artifact, []byte("## Triage\n\nBlocked by missing logs."), 0600); err != nil {
 		t.Fatal(err)
 	}
-	publisher := &recordingTaskNotePublisher{}
-	executor := NewTaskNoteExecutor(db, map[string]TaskNotePublisher{"jira": publisher})
+	executor := NewTaskNoteExecutor(db)
 	result, err := executor.Start(context.Background(), ResolvedWorkflowStep{RunID: "wr-1", StepID: "note", AttemptID: "wa-1", With: map[string]any{
 		"task": map[string]any{"id": "LEG-42"}, "body_path": artifact,
 	}})
@@ -48,10 +40,7 @@ func TestTaskNoteExecutorPersistsAndPublishesJiraNote(t *testing.T) {
 	if len(notes) != 1 || notes[0].Body != "## Triage\n\nBlocked by missing logs." || notes[0].Source != "workflow" {
 		t.Fatalf("notes = %#v", notes)
 	}
-	if publisher.taskID != "LEG-42" || publisher.body != notes[0].Body {
-		t.Fatalf("published %q: %q", publisher.taskID, publisher.body)
-	}
-	if result.Outputs["note_id"] != notes[0].ID {
+	if result.Outputs["note_id"] != notes[0].ID || result.Outputs["task_id"] != "LEG-42" {
 		t.Fatalf("outputs = %#v", result.Outputs)
 	}
 }

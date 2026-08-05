@@ -16,8 +16,9 @@ func TestConcurrentTaskTriageRunsPublishTheirOwnReports(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	provider, remoteID := "jira", "LEG-42"
 	for _, task := range []store.Task{
-		{ID: "task-1", Title: "Broken export", DescriptionMD: "Export hangs", Status: "Backlog"},
+		{ID: "task-1", Title: "Broken export", DescriptionMD: "Export hangs", Status: "Backlog", Provider: &provider, RemoteID: &remoteID},
 		{ID: "task-2", Title: "Missing import", DescriptionMD: "Import is absent", Status: "Backlog"},
 	} {
 		if err := db.CreateTask(context.Background(), task); err != nil {
@@ -60,7 +61,7 @@ steps:
 		t.Fatal(err)
 	}
 	agent := &fakeWorkflowExecutor{typeName: "agent.run", result: WorkflowExecutionResult{Status: "waiting_agent", WorkingDir: working}}
-	svc := NewWorkflowServiceWithOutputs(db, []WorkflowExecutor{agent, NewTaskNoteExecutor(db, nil), NewFileRemoveExecutor()}, filepath.Join(t.TempDir(), "artifacts"))
+	svc := NewWorkflowServiceWithOutputs(db, []WorkflowExecutor{agent, NewTaskNoteExecutor(db), NewFileRemoveExecutor()}, filepath.Join(t.TempDir(), "artifacts"))
 	runs := map[string]*store.WorkflowRunView{}
 	for _, taskID := range []string{"task-1", "task-2"} {
 		view, err := svc.Start(context.Background(), definition, map[string]string{"task": taskID})
