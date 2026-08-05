@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -66,7 +67,7 @@ func (c *WorkflowTriggerCoordinator) CaptureTransition(ctx context.Context, tran
 			return err
 		}
 		if request.Status == "pending" {
-			if err := c.process(ctx, *transition, definition, request, nil); err != nil {
+			if err := c.process(ctx, *transition, definition, request, nil, false); err != nil {
 				return err
 			}
 		}
@@ -75,6 +76,23 @@ func (c *WorkflowTriggerCoordinator) CaptureTransition(ctx context.Context, tran
 }
 
 func (c *WorkflowTriggerCoordinator) Reconcile(ctx context.Context) error {
+	starting, err := c.store.ListWorkflowTriggerRequests(ctx, "starting")
+	if err != nil {
+		return err
+	}
+	for _, request := range starting {
+		if run, findErr := c.store.FindWorkflowRunByTriggerRequest(ctx, request.ID); findErr == nil {
+			if err := c.update(ctx, request.ID, "started", run.Run.ID, request.InputsJSON, `[]`, ""); err != nil {
+				return err
+			}
+		} else if errors.Is(findErr, store.ErrNotFound) {
+			if err := c.update(ctx, request.ID, "failed", "", request.InputsJSON, `[]`, "workflow start was interrupted; retry the trigger"); err != nil {
+				return err
+			}
+		} else {
+			return findErr
+		}
+	}
 	requests, err := c.store.ListWorkflowTriggerRequests(ctx, "pending")
 	if err != nil {
 		return err
@@ -88,16 +106,26 @@ func (c *WorkflowTriggerCoordinator) Reconcile(ctx context.Context) error {
 		if err := json.Unmarshal([]byte(request.DefinitionJSON), &definition); err != nil {
 			return err
 		}
-		if err := c.process(ctx, *transition, &definition, &request, nil); err != nil {
+		if err := c.process(ctx, *transition, &definition, &request, nil, false); err != nil {
 			return err
 		}
 	}
 	return nil
 }
-func (c *WorkflowTriggerCoordinator) process(ctx context.Context, transition store.TaskTransition, definition *workflowengine.Definition, request *store.WorkflowTriggerRequest, supplied map[string]string) error {
+func (c *WorkflowTriggerCoordinator) process(ctx context.Context, transition store.TaskTransition, definition *workflowengine.Definition, request *store.WorkflowTriggerRequest, supplied map[string]string, confirmed bool) error {
 	var task map[string]any
 	if err := json.Unmarshal([]byte(transition.TaskJSON), &task); err != nil {
 		return err
+	}
+	conditions := definition.On.TaskEnteredColumn.Conditions
+	if conditions != nil && conditions.UsesField("task.has_active_agent") {
+		if _, err := c.store.GetAgentSessionByTaskID(ctx, transition.TaskID); err == nil {
+			task["has_active_agent"] = true
+		} else if errors.Is(err, store.ErrNotFound) {
+			task["has_active_agent"] = false
+		} else {
+			return err
+		}
 	}
 	matched, err := definition.On.TaskEnteredColumn.MatchesEvent(task, map[string]any{"from_column": transition.FromColumn, "to_column": transition.ToColumn})
 	if err != nil {
@@ -111,6 +139,9 @@ func (c *WorkflowTriggerCoordinator) process(ctx context.Context, transition sto
 	encodedMissing, _ := json.Marshal(missing)
 	if len(missing) > 0 {
 		return c.update(ctx, request.ID, "waiting_input", "", string(encodedInputs), string(encodedMissing), "")
+	}
+	if definition.On.TaskEnteredColumn.Confirm && !confirmed {
+		return c.update(ctx, request.ID, "waiting_confirmation", "", string(encodedInputs), `[]`, "")
 	}
 	view, err := c.workflows.StartTriggered(ctx, definition, inputs, request.ID)
 	if err != nil {
@@ -221,7 +252,43 @@ func (c *WorkflowTriggerCoordinator) SupplyInputs(ctx context.Context, requestID
 		return nil, err
 	}
 	request.Status = "pending"
-	if err := c.process(ctx, *transition, &definition, request, supplied); err != nil {
+	if err := c.process(ctx, *transition, &definition, request, supplied, false); err != nil {
+		return nil, err
+	}
+	return c.store.GetWorkflowTriggerRequest(ctx, requestID)
+}
+
+func (c *WorkflowTriggerCoordinator) Confirm(ctx context.Context, requestID string) (*store.WorkflowTriggerRequest, error) {
+	request, err := c.store.GetWorkflowTriggerRequest(ctx, requestID)
+	if err != nil {
+		return nil, err
+	}
+	if request.Status != "waiting_confirmation" {
+		return nil, fmt.Errorf("trigger request is %s", request.Status)
+	}
+	if err := c.store.TransitionWorkflowTriggerRequest(ctx, request.ID, "waiting_confirmation", "starting"); err != nil {
+		return nil, err
+	}
+	c.changed(request.ID)
+	fail := func(err error) (*store.WorkflowTriggerRequest, error) {
+		_ = c.update(ctx, request.ID, "failed", "", request.InputsJSON, `[]`, err.Error())
+		return nil, err
+	}
+	transition, err := c.store.GetTaskTransition(ctx, request.TransitionID)
+	if err != nil {
+		return fail(err)
+	}
+	var definition workflowengine.Definition
+	if err := json.Unmarshal([]byte(request.DefinitionJSON), &definition); err != nil {
+		return fail(fmt.Errorf("decode workflow definition: %w", err))
+	}
+	inputs := map[string]string{}
+	if err := json.Unmarshal([]byte(request.InputsJSON), &inputs); err != nil {
+		return fail(fmt.Errorf("decode trigger inputs: %w", err))
+	}
+	request.Status = "starting"
+	if err := c.process(ctx, *transition, &definition, request, inputs, true); err != nil {
+		_ = c.update(ctx, request.ID, "failed", "", request.InputsJSON, `[]`, err.Error())
 		return nil, err
 	}
 	return c.store.GetWorkflowTriggerRequest(ctx, requestID)
@@ -244,8 +311,12 @@ func (c *WorkflowTriggerCoordinator) Skip(ctx context.Context, requestID string)
 	if err != nil {
 		return err
 	}
-	if request.Status != "waiting_input" && request.Status != "failed" {
+	if request.Status != "waiting_input" && request.Status != "waiting_confirmation" && request.Status != "failed" {
 		return fmt.Errorf("trigger request is %s", request.Status)
 	}
-	return c.update(ctx, request.ID, "skipped", "", request.InputsJSON, `[]`, "skipped by user")
+	if err := c.store.TransitionWorkflowTriggerRequest(ctx, request.ID, request.Status, "skipped"); err != nil {
+		return err
+	}
+	c.changed(request.ID)
+	return nil
 }

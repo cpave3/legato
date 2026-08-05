@@ -25,9 +25,24 @@ func (s *Server) workflowTriggerRequestHandler() http.HandlerFunc {
 				Inputs   map[string]string `json:"inputs"`
 				Remember bool              `json:"remember"`
 				Skip     bool              `json:"skip"`
+				Confirm  bool              `json:"confirm"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				s.writeError(w, http.StatusBadRequest, "invalid request")
+				return
+			}
+			actions := 0
+			if body.Skip {
+				actions++
+			}
+			if body.Confirm {
+				actions++
+			}
+			if body.Inputs != nil {
+				actions++
+			}
+			if actions != 1 {
+				s.writeError(w, http.StatusBadRequest, "request requires exactly one of inputs, confirm, or skip")
 				return
 			}
 			if body.Skip {
@@ -36,6 +51,15 @@ func (s *Server) workflowTriggerRequestHandler() http.HandlerFunc {
 					return
 				}
 				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			if body.Confirm {
+				request, err := s.workflowTriggers.Confirm(r.Context(), requestID)
+				if err != nil {
+					s.writeError(w, http.StatusConflict, err.Error())
+					return
+				}
+				s.writeJSON(w, http.StatusOK, request)
 				return
 			}
 			request, err := s.workflowTriggers.SupplyInputs(r.Context(), requestID, body.Inputs, body.Remember)

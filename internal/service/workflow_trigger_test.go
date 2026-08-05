@@ -11,6 +11,188 @@ import (
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
 
+func TestColumnMoveWithOpenAgentWaitsForConfirmationThenStarts(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for i, name := range []string{"Doing", "Done"} {
+		if err := db.CreateColumnMapping(context.Background(), store.ColumnMapping{ColumnName: name, RemoteStatuses: `[]`, SortOrder: i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.CreateTask(context.Background(), store.Task{ID: "AB-122", Title: "Finish", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.InsertAgentSession(context.Background(), store.AgentSession{TaskID: "AB-122", TmuxSession: "agent-122", Command: "chimera", AgentKind: "chimera", Status: "running", Activity: "idle"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "close-agent.yaml"), []byte(`schema_version: 1
+name: close-agent
+title: Close active agent
+inputs:
+  task: {type: task, required: true}
+on:
+  task.entered_column:
+    column: Done
+    confirm: true
+    inputs: {task: "${{ event.task }}"}
+    conditions:
+      all:
+        - {field: task.has_active_agent, equals: true}
+steps:
+  - {id: close, title: Close agent, type: agent.stop, with: {task: "${{ workflow.inputs.task }}"}}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executor := &fakeWorkflowExecutor{typeName: "agent.stop", result: WorkflowExecutionResult{Status: "succeeded"}}
+	workflows := NewWorkflowService(db, []WorkflowExecutor{executor})
+	coordinator := NewWorkflowTriggerCoordinator(db, workflows, func() workflowengine.DiscoveryResult { return workflowengine.DiscoverPaths(dir) })
+	board := NewBoardService(db, events.New())
+	if err := board.MoveCard(context.Background(), "AB-122", "Done"); err != nil {
+		t.Fatal(err)
+	}
+	if err := coordinator.CaptureLatestForTask(context.Background(), "AB-122"); err != nil {
+		t.Fatal(err)
+	}
+	requests, err := db.ListWorkflowTriggerRequests(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 1 || requests[0].Status != "waiting_confirmation" || len(executor.starts) != 0 {
+		t.Fatalf("requests=%+v starts=%d", requests, len(executor.starts))
+	}
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := coordinator.Confirm(context.Background(), requests[0].ID)
+			errs <- err
+		}()
+	}
+	successes := 0
+	for range 2 {
+		if err := <-errs; err == nil {
+			successes++
+		}
+	}
+	confirmed, err := coordinator.Request(context.Background(), requests[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if successes != 1 || confirmed.Status != "started" || len(executor.starts) != 1 {
+		t.Fatalf("successes=%d request=%+v starts=%d", successes, confirmed, len(executor.starts))
+	}
+}
+
+func TestConfirmationSkipsWhenAgentSessionClosedAfterMove(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for i, name := range []string{"Doing", "Done"} {
+		if err := db.CreateColumnMapping(context.Background(), store.ColumnMapping{ColumnName: name, RemoteStatuses: `[]`, SortOrder: i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.CreateTask(context.Background(), store.Task{ID: "AB-120", Title: "Finish", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := db.InsertAgentSessionReturningID(context.Background(), store.AgentSession{TaskID: "AB-120", TmuxSession: "agent-120", Command: "chimera", AgentKind: "chimera", Status: "running", Activity: "waiting"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "close-agent.yaml"), []byte(`schema_version: 1
+name: close-agent
+title: Close active agent
+inputs: {task: {type: task, required: true}}
+on:
+  task.entered_column:
+    column: Done
+    confirm: true
+    inputs: {task: "${{ event.task }}"}
+    conditions: {all: [{field: task.has_active_agent, equals: true}]}
+steps:
+  - {id: close, title: Close agent, type: agent.stop, with: {task: "${{ workflow.inputs.task }}"}}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executor := &fakeWorkflowExecutor{typeName: "agent.stop", result: WorkflowExecutionResult{Status: "succeeded"}}
+	coordinator := NewWorkflowTriggerCoordinator(db, NewWorkflowService(db, []WorkflowExecutor{executor}), func() workflowengine.DiscoveryResult { return workflowengine.DiscoverPaths(dir) })
+	board := NewBoardService(db, events.New())
+	if err := board.MoveCard(context.Background(), "AB-120", "Done"); err != nil {
+		t.Fatal(err)
+	}
+	if err := coordinator.CaptureLatestForTask(context.Background(), "AB-120"); err != nil {
+		t.Fatal(err)
+	}
+	requests, _ := db.ListWorkflowTriggerRequests(context.Background(), "waiting_confirmation")
+	if len(requests) != 1 {
+		t.Fatalf("requests=%+v", requests)
+	}
+	if err := db.FinishAgentSession(context.Background(), sessionID); err != nil {
+		t.Fatal(err)
+	}
+	confirmed, err := coordinator.Confirm(context.Background(), requests[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if confirmed.Status != "skipped" || len(executor.starts) != 0 {
+		t.Fatalf("request=%+v starts=%d", confirmed, len(executor.starts))
+	}
+}
+
+func TestColumnMoveWithoutOpenAgentSkipsConfirmedWorkflow(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for i, name := range []string{"Doing", "Done"} {
+		if err := db.CreateColumnMapping(context.Background(), store.ColumnMapping{ColumnName: name, RemoteStatuses: `[]`, SortOrder: i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.CreateTask(context.Background(), store.Task{ID: "AB-121", Title: "Finish", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "close-agent.yaml"), []byte(`schema_version: 1
+name: close-agent
+title: Close active agent
+inputs: {task: {type: task, required: true}}
+on:
+  task.entered_column:
+    column: Done
+    confirm: true
+    inputs: {task: "${{ event.task }}"}
+    conditions: {all: [{field: task.has_active_agent, equals: true}]}
+steps:
+  - {id: close, title: Close agent, type: agent.stop, with: {task: "${{ workflow.inputs.task }}"}}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executor := &fakeWorkflowExecutor{typeName: "agent.stop", result: WorkflowExecutionResult{Status: "succeeded"}}
+	coordinator := NewWorkflowTriggerCoordinator(db, NewWorkflowService(db, []WorkflowExecutor{executor}), func() workflowengine.DiscoveryResult { return workflowengine.DiscoverPaths(dir) })
+	board := NewBoardService(db, events.New())
+	if err := board.MoveCard(context.Background(), "AB-121", "Done"); err != nil {
+		t.Fatal(err)
+	}
+	if err := coordinator.CaptureLatestForTask(context.Background(), "AB-121"); err != nil {
+		t.Fatal(err)
+	}
+	requests, err := db.ListWorkflowTriggerRequests(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 1 || requests[0].Status != "skipped" || len(executor.starts) != 0 {
+		t.Fatalf("requests=%+v starts=%d", requests, len(executor.starts))
+	}
+}
+
 func TestColumnMoveStartsWorkflowOnceAndHonorsMetadataCondition(t *testing.T) {
 	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {

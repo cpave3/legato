@@ -216,6 +216,25 @@ func (s *Store) migrate() error {
 		if _, err := tx.Exec(sqlText); err != nil {
 			return fmt.Errorf("executing migration %s: %w", migrations[i], err)
 		}
+		if migrations[i] == "058_workflow_trigger_confirmation.sql" {
+			var tableSQL string
+			err := tx.Get(&tableSQL, `SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'workflow_trigger_requests'`)
+			if err != nil && err != sql.ErrNoRows {
+				return fmt.Errorf("validating migration %s: %w", migrations[i], err)
+			}
+			if err == nil && strings.Contains(tableSQL, "CHECK (status IN") {
+				if !strings.Contains(tableSQL, "'waiting_confirmation'") {
+					return fmt.Errorf("migration %s did not update workflow trigger status constraint", migrations[i])
+				}
+				var schemaVersion int
+				if err := tx.Get(&schemaVersion, `PRAGMA schema_version`); err != nil {
+					return fmt.Errorf("reading schema version after migration %s: %w", migrations[i], err)
+				}
+				if _, err := tx.Exec(`PRAGMA schema_version = ` + fmt.Sprint(schemaVersion+1)); err != nil {
+					return fmt.Errorf("refreshing schema after migration %s: %w", migrations[i], err)
+				}
+			}
+		}
 		if _, err := tx.Exec(`INSERT INTO schema_migrations(version, name) VALUES (?, ?)`, i+1, migrations[i]); err != nil {
 			return fmt.Errorf("recording migration %s: %w", migrations[i], err)
 		}

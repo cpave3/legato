@@ -107,6 +107,21 @@ func (s *Store) UpdateWorkflowTriggerRequest(ctx context.Context, id, status, ru
 	return nil
 }
 
+func (s *Store) TransitionWorkflowTriggerRequest(ctx context.Context, id, fromStatus, toStatus string) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE workflow_trigger_requests SET status = ?, updated_at = datetime('now') WHERE id = ? AND status = ?`, toStatus, id, fromStatus)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrWorkflowStateConflict
+	}
+	return nil
+}
+
 func (s *Store) GetWorkflowTriggerRequest(ctx context.Context, id string) (*WorkflowTriggerRequest, error) {
 	var request WorkflowTriggerRequest
 	if err := s.db.GetContext(ctx, &request, `SELECT * FROM workflow_trigger_requests WHERE id = ?`, id); err != nil {

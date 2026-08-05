@@ -12,6 +12,7 @@ type Triggers struct {
 
 type TaskEnteredColumnTrigger struct {
 	Column     string         `yaml:"column" json:"column"`
+	Confirm    bool           `yaml:"confirm,omitempty" json:"confirm,omitempty"`
 	Inputs     map[string]any `yaml:"inputs,omitempty" json:"inputs,omitempty"`
 	Conditions *Condition     `yaml:"conditions,omitempty" json:"conditions,omitempty"`
 }
@@ -93,7 +94,7 @@ func (c Condition) validate() error {
 
 func validConditionField(field string) bool {
 	switch field {
-	case "task.id", "task.title", "task.description", "task.status", "task.priority", "task.provider", "task.remote_id", "event.from_column", "event.to_column":
+	case "task.id", "task.title", "task.description", "task.status", "task.priority", "task.provider", "task.remote_id", "task.has_active_agent", "event.from_column", "event.to_column":
 		return true
 	}
 	return strings.HasPrefix(field, "task.metadata.") && len(strings.TrimPrefix(field, "task.metadata.")) > 0
@@ -108,6 +109,23 @@ func (t *TaskEnteredColumnTrigger) MatchesEvent(task, event map[string]any) (boo
 		return true, nil
 	}
 	return t.Conditions.matches(task, event)
+}
+
+func (c Condition) UsesField(field string) bool {
+	if c.Field == field {
+		return true
+	}
+	for _, child := range c.All {
+		if child.UsesField(field) {
+			return true
+		}
+	}
+	for _, child := range c.Any {
+		if child.UsesField(field) {
+			return true
+		}
+	}
+	return c.Not != nil && c.Not.UsesField(field)
 }
 
 func (c Condition) matches(task, event map[string]any) (bool, error) {
@@ -136,10 +154,16 @@ func (c Condition) matches(task, event map[string]any) (bool, error) {
 		ok, err := c.Not.matches(task, event)
 		return !ok, err
 	}
+	var value any
+	var exists bool
 	if strings.HasPrefix(c.Field, "event.") {
-		return false, fmt.Errorf("event fields require transition context")
+		if event == nil {
+			return false, fmt.Errorf("event fields require transition context")
+		}
+		value, exists = lookupTaskField(event, strings.TrimPrefix(c.Field, "event."))
+	} else {
+		value, exists = lookupTaskField(task, strings.TrimPrefix(c.Field, "task."))
 	}
-	value, exists := lookupTaskField(task, strings.TrimPrefix(c.Field, "task."))
 	if c.Exists != nil {
 		return exists == *c.Exists, nil
 	}
