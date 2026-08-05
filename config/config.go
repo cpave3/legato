@@ -13,29 +13,31 @@ import (
 )
 
 type Config struct {
-	Jira           JiraConfig               `yaml:"jira"`
-	Board          BoardConfig              `yaml:"board"`
-	Theme          string                   `yaml:"theme"`
-	Icons          string                   `yaml:"icons"` // "unicode" (default) or "nerdfonts"
-	Editor         string                   `yaml:"editor"`
-	Keybindings    KeybindingsConfig        `yaml:"keybindings"`
-	DB             DBConfig                 `yaml:"db"`
-	DataDir        string                   `yaml:"data_dir"`
-	Agents         AgentsConfig             `yaml:"agents"`
-	GitHub         GitHubConfig             `yaml:"github"`
-	Web            WebConfig                `yaml:"web"`
-	Notifications  NotificationsConfig      `yaml:"notifications"`
-	Workspaces     []WorkspaceConfig        `yaml:"workspaces"`
-	Swarm          SwarmConfig              `yaml:"swarm"`
-	Adapters       map[string]AdapterConfig `yaml:"adapters"`
-	Macros         []macros.Macro           `yaml:"macros"`
-	Voice          VoiceConfig              `yaml:"voice"`
-	Worktrees      WorktreesConfig          `yaml:"worktrees"`
-	Groups         GroupsConfig             `yaml:"groups"`
-	Workflows      WorkflowsConfig          `yaml:"workflows"`
-	Repositories   []RepositoryConfig       `yaml:"repositories"`
-	Learning       LearningConfig           `yaml:"learning"`
-	SSHAgentSocket string                   `yaml:"ssh_agent_socket"`
+	Jira                   JiraConfig               `yaml:"jira"`
+	Board                  BoardConfig              `yaml:"board"`
+	Theme                  string                   `yaml:"theme"`
+	Icons                  string                   `yaml:"icons"` // "unicode" (default) or "nerdfonts"
+	Editor                 string                   `yaml:"editor"`
+	Keybindings            KeybindingsConfig        `yaml:"keybindings"`
+	DB                     DBConfig                 `yaml:"db"`
+	DataDir                string                   `yaml:"data_dir"`
+	Agents                 AgentsConfig             `yaml:"agents"`
+	GitHub                 GitHubConfig             `yaml:"github"`
+	Web                    WebConfig                `yaml:"web"`
+	Notifications          NotificationsConfig      `yaml:"notifications"`
+	Workspaces             []WorkspaceConfig        `yaml:"workspaces"`
+	DefaultWorkspace       string                   `yaml:"default_workspace"`
+	DefaultImportWorkspace string                   `yaml:"default_import_workspace"`
+	Swarm                  SwarmConfig              `yaml:"swarm"`
+	Adapters               map[string]AdapterConfig `yaml:"adapters"`
+	Macros                 []macros.Macro           `yaml:"macros"`
+	Voice                  VoiceConfig              `yaml:"voice"`
+	Worktrees              WorktreesConfig          `yaml:"worktrees"`
+	Groups                 GroupsConfig             `yaml:"groups"`
+	Workflows              WorkflowsConfig          `yaml:"workflows"`
+	Repositories           []RepositoryConfig       `yaml:"repositories"`
+	Learning               LearningConfig           `yaml:"learning"`
+	SSHAgentSocket         string                   `yaml:"ssh_agent_socket"`
 }
 
 // LearningConfig controls opt-in learning automation and its bounded inputs.
@@ -344,7 +346,39 @@ func Load() (*Config, error) {
 	if err := ValidateLearningConfig(cfg); err != nil {
 		return nil, err
 	}
+	if err := ValidateWorkspaceDefaults(cfg); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+// ValidateWorkspaceDefaults checks workspace identities and configured default references.
+func ValidateWorkspaceDefaults(cfg *Config) error {
+	workspaceNames := make(map[string]string, len(cfg.Workspaces))
+	for _, workspace := range cfg.Workspaces {
+		name := strings.TrimSpace(workspace.Name)
+		if name == "" {
+			return fmt.Errorf("workspace name must not be blank")
+		}
+		key := strings.ToLower(name)
+		if _, exists := workspaceNames[key]; exists {
+			return fmt.Errorf("duplicate workspace name %q", workspace.Name)
+		}
+		workspaceNames[key] = name
+	}
+
+	for key, name := range map[string]string{
+		"default_workspace":        cfg.DefaultWorkspace,
+		"default_import_workspace": cfg.DefaultImportWorkspace,
+	} {
+		if name == "" {
+			continue
+		}
+		if _, exists := workspaceNames[strings.ToLower(strings.TrimSpace(name))]; !exists {
+			return fmt.Errorf("%s %q does not match a configured workspace", key, name)
+		}
+	}
+	return nil
 }
 
 // extractMacrosRaw unmarshals only the macros field from raw YAML bytes,

@@ -34,6 +34,80 @@ func TestGitHubAuthDefaultsToAutoAndValidatesModes(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDefaultsLoadAndMatchConfiguredNamesCaseInsensitively(t *testing.T) {
+	writeTestConfig(t, `
+workspaces:
+  - name: Work
+    color: "#4A9EEF"
+  - name: Personal
+    color: "#7BC47F"
+default_workspace: personal
+default_import_workspace: WORK
+`)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DefaultWorkspace != "personal" {
+		t.Errorf("DefaultWorkspace = %q, want personal", cfg.DefaultWorkspace)
+	}
+	if cfg.DefaultImportWorkspace != "WORK" {
+		t.Errorf("DefaultImportWorkspace = %q, want WORK", cfg.DefaultImportWorkspace)
+	}
+}
+
+func TestWorkspaceDefaultsAreOptional(t *testing.T) {
+	writeTestConfig(t, "workspaces:\n  - name: Work\n")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DefaultWorkspace != "" || cfg.DefaultImportWorkspace != "" {
+		t.Fatalf("workspace defaults = %q, %q; want empty", cfg.DefaultWorkspace, cfg.DefaultImportWorkspace)
+	}
+}
+
+func TestWorkspaceDefaultsRejectUnknownAndAmbiguousNames(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  string
+		wantErr string
+	}{
+		{
+			name:    "unknown default workspace",
+			config:  "workspaces:\n  - name: Work\ndefault_workspace: Personal\n",
+			wantErr: `default_workspace "Personal" does not match a configured workspace`,
+		},
+		{
+			name:    "unknown import workspace",
+			config:  "workspaces:\n  - name: Work\ndefault_import_workspace: Personal\n",
+			wantErr: `default_import_workspace "Personal" does not match a configured workspace`,
+		},
+		{
+			name:    "duplicate names",
+			config:  "workspaces:\n  - name: Work\n  - name: work\n",
+			wantErr: `duplicate workspace name "work"`,
+		},
+		{
+			name:    "blank name",
+			config:  "workspaces:\n  - name: \"  \"\n",
+			wantErr: "workspace name must not be blank",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			writeTestConfig(t, tt.config)
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestGitHubTokenExpandsFromEnvironment(t *testing.T) {
 	t.Setenv("LEGATO_GITHUB_TOKEN", "github-secret")
 	writeTestConfig(t, `

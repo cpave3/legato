@@ -58,6 +58,82 @@ func TestSeedWorkspaces_SkipsExisting(t *testing.T) {
 	}
 }
 
+func TestSeedAndResolveWorkspaceDefaults(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	defaults, err := SeedAndResolveWorkspaceDefaults(context.Background(), s, &config.Config{
+		Workspaces: []config.WorkspaceConfig{
+			{Name: "Work", Color: "#4A9EEF"},
+			{Name: "Personal", Color: "#7BC47F"},
+		},
+		DefaultWorkspace:       "personal",
+		DefaultImportWorkspace: "WORK",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaults.Task == nil || defaults.Import == nil {
+		t.Fatalf("defaults = %+v, want both IDs", defaults)
+	}
+	if *defaults.Task == *defaults.Import {
+		t.Fatalf("defaults = %+v, want distinct IDs", defaults)
+	}
+
+	workspaces, err := s.ListWorkspaces(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := make(map[string]int, len(workspaces))
+	for _, workspace := range workspaces {
+		byName[workspace.Name] = workspace.ID
+	}
+	if *defaults.Task != byName["Personal"] || *defaults.Import != byName["Work"] {
+		t.Fatalf("defaults = %+v, workspaces = %+v", defaults, workspaces)
+	}
+}
+
+func TestSeedAndResolveWorkspaceDefaultsImportFallsBackToTaskDefault(t *testing.T) {
+	s, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	defaults, err := SeedAndResolveWorkspaceDefaults(context.Background(), s, &config.Config{
+		Workspaces:       []config.WorkspaceConfig{{Name: "Work"}},
+		DefaultWorkspace: "Work",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaults.Task == nil || defaults.Import == nil || *defaults.Task != *defaults.Import {
+		t.Fatalf("defaults = %+v, want import to fall back to task default", defaults)
+	}
+}
+
+func TestSeedAndResolveWorkspaceDefaultsLeavesUnsetDefaultsNil(t *testing.T) {
+	s, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	defaults, err := SeedAndResolveWorkspaceDefaults(context.Background(), s, &config.Config{
+		Workspaces: []config.WorkspaceConfig{{Name: "Work"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaults.Task != nil || defaults.Import != nil {
+		t.Fatalf("defaults = %+v, want nil IDs", defaults)
+	}
+}
+
 func TestSeedWorkspaces_EmptyConfig(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	s, err := store.New(dbPath)
