@@ -44,9 +44,9 @@ Execution history is not deleted during normal session cleanup or task deletion.
 
 Tasks store local arbitrary JSON metadata in `tasks.metadata`. This is separate from provider-owned `remote_meta`; provider upserts preserve local metadata. Dotted-path updates are transactional so unrelated keys are retained.
 
-Explicit local column moves atomically persist a `task_transitions` snapshot. Matching workflow definitions create `workflow_trigger_requests` with a definition digest and full definition snapshot. `(transition_id, workflow_name, definition_digest)` is unique, and `workflow_runs.trigger_request_id` is unique when present, preventing replay from launching duplicate runs. Requests remain durable in `pending`, `waiting_input`, `started`, `skipped`, or `failed` state.
+Explicit local column moves atomically persist a `task_transitions` snapshot. Matching workflow definitions create `workflow_trigger_requests` with a definition digest and full definition snapshot. `(transition_id, workflow_name, definition_digest)` is unique, and `workflow_runs.trigger_request_id` is unique when present, preventing replay from launching duplicate runs. Requests remain durable in `pending`, `waiting_input`, `waiting_confirmation`, `starting`, `started`, `skipped`, or `failed` state. `starting` is an atomic confirmation claim that prevents duplicate workflow launches.
 
-Migrations 044-046 add task metadata, transition/request persistence, and the workflow-run trigger link. Migration 047 adds `code_context`, backfills repository identity from legacy `pr_meta`, and pins existing numbered PR links. Migration 048 repairs early migration-045 databases by adding the missing workflow-trigger definition snapshot column.
+Migrations 044-046 add task metadata, transition/request persistence, and the workflow-run trigger link. Migration 047 adds `code_context`, backfills repository identity from legacy `pr_meta`, and pins existing numbered PR links. Migration 048 repairs early migration-045 databases by adding the missing workflow-trigger definition snapshot column. Migration 058 extends the trigger status constraint for explicit confirmation.
 
 ### Future PostgreSQL work
 

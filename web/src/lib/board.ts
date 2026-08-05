@@ -55,7 +55,7 @@ export async function createTask(
   return res.json() as Promise<{ id: string }>
 }
 
-export type WorkflowTriggerRequest = { id:string; workflow_name:string; status:string; missing_inputs_json:string; error?:string }
+export type WorkflowTriggerRequest = { id:string; workflow_name:string; status:string; definition_json?:string; missing_inputs_json:string; error?:string }
 export type PatchTaskResult = { status:string; triggers?:WorkflowTriggerRequest[] }
 
 export async function patchTask(

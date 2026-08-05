@@ -76,7 +76,38 @@ on:
           not_equals: true
 ```
 
-Conditions support nested `all`, `any`, and `not`, and field comparisons using `exists`, `equals`, `not_equals`, or `in`. Automatic triggers run for explicit local moves, including local moves of provider-backed tasks; pull-sync status changes do not trigger workflows. Trigger requests are durable and idempotent. Missing required inputs leave the card in its destination column and create a recoverable Attention item. Closing the immediate prompt means **Not now**; only explicit **Skip** terminates that request. The workflow can always be started manually as a separate run.
+Conditions support nested `all`, `any`, and `not`, and field comparisons using `exists`, `equals`, `not_equals`, or `in`. In addition to task snapshot, metadata, and transition fields, `task.has_active_agent` resolves at trigger time to whether the task has an open agent session. An open session includes working, waiting, idle, and error activity states; completed/dead sessions do not match.
+
+Set `confirm: true` on a column trigger to require explicit approval after its conditions match and inputs resolve. Existing triggers without it continue to start automatically. Confirmable requests remain recoverable in Attention: closing the immediate prompt means **Not now** and makes no state change, while **Skip** terminates the request. Conditions are re-evaluated when the user confirms, so a session that closes while the prompt is pending causes the trigger to skip without creating a workflow run.
+
+Automatic triggers run for explicit local moves, including local moves of provider-backed tasks; pull-sync status changes do not trigger workflows. Trigger requests are durable and idempotent. Missing required inputs leave the card in its destination column and create a recoverable Attention item; for confirmable triggers, supplying those inputs advances to confirmation instead of starting immediately. The workflow can always be started manually as a separate run.
+
+For example, this user-defined workflow offers to stop an open task agent when the task enters Done. Put it in a discovered workflow directory; it is not built into Legato:
+
+```yaml
+schema_version: 1
+name: close-active-agent
+title: Close active agent
+description: Close the open agent session attached to a task moved to Done.
+inputs:
+  task: {type: task, required: true}
+on:
+  task.entered_column:
+    column: Done
+    confirm: true
+    inputs:
+      task: ${{ event.task }}
+    conditions:
+      all:
+        - field: task.has_active_agent
+          equals: true
+steps:
+  - id: close
+    title: Close active agent
+    type: agent.stop
+    with:
+      task: ${{ workflow.inputs.task }}
+```
 
 ```yaml
 schema_version: 1

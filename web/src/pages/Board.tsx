@@ -452,7 +452,7 @@ export function BoardPage() {
     setPendingAction("move")
     try {
       const result = await patchTask(baseUrl, card.id, { column: targetColumn })
-      const waiting = result.triggers?.find(trigger => trigger.status === "waiting_input")
+      const waiting = result.triggers?.find(trigger => trigger.status === "waiting_input" || trigger.status === "waiting_confirmation")
       setOverlay(waiting ? { kind: "workflowInput", request: waiting } : { kind: "none" })
       movedCardIdRef.current = card.id
       refresh()
@@ -487,7 +487,7 @@ export function BoardPage() {
     setPendingAction("move")
     try {
       const result = await patchTask(baseUrl, card.id, { column: targetColumn })
-      const waiting = result.triggers?.find(trigger => trigger.status === "waiting_input")
+      const waiting = result.triggers?.find(trigger => trigger.status === "waiting_input" || trigger.status === "waiting_confirmation")
       if (waiting) setOverlay({ kind: "workflowInput", request: waiting })
       movedCardIdRef.current = card.id
       refresh()
@@ -841,7 +841,7 @@ export function BoardPage() {
         }}
       />
 
-      {overlay.kind === "workflowInput" && <WorkflowTriggerInputModal baseUrl={baseUrl} request={overlay.request} repositories={repositories} onClose={()=>setOverlay({kind:"none"})} onStarted={()=>{setOverlay({kind:"none"});addToast("Workflow started","success")}}/>}
+      {overlay.kind === "workflowInput" && <WorkflowTriggerInputModal baseUrl={baseUrl} request={overlay.request} repositories={repositories} onClose={()=>setOverlay({kind:"none"})} onStarted={next=>{if(next.status==="waiting_confirmation"){setOverlay({kind:"workflowInput",request:next})}else{setOverlay({kind:"none"});addToast("Workflow started","success")}}}/>}
 
       {/* Detail panel */}
       {detailCard && (

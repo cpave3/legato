@@ -16,6 +16,7 @@ type WorkflowTriggerSubmitMsg struct {
 }
 type WorkflowTriggerCancelledMsg struct{}
 type WorkflowTriggerSkipMsg struct{ RequestID string }
+type WorkflowTriggerConfirmMsg struct{ RequestID string }
 
 type WorkflowTriggerOverlay struct {
 	requestID     string
@@ -25,6 +26,8 @@ type WorkflowTriggerOverlay struct {
 	values        [3]string
 	focus         int
 	remember      bool
+	confirmation  bool
+	workflowTitle string
 	width, height int
 }
 
@@ -34,6 +37,10 @@ func NewWorkflowTrigger(requestID string, presets []workflowengine.RepositoryPre
 		m.custom = true
 	}
 	return m
+}
+
+func NewWorkflowConfirmation(requestID, workflowTitle string) WorkflowTriggerOverlay {
+	return WorkflowTriggerOverlay{requestID: requestID, confirmation: true, workflowTitle: workflowTitle}
 }
 func (m WorkflowTriggerOverlay) Init() tea.Cmd { return nil }
 func (m WorkflowTriggerOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -48,7 +55,9 @@ func (m WorkflowTriggerOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			id := m.requestID
 			return m, func() tea.Msg { return WorkflowTriggerSkipMsg{RequestID: id} }
 		case "r":
-			m.remember = !m.remember
+			if !m.confirmation {
+				m.remember = !m.remember
+			}
 		case "tab", "down":
 			if m.custom {
 				m.focus = (m.focus + 1) % 3
@@ -68,6 +77,10 @@ func (m WorkflowTriggerOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.values[m.focus] = m.values[m.focus][:len(m.values[m.focus])-1]
 			}
 		case "enter":
+			if m.confirmation {
+				id := m.requestID
+				return m, func() tea.Msg { return WorkflowTriggerConfirmMsg{RequestID: id} }
+			}
 			var repository string
 			if m.custom {
 				if strings.TrimSpace(m.values[0]) == "" || strings.TrimSpace(m.values[1]) == "" {
@@ -94,6 +107,14 @@ func (m WorkflowTriggerOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 func (m WorkflowTriggerOverlay) View() string {
+	if m.confirmation {
+		title := m.workflowTitle
+		if title == "" {
+			title = "Start workflow"
+		}
+		lines := []string{lipgloss.NewStyle().Bold(true).Foreground(theme.TextPrimary).Render(title), "", "Run this workflow?", "", lipgloss.NewStyle().Foreground(theme.TextTertiary).Render("enter: start  esc: not now  s: skip")}
+		return lipgloss.NewStyle().Padding(1, 2).Border(lipgloss.RoundedBorder()).Render(strings.Join(lines, "\n"))
+	}
 	lines := []string{lipgloss.NewStyle().Bold(true).Foreground(theme.TextPrimary).Render("Repository required")}
 	if !m.custom {
 		for i, preset := range m.presets {

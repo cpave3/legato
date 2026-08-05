@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -823,6 +824,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.overlayType, a.activeOverlay = overlayNone, nil
 		return a, nil
+	case overlay.WorkflowTriggerConfirmMsg:
+		if a.workflowTriggers != nil {
+			_, _ = a.workflowTriggers.Confirm(context.Background(), msg.RequestID)
+		}
+		a.overlayType, a.activeOverlay = overlayNone, nil
+		return a, nil
 	case overlay.WorkflowTriggerSkipMsg:
 		if a.workflowTriggers != nil {
 			_ = a.workflowTriggers.Skip(context.Background(), msg.RequestID)
@@ -1596,8 +1603,18 @@ func (a App) handleMoveSelected(msg overlay.MoveSelectedMsg) (tea.Model, tea.Cmd
 		_ = a.workflowTriggers.CaptureLatestForTask(context.Background(), msg.TaskID)
 		requests, _ := a.workflowTriggers.RequestsForTask(context.Background(), msg.TaskID)
 		for i := len(requests) - 1; i >= 0; i-- {
-			if requests[i].Status == "waiting_input" {
+			if requests[i].Status == "waiting_input" || requests[i].Status == "waiting_confirmation" {
 				model := overlay.NewWorkflowTrigger(requests[i].ID, a.workflowRepositories)
+				if requests[i].Status == "waiting_confirmation" {
+					title := requests[i].WorkflowName
+					var definition struct {
+						Title string `json:"title"`
+					}
+					if json.Unmarshal([]byte(requests[i].DefinitionJSON), &definition) == nil && definition.Title != "" {
+						title = definition.Title
+					}
+					model = overlay.NewWorkflowConfirmation(requests[i].ID, title)
+				}
 				sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 				a.activeOverlay, a.overlayType = sized, overlayWorkflowTrigger
 				break
