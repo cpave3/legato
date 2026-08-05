@@ -72,6 +72,13 @@ describe("BoardColumn", () => {
     expect(cardList.classList.contains("min-h-0")).toBe(true)
     expect(cardList.classList.contains("flex-1")).toBe(true)
     expect(cardList.classList.contains("overflow-y-auto")).toBe(true)
+    expect(cardList.classList.contains("min-w-0")).toBe(true)
+    expect(cardList.classList.contains("overflow-x-hidden")).toBe(true)
+    expect(cardList.classList.contains("board-column-scrollbar")).toBe(true)
+
+    const cardRow = screen.getByText("Test title").closest("[data-board-column-card]")!
+    expect(cardRow.classList.contains("w-full")).toBe(true)
+    expect(cardRow.classList.contains("min-w-0")).toBe(true)
   })
 
   it("reveals keyboard selection only when the column is active", () => {

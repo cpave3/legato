@@ -87,12 +87,13 @@ export function BoardColumn({
           {cards.length}
         </span>
       </div>
-      <div data-board-column-cards className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto py-2">
+      <div data-board-column-cards className="board-column-scrollbar flex min-h-0 min-w-0 flex-1 flex-col gap-1.5 overflow-x-hidden overflow-y-auto py-2">
         {cards.map((card, i) => (
           <div
             key={card.id}
             ref={(element) => { cardRefs.current[i] = element }}
             data-board-column-card
+            className="min-w-0 w-full"
           >
             <BoardCard
               card={card}
