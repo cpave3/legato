@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestAgentSessionsTableExists(t *testing.T) {
@@ -48,6 +49,39 @@ func TestInsertAndListAgentSessions(t *testing.T) {
 	}
 	if sessions[0].Status != "running" {
 		t.Errorf("Status = %q, want %q", sessions[0].Status, "running")
+	}
+}
+
+func TestListAgentSessionsIncludesLinkedExecutionAttribution(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "user-task")
+	createTestTask(t, s, "workflow-task")
+
+	sessionID, err := s.InsertAgentSessionReturningID(ctx, AgentSession{
+		TaskID: "workflow-task", TmuxSession: "legato-workflow-task", Command: "shell", Status: "running",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateExecution(ctx, Execution{
+		ID: "exec-workflow", Kind: ExecutionWorkflowAgent, Status: ExecutionRunning,
+		TaskID: "user-task", ExecutionTaskID: "workflow-task", TaskTitle: "User task",
+		WorkflowRunID: "run-1", AgentSessionID: &sessionID, StartedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := s.ListAgentSessions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("got %d sessions, want 1", len(sessions))
+	}
+	got := sessions[0]
+	if got.TaskID != "workflow-task" || got.ExecutionID != "exec-workflow" || got.AttributionTaskID != "user-task" || got.ExecutionKind != ExecutionWorkflowAgent || got.WorkflowRunID != "run-1" {
+		t.Fatalf("linked agent session = %#v", got)
 	}
 }
 

@@ -42,21 +42,25 @@ type TmuxManager interface {
 
 // AgentSession represents a running or completed agent session.
 type AgentSession struct {
-	ID            int
-	TaskID        string
-	Title         string
-	Group         string
-	TmuxSession   string
-	Command       string
-	AgentKind     string
-	Status        string
-	Activity      string // "working", "waiting", "error", or "" (idle)
-	Role          string // "conductor", "" for non-swarm, or worker role label
-	ParentTaskID  string // when set, this session belongs to a swarm
-	SubtaskID     string // when set, this session is a swarm worker
-	StartedAt     time.Time
-	EndedAt       *time.Time
-	NotifyEnabled bool
+	ID                int
+	TaskID            string // backing task used for session controls
+	ExecutionID       string
+	AttributionTaskID string // user-facing task this execution concerns
+	ExecutionKind     string
+	WorkflowRunID     string
+	Title             string
+	Group             string
+	TmuxSession       string
+	Command           string
+	AgentKind         string
+	Status            string
+	Activity          string // "working", "waiting", "error", or "" (idle)
+	Role              string // "conductor", "" for non-swarm, or worker role label
+	ParentTaskID      string // when set, this session belongs to a swarm
+	SubtaskID         string // when set, this session is a swarm worker
+	StartedAt         time.Time
+	EndedAt           *time.Time
+	NotifyEnabled     bool
 
 	// Swarm worker metadata, hydrated from the subtask row.
 	Description string
@@ -943,22 +947,30 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 		}
 		notifyEnabled, _ := a.store.GetTaskNotifyEnabled(ctx, s.TaskID)
 
+		attributionTaskID := s.AttributionTaskID
+		if attributionTaskID == "" {
+			attributionTaskID = s.TaskID
+		}
 		result[i] = AgentSession{
-			ID:            s.ID,
-			TaskID:        s.TaskID,
-			Title:         title,
-			Group:         group,
-			TmuxSession:   s.TmuxSession,
-			Command:       command,
-			AgentKind:     s.AgentKind,
-			Status:        s.Status,
-			Activity:      s.Activity,
-			Role:          s.Role,
-			ParentTaskID:  parentID,
-			SubtaskID:     subtaskID,
-			StartedAt:     startedAt,
-			EndedAt:       endedAt,
-			NotifyEnabled: notifyEnabled,
+			ID:                s.ID,
+			TaskID:            s.TaskID,
+			ExecutionID:       s.ExecutionID,
+			AttributionTaskID: attributionTaskID,
+			ExecutionKind:     s.ExecutionKind,
+			WorkflowRunID:     s.WorkflowRunID,
+			Title:             title,
+			Group:             group,
+			TmuxSession:       s.TmuxSession,
+			Command:           command,
+			AgentKind:         s.AgentKind,
+			Status:            s.Status,
+			Activity:          s.Activity,
+			Role:              s.Role,
+			ParentTaskID:      parentID,
+			SubtaskID:         subtaskID,
+			StartedAt:         startedAt,
+			EndedAt:           endedAt,
+			NotifyEnabled:     notifyEnabled,
 		}
 
 		// Hydrate subtask metadata for swarm workers.

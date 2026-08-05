@@ -204,6 +204,17 @@ func TestCardWithWaitingAgentState(t *testing.T) {
 	}
 }
 
+func TestCardWithMixedAgentState(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test task", AgentActive: true, AgentState: "mixed"}
+	out := RenderCard(card, 30, false, "Doing", testIcons)
+	if !strings.Contains(out, "MIXED") {
+		t.Fatalf("mixed card should contain MIXED: %q", out)
+	}
+	if strings.Contains(out, "IDLE") {
+		t.Fatalf("mixed card should not contain IDLE: %q", out)
+	}
+}
+
 func TestCardWithErrorAgentState(t *testing.T) {
 	card := CardData{Key: "task1", Title: "Test task", AgentActive: true, AgentState: "error"}
 	for _, selected := range []bool{false, true} {

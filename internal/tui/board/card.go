@@ -248,6 +248,9 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 	case "error":
 		agentStyle := lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true)
 		agentPrefix = agentStyle.Render(icons.Warning+" ERROR") + " "
+	case "mixed":
+		agentStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple).Bold(true)
+		agentPrefix = agentStyle.Render(icons.Terminal+" MIXED") + " "
 	default:
 		if card.AgentActive {
 			agentStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)

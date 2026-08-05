@@ -925,6 +925,31 @@ func TestGetTaskDurations(t *testing.T) {
 	}
 }
 
+func TestListAgentsPreservesBackingTaskAndExposesExecutionAttribution(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "user-task")
+	createTask(t, s, "workflow-task")
+
+	if err := svc.SpawnAgent(ctx, "workflow-task", 0, 0, AgentSpawnOptions{
+		ExecutionKind: store.ExecutionWorkflowAgent, AttributionTaskID: "user-task", WorkflowRunID: "run-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	agents, err := svc.ListAgents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 1 {
+		t.Fatalf("got %d agents, want 1", len(agents))
+	}
+	got := agents[0]
+	if got.TaskID != "workflow-task" || got.AttributionTaskID != "user-task" || got.ExecutionID == "" || got.ExecutionKind != store.ExecutionWorkflowAgent || got.WorkflowRunID != "run-1" {
+		t.Fatalf("agent identity = %#v", got)
+	}
+}
+
 func TestListAgentsPopulatesTaskTitle(t *testing.T) {
 	svc, s, _ := newTestAgentService(t)
 	ctx := context.Background()

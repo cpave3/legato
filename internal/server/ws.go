@@ -237,21 +237,7 @@ func (s *Server) sendAgentList(client *wsClient) {
 
 	resp := make([]AgentResponse, len(agents))
 	for i, a := range agents {
-		r := AgentResponse{
-			ID:           a.ID,
-			TaskID:       a.TaskID,
-			Title:        a.Title,
-			TmuxSession:  a.TmuxSession,
-			Command:      a.Command,
-			AgentKind:    a.AgentKind,
-			Status:       a.Status,
-			Activity:     a.Activity,
-			Role:         a.Role,
-			ParentTaskID: a.ParentTaskID,
-			SubtaskID:    a.SubtaskID,
-			StartedAt:    a.StartedAt,
-			EndedAt:      a.EndedAt,
-		}
+		r := agentResponse(a)
 		if d, ok := durations[a.TaskID]; ok {
 			r.WorkingSeconds = d.Working.Seconds()
 			r.WaitingSeconds = d.Waiting.Seconds()

@@ -82,16 +82,10 @@ func (s *Server) boardHandler() http.HandlerFunc {
 		// agent states
 		if s.agents != nil && len(allTaskIDs) > 0 {
 			agents, _ := s.agents.ListAgents(ctx)
-			agentMap := make(map[string]service.AgentSession, len(agents))
-			for _, a := range agents {
-				agentMap[a.TaskID] = a
-			}
-			for _, id := range allTaskIDs {
+			for id, summary := range service.SummarizeRelatedAgents(agents) {
 				if r, ok := cardRefs[id]; ok {
-					if a, exists := agentMap[id]; exists && a.Status == "running" {
-						resp.Columns[r.col].Cards[r.card].AgentActive = true
-						resp.Columns[r.col].Cards[r.card].AgentState = a.Activity
-					}
+					resp.Columns[r.col].Cards[r.card].AgentActive = summary.Active
+					resp.Columns[r.col].Cards[r.card].AgentState = summary.State
 				}
 			}
 		}

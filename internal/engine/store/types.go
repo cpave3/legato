@@ -362,22 +362,25 @@ type ExecutionActivity struct {
 }
 
 type AgentSession struct {
-	ID               int     `db:"id"`
-	TaskID           string  `db:"task_id"`
-	ExecutionID      string  `db:"execution_id"`
-	TmuxSession      string  `db:"tmux_session"`
-	Command          string  `db:"command"`
-	AgentKind        string  `db:"agent_kind"`
-	Status           string  `db:"status"`
-	Activity         string  `db:"activity"`
-	Role             string  `db:"role"`
-	ParentTaskID     *string `db:"parent_task_id"`
-	SubtaskID        *string `db:"subtask_id"`
-	StartedAt        string  `db:"started_at"`
-	EndedAt          *string `db:"ended_at"`
-	ChimeraSessionID *string `db:"chimera_session_id"`
-	ChimeraEndpoint  *string `db:"chimera_endpoint"`
-	LastEventID      *string `db:"last_event_id"`
+	ID                int     `db:"id"`
+	TaskID            string  `db:"task_id"`
+	ExecutionID       string  `db:"execution_id"`
+	AttributionTaskID string  `db:"attribution_task_id"`
+	ExecutionKind     string  `db:"execution_kind"`
+	WorkflowRunID     string  `db:"workflow_run_id"`
+	TmuxSession       string  `db:"tmux_session"`
+	Command           string  `db:"command"`
+	AgentKind         string  `db:"agent_kind"`
+	Status            string  `db:"status"`
+	Activity          string  `db:"activity"`
+	Role              string  `db:"role"`
+	ParentTaskID      *string `db:"parent_task_id"`
+	SubtaskID         *string `db:"subtask_id"`
+	StartedAt         string  `db:"started_at"`
+	EndedAt           *string `db:"ended_at"`
+	ChimeraSessionID  *string `db:"chimera_session_id"`
+	ChimeraEndpoint   *string `db:"chimera_endpoint"`
+	LastEventID       *string `db:"last_event_id"`
 }
 
 // SwarmEvent is a single conductor-bound event written to the swarm_events

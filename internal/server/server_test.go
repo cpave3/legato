@@ -524,6 +524,39 @@ func TestHealthEndpointReturnsOK(t *testing.T) {
 	}
 }
 
+func TestAgentResponsesExposeAttributionForHTTPAndWebsocket(t *testing.T) {
+	agents := &promptAgentService{agent: service.AgentSession{
+		ID: 7, TaskID: "workflow-task", ExecutionID: "exec-1", AttributionTaskID: "user-task",
+		ExecutionKind: store.ExecutionWorkflowAgent, WorkflowRunID: "run-1", Status: "running",
+	}}
+	srv := New(&mockBoardService{}, agents, nil, ":0")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var httpAgents []AgentResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &httpAgents); err != nil {
+		t.Fatal(err)
+	}
+	assertAgentAttribution := func(source string, got AgentResponse) {
+		t.Helper()
+		if got.TaskID != "workflow-task" || got.ExecutionID != "exec-1" || got.AttributionTaskID != "user-task" || got.ExecutionKind != store.ExecutionWorkflowAgent || got.WorkflowRunID != "run-1" {
+			t.Fatalf("%s agent = %#v", source, got)
+		}
+	}
+	assertAgentAttribution("http", httpAgents[0])
+
+	var message WSMessage
+	srv.sendAgentList(&wsClient{sendFn: func(got WSMessage) { message = got }})
+	if message.Type != MsgAgentList || len(message.Agents) != 1 {
+		t.Fatalf("websocket message = %#v", message)
+	}
+	assertAgentAttribution("websocket", message.Agents[0])
+}
+
 func TestAgentsEndpointNoService(t *testing.T) {
 	svc := &mockBoardService{
 		columns: []service.Column{},
@@ -1030,6 +1063,33 @@ func TestClearDetectorWaitingClearsOnlyOwnedWaiting(t *testing.T) {
 }
 
 // ---------- New board endpoint tests ----------
+
+func TestBoardEndpointProjectsRelatedAgentSummaryOntoAttributedTask(t *testing.T) {
+	svc := &mockBoardService{
+		columns: []service.Column{{Name: "Doing"}},
+		cards:   map[string][]service.Card{"Doing": {{ID: "task-a", Title: "Task A", Status: "Doing"}}},
+	}
+	agents := &promptAgentService{agent: service.AgentSession{
+		TaskID: "workflow-b", AttributionTaskID: "task-a", Status: "running", Activity: "working",
+	}}
+	srv := New(svc, agents, nil, ":0")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/board", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	var resp BoardResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	card := resp.Columns[0].Cards[0]
+	if !card.AgentActive || card.AgentState != "working" {
+		t.Fatalf("related agent card = %#v", card)
+	}
+}
 
 func TestBoardEndpointReturnsShape(t *testing.T) {
 	workspaceID := 1

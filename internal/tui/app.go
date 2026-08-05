@@ -1406,13 +1406,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err == nil {
 				active := make(map[string]bool, len(agentList))
 				states := make(map[string]string, len(agentList))
-				for _, ag := range agentList {
-					if ag.Status == "running" {
-						active[ag.TaskID] = true
-						if ag.Activity != "" {
-							states[ag.TaskID] = ag.Activity
-						}
-					}
+				for taskID, summary := range service.SummarizeRelatedAgents(agentList) {
+					active[taskID] = summary.Active
+					states[taskID] = summary.State
 				}
 				a.board.SetActiveAgents(active)
 				a.board.SetAgentStates(states)

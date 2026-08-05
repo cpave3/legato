@@ -51,6 +51,10 @@ func (s *Server) sparklineParams() (time.Duration, int) {
 type AgentResponse struct {
 	ID                 int        `json:"id"`
 	TaskID             string     `json:"task_id"`
+	ExecutionID        string     `json:"execution_id,omitempty"`
+	AttributionTaskID  string     `json:"attribution_task_id"`
+	ExecutionKind      string     `json:"execution_kind,omitempty"`
+	WorkflowRunID      string     `json:"workflow_run_id,omitempty"`
 	Title              string     `json:"task_title"`
 	TmuxSession        string     `json:"tmux_session"`
 	Command            string     `json:"command"`
@@ -68,6 +72,17 @@ type AgentResponse struct {
 	StateTimeline      []string   `json:"state_timeline,omitempty"`
 	NotifyEnabled      bool       `json:"notify_enabled"`
 	HasChimeraEndpoint bool       `json:"has_chimera_endpoint"`
+}
+
+func agentResponse(agent service.AgentSession) AgentResponse {
+	return AgentResponse{
+		ID: agent.ID, TaskID: agent.TaskID, ExecutionID: agent.ExecutionID,
+		AttributionTaskID: agent.AttributionTaskID, ExecutionKind: agent.ExecutionKind,
+		WorkflowRunID: agent.WorkflowRunID, Title: agent.Title, TmuxSession: agent.TmuxSession,
+		Command: agent.Command, AgentKind: agent.AgentKind, Status: agent.Status,
+		Activity: agent.Activity, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
+		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,
+	}
 }
 
 func (s *Server) spawnAgentHandler() http.HandlerFunc {
@@ -177,21 +192,7 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 
 		resp := make([]AgentResponse, len(agents))
 		for i, a := range agents {
-			r := AgentResponse{
-				ID:           a.ID,
-				TaskID:       a.TaskID,
-				Title:        a.Title,
-				TmuxSession:  a.TmuxSession,
-				Command:      a.Command,
-				AgentKind:    a.AgentKind,
-				Status:       a.Status,
-				Activity:     a.Activity,
-				Role:         a.Role,
-				ParentTaskID: a.ParentTaskID,
-				SubtaskID:    a.SubtaskID,
-				StartedAt:    a.StartedAt,
-				EndedAt:      a.EndedAt,
-			}
+			r := agentResponse(a)
 			if d, ok := durations[a.TaskID]; ok {
 				r.WorkingSeconds = d.Working.Seconds()
 				r.WaitingSeconds = d.Waiting.Seconds()

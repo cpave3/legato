@@ -1346,6 +1346,21 @@ func (f *fakeAgentService) GetAgentSession(_ context.Context, _ string) (*store.
 	return nil, fmt.Errorf("not found")
 }
 
+func TestBoardLoadProjectsRelatedAgentOntoAttributedCard(t *testing.T) {
+	app := newTestApp()
+	app.agentSvc = &fakeAgentService{agents: []service.AgentSession{{
+		TaskID: "workflow-task", AttributionTaskID: "REX-1", Status: "running", Activity: "working",
+	}}}
+	msg := app.board.Init()()
+
+	model, _ := app.Update(msg)
+	updated := model.(App)
+	card := updated.board.SelectedCard()
+	if card == nil || card.Key != "REX-1" || !card.AgentActive || card.AgentState != "working" {
+		t.Fatalf("related agent card = %#v", card)
+	}
+}
+
 func TestAgentGroupSelectionPersistsAndRefreshes(t *testing.T) {
 	agentSvc := &fakeAgentService{agents: []service.AgentSession{{TaskID: "TASK-1", Group: "backend"}}}
 	app := newTestApp()

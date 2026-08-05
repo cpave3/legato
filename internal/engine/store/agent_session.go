@@ -7,8 +7,12 @@ import (
 )
 
 const agentSessionSelect = `SELECT a.*,
-	COALESCE((SELECT e.id FROM executions e WHERE e.agent_session_id = a.id LIMIT 1), '') AS execution_id
-	FROM agent_sessions a`
+	COALESCE(e.id, '') AS execution_id,
+	COALESCE(e.task_id, '') AS attribution_task_id,
+	COALESCE(e.kind, '') AS execution_kind,
+	COALESCE(e.workflow_run_id, '') AS workflow_run_id
+	FROM agent_sessions a
+	LEFT JOIN executions e ON e.agent_session_id = a.id`
 
 func (s *Store) InsertAgentSession(ctx context.Context, a AgentSession) error {
 	result, err := s.db.NamedExecContext(ctx, `
