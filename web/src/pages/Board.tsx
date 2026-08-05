@@ -715,6 +715,7 @@ export function BoardPage() {
         workspaces={workspaces}
         baseUrl={baseUrl}
         voiceEnabled={voiceEnabled}
+        defaultWorkspaceId={settings.data?.default_workspace_id ?? null}
         onClose={() => setOverlay({ kind: "none" })}
         onSubmit={handleCreate}
         loading={pendingAction === "create"}
@@ -784,6 +785,8 @@ export function BoardPage() {
 
       <ImportRemoteModal
         open={overlay.kind === "import"}
+        workspaces={workspaces}
+        defaultWorkspaceId={settings.data?.default_import_workspace_id ?? null}
         onClose={() => setOverlay({ kind: "none" })}
         onImported={() => {
           setOverlay({ kind: "none" })

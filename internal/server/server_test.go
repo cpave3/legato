@@ -22,6 +22,8 @@ import (
 	"nhooyr.io/websocket"
 )
 
+func intPtr(value int) *int { return &value }
+
 type mockBoardService struct {
 	columns          []service.Column
 	cards            map[string][]service.Card
@@ -31,6 +33,7 @@ type mockBoardService struct {
 	cardErr          error
 	searchResults    []service.Card
 	createdCard      *service.Card
+	createdWorkspace *int
 	archiveCount     int
 	archivedCards    []service.Card
 	listColumnsCalls int
@@ -92,7 +95,8 @@ func (m *mockBoardService) DeleteTask(_ context.Context, id string) error {
 	}
 	return nil
 }
-func (m *mockBoardService) CreateTask(_ context.Context, _, _, _, _ string, _ *int) (*service.Card, error) {
+func (m *mockBoardService) CreateTask(_ context.Context, _, _, _, _ string, workspaceID *int) (*service.Card, error) {
+	m.createdWorkspace = workspaceID
 	if m.createdCard != nil {
 		return m.createdCard, nil
 	}
@@ -297,10 +301,11 @@ func TestArchivedTasksEndpointUsesBoardCardJSONShape(t *testing.T) {
 }
 
 type mockSyncService struct {
-	searchResults []service.RemoteSearchResult
-	importedCard  *service.Card
-	movedTaskID   string
-	movedTo       string
+	searchResults     []service.RemoteSearchResult
+	importedCard      *service.Card
+	importedWorkspace *int
+	movedTaskID       string
+	movedTo           string
 }
 
 func (m *mockSyncService) Sync(_ context.Context) (*service.SyncResult, error) { return nil, nil }
@@ -397,7 +402,8 @@ func (m *mockSyncService) StartScheduler(_ context.Context) func() { return func
 func (m *mockSyncService) SearchRemote(_ context.Context, _ string) ([]service.RemoteSearchResult, error) {
 	return m.searchResults, nil
 }
-func (m *mockSyncService) ImportRemoteTask(_ context.Context, _ string, _ *int) (*service.Card, error) {
+func (m *mockSyncService) ImportRemoteTask(_ context.Context, _ string, workspaceID *int) (*service.Card, error) {
+	m.importedWorkspace = workspaceID
 	return m.importedCard, nil
 }
 func (m *mockSyncService) PushMove(_ context.Context, taskID, targetColumn string) error {
@@ -1134,6 +1140,40 @@ func TestCreateTaskReturns201(t *testing.T) {
 	}
 }
 
+func TestCreateTaskWorkspaceDefaultDistinguishesOmittedNullAndExplicit(t *testing.T) {
+	defaultID := 7
+	tests := []struct {
+		name   string
+		body   string
+		wantID *int
+	}{
+		{name: "omitted uses default", body: `{"title":"New task","column":"Backlog"}`, wantID: &defaultID},
+		{name: "null stays unassigned", body: `{"title":"New task","column":"Backlog","workspace_id":null}`},
+		{name: "explicit wins", body: `{"title":"New task","column":"Backlog","workspace_id":9}`, wantID: intPtr(9)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &mockBoardService{createdCard: &service.Card{ID: "new-1", Title: "New task", Status: "Backlog"}}
+			srv := New(svc, nil, nil, ":0")
+			srv.SetWorkspaceDefaults(&defaultID, nil)
+			req := httptest.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(w, req)
+			if w.Code != http.StatusCreated {
+				t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+			}
+			if tt.wantID == nil {
+				if svc.createdWorkspace != nil {
+					t.Fatalf("workspace = %v, want nil", svc.createdWorkspace)
+				}
+			} else if svc.createdWorkspace == nil || *svc.createdWorkspace != *tt.wantID {
+				t.Fatalf("workspace = %v, want %d", svc.createdWorkspace, *tt.wantID)
+			}
+		})
+	}
+}
+
 func TestArchiveDoneReturnsCount(t *testing.T) {
 	svc := &mockBoardService{
 		columns:      []service.Column{},
@@ -1499,6 +1539,63 @@ func TestRemoteImportReturns201(t *testing.T) {
 	}
 	if resp.ID != "imp-1" {
 		t.Errorf("id = %q, want imp-1", resp.ID)
+	}
+}
+
+func TestRemoteImportWorkspaceDefaultDistinguishesOmittedNullAndExplicit(t *testing.T) {
+	defaultID := 7
+	tests := []struct {
+		name   string
+		body   string
+		wantID *int
+	}{
+		{name: "omitted uses default", body: `{"ticket_id":"JIRA-42"}`, wantID: &defaultID},
+		{name: "null stays unassigned", body: `{"ticket_id":"JIRA-42","workspace_id":null}`},
+		{name: "explicit wins", body: `{"ticket_id":"JIRA-42","workspace_id":9}`, wantID: intPtr(9)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			syncSvc := &mockSyncService{importedCard: &service.Card{ID: "imp-1", Title: "Imported ticket", Status: "Backlog"}}
+			srv := New(&mockBoardService{}, nil, nil, ":0")
+			srv.SetSyncService(syncSvc)
+			srv.SetWorkspaceDefaults(nil, &defaultID)
+			req := httptest.NewRequest(http.MethodPost, "/api/remote/import", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(w, req)
+			if w.Code != http.StatusCreated {
+				t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+			}
+			if tt.wantID == nil {
+				if syncSvc.importedWorkspace != nil {
+					t.Fatalf("workspace = %v, want nil", syncSvc.importedWorkspace)
+				}
+			} else if syncSvc.importedWorkspace == nil || *syncSvc.importedWorkspace != *tt.wantID {
+				t.Fatalf("workspace = %v, want %d", syncSvc.importedWorkspace, *tt.wantID)
+			}
+		})
+	}
+}
+
+func TestSettingsExposeWorkspaceDefaults(t *testing.T) {
+	taskID, importID := 2, 3
+	srv := New(&mockBoardService{}, nil, nil, ":0")
+	srv.SetWorkspaceDefaults(&taskID, &importID)
+	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var response struct {
+		DefaultWorkspaceID       *int `json:"default_workspace_id"`
+		DefaultImportWorkspaceID *int `json:"default_import_workspace_id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.DefaultWorkspaceID == nil || *response.DefaultWorkspaceID != taskID || response.DefaultImportWorkspaceID == nil || *response.DefaultImportWorkspaceID != importID {
+		t.Fatalf("response = %+v", response)
 	}
 }
 

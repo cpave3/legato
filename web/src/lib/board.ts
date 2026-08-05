@@ -170,7 +170,7 @@ export async function remoteSearch(baseUrl: string, query: string): Promise<Remo
 
 export async function remoteImport(
   baseUrl: string,
-  body: { ticket_id: string; workspace_id?: number }
+  body: { ticket_id: string; workspace_id?: number | null }
 ): Promise<{ id: string }> {
   const res = await apiFetch(baseUrl, "/api/remote/import", {
     method: "POST",

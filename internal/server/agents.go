@@ -280,6 +280,11 @@ func (s *Server) tasksHandler() http.HandlerFunc {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp)
 		case http.MethodPost:
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "failed to read body", http.StatusBadRequest)
+				return
+			}
 			var req struct {
 				Title       string `json:"title"`
 				Description string `json:"description"`
@@ -287,9 +292,14 @@ func (s *Server) tasksHandler() http.HandlerFunc {
 				Priority    string `json:"priority"`
 				WorkspaceID *int   `json:"workspace_id,omitempty"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			if err := json.Unmarshal(body, &req); err != nil {
 				http.Error(w, "invalid JSON", http.StatusBadRequest)
 				return
+			}
+			var raw map[string]json.RawMessage
+			_ = json.Unmarshal(body, &raw)
+			if _, specified := raw["workspace_id"]; !specified {
+				req.WorkspaceID = s.defaultWorkspaceID
 			}
 			if req.Title == "" || req.Column == "" {
 				http.Error(w, "title and column are required", http.StatusBadRequest)

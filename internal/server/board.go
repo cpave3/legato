@@ -786,13 +786,23 @@ func (s *Server) remoteImportHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusServiceUnavailable, "sync service not available")
 			return
 		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			s.writeError(w, http.StatusBadRequest, "failed to read body")
+			return
+		}
 		var req struct {
 			TicketID    string `json:"ticket_id"`
 			WorkspaceID *int   `json:"workspace_id,omitempty"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.Unmarshal(body, &req); err != nil {
 			s.writeError(w, http.StatusBadRequest, "invalid JSON")
 			return
+		}
+		var raw map[string]json.RawMessage
+		_ = json.Unmarshal(body, &raw)
+		if _, specified := raw["workspace_id"]; !specified {
+			req.WorkspaceID = s.defaultImportWorkspaceID
 		}
 		if req.TicketID == "" {
 			s.writeError(w, http.StatusBadRequest, "ticket_id is required")

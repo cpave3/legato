@@ -18,6 +18,8 @@ export interface Settings {
   worktrees_enabled: boolean
   hot_reload_enabled: boolean
   working_dir: string
+  default_workspace_id: number | null
+  default_import_workspace_id: number | null
   repositories: RepositorySetting[]
 }
 

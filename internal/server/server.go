@@ -395,21 +395,25 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		hasCACert := s.caCertPath != ""
 		resp := struct {
-			CaCertAvailable  bool                              `json:"ca_cert_available"`
-			WorkingDir       string                            `json:"working_dir"`
-			NtfyConfigured   bool                              `json:"ntfy_configured"`
-			VoiceEnabled     bool                              `json:"voice_enabled"`
-			WorktreesEnabled bool                              `json:"worktrees_enabled"`
-			HotReloadEnabled bool                              `json:"hot_reload_enabled"`
-			Repositories     []workflowengine.RepositoryPreset `json:"repositories"`
+			CaCertAvailable          bool                              `json:"ca_cert_available"`
+			WorkingDir               string                            `json:"working_dir"`
+			NtfyConfigured           bool                              `json:"ntfy_configured"`
+			VoiceEnabled             bool                              `json:"voice_enabled"`
+			WorktreesEnabled         bool                              `json:"worktrees_enabled"`
+			HotReloadEnabled         bool                              `json:"hot_reload_enabled"`
+			DefaultWorkspaceID       *int                              `json:"default_workspace_id"`
+			DefaultImportWorkspaceID *int                              `json:"default_import_workspace_id"`
+			Repositories             []workflowengine.RepositoryPreset `json:"repositories"`
 		}{
-			CaCertAvailable:  hasCACert,
-			WorkingDir:       s.workDir,
-			NtfyConfigured:   s.ntfyConfigured,
-			VoiceEnabled:     s.voiceSvc != nil,
-			WorktreesEnabled: s.worktrees != nil,
-			HotReloadEnabled: s.hotReloadBuildTrigger != nil,
-			Repositories:     append([]workflowengine.RepositoryPreset(nil), s.workflowRepositories...),
+			CaCertAvailable:          hasCACert,
+			WorkingDir:               s.workDir,
+			NtfyConfigured:           s.ntfyConfigured,
+			VoiceEnabled:             s.voiceSvc != nil,
+			WorktreesEnabled:         s.worktrees != nil,
+			HotReloadEnabled:         s.hotReloadBuildTrigger != nil,
+			DefaultWorkspaceID:       s.defaultWorkspaceID,
+			DefaultImportWorkspaceID: s.defaultImportWorkspaceID,
+			Repositories:             append([]workflowengine.RepositoryPreset(nil), s.workflowRepositories...),
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}

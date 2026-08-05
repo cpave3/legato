@@ -12,6 +12,7 @@ interface CreateTaskModalProps {
   workspaces: { id: number; name: string; color: string }[]
   baseUrl: string
   voiceEnabled: boolean
+  defaultWorkspaceId?: number | null
   onClose: () => void
   onSubmit: (values: {
     title: string
@@ -30,13 +31,13 @@ const priorities = [
   { value: "High", label: "High" },
 ]
 
-export function CreateTaskModal({ open, columns, currentColumn, workspaces, baseUrl, voiceEnabled, onClose, onSubmit, loading = false }: CreateTaskModalProps) {
+export function CreateTaskModal({ open, columns, currentColumn, workspaces, baseUrl, voiceEnabled, defaultWorkspaceId = null, onClose, onSubmit, loading = false }: CreateTaskModalProps) {
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const { textareaRef, rememberSelection, insertTranscription } = useTextareaTranscription(setDescription)
   const [column, setColumn] = useState(currentColumn || (columns[0] ?? ""))
   const [priority, setPriority] = useState("")
-  const [workspaceId, setWorkspaceId] = useState<number | null>(null)
+  const [workspaceId, setWorkspaceId] = useState<number | null>(defaultWorkspaceId)
   const [error, setError] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
   const wasOpenRef = useRef(false)
@@ -52,10 +53,10 @@ export function CreateTaskModal({ open, columns, currentColumn, workspaces, base
     setDescription("")
     setColumn(currentColumn || (columns[0] ?? ""))
     setPriority("")
-    setWorkspaceId(null)
+    setWorkspaceId(defaultWorkspaceId)
     setError("")
     setTimeout(() => inputRef.current?.focus(), 50)
-  }, [open, columns, currentColumn])
+  }, [open, columns, currentColumn, defaultWorkspaceId])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()

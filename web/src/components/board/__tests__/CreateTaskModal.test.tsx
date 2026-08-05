@@ -136,6 +136,30 @@ describe("CreateTaskModal", () => {
     })
   })
 
+  it("prefills the configured workspace and allows No workspace", () => {
+    const onSubmit = vi.fn()
+    render(
+      <CreateTaskModal
+        open
+        columns={["Backlog"]}
+        currentColumn="Backlog"
+        workspaces={[{ id: 1, name: "Work", color: "#fff" }, { id: 2, name: "Personal", color: "#000" }]}
+        defaultWorkspaceId={2}
+        baseUrl=""
+        voiceEnabled={false}
+        onClose={() => {}}
+        onSubmit={onSubmit}
+      />
+    )
+
+    const workspace = screen.getByRole("combobox", { name: "Workspace" }) as HTMLSelectElement
+    expect(workspace.value).toBe("2")
+    fireEvent.change(workspace, { target: { value: "" } })
+    fireEvent.change(screen.getByLabelText(/Title/i), { target: { value: "Unassigned" } })
+    fireEvent.click(screen.getByRole("button", { name: /Create/i }))
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: null }))
+  })
+
   it("keeps the title focused and editable across open rerenders", () => {
     vi.useFakeTimers()
     const onSubmit = vi.fn()
