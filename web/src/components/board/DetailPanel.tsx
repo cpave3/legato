@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 import { ChevronRight, X } from "lucide-react"
 
 import type { CardDetail } from "../../lib/board-types"
+import { MarkdownBody } from "../MarkdownBody"
 import { Button } from "../ui/Button"
 import { TaskActivityTabs } from "./TaskActivityTabs"
 import { TaskAgentAction } from "./TaskAgentAction"
@@ -42,7 +43,7 @@ function DescriptionSection({ kind, title, markdown, emptyLabel }: { kind: "remo
     </summary>
     <div className="border-t border-zinc-800 px-4 py-3">
       {markdown
-        ? <pre className="whitespace-pre-wrap font-sans text-sm leading-6 text-zinc-400">{markdown}</pre>
+        ? <div className="text-zinc-400"><MarkdownBody body={markdown} renderMermaid /></div>
         : <p className="text-sm italic text-zinc-600">{emptyLabel}</p>}
     </div>
   </details>

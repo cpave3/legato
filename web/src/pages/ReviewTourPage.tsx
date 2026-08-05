@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
 import { ArrowLeft, Check, Circle, Flag, List, Loader2, MessageSquare, RefreshCw, Send, X } from "lucide-react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { DiffView } from "../components/DiffView"
+import { MarkdownBody } from "../components/MarkdownBody"
 import { ReviewMessageBody } from "../components/ReviewMessageBody"
 import { GoToAgentButton } from "../components/GoToAgentButton"
 import { VoiceRecorder } from "../components/VoiceRecorder"
 import { Button } from "../components/ui/Button"
 import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "../components/ui/Dialog"
 import { InlineNotice } from "../components/ui/InlineNotice"
-import { MermaidMarkdownPre } from "../components/MermaidDiagram"
 import { useReviewTour } from "../hooks/useReview"
 import { useServer } from "../hooks/useServer"
 import { useVoiceEnabled } from "../hooks/useVoiceEnabled"
@@ -339,7 +337,7 @@ export function ReviewTourPage() {
             <div className="mx-auto max-w-6xl space-y-4">
               {activePass?.captured_plan && <details className="rounded border border-indigo-900 bg-indigo-950/20 p-4">
                 <summary className="cursor-pointer text-sm font-semibold text-indigo-200">Plan context: {activePass.captured_plan.title} · revision {activePass.captured_plan.revision}</summary>
-                <div className="prose prose-invert mt-4 max-w-none text-sm"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ pre: MermaidMarkdownPre }}>{activePass.captured_plan.markdown}</ReactMarkdown></div>
+                <div className="mt-4 text-zinc-300"><MarkdownBody body={activePass.captured_plan.markdown} renderMermaid /></div>
               </details>}
               <div data-sticky-review-action className="sticky -top-5 z-20 -mx-5 flex justify-end border-b border-zinc-800/80 bg-[#0a0a0f]/95 px-5 py-2 backdrop-blur">
                 <button disabled={busy} onClick={() => void toggleReviewed(selectedStep)} className={cn("rounded border px-3 py-1.5 text-xs shadow-lg", selectedStep.reviewed_at ? "border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-zinc-200" : "border-emerald-800 bg-emerald-950 text-emerald-300 hover:bg-emerald-900")}>

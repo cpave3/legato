@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach, vi } from "vitest"
-import { render, screen, cleanup, fireEvent } from "@testing-library/react"
+import { render, screen, cleanup, fireEvent, within } from "@testing-library/react"
 import { DetailPanel } from "../DetailPanel"
 import type { CardDetail } from "../../../lib/board-types"
 vi.mock("../TaskAgentAction",()=>({TaskAgentAction:()=> <button data-task-primary-action className="min-h-9 w-full" type="button">Open agent</button>}))
@@ -110,18 +110,20 @@ describe("DetailPanel", () => {
   it("shows remote and Legato details as independent expanded accordions", () => {
     const { container } = renderPanel(makeCard({
       provider: "jira",
-      description_md: "A long remote description\n\n## Legato details\n\nA long local description",
-      remote_description_md: "A long remote description",
-      local_description_md: "A long local description",
+      description_md: "## Remote acceptance\n\n- A long remote description\n\n## Legato approach\n\n1. A long local description",
+      remote_description_md: "## Remote acceptance\n\n- A long remote description",
+      local_description_md: "## Legato approach\n\n1. A long local description",
     }))
 
     const remote = container.querySelector("[data-description-section='remote']") as HTMLDetailsElement
     const local = container.querySelector("[data-description-section='local']") as HTMLDetailsElement
     expect(remote.open).toBe(true)
     expect(local.open).toBe(true)
-    expect(screen.getByText("A long remote description")).toBeTruthy()
-    expect(screen.getByText("A long local description")).toBeTruthy()
-    expect(screen.queryByText(/## Legato details/)).toBeNull()
+    expect(within(remote).getByRole("heading", { name: "Remote acceptance" })).toBeTruthy()
+    expect(within(remote).getByRole("list").tagName).toBe("UL")
+    expect(within(local).getByRole("heading", { name: "Legato approach" })).toBeTruthy()
+    expect(within(local).getByRole("list").tagName).toBe("OL")
+    expect(screen.queryByText(/## Legato approach/)).toBeNull()
 
     fireEvent.click(screen.getByText("Remote ticket details"))
     expect(remote.open).toBe(false)

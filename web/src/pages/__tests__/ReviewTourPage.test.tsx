@@ -25,7 +25,7 @@ vi.mock("../../hooks/useReview", () => ({
       tour: { id: "rt-task-1", task_id: "T-1", name: "Auth review", status: "ready", summary: "Review the authentication changes" },
       passes: [{
         pass: { id: "rp-1", number: 1, status: "ready", summary: "", guidance: "" },
-        captured_plan: { plan_id: "pl-1", revision_id: "pr-1", revision: 1, title: "Auth plan", markdown: "```mermaid\ngraph TD\n  Login --> Token\n```\n\n```go\nfmt.Println(\"code\")\n```" },
+        captured_plan: { plan_id: "pl-1", revision_id: "pr-1", revision: 1, title: "Auth plan", markdown: "## Token flow\n\n- Refresh safely\n\n```mermaid\ngraph TD\n  Login --> Token\n```\n\n```go\nfmt.Println(\"code\")\n```" },
         steps: [
           { id: "S-1", task_id: "T-1", kind: "chapter", commit_sha: "", title: "Refresh expired tokens", narration: "Retries once after refreshing.", risk: "medium", reviewed_at: null, orphaned_at: null },
           { id: "S-2", task_id: "T-1", kind: "commit", commit_sha: "abcdef123456", title: "Commit: auth refactor", narration: "", risk: "", reviewed_at: "2026-01-01", orphaned_at: null },
@@ -80,8 +80,10 @@ describe("ReviewTourPage", () => {
     renderPage()
 
     fireEvent.click(screen.getByText("Plan context: Auth plan · revision 1"))
+    expect(screen.getByRole("heading", { name: "Token flow" }).className).toContain("text-sm")
+    expect(screen.getByRole("list")).toBeTruthy()
     expect(await screen.findByText("Captured plan diagram")).toBeTruthy()
-    expect(screen.getByText('fmt.Println("code")')).toBeTruthy()
+    expect(screen.getByText('fmt.Println("code")').closest("pre")?.className).toContain("overflow-x-auto")
     expect(renderMermaid.mock.calls.every(([, source]) => source === "graph TD\n  Login --> Token\n")).toBe(true)
   })
 
