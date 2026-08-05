@@ -28,22 +28,38 @@ type ImportQueryChangedMsg struct {
 
 // ImportOverlay provides search over remote tickets for importing.
 type ImportOverlay struct {
-	query       string
-	results     []service.RemoteSearchResult
-	errMsg      string
-	cursor      int
-	scrollOff   int // first visible index
-	width       int
-	height      int
-	workspaceID *int
+	query          string
+	results        []service.RemoteSearchResult
+	errMsg         string
+	cursor         int
+	scrollOff      int // first visible index
+	width          int
+	height         int
+	workspaces     []wsOption
+	workspaceIndex int
 }
 
-// NewImport creates a new import overlay.
+// NewImport creates a new import overlay without workspace choices.
 func NewImport(width, height int, workspaceID *int) ImportOverlay {
+	return NewImportWithWorkspaces(width, height, nil, workspaceID)
+}
+
+// NewImportWithWorkspaces creates an import overlay with an explicit workspace selector.
+func NewImportWithWorkspaces(width, height int, workspaces []service.Workspace, selectedWorkspaceID *int) ImportOverlay {
+	options := []wsOption{{Name: "None"}}
+	selectedIndex := 0
+	for _, workspace := range workspaces {
+		id := workspace.ID
+		options = append(options, wsOption{ID: &id, Name: workspace.Name})
+		if selectedWorkspaceID != nil && workspace.ID == *selectedWorkspaceID {
+			selectedIndex = len(options) - 1
+		}
+	}
 	return ImportOverlay{
-		width:       width,
-		height:      height,
-		workspaceID: workspaceID,
+		width:          width,
+		height:         height,
+		workspaces:     options,
+		workspaceIndex: selectedIndex,
 	}
 }
 
@@ -85,13 +101,18 @@ func (m ImportOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
+		case "ctrl+w":
+			if len(m.workspaces) > 0 {
+				m.workspaceIndex = (m.workspaceIndex + 1) % len(m.workspaces)
+			}
+			return m, nil
 		case "esc":
 			return m, func() tea.Msg { return ImportCancelledMsg{} }
 		case "enter":
 			if len(m.results) > 0 && m.cursor < len(m.results) {
 				id := m.results[m.cursor].ID
-				wsID := m.workspaceID
-				return m, func() tea.Msg { return ImportSelectedMsg{TicketID: id, WorkspaceID: wsID} }
+				workspaceID := m.workspaces[m.workspaceIndex].ID
+				return m, func() tea.Msg { return ImportSelectedMsg{TicketID: id, WorkspaceID: workspaceID} }
 			}
 			return m, nil
 		case "j", "down":
@@ -151,7 +172,8 @@ func (m ImportOverlay) View() string {
 	input := promptStyle.Render(">") + " " + inputStyle.Render(m.query+"█")
 
 	var lines []string
-	lines = append(lines, title, input, "")
+	workspace := promptStyle.Render("Workspace: ") + inputStyle.Render(m.workspaces[m.workspaceIndex].Name) + promptStyle.Render("  ctrl+w to change")
+	lines = append(lines, title, input, workspace, "")
 
 	// Fixed-height result area
 	resultLines := make([]string, importVisibleRows)

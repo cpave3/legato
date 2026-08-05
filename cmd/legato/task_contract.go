@@ -120,7 +120,23 @@ func runTaskCreateContract(args []string) int {
 		return code
 	}
 	defer db.Close()
-	card, err := cli.TaskCreate(db, parsed.Positionals[0], description, parsed.Values["status"], parsed.Values["priority"], parsed.Values["workspace"])
+	cfg, err := config.Load()
+	if err != nil {
+		return renderCommandError(command, &commandError{Code: "config_invalid", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+	}
+	if _, err := service.SeedAndResolveWorkspaceDefaults(context.Background(), db, cfg); err != nil {
+		return renderCommandError(command, &commandError{Code: "workspace_unavailable", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+	}
+	workspaceName := cfg.DefaultWorkspace
+	if parsed.Present["workspace"] {
+		workspaceName = parsed.Values["workspace"]
+	}
+	var card *service.Card
+	if workspaceName == "" {
+		card, err = cli.TaskCreate(db, parsed.Positionals[0], description, parsed.Values["status"], parsed.Values["priority"])
+	} else {
+		card, err = cli.TaskCreate(db, parsed.Positionals[0], description, parsed.Values["status"], parsed.Values["priority"], workspaceName)
+	}
 	if err != nil {
 		return renderCommandError(command, commandDomainError(err), jsonMode)
 	}

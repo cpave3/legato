@@ -155,65 +155,67 @@ type taskWorkflowStartedMsg struct {
 
 // App is the root Bubbletea model.
 type App struct {
-	svc                  service.BoardService
-	syncSvc              service.SyncService
-	agentSvc             service.AgentService
-	board                board.Model
-	detail               detail.Model
-	agentView            agents.Model
-	reportView           report.Model
-	reviewView           review.Model
-	reviewSvc            review.Service
-	planView             plan.Model
-	planSvc              plan.Service
-	attentionView        attention.Model
-	attentionSvc         attention.Service
-	attentionSub         <-chan events.Event
-	statusBar            statusbar.Model
-	clip                 *clipboard.Clipboard
-	editor               string
-	activeOverlay        tea.Model
-	overlayType          overlayKind
-	active               viewType
-	width                int
-	height               int
-	pendingNav           string // card ID to navigate to after next board data load
-	pendingImport        string // remote ticket ID waiting to appear on the board
-	prSvc                service.PRTrackingService
-	eventBus             *events.Bus
-	eventSubs            []<-chan events.Event // sync lifecycle events (started/completed/failed/errors)
-	cardUpdateSub        <-chan events.Event
-	cardMoveSub          <-chan events.Event
-	prSub                <-chan events.Event
-	swarmSub             <-chan events.Event
-	planSub              <-chan events.Event
-	durablePlanSub       <-chan events.Event
-	reviewSub            <-chan events.Event
-	tmux                 service.TmuxManager
-	swarmSvc             service.SwarmService
-	workDir              string
-	webServer            *server.Server
-	webServerStop        func()
-	webServerPort        string
-	macros               []macros.Macro
-	lastSparklineFetch   time.Time
-	sparklineWindow      time.Duration
-	sparklineBuckets     int
-	voiceSvc             VoiceService
-	voiceEnabled         bool
-	voiceAutoSend        bool
-	voiceMicDevice       string
-	voiceRecording       bool
-	voiceTargetSession   string
-	voiceTargetKind      string
-	worktreeSvc          WorktreeService
-	worktreesEnabled     bool
-	groupDefaults        []string
-	workflowTriggers     *service.WorkflowTriggerCoordinator
-	workflowRepositories []workflowengine.RepositoryPreset
-	taskWorkflows        TaskWorkflowLauncher
-	hotkeys              *hotkey.Registry
-	ntfyConfigured       bool
+	svc                      service.BoardService
+	syncSvc                  service.SyncService
+	agentSvc                 service.AgentService
+	board                    board.Model
+	detail                   detail.Model
+	agentView                agents.Model
+	reportView               report.Model
+	reviewView               review.Model
+	reviewSvc                review.Service
+	planView                 plan.Model
+	planSvc                  plan.Service
+	attentionView            attention.Model
+	attentionSvc             attention.Service
+	attentionSub             <-chan events.Event
+	statusBar                statusbar.Model
+	clip                     *clipboard.Clipboard
+	editor                   string
+	activeOverlay            tea.Model
+	overlayType              overlayKind
+	active                   viewType
+	width                    int
+	height                   int
+	pendingNav               string // card ID to navigate to after next board data load
+	pendingImport            string // remote ticket ID waiting to appear on the board
+	prSvc                    service.PRTrackingService
+	eventBus                 *events.Bus
+	eventSubs                []<-chan events.Event // sync lifecycle events (started/completed/failed/errors)
+	cardUpdateSub            <-chan events.Event
+	cardMoveSub              <-chan events.Event
+	prSub                    <-chan events.Event
+	swarmSub                 <-chan events.Event
+	planSub                  <-chan events.Event
+	durablePlanSub           <-chan events.Event
+	reviewSub                <-chan events.Event
+	tmux                     service.TmuxManager
+	swarmSvc                 service.SwarmService
+	workDir                  string
+	webServer                *server.Server
+	webServerStop            func()
+	webServerPort            string
+	macros                   []macros.Macro
+	lastSparklineFetch       time.Time
+	sparklineWindow          time.Duration
+	sparklineBuckets         int
+	voiceSvc                 VoiceService
+	voiceEnabled             bool
+	voiceAutoSend            bool
+	voiceMicDevice           string
+	voiceRecording           bool
+	voiceTargetSession       string
+	voiceTargetKind          string
+	worktreeSvc              WorktreeService
+	worktreesEnabled         bool
+	groupDefaults            []string
+	workflowTriggers         *service.WorkflowTriggerCoordinator
+	workflowRepositories     []workflowengine.RepositoryPreset
+	taskWorkflows            TaskWorkflowLauncher
+	hotkeys                  *hotkey.Registry
+	ntfyConfigured           bool
+	defaultWorkspaceID       *int
+	defaultImportWorkspaceID *int
 }
 
 // SetWebServerRunning tells the TUI that the web server was auto-started
@@ -279,6 +281,12 @@ func (a *App) SetVoiceService(svc VoiceService, autoSend bool, micDevice string)
 	a.voiceMicDevice = micDevice
 	a.agentView.SetVoiceEnabled(a.voiceEnabled)
 	a.statusBar, _ = a.statusBar.Update(statusbar.VoiceMsg{Enabled: a.voiceEnabled})
+}
+
+// SetWorkspaceDefaults configures task and provider-import workspace prefills.
+func (a *App) SetWorkspaceDefaults(defaultWorkspaceID, defaultImportWorkspaceID *int) {
+	a.defaultWorkspaceID = defaultWorkspaceID
+	a.defaultImportWorkspaceID = defaultImportWorkspaceID
 }
 
 // SetSparklineWindow configures the window and bucket count used when
@@ -1667,13 +1675,15 @@ func (a App) openCreateOverlay() (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	// Determine active workspace ID for pre-filling
-	var activeWorkspaceID *int
-	wsView := a.board.WorkspaceView()
-	if wsView.Kind == store.ViewWorkspace {
-		activeWorkspaceID = &wsView.WorkspaceID
+	// A configured default takes precedence; otherwise preserve active-view inheritance.
+	workspaceID := a.defaultWorkspaceID
+	if workspaceID == nil {
+		wsView := a.board.WorkspaceView()
+		if wsView.Kind == store.ViewWorkspace {
+			workspaceID = &wsView.WorkspaceID
+		}
 	}
-	createModel := overlay.NewCreateWithWorkspaces(colNames, currentCol, a.board.Workspaces(), activeWorkspaceID)
+	createModel := overlay.NewCreateWithWorkspaces(colNames, currentCol, a.board.Workspaces(), workspaceID)
 	sized, _ := createModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
 	a.overlayType = overlayCreate
@@ -1801,12 +1811,7 @@ func (a App) openImportOverlay() (tea.Model, tea.Cmd) {
 	if a.syncSvc == nil {
 		return a, nil
 	}
-	var activeWorkspaceID *int
-	wsView := a.board.WorkspaceView()
-	if wsView.Kind == store.ViewWorkspace {
-		activeWorkspaceID = &wsView.WorkspaceID
-	}
-	importModel := overlay.NewImport(a.width, a.height, activeWorkspaceID)
+	importModel := overlay.NewImportWithWorkspaces(a.width, a.height, a.board.Workspaces(), a.defaultImportWorkspaceID)
 	a.activeOverlay = importModel
 	a.overlayType = overlayImport
 	return a, nil

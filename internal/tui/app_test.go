@@ -374,6 +374,46 @@ func (f *fakeReviewService) ReviewBadgeStates(context.Context) (map[string]servi
 	return map[string]service.ReviewBadgeState{}, nil
 }
 
+func TestCreateOverlayPrefersConfiguredWorkspaceDefault(t *testing.T) {
+	workID, personalID := 1, 2
+	app := NewApp(&fakeBoardService{}, nil, nil, nil, nil, theme.NewIcons("unicode"), nil, "", []service.Workspace{
+		{ID: workID, Name: "Work"},
+		{ID: personalID, Name: "Personal"},
+	}, nil, "", nil, nil)
+	app.SetWorkspaceDefaults(&personalID, &workID)
+
+	model, _ := app.openCreateOverlay()
+	app = model.(App)
+	create := app.activeOverlay.(overlay.CreateOverlay)
+	for _, r := range "New task" {
+		updated, _ := create.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		create = updated.(overlay.CreateOverlay)
+	}
+	_, cmd := create.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msg := cmd().(overlay.CreateTaskMsg)
+	if msg.WorkspaceID == nil || *msg.WorkspaceID != personalID {
+		t.Fatalf("WorkspaceID = %v, want %d", msg.WorkspaceID, personalID)
+	}
+}
+
+func TestImportOverlayPrefillsConfiguredImportWorkspace(t *testing.T) {
+	workID, personalID := 1, 2
+	app := NewApp(&fakeBoardService{}, &fakeSyncService{}, nil, nil, nil, theme.NewIcons("unicode"), nil, "", []service.Workspace{
+		{ID: workID, Name: "Work"},
+		{ID: personalID, Name: "Personal"},
+	}, nil, "", nil, nil)
+	app.SetWorkspaceDefaults(&personalID, &workID)
+
+	model, _ := app.openImportOverlay()
+	app = model.(App)
+	importOverlay := app.activeOverlay.(overlay.ImportOverlay).SetResults([]service.RemoteSearchResult{{ID: "JIRA-1", Summary: "Ticket"}})
+	_, cmd := importOverlay.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	msg := cmd().(overlay.ImportSelectedMsg)
+	if msg.WorkspaceID == nil || *msg.WorkspaceID != workID {
+		t.Fatalf("WorkspaceID = %v, want %d", msg.WorkspaceID, workID)
+	}
+}
+
 func TestReviewViewOpensLoadsAndReturnsToBoard(t *testing.T) {
 	reviews := &fakeReviewService{queue: []service.ReviewQueueItem{{TaskID: "REX-1", Title: "Test", Unreviewed: 2, Status: "ready"}}}
 	app := newTestApp()

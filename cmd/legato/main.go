@@ -1352,6 +1352,11 @@ func runServeCmd(args []string) int {
 		return 1
 	}
 	defer db.Close()
+	workspaceDefaults, err := service.SeedAndResolveWorkspaceDefaults(context.Background(), db, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "workspaces: %v\n", err)
+		return 1
+	}
 
 	bus := events.New()
 	attachmentCache := attachments.NewCache(attachmentRoot(cfg), cfg.Jira.AttachmentMaxSizeBytes)
@@ -1420,6 +1425,7 @@ func runServeCmd(args []string) int {
 	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
+	srv.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 	srv.SetHotReloadBuildTrigger(configuredHotReloadBuildTrigger())
 	srv.SetReportService(service.NewReportService(db))
 	srv.SetLearningService(configuredLearningService(cfg, db, bus, service.NewProjectIdentityResolver(checkoutInspector())))
@@ -1564,12 +1570,10 @@ func runTUI() int {
 		}
 	}
 
-	// Seed workspaces from config
-	if len(cfg.Workspaces) > 0 {
-		if err := service.SeedWorkspaces(context.Background(), db, cfg.Workspaces); err != nil {
-			fmt.Fprintf(os.Stderr, "seeding workspaces: %v\n", err)
-			return 1
-		}
+	workspaceDefaults, err := service.SeedAndResolveWorkspaceDefaults(context.Background(), db, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "workspaces: %v\n", err)
+		return 1
 	}
 
 	bus := events.New()
@@ -1772,6 +1776,7 @@ func runTUI() int {
 			log.Printf("web: port %s unavailable: %v", cfg.Web.Port, listenErr)
 		} else {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
+			webSrv.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 			webSrv.SetHotReloadBuildTrigger(configuredHotReloadBuildTrigger())
 			webSrv.SetReportService(reportSvc)
 			webSrv.SetLearningService(configuredLearningService(cfg, db, bus, service.NewProjectIdentityResolver(checkoutInspector())))
@@ -1823,6 +1828,7 @@ func runTUI() int {
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
+	app.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 	app.SetPlanService(planSvc)
 	attentionSvc := service.NewAttentionService(db, bus)
 	learningAdapter := service.NewLearningAttentionAdapter(service.NewLearningService(db, bus))

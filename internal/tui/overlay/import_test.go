@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -61,7 +62,7 @@ func TestImportOverlaySelectResult(t *testing.T) {
 
 func TestImportOverlaySelectCarriesWorkspaceID(t *testing.T) {
 	wsID := 42
-	m := NewImport(100, 30, &wsID)
+	m := NewImportWithWorkspaces(100, 30, []service.Workspace{{ID: wsID, Name: "Work"}}, &wsID)
 	m = m.SetResults([]service.RemoteSearchResult{
 		{ID: "REX-1", Summary: "Fix bug"},
 	})
@@ -76,6 +77,23 @@ func TestImportOverlaySelectCarriesWorkspaceID(t *testing.T) {
 	}
 	if result.WorkspaceID == nil || *result.WorkspaceID != 42 {
 		t.Errorf("WorkspaceID = %v, want 42", result.WorkspaceID)
+	}
+}
+
+func TestImportOverlayWorkspaceSelectorCanChooseNone(t *testing.T) {
+	wsID := 42
+	m := NewImportWithWorkspaces(100, 30, []service.Workspace{{ID: wsID, Name: "Work"}}, &wsID)
+	m = m.SetResults([]service.RemoteSearchResult{{ID: "REX-1", Summary: "Fix bug"}})
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
+	m = updated.(ImportOverlay)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	result := cmd().(ImportSelectedMsg)
+	if result.WorkspaceID != nil {
+		t.Fatalf("WorkspaceID = %v, want nil", result.WorkspaceID)
+	}
+	if view := m.View(); !strings.Contains(view, "Workspace:") || !strings.Contains(view, "None") {
+		t.Fatalf("workspace selector not rendered:\n%s", view)
 	}
 }
 

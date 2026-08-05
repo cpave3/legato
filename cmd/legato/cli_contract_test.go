@@ -90,6 +90,81 @@ func TestTaskCommandRejectsUnsupportedConfiguredDatabaseDriver(t *testing.T) {
 	}
 }
 
+func TestTaskCreateUsesConfiguredWorkspaceDefaultAndPreservesOverrides(t *testing.T) {
+	tests := []struct {
+		name          string
+		args          []string
+		wantWorkspace string
+	}{
+		{name: "omitted workspace uses default", args: []string{"task", "create", "Default task", "--json"}, wantWorkspace: "Personal"},
+		{name: "explicit workspace wins", args: []string{"task", "create", "Work task", "--workspace", "Work", "--json"}, wantWorkspace: "Work"},
+		{name: "explicit none stays unassigned", args: []string{"task", "create", "Unassigned task", "--workspace", "none", "--json"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dbPath := filepath.Join(t.TempDir(), "legato.db")
+			s, err := store.New(dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.CreateColumnMapping(context.Background(), store.ColumnMapping{ColumnName: "Backlog"}); err != nil {
+				t.Fatal(err)
+			}
+			s.Close()
+
+			configPath := filepath.Join(t.TempDir(), "config.yaml")
+			configYAML := "db:\n  path: " + dbPath + "\nworkspaces:\n  - name: Work\n  - name: Personal\ndefault_workspace: Personal\n"
+			if err := os.WriteFile(configPath, []byte(configYAML), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("LEGATO_CONFIG", configPath)
+
+			out := captureStdout(t, func() int { return runCLI(tt.args) })
+			var envelope struct {
+				OK   bool `json:"ok"`
+				Data struct {
+					ID string `json:"id"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+				t.Fatalf("JSON: %v\n%s", err, out)
+			}
+			if !envelope.OK || envelope.Data.ID == "" {
+				t.Fatalf("envelope = %#v", envelope)
+			}
+
+			s, err = store.New(dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			workspaces, err := s.ListWorkspaces(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var wantID *int
+			for _, workspace := range workspaces {
+				if workspace.Name == tt.wantWorkspace {
+					id := workspace.ID
+					wantID = &id
+				}
+			}
+			created, err := s.GetTask(context.Background(), envelope.Data.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantWorkspace == "" {
+				if created.WorkspaceID != nil {
+					t.Fatalf("WorkspaceID = %v, want nil", created.WorkspaceID)
+				}
+			} else if wantID == nil || created.WorkspaceID == nil || *created.WorkspaceID != *wantID {
+				t.Fatalf("WorkspaceID = %v, want %v", created.WorkspaceID, wantID)
+			}
+		})
+	}
+}
+
 func TestTaskUpdateJSONUsesEnvironmentTaskAndDescriptionFile(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "legato.db")
 	s, err := store.New(dbPath)

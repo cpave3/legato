@@ -75,7 +75,7 @@ func commandTree() *commandDef {
 			"legato task list", "legato task list --workspace Personal --status Backlog --json"),
 		leaf("create", "Create a local task", runTaskCreateContract,
 			[]argumentDef{arg("title", "Task title")},
-			[]commandFlag{valueFlag("description", "text", "Markdown task details"), valueFlag("description-file", "path|-", "Read Markdown details from a file or stdin"), valueFlag("status", "status", "Initial board column"), valueFlag("priority", "priority", "Task priority"), valueFlag("workspace", "name", "Workspace name"), jsonFlag},
+			[]commandFlag{valueFlag("description", "text", "Markdown task details"), valueFlag("description-file", "path|-", "Read Markdown details from a file or stdin"), valueFlag("status", "status", "Initial board column"), valueFlag("priority", "priority", "Task priority"), valueFlag("workspace", "name|unassigned", "Workspace name; none or unassigned overrides the configured default"), jsonFlag},
 			`legato task create "Implement login" --workspace Personal`),
 		leaf("show", "Show task details", runTaskShowContract,
 			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")},

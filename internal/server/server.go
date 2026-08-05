@@ -25,44 +25,46 @@ type WorktreeService interface {
 }
 
 type Server struct {
-	board                 service.BoardService
-	agents                service.AgentService
-	swarm                 SwarmService
-	sync                  service.SyncService
-	prTracking            service.PRTrackingService
-	tmux                  service.TmuxManager
-	bus                   *events.Bus
-	addr                  string
-	workDir               string // default CWD for agent spawn
-	server                *http.Server
-	hub                   *Hub
-	streams               *streamManager
-	chimeraStreams        *chimeraStreamManager
-	tlsCert               string
-	tlsKey                string
-	caCertPath            string
-	authToken             string
-	macros                []macros.Macro
-	sparklineWindow       time.Duration
-	sparklineBuckets      int
-	ntfyConfigured        bool
-	voiceSvc              VoiceService
-	voiceAutoSend         bool
-	reviews               ReviewService
-	plans                 PlanService
-	artifacts             ArtifactService
-	workflows             WorkflowService
-	workflowTriggers      *service.WorkflowTriggerCoordinator
-	attention             *service.AttentionService
-	learning              LearningService
-	report                service.ReportService
-	reflectionWorkflows   ReflectionWorkflowService
-	workflowGlobalDir     string
-	workflowProjectDir    string
-	workflowRepositories  []workflowengine.RepositoryPreset
-	worktrees             WorktreeService
-	notifyTaskChanged     func(string)
-	hotReloadBuildTrigger func(<-chan struct{}) (bool, error)
+	board                    service.BoardService
+	agents                   service.AgentService
+	swarm                    SwarmService
+	sync                     service.SyncService
+	prTracking               service.PRTrackingService
+	tmux                     service.TmuxManager
+	bus                      *events.Bus
+	addr                     string
+	workDir                  string // default CWD for agent spawn
+	server                   *http.Server
+	hub                      *Hub
+	streams                  *streamManager
+	chimeraStreams           *chimeraStreamManager
+	tlsCert                  string
+	tlsKey                   string
+	caCertPath               string
+	authToken                string
+	macros                   []macros.Macro
+	sparklineWindow          time.Duration
+	sparklineBuckets         int
+	ntfyConfigured           bool
+	voiceSvc                 VoiceService
+	voiceAutoSend            bool
+	reviews                  ReviewService
+	plans                    PlanService
+	artifacts                ArtifactService
+	workflows                WorkflowService
+	workflowTriggers         *service.WorkflowTriggerCoordinator
+	attention                *service.AttentionService
+	learning                 LearningService
+	report                   service.ReportService
+	reflectionWorkflows      ReflectionWorkflowService
+	workflowGlobalDir        string
+	workflowProjectDir       string
+	workflowRepositories     []workflowengine.RepositoryPreset
+	worktrees                WorktreeService
+	notifyTaskChanged        func(string)
+	hotReloadBuildTrigger    func(<-chan struct{}) (bool, error)
+	defaultWorkspaceID       *int
+	defaultImportWorkspaceID *int
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -280,6 +282,12 @@ func (s *Server) SetReflectionWorkflowService(workflows ReflectionWorkflowServic
 
 func (s *Server) SetWorktreeService(worktrees WorktreeService) {
 	s.worktrees = worktrees
+}
+
+// SetWorkspaceDefaults configures omission defaults for local task creation and provider imports.
+func (s *Server) SetWorkspaceDefaults(defaultWorkspaceID, defaultImportWorkspaceID *int) {
+	s.defaultWorkspaceID = defaultWorkspaceID
+	s.defaultImportWorkspaceID = defaultImportWorkspaceID
 }
 
 // SetSyncService sets the optional sync service for remote search/import endpoints.
