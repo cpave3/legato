@@ -17,6 +17,10 @@ func (s *Server) chimeraDiscoverHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		if s.agents == nil {
+			http.Error(w, "agent service not available", http.StatusServiceUnavailable)
+			return
+		}
 		taskID := r.PathValue("task_id")
 		session, err := s.agents.GetAgentSession(r.Context(), taskID)
 		if err != nil {

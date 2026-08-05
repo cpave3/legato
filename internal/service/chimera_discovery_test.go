@@ -62,6 +62,67 @@ func TestDiscoverChimeraVerifiesAndPersistsExactTaskSession(t *testing.T) {
 	}
 }
 
+func TestDiscoverChimeraDoesNotAttachToReplacementAgent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	instancesDir := filepath.Join(home, ".chimera", "instances")
+	if err := os.MkdirAll(instancesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	verificationStarted := make(chan struct{})
+	continueVerification := make(chan struct{})
+	chimeraServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/instance":
+			close(verificationStarted)
+			<-continueVerification
+			fmt.Fprint(w, `{"pid":123}`)
+		case "/v1/sessions/TASK-42":
+			fmt.Fprint(w, `{"id":"TASK-42"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(chimeraServer.Close)
+	writeChimeraLockfile(t, instancesDir, "match.json", "TASK-42", chimeraServer.URL)
+
+	svc, s, publisher := newDiscoveryTestService(t)
+	createTask(t, s, "TASK-42")
+	if err := s.InsertAgentSession(context.Background(), store.AgentSession{
+		TaskID: "TASK-42", TmuxSession: "old", AgentKind: "chimera", Status: "running",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	discoveryDone := make(chan error, 1)
+	go func() { discoveryDone <- svc.DiscoverChimera(context.Background(), "TASK-42") }()
+	<-verificationStarted
+	if err := s.UpdateAgentSessionStatus(context.Background(), "TASK-42", "dead"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertAgentSession(context.Background(), store.AgentSession{
+		TaskID: "TASK-42", TmuxSession: "replacement", AgentKind: "chimera", Status: "running",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	close(continueVerification)
+
+	if err := <-discoveryDone; !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("DiscoverChimera() error = %v, want stale-session failure", err)
+	}
+	session, err := s.GetAgentSessionByTaskID(context.Background(), "TASK-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.TmuxSession != "replacement" || session.ChimeraEndpoint != nil {
+		t.Fatalf("replacement session was mutated: %#v", session)
+	}
+	if len(publisher.discoveries) != 0 {
+		t.Fatalf("stale discovery published events: %v", publisher.discoveries)
+	}
+}
+
 func TestDiscoverChimeraFailsClosedWithoutUniqueVerifiedCandidate(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -86,6 +147,16 @@ func TestDiscoverChimeraFailsClosedWithoutUniqueVerifiedCandidate(t *testing.T) 
 			name: "dead endpoint",
 			lockfiles: func(t *testing.T, dir string) {
 				writeChimeraLockfile(t, dir, "dead.json", "TASK-42", "http://127.0.0.1:1")
+			},
+			wantErr: ErrChimeraDiscoveryNotFound,
+		},
+		{
+			name: "redirected endpoint",
+			lockfiles: func(t *testing.T, dir string) {
+				target := newChimeraDiscoveryServer(t, "TASK-42")
+				redirect := httptest.NewServer(http.RedirectHandler(target.URL, http.StatusTemporaryRedirect))
+				t.Cleanup(redirect.Close)
+				writeChimeraLockfile(t, dir, "redirect.json", "TASK-42", redirect.URL)
 			},
 			wantErr: ErrChimeraDiscoveryNotFound,
 		},

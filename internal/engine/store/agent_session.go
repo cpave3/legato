@@ -189,6 +189,28 @@ func (s *Store) UpdateChimeraDiscovery(ctx context.Context, taskID, chimeraSessi
 	return err
 }
 
+// UpdateChimeraDiscoveryForSession binds discovery to the exact running agent
+// row observed before endpoint verification. This prevents a stale endpoint
+// from being attached to a replacement process for the same task.
+func (s *Store) UpdateChimeraDiscoveryForSession(ctx context.Context, agentSessionID int, chimeraSessionID, endpoint string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_sessions
+		SET chimera_session_id = ?, chimera_endpoint = ?
+		WHERE id = ? AND status = 'running'`,
+		chimeraSessionID, endpoint, agentSessionID)
+	if err != nil {
+		return err
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if updated != 1 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // UpdateChimeraLastEventID stores the latest SSE event ID consumed for this
 // agent session, enabling gap-free replay on reconnect.
 func (s *Store) UpdateChimeraLastEventID(ctx context.Context, taskID, eventID string) error {

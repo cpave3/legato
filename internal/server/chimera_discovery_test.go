@@ -28,6 +28,16 @@ func (f *chimeraDiscoveryAgentFake) DiscoverChimera(_ context.Context, taskID st
 	return f.discoverErr
 }
 
+func TestChimeraDiscoverEndpointRequiresAgentService(t *testing.T) {
+	server := New(nil, nil, nil, ":0")
+	request := httptest.NewRequest(http.MethodPost, "/api/agents/TASK-42/chimera/discover", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestChimeraDiscoverEndpointUpgradesActiveChimeraAgent(t *testing.T) {
 	agents := &chimeraDiscoveryAgentFake{session: &store.AgentSession{TaskID: "TASK-42", AgentKind: "chimera", Status: "running"}}
 	server := New(nil, agents, nil, ":0")

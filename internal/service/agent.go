@@ -1308,10 +1308,14 @@ const chimeraDiscoveryRequestTimeout = 2 * time.Second
 // DiscoverChimera scans all current Chimera lockfiles and upgrades the active
 // task agent only when exactly one live endpoint serves the task-bound session.
 func (a *agentService) DiscoverChimera(ctx context.Context, taskID string) error {
-	return a.discoverChimeraFromLockfiles(ctx, taskID, taskID, nil)
+	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	return a.discoverChimeraFromLockfiles(ctx, taskID, session.ID, taskID, nil)
 }
 
-func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID, expectedSessionID string, excluded map[string]bool) error {
+func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID string, agentSessionID int, expectedSessionID string, excluded map[string]bool) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("locating Chimera instances: %w", err)
@@ -1363,7 +1367,7 @@ func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID,
 	if len(valid) > 1 {
 		return ErrChimeraDiscoveryAmbiguous
 	}
-	if err := a.store.UpdateChimeraDiscovery(ctx, taskID, valid[0].sessionID, valid[0].endpoint); err != nil {
+	if err := a.store.UpdateChimeraDiscoveryForSession(ctx, agentSessionID, valid[0].sessionID, valid[0].endpoint); err != nil {
 		return fmt.Errorf("persisting Chimera discovery: %w", err)
 	}
 	if a.bus != nil {
@@ -1393,9 +1397,13 @@ func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, expe
 		return
 	}
 
+	activeSession, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	if err != nil {
+		return
+	}
 	// Poll for up to 30 seconds — Chimera may take a few seconds to boot.
 	for i := 0; i < 60; i++ {
-		if err := a.discoverChimeraFromLockfiles(ctx, taskID, expectedSessionID, preExisting); err == nil {
+		if err := a.discoverChimeraFromLockfiles(ctx, taskID, activeSession.ID, expectedSessionID, preExisting); err == nil {
 			log.Printf("chimera lockfile discovered for %s", taskID)
 			return
 		} else if !errors.Is(err, ErrChimeraDiscoveryNotFound) {
