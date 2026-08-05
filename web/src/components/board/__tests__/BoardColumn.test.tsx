@@ -49,6 +49,55 @@ describe("BoardColumn", () => {
     expect(screen.getByText("2")).toBeTruthy()
   })
 
+  it("keeps the header fixed while the card list owns vertical scrolling", () => {
+    const { container } = render(
+      <BoardColumn
+        name="Doing"
+        cards={[makeCard()]}
+        selectedIndex={0}
+        isActive={false}
+        showWorkspace={false}
+        onCardClick={() => {}}
+        colIndex={0}
+      />
+    )
+
+    const column = container.firstElementChild!
+    const header = screen.getByText("Doing").parentElement!
+    const cardList = screen.getByText("Test title").closest("[data-board-column-cards]")!
+
+    expect(column.classList.contains("h-full")).toBe(true)
+    expect(column.classList.contains("min-h-0")).toBe(true)
+    expect(header.contains(cardList)).toBe(false)
+    expect(cardList.classList.contains("min-h-0")).toBe(true)
+    expect(cardList.classList.contains("flex-1")).toBe(true)
+    expect(cardList.classList.contains("overflow-y-auto")).toBe(true)
+  })
+
+  it("reveals keyboard selection only when the column is active", () => {
+    const cards = [makeCard(), makeCard({ id: "T-2", title: "Second card" })]
+    const props = {
+      name: "Doing",
+      cards,
+      showWorkspace: false,
+      onCardClick: () => {},
+      colIndex: 0,
+    }
+    const { rerender } = render(
+      <BoardColumn {...props} selectedIndex={0} isActive={false} />
+    )
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(screen.getByText("Second card").closest("[data-board-column-card]")!, "scrollIntoView", {
+      value: scrollIntoView,
+    })
+
+    rerender(<BoardColumn {...props} selectedIndex={1} isActive={false} />)
+    expect(scrollIntoView).not.toHaveBeenCalled()
+
+    rerender(<BoardColumn {...props} selectedIndex={1} isActive />)
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" })
+  })
+
   it("moves a dragged card when dropped on the column", () => {
     const onCardDrop = vi.fn()
     const data = new Map<string, string>()

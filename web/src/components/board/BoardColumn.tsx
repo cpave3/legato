@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { cn } from "../../lib/utils"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
 import { BoardCard } from "./BoardCard"
@@ -44,11 +44,17 @@ export function BoardColumn({
   onCardDrop,
 }: BoardColumnProps) {
   const [dragOver, setDragOver] = useState(false)
+  const cardRefs = useRef<(HTMLDivElement | null)[]>([])
+
+  useEffect(() => {
+    if (!isActive) return
+    cardRefs.current[selectedIndex]?.scrollIntoView?.({ block: "nearest" })
+  }, [isActive, selectedIndex])
 
   return (
     <div
       className={cn(
-        "flex min-w-[280px] flex-1 flex-col rounded transition-colors",
+        "flex h-full min-h-0 min-w-[280px] flex-1 flex-col overflow-hidden rounded transition-colors",
         dragOver && "bg-indigo-950/30 ring-1 ring-inset ring-indigo-500/60"
       )}
       onDragOver={(event) => {
@@ -81,22 +87,27 @@ export function BoardColumn({
           {cards.length}
         </span>
       </div>
-      <div className="flex flex-col gap-1.5 py-2">
+      <div data-board-column-cards className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto py-2">
         {cards.map((card, i) => (
-          <BoardCard
+          <div
             key={card.id}
-            card={card}
-            selected={isActive && selectedIndex === i}
-            column={name}
-            showWorkspace={showWorkspace}
-            onClick={() => onCardClick(colIndex, i)}
-            onContextMenu={(position) => onCardContextMenu?.(card, position)}
-            onActionMenu={(position) => onCardContextMenu?.(card, position)}
-            onDragStart={(event) => {
-              event.dataTransfer.effectAllowed = "move"
-              event.dataTransfer.setData("text/plain", card.id)
-            }}
-          />
+            ref={(element) => { cardRefs.current[i] = element }}
+            data-board-column-card
+          >
+            <BoardCard
+              card={card}
+              selected={isActive && selectedIndex === i}
+              column={name}
+              showWorkspace={showWorkspace}
+              onClick={() => onCardClick(colIndex, i)}
+              onContextMenu={(position) => onCardContextMenu?.(card, position)}
+              onActionMenu={(position) => onCardContextMenu?.(card, position)}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = "move"
+                event.dataTransfer.setData("text/plain", card.id)
+              }}
+            />
+          </div>
         ))}
       </div>
     </div>
