@@ -50,6 +50,18 @@ describe("SettingsPage hot reload build", () => {
 
   afterEach(() => cleanup())
 
+  it("stores the animated agent activity preference in this browser", () => {
+    renderPage()
+
+    const toggle = screen.getByRole("button", { name: /animated agent activity/i })
+    expect(toggle.getAttribute("aria-pressed")).toBe("true")
+
+    fireEvent.click(toggle)
+
+    expect(toggle.getAttribute("aria-pressed")).toBe("false")
+    expect(localStorage.getItem("legato:animated-agent-activity")).toBe("false")
+  })
+
   it("hides the rebuild action when the server is not running under hot reload", () => {
     renderPage()
     expect(screen.queryByRole("button", { name: /rebuild and hot reload/i })).toBeNull()

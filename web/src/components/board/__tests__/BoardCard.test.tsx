@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { BoardCard } from "../BoardCard"
 import type { BoardCard as BoardCardType } from "../../../lib/board-types"
@@ -30,6 +30,8 @@ function makeCard(overrides: Partial<BoardCardType> = {}): BoardCardType {
 }
 
 describe("BoardCard", () => {
+  beforeEach(() => localStorage.clear())
+
   it("renders all indicators when given populated props", () => {
     const card = makeCard()
     render(<BoardCard card={card} selected={false} column="Doing" showWorkspace={true} onClick={() => {}} />)
@@ -52,6 +54,36 @@ describe("BoardCard", () => {
     expect(root.className).toContain("ring-inset")
     expect(root.className).toContain("ring-indigo-500/60")
     expect(root.className).toContain("border-l-[#E06C75]")
+  })
+
+  it("animates active cards slowly when idle and faster while working", () => {
+    const idle = render(
+      <BoardCard card={makeCard({ agent_state: "" })} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
+    )
+    const idleRoot = idle.container.firstElementChild as HTMLElement
+    expect(idleRoot.className).toContain("agent-activity-orbit")
+    expect(idleRoot.className).toContain("agent-activity-orbit-idle")
+    expect(idleRoot.className).not.toContain("agent-activity-orbit-working")
+    idle.unmount()
+
+    const working = render(
+      <BoardCard card={makeCard({ agent_state: "working" })} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
+    )
+    const workingRoot = working.container.firstElementChild as HTMLElement
+    expect(workingRoot.className).toContain("agent-activity-orbit")
+    expect(workingRoot.className).toContain("agent-activity-orbit-working")
+  })
+
+  it("keeps the static ring without animation when the preference is disabled", () => {
+    localStorage.setItem("legato:animated-agent-activity", "false")
+    const { container } = render(
+      <BoardCard card={makeCard()} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
+    )
+
+    const root = container.firstElementChild as HTMLElement
+    expect(root.className).toContain("ring-indigo-500/60")
+    expect(root.className).not.toContain("agent-activity-orbit")
+    expect(root.className).not.toContain("agent-activity-orbit-working")
   })
 
   it("hides workspace tag when showWorkspace is false", () => {
@@ -96,6 +128,7 @@ describe("BoardCard", () => {
     const root = container.firstElementChild as HTMLElement
     expect(root.className).not.toContain("ring-1")
     expect(root.className).not.toContain("ring-indigo-500/60")
+    expect(root.className).not.toContain("agent-activity-orbit")
   })
 
   it("shows review state and unreviewed count", () => {

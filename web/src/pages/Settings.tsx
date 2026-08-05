@@ -7,6 +7,7 @@ import { useSettings } from "../hooks/useSettings"
 import { useToast } from "../hooks/useToast"
 import { apiFetch } from "../lib/api"
 import { useSearchParams } from "react-router-dom"
+import { animatedAgentActivityEnabled, setAnimatedAgentActivityEnabled } from "../lib/appearancePreferences"
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -17,6 +18,7 @@ export function SettingsPage() {
   const [glitchEnabled, setGlitchEnabled] = useState(() => {
     return localStorage.getItem("legato:glitch-effect") !== "false"
   })
+  const [animatedActivityEnabled, setAnimatedActivityEnabled] = useState(animatedAgentActivityEnabled)
   const [promptDetectionEnabled, setPromptDetectionEnabled] = useState(() => {
     return localStorage.getItem("legato:prompt-detection") !== "false"
   })
@@ -31,6 +33,12 @@ export function SettingsPage() {
     const next = !glitchEnabled
     setGlitchEnabled(next)
     localStorage.setItem("legato:glitch-effect", next ? "true" : "false")
+  }
+
+  const toggleAnimatedActivity = () => {
+    const next = !animatedActivityEnabled
+    setAnimatedActivityEnabled(next)
+    setAnimatedAgentActivityEnabled(next)
   }
 
   const togglePromptDetection = () => {
@@ -128,6 +136,30 @@ export function SettingsPage() {
             >
               <span
                 className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${glitchEnabled ? "translate-x-5" : "translate-x-0"}`}
+              />
+            </button>
+          </div>
+        </div>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4 mt-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Zap size={20} className="text-purple-400 shrink-0" />
+              <div>
+                <p className="text-sm text-zinc-300">Animated agent activity</p>
+                <p className="text-xs text-zinc-500">
+                  Moving card highlight that responds to agent activity
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="Animated agent activity"
+              aria-pressed={animatedActivityEnabled}
+              onClick={toggleAnimatedActivity}
+              className={`relative h-6 w-11 rounded-full transition-colors ${animatedActivityEnabled ? "bg-indigo-600" : "bg-zinc-700"}`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${animatedActivityEnabled ? "translate-x-5" : "translate-x-0"}`}
               />
             </button>
           </div>

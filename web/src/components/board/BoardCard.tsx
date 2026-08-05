@@ -1,6 +1,7 @@
 import { cn } from "../../lib/utils"
 import type { DragEvent, MouseEvent } from "react"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
+import { animatedAgentActivityEnabled } from "../../lib/appearancePreferences"
 import {
   Globe,
   FileText,
@@ -89,6 +90,7 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
   const waitingDur = formatDuration(card.waiting_seconds || 0)
   const errorDur = formatDuration(card.error_seconds || 0)
   const hasSwarm = card.swarm_stats && card.swarm_stats.total > 0
+  const animateAgentActivity = card.agent_active && animatedAgentActivityEnabled()
 
   return (
     <div
@@ -104,6 +106,9 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
         "relative cursor-pointer rounded border-l-2 px-2.5 py-2 text-sm transition-colors",
         priorityBorderClass(card.priority),
         card.agent_active && "ring-1 ring-inset ring-indigo-500/60",
+        animateAgentActivity && "agent-activity-orbit",
+        animateAgentActivity && !card.agent_state && "agent-activity-orbit-idle",
+        animateAgentActivity && card.agent_state === "working" && "agent-activity-orbit-working",
         selected
           ? "bg-[#EEEDFE] text-[#1E1E2E]"
           : "bg-[#1E1E2E] text-zinc-300 hover:bg-zinc-900",

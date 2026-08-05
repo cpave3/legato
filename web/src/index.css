@@ -28,6 +28,72 @@ body {
   }
 }
 
+@property --agent-orbit-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.agent-activity-orbit::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  padding: 2px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--agent-orbit-angle),
+    transparent 0deg 326deg,
+    rgba(167, 139, 250, 0.15) 332deg,
+    rgba(196, 181, 253, 0.9) 344deg,
+    rgba(139, 92, 246, 0.25) 354deg,
+    transparent 360deg
+  );
+  filter: drop-shadow(0 0 2px rgba(139, 92, 246, 0.45));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: agent-activity-orbit 14s linear infinite;
+}
+
+.agent-activity-orbit-idle::before {
+  background: conic-gradient(
+    from var(--agent-orbit-angle),
+    transparent 0deg 338deg,
+    rgba(167, 139, 250, 0.08) 342deg,
+    rgba(196, 181, 253, 0.55) 350deg,
+    rgba(139, 92, 246, 0.12) 357deg,
+    transparent 360deg
+  );
+  filter: drop-shadow(0 0 1px rgba(139, 92, 246, 0.3));
+  animation-duration: 24s;
+}
+
+.agent-activity-orbit-working::before {
+  background: conic-gradient(
+    from var(--agent-orbit-angle),
+    transparent 0deg 318deg,
+    rgba(167, 139, 250, 0.25) 326deg,
+    rgba(221, 214, 254, 1) 342deg,
+    rgba(139, 92, 246, 0.4) 356deg,
+    transparent 360deg
+  );
+  filter: drop-shadow(0 0 3px rgba(167, 139, 250, 0.8));
+  animation-duration: 6s;
+}
+
+@keyframes agent-activity-orbit {
+  to { --agent-orbit-angle: 360deg; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-activity-orbit::before {
+    display: none;
+    animation: none;
+  }
+}
+
 /* Sci-fi glitch overlay for terminal sync events */
 .terminal-glitch-overlay {
   position: absolute;
