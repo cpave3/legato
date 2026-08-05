@@ -4,7 +4,7 @@ import { useServer } from "../hooks/useServer"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
 import { apiFetch } from "../lib/api"
 import { cn } from "../lib/utils"
-import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff, Terminal, Zap, Bell, BellOff } from "lucide-react"
+import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff, Terminal, Zap, Bell, BellOff, Sparkles } from "lucide-react"
 import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
 
 interface ActionListProps {
@@ -112,6 +112,7 @@ interface PromptBarProps {
   notifyEnabled?: boolean
   onToggleNotify?: () => void
   voiceEnabled?: boolean
+  onUpgradeChimera?: () => Promise<void>
 }
 
 function draftKey(id: string) { return `legato:draft:${id}` }
@@ -124,10 +125,12 @@ export interface PromptBarHandle {
   voiceIsRecording: () => boolean
 }
 
-export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled }, ref) {
+export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera }, ref) {
   const { baseUrl } = useServer()
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
   const [menuOpen, setMenuOpen] = useState(false)
+  const [upgradePending, setUpgradePending] = useState(false)
+  const [upgradeError, setUpgradeError] = useState("")
   const menuRef = useRef<HTMLDivElement>(null)
   const [macrosOpen, setMacrosOpen] = useState(false)
   const [macros, setMacros] = useState<{ name: string; keys: string }[]>([])
@@ -352,6 +355,23 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
             </button>
             {menuOpen && (
               <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
+                {agentKind === "chimera" && onUpgradeChimera && (
+                  <button
+                    onClick={() => {
+                      setUpgradeError("")
+                      setUpgradePending(true)
+                      void onUpgradeChimera()
+                        .then(() => setMenuOpen(false))
+                        .catch((error: unknown) => setUpgradeError(error instanceof Error ? error.message : String(error)))
+                        .finally(() => setUpgradePending(false))
+                    }}
+                    disabled={upgradePending}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-indigo-300 hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                  >
+                    <Sparkles size={12} />
+                    {upgradePending ? "Upgrading…" : "Upgrade to native Chimera"}
+                  </button>
+                )}
                 <button
                   onClick={() => { onRefresh(); setMenuOpen(false) }}
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
@@ -402,6 +422,8 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
           </div>
         </div>
       </div>
+
+      {upgradeError && <div role="alert" className="mt-2 text-xs text-red-400">{upgradeError}</div>}
 
       {/* Prompt-specific controls */}
       <div className="mt-2">

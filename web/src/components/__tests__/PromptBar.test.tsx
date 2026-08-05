@@ -138,6 +138,59 @@ it("does not handle macro shortcuts from the textarea or with modifiers", async 
   expect(onSubmitMessage).not.toHaveBeenCalled()
 })
 
+it("offers native Chimera upgrade and surfaces failures without hiding the terminal controls", async () => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [] }) })
+  let rejectUpgrade: (error: Error) => void = () => {}
+  const onUpgradeChimera = vi.fn(() => new Promise<void>((_, reject) => { rejectUpgrade = reject }))
+
+  render(<PromptBar
+    promptState={null}
+    onSendKeys={vi.fn()}
+    onSubmitMessage={vi.fn()}
+    onDismissPrompt={vi.fn()}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="TASK-42"
+    agentKind="chimera"
+    onUpgradeChimera={onUpgradeChimera}
+  />)
+
+  fireEvent.click(screen.getByTitle("More actions"))
+  const upgrade = screen.getByRole("button", { name: "Upgrade to native Chimera" })
+  fireEvent.click(upgrade)
+  expect(onUpgradeChimera).toHaveBeenCalledOnce()
+  expect(upgrade.hasAttribute("disabled")).toBe(true)
+
+  rejectUpgrade(new Error("no live Chimera instance for this task was found"))
+  expect((await screen.findByRole("alert")).textContent).toContain("no live Chimera instance for this task was found")
+  expect(screen.getByPlaceholderText("Type a message...")).not.toBeNull()
+})
+
+it("does not offer native upgrade for non-Chimera terminals", () => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [] }) })
+  render(<PromptBar
+    promptState={null}
+    onSendKeys={vi.fn()}
+    onSubmitMessage={vi.fn()}
+    onDismissPrompt={vi.fn()}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="agent-1"
+    agentKind="shell"
+    onUpgradeChimera={vi.fn()}
+  />)
+  fireEvent.click(screen.getByTitle("More actions"))
+  expect(screen.queryByRole("button", { name: "Upgrade to native Chimera" })).toBeNull()
+})
+
 it("submits typed text as message content without a terminal newline", () => {
   mockFetch.mockResolvedValue({
     ok: true,

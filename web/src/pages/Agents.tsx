@@ -216,6 +216,17 @@ export function AgentsPage() {
     }
   }, [selectedId, send])
 
+  const handleUpgradeChimera = useCallback(async () => {
+    if (!selectedId) return
+    const response = await apiFetch(baseUrl, `/api/agents/${encodeURIComponent(selectedId)}/chimera/discover`, {
+      method: "POST",
+    })
+    if (!response.ok) {
+      throw new Error((await response.text()).trim() || "Could not upgrade Chimera agent")
+    }
+    await fetchAgents()
+  }, [selectedId, baseUrl, fetchAgents])
+
   const handleDisconnect = useCallback(() => {
     if (selectedId) {
       send({ type: "unsubscribe_agent", agent_id: selectedId })
@@ -444,6 +455,7 @@ export function AgentsPage() {
               notifyEnabled={selectedAgent?.notify_enabled}
               onToggleNotify={handleToggleNotify}
               voiceEnabled={voiceEnabled}
+              onUpgradeChimera={selectedAgent?.agent_kind === "chimera" ? handleUpgradeChimera : undefined}
             />
             )}
           </>
