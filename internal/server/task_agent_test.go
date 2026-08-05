@@ -52,8 +52,8 @@ func TestTaskAgentEndpointCreatesTaskBoundAgent(t *testing.T) {
 	if agents.spawned != "T-1" || agents.opts.AgentKind != "chimera" || agents.opts.WorkingDir != "/repo" {
 		t.Fatalf("spawned=%q opts=%+v", agents.spawned, agents.opts)
 	}
-	if agents.opts.ChimeraSessionID != "" || agents.opts.ChimeraSessionExists != "" {
-		t.Fatalf("new Chimera agent received resume options: %+v", agents.opts)
+	if agents.opts.ChimeraSessionExists != "" {
+		t.Fatalf("new Chimera agent received resume policy: %+v", agents.opts)
 	}
 }
 
@@ -67,7 +67,7 @@ func TestTaskAgentEndpointResumesPersistedDefaultChimeraSession(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if agents.opts.ChimeraSessionID != "persisted-session" || agents.opts.ChimeraSessionExists != "resume" {
+	if agents.opts.ChimeraSessionExists != "resume" {
 		t.Fatalf("resume options=%+v", agents.opts)
 	}
 }
@@ -82,7 +82,7 @@ func TestTaskAgentEndpointResumesPersistedChimeraSession(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if agents.opts.ChimeraSessionID != "persisted-session" || agents.opts.ChimeraSessionExists != "resume" {
+	if agents.opts.ChimeraSessionExists != "resume" {
 		t.Fatalf("resume options=%+v", agents.opts)
 	}
 }
@@ -97,7 +97,7 @@ func TestTaskAgentEndpointExplicitlyResumesPersistedChimeraSession(t *testing.T)
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if agents.opts.ChimeraSessionID != "persisted-session" || agents.opts.ChimeraSessionExists != "resume" {
+	if agents.opts.ChimeraSessionExists != "resume" {
 		t.Fatalf("resume options=%+v", agents.opts)
 	}
 }
@@ -112,7 +112,7 @@ func TestTaskAgentEndpointStartsNewPersistedChimeraSession(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	if agents.opts.ChimeraSessionID != "persisted-session" || agents.opts.ChimeraSessionExists != "new" {
+	if agents.opts.ChimeraSessionExists != "new" {
 		t.Fatalf("new session options=%+v", agents.opts)
 	}
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -332,6 +333,41 @@ func (g generalPromptAdapter) GeneralPrompt() string { return g.general }
 // turn, not the swarm-specific preamble. Chimera's LaunchCommand emits bare
 // `chimera` when LEGATO_ROLE_PROMPT_FILE is absent; without a general prompt
 // the session boots to an empty prompt (the b9b1d0d regression).
+func TestSpawnAgent_TaskIDIsChimeraSessionIdentity(t *testing.T) {
+	for _, policy := range []string{"resume", "new"} {
+		t.Run(policy, func(t *testing.T) {
+			dbPath := filepath.Join(t.TempDir(), "test.db")
+			s, err := store.New(dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { s.Close() })
+
+			mt := newMockTmux()
+			var launched map[string]string
+			adapter := &fakeAdapter{name: "chimera", launchFn: func(env map[string]string, _, _ string) string {
+				launched = maps.Clone(env)
+				return "chimera"
+			}}
+			svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{Adapter: adapter})
+			createTask(t, s, "TASK-42")
+
+			err = svc.SpawnAgent(context.Background(), "TASK-42", 0, 0, AgentSpawnOptions{
+				ChimeraSessionExists: policy,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if launched["LEGATO_CHIMERA_SESSION_ID"] != "TASK-42" || launched["LEGATO_CHIMERA_SESSION_NAME"] != "TASK-42" {
+				t.Fatalf("Chimera identity env = %#v", launched)
+			}
+			if launched["LEGATO_CHIMERA_SESSION_EXISTS"] != policy {
+				t.Fatalf("Chimera policy = %q, want %q", launched["LEGATO_CHIMERA_SESSION_EXISTS"], policy)
+			}
+		})
+	}
+}
+
 func TestSpawnAgent_NewTaskChimeraSessionIncludesInitialPrompt(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	s, err := store.New(dbPath)

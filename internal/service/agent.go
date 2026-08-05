@@ -88,7 +88,6 @@ type AgentSpawnOptions struct {
 	Tier                 string            // adapter tier name (selects per-tier launch_args from cfg.Adapters.<kind>.tiers); "" → base launch_args only
 	Brief                string            // the per-worker initial brief; conductors leave this empty
 	StrictScope          bool              // when true, scope conflicts hard-block the spawn; otherwise advisory
-	ChimeraSessionID     string            // requested or previously stored Chimera session ID
 	ChimeraSessionExists string            // Chimera collision policy: new, resume, or error
 	Ephemeral            bool              // internal: omit task-linked session identity
 	Assignment           string            // standalone workflow assignment; distinct from swarm role prompts
@@ -456,16 +455,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 	if adapter != nil && adapter.Name() == "chimera" && !opt.Ephemeral {
-		sessionID := opt.ChimeraSessionID
-		if sessionID == "" {
-			sessionID = taskID
-		}
 		policy := opt.ChimeraSessionExists
 		if policy == "" {
 			policy = "new"
 		}
 		envMap["LEGATO_CHIMERA_SESSION_NAME"] = taskID
-		envMap["LEGATO_CHIMERA_SESSION_ID"] = sessionID
+		envMap["LEGATO_CHIMERA_SESSION_ID"] = taskID
 		envMap["LEGATO_CHIMERA_SESSION_EXISTS"] = policy
 	}
 	// Swarm-specific env vars.

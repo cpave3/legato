@@ -1147,7 +1147,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Resume {
 			policy = "resume"
 		}
-		return a.spawnTaskAgent(msg.Spawn, msg.SessionID, policy)
+		return a.spawnTaskAgent(msg.Spawn, policy)
 
 	case overlay.ChimeraSessionCancelledMsg:
 		a.overlayType = overlayNone
@@ -2340,17 +2340,17 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 			return a, nil
 		}
 	}
-	return a.spawnTaskAgent(msg, "", "")
+	return a.spawnTaskAgent(msg, "")
 }
 
-func (a App) spawnTaskAgent(msg overlay.AgentSpawnSubmitMsg, chimeraSessionID, chimeraPolicy string) (tea.Model, tea.Cmd) {
+func (a App) spawnTaskAgent(msg overlay.AgentSpawnSubmitMsg, chimeraPolicy string) (tea.Model, tea.Cmd) {
 	svc := a.agentSvc
 	termW := a.width - agents.SidebarWidth
 	if termW < 1 {
 		termW = 1
 	}
 	termH := a.height - 1
-	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, WorkingDir: msg.WorkingDir, ChimeraSessionID: chimeraSessionID, ChimeraSessionExists: chimeraPolicy}
+	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, WorkingDir: msg.WorkingDir, ChimeraSessionExists: chimeraPolicy}
 
 	// Task-bound agent: switch to agent view and spawn with options
 	a = a.setMode(viewAgents)

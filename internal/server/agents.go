@@ -390,7 +390,6 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 				return
 			}
 			if sessionID != "" {
-				opts.ChimeraSessionID = sessionID
 				opts.ChimeraSessionExists = req.ChimeraSessionPolicy
 				if opts.ChimeraSessionExists == "" {
 					opts.ChimeraSessionExists = "resume"

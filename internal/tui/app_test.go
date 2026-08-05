@@ -1413,7 +1413,7 @@ func TestChimeraSpawnWithStoredSessionPromptsAndResumes(t *testing.T) {
 			}
 		}
 	}
-	if agentSvc.lastSpawnOpts == nil || agentSvc.lastSpawnOpts.ChimeraSessionID != "old-session" || agentSvc.lastSpawnOpts.ChimeraSessionExists != "resume" {
+	if agentSvc.lastSpawnOpts == nil || agentSvc.lastSpawnOpts.ChimeraSessionExists != "resume" {
 		t.Fatalf("spawn options = %+v", agentSvc.lastSpawnOpts)
 	}
 }
