@@ -103,6 +103,7 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
       className={cn(
         "relative cursor-pointer rounded border-l-2 px-2.5 py-2 text-sm transition-colors",
         priorityBorderClass(card.priority),
+        card.agent_active && "ring-1 ring-inset ring-indigo-500/60",
         selected
           ? "bg-[#EEEDFE] text-[#1E1E2E]"
           : "bg-[#1E1E2E] text-zinc-300 hover:bg-zinc-900",

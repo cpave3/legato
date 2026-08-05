@@ -84,6 +84,15 @@ describe("web request traffic", () => {
 
     vi.useFakeTimers()
     try {
+      act(() => { websocket.handler?.({ type: "agents_changed" }) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(75) })
+      expect(Object.fromEntries(counts)).toEqual({
+        "/api/navigation-summary": 2,
+        "/api/board": 2,
+        "/api/workflows": 1,
+        "/api/settings": 1,
+      })
+
       act(() => {
         for (let index = 0; index < 20; index++) {
           websocket.handler?.({ type: "agents_changed" })
@@ -92,8 +101,8 @@ describe("web request traffic", () => {
       })
       await act(async () => { await vi.advanceTimersByTimeAsync(75) })
       expect(Object.fromEntries(counts)).toEqual({
-        "/api/navigation-summary": 2,
-        "/api/board": 2,
+        "/api/navigation-summary": 3,
+        "/api/board": 3,
         "/api/workflows": 1,
         "/api/settings": 1,
       })

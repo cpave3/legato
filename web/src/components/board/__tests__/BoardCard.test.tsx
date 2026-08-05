@@ -42,6 +42,18 @@ describe("BoardCard", () => {
     expect(screen.getByText("2/5")).toBeTruthy()
   })
 
+  it("outlines a card with an active agent without replacing its priority stripe", () => {
+    const { container } = render(
+      <BoardCard card={makeCard()} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
+    )
+
+    const root = container.firstElementChild as HTMLElement
+    expect(root.className).toContain("ring-1")
+    expect(root.className).toContain("ring-inset")
+    expect(root.className).toContain("ring-indigo-500/60")
+    expect(root.className).toContain("border-l-[#E06C75]")
+  })
+
   it("hides workspace tag when showWorkspace is false", () => {
     const card = makeCard()
     const { container } = render(
@@ -65,10 +77,25 @@ describe("BoardCard", () => {
     expect(screen.queryByText(/IDLE/)).toBeNull()
   })
 
-  it("shows IDLE when agent_active but no state", () => {
+  it("shows IDLE and the outline when agent_active but no state", () => {
     const card = makeCard({ agent_state: "" })
-    render(<BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
+    const { container } = render(
+      <BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
+    )
+
     expect(screen.getByText(/IDLE/)).toBeTruthy()
+    expect((container.firstElementChild as HTMLElement).className).toContain("ring-indigo-500/60")
+  })
+
+  it("does not outline an inactive card with historical agent durations", () => {
+    const card = makeCard({ agent_active: false, agent_state: "", working_seconds: 3661, waiting_seconds: 125 })
+    const { container } = render(
+      <BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
+    )
+
+    const root = container.firstElementChild as HTMLElement
+    expect(root.className).not.toContain("ring-1")
+    expect(root.className).not.toContain("ring-indigo-500/60")
   })
 
   it("shows review state and unreviewed count", () => {
