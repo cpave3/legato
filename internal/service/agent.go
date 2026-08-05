@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -136,6 +139,7 @@ type AgentService interface {
 	// GetTaskNotifyEnabled returns whether push notifications are enabled for a task.
 	GetTaskNotifyEnabled(ctx context.Context, taskID string) (bool, error)
 	GetTaskChimeraSessionID(ctx context.Context, taskID string) (string, error)
+	DiscoverChimera(ctx context.Context, taskID string) error
 	// SendMessage delivers a text message to the agent through the
 	// appropriate interaction adapter (tmux send-keys or Chimera HTTP).
 	SendMessage(ctx context.Context, taskID, message string) error
@@ -1294,60 +1298,147 @@ func snapshotChimeraLockfiles() map[string]bool {
 	return preExisting
 }
 
-func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, expectedSessionID string, preExisting map[string]bool) {
+var (
+	ErrChimeraDiscoveryNotFound  = errors.New("no verified Chimera instance found")
+	ErrChimeraDiscoveryAmbiguous = errors.New("multiple verified Chimera instances found")
+)
+
+const chimeraDiscoveryRequestTimeout = 2 * time.Second
+
+// DiscoverChimera scans all current Chimera lockfiles and upgrades the active
+// task agent only when exactly one live endpoint serves the task-bound session.
+func (a *agentService) DiscoverChimera(ctx context.Context, taskID string) error {
+	return a.discoverChimeraFromLockfiles(ctx, taskID, taskID, nil)
+}
+
+func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID, expectedSessionID string, excluded map[string]bool) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		log.Printf("chimera lockfile discovery for %s: %v", taskID, err)
+		return fmt.Errorf("locating Chimera instances: %w", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(home, ".chimera", "instances"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return ErrChimeraDiscoveryNotFound
+		}
+		return fmt.Errorf("reading Chimera instances: %w", err)
+	}
+
+	type candidate struct {
+		sessionID string
+		endpoint  string
+	}
+	valid := make([]candidate, 0, 1)
+	seenEndpoints := map[string]bool{}
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".json") || excluded[entry.Name()] {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(home, ".chimera", "instances", entry.Name()))
+		if err != nil {
+			continue
+		}
+		lf, err := chimera.ParseLockfile(data)
+		if err != nil || lf.SessionID != expectedSessionID || seenEndpoints[lf.URL] || !isLoopbackHTTPURL(lf.URL) {
+			continue
+		}
+		seenEndpoints[lf.URL] = true
+		requestCtx, cancel := context.WithTimeout(ctx, chimeraDiscoveryRequestTimeout)
+		httpClient := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}}
+		client := chimera.NewClientWithHTTPClient(lf.URL, httpClient)
+		_, instanceErr := client.GetInstance(requestCtx)
+		snapshot, sessionErr := client.GetSession(requestCtx, expectedSessionID)
+		cancel()
+		if instanceErr != nil || sessionErr != nil || snapshot.ID != expectedSessionID {
+			continue
+		}
+		valid = append(valid, candidate{sessionID: lf.SessionID, endpoint: lf.URL})
+	}
+
+	if len(valid) == 0 {
+		return ErrChimeraDiscoveryNotFound
+	}
+	if len(valid) > 1 {
+		return ErrChimeraDiscoveryAmbiguous
+	}
+	if err := a.store.UpdateChimeraDiscovery(ctx, taskID, valid[0].sessionID, valid[0].endpoint); err != nil {
+		return fmt.Errorf("persisting Chimera discovery: %w", err)
+	}
+	if a.bus != nil {
+		a.bus.PublishAgentChimeraDiscovered(taskID)
+	}
+	return nil
+}
+
+func isLoopbackHTTPURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.User != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, expectedSessionID string, preExisting map[string]bool) {
+	// Ephemeral sessions have no stable task-bound identity. Preserve their
+	// existing launch-time behavior separately from verified manual discovery.
+	if expectedSessionID == "" {
+		a.discoverEphemeralChimeraLockfile(ctx, taskID, preExisting)
 		return
 	}
-	instancesDir := filepath.Join(home, ".chimera", "instances")
 
 	// Poll for up to 30 seconds — Chimera may take a few seconds to boot.
 	for i := 0; i < 60; i++ {
+		if err := a.discoverChimeraFromLockfiles(ctx, taskID, expectedSessionID, preExisting); err == nil {
+			log.Printf("chimera lockfile discovered for %s", taskID)
+			return
+		} else if !errors.Is(err, ErrChimeraDiscoveryNotFound) {
+			log.Printf("chimera lockfile discovery for %s: %v", taskID, err)
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return
-		default:
+		case <-time.After(500 * time.Millisecond):
 		}
-
-		entries, err := os.ReadDir(instancesDir)
-		if err != nil {
-			time.Sleep(500 * time.Millisecond)
-			continue
-		}
-
-		for _, entry := range entries {
-			if !strings.HasSuffix(entry.Name(), ".json") {
-				continue
-			}
-			if preExisting[entry.Name()] {
-				continue
-			}
-			data, err := os.ReadFile(filepath.Join(instancesDir, entry.Name()))
-			if err != nil {
-				continue
-			}
-			lf, err := chimera.ParseLockfile(data)
-			if err != nil || (expectedSessionID != "" && lf.SessionID != expectedSessionID) {
-				continue
-			}
-			// Prefer the session assigned before launch. Ephemeral agents have no
-			// assigned ID and retain the new-lockfile fallback.
-			if err := a.store.UpdateChimeraDiscovery(ctx, taskID, lf.SessionID, lf.URL); err != nil {
-				log.Printf("chimera lockfile discovery for %s: persisting: %v", taskID, err)
-			} else {
-				log.Printf("chimera lockfile discovered for %s: endpoint=%s session=%s",
-					taskID, lf.URL, lf.SessionID)
-				// Notify connected web clients that the agent list changed
-				// so they re-fetch and switch to the NativeAgentPanel.
-				if a.bus != nil {
-					a.bus.PublishAgentChimeraDiscovered(taskID)
-				}
-			}
-			return
-		}
-
-		time.Sleep(500 * time.Millisecond)
 	}
 	log.Printf("chimera lockfile discovery for %s: timed out after 30s", taskID)
+}
+
+func (a *agentService) discoverEphemeralChimeraLockfile(ctx context.Context, taskID string, preExisting map[string]bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	instancesDir := filepath.Join(home, ".chimera", "instances")
+	for i := 0; i < 60; i++ {
+		entries, err := os.ReadDir(instancesDir)
+		if err == nil {
+			for _, entry := range entries {
+				if !strings.HasSuffix(entry.Name(), ".json") || preExisting[entry.Name()] {
+					continue
+				}
+				data, readErr := os.ReadFile(filepath.Join(instancesDir, entry.Name()))
+				lf, parseErr := chimera.ParseLockfile(data)
+				if readErr != nil || parseErr != nil {
+					continue
+				}
+				if err := a.store.UpdateChimeraDiscovery(ctx, taskID, lf.SessionID, lf.URL); err == nil && a.bus != nil {
+					a.bus.PublishAgentChimeraDiscovered(taskID)
+				}
+				return
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
 }

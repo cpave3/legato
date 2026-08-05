@@ -31,9 +31,16 @@ type Client struct {
 
 // NewClient creates a client for the given base URL (e.g. http://127.0.0.1:38123).
 func NewClient(baseURL string) *Client {
+	return NewClientWithHTTPClient(baseURL, &http.Client{})
+}
+
+// NewClientWithHTTPClient creates a client using the supplied HTTP transport.
+// Callers that consume untrusted endpoint metadata can enforce stricter redirect
+// and timeout behavior while reusing the Chimera protocol implementation.
+func NewClientWithHTTPClient(baseURL string, httpClient *http.Client) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		http:    &http.Client{},
+		http:    httpClient,
 	}
 }
 

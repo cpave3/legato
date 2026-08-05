@@ -366,6 +366,7 @@ func (p *promptAgentService) SetTaskNotifyEnabled(context.Context, string, bool)
 func (p *promptAgentService) GetTaskNotifyEnabled(context.Context, string) (bool, error) {
 	return false, nil
 }
+func (p *promptAgentService) DiscoverChimera(context.Context, string) error { return nil }
 func (p *promptAgentService) GetTaskChimeraSessionID(context.Context, string) (string, error) {
 	return "", nil
 }

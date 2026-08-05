@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -739,10 +741,21 @@ func TestSpawnAgentMatchesChimeraLockfileByExpectedSession(t *testing.T) {
 	}
 	t.Cleanup(func() { s.Close() })
 	mt := newMockTmux()
+	chimeraServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/instance":
+			fmt.Fprint(w, `{"pid":123}`)
+		case "/v1/sessions/task-fast":
+			fmt.Fprint(w, `{"id":"task-fast"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(chimeraServer.Close)
 	adapter := &fakeAdapter{name: "chimera", launchFn: func(map[string]string, string, string) string {
 		lockfiles := map[string]string{
 			"100.json": `{"sessionId":"other-task","url":"http://127.0.0.1:43100"}`,
-			"200.json": `{"sessionId":"task-fast","url":"http://127.0.0.1:43210"}`,
+			"200.json": fmt.Sprintf(`{"sessionId":"task-fast","url":%q}`, chimeraServer.URL),
 		}
 		for name, lockfile := range lockfiles {
 			if err := os.WriteFile(filepath.Join(instancesDir, name), []byte(lockfile), 0o600); err != nil {
@@ -762,7 +775,7 @@ func TestSpawnAgentMatchesChimeraLockfileByExpectedSession(t *testing.T) {
 	for time.Now().Before(deadline) {
 		session, err := s.GetAgentSessionByTaskID(ctx, "task-fast")
 		if err == nil && session.ChimeraEndpoint != nil {
-			if *session.ChimeraEndpoint != "http://127.0.0.1:43210" || session.ChimeraSessionID == nil || *session.ChimeraSessionID != "task-fast" {
+			if *session.ChimeraEndpoint != chimeraServer.URL || session.ChimeraSessionID == nil || *session.ChimeraSessionID != "task-fast" {
 				t.Fatalf("discovery = %#v", session)
 			}
 			return

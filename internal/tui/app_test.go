@@ -1327,6 +1327,7 @@ func (f *fakeAgentService) SetTaskNotifyEnabled(_ context.Context, _ string, _ b
 func (f *fakeAgentService) GetTaskNotifyEnabled(_ context.Context, _ string) (bool, error) {
 	return false, nil
 }
+func (f *fakeAgentService) DiscoverChimera(context.Context, string) error { return nil }
 func (f *fakeAgentService) GetTaskChimeraSessionID(_ context.Context, _ string) (string, error) {
 	return f.chimeraSession, nil
 }

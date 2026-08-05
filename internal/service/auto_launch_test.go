@@ -198,8 +198,9 @@ func (s simpleAdapter) EnvVars(taskID, socket string) map[string]string {
 
 // recordingPublisher captures EventAgentDied calls for assertions.
 type recordingPublisher struct {
-	calls  []recordedDied
-	starts []string
+	calls       []recordedDied
+	starts      []string
+	discoveries []string
 }
 
 type recordedDied struct {
@@ -214,7 +215,9 @@ func (r *recordingPublisher) PublishAgentDied(taskID, parentTaskID, subtaskID, r
 	r.calls = append(r.calls, recordedDied{taskID, parentTaskID, subtaskID, role})
 }
 
-func (r *recordingPublisher) PublishAgentChimeraDiscovered(taskID string) {}
+func (r *recordingPublisher) PublishAgentChimeraDiscovered(taskID string) {
+	r.discoveries = append(r.discoveries, taskID)
+}
 
 // selfKickoffAdapter implements LaunchSelfKickoff returning true — i.e. the
 // launch command already is the agent's first user turn (chimera-style).

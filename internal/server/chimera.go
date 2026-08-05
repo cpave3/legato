@@ -2,11 +2,53 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/chimera"
+	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/service"
 )
+
+func (s *Server) chimeraDiscoverHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		taskID := r.PathValue("task_id")
+		session, err := s.agents.GetAgentSession(r.Context(), taskID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				http.Error(w, "active agent not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if session.AgentKind != "chimera" || session.Status != "running" {
+			http.Error(w, "native upgrade requires an active Chimera agent", http.StatusConflict)
+			return
+		}
+		if session.ChimeraEndpoint != nil || session.ChimeraSessionID != nil {
+			http.Error(w, "Chimera agent is already native", http.StatusConflict)
+			return
+		}
+		if err := s.agents.DiscoverChimera(r.Context(), taskID); err != nil {
+			switch {
+			case errors.Is(err, service.ErrChimeraDiscoveryNotFound):
+				http.Error(w, "no live Chimera instance for this task was found", http.StatusNotFound)
+			case errors.Is(err, service.ErrChimeraDiscoveryAmbiguous):
+				http.Error(w, "multiple live Chimera instances match this task", http.StatusConflict)
+			default:
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"task_id": taskID, "upgraded": true})
+	}
+}
 
 // chimeraSnapshotHandler proxies GET /v1/sessions/:id from the Chimera
 // server to the browser. The endpoint and session ID are resolved from
