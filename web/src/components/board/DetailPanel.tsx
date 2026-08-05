@@ -67,6 +67,11 @@ export function DetailPanel({
   worktreesEnabled = false,
 }: DetailPanelProps) {
   const isLocal = !card.provider
+  const agentActionProps = {
+    taskId: card.id,
+    worktreePath: card.worktree?.path,
+    hasChimeraSession: card.has_chimera_session,
+  }
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 md:items-center md:p-6" onClick={onClose}>
@@ -88,6 +93,10 @@ export function DetailPanel({
           </div>
           <Button variant="ghost" size="icon-sm" aria-label="Close task details" onClick={onClose}><X size={16} /></Button>
         </header>
+
+        <div data-task-agent-action="mobile" className="shrink-0 border-b border-zinc-800 px-5 py-3 md:px-6 lg:hidden">
+          <TaskAgentAction {...agentActionProps}/>
+        </div>
 
         <div data-task-detail-layout className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_18rem] lg:overflow-hidden">
           <main aria-label="Task content" className="px-5 py-5 md:px-6 lg:min-h-0 lg:overflow-y-auto">
@@ -139,7 +148,9 @@ export function DetailPanel({
             <div data-task-actions className="mt-6 space-y-5 border-t border-zinc-800 pt-5">
               <section aria-labelledby="task-work-heading" className="space-y-2">
                 <h3 id="task-work-heading" className={sectionHeadingClass}>Work</h3>
-                <TaskAgentAction taskId={card.id} worktreePath={card.worktree?.path} hasChimeraSession={card.has_chimera_session}/>
+                <div data-task-agent-action="desktop" className="hidden lg:block">
+                  <TaskAgentAction {...agentActionProps}/>
+                </div>
                 {worktreesEnabled && !card.worktree && <Button variant="outline" size="sm" className={sidebarButtonClass} onClick={onCreateWorktree}>Create worktree</Button>}
                 <Button variant="outline" size="sm" className={sidebarButtonClass} title="Shortcut: m" onClick={onMove}>Move task</Button>
               </section>

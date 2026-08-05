@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach, vi } from "vitest"
 import { render, screen, cleanup, fireEvent, within } from "@testing-library/react"
 import { DetailPanel } from "../DetailPanel"
 import type { CardDetail } from "../../../lib/board-types"
-vi.mock("../TaskAgentAction",()=>({TaskAgentAction:()=> <button data-task-primary-action className="min-h-9 w-full" type="button">Open agent</button>}))
+vi.mock("../TaskAgentAction",()=>({TaskAgentAction:({ taskId, worktreePath, hasChimeraSession }: { taskId: string; worktreePath?: string; hasChimeraSession?: boolean })=> <button data-task-primary-action data-task-id={taskId} data-worktree-path={worktreePath} data-has-chimera-session={hasChimeraSession ? "true" : "false"} className="min-h-9 w-full" type="button">Open agent</button>}))
 vi.mock("../TaskActivityTabs",()=>({TaskActivityTabs:()=>null}))
 
 afterEach(() => {
@@ -43,19 +43,33 @@ function renderPanel(card = makeCard(), overrides: Partial<React.ComponentProps<
 }
 
 describe("DetailPanel", () => {
-  it("composes task content and grouped actions into a deliberate two-column layout", () => {
-    const { container } = renderPanel(makeCard(), { worktreesEnabled: true })
+  it("places the agent action before mobile content while preserving its desktop Work placement", () => {
+    const worktree = { primary_dir: "/repo", path: "/trees/t-1", branch: "t-1", base_branch: "main" }
+    const { container } = renderPanel(makeCard({ worktree, has_chimera_session: true }), { worktreesEnabled: true })
     const dialog = screen.getByRole("dialog", { name: "Test title" })
+    const layout = container.querySelector("[data-task-detail-layout]")
+    const mobileAction = container.querySelector("[data-task-agent-action='mobile']")
+    const desktopAction = container.querySelector("[data-task-agent-action='desktop']")
+
     expect(dialog.className).toContain("max-w-5xl")
-    expect(container.querySelector("[data-task-detail-layout]")?.className).toContain("lg:grid-cols-[minmax(0,1fr)_18rem]")
+    expect(layout?.className).toContain("lg:grid-cols-[minmax(0,1fr)_18rem]")
+    expect(mobileAction?.className).toContain("lg:hidden")
+    expect(mobileAction?.nextElementSibling).toBe(layout)
+    expect(desktopAction?.className).toContain("hidden")
+    expect(desktopAction?.className).toContain("lg:block")
     expect(screen.getByRole("main", { name: "Task content" })).toBeTruthy()
     expect(screen.getByRole("complementary", { name: "Task properties and actions" })).toBeTruthy()
-    expect(screen.getByRole("heading", { name: "Work" })).toBeTruthy()
+    expect(within(screen.getByRole("heading", { name: "Work" }).parentElement as HTMLElement).getByRole("button", { name: "Open agent" })).toBeTruthy()
     expect(screen.getByRole("heading", { name: "Edit" })).toBeTruthy()
     expect(screen.getByRole("heading", { name: "More actions" })).toBeTruthy()
 
+    for (const placement of [mobileAction, desktopAction]) {
+      const action = placement?.querySelector("[data-task-primary-action]")
+      expect(action?.getAttribute("data-task-id")).toBe("T-1")
+      expect(action?.getAttribute("data-worktree-path")).toBe("/trees/t-1")
+      expect(action?.getAttribute("data-has-chimera-session")).toBe("true")
+    }
     const actions = container.querySelector("[data-task-actions]")
-    expect(actions?.querySelectorAll("[data-task-primary-action]")).toHaveLength(1)
     for (const action of Array.from(actions?.querySelectorAll("button") ?? [])) {
       expect(action.className).toContain("w-full")
     }
