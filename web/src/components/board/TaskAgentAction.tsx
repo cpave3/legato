@@ -16,7 +16,7 @@ export function TaskAgentAction({ taskId, worktreePath = "", hasChimeraSession =
   const settings = useSettings()
   const navigate = useNavigate()
   const { setSelectedAgentId } = useAgentSelection()
-  const { agent, loading } = useRunningAgent(taskId)
+  const { agent, agents, loading } = useRunningAgent(taskId)
   const [open, setOpen] = useState(false)
   const [agentKind, setAgentKind] = useState("")
   const [workingDir, setWorkingDir] = useState("")
@@ -78,7 +78,12 @@ export function TaskAgentAction({ taskId, worktreePath = "", hasChimeraSession =
           setSelectedAgentId(agent.task_id)
           navigate("/agents")
         }}><Bot size={14} />Go to agent</Button>
-        : <Button data-task-primary-action size="sm" className="w-full justify-start" onClick={() => setOpen(true)}><Bot size={14} />Open agent</Button>}
+        : agents.length > 1
+          ? <Button data-task-primary-action size="sm" className="w-full justify-start" onClick={() => {
+            setSelectedAgentId(null)
+            navigate("/agents")
+          }}><Bot size={14} />Go to agents</Button>
+          : <Button data-task-primary-action size="sm" className="w-full justify-start" onClick={() => setOpen(true)}><Bot size={14} />Open agent</Button>}
     <Dialog open={open} onClose={() => setOpen(false)} dismissible={!busy}>
       <DialogPanel>
         <DialogHeader><DialogTitle>Open task agent</DialogTitle><DialogClose disabled={busy} /></DialogHeader>

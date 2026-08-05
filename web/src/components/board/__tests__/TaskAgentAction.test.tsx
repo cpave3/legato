@@ -6,7 +6,11 @@ import { TaskAgentAction } from "../TaskAgentAction"
 const { apiFetch, select, runningAgentState } = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   select: vi.fn(),
-  runningAgentState: { agent: null as null | { task_id: string; task_title: string; status: string }, loading: false },
+  runningAgentState: {
+    agent: null as null | { task_id: string; task_title: string; status: string },
+    agents: [] as { task_id: string; task_title: string; status: string }[],
+    loading: false,
+  },
 }))
 
 vi.mock("../../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
@@ -28,6 +32,7 @@ describe("TaskAgentAction", () => {
     apiFetch.mockReset()
     select.mockReset()
     runningAgentState.agent = null
+    runningAgentState.agents = []
     runningAgentState.loading = false
   })
 
@@ -45,6 +50,22 @@ describe("TaskAgentAction", () => {
     expect(screen.getByTestId("current-path").textContent).toBe("/agents")
     expect(screen.queryByRole("dialog", { name: "Open task agent" })).toBeNull()
     expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it("opens the agents page without arbitrary selection for multiple secondary agents", () => {
+    runningAgentState.agents = [
+      { task_id: "workflow-1", task_title: "Triage", status: "running" },
+      { task_id: "workflow-2", task_title: "Review", status: "running" },
+    ]
+
+    render(<MemoryRouter initialEntries={["/board"]}>
+      <TaskAgentAction taskId="T-1" />
+      <CurrentPath />
+    </MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Go to agents" }))
+
+    expect(select).toHaveBeenCalledWith(null)
+    expect(screen.getByTestId("current-path").textContent).toBe("/agents")
   })
 
   it("does not offer agent launch while running state is loading", () => {

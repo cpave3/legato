@@ -101,6 +101,12 @@ describe("BoardCard", () => {
     expect(screen.getByText("Draft")).toBeTruthy()
   })
 
+  it("shows MIXED instead of idle when related agents disagree", () => {
+    render(<BoardCard card={makeCard({ agent_state: "mixed" })} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
+    expect(screen.getByText(/MIXED/)).toBeTruthy()
+    expect(screen.queryByText(/IDLE/)).toBeNull()
+  })
+
   it("shows ERROR in red instead of idle for an errored agent", () => {
     const card = makeCard({ agent_state: "error" })
     render(<BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)

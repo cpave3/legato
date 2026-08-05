@@ -12,15 +12,15 @@ interface GoToAgentButtonProps {
  * for the given task. Links to the agents page with the task preselected.
  */
 export function GoToAgentButton({ taskId }: GoToAgentButtonProps) {
-  const { agent, loading } = useRunningAgent(taskId)
+  const { agent, agents = [], loading } = useRunningAgent(taskId)
 
-  if (loading || !agent) return null
+  if (loading || agents.length === 0) return null
 
   return (
     <Button asChild variant="outline" size="sm" className="border-indigo-800 bg-indigo-950/50 text-indigo-300 hover:bg-indigo-900/60">
       <Link
-        to={`/agents?task=${encodeURIComponent(taskId)}`}
-        title={`Go to agent: ${agent.task_title || taskId}`}
+        to={agent ? `/agents?task=${encodeURIComponent(agent.task_id)}` : "/agents"}
+        title={agent ? `Go to agent: ${agent.task_title || taskId}` : "Go to related agents"}
       >
         <ArrowRightCircle size={14} />
         Go to agent

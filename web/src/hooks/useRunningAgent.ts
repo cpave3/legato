@@ -5,38 +5,49 @@ import { apiFetch } from "../lib/api"
 
 interface RunningAgentState {
   agent: AgentInfo | null
+  agents: AgentInfo[]
   loading: boolean
 }
 
-/**
- * Returns the running agent for a given task ID, or null if no agent is
- * running for that task. Refetches on agents_changed and agent_list
- * WebSocket messages so the result stays live while the page is open.
- */
+function relatedRunningAgents(agents: AgentInfo[], taskId: string): AgentInfo[] {
+  return agents.filter((agent) =>
+    agent.status === "running" && (agent.attribution_task_id || agent.task_id) === taskId)
+}
+
+function preferredAgent(agents: AgentInfo[], taskId: string): AgentInfo | null {
+  const primary = agents.find((agent) => agent.task_id === taskId)
+  if (primary) return primary
+  return agents.length === 1 ? agents[0] : null
+}
+
+/** Returns running agents attributed to a task and its primary-first destination. */
 export function useRunningAgent(taskId: string): RunningAgentState {
   const { baseUrl } = useServer()
   const ws = useWebSocket()
   const subscribe = ws?.subscribe
-  const [agent, setAgent] = useState<AgentInfo | null>(null)
+  const [agents, setAgents] = useState<AgentInfo[]>([])
   const [loading, setLoading] = useState(true)
+
+  const update = useCallback((allAgents: AgentInfo[]) => {
+    setAgents(relatedRunningAgents(allAgents, taskId))
+  }, [taskId])
 
   const refresh = useCallback(async () => {
     if (!taskId) {
-      setAgent(null)
+      setAgents([])
       setLoading(false)
       return
     }
     try {
       const res = await apiFetch(baseUrl, "/api/agents")
       if (!res.ok) return
-      const agents: AgentInfo[] = await res.json()
-      setAgent(agents.find((a) => a.task_id === taskId && a.status === "running") ?? null)
+      update(await res.json() as AgentInfo[])
     } catch {
-      setAgent(null)
+      setAgents([])
     } finally {
       setLoading(false)
     }
-  }, [baseUrl, taskId])
+  }, [baseUrl, taskId, update])
 
   useEffect(() => { void refresh() }, [refresh])
 
@@ -44,11 +55,9 @@ export function useRunningAgent(taskId: string): RunningAgentState {
     if (!subscribe) return
     return subscribe((message: WSMessage) => {
       if (message.type === "agents_changed") void refresh()
-      if (message.type === "agent_list" && message.agents) {
-        setAgent(message.agents.find((a) => a.task_id === taskId && a.status === "running") ?? null)
-      }
+      if (message.type === "agent_list" && message.agents) update(message.agents)
     })
-  }, [refresh, subscribe, taskId])
+  }, [refresh, subscribe, update])
 
-  return { agent, loading }
+  return { agent: preferredAgent(agents, taskId), agents, loading }
 }

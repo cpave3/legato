@@ -44,6 +44,10 @@ export interface WSMessage {
 export interface AgentInfo {
   id: number
   task_id: string
+  execution_id?: string
+  attribution_task_id?: string
+  execution_kind?: string
+  workflow_run_id?: string
   task_title: string
   tmux_session: string
   command: string

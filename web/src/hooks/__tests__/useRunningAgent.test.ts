@@ -20,9 +20,9 @@ beforeEach(() => {
   mockSubscribe.mockReset()
 })
 
-function makeAgent(taskId: string, status: string): AgentInfo {
+function makeAgent(taskId: string, status: string, attributionTaskId = taskId): AgentInfo {
   return {
-    id: 1, task_id: taskId, task_title: "Test", tmux_session: "", command: "",
+    id: 1, task_id: taskId, attribution_task_id: attributionTaskId, task_title: "Test", tmux_session: "", command: "",
     agent_kind: "chimera", status, activity: "", started_at: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0,
   }
 }
@@ -39,6 +39,38 @@ describe("useRunningAgent", () => {
     const { result } = renderHook(() => useRunningAgent("T-1"))
     await waitFor(() => expect(result.current.agent?.task_id).toBe("T-1"))
     expect(result.current.agent?.status).toBe("running")
+  })
+
+  it("returns related agents and prefers the primary task agent", async () => {
+    mockSubscribe.mockImplementation(() => () => undefined)
+    const related = makeAgent("workflow-T-1", "running", "T-1")
+    const primary = makeAgent("T-1", "running")
+    mockFetch.mockResolvedValueOnce(agentsResponse([related, primary]))
+
+    const { result } = renderHook(() => useRunningAgent("T-1"))
+    await waitFor(() => expect(result.current.agents).toHaveLength(2))
+    expect(result.current.agent?.task_id).toBe("T-1")
+  })
+
+  it("uses a sole related agent when no primary agent is running", async () => {
+    mockSubscribe.mockImplementation(() => () => undefined)
+    mockFetch.mockResolvedValueOnce(agentsResponse([makeAgent("workflow-T-1", "running", "T-1")]))
+
+    const { result } = renderHook(() => useRunningAgent("T-1"))
+    await waitFor(() => expect(result.current.agent?.task_id).toBe("workflow-T-1"))
+    expect(result.current.agents).toHaveLength(1)
+  })
+
+  it("does not select arbitrarily when several related agents run without a primary", async () => {
+    mockSubscribe.mockImplementation(() => () => undefined)
+    mockFetch.mockResolvedValueOnce(agentsResponse([
+      makeAgent("workflow-1", "running", "T-1"),
+      makeAgent("workflow-2", "running", "T-1"),
+    ]))
+
+    const { result } = renderHook(() => useRunningAgent("T-1"))
+    await waitFor(() => expect(result.current.agents).toHaveLength(2))
+    expect(result.current.agent).toBeNull()
   })
 
   it("returns null when no agent matches the task id", async () => {

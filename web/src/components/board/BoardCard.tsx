@@ -134,6 +134,11 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
             <AlertTriangle size={8} /> ERROR
           </span>
         )}
+        {card.agent_state === "mixed" && (
+          <span className={cn("flex items-center gap-0.5 text-[10px] font-bold", selected ? "text-violet-700" : "text-violet-400")}>
+            <ListChecks size={8} /> MIXED
+          </span>
+        )}
         {card.agent_active && !card.agent_state && (
           <span className={cn("flex items-center gap-0.5 text-[10px]", selected ? "text-zinc-500" : "text-zinc-500")}>
             IDLE
