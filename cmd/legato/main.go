@@ -412,7 +412,15 @@ func runReviewCmd(args []string) int {
 			}
 			tourID, err := resolveTourID()
 			if err == nil {
-				err = cli.ReviewChapterEdit(svc, tourID, positional[1], service.ChapterEditArgs{Title: positional[2], Narration: narration, Risk: flags["risk"], OrderHint: order})
+				title, risk := positional[2], flags["risk"]
+				var narrationPatch, riskPatch *string
+				if len(positional) == 4 {
+					narrationPatch = &narration
+				}
+				if _, ok := flags["risk"]; ok {
+					riskPatch = &risk
+				}
+				_, err = cli.ReviewChapterEdit(svc, tourID, positional[1], service.ChapterEditArgs{Title: &title, Narration: narrationPatch, Risk: riskPatch, OrderHint: order})
 			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -430,7 +438,7 @@ func runReviewCmd(args []string) int {
 			}
 			tourID, err := resolveTourID()
 			if err == nil {
-				err = cli.ReviewChapterRemove(svc, tourID, positional[1])
+				_, err = cli.ReviewChapterRemove(svc, tourID, positional[1])
 			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -518,13 +526,14 @@ func runReviewCmd(args []string) int {
 					fmt.Fprintln(os.Stderr, `usage: legato review annotation edit <annotation-id> "text" [--task <id>] [--name <name>]`)
 					return 1
 				}
-				err = cli.ReviewAnnotationEdit(svc, tourID, positional[1], positional[2])
+				body := positional[2]
+				_, err = cli.ReviewAnnotationEdit(svc, tourID, positional[1], service.AnnotationEditArgs{Text: &body})
 			case "remove":
 				if len(positional) != 2 {
 					fmt.Fprintln(os.Stderr, `usage: legato review annotation remove <annotation-id> [--task <id>] [--name <name>]`)
 					return 1
 				}
-				err = cli.ReviewAnnotationRemove(svc, tourID, positional[1])
+				_, err = cli.ReviewAnnotationRemove(svc, tourID, positional[1])
 			default:
 				fmt.Fprintf(os.Stderr, "unknown review annotation command: %s\n", positional[0])
 				return 1

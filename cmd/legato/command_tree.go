@@ -68,6 +68,10 @@ func group(name, summary string, children ...*commandDef) *commandDef {
 	return &commandDef{Name: name, Summary: summary, Children: children}
 }
 
+func commandGroup(name, summary string, run commandHandler, args []argumentDef, flags []commandFlag, children ...*commandDef) *commandDef {
+	return &commandDef{Name: name, Summary: summary, Run: run, Arguments: args, Flags: flags, Children: children}
+}
+
 func commandTree() *commandDef {
 	task := group("task", "Create, inspect, update, and connect tasks",
 		leaf("list", "List active tasks in board order", runTaskListContract, nil,
@@ -183,6 +187,7 @@ func commandTree() *commandDef {
 	review := legacyVerbGroup("review", "Create and manage review tours", runReviewCmd,
 		[]string{"chapter", "chapters", "annotate", "annotation", "answer", "ready", "show", "sync", "discard", "restart", "claim", "inbox"},
 		reviewFlags)
+	configureReviewCommands(review)
 	swarm := legacyVerbGroup("swarm", "Coordinate multi-agent swarms", runSwarmCmd,
 		[]string{"validate-plan", "create", "propose-plan", "cancel", "extend-plan", "dispatch", "message", "broadcast", "close", "finish", "next-step", "progress", "question", "built", "status", "inbox"},
 		[]commandFlag{jsonFlag})
@@ -254,6 +259,30 @@ func reviewCommandFlags() []commandFlag {
 		flags = append(flags, f)
 	}
 	return append(flags, jsonFlag)
+}
+
+func configureReviewCommands(review *commandDef) {
+	selectors := []commandFlag{valueFlag("task", "task-id", "Review task; defaults to LEGATO_TASK_ID"), valueFlag("name", "name", "Named review; defaults to LEGATO_REVIEW_NAME"), jsonFlag}
+	for i, child := range review.Children {
+		switch child.Name {
+		case "chapter":
+			createFlags := append([]commandFlag{}, selectors...)
+			createFlags = append(createFlags, valueFlag("risk", "risk", "low, medium, high, or unsure"), valueFlag("order", "number", "Reading order"), commandFlag{Name: "include", Value: "path:hunk", Description: "Chapter hunk membership", Repeatable: true})
+			editFlags := append([]commandFlag{}, selectors...)
+			editFlags = append(editFlags, valueFlag("title", "text", "Replacement title"), valueFlag("narration", "text", "Replacement narration"), valueFlag("risk", "risk", "Replacement risk"), valueFlag("order", "number", "Replacement order"), commandFlag{Name: "include", Value: "path:hunk", Description: "Replace all memberships", Repeatable: true}, boolFlag("clear-narration", "Clear narration"), boolFlag("clear-risk", "Clear risk"), boolFlag("clear-order", "Clear order"))
+			review.Children[i] = commandGroup("chapter", "Create or manage authored review chapters", child.Run, []argumentDef{arg("title", "Chapter title"), optionalArg("narration", "Chapter narration")}, createFlags,
+				leaf("show", "Show a chapter and selected diff", func(a []string) int { return runReviewCmd(append([]string{"chapter", "show"}, a...)) }, []argumentDef{arg("chapter-id", "Chapter ID or prefix")}, selectors, "legato review chapter show <chapter-id> --json"),
+				leaf("edit", "Patch chapter metadata or memberships", runReviewChapterEditContract, []argumentDef{arg("chapter-id", "Chapter ID or prefix"), optionalArg("title", "Compatibility replacement title"), optionalArg("narration", "Compatibility replacement narration")}, editFlags, "legato review chapter edit <chapter-id> --title 'Updated' --include file.go:1"),
+				leaf("remove", "Remove one chapter and its attached review metadata", runReviewChapterRemoveContract, []argumentDef{arg("chapter-id", "Chapter ID or prefix")}, selectors, "legato review chapter remove <chapter-id>"))
+			review.Children[i].Examples = []string{"legato review chapter 'Title' --include file.go:1"}
+		case "annotation":
+			editFlags := append([]commandFlag{}, selectors...)
+			editFlags = append(editFlags, valueFlag("text", "text", "Replacement annotation text"), valueFlag("risk", "risk", "Replacement risk"), valueFlag("order", "number", "Replacement order"), valueFlag("file", "path", "Replacement file anchor"), valueFlag("hunk", "number", "Replacement hunk anchor"), valueFlag("lines", "start-end", "Replacement line range"), boolFlag("clear-risk", "Clear risk"), boolFlag("clear-order", "Clear order"), boolFlag("clear-lines", "Clear line range"))
+			review.Children[i] = group("annotation", "Edit or remove identities returned by review annotate",
+				leaf("edit", "Patch annotation text, metadata, or anchor", runReviewAnnotationEditContract, []argumentDef{arg("annotation-id", "Annotation ID or prefix"), optionalArg("text", "Compatibility replacement text")}, editFlags, "legato review annotation edit <annotation-id> --text 'Updated' --risk high"),
+				leaf("remove", "Remove an annotation or clear commit annotation metadata", runReviewAnnotationRemoveContract, []argumentDef{arg("annotation-id", "Annotation ID or prefix")}, selectors, "legato review annotation remove <annotation-id>"))
+		}
+	}
 }
 
 func configureSwarmCommands(swarm *commandDef) {
@@ -329,7 +358,7 @@ func commandFlagSpecs(path ...string) map[string]flagSpec {
 	}
 	specs := make(map[string]flagSpec, len(node.Flags))
 	for _, flag := range node.Flags {
-		specs[flag.Name] = flagSpec{Boolean: flag.Boolean}
+		specs[flag.Name] = flagSpec{Boolean: flag.Boolean, Repeatable: flag.Repeatable}
 	}
 	return specs
 }
@@ -345,6 +374,9 @@ func resolveCommand(root *commandDef, args []string) (*commandDef, []string, []s
 			}
 		}
 		if next == nil {
+			if node.Run != nil {
+				break
+			}
 			return node, path, args[index:], usageError("unknown_command", fmt.Sprintf("unknown command %q", strings.Join(append(path, args[index]), " ")))
 		}
 		node = next

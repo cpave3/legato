@@ -27,7 +27,18 @@ func helpTextFor(root *commandDef, path []string) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "%s\n\nUsage:\n  %s", node.Summary, name)
 	if len(node.Children) > 0 {
-		out.WriteString(" <command>")
+		if node.Run != nil {
+			for _, argument := range node.Arguments {
+				token := "<" + argument.Name + ">"
+				if argument.Optional {
+					token = "[" + token + "]"
+				}
+				fmt.Fprintf(&out, " %s", token)
+			}
+			out.WriteString(" | <command>")
+		} else {
+			out.WriteString(" <command>")
+		}
 	} else {
 		for _, argument := range node.Arguments {
 			token := "<" + argument.Name + ">"

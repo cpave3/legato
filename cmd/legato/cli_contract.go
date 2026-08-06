@@ -35,7 +35,8 @@ type parsedArgs struct {
 }
 
 type flagSpec struct {
-	Boolean bool
+	Boolean    bool
+	Repeatable bool
 }
 
 func parseCommandArgs(args []string, specs map[string]flagSpec) (parsedArgs, *commandError) {
@@ -57,7 +58,7 @@ func parseCommandArgs(args []string, specs map[string]flagSpec) (parsedArgs, *co
 		if !ok {
 			return out, usageError("unknown_flag", fmt.Sprintf("unknown flag --%s", name))
 		}
-		if out.Present[name] {
+		if out.Present[name] && !spec.Repeatable {
 			return out, usageError("duplicate_flag", fmt.Sprintf("flag --%s may only be specified once", name))
 		}
 		out.Present[name] = true
@@ -69,14 +70,22 @@ func parseCommandArgs(args []string, specs map[string]flagSpec) (parsedArgs, *co
 			continue
 		}
 		if hasInline {
-			out.Values[name] = inline
+			if spec.Repeatable && out.Values[name] != "" {
+				out.Values[name] += "\x00" + inline
+			} else {
+				out.Values[name] = inline
+			}
 			continue
 		}
 		if i+1 >= len(args) {
 			return out, usageError("missing_argument", fmt.Sprintf("missing value for --%s", name))
 		}
 		i++
-		out.Values[name] = args[i]
+		if spec.Repeatable && out.Values[name] != "" {
+			out.Values[name] += "\x00" + args[i]
+		} else {
+			out.Values[name] = args[i]
+		}
 	}
 	return out, nil
 }

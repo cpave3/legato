@@ -22,9 +22,6 @@ func TestCommandTreeIsCompleteAndConsistent(t *testing.T) {
 			childNames[child.Name] = true
 			walk(child, append(path, child.Name))
 		}
-		if len(node.Children) > 0 && node.Run != nil {
-			t.Errorf("%s is both a group and a leaf", label)
-		}
 		if len(node.Children) == 0 && node.Run == nil {
 			t.Errorf("%s has neither children nor a handler", label)
 		}
@@ -51,6 +48,10 @@ func TestRequiredPreviouslyMissingCommandsAreRegistered(t *testing.T) {
 		{"swarm", "create"},
 		{"swarm", "next-step"},
 		{"agent", "session-created"},
+		{"review", "chapter", "edit"},
+		{"review", "chapter", "remove"},
+		{"review", "annotation", "edit"},
+		{"review", "annotation", "remove"},
 	} {
 		node, ok := findCommand(root, path)
 		if !ok || node.Run == nil {
