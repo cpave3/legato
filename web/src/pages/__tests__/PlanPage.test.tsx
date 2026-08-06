@@ -115,6 +115,30 @@ describe("PlanPage block comments",()=>{
     planData.revision.markdown=originalMarkdown
   })
 
+  it("keeps rendered Mermaid diagrams mounted while typing unrelated feedback drafts",async()=>{
+    planData.revision.markdown="```mermaid\ngraph TD\nA-->B\n```\n"
+
+    renderPage()
+
+    expect(await screen.findByText("Rendered diagram")).toBeTruthy()
+    const diagram=screen.getByRole("img",{name:"Mermaid diagram"})
+    const settledRenderCount=renderMermaid.mock.calls.length
+    const question=screen.getByLabelText("Question for plan agent") as HTMLTextAreaElement
+    const comment=screen.getByLabelText("General plan comment") as HTMLTextAreaElement
+
+    fireEvent.change(question,{target:{value:"W"}})
+    fireEvent.change(question,{target:{value:"Wh"}})
+    fireEvent.change(question,{target:{value:"Why?"}})
+    fireEvent.change(comment,{target:{value:"N"}})
+    fireEvent.change(comment,{target:{value:"Note"}})
+    await new Promise(resolve=>setTimeout(resolve,0))
+
+    expect(question.value).toBe("Why?")
+    expect(comment.value).toBe("Note")
+    expect(renderMermaid).toHaveBeenCalledTimes(settledRenderCount)
+    expect(screen.getByRole("img",{name:"Mermaid diagram"})).toBe(diagram)
+  })
+
   it("renders duplicate and case-insensitive Mermaid fences independently without treating inline or unknown code as diagrams",async()=>{
     const originalMarkdown=planData.revision.markdown
     planData.revision.markdown="`mermaid`\n\n```MERMAID\ngraph TD\nA-->B\n```\n\n```mermaid\ngraph TD\nA-->B\n```\n\n```unknown\nmermaid\n```\n\n```\nmermaid\n```\n"
