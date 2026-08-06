@@ -92,13 +92,24 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	}
 	binary, _ := os.Executable()
 	runner := service.NewWorkflowAgentRunner(agentSvc, db, binary)
-	executors := []service.WorkflowExecutor{service.NewAgentRunExecutor(runner, binary), service.NewAgentStopExecutor(runner)}
+	executors := []service.WorkflowExecutor{
+		service.NewAgentRunExecutor(runner, binary),
+		service.NewAgentDispatchExecutor(agentSvc, db),
+		service.NewAgentStopExecutor(runner),
+	}
 	executors = append(executors, learningWorkflowExecutors(db, learningSvc, runner, binary)...)
 	var moveSync service.CardMoveSync
 	if configured, ok := opts.Sync.(service.CardMoveSync); ok {
 		moveSync = configured
 	}
-	executors = append(executors, service.NewTaskNoteExecutor(db), service.NewTaskMetadataExecutor(db), service.NewTaskMoveExecutor(service.NewWorkflowTaskMover(board, moveSync)), service.NewFileRemoveExecutor())
+	executors = append(executors,
+		service.NewTaskContextExecutor(board),
+		service.NewTaskWorkingDirResolveExecutor(db),
+		service.NewTaskNoteExecutor(db),
+		service.NewTaskMetadataExecutor(db),
+		service.NewTaskMoveExecutor(service.NewWorkflowTaskMover(board, moveSync)),
+		service.NewFileRemoveExecutor(),
+	)
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector())
 		if prSvc != nil {
