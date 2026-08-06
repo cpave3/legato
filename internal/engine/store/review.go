@@ -406,6 +406,40 @@ func (s *Store) InsertReviewChapter(ctx context.Context, step ReviewStep, hunks 
 	return tx.Commit()
 }
 
+// UpdateReviewChapter atomically patches a chapter and optionally replaces its memberships.
+func (s *Store) UpdateReviewChapter(ctx context.Context, step ReviewStep, hunks []ReviewChapterHunk, replaceHunks bool) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.NamedExecContext(ctx, `UPDATE review_steps SET title = :title, narration = :narration,
+		risk = :risk, order_hint = :order_hint, reviewed_at = :reviewed_at, updated_at = datetime('now')
+		WHERE id = :id AND kind = 'chapter'`, step)
+	if err != nil {
+		return err
+	}
+	if rows, err := result.RowsAffected(); err != nil || rows == 0 {
+		if err != nil {
+			return err
+		}
+		return ErrNotFound
+	}
+	if replaceHunks {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM review_chapter_hunks WHERE step_id = ?", step.ID); err != nil {
+			return err
+		}
+		for _, hunk := range hunks {
+			if _, err := tx.NamedExecContext(ctx, `INSERT INTO review_chapter_hunks
+				(id, task_id, tour_id, pass_id, step_id, file_path, hunk_anchor, seq, generated)
+				VALUES (:id, :task_id, :tour_id, :pass_id, :step_id, :file_path, :hunk_anchor, :seq, :generated)`, hunk); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+
 // ListReviewChapterHunks returns memberships in authored reading order.
 func (s *Store) ListReviewChapterHunks(ctx context.Context, stepID string) ([]ReviewChapterHunk, error) {
 	var hunks []ReviewChapterHunk
@@ -477,10 +511,10 @@ func (s *Store) ListReviewTours(ctx context.Context) ([]ReviewTour, error) {
 func (s *Store) InsertReviewHunkNote(ctx context.Context, note ReviewHunkNote) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO review_hunk_notes (id, task_id, tour_id, pass_id, step_id, file_path, hunk_anchor,
-			line_start, line_end, line_anchor, body, updated_at)
+			line_start, line_end, line_anchor, body, risk, order_hint, updated_at)
 		VALUES (:id, :task_id, :tour_id,
 			COALESCE(NULLIF(:pass_id, ''), (SELECT id FROM review_passes WHERE tour_id = :tour_id ORDER BY number DESC LIMIT 1), ''),
-			:step_id, :file_path, :hunk_anchor, :line_start, :line_end, :line_anchor, :body, datetime('now'))`, note)
+			:step_id, :file_path, :hunk_anchor, :line_start, :line_end, :line_anchor, :body, :risk, :order_hint, datetime('now'))`, note)
 	return err
 }
 
@@ -501,10 +535,17 @@ func (s *Store) GetReviewHunkNoteByPrefix(ctx context.Context, tourID, prefix st
 	}
 }
 
-// UpdateReviewHunkNoteBody replaces an annotation's narration.
-func (s *Store) UpdateReviewHunkNoteBody(ctx context.Context, id, body string) error {
-	result, err := s.db.ExecContext(ctx,
-		"UPDATE review_hunk_notes SET body = ?, updated_at = datetime('now') WHERE id = ?", body, id)
+// UpdateReviewHunkNote replaces a durable annotation's metadata and anchor.
+func (s *Store) UpdateReviewHunkNote(ctx context.Context, note ReviewHunkNote) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.NamedExecContext(ctx, `UPDATE review_hunk_notes SET
+		file_path = :file_path, hunk_anchor = :hunk_anchor, line_start = :line_start,
+		line_end = :line_end, line_anchor = :line_anchor, body = :body, risk = :risk,
+		order_hint = :order_hint, updated_at = datetime('now') WHERE id = :id`, note)
 	if err != nil {
 		return err
 	}
@@ -515,7 +556,10 @@ func (s *Store) UpdateReviewHunkNoteBody(ctx context.Context, id, body string) e
 	if rows == 0 {
 		return ErrNotFound
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx, "UPDATE review_steps SET reviewed_at = NULL, updated_at = datetime('now') WHERE id = ?", note.StepID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // DeleteReviewHunkNote removes one durable annotation.

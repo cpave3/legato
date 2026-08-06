@@ -291,6 +291,15 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 		migrationSQL = strings.Replace(migrationSQL, "DROP INDEX idx_review_steps_commit;", "DROP INDEX IF EXISTS idx_review_steps_commit;", 1)
 		migrationSQL = strings.ReplaceAll(migrationSQL, "CREATE INDEX idx_review_", "CREATE INDEX IF NOT EXISTS idx_review_")
 	}
+	if name == "060_review_hunk_note_metadata.sql" {
+		var tables int
+		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'review_hunk_notes'`); err != nil {
+			return "", err
+		}
+		if tables == 0 {
+			return "", nil
+		}
+	}
 	if name == "059_attention_signal_kind.sql" {
 		var attentionTables int
 		if err := queryer.Get(&attentionTables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'attention_items'`); err != nil {

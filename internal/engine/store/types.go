@@ -524,6 +524,8 @@ type ReviewHunkNote struct {
 	LineEnd    *int   `db:"line_end" json:"line_end,omitempty"`
 	LineAnchor string `db:"line_anchor" json:"line_anchor,omitempty"`
 	Body       string `db:"body" json:"body"`
+	Risk       string `db:"risk" json:"risk,omitempty"`
+	OrderHint  *int   `db:"order_hint" json:"order_hint,omitempty"`
 	CreatedAt  string `db:"created_at" json:"created_at"`
 	UpdatedAt  string `db:"updated_at" json:"updated_at"`
 }
