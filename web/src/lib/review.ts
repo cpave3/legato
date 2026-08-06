@@ -71,6 +71,8 @@ export interface ReviewHunkNote {
   line_end?: number
   line_anchor?: string
   body: string
+  risk?: "low" | "medium" | "high" | "unsure"
+  order_hint?: number
   created_at: string
 }
 

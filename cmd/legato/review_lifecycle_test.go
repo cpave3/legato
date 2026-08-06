@@ -236,6 +236,80 @@ func TestReviewChapterJSONVerbsExposeMetadataAndSelectedDiff(t *testing.T) {
 	}
 }
 
+func TestPublicReviewMutationCommandsUpdatePacket(t *testing.T) {
+	dbPath, s := reviewCLITestStore(t)
+	ctx := context.Background()
+	repo := initReviewCLIRepo(t)
+	if err := s.CreateTask(ctx, store.Task{ID: "task-public", Title: "Task", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTaskWorktree(ctx, "task-public", &store.TaskWorktree{PrimaryDir: repo, Path: repo, Branch: "feature", BaseBranch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	tour, err := s.EnsureReviewTour(ctx, "task-public", "named")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := service.NewReviewService(s, nil, nil)
+	chapterID, err := svc.CreateChapter(ctx, tour.ID, service.ChapterArgs{Title: "Old", Narration: "keep", Includes: []service.ChapterInclude{{FilePath: "chapter.go", Hunk: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hunk := 1
+	noteID, err := svc.Annotate(ctx, tour.ID, service.AnnotateArgs{Text: "old", Files: []string{"chapter.go"}, Hunk: &hunk})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	configureReviewCLITest(t, dbPath)
+
+	chapterOut := captureStdout(t, func() int {
+		return runCLI([]string{"review", "chapter", "edit", chapterID[:8], "--title", "New", "--risk", "high", "--order", "2", "--include", "chapter.go:1", "--task", "task-public", "--name", "named", "--json"})
+	})
+	var chapterEnvelope struct {
+		Data struct {
+			ChapterID string `json:"chapter_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(chapterOut), &chapterEnvelope); err != nil || chapterEnvelope.Data.ChapterID != chapterID {
+		t.Fatalf("chapter envelope = %s, err=%v", chapterOut, err)
+	}
+	annotationOut := captureStdout(t, func() int {
+		return runCLI([]string{"review", "annotation", "edit", noteID[:8], "--text", "new", "--risk", "medium", "--order", "3", "--file", "chapter.go", "--hunk", "1", "--lines", "1-1", "--task", "task-public", "--name", "named", "--json"})
+	})
+	var annotationEnvelope struct {
+		Data struct {
+			AnnotationID string `json:"annotation_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(annotationOut), &annotationEnvelope); err != nil || annotationEnvelope.Data.AnnotationID != noteID {
+		t.Fatalf("annotation envelope = %s, err=%v", annotationOut, err)
+	}
+
+	s, err = store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	step, _ := s.GetReviewStep(ctx, chapterID)
+	if step.Title != "New" || step.Narration != "keep" || step.Risk != "high" || step.OrderHint == nil || *step.OrderHint != 2 {
+		t.Fatalf("chapter = %+v", step)
+	}
+	notes, _ := s.ListReviewHunkNotes(ctx, tour.ID)
+	if len(notes) != 1 || notes[0].Body != "new" || notes[0].Risk != "medium" || notes[0].OrderHint == nil || *notes[0].OrderHint != 3 || notes[0].LineStart == nil {
+		t.Fatalf("notes = %+v", notes)
+	}
+}
+
+func TestPublicReviewMutationHelpResolves(t *testing.T) {
+	for _, path := range [][]string{{"review", "chapter", "edit"}, {"review", "chapter", "remove"}, {"review", "annotation", "edit"}, {"review", "annotation", "remove"}} {
+		out := helpText(path)
+		if strings.Contains(out, "Unknown command") || !strings.Contains(out, "Usage:") {
+			t.Fatalf("help %v:\n%s", path, out)
+		}
+	}
+}
+
 func initReviewCLIRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
