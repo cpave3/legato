@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -100,7 +101,11 @@ func (a *ChimeraInteractionAdapter) QueueMessage(ctx context.Context, taskID, me
 	if err != nil {
 		return err
 	}
-	return a.clientFactory(endpoint).PostMessageAppend(ctx, sessionID, message)
+	client := a.clientFactory(endpoint)
+	if err := client.PostMessage(ctx, sessionID, message); !errors.Is(err, chimera.ErrBusy) {
+		return err
+	}
+	return client.PostMessageAppend(ctx, sessionID, message)
 }
 
 func (a *ChimeraInteractionAdapter) Interrupt(ctx context.Context, taskID string) error {

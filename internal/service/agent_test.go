@@ -352,6 +352,10 @@ func TestSendPeerMessageQueuesForBusyChimeraAndAddsReplyFooter(t *testing.T) {
 	var gotPath, gotContent string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.RequestURI()
+		if r.URL.RawQuery == "" {
+			w.WriteHeader(http.StatusConflict)
+			return
+		}
 		body, readErr := io.ReadAll(r.Body)
 		if readErr != nil {
 			t.Fatal(readErr)

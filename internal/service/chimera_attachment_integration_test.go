@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/chimera"
@@ -129,14 +130,15 @@ func TestChimeraSendMessageExpandsAttachments(t *testing.T) {
 	}
 }
 
-func TestChimeraQueueMessageDoesNotExpandAttachments(t *testing.T) {
+func TestChimeraQueueMessageStartsIdleSessionWithoutExpandingAttachments(t *testing.T) {
+	var requestURIs []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/v1/sessions/sess-1/messages" && r.URL.Query().Get("append") == "true":
-			w.WriteHeader(204)
-		default:
-			w.WriteHeader(404)
+		requestURIs = append(requestURIs, r.URL.RequestURI())
+		if r.URL.Path == "/v1/sessions/sess-1/messages" && r.URL.RawQuery == "" {
+			w.WriteHeader(http.StatusNoContent)
+			return
 		}
+		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer srv.Close()
 
@@ -173,9 +175,48 @@ func TestChimeraQueueMessageDoesNotExpandAttachments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueueMessage: %v", err)
 	}
-	// Only one request (the append), no path grant or file read.
-	// The test server returns 404 for any unhandled path; if QueueMessage
-	// tried to call AddPath or GetSession it would get a 404 error.
+	if len(requestURIs) != 1 || requestURIs[0] != "/v1/sessions/sess-1/messages" {
+		t.Fatalf("request URIs = %#v, want one idle-start request", requestURIs)
+	}
+}
+
+func TestChimeraQueueMessageAppendsWhenSessionIsBusy(t *testing.T) {
+	var requestURIs []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestURIs = append(requestURIs, r.URL.RequestURI())
+		if r.URL.Query().Get("append") == "true" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusConflict)
+	}))
+	defer srv.Close()
+
+	dbPath := filepath.Join(t.TempDir(), "busy.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, store.Task{ID: "task-busy", Title: "Busy", Status: "Todo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "task-busy", Status: "running", AgentKind: "chimera"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateChimeraDiscovery(ctx, "task-busy", "sess-busy", srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &ChimeraInteractionAdapter{clientFactory: func(string) *chimera.Client { return chimera.NewClient(srv.URL) }, store: s}
+
+	if err := adapter.QueueMessage(ctx, "task-busy", "coordinate"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/v1/sessions/sess-busy/messages", "/v1/sessions/sess-busy/messages?append=true"}
+	if !slices.Equal(requestURIs, want) {
+		t.Fatalf("request URIs = %#v, want %#v", requestURIs, want)
+	}
 }
 
 func containsSubstr(s, sub string) bool {
