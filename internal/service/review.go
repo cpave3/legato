@@ -285,26 +285,10 @@ func (r *ReviewService) CreateChapter(ctx context.Context, tourID string, a Chap
 	}
 	files := gitpkg.ParseUnifiedDiff(raw)
 	stepID := generateReviewStepID()
-	members := make([]store.ReviewChapterHunk, 0, len(a.Includes))
-	for i, include := range a.Includes {
-		if include.Hunk < 1 {
-			return "", fmt.Errorf("hunk must be a 1-based positive number")
-		}
-		var selected *gitpkg.FileDiff
-		for j := range files {
-			if files[j].OldPath == include.FilePath || files[j].NewPath == include.FilePath {
-				selected = &files[j]
-				break
-			}
-		}
-		if selected == nil {
-			return "", fmt.Errorf("file %q is not in the review diff", include.FilePath)
-		}
-		if include.Hunk > len(selected.Hunks) {
-			return "", fmt.Errorf("file %q has %d hunks; cannot select hunk %d", include.FilePath, len(selected.Hunks), include.Hunk)
-		}
-		members = append(members, store.ReviewChapterHunk{ID: generateReviewID("rch-"), TaskID: taskID, TourID: tourID,
-			StepID: stepID, FilePath: include.FilePath, HunkAnchor: selected.Hunks[include.Hunk-1].Anchor, Seq: i})
+	step := &store.ReviewStep{ID: stepID, TaskID: taskID, TourID: tourID, PassID: ""}
+	members, err := resolveChapterIncludes(tour, step, files, a.Includes)
+	if err != nil {
+		return "", err
 	}
 	steps, err := r.store.ListReviewSteps(ctx, tourID)
 	if err != nil {
@@ -326,65 +310,123 @@ func (r *ReviewService) CreateChapter(ctx context.Context, tourID string, a Chap
 }
 
 type ChapterEditArgs struct {
-	Title     string
-	Narration string
-	Risk      string
-	OrderHint *int
+	Title           *string
+	Narration       *string
+	Risk            *string
+	OrderHint       *int
+	ClearOrderHint  bool
+	Includes        []ChapterInclude
+	ReplaceIncludes bool
 }
 
-// EditChapter replaces chapter metadata while preserving hunk memberships.
-func (r *ReviewService) EditChapter(ctx context.Context, tourID, stepPrefix string, a ChapterEditArgs) error {
-	tour, err := r.store.GetReviewTour(ctx, tourID)
+func resolveChapterIncludes(tour *store.ReviewTour, step *store.ReviewStep, files []gitpkg.FileDiff, includes []ChapterInclude) ([]store.ReviewChapterHunk, error) {
+	members := make([]store.ReviewChapterHunk, 0, len(includes))
+	for i, include := range includes {
+		if include.Hunk < 1 {
+			return nil, fmt.Errorf("hunk must be a 1-based positive number")
+		}
+		var selected *gitpkg.FileDiff
+		for j := range files {
+			if files[j].OldPath == include.FilePath || files[j].NewPath == include.FilePath {
+				selected = &files[j]
+				break
+			}
+		}
+		if selected == nil {
+			return nil, fmt.Errorf("file %q is not in the review diff", include.FilePath)
+		}
+		if include.Hunk > len(selected.Hunks) {
+			return nil, fmt.Errorf("file %q has %d hunks; cannot select hunk %d", include.FilePath, len(selected.Hunks), include.Hunk)
+		}
+		members = append(members, store.ReviewChapterHunk{ID: generateReviewID("rch-"), TaskID: tour.TaskID, TourID: tour.ID,
+			PassID: step.PassID, StepID: step.ID, FilePath: include.FilePath, HunkAnchor: selected.Hunks[include.Hunk-1].Anchor, Seq: i})
+	}
+	return members, nil
+}
+
+// EditChapter patches chapter metadata and optionally replaces hunk memberships.
+func (r *ReviewService) EditChapter(ctx context.Context, tourID, stepPrefix string, a ChapterEditArgs) (string, error) {
+	tour, task, err := r.tourTask(ctx, tourID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	step, err := r.store.GetReviewStepByPrefix(ctx, tour.TaskID, stepPrefix)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if step.TourID != tourID || step.Kind != "chapter" {
-		return store.ErrNotFound
+		return "", store.ErrNotFound
 	}
-	if strings.TrimSpace(a.Title) == "" {
-		return fmt.Errorf("chapter title is required")
+	if a.Title != nil {
+		if strings.TrimSpace(*a.Title) == "" {
+			return "", fmt.Errorf("chapter title is required")
+		}
+		step.Title = *a.Title
 	}
-	if _, err := r.store.UpdateReviewStep(ctx, step.ID, func(st *store.ReviewStep) {
-		st.Title = a.Title
-		st.Narration = a.Narration
-		st.Risk = a.Risk
-		st.OrderHint = a.OrderHint
-		st.ReviewedAt = nil
-	}); err != nil {
-		return err
+	if a.Narration != nil {
+		step.Narration = *a.Narration
 	}
-	if err := r.markReviewedTourCapturing(ctx, tour); err != nil {
-		return err
+	if a.Risk != nil {
+		step.Risk = *a.Risk
+	}
+	if a.OrderHint != nil {
+		step.OrderHint = a.OrderHint
+	}
+	if a.ClearOrderHint {
+		step.OrderHint = nil
+	}
+	step.ReviewedAt = nil
+
+	var members []store.ReviewChapterHunk
+	if a.ReplaceIncludes {
+		if len(a.Includes) == 0 {
+			return "", fmt.Errorf("chapter requires at least one included hunk")
+		}
+		repo, err := r.repositoryForTask(ctx, task)
+		if err != nil {
+			return "", err
+		}
+		raw, err := gitpkg.DiffRange(ctx, repo, tour.BaseSHA, "HEAD")
+		if err != nil {
+			return "", err
+		}
+		files := gitpkg.ParseUnifiedDiff(raw)
+		members, err = resolveChapterIncludes(tour, step, files, a.Includes)
+		if err != nil {
+			return "", err
+		}
+	}
+	if err := r.store.UpdateReviewChapter(ctx, *step, members, a.ReplaceIncludes); err != nil {
+		return "", err
+	}
+	if err := r.markTourCapturing(ctx, tour); err != nil {
+		return "", err
 	}
 	r.publish(tourID, step.ID, "chapter_edited")
-	return nil
+	return step.ID, nil
 }
 
 // RemoveChapter deletes one authored chapter without affecting its selected code.
-func (r *ReviewService) RemoveChapter(ctx context.Context, tourID, stepPrefix string) error {
+func (r *ReviewService) RemoveChapter(ctx context.Context, tourID, stepPrefix string) (string, error) {
 	tour, err := r.store.GetReviewTour(ctx, tourID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	step, err := r.store.GetReviewStepByPrefix(ctx, tour.TaskID, stepPrefix)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if step.TourID != tourID || step.Kind != "chapter" {
-		return store.ErrNotFound
+		return "", store.ErrNotFound
 	}
 	if err := r.store.DeleteReviewChapter(ctx, step.ID); err != nil {
-		return err
+		return "", err
 	}
-	if err := r.markReviewedTourCapturing(ctx, tour); err != nil {
-		return err
+	if err := r.markTourCapturing(ctx, tour); err != nil {
+		return "", err
 	}
 	r.publish(tourID, step.ID, "chapter_removed")
-	return nil
+	return step.ID, nil
 }
 
 type AnnotateArgs struct {
@@ -442,7 +484,7 @@ func (r *ReviewService) Annotate(ctx context.Context, tourID string, a AnnotateA
 	if err != nil {
 		return "", err
 	}
-	if err := r.markReviewedTourCapturing(ctx, tour); err != nil {
+	if err := r.markTourCapturing(ctx, tour); err != nil {
 		return "", err
 	}
 	r.publish(tourID, updated.ID, "annotated")
@@ -494,7 +536,7 @@ func (r *ReviewService) insertHunkNote(ctx context.Context, tourID, taskID strin
 	if err := r.store.InsertReviewHunkNote(ctx, store.ReviewHunkNote{
 		ID: id, TaskID: taskID, TourID: tourID, StepID: target.ID, FilePath: path,
 		HunkAnchor: selectedHunk.Anchor, LineStart: a.LineStart, LineEnd: a.LineEnd,
-		LineAnchor: lineAnchor, Body: a.Text,
+		LineAnchor: lineAnchor, Body: a.Text, Risk: a.Risk, OrderHint: a.OrderHint,
 	}); err != nil {
 		return "", err
 	}
@@ -507,7 +549,7 @@ func (r *ReviewService) insertHunkNote(ctx context.Context, tourID, taskID strin
 	if err != nil {
 		return "", err
 	}
-	if err := r.markReviewedTourCapturing(ctx, tour); err != nil {
+	if err := r.markTourCapturing(ctx, tour); err != nil {
 		return "", err
 	}
 	r.publish(tourID, target.ID, "annotated")
@@ -537,56 +579,218 @@ func reviewLineAnchor(lines []gitpkg.Line) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-// EditAnnotation replaces a durable hunk or line annotation body.
-func (r *ReviewService) EditAnnotation(ctx context.Context, tourID, notePrefix, body string) error {
-	if strings.TrimSpace(body) == "" {
-		return fmt.Errorf("annotation text is required")
-	}
-	note, err := r.store.GetReviewHunkNoteByPrefix(ctx, tourID, notePrefix)
-	if err != nil {
-		return err
-	}
-	if err := r.store.UpdateReviewHunkNoteBody(ctx, note.ID, body); err != nil {
-		return err
-	}
-	tour, err := r.store.GetReviewTour(ctx, tourID)
-	if err != nil {
-		return err
-	}
-	if err := r.markReviewedTourCapturing(ctx, tour); err != nil {
-		return err
-	}
-	r.publish(tourID, note.StepID, "annotation_edited")
-	return nil
+type AnnotationEditArgs struct {
+	Text           *string
+	Risk           *string
+	OrderHint      *int
+	ClearOrderHint bool
+	FilePath       *string
+	Hunk           *int
+	LineStart      *int
+	LineEnd        *int
+	ClearLines     bool
 }
 
-// RemoveAnnotation deletes one durable hunk or line annotation.
-func (r *ReviewService) RemoveAnnotation(ctx context.Context, tourID, notePrefix string) error {
-	note, err := r.store.GetReviewHunkNoteByPrefix(ctx, tourID, notePrefix)
-	if err != nil {
-		return err
-	}
-	if err := r.store.DeleteReviewHunkNote(ctx, note.ID); err != nil {
-		return err
-	}
+// EditAnnotation patches any identity returned by review annotate.
+func (r *ReviewService) EditAnnotation(ctx context.Context, tourID, prefix string, a AnnotationEditArgs) (string, error) {
 	tour, err := r.store.GetReviewTour(ctx, tourID)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if err := r.markReviewedTourCapturing(ctx, tour); err != nil {
-		return err
+	if a.Text != nil && strings.TrimSpace(*a.Text) == "" {
+		return "", fmt.Errorf("annotation text is required")
 	}
-	r.publish(tourID, note.StepID, "annotation_removed")
-	return nil
+	if strings.HasPrefix(prefix, "rhn-") {
+		note, err := r.store.GetReviewHunkNoteByPrefix(ctx, tourID, prefix)
+		if err != nil {
+			return "", err
+		}
+		if a.Text != nil {
+			note.Body = *a.Text
+		}
+		if a.Risk != nil {
+			note.Risk = *a.Risk
+		}
+		if a.OrderHint != nil {
+			note.OrderHint = a.OrderHint
+		}
+		if a.ClearOrderHint {
+			note.OrderHint = nil
+		}
+		if a.FilePath != nil || a.Hunk != nil {
+			if a.FilePath == nil || a.Hunk == nil {
+				return "", fmt.Errorf("moving a hunk annotation requires both --file and --hunk")
+			}
+			files, err := r.StepDiff(ctx, tourID, note.StepID)
+			if err != nil {
+				return "", err
+			}
+			selected, lineAnchor, err := resolveHunkSelection(files, *a.FilePath, *a.Hunk, a.LineStart, a.LineEnd)
+			if err != nil {
+				return "", err
+			}
+			note.FilePath, note.HunkAnchor, note.LineAnchor = *a.FilePath, selected.Anchor, lineAnchor
+			note.LineStart, note.LineEnd = a.LineStart, a.LineEnd
+		} else if a.LineStart != nil || a.LineEnd != nil {
+			files, err := r.StepDiff(ctx, tourID, note.StepID)
+			if err != nil {
+				return "", err
+			}
+			hunkNumber, err := findHunkNumber(files, note.FilePath, note.HunkAnchor)
+			if err != nil {
+				return "", err
+			}
+			selected, lineAnchor, err := resolveHunkSelection(files, note.FilePath, hunkNumber, a.LineStart, a.LineEnd)
+			if err != nil {
+				return "", err
+			}
+			note.HunkAnchor, note.LineStart, note.LineEnd, note.LineAnchor = selected.Anchor, a.LineStart, a.LineEnd, lineAnchor
+		}
+		if a.ClearLines {
+			note.LineStart, note.LineEnd, note.LineAnchor = nil, nil, ""
+		}
+		if err := r.store.UpdateReviewHunkNote(ctx, *note); err != nil {
+			return "", err
+		}
+		if err := r.markTourCapturing(ctx, tour); err != nil {
+			return "", err
+		}
+		r.publish(tourID, note.StepID, "annotation_edited")
+		return note.ID, nil
+	}
+
+	step, err := r.store.GetReviewStepByPrefix(ctx, tour.TaskID, prefix)
+	if err != nil {
+		return "", err
+	}
+	if step.TourID != tourID || (step.Kind != "commit" && step.Kind != "note") {
+		return "", store.ErrNotFound
+	}
+	if a.Text != nil {
+		step.Narration = *a.Text
+	}
+	if a.Risk != nil {
+		step.Risk = *a.Risk
+	}
+	if a.OrderHint != nil {
+		step.OrderHint = a.OrderHint
+	}
+	if a.ClearOrderHint {
+		step.OrderHint = nil
+	}
+	if a.Hunk != nil || a.LineStart != nil || a.LineEnd != nil || a.ClearLines {
+		return "", fmt.Errorf("hunk and line anchors only apply to durable hunk annotations")
+	}
+	if a.FilePath != nil {
+		if step.Kind != "note" {
+			return "", fmt.Errorf("--file without --hunk can only move a file-note annotation")
+		}
+		encoded, err := json.Marshal([]string{*a.FilePath})
+		if err != nil {
+			return "", err
+		}
+		step.Files = string(encoded)
+	}
+	step.ReviewedAt = nil
+	if _, err := r.store.UpdateReviewStep(ctx, step.ID, func(st *store.ReviewStep) { *st = *step }); err != nil {
+		return "", err
+	}
+	if err := r.markTourCapturing(ctx, tour); err != nil {
+		return "", err
+	}
+	r.publish(tourID, step.ID, "annotation_edited")
+	return step.ID, nil
 }
 
-func (r *ReviewService) markReviewedTourCapturing(ctx context.Context, tour *store.ReviewTour) error {
-	if tour.Status != "reviewed" {
+func resolveHunkSelection(files []gitpkg.FileDiff, path string, hunk int, start, end *int) (*gitpkg.Hunk, string, error) {
+	if hunk < 1 {
+		return nil, "", fmt.Errorf("--hunk must be a 1-based positive number")
+	}
+	var file *gitpkg.FileDiff
+	for i := range files {
+		if files[i].OldPath == path || files[i].NewPath == path {
+			file = &files[i]
+			break
+		}
+	}
+	if file == nil {
+		return nil, "", fmt.Errorf("file %q is not in the annotation diff", path)
+	}
+	if hunk > len(file.Hunks) {
+		return nil, "", fmt.Errorf("file %q has %d hunks; cannot select hunk %d", path, len(file.Hunks), hunk)
+	}
+	selected := &file.Hunks[hunk-1]
+	lineAnchor := ""
+	if start != nil || end != nil {
+		if start == nil || end == nil || *start < 1 || *end < *start || *end > len(selected.Lines) {
+			return nil, "", fmt.Errorf("hunk %d has %d lines; cannot select lines %d-%d", hunk, len(selected.Lines), intValue(start), intValue(end))
+		}
+		lineAnchor = reviewLineAnchor(selected.Lines[*start-1 : *end])
+	}
+	return selected, lineAnchor, nil
+}
+
+func findHunkNumber(files []gitpkg.FileDiff, path, anchor string) (int, error) {
+	for _, file := range files {
+		if file.OldPath == path || file.NewPath == path {
+			for i, h := range file.Hunks {
+				if h.Anchor == anchor {
+					return i + 1, nil
+				}
+			}
+		}
+	}
+	return 0, fmt.Errorf("annotation anchor is no longer present in file %q; supply --file and --hunk", path)
+}
+
+// RemoveAnnotation removes a note identity or clears metadata on a commit identity.
+func (r *ReviewService) RemoveAnnotation(ctx context.Context, tourID, prefix string) (string, error) {
+	tour, err := r.store.GetReviewTour(ctx, tourID)
+	if err != nil {
+		return "", err
+	}
+	if strings.HasPrefix(prefix, "rhn-") {
+		note, err := r.store.GetReviewHunkNoteByPrefix(ctx, tourID, prefix)
+		if err != nil {
+			return "", err
+		}
+		if err := r.store.DeleteReviewHunkNote(ctx, note.ID); err != nil {
+			return "", err
+		}
+		if err := r.markTourCapturing(ctx, tour); err != nil {
+			return "", err
+		}
+		r.publish(tourID, note.StepID, "annotation_removed")
+		return note.ID, nil
+	}
+	step, err := r.store.GetReviewStepByPrefix(ctx, tour.TaskID, prefix)
+	if err != nil {
+		return "", err
+	}
+	if step.TourID != tourID || (step.Kind != "commit" && step.Kind != "note") {
+		return "", store.ErrNotFound
+	}
+	if step.Kind == "note" {
+		if err := r.store.DeleteReviewStep(ctx, step.ID); err != nil {
+			return "", err
+		}
+	} else {
+		if _, err := r.store.UpdateReviewStep(ctx, step.ID, func(st *store.ReviewStep) { st.Narration = ""; st.Risk = ""; st.OrderHint = nil; st.ReviewedAt = nil }); err != nil {
+			return "", err
+		}
+	}
+	if err := r.markTourCapturing(ctx, tour); err != nil {
+		return "", err
+	}
+	r.publish(tourID, step.ID, "annotation_removed")
+	return step.ID, nil
+}
+
+func (r *ReviewService) markTourCapturing(ctx context.Context, tour *store.ReviewTour) error {
+	if tour.Status != "ready" && tour.Status != "reviewed" {
 		return nil
 	}
-	_, err := r.store.UpdateReviewTour(ctx, tour.ID, func(rt *store.ReviewTour) {
-		rt.Status = "capturing"
-	})
+	_, err := r.store.UpdateReviewTour(ctx, tour.ID, func(rt *store.ReviewTour) { rt.Status = "capturing" })
 	return err
 }
 

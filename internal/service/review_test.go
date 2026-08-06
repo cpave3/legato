@@ -416,8 +416,9 @@ func TestEditAndRemoveReviewChapterByPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	order := 7
-	if err := f.svc.EditChapter(ctx, f.tourID, chapterID[:8], ChapterEditArgs{
-		Title: "New title", Narration: "New narration", Risk: "high", OrderHint: &order,
+	title, narration, risk := "New title", "New narration", "high"
+	if _, err := f.svc.EditChapter(ctx, f.tourID, chapterID[:8], ChapterEditArgs{
+		Title: &title, Narration: &narration, Risk: &risk, OrderHint: &order,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +429,7 @@ func TestEditAndRemoveReviewChapterByPrefix(t *testing.T) {
 	if view.Title != "New title" || view.Narration != "New narration" || view.Risk != "high" || view.OrderHint == nil || *view.OrderHint != 7 || len(view.Hunks) != 1 {
 		t.Fatalf("edited chapter = %+v", view)
 	}
-	if err := f.svc.RemoveChapter(ctx, f.tourID, chapterID[:8]); err != nil {
+	if _, err := f.svc.RemoveChapter(ctx, f.tourID, chapterID[:8]); err != nil {
 		t.Fatal(err)
 	}
 	chapters, err := f.svc.Chapters(ctx, f.tourID)
@@ -1136,19 +1137,63 @@ func TestEditAndRemoveReviewAnnotationByPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.svc.EditAnnotation(ctx, f.tourID, noteID[:8], "new note"); err != nil {
+	body := "new note"
+	if _, err := f.svc.EditAnnotation(ctx, f.tourID, noteID[:8], AnnotationEditArgs{Text: &body}); err != nil {
 		t.Fatal(err)
 	}
 	notes, _ := f.store.ListReviewHunkNotes(ctx, f.tourID)
 	if len(notes) != 1 || notes[0].Body != "new note" || notes[0].UpdatedAt == "" {
 		t.Fatalf("edited notes = %+v", notes)
 	}
-	if err := f.svc.RemoveAnnotation(ctx, f.tourID, noteID[:8]); err != nil {
+	if _, err := f.svc.RemoveAnnotation(ctx, f.tourID, noteID[:8]); err != nil {
 		t.Fatal(err)
 	}
 	notes, _ = f.store.ListReviewHunkNotes(ctx, f.tourID)
 	if len(notes) != 0 {
 		t.Fatalf("notes after remove = %+v", notes)
+	}
+}
+
+func TestEditAndRemoveStepAnnotationShapes(t *testing.T) {
+	f := newReviewFixture(t)
+	ctx := context.Background()
+	writeRepoFile(t, f.repo, "step.go", "package step\n")
+	sha := gitCommitAll(t, f.repo, "add step")
+	commitID, err := f.svc.Annotate(ctx, f.tourID, AnnotateArgs{SHA: sha, Text: "commit note", Risk: "high"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileID, err := f.svc.Annotate(ctx, f.tourID, AnnotateArgs{Text: "file note", Files: []string{"step.go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.UpdateReviewTour(ctx, f.tourID, func(tour *store.ReviewTour) { tour.Status = "ready" }); err != nil {
+		t.Fatal(err)
+	}
+	updated := "updated commit note"
+	if id, err := f.svc.EditAnnotation(ctx, f.tourID, commitID, AnnotationEditArgs{Text: &updated, ClearOrderHint: true}); err != nil || id != commitID {
+		t.Fatalf("edit commit id=%q err=%v", id, err)
+	}
+	commit, _ := f.store.GetReviewStep(ctx, commitID)
+	if commit.Narration != updated {
+		t.Fatalf("commit = %+v", commit)
+	}
+	tour, _ := f.store.GetReviewTour(ctx, f.tourID)
+	if tour.Status != "capturing" {
+		t.Fatalf("status = %q", tour.Status)
+	}
+	if _, err := f.svc.RemoveAnnotation(ctx, f.tourID, commitID); err != nil {
+		t.Fatal(err)
+	}
+	commit, _ = f.store.GetReviewStep(ctx, commitID)
+	if commit.Narration != "" || commit.Risk != "" {
+		t.Fatalf("commit metadata not cleared: %+v", commit)
+	}
+	if _, err := f.svc.RemoveAnnotation(ctx, f.tourID, fileID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.GetReviewStep(ctx, fileID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("file note still exists: %v", err)
 	}
 }
 

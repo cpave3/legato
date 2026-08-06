@@ -22,21 +22,23 @@ func ReviewChapter(svc *service.ReviewService, tourID string, args service.Chapt
 }
 
 // ReviewChapterEdit replaces chapter metadata and notifies running instances.
-func ReviewChapterEdit(svc *service.ReviewService, tourID, stepPrefix string, args service.ChapterEditArgs) error {
-	if err := svc.EditChapter(context.Background(), tourID, stepPrefix, args); err != nil {
-		return err
+func ReviewChapterEdit(svc *service.ReviewService, tourID, stepPrefix string, args service.ChapterEditArgs) (string, error) {
+	id, err := svc.EditChapter(context.Background(), tourID, stepPrefix, args)
+	if err != nil {
+		return "", err
 	}
-	broadcastReviewChanged(tourID, stepPrefix, "chapter_edited")
-	return nil
+	broadcastReviewChanged(tourID, id, "chapter_edited")
+	return id, nil
 }
 
 // ReviewChapterRemove deletes an authored chapter and notifies running instances.
-func ReviewChapterRemove(svc *service.ReviewService, tourID, stepPrefix string) error {
-	if err := svc.RemoveChapter(context.Background(), tourID, stepPrefix); err != nil {
-		return err
+func ReviewChapterRemove(svc *service.ReviewService, tourID, stepPrefix string) (string, error) {
+	id, err := svc.RemoveChapter(context.Background(), tourID, stepPrefix)
+	if err != nil {
+		return "", err
 	}
-	broadcastReviewChanged(tourID, stepPrefix, "chapter_removed")
-	return nil
+	broadcastReviewChanged(tourID, id, "chapter_removed")
+	return id, nil
 }
 
 // ReviewAnnotate records an agent annotation and notifies running instances.
@@ -51,21 +53,23 @@ func ReviewAnnotate(svc *service.ReviewService, tourID string, args service.Anno
 }
 
 // ReviewAnnotationEdit replaces a durable annotation and notifies running instances.
-func ReviewAnnotationEdit(svc *service.ReviewService, tourID, notePrefix, body string) error {
-	if err := svc.EditAnnotation(context.Background(), tourID, notePrefix, body); err != nil {
-		return err
+func ReviewAnnotationEdit(svc *service.ReviewService, tourID, prefix string, args service.AnnotationEditArgs) (string, error) {
+	id, err := svc.EditAnnotation(context.Background(), tourID, prefix, args)
+	if err != nil {
+		return "", err
 	}
-	broadcastReviewChanged(tourID, notePrefix, "annotation_edited")
-	return nil
+	broadcastReviewChanged(tourID, id, "annotation_edited")
+	return id, nil
 }
 
 // ReviewAnnotationRemove deletes a durable annotation and notifies running instances.
-func ReviewAnnotationRemove(svc *service.ReviewService, tourID, notePrefix string) error {
-	if err := svc.RemoveAnnotation(context.Background(), tourID, notePrefix); err != nil {
-		return err
+func ReviewAnnotationRemove(svc *service.ReviewService, tourID, prefix string) (string, error) {
+	id, err := svc.RemoveAnnotation(context.Background(), tourID, prefix)
+	if err != nil {
+		return "", err
 	}
-	broadcastReviewChanged(tourID, notePrefix, "annotation_removed")
-	return nil
+	broadcastReviewChanged(tourID, id, "annotation_removed")
+	return id, nil
 }
 
 // ReviewAnswer records an agent's reply to a reviewer question.
