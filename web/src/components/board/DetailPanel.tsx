@@ -70,6 +70,7 @@ export function DetailPanel({
   const agentActionProps = {
     taskId: card.id,
     worktreePath: card.worktree?.path,
+    rememberedWorkingDir: card.code_context?.working_dir,
     hasChimeraSession: card.has_chimera_session,
   }
 

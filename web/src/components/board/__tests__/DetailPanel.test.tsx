@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach, vi } from "vitest"
 import { render, screen, cleanup, fireEvent, within } from "@testing-library/react"
 import { DetailPanel } from "../DetailPanel"
 import type { CardDetail } from "../../../lib/board-types"
-vi.mock("../TaskAgentAction",()=>({TaskAgentAction:({ taskId, worktreePath, hasChimeraSession }: { taskId: string; worktreePath?: string; hasChimeraSession?: boolean })=> <button data-task-primary-action data-task-id={taskId} data-worktree-path={worktreePath} data-has-chimera-session={hasChimeraSession ? "true" : "false"} className="min-h-9 w-full" type="button">Open agent</button>}))
+vi.mock("../TaskAgentAction",()=>({TaskAgentAction:({ taskId, worktreePath, rememberedWorkingDir, hasChimeraSession }: { taskId: string; worktreePath?: string; rememberedWorkingDir?: string; hasChimeraSession?: boolean })=> <button data-task-primary-action data-task-id={taskId} data-worktree-path={worktreePath} data-remembered-working-dir={rememberedWorkingDir} data-has-chimera-session={hasChimeraSession ? "true" : "false"} className="min-h-9 w-full" type="button">Open agent</button>}))
 vi.mock("../TaskActivityTabs",()=>({TaskActivityTabs:()=>null}))
 
 afterEach(() => {
@@ -45,7 +45,8 @@ function renderPanel(card = makeCard(), overrides: Partial<React.ComponentProps<
 describe("DetailPanel", () => {
   it("places the agent action before mobile content while preserving its desktop Work placement", () => {
     const worktree = { primary_dir: "/repo", path: "/trees/t-1", branch: "t-1", base_branch: "main" }
-    const { container } = renderPanel(makeCard({ worktree, has_chimera_session: true }), { worktreesEnabled: true })
+    const code_context = { repo: "acme/widget", branch: "", head_sha: "", working_dir: "/repos/remembered", base_branch: "", repo_source: "manual", branch_source: "" }
+    const { container } = renderPanel(makeCard({ worktree, code_context, has_chimera_session: true }), { worktreesEnabled: true })
     const dialog = screen.getByRole("dialog", { name: "Test title" })
     const layout = container.querySelector("[data-task-detail-layout]")
     const mobileAction = container.querySelector("[data-task-agent-action='mobile']")
@@ -67,6 +68,7 @@ describe("DetailPanel", () => {
       const action = placement?.querySelector("[data-task-primary-action]")
       expect(action?.getAttribute("data-task-id")).toBe("T-1")
       expect(action?.getAttribute("data-worktree-path")).toBe("/trees/t-1")
+      expect(action?.getAttribute("data-remembered-working-dir")).toBe("/repos/remembered")
       expect(action?.getAttribute("data-has-chimera-session")).toBe("true")
     }
     const actions = container.querySelector("[data-task-actions]")

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,6 +32,7 @@ type mockTmux struct {
 	options         map[string]map[string]string // session -> key -> value
 	paneCommands    map[string]string            // session -> command
 	paneCommandsErr error
+	spawnErr        error
 	sentLines       map[string][]string // session -> ordered list of SendKeysLine payloads
 	sendLineErr     error
 	sentMultiline   map[string][]string // session -> ordered list of SendKeysMultiline payloads
@@ -55,6 +57,9 @@ func newMockTmux() *mockTmux {
 func (m *mockTmux) Spawn(name, workDir string, width, height int, envVars ...string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.spawnErr != nil {
+		return m.spawnErr
+	}
 	if m.sessions[name] {
 		return fmt.Errorf("session %s already exists", name)
 	}
@@ -406,6 +411,105 @@ func TestSpawnAgentCreatesSessionAndDBRow(t *testing.T) {
 	}
 	if agents[0].Status != "running" {
 		t.Errorf("Status = %q, want %q", agents[0].Status, "running")
+	}
+}
+
+func TestSpawnAgentRemembersWorkingDirectoryAndPreservesCodeContext(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "task-remember")
+	existing := &store.CodeContext{
+		Repo: "acme/widget", Branch: "main", HeadSHA: "abc123", WorkingDir: "/old",
+		BaseBranch: "main", RepoSource: "manual", BranchSource: "worktree", LinkedAt: "2024-01-01T00:00:00Z",
+	}
+	if err := s.SetCodeContext(ctx, "task-remember", existing); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.SpawnAgent(ctx, "task-remember", 0, 0, AgentSpawnOptions{WorkingDir: "/repos/widget", AgentKind: "shell"}); err != nil {
+		t.Fatal(err)
+	}
+
+	task, err := s.GetTask(ctx, "task-remember")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.ParseCodeContext(task.CodeContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.WorkingDir != "/repos/widget" || got.UpdatedAt == "" {
+		t.Fatalf("code context = %#v", got)
+	}
+	if got.Repo != existing.Repo || got.Branch != existing.Branch || got.HeadSHA != existing.HeadSHA || got.BaseBranch != existing.BaseBranch || got.RepoSource != existing.RepoSource || got.BranchSource != existing.BranchSource || got.LinkedAt != existing.LinkedAt {
+		t.Fatalf("repository context was not preserved: %#v", got)
+	}
+}
+
+func TestSpawnAgentRemembersFallbackDirectoryForAdapter(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	createTask(t, s, "task-adapter")
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, "/global/default", AgentServiceOptions{Adapter: &testAdapter{}})
+
+	if err := svc.SpawnAgent(context.Background(), "task-adapter", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := s.GetTask(context.Background(), "task-adapter")
+	got, _ := store.ParseCodeContext(task.CodeContext)
+	if got == nil || got.WorkingDir != "/global/default" {
+		t.Fatalf("code context = %#v, want fallback working directory", got)
+	}
+}
+
+func TestSpawnAgentFailureDoesNotReplaceRememberedDirectory(t *testing.T) {
+	svc, s, mt := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "task-failure")
+	if err := s.SetCodeContext(ctx, "task-failure", &store.CodeContext{WorkingDir: "/remembered"}); err != nil {
+		t.Fatal(err)
+	}
+	mt.spawnErr = errors.New("spawn failed")
+
+	if err := svc.SpawnAgent(ctx, "task-failure", 0, 0, AgentSpawnOptions{WorkingDir: "/replacement"}); err == nil {
+		t.Fatal("expected spawn failure")
+	}
+	task, _ := s.GetTask(ctx, "task-failure")
+	got, _ := store.ParseCodeContext(task.CodeContext)
+	if got == nil || got.WorkingDir != "/remembered" {
+		t.Fatalf("code context = %#v, want prior directory", got)
+	}
+}
+
+func TestSpawnAgentAutomationDoesNotRememberWorkingDirectory(t *testing.T) {
+	tests := []struct {
+		name string
+		opts AgentSpawnOptions
+	}{
+		{name: "workflow", opts: AgentSpawnOptions{ExecutionKind: store.ExecutionWorkflowAgent}},
+		{name: "swarm", opts: AgentSpawnOptions{Role: "conductor", ParentTaskID: "parent", ExecutionKind: store.ExecutionSwarmConductor}},
+		{name: "ephemeral", opts: AgentSpawnOptions{Ephemeral: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, s, _ := newTestAgentService(t)
+			ctx := context.Background()
+			taskID := "task-" + tt.name
+			createTask(t, s, taskID)
+			tt.opts.WorkingDir = "/automation"
+			if err := svc.SpawnAgent(ctx, taskID, 0, 0, tt.opts); err != nil {
+				t.Fatal(err)
+			}
+			task, _ := s.GetTask(ctx, taskID)
+			if task.CodeContext != nil {
+				t.Fatalf("automation launch stored code context: %s", *task.CodeContext)
+			}
+		})
 	}
 }
 

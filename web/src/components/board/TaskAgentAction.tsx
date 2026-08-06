@@ -11,7 +11,7 @@ import { Button } from "../ui/Button"
 import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "../ui/Dialog"
 import { InlineNotice } from "../ui/InlineNotice"
 
-export function TaskAgentAction({ taskId, worktreePath = "", hasChimeraSession = false }: { taskId: string; worktreePath?: string; hasChimeraSession?: boolean }) {
+export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDir = "", hasChimeraSession = false }: { taskId: string; worktreePath?: string; rememberedWorkingDir?: string; hasChimeraSession?: boolean }) {
   const { baseUrl } = useServer()
   const settings = useSettings()
   const navigate = useNavigate()
@@ -32,10 +32,9 @@ export function TaskAgentAction({ taskId, worktreePath = "", hasChimeraSession =
   useEffect(() => {
     if (!open) return
     setRepositoryPreset("")
-    setWorkingDir(worktreePath)
+    setWorkingDir(worktreePath || rememberedWorkingDir || settings.data?.working_dir || "")
     setChimeraSessionPolicy("resume")
     setInitialized(false)
-    if (!worktreePath) setWorkingDir(settings.data?.working_dir ?? "")
     setRepositories((settings.data?.repositories ?? []) as RepositoryPreset[])
     apiFetch(baseUrl, "/api/adapters").then(async (response) => {
       if (!response.ok) return
@@ -43,7 +42,7 @@ export function TaskAgentAction({ taskId, worktreePath = "", hasChimeraSession =
       setAdapters(data.adapters ?? [])
       setDefaultAdapter(data.default ?? "")
     }).finally(() => setInitialized(true))
-  }, [open, baseUrl, worktreePath, settings.data])
+  }, [open, baseUrl, worktreePath, rememberedWorkingDir, settings.data])
 
   const offersChimeraSessionChoice = hasChimeraSession && (agentKind === "chimera" || (agentKind === "" && defaultAdapter === "chimera"))
 

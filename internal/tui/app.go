@@ -2281,6 +2281,11 @@ func (a App) openAgentSpawnOverlay(taskID, title string) (tea.Model, tea.Cmd) {
 		}
 	}
 	defaultDir := a.workDir
+	if taskID != "" && a.svc != nil {
+		if card, err := a.svc.GetCard(context.Background(), taskID); err == nil && card.CodeContext != nil && card.CodeContext.WorkingDir != "" {
+			defaultDir = card.CodeContext.WorkingDir
+		}
+	}
 	if taskID != "" && a.worktreeSvc != nil {
 		if path, err := a.worktreeSvc.Path(context.Background(), taskID); err == nil && path != "" {
 			defaultDir = path

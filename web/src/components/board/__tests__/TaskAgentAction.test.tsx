@@ -116,6 +116,32 @@ describe("TaskAgentAction", () => {
     })))
   })
 
+  it("defaults agent launch to the remembered directory when there is no worktree", async () => {
+    apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
+      path === "/api/adapters"
+        ? new Response(JSON.stringify({ adapters: [] }), { status: 200 })
+        : new Response(JSON.stringify({ task_id: "T-1", created: true }), { status: 201 }),
+    ))
+
+    render(<MemoryRouter><TaskAgentAction taskId="T-1" rememberedWorkingDir="/repos/remembered" /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+    expect((await screen.findByLabelText("Working directory") as HTMLInputElement).value).toBe("/repos/remembered")
+    fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
+
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
+      body: JSON.stringify({ agent_kind: "", working_dir: "/repos/remembered" }),
+    })))
+  })
+
+  it("keeps the task worktree ahead of the remembered directory", async () => {
+    apiFetch.mockResolvedValue(new Response(JSON.stringify({ adapters: [] }), { status: 200 }))
+
+    render(<MemoryRouter><TaskAgentAction taskId="T-1" worktreePath="/trees/t-1" rememberedWorkingDir="/repos/remembered" /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+
+    expect((await screen.findByLabelText("Working directory") as HTMLInputElement).value).toBe("/trees/t-1")
+  })
+
   it("offers persisted Chimera sessions and resumes by default", async () => {
     apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
       path === "/api/adapters"

@@ -723,9 +723,16 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		go a.discoverChimeraLockfile(context.Background(), taskID, expectedChimeraSessionID, chimeraLockfilesBeforeLaunch)
 	}
 
-	// Capture repository identity from the exact agent working directory and
-	// immediately try discovery. Agent startup remains successful when local Git
-	// inspection or GitHub synchronization is unavailable.
+	if executionKind == store.ExecutionInteractive && !opt.Ephemeral && opt.Role == "" && opt.ParentTaskID == "" && opt.SubtaskID == "" {
+		if err := a.rememberAgentWorkingDir(ctx, taskID, workDir); err != nil {
+			return fmt.Errorf("remembering agent working directory: %w", err)
+		}
+	}
+
+	// Capture repository identity from the exact agent working directory after
+	// remembering it, so asynchronous enrichment always merges from the latest
+	// task context. Agent startup remains successful when local Git inspection or
+	// GitHub synchronization is unavailable.
 	if a.checkoutInspector != nil {
 		go a.captureAgentCodeContext(taskID, workDir)
 	}
@@ -734,6 +741,23 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 
 	return nil
+}
+
+func (a *agentService) rememberAgentWorkingDir(ctx context.Context, taskID, workDir string) error {
+	task, err := a.store.GetTask(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	codeContext, err := store.ParseCodeContext(task.CodeContext)
+	if err != nil {
+		return fmt.Errorf("parsing task code context: %w", err)
+	}
+	if codeContext == nil {
+		codeContext = &store.CodeContext{}
+	}
+	codeContext.WorkingDir = workDir
+	codeContext.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	return a.store.SetCodeContext(ctx, taskID, codeContext)
 }
 
 func (a *agentService) captureAgentCodeContext(taskID, workDir string) {

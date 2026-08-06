@@ -69,6 +69,8 @@ func (f *fakeTargetedPRService) GetCodeContext(context.Context, string) (*store.
 type fakeBoardService struct {
 	imported       []service.Card
 	hasWorktree    bool
+	codeContext    *service.CodeContextView
+	cardError      error
 	workspaceTask  string
 	workspaceID    *int
 	workspaceError error
@@ -92,12 +94,16 @@ func (f *fakeBoardService) ListCards(_ context.Context, column string) ([]servic
 }
 
 func (f *fakeBoardService) GetCard(_ context.Context, id string) (*service.CardDetail, error) {
+	if f.cardError != nil {
+		return nil, f.cardError
+	}
 	return &service.CardDetail{
 		ID:            id,
 		Title:         "Test ticket",
 		DescriptionMD: "Test description",
 		Status:        "Backlog",
 		Priority:      "High",
+		CodeContext:   f.codeContext,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	}, nil
@@ -157,6 +163,8 @@ type fakeWorktreeService struct {
 	createStarted chan string
 	createRelease chan struct{}
 	createErr     error
+	path          string
+	pathErr       error
 }
 
 func (f *fakeWorktreeService) Create(_ context.Context, taskID, primaryDir, branch, baseBranch string) (*store.TaskWorktree, error) {
@@ -172,7 +180,9 @@ func (f *fakeWorktreeService) Create(_ context.Context, taskID, primaryDir, bran
 	return &store.TaskWorktree{PrimaryDir: primaryDir, Path: primaryDir + "/" + branch, Branch: branch, BaseBranch: baseBranch}, nil
 }
 
-func (f *fakeWorktreeService) Path(context.Context, string) (string, error) { return "", nil }
+func (f *fakeWorktreeService) Path(context.Context, string) (string, error) {
+	return f.path, f.pathErr
+}
 
 func (f *fakeWorktreeService) Remove(context.Context, string) error { return nil }
 
@@ -1561,6 +1571,48 @@ func TestAKeySwitchesToAgentViewWhenRunning(t *testing.T) {
 	}
 }
 
+func TestTaskAgentSpawnDefaultsToRememberedDirectory(t *testing.T) {
+	boardSvc := &fakeBoardService{codeContext: &service.CodeContextView{WorkingDir: "/repos/remembered"}}
+	agentSvc := &fakeAgentService{captureErr: true}
+	app := NewApp(boardSvc, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/global", nil, nil)
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	model, _ := app.openAgentSpawnOverlay("REX-1", "Test")
+	app = model.(App)
+	view := app.activeOverlay.View()
+	if !strings.Contains(view, "/repos/remembered") {
+		t.Fatalf("spawn overlay did not use remembered directory:\n%s", view)
+	}
+}
+
+func TestTaskAgentSpawnWorktreePrecedesRememberedDirectory(t *testing.T) {
+	boardSvc := &fakeBoardService{codeContext: &service.CodeContextView{WorkingDir: "/repos/remembered"}}
+	agentSvc := &fakeAgentService{captureErr: true}
+	app := NewApp(boardSvc, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/global", nil, nil)
+	app.SetWorktreeService(&fakeWorktreeService{path: "/trees/task-1\n"})
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	model, _ := app.openAgentSpawnOverlay("REX-1", "Test")
+	app = model.(App)
+	view := app.activeOverlay.View()
+	if !strings.Contains(view, "/trees/task-1") || strings.Contains(view, "/repos/remembered") {
+		t.Fatalf("spawn overlay did not prefer worktree:\n%s", view)
+	}
+}
+
+func TestTaskAgentSpawnFallsBackToGlobalDirectory(t *testing.T) {
+	boardSvc := &fakeBoardService{cardError: errors.New("unavailable")}
+	agentSvc := &fakeAgentService{captureErr: true}
+	app := NewApp(boardSvc, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/global", nil, nil)
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	model, _ := app.openAgentSpawnOverlay("REX-1", "Test")
+	app = model.(App)
+	if view := app.activeOverlay.View(); !strings.Contains(view, "/global") {
+		t.Fatalf("spawn overlay did not retain global fallback:\n%s", view)
+	}
+}
+
 func TestAgentSpawnSubmitForTask(t *testing.T) {
 	agentSvc := &fakeAgentService{captureErr: true}
 	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/workspace", nil, nil)
@@ -1579,7 +1631,7 @@ func TestAgentSpawnSubmitForTask(t *testing.T) {
 	// Simulate submit with specific agent kind and CWD
 	submit := overlay.AgentSpawnSubmitMsg{
 		TaskID:     "REX-1",
-		AgentKind:  "chimera",
+		AgentKind:  "shell",
 		WorkingDir: "/custom",
 	}
 	app, cmd = updateApp(app, submit)
@@ -1598,8 +1650,8 @@ func TestAgentSpawnSubmitForTask(t *testing.T) {
 	if agentSvc.lastSpawnOpts == nil {
 		t.Fatal("expected opts to be passed to SpawnAgent")
 	}
-	if agentSvc.lastSpawnOpts.AgentKind != "chimera" {
-		t.Errorf("AgentKind = %q, want chimera", agentSvc.lastSpawnOpts.AgentKind)
+	if agentSvc.lastSpawnOpts.AgentKind != "shell" {
+		t.Errorf("AgentKind = %q, want shell", agentSvc.lastSpawnOpts.AgentKind)
 	}
 	if agentSvc.lastSpawnOpts.WorkingDir != "/custom" {
 		t.Errorf("WorkingDir = %q, want /custom", agentSvc.lastSpawnOpts.WorkingDir)
