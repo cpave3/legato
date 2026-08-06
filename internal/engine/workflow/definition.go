@@ -22,6 +22,7 @@ type Definition struct {
 	Title         string           `yaml:"title" json:"title"`
 	RunTitle      string           `yaml:"run_title,omitempty" json:"run_title,omitempty"`
 	Description   string           `yaml:"description,omitempty" json:"description,omitempty"`
+	AfterStart    string           `yaml:"after_start,omitempty" json:"after_start,omitempty"`
 	Inputs        map[string]Input `yaml:"inputs,omitempty" json:"inputs,omitempty"`
 	On            Triggers         `yaml:"on,omitempty" json:"on,omitempty"`
 	Steps         []Step           `yaml:"steps" json:"steps"`
@@ -84,6 +85,23 @@ func (d *Definition) Validate() error {
 	}
 	if len(d.Steps) == 0 {
 		return fmt.Errorf("at least one step is required")
+	}
+	if d.AfterStart != "" && d.AfterStart != "workflow" && d.AfterStart != "agent" && d.AfterStart != "stay" {
+		return fmt.Errorf("after_start must be workflow, agent, or stay")
+	}
+	if d.AfterStart == "agent" {
+		taskInputs, requiredTaskInputs := 0, 0
+		for _, input := range d.Inputs {
+			if input.Type == "task" {
+				taskInputs++
+				if input.Required {
+					requiredTaskInputs++
+				}
+			}
+		}
+		if taskInputs != 1 || requiredTaskInputs != 1 {
+			return fmt.Errorf("after_start agent requires exactly one required task input")
+		}
 	}
 	if d.On.TaskEnteredColumn != nil {
 		if err := d.On.TaskEnteredColumn.Validate(d.Inputs); err != nil {

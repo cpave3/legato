@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { MemoryRouter } from "react-router-dom"
+import { MemoryRouter, useLocation } from "react-router-dom"
 import { RunWorkflowDialog } from "../RunWorkflowDialog"
 import type { WorkflowDefinition } from "../../lib/workflow"
 
@@ -9,6 +9,11 @@ vi.stubGlobal("fetch", mockFetch)
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 
 afterEach(() => { cleanup(); vi.resetAllMocks() })
+
+function LocationPath() {
+  const location = useLocation()
+  return <output aria-label="location">{location.pathname}{location.search}</output>
+}
 
 const definition: WorkflowDefinition = {
   schema_version: 1, name: "triage", title: "Triage", source: "triage.yaml",
@@ -36,6 +41,38 @@ describe("RunWorkflowDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start" }))
     await waitFor(() => expect(mockFetch).toHaveBeenCalled())
     expect(JSON.parse(mockFetch.mock.calls[0][1].body).inputs).toEqual({ subject: "TASK-1", count: "2", mode: "fast", notify: "false" })
+  })
+
+  it("supports custom fields for a typed repository input", async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ run: { id: "wr-1" } }) })
+    const repositoryDefinition = { ...definition, inputs: { subject: definition.inputs!.subject, repository: { type: "repository" as const, required: true } } }
+    render(<MemoryRouter><RunWorkflowDialog definition={repositoryDefinition} repositories={[{ name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato", base_branch: "main" }]} initialValues={{ subject: "TASK-1" }} readOnlyInputs={["subject"]} onClose={() => {}} /></MemoryRouter>)
+    fireEvent.change(screen.getByLabelText("repository"), { target: { value: "__custom" } })
+    fireEvent.change(screen.getByLabelText("repository repository"), { target: { value: "owner/custom" } })
+    fireEvent.change(screen.getByLabelText("repository primary directory"), { target: { value: "/projects/custom" } })
+    fireEvent.change(screen.getByLabelText("repository base branch"), { target: { value: "develop" } })
+    fireEvent.click(screen.getByRole("button", { name: "Start" }))
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled())
+    const submitted = JSON.parse(mockFetch.mock.calls[0][1].body).inputs.repository
+    expect(JSON.parse(submitted)).toEqual({ repo: "owner/custom", primary_dir: "/projects/custom", base_branch: "develop" })
+  })
+
+  it("opens the selected task agent after starting when configured", async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ run: { id: "wr-1" } }) })
+    const agentDefinition = { ...definition, after_start: "agent" as const, inputs: { subject: definition.inputs!.subject } }
+    render(<MemoryRouter><RunWorkflowDialog definition={agentDefinition} repositories={[]} initialValues={{ subject: "TASK-1" }} readOnlyInputs={["subject"]} onClose={() => {}} /><LocationPath /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Start" }))
+    await waitFor(() => expect(screen.getByLabelText("location").textContent).toBe("/agents?task=TASK-1"))
+  })
+
+  it("closes without navigating after starting when configured to stay", async () => {
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ run: { id: "wr-1" } }) })
+    const onClose = vi.fn()
+    const stayDefinition = { ...definition, after_start: "stay" as const, inputs: { subject: definition.inputs!.subject } }
+    render(<MemoryRouter initialEntries={["/board"]}><RunWorkflowDialog definition={stayDefinition} repositories={[]} initialValues={{ subject: "TASK-1" }} readOnlyInputs={["subject"]} onClose={onClose} /><LocationPath /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Start" }))
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(screen.getByLabelText("location").textContent).toBe("/board")
   })
 
   it("keeps API errors visible for correction", async () => {
