@@ -71,6 +71,29 @@ type AgentSession struct {
 	Scope       []string // file globs
 }
 
+// AgentPeer describes one live, routable agent sharing a Git worktree.
+type AgentPeer struct {
+	TaskID      string `json:"task_id"`
+	ExecutionID string `json:"execution_id"`
+	Title       string `json:"title"`
+	Kind        string `json:"kind"`
+	Role        string `json:"role,omitempty"`
+	Activity    string `json:"activity"`
+	WorkingDir  string `json:"working_dir"`
+}
+
+// AgentDeliveryFailure records one peer that could not receive a message.
+type AgentDeliveryFailure struct {
+	TaskID string `json:"task_id"`
+	Error  string `json:"error"`
+}
+
+// AgentBroadcastResult preserves partial success across a directory broadcast.
+type AgentBroadcastResult struct {
+	Delivered []string               `json:"delivered"`
+	Failed    []AgentDeliveryFailure `json:"failed"`
+}
+
 // DurationData holds aggregated state durations for a task.
 type DurationData struct {
 	Working time.Duration
@@ -140,6 +163,10 @@ type AgentService interface {
 	GetTaskNotifyEnabled(ctx context.Context, taskID string) (bool, error)
 	GetTaskChimeraSessionID(ctx context.Context, taskID string) (string, error)
 	DiscoverChimera(ctx context.Context, taskID string) error
+	// ListPeers returns live agents sharing the caller's Git worktree. An
+	// explicit directory overrides lookup from taskID/executionID.
+	ListPeers(ctx context.Context, taskID, executionID, directory string) ([]AgentPeer, error)
+	BroadcastToPeers(ctx context.Context, taskID, executionID, directory, message string) (AgentBroadcastResult, error)
 	// SendMessage delivers a text message to the agent through the
 	// appropriate interaction adapter (tmux send-keys or Chimera HTTP).
 	SendMessage(ctx context.Context, taskID, message string) error
@@ -189,6 +216,7 @@ type agentService struct {
 	learning          LearningPromptProvider
 	learningMaxItems  int
 	learningMaxBytes  int
+	peerAwareness     bool
 
 	sendKeysAdapter AgentInteraction
 	chimeraAdapter  AgentInteraction
@@ -345,11 +373,14 @@ type AgentServiceOptions struct {
 	LearningPromptProvider LearningPromptProvider
 	LearningPromptMaxItems int
 	LearningPromptMaxBytes int
+	// DisablePeerAwareness suppresses automatic startup notices. Explicit peer
+	// discovery and messaging remain available.
+	DisablePeerAwareness bool
 }
 
 // NewAgentService creates an AgentService.
 func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...AgentServiceOptions) AgentService {
-	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay}
+	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay, peerAwareness: true}
 	if len(opts) > 0 {
 		svc.adapter = opts[0].Adapter
 		svc.adapters = opts[0].Adapters
@@ -367,6 +398,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.learning = opts[0].LearningPromptProvider
 		svc.learningMaxItems = opts[0].LearningPromptMaxItems
 		svc.learningMaxBytes = opts[0].LearningPromptMaxBytes
+		svc.peerAwareness = !opts[0].DisablePeerAwareness
 	}
 	// Wire the interaction adapters. The send-keys adapter is always
 	// available (it wraps the tmux manager). The Chimera adapter is only
@@ -396,6 +428,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	workDir := opt.WorkingDir
 	if workDir == "" {
 		workDir = a.workDir
+	}
+	var launchPeers []AgentPeer
+	if a.peerAwareness {
+		if peers, peerErr := a.ListPeers(ctx, taskID, "", workDir); peerErr == nil {
+			launchPeers = peers
+		}
 	}
 
 	// Swarm scope-conflict check: collect overlaps with active siblings (status
@@ -490,6 +528,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		rolePrompt = rolePromptForAdapter(adapter, opt.Role)
 	} else {
 		rolePrompt = generalPromptForAdapter(adapter)
+	}
+	peerContextInjected := false
+	if len(launchPeers) > 0 && rolePrompt != "" {
+		rolePrompt = joinPromptSections(rolePrompt, peerCoordinationContext(launchPeers))
+		peerContextInjected = true
 	}
 	var promptManifestID string
 	if a.learning != nil && adapter != nil {
@@ -739,8 +782,38 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if a.bus != nil {
 		a.bus.PublishAgentStarted(taskID)
 	}
+	if len(launchPeers) > 0 {
+		go a.notifyPeerJoin(taskID, executionID, workDir, launchPeers, !peerContextInjected)
+	}
 
 	return nil
+}
+
+func peerCoordinationContext(peers []AgentPeer) string {
+	peerIDs := make([]string, 0, len(peers))
+	for _, peer := range peers {
+		peerIDs = append(peerIDs, fmt.Sprintf("%s (%s)", peer.TaskID, peer.ExecutionID))
+	}
+	return fmt.Sprintf("## Active worktree peers\n\nAgents already working in this Git worktree: %s. Before reverting unexpected changes, use `legato agent message <task-id> <text>` to coordinate.", strings.Join(peerIDs, ", "))
+}
+
+func (a *agentService) notifyPeerJoin(taskID, executionID, workDir string, peers []AgentPeer, notifyNewcomer bool) {
+	root, err := gitWorktreeRoot(workDir)
+	if err != nil {
+		root = workDir
+	}
+	if notifyNewcomer {
+		time.Sleep(a.briefKickoffDelay)
+		if err := a.QueueMessage(context.Background(), taskID, "[legato coordination] "+strings.TrimPrefix(peerCoordinationContext(peers), "## Active worktree peers\n\n")); err != nil {
+			log.Printf("agent coordination notice to %s (%s) failed: %v", taskID, executionID, err)
+		}
+	}
+	for _, peer := range peers {
+		notice := fmt.Sprintf("[legato coordination] Agent %s (%s) joined Git worktree %s. It may create shared-tree changes; message it before reverting unexpected edits.", taskID, executionID, root)
+		if err := a.QueueMessage(context.Background(), peer.TaskID, notice); err != nil {
+			log.Printf("agent coordination join notice from %s to %s failed: %v", taskID, peer.TaskID, err)
+		}
+	}
 }
 
 func (a *agentService) rememberAgentWorkingDir(ctx context.Context, taskID, workDir string) error {
@@ -1219,6 +1292,96 @@ func (a *agentService) AttachCmd(ctx context.Context, taskID string) (*exec.Cmd,
 // GetStateTimeline delegates to the store query for bucketed state labels.
 func (a *agentService) GetStateTimeline(ctx context.Context, taskID string, window time.Duration, buckets int) ([]string, error) {
 	return a.store.GetStateTimeline(ctx, taskID, window, buckets)
+}
+
+// ListPeers returns live agents whose launch directories resolve to the same
+// Git worktree root as the caller or explicit directory.
+func (a *agentService) ListPeers(ctx context.Context, taskID, executionID, directory string) ([]AgentPeer, error) {
+	if err := a.ReconcileSessions(ctx); err != nil {
+		return nil, fmt.Errorf("reconciling agent sessions: %w", err)
+	}
+	rows, err := a.store.ListRunningExecutionPeers(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	callerDir := strings.TrimSpace(directory)
+	if callerDir == "" {
+		for _, row := range rows {
+			if (executionID != "" && row.ExecutionID == executionID) || (executionID == "" && taskID != "" && row.TaskID == taskID) {
+				callerDir = row.WorkingDir
+				break
+			}
+		}
+	}
+	if callerDir == "" {
+		return nil, errors.New("cannot resolve agent worktree: provide a running task, execution, or directory")
+	}
+	callerRoot, err := gitWorktreeRoot(callerDir)
+	if err != nil {
+		return nil, err
+	}
+
+	peers := make([]AgentPeer, 0, len(rows))
+	for _, row := range rows {
+		if (executionID != "" && row.ExecutionID == executionID) || (taskID != "" && row.TaskID == taskID) {
+			continue
+		}
+		root, rootErr := gitWorktreeRoot(row.WorkingDir)
+		if rootErr != nil || root != callerRoot {
+			continue
+		}
+		peers = append(peers, AgentPeer{
+			TaskID: row.TaskID, ExecutionID: row.ExecutionID, Title: row.TaskTitle,
+			Kind: row.Kind, Role: row.Role, Activity: row.Activity, WorkingDir: root,
+		})
+	}
+	sort.Slice(peers, func(i, j int) bool { return peers[i].TaskID < peers[j].TaskID })
+	return peers, nil
+}
+
+// BroadcastToPeers sends a non-urgent message to every current worktree peer
+// and preserves failures for callers without undoing successful deliveries.
+func (a *agentService) BroadcastToPeers(ctx context.Context, taskID, executionID, directory, message string) (AgentBroadcastResult, error) {
+	peers, err := a.ListPeers(ctx, taskID, executionID, directory)
+	if err != nil {
+		return AgentBroadcastResult{}, err
+	}
+	result := AgentBroadcastResult{Delivered: []string{}, Failed: []AgentDeliveryFailure{}}
+	for _, peer := range peers {
+		if err := a.QueueMessage(ctx, peer.TaskID, message); err != nil {
+			result.Failed = append(result.Failed, AgentDeliveryFailure{TaskID: peer.TaskID, Error: err.Error()})
+			continue
+		}
+		result.Delivered = append(result.Delivered, peer.TaskID)
+	}
+	return result, nil
+}
+
+func gitWorktreeRoot(directory string) (string, error) {
+	absolute, err := filepath.Abs(strings.TrimSpace(directory))
+	if err != nil {
+		return "", fmt.Errorf("resolve working directory: %w", err)
+	}
+	absolute, err = filepath.EvalSymlinks(filepath.Clean(absolute))
+	if err != nil {
+		return "", fmt.Errorf("resolve working directory %q: %w", directory, err)
+	}
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	cmd.Dir = absolute
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("resolve Git worktree for %q: %w: %s", absolute, err, strings.TrimSpace(string(output)))
+	}
+	root := strings.TrimSpace(string(output))
+	if root == "" {
+		return "", fmt.Errorf("resolve Git worktree for %q: Git returned an empty path", absolute)
+	}
+	root, err = filepath.EvalSymlinks(filepath.Clean(root))
+	if err != nil {
+		return "", fmt.Errorf("resolve Git worktree root %q: %w", root, err)
+	}
+	return root, nil
 }
 
 // SendMessage delivers a text message to the agent through the appropriate

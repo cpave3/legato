@@ -52,6 +52,9 @@ See `docs/workflows.md` for the schema and lifecycle. Workflow commands currentl
 - `legato task note <task-id> <message>` — legacy convenience command that appends timestamped text to a local task description; Jira-backed tasks are rejected. Durable workflow notes are separate records written by the `task.note` workflow executor and read with `task notes` or full/JSON `task show`.
 - `legato workspace list [--format text|json]` — list configured workspaces. Text output prints exact names suitable for `--workspace`; JSON includes IDs, names, and colors.
 - `legato agent state <task-id> --activity <working|waiting|error|"">` — update agent activity state on a card
+- `legato agent peers [--task <task-id>] [--execution-id <id>] [--directory <path>] [--json]` — list other live Legato agents launched anywhere inside the same Git worktree. Task and execution default to `LEGATO_TASK_ID` and `LEGATO_EXECUTION_ID`; an explicit directory can be used outside an agent session. Separate Git worktrees remain isolated.
+- `legato agent message <task-id> <text> [--json]` — send a best-effort direct message to the running session addressed by task ID. Delivery uses Chimera's native endpoint when discovered and tmux otherwise.
+- `legato agent broadcast <text> [--task <task-id>] [--execution-id <id>] [--directory <path>] [--json]` — send a non-urgent advisory message to every other live agent in the same Git worktree. JSON reports `delivered` task IDs and per-target `failed` details; one stale peer does not undo successful deliveries.
 - `legato agent summary [--exclude <task-id>]` — output tmux-formatted agent session counts (working/waiting/error/idle) for use in tmux status bar `#()` expansion
 - `legato agent status <task-id> --format tmux` — output a swarm-aware tmux status-line string for the given task. For swarm participants it shows `x/y done`, the last event kind + age, active sibling count, and a scope-warning icon; for solo agents it falls back to the same output as `agent summary --exclude <task-id>`. Auto-injected into `status-right` by `SpawnAgent` for swarm sessions; solo sessions keep the summary command. The CLI opens a new SQLite connection each call (the in-process `SwarmService.LatestSnapshot` cache is unreachable across process boundaries) so latency is bounded by SQLite open + two aggregate queries
 - `legato task link <task-id> [--branch <branch>] [--repo <owner/repo>] [--sha <commit-sha>]` — compatibility command for hooks/scripts; records durable task code context and resets cached PR data when the branch changes.
@@ -72,6 +75,8 @@ and pairing commands accept `--json`; it writes one `{ok, command, data}` value
 on success or `{ok, command, error: {code, message, details?}}` on failure.
 Global `legato --json <command> ...` is an alias. JSON diagnostics never share
 stdout with the result.
+
+Peer messages are coordination hints, not file locks or durable claims. Managed agents receive a startup notice when peers share their worktree and should announce touched files, for example `legato agent broadcast "Working on internal/service/agent.go; message task-123 before editing it."` Set `agents.peer_awareness: false` in config to suppress automatic peer context and join notices. The explicit `peers`, `message`, and `broadcast` commands remain available.
 
 Task-scoped commands resolve identity in this order: explicit task ID, then
 `LEGATO_TASK_ID`. This applies to task show/notes/update/description/note/link/unlink,

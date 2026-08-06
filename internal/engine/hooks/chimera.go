@@ -130,6 +130,14 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"`legato` CLI or read host-side paths, switch that tool call to host mode; " +
 	"otherwise sandboxed calls will return \"command not found\" / \"no such file\".\n" +
 	"\n" +
+	"## Peer coordination\n" +
+	"\n" +
+	"Other Legato agents may share this Git worktree. Run `legato agent peers` to " +
+	"discover them, `legato agent message <task-id> \"<text>\"` to coordinate " +
+	"directly, and `legato agent broadcast \"<text>\"` to announce files you are " +
+	"touching. Unexpected changes may belong to a peer: do not revert them before " +
+	"checking with the responsible agent. Peer announcements are advisory, not locks.\n" +
+	"\n" +
 	"## Review capture\n" +
 	"\n" +
 	"The user reviews your work as a guided tour. Narrate as you go. If " +

@@ -112,6 +112,10 @@ Otherwise, building the review packet is your responsibility:
 
 These git commands (and the `legato review` verbs) are lifecycle bookkeeping, not code-writing — they don't violate your no-code rule.
 
+### Shared-worktree coordination
+
+Other Legato agents may be active in the same Git worktree without belonging to this swarm. Run `legato agent peers` to discover them, `legato agent message <task-id> "<text>"` to coordinate directly, and `legato agent broadcast "<text>"` to announce files your swarm is touching. Unexpected changes may belong to a peer; do not revert them before checking with the responsible agent. These messages are advisory and do not replace swarm scopes or lifecycle commands.
+
 ### Behavior to avoid
 
 - **Do not write code.** If you find yourself opening an editor or modifying files, you've slipped role. Spawn a worker.

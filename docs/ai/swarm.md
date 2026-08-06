@@ -29,7 +29,7 @@ Swarm orchestration in legato is conductor-driven: pressing `S` on a card spawns
 
 5. **Workers report.** Workers call `legato swarm progress|question|built` to relay status. Each call delivers a `[swarm event] ...` line to the conductor's pane via `tmux send-keys`. The conductor receives these as new conversational turns.
 
-6. **Conductor supervises.** Reads progress, sends follow-ups (`legato swarm message`), inspects worker output when they signal `built`, then `legato swarm close <subtask-id>` to ratify.
+6. **Conductor supervises.** Reads progress, sends follow-ups (`legato swarm message`), inspects worker output when they signal `built`, then `legato swarm close <subtask-id>` to ratify. General `legato agent peers|message|broadcast` commands can coordinate with unrelated agents in the same Git worktree; they do not replace swarm scopes, events, or lifecycle commands.
 
 7. **Finish.** When the goal is met, conductor runs `legato swarm finish <parent-id> "<summary>"`. All worker sessions are killed and the summary is appended to the parent task description. **The conductor session is left alive** so the user can still query it for confirmation or follow-up questions. Dismiss the conductor manually via the agents view (`K`) when done.
 

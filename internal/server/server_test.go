@@ -373,6 +373,12 @@ func (p *promptAgentService) GetTaskChimeraSessionID(context.Context, string) (s
 func (p *promptAgentService) GetAgentEnvironment(context.Context, string) ([]string, error) {
 	return p.agentEnvironment, nil
 }
+func (p *promptAgentService) ListPeers(context.Context, string, string, string) ([]service.AgentPeer, error) {
+	return nil, nil
+}
+func (p *promptAgentService) BroadcastToPeers(context.Context, string, string, string, string) (service.AgentBroadcastResult, error) {
+	return service.AgentBroadcastResult{}, nil
+}
 func (p *promptAgentService) SendMessage(context.Context, string, string) error {
 	return nil
 }

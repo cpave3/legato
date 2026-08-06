@@ -51,6 +51,22 @@ func TestChimeraGeneralPromptTeachesReviewCapture(t *testing.T) {
 	}
 }
 
+func TestManagedAgentPromptsTeachPeerCoordination(t *testing.T) {
+	for name, prompt := range map[string]string{
+		"standalone": NewChimeraAdapter("legato").GeneralPrompt(),
+		"conductor":  builtinRolePrompt("conductor"),
+		"worker":     builtinRolePrompt("worker"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, want := range []string{"legato agent peers", "legato agent message", "legato agent broadcast", "Unexpected changes", "do not revert"} {
+				if !strings.Contains(prompt, want) {
+					t.Errorf("prompt missing %q", want)
+				}
+			}
+		})
+	}
+}
+
 func TestChimeraSandboxPreambleCoversReviewVerbs(t *testing.T) {
 	preamble := NewChimeraAdapter("legato").RolePromptPreamble()
 	if !strings.Contains(preamble, "legato review") {

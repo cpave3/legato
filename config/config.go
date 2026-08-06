@@ -237,6 +237,7 @@ type AgentsConfig struct {
 	EscapeKey       string            `yaml:"escape_key"`
 	TmuxOptions     map[string]string `yaml:"tmux_options"`
 	SparklineWindow string            `yaml:"sparkline_window"` // Go duration string, default "10m"
+	PeerAwareness   bool              `yaml:"peer_awareness"`   // automatic peer context and join notices; default true
 }
 
 type JiraConfig struct {
@@ -570,6 +571,7 @@ func defaults() *Config {
 		Keybindings: KeybindingsConfig{
 			VimMode: true,
 		},
+		Agents: AgentsConfig{PeerAwareness: true},
 		Learning: LearningConfig{
 			PacketMaxItems:         100,
 			PacketMaxBytes:         256 * 1024,

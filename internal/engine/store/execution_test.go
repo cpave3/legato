@@ -159,6 +159,54 @@ func TestConcurrentExecutionsForOneTaskRemainIndependent(t *testing.T) {
 	}
 }
 
+func TestListRunningExecutionPeersReturnsOnlyLiveRoutableSessions(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	start := time.Date(2026, 8, 6, 1, 0, 0, 0, time.UTC)
+
+	create := func(executionID, taskID, directory, executionStatus, sessionStatus string) {
+		t.Helper()
+		execution := executionAt(executionID, taskID, start)
+		execution.WorkingDir = directory
+		execution.Status = executionStatus
+		if executionStatus != ExecutionRunning {
+			ended := start.Add(time.Minute)
+			execution.EndedAt = &ended
+		}
+		if err := s.CreateExecution(ctx, execution); err != nil {
+			t.Fatal(err)
+		}
+		sessionID, err := s.InsertAgentSessionReturningID(ctx, AgentSession{
+			TaskID: taskID, TmuxSession: "tmux-" + executionID, Command: "shell", Status: sessionStatus,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.LinkExecutionAgentSession(ctx, executionID, sessionID); err != nil && executionStatus == ExecutionRunning {
+			t.Fatal(err)
+		}
+	}
+
+	create("exec-live", "task-live", "/repo", ExecutionRunning, "running")
+	create("exec-other", "task-other", "/other", ExecutionRunning, "running")
+	create("exec-dead", "task-dead", "/repo", ExecutionRunning, "dead")
+	create("exec-ended", "task-ended", "/repo", ExecutionSucceeded, "running")
+
+	peers, err := s.ListRunningExecutionPeers(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(peers) != 2 {
+		t.Fatalf("peers = %#v, want two live sessions", peers)
+	}
+	if peers[0].ExecutionID != "exec-live" || peers[0].TaskID != "task-live" || peers[0].WorkingDir != "/repo" {
+		t.Fatalf("first peer = %#v", peers[0])
+	}
+	if peers[1].ExecutionID != "exec-other" || peers[1].TaskID != "task-other" {
+		t.Fatalf("second peer = %#v", peers[1])
+	}
+}
+
 func TestExecutionHistorySurvivesTaskDeletion(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

@@ -4,11 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/service"
 )
 
 func captureStderrWithCode(t *testing.T, run func() int) (string, int) {
@@ -61,6 +68,219 @@ func TestReadTextInputPreservesMultilineStdin(t *testing.T) {
 		t.Fatalf("description = %q", got)
 	}
 }
+
+func TestAgentPeersJSONListsOnlySameWorktreeAgents(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legato.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := initCLIRepo(t)
+	other := initCLIRepo(t)
+	ctx := context.Background()
+	for i, peer := range []struct{ task, execution, dir string }{{"caller", "exec-caller", repo}, {"peer", "exec-peer", repo}, {"other", "exec-other", other}} {
+		execution := store.Execution{ID: peer.execution, Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, ExecutionTaskID: peer.task, TaskTitle: peer.task, WorkingDir: peer.dir, StartedAt: time.Now().Add(time.Duration(i) * time.Second)}
+		if err := s.CreateExecution(ctx, execution); err != nil {
+			t.Fatal(err)
+		}
+		sessionID, err := s.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: peer.task, TmuxSession: "legato-" + peer.task, Command: "shell", Status: "running"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.LinkExecutionAgentSession(ctx, peer.execution, sessionID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("db:\n  path: "+dbPath+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_CONFIG", configPath)
+	t.Setenv("LEGATO_TASK_ID", "caller")
+	t.Setenv("LEGATO_EXECUTION_ID", "exec-caller")
+	fake := &contractTmux{alive: map[string]bool{"legato-caller": true, "legato-peer": true, "legato-other": true}}
+	oldFactory := newAgentContractTmux
+	newAgentContractTmux = func() (service.TmuxManager, error) { return fake, nil }
+	t.Cleanup(func() { newAgentContractTmux = oldFactory })
+
+	out := captureStdout(t, func() int { return runCLI([]string{"agent", "peers", "--json"}) })
+	var envelope struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Peers []struct {
+				TaskID string `json:"task_id"`
+			} `json:"peers"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out)
+	}
+	if !envelope.OK || len(envelope.Data.Peers) != 1 || envelope.Data.Peers[0].TaskID != "peer" {
+		t.Fatalf("output = %s", out)
+	}
+}
+
+func initCLIRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	cmd := exec.Command("git", "init", "-q")
+	cmd.Dir = dir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	return dir
+}
+
+func TestAgentMessageJSONDeliversToAddressedTask(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legato.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := s.CreateExecution(ctx, store.Execution{ID: "exec-peer", Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, ExecutionTaskID: "peer", TaskTitle: "peer", WorkingDir: initCLIRepo(t), StartedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := s.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: "peer", TmuxSession: "legato-peer", Command: "shell", Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LinkExecutionAgentSession(ctx, "exec-peer", sessionID); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("db:\n  path: "+dbPath+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_CONFIG", configPath)
+	fake := &contractTmux{alive: map[string]bool{"legato-peer": true}}
+	oldFactory := newAgentContractTmux
+	newAgentContractTmux = func() (service.TmuxManager, error) { return fake, nil }
+	t.Cleanup(func() { newAgentContractTmux = oldFactory })
+
+	out := captureStdout(t, func() int { return runCLI([]string{"agent", "message", "peer", "please coordinate", "--json"}) })
+	var envelope struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Delivered bool   `json:"delivered"`
+			TaskID    string `json:"task_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out)
+	}
+	if !envelope.OK || !envelope.Data.Delivered || envelope.Data.TaskID != "peer" {
+		t.Fatalf("output = %s", out)
+	}
+	if got := fake.messages["legato-peer"]; len(got) != 1 || got[0] != "please coordinate" {
+		t.Fatalf("messages = %#v", fake.messages)
+	}
+}
+
+func TestAgentBroadcastJSONReportsDeliveredAndFailedPeers(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legato.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := initCLIRepo(t)
+	ctx := context.Background()
+	for i, taskID := range []string{"caller", "healthy", "failed"} {
+		executionID := "exec-" + taskID
+		if err := s.CreateExecution(ctx, store.Execution{ID: executionID, Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, ExecutionTaskID: taskID, TaskTitle: taskID, WorkingDir: repo, StartedAt: time.Now().Add(time.Duration(i) * time.Second)}); err != nil {
+			t.Fatal(err)
+		}
+		sessionID, err := s.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: taskID, TmuxSession: "legato-" + taskID, Command: "shell", Status: "running"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.LinkExecutionAgentSession(ctx, executionID, sessionID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("db:\n  path: "+dbPath+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_CONFIG", configPath)
+	t.Setenv("LEGATO_TASK_ID", "caller")
+	t.Setenv("LEGATO_EXECUTION_ID", "exec-caller")
+	fake := &contractTmux{
+		alive:      map[string]bool{"legato-caller": true, "legato-healthy": true, "legato-failed": true},
+		sendErrors: map[string]error{"legato-failed": errors.New("delivery failed")},
+	}
+	oldFactory := newAgentContractTmux
+	newAgentContractTmux = func() (service.TmuxManager, error) { return fake, nil }
+	t.Cleanup(func() { newAgentContractTmux = oldFactory })
+
+	out := captureStdout(t, func() int { return runCLI([]string{"agent", "broadcast", "touching agent.go", "--json"}) })
+	var envelope struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Delivered []string `json:"delivered"`
+			Failed    []struct {
+				TaskID string `json:"task_id"`
+			} `json:"failed"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, out)
+	}
+	if !envelope.OK || len(envelope.Data.Delivered) != 1 || envelope.Data.Delivered[0] != "healthy" || len(envelope.Data.Failed) != 1 || envelope.Data.Failed[0].TaskID != "failed" {
+		t.Fatalf("output = %s", out)
+	}
+	if got := fake.messages["legato-healthy"]; len(got) != 1 || got[0] != "touching agent.go" {
+		t.Fatalf("messages = %#v", fake.messages)
+	}
+}
+
+type contractTmux struct {
+	alive      map[string]bool
+	messages   map[string][]string
+	sendErrors map[string]error
+}
+
+func (f *contractTmux) Spawn(string, string, int, int, ...string) error { return nil }
+func (f *contractTmux) Kill(string) error                               { return nil }
+func (f *contractTmux) Capture(string) (string, error)                  { return "", nil }
+func (f *contractTmux) CaptureWithEscapes(string) (string, error)       { return "", nil }
+func (f *contractTmux) Attach(string) *exec.Cmd                         { return exec.Command("true") }
+func (f *contractTmux) ListSessions() ([]string, error) {
+	var sessions []string
+	for name, alive := range f.alive {
+		if alive {
+			sessions = append(sessions, name)
+		}
+	}
+	return sessions, nil
+}
+func (f *contractTmux) IsAlive(name string) (bool, error) { return f.alive[name], nil }
+func (f *contractTmux) SendKeys(string, string) error     { return nil }
+func (f *contractTmux) SendKey(string, string) error      { return nil }
+func (f *contractTmux) SendKeysLine(string, string) error { return nil }
+func (f *contractTmux) SendKeysMultiline(name, payload string) error {
+	if !f.alive[name] {
+		return fmt.Errorf("session %s unavailable", name)
+	}
+	if err := f.sendErrors[name]; err != nil {
+		return err
+	}
+	if f.messages == nil {
+		f.messages = map[string][]string{}
+	}
+	f.messages[name] = append(f.messages[name], payload)
+	return nil
+}
+func (f *contractTmux) SendKeysShellCommand(string, string) error { return nil }
+func (f *contractTmux) PipeOutput(string) (io.Reader, func(), error) {
+	return strings.NewReader(""), func() {}, nil
+}
+func (f *contractTmux) SetEnv(string, string, string) error      { return nil }
+func (f *contractTmux) SetOption(string, string, string) error   { return nil }
+func (f *contractTmux) PaneCommands() (map[string]string, error) { return nil, nil }
 
 func TestTaskCommandRejectsUnsupportedConfiguredDatabaseDriver(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")

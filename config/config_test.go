@@ -353,6 +353,34 @@ func TestLoadReturnsDefaultsWhenNoConfigFile(t *testing.T) {
 	}
 }
 
+func TestAgentsPeerAwarenessDefaultsOnAndCanBeDisabled(t *testing.T) {
+	t.Run("default", func(t *testing.T) {
+		t.Setenv("LEGATO_CONFIG", filepath.Join(t.TempDir(), "missing.yaml"))
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cfg.Agents.PeerAwareness {
+			t.Fatal("peer awareness should default on")
+		}
+	})
+
+	t.Run("disabled", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte("agents:\n  peer_awareness: false\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("LEGATO_CONFIG", path)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Agents.PeerAwareness {
+			t.Fatal("peer awareness should honor explicit false")
+		}
+	})
+}
+
 func TestAgentsEscapeKeyDefault(t *testing.T) {
 	writeTestConfig(t, `
 jira:

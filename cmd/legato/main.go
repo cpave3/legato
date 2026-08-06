@@ -1393,6 +1393,7 @@ func runServeCmd(args []string) int {
 			Notifier: notifier, OSNotifier: osNotifier,
 			LearningPromptProvider: learningPromptProvider(cfg, db, bus),
 			LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
+			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 		})
 	}
 
@@ -1718,6 +1719,7 @@ func runTUI() int {
 			Notifier:          notifier, OSNotifier: osNotifier,
 			LearningPromptProvider: learningPromptProvider(cfg, db, bus),
 			LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
+			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 		})
 	}
 
@@ -2363,6 +2365,7 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		BriefKickoffDelay:      time.Duration(cfg.Swarm.BriefKickoffDelayMs) * time.Millisecond,
 		LearningPromptProvider: learningPromptProvider(cfg, db, bus),
 		LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
+		DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 	})
 
 	swCfg := service.SwarmConfig{

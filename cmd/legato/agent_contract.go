@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
+	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/engine/tmux"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -17,6 +22,12 @@ func runAgentContract(args []string) int {
 		return runAgentStateContract(args[1:])
 	case "session-created":
 		return runAgentSessionCreatedContract(args[1:])
+	case "peers":
+		return runAgentPeersContract(args[1:])
+	case "message":
+		return runAgentMessageContract(args[1:])
+	case "broadcast":
+		return runAgentBroadcastContract(args[1:])
 	case "summary":
 		return runAgentSummaryContract(args[1:])
 	case "status":
@@ -24,6 +35,127 @@ func runAgentContract(args []string) int {
 	default:
 		return renderCommandError("agent", usageError("unknown_command", fmt.Sprintf("unknown agent command %q", args[0])), false)
 	}
+}
+
+var newAgentContractTmux = func() (service.TmuxManager, error) {
+	return tmux.New(tmux.Options{})
+}
+
+func loadAgentServiceForContract(command string, jsonMode bool) (service.AgentService, *store.Store, int) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, nil, renderCommandError(command, &commandError{Code: "config_invalid", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+	}
+	db, err := openStore(cfg)
+	if err != nil {
+		return nil, nil, renderCommandError(command, &commandError{Code: "database_unavailable", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+	}
+	manager, err := newAgentContractTmux()
+	if err != nil {
+		db.Close()
+		return nil, nil, renderCommandError(command, &commandError{Code: "dependency_unavailable", Message: err.Error(), Exit: exitDependency}, jsonMode)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		db.Close()
+		return nil, nil, renderCommandError(command, &commandError{Code: "environment_invalid", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+	}
+	return service.NewAgentService(db, manager, wd, service.AgentServiceOptions{DisablePeerAwareness: true}), db, exitOK
+}
+
+func runAgentPeersContract(args []string) int {
+	const command = "agent.peers"
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("agent", "peers"))
+	jsonMode := parsed.Present["json"]
+	if parseErr != nil {
+		return renderCommandError(command, parseErr, jsonMode)
+	}
+	if len(parsed.Positionals) != 0 {
+		return renderCommandError(command, usageError("unexpected_argument", "agent peers accepts no positional arguments"), jsonMode)
+	}
+	taskID := strings.TrimSpace(parsed.Values["task"])
+	if taskID == "" {
+		taskID = strings.TrimSpace(os.Getenv("LEGATO_TASK_ID"))
+	}
+	executionID := strings.TrimSpace(parsed.Values["execution-id"])
+	if executionID == "" {
+		executionID = strings.TrimSpace(os.Getenv("LEGATO_EXECUTION_ID"))
+	}
+	if taskID == "" && executionID == "" && strings.TrimSpace(parsed.Values["directory"]) == "" {
+		return renderCommandError(command, &commandError{Code: "agent_context_missing", Message: "provide --task, --execution-id, --directory, or run inside a Legato agent", Exit: exitEnvironment}, jsonMode)
+	}
+	agents, db, code := loadAgentServiceForContract(command, jsonMode)
+	if agents == nil {
+		return code
+	}
+	defer db.Close()
+	peers, err := agents.ListPeers(context.Background(), taskID, executionID, parsed.Values["directory"])
+	if err != nil {
+		return renderCommandError(command, commandDomainError(err), jsonMode)
+	}
+	var text strings.Builder
+	for _, peer := range peers {
+		fmt.Fprintf(&text, "%s\t%s\t%s\t%s\n", peer.TaskID, peer.ExecutionID, peer.Activity, peer.Title)
+	}
+	return writeCommandSuccess(command, map[string]any{"peers": peers}, text.String(), jsonMode)
+}
+
+func runAgentMessageContract(args []string) int {
+	const command = "agent.message"
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("agent", "message"))
+	jsonMode := parsed.Present["json"]
+	if parseErr != nil {
+		return renderCommandError(command, parseErr, jsonMode)
+	}
+	if len(parsed.Positionals) != 2 || strings.TrimSpace(parsed.Positionals[1]) == "" {
+		return renderCommandError(command, usageError("missing_argument", "agent message requires task ID and text"), jsonMode)
+	}
+	agents, db, code := loadAgentServiceForContract(command, jsonMode)
+	if agents == nil {
+		return code
+	}
+	defer db.Close()
+	if err := agents.SendMessage(context.Background(), parsed.Positionals[0], parsed.Positionals[1]); err != nil {
+		return renderCommandError(command, commandDomainError(err), jsonMode)
+	}
+	return writeCommandSuccess(command, map[string]any{"task_id": parsed.Positionals[0], "delivered": true}, "message delivered", jsonMode)
+}
+
+func runAgentBroadcastContract(args []string) int {
+	const command = "agent.broadcast"
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("agent", "broadcast"))
+	jsonMode := parsed.Present["json"]
+	if parseErr != nil {
+		return renderCommandError(command, parseErr, jsonMode)
+	}
+	if len(parsed.Positionals) != 1 || strings.TrimSpace(parsed.Positionals[0]) == "" {
+		return renderCommandError(command, usageError("missing_argument", "agent broadcast requires text"), jsonMode)
+	}
+	taskID := strings.TrimSpace(parsed.Values["task"])
+	if taskID == "" {
+		taskID = strings.TrimSpace(os.Getenv("LEGATO_TASK_ID"))
+	}
+	executionID := strings.TrimSpace(parsed.Values["execution-id"])
+	if executionID == "" {
+		executionID = strings.TrimSpace(os.Getenv("LEGATO_EXECUTION_ID"))
+	}
+	if taskID == "" && executionID == "" && strings.TrimSpace(parsed.Values["directory"]) == "" {
+		return renderCommandError(command, &commandError{Code: "agent_context_missing", Message: "provide --task, --execution-id, --directory, or run inside a Legato agent", Exit: exitEnvironment}, jsonMode)
+	}
+	agents, db, code := loadAgentServiceForContract(command, jsonMode)
+	if agents == nil {
+		return code
+	}
+	defer db.Close()
+	result, err := agents.BroadcastToPeers(context.Background(), taskID, executionID, parsed.Values["directory"], parsed.Positionals[0])
+	if err != nil {
+		return renderCommandError(command, commandDomainError(err), jsonMode)
+	}
+	text := fmt.Sprintf("delivered to %d peer(s)", len(result.Delivered))
+	for _, failure := range result.Failed {
+		text += fmt.Sprintf("\nfailed %s: %s", failure.TaskID, failure.Error)
+	}
+	return writeCommandSuccess(command, result, text, jsonMode)
 }
 
 func runAgentStateContract(args []string) int {

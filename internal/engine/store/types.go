@@ -352,6 +352,18 @@ type Execution struct {
 	EndedAt           *time.Time `db:"ended_at"`
 }
 
+// ExecutionPeer is a live, routable execution linked to an agent session.
+type ExecutionPeer struct {
+	ExecutionID  string `db:"execution_id"`
+	TaskID       string `db:"task_id"`
+	TaskTitle    string `db:"task_title"`
+	Kind         string `db:"kind"`
+	Role         string `db:"role"`
+	Activity     string `db:"activity"`
+	WorkingDir   string `db:"working_dir"`
+	AgentSession int    `db:"agent_session_id"`
+}
+
 type ExecutionActivity struct {
 	ID          int        `db:"id"`
 	ExecutionID string     `db:"execution_id"`

@@ -45,6 +45,22 @@ func nullableExecutionTime(value *time.Time) any {
 	return formatExecutionTime(*value)
 }
 
+// ListRunningExecutionPeers returns running executions backed by running agent
+// sessions and a usable routing task ID.
+func (s *Store) ListRunningExecutionPeers(ctx context.Context) ([]ExecutionPeer, error) {
+	var peers []ExecutionPeer
+	err := s.db.SelectContext(ctx, &peers, `
+		SELECT e.id AS execution_id, e.execution_task_id AS task_id,
+			e.task_title, e.kind, e.role, a.activity, e.working_dir,
+			a.id AS agent_session_id
+		FROM executions e
+		JOIN agent_sessions a ON a.id = e.agent_session_id
+		WHERE e.status = 'running' AND a.status = 'running'
+			AND COALESCE(e.execution_task_id, '') != ''
+		ORDER BY e.started_at, e.id`)
+	return peers, err
+}
+
 func (s *Store) GetExecution(ctx context.Context, id string) (*Execution, error) {
 	var execution Execution
 	if err := s.db.GetContext(ctx, &execution, `

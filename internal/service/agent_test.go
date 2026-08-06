@@ -24,33 +24,35 @@ import (
 // same maps. Test code MUST use the accessor helpers (sessionAlive, sentLinesFor,
 // envVarsFor, …) instead of touching the maps directly.
 type mockTmux struct {
-	mu              sync.Mutex
-	sessions        map[string]bool
-	captures        map[string]string
-	envVars         map[string]map[string]string // session -> key -> value
-	spawnDims       map[string][2]int            // session -> [width, height]
-	options         map[string]map[string]string // session -> key -> value
-	paneCommands    map[string]string            // session -> command
-	paneCommandsErr error
-	spawnErr        error
-	sentLines       map[string][]string // session -> ordered list of SendKeysLine payloads
-	sendLineErr     error
-	sentMultiline   map[string][]string // session -> ordered list of SendKeysMultiline payloads
-	sentKeys        map[string][]string // session -> ordered list of SendKey payloads
-	sentRaw         map[string][]string // session -> ordered list of SendKeys (literal text) payloads
+	mu               sync.Mutex
+	sessions         map[string]bool
+	captures         map[string]string
+	envVars          map[string]map[string]string // session -> key -> value
+	spawnDims        map[string][2]int            // session -> [width, height]
+	options          map[string]map[string]string // session -> key -> value
+	paneCommands     map[string]string            // session -> command
+	paneCommandsErr  error
+	spawnErr         error
+	sentLines        map[string][]string // session -> ordered list of SendKeysLine payloads
+	sendLineErr      error
+	sentMultiline    map[string][]string // session -> ordered list of SendKeysMultiline payloads
+	sendMultilineErr map[string]error
+	sentKeys         map[string][]string // session -> ordered list of SendKey payloads
+	sentRaw          map[string][]string // session -> ordered list of SendKeys (literal text) payloads
 }
 
 func newMockTmux() *mockTmux {
 	return &mockTmux{
-		sessions:      make(map[string]bool),
-		captures:      make(map[string]string),
-		envVars:       make(map[string]map[string]string),
-		spawnDims:     make(map[string][2]int),
-		options:       make(map[string]map[string]string),
-		sentLines:     make(map[string][]string),
-		sentMultiline: make(map[string][]string),
-		sentKeys:      make(map[string][]string),
-		sentRaw:       make(map[string][]string),
+		sessions:         make(map[string]bool),
+		captures:         make(map[string]string),
+		envVars:          make(map[string]map[string]string),
+		spawnDims:        make(map[string][2]int),
+		options:          make(map[string]map[string]string),
+		sentLines:        make(map[string][]string),
+		sentMultiline:    make(map[string][]string),
+		sendMultilineErr: make(map[string]error),
+		sentKeys:         make(map[string][]string),
+		sentRaw:          make(map[string][]string),
 	}
 }
 
@@ -196,6 +198,9 @@ func (m *mockTmux) SendKeysMultiline(name, payload string) error {
 	if !m.sessions[name] {
 		return fmt.Errorf("session %s not found", name)
 	}
+	if err := m.sendMultilineErr[name]; err != nil {
+		return err
+	}
 	m.sentMultiline[name] = append(m.sentMultiline[name], payload)
 	return nil
 }
@@ -326,6 +331,201 @@ func newTestAgentService(t *testing.T) (AgentService, *store.Store, *mockTmux) {
 	mt := newMockTmux()
 	svc := NewAgentService(s, mt, t.TempDir())
 	return svc, s, mt
+}
+
+func TestListPeersGroupsAgentsByGitWorktreeRoot(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	for _, taskID := range []string{"task-a", "task-b", "task-c"} {
+		createTask(t, s, taskID)
+	}
+
+	repo := initTestRepo(t)
+	dirA := filepath.Join(repo, "a")
+	dirB := filepath.Join(repo, "b")
+	if err := os.MkdirAll(dirA, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dirB, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	otherRepo := initTestRepo(t)
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, repo)
+	ctx := context.Background()
+	if err := svc.SpawnAgent(ctx, "task-a", 80, 24, AgentSpawnOptions{WorkingDir: dirA}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SpawnAgent(ctx, "task-b", 80, 24, AgentSpawnOptions{WorkingDir: dirB}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SpawnAgent(ctx, "task-c", 80, 24, AgentSpawnOptions{WorkingDir: otherRepo}); err != nil {
+		t.Fatal(err)
+	}
+
+	peers, err := svc.ListPeers(ctx, "task-a", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(peers) != 1 || peers[0].TaskID != "task-b" {
+		t.Fatalf("peers = %#v, want task-b only", peers)
+	}
+	if peers[0].WorkingDir != repo {
+		t.Fatalf("peer working directory = %q, want worktree root %q", peers[0].WorkingDir, repo)
+	}
+}
+
+func TestListPeersReconcilesDeadSessions(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	createTask(t, s, "caller")
+	createTask(t, s, "dead")
+	repo := initTestRepo(t)
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, repo)
+	ctx := context.Background()
+	if err := svc.SpawnAgent(ctx, "caller", 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SpawnAgent(ctx, "dead", 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	mt.Kill("legato-dead")
+
+	peers, err := svc.ListPeers(ctx, "caller", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(peers) != 0 {
+		t.Fatalf("peers = %#v, want stale session excluded", peers)
+	}
+}
+
+func TestBroadcastToPeersExcludesSenderAndReportsPartialFailure(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	for _, taskID := range []string{"sender", "healthy", "stale"} {
+		createTask(t, s, taskID)
+	}
+	repo := initTestRepo(t)
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, repo)
+	ctx := context.Background()
+	for _, taskID := range []string{"sender", "healthy", "stale"} {
+		if err := svc.SpawnAgent(ctx, taskID, 80, 24); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mt.mu.Lock()
+	mt.sendMultilineErr["legato-stale"] = errors.New("delivery failed")
+	mt.mu.Unlock()
+
+	result, err := svc.BroadcastToPeers(ctx, "sender", "", "", "touching agent.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Delivered) != 1 || result.Delivered[0] != "healthy" {
+		t.Fatalf("delivered = %#v", result.Delivered)
+	}
+	if len(result.Failed) != 1 || result.Failed[0].TaskID != "stale" {
+		t.Fatalf("failed = %#v", result.Failed)
+	}
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+	if got := mt.sentMultiline["legato-healthy"]; len(got) != 1 || got[0] != "touching agent.go" {
+		t.Fatalf("healthy messages = %#v", got)
+	}
+	if got := mt.sentMultiline["legato-sender"]; len(got) != 0 {
+		t.Fatalf("sender messages = %#v", got)
+	}
+}
+
+func TestSpawnAgentNotifiesNewAndExistingWorktreePeers(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	createTask(t, s, "first")
+	createTask(t, s, "second")
+	repo := initTestRepo(t)
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, repo, AgentServiceOptions{BriefKickoffDelay: time.Millisecond})
+	ctx := context.Background()
+	if err := svc.SpawnAgent(ctx, "first", 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SpawnAgent(ctx, "second", 80, 24); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		mt.mu.Lock()
+		first := append([]string(nil), mt.sentMultiline["legato-first"]...)
+		second := append([]string(nil), mt.sentMultiline["legato-second"]...)
+		mt.mu.Unlock()
+		if len(first) == 1 && len(second) == 1 {
+			if !strings.Contains(first[0], "second") || !strings.Contains(first[0], "joined") {
+				t.Fatalf("existing peer notice = %q", first[0])
+			}
+			if !strings.Contains(second[0], "first") || !strings.Contains(second[0], "already working") {
+				t.Fatalf("new peer notice = %q", second[0])
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("notices first=%#v second=%#v", first, second)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestDisabledPeerAwarenessSuppressesNoticesButKeepsDiscovery(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	createTask(t, s, "first")
+	createTask(t, s, "second")
+	repo := initTestRepo(t)
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, repo, AgentServiceOptions{DisablePeerAwareness: true})
+	ctx := context.Background()
+	if err := svc.SpawnAgent(ctx, "first", 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SpawnAgent(ctx, "second", 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	peers, err := svc.ListPeers(ctx, "second", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(peers) != 1 || peers[0].TaskID != "first" {
+		t.Fatalf("peers = %#v", peers)
+	}
+	time.Sleep(10 * time.Millisecond)
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+	if len(mt.sentMultiline["legato-first"]) != 0 || len(mt.sentMultiline["legato-second"]) != 0 {
+		t.Fatalf("automatic notices were sent: %#v", mt.sentMultiline)
+	}
 }
 
 func TestSpawnAgentBeginsReviewCaptureInOrdinaryRepository(t *testing.T) {
