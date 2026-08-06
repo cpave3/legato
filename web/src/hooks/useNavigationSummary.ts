@@ -17,10 +17,13 @@ export async function fetchNavigationSummary(baseUrl: string): Promise<Navigatio
   return response.json()
 }
 
+const NAVIGATION_SUMMARY_REFETCH_INTERVAL_MS = 60_000
+
 export function useNavigationSummary() {
   const { baseUrl } = useServer()
   return useQuery({
     queryKey: queryKeys.navigationSummary(baseUrl),
     queryFn: () => fetchNavigationSummary(baseUrl),
+    refetchInterval: NAVIGATION_SUMMARY_REFETCH_INTERVAL_MS,
   })
 }

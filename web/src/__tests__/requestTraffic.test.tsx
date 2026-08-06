@@ -1,4 +1,4 @@
-import { act, render, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import { QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -106,6 +106,37 @@ describe("web request traffic", () => {
         "/api/workflows": 1,
         "/api/settings": 1,
       })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("refreshes visible navigation counts after one minute without a websocket event", async () => {
+    let navigationRequests = 0
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const path = requestPath(input)
+      if (path !== "/api/navigation-summary") throw new Error(`unexpected request: ${path}`)
+      navigationRequests += 1
+      return response({ attention: 0, review: 0, plans: 0, workflow_attention: 0, agents: navigationRequests === 1 ? 0 : 3 })
+    }))
+
+    vi.useFakeTimers()
+    try {
+      const client = createQueryClient()
+      render(<QueryClientProvider client={client}><QuerySyncProvider><MemoryRouter initialEntries={["/agents"]}><Routes><Route element={<Layout/>}><Route path="/agents" element={<div>Agents page</div>}/></Route></Routes></MemoryRouter></QuerySyncProvider></QueryClientProvider>)
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(navigationRequests).toBe(1)
+      expect(screen.getAllByLabelText("Agents").length).toBeGreaterThan(0)
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(59_999) })
+      expect(navigationRequests).toBe(1)
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+      expect(navigationRequests).toBe(2)
+      await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+      expect(navigationRequests).toBe(2)
+      expect(screen.getAllByLabelText("Agents: 3 non-idle").length).toBeGreaterThan(0)
     } finally {
       vi.useRealTimers()
     }
