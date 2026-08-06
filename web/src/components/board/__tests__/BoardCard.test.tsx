@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { BoardCard } from "../BoardCard"
 import type { BoardCard as BoardCardType } from "../../../lib/board-types"
 
@@ -54,6 +54,21 @@ describe("BoardCard", () => {
     expect(root.className).toContain("ring-inset")
     expect(root.className).toContain("ring-indigo-500/60")
     expect(root.className).toContain("border-l-[#E06C75]")
+  })
+
+  it("composes dark selection, agent activity, and the priority stripe", () => {
+    const { container } = render(
+      <BoardCard card={makeCard()} selected column="Doing" showWorkspace onClick={() => {}} />
+    )
+
+    const root = container.firstElementChild as HTMLElement
+    expect(root.className).toContain("bg-[linear-gradient")
+    expect(root.className).not.toContain("bg-[#EEEDFE]")
+    expect(root.className).toContain("ring-indigo-500/60")
+    expect(root.className).toContain("agent-activity-orbit-working")
+    expect(root.className).toContain("border-l-[#E06C75]")
+    expect(within(root).getByText(/RUNNING/).className).toContain("text-[#1D9E75]")
+    expect(within(root).getByText("Test title").className).toContain("text-zinc-100")
   })
 
   it("animates active cards slowly when idle and faster while working", () => {

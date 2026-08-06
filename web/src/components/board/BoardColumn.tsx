@@ -75,9 +75,9 @@ export function BoardColumn({
     >
       <div
         className={cn(
-          "flex items-center justify-between border-t-4 px-2 py-2",
+          "flex items-center justify-between border-t-4 px-2 py-2 transition-[background-color,box-shadow]",
           columnBorderColor(name),
-          isActive ? "bg-zinc-900/60" : "bg-transparent"
+          isActive ? "bg-indigo-950/35 shadow-sm shadow-indigo-950/50" : "bg-transparent"
         )}
       >
         <span className={cn("text-xs font-bold uppercase tracking-wider", isActive ? "text-[#AFA9EC]" : "text-zinc-500")}>
@@ -87,7 +87,7 @@ export function BoardColumn({
           {cards.length}
         </span>
       </div>
-      <div data-board-column-cards className="board-column-scrollbar flex min-h-0 min-w-0 flex-1 flex-col gap-1.5 overflow-x-hidden overflow-y-auto py-2">
+      <div data-board-column-cards className="board-column-scrollbar flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto py-2">
         {cards.map((card, i) => (
           <div
             key={card.id}

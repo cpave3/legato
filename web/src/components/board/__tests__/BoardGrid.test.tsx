@@ -13,7 +13,7 @@ describe("BoardGrid", () => {
       { name: "Backlog", cards: [{ id: "T-1", title: "A", priority: "", issue_type: "", status: "Backlog", provider: "", has_warning: false, agent_active: false, agent_state: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0, workspace_id: null, workspace_name: "", workspace_color: "", pr_check_status: "", pr_review_decision: "", pr_comment_count: 0, pr_is_draft: false, pr_number: 0 }] },
       { name: "Doing", cards: [{ id: "T-2", title: "B", priority: "", issue_type: "", status: "Doing", provider: "", has_warning: false, agent_active: false, agent_state: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0, workspace_id: null, workspace_name: "", workspace_color: "", pr_check_status: "", pr_review_decision: "", pr_comment_count: 0, pr_is_draft: false, pr_number: 0 }] },
     ]
-    render(
+    const { container } = render(
       <BoardGrid
         columns={columns}
         cursorCol={0}
@@ -22,6 +22,7 @@ describe("BoardGrid", () => {
         onCardClick={() => {}}
       />
     )
+    expect(container.firstElementChild?.className).toContain("gap-2")
     expect(screen.getByText(/Backlog/i)).toBeTruthy()
     expect(screen.getByText(/Doing/i)).toBeTruthy()
     expect(screen.getByText("A")).toBeTruthy()

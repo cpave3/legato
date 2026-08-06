@@ -72,15 +72,14 @@ function priorityTextClass(priority: string): string {
   }
 }
 
-function providerIcon(provider: string, selected: boolean) {
-  const dimColor = selected ? "text-zinc-500" : "text-zinc-600"
+function providerIcon(provider: string) {
   switch (provider) {
     case "jira":
-      return <Globe size={12} className={cn("text-[#85B7EB]", selected && "text-[#285878]")} />
+      return <Globe size={12} className="text-[#85B7EB]" />
     case "github":
-      return <Code2 size={12} className={cn("text-zinc-300", selected && "text-[#1E1E2E]")} />
+      return <Code2 size={12} className="text-zinc-300" />
     default:
-      return <FileText size={12} className={dimColor} />
+      return <FileText size={12} className="text-zinc-600" />
   }
 }
 
@@ -103,57 +102,55 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
       draggable
       onDragStart={onDragStart}
       className={cn(
-        "relative cursor-pointer rounded border-l-2 px-2.5 py-2 text-sm transition-colors",
+        "relative cursor-pointer rounded border-y border-r border-l-2 border-y-zinc-800/80 border-r-zinc-800/80 px-2.5 py-2 text-sm text-zinc-300 shadow-sm shadow-black/20 transition-[background-color,border-color,box-shadow]",
         priorityBorderClass(card.priority),
         card.agent_active && "ring-1 ring-inset ring-indigo-500/60",
         animateAgentActivity && "agent-activity-orbit",
         animateAgentActivity && !card.agent_state && "agent-activity-orbit-idle",
         animateAgentActivity && card.agent_state === "working" && "agent-activity-orbit-working",
         selected
-          ? "bg-[#EEEDFE] text-[#1E1E2E]"
-          : "bg-[#1E1E2E] text-zinc-300 hover:bg-zinc-900",
+          ? "bg-[linear-gradient(135deg,#292342_0%,#211d35_52%,#171725_100%)] border-y-violet-400/45 border-r-violet-400/45 shadow-md shadow-violet-950/40"
+          : "bg-[#1E1E2E] hover:border-y-zinc-700 hover:border-r-zinc-700 hover:bg-zinc-900 hover:shadow-md hover:shadow-black/30",
         isDone && !selected && "opacity-60"
       )}
     >
       {onActionMenu && <button type="button" aria-label={`Open actions for ${card.title}`} onClick={event => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); onActionMenu({ x: rect.right, y: rect.bottom }) }} className="absolute right-1 top-1 z-10 flex h-7 w-7 items-center justify-center rounded text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><MoreHorizontal size={15} /></button>}
       {/* Key line */}
       <div className="flex items-center gap-1.5">
-        {providerIcon(card.provider, selected)}
+        {providerIcon(card.provider)}
         {card.agent_state === "working" && (
-          <span className={cn("flex items-center gap-0.5 text-[10px] font-bold", selected ? "text-[#287828]" : "text-[#1D9E75]")}>
+          <span className="flex items-center gap-0.5 text-[10px] font-bold text-[#1D9E75]">
             <Play size={8} fill="currentColor" /> RUNNING
           </span>
         )}
         {card.agent_state === "waiting" && (
-          <span className={cn("flex items-center gap-0.5 text-[10px] font-bold", selected ? "text-[#285878]" : "text-[#E5C07B]")}>
+          <span className="flex items-center gap-0.5 text-[10px] font-bold text-[#E5C07B]">
             <Pause size={8} /> WAITING
           </span>
         )}
         {card.agent_state === "error" && (
-          <span className={cn("flex items-center gap-0.5 text-[10px] font-bold", selected ? "text-red-700" : "text-red-400")}>
+          <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-400">
             <AlertTriangle size={8} /> ERROR
           </span>
         )}
         {card.agent_state === "mixed" && (
-          <span className={cn("flex items-center gap-0.5 text-[10px] font-bold", selected ? "text-violet-700" : "text-violet-400")}>
+          <span className="flex items-center gap-0.5 text-[10px] font-bold text-violet-400">
             <ListChecks size={8} /> MIXED
           </span>
         )}
         {card.agent_active && !card.agent_state && (
-          <span className={cn("flex items-center gap-0.5 text-[10px]", selected ? "text-zinc-500" : "text-zinc-500")}>
+          <span className="flex items-center gap-0.5 text-[10px] text-zinc-500">
             IDLE
           </span>
         )}
-        {card.has_warning && (
-          <AlertTriangle size={10} className={cn(selected ? "text-red-700" : "text-red-400")} />
-        )}
-        <span className={cn("text-[10px] font-mono", selected ? "text-zinc-500" : "text-zinc-600")}>
+        {card.has_warning && <AlertTriangle size={10} className="text-red-400" />}
+        <span className="text-[10px] font-mono text-zinc-500">
           {card.id}
         </span>
       </div>
 
       {/* Title */}
-      <div className={cn("mt-1 font-semibold leading-snug", isDone && !selected && "line-through text-zinc-500", selected && "text-[#1E1E2E]")}>
+      <div className={cn("mt-1 font-semibold leading-snug", selected && "text-zinc-100", isDone && !selected && "line-through text-zinc-500")}>
         {card.title}
       </div>
 
@@ -164,26 +161,24 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
             {card.priority}
           </span>
         )}
-        {card.priority && card.issue_type && <span className={cn(selected ? "text-zinc-400" : "text-zinc-600")}>·</span>}
-        {card.issue_type && (
-          <span className={cn(selected ? "text-zinc-500" : "text-zinc-500")}>{card.issue_type}</span>
-        )}
+        {card.priority && card.issue_type && <span className="text-zinc-600">·</span>}
+        {card.issue_type && <span className="text-zinc-500">{card.issue_type}</span>}
         {showWorkspace && card.workspace_name && (
           <>
-            <span className={cn(selected ? "text-zinc-400" : "text-zinc-600")}>·</span>
+            <span className="text-zinc-600">·</span>
             <span className="flex items-center gap-1">
               <span
                 className="inline-block h-1.5 w-1.5 rounded-full"
                 style={{ backgroundColor: card.workspace_color || "#71717a" }}
               />
-              <span className={cn(selected ? "text-zinc-500" : "text-zinc-500")}>{card.workspace_name}</span>
+              <span className="text-zinc-500">{card.workspace_name}</span>
             </span>
           </>
         )}
         {hasSwarm && (
           <>
-            <span className={cn(selected ? "text-zinc-400" : "text-zinc-600")}>·</span>
-            <span className={cn("font-bold", selected ? "text-[#5b3fa3]" : "text-[#AFA9EC]")}>
+            <span className="text-zinc-600">·</span>
+            <span className="font-bold text-[#AFA9EC]">
               {card.swarm_stats?.done}/{card.swarm_stats?.total} <Diamond size={8} className="inline" />
             </span>
           </>
@@ -202,7 +197,7 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
       {card.pr_number > 0 && (
         <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
           {card.pr_is_draft ? (
-            <span className={cn("rounded bg-zinc-800 px-1 py-0.5", selected ? "text-zinc-500" : "text-zinc-500")}>
+            <span className="rounded bg-zinc-800 px-1 py-0.5 text-zinc-500">
               Draft
             </span>
           ) : (
@@ -233,7 +228,7 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
                 </span>
               )}
               {card.pr_comment_count > 0 && (
-                <span className={cn("flex items-center gap-0.5", selected ? "text-zinc-500" : "text-zinc-600")}>
+                <span className="flex items-center gap-0.5 text-zinc-500">
                   <MessageSquare size={9} /> {card.pr_comment_count}
                 </span>
               )}
@@ -246,18 +241,18 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
       {(workingDur || waitingDur || errorDur) && (
         <div className="mt-1 flex items-center gap-2 text-[10px]">
           {workingDur && (
-            <span className={cn("flex items-center gap-0.5", selected ? "text-[#287828]" : "text-[#1D9E75]")}>
-              <Play size={8} fill="currentColor" /> <span className={cn(selected ? "text-zinc-500" : "text-zinc-600")}>{workingDur}</span>
+            <span className="flex items-center gap-0.5 text-[#1D9E75]">
+              <Play size={8} fill="currentColor" /> <span className="text-zinc-500">{workingDur}</span>
             </span>
           )}
           {waitingDur && (
-            <span className={cn("flex items-center gap-0.5", selected ? "text-[#285878]" : "text-[#E5C07B]")}>
-              <Pause size={8} /> <span className={cn(selected ? "text-zinc-500" : "text-zinc-600")}>{waitingDur}</span>
+            <span className="flex items-center gap-0.5 text-[#E5C07B]">
+              <Pause size={8} /> <span className="text-zinc-500">{waitingDur}</span>
             </span>
           )}
           {errorDur && (
-            <span className={cn("flex items-center gap-0.5", selected ? "text-red-700" : "text-red-400")}>
-              <AlertTriangle size={8} /> <span className={cn(selected ? "text-zinc-500" : "text-zinc-600")}>{errorDur}</span>
+            <span className="flex items-center gap-0.5 text-red-400">
+              <AlertTriangle size={8} /> <span className="text-zinc-500">{errorDur}</span>
             </span>
           )}
         </div>

@@ -13,7 +13,7 @@ interface BoardGridProps {
 
 export function BoardGrid({ columns, cursorCol, cursorRow, showWorkspace, onCardClick, onCardContextMenu, onCardMove }: BoardGridProps) {
   return (
-    <div className="flex h-full gap-1 overflow-x-auto overflow-y-hidden px-2 pb-2" style={{ scrollbarWidth: "thin" }}>
+    <div className="flex h-full gap-2 overflow-x-auto overflow-y-hidden px-2 pb-2" style={{ scrollbarWidth: "thin" }}>
       {columns.map((col, i) => (
         <BoardColumnComponent
           key={col.name}

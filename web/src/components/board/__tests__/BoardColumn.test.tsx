@@ -49,6 +49,26 @@ describe("BoardColumn", () => {
     expect(screen.getByText("2")).toBeTruthy()
   })
 
+  it("gives the active column a violet-tinted header and roomier card stack", () => {
+    render(
+      <BoardColumn
+        name="Doing"
+        cards={[makeCard()]}
+        selectedIndex={0}
+        isActive
+        showWorkspace={false}
+        onCardClick={() => {}}
+        colIndex={0}
+      />
+    )
+
+    const header = screen.getByText("Doing").parentElement!
+    const cardList = screen.getByText("Test title").closest("[data-board-column-cards]")!
+    expect(header.className).toContain("bg-indigo-950/35")
+    expect(header.className).toContain("shadow-sm")
+    expect(cardList.className).toContain("gap-2")
+  })
+
   it("keeps the header fixed while the card list owns vertical scrolling", () => {
     const { container } = render(
       <BoardColumn
