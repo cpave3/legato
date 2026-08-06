@@ -18,9 +18,9 @@ type mockLegatoServer struct {
 	*httptest.Server
 	agentsJSON    string
 	attentionJSON string
-	agentsCalls    int32
-	attnCalls      int32
-	healthOK       int32
+	agentsCalls   int32
+	attnCalls     int32
+	healthOK      int32
 }
 
 func newMockServer(agentsJSON, attentionJSON string) *mockLegatoServer {
@@ -89,7 +89,7 @@ func TestFetchAgents(t *testing.T) {
 
 func TestFetchAttention(t *testing.T) {
 	attentionJSON := `{"items":[
-		{"id":"attn-1","producer":"plans","title":"Approve plan X","urgency":"normal","navigation":{"kind":"plan","target":"pl-1"},"actions":[{"id":"open","label":"Open plan","kind":"navigate"}]}
+		{"id":"attn-1","producer":"plans","signal_kind":"plan_decision","title":"Approve plan X","urgency":"normal","navigation":{"kind":"plan","target":"pl-1"},"actions":[{"id":"open","label":"Open plan","kind":"navigate"}]}
 	]}`
 	srv := newMockServer(`[]`, attentionJSON)
 	defer srv.Close()
@@ -102,8 +102,8 @@ func TestFetchAttention(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("expected 1 attention item, got %d", len(items))
 	}
-	if items[0].Producer != "plans" {
-		t.Errorf("producer: got %q, want %q", items[0].Producer, "plans")
+	if items[0].Producer != "plans" || items[0].SignalKind != "plan_decision" {
+		t.Errorf("attention classification: producer=%q signal_kind=%q", items[0].Producer, items[0].SignalKind)
 	}
 	if items[0].Navigation.Kind != "plan" || items[0].Navigation.Target != "pl-1" {
 		t.Errorf("navigation: %+v", items[0].Navigation)

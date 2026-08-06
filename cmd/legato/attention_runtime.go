@@ -16,18 +16,9 @@ import (
 // planSvc, reviewSvc, and workflowSvc may be nil; nil sources are skipped.
 func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *server.Server, planSvc *service.PlanService, reviewSvc *service.ReviewService, workflowSvc *service.WorkflowService, triggerCoordinator ...*service.WorkflowTriggerCoordinator) *service.AttentionService {
 	attention := service.NewAttentionService(db, bus)
-	learningAdapter := service.NewLearningAttentionAdapter(service.NewLearningService(db, bus))
-	mustRegister(attention.RegisterProducerWithEvents(learningAdapter, events.EventLearningChanged))
-	mustRegister(attention.RegisterHandler(learningAdapter.Producer(), learningAdapter))
-
 	if planSvc != nil {
 		adapter := service.NewPlanAttentionAdapter(planSvc)
 		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventPlanChanged))
-		mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
-	}
-	if reviewSvc != nil {
-		adapter := service.NewReviewAttentionAdapter(reviewSvc)
-		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventReviewChanged))
 		mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
 	}
 	if workflowSvc != nil {
@@ -48,6 +39,10 @@ func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *s
 
 	if err := attention.ReconcileAll(ctx); err != nil {
 		log.Printf("attention: startup reconciliation: %v", err)
+	} else if counts, err := attention.CountsBySignal(ctx); err != nil {
+		log.Printf("attention: startup signal counts: %v", err)
+	} else {
+		log.Printf("attention: startup signal counts: %v", counts)
 	}
 	return attention
 }

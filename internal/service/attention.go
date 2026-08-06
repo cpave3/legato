@@ -26,8 +26,45 @@ type AttentionAction struct {
 	RequiresConfirm bool   `json:"requires_confirmation,omitempty"`
 }
 
+const (
+	AttentionSignalPlanDecision                = "plan_decision"
+	AttentionSignalReviewReady                 = "review_ready"
+	AttentionSignalWorkflowManualGate          = "workflow_manual_gate"
+	AttentionSignalWorkflowWaitingAgent        = "workflow_waiting_agent"
+	AttentionSignalWorkflowFailed              = "workflow_failed"
+	AttentionSignalWorkflowTriggerInput        = "workflow_trigger_input"
+	AttentionSignalWorkflowTriggerConfirmation = "workflow_trigger_confirmation"
+	AttentionSignalWorkflowTriggerFailed       = "workflow_trigger_failed"
+	AttentionSignalWorkflowCompletion          = "workflow_completion"
+	AttentionSignalLearningCuratorWork         = "learning_curator_work"
+)
+
+var defaultAttentionSignals = []string{
+	AttentionSignalPlanDecision,
+	AttentionSignalWorkflowManualGate,
+	AttentionSignalWorkflowWaitingAgent,
+	AttentionSignalWorkflowFailed,
+	AttentionSignalWorkflowTriggerInput,
+	AttentionSignalWorkflowTriggerConfirmation,
+	AttentionSignalWorkflowTriggerFailed,
+}
+
+var knownAttentionSignals = map[string]bool{
+	AttentionSignalPlanDecision:                true,
+	AttentionSignalReviewReady:                 true,
+	AttentionSignalWorkflowManualGate:          true,
+	AttentionSignalWorkflowWaitingAgent:        true,
+	AttentionSignalWorkflowFailed:              true,
+	AttentionSignalWorkflowTriggerInput:        true,
+	AttentionSignalWorkflowTriggerConfirmation: true,
+	AttentionSignalWorkflowTriggerFailed:       true,
+	AttentionSignalWorkflowCompletion:          true,
+	AttentionSignalLearningCuratorWork:         true,
+}
+
 type AttentionInput struct {
 	Producer       string
+	SignalKind     string
 	SourceKey      string
 	SourceRevision string
 	TaskID         string
@@ -44,6 +81,7 @@ type AttentionInput struct {
 type AttentionItem struct {
 	ID                string              `json:"id"`
 	Producer          string              `json:"producer"`
+	SignalKind        string              `json:"signal_kind"`
 	SourceKey         string              `json:"source_key"`
 	SourceRevision    string              `json:"source_revision"`
 	TaskID            string              `json:"task_id,omitempty"`
@@ -224,7 +262,7 @@ func (s *AttentionService) Upsert(ctx context.Context, input AttentionInput) (*A
 		ID: randomPlanID("att-"), Producer: input.Producer, SourceKey: input.SourceKey,
 		SourceRevision: input.SourceRevision, TaskID: input.TaskID, WorkspaceID: input.WorkspaceID,
 		Title: input.Title, Reason: input.Reason, Detail: input.Detail, Category: input.Category,
-		Urgency: input.Urgency, NavigationJSON: string(navigation), ActionsJSON: string(actions),
+		Urgency: input.Urgency, SignalKind: input.SignalKind, NavigationJSON: string(navigation), ActionsJSON: string(actions),
 	})
 	if err != nil {
 		return nil, err
@@ -235,12 +273,16 @@ func (s *AttentionService) Upsert(ctx context.Context, input AttentionInput) (*A
 	return decodeAttentionItem(*stored)
 }
 
+func (s *AttentionService) CountsBySignal(ctx context.Context) (map[string]map[string]int, error) {
+	return s.store.AttentionItemCountsBySignal(ctx)
+}
+
 func (s *AttentionService) Count(ctx context.Context) (int, error) {
-	return s.store.CountAttentionItems(ctx, "open")
+	return s.store.CountAttentionItems(ctx, "open", defaultAttentionSignals)
 }
 
 func (s *AttentionService) List(ctx context.Context, filter AttentionFilter) ([]AttentionItem, error) {
-	stored, err := s.store.ListAttentionItems(ctx, "open")
+	stored, err := s.store.ListAttentionItems(ctx, "open", defaultAttentionSignals)
 	if err != nil {
 		return nil, err
 	}
@@ -342,13 +384,16 @@ func (s *AttentionService) Resolve(ctx context.Context, producer, sourceKey stri
 
 func validateAttentionInput(input AttentionInput) error {
 	for name, value := range map[string]string{
-		"producer": input.Producer, "source key": input.SourceKey, "source revision": input.SourceRevision,
+		"producer": input.Producer, "signal kind": input.SignalKind, "source key": input.SourceKey, "source revision": input.SourceRevision,
 		"title": input.Title, "reason": input.Reason, "category": input.Category,
 		"urgency": input.Urgency, "navigation kind": input.Navigation.Kind, "navigation target": input.Navigation.Target,
 	} {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("attention %s is required", name)
 		}
+	}
+	if !knownAttentionSignals[input.SignalKind] {
+		return fmt.Errorf("unknown attention signal kind %q", input.SignalKind)
 	}
 	seen := map[string]bool{}
 	for _, action := range input.Actions {
@@ -365,7 +410,7 @@ func validateAttentionInput(input AttentionInput) error {
 
 func decodeAttentionItem(item store.AttentionItem) (*AttentionItem, error) {
 	out := &AttentionItem{
-		ID: item.ID, Producer: item.Producer, SourceKey: item.SourceKey, SourceRevision: item.SourceRevision,
+		ID: item.ID, Producer: item.Producer, SignalKind: item.SignalKind, SourceKey: item.SourceKey, SourceRevision: item.SourceRevision,
 		TaskID: item.TaskID, WorkspaceID: item.WorkspaceID, Title: item.Title, Reason: item.Reason,
 		Detail: item.Detail, Category: item.Category, Urgency: item.Urgency, Status: item.Status,
 		DismissedRevision: item.DismissedRevision, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,

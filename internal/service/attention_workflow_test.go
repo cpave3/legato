@@ -9,6 +9,7 @@ import (
 type fakeWorkflowAttentionSource struct {
 	runs         []store.WorkflowRun
 	view         *store.WorkflowRunView
+	showErr      error
 	triggerCalls int
 	retryCalls   int
 	promptCalls  int
@@ -18,7 +19,7 @@ func (f *fakeWorkflowAttentionSource) ListRuns(context.Context, string, int) ([]
 	return f.runs, nil
 }
 func (f *fakeWorkflowAttentionSource) Show(context.Context, string) (*store.WorkflowRunView, error) {
-	return f.view, nil
+	return f.view, f.showErr
 }
 func (f *fakeWorkflowAttentionSource) TriggerStep(context.Context, string, string, bool) (*store.WorkflowRunView, error) {
 	f.triggerCalls++

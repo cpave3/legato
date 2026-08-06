@@ -44,10 +44,7 @@ func runAttentionCmd(args []string) int {
 	attention := service.NewAttentionService(db, nil)
 	// Register producers so the CLI can reconcile without a running server.
 	planSvc := service.NewPlanService(db, nil, nil)
-	reviewSvc := service.NewReviewService(db, nil, nil)
 	_ = attention.RegisterProducerWithEvents(service.NewPlanAttentionAdapter(planSvc))
-	_ = attention.RegisterProducerWithEvents(service.NewReviewAttentionAdapter(reviewSvc))
-	_ = attention.RegisterProducerWithEvents(service.NewLearningAttentionAdapter(service.NewLearningService(db, nil)))
 	_ = attention.ReconcileAll(context.Background())
 	items, err := attention.List(context.Background(), service.AttentionFilter{
 		Producer: flags["producer"],

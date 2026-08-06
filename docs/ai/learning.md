@@ -11,10 +11,9 @@ The implementation follows Legato's normal layer boundaries:
 - `internal/service/workflow_learning_definition.go`, `workflow_interview.go`, and `workflow_learning.go` — built-in curation/consolidation definitions and learning-specific workflow executors.
 - `internal/cli/learning.go` and `cmd/legato/learning_cmd.go` — the public `legato learn` command family and workflow callbacks.
 - `internal/server/learning.go` — authenticated HTTP API.
-- `internal/service/attention_learning.go` — the `learnings` Attention producer.
 - `web/src/pages/LearningsPage.tsx` and `LearningDetailPage.tsx` — browser list/search/detail and decision UI.
 
-The `LearningService` owns policy. CLI, HTTP, workflows, Attention, and agent launch code call that service rather than mutating learning tables directly.
+The `LearningService` owns policy. CLI, HTTP, workflows, and agent launch code call that service rather than mutating learning tables directly. Learning curation—including stale records—stays in the Learning ledger and does not increment Attention.
 
 ## Evidence, learning, and incorporation are different records
 
@@ -65,7 +64,7 @@ The lifecycle is:
 
 1. Propose from a `validated` learning (`proposed`; the learning becomes `action_proposed`).
 2. An implementation process performs the change and submits exact references plus a verification kind/result (`verification_pending`).
-3. Deterministic target verification, or an explicit trusted user action through Attention/server, passes or fails verification (`verified` or `failed`). A pass marks the learning `incorporated`.
+3. Deterministic target verification, or an explicit trusted user action through the Learning API/UI, passes or fails verification (`verified` or `failed`). A pass marks the learning `incorporated`.
 
 Only a **verified** `prompt_profile` incorporation makes a validated/incorporated learning eligible for automatic launch-prompt context. A verified documentation incorporation does not.
 
@@ -136,7 +135,7 @@ learning:
 
 `learning.enabled` defaults to `false` and gates injection of built-in task-column triggers. When enabled, every named transition column must exist. `curator_adapter` overrides `swarm.default_agent`; one of them must name a configured adapter, and `curator_tier`, when set, must exist for that adapter. Task curation derives the curator working directory from the task's durable checkout/worktree. `curator_working_dir` is an optional global override and must be absolute when set. Triggered definitions ignore tasks marked as learning-workflow execution tasks, preventing recursion.
 
-`enabled` controls only automatic transition-triggered reflection/curation. `prompt_enabled` independently gates launch-time prompt composition. The local ledger, CLI/API, web pages, and manual `learn curate`/`consolidate` remain available regardless. Accepted learnings start prompt-disabled and create an Attention item asking whether to enable them or leave them disabled; either decision is reversible later in Learning. Manual curation still needs a valid curator adapter in practice. `reflection_timeout`, `reflection_retries`, `consolidation_automatic`, and `consolidation_threshold` are reserved settings: they are parsed and validated but currently have no operational effect. Consolidation remains manual.
+`enabled` controls only automatic transition-triggered reflection/curation. `prompt_enabled` independently gates launch-time prompt composition. The local ledger, CLI/API, web pages, and manual `learn curate`/`consolidate` remain available regardless. Accepted learnings start prompt-disabled; enablement is an explicit, reversible decision in Learning. Manual curation still needs a valid curator adapter in practice. `reflection_timeout`, `reflection_retries`, `consolidation_automatic`, and `consolidation_threshold` are reserved settings: they are parsed and validated but currently have no operational effect. Consolidation remains manual.
 
 See [configuration](config.md) for defaults and validation.
 
@@ -236,21 +235,11 @@ All routes are under the normal bearer-token middleware. Request JSON is strict 
 
 Revision conflicts return 409, missing records 404, and validation errors 400. List/search limits default to 50 and cap at 200.
 
-## Web UI and Attention
+## Web UI and dedicated curation queue
 
 The web app has `/learning` for filtering, FTS search, activation badges, and task-scoped effective prompt preview. `/learning/:learningId` provides candidate decisions, evidence provenance, incorporation history, and a reversible prompt Enable/Disable switch for accepted learnings. File/skill/check incorporation remains an advanced CLI/API workflow.
 
-The Attention producer is named `learnings`. It publishes:
-
-- `candidate` learnings with Accept/Reject actions;
-- newly accepted, undecided learnings with Enable for prompts/Leave disabled actions;
-- `stale` learnings as high urgency;
-- `verification_pending` incorporations with accept/reject verification actions; and
-- stale incorporations as high urgency.
-
-Actions retain revision checks and route through `LearningService`. `EventLearningChanged` causes reconciliation and normal `attention_changed` refresh. The generic web Attention page can execute these actions, but its current navigation mapper does not resolve `navigation.kind: learning`, so an **Open** link is not shown there; use the Learning navigation item. The TUI consumes the same generic Attention records and has no dedicated learning detail page.
-
-See [Attention](attention.md) for generic dismissal/reconciliation semantics.
+Learning candidates, proposals, activation, verification, and stale records stay in the Learning ledger. They are not projected into Attention and do not increment its badge. This keeps routine curation discoverable without weakening Attention's interrupt-only contract.
 
 ## Verification and drift
 

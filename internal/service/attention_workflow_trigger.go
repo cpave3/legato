@@ -41,14 +41,19 @@ func (a *WorkflowTriggerAttentionAdapter) Snapshot(ctx context.Context) ([]Atten
 		reason := "Workflow inputs required"
 		detail := fmt.Sprintf("Task %s entered %s; missing: %v. Open the task to provide inputs or run the workflow manually.", transition.TaskID, transition.ToColumn, missing)
 		actions := []AttentionAction{{ID: "provide_inputs", Label: "Provide inputs", Kind: "navigate"}, {ID: "skip", Label: "Skip this trigger", Kind: "execute", RequiresConfirm: true}}
+		signalKind := AttentionSignalWorkflowTriggerInput
+		urgency := "normal"
 		if request.Status == "waiting_confirmation" {
+			signalKind = AttentionSignalWorkflowTriggerConfirmation
 			reason = "Workflow confirmation required"
 			detail = fmt.Sprintf("Task %s entered %s. Run %s?", transition.TaskID, transition.ToColumn, request.WorkflowName)
 			actions = []AttentionAction{{ID: "confirm", Label: "Run workflow", Kind: "execute"}, {ID: "skip", Label: "Skip this trigger", Kind: "execute", RequiresConfirm: true}}
 		} else if request.Status == "failed" {
+			signalKind = AttentionSignalWorkflowTriggerFailed
+			urgency = "high"
 			reason = "Automatic workflow failed"
 		}
-		items = append(items, AttentionInput{Producer: a.Producer(), SourceKey: request.ID, SourceRevision: request.UpdatedAt + ":" + request.Status, TaskID: transition.TaskID, Title: request.WorkflowName, Reason: reason, Detail: detail, Category: "workflow", Urgency: "normal", Navigation: AttentionNavigation{Kind: "task", Target: transition.TaskID}, Actions: actions})
+		items = append(items, AttentionInput{Producer: a.Producer(), SignalKind: signalKind, SourceKey: request.ID, SourceRevision: request.UpdatedAt + ":" + request.Status, TaskID: transition.TaskID, Title: request.WorkflowName, Reason: reason, Detail: detail, Category: "workflow", Urgency: urgency, Navigation: AttentionNavigation{Kind: "task", Target: transition.TaskID}, Actions: actions})
 	}
 	return items, nil
 }

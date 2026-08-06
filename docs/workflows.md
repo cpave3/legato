@@ -53,6 +53,8 @@ run_title: Review PR #${{ workflow.inputs.pr_number }}
 
 `run_title` supports declared `workflow.inputs` references, including expanded task fields and metadata, but not step outputs or `${{ workflow.task }}`. The intrinsic workflow task does not exist until after the run title resolves, so using it here is rejected as circular. The title resolves after typed input and task/repository expansion and must produce a non-empty string. The resolved value is stored on the run and used for its Workflows execution task; omitting it preserves the definition `title`.
 
+Workflow definitions do not support `notify_on_complete`. Successful runs remain in workflow history and do not create Attention items; Attention is reserved for manual gates, waiting agents, and failures. Remove this field from older workflow YAML because schema parsing is strict.
+
 ### Run from a board card
 
 Press `c` on a selected TUI board card, or right-click a web board card, and choose a workflow from the Workflows flyout to list definitions with exactly one `task` input. The web flyout scrolls independently and flips around viewport edges; web cards also expose an action button for keyboard, touch, and assistive-technology access. The input key can have any name and receives the selected card automatically. Definitions with zero task inputs are unrelated to the card, while definitions with multiple task inputs are ambiguous, so neither is shown. Column-entry triggers do not exclude an otherwise eligible workflow.

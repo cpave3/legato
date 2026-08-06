@@ -669,6 +669,7 @@ type AttentionItem struct {
 	Detail            string  `db:"detail" json:"detail,omitempty"`
 	Category          string  `db:"category" json:"category"`
 	Urgency           string  `db:"urgency" json:"urgency"`
+	SignalKind        string  `db:"signal_kind" json:"signal_kind"`
 	NavigationJSON    string  `db:"navigation_json" json:"-"`
 	ActionsJSON       string  `db:"actions_json" json:"-"`
 	Status            string  `db:"status" json:"status"`

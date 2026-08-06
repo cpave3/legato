@@ -1,19 +1,19 @@
 # Attention
 
-A unified, actionable inbox for all Legato work that requires a human. The inbox is a generic platform capability — feature-owned producers publish attention items, the core service coordinates and routes actions, and web/TUI/future clients consume one semantic model.
+A high-signal interrupt queue for Legato work that is blocked on a human decision or requires failure remediation. Feature queues remain authoritative for routine backlog; the core service centrally controls which semantic signal kinds reach Attention, and web/TUI/CLI/Stream Deck consume that same policy.
 
 ## Architecture
 
 ### Durable registry
 
-- `internal/engine/store/migrations/042_attention_items.sql` — `attention_items` table with unique `(producer, source_key)`, status (`open`/`dismissed`/`resolved`), revision-aware dismissal, and indexed active/producer/task queries.
+- `internal/engine/store/migrations/042_attention_items.sql` and `059_attention_signal_kind.sql` — `attention_items` table with unique `(producer, source_key)`, a persisted `signal_kind`, status (`open`/`dismissed`/`resolved`), revision-aware dismissal, and indexed active/producer/task/signal queries.
 - `internal/engine/store/attention.go` — store methods: `UpsertAttentionItem` (idempotent on `(producer, source_key)`, resurfaces dismissed items only when source revision changes), `GetAttentionItem`, `GetAttentionItemBySource`, `ListAttentionItems` (ordered by urgency then recency), `DismissAttentionItem` (revision-conditional), `ResolveAttentionItem`, `ResolveAttentionItemsMissing` (reconciliation).
 
 ### Generic service
 
 `internal/service/attention.go` — `AttentionService` with:
 - `Upsert` — validates the generic contract and persists an item.
-- `List` — filters active (open) items by producer/category/urgency/task/workspace.
+- `List` — returns active items whose semantic signal kind is in the central high-signal allowlist, then filters by producer/category/urgency/task/workspace.
 - `Execute` — validates the item is open at the expected source revision, delegates to the registered producer's action handler, then re-reconciles that producer to remove/resolve the item.
 - `Dismiss` — suppresses the current revision only; a new source revision can resurface the item.
 - `Resolve` — marks an item resolved (used by reconciliation and direct producer calls).
@@ -37,7 +37,7 @@ type AttentionActionHandler interface {
 The service validates identity and revision, invokes the handler for the item's producer, then re-reconciles. The core never switches on feature types.
 
 To register a new producer:
-1. Implement `Snapshot` to enumerate current actionable state as `[]AttentionInput`.
+1. Implement `Snapshot` to enumerate current interrupt-worthy state as `[]AttentionInput` and assign a stable, centrally registered `SignalKind`. Unknown kinds fail closed.
 2. Implement `Execute` to handle declared actions by calling the feature's existing public service operations.
 3. Register both in `cmd/legato/attention_runtime.go` (or the TUI composition path).
 4. Use `RegisterProducerWithEvents` to map source events to the producer so the service re-reconciles when source state changes after startup (see Event subscriptions below).
@@ -50,9 +50,8 @@ The service subscribes to source events and re-reconciles the matching producer 
 | Producer | Events | Source |
 |---|---|---|
 | `plans` | `EventPlanChanged` | IPC `plan_changed` → bus, or direct `PlanService` mutation |
-| `reviews` | `EventReviewChanged` | IPC `review_changed` → bus, or direct `ReviewService` mutation |
 | `workflows` | `EventWorkflowChanged`, `EventAgentDied`, `EventAgentCompleted` | IPC `workflow_changed` → bus, or `Server.NotifyWorkflowChanged`, or agent lifecycle |
-| `learnings` | `EventLearningChanged` | Learning decisions, incorporation submission/verification, or drift state changes |
+| `workflow_triggers` | `EventWorkflowTriggerChanged` | Trigger request state changes |
 
 `RegisterProducerWithEvents(producer, eventTypes...)` maps events to producers. `StartEventReconciliation(ctx)` subscribes and launches goroutines. Call it once after all producers are registered.
 
@@ -74,15 +73,17 @@ Actions carry a stable `ID`, `Label`, `Kind` (`navigate` or `execute`), `Intent`
 
 All endpoints require the configured auth token.
 
-## MVP producers
+## Default signal policy
 
-| Producer | Source | Inclusion rule | Actions |
-|---|---|---|---|
-| `plans` | `PlanService.Queue` | `proposed` or `changes_requested` | Open plan (navigate), Approve (execute, requires confirm) |
-| `reviews` | `ReviewService.Queue` | explicitly ready tours with unreviewed work | Review changes (navigate), Mark reviewed (execute, requires confirm) |
-| `workflows` | `WorkflowService.ListRuns` + `Show` | `needs_attention` on run | Open run (navigate), Trigger/Retry/Prompt (execute) |
+| Producer | Included in Attention | Kept in feature surface only |
+|---|---|---|
+| `plans` | Proposed revisions awaiting a current user decision | `changes_requested` revisions being reworked |
+| `workflows` | Manual gates, agents genuinely waiting for input, failed steps | Successful/completed runs and workflow history |
+| `workflow_triggers` | Missing input, confirmation, and failed automatic triggers | Completed/skipped trigger history |
+| `reviews` | Nothing | All ready review tours remain in Reviews |
+| `learnings` | Nothing | Candidates, proposals, activation, verification, and stale records remain in Learning |
 
-Capturing review tours never enter attention, notification counts, or Stream Deck attention tiles. They are available only through the web review page's default-off **Show incomplete captures** toggle; reviewed tours with newly synced work remain quiet until explicitly marked ready again.
+Failures use high urgency; blocking decisions use normal urgency. The unfiltered API and `AttentionService.Count` apply the same allowlist, so the navigation badge, web, TUI, CLI, and Stream Deck agree. Producer/category filters refine this default set; they cannot opt into excluded backlog.
 
 ## Web
 
@@ -99,16 +100,14 @@ Capturing review tours never enter attention, notification counts, or Stream Dec
 ## CLI
 
 - `legato attention list` — reconcile and list actionable items. Flags: `--producer`, `--category`, `--urgency`, `--json`.
-- Reconciles plan and review producers against the durable store so agents can inspect the inbox without a running server.
+- Reconciles plan decisions against the durable store; workflow and trigger projections are maintained by the normal runtime and remain queryable from the durable registry.
 
 ## Deferred
 
 Agents, parent-aggregated swarms, PR feedback/CI, live permission prompts, and the durable orchestration mailbox are deferred per the approved plan until their underlying sources provide stable structured signals.
 
-## Learning producer
+## Dedicated feature queues
 
-The `learnings` producer surfaces candidate and stale learnings plus verification-pending and stale incorporations. Candidate decisions and incorporation verification delegate to the revision-aware LearningService; stale records are high urgency. Navigation uses `kind: learning`. The dedicated web Learning pages support that target, although the current generic Attention web navigation mapper does not yet render a learning Open link. See [Legato Learn](learning.md).
+Review and Learning records are deliberately not projected into Attention. Their own queue/ledger remains the place to discover and act on that work. This preserves source state and prevents Attention from becoming a second backlog.
 
-## Workflow trigger producer
-
-The `workflow_triggers` producer surfaces automatic workflow requests in `waiting_input` or `failed` state. Items navigate to the related task and provide an explicit **Skip this trigger** action; web and TUI task-move flows provide the structured repository-input form. Choosing **Not now** leaves the request open. Trigger request mutations publish `EventWorkflowTriggerChanged`, so Attention reconciles after the durable request exists.
+Workflow definitions no longer support `notify_on_complete`; successful runs remain visible in workflow history but do not create dismiss-only Attention items.

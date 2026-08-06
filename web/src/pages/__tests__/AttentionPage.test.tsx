@@ -6,7 +6,7 @@ const mockExecute = vi.fn().mockResolvedValue(undefined)
 const mockDismiss = vi.fn().mockResolvedValue(undefined)
 let mockData: unknown[] = [
   {
-    id: "att-1", producer: "plans", source_key: "pl-1", source_revision: "1",
+    id: "att-1", producer: "plans", signal_kind: "plan_decision", source_key: "pl-1", source_revision: "1",
     title: "Add search", reason: "Plan is awaiting your decision", category: "approval",
     urgency: "high", navigation: { kind: "plan", target: "pl-1" },
     actions: [
@@ -36,7 +36,7 @@ describe("AttentionPage", () => {
     vi.clearAllMocks()
     mockData = [
       {
-        id: "att-1", producer: "plans", source_key: "pl-1", source_revision: "1",
+        id: "att-1", producer: "plans", signal_kind: "plan_decision", source_key: "pl-1", source_revision: "1",
         title: "Add search", reason: "Plan is awaiting your decision", category: "approval",
         urgency: "high", navigation: { kind: "plan", target: "pl-1" },
         actions: [

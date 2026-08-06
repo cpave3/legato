@@ -11,10 +11,10 @@ func (s *Store) UpsertAttentionItem(ctx context.Context, item AttentionItem) (*A
 	result, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO attention_items
 			(id, producer, source_key, source_revision, task_id, workspace_id, title, reason,
-			 detail, category, urgency, navigation_json, actions_json, status)
+			 detail, category, urgency, signal_kind, navigation_json, actions_json, status)
 		VALUES
 			(:id, :producer, :source_key, :source_revision, :task_id, :workspace_id, :title, :reason,
-			 :detail, :category, :urgency, :navigation_json, :actions_json, 'open')
+			 :detail, :category, :urgency, :signal_kind, :navigation_json, :actions_json, 'open')
 		ON CONFLICT(producer, source_key) DO UPDATE SET
 			source_revision = excluded.source_revision,
 			task_id = excluded.task_id,
@@ -24,6 +24,7 @@ func (s *Store) UpsertAttentionItem(ctx context.Context, item AttentionItem) (*A
 			detail = excluded.detail,
 			category = excluded.category,
 			urgency = excluded.urgency,
+			signal_kind = excluded.signal_kind,
 			navigation_json = excluded.navigation_json,
 			actions_json = excluded.actions_json,
 			status = CASE
@@ -45,6 +46,7 @@ func (s *Store) UpsertAttentionItem(ctx context.Context, item AttentionItem) (*A
 			OR attention_items.detail != excluded.detail
 			OR attention_items.category != excluded.category
 			OR attention_items.urgency != excluded.urgency
+			OR attention_items.signal_kind != excluded.signal_kind
 			OR attention_items.navigation_json != excluded.navigation_json
 			OR attention_items.actions_json != excluded.actions_json
 			OR attention_items.status = 'resolved'
@@ -82,33 +84,62 @@ func (s *Store) GetAttentionItemBySource(ctx context.Context, producer, sourceKe
 	return &item, nil
 }
 
-func (s *Store) CountAttentionItems(ctx context.Context, status string) (int, error) {
+func (s *Store) CountAttentionItems(ctx context.Context, status string, signalKinds []string) (int, error) {
 	var count int
-	query := "SELECT COUNT(*) FROM attention_items"
-	args := []any{}
-	if status != "" {
-		query += " WHERE status = ?"
-		args = append(args, status)
-	}
+	query, args := attentionItemsQuery("SELECT COUNT(*) FROM attention_items", status, signalKinds)
 	if err := s.db.GetContext(ctx, &count, query, args...); err != nil {
 		return 0, err
 	}
 	return count, nil
 }
 
-func (s *Store) ListAttentionItems(ctx context.Context, status string) ([]AttentionItem, error) {
+func (s *Store) ListAttentionItems(ctx context.Context, status string, signalKinds []string) ([]AttentionItem, error) {
 	items := []AttentionItem{}
-	query := "SELECT * FROM attention_items"
-	args := []any{}
-	if status != "" {
-		query += " WHERE status = ?"
-		args = append(args, status)
-	}
+	query, args := attentionItemsQuery("SELECT * FROM attention_items", status, signalKinds)
 	query += " ORDER BY CASE urgency WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, updated_at DESC, id"
 	if err := s.db.SelectContext(ctx, &items, query, args...); err != nil {
 		return nil, err
 	}
 	return items, nil
+}
+
+func attentionItemsQuery(query, status string, signalKinds []string) (string, []any) {
+	conditions := []string{}
+	args := []any{}
+	if status != "" {
+		conditions = append(conditions, "status = ?")
+		args = append(args, status)
+	}
+	if len(signalKinds) > 0 {
+		conditions = append(conditions, "signal_kind IN ("+strings.TrimRight(strings.Repeat("?,", len(signalKinds)), ",")+")")
+		for _, kind := range signalKinds {
+			args = append(args, kind)
+		}
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	return query, args
+}
+
+func (s *Store) AttentionItemCountsBySignal(ctx context.Context) (map[string]map[string]int, error) {
+	var rows []struct {
+		SignalKind string `db:"signal_kind"`
+		Status     string `db:"status"`
+		Count      int    `db:"count"`
+	}
+	if err := s.db.SelectContext(ctx, &rows, `SELECT signal_kind, status, COUNT(*) AS count
+		FROM attention_items GROUP BY signal_kind, status ORDER BY signal_kind, status`); err != nil {
+		return nil, err
+	}
+	counts := map[string]map[string]int{}
+	for _, row := range rows {
+		if counts[row.SignalKind] == nil {
+			counts[row.SignalKind] = map[string]int{}
+		}
+		counts[row.SignalKind][row.Status] = row.Count
+	}
+	return counts, nil
 }
 
 func (s *Store) DismissAttentionItem(ctx context.Context, id, sourceRevision string) error {

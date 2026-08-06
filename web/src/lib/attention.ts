@@ -5,6 +5,7 @@ export type AttentionNavigation = { kind: string; target: string }
 export type AttentionItem = {
   id: string
   producer: string
+  signal_kind: string
   source_key: string
   source_revision: string
   task_id?: string

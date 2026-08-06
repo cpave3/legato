@@ -42,7 +42,8 @@ func TestAttentionAPIExecutesSourceActionAndRefreshesQueue(t *testing.T) {
 
 	attention := service.NewAttentionService(db, nil)
 	producer := &testAttentionProducer{items: []service.AttentionInput{{
-		SourceKey: "request-1", SourceRevision: "1", Title: "Decision needed", Reason: "Choose a path",
+		SignalKind: service.AttentionSignalPlanDecision,
+		SourceKey:  "request-1", SourceRevision: "1", Title: "Decision needed", Reason: "Choose a path",
 		Category: "approval", Urgency: "high",
 		Navigation: service.AttentionNavigation{Kind: "task", Target: "task-1"},
 		Actions: []service.AttentionAction{{
@@ -105,7 +106,8 @@ func TestAttentionAPIDismissesItemAtCurrentRevision(t *testing.T) {
 
 	attention := service.NewAttentionService(db, nil)
 	producer := &testAttentionProducer{items: []service.AttentionInput{{
-		SourceKey: "request-2", SourceRevision: "3", Title: "Decision needed", Reason: "Choose a path",
+		SignalKind: service.AttentionSignalPlanDecision,
+		SourceKey:  "request-2", SourceRevision: "3", Title: "Decision needed", Reason: "Choose a path",
 		Category: "approval", Urgency: "normal",
 		Navigation: service.AttentionNavigation{Kind: "task", Target: "task-2"},
 		Actions:    []service.AttentionAction{{ID: "open", Label: "Open", Kind: "navigate"}},
@@ -158,7 +160,8 @@ func TestAttentionAPIRejectsStaleActionWithConflict(t *testing.T) {
 
 	attention := service.NewAttentionService(db, nil)
 	producer := &testAttentionProducer{items: []service.AttentionInput{{
-		SourceKey: "request-3", SourceRevision: "2", Title: "Decision needed", Reason: "Choose a path",
+		SignalKind: service.AttentionSignalPlanDecision,
+		SourceKey:  "request-3", SourceRevision: "2", Title: "Decision needed", Reason: "Choose a path",
 		Category: "approval", Urgency: "high",
 		Navigation: service.AttentionNavigation{Kind: "task", Target: "task-3"},
 		Actions: []service.AttentionAction{{
@@ -234,5 +237,49 @@ func TestAttentionChangedEventBroadcastsToWebSocket(t *testing.T) {
 	}
 	if msg.Type != MsgAttentionChanged || msg.ItemID != "att-1" || msg.Producer != "plans" || msg.SourceKey != "pl-1" || msg.Kind != "upserted" {
 		t.Fatalf("unexpected message: %+v", msg)
+	}
+}
+
+func TestAttentionAPIAndCountShareHighSignalPolicy(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "attention-policy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	attention := service.NewAttentionService(db, nil)
+	for _, input := range []service.AttentionInput{
+		{
+			Producer: "plans", SignalKind: service.AttentionSignalPlanDecision, SourceKey: "plan", SourceRevision: "1",
+			Title: "Plan", Reason: "Decision needed", Category: "approval", Urgency: "normal",
+			Navigation: service.AttentionNavigation{Kind: "plan", Target: "plan"},
+		},
+		{
+			Producer: "reviews", SignalKind: service.AttentionSignalReviewReady, SourceKey: "review", SourceRevision: "1",
+			Title: "Review", Reason: "Ready", Category: "review", Urgency: "normal",
+			Navigation: service.AttentionNavigation{Kind: "review", Target: "review"},
+		},
+	} {
+		if _, err := attention.Upsert(context.Background(), input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count, err := attention.Count(context.Background())
+	if err != nil || count != 1 {
+		t.Fatalf("count = %d, err = %v", count, err)
+	}
+
+	srv := New(nil, nil, nil, "")
+	srv.SetAttentionService(attention)
+	response := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/attention", nil))
+	var body struct {
+		Items []service.AttentionItem `json:"items"`
+		Total int                     `json:"total"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Total != count || len(body.Items) != count || body.Items[0].SignalKind != service.AttentionSignalPlanDecision {
+		t.Fatalf("response = %+v, count = %d", body, count)
 	}
 }

@@ -34,7 +34,8 @@ func TestAttentionActionDelegatesToOwningProducer(t *testing.T) {
 		t.Fatal(err)
 	}
 	item, err := svc.Upsert(context.Background(), AttentionInput{
-		Producer: "example", SourceKey: "question-1", SourceRevision: "4",
+		SignalKind: AttentionSignalPlanDecision,
+		Producer:   "example", SourceKey: "question-1", SourceRevision: "4",
 		Title: "Question", Reason: "Reply needed", Category: "question", Urgency: "normal",
 		Navigation: AttentionNavigation{Kind: "example", Target: "question-1"},
 		Actions:    []AttentionAction{{ID: "reply", Label: "Reply", Kind: "execute", RequiresText: true}},
@@ -83,7 +84,8 @@ func TestAttentionReconcilePublishesOnlyWhenItemChanges(t *testing.T) {
 	t.Cleanup(func() { bus.Unsubscribe(changed) })
 	svc := NewAttentionService(db, bus)
 	producer := &staticAttentionProducer{name: "example", items: []AttentionInput{{
-		SourceKey: "one", SourceRevision: "1", Title: "One", Reason: "Needs attention",
+		SignalKind: AttentionSignalPlanDecision,
+		SourceKey:  "one", SourceRevision: "1", Title: "One", Reason: "Needs attention",
 		Category: "approval", Urgency: "normal",
 		Navigation: AttentionNavigation{Kind: "example", Target: "one"},
 	}}}
@@ -136,7 +138,8 @@ func TestAttentionReconcileResolvesMissingOnlyAfterSuccessfulSnapshot(t *testing
 
 	svc := NewAttentionService(db, nil)
 	producer := &staticAttentionProducer{name: "example", items: []AttentionInput{{
-		SourceKey: "one", SourceRevision: "1", Title: "One", Reason: "Needs attention",
+		SignalKind: AttentionSignalPlanDecision,
+		SourceKey:  "one", SourceRevision: "1", Title: "One", Reason: "Needs attention",
 		Category: "approval", Urgency: "normal",
 		Navigation: AttentionNavigation{Kind: "example", Target: "one"},
 	}}}
@@ -215,6 +218,38 @@ func TestPlanAttentionCanBeApprovedThroughInbox(t *testing.T) {
 	}
 }
 
+func TestChangesRequestedPlanStaysOutOfAttention(t *testing.T) {
+	db, planSvc, bundle := newPlanFixture(t)
+	ctx := context.Background()
+	plan, err := planSvc.Submit(ctx, "task-1", "search", bundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := planSvc.RequestChanges(ctx, plan.Plan.ID); err != nil {
+		t.Fatal(err)
+	}
+	queue, err := planSvc.Queue(ctx)
+	if err != nil || len(queue) != 1 || queue[0].Status != "changes_requested" {
+		t.Fatalf("plan queue = %+v, err = %v", queue, err)
+	}
+
+	attention := NewAttentionService(db, nil)
+	adapter := NewPlanAttentionAdapter(planSvc)
+	if err := attention.RegisterProducer(adapter); err != nil {
+		t.Fatal(err)
+	}
+	if err := attention.Reconcile(ctx, adapter.Producer()); err != nil {
+		t.Fatal(err)
+	}
+	items, err := attention.List(ctx, AttentionFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("changes-requested plan leaked into Attention: %+v", items)
+	}
+}
+
 func TestAttentionItemLifecycle(t *testing.T) {
 	db, err := store.New(filepath.Join(t.TempDir(), "attention.db"))
 	if err != nil {
@@ -225,7 +260,8 @@ func TestAttentionItemLifecycle(t *testing.T) {
 	svc := NewAttentionService(db, nil)
 	ctx := context.Background()
 	input := AttentionInput{
-		Producer: "example", SourceKey: "approval-1", SourceRevision: "1",
+		SignalKind: AttentionSignalPlanDecision,
+		Producer:   "example", SourceKey: "approval-1", SourceRevision: "1",
 		TaskID: "task-1", Title: "Approval needed", Reason: "A decision is required",
 		Category: "approval", Urgency: "normal",
 		Navigation: AttentionNavigation{Kind: "example", Target: "approval-1"},

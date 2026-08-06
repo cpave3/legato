@@ -1831,18 +1831,10 @@ func runTUI() int {
 	app.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 	app.SetPlanService(planSvc)
 	attentionSvc := service.NewAttentionService(db, bus)
-	learningAdapter := service.NewLearningAttentionAdapter(service.NewLearningService(db, bus))
-	_ = attentionSvc.RegisterProducerWithEvents(learningAdapter, events.EventLearningChanged)
-	_ = attentionSvc.RegisterHandler(learningAdapter.Producer(), learningAdapter)
 	if planSvc != nil {
 		planAdapter := service.NewPlanAttentionAdapter(planSvc)
 		_ = attentionSvc.RegisterProducerWithEvents(planAdapter, events.EventPlanChanged)
 		_ = attentionSvc.RegisterHandler(planAdapter.Producer(), planAdapter)
-	}
-	if reviewSvc != nil {
-		reviewAdapter := service.NewReviewAttentionAdapter(reviewSvc)
-		_ = attentionSvc.RegisterProducerWithEvents(reviewAdapter, events.EventReviewChanged)
-		_ = attentionSvc.RegisterHandler(reviewAdapter.Producer(), reviewAdapter)
 	}
 	if tuiWorkflowSvc != nil {
 		workflowAdapter := service.NewWorkflowAttentionAdapter(tuiWorkflowSvc)
@@ -1861,6 +1853,10 @@ func runTUI() int {
 	attentionSvc.StartEventReconciliation(context.Background())
 	if err := attentionSvc.ReconcileAll(context.Background()); err != nil {
 		log.Printf("attention: startup reconciliation: %v", err)
+	} else if counts, err := attentionSvc.CountsBySignal(context.Background()); err != nil {
+		log.Printf("attention: startup signal counts: %v", err)
+	} else {
+		log.Printf("attention: startup signal counts: %v", counts)
 	}
 	app.SetAttentionService(attentionSvc)
 	app.SetGroupDefaults(cfg.Groups.Defaults)

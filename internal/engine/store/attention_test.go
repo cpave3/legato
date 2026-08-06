@@ -9,8 +9,8 @@ func TestCountAttentionItemsMatchesOpenList(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	for _, item := range []AttentionItem{
-		{ID: "open", Producer: "test", SourceKey: "open", SourceRevision: "1", Title: "Open", Reason: "reason", Category: "test", Urgency: "normal", NavigationJSON: `{}`, ActionsJSON: `[]`},
-		{ID: "dismissed", Producer: "test", SourceKey: "dismissed", SourceRevision: "1", Title: "Dismissed", Reason: "reason", Category: "test", Urgency: "normal", NavigationJSON: `{}`, ActionsJSON: `[]`},
+		{ID: "open", Producer: "test", SourceKey: "open", SourceRevision: "1", Title: "Open", Reason: "reason", Category: "test", Urgency: "normal", SignalKind: "plan_decision", NavigationJSON: `{}`, ActionsJSON: `[]`},
+		{ID: "dismissed", Producer: "test", SourceKey: "dismissed", SourceRevision: "1", Title: "Dismissed", Reason: "reason", Category: "test", Urgency: "normal", SignalKind: "plan_decision", NavigationJSON: `{}`, ActionsJSON: `[]`},
 	} {
 		if _, _, err := s.UpsertAttentionItem(ctx, item); err != nil {
 			t.Fatal(err)
@@ -19,15 +19,22 @@ func TestCountAttentionItemsMatchesOpenList(t *testing.T) {
 	if err := s.DismissAttentionItem(ctx, "dismissed", "1"); err != nil {
 		t.Fatal(err)
 	}
-	items, err := s.ListAttentionItems(ctx, "open")
+	items, err := s.ListAttentionItems(ctx, "open", []string{"plan_decision"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	count, err := s.CountAttentionItems(ctx, "open")
+	count, err := s.CountAttentionItems(ctx, "open", []string{"plan_decision"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if count != len(items) || count != 1 {
 		t.Fatalf("count=%d items=%d", count, len(items))
+	}
+	counts, err := s.AttentionItemCountsBySignal(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts["plan_decision"]["open"] != 1 || counts["plan_decision"]["dismissed"] != 1 {
+		t.Fatalf("signal counts = %+v", counts)
 	}
 }

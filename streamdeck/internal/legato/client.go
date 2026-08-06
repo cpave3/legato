@@ -45,6 +45,7 @@ type Agent struct {
 type AttentionItem struct {
 	ID             string              `json:"id"`
 	Producer       string              `json:"producer"`
+	SignalKind     string              `json:"signal_kind"`
 	SourceRevision string              `json:"source_revision"`
 	Title          string              `json:"title"`
 	Reason         string              `json:"reason"`
