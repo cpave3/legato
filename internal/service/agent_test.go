@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -333,6 +334,79 @@ func newTestAgentService(t *testing.T) (AgentService, *store.Store, *mockTmux) {
 	return svc, s, mt
 }
 
+func TestSendPeerMessageQueuesForBusyChimeraAndAddsReplyFooter(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	createTask(t, s, "recipient")
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, t.TempDir())
+	ctx := context.Background()
+	if err := svc.SpawnAgent(ctx, "recipient", 80, 24); err != nil {
+		t.Fatal(err)
+	}
+
+	var gotPath, gotContent string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.RequestURI()
+		body, readErr := io.ReadAll(r.Body)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		var payload struct {
+			Content string `json:"content"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatal(err)
+		}
+		gotContent = payload.Content
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+	if err := s.UpdateChimeraDiscovery(ctx, "recipient", "chimera-recipient", server.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.SendPeerMessage(ctx, "sender", "recipient", "Can you avoid agent.go?"); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/v1/sessions/chimera-recipient/messages?append=true" {
+		t.Fatalf("request URI = %q, want queued append", gotPath)
+	}
+	for _, want := range []string{"Can you avoid agent.go?", "Agent-to-agent message from `sender`", `legato agent message sender "<reply>"`} {
+		if !strings.Contains(gotContent, want) {
+			t.Fatalf("message content %q missing %q", gotContent, want)
+		}
+	}
+}
+
+func TestSendPeerMessageAcceptsExecutionIDAsRecipient(t *testing.T) {
+	svc, _, mt := newTestAgentService(t)
+	ctx := context.Background()
+	db := svc.(*agentService).store
+	createTask(t, db, "recipient")
+	if err := svc.SpawnAgent(ctx, "recipient", 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	session, err := db.GetAgentSessionByTaskID(ctx, "recipient")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.SendPeerMessage(ctx, "sender", session.ExecutionID, "hello by execution"); err != nil {
+		t.Fatal(err)
+	}
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+	messages := mt.sentMultiline["legato-recipient"]
+	if len(messages) != 1 || !strings.Contains(messages[0], "hello by execution") {
+		t.Fatalf("messages = %#v", messages)
+	}
+}
+
 func TestListPeersGroupsAgentsByGitWorktreeRoot(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	s, err := store.New(dbPath)
@@ -444,7 +518,7 @@ func TestBroadcastToPeersExcludesSenderAndReportsPartialFailure(t *testing.T) {
 	}
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
-	if got := mt.sentMultiline["legato-healthy"]; len(got) != 1 || got[0] != "touching agent.go" {
+	if got := mt.sentMultiline["legato-healthy"]; len(got) != 1 || !strings.Contains(got[0], "touching agent.go") || !strings.Contains(got[0], "Agent-to-agent message from `sender`") {
 		t.Fatalf("healthy messages = %#v", got)
 	}
 	if got := mt.sentMultiline["legato-sender"]; len(got) != 0 {

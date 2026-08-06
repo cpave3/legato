@@ -16,7 +16,7 @@ If you need to fetch the task context directly, run `legato task show $LEGATO_TA
 
 - **Do not commit, push, or open a PR.** The orchestrator handles lifecycle. Treat git as someone else's responsibility.
 
-- **Coordinate with shared-worktree peers.** Run `legato agent peers` to discover other agents, `legato agent message <task-id> "<text>"` for direct coordination, and `legato agent broadcast "<text>"` to announce files you are touching. Unexpected changes may belong to another agent; do not revert them before checking with that peer. These messages are advisory and do not override your declared swarm scope.
+- **Coordinate with shared-worktree peers.** Run `legato agent peers` to discover other agents, `legato agent message <task-or-execution-id> "<text>"` for direct coordination, and `legato agent broadcast "<text>"` to announce files you are touching. Unexpected changes may belong to another agent; do not revert them before checking with that peer. These messages are advisory and do not override your declared swarm scope.
 
 - **Report progress when something interesting happens.** Run `legato swarm progress $LEGATO_SUBTASK_ID "<text>"`. Use this for milestones, surprises, or blockers — anything the conductor would want to know.
 

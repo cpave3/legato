@@ -132,7 +132,7 @@ func initCLIRepo(t *testing.T) string {
 	return dir
 }
 
-func TestAgentMessageJSONDeliversToAddressedTask(t *testing.T) {
+func TestAgentMessageJSONQueuesToAddressedExecutionWithReplyFooter(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "legato.db")
 	s, err := store.New(dbPath)
 	if err != nil {
@@ -155,26 +155,28 @@ func TestAgentMessageJSONDeliversToAddressedTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("LEGATO_CONFIG", configPath)
+	t.Setenv("LEGATO_TASK_ID", "sender")
 	fake := &contractTmux{alive: map[string]bool{"legato-peer": true}}
 	oldFactory := newAgentContractTmux
 	newAgentContractTmux = func() (service.TmuxManager, error) { return fake, nil }
 	t.Cleanup(func() { newAgentContractTmux = oldFactory })
 
-	out := captureStdout(t, func() int { return runCLI([]string{"agent", "message", "peer", "please coordinate", "--json"}) })
+	out := captureStdout(t, func() int { return runCLI([]string{"agent", "message", "exec-peer", "please coordinate", "--json"}) })
 	var envelope struct {
 		OK   bool `json:"ok"`
 		Data struct {
-			Delivered bool   `json:"delivered"`
-			TaskID    string `json:"task_id"`
+			Queued      bool   `json:"queued"`
+			RecipientID string `json:"recipient_id"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
 		t.Fatalf("decode output: %v\n%s", err, out)
 	}
-	if !envelope.OK || !envelope.Data.Delivered || envelope.Data.TaskID != "peer" {
+	if !envelope.OK || !envelope.Data.Queued || envelope.Data.RecipientID != "exec-peer" {
 		t.Fatalf("output = %s", out)
 	}
-	if got := fake.messages["legato-peer"]; len(got) != 1 || got[0] != "please coordinate" {
+	got := fake.messages["legato-peer"]
+	if len(got) != 1 || !strings.Contains(got[0], "please coordinate") || !strings.Contains(got[0], "Agent-to-agent message from `sender`") || !strings.Contains(got[0], `legato agent message sender "<reply>"`) {
 		t.Fatalf("messages = %#v", fake.messages)
 	}
 }
@@ -232,7 +234,7 @@ func TestAgentBroadcastJSONReportsDeliveredAndFailedPeers(t *testing.T) {
 	if !envelope.OK || len(envelope.Data.Delivered) != 1 || envelope.Data.Delivered[0] != "healthy" || len(envelope.Data.Failed) != 1 || envelope.Data.Failed[0].TaskID != "failed" {
 		t.Fatalf("output = %s", out)
 	}
-	if got := fake.messages["legato-healthy"]; len(got) != 1 || got[0] != "touching agent.go" {
+	if got := fake.messages["legato-healthy"]; len(got) != 1 || !strings.Contains(got[0], "touching agent.go") || !strings.Contains(got[0], "Agent-to-agent message from `caller`") {
 		t.Fatalf("messages = %#v", fake.messages)
 	}
 }

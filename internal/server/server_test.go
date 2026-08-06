@@ -376,6 +376,9 @@ func (p *promptAgentService) GetAgentEnvironment(context.Context, string) ([]str
 func (p *promptAgentService) ListPeers(context.Context, string, string, string) ([]service.AgentPeer, error) {
 	return nil, nil
 }
+func (p *promptAgentService) SendPeerMessage(context.Context, string, string, string) error {
+	return nil
+}
 func (p *promptAgentService) BroadcastToPeers(context.Context, string, string, string, string) (service.AgentBroadcastResult, error) {
 	return service.AgentBroadcastResult{}, nil
 }

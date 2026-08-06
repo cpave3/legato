@@ -1344,6 +1344,7 @@ func (f *fakeAgentService) GetTaskChimeraSessionID(_ context.Context, _ string) 
 func (f *fakeAgentService) ListPeers(context.Context, string, string, string) ([]service.AgentPeer, error) {
 	return nil, nil
 }
+func (f *fakeAgentService) SendPeerMessage(context.Context, string, string, string) error { return nil }
 func (f *fakeAgentService) BroadcastToPeers(context.Context, string, string, string, string) (service.AgentBroadcastResult, error) {
 	return service.AgentBroadcastResult{}, nil
 }

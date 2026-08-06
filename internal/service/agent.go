@@ -166,6 +166,7 @@ type AgentService interface {
 	// ListPeers returns live agents sharing the caller's Git worktree. An
 	// explicit directory overrides lookup from taskID/executionID.
 	ListPeers(ctx context.Context, taskID, executionID, directory string) ([]AgentPeer, error)
+	SendPeerMessage(ctx context.Context, senderTaskID, recipientTaskID, message string) error
 	BroadcastToPeers(ctx context.Context, taskID, executionID, directory, message string) (AgentBroadcastResult, error)
 	// SendMessage delivers a text message to the agent through the
 	// appropriate interaction adapter (tmux send-keys or Chimera HTTP).
@@ -810,7 +811,7 @@ func (a *agentService) notifyPeerJoin(taskID, executionID, workDir string, peers
 	}
 	for _, peer := range peers {
 		notice := fmt.Sprintf("[legato coordination] Agent %s (%s) joined Git worktree %s. It may create shared-tree changes; message it before reverting unexpected edits.", taskID, executionID, root)
-		if err := a.QueueMessage(context.Background(), peer.TaskID, notice); err != nil {
+		if err := a.SendPeerMessage(context.Background(), taskID, peer.TaskID, notice); err != nil {
 			log.Printf("agent coordination join notice from %s to %s failed: %v", taskID, peer.TaskID, err)
 		}
 	}
@@ -1340,6 +1341,44 @@ func (a *agentService) ListPeers(ctx context.Context, taskID, executionID, direc
 	return peers, nil
 }
 
+// SendPeerMessage queues a coordination message so busy structured agents
+// receive it at their next supported step boundary.
+func (a *agentService) SendPeerMessage(ctx context.Context, senderTaskID, recipientID, message string) error {
+	recipientTaskID, err := a.resolveAgentAddress(ctx, recipientID)
+	if err != nil {
+		return err
+	}
+	return a.QueueMessage(ctx, recipientTaskID, formatPeerMessage(senderTaskID, message))
+}
+
+func (a *agentService) resolveAgentAddress(ctx context.Context, address string) (string, error) {
+	if _, err := a.store.GetAgentSessionByTaskID(ctx, address); err == nil {
+		return address, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return "", err
+	}
+	execution, err := a.store.GetExecution(ctx, address)
+	if err != nil {
+		return "", fmt.Errorf("agent address %s: %w", address, err)
+	}
+	if execution.Status != store.ExecutionRunning || execution.ExecutionTaskID == "" || execution.AgentSessionID == nil {
+		return "", fmt.Errorf("execution %s is not a live addressable agent", address)
+	}
+	session, err := a.store.GetAgentSessionByID(ctx, *execution.AgentSessionID)
+	if err != nil || session.Status != "running" || session.TaskID != execution.ExecutionTaskID {
+		return "", fmt.Errorf("execution %s is not linked to a live agent session", address)
+	}
+	return execution.ExecutionTaskID, nil
+}
+
+func formatPeerMessage(senderTaskID, message string) string {
+	message = strings.TrimSpace(message)
+	if senderTaskID == "" {
+		return message + "\n\n---\nAgent-to-agent message. Reply with `legato agent message <task-id> \"<reply>\"`."
+	}
+	return fmt.Sprintf("%s\n\n---\nAgent-to-agent message from `%s`. Reply with `legato agent message %s \"<reply>\"`.", message, senderTaskID, senderTaskID)
+}
+
 // BroadcastToPeers sends a non-urgent message to every current worktree peer
 // and preserves failures for callers without undoing successful deliveries.
 func (a *agentService) BroadcastToPeers(ctx context.Context, taskID, executionID, directory, message string) (AgentBroadcastResult, error) {
@@ -1349,7 +1388,7 @@ func (a *agentService) BroadcastToPeers(ctx context.Context, taskID, executionID
 	}
 	result := AgentBroadcastResult{Delivered: []string{}, Failed: []AgentDeliveryFailure{}}
 	for _, peer := range peers {
-		if err := a.QueueMessage(ctx, peer.TaskID, message); err != nil {
+		if err := a.SendPeerMessage(ctx, taskID, peer.TaskID, message); err != nil {
 			result.Failed = append(result.Failed, AgentDeliveryFailure{TaskID: peer.TaskID, Error: err.Error()})
 			continue
 		}

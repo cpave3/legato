@@ -95,7 +95,7 @@ func runAgentPeersContract(args []string) int {
 	}
 	var text strings.Builder
 	for _, peer := range peers {
-		fmt.Fprintf(&text, "%s\t%s\t%s\t%s\n", peer.TaskID, peer.ExecutionID, peer.Activity, peer.Title)
+		fmt.Fprintf(&text, "task=%s\texecution=%s\tactivity=%s\t%s\n", peer.TaskID, peer.ExecutionID, peer.Activity, peer.Title)
 	}
 	return writeCommandSuccess(command, map[string]any{"peers": peers}, text.String(), jsonMode)
 }
@@ -115,10 +115,11 @@ func runAgentMessageContract(args []string) int {
 		return code
 	}
 	defer db.Close()
-	if err := agents.SendMessage(context.Background(), parsed.Positionals[0], parsed.Positionals[1]); err != nil {
+	senderTaskID := strings.TrimSpace(os.Getenv("LEGATO_TASK_ID"))
+	if err := agents.SendPeerMessage(context.Background(), senderTaskID, parsed.Positionals[0], parsed.Positionals[1]); err != nil {
 		return renderCommandError(command, commandDomainError(err), jsonMode)
 	}
-	return writeCommandSuccess(command, map[string]any{"task_id": parsed.Positionals[0], "delivered": true}, "message delivered", jsonMode)
+	return writeCommandSuccess(command, map[string]any{"recipient_id": parsed.Positionals[0], "queued": true}, "message queued", jsonMode)
 }
 
 func runAgentBroadcastContract(args []string) int {
