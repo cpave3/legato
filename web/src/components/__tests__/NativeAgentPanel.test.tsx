@@ -1013,4 +1013,81 @@ describe("NativeAgentPanel", () => {
       expect(screen.getByText(text)).not.toBeNull()
     }
   })
+
+  it("renders a model dropdown with models from the models endpoint", async () => {
+    const modelsData = [
+      { ref: "manticore/glm", contextWindow: 256000, isDefault: true },
+      { ref: "manticore/gpt", contextWindow: 256000, isDefault: false },
+      { ref: "manticore/kimi", contextWindow: 256000, vision: true, isDefault: false },
+    ]
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, messages: [], toolCalls: [] }), { status: 200 })
+      if (url.endsWith("/chimera/models")) return new Response(JSON.stringify(modelsData), { status: 200 })
+      return new Response("[]", { status: 200 })
+    })
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+
+    const modelButton = screen.getByTitle("Change model")
+    expect(modelButton).not.toBeNull()
+    expect(within(modelButton as HTMLElement).getByText("manticore/glm")).not.toBeNull()
+
+    fireEvent.click(modelButton)
+    expect(await screen.findByText("manticore/gpt")).not.toBeNull()
+    expect(screen.getByText("manticore/kimi")).not.toBeNull()
+    // The "default" badge appears on the default model entry
+    const defaultBadges = screen.getAllByText("default")
+    expect(defaultBadges.length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText("👁")).not.toBeNull()
+  })
+
+  it("POSTs to the model endpoint when selecting a different model from the dropdown", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, messages: [], toolCalls: [] }), { status: 200 })
+      if (url.endsWith("/chimera/models")) return new Response(JSON.stringify([
+        { ref: "manticore/glm", isDefault: true },
+        { ref: "manticore/gpt", isDefault: false },
+      ]), { status: 200 })
+      if (url.endsWith("/chimera/model")) return new Response(null, { status: 204 })
+      return new Response("[]", { status: 200 })
+    })
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+
+    fireEvent.click(screen.getByTitle("Change model"))
+    const dropdownItems = await screen.findAllByText("manticore/gpt")
+    fireEvent.click(dropdownItems[0])
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("/chimera/model"), expect.objectContaining({ method: "POST" }))
+    })
+    expect(screen.getByTitle("Change model").textContent).toContain("manticore/gpt")
+  })
+
+  it("does not POST when clicking the already-active model", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, messages: [], toolCalls: [] }), { status: 200 })
+      if (url.endsWith("/chimera/models")) return new Response(JSON.stringify([
+        { ref: "manticore/glm", isDefault: true },
+        { ref: "manticore/gpt", isDefault: false },
+      ]), { status: 200 })
+      return new Response("[]", { status: 200 })
+    })
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+
+    const modelCallsBefore = fetchSpy.mock.calls.filter((c) => String(c[0]).includes("/chimera/model"))
+    fireEvent.click(screen.getByTitle("Change model"))
+    // The dropdown item for the active model is the second match (first is the button label)
+    const dropdownItems = await screen.findAllByText("manticore/glm")
+    fireEvent.click(dropdownItems[dropdownItems.length - 1])
+    const modelCallsAfter = fetchSpy.mock.calls.filter((c) => String(c[0]).includes("/chimera/model"))
+    expect(modelCallsAfter.length).toBe(modelCallsBefore.length)
+  })
 })

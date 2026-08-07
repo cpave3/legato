@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createNativeSyncState, reconcileNativeSnapshot, reduceNativeEvent } from "../nativeAgentSync"
+import { createNativeSyncState, reconcileNativeSnapshot, reduceNativeEvent, stateFromNativeSnapshot } from "../nativeAgentSync"
 
 describe("native agent synchronization", () => {
   it("keeps interleaved assistant streams and tools in first-seen order", () => {
@@ -178,5 +178,44 @@ describe("native agent synchronization", () => {
 
     expect(state.items).toHaveLength(2)
     expect(state.cursor).toBe("3")
+  })
+
+  it("extracts the current model ref from the session snapshot", () => {
+    const state = stateFromNativeSnapshot({
+      mode: "build",
+      model: { providerId: "manticore", modelId: "glm" },
+      messages: [],
+      toolCalls: [],
+    })
+    expect(state.model).toBe("manticore/glm")
+  })
+
+  it("handles model_changed events by updating the model ref", () => {
+    let state = createNativeSyncState()
+    state.model = "manticore/glm"
+    state = reduceNativeEvent(state, {
+      eventId: "model-1",
+      type: "model_changed",
+      from: "manticore/glm",
+      to: "manticore/gpt",
+    })
+    expect(state.model).toBe("manticore/gpt")
+  })
+
+  it("preserves the model when a snapshot reconciles after a model_changed event", () => {
+    let state = createNativeSyncState()
+    state.model = "manticore/glm"
+    state = reduceNativeEvent(state, {
+      eventId: "model-1",
+      type: "model_changed",
+      from: "manticore/glm",
+      to: "manticore/gpt",
+    })
+    state = reconcileNativeSnapshot({
+      model: { providerId: "manticore", modelId: "gpt" },
+      messages: [],
+      toolCalls: [],
+    }, state, [])
+    expect(state.model).toBe("manticore/gpt")
   })
 })

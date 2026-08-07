@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react"
-import { ArrowDown, ArrowLeftRight, Zap, MoreHorizontal, RefreshCw, Unplug, Skull, Bell, BellOff, Terminal } from "lucide-react"
+import { ArrowDown, ArrowLeftRight, Cpu, Zap, MoreHorizontal, RefreshCw, Unplug, Skull, Bell, BellOff, Terminal } from "lucide-react"
 import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
@@ -8,6 +8,7 @@ import { dispatchAgentInput } from "../lib/agentInput"
 import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
 import { ReviewMessageBody } from "./ReviewMessageBody"
 import { Button } from "./ui/Button"
+import { Dropdown, DropdownItem } from "./ui/Dropdown"
 import {
   createNativeSyncState,
   reconcileNativeSnapshot,
@@ -45,6 +46,14 @@ interface SkillInfo {
   source: string
 }
 
+interface ModelInfo {
+  ref: string
+  contextWindow?: number
+  maxOutputTokens?: number
+  vision?: boolean
+  isDefault: boolean
+}
+
 type SlashSuggestion = {
   type: "command" | "skill"
   name: string
@@ -79,17 +88,20 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   const [mode, setMode] = useState<string>("")
   const scrollRef = useRef<HTMLDivElement>(null)
   const draftKey = `legato:chimera-draft:${agentId}`
-  const { items, busy, error, contextUsage } = syncState
+  const { items, busy, error, contextUsage, model } = syncState
   const [isScrolledUp, setIsScrolledUp] = useState(false)
   const isScrolledUpRef = useRef(false)
   const [modes, setModes] = useState<ModeInfo[]>([])
   const [modesOpen, setModesOpen] = useState(false)
+  const [models, setModels] = useState<ModelInfo[]>([])
+  const [modelsOpen, setModelsOpen] = useState(false)
   const [macros, setMacros] = useState<{ name: string; keys: string }[]>([])
   const [macrosOpen, setMacrosOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const modesRef = useRef<HTMLDivElement>(null)
   const macrosRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const modelsRef = useRef<HTMLDivElement>(null)
   const voiceRef = useRef<VoiceRecorderHandle>(null)
   const [commands, setCommands] = useState<CommandInfo[]>([])
   const [skills, setSkills] = useState<SkillInfo[]>([])
@@ -163,6 +175,14 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       .catch(() => {})
   }, [agentId, baseUrl])
 
+  // Fetch available models
+  useEffect(() => {
+    apiFetch(baseUrl, `/api/agents/${agentId}/chimera/models`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: ModelInfo[]) => setModels(Array.isArray(data) ? data : []))
+      .catch(() => {})
+  }, [agentId, baseUrl])
+
   // Fetch commands and skills for slash autocomplete
   useEffect(() => {
     Promise.all([
@@ -214,6 +234,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       if (modesRef.current && !modesRef.current.contains(e.target as Node)) setModesOpen(false)
       if (macrosRef.current && !macrosRef.current.contains(e.target as Node)) setMacrosOpen(false)
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+      if (modelsRef.current && !modelsRef.current.contains(e.target as Node)) setModelsOpen(false)
     }
     document.addEventListener("mousedown", handler)
     return () => document.removeEventListener("mousedown", handler)
@@ -468,6 +489,20 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     setModesOpen(false)
   }, [agentId, baseUrl])
 
+  const handleModelChange = useCallback((ref: string) => {
+    setModelsOpen(false)
+    if (ref === model) return
+    apiFetch(baseUrl, `/api/agents/${agentId}/chimera/model`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: ref }),
+    }).then(() => {
+      replaceSyncState({ ...syncStateRef.current, model: ref })
+    }).catch((reason) => {
+      replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
+    })
+  }, [agentId, baseUrl, model, replaceSyncState])
+
   const handleMacro = useCallback((keys: string) => {
     dispatchAgentInput(keys, {
       executeBang: (command) => {
@@ -629,6 +664,34 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
         {error && <span className="text-red-400">{error}</span>}
         {/* Action buttons */}
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
+          {/* Model selector */}
+          {models.length > 0 && (
+            <Dropdown
+              open={modelsOpen}
+              onOpenChange={setModelsOpen}
+              minWidth={220}
+              className="inline-block"
+              trigger={
+                <button
+                  onClick={() => setModelsOpen((v) => !v)}
+                  className={"flex items-center gap-1 rounded px-2 py-1 text-xs border transition-colors " + (modelsOpen ? "text-zinc-200 bg-zinc-800 border-zinc-600" : "text-zinc-400 border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200")}
+                  title="Change model"
+                >
+                  <Cpu size={12} />
+                  <span className="font-mono">{model || "model"}</span>
+                </button>
+              }
+            >
+              {models.map((m) => (
+                <DropdownItem key={m.ref} onClick={() => handleModelChange(m.ref)} active={m.ref === model}>
+                  <span className="font-mono">{m.ref}</span>
+                  {m.isDefault && <span className="rounded bg-indigo-900/60 px-1 text-[10px] text-indigo-300">default</span>}
+                  {m.vision && <span className="text-indigo-400" title="vision">👁</span>}
+                  {m.contextWindow != null && <span className="ml-auto text-zinc-500">{formatTokens(m.contextWindow)}</span>}
+                </DropdownItem>
+              ))}
+            </Dropdown>
+          )}
           {/* Mode selector */}
           {modes.length > 0 && (
             <div className="relative" ref={modesRef}>

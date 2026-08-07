@@ -64,6 +64,7 @@ export interface NativeSnapshotToolCall {
 
 export interface NativeSnapshot {
   mode?: string
+  model?: { providerId?: string; modelId?: string }
   status?: string
   messages?: NativeSnapshotMessage[]
   toolCalls?: NativeSnapshotToolCall[]
@@ -95,6 +96,8 @@ export interface NativeEvent {
   childSessionId?: string
   purpose?: string
   reason?: string
+  from?: string
+  to?: string
   event?: Omit<NativeEvent, "eventId">
 }
 
@@ -110,6 +113,7 @@ export interface NativeSyncState {
   busy: boolean
   error: string | null
   contextUsage: { used: number; window: number } | null
+  model: string
 }
 
 export function createNativeSyncState(items: NativeConversationItem[] = [], callIds: Iterable<string> = []): NativeSyncState {
@@ -123,6 +127,7 @@ export function createNativeSyncState(items: NativeConversationItem[] = [], call
     busy: false,
     error: null,
     contextUsage: null,
+    model: "",
   }
 }
 
@@ -194,6 +199,9 @@ export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncSta
   state.busy = snapshot.status === "running"
   if (snapshot.contextWindow && snapshot.usedContextTokens != null) {
     state.contextUsage = { used: snapshot.usedContextTokens, window: snapshot.contextWindow }
+  }
+  if (snapshot.model) {
+    state.model = `${snapshot.model.providerId ?? ""}/${snapshot.model.modelId ?? ""}`
   }
   return state
 }
@@ -368,6 +376,9 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
       break
     case "run_finished":
       next.busy = false
+      break
+    case "model_changed":
+      next.model = event.to || next.model
       break
     case "usage_updated":
       if (event.contextWindow && event.usedContextTokens != null) {
