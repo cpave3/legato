@@ -336,6 +336,30 @@ func (s *Server) chimeraSkillsHandler() http.HandlerFunc {
 	}
 }
 
+// chimeraModelsHandler returns the models available for the session.
+func (s *Server) chimeraModelsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		taskID := r.PathValue("task_id")
+		endpoint, sessionID, err := s.getChimeraEndpoint(r, taskID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		client := chimera.NewClient(endpoint)
+		models, err := client.ListModels(r.Context(), sessionID)
+		if err != nil {
+			http.Error(w, "chimera: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(models)
+	}
+}
+
 // getChimeraEndpoint resolves the private Chimera endpoint URL and session ID
 // for the given task from the agent service. Returns an error if the agent
 // doesn't have a discovered Chimera endpoint.

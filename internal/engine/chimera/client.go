@@ -137,6 +137,15 @@ type SkillInfo struct {
 	Frontmatter map[string]string `json:"frontmatter"`
 }
 
+// ModelEntry describes a model available in a Chimera session.
+type ModelEntry struct {
+	Ref             string `json:"ref"`
+	ContextWindow   int    `json:"contextWindow,omitempty"`
+	MaxOutputTokens int    `json:"maxOutputTokens,omitempty"`
+	Vision          bool   `json:"vision,omitempty"`
+	IsDefault       bool   `json:"isDefault"`
+}
+
 // PermissionRequest is the pending permission request state.
 type PermissionRequest struct {
 	RequestID string `json:"requestId"`
@@ -360,6 +369,15 @@ func (c *Client) ListSkills(ctx context.Context, sessionID string) ([]SkillInfo,
 		return nil, err
 	}
 	return skills, nil
+}
+
+// ListModels returns the models available in a session.
+func (c *Client) ListModels(ctx context.Context, sessionID string) ([]ModelEntry, error) {
+	var models []ModelEntry
+	if err := c.getJSON(ctx, "/v1/sessions/"+url.PathEscape(sessionID)+"/models", &models); err != nil {
+		return nil, err
+	}
+	return models, nil
 }
 
 // ErrBusy is returned when a message POST is rejected because a run
