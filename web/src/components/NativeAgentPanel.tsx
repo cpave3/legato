@@ -717,11 +717,13 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
                     <button
                       key={m.name}
                       onClick={() => handleModeChange(m.name)}
-                      className={"flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
+                      className={"flex w-full min-w-0 items-start gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
                     >
-                      <Check size={12} className={m.name === mode ? "text-zinc-400" : "opacity-0"} />
-                      <span className="font-mono w-12 shrink-0">{m.name}</span>
-                      {m.description && <span className="text-zinc-500 truncate">{m.description}</span>}
+                      <Check size={12} className={m.name === mode ? "mt-0.5 shrink-0 text-zinc-400" : "mt-0.5 shrink-0 opacity-0"} />
+                      <div className="min-w-0 flex-1">
+                        <div className="font-mono">{m.name}</div>
+                        {m.description && <div className="text-zinc-500 truncate">{m.description}</div>}
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -784,11 +786,13 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
                       <button
                         key={m.name}
                         onClick={() => { handleModeChange(m.name); setMenuOpen(false) }}
-                        className={"flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
+                        className={"flex w-full min-w-0 items-start gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
                       >
-                        <Check size={12} className={m.name === mode ? "text-zinc-400" : "opacity-0"} />
-                        <span className="font-mono w-12 shrink-0">{m.name}</span>
-                        {m.description && <span className="text-zinc-500 truncate">{m.description}</span>}
+                        <Check size={12} className={m.name === mode ? "mt-0.5 shrink-0 text-zinc-400" : "mt-0.5 shrink-0 opacity-0"} />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-mono">{m.name}</div>
+                          {m.description && <div className="text-zinc-500 truncate">{m.description}</div>}
+                        </div>
                       </button>
                     ))}
                     <div className="my-1 border-t border-zinc-800" />
