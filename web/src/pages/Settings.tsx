@@ -55,6 +55,7 @@ export function SettingsPage() {
   const handleFullBuild = async () => {
     if (buildStarting) return
     setBuildStarting(true)
+    sessionStorage.setItem("legato:post-rebuild-redirect", "/agents")
     try {
       const response = await apiFetch(baseUrl, "/api/hot-reload/build", { method: "POST" })
       if (!response.ok) {

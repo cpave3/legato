@@ -37,6 +37,17 @@ export default function App() {
     setAuthState("ok")
   }, [settings.error, settings.isError, settings.isSuccess])
 
+  // After a hot-reload rebuild, redirect to the home screen.
+  useEffect(() => {
+    const redirect = sessionStorage.getItem("legato:post-rebuild-redirect")
+    if (redirect && window.location.pathname !== redirect) {
+      sessionStorage.removeItem("legato:post-rebuild-redirect")
+      window.location.replace(redirect)
+    } else if (redirect) {
+      sessionStorage.removeItem("legato:post-rebuild-redirect")
+    }
+  }, [])
+
   if (authState === "checking") {
     return null
   }
