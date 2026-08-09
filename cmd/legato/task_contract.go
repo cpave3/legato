@@ -239,30 +239,19 @@ func runTaskDescriptionContract(args []string) int {
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
 	}
-	positionals := parsed.Positionals
-	taskID := ""
-	inline := parsed.Values["description"]
-	hasInline := parsed.Present["description"]
-	if len(positionals) == 2 {
-		taskID, inline, hasInline, positionals = positionals[0], positionals[1], true, nil
-	} else if len(positionals) == 1 && os.Getenv("LEGATO_TASK_ID") != "" {
-		taskID, inline, hasInline, positionals = os.Getenv("LEGATO_TASK_ID"), positionals[0], true, nil
-	} else {
-		var idErr *commandError
-		taskID, positionals, idErr = resolveTaskID(positionals)
-		if idErr != nil {
-			return renderCommandError(command, idErr, jsonMode)
-		}
+	taskID, rest, idErr := resolveTaskID(parsed.Positionals)
+	if idErr != nil {
+		return renderCommandError(command, idErr, jsonMode)
 	}
-	if len(positionals) != 0 {
-		return renderCommandError(command, usageError("unexpected_argument", "invalid task description arguments"), jsonMode)
+	if len(rest) != 0 {
+		return renderCommandError(command, usageError("unexpected_argument", "task description accepts one task ID"), jsonMode)
 	}
-	description, inputErr := readTextInput(inline, hasInline, parsed.Values["description-file"], parsed.Present["description-file"], os.Stdin)
+	description, inputErr := readTextInput(parsed.Values["description"], parsed.Present["description"], parsed.Values["description-file"], parsed.Present["description-file"], os.Stdin)
 	if inputErr != nil {
 		return renderCommandError(command, inputErr, jsonMode)
 	}
-	if !hasInline && !parsed.Present["description-file"] {
-		return renderCommandError(command, usageError("missing_argument", "task description requires text or --description-file"), jsonMode)
+	if !parsed.Present["description"] && !parsed.Present["description-file"] {
+		return renderCommandError(command, usageError("missing_argument", "task description requires --description or --description-file"), jsonMode)
 	}
 	db, code := openCommandStore(command, jsonMode)
 	if db == nil {

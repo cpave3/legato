@@ -433,3 +433,304 @@ func TestTaskUpdateJSONUsesEnvironmentTaskAndDescriptionFile(t *testing.T) {
 		t.Fatalf("envelope = %#v", envelope)
 	}
 }
+
+func TestTaskDescriptionDescriptionFileTargetsNamedTaskWithEnvSet(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legato.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateColumnMapping(context.Background(), store.ColumnMapping{ColumnName: "Backlog", SortOrder: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(context.Background(), store.Task{ID: "env-task", Title: "Env", Status: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(context.Background(), store.Task{ID: "named-task", Title: "Named", Status: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("db:\n  path: "+dbPath+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	descriptionPath := filepath.Join(t.TempDir(), "description.md")
+	const description = "# Details\n\nPreserve this newline.\n"
+	if err := os.WriteFile(descriptionPath, []byte(description), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_CONFIG", configPath)
+	t.Setenv("LEGATO_TASK_ID", "env-task")
+
+	out := captureStdout(t, func() int {
+		return runCLI([]string{"--json", "task", "description", "named-task", "--description-file", descriptionPath})
+	})
+	var envelope struct {
+		OK      bool   `json:"ok"`
+		Command string `json:"command"`
+		Data    struct {
+			TaskID      string `json:"task_id"`
+			Description string `json:"description"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+		t.Fatalf("JSON: %v\n%s", err, out)
+	}
+	if !envelope.OK || envelope.Command != "task.description" {
+		t.Fatalf("envelope = %#v", envelope)
+	}
+	if envelope.Data.TaskID != "named-task" {
+		t.Fatalf("task_id = %q, want named-task", envelope.Data.TaskID)
+	}
+	if envelope.Data.Description != description {
+		t.Fatalf("description = %q, want %q", envelope.Data.Description, description)
+	}
+
+	ds, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ds.Close()
+	envTask, err := ds.GetTask(context.Background(), "env-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if envTask.DescriptionMD != "" {
+		t.Fatalf("env-task description = %q, want empty", envTask.DescriptionMD)
+	}
+	namedTask, err := ds.GetTask(context.Background(), "named-task")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if namedTask.DescriptionMD != description {
+		t.Fatalf("named-task description = %q, want %q", namedTask.DescriptionMD, description)
+	}
+}
+
+func TestTaskDescriptionStdinWithEnvSetTargetsNamedTask(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legato.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateColumnMapping(context.Background(), store.ColumnMapping{ColumnName: "Backlog", SortOrder: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(context.Background(), store.Task{ID: "env-task", Title: "Env", Status: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(context.Background(), store.Task{ID: "named-task", Title: "Named", Status: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("db:\n  path: "+dbPath+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_CONFIG", configPath)
+	t.Setenv("LEGATO_TASK_ID", "env-task")
+
+	const stdinBody = "body from stdin\n"
+	oldStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdin = r
+	go func() { _, _ = w.Write([]byte(stdinBody)); w.Close() }()
+	defer func() { os.Stdin = oldStdin }()
+
+	out := captureStdout(t, func() int {
+		return runCLI([]string{"--json", "task", "description", "named-task", "--description-file", "-"})
+	})
+	var envelope struct {
+		OK      bool   `json:"ok"`
+		Command string `json:"command"`
+		Data    struct {
+			TaskID      string `json:"task_id"`
+			Description string `json:"description"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+		t.Fatalf("JSON: %v\n%s", err, out)
+	}
+	if !envelope.OK || envelope.Command != "task.description" || envelope.Data.TaskID != "named-task" || envelope.Data.Description != stdinBody {
+		t.Fatalf("envelope = %#v", envelope)
+	}
+}
+
+func TestTaskDescriptionFlagTargetsNamedTaskWithEnvSet(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legato.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateColumnMapping(context.Background(), store.ColumnMapping{ColumnName: "Backlog", SortOrder: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(context.Background(), store.Task{ID: "env-task", Title: "Env", Status: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(context.Background(), store.Task{ID: "named-task", Title: "Named", Status: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("db:\n  path: "+dbPath+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_CONFIG", configPath)
+	t.Setenv("LEGATO_TASK_ID", "env-task")
+
+	out := captureStdout(t, func() int {
+		return runCLI([]string{"--json", "task", "description", "named-task", "--description", "real desc"})
+	})
+	var envelope struct {
+		OK      bool   `json:"ok"`
+		Command string `json:"command"`
+		Data    struct {
+			TaskID      string `json:"task_id"`
+			Description string `json:"description"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+		t.Fatalf("JSON: %v\n%s", err, out)
+	}
+	if !envelope.OK || envelope.Command != "task.description" || envelope.Data.TaskID != "named-task" || envelope.Data.Description != "real desc" {
+		t.Fatalf("envelope = %#v", envelope)
+	}
+}
+
+func TestTaskDescriptionConflictingInputRejectsBothFlags(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legato.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateColumnMapping(context.Background(), store.ColumnMapping{ColumnName: "Backlog", SortOrder: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(context.Background(), store.Task{ID: "named-task", Title: "Named", Status: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("db:\n  path: "+dbPath+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	descriptionPath := filepath.Join(t.TempDir(), "description.md")
+	if err := os.WriteFile(descriptionPath, []byte("from file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_CONFIG", configPath)
+	t.Setenv("LEGATO_TASK_ID", "named-task")
+
+	errOut, code := captureStderrWithCode(t, func() int {
+		return runCLI([]string{"--json", "task", "description", "named-task", "--description", "d", "--description-file", descriptionPath})
+	})
+	if code == 0 {
+		t.Fatalf("expected nonzero exit, got %d", code)
+	}
+	var errEnvelope struct {
+		OK    bool   `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(errOut), &errEnvelope); err != nil {
+		t.Fatalf("JSON: %v\n%s", err, errOut)
+	}
+	if errEnvelope.Error.Code != "conflicting_input" {
+		t.Fatalf("error code = %q, want conflicting_input", errEnvelope.Error.Code)
+	}
+}
+
+func TestTaskDescriptionMissingArgumentWithOnlyTaskID(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legato.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateColumnMapping(context.Background(), store.ColumnMapping{ColumnName: "Backlog", SortOrder: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(context.Background(), store.Task{ID: "named-task", Title: "Named", Status: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("db:\n  path: "+dbPath+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_CONFIG", configPath)
+	t.Setenv("LEGATO_TASK_ID", "named-task")
+
+	errOut, code := captureStderrWithCode(t, func() int {
+		return runCLI([]string{"--json", "task", "description", "named-task"})
+	})
+	if code == 0 {
+		t.Fatalf("expected nonzero exit, got %d", code)
+	}
+	var errEnvelope struct {
+		OK    bool   `json:"ok"`
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(errOut), &errEnvelope); err != nil {
+		t.Fatalf("JSON: %v\n%s", err, errOut)
+	}
+	if errEnvelope.Error.Code != "missing_argument" {
+		t.Fatalf("error code = %q, want missing_argument", errEnvelope.Error.Code)
+	}
+}
+
+func TestTaskDescriptionDefaultsToEnvTaskWithoutPositional(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legato.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateColumnMapping(context.Background(), store.ColumnMapping{ColumnName: "Backlog", SortOrder: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(context.Background(), store.Task{ID: "env-task", Title: "Env", Status: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("db:\n  path: "+dbPath+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	descriptionPath := filepath.Join(t.TempDir(), "description.md")
+	const description = "env-targeted\n"
+	if err := os.WriteFile(descriptionPath, []byte(description), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_CONFIG", configPath)
+	t.Setenv("LEGATO_TASK_ID", "env-task")
+
+	out := captureStdout(t, func() int {
+		return runCLI([]string{"--json", "task", "description", "--description-file", descriptionPath})
+	})
+	var envelope struct {
+		OK      bool   `json:"ok"`
+		Command string `json:"command"`
+		Data    struct {
+			TaskID      string `json:"task_id"`
+			Description string `json:"description"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+		t.Fatalf("JSON: %v\n%s", err, out)
+	}
+	if !envelope.OK || envelope.Command != "task.description" || envelope.Data.TaskID != "env-task" || envelope.Data.Description != description {
+		t.Fatalf("envelope = %#v", envelope)
+	}
+}

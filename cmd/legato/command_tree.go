@@ -90,7 +90,7 @@ func commandTree() *commandDef {
 			[]commandFlag{valueFlag("status", "status", "Move to a configured column"), valueFlag("title", "title", "Replace a local task title"), valueFlag("description", "text", "Replace Legato-owned Markdown details"), valueFlag("description-file", "path|-", "Read replacement details from a file or stdin"), valueFlag("workspace", "name", `Assign by workspace name; "none" clears it`), jsonFlag},
 			"legato task update --status Doing", `legato task update <task-id> --title "Clarify failure"`),
 		leaf("description", "Replace a task's Legato-owned description", runTaskDescriptionContract,
-			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID"), optionalArg("text", "Replacement Markdown")},
+			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")},
 			[]commandFlag{valueFlag("description", "text", "Replacement Markdown"), valueFlag("description-file", "path|-", "Read Markdown from a file or stdin"), jsonFlag},
 			`legato task description <task-id> --description-file details.md`),
 		leaf("note", "Append a timestamped task note", runTaskNoteContract,
