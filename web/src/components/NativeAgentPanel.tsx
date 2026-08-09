@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react"
-import { ArrowDown, ArrowLeftRight, Cpu, Zap, MoreHorizontal, RefreshCw, Unplug, Skull, Bell, BellOff, Terminal } from "lucide-react"
+import { ArrowDown, ArrowLeftRight, Check, Cpu, Zap, MoreHorizontal, RefreshCw, Unplug, Skull, Bell, BellOff, Terminal } from "lucide-react"
 import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
@@ -717,9 +717,10 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
                     <button
                       key={m.name}
                       onClick={() => handleModeChange(m.name)}
-                      className={"flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
+                      className={"flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
                     >
-                      <span className="font-mono">{m.name}</span>
+                      <Check size={12} className={m.name === mode ? "text-zinc-400" : "opacity-0"} />
+                      <span className="font-mono w-12 shrink-0">{m.name}</span>
                       {m.description && <span className="text-zinc-500 truncate">{m.description}</span>}
                     </button>
                   ))}
@@ -785,7 +786,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
                         onClick={() => { handleModeChange(m.name); setMenuOpen(false) }}
                         className={"flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
                       >
-                        <span className="font-mono">{m.name}</span>
+                        <Check size={12} className={m.name === mode ? "text-zinc-400" : "opacity-0"} />
+                        <span className="font-mono w-12 shrink-0">{m.name}</span>
                         {m.description && <span className="text-zinc-500 truncate">{m.description}</span>}
                       </button>
                     ))}
