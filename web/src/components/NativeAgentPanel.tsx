@@ -775,13 +775,9 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
               <MoreHorizontal size={12} />
             </button>
             {menuOpen && (
-              <div className="absolute bottom-full right-0 mb-1 max-w-[calc(100vw-2rem)] rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
+              <div className="absolute bottom-full right-0 mb-1 max-h-[60vh] max-w-[calc(100vw-2rem)] overflow-y-auto rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
                 {modes.length > 0 && (
                   <div className="sm:hidden">
-                    <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-500">
-                      <ArrowLeftRight size={12} />
-                      Mode
-                    </div>
                     {modes.map((m) => (
                       <button
                         key={m.name}
@@ -799,12 +795,11 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
                   </div>
                 )}
                 <div className="sm:hidden">
-                  <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-500">
-                    <Zap size={12} />
-                    Macros
-                  </div>
                   {macros.length === 0 ? (
-                    <div className="px-3 py-1.5 text-xs text-zinc-500">(no macros configured)</div>
+                    <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-500">
+                      <Zap size={12} />
+                      No macros
+                    </div>
                   ) : (
                     macros.map((macro, index) => {
                       const shortcut = index < 9 ? String(index + 1) : undefined
