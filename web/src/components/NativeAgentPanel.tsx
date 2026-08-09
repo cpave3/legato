@@ -720,7 +720,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
                       className={"flex w-full min-w-0 items-start gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
                     >
                       <Check size={12} className={m.name === mode ? "mt-0.5 shrink-0 text-zinc-400" : "mt-0.5 shrink-0 opacity-0"} />
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-0 flex-1 text-left">
                         <div className="font-mono">{m.name}</div>
                         {m.description && <div className="text-zinc-500 truncate">{m.description}</div>}
                       </div>
@@ -739,7 +739,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
               aria-keyshortcuts="m"
             >
               <Zap size={12} />
-              <span>Macros</span>
+              <span className="hidden sm:inline">Macros</span>
             </button>
             {macrosOpen && (
               <div className="absolute bottom-full right-0 mb-1 max-w-[calc(100vw-2rem)] rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
@@ -789,7 +789,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
                         className={"flex w-full min-w-0 items-start gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
                       >
                         <Check size={12} className={m.name === mode ? "mt-0.5 shrink-0 text-zinc-400" : "mt-0.5 shrink-0 opacity-0"} />
-                        <div className="min-w-0 flex-1">
+                        <div className="min-w-0 flex-1 text-left">
                           <div className="font-mono">{m.name}</div>
                           {m.description && <div className="text-zinc-500 truncate">{m.description}</div>}
                         </div>
@@ -798,6 +798,32 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
                     <div className="my-1 border-t border-zinc-800" />
                   </div>
                 )}
+                <div className="sm:hidden">
+                  <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-500">
+                    <Zap size={12} />
+                    Macros
+                  </div>
+                  {macros.length === 0 ? (
+                    <div className="px-3 py-1.5 text-xs text-zinc-500">(no macros configured)</div>
+                  ) : (
+                    macros.map((macro, index) => {
+                      const shortcut = index < 9 ? String(index + 1) : undefined
+                      return (
+                        <button
+                          key={macro.name}
+                          onClick={() => { handleMacro(macro.keys); setMenuOpen(false) }}
+                          aria-keyshortcuts={shortcut}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                        >
+                          {shortcut && <kbd className="w-4 rounded border border-zinc-700 text-center font-mono text-[10px] text-zinc-500">{shortcut}</kbd>}
+                          <Zap size={12} />
+                          {macro.name}
+                        </button>
+                      )
+                    })
+                  )}
+                  <div className="my-1 border-t border-zinc-800" />
+                </div>
                 <button
                   onClick={() => { setMenuOpen(false); void resync() }}
                   disabled={loading}
