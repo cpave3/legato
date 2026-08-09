@@ -656,11 +656,19 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
           <span className="rounded bg-zinc-800 px-1.5 py-0.5">{mode}</span>
         )}
         {syncing && <span className="text-indigo-400">Syncing…</span>}
-        {contextUsage && (
-          <span>
-            {formatTokens(contextUsage.used)} / {formatTokens(contextUsage.window)} ({Math.round((contextUsage.used / contextUsage.window) * 100)}%)
-          </span>
-        )}
+        {contextUsage && (() => {
+          const pct = contextUsage.used / contextUsage.window
+          const pctRounded = Math.round(pct * 100)
+          const color = pct < 0.5 ? "bg-green-500" : pct < 0.75 ? "bg-amber-500" : "bg-red-500"
+          return (
+            <div className="relative flex h-4 w-28 shrink-0 items-center overflow-hidden rounded bg-zinc-800">
+              <div className={`absolute inset-y-0 left-0 ${color} opacity-80`} style={{ width: `${pctRounded}%` }} />
+              <span className="relative z-10 w-full text-center text-[10px] text-zinc-200">
+                {formatTokens(contextUsage.used)} / {formatTokens(contextUsage.window)} ({pctRounded}%)
+              </span>
+            </div>
+          )
+        })()}
         {error && <span className="text-red-400">{error}</span>}
         {/* Action buttons */}
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
@@ -731,7 +739,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
               <span>Macros</span>
             </button>
             {macrosOpen && (
-              <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
+              <div className="absolute bottom-full right-0 mb-1 max-w-[calc(100vw-2rem)] rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
                 {macros.length === 0 ? (
                   <div className="px-3 py-1.5 text-xs text-zinc-500">(no macros configured)</div>
                 ) : (
@@ -764,7 +772,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
               <MoreHorizontal size={12} />
             </button>
             {menuOpen && (
-              <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
+              <div className="absolute bottom-full right-0 mb-1 max-w-[calc(100vw-2rem)] rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
                 {modes.length > 0 && (
                   <div className="sm:hidden">
                     <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-500">
@@ -775,7 +783,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
                       <button
                         key={m.name}
                         onClick={() => { handleModeChange(m.name); setMenuOpen(false) }}
-                        className={"flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
+                        className={"flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
                       >
                         <span className="font-mono">{m.name}</span>
                         {m.description && <span className="text-zinc-500 truncate">{m.description}</span>}

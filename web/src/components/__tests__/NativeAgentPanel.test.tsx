@@ -556,8 +556,11 @@ describe("NativeAgentPanel", () => {
 
     render(<NativeAgentPanel agentId="task-1" />)
 
-    expect(await screen.findByText("128k / 256k (50%)")).not.toBeNull()
+    const initial = await screen.findByText("128k / 256k (50%)")
+    expect(initial).not.toBeNull()
     expect(screen.queryByText(/3,800,000 tokens/)).toBeNull()
+    // 50% should be amber (Steam Deck pressure: <50% green, 50-75% amber, >=75% red)
+    expect(initial.closest("div")!.querySelector(".bg-amber-500")).not.toBeNull()
 
     act(() => websocketHandler?.({
       type: "chimera_event",
@@ -572,7 +575,10 @@ describe("NativeAgentPanel", () => {
       }),
     }))
 
-    expect(screen.getByText("192k / 256k (75%)")).not.toBeNull()
+    const updated = screen.getByText("192k / 256k (75%)")
+    expect(updated).not.toBeNull()
+    // 75% should be red
+    expect(updated.closest("div")!.querySelector(".bg-red-500")).not.toBeNull()
   })
 
   it("does not lose a live reply when the initial snapshot resolves late", async () => {
