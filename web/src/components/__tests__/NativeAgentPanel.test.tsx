@@ -1090,4 +1090,89 @@ describe("NativeAgentPanel", () => {
     const modelCallsAfter = fetchSpy.mock.calls.filter((c) => String(c[0]).includes("/chimera/model"))
     expect(modelCallsAfter.length).toBe(modelCallsBefore.length)
   })
+
+  it("hides the model ref text and mode button below the sm breakpoint", async () => {
+    const modelsData = [{ ref: "manticore/glm", isDefault: true }]
+    const modesData = [{ name: "build", description: "Build mode", cycle: false }]
+    const macros = [{ name: "Show task", keys: "!legato task show $LEGATO_TASK_ID" }]
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, messages: [], toolCalls: [] }), { status: 200 })
+      if (url.endsWith("/chimera/models")) return new Response(JSON.stringify(modelsData), { status: 200 })
+      if (url.endsWith("/chimera/modes")) return new Response(JSON.stringify(modesData), { status: 200 })
+      if (url.endsWith("/api/macros")) return new Response(JSON.stringify({ macros }), { status: 200 })
+      return new Response("[]", { status: 200 })
+    })
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+
+    // Model ref span collapses below sm
+    const modelButton = screen.getByTitle("Change model")
+    const modelRefSpan = within(modelButton as HTMLElement).getByText("manticore/glm")
+    expect(modelRefSpan.className).toContain("hidden")
+    expect(modelRefSpan.className).toContain("sm:inline")
+
+    // Mode selector wrapper is hidden below sm
+    const modeButton = screen.getByTitle("Change mode")
+    expect(modeButton.parentElement!.className).toContain("hidden")
+    expect(modeButton.parentElement!.className).toContain("sm:block")
+
+    // Macros stays visible (not collapsed)
+    const macrosButton = screen.getByTitle("Macros (M)")
+    expect(macrosButton.parentElement!.className).not.toContain("hidden")
+
+    // Dot menu is always present
+    expect(view.container.querySelector('[title="More actions"]')).not.toBeNull()
+  })
+
+  it("exposes mode options inside the overflow menu on mobile", async () => {
+    const modelsData = [{ ref: "manticore/glm", isDefault: true }]
+    const modesData = [
+      { name: "build", description: "Build mode", cycle: false },
+      { name: "plan", description: "Plan mode", cycle: false },
+    ]
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, mode: "build", messages: [], toolCalls: [] }), { status: 200 })
+      if (url.endsWith("/chimera/models")) return new Response(JSON.stringify(modelsData), { status: 200 })
+      if (url.endsWith("/chimera/modes")) return new Response(JSON.stringify(modesData), { status: 200 })
+      return new Response("[]", { status: 200 })
+    })
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+
+    fireEvent.click(within(view.container).getByTitle("More actions"))
+
+    // Mode options appear inline in the overflow menu
+    const buildButtons = await within(view.container).findAllByRole("button", { name: /build/i })
+    expect(buildButtons.length).toBeGreaterThanOrEqual(1)
+    expect(within(view.container).getByText("plan")).not.toBeNull()
+  })
+
+  it("switches mode from the overflow menu entry on mobile", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, mode: "build", messages: [], toolCalls: [] }), { status: 200 })
+      if (url.endsWith("/chimera/models")) return new Response(JSON.stringify([{ ref: "manticore/glm", isDefault: true }]), { status: 200 })
+      if (url.endsWith("/chimera/modes")) return new Response(JSON.stringify([
+        { name: "build", description: "Build mode", cycle: false },
+        { name: "plan", description: "Plan mode", cycle: false },
+      ]), { status: 200 })
+      if (url.endsWith("/chimera/modes") === false && url.includes("/chimera/modes")) return new Response(null, { status: 204 })
+      return new Response("[]", { status: 200 })
+    })
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+
+    fireEvent.click(within(view.container).getByTitle("More actions"))
+    // Click "plan" from the overflow menu mode list
+    fireEvent.click(await within(view.container).findByRole("button", { name: /plan/i }))
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("/chimera/modes"), expect.objectContaining({ method: "POST" }))
+    })
+  })
 })

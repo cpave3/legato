@@ -678,7 +678,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
                   title="Change model"
                 >
                   <Cpu size={12} />
-                  <span className="font-mono">{model || "model"}</span>
+                  <span className="font-mono hidden sm:inline">{model || "model"}</span>
                 </button>
               }
             >
@@ -694,7 +694,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
           )}
           {/* Mode selector */}
           {modes.length > 0 && (
-            <div className="relative" ref={modesRef}>
+            <div className="relative hidden sm:block" ref={modesRef}>
               <button
                 onClick={() => setModesOpen((v) => !v)}
                 className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-400 border border-zinc-700 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
@@ -765,6 +765,25 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
             </button>
             {menuOpen && (
               <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
+                {modes.length > 0 && (
+                  <div className="sm:hidden">
+                    <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-500">
+                      <ArrowLeftRight size={12} />
+                      Mode
+                    </div>
+                    {modes.map((m) => (
+                      <button
+                        key={m.name}
+                        onClick={() => { handleModeChange(m.name); setMenuOpen(false) }}
+                        className={"flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
+                      >
+                        <span className="font-mono">{m.name}</span>
+                        {m.description && <span className="text-zinc-500 truncate">{m.description}</span>}
+                      </button>
+                    ))}
+                    <div className="my-1 border-t border-zinc-800" />
+                  </div>
+                )}
                 <button
                   onClick={() => { setMenuOpen(false); void resync() }}
                   disabled={loading}
