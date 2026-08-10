@@ -82,7 +82,7 @@ type WSMessage struct {
 	Cursor         string              `json:"cursor,omitempty"`
 	Queue          bool                `json:"queue,omitempty"`
 	Decision       string              `json:"decision,omitempty"`
-	RememberScope  string              `json:"remember_scope,omitempty"`
+	Feedback       *string             `json:"feedback,omitempty"`
 }
 
 // wsClient represents a connected WebSocket client.
@@ -313,16 +313,36 @@ func (s *Server) handleAgentInterrupt(client *wsClient, msg WSMessage) {
 }
 
 func (s *Server) handleAgentPermission(client *wsClient, msg WSMessage) {
+	sendError := func(message string) {
+		client.send(WSMessage{Type: MsgError, AgentID: msg.AgentID, RequestID: msg.RequestID, Error: message})
+	}
 	if s.agents == nil {
-		client.send(WSMessage{Type: MsgError, Error: "agent service not available"})
+		sendError("agent service not available")
 		return
 	}
-	if msg.AgentID == "" {
-		client.send(WSMessage{Type: MsgError, Error: "agent_id is required"})
+	if msg.AgentID == "" || msg.RequestID == "" {
+		sendError("agent_id and request_id are required")
 		return
 	}
-	if err := s.agents.ResolvePermission(context.Background(), msg.AgentID, msg.RequestID, msg.Decision, msg.RememberScope); err != nil {
-		client.send(WSMessage{Type: MsgError, Error: "resolve permission failed: " + err.Error()})
+	feedback := ""
+	if msg.Feedback != nil {
+		feedback = strings.TrimSpace(*msg.Feedback)
+		if feedback == "" {
+			sendError("feedback must not be blank")
+			return
+		}
+	}
+	if msg.Decision != "allow" && msg.Decision != "deny" {
+		sendError("decision must be allow or deny")
+		return
+	}
+	if msg.Decision == "allow" && msg.Feedback != nil {
+		sendError("feedback is only valid when denying permission")
+		return
+	}
+	action := service.PermissionAction{Decision: msg.Decision, Feedback: feedback}
+	if err := s.agents.ResolvePermission(context.Background(), msg.AgentID, msg.RequestID, action); err != nil {
+		sendError("resolve permission failed: " + err.Error())
 	}
 }
 

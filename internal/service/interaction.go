@@ -13,6 +13,12 @@ import (
 // The interface is dispatched by AgentService based on the agent's kind:
 // Chimera agents with a discovered endpoint use the Chimera adapter;
 // all others use the generic send-keys adapter.
+// PermissionAction is a decision for a pending structured permission request.
+type PermissionAction struct {
+	Decision string `json:"decision"`
+	Feedback string `json:"feedback,omitempty"`
+}
+
 type AgentInteraction interface {
 	// SendMessage delivers a text message to the agent. For tmux agents,
 	// this is equivalent to send-keys + Enter. For Chimera agents, this
@@ -22,11 +28,8 @@ type AgentInteraction interface {
 	QueueMessage(ctx context.Context, taskID, message string) error
 	// Interrupt sends an interrupt to the agent's active turn.
 	Interrupt(ctx context.Context, taskID string) error
-	// ResolvePermission resolves a pending permission request. requestID
-	// identifies the pending request; decision is "allow" or "deny".
-	// rememberScope is optional ("session" or "project") and only applies
-	// to agents that support it.
-	ResolvePermission(ctx context.Context, taskID, requestID, decision, rememberScope string) error
+	// ResolvePermission resolves a pending structured permission request.
+	ResolvePermission(ctx context.Context, taskID, requestID string, action PermissionAction) error
 }
 
 // SendKeysAdapter wraps the existing tmux send-keys behavior as the
@@ -63,7 +66,7 @@ func (a *SendKeysAdapter) Interrupt(ctx context.Context, taskID string) error {
 	return a.tmux.SendKey(session.TmuxSession, "C-c")
 }
 
-func (a *SendKeysAdapter) ResolvePermission(ctx context.Context, taskID, requestID, decision, rememberScope string) error {
+func (a *SendKeysAdapter) ResolvePermission(ctx context.Context, taskID, requestID string, action PermissionAction) error {
 	// Non-Chimera agents don't have structured permissions.
 	return nil
 }

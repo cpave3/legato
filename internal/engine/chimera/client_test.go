@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -175,25 +176,47 @@ func TestInterrupt(t *testing.T) {
 }
 
 func TestResolvePermission(t *testing.T) {
-	var gotBody map[string]string
+	tests := []struct {
+		name   string
+		action PermissionAction
+		body   string
+	}{
+		{name: "allow", action: PermissionAction{Decision: "allow"}, body: `{"decision":"allow"}`},
+		{name: "deny with feedback", action: PermissionAction{Decision: "deny", Feedback: "Use a safer command"}, body: `{"decision":"deny","feedback":"Use a safer command"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotBody string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1/sessions/sess-1/permissions/req-1" {
+					t.Fatalf("unexpected path: %s", r.URL.Path)
+				}
+				body, _ := io.ReadAll(r.Body)
+				gotBody = string(body)
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			defer srv.Close()
+
+			c := NewClient(srv.URL)
+			if err := c.ResolvePermission(context.Background(), "sess-1", "req-1", tt.action); err != nil {
+				t.Fatalf("ResolvePermission: %v", err)
+			}
+			if gotBody != tt.body {
+				t.Fatalf("body = %s, want %s", gotBody, tt.body)
+			}
+		})
+	}
+}
+
+func TestResolvePermissionPropagatesNonSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/sessions/sess-1/permissions/req-1" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		json.NewDecoder(r.Body).Decode(&gotBody)
-		w.WriteHeader(204)
+		w.WriteHeader(http.StatusConflict)
 	}))
 	defer srv.Close()
 
-	c := NewClient(srv.URL)
-	if err := c.ResolvePermission(context.Background(), "sess-1", "req-1", "allow", "session"); err != nil {
-		t.Fatalf("ResolvePermission: %v", err)
-	}
-	if gotBody["decision"] != "allow" {
-		t.Fatalf("decision = %q, want allow", gotBody["decision"])
-	}
-	if gotBody["rememberScope"] != "session" {
-		t.Fatalf("rememberScope = %q, want session", gotBody["rememberScope"])
+	err := NewClient(srv.URL).ResolvePermission(context.Background(), "sess-1", "req-1", PermissionAction{Decision: "allow"})
+	if err == nil || !strings.Contains(err.Error(), "409 Conflict") {
+		t.Fatalf("error = %v, want 409 Conflict", err)
 	}
 }
 

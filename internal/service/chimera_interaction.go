@@ -117,11 +117,11 @@ func (a *ChimeraInteractionAdapter) Interrupt(ctx context.Context, taskID string
 	return client.Interrupt(ctx, sessionID)
 }
 
-func (a *ChimeraInteractionAdapter) ResolvePermission(ctx context.Context, taskID, requestID, decision, rememberScope string) error {
+func (a *ChimeraInteractionAdapter) ResolvePermission(ctx context.Context, taskID, requestID string, action PermissionAction) error {
 	endpoint, sessionID, err := a.getEndpointAndSession(ctx, taskID)
 	if err != nil {
 		return err
 	}
 	client := a.clientFactory(endpoint)
-	return client.ResolvePermission(ctx, sessionID, requestID, decision, rememberScope)
+	return client.ResolvePermission(ctx, sessionID, requestID, chimera.PermissionAction(action))
 }

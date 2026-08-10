@@ -175,7 +175,7 @@ type AgentService interface {
 	InterruptAgent(ctx context.Context, taskID string) error
 	// ResolvePermission resolves a pending permission request for the
 	// agent. Only applies to agents with structured permissions (Chimera).
-	ResolvePermission(ctx context.Context, taskID, requestID, decision, rememberScope string) error
+	ResolvePermission(ctx context.Context, taskID, requestID string, action PermissionAction) error
 	// HasChimeraEndpoint returns true if the agent has a discovered Chimera
 	// endpoint, meaning the web UI should render the structured panel
 	// instead of the xterm terminal.
@@ -1443,9 +1443,9 @@ func (a *agentService) InterruptAgent(ctx context.Context, taskID string) error 
 }
 
 // ResolvePermission resolves a pending permission request for the agent.
-func (a *agentService) ResolvePermission(ctx context.Context, taskID, requestID, decision, rememberScope string) error {
+func (a *agentService) ResolvePermission(ctx context.Context, taskID, requestID string, action PermissionAction) error {
 	adapter := a.resolveInteractionAdapter(ctx, taskID)
-	return adapter.ResolvePermission(ctx, taskID, requestID, decision, rememberScope)
+	return adapter.ResolvePermission(ctx, taskID, requestID, action)
 }
 
 // HasChimeraEndpoint returns true if the agent has a discovered Chimera

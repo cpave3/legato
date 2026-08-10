@@ -277,15 +277,16 @@ func (c *Client) Interrupt(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+// PermissionAction is the action accepted by Chimera's permission endpoint.
+type PermissionAction struct {
+	Decision string `json:"decision"`
+	Feedback string `json:"feedback,omitempty"`
+}
+
 // ResolvePermission resolves a pending permission request via
 // POST /v1/sessions/:id/permissions/:requestId.
-// decision is "allow" or "deny". rememberScope is optional ("session" or "project").
-func (c *Client) ResolvePermission(ctx context.Context, sessionID, requestID, decision, rememberScope string) error {
-	body := map[string]string{"decision": decision}
-	if rememberScope != "" {
-		body["rememberScope"] = rememberScope
-	}
-	bodyBytes, _ := json.Marshal(body)
+func (c *Client) ResolvePermission(ctx context.Context, sessionID, requestID string, action PermissionAction) error {
+	bodyBytes, _ := json.Marshal(action)
 
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/permissions/" + url.PathEscape(requestID)
 	resp, err := c.do(ctx, http.MethodPost, path, bodyBytes)

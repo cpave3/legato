@@ -320,6 +320,10 @@ type promptAgentService struct {
 	chimeraEndpoint  string
 	chimeraSessionID string
 	agentEnvironment []string
+	permissionTaskID string
+	permissionReqID  string
+	permissionAction service.PermissionAction
+	permissionErr    error
 }
 
 func (p *promptAgentService) SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error {
@@ -393,8 +397,11 @@ func (p *promptAgentService) QueueMessage(_ context.Context, taskID, message str
 func (p *promptAgentService) InterruptAgent(context.Context, string) error {
 	return nil
 }
-func (p *promptAgentService) ResolvePermission(context.Context, string, string, string, string) error {
-	return nil
+func (p *promptAgentService) ResolvePermission(_ context.Context, taskID, requestID string, action service.PermissionAction) error {
+	p.permissionTaskID = taskID
+	p.permissionReqID = requestID
+	p.permissionAction = action
+	return p.permissionErr
 }
 func (p *promptAgentService) HasChimeraEndpoint(context.Context, string) bool {
 	return p.chimeraEndpoint != ""

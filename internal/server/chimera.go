@@ -199,17 +199,25 @@ func (s *Server) chimeraPermissionHandler() http.HandlerFunc {
 		}
 
 		var req struct {
-			RequestID     string `json:"request_id"`
-			Decision      string `json:"decision"`
-			RememberScope string `json:"remember_scope"`
+			RequestID string  `json:"request_id"`
+			Decision  string  `json:"decision"`
+			Feedback  *string `json:"feedback,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		if req.RequestID == "" || req.Decision == "" {
-			http.Error(w, "request_id and decision required", http.StatusBadRequest)
+		if req.RequestID == "" || (req.Decision != "allow" && req.Decision != "deny") {
+			http.Error(w, "request_id and a valid decision required", http.StatusBadRequest)
 			return
+		}
+		feedback := ""
+		if req.Feedback != nil {
+			feedback = strings.TrimSpace(*req.Feedback)
+			if feedback == "" || req.Decision != "deny" {
+				http.Error(w, "non-empty feedback is only valid for deny", http.StatusBadRequest)
+				return
+			}
 		}
 
 		endpoint, sessionID, err := s.getChimeraEndpoint(r, taskID)
@@ -219,7 +227,8 @@ func (s *Server) chimeraPermissionHandler() http.HandlerFunc {
 		}
 
 		client := chimera.NewClient(endpoint)
-		if err := client.ResolvePermission(r.Context(), sessionID, req.RequestID, req.Decision, req.RememberScope); err != nil {
+		action := chimera.PermissionAction{Decision: req.Decision, Feedback: feedback}
+		if err := client.ResolvePermission(r.Context(), sessionID, req.RequestID, action); err != nil {
 			http.Error(w, "chimera: "+err.Error(), http.StatusBadGateway)
 			return
 		}
