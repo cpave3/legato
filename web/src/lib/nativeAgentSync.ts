@@ -37,13 +37,37 @@ export interface NativeToolItem {
   subagent?: NativeSubagentState
 }
 
+export type NativePermissionFinding =
+  | { kind: "risk"; stageId: string; level: "safe" | "caution" | "danger" | "critical"; score?: number; message: string; factors?: string[] }
+  | { kind: "path"; stageId: string; operation: "read" | "write" | "delete"; path: string; resolvedPath?: string; requiredGrant: "read" | "write"; message: string }
+  | { kind: "unresolved"; stageId: string; message: string }
+  | { kind: "analyzer_error"; stageId: string; message: string }
+  | { kind: "blocked"; stageId: string; ruleId: string; message: string }
+
+export interface NativePermissionItem {
+  requestId: string
+  tool: string
+  target: "host"
+  command: string
+  reason?: string
+  policyAnalysis?: {
+    version: 1
+    outcome: "pass" | "approval_required"
+    findings: NativePermissionFinding[]
+    stages: Array<{ id: string; status: "pass" | "findings" | "error"; findings: NativePermissionFinding[] }>
+  }
+  status: "pending" | "submitting" | "allowed" | "denied" | "expired"
+  remembered?: boolean
+  error?: string
+}
+
 export interface NativeConversationItem {
   key: string
   role: NativeItemRole
   text: string
   isStreaming?: boolean
   tool?: NativeToolItem
-  toolName?: string
+  permission?: NativePermissionItem
   bang?: NativeBangItem
 }
 
@@ -85,7 +109,12 @@ export interface NativeEvent {
   result?: Record<string, unknown>
   display?: { summary?: string }
   requestId?: string
-  toolName?: string
+  tool?: string
+  target?: "host"
+  command?: string
+  decision?: "allow" | "deny"
+  remembered?: boolean
+  policyAnalysis?: NativePermissionItem["policyAnalysis"]
   error?: string
   contextWindow?: number
   usedContextTokens?: number
@@ -233,6 +262,9 @@ export function reconcileNativeSnapshot(
       },
     }
   })
+  // Chimera snapshots do not currently include permission requests, so retain
+  // cards already observed in this live browser session across snapshot repair.
+  next.items.push(...previous.items.filter((item) => item.permission))
   next.cursor = previous.cursor
   next.eventIds = new Set(previous.eventIds)
   next.eventOrder = [...previous.eventOrder]
@@ -372,7 +404,37 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
       break
     case "permission_request":
       next.busy = false
-      if (event.requestId) next.items.push({ key: event.requestId, role: "system", text: "", toolName: event.toolName })
+      if (event.requestId && event.tool && event.target && event.command) {
+        next.items.push({
+          key: event.requestId,
+          role: "system",
+          text: "",
+          permission: {
+            requestId: event.requestId,
+            tool: event.tool,
+            target: event.target,
+            command: event.command,
+            reason: event.reason,
+            policyAnalysis: event.policyAnalysis,
+            status: "pending",
+          },
+        })
+      }
+      break
+    case "permission_resolved":
+      if (event.requestId && event.decision) {
+        updatePermission(next.items, event.requestId, (permission) => ({
+          ...permission,
+          status: event.decision === "allow" ? "allowed" : "denied",
+          remembered: event.remembered,
+          error: undefined,
+        }))
+      }
+      break
+    case "permission_timeout":
+      if (event.requestId) {
+        updatePermission(next.items, event.requestId, (permission) => ({ ...permission, status: "expired", error: undefined }))
+      }
       break
     case "run_finished":
       next.busy = false
@@ -391,6 +453,26 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
   }
 
   return next
+}
+
+export function updatePermissionState(
+  state: NativeSyncState,
+  requestId: string,
+  update: (permission: NativePermissionItem) => NativePermissionItem,
+): NativeSyncState {
+  const items = [...state.items]
+  updatePermission(items, requestId, update)
+  return { ...state, items }
+}
+
+function updatePermission(
+  items: NativeConversationItem[],
+  requestId: string,
+  update: (permission: NativePermissionItem) => NativePermissionItem,
+) {
+  const index = items.findIndex((item) => item.permission?.requestId === requestId)
+  if (index < 0 || !items[index].permission) return
+  items[index] = { ...items[index], permission: update(items[index].permission!) }
 }
 
 function updateTool(items: NativeConversationItem[], callId: string, update: (tool: NativeToolItem) => NativeToolItem) {

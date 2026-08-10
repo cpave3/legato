@@ -13,7 +13,9 @@ import {
   createNativeSyncState,
   reconcileNativeSnapshot,
   reduceNativeEvent,
+  updatePermissionState,
   type NativeEvent as ChimeraEvent,
+  type NativePermissionItem,
   type NativeSnapshot as SessionSnapshot,
   type NativeSyncState,
   type NativeToolItem as ToolCallItem,
@@ -59,6 +61,78 @@ type SlashSuggestion = {
   name: string
   description: string
   body?: string
+}
+
+function permissionFindingLabel(finding: NonNullable<NativePermissionItem["policyAnalysis"]>["findings"][number]): string {
+  if (finding.kind === "risk") return `${finding.level} risk`
+  if (finding.kind === "path") return `${finding.operation} path`
+  if (finding.kind === "analyzer_error") return "analyzer error"
+  if (finding.kind === "blocked") return "blocked"
+  return "unresolved"
+}
+
+function PermissionCard({
+  permission,
+  onResolve,
+}: {
+  permission: NativePermissionItem
+  onResolve: (requestId: string, decision: "allow" | "deny", feedback?: string) => void
+}) {
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedback, setFeedback] = useState("")
+  const pending = permission.status === "pending"
+  const submitting = permission.status === "submitting"
+  const resolvedLabel = permission.status === "allowed"
+    ? "Allowed"
+    : permission.status === "denied"
+      ? "Denied"
+      : permission.status === "expired"
+        ? "Expired"
+        : null
+
+  return (
+    <section aria-label={`Permission request for ${permission.tool}`} className="mx-4 my-2 min-w-0 rounded-lg border border-yellow-600/40 bg-yellow-900/10 p-3">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="text-sm font-semibold text-yellow-200">Host command approval</div>
+        <span className="rounded bg-yellow-950/70 px-1.5 py-0.5 font-mono text-[11px] text-yellow-300">{permission.tool} · {permission.target}</span>
+        {resolvedLabel && <span className="ml-auto text-xs font-medium text-zinc-300">{resolvedLabel}</span>}
+      </div>
+      {permission.reason && <p className="mt-2 text-xs text-zinc-300">{permission.reason}</p>}
+      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/30 p-2 font-mono text-xs text-zinc-100">{permission.command}</pre>
+      {permission.policyAnalysis?.findings.length ? (
+        <div className="mt-2 space-y-1" aria-label="Policy findings">
+          {permission.policyAnalysis.findings.map((finding, index) => (
+            <div key={`${finding.stageId}-${finding.kind}-${index}`} className="flex min-w-0 flex-wrap gap-x-2 rounded border border-zinc-700/70 bg-zinc-900/50 px-2 py-1 text-xs">
+              <span className="font-medium uppercase tracking-wide text-amber-300">{permissionFindingLabel(finding)}</span>
+              <span className="min-w-0 break-words text-zinc-300">{finding.message}</span>
+              {finding.kind === "path" && <span className="w-full break-all font-mono text-zinc-400">{finding.resolvedPath || finding.path}</span>}
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {permission.error && <p role="alert" className="mt-2 text-xs text-red-400">{permission.error}</p>}
+      {(pending || submitting) && (
+        <div className="mt-3 space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <button disabled={submitting} className="rounded bg-green-700/60 px-2 py-1 text-xs text-white hover:bg-green-600/60 disabled:cursor-wait disabled:opacity-50" onClick={() => onResolve(permission.requestId, "allow")}>Allow</button>
+            <button disabled={submitting} className="rounded bg-red-700/60 px-2 py-1 text-xs text-white hover:bg-red-600/60 disabled:cursor-wait disabled:opacity-50" onClick={() => onResolve(permission.requestId, "deny")}>Deny</button>
+            <button disabled={submitting} className="rounded border border-red-700/70 px-2 py-1 text-xs text-red-200 hover:bg-red-950/50 disabled:cursor-wait disabled:opacity-50" onClick={() => setFeedbackOpen(true)}>Deny with feedback</button>
+            {submitting && <span role="status" className="self-center text-xs text-yellow-300">Submitting…</span>}
+          </div>
+          {feedbackOpen && (
+            <div className="space-y-2">
+              <label className="block text-xs text-zinc-300" htmlFor={`permission-feedback-${permission.requestId}`}>Feedback for Chimera</label>
+              <textarea id={`permission-feedback-${permission.requestId}`} value={feedback} disabled={submitting} onChange={(event) => setFeedback(event.target.value)} className="min-h-20 w-full resize-y rounded border border-zinc-700 bg-zinc-950 p-2 text-sm text-zinc-200 focus:border-red-500 focus:outline-none" />
+              <div className="flex flex-wrap gap-2">
+                <button disabled={submitting || !feedback.trim()} className="rounded bg-red-700/60 px-2 py-1 text-xs text-white disabled:opacity-40" onClick={() => onResolve(permission.requestId, "deny", feedback.trim())}>Send denial</button>
+                <button disabled={submitting} className="rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800" onClick={() => { setFeedbackOpen(false); setFeedback("") }}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  )
 }
 
 interface NativeAgentPanelProps {
@@ -323,6 +397,14 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   useEffect(() => {
     const unsubscribe = subscribe((msg: WSMessage) => {
       if (msg.agent_id !== agentId) return
+      if (msg.type === "error" && msg.request_id) {
+        replaceSyncState(updatePermissionState(syncStateRef.current, msg.request_id, (permission) => ({
+          ...permission,
+          status: "pending",
+          error: msg.error || "Permission request failed",
+        })))
+        return
+      }
       if (msg.type === "chimera_sync_required") {
         void resync()
         return
@@ -422,14 +504,23 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
   }, [agentId, send])
 
   const handlePermission = useCallback(
-    (requestId: string, decision: string) => {
+    (requestId: string, decision: "allow" | "deny", feedback?: string) => {
+      const current = syncStateRef.current.items.find((item) => item.permission?.requestId === requestId)?.permission
+      if (!current || current.status !== "pending") return
+      replaceSyncState(updatePermissionState(syncStateRef.current, requestId, (permission) => ({
+        ...permission,
+        status: "submitting",
+        error: undefined,
+      })))
       send({
         type: "agent_permission",
         agent_id: agentId,
-        content: JSON.stringify({ request_id: requestId, decision }),
-      } as never)
+        request_id: requestId,
+        decision,
+        ...(feedback ? { feedback } : {}),
+      })
     },
-    [agentId, send],
+    [agentId, replaceSyncState, send],
   )
 
   const handleSlashSelect = useCallback((suggestion: SlashSuggestion) => {
@@ -603,30 +694,10 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
               </div>
             )
           }
-          // system (permission request)
-          return (
-            <div key={item.key} className="mx-4 my-2 rounded-lg border border-yellow-600/40 bg-yellow-900/10 p-3">
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-yellow-200">
-                  Permission: <span className="font-mono">{item.toolName || "unknown"}</span>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    className="rounded bg-green-700/60 px-2 py-1 text-xs text-white hover:bg-green-600/60"
-                    onClick={() => handlePermission(item.key, "allow")}
-                  >
-                    Allow
-                  </button>
-                  <button
-                    className="rounded bg-red-700/60 px-2 py-1 text-xs text-white hover:bg-red-600/60"
-                    onClick={() => handlePermission(item.key, "deny")}
-                  >
-                    Deny
-                  </button>
-                </div>
-              </div>
-            </div>
-          )
+          if (item.permission) {
+            return <PermissionCard key={item.key} permission={item.permission} onResolve={handlePermission} />
+          }
+          return null
           })}
         </div>
 

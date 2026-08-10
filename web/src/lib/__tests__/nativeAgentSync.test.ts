@@ -180,6 +180,77 @@ describe("native agent synchronization", () => {
     expect(state.cursor).toBe("3")
   })
 
+  it("retains structured permission details and finalizes matching requests", () => {
+    let state = createNativeSyncState()
+    state = reduceNativeEvent(state, {
+      eventId: "permission-1",
+      type: "permission_request",
+      requestId: "req-1",
+      tool: "bash",
+      target: "host",
+      command: "rm -rf build-cache",
+      reason: "Runs outside the sandbox",
+      policyAnalysis: {
+        version: 1,
+        outcome: "approval_required",
+        stages: [{ id: "paths", status: "findings", findings: [] }],
+        findings: [{
+          kind: "path",
+          stageId: "paths",
+          operation: "delete",
+          path: "build-cache",
+          resolvedPath: "/tmp/build-cache",
+          requiredGrant: "write",
+          message: "Deletes a path outside configured roots",
+        }],
+      },
+    })
+
+    expect(state.items[0]?.permission).toMatchObject({
+      requestId: "req-1",
+      tool: "bash",
+      target: "host",
+      command: "rm -rf build-cache",
+      reason: "Runs outside the sandbox",
+      status: "pending",
+      policyAnalysis: { findings: [{ kind: "path", resolvedPath: "/tmp/build-cache" }] },
+    })
+
+    state = reduceNativeEvent(state, {
+      eventId: "resolved-1",
+      type: "permission_resolved",
+      requestId: "req-1",
+      decision: "deny",
+      remembered: false,
+    })
+    expect(state.items[0]?.permission).toMatchObject({ status: "denied", remembered: false })
+  })
+
+  it("retains a live permission card across snapshot repair", () => {
+    let state = createNativeSyncState()
+    state = reduceNativeEvent(state, {
+      eventId: "permission-1", type: "permission_request", requestId: "req-1",
+      tool: "bash", target: "host", command: "echo retained",
+    })
+
+    state = reconcileNativeSnapshot({ messages: [], toolCalls: [] }, state, [])
+
+    expect(state.items[0]?.permission).toMatchObject({ requestId: "req-1", status: "pending" })
+  })
+
+  it("expires only the matching permission request", () => {
+    let state = createNativeSyncState()
+    for (const requestId of ["req-1", "req-2"]) {
+      state = reduceNativeEvent(state, {
+        eventId: `event-${requestId}`, type: "permission_request", requestId,
+        tool: "bash", target: "host", command: `echo ${requestId}`,
+      })
+    }
+    state = reduceNativeEvent(state, { eventId: "timeout", type: "permission_timeout", requestId: "req-2" })
+
+    expect(state.items.map((item) => item.permission?.status)).toEqual(["pending", "expired"])
+  })
+
   it("extracts the current model ref from the session snapshot", () => {
     const state = stateFromNativeSnapshot({
       mode: "build",

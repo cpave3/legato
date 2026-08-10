@@ -39,6 +39,9 @@ export interface WSMessage {
   item_id?: string
   producer?: string
   source_key?: string
+  request_id?: string
+  decision?: "allow" | "deny"
+  feedback?: string
 }
 
 export interface AgentInfo {

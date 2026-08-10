@@ -32,6 +32,117 @@ describe("NativeAgentPanel", () => {
     vi.restoreAllMocks()
   })
 
+  it("renders and resolves a structured host permission request", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "waiting_for_permission", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    await screen.findByText("Session ready — send a message to start")
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({
+        eventId: "event-1",
+        type: "permission_request",
+        requestId: "req-1",
+        tool: "bash",
+        target: "host",
+        command: "rm -rf /tmp/build-cache",
+        reason: "Runs outside the sandbox",
+        policyAnalysis: {
+          version: 1,
+          outcome: "approval_required",
+          stages: [],
+          findings: [{
+            kind: "path",
+            stageId: "paths",
+            operation: "delete",
+            path: "/tmp/build-cache",
+            requiredGrant: "write",
+            message: "Deletes outside configured roots",
+          }],
+        },
+      }),
+    }))
+
+    const card = screen.getByRole("region", { name: "Permission request for bash" })
+    expect(within(card).getByText("bash · host")).not.toBeNull()
+    expect(within(card).getByText("rm -rf /tmp/build-cache")).not.toBeNull()
+    expect(within(card).getByText("Runs outside the sandbox")).not.toBeNull()
+    expect(within(card).getByText("Deletes outside configured roots")).not.toBeNull()
+
+    fireEvent.click(within(card).getByRole("button", { name: "Allow" }))
+    expect(send).toHaveBeenCalledWith({
+      type: "agent_permission",
+      agent_id: "task-1",
+      request_id: "req-1",
+      decision: "allow",
+    })
+    expect((within(card).getByRole("button", { name: "Allow" }) as HTMLButtonElement).disabled).toBe(true)
+
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "event-2", type: "permission_resolved", requestId: "req-1", decision: "allow", remembered: false }),
+    }))
+    expect(within(card).getByText("Allowed")).not.toBeNull()
+    expect(within(card).queryByRole("button", { name: "Allow" })).toBeNull()
+  })
+
+  it("requires and atomically sends trimmed denial feedback", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    await screen.findByText("Session ready — send a message to start")
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "event-1", type: "permission_request", requestId: "req-1", tool: "bash", target: "host", command: "dangerous command" }),
+    }))
+
+    const card = screen.getByRole("region", { name: "Permission request for bash" })
+    fireEvent.click(within(card).getByRole("button", { name: "Deny with feedback" }))
+    const submit = within(card).getByRole("button", { name: "Send denial" })
+    expect((submit as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(within(card).getByLabelText("Feedback for Chimera"), { target: { value: "  Use the sandbox instead  " } })
+    fireEvent.click(submit)
+
+    expect(send).toHaveBeenCalledWith({
+      type: "agent_permission",
+      agent_id: "task-1",
+      request_id: "req-1",
+      decision: "deny",
+      feedback: "Use the sandbox instead",
+    })
+  })
+
+  it("shows a correlated permission failure and permits retry", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    await screen.findByText("Session ready — send a message to start")
+    act(() => websocketHandler?.({
+      type: "chimera_event", agent_id: "task-1",
+      content: JSON.stringify({ eventId: "event-1", type: "permission_request", requestId: "req-1", tool: "bash", target: "host", command: "host command" }),
+    }))
+    const card = screen.getByRole("region", { name: "Permission request for bash" })
+    fireEvent.click(within(card).getByRole("button", { name: "Deny" }))
+
+    act(() => websocketHandler?.({ type: "error", agent_id: "task-1", request_id: "other", error: "unrelated" }))
+    expect(within(card).queryByText("unrelated")).toBeNull()
+    act(() => websocketHandler?.({ type: "error", agent_id: "task-1", request_id: "req-1", error: "resolve permission failed: 409 Conflict" }))
+
+    expect(within(card).getByRole("alert").textContent).toContain("409 Conflict")
+    expect((within(card).getByRole("button", { name: "Deny" }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(within(card).getByRole("button", { name: "Deny" }))
+    expect(send.mock.calls.filter(([message]) => message.type === "agent_permission")).toHaveLength(2)
+  })
+
   it("executes a bang macro instead of sending it as a literal message", async () => {
     const macro = "!legato task show $LEGATO_TASK_ID --format full"
     const requests: string[] = []
