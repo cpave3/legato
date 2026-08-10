@@ -140,6 +140,7 @@ interface NativeAgentPanelProps {
   onClickTerminal?: () => void
   onKill?: () => void
   onDisconnect?: () => void
+  onDowngradeChimera?: () => Promise<void>
   ntfyConfigured?: boolean
   notifyEnabled?: boolean
   onToggleNotify?: () => void
@@ -147,7 +148,7 @@ interface NativeAgentPanelProps {
   agentKind?: string
 }
 
-export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   const { baseUrl } = useServer()
   const [syncState, setSyncState] = useState<NativeSyncState>(() => createNativeSyncState())
@@ -906,6 +907,20 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
                   >
                     {notifyEnabled ? <Bell size={12} /> : <BellOff size={12} />}
                     {notifyEnabled ? "Disable notify" : "Enable notify"}
+                  </button>
+                )}
+                {onDowngradeChimera && (
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false)
+                      void onDowngradeChimera().catch((reason) => {
+                        replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
+                      })
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                  >
+                    <Terminal size={12} />
+                    Downgrade to tmux
                   </button>
                 )}
                 {onDisconnect && (

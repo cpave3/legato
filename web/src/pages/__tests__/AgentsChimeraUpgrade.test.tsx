@@ -4,11 +4,7 @@ import { MemoryRouter } from "react-router-dom"
 import { AgentsPage } from "../Agents"
 
 const mockFetch = vi.fn()
-let subscriptionHandler: ((message: { type: string }) => void) | undefined
-const subscribe = vi.fn((handler: (message: { type: string }) => void) => {
-  subscriptionHandler = handler
-  return vi.fn()
-})
+const subscribe = vi.fn(() => vi.fn())
 vi.stubGlobal("fetch", mockFetch)
 
 vi.mock("../../hooks/useWebSocket", () => ({
@@ -24,7 +20,14 @@ vi.mock("../../hooks/useSettings", () => ({
 vi.mock("../../hooks/useSwarmEvents", () => ({ useSwarmEvents: () => ({ fetchState: vi.fn() }) }))
 vi.mock("../../hooks/useTaskActivity", () => ({ useTaskActivity: () => ({ items: [] }) }))
 vi.mock("../../components/TerminalPanel", () => ({ TerminalPanel: () => <div>Terminal session</div> }))
-vi.mock("../../components/NativeAgentPanel", () => ({ NativeAgentPanel: () => <div>Native Chimera session</div> }))
+vi.mock("../../components/NativeAgentPanel", () => ({
+  NativeAgentPanel: ({ onDowngradeChimera }: { onDowngradeChimera?: () => Promise<void> }) => (
+    <div>
+      Native Chimera session
+      <button onClick={() => void onDowngradeChimera?.()}>Downgrade to tmux</button>
+    </div>
+  ),
+}))
 vi.mock("../../components/AgentSidebar", () => ({ AgentSidebar: () => <aside>Agents</aside> }))
 vi.mock("../../components/AgentSelect", () => ({ AgentSelect: () => null }))
 vi.mock("../../components/RelatedWorkStrip", () => ({ RelatedWorkStrip: () => null }))
@@ -51,13 +54,12 @@ const terminalAgent = {
 beforeEach(() => {
   mockFetch.mockReset()
   subscribe.mockClear()
-  subscriptionHandler = undefined
   localStorage.clear()
 })
 
 afterEach(cleanup)
 
-it("replaces a stale native panel with the terminal after agents_changed", async () => {
+it("manually downgrades a native panel and replaces it with the terminal", async () => {
   let agentFetches = 0
   mockFetch.mockImplementation((input: RequestInfo | URL) => {
     const path = String(input)
@@ -72,17 +74,24 @@ it("replaces a stale native panel with the terminal after agents_changed", async
     if (path === "/api/macros") {
       return Promise.resolve({ ok: true, json: async () => ({ macros: [] }) })
     }
+    if (path === "/api/agents/TASK-42/chimera/downgrade") {
+      return Promise.resolve({ ok: true, status: 200, text: async () => "" })
+    }
     throw new Error(`unexpected request: ${path}`)
   })
 
   render(<MemoryRouter><AgentsPage /></MemoryRouter>)
   expect(await screen.findByText("Native Chimera session")).not.toBeNull()
 
-  subscriptionHandler?.({ type: "agents_changed" })
+  fireEvent.click(screen.getByRole("button", { name: "Downgrade to tmux" }))
 
   expect(await screen.findByText("Terminal session")).not.toBeNull()
   expect(screen.queryByText("Native Chimera session")).toBeNull()
   expect(screen.getByPlaceholderText("Type a message...")).not.toBeNull()
+  expect(mockFetch).toHaveBeenCalledWith(
+    "/api/agents/TASK-42/chimera/downgrade",
+    expect.objectContaining({ method: "POST" }),
+  )
 })
 
 it("rescans Chimera and replaces the terminal with the native panel", async () => {

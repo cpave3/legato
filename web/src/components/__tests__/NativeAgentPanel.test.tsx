@@ -51,6 +51,21 @@ describe("NativeAgentPanel", () => {
     expect(snapshotRequests[1]).toBe("/api/agents/task-1/chimera/snapshot")
   })
 
+  it("offers a manual downgrade action and surfaces failures", async () => {
+    const onDowngradeChimera = vi.fn().mockRejectedValue(new Error("downgrade unavailable"))
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    const view = render(<NativeAgentPanel agentId="task-1" onDowngradeChimera={onDowngradeChimera} />)
+    await within(view.container).findByText("Session ready — send a message to start")
+    fireEvent.click(within(view.container).getByTitle("More actions"))
+    fireEvent.click(within(view.container).getByRole("button", { name: "Downgrade to tmux" }))
+
+    expect(onDowngradeChimera).toHaveBeenCalledOnce()
+    expect(await within(view.container).findByText("downgrade unavailable")).not.toBeNull()
+  })
+
   it("renders and resolves a structured host permission request", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "waiting_for_permission", messages: [], toolCalls: [] }), { status: 200 })

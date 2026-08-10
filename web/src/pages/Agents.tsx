@@ -227,6 +227,17 @@ export function AgentsPage() {
     await fetchAgents()
   }, [selectedId, baseUrl, fetchAgents])
 
+  const handleDowngradeChimera = useCallback(async () => {
+    if (!selectedId) return
+    const response = await apiFetch(baseUrl, `/api/agents/${encodeURIComponent(selectedId)}/chimera/downgrade`, {
+      method: "POST",
+    })
+    if (!response.ok) {
+      throw new Error((await response.text()).trim() || "Could not downgrade Chimera agent")
+    }
+    await fetchAgents()
+  }, [selectedId, baseUrl, fetchAgents])
+
   const handleDisconnect = useCallback(() => {
     if (selectedId) {
       send({ type: "unsubscribe_agent", agent_id: selectedId })
@@ -419,6 +430,7 @@ export function AgentsPage() {
                   agentId={selectedId}
                   onKill={handleKill}
                   onDisconnect={handleDisconnect}
+                  onDowngradeChimera={handleDowngradeChimera}
                   ntfyConfigured={ntfyConfigured}
                   notifyEnabled={selectedAgent?.notify_enabled}
                   onToggleNotify={handleToggleNotify}

@@ -54,6 +54,49 @@ func (s *Server) chimeraDiscoverHandler() http.HandlerFunc {
 	}
 }
 
+func (s *Server) chimeraDowngradeHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if s.agents == nil {
+			http.Error(w, "agent service not available", http.StatusServiceUnavailable)
+			return
+		}
+		taskID := r.PathValue("task_id")
+		agentSession, err := s.agents.GetAgentSession(r.Context(), taskID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				http.Error(w, "active agent not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if agentSession.ChimeraEndpoint == nil || agentSession.ChimeraSessionID == nil {
+			http.Error(w, "agent is already using tmux", http.StatusConflict)
+			return
+		}
+		invalidator, ok := s.agents.(service.ChimeraBindingInvalidator)
+		if !ok {
+			http.Error(w, "agent service does not support Chimera downgrade", http.StatusNotImplemented)
+			return
+		}
+		cleared, err := invalidator.InvalidateChimeraBinding(r.Context(), agentSession.ID, *agentSession.ChimeraSessionID, *agentSession.ChimeraEndpoint)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !cleared {
+			http.Error(w, "Chimera binding changed before downgrade", http.StatusConflict)
+			return
+		}
+		s.NotifyAgentsChanged()
+		s.writeJSON(w, http.StatusOK, map[string]any{"task_id": taskID, "downgraded": true})
+	}
+}
+
 // chimeraSnapshotHandler proxies GET /v1/sessions/:id from the Chimera
 // server to the browser. The endpoint and session ID are resolved from
 // the agent session row (populated by lockfile discovery), not exposed
