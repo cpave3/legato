@@ -19,6 +19,7 @@ var chimeraScripts = []struct {
 	{"UserPromptSubmit", "legato-prompt-submit.sh", "working"},
 	{"PostToolUse", "legato-post-tool-use.sh", "working"},
 	{"PermissionRequest", "legato-permission.sh", "waiting"},
+	{"UserInputRequired", "legato-user-input-required.sh", "waiting"},
 	{"Stop", "legato-stop.sh", ""},
 	{"OnError", "legato-on-error.sh", "error"},
 	{"SessionEnd", "legato-session-end.sh", ""},

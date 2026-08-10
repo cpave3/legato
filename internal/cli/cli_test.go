@@ -665,6 +665,118 @@ func TestAgentState_OnErrorPersistsAndNotifiesOnce(t *testing.T) {
 	}
 }
 
+func TestAgentState_UserInputRequiredMarksParentWaiting(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Doing")
+	ctx := context.Background()
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "abc123", TmuxSession: "legato-abc123", AgentKind: "chimera", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateAgentActivity(ctx, "abc123", store.ActivityWorking); err != nil {
+		t.Fatal(err)
+	}
+	executionID := linkTestExecution(t, s, "abc123")
+	if err := s.RecordExecutionActivity(ctx, executionID, store.ActivityWorking, "/repo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateChimeraDiscovery(ctx, "abc123", "parent-1", "http://127.0.0.1:1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateTaskNotifyEnabled(ctx, "abc123", true); err != nil {
+		t.Fatal(err)
+	}
+
+	notifier := &recordingNotifier{}
+	report := cli.AgentStateReport{TaskID: "abc123", ExecutionID: executionID, Activity: store.ActivityWaiting, WorkingDir: "/repo", SessionID: "parent-1", Event: "UserInputRequired"}
+	if err := cli.AgentState(s, report, notifier, notifier); err != nil {
+		t.Fatalf("AgentState UserInputRequired: %v", err)
+	}
+
+	session, err := s.GetAgentSessionByTaskID(ctx, "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Activity != store.ActivityWaiting {
+		t.Fatalf("activity = %q, want waiting", session.Activity)
+	}
+	var workingClosed, waitingOpen int
+	if err := s.DB().Get(&workingClosed, `SELECT COUNT(*) FROM execution_activity WHERE execution_id=? AND state='working' AND ended_at IS NOT NULL`, executionID); err != nil {
+		t.Fatal(err)
+	}
+	if workingClosed != 1 {
+		t.Fatalf("closed working spans = %d, want 1", workingClosed)
+	}
+	if err := s.DB().Get(&waitingOpen, `SELECT COUNT(*) FROM execution_activity WHERE execution_id=? AND state='waiting' AND ended_at IS NULL`, executionID); err != nil {
+		t.Fatal(err)
+	}
+	if waitingOpen != 1 {
+		t.Fatalf("open waiting spans = %d, want 1", waitingOpen)
+	}
+	if len(notifier.calls) != 2 {
+		t.Fatalf("notifications = %+v, want one per channel", notifier.calls)
+	}
+	for _, call := range notifier.calls {
+		if call.title != "Agent ready" || call.message != "Agent Test abc123 is now waiting" {
+			t.Fatalf("notification = %+v", call)
+		}
+	}
+}
+
+func TestAgentState_ChildUserInputRequiredDoesNotMutateParent(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	seedTask(t, s, "abc123", "Doing")
+	ctx := context.Background()
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "abc123", TmuxSession: "legato-abc123", AgentKind: "chimera", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateAgentActivity(ctx, "abc123", store.ActivityWorking); err != nil {
+		t.Fatal(err)
+	}
+	executionID := linkTestExecution(t, s, "abc123")
+	if err := s.RecordExecutionActivity(ctx, executionID, store.ActivityWorking, "/repo"); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `[{"subagentId":"sub-1","sessionId":"child-1","purpose":"Review tests","status":"running"}]`)
+	}))
+	defer srv.Close()
+	if err := s.UpdateChimeraDiscovery(ctx, "abc123", "parent-1", srv.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	notifier := &recordingNotifier{}
+	report := cli.AgentStateReport{TaskID: "abc123", ExecutionID: executionID, Activity: store.ActivityWaiting, WorkingDir: "/repo", SessionID: "child-1", Event: "UserInputRequired"}
+	if err := cli.AgentState(s, report, notifier, notifier); err != nil {
+		t.Fatalf("AgentState child UserInputRequired: %v", err)
+	}
+
+	session, err := s.GetAgentSessionByTaskID(ctx, "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.Activity != store.ActivityWorking {
+		t.Fatalf("parent activity = %q, want working", session.Activity)
+	}
+	var waitingRows, workingOpen int
+	if err := s.DB().Get(&waitingRows, `SELECT COUNT(*) FROM execution_activity WHERE execution_id=? AND state='waiting'`, executionID); err != nil {
+		t.Fatal(err)
+	}
+	if waitingRows != 0 {
+		t.Fatalf("waiting spans = %d, want 0", waitingRows)
+	}
+	if err := s.DB().Get(&workingOpen, `SELECT COUNT(*) FROM execution_activity WHERE execution_id=? AND state='working' AND ended_at IS NULL`, executionID); err != nil {
+		t.Fatal(err)
+	}
+	if workingOpen != 1 {
+		t.Fatalf("open working spans = %d, want 1", workingOpen)
+	}
+	if len(notifier.calls) != 0 {
+		t.Fatalf("notifications = %+v, want none", notifier.calls)
+	}
+}
+
 func TestAgentState_ChildOnErrorNotifiesWithoutMutatingParent(t *testing.T) {
 	s := newTestStore(t)
 	seedColumns(t, s)

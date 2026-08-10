@@ -178,23 +178,28 @@ Legato-spawned tmux sessions get a custom status bar showing live context. Solo 
 
 ## Chimera Integration
 
-`ChimeraAdapter` in `internal/engine/hooks/chimera.go` implements `AIToolAdapter`. Installs five activity-update hooks under `~/.chimera/hooks/<EventName>/legato-*.sh` (Chimera uses directory-based hooks, not a settings file — drop a script and it runs).
+`ChimeraAdapter` in `internal/engine/hooks/chimera.go` implements `AIToolAdapter`. It installs ten managed hooks under `~/.chimera/hooks/<EventName>/legato-*.sh` (Chimera uses directory-based hooks, not a settings file — drop a script and it runs).
 
 **Event → activity mapping** (per Chimera's documented integration recipe):
 
-| Event              | Script                            | Activity   |
-|--------------------|-----------------------------------|------------|
-| `UserPromptSubmit` | `legato-prompt-submit.sh`         | `working`  |
-| `PostToolUse`      | `legato-post-tool-use.sh`         | `working`  |
-| `PermissionRequest`| `legato-permission.sh`            | `waiting`  |
-| `Stop`             | `legato-stop.sh`                  | (clear)    |
-| `SessionEnd`       | `legato-session-end.sh`           | (clear)    |
+| Event                | Script                                  | Activity  |
+|----------------------|-----------------------------------------|-----------|
+| `SessionCreated`     | `legato-session-created.sh`             | capture   |
+| `UserPromptSubmit`   | `legato-prompt-submit.sh`               | `working` |
+| `PostToolUse`        | `legato-post-tool-use.sh`               | `working` |
+| `PermissionRequest`  | `legato-permission.sh`                  | `waiting` |
+| `UserInputRequired`  | `legato-user-input-required.sh`         | `waiting` |
+| `Stop`               | `legato-stop.sh`                        | (clear)   |
+| `OnError`            | `legato-on-error.sh`                    | `error`   |
+| `SessionEnd`         | `legato-session-end.sh`                 | (clear)   |
+| `Interrupt`          | `legato-interrupt.sh`                   | (clear)   |
+| `Timeout`            | `legato-timeout.sh`                     | (clear)   |
 
-**Flow**: Each script gates on `LEGATO_TASK_ID` (injected by legato's tmux session) — outside a Legato-spawned session it's a no-op. Inside, it calls `legato agent state $LEGATO_TASK_ID --activity <state>`, which updates `agent_sessions.activity` and broadcasts IPC like Claude Code's hooks.
+**Flow**: `SessionCreated` captures Chimera's session ID. Each activity script gates on `LEGATO_TASK_ID`, `LEGATO_EXECUTION_ID`, and `CHIMERA_SESSION_ID`; outside a Legato-managed execution it exits without reporting activity. Inside one, it calls `legato agent state` with the task, execution, working directory, Chimera session, activity, and event. The command updates `agent_sessions.activity`, records execution activity, and broadcasts IPC through the shared state path.
 
 **Task context access**: Chimera role prompts include Legato-specific guidance that `legato task show $LEGATO_TASK_ID` fetches the current task description/context, and `--format full` includes structured metadata. In sandboxed Chimera sessions, run that command in host mode, the same as other Legato CLI calls.
 
-**Coexistence with Claude Code**: Both adapters can be installed simultaneously. Hooks fire from different processes inside the same tmux session, and only `LEGATO_TASK_ID` (already injected by the agent service) needs to flow through — `ChimeraAdapter.EnvVars` returns nil. Install with `legato hooks install --tool chimera`.
+**Coexistence with Claude Code**: Both adapters can be installed simultaneously. Hooks fire from different processes inside the same tmux session. `ChimeraAdapter.EnvVars` injects `LEGATO_TASK_ID`; the agent service supplies execution identity and Chimera supplies `CHIMERA_SESSION_ID` when invoking hooks. Install or refresh the managed scripts with `legato hooks install --tool chimera`.
 
 ## Codex Integration
 
