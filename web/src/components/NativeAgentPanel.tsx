@@ -314,7 +314,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     return () => document.removeEventListener("mousedown", handler)
   }, [])
 
-  const resync = useCallback(async (scrollAfterSync = false) => {
+  const resync = useCallback(async (scrollAfterSync = false, initialHydration = false) => {
     const generation = ++syncGenerationRef.current
     const eventQueue = queuedEventsRef.current ?? []
     const viewport = scrollRef.current
@@ -326,7 +326,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
     if (viewport) setSyncing(true)
     else setLoading(true)
     try {
-      const response = await apiFetch(baseUrl, `/api/agents/${agentId}/chimera/snapshot`)
+      const snapshotPath = `/api/agents/${agentId}/chimera/snapshot${initialHydration ? "?initial=true" : ""}`
+      const response = await apiFetch(baseUrl, snapshotPath)
       if (!response.ok) throw new Error(`snapshot: ${response.status}`)
       const snapshot: SessionSnapshot = await response.json()
       if (generation !== syncGenerationRef.current) return
@@ -441,7 +442,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, ntfyConfigured
       send({ type: "subscribe_agent", agent_id: agentId, cursor: syncStateRef.current.cursor })
       if (hydratedAgentRef.current !== agentId) {
         hydratedAgentRef.current = agentId
-        void resync(true)
+        void resync(true, true)
       }
     }
     return () => {

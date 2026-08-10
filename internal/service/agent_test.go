@@ -270,6 +270,14 @@ func (m *mockTmux) sentLinesFor(name string) []string {
 	return out
 }
 
+func (m *mockTmux) sentMultilineFor(name string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, len(m.sentMultiline[name]))
+	copy(out, m.sentMultiline[name])
+	return out
+}
+
 func (m *mockTmux) envVarsFor(name string) map[string]string {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -194,6 +194,82 @@ func TestInsertDuplicateTmuxSessionFails(t *testing.T) {
 	}
 }
 
+func TestClearChimeraDiscoveryForSessionMatchesExactRunningBinding(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "TASK-42")
+
+	sessionID, err := s.InsertAgentSessionReturningID(ctx, AgentSession{
+		TaskID: "TASK-42", TmuxSession: "legato-TASK-42", AgentKind: "chimera", Status: "running",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateChimeraDiscoveryForSession(ctx, sessionID, "chimera-old", "http://127.0.0.1:1234"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateChimeraLastEventID(ctx, "TASK-42", "event-9"); err != nil {
+		t.Fatal(err)
+	}
+
+	cleared, err := s.ClearChimeraDiscoveryForSession(ctx, sessionID, "chimera-other", "http://127.0.0.1:1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared {
+		t.Fatal("mismatched binding was cleared")
+	}
+	before, err := s.GetAgentSessionByTaskID(ctx, "TASK-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.ChimeraSessionID == nil || before.LastEventID == nil {
+		t.Fatalf("mismatched clear mutated binding: %#v", before)
+	}
+
+	cleared, err = s.ClearChimeraDiscoveryForSession(ctx, sessionID, "chimera-old", "http://127.0.0.1:1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cleared {
+		t.Fatal("exact binding was not cleared")
+	}
+	after, err := s.GetAgentSessionByTaskID(ctx, "TASK-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ChimeraSessionID != nil || after.ChimeraEndpoint != nil || after.LastEventID != nil {
+		t.Fatalf("binding was not fully cleared: %#v", after)
+	}
+}
+
+func TestClearChimeraDiscoveryForSessionDoesNotClearInactiveRow(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "TASK-42")
+
+	sessionID, err := s.InsertAgentSessionReturningID(ctx, AgentSession{
+		TaskID: "TASK-42", TmuxSession: "legato-TASK-42", AgentKind: "chimera", Status: "running",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateChimeraDiscoveryForSession(ctx, sessionID, "chimera-old", "http://127.0.0.1:1234"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateAgentSessionStatus(ctx, "TASK-42", "dead"); err != nil {
+		t.Fatal(err)
+	}
+
+	cleared, err := s.ClearChimeraDiscoveryForSession(ctx, sessionID, "chimera-old", "http://127.0.0.1:1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared {
+		t.Fatal("inactive binding was cleared")
+	}
+}
+
 func TestGetAgentActivityCounts_MixedStates(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

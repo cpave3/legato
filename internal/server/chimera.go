@@ -75,15 +75,39 @@ func (s *Server) chimeraSnapshotHandler() http.HandlerFunc {
 			return
 		}
 
-		endpoint, sessionID, err := s.getChimeraEndpoint(r, taskID)
-		if err != nil {
+		if s.agents == nil {
+			http.Error(w, "agent service not available", http.StatusServiceUnavailable)
+			return
+		}
+		agentSession, err := s.agents.GetAgentSession(r.Context(), taskID)
+		if err != nil || agentSession.ChimeraEndpoint == nil || agentSession.ChimeraSessionID == nil {
+			if err == nil {
+				err = errors.New("no chimera endpoint discovered for " + taskID)
+			}
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
+		endpoint := *agentSession.ChimeraEndpoint
+		sessionID := *agentSession.ChimeraSessionID
 
 		client := chimera.NewClient(endpoint)
 		snap, err := client.GetSession(r.Context(), sessionID)
 		if err != nil {
+			if r.URL.Query().Get("initial") == "true" {
+				invalidator, ok := s.agents.(service.ChimeraBindingInvalidator)
+				if !ok {
+					http.Error(w, "chimera: "+err.Error()+"; invalidating binding: unsupported agent service", http.StatusBadGateway)
+					return
+				}
+				cleared, clearErr := invalidator.InvalidateChimeraBinding(r.Context(), agentSession.ID, sessionID, endpoint)
+				if clearErr != nil {
+					http.Error(w, "chimera: "+err.Error()+"; invalidating binding: "+clearErr.Error(), http.StatusBadGateway)
+					return
+				}
+				if cleared {
+					s.NotifyAgentsChanged()
+				}
+			}
 			http.Error(w, "chimera: "+err.Error(), http.StatusBadGateway)
 			return
 		}

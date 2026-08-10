@@ -4,7 +4,11 @@ import { MemoryRouter } from "react-router-dom"
 import { AgentsPage } from "../Agents"
 
 const mockFetch = vi.fn()
-const subscribe = vi.fn(() => vi.fn())
+let subscriptionHandler: ((message: { type: string }) => void) | undefined
+const subscribe = vi.fn((handler: (message: { type: string }) => void) => {
+  subscriptionHandler = handler
+  return vi.fn()
+})
 vi.stubGlobal("fetch", mockFetch)
 
 vi.mock("../../hooks/useWebSocket", () => ({
@@ -47,10 +51,39 @@ const terminalAgent = {
 beforeEach(() => {
   mockFetch.mockReset()
   subscribe.mockClear()
+  subscriptionHandler = undefined
   localStorage.clear()
 })
 
 afterEach(cleanup)
+
+it("replaces a stale native panel with the terminal after agents_changed", async () => {
+  let agentFetches = 0
+  mockFetch.mockImplementation((input: RequestInfo | URL) => {
+    const path = String(input)
+    if (path === "/api/agents") {
+      agentFetches += 1
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => [{ ...terminalAgent, has_chimera_endpoint: agentFetches === 1 }],
+      })
+    }
+    if (path === "/api/macros") {
+      return Promise.resolve({ ok: true, json: async () => ({ macros: [] }) })
+    }
+    throw new Error(`unexpected request: ${path}`)
+  })
+
+  render(<MemoryRouter><AgentsPage /></MemoryRouter>)
+  expect(await screen.findByText("Native Chimera session")).not.toBeNull()
+
+  subscriptionHandler?.({ type: "agents_changed" })
+
+  expect(await screen.findByText("Terminal session")).not.toBeNull()
+  expect(screen.queryByText("Native Chimera session")).toBeNull()
+  expect(screen.getByPlaceholderText("Type a message...")).not.toBeNull()
+})
 
 it("rescans Chimera and replaces the terminal with the native panel", async () => {
   let agentFetches = 0

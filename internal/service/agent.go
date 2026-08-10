@@ -1458,6 +1458,17 @@ func (a *agentService) HasChimeraEndpoint(ctx context.Context, taskID string) bo
 	return session.ChimeraEndpoint != nil && session.ChimeraSessionID != nil
 }
 
+// ChimeraBindingInvalidator conditionally clears a stale native binding.
+type ChimeraBindingInvalidator interface {
+	InvalidateChimeraBinding(ctx context.Context, agentSessionID int, expectedSessionID, expectedEndpoint string) (bool, error)
+}
+
+// InvalidateChimeraBinding clears an unusable native binding only while the
+// active agent row still matches the endpoint and session observed by its caller.
+func (a *agentService) InvalidateChimeraBinding(ctx context.Context, agentSessionID int, expectedSessionID, expectedEndpoint string) (bool, error) {
+	return a.store.ClearChimeraDiscoveryForSession(ctx, agentSessionID, expectedSessionID, expectedEndpoint)
+}
+
 // AgentEnvironmentProvider exposes the exact launch environment of an active
 // agent to out-of-process interactions such as web bang commands.
 type AgentEnvironmentProvider interface {

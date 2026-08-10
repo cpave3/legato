@@ -32,8 +32,27 @@ describe("NativeAgentPanel", () => {
     vi.restoreAllMocks()
   })
 
+  it("marks only the first snapshot as initial hydration", async () => {
+    const snapshotRequests: string[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const path = String(input)
+      if (!path.includes("/snapshot")) return new Response("[]", { status: 200 })
+      snapshotRequests.push(path)
+      return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+    })
+
+    const view = render(<NativeAgentPanel agentId="task-1" />)
+    await within(view.container).findByText("Session ready — send a message to start")
+    expect(snapshotRequests[0]).toBe("/api/agents/task-1/chimera/snapshot?initial=true")
+
+    fireEvent.click(within(view.container).getByTitle("More actions"))
+    fireEvent.click(within(view.container).getByRole("button", { name: "Refresh from snapshot" }))
+    await waitFor(() => expect(snapshotRequests).toHaveLength(2))
+    expect(snapshotRequests[1]).toBe("/api/agents/task-1/chimera/snapshot")
+  })
+
   it("renders and resolves a structured host permission request", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "waiting_for_permission", messages: [], toolCalls: [] }), { status: 200 })
       : new Response("[]", { status: 200 }))
 
@@ -91,7 +110,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("requires and atomically sends trimmed denial feedback", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
       : new Response("[]", { status: 200 }))
 
@@ -120,7 +139,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("shows a correlated permission failure and permits retry", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
       : new Response("[]", { status: 200 }))
 
@@ -149,7 +168,7 @@ describe("NativeAgentPanel", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
       requests.push(url)
-      if (url.endsWith("/snapshot")) {
+      if (url.includes("/snapshot")) {
         return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
       }
       if (url.endsWith("/api/macros")) {
@@ -181,7 +200,7 @@ describe("NativeAgentPanel", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
       requests.push(url)
-      if (url.endsWith("/snapshot")) {
+      if (url.includes("/snapshot")) {
         return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
       }
       if (url.endsWith("/api/macros")) {
@@ -214,7 +233,7 @@ describe("NativeAgentPanel", () => {
     const macros = [{ name: "First macro", keys: "first" }]
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) {
+      if (url.includes("/snapshot")) {
         return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
       }
       if (url.endsWith("/api/macros")) {
@@ -264,7 +283,7 @@ describe("NativeAgentPanel", () => {
   it("keeps failed macro loading empty and digit selection inert", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) {
+      if (url.includes("/snapshot")) {
         return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
       }
       if (url.endsWith("/api/macros")) throw new Error("unavailable")
@@ -281,7 +300,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("keeps queue and interrupt controls in one bounded equal-width composer rail", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
       : new Response("[]", { status: 200 }))
 
@@ -301,7 +320,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("expands edit diffs by default without expanding other tool calls", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({
           id: "session-1",
           status: "idle",
@@ -324,7 +343,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("preserves indentation in edit diff lines", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({
           id: "session-1",
           status: "idle",
@@ -348,7 +367,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("scrolls to the latest message after hydration and after sending", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({
           id: "session-1",
           status: "idle",
@@ -378,7 +397,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("auto-scrolls when near the bottom on new content, but not when scrolled up", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({
           id: "session-1",
           status: "running",
@@ -421,7 +440,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("shows the activated skill on its read tool card", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
       : new Response("[]", { status: 200 }))
 
@@ -457,7 +476,7 @@ describe("NativeAgentPanel", () => {
   it("intercepts /model and calls the model API instead of sending a message", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      if (url.includes("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
       if (url.endsWith("/chimera/model")) return new Response(null, { status: 204 })
       return new Response("[]", { status: 200 })
     })
@@ -477,7 +496,7 @@ describe("NativeAgentPanel", () => {
   it("intercepts /mode and calls the modes API instead of sending a message", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      if (url.includes("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
       if (url.endsWith("/chimera/modes")) return new Response(null, { status: 204 })
       return new Response("[]", { status: 200 })
     })
@@ -498,7 +517,7 @@ describe("NativeAgentPanel", () => {
     let snapshotMessages: unknown[] = []
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) {
+      if (url.includes("/snapshot")) {
         return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: snapshotMessages, toolCalls: [] }), { status: 200 })
       }
       if (url.includes("/chimera/bang")) {
@@ -527,7 +546,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("shows a bash-mode indicator in the composer when the draft starts with !", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
       : new Response("[]", { status: 200 }))
 
@@ -558,7 +577,7 @@ describe("NativeAgentPanel", () => {
     let bangExecuted = false
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) {
+      if (url.includes("/snapshot")) {
         return new Response(JSON.stringify({ id: "session-1", status: snapshotStatus, messages: snapshotMessages, toolCalls: [] }), { status: 200 })
       }
       if (url.includes("/chimera/bang")) {
@@ -595,7 +614,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("anchors the scroll-to-bottom action inside the conversation viewport", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({
           id: "session-1",
           status: "idle",
@@ -622,7 +641,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("queues a message through Chimera while the agent is working", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
       : new Response("[]", { status: 200 }))
 
@@ -643,7 +662,7 @@ describe("NativeAgentPanel", () => {
   it("shows current context usage instead of cumulative session tokens", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) {
+      if (url.includes("/snapshot")) {
         return new Response(JSON.stringify({
           id: "session-1",
           cwd: "/repo",
@@ -696,7 +715,7 @@ describe("NativeAgentPanel", () => {
     let releaseSnapshot!: (response: Response) => void
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) {
+      if (url.includes("/snapshot")) {
         return new Promise<Response>((resolve) => { releaseSnapshot = resolve })
       }
       return new Response("[]", { status: 200 })
@@ -729,7 +748,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("resubscribes with the last accepted cursor after reconnect", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
       : new Response("[]", { status: 200 }))
 
@@ -751,7 +770,7 @@ describe("NativeAgentPanel", () => {
 
   it("repairs from snapshot when the server cannot replay its cursor", async () => {
     let snapshotText = "Before repair"
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({
           id: "session-1",
           status: "idle",
@@ -775,7 +794,7 @@ describe("NativeAgentPanel", () => {
     let snapshotCalls = 0
     let releaseRepair!: (response: Response) => void
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      if (!String(input).endsWith("/snapshot")) return new Response("[]", { status: 200 })
+      if (!String(input).includes("/snapshot")) return new Response("[]", { status: 200 })
       snapshotCalls++
       if (snapshotCalls === 1) {
         return new Response(JSON.stringify({
@@ -821,7 +840,7 @@ describe("NativeAgentPanel", () => {
     let snapshot: { id: string; status: string; messages: unknown[]; toolCalls: unknown[] } = {
       id: "session-1", status: "running", messages: [], toolCalls: [],
     }
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify(snapshot), { status: 200 })
       : new Response("[]", { status: 200 }))
 
@@ -849,7 +868,7 @@ describe("NativeAgentPanel", () => {
     let refreshFails = false
     let snapshotText = "Initial reply"
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      if (!String(input).endsWith("/snapshot")) return new Response("[]", { status: 200 })
+      if (!String(input).includes("/snapshot")) return new Response("[]", { status: 200 })
       if (refreshFails) return new Response("failed", { status: 502 })
       return new Response(JSON.stringify({
         id: "session-1",
@@ -883,7 +902,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("captures replayed subagents immediately when loading during an active run", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
       : new Response("[]", { status: 200 }))
     send.mockImplementation((message) => {
@@ -920,7 +939,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("labels completed subagents without captured events accurately", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({
           id: "session-1",
           status: "idle",
@@ -946,7 +965,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("renders live subagent metadata and activity inside its spawn card", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
       : new Response("[]", { status: 200 }))
 
@@ -1034,7 +1053,7 @@ describe("NativeAgentPanel", () => {
   })
 
   it("keeps parallel subagent activity in the matching spawn cards", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).endsWith("/snapshot")
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
       : new Response("[]", { status: 200 }))
 
@@ -1114,7 +1133,7 @@ describe("NativeAgentPanel", () => {
 
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) {
+      if (url.includes("/snapshot")) {
         return new Response(JSON.stringify(snapshot), { status: 200 })
       }
       return new Response("[]", { status: 200 })
@@ -1139,7 +1158,7 @@ describe("NativeAgentPanel", () => {
     ]
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, messages: [], toolCalls: [] }), { status: 200 })
+      if (url.includes("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, messages: [], toolCalls: [] }), { status: 200 })
       if (url.endsWith("/chimera/models")) return new Response(JSON.stringify(modelsData), { status: 200 })
       return new Response("[]", { status: 200 })
     })
@@ -1163,7 +1182,7 @@ describe("NativeAgentPanel", () => {
   it("POSTs to the model endpoint when selecting a different model from the dropdown", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, messages: [], toolCalls: [] }), { status: 200 })
+      if (url.includes("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, messages: [], toolCalls: [] }), { status: 200 })
       if (url.endsWith("/chimera/models")) return new Response(JSON.stringify([
         { ref: "manticore/glm", isDefault: true },
         { ref: "manticore/gpt", isDefault: false },
@@ -1188,7 +1207,7 @@ describe("NativeAgentPanel", () => {
   it("does not POST when clicking the already-active model", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, messages: [], toolCalls: [] }), { status: 200 })
+      if (url.includes("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, messages: [], toolCalls: [] }), { status: 200 })
       if (url.endsWith("/chimera/models")) return new Response(JSON.stringify([
         { ref: "manticore/glm", isDefault: true },
         { ref: "manticore/gpt", isDefault: false },
@@ -1214,7 +1233,7 @@ describe("NativeAgentPanel", () => {
     const macros = [{ name: "Show task", keys: "!legato task show $LEGATO_TASK_ID" }]
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, messages: [], toolCalls: [] }), { status: 200 })
+      if (url.includes("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, messages: [], toolCalls: [] }), { status: 200 })
       if (url.endsWith("/chimera/models")) return new Response(JSON.stringify(modelsData), { status: 200 })
       if (url.endsWith("/chimera/modes")) return new Response(JSON.stringify(modesData), { status: 200 })
       if (url.endsWith("/api/macros")) return new Response(JSON.stringify({ macros }), { status: 200 })
@@ -1251,7 +1270,7 @@ describe("NativeAgentPanel", () => {
     ]
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, mode: "build", messages: [], toolCalls: [] }), { status: 200 })
+      if (url.includes("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, mode: "build", messages: [], toolCalls: [] }), { status: 200 })
       if (url.endsWith("/chimera/models")) return new Response(JSON.stringify(modelsData), { status: 200 })
       if (url.endsWith("/chimera/modes")) return new Response(JSON.stringify(modesData), { status: 200 })
       return new Response("[]", { status: 200 })
@@ -1271,7 +1290,7 @@ describe("NativeAgentPanel", () => {
   it("switches mode from the overflow menu entry on mobile", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
-      if (url.endsWith("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, mode: "build", messages: [], toolCalls: [] }), { status: 200 })
+      if (url.includes("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, mode: "build", messages: [], toolCalls: [] }), { status: 200 })
       if (url.endsWith("/chimera/models")) return new Response(JSON.stringify([{ ref: "manticore/glm", isDefault: true }]), { status: 200 })
       if (url.endsWith("/chimera/modes")) return new Response(JSON.stringify([
         { name: "build", description: "Build mode", cycle: false },

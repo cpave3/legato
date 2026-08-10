@@ -211,6 +211,25 @@ func (s *Store) UpdateChimeraDiscoveryForSession(ctx context.Context, agentSessi
 	return nil
 }
 
+// ClearChimeraDiscoveryForSession clears a stale binding only if the exact
+// running row still has the endpoint and Chimera session observed by the caller.
+func (s *Store) ClearChimeraDiscoveryForSession(ctx context.Context, agentSessionID int, chimeraSessionID, endpoint string) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_sessions
+		SET chimera_session_id = NULL, chimera_endpoint = NULL, last_event_id = NULL
+		WHERE id = ? AND status = 'running'
+			AND chimera_session_id = ? AND chimera_endpoint = ?`,
+		agentSessionID, chimeraSessionID, endpoint)
+	if err != nil {
+		return false, err
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return updated == 1, nil
+}
+
 // UpdateChimeraLastEventID stores the latest SSE event ID consumed for this
 // agent session, enabling gap-free replay on reconnect.
 func (s *Store) UpdateChimeraLastEventID(ctx context.Context, taskID, eventID string) error {

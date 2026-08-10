@@ -62,6 +62,41 @@ func TestDiscoverChimeraVerifiesAndPersistsExactTaskSession(t *testing.T) {
 	}
 }
 
+func TestInvalidateChimeraBindingRoutesSubsequentMessagesThroughTmux(t *testing.T) {
+	svc, s, _ := newDiscoveryTestService(t)
+	ctx := context.Background()
+	createTask(t, s, "TASK-42")
+	sessionID, err := s.InsertAgentSessionReturningID(ctx, store.AgentSession{
+		TaskID: "TASK-42", TmuxSession: "legato-TASK-42", AgentKind: "chimera", Status: "running",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateChimeraDiscoveryForSession(ctx, sessionID, "chimera-old", "http://127.0.0.1:1"); err != nil {
+		t.Fatal(err)
+	}
+
+	invalidator := svc.(ChimeraBindingInvalidator)
+	cleared, err := invalidator.InvalidateChimeraBinding(ctx, sessionID, "chimera-old", "http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cleared {
+		t.Fatal("binding was not invalidated")
+	}
+	mt := svc.(*agentService).tmux.(*mockTmux)
+	mt.mu.Lock()
+	mt.sessions["legato-TASK-42"] = true
+	mt.mu.Unlock()
+	if err := svc.SendMessage(ctx, "TASK-42", "continue in tmux"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := mt.sentMultilineFor("legato-TASK-42"); len(got) != 1 || got[0] != "continue in tmux" {
+		t.Fatalf("tmux messages = %v", got)
+	}
+}
+
 func TestDiscoverChimeraDoesNotAttachToReplacementAgent(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
