@@ -57,20 +57,32 @@ type InstanceInfo struct {
 // Fields are kept as json.RawMessage for the parts Legato doesn't need to
 // decode, so the client tolerates protocol additions without breaking.
 type SessionSnapshot struct {
-	ID                string          `json:"id"`
-	Name              string          `json:"name"`
-	CWD               string          `json:"cwd"`
-	Model             json.RawMessage `json:"model"`
-	SandboxMode       string          `json:"sandboxMode"`
-	Mode              string          `json:"mode"`
-	Status            string          `json:"status"`
-	Messages          json.RawMessage `json:"messages"`
-	ToolCalls         json.RawMessage `json:"toolCalls"`
-	Usage             json.RawMessage `json:"usage"`
-	Tasks             json.RawMessage `json:"tasks"`
-	ContextWindow     int             `json:"contextWindow,omitempty"`
-	UsedContextTokens int             `json:"usedContextTokens,omitempty"`
-	UserModelOverride *string         `json:"userModelOverride"`
+	ID                 string               `json:"id"`
+	PendingPermissions *[]PendingPermission `json:"pendingPermissions,omitempty"`
+	Name               string               `json:"name"`
+	CWD                string               `json:"cwd"`
+	Model              json.RawMessage      `json:"model"`
+	SandboxMode        string               `json:"sandboxMode"`
+	Mode               string               `json:"mode"`
+	Status             string               `json:"status"`
+	Messages           json.RawMessage      `json:"messages"`
+	ToolCalls          json.RawMessage      `json:"toolCalls"`
+	Usage              json.RawMessage      `json:"usage"`
+	Tasks              json.RawMessage      `json:"tasks"`
+	ContextWindow      int                  `json:"contextWindow,omitempty"`
+	UsedContextTokens  int                  `json:"usedContextTokens,omitempty"`
+	UserModelOverride  *string              `json:"userModelOverride"`
+}
+
+// PendingPermission is an unresolved permission request in a live Chimera session.
+type PendingPermission struct {
+	RequestID      string          `json:"requestId"`
+	Tool           string          `json:"tool"`
+	Target         string          `json:"target"`
+	Command        string          `json:"command"`
+	Reason         string          `json:"reason,omitempty"`
+	CWD            string          `json:"cwd"`
+	PolicyAnalysis json.RawMessage `json:"policyAnalysis,omitempty"`
 }
 
 // SessionContext describes the provider-reported occupancy of a session's

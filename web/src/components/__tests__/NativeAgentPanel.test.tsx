@@ -66,6 +66,50 @@ describe("NativeAgentPanel", () => {
     expect(await within(view.container).findByText("downgrade unavailable")).not.toBeNull()
   })
 
+  it("renders and resolves a permission request from snapshot hydration", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({
+          id: "session-1",
+          status: "waiting_for_permission",
+          messages: [],
+          toolCalls: [],
+          pendingPermissions: [{
+            requestId: "req-snapshot",
+            tool: "bash",
+            target: "host",
+            command: "rm -rf /tmp/build-cache",
+            reason: "Runs outside the sandbox",
+            cwd: "/tmp",
+            policyAnalysis: {
+              version: 1,
+              outcome: "approval_required",
+              stages: [],
+              findings: [{
+                kind: "risk",
+                stageId: "risk",
+                level: "danger",
+                message: "Deletes outside configured roots",
+              }],
+            },
+          }],
+        }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const card = await screen.findByRole("region", { name: "Permission request for bash" })
+    expect(within(card).getByText("rm -rf /tmp/build-cache")).not.toBeNull()
+    expect(within(card).getByText("Runs outside the sandbox")).not.toBeNull()
+    expect(within(card).getByText("Deletes outside configured roots")).not.toBeNull()
+
+    fireEvent.click(within(card).getByRole("button", { name: "Deny" }))
+    expect(send).toHaveBeenCalledWith({
+      type: "agent_permission",
+      agent_id: "task-1",
+      request_id: "req-snapshot",
+      decision: "deny",
+    })
+  })
+
   it("renders and resolves a structured host permission request", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "waiting_for_permission", messages: [], toolCalls: [] }), { status: 200 })

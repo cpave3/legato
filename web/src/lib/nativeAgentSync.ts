@@ -86,12 +86,23 @@ export interface NativeSnapshotToolCall {
   display?: { summary?: string }
 }
 
+export interface NativeSnapshotPermission {
+  requestId: string
+  tool: string
+  target: "host"
+  command: string
+  reason?: string
+  cwd: string
+  policyAnalysis?: NativePermissionItem["policyAnalysis"]
+}
+
 export interface NativeSnapshot {
   mode?: string
   model?: { providerId?: string; modelId?: string }
   status?: string
   messages?: NativeSnapshotMessage[]
   toolCalls?: NativeSnapshotToolCall[]
+  pendingPermissions?: NativeSnapshotPermission[]
   contextWindow?: number
   usedContextTokens?: number
 }
@@ -177,6 +188,23 @@ function parseBangResult(text: string): { command: string; exitCode: number; tim
   }
 }
 
+function permissionConversationItem(permission: NativeSnapshotPermission): NativeConversationItem {
+  return {
+    key: permission.requestId,
+    role: "system",
+    text: "",
+    permission: {
+      requestId: permission.requestId,
+      tool: permission.tool,
+      target: permission.target,
+      command: permission.command,
+      reason: permission.reason,
+      policyAnalysis: permission.policyAnalysis,
+      status: "pending",
+    },
+  }
+}
+
 export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncState {
   const items: NativeConversationItem[] = []
   const calls = snapshot.toolCalls ?? []
@@ -224,6 +252,9 @@ export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncSta
       })
     }
   }
+  for (const permission of snapshot.pendingPermissions ?? []) {
+    items.push(permissionConversationItem(permission))
+  }
   const state = createNativeSyncState(items, calls.map((call) => call.callId).filter(Boolean))
   state.busy = snapshot.status === "running"
   if (snapshot.contextWindow && snapshot.usedContextTokens != null) {
@@ -262,9 +293,13 @@ export function reconcileNativeSnapshot(
       },
     }
   })
-  // Chimera snapshots do not currently include permission requests, so retain
-  // cards already observed in this live browser session across snapshot repair.
-  next.items.push(...previous.items.filter((item) => item.permission))
+  const previousPermissionItems = previous.items.filter((item) => item.permission)
+  if (snapshot.pendingPermissions === undefined) {
+    next.items.push(...previousPermissionItems)
+  } else {
+    next.items.push(...previousPermissionItems.filter((item) =>
+      item.permission && item.permission.status !== "pending" && item.permission.status !== "submitting"))
+  }
   next.cursor = previous.cursor
   next.eventIds = new Set(previous.eventIds)
   next.eventOrder = [...previous.eventOrder]
@@ -405,20 +440,18 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
     case "permission_request":
       next.busy = false
       if (event.requestId && event.tool && event.target && event.command) {
-        next.items.push({
-          key: event.requestId,
-          role: "system",
-          text: "",
-          permission: {
-            requestId: event.requestId,
-            tool: event.tool,
-            target: event.target,
-            command: event.command,
-            reason: event.reason,
-            policyAnalysis: event.policyAnalysis,
-            status: "pending",
-          },
+        const permissionItem = permissionConversationItem({
+          requestId: event.requestId,
+          tool: event.tool,
+          target: event.target,
+          command: event.command,
+          reason: event.reason,
+          cwd: "",
+          policyAnalysis: event.policyAnalysis,
         })
+        const existingIndex = next.items.findIndex((item) => item.permission?.requestId === event.requestId)
+        if (existingIndex >= 0) next.items[existingIndex] = permissionItem
+        else next.items.push(permissionItem)
       }
       break
     case "permission_resolved":

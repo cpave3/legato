@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -35,6 +36,79 @@ func (f *chimeraSnapshotAgentFake) GetAgentSession(context.Context, string) (*st
 func (f *chimeraSnapshotAgentFake) InvalidateChimeraBinding(_ context.Context, agentSessionID int, sessionID, endpoint string) (bool, error) {
 	f.invalidations = append(f.invalidations, chimeraBindingInvalidation{agentSessionID, sessionID, endpoint})
 	return f.cleared, f.invalidateErr
+}
+
+func TestChimeraSnapshotPreservesPendingPermissions(t *testing.T) {
+	chimeraServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/sessions/chimera-live":
+			fmt.Fprint(w, `{"id":"chimera-live","status":"waiting_for_permission","pendingPermissions":[{"requestId":"req-1","tool":"bash","target":"host","command":"rm -rf cache","reason":"Runs on host","cwd":"/tmp","policyAnalysis":{"version":1,"outcome":"approval_required","stages":[],"findings":[]}}]}`)
+		case "/v1/sessions/chimera-live/context":
+			fmt.Fprint(w, `{"contextWindow":200000,"lastPromptTokens":1200}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(chimeraServer.Close)
+
+	sessionID := "chimera-live"
+	endpoint := chimeraServer.URL
+	agents := &chimeraSnapshotAgentFake{
+		session: &store.AgentSession{ID: 17, TaskID: "TASK-42", ChimeraSessionID: &sessionID, ChimeraEndpoint: &endpoint},
+	}
+	server := New(nil, agents, nil, ":0")
+	request := httptest.NewRequest(http.MethodGet, "/api/agents/TASK-42/chimera/snapshot", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	permissions, ok := body["pendingPermissions"].([]any)
+	if !ok || len(permissions) != 1 {
+		t.Fatalf("pendingPermissions=%#v", body["pendingPermissions"])
+	}
+	permission := permissions[0].(map[string]any)
+	if permission["requestId"] != "req-1" || permission["command"] != "rm -rf cache" {
+		t.Fatalf("permission=%#v", permission)
+	}
+	if body["contextWindow"] != float64(200000) || body["usedContextTokens"] != float64(1200) {
+		t.Fatalf("context fields=%#v", body)
+	}
+}
+
+func TestChimeraSnapshotPreservesExplicitEmptyPendingPermissions(t *testing.T) {
+	chimeraServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/sessions/chimera-live":
+			fmt.Fprint(w, `{"id":"chimera-live","pendingPermissions":[]}`)
+		case "/v1/sessions/chimera-live/context":
+			fmt.Fprint(w, `{"contextWindow":200000,"lastPromptTokens":null}`)
+		}
+	}))
+	t.Cleanup(chimeraServer.Close)
+
+	sessionID := "chimera-live"
+	endpoint := chimeraServer.URL
+	agents := &chimeraSnapshotAgentFake{
+		session: &store.AgentSession{ID: 17, TaskID: "TASK-42", ChimeraSessionID: &sessionID, ChimeraEndpoint: &endpoint},
+	}
+	server := New(nil, agents, nil, ":0")
+	request := httptest.NewRequest(http.MethodGet, "/api/agents/TASK-42/chimera/snapshot", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if string(body["pendingPermissions"]) != "[]" {
+		t.Fatalf("pendingPermissions=%s", body["pendingPermissions"])
+	}
 }
 
 func TestInitialChimeraSnapshotFailureInvalidatesBindingAndBroadcastsAgentsChanged(t *testing.T) {

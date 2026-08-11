@@ -180,6 +180,42 @@ describe("native agent synchronization", () => {
     expect(state.cursor).toBe("3")
   })
 
+  it("hydrates structured pending permissions from a snapshot", () => {
+    const state = stateFromNativeSnapshot({
+      status: "waiting_for_permission",
+      messages: [],
+      toolCalls: [],
+      pendingPermissions: [{
+        requestId: "req-1",
+        tool: "bash",
+        target: "host",
+        command: "rm -rf build-cache",
+        reason: "Runs outside the sandbox",
+        cwd: "/tmp",
+        policyAnalysis: {
+          version: 1,
+          outcome: "approval_required",
+          stages: [],
+          findings: [{
+            kind: "risk",
+            stageId: "risk",
+            level: "danger",
+            message: "dangerous command",
+          }],
+        },
+      }],
+    })
+
+    expect(state.items).toHaveLength(1)
+    expect(state.items[0]?.permission).toMatchObject({
+      requestId: "req-1",
+      command: "rm -rf build-cache",
+      reason: "Runs outside the sandbox",
+      status: "pending",
+      policyAnalysis: { findings: [{ message: "dangerous command" }] },
+    })
+  })
+
   it("retains structured permission details and finalizes matching requests", () => {
     let state = createNativeSyncState()
     state = reduceNativeEvent(state, {
@@ -236,6 +272,72 @@ describe("native agent synchronization", () => {
     state = reconcileNativeSnapshot({ messages: [], toolCalls: [] }, state, [])
 
     expect(state.items[0]?.permission).toMatchObject({ requestId: "req-1", status: "pending" })
+  })
+
+  it("uses field presence to reconcile stale permission cards compatibly", () => {
+    let state = createNativeSyncState()
+    for (const requestId of ["pending", "resolved"]) {
+      state = reduceNativeEvent(state, {
+        eventId: `request-${requestId}`,
+        type: "permission_request",
+        requestId,
+        tool: "bash",
+        target: "host",
+        command: `echo ${requestId}`,
+      })
+    }
+    state = reduceNativeEvent(state, {
+      eventId: "resolution",
+      type: "permission_resolved",
+      requestId: "resolved",
+      decision: "allow",
+      remembered: false,
+    })
+
+    const olderSnapshot = reconcileNativeSnapshot({ messages: [], toolCalls: [] }, state, [])
+    expect(olderSnapshot.items.map((item) => item.permission?.requestId)).toEqual(["pending", "resolved"])
+
+    const authoritativeEmpty = reconcileNativeSnapshot({
+      messages: [],
+      toolCalls: [],
+      pendingPermissions: [],
+    }, state, [])
+    expect(authoritativeEmpty.items.map((item) => item.permission?.requestId)).toEqual(["resolved"])
+    expect(authoritativeEmpty.items[0]?.permission?.status).toBe("allowed")
+  })
+
+  it("deduplicates snapshot overlap before applying a queued resolution", () => {
+    const pendingPermission = {
+      requestId: "req-1",
+      tool: "bash",
+      target: "host" as const,
+      command: "rm -rf cache",
+      cwd: "/tmp",
+    }
+    const state = reconcileNativeSnapshot({
+      messages: [],
+      toolCalls: [],
+      pendingPermissions: [pendingPermission],
+    }, createNativeSyncState(), [
+      {
+        eventId: "request-1",
+        type: "permission_request",
+        requestId: "req-1",
+        tool: "bash",
+        target: "host",
+        command: "rm -rf cache",
+      },
+      {
+        eventId: "resolved-1",
+        type: "permission_resolved",
+        requestId: "req-1",
+        decision: "deny",
+        remembered: false,
+      },
+    ])
+
+    expect(state.items.filter((item) => item.permission?.requestId === "req-1")).toHaveLength(1)
+    expect(state.items[0]?.permission?.status).toBe("denied")
   })
 
   it("expires only the matching permission request", () => {

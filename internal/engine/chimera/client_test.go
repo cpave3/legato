@@ -56,6 +56,56 @@ func TestGetSession(t *testing.T) {
 	}
 }
 
+func TestGetSessionDecodesPendingPermissionsAndFieldPresence(t *testing.T) {
+	tests := []struct {
+		name            string
+		body            string
+		wantPresent     bool
+		wantPermissions int
+	}{
+		{
+			name:        "supported snapshot",
+			body:        `{"id":"sess-1","pendingPermissions":[{"requestId":"req-1","tool":"bash","target":"host","command":"rm -rf cache","reason":"Runs on host","cwd":"/tmp","policyAnalysis":{"version":1,"outcome":"approval_required","stages":[],"findings":[]}}]}`,
+			wantPresent: true, wantPermissions: 1,
+		},
+		{name: "supported empty snapshot", body: `{"id":"sess-1","pendingPermissions":[]}`, wantPresent: true},
+		{name: "older snapshot", body: `{"id":"sess-1"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, tt.body)
+			}))
+			defer srv.Close()
+
+			snapshot, err := NewClient(srv.URL).GetSession(context.Background(), "sess-1")
+			if err != nil {
+				t.Fatalf("GetSession: %v", err)
+			}
+			if (snapshot.PendingPermissions != nil) != tt.wantPresent {
+				t.Fatalf("PendingPermissions presence = %t, want %t", snapshot.PendingPermissions != nil, tt.wantPresent)
+			}
+			if snapshot.PendingPermissions == nil {
+				return
+			}
+			if len(*snapshot.PendingPermissions) != tt.wantPermissions {
+				t.Fatalf("PendingPermissions = %+v, want %d entries", *snapshot.PendingPermissions, tt.wantPermissions)
+			}
+			if tt.wantPermissions > 0 {
+				permission := (*snapshot.PendingPermissions)[0]
+				if permission.RequestID != "req-1" || permission.Command != "rm -rf cache" || permission.Reason != "Runs on host" {
+					t.Fatalf("permission = %+v", permission)
+				}
+				if !strings.Contains(string(permission.PolicyAnalysis), `"outcome":"approval_required"`) {
+					t.Fatalf("policyAnalysis = %s", permission.PolicyAnalysis)
+				}
+			}
+		})
+	}
+}
+
 func TestListSubagents(t *testing.T) {
 	var requestURI string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
