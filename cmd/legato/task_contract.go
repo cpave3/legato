@@ -140,7 +140,11 @@ func runTaskCreateContract(args []string) int {
 	if err != nil {
 		return renderCommandError(command, commandDomainError(err), jsonMode)
 	}
-	return writeCommandSuccess(command, card, card.ID, jsonMode)
+	data, err := taskJSONData(db, card.ID)
+	if err != nil {
+		return renderCommandError(command, commandDomainError(err), jsonMode)
+	}
+	return writeCommandSuccess(command, data, card.ID, jsonMode)
 }
 
 func runTaskShowContract(args []string) int {

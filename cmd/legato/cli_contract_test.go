@@ -312,6 +312,27 @@ func TestTaskCommandRejectsUnsupportedConfiguredDatabaseDriver(t *testing.T) {
 	}
 }
 
+func setupTaskCreateWorkspaceContract(t *testing.T) string {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "legato.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateColumnMapping(context.Background(), store.ColumnMapping{ColumnName: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	configYAML := "db:\n  path: " + dbPath + "\nworkspaces:\n  - name: Work\n  - name: Personal\ndefault_workspace: Personal\n"
+	if err := os.WriteFile(configPath, []byte(configYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_CONFIG", configPath)
+	return dbPath
+}
+
 func TestTaskCreateUsesConfiguredWorkspaceDefaultAndPreservesOverrides(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -325,28 +346,14 @@ func TestTaskCreateUsesConfiguredWorkspaceDefaultAndPreservesOverrides(t *testin
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dbPath := filepath.Join(t.TempDir(), "legato.db")
-			s, err := store.New(dbPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := s.CreateColumnMapping(context.Background(), store.ColumnMapping{ColumnName: "Backlog"}); err != nil {
-				t.Fatal(err)
-			}
-			s.Close()
-
-			configPath := filepath.Join(t.TempDir(), "config.yaml")
-			configYAML := "db:\n  path: " + dbPath + "\nworkspaces:\n  - name: Work\n  - name: Personal\ndefault_workspace: Personal\n"
-			if err := os.WriteFile(configPath, []byte(configYAML), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			t.Setenv("LEGATO_CONFIG", configPath)
-
+			dbPath := setupTaskCreateWorkspaceContract(t)
 			out := captureStdout(t, func() int { return runCLI(tt.args) })
 			var envelope struct {
 				OK   bool `json:"ok"`
 				Data struct {
-					ID string `json:"id"`
+					ID          string `json:"id"`
+					Description string `json:"description_md"`
+					WorkspaceID *int   `json:"workspace_id"`
 				} `json:"data"`
 			}
 			if err := json.Unmarshal([]byte(out), &envelope); err != nil {
@@ -355,8 +362,24 @@ func TestTaskCreateUsesConfiguredWorkspaceDefaultAndPreservesOverrides(t *testin
 			if !envelope.OK || envelope.Data.ID == "" {
 				t.Fatalf("envelope = %#v", envelope)
 			}
+			var rawEnvelope struct {
+				Data map[string]json.RawMessage `json:"data"`
+			}
+			if err := json.Unmarshal([]byte(out), &rawEnvelope); err != nil {
+				t.Fatalf("JSON fields: %v\n%s", err, out)
+			}
+			for _, key := range []string{"id", "description_md", "workspace_id"} {
+				if _, ok := rawEnvelope.Data[key]; !ok {
+					t.Fatalf("data missing canonical key %q: %s", key, out)
+				}
+			}
+			for _, key := range []string{"ID", "WorkspaceID", "WorkspaceName"} {
+				if _, ok := rawEnvelope.Data[key]; ok {
+					t.Fatalf("data contains legacy key %q: %s", key, out)
+				}
+			}
 
-			s, err = store.New(dbPath)
+			s, err := store.New(dbPath)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -372,18 +395,77 @@ func TestTaskCreateUsesConfiguredWorkspaceDefaultAndPreservesOverrides(t *testin
 					wantID = &id
 				}
 			}
+			if tt.wantWorkspace == "" {
+				if envelope.Data.WorkspaceID != nil {
+					t.Fatalf("response workspace_id = %v, want nil", envelope.Data.WorkspaceID)
+				}
+			} else if wantID == nil || envelope.Data.WorkspaceID == nil || *envelope.Data.WorkspaceID != *wantID {
+				t.Fatalf("response workspace_id = %v, want %v", envelope.Data.WorkspaceID, wantID)
+			}
 			created, err := s.GetTask(context.Background(), envelope.Data.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if tt.wantWorkspace == "" {
-				if created.WorkspaceID != nil {
-					t.Fatalf("WorkspaceID = %v, want nil", created.WorkspaceID)
-				}
-			} else if wantID == nil || created.WorkspaceID == nil || *created.WorkspaceID != *wantID {
-				t.Fatalf("WorkspaceID = %v, want %v", created.WorkspaceID, wantID)
+			if (created.WorkspaceID == nil) != (envelope.Data.WorkspaceID == nil) || created.WorkspaceID != nil && *created.WorkspaceID != *envelope.Data.WorkspaceID {
+				t.Fatalf("stored workspace ID = %v, response workspace_id = %v", created.WorkspaceID, envelope.Data.WorkspaceID)
 			}
 		})
+	}
+}
+
+func TestTaskCreateRejectsUnknownWorkspaceWithoutCreatingTask(t *testing.T) {
+	dbPath := setupTaskCreateWorkspaceContract(t)
+	out, code := captureStderrWithCode(t, func() int {
+		return runCLI([]string{"task", "create", "Invalid workspace", "--workspace", "Missing", "--json"})
+	})
+	if code != exitUsage {
+		t.Fatalf("exit code = %d, want %d", code, exitUsage)
+	}
+	var envelope struct {
+		OK    bool `json:"ok"`
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+		t.Fatalf("JSON: %v\n%s", err, out)
+	}
+	if envelope.OK || envelope.Error.Code != "invalid_input" || !strings.Contains(envelope.Error.Message, "valid workspaces: Work, Personal") {
+		t.Fatalf("envelope = %#v", envelope)
+	}
+
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	tasks, err := s.ListTasksByStatus(context.Background(), "Backlog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("created %d tasks, want none", len(tasks))
+	}
+}
+
+func TestTaskCreateTextOutputRemainsGeneratedID(t *testing.T) {
+	dbPath := setupTaskCreateWorkspaceContract(t)
+	out := captureStdout(t, func() int {
+		return runCLI([]string{"task", "create", "Text output", "--workspace", "Work"})
+	})
+	id := strings.TrimSpace(out)
+	if id == "" || strings.ContainsAny(id, "{}\n ") {
+		t.Fatalf("output = %q, want generated task ID only", out)
+	}
+
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.GetTask(context.Background(), id); err != nil {
+		t.Fatalf("get task %q: %v", id, err)
 	}
 }
 
