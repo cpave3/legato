@@ -2,10 +2,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { MermaidDiagram } from "../MermaidDiagram"
 
-const { initialize, renderDiagram } = vi.hoisted(() => ({
-  initialize: vi.fn(),
-  renderDiagram: vi.fn(),
-}))
+const { initialize, mermaidConfig, renderDiagram } = vi.hoisted(() => {
+  const mermaidConfig: { suppressErrorRendering?: boolean } = {}
+  return {
+    initialize: vi.fn((config: { suppressErrorRendering?: boolean }) => Object.assign(mermaidConfig, config)),
+    mermaidConfig,
+    renderDiagram: vi.fn(),
+  }
+})
 
 vi.mock("mermaid", () => ({
   default: { initialize, render: renderDiagram },
@@ -39,6 +43,7 @@ describe("MermaidDiagram", () => {
       startOnLoad: false,
       theme: "dark",
       securityLevel: "strict",
+      suppressErrorRendering: true,
     }))
 
     rerender(<MermaidDiagram source={"graph LR\n  B --> C"} />)
@@ -79,13 +84,29 @@ describe("MermaidDiagram", () => {
     expect(bindFunctions.mock.calls.map(([container]) => container)).toEqual(expect.arrayContaining(containers))
   })
 
-  it("shows the original source when rendering fails", async () => {
-    renderDiagram.mockRejectedValue(new Error("Parse error"))
+  it("shows the original source without leaking Mermaid error DOM across failed renders", async () => {
+    renderDiagram.mockImplementation((renderID: string) => {
+      const temporaryContainer = document.createElement("div")
+      temporaryContainer.id = `d${renderID}`
+      temporaryContainer.innerHTML = '<svg class="mermaid-error"><text>Syntax error in text</text></svg>'
+      document.body.append(temporaryContainer)
+      if (mermaidConfig.suppressErrorRendering) temporaryContainer.remove()
+      return Promise.reject(new Error("Parse error"))
+    })
 
-    render(<MermaidDiagram source={"not valid mermaid"} />)
+    const { rerender } = render(<MermaidDiagram source={"not valid mermaid"} />)
 
     expect(await screen.findByText("Diagram could not be rendered. Mermaid source:" )).toBeTruthy()
     expect(screen.getByText("not valid mermaid")).toBeTruthy()
+    expect(document.querySelectorAll('[id^="dmermaid-diagram-"]')).toHaveLength(0)
+    expect(document.querySelector("svg.mermaid-error")).toBeNull()
+
+    rerender(<MermaidDiagram source={"still not valid mermaid"} />)
+
+    expect(await screen.findByText("still not valid mermaid")).toBeTruthy()
+    await waitFor(() => expect(renderDiagram).toHaveBeenCalledTimes(2))
+    expect(document.querySelectorAll('[id^="dmermaid-diagram-"]')).toHaveLength(0)
+    expect(document.querySelector("svg.mermaid-error")).toBeNull()
   })
 
   it("ignores stale output after the source changes", async () => {

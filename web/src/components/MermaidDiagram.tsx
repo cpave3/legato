@@ -9,6 +9,7 @@ function loadMermaid() {
       startOnLoad: false,
       theme: "dark",
       securityLevel: "strict",
+      suppressErrorRendering: true,
     })
     return mermaid
   })
