@@ -1136,7 +1136,7 @@ func TestSpawnAgentMatchesChimeraLockfileByExpectedSession(t *testing.T) {
 		case "/v1/instance":
 			fmt.Fprint(w, `{"pid":123}`)
 		case "/v1/sessions/task-fast":
-			fmt.Fprint(w, `{"id":"task-fast"}`)
+			fmt.Fprint(w, `{"id":"task-fast","name":"task-fast"}`)
 		default:
 			http.NotFound(w, r)
 		}

@@ -151,3 +151,59 @@ func TestChimeraAdapter_ImplementsInterruptAdapter(t *testing.T) {
 		t.Error("ChimeraAdapter does not implement InterruptAdapter")
 	}
 }
+
+func TestChimeraLaunchCommand(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     map[string]string
+		wantSub []string // each must appear as a substring of the command
+		notWant []string // none may appear as a substring of the command
+	}{
+		{
+			name: "resume with real session ID",
+			env: map[string]string{
+				"LEGATO_CHIMERA_SESSION_EXISTS": "resume",
+				"LEGATO_CHIMERA_SESSION_ID":     "01KZTTNR9GKBTSF9BSRXP4Y1MT",
+				"LEGATO_CHIMERA_SESSION_NAME":   "TASK-42",
+			},
+			wantSub: []string{"--session 01KZTTNR9GKBTSF9BSRXP4Y1MT"},
+			notWant: []string{"--session-id", "--session-name", "--session-exists"},
+		},
+		{
+			name: "new session with prior history (collision-safe)",
+			env: map[string]string{
+				"LEGATO_CHIMERA_SESSION_EXISTS": "new",
+				"LEGATO_CHIMERA_SESSION_NAME":   "TASK-42",
+			},
+			wantSub: []string{"--session-name TASK-42", "--session-exists new"},
+			notWant: []string{"--session-id"},
+		},
+		{
+			name: "first creation (no prior session, deterministic ID)",
+			env: map[string]string{
+				"LEGATO_CHIMERA_SESSION_EXISTS": "new",
+				"LEGATO_CHIMERA_SESSION_ID":     "TASK-42",
+				"LEGATO_CHIMERA_SESSION_NAME":   "TASK-42",
+			},
+			wantSub: []string{"--session-name TASK-42", "--session-id TASK-42", "--session-exists new"},
+			notWant: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := hooks.NewChimeraAdapter("/usr/bin/legato")
+			cmd := a.LaunchCommand(tt.env, "", "")
+			for _, want := range tt.wantSub {
+				if !strings.Contains(cmd, want) {
+					t.Errorf("cmd missing %q: %s", want, cmd)
+				}
+			}
+			for _, notWant := range tt.notWant {
+				if strings.Contains(cmd, notWant) {
+					t.Errorf("cmd should not contain %q: %s", notWant, cmd)
+				}
+			}
+		})
+	}
+}

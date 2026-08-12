@@ -1434,6 +1434,9 @@ func TestChimeraSpawnWithStoredSessionPromptsAndResumes(t *testing.T) {
 	if agentSvc.lastSpawnOpts == nil || agentSvc.lastSpawnOpts.ChimeraSessionExists != "resume" {
 		t.Fatalf("spawn options = %+v", agentSvc.lastSpawnOpts)
 	}
+	if agentSvc.lastSpawnOpts.ChimeraSessionID != "old-session" {
+		t.Fatalf("ChimeraSessionID = %q, want old-session", agentSvc.lastSpawnOpts.ChimeraSessionID)
+	}
 }
 
 func TestDurationDataFlowsToBoard(t *testing.T) {

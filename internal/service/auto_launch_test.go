@@ -337,8 +337,38 @@ func (g generalPromptAdapter) GeneralPrompt() string { return g.general }
 // `chimera` when LEGATO_ROLE_PROMPT_FILE is absent; without a general prompt
 // the session boots to an empty prompt (the b9b1d0d regression).
 func TestSpawnAgent_TaskIDIsChimeraSessionIdentity(t *testing.T) {
-	for _, policy := range []string{"resume", "new"} {
-		t.Run(policy, func(t *testing.T) {
+	tests := []struct {
+		name              string
+		policy            string
+		chimeraSessionID  string
+		wantSessionID     string // expected LEGATO_CHIMERA_SESSION_ID value (empty = unset)
+		wantSessionName   string
+	}{
+		{
+			name:             "resume with real session ID",
+			policy:           "resume",
+			chimeraSessionID: "01KZTTNR9GKBTSF9BSRXP4Y1MT",
+			wantSessionID:    "01KZTTNR9GKBTSF9BSRXP4Y1MT",
+			wantSessionName:  "TASK-42",
+		},
+		{
+			name:             "new session with prior history (collision-safe, no session-id)",
+			policy:           "new",
+			chimeraSessionID: "01KZTTNR9GKBTSF9BSRXP4Y1MT",
+			wantSessionID:    "",
+			wantSessionName:  "TASK-42",
+		},
+		{
+			name:             "first creation (no prior session, task ID as session-id)",
+			policy:           "new",
+			chimeraSessionID: "",
+			wantSessionID:    "TASK-42",
+			wantSessionName:  "TASK-42",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			dbPath := filepath.Join(t.TempDir(), "test.db")
 			s, err := store.New(dbPath)
 			if err != nil {
@@ -356,16 +386,20 @@ func TestSpawnAgent_TaskIDIsChimeraSessionIdentity(t *testing.T) {
 			createTask(t, s, "TASK-42")
 
 			err = svc.SpawnAgent(context.Background(), "TASK-42", 0, 0, AgentSpawnOptions{
-				ChimeraSessionExists: policy,
+				ChimeraSessionExists: tt.policy,
+				ChimeraSessionID:     tt.chimeraSessionID,
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if launched["LEGATO_CHIMERA_SESSION_ID"] != "TASK-42" || launched["LEGATO_CHIMERA_SESSION_NAME"] != "TASK-42" {
-				t.Fatalf("Chimera identity env = %#v", launched)
+			if launched["LEGATO_CHIMERA_SESSION_ID"] != tt.wantSessionID {
+				t.Fatalf("LEGATO_CHIMERA_SESSION_ID = %q, want %q", launched["LEGATO_CHIMERA_SESSION_ID"], tt.wantSessionID)
 			}
-			if launched["LEGATO_CHIMERA_SESSION_EXISTS"] != policy {
-				t.Fatalf("Chimera policy = %q, want %q", launched["LEGATO_CHIMERA_SESSION_EXISTS"], policy)
+			if launched["LEGATO_CHIMERA_SESSION_NAME"] != tt.wantSessionName {
+				t.Fatalf("LEGATO_CHIMERA_SESSION_NAME = %q, want %q", launched["LEGATO_CHIMERA_SESSION_NAME"], tt.wantSessionName)
+			}
+			if launched["LEGATO_CHIMERA_SESSION_EXISTS"] != tt.policy {
+				t.Fatalf("Chimera policy = %q, want %q", launched["LEGATO_CHIMERA_SESSION_EXISTS"], tt.policy)
 			}
 		})
 	}

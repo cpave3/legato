@@ -394,6 +394,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 				if opts.ChimeraSessionExists == "" {
 					opts.ChimeraSessionExists = "resume"
 				}
+				opts.ChimeraSessionID = sessionID
 			}
 		}
 		if err := agents.SpawnAgent(r.Context(), taskID, 0, 0, opts); err != nil {

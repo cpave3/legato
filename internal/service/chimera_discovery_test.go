@@ -62,6 +62,58 @@ func TestDiscoverChimeraVerifiesAndPersistsExactTaskSession(t *testing.T) {
 	}
 }
 
+func TestDiscoverChimeraMatchesByNameWithRandomSessionID(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	instancesDir := filepath.Join(home, ".chimera", "instances")
+	if err := os.MkdirAll(instancesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate the collision case: Chimera generated a random session ID
+	// but preserved the session name (task ID). Discovery should match by
+	// name, not by exact session ID.
+	chimeraServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/instance":
+			fmt.Fprint(w, `{"pid":123,"cwd":"/repo","version":"test"}`)
+		case "/v1/sessions/01KZTTNR9GKBTSF9BSRXP4Y1MT":
+			fmt.Fprint(w, `{"id":"01KZTTNR9GKBTSF9BSRXP4Y1MT","name":"TASK-42"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(chimeraServer.Close)
+
+	writeChimeraLockfile(t, instancesDir, "match.json", "01KZTTNR9GKBTSF9BSRXP4Y1MT", chimeraServer.URL)
+
+	svc, s, publisher := newDiscoveryTestService(t)
+	createTask(t, s, "TASK-42")
+	if err := s.InsertAgentSession(context.Background(), store.AgentSession{
+		TaskID: "TASK-42", TmuxSession: "legato-TASK-42", AgentKind: "chimera", Status: "running",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.DiscoverChimera(context.Background(), "TASK-42"); err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.GetAgentSessionByTaskID(context.Background(), "TASK-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The lockfile's actual session ID (random) is persisted, not the task ID.
+	if session.ChimeraSessionID == nil || *session.ChimeraSessionID != "01KZTTNR9GKBTSF9BSRXP4Y1MT" {
+		t.Fatalf("session ID = %v", session.ChimeraSessionID)
+	}
+	if session.ChimeraEndpoint == nil || *session.ChimeraEndpoint != chimeraServer.URL {
+		t.Fatalf("endpoint = %v", session.ChimeraEndpoint)
+	}
+	if len(publisher.discoveries) != 1 || publisher.discoveries[0] != "TASK-42" {
+		t.Fatalf("discovery events = %v", publisher.discoveries)
+	}
+}
+
 func TestInvalidateChimeraBindingRoutesSubsequentMessagesThroughTmux(t *testing.T) {
 	svc, s, _ := newDiscoveryTestService(t)
 	ctx := context.Background()
@@ -114,7 +166,7 @@ func TestDiscoverChimeraDoesNotAttachToReplacementAgent(t *testing.T) {
 			<-continueVerification
 			fmt.Fprint(w, `{"pid":123}`)
 		case "/v1/sessions/TASK-42":
-			fmt.Fprint(w, `{"id":"TASK-42"}`)
+			fmt.Fprint(w, `{"id":"TASK-42","name":"TASK-42"}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -188,7 +240,7 @@ func TestDiscoverChimeraFailsClosedWithoutUniqueVerifiedCandidate(t *testing.T) 
 		{
 			name: "redirected endpoint",
 			lockfiles: func(t *testing.T, dir string) {
-				target := newChimeraDiscoveryServer(t, "TASK-42")
+				target := newChimeraDiscoveryServer(t, "TASK-42", "TASK-42")
 				redirect := httptest.NewServer(http.RedirectHandler(target.URL, http.StatusTemporaryRedirect))
 				t.Cleanup(redirect.Close)
 				writeChimeraLockfile(t, dir, "redirect.json", "TASK-42", redirect.URL)
@@ -198,7 +250,7 @@ func TestDiscoverChimeraFailsClosedWithoutUniqueVerifiedCandidate(t *testing.T) 
 		{
 			name: "endpoint serves another session",
 			lockfiles: func(t *testing.T, dir string) {
-				server := newChimeraDiscoveryServer(t, "OTHER")
+				server := newChimeraDiscoveryServer(t, "TASK-42", "OTHER")
 				writeChimeraLockfile(t, dir, "wrong.json", "TASK-42", server.URL)
 			},
 			wantErr: ErrChimeraDiscoveryNotFound,
@@ -206,8 +258,8 @@ func TestDiscoverChimeraFailsClosedWithoutUniqueVerifiedCandidate(t *testing.T) 
 		{
 			name: "multiple verified endpoints",
 			lockfiles: func(t *testing.T, dir string) {
-				first := newChimeraDiscoveryServer(t, "TASK-42")
-				second := newChimeraDiscoveryServer(t, "TASK-42")
+				first := newChimeraDiscoveryServer(t, "TASK-42", "TASK-42")
+				second := newChimeraDiscoveryServer(t, "TASK-42", "TASK-42")
 				writeChimeraLockfile(t, dir, "first.json", "TASK-42", first.URL)
 				writeChimeraLockfile(t, dir, "second.json", "TASK-42", second.URL)
 			},
@@ -251,14 +303,14 @@ func TestDiscoverChimeraFailsClosedWithoutUniqueVerifiedCandidate(t *testing.T) 
 	}
 }
 
-func newChimeraDiscoveryServer(t *testing.T, returnedSessionID string) *httptest.Server {
+func newChimeraDiscoveryServer(t *testing.T, sessionID, sessionName string) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/instance":
 			fmt.Fprint(w, `{"pid":123,"cwd":"/repo","version":"test"}`)
-		case "/v1/sessions/TASK-42":
-			fmt.Fprintf(w, `{"id":%q}`, returnedSessionID)
+		case "/v1/sessions/" + sessionID:
+			fmt.Fprintf(w, `{"id":%q,"name":%q}`, sessionID, sessionName)
 		default:
 			http.NotFound(w, r)
 		}

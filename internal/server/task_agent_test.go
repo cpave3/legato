@@ -70,6 +70,9 @@ func TestTaskAgentEndpointResumesPersistedDefaultChimeraSession(t *testing.T) {
 	if agents.opts.ChimeraSessionExists != "resume" {
 		t.Fatalf("resume options=%+v", agents.opts)
 	}
+	if agents.opts.ChimeraSessionID != "persisted-session" {
+		t.Fatalf("ChimeraSessionID = %q, want persisted-session", agents.opts.ChimeraSessionID)
+	}
 }
 
 func TestTaskAgentEndpointResumesPersistedChimeraSession(t *testing.T) {
@@ -84,6 +87,9 @@ func TestTaskAgentEndpointResumesPersistedChimeraSession(t *testing.T) {
 	}
 	if agents.opts.ChimeraSessionExists != "resume" {
 		t.Fatalf("resume options=%+v", agents.opts)
+	}
+	if agents.opts.ChimeraSessionID != "persisted-session" {
+		t.Fatalf("ChimeraSessionID = %q, want persisted-session", agents.opts.ChimeraSessionID)
 	}
 }
 

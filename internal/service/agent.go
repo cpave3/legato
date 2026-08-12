@@ -115,6 +115,7 @@ type AgentSpawnOptions struct {
 	Brief                string            // the per-worker initial brief; conductors leave this empty
 	StrictScope          bool              // when true, scope conflicts hard-block the spawn; otherwise advisory
 	ChimeraSessionExists string            // Chimera collision policy: new, resume, or error
+	ChimeraSessionID     string            // hook-captured real Chimera session ID; used for resume via --session
 	Ephemeral            bool              // internal: omit task-linked session identity
 	Assignment           string            // standalone workflow assignment; distinct from swarm role prompts
 	ExtraEnv             map[string]string // trusted Legato-owned workflow identity values
@@ -503,7 +504,16 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			policy = "new"
 		}
 		envMap["LEGATO_CHIMERA_SESSION_NAME"] = taskID
-		envMap["LEGATO_CHIMERA_SESSION_ID"] = taskID
+		// For resume, pass the real hook-captured Chimera session ID so
+		// LaunchCommand emits --session <realID>. For new sessions with no
+		// prior history (first creation), pass the task ID so Chimera creates
+		// a deterministic session. For new sessions with prior history, omit
+		// the ID entirely so Chimera generates a random one (collision-safe).
+		if policy == "resume" && opt.ChimeraSessionID != "" {
+			envMap["LEGATO_CHIMERA_SESSION_ID"] = opt.ChimeraSessionID
+		} else if policy == "new" && opt.ChimeraSessionID == "" {
+			envMap["LEGATO_CHIMERA_SESSION_ID"] = taskID
+		}
 		envMap["LEGATO_CHIMERA_SESSION_EXISTS"] = policy
 	}
 	// Swarm-specific env vars.
@@ -710,7 +720,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// write their lockfile synchronously during SendKeysShellCommand; taking this
 	// snapshot in the discovery goroutine would incorrectly classify it as old.
 	var chimeraLockfilesBeforeLaunch map[string]bool
-	expectedChimeraSessionID := envMap["LEGATO_CHIMERA_SESSION_ID"]
+	// Discovery matches by session name (the task ID), which Chimera always
+	// preserves from --session-name regardless of collision-avoidance.
+	expectedChimeraSessionName := envMap["LEGATO_CHIMERA_SESSION_NAME"]
 	if agentKind == "chimera" {
 		chimeraLockfilesBeforeLaunch = snapshotChimeraLockfiles()
 	}
@@ -764,7 +776,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// The endpoint and session ID are persisted on the agent session row
 	// so the web UI can proxy the SSE stream and send follow-ups via HTTP.
 	if agentKind == "chimera" {
-		go a.discoverChimeraLockfile(context.Background(), taskID, expectedChimeraSessionID, chimeraLockfilesBeforeLaunch)
+		go a.discoverChimeraLockfile(context.Background(), taskID, expectedChimeraSessionName, chimeraLockfilesBeforeLaunch)
 	}
 
 	if executionKind == store.ExecutionInteractive && !opt.Ephemeral && opt.Role == "" && opt.ParentTaskID == "" && opt.SubtaskID == "" {
@@ -1552,7 +1564,7 @@ func (a *agentService) DiscoverChimera(ctx context.Context, taskID string) error
 	return a.discoverChimeraFromLockfiles(ctx, taskID, session.ID, taskID, nil)
 }
 
-func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID string, agentSessionID int, expectedSessionID string, excluded map[string]bool) error {
+func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID string, agentSessionID int, expectedSessionName string, excluded map[string]bool) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("locating Chimera instances: %w", err)
@@ -1580,7 +1592,7 @@ func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID 
 			continue
 		}
 		lf, err := chimera.ParseLockfile(data)
-		if err != nil || lf.SessionID != expectedSessionID || seenEndpoints[lf.URL] || !isLoopbackHTTPURL(lf.URL) {
+		if err != nil || seenEndpoints[lf.URL] || !isLoopbackHTTPURL(lf.URL) {
 			continue
 		}
 		seenEndpoints[lf.URL] = true
@@ -1590,9 +1602,12 @@ func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID 
 		}}
 		client := chimera.NewClientWithHTTPClient(lf.URL, httpClient)
 		_, instanceErr := client.GetInstance(requestCtx)
-		snapshot, sessionErr := client.GetSession(requestCtx, expectedSessionID)
+		// Fetch the snapshot using the lockfile's actual session ID, then
+		// verify by session name (which Chimera preserves from --session-name)
+		// rather than by exact session ID (which may be random on collision).
+		snapshot, sessionErr := client.GetSession(requestCtx, lf.SessionID)
 		cancel()
-		if instanceErr != nil || sessionErr != nil || snapshot.ID != expectedSessionID {
+		if instanceErr != nil || sessionErr != nil || snapshot.Name != expectedSessionName {
 			continue
 		}
 		valid = append(valid, candidate{sessionID: lf.SessionID, endpoint: lf.URL})
@@ -1626,10 +1641,10 @@ func isLoopbackHTTPURL(raw string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, expectedSessionID string, preExisting map[string]bool) {
+func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, expectedSessionName string, preExisting map[string]bool) {
 	// Ephemeral sessions have no stable task-bound identity. Preserve their
 	// existing launch-time behavior separately from verified manual discovery.
-	if expectedSessionID == "" {
+	if expectedSessionName == "" {
 		a.discoverEphemeralChimeraLockfile(ctx, taskID, preExisting)
 		return
 	}
@@ -1640,7 +1655,7 @@ func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, expe
 	}
 	// Poll for up to 30 seconds — Chimera may take a few seconds to boot.
 	for i := 0; i < 60; i++ {
-		if err := a.discoverChimeraFromLockfiles(ctx, taskID, activeSession.ID, expectedSessionID, preExisting); err == nil {
+		if err := a.discoverChimeraFromLockfiles(ctx, taskID, activeSession.ID, expectedSessionName, preExisting); err == nil {
 			log.Printf("chimera lockfile discovered for %s", taskID)
 			return
 		} else if !errors.Is(err, ErrChimeraDiscoveryNotFound) {
