@@ -18,6 +18,7 @@ interface AgentSidebarProps {
   onSelect: (taskId: string) => void;
   onSpawn: () => void;
   onStartSwarm?: () => void;
+  onAgentContextMenu?: (agent: AgentInfo, position: { x: number; y: number }) => void;
   modifierHeld?: boolean;
 }
 
@@ -127,6 +128,7 @@ export function AgentSidebar({
   onSelect,
   onSpawn,
   onStartSwarm,
+  onAgentContextMenu,
   modifierHeld,
 }: AgentSidebarProps) {
   const grouped = groupAndSortAgents(agents);
@@ -176,6 +178,10 @@ export function AgentSidebar({
                 </div>
               )}
               <div
+                onContextMenu={onAgentContextMenu ? (event) => {
+                  event.preventDefault();
+                  onAgentContextMenu(agent, { x: event.clientX, y: event.clientY });
+                } : undefined}
                 className={cn(
                   "group relative flex min-w-0 max-w-full items-center overflow-hidden border-l-2 transition-colors",
                   isSwarm && !isConductor && "ml-2", // worker indent

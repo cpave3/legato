@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { AgentSidebar } from "../AgentSidebar"
 import type { AgentInfo } from "../../hooks/useWebSocket"
@@ -50,5 +50,28 @@ describe("AgentSidebar", () => {
     expect(sidebar.classList.contains("overflow-x-hidden")).toBe(true)
     expect(agentButton.classList.contains("min-w-0")).toBe(true)
     expect(agentButton.classList.contains("max-w-full")).toBe(true)
+  })
+
+  it("reports the right-clicked agent without changing left-click selection", () => {
+    const onSelect = vi.fn()
+    const onAgentContextMenu = vi.fn()
+    render(
+      <AgentSidebar
+        agents={[longAgent]}
+        selectedId={null}
+        onSelect={onSelect}
+        onSpawn={vi.fn()}
+        onAgentContextMenu={onAgentContextMenu}
+      />,
+    )
+
+    const agentButton = screen.getByRole("button", { name: new RegExp(longAgent.task_id) })
+    fireEvent.contextMenu(agentButton, { clientX: 41, clientY: 73 })
+
+    expect(onAgentContextMenu).toHaveBeenCalledWith(longAgent, { x: 41, y: 73 })
+    expect(onSelect).not.toHaveBeenCalled()
+
+    fireEvent.click(agentButton)
+    expect(onSelect).toHaveBeenCalledWith(longAgent.task_id)
   })
 })

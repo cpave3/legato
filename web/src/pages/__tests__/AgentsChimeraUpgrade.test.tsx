@@ -19,6 +19,7 @@ vi.mock("../../hooks/useSettings", () => ({
 }))
 vi.mock("../../hooks/useSwarmEvents", () => ({ useSwarmEvents: () => ({ fetchState: vi.fn() }) }))
 vi.mock("../../hooks/useTaskActivity", () => ({ useTaskActivity: () => ({ items: [] }) }))
+vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
 vi.mock("../../components/TerminalPanel", () => ({ TerminalPanel: () => <div>Terminal session</div> }))
 vi.mock("../../components/NativeAgentPanel", () => ({
   NativeAgentPanel: ({ onDowngradeChimera }: { onDowngradeChimera?: () => Promise<void> }) => (

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "../hooks/useWebSocket"
 import { AgentSidebar } from "../components/AgentSidebar"
+import { AgentContextMenu } from "../components/AgentContextMenu"
 import { TerminalPanel } from "../components/TerminalPanel"
 import { NativeAgentPanel } from "../components/NativeAgentPanel"
 import { RelatedWorkStrip } from "../components/RelatedWorkStrip"
@@ -16,6 +17,7 @@ import { useTaskActivity } from "../hooks/useTaskActivity"
 import { apiFetch, toggleAgentNotify } from "../lib/api"
 import { useAgentSelection } from "../hooks/useAgentSelection"
 import { useSettings } from "../hooks/useSettings"
+import { useToast } from "../hooks/useToast"
 
 const GLITCH_DURATION_MS = 500
 
@@ -63,6 +65,11 @@ export function AgentsPage() {
   const [showStartSwarm, setShowStartSwarm] = useState(false)
   const [startSwarmPreselect, setStartSwarmPreselect] = useState<string | undefined>(undefined)
   const [showSpawn, setShowSpawn] = useState(false)
+  const [agentContextMenu, setAgentContextMenu] = useState<{
+    agent: AgentInfo
+    position: { x: number; y: number }
+  } | null>(null)
+  const { addToast } = useToast()
   const settings = useSettings()
   const ntfyConfigured = Boolean(settings.data?.ntfy_configured)
   const voiceEnabled = Boolean(settings.data?.voice_enabled)
@@ -247,20 +254,26 @@ export function AgentsPage() {
     dismissedPromptTypeRef.current = null
   }, [selectedId, send, setSelectedId])
 
-  const handleKill = useCallback(async () => {
-    if (!selectedId) return
+  const killAgent = useCallback(async (taskId: string) => {
     if (!window.confirm("Kill this agent session?")) return
-    localStorage.removeItem(`legato:draft:${selectedId}`)
+    localStorage.removeItem(`legato:draft:${taskId}`)
     try {
-      await apiFetch(baseUrl, "/api/agents/kill", {
+      const response = await apiFetch(baseUrl, "/api/agents/kill", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task_id: selectedId }),
+        body: JSON.stringify({ task_id: taskId }),
       })
-    } catch {
-      // agents_changed will handle cleanup
+      if (!response.ok) {
+        throw new Error((await response.text()).trim() || "Failed to kill agent")
+      }
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : "Failed to kill agent", "error")
     }
-  }, [selectedId, baseUrl])
+  }, [baseUrl, addToast])
+
+  const handleKill = useCallback(() => {
+    if (selectedId) void killAgent(selectedId)
+  }, [selectedId, killAgent])
 
   const handleSpawn = useCallback(() => {
     setShowSpawn(true)
@@ -416,6 +429,7 @@ export function AgentsPage() {
           onSelect={handleSelect}
           onSpawn={handleSpawn}
           onStartSwarm={handleOpenStartSwarm}
+          onAgentContextMenu={(agent, position) => setAgentContextMenu({ agent, position })}
           modifierHeld={modifierHeld}
         />
       )}
@@ -477,6 +491,19 @@ export function AgentsPage() {
           </div>
         )}
       </div>
+
+      {agentContextMenu && (
+        <AgentContextMenu
+          agent={agentContextMenu.agent}
+          position={agentContextMenu.position}
+          onClose={() => setAgentContextMenu(null)}
+          onKill={() => {
+            const taskId = agentContextMenu.agent.task_id
+            setAgentContextMenu(null)
+            void killAgent(taskId)
+          }}
+        />
+      )}
 
       {/* Right sidebar: swarm event log for swarm participants */}
       {selectedParentId && !isMobile && (
