@@ -10,16 +10,24 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
-// wireAttention builds an AttentionService with the MVP producers (plans,
-// reviews, workflows) registered and reconciled, then attaches it to the
-// server. It returns the service so callers can also wire it into the TUI.
-// planSvc, reviewSvc, and workflowSvc may be nil; nil sources are skipped.
-func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *server.Server, planSvc *service.PlanService, reviewSvc *service.ReviewService, workflowSvc *service.WorkflowService, triggerCoordinator ...*service.WorkflowTriggerCoordinator) *service.AttentionService {
+// wireAttention builds an AttentionService with all runtime producers
+// registered and reconciled, then attaches it to the server.
+func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *server.Server, planSvc *service.PlanService, reviewSvc *service.ReviewService, agentSvc service.AgentService, workflowSvc *service.WorkflowService, triggerCoordinator ...*service.WorkflowTriggerCoordinator) *service.AttentionService {
 	attention := service.NewAttentionService(db, bus)
 	if planSvc != nil {
 		adapter := service.NewPlanAttentionAdapter(planSvc)
 		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventPlanChanged))
 		mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
+	}
+	if reviewSvc != nil {
+		adapter := service.NewReviewAttentionAdapter(reviewSvc)
+		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventReviewChanged))
+	}
+	prAdapter := service.NewPRAttentionAdapter(db)
+	mustRegister(attention.RegisterProducerWithEvents(prAdapter, events.EventPRStatusUpdated))
+	if agentSvc != nil {
+		adapter := service.NewAgentAttentionAdapter(agentSvc)
+		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventAgentActivityChanged, events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted))
 	}
 	if workflowSvc != nil {
 		adapter := service.NewWorkflowAttentionAdapter(workflowSvc)

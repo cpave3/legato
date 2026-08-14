@@ -72,6 +72,49 @@ func (p *staticAttentionProducer) Snapshot(context.Context) ([]AttentionInput, e
 	return p.items, p.err
 }
 
+func TestAttentionEventReconciliationFansOutToEveryRegisteredProducer(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "attention-fanout.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	bus := events.New()
+	svc := NewAttentionService(db, bus)
+	first := &staticAttentionProducer{name: "first", items: []AttentionInput{{
+		SignalKind: AttentionSignalPlanDecision, SourceKey: "one", SourceRevision: "1",
+		Title: "One", Reason: "First", Category: "test", Urgency: "normal",
+		Navigation: AttentionNavigation{Kind: "task", Target: "one"},
+	}}}
+	second := &staticAttentionProducer{name: "second", items: []AttentionInput{{
+		SignalKind: AttentionSignalPlanDecision, SourceKey: "two", SourceRevision: "1",
+		Title: "Two", Reason: "Second", Category: "test", Urgency: "normal",
+		Navigation: AttentionNavigation{Kind: "task", Target: "two"},
+	}}}
+	if err := svc.RegisterProducerWithEvents(first, events.EventAgentDied); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RegisterProducerWithEvents(second, events.EventAgentDied); err != nil {
+		t.Fatal(err)
+	}
+	stop := svc.StartEventReconciliation(context.Background())
+	t.Cleanup(stop)
+	bus.Publish(events.Event{Type: events.EventAgentDied})
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		items, listErr := svc.List(context.Background(), AttentionFilter{})
+		if listErr != nil {
+			t.Fatal(listErr)
+		}
+		if len(items) == 2 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("shared event did not reconcile both producers")
+}
+
 func TestAttentionReconcilePublishesOnlyWhenItemChanges(t *testing.T) {
 	db, err := store.New(filepath.Join(t.TempDir(), "attention-events.db"))
 	if err != nil {
@@ -126,6 +169,38 @@ func assertNoAttentionEvent(t *testing.T, ch <-chan events.Event) {
 	case event := <-ch:
 		t.Fatalf("unexpected attention change event: %+v", event)
 	case <-time.After(25 * time.Millisecond):
+	}
+}
+
+func TestAttentionReconcilePublishesWhenMissingItemsResolve(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "attention-resolve-event.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	bus := events.New()
+	changed := bus.Subscribe(events.EventAttentionChanged)
+	svc := NewAttentionService(db, bus)
+	producer := &staticAttentionProducer{name: "example", items: []AttentionInput{{
+		SignalKind: AttentionSignalPlanDecision, SourceKey: "one", SourceRevision: "1",
+		Title: "One", Reason: "Needs attention", Category: "approval", Urgency: "normal",
+		Navigation: AttentionNavigation{Kind: "task", Target: "one"},
+	}}}
+	if err := svc.RegisterProducer(producer); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Reconcile(context.Background(), producer.name); err != nil {
+		t.Fatal(err)
+	}
+	assertAttentionEvent(t, changed)
+	producer.items = nil
+	if err := svc.Reconcile(context.Background(), producer.name); err != nil {
+		t.Fatal(err)
+	}
+	event := <-changed
+	payload, ok := event.Payload.(events.AttentionChangedPayload)
+	if !ok || payload.Producer != "example" || payload.Kind != "resolved" {
+		t.Fatalf("resolution payload = %#v", event.Payload)
 	}
 }
 

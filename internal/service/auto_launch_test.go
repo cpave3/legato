@@ -200,6 +200,7 @@ func (s simpleAdapter) EnvVars(taskID, socket string) map[string]string {
 type recordingPublisher struct {
 	calls       []recordedDied
 	starts      []string
+	activities  []recordedActivity
 	discoveries []string
 }
 
@@ -207,10 +208,17 @@ type recordedDied struct {
 	taskID, parentTaskID, subtaskID, role string
 }
 
+type recordedActivity struct {
+	taskID, activity string
+}
+
 func (r *recordingPublisher) PublishAgentStarted(taskID string) {
 	r.starts = append(r.starts, taskID)
 }
 
+func (r *recordingPublisher) PublishAgentActivityChanged(taskID, activity string) {
+	r.activities = append(r.activities, recordedActivity{taskID: taskID, activity: activity})
+}
 func (r *recordingPublisher) PublishAgentDied(taskID, parentTaskID, subtaskID, role string) {
 	r.calls = append(r.calls, recordedDied{taskID, parentTaskID, subtaskID, role})
 }
@@ -338,11 +346,11 @@ func (g generalPromptAdapter) GeneralPrompt() string { return g.general }
 // the session boots to an empty prompt (the b9b1d0d regression).
 func TestSpawnAgent_TaskIDIsChimeraSessionIdentity(t *testing.T) {
 	tests := []struct {
-		name              string
-		policy            string
-		chimeraSessionID  string
-		wantSessionID     string // expected LEGATO_CHIMERA_SESSION_ID value (empty = unset)
-		wantSessionName   string
+		name             string
+		policy           string
+		chimeraSessionID string
+		wantSessionID    string // expected LEGATO_CHIMERA_SESSION_ID value (empty = unset)
+		wantSessionName  string
 	}{
 		{
 			name:             "resume with real session ID",
@@ -531,6 +539,29 @@ func TestSpawnAgent_PublishesEventAgentStarted(t *testing.T) {
 	}
 	if len(pub.starts) != 1 || pub.starts[0] != "task-1" {
 		t.Fatalf("PublishAgentStarted calls = %v, want [task-1]", pub.starts)
+	}
+}
+
+func TestSetAgentActivityPublishesEvent(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	pub := &recordingPublisher{}
+	svc := NewAgentService(s, newMockTmux(), t.TempDir(), AgentServiceOptions{EventBus: pub})
+	createTask(t, s, "task-1")
+	ctx := context.Background()
+	if err := svc.SpawnAgent(ctx, "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SetAgentActivity(ctx, "task-1", store.ActivityWaiting, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if len(pub.activities) != 1 || pub.activities[0] != (recordedActivity{taskID: "task-1", activity: store.ActivityWaiting}) {
+		t.Fatalf("activity events = %+v", pub.activities)
 	}
 }
 

@@ -1620,6 +1620,13 @@ func (p AgentDiedPublisher) PublishAgentStarted(taskID string) {
 	p.Bus.Publish(events.Event{Type: events.EventAgentStarted, Payload: taskID})
 }
 
+func (p AgentDiedPublisher) PublishAgentActivityChanged(taskID, activity string) {
+	if p.Bus == nil {
+		return
+	}
+	p.Bus.Publish(events.Event{Type: events.EventAgentActivityChanged, Payload: events.AgentActivityChangedPayload{TaskID: taskID, Activity: activity}})
+}
+
 func (p AgentDiedPublisher) PublishAgentDied(taskID, parentTaskID, subtaskID, role string) {
 	if p.Bus == nil {
 		return

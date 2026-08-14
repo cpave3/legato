@@ -50,7 +50,7 @@ task check                 # build + test + vet + lint
 5. ~~Detail View & Clipboard~~ (complete)
 6. ~~Polish~~ (complete) — overlays (search/move/help), error handling, server stub
 
-Post-v0: Unified attention inbox (complete) — durable generic registry with source-owned producers (plans/reviews/workflows), HTTP API, live event reconciliation, web dashboard, TUI queue, and CLI. See `docs/ai/attention.md`.
+Post-v0: Attention dashboard (complete) — durable generic registry with centrally allowed plan, review, PR, standalone-agent, workflow, and trigger projections; shared live reconciliation; grouped web dashboard; generic TUI/CLI/Stream Deck consumers. See `docs/ai/attention.md`.
 
 ## Detailed Documentation
 

@@ -153,7 +153,7 @@ func (s *Store) DismissAttentionItem(ctx context.Context, id, sourceRevision str
 	return expectOneRow(result)
 }
 
-func (s *Store) ResolveAttentionItemsMissing(ctx context.Context, producer string, sourceKeys []string) error {
+func (s *Store) ResolveAttentionItemsMissing(ctx context.Context, producer string, sourceKeys []string) (int64, error) {
 	query := `UPDATE attention_items SET status = 'resolved', resolved_at = datetime('now'), updated_at = datetime('now')
 		WHERE producer = ? AND status != 'resolved'`
 	args := []any{producer}
@@ -163,8 +163,11 @@ func (s *Store) ResolveAttentionItemsMissing(ctx context.Context, producer strin
 			args = append(args, key)
 		}
 	}
-	_, err := s.db.ExecContext(ctx, query, args...)
-	return err
+	result, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func (s *Store) ResolveAttentionItem(ctx context.Context, producer, sourceKey string) error {

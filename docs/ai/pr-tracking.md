@@ -102,3 +102,8 @@ The web detail panel displays repository context and exposes refresh/rediscover 
 ### Events and cadence
 
 `PollOnce` uses the unresolved interval and only refreshes resolved PRs when their cadence is due. `PollAll` is used at startup and by global manual refresh; scheduled and forced polls are serialized to avoid duplicate GitHub traffic. Meaningful changes publish `EventPRStatusUpdated`, which the web server maps to `cards_changed`; CLI mutations broadcast `pr_linked` IPC so running TUI/web clients reload.
+### Attention dashboard projection
+
+Attention consumes only the persisted `tasks.pr_meta` cache; `GET /api/attention` never performs a GitHub request. After a meaningful sync change, the existing `EventPRStatusUpdated` both retains its `cards_changed` board-refresh behavior and triggers an additive PR attention reconciliation.
+
+An active non-draft PR appears under **Merge blockers** when its aggregate review decision is `CHANGES_REQUESTED`, its check status is `fail`, or both. Passing/pending/no checks, approval/review-required/empty decisions, drafts, closed/merged PRs, and raw comment totals do not create an item. The projection does not claim complete GitHub mergeability: unresolved review threads, branch protection, conflicts, required approvals/checks, and merge-queue state are not currently persisted.

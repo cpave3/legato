@@ -247,24 +247,32 @@ func TestAttentionAPIAndCountShareHighSignalPolicy(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	attention := service.NewAttentionService(db, nil)
-	for _, input := range []service.AttentionInput{
-		{
-			Producer: "plans", SignalKind: service.AttentionSignalPlanDecision, SourceKey: "plan", SourceRevision: "1",
-			Title: "Plan", Reason: "Decision needed", Category: "approval", Urgency: "normal",
-			Navigation: service.AttentionNavigation{Kind: "plan", Target: "plan"},
-		},
-		{
-			Producer: "reviews", SignalKind: service.AttentionSignalReviewReady, SourceKey: "review", SourceRevision: "1",
-			Title: "Review", Reason: "Ready", Category: "review", Urgency: "normal",
-			Navigation: service.AttentionNavigation{Kind: "review", Target: "review"},
-		},
-	} {
+	included := []string{
+		service.AttentionSignalPlanDecision,
+		service.AttentionSignalReviewReady,
+		service.AttentionSignalPRMergeBlocked,
+		service.AttentionSignalAgentWaiting,
+		service.AttentionSignalAgentError,
+		service.AttentionSignalWorkflowManualGate,
+		service.AttentionSignalWorkflowWaitingAgent,
+		service.AttentionSignalWorkflowFailed,
+		service.AttentionSignalWorkflowTriggerInput,
+		service.AttentionSignalWorkflowTriggerConfirmation,
+		service.AttentionSignalWorkflowTriggerFailed,
+	}
+	excluded := []string{service.AttentionSignalWorkflowCompletion, service.AttentionSignalLearningCuratorWork}
+	for index, signal := range append(included, excluded...) {
+		input := service.AttentionInput{
+			Producer: "policy", SignalKind: signal, SourceKey: fmt.Sprintf("source-%d", index), SourceRevision: "1",
+			Title: signal, Reason: "Policy test", Category: "test", Urgency: "normal",
+			Navigation: service.AttentionNavigation{Kind: "task", Target: "task-1"},
+		}
 		if _, err := attention.Upsert(context.Background(), input); err != nil {
 			t.Fatal(err)
 		}
 	}
 	count, err := attention.Count(context.Background())
-	if err != nil || count != 1 {
+	if err != nil || count != len(included) {
 		t.Fatalf("count = %d, err = %v", count, err)
 	}
 
@@ -279,7 +287,21 @@ func TestAttentionAPIAndCountShareHighSignalPolicy(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Total != count || len(body.Items) != count || body.Items[0].SignalKind != service.AttentionSignalPlanDecision {
+	if body.Total != count || len(body.Items) != count {
 		t.Fatalf("response = %+v, count = %d", body, count)
+	}
+	kinds := map[string]bool{}
+	for _, item := range body.Items {
+		kinds[item.SignalKind] = true
+	}
+	for _, signal := range included {
+		if !kinds[signal] {
+			t.Errorf("included signal %q missing from response", signal)
+		}
+	}
+	for _, signal := range excluded {
+		if kinds[signal] {
+			t.Errorf("excluded signal %q present in response", signal)
+		}
 	}
 }

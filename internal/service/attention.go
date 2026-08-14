@@ -29,6 +29,9 @@ type AttentionAction struct {
 const (
 	AttentionSignalPlanDecision                = "plan_decision"
 	AttentionSignalReviewReady                 = "review_ready"
+	AttentionSignalPRMergeBlocked              = "pr_merge_blocked"
+	AttentionSignalAgentWaiting                = "agent_waiting"
+	AttentionSignalAgentError                  = "agent_error"
 	AttentionSignalWorkflowManualGate          = "workflow_manual_gate"
 	AttentionSignalWorkflowWaitingAgent        = "workflow_waiting_agent"
 	AttentionSignalWorkflowFailed              = "workflow_failed"
@@ -41,6 +44,10 @@ const (
 
 var defaultAttentionSignals = []string{
 	AttentionSignalPlanDecision,
+	AttentionSignalReviewReady,
+	AttentionSignalPRMergeBlocked,
+	AttentionSignalAgentWaiting,
+	AttentionSignalAgentError,
 	AttentionSignalWorkflowManualGate,
 	AttentionSignalWorkflowWaitingAgent,
 	AttentionSignalWorkflowFailed,
@@ -52,6 +59,9 @@ var defaultAttentionSignals = []string{
 var knownAttentionSignals = map[string]bool{
 	AttentionSignalPlanDecision:                true,
 	AttentionSignalReviewReady:                 true,
+	AttentionSignalPRMergeBlocked:              true,
+	AttentionSignalAgentWaiting:                true,
+	AttentionSignalAgentError:                  true,
 	AttentionSignalWorkflowManualGate:          true,
 	AttentionSignalWorkflowWaitingAgent:        true,
 	AttentionSignalWorkflowFailed:              true,
@@ -126,22 +136,24 @@ type AttentionProducer interface {
 
 var ErrAttentionConflict = errors.New("attention item changed; refresh and try again")
 
+var attentionReconcileLocks sync.Map
+
 type AttentionService struct {
-	store           *store.Store
-	bus             *events.Bus
-	handlerMu       sync.RWMutex
-	handlers        map[string]AttentionActionHandler
-	producerMu      sync.RWMutex
-	producers       map[string]AttentionProducer
-	eventToProducer map[events.EventType]string
+	store            *store.Store
+	bus              *events.Bus
+	handlerMu        sync.RWMutex
+	handlers         map[string]AttentionActionHandler
+	producerMu       sync.RWMutex
+	producers        map[string]AttentionProducer
+	eventToProducers map[events.EventType][]string
 }
 
 func NewAttentionService(s *store.Store, bus *events.Bus) *AttentionService {
 	return &AttentionService{
 		store: s, bus: bus,
-		handlers:        map[string]AttentionActionHandler{},
-		producers:       map[string]AttentionProducer{},
-		eventToProducer: map[events.EventType]string{},
+		handlers:         map[string]AttentionActionHandler{},
+		producers:        map[string]AttentionProducer{},
+		eventToProducers: map[events.EventType][]string{},
 	}
 }
 
@@ -153,13 +165,15 @@ func (s *AttentionService) StartEventReconciliation(ctx context.Context) func() 
 		return func() {}
 	}
 	var channels []<-chan events.Event
-	for eventType, producerName := range s.eventToProducer {
+	for eventType, producerNames := range s.eventToProducers {
 		ch := s.bus.Subscribe(eventType)
-		producerName := producerName
+		producerNames := append([]string(nil), producerNames...)
 		channels = append(channels, ch)
 		go func() {
 			for range ch {
-				_ = s.Reconcile(ctx, producerName)
+				for _, producerName := range producerNames {
+					_ = s.Reconcile(ctx, producerName)
+				}
 			}
 		}()
 	}
@@ -191,7 +205,7 @@ func (s *AttentionService) RegisterProducerWithEvents(producer AttentionProducer
 		return err
 	}
 	for _, eventType := range eventTypes {
-		s.eventToProducer[eventType] = producer.Producer()
+		s.eventToProducers[eventType] = append(s.eventToProducers[eventType], producer.Producer())
 	}
 	return nil
 }
@@ -210,6 +224,11 @@ func (s *AttentionService) RegisterHandler(producer string, handler AttentionAct
 }
 
 func (s *AttentionService) Reconcile(ctx context.Context, producerName string) error {
+	lockValue, _ := attentionReconcileLocks.LoadOrStore(producerName, &sync.Mutex{})
+	lock := lockValue.(*sync.Mutex)
+	lock.Lock()
+	defer lock.Unlock()
+
 	s.producerMu.RLock()
 	producer := s.producers[producerName]
 	s.producerMu.RUnlock()
@@ -231,8 +250,12 @@ func (s *AttentionService) Reconcile(ctx context.Context, producerName string) e
 		}
 		keys = append(keys, input.SourceKey)
 	}
-	if err := s.store.ResolveAttentionItemsMissing(ctx, producerName, keys); err != nil {
+	resolved, err := s.store.ResolveAttentionItemsMissing(ctx, producerName, keys)
+	if err != nil {
 		return fmt.Errorf("resolving stale attention for %q: %w", producerName, err)
+	}
+	if resolved > 0 {
+		s.publish(&store.AttentionItem{Producer: producerName}, "resolved")
 	}
 	return nil
 }
@@ -244,12 +267,13 @@ func (s *AttentionService) ReconcileAll(ctx context.Context) error {
 		names = append(names, name)
 	}
 	s.producerMu.RUnlock()
+	var errs []error
 	for _, name := range names {
 		if err := s.Reconcile(ctx, name); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (s *AttentionService) Upsert(ctx context.Context, input AttentionInput) (*AttentionItem, error) {

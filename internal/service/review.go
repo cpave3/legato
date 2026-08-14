@@ -1775,6 +1775,8 @@ type ReviewQueueItem struct {
 	UpdatedAt  string `json:"updated_at"`
 	ReadyAt    string `json:"ready_at"`
 	ActivityAt string `json:"activity_at"`
+	PassID     string `json:"pass_id"`
+	HeadSHA    string `json:"head_sha"`
 }
 
 // QueueCount returns the persisted number of explicitly ready tours with
@@ -1815,10 +1817,16 @@ func (r *ReviewService) queueByStatus(ctx context.Context, status string) ([]Rev
 		if tour.Status == "ready" && tour.ReadyAt != nil && *tour.ReadyAt != "" {
 			activityAt = *tour.ReadyAt
 		}
+		passID, headSHA := "", tour.HeadSHA
+		if pass, passErr := r.store.GetActiveReviewPass(ctx, tour.ID); passErr == nil {
+			passID, headSHA = pass.ID, pass.HeadSHA
+		} else if passErr != store.ErrNotFound {
+			return nil, passErr
+		}
 		items = append(items, ReviewQueueItem{
 			TourID: tour.ID, TaskID: tour.TaskID, Name: tour.Name,
 			Title: title, Status: tour.Status, Summary: tour.Summary, Unreviewed: unreviewed,
-			UpdatedAt: tour.UpdatedAt, ReadyAt: strValue(tour.ReadyAt), ActivityAt: activityAt,
+			UpdatedAt: tour.UpdatedAt, ReadyAt: strValue(tour.ReadyAt), ActivityAt: activityAt, PassID: passID, HeadSHA: headSHA,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {

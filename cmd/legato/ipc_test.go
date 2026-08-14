@@ -139,6 +139,27 @@ func TestIPCMessage_CompletedWorkflowStepRefreshesAgents(t *testing.T) {
 	}
 }
 
+func TestIPCMessage_AgentStatePublishesActivityAndCardEvents(t *testing.T) {
+	bus := events.New()
+	activityChanged := bus.Subscribe(events.EventAgentActivityChanged)
+	cardUpdated := bus.Subscribe(events.EventCardUpdated)
+	notifier := &fakeNotifier{}
+
+	handleIPCMessage(ipc.Message{Type: "agent_state", TaskID: "task-1", Status: "waiting"}, bus, notifier)
+
+	activity := drainEvent(t, activityChanged)
+	payload, ok := activity.Payload.(events.AgentActivityChangedPayload)
+	if !ok || payload.TaskID != "task-1" || payload.Activity != "waiting" {
+		t.Fatalf("activity payload = %#v", activity.Payload)
+	}
+	if event := drainEvent(t, cardUpdated); event.Type != events.EventCardUpdated {
+		t.Fatalf("event type = %v, want EventCardUpdated", event.Type)
+	}
+	if !notifier.called {
+		t.Fatal("NotifyAgentsChanged should be called")
+	}
+}
+
 func TestIPCMessage_CardEvents(t *testing.T) {
 	for _, messageType := range []string{"task_update", "worktree_changed"} {
 		t.Run(messageType, func(t *testing.T) {

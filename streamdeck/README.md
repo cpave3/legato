@@ -5,7 +5,7 @@ A [Stream Deck](https://www.elgato.com/en/stream-deck) plugin for [OpenDeck](htt
 ## What it does
 
 - **Agent tiles** — One key per active agent. Shows the agent's task title and activity state (green=working, amber=waiting, gray=idle). Press to open that agent in the Legato web UI.
-- **Attention tiles** — One key per attention item (plans awaiting approval, reviews ready, workflows needing input). Shows the producer type and title. Press to open the item in the browser, or execute safe actions directly.
+- **Attention tiles** — One key per attention item (plans awaiting approval, reviews ready, tracked PR blockers, standalone agents waiting/errored, and workflows needing input). Shows the producer type and title. Press to open the item in the browser, or execute safe actions directly.
 
 ## Prerequisites
 

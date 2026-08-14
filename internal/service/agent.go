@@ -350,6 +350,7 @@ func joinPromptSections(parts ...string) string {
 type EventPublisher interface {
 	PublishAgentStarted(taskID string)
 	PublishAgentDied(taskID, parentTaskID, subtaskID, role string)
+	PublishAgentActivityChanged(taskID, activity string)
 	PublishAgentChimeraDiscovered(taskID string)
 }
 
@@ -1218,6 +1219,9 @@ func (a *agentService) SetAgentActivity(ctx context.Context, taskID, activity, w
 	}
 	if err := a.store.RecordExecutionActivity(ctx, sess.ExecutionID, activity, workingDir); err != nil {
 		return fmt.Errorf("recording execution activity: %w", err)
+	}
+	if a.bus != nil {
+		a.bus.PublishAgentActivityChanged(taskID, activity)
 	}
 
 	if (oldActivity == store.ActivityWorking && (activity == store.ActivityWaiting || activity == "")) ||

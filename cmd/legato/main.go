@@ -1468,7 +1468,7 @@ func runServeCmd(args []string) int {
 	} else {
 		log.Printf("workflows: %v", workflowErr)
 	}
-	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, workflowSvc, triggerCoordinator)
+	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, triggerCoordinator)
 	srv.SetMacros(cfg.Macros)
 	srv.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
@@ -1806,8 +1806,8 @@ func runTUI() int {
 				webSrv.SetWorkflowService(tuiWorkflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
 				webSrv.SetReflectionWorkflowService(tuiWorkflowSvc)
 				webSrv.SetWorkflowTriggerCoordinator(triggerCoordinator)
-				wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, tuiWorkflowSvc, triggerCoordinator)
 			}
+			wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, triggerCoordinator)
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)
@@ -1852,6 +1852,16 @@ func runTUI() int {
 		planAdapter := service.NewPlanAttentionAdapter(planSvc)
 		_ = attentionSvc.RegisterProducerWithEvents(planAdapter, events.EventPlanChanged)
 		_ = attentionSvc.RegisterHandler(planAdapter.Producer(), planAdapter)
+	}
+	if reviewSvc != nil {
+		reviewAdapter := service.NewReviewAttentionAdapter(reviewSvc)
+		_ = attentionSvc.RegisterProducerWithEvents(reviewAdapter, events.EventReviewChanged)
+	}
+	prAttentionAdapter := service.NewPRAttentionAdapter(db)
+	_ = attentionSvc.RegisterProducerWithEvents(prAttentionAdapter, events.EventPRStatusUpdated)
+	if agentSvc != nil {
+		agentAttentionAdapter := service.NewAgentAttentionAdapter(agentSvc)
+		_ = attentionSvc.RegisterProducerWithEvents(agentAttentionAdapter, events.EventAgentActivityChanged, events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)
 	}
 	if tuiWorkflowSvc != nil {
 		workflowAdapter := service.NewWorkflowAttentionAdapter(tuiWorkflowSvc)

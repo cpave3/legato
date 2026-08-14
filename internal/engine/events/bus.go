@@ -17,6 +17,7 @@ const (
 	EventAgentStarted
 	EventAgentOutput
 	EventAgentCompleted
+	EventAgentActivityChanged
 	EventSyncError
 	EventTransitionFailed
 	EventAuthFailed
@@ -47,6 +48,11 @@ type AgentDiedPayload struct {
 	ParentTaskID string // empty for non-swarm agents
 	SubtaskID    string // empty for non-swarm agents
 	Role         string
+}
+
+type AgentActivityChangedPayload struct {
+	TaskID   string
+	Activity string
 }
 
 // AgentChimeraDiscoveredPayload is published when a Chimera lockfile is
