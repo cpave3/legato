@@ -44,7 +44,20 @@ describe("WiremarkDiagram", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("Unknown component FancyPanel at line 2")
     expect(screen.getByRole("alert").querySelector("code")?.textContent).toBe("Wireframe mobile\n  FancyPanel")
-    expect(screen.queryByRole("img", { name: "Wiremark mockup" })).toBeNull()
+    expect(screen.getByRole("alert").parentElement?.querySelector("svg")).toBeNull()
+  })
+
+  it("recovers when invalid source is replaced", async () => {
+    renderWiremark
+      .mockImplementationOnce(() => { throw new Error("Invalid source") })
+      .mockReturnValueOnce({ svg: "<svg><text>Recovered mockup</text></svg>", diagnostics: [] })
+    const { rerender } = render(<WiremarkDiagram source="invalid" />)
+    expect(await screen.findByRole("alert")).toBeTruthy()
+
+    rerender(<WiremarkDiagram source="Wireframe mobile" />)
+
+    expect(await screen.findByText("Recovered mockup")).toBeTruthy()
+    expect(screen.queryByRole("alert")).toBeNull()
   })
 
   it("namespaces generated SVG IDs across duplicate mockups", async () => {

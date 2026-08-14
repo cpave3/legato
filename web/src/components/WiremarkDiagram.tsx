@@ -66,12 +66,6 @@ export function WiremarkDiagram({ source }: { source: string }) {
     return () => document.removeEventListener("keydown", collapse)
   }, [expanded])
 
-  if (error) return <div role="alert" className="my-3 rounded bg-black/60 p-3 text-sm text-amber-200">
-    <p className="mb-1 font-medium">Mockup could not be rendered. Wiremark source:</p>
-    <p className="mb-2 text-xs">{error}</p>
-    <pre className="overflow-x-auto whitespace-pre font-mono text-xs text-zinc-300"><code>{source}</code></pre>
-  </div>
-
   return <div
     role={expanded ? "dialog" : undefined}
     aria-label={expanded ? "Expanded Wiremark mockup" : undefined}
@@ -82,10 +76,16 @@ export function WiremarkDiagram({ source }: { source: string }) {
       type="button"
       aria-label={expanded ? "Collapse Wiremark mockup" : "Expand Wiremark mockup"}
       aria-pressed={expanded}
+      aria-hidden={!!error || undefined}
       onClick={() => setExpanded(current => !current)}
-      className={`block max-h-full max-w-full cursor-zoom-in overflow-auto rounded bg-black/60 p-3 text-left ${expanded ? "h-full w-full cursor-zoom-out" : "w-full"}`}
+      className={`block max-h-full max-w-full cursor-zoom-in overflow-auto rounded bg-black/60 p-3 text-left ${expanded ? "h-full w-full cursor-zoom-out" : "w-full"} ${error ? "hidden" : ""}`}
     >
       <div ref={containerRef} role="img" aria-label="Wiremark mockup" className={`[&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-none ${expanded ? "min-h-full min-w-full [&_svg]:min-w-full" : "min-w-max"}`} />
     </button>
+    {error && <div role="alert" className="rounded bg-black/60 p-3 text-sm text-amber-200">
+      <p className="mb-1 font-medium">Mockup could not be rendered. Wiremark source:</p>
+      <p className="mb-2 text-xs">{error}</p>
+      <pre className="overflow-x-auto whitespace-pre font-mono text-xs text-zinc-300"><code>{source}</code></pre>
+    </div>}
   </div>
 }
