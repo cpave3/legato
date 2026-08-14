@@ -264,6 +264,7 @@ legato task show <task-id> [--format description|full|json]  # print task contex
 legato task update <task-id> --status <column>   # move task to column
 legato task note <task-id> <message>             # append note to task
 legato agent state <task-id> --activity working  # set agent activity state
+legato agent permission-resolved [<task-id>]      # map Chimera hook JSON from stdin
 legato task link <task-id> [--branch <b>] [--repo <o/r>]  # link PR branch
 legato task unlink <task-id>                     # remove PR link
 legato columns sync                              # sync config columns to the board

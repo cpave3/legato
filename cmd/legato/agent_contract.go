@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -22,6 +24,8 @@ func runAgentContract(args []string) int {
 		return runAgentStateContract(args[1:])
 	case "session-created":
 		return runAgentSessionCreatedContract(args[1:])
+	case "permission-resolved":
+		return runAgentPermissionResolvedContract(args[1:])
 	case "peers":
 		return runAgentPeersContract(args[1:])
 	case "message":
@@ -197,6 +201,65 @@ func runAgentStateContract(args []string) int {
 	return writeCommandSuccess(command, map[string]any{
 		"task_id": taskID, "activity": parsed.Values["activity"], "working_dir": parsed.Values["working-dir"],
 	}, "", jsonMode)
+}
+
+type chimeraPermissionResolvedPayload struct {
+	SessionStatus    string `json:"session_status"`
+	RemainingPending *int   `json:"remaining_pending"`
+}
+
+func chimeraPermissionResolvedActivity(reader io.Reader) (string, error) {
+	var payload chimeraPermissionResolvedPayload
+	if err := json.NewDecoder(reader).Decode(&payload); err != nil {
+		return "", fmt.Errorf("decode PermissionResolved payload: %w", err)
+	}
+	if payload.RemainingPending == nil {
+		return "", fmt.Errorf("remaining_pending is required")
+	}
+	switch payload.SessionStatus {
+	case "waiting_for_permission":
+		if *payload.RemainingPending < 1 {
+			return "", fmt.Errorf("waiting_for_permission requires remaining_pending greater than zero")
+		}
+		return "waiting", nil
+	case "running":
+		if *payload.RemainingPending != 0 {
+			return "", fmt.Errorf("running requires remaining_pending zero")
+		}
+		return "working", nil
+	default:
+		return "", fmt.Errorf("unsupported session_status %q", payload.SessionStatus)
+	}
+}
+
+func runAgentPermissionResolvedContract(args []string) int {
+	const command = "agent.permission-resolved"
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("agent", "permission-resolved"))
+	jsonMode := parsed.Present["json"]
+	if parseErr != nil {
+		return renderCommandError(command, parseErr, jsonMode)
+	}
+	taskID, rest, idErr := resolveTaskID(parsed.Positionals)
+	if idErr != nil {
+		return renderCommandError(command, idErr, jsonMode)
+	}
+	if len(rest) != 0 {
+		return renderCommandError(command, usageError("unexpected_argument", "agent permission-resolved accepts one task ID"), jsonMode)
+	}
+	activity, err := chimeraPermissionResolvedActivity(os.Stdin)
+	if err != nil {
+		return renderCommandError(command, usageError("invalid_payload", err.Error()), jsonMode)
+	}
+	stateArgs := []string{taskID, "--activity", activity, "--event", "PermissionResolved"}
+	for _, flag := range []string{"execution-id", "working-dir", "session-id"} {
+		if value := parsed.Values[flag]; value != "" {
+			stateArgs = append(stateArgs, "--"+flag, value)
+		}
+	}
+	if jsonMode {
+		stateArgs = append(stateArgs, "--json")
+	}
+	return runAgentStateContract(stateArgs)
 }
 
 func runAgentSessionCreatedContract(args []string) int {

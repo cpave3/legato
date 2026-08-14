@@ -1,8 +1,10 @@
 package hooks_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,8 +22,8 @@ var chimeraEvents = []struct {
 }{
 	{"SessionCreated", "legato-session-created.sh", "capture"},
 	{"UserPromptSubmit", "legato-prompt-submit.sh", "working"},
-	{"PostToolUse", "legato-post-tool-use.sh", "working"},
 	{"PermissionRequest", "legato-permission.sh", "waiting"},
+	{"PermissionResolved", "legato-permission-resolved.sh", "payload"},
 	{"UserInputRequired", "legato-user-input-required.sh", "waiting"},
 	{"Stop", "legato-stop.sh", ""},
 	{"OnError", "legato-on-error.sh", "error"},
@@ -90,6 +92,8 @@ func TestChimeraAdapter_InstallHooks(t *testing.T) {
 		wantCmd := fmt.Sprintf("%s agent state \"$LEGATO_TASK_ID\" --execution-id \"$LEGATO_EXECUTION_ID\" --activity %q --working-dir \"$PWD\" --session-id \"$CHIMERA_SESSION_ID\" --event %q", "/usr/bin/legato", ev.activity, ev.dir)
 		if ev.dir == "SessionCreated" {
 			wantCmd = `/usr/bin/legato agent session-created "$LEGATO_TASK_ID" "$CHIMERA_SESSION_ID"`
+		} else if ev.dir == "PermissionResolved" {
+			wantCmd = `/usr/bin/legato agent permission-resolved "$LEGATO_TASK_ID" --execution-id "$LEGATO_EXECUTION_ID" --working-dir "$PWD" --session-id "$CHIMERA_SESSION_ID"`
 		}
 		if !strings.Contains(content, wantCmd) {
 			t.Errorf("%s: expected %q in script, got:\n%s", ev.dir, wantCmd, content)
@@ -99,6 +103,26 @@ func TestChimeraAdapter_InstallHooks(t *testing.T) {
 		if info.Mode().Perm()&0o100 == 0 {
 			t.Errorf("%s: script should be executable, mode=%v", ev.dir, info.Mode())
 		}
+	}
+}
+
+func TestChimeraAdapter_InstallHooksRemovesManagedPostToolUseScript(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	stale := filepath.Join(home, ".chimera", "hooks", "PostToolUse", "legato-post-tool-use.sh")
+	if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stale, []byte("stale"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := hooks.NewChimeraAdapter("/usr/bin/legato")
+	if err := adapter.InstallHooks(""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale managed PostToolUse hook should be removed, err=%v", err)
 	}
 }
 
@@ -205,5 +229,46 @@ func TestChimeraLaunchCommand(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestChimeraPermissionResolvedScriptForwardsPayloadAndExitStatus(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	binDir := t.TempDir()
+	argsPath := filepath.Join(binDir, "args")
+	stdinPath := filepath.Join(binDir, "stdin")
+	fakeLegato := filepath.Join(binDir, "legato")
+	fake := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" > %s\ncat > %s\nexit 23\n", argsPath, stdinPath)
+	if err := os.WriteFile(fakeLegato, []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := hooks.NewChimeraAdapter(fakeLegato)
+	if err := adapter.InstallHooks(""); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(home, ".chimera", "hooks", "PermissionResolved", "legato-permission-resolved.sh")
+	command := exec.Command(script)
+	command.Env = append(os.Environ(), "LEGATO_TASK_ID=task-1", "LEGATO_EXECUTION_ID=exec-1", "CHIMERA_SESSION_ID=session-1")
+	command.Stdin = strings.NewReader(`{"session_status":"running","remaining_pending":0}`)
+	err := command.Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 23 {
+		t.Fatalf("script error = %v, want exit 23", err)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(args), "agent permission-resolved task-1 --execution-id exec-1") {
+		t.Fatalf("args = %q", args)
+	}
+	payload, err := os.ReadFile(stdinPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(payload) != `{"session_status":"running","remaining_pending":0}` {
+		t.Fatalf("stdin = %q", payload)
 	}
 }

@@ -186,8 +186,8 @@ Legato-spawned tmux sessions get a custom status bar showing live context. Solo 
 |----------------------|-----------------------------------------|-----------|
 | `SessionCreated`     | `legato-session-created.sh`             | capture   |
 | `UserPromptSubmit`   | `legato-prompt-submit.sh`               | `working` |
-| `PostToolUse`        | `legato-post-tool-use.sh`               | `working` |
 | `PermissionRequest`  | `legato-permission.sh`                  | `waiting` |
+| `PermissionResolved` | `legato-permission-resolved.sh`         | payload-dependent |
 | `UserInputRequired`  | `legato-user-input-required.sh`         | `waiting` |
 | `Stop`               | `legato-stop.sh`                        | (clear)   |
 | `OnError`            | `legato-on-error.sh`                    | `error`   |
@@ -195,7 +195,9 @@ Legato-spawned tmux sessions get a custom status bar showing live context. Solo 
 | `Interrupt`          | `legato-interrupt.sh`                   | (clear)   |
 | `Timeout`            | `legato-timeout.sh`                     | (clear)   |
 
-**Flow**: `SessionCreated` captures Chimera's session ID. Each activity script gates on `LEGATO_TASK_ID`, `LEGATO_EXECUTION_ID`, and `CHIMERA_SESSION_ID`; outside a Legato-managed execution it exits without reporting activity. Inside one, it calls `legato agent state` with the task, execution, working directory, Chimera session, activity, and event. The command updates `agent_sessions.activity`, records execution activity, and broadcasts IPC through the shared state path.
+**Flow**: `SessionCreated` captures Chimera's session ID. Each activity script gates on `LEGATO_TASK_ID`, `LEGATO_EXECUTION_ID`, and `CHIMERA_SESSION_ID`; outside a Legato-managed execution it exits without reporting activity. Inside one, it calls `legato agent state` with the task, execution, working directory, Chimera session, activity, and event. Scripts propagate that command's exit status so Chimera can warn on failed state publication. The command updates `agent_sessions.activity`, records execution activity, and broadcasts IPC through the shared state path.
+
+`PermissionResolved` pipes Chimera's JSON payload into `legato agent permission-resolved`. The CLI validates the atomic `session_status`/`remaining_pending` pair and maps another outstanding permission to `waiting`, or the final resolution back to `working`. Resolution never clears to idle because allow and deny both resume the turn; terminal hooks own idle/error. `PostToolUse` is intentionally not a managed activity hook because a parallel tool can finish while another permission remains outstanding. Installing updated hooks removes only Legato's obsolete `legato-post-tool-use.sh` script.
 
 **Task context access**: Chimera role prompts include Legato-specific guidance that `legato task show $LEGATO_TASK_ID` fetches the current task description/context, and `--format full` includes structured metadata. In sandboxed Chimera sessions, run that command in host mode, the same as other Legato CLI calls.
 
