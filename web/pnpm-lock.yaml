@@ -17,6 +17,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.101.4
         version: 5.101.4(react@19.2.4)
+      '@wiremark/core':
+        specifier: 0.1.0
+        version: 0.1.0
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0
@@ -1351,6 +1354,10 @@ packages:
 
   '@vitest/utils@4.1.2':
     resolution: {integrity: sha512-xw2/TiX82lQHA06cgbqRKFb5lCAy3axQ4H4SoUFhUsg+wztiet+co86IAMDtF6Vm1hc7J6j09oh/rgDn+JdKIQ==}
+
+  '@wiremark/core@0.1.0':
+    resolution: {integrity: sha512-YpZDTpYy7Vm8NtT9DvEeDux6J5ljtXYxwNAl6ZUdtnwz2381fU+l3GzmSDBGl34A08MJpAC+6arcfcZ37HDZqA==}
+    engines: {node: '>=18'}
 
   '@xterm/addon-fit@0.11.0':
     resolution: {integrity: sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g==}
@@ -4878,6 +4885,10 @@ snapshots:
       '@vitest/pretty-format': 4.1.2
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
+
+  '@wiremark/core@0.1.0':
+    dependencies:
+      roughjs: 4.6.6
 
   '@xterm/addon-fit@0.11.0': {}
 

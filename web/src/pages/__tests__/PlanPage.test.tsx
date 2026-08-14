@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { PlanPage } from "../PlanPage"
 import type { PlanComment } from "../../lib/plan"
 
-const { refresh, addPlanComment, updatePlanComment, askPlanQuestion, respondToPlanQuestion, planAction, initializeMermaid, renderMermaid } = vi.hoisted(() => ({
+const { refresh, addPlanComment, updatePlanComment, askPlanQuestion, respondToPlanQuestion, planAction, initializeMermaid, renderMermaid, renderWiremark } = vi.hoisted(() => ({
   refresh: vi.fn(async () => undefined),
   addPlanComment: vi.fn(),
   updatePlanComment: vi.fn(),
@@ -13,6 +13,7 @@ const { refresh, addPlanComment, updatePlanComment, askPlanQuestion, respondToPl
   planAction: vi.fn(),
   initializeMermaid: vi.fn(),
   renderMermaid: vi.fn(),
+  renderWiremark: vi.fn(),
 }))
 
 const markdown = "# Block comments\n\nRepeat this paragraph.\n\nRepeat this paragraph.\n\n- First nested item\n- Second nested item\n\n```go\nfmt.Println(\"hello\")\n```\n"
@@ -24,6 +25,7 @@ const planData = {
 }
 
 vi.mock("mermaid",()=>({default:{initialize:initializeMermaid,render:renderMermaid}}))
+vi.mock("@wiremark/core",()=>({render:renderWiremark}))
 vi.mock("../../hooks/useServer",()=>({useServer:()=>({baseUrl:""})}))
 vi.mock("../../hooks/useRunningAgent",()=>({useRunningAgent:()=>({agent:null,loading:false})}))
 vi.mock("../../hooks/usePlan",()=>({usePlan:()=>({data:planData,loading:false,error:null,refresh})}))
@@ -36,8 +38,9 @@ afterEach(cleanup)
 beforeEach(()=>{
   planData.revision.markdown=markdown
   planData.comments=[]
-  refresh.mockClear(); addPlanComment.mockReset(); updatePlanComment.mockReset(); askPlanQuestion.mockReset(); respondToPlanQuestion.mockReset(); planAction.mockReset(); renderMermaid.mockReset()
+  refresh.mockClear(); addPlanComment.mockReset(); updatePlanComment.mockReset(); askPlanQuestion.mockReset(); respondToPlanQuestion.mockReset(); planAction.mockReset(); renderMermaid.mockReset(); renderWiremark.mockReset()
   renderMermaid.mockResolvedValue({svg:"<svg><text>Rendered diagram</text></svg>"})
+  renderWiremark.mockReturnValue({svg:"<svg><text>Rendered mockup</text></svg>",diagnostics:[]})
   addPlanComment.mockResolvedValue({id:"comment-1",revision_id:"rev-1",body:"Clarify this",selection_start:secondStart,selection_end:secondStart+22,selected_text:"Repeat this paragraph.",prefix:"",suffix:"",created_at:""})
   askPlanQuestion.mockResolvedValue({thread_id:"thread-1"})
 })
@@ -113,6 +116,45 @@ describe("PlanPage block comments",()=>{
     fireEvent.click(screen.getByRole("button",{name:"Request changes"}))
     await waitFor(()=>expect(planAction).toHaveBeenCalledWith("","pl-1","request-changes",undefined))
     planData.revision.markdown=originalMarkdown
+  })
+
+  it("renders Wiremark fences while preserving exact anchors and stable mockups",async()=>{
+    const wireframeFence="```wireframe\nWireframe mobile\n  Button \"Approve\" contained\n```"
+    planData.revision.markdown=`# Møckup\n\n${wireframeFence}\n`
+    const characterStart=planData.revision.markdown.indexOf(wireframeFence)
+    const byteStart=new TextEncoder().encode(planData.revision.markdown.slice(0,characterStart)).length
+    const byteEnd=byteStart+new TextEncoder().encode(wireframeFence).length
+    addPlanComment.mockResolvedValue({id:"mockup-comment",revision_id:"rev-1",body:"Adjust this screen",selection_start:byteStart,selection_end:byteEnd,selected_text:wireframeFence,prefix:"",suffix:"",created_at:""})
+
+    renderPage()
+
+    expect(await screen.findByText("Rendered mockup")).toBeTruthy()
+    expect(renderWiremark).toHaveBeenCalledWith("Wireframe mobile\n  Button \"Approve\" contained\n",{theme:"dark",interactive:true})
+    const mockup=screen.getByRole("img",{name:"Wiremark mockup"})
+    const settledRenderCount=renderWiremark.mock.calls.length
+    fireEvent.change(screen.getByLabelText("Question for plan agent"),{target:{value:"Why?"}})
+    await new Promise(resolve=>setTimeout(resolve,0))
+    expect(renderWiremark).toHaveBeenCalledTimes(settledRenderCount)
+    expect(screen.getByRole("img",{name:"Wiremark mockup"})).toBe(mockup)
+
+    fireEvent.click(screen.getByRole("button",{name:/Comment on code block beginning/}))
+    fireEvent.change(screen.getByLabelText("Comment on selected block"),{target:{value:"Adjust this screen"}})
+    fireEvent.keyDown(screen.getByLabelText("Comment on selected block"),{key:"Enter",metaKey:true})
+    await waitFor(()=>expect(addPlanComment).toHaveBeenCalledWith("","pl-1",{
+      body:"Adjust this screen",selection_start:byteStart,selection_end:byteEnd,selected_text:wireframeFence,
+    }))
+  })
+
+  it("keeps mockup comments and plan actions usable when Wiremark rejects malformed source",async()=>{
+    planData.revision.markdown="```wireframe\nWireframe mobile\n  FancyPanel\n```\n"
+    renderWiremark.mockImplementation(()=>{throw new Error("Unknown component FancyPanel at line 2")})
+
+    renderPage()
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Unknown component FancyPanel at line 2")
+    fireEvent.click(screen.getByRole("button",{name:/Comment on code block beginning/}))
+    expect(screen.getByLabelText("Comment on selected block")).toBeTruthy()
+    expect(screen.getByRole("button",{name:"Approve"})).toBeTruthy()
   })
 
   it("keeps rendered Mermaid diagrams mounted while typing unrelated feedback drafts",async()=>{

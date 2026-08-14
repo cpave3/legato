@@ -3,15 +3,17 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "../lib/utils"
 import { MermaidMarkdownPre } from "./MermaidDiagram"
+import { VisualMarkdownPre } from "./WiremarkDiagram"
 
 interface MarkdownBodyProps {
   body: string
   renderMermaid?: boolean
+  renderPlanVisuals?: boolean
 }
 
 const compactPreClassName = "my-2 max-w-full overflow-x-auto rounded border border-zinc-700 bg-black/40 p-2 font-mono text-xs leading-5 text-zinc-200"
 
-export const MarkdownBody = memo(function MarkdownBody({ body, renderMermaid = false }: MarkdownBodyProps) {
+export const MarkdownBody = memo(function MarkdownBody({ body, renderMermaid = false, renderPlanVisuals = false }: MarkdownBodyProps) {
   return (
     <div className="min-w-0 break-words text-sm leading-5">
       <ReactMarkdown
@@ -25,9 +27,11 @@ export const MarkdownBody = memo(function MarkdownBody({ body, renderMermaid = f
           ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
           blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-zinc-600 pl-3 text-zinc-400">{children}</blockquote>,
           a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer" className="text-indigo-300 underline decoration-indigo-500/60 underline-offset-2">{children}</a>,
-          pre: ({ children }) => renderMermaid
-            ? <MermaidMarkdownPre fallbackClassName={compactPreClassName}>{children}</MermaidMarkdownPre>
-            : <pre className={compactPreClassName}>{children}</pre>,
+          pre: ({ children }) => renderPlanVisuals
+            ? <VisualMarkdownPre fallbackClassName={compactPreClassName}>{children}</VisualMarkdownPre>
+            : renderMermaid
+              ? <MermaidMarkdownPre fallbackClassName={compactPreClassName}>{children}</MermaidMarkdownPre>
+              : <pre className={compactPreClassName}>{children}</pre>,
           code: ({ children, className, ...props }) => (
             <code {...props} className={cn(className, !className && "rounded bg-black/30 px-1 py-0.5 font-mono text-[0.9em] text-zinc-100")}>{children}</code>
           ),

@@ -3,14 +3,16 @@ import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ReviewTourPage } from "../ReviewTourPage"
 
-const { mockFetch, mockRefresh, renderMermaid } = vi.hoisted(() => ({
+const { mockFetch, mockRefresh, renderMermaid, renderWiremark } = vi.hoisted(() => ({
   mockFetch: vi.fn(),
   mockRefresh: vi.fn(),
   renderMermaid: vi.fn(),
+  renderWiremark: vi.fn(),
 }))
 vi.stubGlobal("fetch", mockFetch)
 
 vi.mock("mermaid", () => ({ default: { initialize: vi.fn(), render: renderMermaid } }))
+vi.mock("@wiremark/core", () => ({ render: renderWiremark }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 vi.mock("../../hooks/useVoiceEnabled", () => ({ useVoiceEnabled: () => true }))
 vi.mock("../../hooks/useRunningAgent", () => ({ useRunningAgent: () => ({ agent: null, loading: false }) }))
@@ -25,7 +27,7 @@ vi.mock("../../hooks/useReview", () => ({
       tour: { id: "rt-task-1", task_id: "T-1", name: "Auth review", status: "ready", summary: "Review the authentication changes" },
       passes: [{
         pass: { id: "rp-1", number: 1, status: "ready", summary: "", guidance: "" },
-        captured_plan: { plan_id: "pl-1", revision_id: "pr-1", revision: 1, title: "Auth plan", markdown: "## Token flow\n\n- Refresh safely\n\n```mermaid\ngraph TD\n  Login --> Token\n```\n\n```go\nfmt.Println(\"code\")\n```" },
+        captured_plan: { plan_id: "pl-1", revision_id: "pr-1", revision: 1, title: "Auth plan", markdown: "## Token flow\n\n- Refresh safely\n\n```mermaid\ngraph TD\n  Login --> Token\n```\n\n```wireframe\nWireframe mobile\n  Button \"Sign in\" contained\n```\n\n```go\nfmt.Println(\"code\")\n```" },
         steps: [
           { id: "S-1", task_id: "T-1", kind: "chapter", commit_sha: "", title: "Refresh expired tokens", narration: "Retries once after refreshing.", risk: "medium", reviewed_at: null, orphaned_at: null },
           { id: "S-2", task_id: "T-1", kind: "commit", commit_sha: "abcdef123456", title: "Commit: auth refactor", narration: "", risk: "", reviewed_at: "2026-01-01", orphaned_at: null },
@@ -60,7 +62,9 @@ beforeEach(() => {
   mockFetch.mockReset()
   mockRefresh.mockReset()
   renderMermaid.mockReset()
+  renderWiremark.mockReset()
   renderMermaid.mockResolvedValue({ svg: "<svg><text>Captured plan diagram</text></svg>" })
+  renderWiremark.mockReturnValue({ svg: "<svg><text>Captured plan mockup</text></svg>", diagnostics: [] })
   mockFetch.mockResolvedValue({ ok: true, json: async () => [] })
 })
 
@@ -76,15 +80,17 @@ function renderPage() {
 }
 
 describe("ReviewTourPage", () => {
-  it("renders Mermaid diagrams only in captured plan context", async () => {
+  it("renders plan visuals only in captured plan context", async () => {
     renderPage()
 
     fireEvent.click(screen.getByText("Plan context: Auth plan · revision 1"))
     expect(screen.getByRole("heading", { name: "Token flow" }).className).toContain("text-sm")
     expect(screen.getByRole("list")).toBeTruthy()
     expect(await screen.findByText("Captured plan diagram")).toBeTruthy()
+    expect(await screen.findByText("Captured plan mockup")).toBeTruthy()
     expect(screen.getByText('fmt.Println("code")').closest("pre")?.className).toContain("overflow-x-auto")
     expect(renderMermaid.mock.calls.every(([, source]) => source === "graph TD\n  Login --> Token\n")).toBe(true)
+    expect(renderWiremark).toHaveBeenCalledWith("Wireframe mobile\n  Button \"Sign in\" contained\n", { theme: "dark", interactive: true })
   })
 
   it("synchronizes Git only through the explicit action", async () => {

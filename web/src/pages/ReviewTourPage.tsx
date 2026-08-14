@@ -337,7 +337,7 @@ export function ReviewTourPage() {
             <div className="mx-auto max-w-6xl space-y-4">
               {activePass?.captured_plan && <details className="rounded border border-indigo-900 bg-indigo-950/20 p-4">
                 <summary className="cursor-pointer text-sm font-semibold text-indigo-200">Plan context: {activePass.captured_plan.title} · revision {activePass.captured_plan.revision}</summary>
-                <div className="mt-4 text-zinc-300"><MarkdownBody body={activePass.captured_plan.markdown} renderMermaid /></div>
+                <div className="mt-4 text-zinc-300"><MarkdownBody body={activePass.captured_plan.markdown} renderPlanVisuals /></div>
               </details>}
               <div data-sticky-review-action className="sticky -top-5 z-20 -mx-5 flex justify-end border-b border-zinc-800/80 bg-[#0a0a0f]/95 px-5 py-2 backdrop-blur">
                 <button disabled={busy} onClick={() => void toggleReviewed(selectedStep)} className={cn("rounded border px-3 py-1.5 text-xs shadow-lg", selectedStep.reviewed_at ? "border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-zinc-200" : "border-emerald-800 bg-emerald-950 text-emerald-300 hover:bg-emerald-900")}>
