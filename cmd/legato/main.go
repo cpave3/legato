@@ -1385,6 +1385,13 @@ func runServeCmd(args []string) int {
 		defer stopSync()
 	}
 
+	// Set up read-only GitHub PR tracking when authentication is available.
+	prSvc, stopPR, _ := startPRTrackingRuntime(context.Background(), cfg, db, bus)
+	if prSvc != nil {
+		defer stopPR()
+	}
+	providerSync := service.NewProviderSyncService(syncSvc, prSvc)
+
 	// Set up agent service (tmux may not be installed).
 	var agentSvc service.AgentService
 	var tmuxMgr service.TmuxManager
@@ -1443,6 +1450,8 @@ func runServeCmd(args []string) int {
 		srv.SetWorktreeService(service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector()))
 	}
 	srv.SetSyncService(syncSvc)
+	srv.SetPRTrackingService(prSvc)
+	srv.SetProviderSyncService(providerSync)
 	srv.SetReviewService(reviewSvc)
 	srv.SetPlanService(planSvc)
 	srv.SetArtifactService(artifactSvc)
@@ -1620,17 +1629,12 @@ func runTUI() int {
 	}
 
 	// Set up read-only GitHub PR tracking when authentication is available.
-	var prSvc service.PRTrackingService
-	ghClient, _, ghErr := buildGitHubClient(cfg, nil)
+	prSvc, stopPR, ghErr := startPRTrackingRuntime(context.Background(), cfg, db, bus)
 	if ghErr == nil {
-		interval := time.Duration(cfg.GitHub.PollIntervalSeconds) * time.Second
-		resolvedInterval := time.Duration(cfg.GitHub.ResolvedPollIntervalSeconds) * time.Second
-		prSvc = service.NewPRTrackingServiceWithInspector(db, bus, ghClient, interval, resolvedInterval, checkoutInspector(), githubRepositoryMappings(cfg)...)
-		// Initial poll fetches all PRs (resolved + unresolved), then periodic uses split cadence
-		go prSvc.PollAll(context.Background())
-		stopPR := prSvc.StartPolling(context.Background())
 		defer stopPR()
 	}
+
+	providerSync := service.NewProviderSyncService(syncSvc, prSvc)
 
 	// Set up agent service (tmux may not be installed — that's OK, agent features just won't work)
 	var agentSvc service.AgentService
@@ -1807,6 +1811,7 @@ func runTUI() int {
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)
+			webSrv.SetProviderSyncService(providerSync)
 			webSrv.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 			webWindow, webBuckets := resolveSparklineWindow(cfg)
 			webSrv.SetSparklineWindow(webWindow, webBuckets)
@@ -1839,6 +1844,7 @@ func runTUI() int {
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
+	app.SetProviderSyncService(providerSync)
 	app.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 	app.SetPlanService(planSvc)
 	attentionSvc := service.NewAttentionService(db, bus)

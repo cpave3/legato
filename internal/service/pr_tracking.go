@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -66,6 +67,7 @@ type prTrackingService struct {
 
 	mu               sync.Mutex // protects lastResolvedPoll
 	lastResolvedPoll time.Time  // tracks when resolved PRs were last polled
+	pollMu           sync.Mutex // serializes scheduled and forced polling
 }
 
 // NewPRTrackingService creates a new PR tracking service.
@@ -283,6 +285,9 @@ func (p *prTrackingService) PollOnce(ctx context.Context) error {
 }
 
 func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool) error {
+	p.pollMu.Lock()
+	defer p.pollMu.Unlock()
+
 	tasks, err := p.store.ListPRSyncCandidates(ctx)
 	if err != nil {
 		return err
@@ -304,6 +309,12 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		context *store.CodeContext
 	}
 	contextByRepo := make(map[string][]contextTarget)
+	type discoveredTarget struct {
+		taskID, owner, repo, method string
+		prNumber                    int
+	}
+	var discovered []discoveredTarget
+	var pollErrors []error
 	changed := false
 	branchToTasks := make(map[string][]string) // branch → task IDs
 	branchRepos := make(map[string]string)     // branch → repo (first seen)
@@ -336,6 +347,7 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 				}
 				status, fetchErr := p.gh.FetchPRByNumber(owner, name, meta.PRNumber)
 				if fetchErr != nil {
+					pollErrors = append(pollErrors, fmt.Errorf("refresh %s PR #%d: %w", t.ID, meta.PRNumber, fetchErr))
 					if p.applyDiscoveryOutcome(ctx, t.ID, "error", fetchErr.Error()) {
 						changed = true
 					}
@@ -369,7 +381,7 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 	}
 
 	if !changed && len(branchToTasks) == 0 && len(shaTargets) == 0 && len(contextByRepo) == 0 {
-		return nil
+		return errors.Join(pollErrors...)
 	}
 
 	for repo, targets := range contextByRepo {
@@ -379,6 +391,7 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		}
 		prs, err := p.gh.ListRepositoryPRs(owner, name)
 		if err != nil {
+			pollErrors = append(pollErrors, fmt.Errorf("list %s pull requests: %w", repo, err))
 			for _, target := range targets {
 				if p.applyDiscoveryOutcome(ctx, target.taskID, "error", err.Error()) {
 					changed = true
@@ -392,9 +405,26 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 				if p.applyContextStatus(ctx, target.taskID, status, method) {
 					changed = true
 				}
+				discovered = append(discovered, discoveredTarget{
+					taskID: target.taskID, owner: owner, repo: name, method: method, prNumber: status.Number,
+				})
 			} else if p.applyDiscoveryOutcome(ctx, target.taskID, outcome, "") {
 				changed = true
 			}
+		}
+	}
+
+	for _, target := range discovered {
+		status, err := p.gh.FetchPRByNumber(target.owner, target.repo, target.prNumber)
+		if err != nil {
+			pollErrors = append(pollErrors, fmt.Errorf("refresh %s PR #%d: %w", target.taskID, target.prNumber, err))
+			if p.applyDiscoveryOutcome(ctx, target.taskID, "error", err.Error()) {
+				changed = true
+			}
+			continue
+		}
+		if p.applyContextStatus(ctx, target.taskID, status, target.method) {
+			changed = true
 		}
 	}
 
@@ -414,6 +444,7 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		statuses, err := p.gh.BatchFetchPRStatusWithRepo(queries)
 		if err != nil {
 			log.Printf("PR poll error: %v", err)
+			pollErrors = append(pollErrors, err)
 			// Continue with partial results
 		}
 
@@ -433,7 +464,7 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		})
 	}
 
-	return nil
+	return errors.Join(pollErrors...)
 }
 
 func (p *prTrackingService) contextFromWorktree(ctx context.Context, task *store.Task) *store.CodeContext {

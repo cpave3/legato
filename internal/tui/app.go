@@ -141,8 +141,11 @@ type worktreeCreateDoneMsg struct {
 	Err    string
 }
 
-// manualRefreshDoneMsg triggers a board reload and clears the sync indicator.
-type manualRefreshDoneMsg struct{}
+// manualRefreshDoneMsg triggers a board reload and reports provider outcomes.
+type manualRefreshDoneMsg struct {
+	Result service.ProviderSyncResult
+	Err    error
+}
 
 type taskWorkflowsLoadedMsg struct {
 	Workflows []service.TaskWorkflowOption
@@ -158,6 +161,7 @@ type taskWorkflowStartedMsg struct {
 type App struct {
 	svc                      service.BoardService
 	syncSvc                  service.SyncService
+	providerSync             service.ProviderSyncService
 	agentSvc                 service.AgentService
 	board                    board.Model
 	detail                   detail.Model
@@ -290,6 +294,10 @@ func (a *App) SetWorkspaceDefaults(defaultWorkspaceID, defaultImportWorkspaceID 
 	a.defaultImportWorkspaceID = defaultImportWorkspaceID
 }
 
+func (a *App) SetProviderSyncService(sync service.ProviderSyncService) {
+	a.providerSync = sync
+}
+
 // SetSparklineWindow configures the window and bucket count used when
 // fetching state timelines for the agent sidebar. Zero or negative values are
 // ignored (the handler's fallback applies).
@@ -311,6 +319,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 	app := App{
 		svc:           svc,
 		syncSvc:       syncSvc,
+		providerSync:  service.NewProviderSyncService(syncSvc, prSvc),
 		agentSvc:      agentSvc,
 		prSvc:         prSvc,
 		board:         b,
@@ -1392,9 +1401,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, a.board.Init()
 
 	case manualRefreshDoneMsg:
-		a.statusBar, _ = a.statusBar.Update(statusbar.SyncCompletedMsg{})
-		cmd := a.board.Init()
-		return a, cmd
+		a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{})
+		var statusCmd tea.Cmd
+		if msg.Err != nil {
+			a.statusBar, statusCmd = a.statusBar.Update(statusbar.ErrorMsg{Text: msg.Err.Error()})
+		} else if text, failed := providerSyncSummary(msg.Result); failed {
+			a.statusBar, statusCmd = a.statusBar.Update(statusbar.ErrorMsg{Text: text})
+		} else {
+			a.statusBar, statusCmd = a.statusBar.Update(statusbar.InfoMsg{Text: text})
+		}
+		return a, tea.Batch(a.board.Init(), statusCmd)
 
 	case statusbar.ErrorMsg:
 		a.statusBar, _ = a.statusBar.Update(msg)
@@ -1867,27 +1883,43 @@ func (a App) handleImportSelected(msg overlay.ImportSelectedMsg) (tea.Model, tea
 }
 
 func (a App) manualRefresh() (tea.Model, tea.Cmd) {
-	syncSvc := a.syncSvc
-	prSvc := a.prSvc
-	if syncSvc == nil && prSvc == nil {
-		// No services — just reload board data
+	providerSync := a.providerSync
+	if providerSync == nil {
 		return a, a.board.Init()
 	}
-	if syncSvc == nil {
-		// No Jira sync → no bus event will fire, so show indicator manually
-		a.statusBar, _ = a.statusBar.Update(statusbar.SyncStartedMsg{})
-	}
-	// When syncSvc is present, Sync() publishes EventSyncStarted to the bus,
-	// which the TUI already routes to the status bar — no pre-emptive update needed.
+	a.statusBar, _ = a.statusBar.Update(statusbar.SyncStartedMsg{})
 	return a, func() tea.Msg {
-		if syncSvc != nil {
-			syncSvc.Sync(context.Background())
-		}
-		if prSvc != nil {
-			prSvc.PollAll(context.Background())
-		}
-		return manualRefreshDoneMsg{}
+		result, err := providerSync.Sync(context.Background())
+		return manualRefreshDoneMsg{Result: result, Err: err}
 	}
+}
+
+func providerSyncSummary(result service.ProviderSyncResult) (string, bool) {
+	failed := make([]string, 0, 2)
+	completed := make([]string, 0, 2)
+	sources := []struct {
+		name   string
+		result service.ProviderSyncSourceResult
+	}{{"Jira", result.Jira}, {"GitHub", result.GitHub}}
+	for _, source := range sources {
+		switch source.result.Status {
+		case service.ProviderSyncFailed:
+			failed = append(failed, source.name+": "+source.result.Error)
+		case service.ProviderSyncCompleted:
+			completed = append(completed, source.name)
+		}
+	}
+	if len(failed) > 0 {
+		prefix := "provider sync failed; "
+		if len(completed) > 0 {
+			prefix = "provider sync partially completed; "
+		}
+		return prefix + strings.Join(failed, "; "), true
+	}
+	if len(completed) == 0 {
+		return "no providers configured", false
+	}
+	return strings.Join(completed, " + ") + " sync completed", false
 }
 
 func targetedPROutcome(meta *store.PRMeta, rediscover bool) string {

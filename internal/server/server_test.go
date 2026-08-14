@@ -1437,6 +1437,14 @@ func TestBoardEventsBroadcastCardsChanged(t *testing.T) {
 			t.Errorf("type = %q, want %q", msg.Type, MsgCardsChanged)
 		}
 	})
+
+	t.Run("PRStatusUpdated", func(t *testing.T) {
+		bus.Publish(events.Event{Type: events.EventPRStatusUpdated})
+		msg := readMsg(conn)
+		if msg.Type != MsgCardsChanged {
+			t.Errorf("type = %q, want %q", msg.Type, MsgCardsChanged)
+		}
+	})
 }
 
 func TestGetTaskDetail_Returns200(t *testing.T) {

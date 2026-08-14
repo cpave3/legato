@@ -30,6 +30,7 @@ type Server struct {
 	swarm                    SwarmService
 	sync                     service.SyncService
 	prTracking               service.PRTrackingService
+	providerSync             service.ProviderSyncService
 	tmux                     service.TmuxManager
 	bus                      *events.Bus
 	addr                     string
@@ -127,6 +128,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/tasks/{id}/rediscover-pr", s.rediscoverPRHandler())
 	mux.HandleFunc("/api/tasks/{id}", s.taskHandler())
 	mux.HandleFunc("/api/board", s.boardHandler())
+	mux.HandleFunc("/api/board/sync", s.boardSyncHandler())
 	mux.HandleFunc("/api/board/archive-done", s.archiveDoneHandler())
 	mux.HandleFunc("/api/workspaces", s.workspacesHandler())
 	mux.HandleFunc("/api/settings", s.settingsHandler())
@@ -296,6 +298,10 @@ func (s *Server) SetWorkspaceDefaults(defaultWorkspaceID, defaultImportWorkspace
 // SetSyncService sets the optional sync service for remote search/import endpoints.
 func (s *Server) SetSyncService(svc service.SyncService) {
 	s.sync = svc
+}
+
+func (s *Server) SetProviderSyncService(svc service.ProviderSyncService) {
+	s.providerSync = svc
 }
 
 // SetVoiceService wires the voice dictation service into the server. When svc
@@ -709,6 +715,12 @@ func (s *Server) StartBoardEvents() {
 	}()
 	go func() {
 		ch := s.bus.Subscribe(events.EventCardUpdated)
+		for range ch {
+			s.hub.Broadcast(WSMessage{Type: MsgCardsChanged})
+		}
+	}()
+	go func() {
+		ch := s.bus.Subscribe(events.EventPRStatusUpdated)
 		for range ch {
 			s.hub.Broadcast(WSMessage{Type: MsgCardsChanged})
 		}

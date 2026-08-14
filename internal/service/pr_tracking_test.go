@@ -73,6 +73,13 @@ func (m *mockGitHub) FetchPRByNumber(owner, repo string, prNumber int) (*github.
 			return s, nil
 		}
 	}
+	for _, prs := range m.repositoryPRs {
+		for i := range prs {
+			if prs[i].Number == prNumber {
+				return &prs[i], nil
+			}
+		}
+	}
 	return nil, fmt.Errorf("PR #%d not found", prNumber)
 }
 
@@ -647,12 +654,18 @@ func TestPollDiscoversUntrackedTaskFromCodeContextWithOneRepositoryListing(t *te
 			t.Fatal(err)
 		}
 	}
-	gh := &mockGitHub{repositoryPRs: map[string][]github.PRStatus{
-		"acme/widget": {
-			{HasPR: true, Number: 1, State: "OPEN", URL: "https://github.com/acme/widget/pull/1", HeadBranch: "feature/TASK-1", HeadRepo: "acme/widget"},
-			{HasPR: true, Number: 2, State: "OPEN", URL: "https://github.com/acme/widget/pull/2", HeadBranch: "feature/TASK-2", HeadRepo: "acme/widget"},
+	gh := &mockGitHub{
+		repositoryPRs: map[string][]github.PRStatus{
+			"acme/widget": {
+				{HasPR: true, Number: 1, State: "OPEN", URL: "https://github.com/acme/widget/pull/1", HeadBranch: "feature/TASK-1", HeadRepo: "acme/widget"},
+				{HasPR: true, Number: 2, State: "OPEN", URL: "https://github.com/acme/widget/pull/2", HeadBranch: "feature/TASK-2", HeadRepo: "acme/widget"},
+			},
 		},
-	}}
+		prByNumber: map[int]*github.PRStatus{
+			1: {HasPR: true, Number: 1, State: "OPEN", URL: "https://github.com/acme/widget/pull/1", HeadBranch: "feature/TASK-1", HeadRepo: "acme/widget", CheckStatus: "pass", ReviewDecision: "APPROVED", CommentCount: 3},
+			2: {HasPR: true, Number: 2, State: "OPEN", URL: "https://github.com/acme/widget/pull/2", HeadBranch: "feature/TASK-2", HeadRepo: "acme/widget", CheckStatus: "pending", CommentCount: 1},
+		},
+	}
 	svc := NewPRTrackingService(s, events.New(), gh, time.Minute, 10*time.Minute)
 	if err := svc.PollOnce(ctx); err != nil {
 		t.Fatal(err)
@@ -672,6 +685,14 @@ func TestPollDiscoversUntrackedTaskFromCodeContextWithOneRepositoryListing(t *te
 		if meta == nil || meta.PRNumber != number+1 || meta.MatchMethod != "branch" {
 			t.Fatalf("%s PR metadata = %#v", id, meta)
 		}
+		if meta.CheckStatus == "" || meta.CommentCount == 0 {
+			t.Fatalf("%s was not enriched in the discovery poll: %#v", id, meta)
+		}
+	}
+	first, _ := s.GetTask(ctx, "TASK-1")
+	firstMeta, _ := store.ParsePRMeta(first.PRMeta)
+	if firstMeta.ReviewDecision != "APPROVED" {
+		t.Fatalf("TASK-1 review decision = %q", firstMeta.ReviewDecision)
 	}
 }
 
@@ -756,8 +777,8 @@ func TestPollAPIErrorPreservesLastGoodPRState(t *testing.T) {
 	}
 	gh := &mockGitHub{repositoryErr: &github.APIError{Kind: github.ErrorAuthentication, StatusCode: 401, Message: "Bad credentials"}}
 	svc := NewPRTrackingService(s, events.New(), gh, time.Minute, 0)
-	if err := svc.PollAll(ctx); err != nil {
-		t.Fatal(err)
+	if err := svc.PollAll(ctx); err == nil {
+		t.Fatal("expected the refresh failure to be returned")
 	}
 	task, _ := s.GetTask(ctx, "TASK-1")
 	meta, _ := store.ParsePRMeta(task.PRMeta)

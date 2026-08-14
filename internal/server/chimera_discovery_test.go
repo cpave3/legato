@@ -93,13 +93,17 @@ func TestChimeraDowngradeEndpointClearsCurrentBindingAndBroadcasts(t *testing.T)
 	if agents.invalidatedID != 17 || agents.invalidatedSID != sessionID || agents.invalidatedAddr != endpoint {
 		t.Fatalf("invalidated id=%d session=%q endpoint=%q", agents.invalidatedID, agents.invalidatedSID, agents.invalidatedAddr)
 	}
-	select {
-	case message := <-messages:
-		if message.Type != MsgAgentsChanged {
-			t.Fatalf("message type=%q", message.Type)
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case message := <-messages:
+			if message.Type == MsgAgentsChanged {
+				return
+			}
+		case <-timer.C:
+			t.Fatal("agents_changed was not broadcast")
 		}
-	case <-time.After(time.Second):
-		t.Fatal("agents_changed was not broadcast")
 	}
 }
 
