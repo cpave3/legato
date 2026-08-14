@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { VisualMarkdownPre, WiremarkDiagram } from "../WiremarkDiagram"
+import { VisualMarkdownPre } from "../VisualMarkdownPre"
+import { WiremarkDiagram } from "../WiremarkDiagram"
 
 const { renderWiremark } = vi.hoisted(() => ({ renderWiremark: vi.fn() }))
 
@@ -44,6 +45,23 @@ describe("WiremarkDiagram", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("Unknown component FancyPanel at line 2")
     expect(screen.getByRole("alert").querySelector("code")?.textContent).toBe("Wireframe mobile\n  FancyPanel")
     expect(screen.queryByRole("img", { name: "Wiremark mockup" })).toBeNull()
+  })
+
+  it("namespaces generated SVG IDs across duplicate mockups", async () => {
+    renderWiremark.mockReturnValue({
+      svg: '<svg><defs><clipPath id="wm-clip-0"><rect/></clipPath></defs><g clip-path="url(#wm-clip-0)">Content</g></svg>',
+      diagnostics: [],
+    })
+
+    render(<><WiremarkDiagram source="Wireframe mobile"/><WiremarkDiagram source="Wireframe mobile"/></>)
+
+    await waitFor(() => expect(screen.getAllByRole("img", { name: "Wiremark mockup" }).every(container => container.querySelector("svg"))).toBe(true))
+    const ids = screen.getAllByRole("img", { name: "Wiremark mockup" }).map(container => container.querySelector("clipPath")?.id)
+    expect(new Set(ids).size).toBe(2)
+    for (const container of screen.getAllByRole("img", { name: "Wiremark mockup" })) {
+      const id = container.querySelector("clipPath")?.id
+      expect(container.querySelector("g")?.getAttribute("clip-path")).toBe(`url(#${id})`)
+    }
   })
 
   it("ignores output after the source changes or component unmounts", async () => {

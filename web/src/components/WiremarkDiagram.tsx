@@ -1,5 +1,4 @@
-import { isValidElement, useEffect, useRef, useState, type ReactNode } from "react"
-import { MermaidMarkdownPre } from "./MermaidDiagram"
+import { useEffect, useId, useRef, useState } from "react"
 
 let wiremarkPromise: Promise<typeof import("@wiremark/core")> | undefined
 
@@ -8,21 +7,29 @@ function loadWiremark() {
   return wiremarkPromise
 }
 
-function wiremarkCodeSource(children: ReactNode) {
-  if (!isValidElement<{ className?: string; children?: ReactNode }>(children)) return null
-  if (!/^language-wireframe(?:\s|$)/i.test(children.props.className ?? "")) return null
-  const source = children.props.children
-  return typeof source === "string" ? source : null
-}
+function namespaceSVG(svg: string, namespace: string) {
+  const document = new DOMParser().parseFromString(svg, "image/svg+xml")
+  const root = document.documentElement
+  if (root.tagName.toLowerCase() !== "svg" || document.querySelector("parsererror")) throw new Error("Wiremark produced invalid SVG")
 
-export function VisualMarkdownPre({ children, fallbackClassName }: { children?: ReactNode; fallbackClassName?: string }) {
-  const source = wiremarkCodeSource(children)
-  return source === null
-    ? <MermaidMarkdownPre fallbackClassName={fallbackClassName}>{children}</MermaidMarkdownPre>
-    : <WiremarkDiagram source={source}/>
+  const ids = new Map<string, string>()
+  for (const element of root.querySelectorAll("[id]")) {
+    const id = element.id
+    const namespaced = `${namespace}-${id}`
+    ids.set(id, namespaced)
+    element.id = namespaced
+  }
+  for (const element of root.querySelectorAll("*")) {
+    for (const attribute of [...element.attributes]) {
+      const value = attribute.value.replace(/url\(#([^)]+)\)/g, (match, id: string) => ids.has(id) ? `url(#${ids.get(id)})` : match)
+      if (value !== attribute.value) element.setAttribute(attribute.name, value)
+    }
+  }
+  return new XMLSerializer().serializeToString(root)
 }
 
 export function WiremarkDiagram({ source }: { source: string }) {
+  const namespace = `wiremark-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`
   const containerRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
@@ -39,7 +46,7 @@ export function WiremarkDiagram({ source }: { source: string }) {
     void loadWiremark()
       .then(({ render }) => render(source, { theme: "dark", interactive: true }))
       .then(({ svg }) => {
-        if (current) container.innerHTML = svg
+        if (current) container.innerHTML = namespaceSVG(svg, namespace)
       })
       .catch(cause => {
         if (current) setError(cause instanceof Error ? cause.message : String(cause))
@@ -48,7 +55,7 @@ export function WiremarkDiagram({ source }: { source: string }) {
     return () => {
       current = false
     }
-  }, [source])
+  }, [namespace, source])
 
   useEffect(() => {
     if (!expanded) return

@@ -10,7 +10,7 @@ import { ReviewMessageBody } from "../components/ReviewMessageBody"
 import { GoToAgentButton } from "../components/GoToAgentButton"
 import { Button } from "../components/ui/Button"
 import { InlineNotice } from "../components/ui/InlineNotice"
-import { VisualMarkdownPre } from "../components/WiremarkDiagram"
+import { VisualMarkdownPre } from "../components/VisualMarkdownPre"
 
 type SourcePosition = { start?: { offset?: number }; end?: { offset?: number } }
 type SelectedBlock = { start: number; end: number; characterStart: number; characterEnd: number; text: string; label: string }

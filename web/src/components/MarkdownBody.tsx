@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "../lib/utils"
 import { MermaidMarkdownPre } from "./MermaidDiagram"
-import { VisualMarkdownPre } from "./WiremarkDiagram"
+import { VisualMarkdownPre } from "./VisualMarkdownPre"
 
 interface MarkdownBodyProps {
   body: string
