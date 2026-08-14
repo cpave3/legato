@@ -8,6 +8,9 @@ import {
   archiveDone,
   fetchCard,
   fetchCardFull,
+  ProviderSyncConflictError,
+  syncBoard,
+  type ProviderSyncResult,
 } from "../lib/board"
 import type { BoardCard, CardDetail } from "../lib/board-types"
 import { BoardGrid } from "../components/board/BoardGrid"
@@ -66,6 +69,19 @@ function errorMessage(error: unknown, fallback: string): string {
   return fallback
 }
 
+function providerSyncMessage(result: ProviderSyncResult): { message: string; type: "success" | "error" | "info" } {
+  const sources = [["Jira", result.jira], ["GitHub", result.github]] as const
+  const failed = sources.filter(([, source]) => source.status === "failed")
+  const completed = sources.filter(([, source]) => source.status === "completed")
+  if (failed.length > 0) {
+    const details = failed.map(([name, source]) => `${name}: ${source.error || "failed"}`).join("; ")
+    const prefix = completed.length > 0 ? "Provider sync partially completed" : "Provider sync failed"
+    return { message: `${prefix} — ${details}`, type: "error" }
+  }
+  if (completed.length === 0) return { message: "No providers are configured", type: "info" }
+  return { message: `${completed.map(([name]) => name).join(" + ")} sync completed`, type: "success" }
+}
+
 function detailMoveCard(card: CardDetail): MoveCard {
   return {
     id: card.id,
@@ -90,6 +106,7 @@ export function BoardPage() {
   const [detailCard, setDetailCard] = useState<CardDetail | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<string | null>(null)
+  const [syncingProviders, setSyncingProviders] = useState(false)
   const settings = useSettings()
   const repositories = (settings.data?.repositories ?? []) as RepositoryPreset[]
   const defaultWorkingDir = settings.data?.working_dir ?? ""
@@ -608,6 +625,25 @@ export function BoardPage() {
     setOverlay({ kind: "none" })
   }
 
+  const handleProviderSync = async () => {
+    if (syncingProviders) return
+    setSyncingProviders(true)
+    try {
+      const result = await syncBoard(baseUrl)
+      await refresh()
+      const feedback = providerSyncMessage(result)
+      addToast(feedback.message, feedback.type)
+    } catch (error) {
+      if (error instanceof ProviderSyncConflictError) {
+        addToast(error.message, "info")
+      } else {
+        addToast(errorMessage(error, "Provider sync failed"), "error")
+      }
+    } finally {
+      setSyncingProviders(false)
+    }
+  }
+
   const activeWorkspace = workspaces.find((w) => String(w.id) === workspaceFilter)
   const filterLabel = activeWorkspace?.name || (workspaceFilter === "unassigned" ? "Unassigned" : "All")
 
@@ -634,12 +670,13 @@ export function BoardPage() {
             }}
           />
           <button
-            aria-label="Refresh board"
-            title="Refresh board"
-            onClick={() => void refresh()}
-            className="flex h-11 w-11 items-center justify-center rounded border border-zinc-700 text-zinc-400 md:h-auto md:w-auto md:border-0 md:p-2"
+            aria-label="Sync providers"
+            title="Sync providers"
+            onClick={() => void handleProviderSync()}
+            disabled={syncingProviders}
+            className="flex h-11 w-11 items-center justify-center rounded border border-zinc-700 text-zinc-400 disabled:cursor-wait disabled:opacity-60 md:h-auto md:w-auto md:border-0 md:p-2"
           >
-            <RefreshCw size={16} />
+            <RefreshCw size={16} className={syncingProviders ? "animate-spin" : ""} />
           </button>
           <button
             onClick={() => setOverlay({ kind: "create" })}

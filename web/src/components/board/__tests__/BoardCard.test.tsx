@@ -110,10 +110,36 @@ describe("BoardCard", () => {
     expect(dot).toBeNull()
   })
 
-  it("renders draft pill instead of CI when PR is draft", () => {
-    const card = makeCard({ pr_is_draft: true, pr_check_status: "" })
+  it("renders a stable GitHub row with PR, CI, review, and comments", () => {
+    const view = render(<BoardCard card={makeCard()} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
+    const card = within(view.container)
+    expect(card.getByLabelText("GitHub PR #42")).toBeTruthy()
+    expect(card.getByText("#42")).toBeTruthy()
+    expect(card.getByText("CI passed")).toBeTruthy()
+    expect(card.getByText("Approved")).toBeTruthy()
+    expect(card.getByText("3")).toBeTruthy()
+  })
+
+  it("keeps CI and review metadata visible for draft PRs", () => {
+    const card = makeCard({ pr_is_draft: true, pr_check_status: "fail", pr_review_decision: "CHANGES_REQUESTED" })
     render(<BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
     expect(screen.getByText("Draft")).toBeTruthy()
+    expect(screen.getByText("CI failed")).toBeTruthy()
+    expect(screen.getByText("Changes requested")).toBeTruthy()
+  })
+
+  it("shows explicit neutral CI and review states", () => {
+    render(<BoardCard card={makeCard({ pr_check_status: "", pr_review_decision: "", pr_comment_count: 0 })} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
+    expect(screen.getByText("No checks")).toBeTruthy()
+    expect(screen.getByText("Pending review")).toBeTruthy()
+  })
+
+  it("shows pending CI and omits the GitHub row for unlinked cards", () => {
+    const pending = render(<BoardCard card={makeCard({ pr_check_status: "pending" })} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
+    expect(screen.getByText("CI pending")).toBeTruthy()
+    pending.unmount()
+    const unlinked = render(<BoardCard card={makeCard({ pr_number: 0 })} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
+    expect(within(unlinked.container).queryByLabelText(/GitHub PR/)).toBeNull()
   })
 
   it("shows MIXED instead of idle when related agents disagree", () => {

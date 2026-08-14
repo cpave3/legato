@@ -18,6 +18,7 @@ import {
   Pause,
   ListChecks,
   MoreHorizontal,
+  GitPullRequest,
 } from "lucide-react"
 
 interface BoardCardProps {
@@ -193,46 +194,33 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
         </div>
       )}
 
-      {/* PR line */}
+      {/* GitHub line */}
       {card.pr_number > 0 && (
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
-          {card.pr_is_draft ? (
-            <span className="rounded bg-zinc-800 px-1 py-0.5 text-zinc-500">
-              Draft
-            </span>
+        <div aria-label={`GitHub PR #${card.pr_number}`} className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+          <span className="flex items-center gap-0.5 font-medium text-zinc-400">
+            <GitPullRequest size={10} /> #{card.pr_number}
+          </span>
+          {card.pr_is_draft && <span className="rounded bg-zinc-800 px-1 py-0.5 text-zinc-500">Draft</span>}
+          {card.pr_check_status === "pass" ? (
+            <span className="flex items-center gap-0.5 text-[#1D9E75]"><CheckCircle2 size={9} /> CI passed</span>
+          ) : card.pr_check_status === "fail" ? (
+            <span className="flex items-center gap-0.5 text-red-400"><XCircle size={9} /> CI failed</span>
+          ) : card.pr_check_status === "pending" ? (
+            <span className="flex items-center gap-0.5 text-[#E5C07B]"><Clock size={9} /> CI pending</span>
           ) : (
-            <>
-              {card.pr_check_status === "pass" && (
-                <span className="flex items-center gap-0.5 text-[#1D9E75]">
-                  <CheckCircle2 size={9} /> CI
-                </span>
-              )}
-              {card.pr_check_status === "fail" && (
-                <span className="flex items-center gap-0.5 text-red-400">
-                  <XCircle size={9} /> CI
-                </span>
-              )}
-              {card.pr_check_status === "pending" && (
-                <span className="flex items-center gap-0.5 text-[#E5C07B]">
-                  <Clock size={9} /> CI
-                </span>
-              )}
-              {card.pr_review_decision === "APPROVED" && (
-                <span className="flex items-center gap-0.5 text-[#1D9E75]">
-                  <Check size={9} /> OK
-                </span>
-              )}
-              {card.pr_review_decision === "CHANGES_REQUESTED" && (
-                <span className="flex items-center gap-0.5 text-red-400">
-                  <FileWarning size={9} /> Changes
-                </span>
-              )}
-              {card.pr_comment_count > 0 && (
-                <span className="flex items-center gap-0.5 text-zinc-500">
-                  <MessageSquare size={9} /> {card.pr_comment_count}
-                </span>
-              )}
-            </>
+            <span className="flex items-center gap-0.5 text-zinc-600"><Clock size={9} /> No checks</span>
+          )}
+          {card.pr_review_decision === "APPROVED" ? (
+            <span className="flex items-center gap-0.5 text-[#1D9E75]"><Check size={9} /> Approved</span>
+          ) : card.pr_review_decision === "CHANGES_REQUESTED" ? (
+            <span className="flex items-center gap-0.5 text-red-400"><FileWarning size={9} /> Changes requested</span>
+          ) : (
+            <span className="flex items-center gap-0.5 text-zinc-500"><Clock size={9} /> Pending review</span>
+          )}
+          {card.pr_comment_count > 0 && (
+            <span className="flex items-center gap-0.5 text-zinc-500">
+              <MessageSquare size={9} /> {card.pr_comment_count}
+            </span>
           )}
         </div>
       )}

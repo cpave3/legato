@@ -11,6 +11,29 @@ import type {
   TaskWorktree,
 } from "./board-types"
 
+export type ProviderSyncSourceResult = {
+  status: "completed" | "failed" | "unavailable"
+  error?: string
+  tasks_synced?: number
+}
+
+export type ProviderSyncResult = {
+  jira: ProviderSyncSourceResult
+  github: ProviderSyncSourceResult
+}
+
+export class ProviderSyncConflictError extends Error {}
+
+export async function syncBoard(baseUrl: string): Promise<ProviderSyncResult> {
+  const res = await apiFetch(baseUrl, "/api/board/sync", { method: "POST" })
+  if (res.status === 409) throw new ProviderSyncConflictError("Provider sync is already running")
+  if (!res.ok) {
+    const message = await res.text().catch(() => "")
+    throw new Error(message || `syncBoard failed: ${res.status}`)
+  }
+  return res.json() as Promise<ProviderSyncResult>
+}
+
 export async function fetchBoard(baseUrl: string, workspace?: string): Promise<BoardResponse> {
   const params = workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""
   const res = await apiFetch(baseUrl, `/api/board${params}`)

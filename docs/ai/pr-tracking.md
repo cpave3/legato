@@ -67,7 +67,7 @@ Periodic synchronization lists all active, non-ephemeral tasks and groups unreso
 
 Default/detached branches and title-only matches never auto-link. Fork repository identity participates in exact branch matching. Duplicate ticket-key candidates produce `ambiguous`; zero candidates produce `no_match`. API failures produce `error` while preserving the last-good PR cache.
 
-Resolved and manually pinned PRs refresh by repository and number on the slower cadence. Polling never replaces a pinned link. Existing numbered links are pinned by migration; branch-only legacy/Staccato links are backfilled as discoverable code context.
+Resolved and manually pinned PRs refresh by repository and number on the slower cadence. Polling never replaces a pinned link. Existing numbered links are pinned by migration; branch-only legacy/Staccato links are backfilled as discoverable code context. When repository-batched discovery links a new PR, the same poll immediately fetches that PR by number so checks, reviews, and comments are complete before a manual sync returns.
 
 A targeted rediscovery performs exactly one bounded repository request (`GET /repos/{owner}/{repo}/pulls?state=all&per_page=100`) and matches locally; it does not issue one request per task or candidate. The HTTP client timeout is 30 seconds. TUI completion replaces the progress indicator with the linked PR number, `no match`, ambiguity guidance, or the concrete API/auth/rate-limit error.
 
@@ -88,7 +88,7 @@ legato task github rediscover TASK-123
 
 `legato task link` remains compatible for hooks and scripts but now writes durable code context. `legato task unlink` clears both the PR cache and code context. Staccato can still call these commands, but is no longer required.
 
-TUI: lowercase `p` links a known PR, `ctrl+r` refreshes the selected task's PR, `ctrl+p` rediscovers it, and lowercase `r` performs the existing global Jira + GitHub synchronization. Uppercase `R` and `P` retain their existing Reporting and Plans actions. Task detail shows repository/branch plus `no match`, `ambiguous`, and API error outcomes.
+TUI: lowercase `p` links a known PR, `ctrl+r` refreshes the selected task's PR, `ctrl+p` rediscovers it, and lowercase `r` runs the shared provider synchronization used by the WebView. It attempts each configured Jira/GitHub source even if another fails and reports partial failures instead of silently succeeding. Uppercase `R` and `P` retain their existing Reporting and Plans actions. Task detail shows repository/branch plus `no match`, `ambiguous`, and API error outcomes.
 
 Web/API task detail includes `code_context` and enriched `pr_meta`. Authenticated targeted endpoints are:
 
@@ -97,8 +97,8 @@ Web/API task detail includes `code_context` and enriched `pr_meta`. Authenticate
 - `POST /api/tasks/{id}/rediscover-pr`
 - existing `POST /api/tasks/{id}/link-pr` and `POST /api/tasks/{id}/unlink-pr`
 
-The web detail panel displays repository context and exposes refresh/rediscover controls.
+The web detail panel displays repository context and exposes refresh/rediscover controls. Authenticated `POST /api/board/sync` runs the same single-flight provider synchronization as the TUI and returns `completed`, `failed`, or `unavailable` outcomes for Jira and GitHub; overlapping manual runs return `409 Conflict`. Both standalone `legato serve` and the TUI runtime construct optional GitHub tracking when credentials are available.
 
 ### Events and cadence
 
-`PollOnce` uses the unresolved interval and only refreshes resolved PRs when their cadence is due. `PollAll` is used at startup and by global manual refresh. Meaningful changes publish `EventPRStatusUpdated`; CLI mutations broadcast `pr_linked` IPC so running TUI/web clients reload.
+`PollOnce` uses the unresolved interval and only refreshes resolved PRs when their cadence is due. `PollAll` is used at startup and by global manual refresh; scheduled and forced polls are serialized to avoid duplicate GitHub traffic. Meaningful changes publish `EventPRStatusUpdated`, which the web server maps to `cards_changed`; CLI mutations broadcast `pr_linked` IPC so running TUI/web clients reload.
