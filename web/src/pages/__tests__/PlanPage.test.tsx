@@ -138,7 +138,10 @@ describe("PlanPage block comments",()=>{
     expect(screen.getByRole("img",{name:"Wiremark mockup"})).toBe(mockup)
 
     fireEvent.click(screen.getByRole("button",{name:/Comment on code block beginning/}))
+    expect(renderWiremark).toHaveBeenCalledTimes(settledRenderCount)
+    expect(screen.getByRole("img",{name:"Wiremark mockup"})).toBe(mockup)
     fireEvent.change(screen.getByLabelText("Comment on selected block"),{target:{value:"Adjust this screen"}})
+    expect(renderWiremark).toHaveBeenCalledTimes(settledRenderCount)
     fireEvent.keyDown(screen.getByLabelText("Comment on selected block"),{key:"Enter",metaKey:true})
     await waitFor(()=>expect(addPlanComment).toHaveBeenCalledWith("","pl-1",{
       body:"Adjust this screen",selection_start:byteStart,selection_end:byteEnd,selected_text:wireframeFence,
@@ -157,28 +160,39 @@ describe("PlanPage block comments",()=>{
     expect(screen.getByRole("button",{name:"Approve"})).toBeTruthy()
   })
 
-  it("keeps rendered Mermaid diagrams mounted while typing unrelated feedback drafts",async()=>{
-    planData.revision.markdown="```mermaid\ngraph TD\nA-->B\n```\n"
+  it("keeps rendered Mermaid diagrams mounted through sidebar typing and block selection",async()=>{
+    planData.revision.markdown="# Flow\n\n```mermaid\ngraph TD\nA-->B\n```\n\nFinish.\n"
 
     renderPage()
 
     expect(await screen.findByText("Rendered diagram")).toBeTruthy()
     const diagram=screen.getByRole("img",{name:"Mermaid diagram"})
+    fireEvent.click(screen.getByRole("button",{name:"Expand Mermaid diagram"}))
     const settledRenderCount=renderMermaid.mock.calls.length
     const question=screen.getByLabelText("Question for plan agent") as HTMLTextAreaElement
     const comment=screen.getByLabelText("General plan comment") as HTMLTextAreaElement
 
     fireEvent.change(question,{target:{value:"W"}})
-    fireEvent.change(question,{target:{value:"Wh"}})
     fireEvent.change(question,{target:{value:"Why?"}})
-    fireEvent.change(comment,{target:{value:"N"}})
     fireEvent.change(comment,{target:{value:"Note"}})
+    fireEvent.click(screen.getByRole("button",{name:/Comment on code block beginning/}))
+    fireEvent.change(screen.getByLabelText("Comment on selected block"),{target:{value:"Diagram note"}})
+    const heading=screen.getByRole("button",{name:/Comment on heading beginning Flow/})
+    const paragraph=screen.getByRole("button",{name:/Comment on paragraph beginning Finish/})
+    fireEvent.mouseDown(heading,{button:0})
+    fireEvent.mouseEnter(paragraph,{buttons:1})
+    fireEvent.mouseUp(paragraph)
     await new Promise(resolve=>setTimeout(resolve,0))
 
     expect(question.value).toBe("Why?")
-    expect(comment.value).toBe("Note")
     expect(renderMermaid).toHaveBeenCalledTimes(settledRenderCount)
     expect(screen.getByRole("img",{name:"Mermaid diagram"})).toBe(diagram)
+    expect(screen.getByRole("dialog",{name:"Expanded Mermaid diagram"})).toBeTruthy()
+
+    planData.revision.markdown=planData.revision.markdown.replace("A-->B","A-->C")
+    fireEvent.change(question,{target:{value:"Why changed?"}})
+    await waitFor(()=>expect(renderMermaid).toHaveBeenCalledTimes(settledRenderCount+1))
+    expect(renderMermaid).toHaveBeenLastCalledWith(expect.stringMatching(/^mermaid-diagram-/),"graph TD\nA-->C\n")
   })
 
   it("renders duplicate and case-insensitive Mermaid fences independently without treating inline or unknown code as diagrams",async()=>{

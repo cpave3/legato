@@ -93,6 +93,29 @@ describe("ReviewTourPage", () => {
     expect(renderWiremark).toHaveBeenCalledWith("Wireframe mobile\n  Button \"Sign in\" contained\n", { theme: "dark", interactive: true })
   })
 
+  it("keeps captured plan visuals mounted while typing review feedback", async () => {
+    renderPage()
+
+    fireEvent.click(screen.getByText("Plan context: Auth plan · revision 1"))
+    expect(await screen.findByText("Captured plan diagram")).toBeTruthy()
+    expect(await screen.findByText("Captured plan mockup")).toBeTruthy()
+    const diagram = screen.getByRole("img", { name: "Mermaid diagram" })
+    const mockup = screen.getByRole("img", { name: "Wiremark mockup" })
+    const settledMermaidRenders = renderMermaid.mock.calls.length
+    const settledWiremarkRenders = renderWiremark.mock.calls.length
+
+    fireEvent.change(screen.getByLabelText("Requested change"), { target: { value: "H" } })
+    fireEvent.change(screen.getByLabelText("Requested change"), { target: { value: "Handle failure" } })
+    fireEvent.change(screen.getByLabelText("Question for agent"), { target: { value: "W" } })
+    fireEvent.change(screen.getByLabelText("Question for agent"), { target: { value: "Why?" } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(renderMermaid).toHaveBeenCalledTimes(settledMermaidRenders)
+    expect(renderWiremark).toHaveBeenCalledTimes(settledWiremarkRenders)
+    expect(screen.getByRole("img", { name: "Mermaid diagram" })).toBe(diagram)
+    expect(screen.getByRole("img", { name: "Wiremark mockup" })).toBe(mockup)
+  })
+
   it("synchronizes Git only through the explicit action", async () => {
     renderPage()
 
