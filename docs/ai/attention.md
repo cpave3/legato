@@ -30,7 +30,7 @@ Executable source actions additionally implement `AttentionActionHandler`. Navig
 |---|---|---|
 | `plans` | Proposed revisions awaiting a current user decision | `EventPlanChanged` |
 | `reviews` | Explicitly ready tours with visible unreviewed work | `EventReviewChanged` |
-| `pull_requests` | Open non-draft tracked PRs with changes requested, failed CI, or both | `EventPRStatusUpdated` |
+| `pull_requests` | Open non-draft tracked PRs with a required review, changes requested, failed CI, or a combination | `EventPRStatusUpdated` |
 | `agents` | Running standalone interactive agents explicitly reporting waiting or error | `EventAgentActivityChanged`, start/death/completion lifecycle |
 | `workflows` | Manual gates, workflow agents waiting for input, failed steps | Workflow and agent lifecycle events |
 | `workflow_triggers` | Missing input, confirmation, and failed automatic triggers | `EventWorkflowTriggerChanged` |
@@ -49,11 +49,11 @@ Attention deliberately includes only states the local durable data can support r
 
 - **Needs intervention:** plan decisions, workflow gates/failures/input, and standalone agent waiting/error.
 - **Ready for review:** tours explicitly marked ready through `legato review ready` and still containing visible unreviewed work.
-- **Merge blockers:** open, non-draft tracked PRs whose persisted review decision is `CHANGES_REQUESTED`, whose persisted check status is `fail`, or both.
+- **Merge blockers:** open, non-draft tracked PRs whose persisted review decision is `REVIEW_REQUIRED` or `CHANGES_REQUESTED`, whose persisted check status is `fail`, or a combination.
 
 The following do not raise Attention:
 
-- pending review or pending CI, because these may be passive waiting rather than user action;
+- an empty review decision or pending CI, because these do not establish an actionable merge blocker;
 - total PR comment count, because it does not identify unresolved actionable feedback;
 - draft, closed, or merged PRs;
 - inferred GitHub mergeability, branch protection, conflicts, or merge-queue state, which are not persisted;

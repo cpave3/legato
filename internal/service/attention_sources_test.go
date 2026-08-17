@@ -71,14 +71,14 @@ func TestPRAttentionSnapshotProjectsReliableBlockers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 3 {
+	if len(items) != 4 {
 		t.Fatalf("items = %+v", items)
 	}
 	reasons := map[string]string{}
 	for _, item := range items {
 		reasons[item.TaskID] = item.Reason
 	}
-	if reasons["both"] != "Changes requested · CI failing" || reasons["review-only"] != "Changes requested" || reasons["ci-only"] != "CI failing" {
+	if reasons["both"] != "Changes requested · CI failing" || reasons["review-only"] != "Changes requested" || reasons["ci-only"] != "CI failing" || reasons["pending"] != "Review required" {
 		t.Fatalf("reasons = %+v", reasons)
 	}
 }

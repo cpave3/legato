@@ -37,14 +37,17 @@ func (a *PRAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInput, er
 			continue
 		}
 		changesRequested := strings.EqualFold(meta.ReviewDecision, "CHANGES_REQUESTED")
+		reviewRequired := strings.EqualFold(meta.ReviewDecision, "REVIEW_REQUIRED")
 		ciFailed := strings.EqualFold(meta.CheckStatus, "fail")
-		if !changesRequested && !ciFailed {
+		if !changesRequested && !reviewRequired && !ciFailed {
 			continue
 		}
 
 		blockers := make([]string, 0, 2)
 		if changesRequested {
 			blockers = append(blockers, "Changes requested")
+		} else if reviewRequired {
+			blockers = append(blockers, "Review required")
 		}
 		if ciFailed {
 			blockers = append(blockers, "CI failing")
