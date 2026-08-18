@@ -25,8 +25,14 @@ func TestCommandTreeIsCompleteAndConsistent(t *testing.T) {
 		if len(node.Children) == 0 && node.Run == nil {
 			t.Errorf("%s has neither children nor a handler", label)
 		}
-		if node.Run != nil && len(node.Examples) == 0 {
+		if len(node.Examples) == 0 {
 			t.Errorf("%s has no example", label)
+		}
+		for _, example := range node.Examples {
+			trimmed := strings.TrimSpace(example)
+			if strings.HasSuffix(trimmed, " --help") || strings.HasSuffix(trimmed, " -h") {
+				t.Errorf("%s has self-referential example %q", label, example)
+			}
 		}
 		flagNames := map[string]bool{}
 		for _, flag := range node.Flags {
@@ -52,6 +58,8 @@ func TestRequiredPreviouslyMissingCommandsAreRegistered(t *testing.T) {
 		{"review", "chapter", "remove"},
 		{"review", "annotation", "edit"},
 		{"review", "annotation", "remove"},
+		{"workflow", "step", "complete"},
+		{"workflow", "step", "fail"},
 	} {
 		node, ok := findCommand(root, path)
 		if !ok || node.Run == nil {
@@ -78,6 +86,11 @@ func TestEveryCommandLevelHasGeneratedHelp(t *testing.T) {
 		for _, flag := range node.Flags {
 			if !strings.Contains(got, "--"+flag.Name) {
 				t.Errorf("help for %q omits --%s", strings.Join(path, " "), flag.Name)
+			}
+		}
+		for _, example := range node.Examples {
+			if !strings.Contains(got, example) {
+				t.Errorf("help for %q omits example %q", strings.Join(path, " "), example)
 			}
 		}
 	}

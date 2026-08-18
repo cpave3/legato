@@ -27,6 +27,37 @@ func TestHelpRequestAtEveryLevel(t *testing.T) {
 	}
 }
 
+func TestPublicHelpIncludesUsefulExamplesAtEveryKindOfCommandLevel(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "root", args: []string{"--help"}, want: []string{"Examples:", "legato task list"}},
+		{name: "group", args: []string{"task", "--help"}, want: []string{"Commands:", "Examples:", "legato task create"}},
+		{name: "legacy leaf", args: []string{"plan", "submit", "--help"}, want: []string{"<bundle-dir>", "Examples:", "legato plan submit .legato/plans/search"}},
+		{name: "configured swarm leaf", args: []string{"swarm", "propose-plan", "--help"}, want: []string{"<plan-file>", "--timeout", "legato swarm propose-plan swarm.yaml"}},
+		{name: "nested complete callback", args: []string{"workflow", "step", "complete", "--help"}, want: []string{"--output", "--artifact", "legato workflow step complete"}},
+		{name: "nested fail callback", args: []string{"workflow", "step", "fail", "--help"}, want: []string{"<reason>", "--attempt", `legato workflow step fail "reason"`}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := captureStdout(t, func() int {
+				code := runCLI(tt.args)
+				if code != 0 {
+					t.Errorf("runCLI(%v) exit = %d, want 0", tt.args, code)
+				}
+				return code
+			})
+			for _, want := range tt.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("help missing %q:\n%s", want, out)
+				}
+			}
+		})
+	}
+}
+
 func TestTaskUpdateHelpExplainsProviderRestrictions(t *testing.T) {
 	out := helpText([]string{"task", "update"})
 	for _, want := range []string{"--status", "--title", "--description", "Provider-backed", "Legato-owned"} {
