@@ -110,6 +110,8 @@ type helpExample struct {
 	HelpPath string
 }
 
+const parentExamplePreviewLimit = 3
+
 func helpExamples(node *commandDef, name string) []helpExample {
 	if len(node.Children) == 0 {
 		examples := make([]helpExample, 0, len(node.Examples))
@@ -119,13 +121,17 @@ func helpExamples(node *commandDef, name string) []helpExample {
 		return examples
 	}
 
-	examples := make([]helpExample, 0, len(node.Children))
+	examples := make([]helpExample, 0, len(node.Children)*parentExamplePreviewLimit)
 	for _, child := range node.Children {
-		examples = append(examples, helpExample{
-			Command:  child.Examples[0],
-			More:     len(child.Examples) - 1,
-			HelpPath: name + " " + child.Name,
-		})
+		previewCount := min(len(child.Examples), parentExamplePreviewLimit)
+		for i, command := range child.Examples[:previewCount] {
+			example := helpExample{Command: command}
+			if i == previewCount-1 {
+				example.More = len(child.Examples) - previewCount
+				example.HelpPath = name + " " + child.Name
+			}
+			examples = append(examples, example)
+		}
 	}
 	return examples
 }

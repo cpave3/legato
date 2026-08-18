@@ -34,7 +34,7 @@ func TestPublicHelpIncludesUsefulExamplesAtEveryKindOfCommandLevel(t *testing.T)
 		want []string
 	}{
 		{name: "root", args: []string{"--help"}, want: []string{"Examples (run subcommand help for more specific examples):", "legato task list"}},
-		{name: "group", args: []string{"task", "--help"}, want: []string{"Commands:", "Examples (run subcommand help for more specific examples):", "legato task list", "legato task update --status Doing", "(and 1 more; run `legato task update --help`)", "legato task github refresh <task-id>", "legato task archive list"}},
+		{name: "group", args: []string{"task", "--help"}, want: []string{"Commands:", "Examples (run subcommand help for more specific examples):", "legato task list", "legato task update --status Doing", `legato task update <task-id> --title "Clarify failure"`, "legato task github refresh <task-id>", "legato task archive list"}},
 		{name: "runnable group", args: []string{"workflow", "step", "--help"}, want: []string{"legato workflow step complete --output result=value --artifact review=review.md --json", `legato workflow step fail "reason" --json`}},
 		{name: "legacy leaf", args: []string{"plan", "submit", "--help"}, want: []string{"<bundle-dir>", "Examples:", "legato plan submit .legato/plans/search"}},
 		{name: "configured swarm leaf", args: []string{"swarm", "propose-plan", "--help"}, want: []string{"<plan-file>", "--timeout", "legato swarm propose-plan swarm.yaml"}},
@@ -56,6 +56,36 @@ func TestPublicHelpIncludesUsefulExamplesAtEveryKindOfCommandLevel(t *testing.T)
 				}
 			}
 		})
+	}
+}
+
+func TestParentHelpShowsAllChildExamplesWhenThereAreAtMostThree(t *testing.T) {
+	out := helpText([]string{"task"})
+	for _, want := range []string{
+		"legato task update --status Doing",
+		`legato task update <task-id> --title "Clarify failure"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("parent help missing child example %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "run `legato task update --help`") {
+		t.Errorf("parent help points to more update examples when all are shown:\n%s", out)
+	}
+}
+
+func TestParentHelpTruncatesChildExamplesAfterThree(t *testing.T) {
+	root := group("", "Root", []string{"legato child one"},
+		leaf("child", "Child", func([]string) int { return 0 }, nil, nil,
+			"legato child one", "legato child two", "legato child three", "legato child four"))
+	out := helpTextFor(root, nil)
+	for _, want := range []string{"legato child one", "legato child two", "legato child three", "(and 1 more; run `legato child --help`)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("parent help missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "legato child four") {
+		t.Errorf("parent help includes child example beyond preview limit:\n%s", out)
 	}
 }
 
