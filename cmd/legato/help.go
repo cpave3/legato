@@ -86,14 +86,48 @@ func helpTextFor(root *commandDef, path []string) string {
 	if node.Capabilities.Integration {
 		out.WriteString("\nIntegration command: intended for installed tool hooks and adapters.\n")
 	}
-	if len(node.Examples) > 0 {
-		out.WriteString("\nExamples:\n")
-		for _, example := range node.Examples {
-			fmt.Fprintf(&out, "  %s\n", example)
+	examples := helpExamples(node, name)
+	if len(examples) > 0 {
+		if len(node.Children) > 0 {
+			out.WriteString("\nExamples (run subcommand help for more specific examples):\n")
+		} else {
+			out.WriteString("\nExamples:\n")
+		}
+		for _, example := range examples {
+			fmt.Fprintf(&out, "  %s\n", example.Command)
+			if example.More > 0 {
+				fmt.Fprintf(&out, "    (and %d more; run `%s --help`)\n", example.More, example.HelpPath)
+			}
 		}
 	}
 	out.WriteString("\nRun `legato help` for the AI-agent primer.\n")
 	return out.String()
+}
+
+type helpExample struct {
+	Command  string
+	More     int
+	HelpPath string
+}
+
+func helpExamples(node *commandDef, name string) []helpExample {
+	if len(node.Children) == 0 {
+		examples := make([]helpExample, 0, len(node.Examples))
+		for _, example := range node.Examples {
+			examples = append(examples, helpExample{Command: example})
+		}
+		return examples
+	}
+
+	examples := make([]helpExample, 0, len(node.Children))
+	for _, child := range node.Children {
+		examples = append(examples, helpExample{
+			Command:  child.Examples[0],
+			More:     len(child.Examples) - 1,
+			HelpPath: name + " " + child.Name,
+		})
+	}
+	return examples
 }
 
 var agentPrimer = agentPrimerText(commandTree())

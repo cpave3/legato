@@ -88,9 +88,16 @@ func TestEveryCommandLevelHasGeneratedHelp(t *testing.T) {
 				t.Errorf("help for %q omits --%s", strings.Join(path, " "), flag.Name)
 			}
 		}
-		for _, example := range node.Examples {
-			if !strings.Contains(got, example) {
-				t.Errorf("help for %q omits example %q", strings.Join(path, " "), example)
+		if len(node.Children) == 0 {
+			for _, example := range node.Examples {
+				if !strings.Contains(got, example) {
+					t.Errorf("help for %q omits example %q", strings.Join(path, " "), example)
+				}
+			}
+		}
+		for _, child := range node.Children {
+			if !strings.Contains(got, child.Examples[0]) {
+				t.Errorf("help for %q omits first example from child %q", strings.Join(path, " "), child.Name)
 			}
 		}
 	}

@@ -33,8 +33,9 @@ func TestPublicHelpIncludesUsefulExamplesAtEveryKindOfCommandLevel(t *testing.T)
 		args []string
 		want []string
 	}{
-		{name: "root", args: []string{"--help"}, want: []string{"Examples:", "legato task list"}},
-		{name: "group", args: []string{"task", "--help"}, want: []string{"Commands:", "Examples:", "legato task create"}},
+		{name: "root", args: []string{"--help"}, want: []string{"Examples (run subcommand help for more specific examples):", "legato task list"}},
+		{name: "group", args: []string{"task", "--help"}, want: []string{"Commands:", "Examples (run subcommand help for more specific examples):", "legato task list", "legato task update --status Doing", "(and 1 more; run `legato task update --help`)", "legato task github refresh <task-id>", "legato task archive list"}},
+		{name: "runnable group", args: []string{"workflow", "step", "--help"}, want: []string{"legato workflow step complete --output result=value --artifact review=review.md --json", `legato workflow step fail "reason" --json`}},
 		{name: "legacy leaf", args: []string{"plan", "submit", "--help"}, want: []string{"<bundle-dir>", "Examples:", "legato plan submit .legato/plans/search"}},
 		{name: "configured swarm leaf", args: []string{"swarm", "propose-plan", "--help"}, want: []string{"<plan-file>", "--timeout", "legato swarm propose-plan swarm.yaml"}},
 		{name: "nested complete callback", args: []string{"workflow", "step", "complete", "--help"}, want: []string{"--output", "--artifact", "legato workflow step complete"}},
