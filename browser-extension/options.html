@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Legato extension options</title>
+    <link rel="stylesheet" href="/src/options.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Legato integration</h1>
+      <form id="settings-form">
+        <label>Legato URL <input id="base-url" type="url" required /></label>
+        <label>Bearer token <input id="token" type="password" autocomplete="off" /></label>
+        <fieldset>
+          <legend>GitHub pull request action</legend>
+          <label>Workflow name <input id="workflow-name" required /></label>
+          <label>Repository input <input id="repo-input" required /></label>
+          <label>Pull request input <input id="pr-input" required /></label>
+          <label>Primary directory input <input id="primary-dir-input" required /></label>
+        </fieldset>
+        <div class="actions">
+          <button type="submit">Save and test connection</button>
+          <button id="clear-token" type="button">Clear token</button>
+        </div>
+      </form>
+      <p id="status" role="status" aria-live="polite"></p>
+    </main>
+    <script type="module" src="/src/options.ts"></script>
+  </body>
+</html>

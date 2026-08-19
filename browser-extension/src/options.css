@@ -1,0 +1,11 @@
+:root { font: 15px/1.5 system-ui, sans-serif; color-scheme: light dark; }
+body { margin: 0; }
+main { max-width: 42rem; margin: 2rem auto; padding: 0 1.5rem; }
+form, fieldset { display: grid; gap: 1rem; }
+fieldset { margin: 0; padding: 1rem; }
+label { display: grid; gap: .3rem; font-weight: 600; }
+input { padding: .55rem; font: inherit; }
+.actions { display: flex; gap: .75rem; }
+button { padding: .6rem .9rem; font: inherit; cursor: pointer; }
+#status[data-kind="error"] { color: #d1242f; }
+#status[data-kind="success"] { color: #1a7f37; }

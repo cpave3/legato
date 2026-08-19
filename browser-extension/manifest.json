@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Legato integration",
+  "version": "0.1.0",
+  "description": "Launch Legato workflows from GitHub and reuse Legato tabs for Stream Deck links.",
+  "minimum_chrome_version": "102",
+  "permissions": ["storage", "tabs"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "host_permissions": ["https://github.com/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["github.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "Legato integration"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

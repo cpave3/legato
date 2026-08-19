@@ -10,6 +10,9 @@ mobile/node_modules/
 mobile/android/
 mobile/.expo/
 mobile/*.apk
+browser-extension/node_modules/
+browser-extension/dist/
+browser-extension/coverage/
 
 # Swarm runtime artifacts (per-agent briefs, plan YAMLs)
 .legato/

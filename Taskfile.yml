@@ -144,6 +144,24 @@ tasks:
     cmds:
       - pnpm exec eas build --platform android --profile preview
 
+  extension:test:
+    desc: Run browser extension tests
+    dir: browser-extension
+    cmds:
+      - pnpm test
+
+  extension:build:
+    desc: Build the unpacked Chrome extension
+    dir: browser-extension
+    cmds:
+      - pnpm build
+
+  extension:lint:
+    desc: Lint the browser extension
+    dir: browser-extension
+    cmds:
+      - pnpm lint
+
   streamdeck:build:
     desc: Build the Stream Deck plugin binary
     dir: streamdeck
