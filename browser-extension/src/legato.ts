@@ -1,4 +1,4 @@
-export type WorkflowInput = { type: string; required?: boolean }
+export type WorkflowInput = { type: string; required?: boolean; default?: unknown }
 export type WorkflowDefinition = { name: string; inputs?: Record<string, WorkflowInput> }
 export type RepositoryPreset = { name: string; repo: string; primary_dir: string }
 export type WorkflowDiscovery = {

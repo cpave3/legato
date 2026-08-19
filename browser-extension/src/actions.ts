@@ -31,6 +31,11 @@ export function prepareGitHubWorkflow(
     if (!input) throw new Error(`Workflow input "${name}" was not found`)
     if (input.type !== type) throw new Error(`Workflow input "${name}" must have type ${type}`)
   }
+  for (const [name, input] of Object.entries(workflow.inputs ?? {})) {
+    if (input.required && input.default === undefined && !inputNames.includes(name)) {
+      throw new Error(`Required workflow input "${name}" is not mapped by this action`)
+    }
+  }
 
   const repository = context.repository.toLowerCase()
   const presets = (discovery.repositories ?? []).filter((preset) => preset.repo.toLowerCase() === repository)

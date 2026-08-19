@@ -135,7 +135,7 @@ The OpenDeck side is also resilient: if the OpenDeck WebSocket drops, the plugin
 
 ### Agent tiles
 
-Pressing an agent tile opens `<legato_url>/agents?task=<task_id>` in your default browser via `xdg-open`. The Legato web UI selects that agent automatically.
+Pressing an agent tile opens `<legato_url>/agents?task=<task_id>` in your default browser via `xdg-open`. The Legato web UI selects that agent automatically. Browser-opened destinations include an inert `legato_source=streamdeck` query marker. When the optional Legato Chrome extension is installed, it can use that marker to reuse the last active same-window Legato tab; without the extension, the marked URL opens normally.
 
 ### Attention tiles
 
@@ -149,6 +149,8 @@ Deep links:
 - Reviews → `/review/<id>`
 - Workflow runs → `/workflows/runs/<id>`
 - Tasks → `/agents?task=<id>`
+
+The source marker is added only at the browser-opening boundary and is not part of these canonical Attention deep links.
 
 ## Architecture
 

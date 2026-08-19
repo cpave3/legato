@@ -1,4 +1,4 @@
-import { DEFAULT_CONFIG, type ExtensionConfig } from "./config"
+import { DEFAULT_CONFIG, normalizeConfig, type ExtensionConfig } from "./config"
 import { LegatoClient } from "./legato"
 import { replaceOriginPermission } from "./permissions"
 import { clearToken, loadConfig, saveConfig } from "./storage"
@@ -41,7 +41,7 @@ form.addEventListener("submit", (event) => {
     try {
       let previous: ExtensionConfig | undefined
       try { previous = await loadConfig() } catch { previous = undefined }
-      const requested = readForm()
+      const requested = normalizeConfig(readForm())
       const granted = await replaceOriginPermission(previous?.baseUrl, requested.baseUrl)
       if (!granted) throw new Error("Permission for the configured Legato origin was not granted")
       const config = await saveConfig(requested)

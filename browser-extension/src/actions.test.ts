@@ -43,5 +43,12 @@ describe("prepareGitHubWorkflow", () => {
       ...discovery,
       definitions: [{ name: "review-pr", inputs: { repo: { type: "repository" }, pr_number: { type: "integer" }, primary_dir: { type: "string" } } }],
     })).toThrow('input "repo" must have type string')
+    expect(() => prepareGitHubWorkflow(DEFAULT_CONFIG, { repository: "cpave3/legato", pullRequestNumber: 1 }, {
+      ...discovery,
+      definitions: [{ name: "review-pr", inputs: {
+        ...discovery.definitions![0].inputs,
+        reviewer: { type: "string", required: true },
+      } }],
+    })).toThrow('Required workflow input "reviewer" is not mapped')
   })
 })
