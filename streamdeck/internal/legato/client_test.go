@@ -240,6 +240,30 @@ func TestExecuteAction(t *testing.T) {
 	}
 }
 
+func TestStreamDeckDeepLink(t *testing.T) {
+	tests := []struct {
+		name, input, want string
+	}{
+		{"plain", "http://localhost:3080/plans/pl-123", "http://localhost:3080/plans/pl-123?legato_source=streamdeck"},
+		{"query", "http://localhost:3080/agents?task=t-001", "http://localhost:3080/agents?legato_source=streamdeck&task=t-001"},
+		{"replace marker", "http://localhost:3080/review/rt-456?legato_source=other", "http://localhost:3080/review/rt-456?legato_source=streamdeck"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := StreamDeckDeepLink(tt.input)
+			if err != nil {
+				t.Fatalf("StreamDeckDeepLink: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+	if _, err := StreamDeckDeepLink("://bad"); err == nil {
+		t.Fatal("expected malformed URL error")
+	}
+}
+
 func TestAttentionDeepLink(t *testing.T) {
 	tests := []struct {
 		kind, target, want string

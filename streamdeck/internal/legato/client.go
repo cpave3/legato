@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -518,6 +519,18 @@ func (c *Client) notify() {
 // DeepLink builds a browser URL for an agent or attention item.
 func (c *Client) DeepLink(path string) string {
 	return c.cfg.BaseURL + path
+}
+
+// StreamDeckDeepLink adds browser coordination metadata to an ordinary Legato URL.
+func StreamDeckDeepLink(destination string) (string, error) {
+	parsed, err := url.ParseRequestURI(destination)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("invalid browser destination %q", destination)
+	}
+	query := parsed.Query()
+	query.Set("legato_source", "streamdeck")
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
 }
 
 // AttentionDeepLink returns the browser URL for an attention item's navigation target.

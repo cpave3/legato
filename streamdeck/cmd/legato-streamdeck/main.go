@@ -193,7 +193,7 @@ func (st *pluginState) handleKeyAction(ctx context.Context, e opendeck.Event, sn
 			}
 		} else {
 			// Short press: open in browser
-			_ = openBrowser(st.baseURL + "/agents?task=" + agent.TaskID)
+			_ = openStreamDeckBrowser(st.baseURL + "/agents?task=" + agent.TaskID)
 		}
 
 	case opendeck.ActionAttnTile:
@@ -220,18 +220,18 @@ func (st *pluginState) handleKeyAction(ctx context.Context, e opendeck.Event, sn
 					log.Printf("[legato-streamdeck] execute action %s: %v", safeAction.ID, err)
 					_ = st.deck.ShowAlert(ctx, e.Context)
 					// Fall back to browser
-					_ = openBrowser(legato.AttentionDeepLink(st.baseURL, item.Navigation))
+					_ = openStreamDeckBrowser(legato.AttentionDeepLink(st.baseURL, item.Navigation))
 				} else {
 					log.Printf("[legato-streamdeck] executed action %s on %s", safeAction.ID, item.ID)
 					_ = st.deck.ShowOK(ctx, e.Context)
 				}
 			} else {
 				// No safe action — open browser even on hold
-				_ = openBrowser(legato.AttentionDeepLink(st.baseURL, item.Navigation))
+				_ = openStreamDeckBrowser(legato.AttentionDeepLink(st.baseURL, item.Navigation))
 			}
 		} else {
 			// Short press: open browser
-			_ = openBrowser(legato.AttentionDeepLink(st.baseURL, item.Navigation))
+			_ = openStreamDeckBrowser(legato.AttentionDeepLink(st.baseURL, item.Navigation))
 		}
 	}
 }
@@ -305,6 +305,14 @@ func pushTiles(ctx context.Context, deck *opendeck.Client, snap legato.Snapshot,
 			_ = deck.SetImage(ctx, c, render.DataURI(render.EmptyAttention()))
 		}
 	}
+}
+
+func openStreamDeckBrowser(destination string) error {
+	marked, err := legato.StreamDeckDeepLink(destination)
+	if err != nil {
+		return err
+	}
+	return openBrowser(marked)
 }
 
 // openBrowser opens a URL in the default browser. Inside the Flatpak sandbox,

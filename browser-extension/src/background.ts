@@ -3,6 +3,8 @@ import type { ExtensionConfig } from "./config"
 import { LegatoClient, type WorkflowDiscovery, type WorkflowRunView } from "./legato"
 import { hasOriginPermission } from "./permissions"
 import { loadConfig } from "./storage"
+import { loadWindowHistory, predecessorFor, recordActivation, saveWindowHistory } from "./tab-history"
+import { handleMarkedTab, stripStreamDeckMarker } from "./tab-reuse"
 
 type ExtensionMessage = { type: "prepareGitHubWorkflow" | "startPreparedWorkflow"; context: GitHubPullRequestContext }
 type MessageSender = { tab?: { id?: number } }
@@ -82,5 +84,33 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
     void handleMessage(message, sender).then(sendResponse)
     return true
+  })
+
+  chrome.tabs.onActivated.addListener((activeInfo) => {
+    void chrome.tabs.get(activeInfo.tabId).then(async (tab) => {
+      if (!tab.url) return
+      const history = await loadWindowHistory(activeInfo.windowId)
+      await saveWindowHistory(activeInfo.windowId, recordActivation(history, {
+        tabId: activeInfo.tabId,
+        windowId: activeInfo.windowId,
+        url: tab.url,
+        activatedAt: Date.now(),
+      }))
+    }).catch(() => undefined)
+  })
+
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (!changeInfo.url || tab.windowId === undefined || !stripStreamDeckMarker(changeInfo.url).marked) return
+    const eventAt = Date.now()
+    void Promise.all([loadConfig(), loadWindowHistory(tab.windowId)]).then(([config, history]) => handleMarkedTab({
+      destination: changeInfo.url!,
+      newTabId: tabId,
+      newWindowId: tab.windowId,
+      eventAt,
+      configuredOrigin: new URL(config.baseUrl).origin,
+      prior: predecessorFor(history, tabId),
+    }, chrome.tabs)).catch((error: unknown) => {
+      console.warn("Legato Stream Deck tab handoff failed open", error instanceof Error ? error.message : String(error))
+    })
   })
 }
