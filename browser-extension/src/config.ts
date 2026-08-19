@@ -5,6 +5,7 @@ export type ExtensionConfig = {
   repoInput: string
   pullRequestInput: string
   primaryDirInput: string
+  reviewArtifactKey: string
 }
 
 export const DEFAULT_CONFIG: ExtensionConfig = {
@@ -14,6 +15,7 @@ export const DEFAULT_CONFIG: ExtensionConfig = {
   repoInput: "repo",
   pullRequestInput: "pr_number",
   primaryDirInput: "primary_dir",
+  reviewArtifactKey: "review",
 }
 
 export function normalizeConfig(config: ExtensionConfig): ExtensionConfig {
@@ -34,6 +36,7 @@ export function normalizeConfig(config: ExtensionConfig): ExtensionConfig {
     ["repoInput", "Repository input name"],
     ["pullRequestInput", "Pull request input name"],
     ["primaryDirInput", "Primary directory input name"],
+    ["reviewArtifactKey", "Review artifact output key"],
   ]
   const normalized = { ...config, baseUrl: url.origin, token: config.token.trim() }
   for (const [key, label] of names) {

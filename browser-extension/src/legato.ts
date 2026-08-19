@@ -6,7 +6,32 @@ export type WorkflowDiscovery = {
   errors: Array<{ path: string; error: string }> | null
   repositories: RepositoryPreset[] | null
 }
-export type WorkflowRunView = { run: { id: string } }
+export type WorkflowRun = {
+  id: string
+  workflow_name: string
+  workflow_title: string
+  inputs_json: string
+  status: string
+  current_step_id: string
+  error?: string
+  needs_attention?: boolean
+  attention_reason?: string
+  created_at: string
+  started_at?: string
+  completed_at?: string
+}
+export type WorkflowStepRun = { step_id: string; title: string; status: string; error?: string }
+export type WorkflowAttempt = { id: string; step_id: string; status: string; error?: string; needs_attention?: boolean; attention_reason?: string }
+export type WorkflowArtifact = {
+  id: string; run_id: string; step_id: string; attempt_id: string; output_key: string
+  original_path?: string; media_type: string; size_bytes: number; digest: string; created_at: string
+}
+export type WorkflowRunView = {
+  run: WorkflowRun
+  steps?: WorkflowStepRun[] | null
+  attempts?: WorkflowAttempt[] | null
+  artifacts?: WorkflowArtifact[] | null
+}
 export type ImportedTask = { id: string }
 
 export class LegatoClient {
@@ -28,6 +53,20 @@ export class LegatoClient {
     })
   }
 
+  listWorkflowRuns(workflowName: string, inputs: Record<string, string>, limit = 100): Promise<WorkflowRun[]> {
+    const query = new URLSearchParams({ workflow_name: workflowName, limit: String(limit) })
+    for (const [key, value] of Object.entries(inputs)) query.set(`input.${key}`, value)
+    return this.request<WorkflowRun[]>(`/api/workflow-runs?${query}`)
+  }
+
+  workflowRun(id: string): Promise<WorkflowRunView> {
+    return this.request<WorkflowRunView>(`/api/workflow-runs/${encodeURIComponent(id)}`)
+  }
+
+  artifactText(id: string): Promise<string> {
+    return this.requestText(`/api/workflow-artifacts/${encodeURIComponent(id)}`)
+  }
+
   importRemoteTicket(ticketId: string): Promise<ImportedTask> {
     return this.request<ImportedTask>("/api/remote/import", {
       method: "POST",
@@ -36,7 +75,7 @@ export class LegatoClient {
     })
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  private async fetch(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers)
     if (this.token) headers.set("Authorization", `Bearer ${this.token}`)
     const response = await this.fetcher.call(globalThis, `${this.baseUrl}${path}`, { ...init, headers: Object.fromEntries(headers) })
@@ -44,6 +83,14 @@ export class LegatoClient {
       const detail = (await response.text()).trim()
       throw new Error(detail || `Legato request failed (${response.status})`)
     }
-    return response.json() as Promise<T>
+    return response
+  }
+
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    return this.fetch(path, init).then((response) => response.json() as Promise<T>)
+  }
+
+  private async requestText(path: string): Promise<string> {
+    return this.fetch(path).then((response) => response.text())
   }
 }

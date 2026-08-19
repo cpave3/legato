@@ -2,7 +2,7 @@
 
 A local Manifest V3 extension that:
 
-- adds a **Prepare Legato review** action to GitHub pull-request pages;
+- adds **Prepare Legato review** and **View review** actions to GitHub pull-request pages;
 - adds an **Import to Legato** action to `urbanx-development.atlassian.net` Jira ticket pages;
 - resolves a configured user workflow and local repository preset;
 - displays the resolved details for confirmation before starting the run; and
@@ -32,7 +32,8 @@ Open the extension's **Options** page and enter:
 - **Legato URL**: one HTTP(S) origin, such as `http://localhost:3080`;
 - **Bearer token**: the token from Legato's data directory when server authentication is enabled;
 - **Workflow name**: defaults to `review-pr`;
-- **Input names**: default to `repo`, `pr_number`, and `primary_dir`.
+- **Input names**: default to `repo`, `pr_number`, and `primary_dir`;
+- **Review artifact output key**: defaults to `review`.
 
 Saving requests access to that exact Legato origin and tests authenticated workflow discovery. Chrome displays broad HTTP/HTTPS capability because Manifest V3 optional host permissions must declare the origins that may later be requested; the extension requests and retains only the configured origin at runtime.
 
@@ -64,6 +65,18 @@ workflows:
 
 The GitHub action first discovers and validates the workflow and preset. It then displays the workflow, repository, PR number, and local checkout. The run starts only after **Confirm and start**. The worker repeats discovery and validation immediately before POSTing to Legato.
 
+### Review side panel
+
+**View review** opens Chrome's native side panel for the current PR. Detection is user-triggered: the extension does not query review history merely because a PR page is open. Once opened, the panel uses the configured workflow/input names and canonical repository preset to locate matching runs, newest first.
+
+The newest run is selected by default; prior matching runs remain selectable. A review is considered ready when a `text/markdown` artifact exists, even if the workflow is still `waiting_manual` for cleanup. The configured output key wins; if it is absent, the only Markdown artifact is accepted, while multiple Markdown artifacts produce an explicit configuration error.
+
+An active newest run refreshes every four seconds while the panel is open. Polling stops when the artifact appears, the run fails/cancels, a historical run is selected, or the panel unloads. The panel follows GitHub tab changes and never places the bearer token in its URL or page content.
+
+Markdown is treated as untrusted agent output. It is rendered with bundled dependencies, sanitized before insertion, strips scripts/forms/frames/remote media, and permits only hardened HTTP(S) links. No renderer or script is loaded from a CDN.
+
+The extension requires Chrome 116+ for user-gesture `sidePanel.open()`. After upgrading from an older extension build, reload it in `chrome://extensions`; the packaged `sidepanel.html` is registered through the manifest's `side_panel.default_path`.
+
 ## Jira ticket import
 
 On `https://urbanx-development.atlassian.net/browse/<ISSUE-KEY>`, a bottom-right action imports the issue through Legato's existing `POST /api/remote/import` API. The request omits `workspace_id`, so the Legato server's configured default import workspace applies. After import, the extension opens `/board?highlight_task=<local-task-id>`.
@@ -89,6 +102,8 @@ Without the extension, Stream Deck links remain valid ordinary Legato URLs; Lega
 - **Permission was not granted**: save options again and accept access to the exact configured origin.
 - **Unauthorized**: update the bearer token and use **Save and test connection**.
 - **Workflow was not found / input has wrong type**: update the configurable workflow/input names to match the installed YAML definition.
+- **Side panel file path must exist**: rebuild with `pnpm build`, confirm `dist/sidepanel.html` exists, then reload the unpacked extension from `chrome://extensions`.
+- **Multiple Markdown artifacts**: set **Review artifact output key** to the intended artifact's workflow output key.
 - **No repository preset**: configure one whose `repo` is canonical `owner/repo` and whose `primary_dir` is the local primary checkout.
 - **Multiple presets match**: remove the ambiguity; the extension never guesses a checkout.
 - **Button missing**: confirm the URL is either `https://github.com/<owner>/<repo>/pull/<positive-number>` or `https://urbanx-development.atlassian.net/browse/<ISSUE-KEY>`, then rebuild and reload the extension.
@@ -99,8 +114,10 @@ Without the extension, Stream Deck links remain valid ordinary Legato URLs; Lega
 1. Configure URL/token and confirm workflow discovery succeeds.
 2. Open a GitHub PR by full load and client-side navigation; verify exactly one action appears.
 3. Prepare the action, verify all resolved details, confirm, and check that the returned run opens.
-4. Verify invalid token, missing workflow, and missing/ambiguous presets create no run and show actionable errors.
-5. Import a Jira ticket and verify the board scrolls to its cyan-highlighted card, then removes the highlight and query parameter after eight seconds.
-6. Make a Legato tab active, switch to another desktop application if desired, press each Stream Deck navigation type, and verify the prior tab is reused without a duplicate.
-7. Make a non-Legato tab active and verify Stream Deck leaves the new Legato tab.
-8. Disable the extension and verify Stream Deck destinations still open normally.
+4. Click **View review** on PRs with no run, active runs, failed runs, `waiting_manual` reviews, and multiple historical runs; verify the panel state and selection.
+5. Verify a malicious Markdown artifact cannot create scripts, forms, frames, remote images, or unsafe links.
+6. Verify invalid token, missing workflow, missing/ambiguous presets, and ambiguous Markdown artifacts show actionable errors.
+7. Import a Jira ticket and verify the board scrolls to its cyan-highlighted card, then removes the highlight and query parameter after eight seconds.
+8. Make a Legato tab active, switch to another desktop application if desired, press each Stream Deck navigation type, and verify the prior tab is reused without a duplicate.
+9. Make a non-Legato tab active and verify Stream Deck leaves the new Legato tab.
+10. Disable the extension and verify Stream Deck destinations still open normally.

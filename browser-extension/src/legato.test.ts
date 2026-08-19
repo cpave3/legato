@@ -37,6 +37,28 @@ describe("LegatoClient", () => {
     })
   })
 
+  it("queries runs with configured workflow and encoded input filters", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("[]", { status: 200 }))
+    const client = new LegatoClient("http://localhost:3080", "top-secret", fetcher)
+
+    await client.listWorkflowRuns("review-pr", { repo: "cpave3/legato", pr_number: "42" })
+    expect(fetcher.mock.calls[0][0]).toBe("http://localhost:3080/api/workflow-runs?workflow_name=review-pr&limit=100&input.repo=cpave3%2Flegato&input.pr_number=42")
+  })
+
+  it("fetches workflow details and artifact text with authentication", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ run: { id: "run-1" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response("# Review", { status: 200 }))
+    const client = new LegatoClient("http://localhost:3080", "top-secret", fetcher)
+
+    await client.workflowRun("run/1")
+    await expect(client.artifactText("artifact/1")).resolves.toBe("# Review")
+    expect(fetcher.mock.calls.map((call) => call[0])).toEqual([
+      "http://localhost:3080/api/workflow-runs/run%2F1",
+      "http://localhost:3080/api/workflow-artifacts/artifact%2F1",
+    ])
+  })
+
   it("imports a remote ticket with the configured default workspace", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "task-1" }), { status: 201 }))
     const client = new LegatoClient("http://localhost:3080", "top-secret", fetcher)

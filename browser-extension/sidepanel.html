@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Legato review</title>
+    <link rel="stylesheet" href="/src/sidepanel.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand"><span class="mark">L</span><span>LEGATO</span></div>
+      <h1>Pull request review</h1>
+      <p id="context"></p>
+    </header>
+    <main>
+      <div id="state" role="status" aria-live="polite">Loading review…</div>
+      <label id="run-label" hidden>Review run <select id="run-select"></select></label>
+      <section id="details" hidden>
+        <div class="meta"><span id="status-badge"></span><span id="step"></span></div>
+        <div id="error" role="alert"></div>
+        <article id="review-content"></article>
+        <div class="actions">
+          <a id="open-run" target="_blank" rel="noopener noreferrer">Open run in Legato</a>
+          <button id="refresh" type="button">Refresh</button>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/src/sidepanel.ts"></script>
+  </body>
+</html>

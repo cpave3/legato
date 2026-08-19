@@ -2,12 +2,14 @@ import { prepareGitHubWorkflow, type GitHubPullRequestContext, type PreparedWork
 import type { ExtensionConfig } from "./config"
 import { LegatoClient, type WorkflowDiscovery, type WorkflowRunView } from "./legato"
 import { hasOriginPermission } from "./permissions"
+import { saveReviewContext } from "./review-context"
+import { loadReviewModel, type ReviewPanelModel } from "./review-model"
 import { loadConfig } from "./storage"
 import { consumeTabCreated, loadWindowHistory, predecessorFor, queueActivation, recordTabCreated } from "./tab-history"
 import { handleMarkedTab, stripStreamDeckMarker } from "./tab-reuse"
 
 type MessageSender = { tab?: { id?: number } }
-type MessageResponse = { ok: true; prepared?: PreparedWorkflow; runUrl?: string; taskUrl?: string; navigationWarning?: string } | { ok: false; error: string }
+type MessageResponse = { ok: true; prepared?: PreparedWorkflow; runUrl?: string; taskUrl?: string; navigationWarning?: string; review?: ReviewPanelModel } | { ok: false; error: string }
 
 type Dependencies = {
   loadConfig: () => Promise<ExtensionConfig>
@@ -17,6 +19,8 @@ type Dependencies = {
   openRun: (url: string) => Promise<void>
   importTicket: (config: ExtensionConfig, ticketId: string) => Promise<{ id: string }>
   openTask: (url: string) => Promise<void>
+  saveReviewContext: (tabId: number, context: GitHubPullRequestContext) => Promise<void>
+  loadReviewModel: (tabId: number, selectedRunId?: string) => Promise<ReviewPanelModel>
 }
 
 const defaultDependencies: Dependencies = {
@@ -27,6 +31,8 @@ const defaultDependencies: Dependencies = {
   openRun: openLegatoUrl,
   importTicket: (config, ticketId) => new LegatoClient(config.baseUrl, config.token).importRemoteTicket(ticketId),
   openTask: openLegatoUrl,
+  saveReviewContext,
+  loadReviewModel,
 }
 
 async function openLegatoUrl(url: string): Promise<void> {
@@ -60,15 +66,24 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
   return async (message: unknown, sender: MessageSender): Promise<MessageResponse> => {
     try {
       if (!message || typeof message !== "object") throw new Error("Unsupported extension message")
-      const request = message as { type?: string; context?: unknown }
+      const request = message as { type?: string; context?: unknown; tabId?: unknown; selectedRunId?: unknown }
+      if (request.type === "getReviewModel") {
+        if (!Number.isSafeInteger(request.tabId)) throw new Error("A valid GitHub tab is required")
+        if (request.selectedRunId !== undefined && typeof request.selectedRunId !== "string") throw new Error("Invalid selected review run")
+        return { ok: true, review: await deps.loadReviewModel(request.tabId as number, request.selectedRunId as string | undefined) }
+      }
       const jira = request.type === "importJiraTicket"
-      const github = request.type === "prepareGitHubWorkflow" || request.type === "startPreparedWorkflow"
+      const github = request.type === "prepareGitHubWorkflow" || request.type === "startPreparedWorkflow" || request.type === "setReviewContext"
       if (jira && !validJiraContext(request.context)) throw new Error("Invalid Jira ticket context")
       if (github && !validGitHubContext(request.context)) throw new Error("Invalid GitHub pull request context")
       if (!jira && !github) throw new Error("Unsupported extension message")
 
       const tabId = sender.tab?.id
       if (tabId === undefined) throw new Error("The action must originate from a browser tab")
+      if (request.type === "setReviewContext") {
+        await deps.saveReviewContext(tabId, request.context as GitHubPullRequestContext)
+        return { ok: true }
+      }
       const mutates = request.type === "startPreparedWorkflow" || jira
       const actionKey = jira ? `jira:${(request.context as { ticketId: string }).ticketId}` : `tab:${tabId}`
       if (mutates && active.has(actionKey)) return { ok: false, error: jira ? "This Jira ticket is already being imported" : "A Legato action is already running for this tab" }

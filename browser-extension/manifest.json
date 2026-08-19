@@ -3,8 +3,8 @@
   "name": "Legato integration",
   "version": "0.1.0",
   "description": "Launch Legato actions from GitHub and Jira, and reuse Legato tabs for Stream Deck links.",
-  "minimum_chrome_version": "102",
-  "permissions": ["storage", "tabs"],
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "tabs", "sidePanel"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "host_permissions": [
     "https://github.com/*",
@@ -15,6 +15,9 @@
     "type": "module"
   },
   "options_page": "options.html",
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
   "content_scripts": [
     {
       "matches": ["https://github.com/*"],

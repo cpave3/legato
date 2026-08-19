@@ -20,10 +20,29 @@ function dependencies() {
     openRun: vi.fn().mockResolvedValue(undefined),
     importTicket: vi.fn().mockResolvedValue({ id: "task-1" }),
     openTask: vi.fn().mockResolvedValue(undefined),
+    saveReviewContext: vi.fn().mockResolvedValue(undefined),
+    loadReviewModel: vi.fn().mockResolvedValue({ state: "empty", status: "", context: { repository: "cpave3/legato", pullRequestNumber: 7 }, runs: [], poll: false }),
   }
 }
 
 describe("GitHub workflow messages", () => {
+  it("loads a review model for an explicit panel tab and run selection", async () => {
+    const deps = dependencies()
+    const response = await createMessageHandler(deps)({ type: "getReviewModel", tabId: 4, selectedRunId: "old" }, {})
+    expect(response).toMatchObject({ ok: true, review: { state: "empty" } })
+    expect(deps.loadReviewModel).toHaveBeenCalledWith(4, "old")
+  })
+
+  it("stores tab-scoped review context without querying Legato", async () => {
+    const deps = dependencies()
+    const context = { repository: "cpave3/legato", pullRequestNumber: 7 }
+    const response = await createMessageHandler(deps)({ type: "setReviewContext", context }, { tab: { id: 4 } })
+
+    expect(response).toEqual({ ok: true })
+    expect(deps.saveReviewContext).toHaveBeenCalledWith(4, context)
+    expect(deps.discover).not.toHaveBeenCalled()
+  })
+
   it("prepares a secret-free confirmation without starting a run", async () => {
     const deps = dependencies()
     deps.loadConfig.mockResolvedValue({ ...DEFAULT_CONFIG, token: "top-secret" })

@@ -13,6 +13,8 @@ export type LegatoFab = {
   subtitle: HTMLDivElement
   button: HTMLButtonElement
   status: HTMLDivElement
+  actions: HTMLDivElement
+  addSecondaryAction: (label: string) => HTMLButtonElement
   setState: (state: LegatoFabState, message: string) => void
 }
 
@@ -62,6 +64,19 @@ export function createLegatoFab(doc: Document, options: LegatoFabOptions): Legat
   button.textContent = options.actionLabel
   button.style.cssText = "box-sizing:border-box;width:100%;min-height:38px;padding:8px 12px;border:1px solid rgba(167,139,250,.75);border-radius:8px;background:linear-gradient(180deg,#7c3aed,#6d28d9);color:#fff;font:700 13px/1.2 system-ui;cursor:pointer;box-shadow:0 5px 14px rgba(76,29,149,.35)"
 
+  const actions = doc.createElement("div")
+  actions.style.cssText = "display:flex;gap:8px;align-items:stretch"
+  actions.append(button)
+
+  const addSecondaryAction = (label: string): HTMLButtonElement => {
+    const secondary = doc.createElement("button")
+    secondary.type = "button"
+    secondary.textContent = label
+    secondary.style.cssText = "box-sizing:border-box;min-height:38px;padding:8px 12px;border:1px solid rgba(167,139,250,.5);border-radius:8px;background:#27243a;color:#ddd6fe;font:700 13px/1.2 system-ui;cursor:pointer"
+    actions.append(secondary)
+    return secondary
+  }
+
   const status = doc.createElement("div")
   status.setAttribute("role", "status")
   status.setAttribute("aria-live", "polite")
@@ -77,6 +92,6 @@ export function createLegatoFab(doc: Document, options: LegatoFabOptions): Legat
     button.style.opacity = state === "loading" ? ".72" : "1"
   }
 
-  root.append(identity, copy, button, status)
-  return { root, title, subtitle, button, status, setState }
+  root.append(identity, copy, actions, status)
+  return { root, title, subtitle, button, status, actions, addSecondaryAction, setState }
 }

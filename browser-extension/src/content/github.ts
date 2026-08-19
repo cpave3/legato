@@ -33,6 +33,14 @@ export function reconcileGitHubAction(doc: Document, href: string, sendMessage: 
     actionLabel: "Prepare Legato review",
   })
   const { root, button, status, setState } = fab
+  const viewReview = fab.addSecondaryAction("View review")
+  viewReview.setAttribute("aria-label", `View Legato review for ${context.repository} pull request ${context.pullRequestNumber}`)
+  viewReview.addEventListener("click", () => {
+    const opening = chrome.sidePanel.open({ windowId: chrome.windows.WINDOW_ID_CURRENT })
+    void Promise.all([opening, sendMessage({ type: "setReviewContext", context })]).then(([, response]) => {
+      if (!response.ok) throw new Error(response.error)
+    }).catch((error: unknown) => setState("error", error instanceof Error ? error.message : String(error)))
+  })
   root.dataset.context = key
 
   let busy = false

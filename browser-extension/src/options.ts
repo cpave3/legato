@@ -12,6 +12,7 @@ const fields = {
   repoInput: document.querySelector<HTMLInputElement>("#repo-input")!,
   pullRequestInput: document.querySelector<HTMLInputElement>("#pr-input")!,
   primaryDirInput: document.querySelector<HTMLInputElement>("#primary-dir-input")!,
+  reviewArtifactKey: document.querySelector<HTMLInputElement>("#review-artifact-key")!,
 }
 
 function show(message: string, kind: "success" | "error"): void {

@@ -10,6 +10,7 @@ export default defineConfig({
       input: {
         background: resolve(import.meta.dirname, "src/background.ts"),
         options: resolve(import.meta.dirname, "options.html"),
+        sidepanel: resolve(import.meta.dirname, "sidepanel.html"),
       },
       output: {
         entryFileNames: "[name].js",
