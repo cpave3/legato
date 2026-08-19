@@ -16,11 +16,13 @@ function initialCollapsed(): Set<string> {
 export function MobileBoardList({
   columns,
   showWorkspace,
+  highlightedTaskId,
   onCardClick,
   onCardContextMenu,
 }: {
   columns: BoardColumn[]
   showWorkspace: boolean
+  highlightedTaskId?: string | null
   onCardClick: (column: number, row: number) => void
   onCardContextMenu?: (card: BoardColumn["cards"][number], position: { x: number; y: number }) => void
 }) {
@@ -46,7 +48,7 @@ export function MobileBoardList({
   return (
     <div data-mobile-board className="h-full overflow-y-auto px-3 pb-5 pt-2">
       {columns.map((column, columnIndex) => {
-        const closed = collapsed.has(column.name)
+        const closed = collapsed.has(column.name) && !column.cards.some((card) => card.id === highlightedTaskId)
         return (
           <section key={column.name} className="mb-3 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950">
             <button
@@ -68,6 +70,7 @@ export function MobileBoardList({
                       card={card}
                       column={column.name}
                       selected={false}
+                      highlighted={card.id === highlightedTaskId}
                       showWorkspace={showWorkspace}
                       onClick={() => onCardClick(columnIndex, rowIndex)}
                       onContextMenu={(position) => onCardContextMenu?.(card, position)}

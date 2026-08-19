@@ -71,7 +71,7 @@ Remote web interface for monitoring and interacting with agent sessions from any
 
 ### Board page
 
-The board page (`BoardPage` in `web/src/components/board/BoardPage.tsx`) is a keyboard-driven kanban view backed by `GET /api/board`. It renders columns left-to-right with cards underneath, maintains a selected-card cursor, and supports workspace filtering via a dropdown.
+The board page (`BoardPage` in `web/src/pages/Board.tsx`) is a keyboard-driven kanban view backed by `GET /api/board`. It renders columns left-to-right with cards underneath, maintains a selected-card cursor, and supports workspace filtering via a dropdown. `/board?highlight_task=<task-id>` selects the matching card across columns, expands its mobile column, scrolls it into view, and applies a cyan ring distinct from agent activity. After eight seconds the highlight and only that query parameter are removed with history replacement; the same bounded cleanup applies when an archived or filtered task is not visible.
 
 **Keyboard bindings.** `j`/`k` moves the cursor down/up within a column; `h`/`l` switches columns left/right. `n` opens the Create Task overlay (title, description, column, workspace). `x` archives the selected card if it is in the Done column. `Shift+X` opens the Bulk Archive overlay when the Done column has cards (shows count, `y` confirms). `i` opens the Import Remote Task overlay (live search via `SyncService`, j/k navigation, enter to import). `w` opens the workspace switcher (`GET /api/workspaces`, j/k navigation, enter to filter). `?` opens the Help overlay with keybinding reference.
 

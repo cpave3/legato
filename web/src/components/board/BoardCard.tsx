@@ -1,5 +1,5 @@
 import { cn } from "../../lib/utils"
-import type { DragEvent, MouseEvent } from "react"
+import { useEffect, useRef, type DragEvent, type MouseEvent } from "react"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
 import { animatedAgentActivityEnabled } from "../../lib/appearancePreferences"
 import {
@@ -24,6 +24,7 @@ import {
 interface BoardCardProps {
   card: BoardCardType
   selected: boolean
+  highlighted?: boolean
   column: string
   showWorkspace: boolean
   onClick: () => void
@@ -84,7 +85,8 @@ function providerIcon(provider: string) {
   }
 }
 
-export function BoardCard({ card, selected, column, showWorkspace, onClick, onContextMenu, onActionMenu, onDragStart }: BoardCardProps) {
+export function BoardCard({ card, selected, highlighted = false, column, showWorkspace, onClick, onContextMenu, onActionMenu, onDragStart }: BoardCardProps) {
+  const cardRef = useRef<HTMLDivElement>(null)
   const isDone = column === "Done"
   const workingDur = formatDuration(card.working_seconds || 0)
   const waitingDur = formatDuration(card.waiting_seconds || 0)
@@ -92,8 +94,14 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
   const hasSwarm = card.swarm_stats && card.swarm_stats.total > 0
   const animateAgentActivity = card.agent_active && animatedAgentActivityEnabled()
 
+  useEffect(() => {
+    if (highlighted) cardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center", inline: "nearest" })
+  }, [highlighted])
+
   return (
     <div
+      ref={cardRef}
+      data-highlighted-task={highlighted || undefined}
       onClick={onClick}
       onContextMenu={(event: MouseEvent<HTMLDivElement>) => {
         if (!onContextMenu) return
@@ -106,6 +114,7 @@ export function BoardCard({ card, selected, column, showWorkspace, onClick, onCo
         "relative cursor-pointer rounded border-y border-r border-l-2 border-y-zinc-800/80 border-r-zinc-800/80 px-2.5 py-2 text-sm text-zinc-300 shadow-sm shadow-black/20 transition-[background-color,border-color,box-shadow]",
         priorityBorderClass(card.priority),
         card.agent_active && "ring-1 ring-inset ring-indigo-500/60",
+        highlighted && "ring-2 ring-cyan-400 shadow-lg shadow-cyan-950/60",
         animateAgentActivity && "agent-activity-orbit",
         animateAgentActivity && !card.agent_state && "agent-activity-orbit-idle",
         animateAgentActivity && card.agent_state === "working" && "agent-activity-orbit-working",

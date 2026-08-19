@@ -7,6 +7,7 @@ export type WorkflowDiscovery = {
   repositories: RepositoryPreset[] | null
 }
 export type WorkflowRunView = { run: { id: string } }
+export type ImportedTask = { id: string }
 
 export class LegatoClient {
   constructor(
@@ -24,6 +25,14 @@ export class LegatoClient {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ inputs }),
+    })
+  }
+
+  importRemoteTicket(ticketId: string): Promise<ImportedTask> {
+    return this.request<ImportedTask>("/api/remote/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket_id: ticketId }),
     })
   }
 

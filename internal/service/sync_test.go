@@ -808,6 +808,38 @@ func TestImportRemoteTaskCreatesLocalTask(t *testing.T) {
 	}
 }
 
+func TestImportRemoteTaskSerializesConcurrentImports(t *testing.T) {
+	svc, _, provider, _ := newTestSync(t)
+	provider.tickets = []RemoteTicket{{ID: "TEST-42", Summary: "Concurrent import", Status: "To Do", UpdatedAt: time.Now()}}
+
+	var wg sync.WaitGroup
+	results := make(chan *Card, 2)
+	errors := make(chan error, 2)
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			card, err := svc.ImportRemoteTask(context.Background(), "TEST-42", nil)
+			results <- card
+			errors <- err
+		}()
+	}
+	wg.Wait()
+	close(results)
+	close(errors)
+
+	for err := range errors {
+		if err != nil {
+			t.Fatalf("ImportRemoteTask: %v", err)
+		}
+	}
+	for card := range results {
+		if card == nil || card.ID != "TEST-42" {
+			t.Fatalf("card = %#v, want TEST-42", card)
+		}
+	}
+}
+
 func TestImportRemoteTaskAlreadyTracked(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
 	ctx := context.Background()

@@ -9,6 +9,7 @@ interface BoardColumnProps {
   selectedIndex: number
   isActive: boolean
   showWorkspace: boolean
+  highlightedTaskId?: string | null
   onCardClick: (colIndex: number, cardIndex: number) => void
   onCardContextMenu?: (card: BoardCardType, position: { x: number; y: number }) => void
   colIndex: number
@@ -38,6 +39,7 @@ export function BoardColumn({
   selectedIndex,
   isActive,
   showWorkspace,
+  highlightedTaskId,
   onCardClick,
   onCardContextMenu,
   colIndex,
@@ -98,6 +100,7 @@ export function BoardColumn({
             <BoardCard
               card={card}
               selected={isActive && selectedIndex === i}
+              highlighted={card.id === highlightedTaskId}
               column={name}
               showWorkspace={showWorkspace}
               onClick={() => onCardClick(colIndex, i)}

@@ -528,6 +528,9 @@ func (s *syncService) SearchRemote(ctx context.Context, query string) ([]RemoteS
 }
 
 func (s *syncService) ImportRemoteTask(ctx context.Context, ticketID string, workspaceID *int) (*Card, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	// Check if already tracked locally
 	existing, err := s.store.GetTask(ctx, ticketID)
 	if err == nil {

@@ -6,9 +6,8 @@ import { loadConfig } from "./storage"
 import { consumeTabCreated, loadWindowHistory, predecessorFor, queueActivation, recordTabCreated } from "./tab-history"
 import { handleMarkedTab, stripStreamDeckMarker } from "./tab-reuse"
 
-type ExtensionMessage = { type: "prepareGitHubWorkflow" | "startPreparedWorkflow"; context: GitHubPullRequestContext }
 type MessageSender = { tab?: { id?: number } }
-type MessageResponse = { ok: true; prepared?: PreparedWorkflow; runUrl?: string; navigationWarning?: string } | { ok: false; error: string }
+type MessageResponse = { ok: true; prepared?: PreparedWorkflow; runUrl?: string; taskUrl?: string; navigationWarning?: string } | { ok: false; error: string }
 
 type Dependencies = {
   loadConfig: () => Promise<ExtensionConfig>
@@ -16,6 +15,8 @@ type Dependencies = {
   discover: (config: ExtensionConfig) => Promise<WorkflowDiscovery>
   start: (config: ExtensionConfig, prepared: PreparedWorkflow) => Promise<WorkflowRunView>
   openRun: (url: string) => Promise<void>
+  importTicket: (config: ExtensionConfig, ticketId: string) => Promise<{ id: string }>
+  openTask: (url: string) => Promise<void>
 }
 
 const defaultDependencies: Dependencies = {
@@ -23,19 +24,23 @@ const defaultDependencies: Dependencies = {
   hasPermission: hasOriginPermission,
   discover: (config) => new LegatoClient(config.baseUrl, config.token).discover(),
   start: (config, prepared) => new LegatoClient(config.baseUrl, config.token).startWorkflow(prepared.workflowName, prepared.inputs),
-  openRun: async (url) => {
-    const matching = await chrome.tabs.query({ url: `${new URL(url).origin}/*` })
-    const existing = matching.find((tab) => tab.id !== undefined)
-    if (existing?.id !== undefined) {
-      await chrome.tabs.update(existing.id, { url, active: true })
-      if (existing.windowId !== undefined) await chrome.windows.update(existing.windowId, { focused: true })
-    } else {
-      await chrome.tabs.create({ url, active: true })
-    }
-  },
+  openRun: openLegatoUrl,
+  importTicket: (config, ticketId) => new LegatoClient(config.baseUrl, config.token).importRemoteTicket(ticketId),
+  openTask: openLegatoUrl,
 }
 
-function validContext(value: unknown): value is GitHubPullRequestContext {
+async function openLegatoUrl(url: string): Promise<void> {
+  const matching = await chrome.tabs.query({ url: `${new URL(url).origin}/*` })
+  const existing = matching.find((tab) => tab.id !== undefined)
+  if (existing?.id !== undefined) {
+    await chrome.tabs.update(existing.id, { url, active: true })
+    if (existing.windowId !== undefined) await chrome.windows.update(existing.windowId, { focused: true })
+  } else {
+    await chrome.tabs.create({ url, active: true })
+  }
+}
+
+function validGitHubContext(value: unknown): value is GitHubPullRequestContext {
   if (!value || typeof value !== "object") return false
   const candidate = value as Partial<GitHubPullRequestContext>
   return typeof candidate.repository === "string"
@@ -44,27 +49,49 @@ function validContext(value: unknown): value is GitHubPullRequestContext {
     && (candidate.pullRequestNumber ?? 0) > 0
 }
 
+function validJiraContext(value: unknown): value is { ticketId: string } {
+  if (!value || typeof value !== "object") return false
+  return typeof (value as { ticketId?: unknown }).ticketId === "string"
+    && /^[A-Z][A-Z0-9_]*-\d+$/.test((value as { ticketId: string }).ticketId)
+}
+
 export function createMessageHandler(deps: Dependencies = defaultDependencies) {
-  const active = new Set<number>()
+  const active = new Set<string>()
   return async (message: unknown, sender: MessageSender): Promise<MessageResponse> => {
     try {
       if (!message || typeof message !== "object") throw new Error("Unsupported extension message")
-      const request = message as Partial<ExtensionMessage>
-      if ((request.type !== "prepareGitHubWorkflow" && request.type !== "startPreparedWorkflow") || !validContext(request.context)) {
-        throw new Error("Invalid GitHub pull request context")
-      }
+      const request = message as { type?: string; context?: unknown }
+      const jira = request.type === "importJiraTicket"
+      const github = request.type === "prepareGitHubWorkflow" || request.type === "startPreparedWorkflow"
+      if (jira && !validJiraContext(request.context)) throw new Error("Invalid Jira ticket context")
+      if (github && !validGitHubContext(request.context)) throw new Error("Invalid GitHub pull request context")
+      if (!jira && !github) throw new Error("Unsupported extension message")
+
       const tabId = sender.tab?.id
       if (tabId === undefined) throw new Error("The action must originate from a browser tab")
-      if (request.type === "startPreparedWorkflow" && active.has(tabId)) {
-        return { ok: false, error: "A Legato action is already running for this tab" }
-      }
-      if (request.type === "startPreparedWorkflow") active.add(tabId)
+      const mutates = request.type === "startPreparedWorkflow" || jira
+      const actionKey = jira ? `jira:${(request.context as { ticketId: string }).ticketId}` : `tab:${tabId}`
+      if (mutates && active.has(actionKey)) return { ok: false, error: jira ? "This Jira ticket is already being imported" : "A Legato action is already running for this tab" }
+      if (mutates) active.add(actionKey)
       try {
         const config = await deps.loadConfig()
         if (!(await deps.hasPermission(config.baseUrl))) {
           throw new Error("Open extension options and grant access to the configured Legato origin")
         }
-        const prepared = prepareGitHubWorkflow(config, request.context, await deps.discover(config))
+        if (jira) {
+          const context = request.context as { ticketId: string }
+          const task = await deps.importTicket(config, context.ticketId)
+          const taskUrl = `${config.baseUrl}/board?highlight_task=${encodeURIComponent(task.id)}`
+          try {
+            await deps.openTask(taskUrl)
+            return { ok: true, taskUrl }
+          } catch {
+            return { ok: true, taskUrl, navigationWarning: "Ticket imported, but Chrome could not open the task. Open Legato to view it." }
+          }
+        }
+
+        const context = request.context as GitHubPullRequestContext
+        const prepared = prepareGitHubWorkflow(config, context, await deps.discover(config))
         if (request.type === "prepareGitHubWorkflow") return { ok: true, prepared }
         const view = await deps.start(config, prepared)
         const runUrl = `${config.baseUrl}/workflows/runs/${encodeURIComponent(view.run.id)}`
@@ -75,7 +102,7 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
           return { ok: true, runUrl, navigationWarning: "Workflow started, but Chrome could not open the run. Open Legato to view it." }
         }
       } finally {
-        if (request.type === "startPreparedWorkflow") active.delete(tabId)
+        if (mutates) active.delete(actionKey)
       }
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }

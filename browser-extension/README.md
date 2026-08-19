@@ -3,6 +3,7 @@
 A local Manifest V3 extension that:
 
 - adds a **Prepare Legato review** action to GitHub pull-request pages;
+- adds an **Import to Legato** action to `urbanx-development.atlassian.net` Jira ticket pages;
 - resolves a configured user workflow and local repository preset;
 - displays the resolved details for confirmation before starting the run; and
 - reuses Chrome's last active Legato tab for marked Stream Deck navigation when it is in the same Chrome window.
@@ -63,6 +64,14 @@ workflows:
 
 The GitHub action first discovers and validates the workflow and preset. It then displays the workflow, repository, PR number, and local checkout. The run starts only after **Confirm and start**. The worker repeats discovery and validation immediately before POSTing to Legato.
 
+## Jira ticket import
+
+On `https://urbanx-development.atlassian.net/browse/<ISSUE-KEY>`, a bottom-right action imports the issue through Legato's existing `POST /api/remote/import` API. The request omits `workspace_id`, so the Legato server's configured default import workspace applies. After import, the extension opens `/board?highlight_task=<local-task-id>`.
+
+The board selects the imported task wherever its Jira state placed it, scrolls it into view, and gives it a distinct cyan highlight. After eight seconds, the board removes both the highlight and the `highlight_task` parameter with a history replacement; unrelated query parameters are preserved.
+
+The Jira content script sends only the parsed issue key to the service worker. The service worker owns the authenticated Legato request. Duplicate clicks are suppressed while an import is active, and a Chrome navigation failure is reported as an imported ticket rather than inviting another import.
+
 ## Stream Deck integration
 
 Current Stream Deck builds append `legato_source=streamdeck` immediately before opening browser destinations. When Chrome sees that marker, the extension reuses the immediately preceding active tab only if:
@@ -82,7 +91,7 @@ Without the extension, Stream Deck links remain valid ordinary Legato URLs; Lega
 - **Workflow was not found / input has wrong type**: update the configurable workflow/input names to match the installed YAML definition.
 - **No repository preset**: configure one whose `repo` is canonical `owner/repo` and whose `primary_dir` is the local primary checkout.
 - **Multiple presets match**: remove the ambiguity; the extension never guesses a checkout.
-- **Button missing**: confirm the URL is `https://github.com/<owner>/<repo>/pull/<positive-number>` and reload the extension after rebuilding.
+- **Button missing**: confirm the URL is either `https://github.com/<owner>/<repo>/pull/<positive-number>` or `https://urbanx-development.atlassian.net/browse/<ISSUE-KEY>`, then rebuild and reload the extension.
 - **Stream Deck leaves a new tab**: confirm the extension URL matches the Stream Deck server origin exactly and that the prior Legato tab was active in the same Chrome window.
 
 ## Manual acceptance checklist
@@ -91,6 +100,7 @@ Without the extension, Stream Deck links remain valid ordinary Legato URLs; Lega
 2. Open a GitHub PR by full load and client-side navigation; verify exactly one action appears.
 3. Prepare the action, verify all resolved details, confirm, and check that the returned run opens.
 4. Verify invalid token, missing workflow, and missing/ambiguous presets create no run and show actionable errors.
-5. Make a Legato tab active, switch to another desktop application if desired, press each Stream Deck navigation type, and verify the prior tab is reused without a duplicate.
-6. Make a non-Legato tab active and verify Stream Deck leaves the new Legato tab.
-7. Disable the extension and verify Stream Deck destinations still open normally.
+5. Import a Jira ticket and verify the board scrolls to its cyan-highlighted card, then removes the highlight and query parameter after eight seconds.
+6. Make a Legato tab active, switch to another desktop application if desired, press each Stream Deck navigation type, and verify the prior tab is reused without a duplicate.
+7. Make a non-Legato tab active and verify Stream Deck leaves the new Legato tab.
+8. Disable the extension and verify Stream Deck destinations still open normally.

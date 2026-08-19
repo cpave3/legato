@@ -2,11 +2,14 @@
   "manifest_version": 3,
   "name": "Legato integration",
   "version": "0.1.0",
-  "description": "Launch Legato workflows from GitHub and reuse Legato tabs for Stream Deck links.",
+  "description": "Launch Legato actions from GitHub and Jira, and reuse Legato tabs for Stream Deck links.",
   "minimum_chrome_version": "102",
   "permissions": ["storage", "tabs"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
-  "host_permissions": ["https://github.com/*"],
+  "host_permissions": [
+    "https://github.com/*",
+    "https://urbanx-development.atlassian.net/*"
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -16,6 +19,11 @@
     {
       "matches": ["https://github.com/*"],
       "js": ["github.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://urbanx-development.atlassian.net/*"],
+      "js": ["jira.js"],
       "run_at": "document_idle"
     }
   ],

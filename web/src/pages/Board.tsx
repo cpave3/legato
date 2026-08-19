@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
+import { useSearchParams } from "react-router-dom"
 import { useServer } from "../hooks/useServer"
 import { useBoard } from "../hooks/useBoard"
 import {
@@ -93,6 +94,9 @@ function detailMoveCard(card: CardDetail): MoveCard {
 
 export function BoardPage() {
   const { baseUrl } = useServer()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const requestedHighlightId = searchParams.get("highlight_task")
+  const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null)
   const voiceEnabled = useVoiceEnabled(baseUrl)
   const { addToast } = useToast()
   const [workspaceFilter, setWorkspaceFilter] = useState<string>("all")
@@ -125,6 +129,42 @@ export function BoardPage() {
   useEffect(() => {
     boardRef.current?.focus()
   }, [])
+
+  useEffect(() => {
+    if (!requestedHighlightId) {
+      setHighlightedTaskId(null)
+      return
+    }
+    for (let colIdx = 0; colIdx < columns.length; colIdx++) {
+      const rowIdx = columns[colIdx].cards.findIndex((card) => card.id === requestedHighlightId)
+      if (rowIdx < 0) continue
+      setCursorCol(colIdx)
+      setCursorRow(rowIdx)
+      setHighlightedTaskId(requestedHighlightId)
+      return
+    }
+  }, [columns, requestedHighlightId])
+
+  useEffect(() => {
+    if (!highlightedTaskId) return
+    const timeout = window.setTimeout(() => {
+      setHighlightedTaskId(null)
+      const next = new URLSearchParams(searchParams)
+      next.delete("highlight_task")
+      setSearchParams(next, { replace: true })
+    }, 8_000)
+    return () => window.clearTimeout(timeout)
+  }, [highlightedTaskId, searchParams, setSearchParams])
+
+  useEffect(() => {
+    if (!requestedHighlightId || highlightedTaskId || loading) return
+    const timeout = window.setTimeout(() => {
+      const next = new URLSearchParams(searchParams)
+      next.delete("highlight_task")
+      setSearchParams(next, { replace: true })
+    }, 8_000)
+    return () => window.clearTimeout(timeout)
+  }, [highlightedTaskId, loading, requestedHighlightId, searchParams, setSearchParams])
 
   // Clamp cursor when columns/cards change; restore cursor to moved card
   useEffect(() => {
@@ -707,13 +747,14 @@ export function BoardPage() {
                 cursorCol={cursorCol}
                 cursorRow={cursorRow}
                 showWorkspace={showWorkspace}
+                highlightedTaskId={highlightedTaskId}
                 onCardClick={handleCardClick}
                 onCardContextMenu={handleCardContextMenu}
                 onCardMove={handleDragMove}
               />
             </div>
             <div className="h-full md:hidden">
-              <MobileBoardList columns={columns} showWorkspace={showWorkspace} onCardClick={handleCardClick} onCardContextMenu={handleCardContextMenu} />
+              <MobileBoardList columns={columns} showWorkspace={showWorkspace} highlightedTaskId={highlightedTaskId} onCardClick={handleCardClick} onCardContextMenu={handleCardContextMenu} />
             </div>
           </>
         )}

@@ -18,6 +18,8 @@ function dependencies() {
     discover: vi.fn().mockResolvedValue(discovery),
     start: vi.fn().mockResolvedValue({ run: { id: "run-1" } }),
     openRun: vi.fn().mockResolvedValue(undefined),
+    importTicket: vi.fn().mockResolvedValue({ id: "task-1" }),
+    openTask: vi.fn().mockResolvedValue(undefined),
   }
 }
 
@@ -64,6 +66,44 @@ describe("GitHub workflow messages", () => {
       navigationWarning: "Workflow started, but Chrome could not open the run. Open Legato to view it.",
     })
     expect(deps.start).toHaveBeenCalledOnce()
+  })
+
+  it("imports a Jira ticket once and opens the returned local task", async () => {
+    const deps = dependencies()
+    const handler = createMessageHandler(deps)
+    const message = { type: "importJiraTicket", context: { ticketId: "AG-9804" } }
+    const first = handler(message, { tab: { id: 8 } })
+    const duplicate = handler(message, { tab: { id: 9 } })
+
+    await expect(first).resolves.toEqual({ ok: true, taskUrl: "http://localhost:3080/board?highlight_task=task-1" })
+    await expect(duplicate).resolves.toEqual({ ok: false, error: "This Jira ticket is already being imported" })
+    expect(deps.importTicket).toHaveBeenCalledWith(DEFAULT_CONFIG, "AG-9804")
+    expect(deps.importTicket).toHaveBeenCalledOnce()
+    expect(deps.openTask).toHaveBeenCalledWith("http://localhost:3080/board?highlight_task=task-1")
+  })
+
+  it("reports Jira import success when task navigation fails", async () => {
+    const deps = dependencies()
+    deps.openTask.mockRejectedValue(new Error("tabs unavailable"))
+    const response = await createMessageHandler(deps)(
+      { type: "importJiraTicket", context: { ticketId: "AG-9804" } },
+      { tab: { id: 8 } },
+    )
+    expect(response).toEqual({
+      ok: true,
+      taskUrl: "http://localhost:3080/board?highlight_task=task-1",
+      navigationWarning: "Ticket imported, but Chrome could not open the task. Open Legato to view it.",
+    })
+  })
+
+  it("rejects invalid Jira ticket context before calling Legato", async () => {
+    const deps = dependencies()
+    const response = await createMessageHandler(deps)(
+      { type: "importJiraTicket", context: { ticketId: "not valid" } },
+      { tab: { id: 8 } },
+    )
+    expect(response).toEqual({ ok: false, error: "Invalid Jira ticket context" })
+    expect(deps.importTicket).not.toHaveBeenCalled()
   })
 
   it("surfaces missing permission as a fixable error", async () => {

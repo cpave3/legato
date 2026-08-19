@@ -37,6 +37,18 @@ describe("LegatoClient", () => {
     })
   })
 
+  it("imports a remote ticket with the configured default workspace", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "task-1" }), { status: 201 }))
+    const client = new LegatoClient("http://localhost:3080", "top-secret", fetcher)
+
+    await expect(client.importRemoteTicket("AG-9804")).resolves.toEqual({ id: "task-1" })
+    expect(fetcher).toHaveBeenCalledWith("http://localhost:3080/api/remote/import", {
+      method: "POST",
+      headers: { authorization: "Bearer top-secret", "content-type": "application/json" },
+      body: JSON.stringify({ ticket_id: "AG-9804" }),
+    })
+  })
+
   it("preserves a user-fixable server error without including credentials", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("workflow not found\n", { status: 404 }))
     const client = new LegatoClient("http://localhost:3080", "top-secret", fetcher)

@@ -44,6 +44,20 @@ describe("BoardCard", () => {
     expect(screen.getByText("2/5")).toBeTruthy()
   })
 
+  it("gives an imported card a distinct cyan highlight and scrolls it into view", () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView })
+    const { container } = render(
+      <BoardCard card={makeCard()} selected={false} highlighted column="Doing" showWorkspace={false} onClick={() => {}} />
+    )
+
+    const root = container.firstElementChild as HTMLElement
+    expect(root.dataset.highlightedTask).toBe("true")
+    expect(root.className).toContain("ring-cyan-400")
+    expect(root.className).toContain("shadow-cyan-950/60")
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center", inline: "nearest" })
+  })
+
   it("outlines a card with an active agent without replacing its priority stripe", () => {
     const { container } = render(
       <BoardCard card={makeCard()} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
