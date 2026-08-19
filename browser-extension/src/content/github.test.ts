@@ -14,6 +14,21 @@ describe("parseGitHubPullRequest", () => {
 describe("reconcileGitHubAction", () => {
   beforeEach(() => { document.body.innerHTML = '<div data-testid="issue-metadata-fixed"></div>' })
 
+  it("appends the action to the bottom of the reviewers sidebar", () => {
+    document.body.innerHTML = `
+      <div class="discussion-sidebar-item sidebar-assignee js-discussion-sidebar-item">
+        <form id="reviewers-form"></form>
+      </div>
+      <div data-testid="issue-metadata-fixed"></div>
+    `
+    const send = vi.fn()
+    reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
+
+    const sidebar = document.querySelector(".discussion-sidebar-item.sidebar-assignee")!
+    expect(sidebar.lastElementChild?.id).toBe("legato-pr-action")
+    expect(document.querySelector('[data-testid="issue-metadata-fixed"]')?.children).toHaveLength(0)
+  })
+
   it("inserts one accessible action and removes it outside a PR", () => {
     const send = vi.fn().mockResolvedValue({ ok: true, prepared: {
       workflowName: "review-pr", repositoryPresetName: "Legato", repository: "cpave3/legato",

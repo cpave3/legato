@@ -28,7 +28,7 @@ export function reconcileGitHubAction(doc: Document, href: string, sendMessage: 
   const root = doc.createElement("div")
   root.id = ACTION_ID
   root.dataset.context = key
-  root.style.cssText = "display:inline-flex;flex-direction:column;gap:6px;margin:4px 8px;vertical-align:top;max-width:520px"
+  root.style.cssText = "display:flex;flex-direction:column;gap:6px;margin-top:8px;width:100%"
   const button = doc.createElement("button")
   button.type = "button"
   button.textContent = "Prepare Legato review"
@@ -73,7 +73,8 @@ export function reconcileGitHubAction(doc: Document, href: string, sendMessage: 
     })
   })
 
-  const target = doc.querySelector('[data-testid="issue-metadata-fixed"]')
+  const target = doc.querySelector(".discussion-sidebar-item.sidebar-assignee")
+    ?? doc.querySelector('[data-testid="issue-metadata-fixed"]')
     ?? doc.querySelector(".gh-header-actions")
     ?? doc.querySelector("main")
   target?.append(root)
