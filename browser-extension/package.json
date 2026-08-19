@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && vite build && cp manifest.json dist/manifest.json",
+    "build": "tsc --noEmit && vite build && CONTENT_SCRIPT=github vite build --config vite.content.config.ts && CONTENT_SCRIPT=jira vite build --config vite.content.config.ts && cp manifest.json dist/manifest.json && node scripts/verify-build.mjs",
     "lint": "eslint .",
     "test": "vitest run"
   },

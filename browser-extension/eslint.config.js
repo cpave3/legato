@@ -7,7 +7,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["src/**/*.ts", "vite.config.ts"],
+    files: ["src/**/*.ts", "vite.config.ts", "vite.content.config.ts", "scripts/**/*.mjs"],
     languageOptions: { globals: { ...globals.browser, ...globals.node, chrome: "readonly" } },
   },
 )

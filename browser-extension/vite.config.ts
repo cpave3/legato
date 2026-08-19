@@ -9,8 +9,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         background: resolve(import.meta.dirname, "src/background.ts"),
-        github: resolve(import.meta.dirname, "src/content/github.ts"),
-        jira: resolve(import.meta.dirname, "src/content/jira.ts"),
         options: resolve(import.meta.dirname, "options.html"),
       },
       output: {
