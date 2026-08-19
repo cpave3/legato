@@ -14,6 +14,17 @@ describe("LegatoClient", () => {
     })
   })
 
+  it("invokes a receiver-sensitive Fetch implementation as a plain function", async () => {
+    const expectedReceiver = globalThis
+    const fetcher = function (this: unknown) {
+      if (this !== expectedReceiver) throw new TypeError("Illegal invocation")
+      return Promise.resolve(new Response(JSON.stringify(discovery), { status: 200 }))
+    } as typeof fetch
+    const client = new LegatoClient("http://localhost:3080", "top-secret", fetcher)
+
+    await expect(client.discover()).resolves.toEqual(discovery)
+  })
+
   it("starts the selected workflow with the authenticated API contract", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ run: { id: "run-1" } }), { status: 201 }))
     const client = new LegatoClient("http://localhost:3080", "top-secret", fetcher)

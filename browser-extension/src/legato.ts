@@ -30,7 +30,7 @@ export class LegatoClient {
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers)
     if (this.token) headers.set("Authorization", `Bearer ${this.token}`)
-    const response = await this.fetcher(`${this.baseUrl}${path}`, { ...init, headers: Object.fromEntries(headers) })
+    const response = await this.fetcher.call(globalThis, `${this.baseUrl}${path}`, { ...init, headers: Object.fromEntries(headers) })
     if (!response.ok) {
       const detail = (await response.text()).trim()
       throw new Error(detail || `Legato request failed (${response.status})`)
