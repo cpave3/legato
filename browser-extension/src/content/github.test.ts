@@ -19,7 +19,7 @@ describe("reconcileGitHubAction", () => {
       <div class="discussion-sidebar-item sidebar-assignee js-discussion-sidebar-item"></div>
       <div data-testid="issue-metadata-fixed"></div>
     `
-    const send = vi.fn()
+    const send = vi.fn().mockResolvedValue({ ok: true, review: { runs: [] } })
     reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
 
     const action = document.querySelector<HTMLElement>("#legato-pr-action")!
@@ -33,10 +33,12 @@ describe("reconcileGitHubAction", () => {
   })
 
   it("inserts one accessible action and removes it outside a PR", () => {
-    const send = vi.fn().mockResolvedValue({ ok: true, prepared: {
-      workflowName: "review-pr", repositoryPresetName: "Legato", repository: "cpave3/legato",
-      pullRequestNumber: 12, primaryDir: "/projects/legato", inputs: {},
-    } })
+    const send = vi.fn().mockImplementation((message: { type: string }) => Promise.resolve(message.type === "detectGitHubReview"
+      ? { ok: true, review: { runs: [] } }
+      : { ok: true, prepared: {
+        workflowName: "review-pr", repositoryPresetName: "Legato", repository: "cpave3/legato",
+        pullRequestNumber: 12, primaryDir: "/projects/legato", inputs: {},
+      } }))
     reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
     reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
     expect(document.querySelectorAll("#legato-pr-action")).toHaveLength(1)
@@ -47,8 +49,18 @@ describe("reconcileGitHubAction", () => {
     expect(document.querySelector("#legato-pr-action")).toBeNull()
   })
 
+  it("shows only View review when a matching review is detected", async () => {
+    const send = vi.fn().mockResolvedValue({ ok: true, review: { runs: [{ id: "run-1" }] } })
+    reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
+
+    await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>("button")?.style.display).toBe("none"))
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>("button")).filter((item) => item.style.display !== "none").map((item) => item.textContent)).toEqual(["View review"])
+  })
+
   it("requests review opening from the explicit user gesture", async () => {
-    const send = vi.fn().mockResolvedValue({ ok: true })
+    const send = vi.fn().mockImplementation((message: { type: string }) => Promise.resolve(message.type === "detectGitHubReview"
+      ? { ok: true, review: { runs: [{ id: "run-1" }] } }
+      : { ok: true }))
     reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
     const view = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((item) => item.textContent === "View review")!
     view.click()
@@ -61,11 +73,14 @@ describe("reconcileGitHubAction", () => {
   it("requires confirmation after displaying resolved details and suppresses duplicate starts", async () => {
     let resolvePrepare!: (value: unknown) => void
     const send = vi.fn().mockImplementation((message: { type: string }) => {
+      if (message.type === "detectGitHubReview") return Promise.resolve({ ok: true, review: { runs: [] } })
       if (message.type === "prepareGitHubWorkflow") return new Promise((resolve) => { resolvePrepare = resolve })
       return Promise.resolve({ ok: true, runUrl: "http://localhost:3080/workflows/runs/run-1" })
     })
     reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
     const button = document.querySelector<HTMLButtonElement>("button")!
+    await vi.waitFor(() => expect(button.style.display).toBe("block"))
+    send.mockClear()
     button.click()
     button.click()
     expect(send).toHaveBeenCalledTimes(1)

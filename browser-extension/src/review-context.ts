@@ -3,6 +3,14 @@ import type { GitHubPullRequestContext } from "./actions"
 const key = (tabId: number): string => `reviewContext:${tabId}`
 const memory = new Map<number, GitHubPullRequestContext>()
 
+export function parseGitHubPullRequestUrl(href: string): GitHubPullRequestContext | null {
+  let url: URL
+  try { url = new URL(href) } catch { return null }
+  if (url.protocol !== "https:" || url.hostname !== "github.com") return null
+  const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/([1-9]\d*)(?:\/|$)/)
+  return match ? { repository: `${match[1]}/${match[2]}`, pullRequestNumber: Number(match[3]) } : null
+}
+
 export function cacheReviewContext(tabId: number, context: GitHubPullRequestContext): void {
   memory.set(tabId, context)
 }

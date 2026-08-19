@@ -5,7 +5,7 @@ import type { ReviewPanelModel } from "./review-model"
 
 beforeEach(() => {
   document.body.innerHTML = `
-    <p id="context"></p><div id="state"></div><label id="run-label"><select id="run-select"></select></label>
+    <p id="context"></p><button id="refresh">Refresh review</button><div id="state"></div><label id="run-label"><select id="run-select"></select></label>
     <section id="details"><span id="status-badge"></span><span id="step"></span><div id="error"></div>
     <article id="review-content"></article><a id="open-run"></a></section>
   `
@@ -22,6 +22,7 @@ describe("renderReviewPanelView", () => {
     expect(document.querySelector("#state")?.textContent).toContain("No matching review run")
     expect((document.querySelector("#run-label") as HTMLElement).hidden).toBe(true)
     expect((document.querySelector("#details") as HTMLElement).hidden).toBe(true)
+    expect((document.querySelector("#refresh") as HTMLElement).hidden).toBe(false)
   })
 
   it("renders waiting-manual Markdown as ready and sanitizes it", () => {

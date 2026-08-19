@@ -67,7 +67,7 @@ The GitHub action first discovers and validates the workflow and preset. It then
 
 ### Review side panel
 
-**View review** opens Chrome's native side panel for the current PR. Detection is user-triggered: the extension does not query review history merely because a PR page is open. Once opened, the panel uses the configured workflow/input names and canonical repository preset to locate matching runs, newest first.
+**View review** opens Chrome's native side panel for the current PR. The extension checks for matching review runs when a PR page opens: when one exists, the floating action offers only **View review**; otherwise it offers the review-start workflow as well. The panel has an always-available **Refresh review** action and uses the active tab URL plus the configured workflow/input names and canonical repository preset to locate matching runs, newest first.
 
 The newest run is selected by default; prior matching runs remain selectable. A review is considered ready when a `text/markdown` artifact exists, even if the workflow is still `waiting_manual` for cleanup. The configured output key wins; if it is absent, the only Markdown artifact is accepted, while multiple Markdown artifacts produce an explicit configuration error.
 

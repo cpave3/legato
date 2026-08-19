@@ -21,6 +21,8 @@ function dependencies() {
     importTicket: vi.fn().mockResolvedValue({ id: "task-1" }),
     openTask: vi.fn().mockResolvedValue(undefined),
     loadReviewModel: vi.fn().mockResolvedValue({ state: "empty", status: "", context: { repository: "cpave3/legato", pullRequestNumber: 7 }, runs: [], poll: false }),
+    getTabUrl: vi.fn().mockResolvedValue("https://github.com/cpave3/legato/pull/7"),
+    saveReviewContext: vi.fn().mockResolvedValue(undefined),
   }
 }
 
@@ -53,7 +55,24 @@ describe("GitHub workflow messages", () => {
     const response = await createMessageHandler(deps)({ type: "getReviewModel", tabId: 4, selectedRunId: "old" }, {})
     expect(response).toMatchObject({ ok: true, review: { state: "ready", markdown: "# Review" } })
     expect(JSON.stringify(response)).not.toContain("top-secret")
+    expect(deps.saveReviewContext).toHaveBeenCalledWith(4, { repository: "cpave3/legato", pullRequestNumber: 7 })
     expect(deps.loadReviewModel).toHaveBeenCalledWith(4, "old")
+  })
+
+  it("detects an existing review from the content-script context", async () => {
+    const deps = dependencies()
+    deps.loadReviewModel.mockResolvedValue({
+      state: "ready", status: "waiting_manual", context: { repository: "cpave3/legato", pullRequestNumber: 7 },
+      runs: [{ id: "run-1" }], poll: false,
+    })
+    const response = await createMessageHandler(deps)(
+      { type: "detectGitHubReview", context: { repository: "cpave3/legato", pullRequestNumber: 7 } },
+      { tab: { id: 4 } },
+    )
+
+    expect(response).toMatchObject({ ok: true, review: { state: "ready", runs: [{ id: "run-1" }] } })
+    expect(deps.saveReviewContext).toHaveBeenCalledWith(4, { repository: "cpave3/legato", pullRequestNumber: 7 })
+    expect(deps.loadReviewModel).toHaveBeenCalledWith(4)
   })
 
   it("prepares a secret-free confirmation without starting a run", async () => {

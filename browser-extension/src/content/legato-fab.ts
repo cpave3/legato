@@ -15,6 +15,7 @@ export type LegatoFab = {
   status: HTMLDivElement
   actions: HTMLDivElement
   addSecondaryAction: (label: string) => HTMLButtonElement
+  setPrimaryVisible: (visible: boolean) => void
   setState: (state: LegatoFabState, message: string) => void
 }
 
@@ -118,6 +119,10 @@ const stateColors: Record<LegatoFabState, string> = {
     setExpanded(false)
   })
 
+  const setPrimaryVisible = (visible: boolean): void => {
+    button.style.display = visible ? "block" : "none"
+  }
+
   const setState = (state: LegatoFabState, message: string): void => {
     status.dataset.state = state
     status.textContent = message
@@ -129,5 +134,5 @@ const stateColors: Record<LegatoFabState, string> = {
   }
 
   root.append(identity, copy, actions, status)
-  return { root, title, subtitle, button, status, actions, addSecondaryAction, setState }
+  return { root, title, subtitle, button, status, actions, addSecondaryAction, setPrimaryVisible, setState }
 }

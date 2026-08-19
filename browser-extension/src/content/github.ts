@@ -1,19 +1,14 @@
-import type { GitHubPullRequestContext, PreparedWorkflow } from "../actions"
+import type { PreparedWorkflow } from "../actions"
+import type { ReviewPanelModel } from "../review-model"
+import { parseGitHubPullRequestUrl } from "../review-context"
 import { createLegatoFab } from "./legato-fab"
 
-type MessageResponse = { ok: true; prepared?: PreparedWorkflow; runUrl?: string; navigationWarning?: string } | { ok: false; error: string }
+type MessageResponse = { ok: true; prepared?: PreparedWorkflow; runUrl?: string; navigationWarning?: string; review?: ReviewPanelModel } | { ok: false; error: string }
 type SendMessage = (message: unknown) => Promise<MessageResponse>
 
 const ACTION_ID = "legato-pr-action"
 
-export function parseGitHubPullRequest(href: string): GitHubPullRequestContext | null {
-  let url: URL
-  try { url = new URL(href) } catch { return null }
-  if (url.protocol !== "https:" || url.hostname !== "github.com") return null
-  const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/([1-9]\d*)(?:\/|$)/)
-  if (!match) return null
-  return { repository: `${match[1]}/${match[2]}`, pullRequestNumber: Number(match[3]) }
-}
+export const parseGitHubPullRequest = parseGitHubPullRequestUrl
 
 export function reconcileGitHubAction(doc: Document, href: string, sendMessage: SendMessage): void {
   const context = parseGitHubPullRequest(href)
@@ -32,8 +27,9 @@ export function reconcileGitHubAction(doc: Document, href: string, sendMessage: 
     subtitle: `${context.repository} · #${context.pullRequestNumber}`,
     actionLabel: "Prepare Legato review",
   })
-  const { root, button, status, setState } = fab
+  const { root, button, status, setPrimaryVisible, setState } = fab
   const viewReview = fab.addSecondaryAction("View review")
+  setPrimaryVisible(false)
   viewReview.setAttribute("aria-label", `View Legato review for ${context.repository} pull request ${context.pullRequestNumber}`)
   viewReview.addEventListener("click", () => {
     void sendMessage({ type: "openReviewPanel", context }).then((response) => {
@@ -41,6 +37,13 @@ export function reconcileGitHubAction(doc: Document, href: string, sendMessage: 
     }).catch((error: unknown) => setState("error", error instanceof Error ? error.message : String(error)))
   })
   root.dataset.context = key
+  void sendMessage({ type: "detectGitHubReview", context }).then((response) => {
+    if (!response.ok) throw new Error(response.error)
+    setPrimaryVisible(response.review?.runs.length === 0)
+  }).catch((error: unknown) => {
+    setPrimaryVisible(false)
+    setState("error", error instanceof Error ? error.message : String(error))
+  })
 
   let busy = false
   let prepared: PreparedWorkflow | undefined

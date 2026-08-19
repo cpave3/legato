@@ -63,6 +63,16 @@ describe("createLegatoFab", () => {
     expect(fab.root.getAttribute("aria-expanded")).toBe("false")
   })
 
+  it("can hide the primary action when only a secondary action applies", () => {
+    const fab = createLegatoFab(document, { id: "test-legato-fab", title: "PR review", subtitle: "#42", actionLabel: "Start" })
+    const secondary = fab.addSecondaryAction("View review")
+
+    fab.setPrimaryVisible(false)
+
+    expect(fab.button.style.display).toBe("none")
+    expect(secondary.style.display).not.toBe("none")
+  })
+
   it("uses shared visual states for loading, success, and error feedback", () => {
     const fab = createLegatoFab(document, { id: "test-legato-fab", title: "Jira import", subtitle: "AG-9804", actionLabel: "Import ticket" })
 

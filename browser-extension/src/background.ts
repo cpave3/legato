@@ -2,7 +2,7 @@ import { prepareGitHubWorkflow, type GitHubPullRequestContext, type PreparedWork
 import type { ExtensionConfig } from "./config"
 import { LegatoClient, type WorkflowDiscovery, type WorkflowRunView } from "./legato"
 import { hasOriginPermission } from "./permissions"
-import { cacheReviewContext, clearReviewContext, loadReviewContext, saveReviewContext } from "./review-context"
+import { cacheReviewContext, clearReviewContext, loadReviewContext, parseGitHubPullRequestUrl, saveReviewContext } from "./review-context"
 import { loadReviewModel, type ReviewPanelModel } from "./review-model"
 import { loadConfig } from "./storage"
 import { consumeTabCreated, loadWindowHistory, predecessorFor, queueActivation, recordTabCreated } from "./tab-history"
@@ -20,6 +20,8 @@ type Dependencies = {
   importTicket: (config: ExtensionConfig, ticketId: string) => Promise<{ id: string }>
   openTask: (url: string) => Promise<void>
   loadReviewModel: (tabId: number, selectedRunId?: string) => Promise<ReviewPanelModel>
+  getTabUrl: (tabId: number) => Promise<string | undefined>
+  saveReviewContext: (tabId: number, context: GitHubPullRequestContext) => Promise<void>
 }
 
 const defaultDependencies: Dependencies = {
@@ -31,6 +33,8 @@ const defaultDependencies: Dependencies = {
   importTicket: (config, ticketId) => new LegatoClient(config.baseUrl, config.token).importRemoteTicket(ticketId),
   openTask: openLegatoUrl,
   loadReviewModel,
+  getTabUrl: async (tabId) => (await chrome.tabs.get(tabId)).url,
+  saveReviewContext,
 }
 
 async function openLegatoUrl(url: string): Promise<void> {
@@ -53,17 +57,6 @@ function validGitHubContext(value: unknown): value is GitHubPullRequestContext {
     && (candidate.pullRequestNumber ?? 0) > 0
 }
 
-function githubContextFromUrl(value: string): GitHubPullRequestContext | null {
-  try {
-    const url = new URL(value)
-    if (url.hostname !== "github.com") return null
-    const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/([1-9]\d*)(?:\/|$)/)
-    return match ? { repository: `${match[1]}/${match[2]}`, pullRequestNumber: Number(match[3]) } : null
-  } catch {
-    return null
-  }
-}
-
 function validJiraContext(value: unknown): value is { ticketId: string } {
   if (!value || typeof value !== "object") return false
   return typeof (value as { ticketId?: unknown }).ticketId === "string"
@@ -79,16 +72,25 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
       if (request.type === "getReviewModel") {
         if (!Number.isSafeInteger(request.tabId)) throw new Error("A valid GitHub tab is required")
         if (request.selectedRunId !== undefined && typeof request.selectedRunId !== "string") throw new Error("Invalid selected review run")
-        return { ok: true, review: await deps.loadReviewModel(request.tabId as number, request.selectedRunId as string | undefined) }
+        const tabId = request.tabId as number
+        const context = parseGitHubPullRequestUrl((await deps.getTabUrl(tabId)) ?? "")
+        if (!context) throw new Error("No GitHub pull request context is available for this tab")
+        await deps.saveReviewContext(tabId, context)
+        return { ok: true, review: await deps.loadReviewModel(tabId, request.selectedRunId as string | undefined) }
       }
       const jira = request.type === "importJiraTicket"
-      const github = request.type === "prepareGitHubWorkflow" || request.type === "startPreparedWorkflow"
+      const github = request.type === "prepareGitHubWorkflow" || request.type === "startPreparedWorkflow" || request.type === "detectGitHubReview"
       if (jira && !validJiraContext(request.context)) throw new Error("Invalid Jira ticket context")
       if (github && !validGitHubContext(request.context)) throw new Error("Invalid GitHub pull request context")
       if (!jira && !github) throw new Error("Unsupported extension message")
 
       const tabId = sender.tab?.id
       if (tabId === undefined) throw new Error("The action must originate from a browser tab")
+      if (request.type === "detectGitHubReview") {
+        const context = request.context as GitHubPullRequestContext
+        await deps.saveReviewContext(tabId, context)
+        return { ok: true, review: await deps.loadReviewModel(tabId) }
+      }
       const mutates = request.type === "startPreparedWorkflow" || jira
       const actionKey = jira ? `jira:${(request.context as { ticketId: string }).ticketId}` : `tab:${tabId}`
       if (mutates && active.has(actionKey)) return { ok: false, error: jira ? "This Jira ticket is already being imported" : "A Legato action is already running for this tab" }
@@ -197,7 +199,7 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     if (!changeInfo.url || tab.windowId === undefined) return
     void loadReviewContext(tabId).then((stored) => {
       if (!stored) return
-      const next = githubContextFromUrl(changeInfo.url!)
+      const next = parseGitHubPullRequestUrl(changeInfo.url!)
       if (!next || next.repository.toLowerCase() !== stored.repository.toLowerCase() || next.pullRequestNumber !== stored.pullRequestNumber) {
         void clearReviewContext(tabId).then(() => { void chrome.runtime.sendMessage({ type: "reviewContextUpdated", tabId }).catch(() => undefined) })
       }
