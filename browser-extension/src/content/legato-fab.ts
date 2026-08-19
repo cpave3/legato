@@ -25,32 +25,38 @@ const stateColors: Record<LegatoFabState, string> = {
   error: "#fca5a5",
 }
 
-export function createLegatoFab(doc: Document, options: LegatoFabOptions): LegatoFab {
+ export function createLegatoFab(doc: Document, options: LegatoFabOptions): LegatoFab {
   const root = doc.createElement("div")
   root.id = options.id
   root.dataset.legatoFab = "true"
+  root.dataset.expanded = "false"
+  root.tabIndex = 0
+  root.setAttribute("aria-label", `Open Legato actions: ${options.title}`)
+  root.setAttribute("aria-expanded", "false")
   root.style.cssText = [
     "all:initial", "position:fixed", "right:24px", "bottom:24px", "z-index:2147483647",
-    "box-sizing:border-box", "display:flex", "flex-direction:column", "gap:12px",
-    "width:min(360px,calc(100vw - 48px))", "padding:16px", "border:1px solid rgba(139,92,246,.55)",
-    "border-radius:12px", "background:linear-gradient(145deg,#181827 0%,#11111b 60%,#171225 100%)",
+    "box-sizing:border-box", "display:flex", "flex-direction:column", "gap:0", "overflow:hidden",
+    "width:56px", "max-width:calc(100vw - 48px)", "max-height:56px", "padding:15px",
+    "border:1px solid rgba(139,92,246,.55)", "border-radius:50%",
+    "background:linear-gradient(145deg,#181827 0%,#11111b 60%,#171225 100%)",
     "color:#f4f4f5", "box-shadow:0 16px 40px rgba(0,0,0,.42),0 0 0 1px rgba(196,181,253,.06) inset",
     "font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
+    "cursor:pointer", "transition:width .18s ease,max-height .18s ease,padding .18s ease,border-radius .18s ease,gap .18s ease",
   ].join(";")
 
   const identity = doc.createElement("div")
-  identity.style.cssText = "display:flex;align-items:center;gap:9px"
+  identity.style.cssText = "display:flex;align-items:center;gap:9px;min-height:24px;flex:none"
   const mark = doc.createElement("span")
   mark.setAttribute("aria-hidden", "true")
   mark.textContent = "L"
   mark.style.cssText = "display:grid;place-items:center;width:24px;height:24px;border-radius:7px;background:linear-gradient(135deg,#8b5cf6,#6366f1);color:#fff;font:800 13px/1 system-ui;box-shadow:0 0 14px rgba(139,92,246,.4)"
   const brand = doc.createElement("span")
   brand.textContent = "LEGATO"
-  brand.style.cssText = "color:#c4b5fd;font:700 11px/1 system-ui;letter-spacing:.16em"
+  brand.style.cssText = "display:none;color:#c4b5fd;font:700 11px/1 system-ui;letter-spacing:.16em"
   identity.append(mark, brand)
 
   const copy = doc.createElement("div")
-  copy.style.cssText = "display:flex;flex-direction:column;gap:3px;min-width:0"
+  copy.style.cssText = "display:none;flex-direction:column;gap:3px;min-width:0"
   const title = doc.createElement("div")
   title.textContent = options.title
   title.style.cssText = "color:#fafafa;font:700 15px/1.35 system-ui"
@@ -65,7 +71,7 @@ export function createLegatoFab(doc: Document, options: LegatoFabOptions): Legat
   button.style.cssText = "box-sizing:border-box;width:100%;min-height:38px;padding:8px 12px;border:1px solid rgba(167,139,250,.75);border-radius:8px;background:linear-gradient(180deg,#7c3aed,#6d28d9);color:#fff;font:700 13px/1.2 system-ui;cursor:pointer;box-shadow:0 5px 14px rgba(76,29,149,.35)"
 
   const actions = doc.createElement("div")
-  actions.style.cssText = "display:flex;gap:8px;align-items:stretch"
+  actions.style.cssText = "display:none;gap:8px;align-items:stretch"
   actions.append(button)
 
   const addSecondaryAction = (label: string): HTMLButtonElement => {
@@ -82,10 +88,40 @@ export function createLegatoFab(doc: Document, options: LegatoFabOptions): Legat
   status.setAttribute("aria-live", "polite")
   status.style.cssText = "display:none;color:#a1a1aa;font:12px/1.5 system-ui;white-space:pre-line;overflow-wrap:anywhere"
 
+  const setExpanded = (expanded: boolean): void => {
+    root.dataset.expanded = String(expanded)
+    root.setAttribute("aria-expanded", String(expanded))
+    root.style.width = expanded ? "min(360px, calc(100vw - 48px))" : "56px"
+    root.style.maxHeight = expanded ? "min(560px, calc(100vh - 48px))" : "56px"
+    root.style.padding = expanded ? "16px" : "15px"
+    root.style.borderRadius = expanded ? "12px" : "50%"
+    root.style.gap = expanded ? "12px" : "0"
+    root.style.cursor = expanded ? "default" : "pointer"
+    root.style.overflow = expanded ? "auto" : "hidden"
+    brand.style.display = expanded ? "inline" : "none"
+    copy.style.display = expanded ? "flex" : "none"
+    actions.style.display = expanded ? "flex" : "none"
+    status.style.display = expanded && status.textContent ? "block" : "none"
+  }
+  root.addEventListener("mouseenter", () => setExpanded(true))
+  root.addEventListener("mouseleave", () => {
+    if (!root.contains(doc.activeElement)) setExpanded(false)
+  })
+  root.addEventListener("focusin", () => setExpanded(true))
+  root.addEventListener("focusout", (event) => {
+    if (!root.contains(event.relatedTarget as Node | null)) setExpanded(false)
+  })
+  root.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return
+    event.preventDefault()
+    if (doc.activeElement instanceof HTMLElement) doc.activeElement.blur()
+    setExpanded(false)
+  })
+
   const setState = (state: LegatoFabState, message: string): void => {
     status.dataset.state = state
     status.textContent = message
-    status.style.display = message ? "block" : "none"
+    status.style.display = message && root.dataset.expanded === "true" ? "block" : "none"
     status.style.color = stateColors[state]
     button.disabled = state === "loading"
     button.style.cursor = state === "loading" ? "wait" : "pointer"

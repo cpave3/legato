@@ -16,12 +16,51 @@ describe("createLegatoFab", () => {
 
     expect(fab.root.dataset.legatoFab).toBe("true")
     expect(fab.root.style.position).toBe("fixed")
+    expect(fab.root.style.width).toBe("56px")
+    expect(fab.root.style.borderRadius).toBe("50%")
+    expect(fab.root.getAttribute("aria-expanded")).toBe("false")
     expect(fab.root.style.background).toContain("linear-gradient")
     expect(fab.root.textContent).toContain("LEGATO")
+    expect(fab.root.querySelector("[aria-hidden='true']")?.textContent).toBe("L")
     expect(fab.title.textContent).toBe("Pull request review")
     expect(fab.subtitle.textContent).toBe("owner/repo · #42")
     expect(fab.button.textContent).toBe("Prepare review")
     expect(fab.button.className).toBe("")
+  })
+
+  it("expands on hover or keyboard focus and collapses after leaving", () => {
+    const fab = createLegatoFab(document, { id: "test-legato-fab", title: "Jira import", subtitle: "AG-9804", actionLabel: "Import ticket" })
+    document.body.append(fab.root)
+    const secondary = fab.addSecondaryAction("Open board")
+    fab.setState("success", "Ticket imported.")
+
+    fab.root.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }))
+    expect(fab.root.dataset.expanded).toBe("true")
+    expect(fab.root.getAttribute("aria-expanded")).toBe("true")
+    expect(fab.root.style.borderRadius).toBe("12px")
+    expect(fab.root.style.maxHeight).toBe("min(560px, calc(100vh - 48px))")
+    expect(fab.status.style.display).toBe("block")
+
+    secondary.focus()
+    fab.root.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }))
+    expect(fab.root.dataset.expanded).toBe("true")
+    secondary.blur()
+    fab.root.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: document.body }))
+    expect(fab.root.dataset.expanded).toBe("false")
+    expect(fab.root.style.width).toBe("56px")
+  })
+
+  it("collapses when Escape releases focus", () => {
+    const fab = createLegatoFab(document, { id: "test-legato-fab", title: "PR review", subtitle: "#42", actionLabel: "Start" })
+    document.body.append(fab.root)
+    fab.button.focus()
+    fab.root.dispatchEvent(new FocusEvent("focusin", { bubbles: true }))
+    expect(fab.root.dataset.expanded).toBe("true")
+
+    fab.root.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true }))
+    expect(document.activeElement).not.toBe(fab.button)
+    expect(fab.root.dataset.expanded).toBe("false")
+    expect(fab.root.getAttribute("aria-expanded")).toBe("false")
   })
 
   it("uses shared visual states for loading, success, and error feedback", () => {
