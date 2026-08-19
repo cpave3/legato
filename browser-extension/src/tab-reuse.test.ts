@@ -25,10 +25,17 @@ describe("decideTabReuse", () => {
       destination: marked,
       newTabId: 11,
       newWindowId: 2,
-      eventAt: 1_100,
+      createdAt: 1_100, normalWindow: true,
       configuredOrigin: "http://localhost:3080",
       prior,
     })).toEqual({ kind: "reuse", priorTabId: 10, cleanUrl: "http://localhost:3080/review/rt-1" })
+  })
+
+  it("keeps the new tab outside a normal Chrome window", () => {
+    expect(decideTabReuse({
+      destination: marked, newTabId: 11, newWindowId: 2, createdAt: 1_100, normalWindow: false,
+      configuredOrigin: "http://localhost:3080", prior,
+    }).kind).toBe("keep")
   })
 
   it.each([
@@ -42,7 +49,7 @@ describe("decideTabReuse", () => {
       destination,
       newTabId: 11,
       newWindowId: 2,
-      eventAt: 1_100,
+      createdAt: 1_100, normalWindow: true,
       configuredOrigin: "http://localhost:3080",
       prior: snapshot,
     }).kind).toBe("keep")
@@ -57,7 +64,7 @@ describe("handleMarkedTab", () => {
       remove: vi.fn(async (id: number) => { calls.push(`remove:${id}`) }),
     }
     await handleMarkedTab({
-      destination: marked, newTabId: 11, newWindowId: 2, eventAt: 1_100,
+      destination: marked, newTabId: 11, newWindowId: 2, createdAt: 1_100, normalWindow: true,
       configuredOrigin: "http://localhost:3080", prior,
     }, chromeTabs)
     expect(calls).toEqual(["update:10:true", "remove:11"])
@@ -71,7 +78,7 @@ describe("handleMarkedTab", () => {
       remove: vi.fn(),
     }
     await handleMarkedTab({
-      destination: marked, newTabId: 11, newWindowId: 2, eventAt: 1_100,
+      destination: marked, newTabId: 11, newWindowId: 2, createdAt: 1_100, normalWindow: true,
       configuredOrigin: "http://localhost:3080", prior,
     }, chromeTabs)
     expect(chromeTabs.remove).not.toHaveBeenCalled()

@@ -3,12 +3,12 @@ import type { ExtensionConfig } from "./config"
 import { LegatoClient, type WorkflowDiscovery, type WorkflowRunView } from "./legato"
 import { hasOriginPermission } from "./permissions"
 import { loadConfig } from "./storage"
-import { loadWindowHistory, predecessorFor, recordActivation, saveWindowHistory } from "./tab-history"
+import { consumeTabCreated, loadWindowHistory, predecessorFor, queueActivation, recordTabCreated } from "./tab-history"
 import { handleMarkedTab, stripStreamDeckMarker } from "./tab-reuse"
 
 type ExtensionMessage = { type: "prepareGitHubWorkflow" | "startPreparedWorkflow"; context: GitHubPullRequestContext }
 type MessageSender = { tab?: { id?: number } }
-type MessageResponse = { ok: true; prepared?: PreparedWorkflow; runUrl?: string } | { ok: false; error: string }
+type MessageResponse = { ok: true; prepared?: PreparedWorkflow; runUrl?: string; navigationWarning?: string } | { ok: false; error: string }
 
 type Dependencies = {
   loadConfig: () => Promise<ExtensionConfig>
@@ -53,12 +53,12 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
       if ((request.type !== "prepareGitHubWorkflow" && request.type !== "startPreparedWorkflow") || !validContext(request.context)) {
         throw new Error("Invalid GitHub pull request context")
       }
-      const tabID = sender.tab?.id
-      if (tabID === undefined) throw new Error("The action must originate from a browser tab")
-      if (request.type === "startPreparedWorkflow" && active.has(tabID)) {
+      const tabId = sender.tab?.id
+      if (tabId === undefined) throw new Error("The action must originate from a browser tab")
+      if (request.type === "startPreparedWorkflow" && active.has(tabId)) {
         return { ok: false, error: "A Legato action is already running for this tab" }
       }
-      if (request.type === "startPreparedWorkflow") active.add(tabID)
+      if (request.type === "startPreparedWorkflow") active.add(tabId)
       try {
         const config = await deps.loadConfig()
         if (!(await deps.hasPermission(config.baseUrl))) {
@@ -68,10 +68,14 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
         if (request.type === "prepareGitHubWorkflow") return { ok: true, prepared }
         const view = await deps.start(config, prepared)
         const runUrl = `${config.baseUrl}/workflows/runs/${encodeURIComponent(view.run.id)}`
-        await deps.openRun(runUrl)
-        return { ok: true, runUrl }
+        try {
+          await deps.openRun(runUrl)
+          return { ok: true, runUrl }
+        } catch {
+          return { ok: true, runUrl, navigationWarning: "Workflow started, but Chrome could not open the run. Open Legato to view it." }
+        }
       } finally {
-        if (request.type === "startPreparedWorkflow") active.delete(tabID)
+        if (request.type === "startPreparedWorkflow") active.delete(tabId)
       }
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
@@ -86,27 +90,37 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     return true
   })
 
+  chrome.tabs.onCreated.addListener((tab) => {
+    if (tab.id !== undefined) void recordTabCreated(tab.id, Date.now())
+  })
+
   chrome.tabs.onActivated.addListener((activeInfo) => {
+    const activatedAt = Date.now()
     void chrome.tabs.get(activeInfo.tabId).then(async (tab) => {
       if (!tab.url) return
-      const history = await loadWindowHistory(activeInfo.windowId)
-      await saveWindowHistory(activeInfo.windowId, recordActivation(history, {
+      await queueActivation({
         tabId: activeInfo.tabId,
         windowId: activeInfo.windowId,
         url: tab.url,
-        activatedAt: Date.now(),
-      }))
+        activatedAt,
+      })
     }).catch(() => undefined)
   })
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (!changeInfo.url || tab.windowId === undefined || !stripStreamDeckMarker(changeInfo.url).marked) return
-    const eventAt = Date.now()
-    void Promise.all([loadConfig(), loadWindowHistory(tab.windowId)]).then(([config, history]) => handleMarkedTab({
+    const fallbackCreatedAt = Date.now()
+    void Promise.all([
+      loadConfig(),
+      loadWindowHistory(tab.windowId),
+      consumeTabCreated(tabId, fallbackCreatedAt),
+      chrome.windows.get(tab.windowId),
+    ]).then(([config, history, createdAt, window]) => handleMarkedTab({
       destination: changeInfo.url!,
       newTabId: tabId,
       newWindowId: tab.windowId,
-      eventAt,
+      createdAt,
+      normalWindow: window.type === "normal",
       configuredOrigin: new URL(config.baseUrl).origin,
       prior: predecessorFor(history, tabId),
     }, chrome.tabs)).catch((error: unknown) => {

@@ -51,6 +51,21 @@ describe("GitHub workflow messages", () => {
     expect(deps.openRun).toHaveBeenCalledWith("http://localhost:3080/workflows/runs/run-1")
   })
 
+  it("reports a started run without inviting a duplicate when navigation fails", async () => {
+    const deps = dependencies()
+    deps.openRun.mockRejectedValue(new Error("tabs unavailable"))
+    const response = await createMessageHandler(deps)(
+      { type: "startPreparedWorkflow", context: { repository: "cpave3/legato", pullRequestNumber: 7 } },
+      { tab: { id: 4 } },
+    )
+    expect(response).toEqual({
+      ok: true,
+      runUrl: "http://localhost:3080/workflows/runs/run-1",
+      navigationWarning: "Workflow started, but Chrome could not open the run. Open Legato to view it.",
+    })
+    expect(deps.start).toHaveBeenCalledOnce()
+  })
+
   it("surfaces missing permission as a fixable error", async () => {
     const deps = dependencies()
     deps.hasPermission.mockResolvedValue(false)

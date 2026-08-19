@@ -12,7 +12,8 @@ type ReuseInput = {
   destination: string
   newTabId: number
   newWindowId: number
-  eventAt: number
+  createdAt: number
+  normalWindow: boolean
   configuredOrigin: string
   prior?: ActiveTabSnapshot
 }
@@ -43,7 +44,7 @@ export function decideTabReuse(input: ReuseInput): ReuseDecision {
   if (!stripped.marked) return { kind: "keep" }
   const keep: ReuseDecision = { kind: "keep", cleanUrl: stripped.url }
   const prior = input.prior
-  if (!prior || prior.tabId === input.newTabId || prior.windowId !== input.newWindowId || prior.activatedAt >= input.eventAt) return keep
+  if (!input.normalWindow || !prior || prior.tabId === input.newTabId || prior.windowId !== input.newWindowId || prior.activatedAt >= input.createdAt) return keep
   if (origin(prior.url) !== input.configuredOrigin || origin(stripped.url) !== input.configuredOrigin) return keep
   return { kind: "reuse", priorTabId: prior.tabId, cleanUrl: stripped.url }
 }

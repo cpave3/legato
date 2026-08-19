@@ -1,6 +1,6 @@
 import type { GitHubPullRequestContext, PreparedWorkflow } from "../actions"
 
-type MessageResponse = { ok: true; prepared?: PreparedWorkflow; runUrl?: string } | { ok: false; error: string }
+type MessageResponse = { ok: true; prepared?: PreparedWorkflow; runUrl?: string; navigationWarning?: string } | { ok: false; error: string }
 type SendMessage = (message: unknown) => Promise<MessageResponse>
 
 const ACTION_ID = "legato-pr-action"
@@ -62,7 +62,7 @@ export function reconcileGitHubAction(doc: Document, href: string, sendMessage: 
         ].join("\n")
       } else {
         button.textContent = "Started in Legato"
-        status.textContent = "Workflow started."
+        status.textContent = response.navigationWarning ?? "Workflow started."
       }
     }).catch((error: unknown) => {
       status.textContent = error instanceof Error ? error.message : String(error)
