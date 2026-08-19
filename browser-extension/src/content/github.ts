@@ -1,4 +1,5 @@
 import type { GitHubPullRequestContext, PreparedWorkflow } from "../actions"
+import { createLegatoFab } from "./legato-fab"
 
 type MessageResponse = { ok: true; prepared?: PreparedWorkflow; runUrl?: string; navigationWarning?: string } | { ok: false; error: string }
 type SendMessage = (message: unknown) => Promise<MessageResponse>
@@ -25,33 +26,21 @@ export function reconcileGitHubAction(doc: Document, href: string, sendMessage: 
   if (existing?.dataset.context === key) return
   existing?.remove()
 
-  const root = doc.createElement("div")
-  root.id = ACTION_ID
+  const fab = createLegatoFab(doc, {
+    id: ACTION_ID,
+    title: "Pull request review",
+    subtitle: `${context.repository} · #${context.pullRequestNumber}`,
+    actionLabel: "Prepare Legato review",
+  })
+  const { root, button, status, setState } = fab
   root.dataset.context = key
-  root.style.cssText = [
-    "position:fixed", "right:24px", "bottom:24px", "z-index:2147483647",
-    "display:flex", "flex-direction:column", "gap:8px", "width:min(360px,calc(100vw - 48px))",
-    "padding:12px", "border:1px solid var(--borderColor-default,var(--color-border-default,#d0d7de))",
-    "border-radius:8px", "background:var(--bgColor-default,var(--color-canvas-default,#fff))",
-    "box-shadow:0 8px 24px rgba(140,149,159,.2)",
-  ].join(";")
-  const button = doc.createElement("button")
-  button.type = "button"
-  button.textContent = "Prepare Legato review"
-  button.className = "Button--secondary Button--small Button"
-  const status = doc.createElement("span")
-  status.setAttribute("role", "status")
-  status.setAttribute("aria-live", "polite")
-  status.style.cssText = "font-size:12px;white-space:pre-line"
-  root.append(button, status)
 
   let busy = false
   let prepared: PreparedWorkflow | undefined
   button.addEventListener("click", () => {
     if (busy) return
     busy = true
-    button.disabled = true
-    status.textContent = prepared ? "Starting workflow…" : "Resolving workflow and repository…"
+    setState("loading", prepared ? "Starting workflow…" : "Resolving workflow and repository…")
     const message = prepared
       ? { type: "startPreparedWorkflow", context }
       : { type: "prepareGitHubWorkflow", context }
@@ -60,22 +49,21 @@ export function reconcileGitHubAction(doc: Document, href: string, sendMessage: 
       if (response.prepared) {
         prepared = response.prepared
         button.textContent = "Confirm and start"
-        status.textContent = [
+        setState("idle", [
           `Workflow: ${prepared.workflowName}`,
           `Repository: ${prepared.repository} (${prepared.repositoryPresetName})`,
-          `PR: #${prepared.pullRequestNumber}`,
           `Checkout: ${prepared.primaryDir}`,
-        ].join("\n")
+        ].join("\n"))
       } else {
         button.textContent = "Started in Legato"
-        status.textContent = response.navigationWarning ?? "Workflow started."
+        setState("success", response.navigationWarning ?? "Workflow started.")
       }
     }).catch((error: unknown) => {
-      status.textContent = error instanceof Error ? error.message : String(error)
       button.textContent = prepared ? "Confirm and start" : "Retry Legato review"
+      setState("error", error instanceof Error ? error.message : String(error))
     }).finally(() => {
       busy = false
-      button.disabled = false
+      if (status.dataset.state === "loading") setState("idle", "")
     })
   })
 

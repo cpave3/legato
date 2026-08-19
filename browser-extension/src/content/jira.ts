@@ -1,3 +1,5 @@
+import { createLegatoFab } from "./legato-fab"
+
 export type JiraTicketContext = { ticketId: string }
 
 type MessageResponse = { ok: true; taskUrl: string; navigationWarning?: string } | { ok: false; error: string }
@@ -24,41 +26,30 @@ export function reconcileJiraAction(doc: Document, href: string, sendMessage: Se
   if (existing?.dataset.ticketId === context.ticketId) return
   existing?.remove()
 
-  const root = doc.createElement("div")
-  root.id = ACTION_ID
+  const fab = createLegatoFab(doc, {
+    id: ACTION_ID,
+    title: "Jira ticket import",
+    subtitle: context.ticketId,
+    actionLabel: `Import ${context.ticketId} to Legato`,
+  })
+  const { root, button, status, setState } = fab
   root.dataset.ticketId = context.ticketId
-  root.style.cssText = [
-    "position:fixed", "right:24px", "bottom:24px", "z-index:2147483647",
-    "display:flex", "flex-direction:column", "gap:8px", "width:min(320px,calc(100vw - 48px))",
-    "padding:12px", "border:1px solid #dfe1e6", "border-radius:8px", "background:#fff",
-    "color:#172b4d", "box-shadow:0 8px 24px rgba(9,30,66,.25)",
-  ].join(";")
-  const button = doc.createElement("button")
-  button.type = "button"
-  button.textContent = `Import ${context.ticketId} to Legato`
-  button.style.cssText = "padding:8px 12px;border:0;border-radius:4px;background:#0c66e4;color:#fff;font:600 14px system-ui;cursor:pointer"
-  const status = doc.createElement("span")
-  status.setAttribute("role", "status")
-  status.setAttribute("aria-live", "polite")
-  status.style.cssText = "font:12px/1.4 system-ui;white-space:pre-line"
-  root.append(button, status)
 
   let busy = false
   button.addEventListener("click", () => {
     if (busy) return
     busy = true
-    button.disabled = true
-    status.textContent = "Importing ticket…"
+    setState("loading", "Importing ticket…")
     void sendMessage({ type: "importJiraTicket", context }).then((response) => {
       if (!response.ok) throw new Error(response.error)
       button.textContent = "Imported to Legato"
-      status.textContent = response.navigationWarning ?? "Ticket imported and opened in Legato."
+      setState("success", response.navigationWarning ?? "Ticket imported and opened in Legato.")
     }).catch((error: unknown) => {
       button.textContent = `Retry import ${context.ticketId}`
-      status.textContent = error instanceof Error ? error.message : String(error)
+      setState("error", error instanceof Error ? error.message : String(error))
     }).finally(() => {
       busy = false
-      button.disabled = false
+      if (status.dataset.state === "loading") setState("idle", "")
     })
   })
 

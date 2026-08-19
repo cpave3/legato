@@ -27,6 +27,9 @@ describe("reconcileGitHubAction", () => {
     expect(action.style.position).toBe("fixed")
     expect(action.style.right).toBe("24px")
     expect(action.style.bottom).toBe("24px")
+    expect(action.textContent).toContain("LEGATO")
+    expect(action.textContent).toContain("Pull request review")
+    expect(action.textContent).toContain("cpave3/legato · #12")
   })
 
   it("inserts one accessible action and removes it outside a PR", () => {

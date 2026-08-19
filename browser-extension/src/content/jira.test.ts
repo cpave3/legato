@@ -31,6 +31,9 @@ describe("reconcileJiraAction", () => {
     expect(action.style.position).toBe("fixed")
     expect(action.style.right).toBe("24px")
     expect(action.style.bottom).toBe("24px")
+    expect(action.textContent).toContain("LEGATO")
+    expect(action.textContent).toContain("Jira ticket import")
+    expect(action.textContent).toContain("AG-9804")
     expect(action.querySelector("button")?.textContent).toBe("Import AG-9804 to Legato")
 
     reconcileJiraAction(document, "https://urbanx-development.atlassian.net/issues", send)
