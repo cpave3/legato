@@ -150,7 +150,7 @@ func commandTree() *commandDef {
 			[]commandFlag{valueFlag("execution-id", "id", "Owning Legato execution ID"), valueFlag("working-dir", "path", "Agent working directory"), valueFlag("session-id", "id", "Reporting Chimera session ID"), jsonFlag},
 			"legato agent permission-resolved <task-id> --execution-id <id>"),
 		leaf("session-created", "Record an integration-created agent session", runAgentSessionCreatedContract,
-			[]argumentDef{arg("task-id", "Task ID"), arg("session-id", "External session ID")}, []commandFlag{jsonFlag},
+			[]argumentDef{arg("task-id", "Task ID"), arg("session-id", "External session ID")}, []commandFlag{boolFlag("hook-payload", "Validate a Chimera SessionCreated JSON payload from stdin"), jsonFlag},
 			"legato agent session-created <task-id> <session-id>"),
 		leaf("peers", "List agents sharing this Git worktree", runAgentPeersContract, nil,
 			[]commandFlag{valueFlag("task", "task-id", "Caller task; defaults to LEGATO_TASK_ID"), valueFlag("execution-id", "id", "Caller execution; defaults to LEGATO_EXECUTION_ID"), valueFlag("directory", "path", "Resolve peers for this directory"), jsonFlag},

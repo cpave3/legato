@@ -91,7 +91,7 @@ func TestChimeraAdapter_InstallHooks(t *testing.T) {
 		}
 		wantCmd := fmt.Sprintf("%s agent state \"$LEGATO_TASK_ID\" --execution-id \"$LEGATO_EXECUTION_ID\" --activity %q --working-dir \"$PWD\" --session-id \"$CHIMERA_SESSION_ID\" --event %q", "/usr/bin/legato", ev.activity, ev.dir)
 		if ev.dir == "SessionCreated" {
-			wantCmd = `/usr/bin/legato agent session-created "$LEGATO_TASK_ID" "$CHIMERA_SESSION_ID"`
+			wantCmd = `/usr/bin/legato agent session-created "$LEGATO_TASK_ID" "$CHIMERA_SESSION_ID" --hook-payload`
 		} else if ev.dir == "PermissionResolved" {
 			wantCmd = `/usr/bin/legato agent permission-resolved "$LEGATO_TASK_ID" --execution-id "$LEGATO_EXECUTION_ID" --working-dir "$PWD" --session-id "$CHIMERA_SESSION_ID"`
 		}
@@ -229,6 +229,47 @@ func TestChimeraLaunchCommand(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestChimeraSessionCreatedScriptForwardsPayloadAndExitStatus(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	binDir := t.TempDir()
+	argsPath := filepath.Join(binDir, "args")
+	stdinPath := filepath.Join(binDir, "stdin")
+	fakeLegato := filepath.Join(binDir, "legato")
+	fake := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" > %s\ncat > %s\nexit 23\n", argsPath, stdinPath)
+	if err := os.WriteFile(fakeLegato, []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := hooks.NewChimeraAdapter(fakeLegato)
+	if err := adapter.InstallHooks(""); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(home, ".chimera", "hooks", "SessionCreated", "legato-session-created.sh")
+	command := exec.Command(script)
+	command.Env = append(os.Environ(), "LEGATO_TASK_ID=task-1", "CHIMERA_SESSION_ID=session-1")
+	command.Stdin = strings.NewReader(`{"event":"SessionCreated","session_id":"session-1","session_name":"task-1","cwd":"/repo"}`)
+	err := command.Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 23 {
+		t.Fatalf("script error = %v, want exit 23", err)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(args) != "agent session-created task-1 session-1 --hook-payload\n" {
+		t.Fatalf("args = %q", args)
+	}
+	payload, err := os.ReadFile(stdinPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(payload) != `{"event":"SessionCreated","session_id":"session-1","session_name":"task-1","cwd":"/repo"}` {
+		t.Fatalf("stdin = %q", payload)
 	}
 }
 

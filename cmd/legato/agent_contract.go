@@ -277,10 +277,17 @@ func runAgentSessionCreatedContract(args []string) int {
 		return code
 	}
 	defer db.Close()
-	if err := cli.AgentSessionCreated(db, parsed.Positionals[0], parsed.Positionals[1]); err != nil {
+	data := map[string]any{"task_id": parsed.Positionals[0], "session_id": parsed.Positionals[1]}
+	if parsed.Present["hook-payload"] {
+		registered, err := cli.AgentSessionCreatedFromHook(db, parsed.Positionals[0], parsed.Positionals[1], os.Stdin)
+		if err != nil {
+			return renderCommandError(command, commandDomainError(err), jsonMode)
+		}
+		data["registered"] = registered
+	} else if err := cli.AgentSessionCreated(db, parsed.Positionals[0], parsed.Positionals[1]); err != nil {
 		return renderCommandError(command, commandDomainError(err), jsonMode)
 	}
-	return writeCommandSuccess(command, map[string]any{"task_id": parsed.Positionals[0], "session_id": parsed.Positionals[1]}, "", jsonMode)
+	return writeCommandSuccess(command, data, "", jsonMode)
 }
 
 func runAgentSummaryContract(args []string) int {
