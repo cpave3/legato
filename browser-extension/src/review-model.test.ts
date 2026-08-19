@@ -45,7 +45,10 @@ describe("loadReviewModel", () => {
     const dependencies = deps({ run: runs[0] })
     dependencies.listRuns.mockResolvedValue([{ ...runs[0], workflow_name: "other" }, { ...runs[1], inputs_json: "{\"repo\":\"cpave3/legato\",\"pr_number\":99}" }])
     const model = await loadReviewModel(4, undefined, dependencies)
-    expect(model).toMatchObject({ state: "empty", runs: [] })
+    expect(model).toMatchObject({
+      state: "empty", runs: [],
+      emptyMessage: "No review runs matched workflow review-pr with repo=cpave3/legato, pr_number=42. Check the extension options or start a review from this pull request.",
+    })
     expect(dependencies.getRun).not.toHaveBeenCalled()
   })
 

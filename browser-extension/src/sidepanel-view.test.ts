@@ -20,6 +20,7 @@ describe("renderReviewPanelView", () => {
   it("renders the no-run state", () => {
     renderReviewPanelView(document, base)
     expect(document.querySelector("#state")?.textContent).toContain("No matching review run")
+    expect((document.querySelector("#run-label") as HTMLElement).hidden).toBe(true)
     expect((document.querySelector("#details") as HTMLElement).hidden).toBe(true)
   })
 

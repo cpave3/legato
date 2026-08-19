@@ -17,6 +17,7 @@ export type ReviewPanelModel = ReviewRunSummary & {
   markdown?: string
   poll: boolean
   runUrl?: string
+  emptyMessage?: string
 }
 
 type ReviewModelDependencies = {
@@ -54,7 +55,13 @@ export async function loadReviewModel(tabId: number, selectedRunId?: string, dep
   const lookup = buildReviewLookup(config, context, await deps.discover(config))
   const listedRuns = await deps.listRuns(config, lookup.workflowName, lookup.inputs)
   const runs = listedRuns.filter((run) => runMatchesLookup(run, lookup.workflowName, lookup.inputs))
-  if (runs.length === 0) return { context, runs, state: "empty", status: "", poll: false }
+  if (runs.length === 0) {
+    const inputSummary = Object.entries(lookup.inputs).map(([key, value]) => `${key}=${value}`).join(", ")
+    return {
+      context, runs, state: "empty", status: "", poll: false,
+      emptyMessage: `No review runs matched workflow ${lookup.workflowName} with ${inputSummary}. Check the extension options or start a review from this pull request.`,
+    }
+  }
   const selected = selectedRunId ? runs.find((run) => run.id === selectedRunId) : runs[0]
   if (!selected) throw new Error("Selected run does not match this pull request")
   const view = await deps.getRun(config, selected.id)

@@ -28,7 +28,7 @@ export function renderReviewPanelView(doc: Document, model: ReviewPanelModel): v
   error.style.display = "none"
 
   if (model.state === "empty") {
-    stateElement.textContent = "No matching review run. Start the configured workflow from the Legato action on this pull request."
+    stateElement.textContent = model.emptyMessage ?? "No matching review run. Start the configured workflow from the Legato action on this pull request."
     return
   }
   badge.textContent = model.state === "ready" ? "Review ready" : model.status.replaceAll("_", " ")
