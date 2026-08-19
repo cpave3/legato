@@ -1,70 +1,57 @@
 import type { ReviewPanelModel } from "./review-model"
+import { createReviewPanelController } from "./sidepanel-controller"
 import { renderReviewPanelView } from "./sidepanel-view"
 
 const stateElement = document.querySelector<HTMLElement>("#state")!
 const runSelect = document.querySelector<HTMLSelectElement>("#run-select")!
 const details = document.querySelector<HTMLElement>("#details")!
 const refreshButton = document.querySelector<HTMLButtonElement>("#refresh")!
-
-let tabId: number | undefined
-let selectedRunId: string | undefined
+let windowId: number | undefined
 let pollTimer: number | undefined
-let initialContextRetries = 0
 
-function schedulePoll(enabled: boolean): void {
-  if (pollTimer !== undefined) window.clearTimeout(pollTimer)
-  pollTimer = enabled ? window.setTimeout(() => { void refresh() }, 4_000) : undefined
-}
-
-async function refresh(): Promise<void> {
-  if (tabId === undefined) return
-  stateElement.hidden = false
-  stateElement.textContent = "Loading review…"
-  try {
-    const response = await chrome.runtime.sendMessage({ type: "getReviewModel", tabId, selectedRunId }) as { ok: boolean; review?: ReviewPanelModel; error?: string }
-    if (!response.ok || !response.review) throw new Error(response.error || "Review lookup failed")
-    initialContextRetries = 0
-    selectedRunId = response.review.selectedRunId
-    renderReviewPanelView(document, response.review)
-    schedulePoll(response.review.poll)
-  } catch (caught) {
-    if (caught instanceof Error && caught.message.includes("No GitHub pull request context") && initialContextRetries < 5) {
-      initialContextRetries++
-      pollTimer = window.setTimeout(() => { void refresh() }, 100)
-      return
+const controller = createReviewPanelController({
+  load: async (tabId, selectedRunId) => {
+    let lastError = "Review lookup failed"
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const response = await chrome.runtime.sendMessage({ type: "getReviewModel", tabId, selectedRunId }) as { ok: boolean; review?: ReviewPanelModel; error?: string }
+      if (response.ok && response.review) return response.review
+      lastError = response.error || lastError
+      if (!lastError.includes("No GitHub pull request context") || attempt === 5) break
+      await new Promise((resolve) => window.setTimeout(resolve, 100))
     }
-    initialContextRetries = 0
-    schedulePoll(false)
+    throw new Error(lastError)
+  },
+  render: (model) => {
+    renderReviewPanelView(document, model)
+  },
+  showError: (caught) => {
     details.hidden = true
     stateElement.hidden = false
     stateElement.textContent = caught instanceof Error ? caught.message : String(caught)
-  }
-}
-
-runSelect.addEventListener("change", () => {
-  selectedRunId = runSelect.value
-  void refresh()
+  },
+  schedule: (callback) => { pollTimer = window.setTimeout(callback, 4_000) },
+  cancel: () => {
+    if (pollTimer !== undefined) window.clearTimeout(pollTimer)
+    pollTimer = undefined
+  },
 })
-refreshButton.addEventListener("click", () => { void refresh() })
-window.addEventListener("unload", () => schedulePoll(false))
 
-async function followTab(nextTabId: number | undefined): Promise<void> {
-  if (nextTabId === tabId) return
-  tabId = nextTabId
-  selectedRunId = undefined
-  schedulePoll(false)
-  if (tabId === undefined) {
-    details.hidden = true
-    stateElement.hidden = false
-    stateElement.textContent = "Open this panel from a supported GitHub pull request."
-    return
-  }
-  await refresh()
-}
+runSelect.addEventListener("change", () => { void controller.selectRun(runSelect.value) })
+refreshButton.addEventListener("click", () => { void controller.refresh() })
+window.addEventListener("unload", () => { if (pollTimer !== undefined) window.clearTimeout(pollTimer) })
 
-chrome.tabs.onActivated.addListener((info) => { void followTab(info.tabId) })
+chrome.tabs.onActivated.addListener((info) => {
+  if (info.windowId === windowId) void controller.followTab(info.tabId)
+})
 chrome.tabs.onUpdated.addListener((updatedTabId, changeInfo, tab) => {
-  if (tab.active && changeInfo.url) void followTab(updatedTabId).then(() => refresh())
+  if (tab.active && tab.windowId === windowId && changeInfo.url) void controller.followTab(updatedTabId)
+})
+chrome.runtime.onMessage.addListener((message: unknown) => {
+  const update = message as { type?: string; tabId?: number }
+  if (update.type === "reviewContextUpdated" && update.tabId !== undefined) void controller.contextUpdated(update.tabId)
 })
 
-void chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => followTab(tabs[0]?.id))
+void chrome.windows.getCurrent().then((currentWindow) => {
+  windowId = currentWindow.id
+  return chrome.tabs.query({ active: true, windowId })
+}).then((tabs) => controller.followTab(tabs[0]?.id))

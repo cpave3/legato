@@ -1,13 +1,13 @@
 import DOMPurify from "dompurify"
 import { marked } from "marked"
 
-const forbiddenTags = ["script", "style", "iframe", "object", "embed", "form", "input", "button", "textarea", "select", "img", "video", "audio", "source"]
+const forbiddenTags = ["script", "style", "iframe", "object", "embed", "form", "input", "button", "textarea", "select", "img", "video", "audio", "source", "svg", "math"]
 
 export function renderSafeMarkdown(root: HTMLElement, markdown: string): void {
   const rendered = marked.parse(markdown, { async: false })
   root.innerHTML = DOMPurify.sanitize(rendered, {
     FORBID_TAGS: forbiddenTags,
-    FORBID_ATTR: ["style", "src", "srcset", "onerror", "onload"],
+    FORBID_ATTR: ["style", "src", "srcset", "xlink:href", "onerror", "onload"],
   })
   for (const link of root.querySelectorAll<HTMLAnchorElement>("a")) {
     let url: URL

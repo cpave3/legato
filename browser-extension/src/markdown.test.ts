@@ -26,8 +26,12 @@ describe("renderSafeMarkdown", () => {
 <form action="https://evil.test"><input autofocus></form>
 
 <iframe src="https://evil.test"></iframe>
+
+<svg><image href="https://tracker.test/svg"></image></svg>
+
+<math><mtext href="https://tracker.test/math">x</mtext></math>
 `)
-    expect(root.querySelector("script,img,form,input,iframe")).toBeNull()
+    expect(root.querySelector("script,img,form,input,iframe,svg,math")).toBeNull()
     expect(root.querySelector('a[href^="javascript:"]')).toBeNull()
     expect(root.textContent).toContain("bad")
     const link = root.querySelector<HTMLAnchorElement>('a[href="https://example.com/path"]')!

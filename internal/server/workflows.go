@@ -84,10 +84,15 @@ func (s *Server) workflowStartHandler() http.HandlerFunc {
 	}
 }
 
-var workflowInputKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
+var workflowInputKeyPattern = regexp.MustCompile(`^[^[:cntrl:].\[\]$]+$`)
 
 func parseWorkflowRunFilter(r *http.Request) (store.WorkflowRunFilter, error) {
 	query := r.URL.Query()
+	for _, name := range []string{"status", "workflow_name", "limit"} {
+		if len(query[name]) > 1 {
+			return store.WorkflowRunFilter{}, fmt.Errorf("query parameter %q must not be repeated", name)
+		}
+	}
 	filter := store.WorkflowRunFilter{
 		Status:       query.Get("status"),
 		WorkflowName: query.Get("workflow_name"),

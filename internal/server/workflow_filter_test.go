@@ -42,9 +42,12 @@ func TestWorkflowRunsEndpointRejectsMalformedFilters(t *testing.T) {
 		"limit=101",
 		"limit=nope",
 		"input.=value",
-		"input.bad%20key=value",
+		"input.bad.key=value",
 		"input.repo=",
 		"input.repo=one&input.repo=two",
+		"status=running&status=failed",
+		"workflow_name=one&workflow_name=two",
+		"limit=1&limit=2",
 	} {
 		t.Run(query, func(t *testing.T) {
 			s := New(nil, nil, nil, "")

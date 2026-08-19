@@ -53,6 +53,7 @@ describe("LegatoClient", () => {
 
     await client.workflowRun("run/1")
     await expect(client.artifactText("artifact/1")).resolves.toBe("# Review")
+    for (const [, init] of fetcher.mock.calls) expect(init?.headers).toEqual({ authorization: "Bearer top-secret" })
     expect(fetcher.mock.calls.map((call) => call[0])).toEqual([
       "http://localhost:3080/api/workflow-runs/run%2F1",
       "http://localhost:3080/api/workflow-artifacts/artifact%2F1",

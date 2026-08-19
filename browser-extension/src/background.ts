@@ -2,7 +2,7 @@ import { prepareGitHubWorkflow, type GitHubPullRequestContext, type PreparedWork
 import type { ExtensionConfig } from "./config"
 import { LegatoClient, type WorkflowDiscovery, type WorkflowRunView } from "./legato"
 import { hasOriginPermission } from "./permissions"
-import { saveReviewContext } from "./review-context"
+import { cacheReviewContext, clearReviewContext, loadReviewContext, saveReviewContext } from "./review-context"
 import { loadReviewModel, type ReviewPanelModel } from "./review-model"
 import { loadConfig } from "./storage"
 import { consumeTabCreated, loadWindowHistory, predecessorFor, queueActivation, recordTabCreated } from "./tab-history"
@@ -19,7 +19,6 @@ type Dependencies = {
   openRun: (url: string) => Promise<void>
   importTicket: (config: ExtensionConfig, ticketId: string) => Promise<{ id: string }>
   openTask: (url: string) => Promise<void>
-  saveReviewContext: (tabId: number, context: GitHubPullRequestContext) => Promise<void>
   loadReviewModel: (tabId: number, selectedRunId?: string) => Promise<ReviewPanelModel>
 }
 
@@ -31,7 +30,6 @@ const defaultDependencies: Dependencies = {
   openRun: openLegatoUrl,
   importTicket: (config, ticketId) => new LegatoClient(config.baseUrl, config.token).importRemoteTicket(ticketId),
   openTask: openLegatoUrl,
-  saveReviewContext,
   loadReviewModel,
 }
 
@@ -55,6 +53,17 @@ function validGitHubContext(value: unknown): value is GitHubPullRequestContext {
     && (candidate.pullRequestNumber ?? 0) > 0
 }
 
+function githubContextFromUrl(value: string): GitHubPullRequestContext | null {
+  try {
+    const url = new URL(value)
+    if (url.hostname !== "github.com") return null
+    const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/([1-9]\d*)(?:\/|$)/)
+    return match ? { repository: `${match[1]}/${match[2]}`, pullRequestNumber: Number(match[3]) } : null
+  } catch {
+    return null
+  }
+}
+
 function validJiraContext(value: unknown): value is { ticketId: string } {
   if (!value || typeof value !== "object") return false
   return typeof (value as { ticketId?: unknown }).ticketId === "string"
@@ -73,17 +82,13 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
         return { ok: true, review: await deps.loadReviewModel(request.tabId as number, request.selectedRunId as string | undefined) }
       }
       const jira = request.type === "importJiraTicket"
-      const github = request.type === "prepareGitHubWorkflow" || request.type === "startPreparedWorkflow" || request.type === "setReviewContext"
+      const github = request.type === "prepareGitHubWorkflow" || request.type === "startPreparedWorkflow"
       if (jira && !validJiraContext(request.context)) throw new Error("Invalid Jira ticket context")
       if (github && !validGitHubContext(request.context)) throw new Error("Invalid GitHub pull request context")
       if (!jira && !github) throw new Error("Unsupported extension message")
 
       const tabId = sender.tab?.id
       if (tabId === undefined) throw new Error("The action must originate from a browser tab")
-      if (request.type === "setReviewContext") {
-        await deps.saveReviewContext(tabId, request.context as GitHubPullRequestContext)
-        return { ok: true }
-      }
       const mutates = request.type === "startPreparedWorkflow" || jira
       const actionKey = jira ? `jira:${(request.context as { ticketId: string }).ticketId}` : `tab:${tabId}`
       if (mutates && active.has(actionKey)) return { ok: false, error: jira ? "This Jira ticket is already being imported" : "A Legato action is already running for this tab" }
@@ -125,9 +130,48 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
   }
 }
 
+export function openReviewPanelFromGesture(
+  tabId: number,
+  context: GitHubPullRequestContext,
+  effects: {
+    cache: (tabId: number, context: GitHubPullRequestContext) => void
+    persist: (tabId: number, context: GitHubPullRequestContext) => Promise<void>
+    open: (tabId: number) => Promise<void>
+    notify: (tabId: number) => void
+  },
+): Promise<void> {
+  effects.cache(tabId, context)
+  const opening = effects.open(tabId)
+  return effects.persist(tabId, context).then(() => {
+    effects.notify(tabId)
+    return opening
+  })
+}
+
 const handleMessage = createMessageHandler()
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+    const request = message as { type?: string; context?: unknown }
+    if (request.type !== "openReviewPanel") return false
+    const tabId = sender.tab?.id
+    if (tabId === undefined || !validGitHubContext(request.context)) {
+      sendResponse({ ok: false, error: "A valid GitHub pull request tab is required" })
+      return false
+    }
+    const context = request.context
+    void openReviewPanelFromGesture(tabId, context, {
+      cache: cacheReviewContext,
+      persist: saveReviewContext,
+      open: (id) => chrome.sidePanel.open({ tabId: id }),
+      notify: (id) => { void chrome.runtime.sendMessage({ type: "reviewContextUpdated", tabId: id }).catch(() => undefined) },
+    }).then(() => sendResponse({ ok: true })).catch((error: unknown) => {
+      sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) })
+    })
+    return true
+  })
+
+  chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+    if ((message as { type?: string }).type === "openReviewPanel") return false
     void handleMessage(message, sender).then(sendResponse)
     return true
   })
@@ -150,7 +194,15 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   })
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (!changeInfo.url || tab.windowId === undefined || !stripStreamDeckMarker(changeInfo.url).marked) return
+    if (!changeInfo.url || tab.windowId === undefined) return
+    void loadReviewContext(tabId).then((stored) => {
+      if (!stored) return
+      const next = githubContextFromUrl(changeInfo.url!)
+      if (!next || next.repository.toLowerCase() !== stored.repository.toLowerCase() || next.pullRequestNumber !== stored.pullRequestNumber) {
+        void clearReviewContext(tabId).then(() => { void chrome.runtime.sendMessage({ type: "reviewContextUpdated", tabId }).catch(() => undefined) })
+      }
+    })
+    if (!stripStreamDeckMarker(changeInfo.url).marked) return
     const fallbackCreatedAt = Date.now()
     void Promise.all([
       loadConfig(),

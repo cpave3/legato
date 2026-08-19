@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { DEFAULT_CONFIG } from "./config"
-import { createMessageHandler } from "./background"
+import { createMessageHandler, openReviewPanelFromGesture } from "./background"
 import type { WorkflowDiscovery } from "./legato"
 
 const discovery: WorkflowDiscovery = {
@@ -20,27 +20,40 @@ function dependencies() {
     openRun: vi.fn().mockResolvedValue(undefined),
     importTicket: vi.fn().mockResolvedValue({ id: "task-1" }),
     openTask: vi.fn().mockResolvedValue(undefined),
-    saveReviewContext: vi.fn().mockResolvedValue(undefined),
     loadReviewModel: vi.fn().mockResolvedValue({ state: "empty", status: "", context: { repository: "cpave3/legato", pullRequestNumber: 7 }, runs: [], poll: false }),
   }
 }
 
-describe("GitHub workflow messages", () => {
-  it("loads a review model for an explicit panel tab and run selection", async () => {
-    const deps = dependencies()
-    const response = await createMessageHandler(deps)({ type: "getReviewModel", tabId: 4, selectedRunId: "old" }, {})
-    expect(response).toMatchObject({ ok: true, review: { state: "empty" } })
-    expect(deps.loadReviewModel).toHaveBeenCalledWith(4, "old")
+describe("openReviewPanelFromGesture", () => {
+  it("invokes Side Panel open before context persistence settles", async () => {
+    const calls: string[] = []
+    let resolvePersist!: () => void
+    const persist = vi.fn(() => new Promise<void>((resolve) => { resolvePersist = resolve; calls.push("persist") }))
+    const effects = {
+      cache: vi.fn(() => calls.push("cache")),
+      persist,
+      open: vi.fn(async () => { calls.push("open") }),
+      notify: vi.fn(() => calls.push("notify")),
+    }
+    const result = openReviewPanelFromGesture(4, { repository: "cpave3/legato", pullRequestNumber: 7 }, effects)
+    expect(calls).toEqual(["cache", "open", "persist"])
+    resolvePersist()
+    await result
+    expect(calls).toEqual(["cache", "open", "persist", "notify"])
   })
+})
 
-  it("stores tab-scoped review context without querying Legato", async () => {
+describe("GitHub workflow messages", () => {
+  it("loads a secret-free review model for an explicit panel tab and run selection", async () => {
     const deps = dependencies()
-    const context = { repository: "cpave3/legato", pullRequestNumber: 7 }
-    const response = await createMessageHandler(deps)({ type: "setReviewContext", context }, { tab: { id: 4 } })
-
-    expect(response).toEqual({ ok: true })
-    expect(deps.saveReviewContext).toHaveBeenCalledWith(4, context)
-    expect(deps.discover).not.toHaveBeenCalled()
+    deps.loadReviewModel.mockResolvedValue({
+      state: "ready", status: "waiting", context: { repository: "cpave3/legato", pullRequestNumber: 7 },
+      runs: [], poll: false, markdown: "# Review", runUrl: "http://localhost:3080/workflows/runs/run-1",
+    })
+    const response = await createMessageHandler(deps)({ type: "getReviewModel", tabId: 4, selectedRunId: "old" }, {})
+    expect(response).toMatchObject({ ok: true, review: { state: "ready", markdown: "# Review" } })
+    expect(JSON.stringify(response)).not.toContain("top-secret")
+    expect(deps.loadReviewModel).toHaveBeenCalledWith(4, "old")
   })
 
   it("prepares a secret-free confirmation without starting a run", async () => {

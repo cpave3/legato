@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { parseGitHubPullRequest, reconcileGitHubAction } from "./github"
 
 describe("parseGitHubPullRequest", () => {
@@ -13,7 +13,6 @@ describe("parseGitHubPullRequest", () => {
 
 describe("reconcileGitHubAction", () => {
   beforeEach(() => { document.body.innerHTML = '<div data-testid="issue-metadata-fixed"></div>' })
-  afterEach(() => vi.unstubAllGlobals())
 
   it("renders a body-level floating action independent of GitHub page containers", () => {
     document.body.innerHTML = `
@@ -48,16 +47,13 @@ describe("reconcileGitHubAction", () => {
     expect(document.querySelector("#legato-pr-action")).toBeNull()
   })
 
-  it("opens review directly from the explicit user gesture and stores context", async () => {
-    const open = vi.fn().mockResolvedValue(undefined)
-    vi.stubGlobal("chrome", { sidePanel: { open }, windows: { WINDOW_ID_CURRENT: -2 } })
+  it("requests review opening from the explicit user gesture", async () => {
     const send = vi.fn().mockResolvedValue({ ok: true })
     reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
     const view = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((item) => item.textContent === "View review")!
     view.click()
-    expect(open).toHaveBeenCalledWith({ windowId: -2 })
     await vi.waitFor(() => expect(send).toHaveBeenCalledWith({
-      type: "setReviewContext",
+      type: "openReviewPanel",
       context: { repository: "cpave3/legato", pullRequestNumber: 12 },
     }))
   })
