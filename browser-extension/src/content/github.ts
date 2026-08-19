@@ -28,7 +28,13 @@ export function reconcileGitHubAction(doc: Document, href: string, sendMessage: 
   const root = doc.createElement("div")
   root.id = ACTION_ID
   root.dataset.context = key
-  root.style.cssText = "display:flex;flex-direction:column;gap:6px;margin-top:8px;width:100%"
+  root.style.cssText = [
+    "position:fixed", "right:24px", "bottom:24px", "z-index:2147483647",
+    "display:flex", "flex-direction:column", "gap:8px", "width:min(360px,calc(100vw - 48px))",
+    "padding:12px", "border:1px solid var(--borderColor-default,var(--color-border-default,#d0d7de))",
+    "border-radius:8px", "background:var(--bgColor-default,var(--color-canvas-default,#fff))",
+    "box-shadow:0 8px 24px rgba(140,149,159,.2)",
+  ].join(";")
   const button = doc.createElement("button")
   button.type = "button"
   button.textContent = "Prepare Legato review"
@@ -73,11 +79,7 @@ export function reconcileGitHubAction(doc: Document, href: string, sendMessage: 
     })
   })
 
-  const target = doc.querySelector(".discussion-sidebar-item.sidebar-assignee")
-    ?? doc.querySelector('[data-testid="issue-metadata-fixed"]')
-    ?? doc.querySelector(".gh-header-actions")
-    ?? doc.querySelector("main")
-  target?.append(root)
+  doc.body.append(root)
 }
 
 function sendMessage(message: unknown): Promise<MessageResponse> {

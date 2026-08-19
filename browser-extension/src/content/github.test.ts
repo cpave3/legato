@@ -14,19 +14,19 @@ describe("parseGitHubPullRequest", () => {
 describe("reconcileGitHubAction", () => {
   beforeEach(() => { document.body.innerHTML = '<div data-testid="issue-metadata-fixed"></div>' })
 
-  it("appends the action to the bottom of the reviewers sidebar", () => {
+  it("renders a body-level floating action independent of GitHub page containers", () => {
     document.body.innerHTML = `
-      <div class="discussion-sidebar-item sidebar-assignee js-discussion-sidebar-item">
-        <form id="reviewers-form"></form>
-      </div>
+      <div class="discussion-sidebar-item sidebar-assignee js-discussion-sidebar-item"></div>
       <div data-testid="issue-metadata-fixed"></div>
     `
     const send = vi.fn()
     reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
 
-    const sidebar = document.querySelector(".discussion-sidebar-item.sidebar-assignee")!
-    expect(sidebar.lastElementChild?.id).toBe("legato-pr-action")
-    expect(document.querySelector('[data-testid="issue-metadata-fixed"]')?.children).toHaveLength(0)
+    const action = document.querySelector<HTMLElement>("#legato-pr-action")!
+    expect(action.parentElement).toBe(document.body)
+    expect(action.style.position).toBe("fixed")
+    expect(action.style.right).toBe("24px")
+    expect(action.style.bottom).toBe("24px")
   })
 
   it("inserts one accessible action and removes it outside a PR", () => {
