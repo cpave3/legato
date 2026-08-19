@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -428,19 +430,48 @@ func (s *Store) ListWorkflowRunsByRelatedTask(ctx context.Context, taskID string
 	return runs, err
 }
 
-func (s *Store) ListWorkflowRuns(ctx context.Context, status string, limit int) ([]WorkflowRun, error) {
-	if limit <= 0 {
-		limit = 100
+type WorkflowRunFilter struct {
+	Status       string
+	WorkflowName string
+	Inputs       map[string]string
+	Limit        int
+}
+
+func (s *Store) ListWorkflowRuns(ctx context.Context, filter WorkflowRunFilter) ([]WorkflowRun, error) {
+	if filter.Limit <= 0 {
+		filter.Limit = 100
 	}
 	var runs []WorkflowRun
 	query := workflowRunSelect
 	args := []any{}
-	if status != "" {
-		query += " WHERE status = ?"
-		args = append(args, status)
+	conditions := []string{}
+	if filter.Status != "" {
+		conditions = append(conditions, "status = ?")
+		args = append(args, filter.Status)
+	}
+	if filter.WorkflowName != "" {
+		conditions = append(conditions, "workflow_name = ?")
+		args = append(args, filter.WorkflowName)
+	}
+	keys := make([]string, 0, len(filter.Inputs))
+	for key := range filter.Inputs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		conditions = append(conditions, `CASE json_type(inputs_json, ?)
+			WHEN 'true' THEN 'true'
+			WHEN 'false' THEN 'false'
+			ELSE CAST(json_extract(inputs_json, ?) AS TEXT)
+		END = ?`)
+		path := "$." + key
+		args = append(args, path, path, filter.Inputs[key])
+	}
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
 	}
 	query += " ORDER BY created_at DESC, id DESC LIMIT ?"
-	args = append(args, limit)
+	args = append(args, filter.Limit)
 	if err := s.db.SelectContext(ctx, &runs, query, args...); err != nil {
 		return nil, err
 	}

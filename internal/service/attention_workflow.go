@@ -8,7 +8,7 @@ import (
 )
 
 type WorkflowAttentionSource interface {
-	ListRuns(ctx context.Context, status string, limit int) ([]store.WorkflowRun, error)
+	ListRuns(ctx context.Context, filter store.WorkflowRunFilter) ([]store.WorkflowRun, error)
 	Show(ctx context.Context, runID string) (*store.WorkflowRunView, error)
 	TriggerStep(ctx context.Context, runID, stepID string, force bool) (*store.WorkflowRunView, error)
 	Retry(ctx context.Context, runID, stepID string, force bool) (*store.WorkflowRunView, error)
@@ -37,7 +37,7 @@ type workflowAttentionState struct {
 }
 
 func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInput, error) {
-	runs, err := a.workflows.ListRuns(ctx, "", 0)
+	runs, err := a.workflows.ListRuns(ctx, store.WorkflowRunFilter{})
 	if err != nil {
 		return nil, err
 	}

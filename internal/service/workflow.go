@@ -237,7 +237,7 @@ func (s *WorkflowService) ActiveAgentAttemptsByTask(ctx context.Context, taskID 
 }
 
 func (s *WorkflowService) AttentionCount(ctx context.Context) (int, error) {
-	runs, err := s.ListRuns(ctx, "", math.MaxInt)
+	runs, err := s.ListRuns(ctx, store.WorkflowRunFilter{Limit: math.MaxInt})
 	if err != nil {
 		return 0, err
 	}
@@ -250,8 +250,8 @@ func (s *WorkflowService) AttentionCount(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (s *WorkflowService) ListRuns(ctx context.Context, status string, limit int) ([]store.WorkflowRun, error) {
-	runs, err := s.store.ListWorkflowRuns(ctx, status, limit)
+func (s *WorkflowService) ListRuns(ctx context.Context, filter store.WorkflowRunFilter) ([]store.WorkflowRun, error) {
+	runs, err := s.store.ListWorkflowRuns(ctx, filter)
 	if err != nil {
 		return nil, err
 	}

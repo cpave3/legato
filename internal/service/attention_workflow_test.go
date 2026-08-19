@@ -15,7 +15,7 @@ type fakeWorkflowAttentionSource struct {
 	promptCalls  int
 }
 
-func (f *fakeWorkflowAttentionSource) ListRuns(context.Context, string, int) ([]store.WorkflowRun, error) {
+func (f *fakeWorkflowAttentionSource) ListRuns(context.Context, store.WorkflowRunFilter) ([]store.WorkflowRun, error) {
 	return f.runs, nil
 }
 func (f *fakeWorkflowAttentionSource) Show(context.Context, string) (*store.WorkflowRunView, error) {

@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/cpave3/legato/internal/engine/ipc"
+	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -26,7 +27,7 @@ func WorkflowRun(ctx context.Context, svc *service.WorkflowService, definition *
 	return json.NewEncoder(w).Encode(view)
 }
 func WorkflowRuns(ctx context.Context, svc *service.WorkflowService, status string, limit int, w io.Writer) error {
-	runs, err := svc.ListRuns(ctx, status, limit)
+	runs, err := svc.ListRuns(ctx, store.WorkflowRunFilter{Status: status, Limit: limit})
 	if err != nil {
 		return err
 	}

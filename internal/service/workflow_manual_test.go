@@ -49,7 +49,7 @@ func TestWorkflowWaitsBeforeStartingManualStep(t *testing.T) {
 	if len(view.Attempts) != 1 || len(cleanup.starts) != 0 {
 		t.Fatalf("attempts=%+v cleanup starts=%d", view.Attempts, len(cleanup.starts))
 	}
-	runs, err := svc.ListRuns(context.Background(), "", 10)
+	runs, err := svc.ListRuns(context.Background(), store.WorkflowRunFilter{Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}

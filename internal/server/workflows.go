@@ -3,10 +3,14 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -20,7 +24,7 @@ func legacyWorkflowDirPath() string {
 
 type WorkflowService interface {
 	Start(context.Context, *workflowengine.Definition, map[string]string) (*store.WorkflowRunView, error)
-	ListRuns(context.Context, string, int) ([]store.WorkflowRun, error)
+	ListRuns(context.Context, store.WorkflowRunFilter) ([]store.WorkflowRun, error)
 	Show(context.Context, string) (*store.WorkflowRunView, error)
 	Cancel(context.Context, string, string) (*store.WorkflowRunView, error)
 	Retry(context.Context, string, string, bool) (*store.WorkflowRunView, error)
@@ -79,6 +83,37 @@ func (s *Server) workflowStartHandler() http.HandlerFunc {
 		s.writeJSON(w, http.StatusCreated, view)
 	}
 }
+
+var workflowInputKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*$`)
+
+func parseWorkflowRunFilter(r *http.Request) (store.WorkflowRunFilter, error) {
+	query := r.URL.Query()
+	filter := store.WorkflowRunFilter{
+		Status:       query.Get("status"),
+		WorkflowName: query.Get("workflow_name"),
+		Inputs:       map[string]string{},
+		Limit:        100,
+	}
+	if raw := query.Get("limit"); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil || limit < 1 || limit > 100 {
+			return filter, fmt.Errorf("limit must be between 1 and 100")
+		}
+		filter.Limit = limit
+	}
+	for name, values := range query {
+		if !strings.HasPrefix(name, "input.") {
+			continue
+		}
+		key := strings.TrimPrefix(name, "input.")
+		if !workflowInputKeyPattern.MatchString(key) || len(values) != 1 || values[0] == "" {
+			return filter, fmt.Errorf("invalid workflow input filter %q", name)
+		}
+		filter.Inputs[key] = values[0]
+	}
+	return filter, nil
+}
+
 func (s *Server) workflowRunsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s.workflows == nil {
@@ -89,7 +124,12 @@ func (s *Server) workflowRunsHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		runs, err := s.workflows.ListRuns(r.Context(), r.URL.Query().Get("status"), 100)
+		filter, err := parseWorkflowRunFilter(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		runs, err := s.workflows.ListRuns(r.Context(), filter)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return

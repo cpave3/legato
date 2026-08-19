@@ -26,7 +26,7 @@ type forceWorkflowService struct {
 func (f *forceWorkflowService) Start(context.Context, *workflowengine.Definition, map[string]string) (*store.WorkflowRunView, error) {
 	return nil, nil
 }
-func (f *forceWorkflowService) ListRuns(context.Context, string, int) ([]store.WorkflowRun, error) {
+func (f *forceWorkflowService) ListRuns(context.Context, store.WorkflowRunFilter) ([]store.WorkflowRun, error) {
 	return nil, nil
 }
 func (f *forceWorkflowService) ActiveAgentAttemptsByTask(_ context.Context, taskID string) ([]store.WorkflowStepAttempt, error) {
