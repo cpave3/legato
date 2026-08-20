@@ -50,6 +50,22 @@ describe("createLegatoFab", () => {
     expect(fab.root.style.width).toBe("56px")
   })
 
+  it("stays expanded when an action click releases focus", () => {
+    const fab = createLegatoFab(document, { id: "test-legato-fab", title: "PR review", subtitle: "#42", actionLabel: "Prepare" })
+    document.body.append(fab.root)
+    fab.root.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }))
+    fab.button.addEventListener("click", () => {
+      fab.setState("loading", "Resolving workflow…")
+      fab.root.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: null }))
+    })
+
+    fab.button.click()
+
+    expect(fab.root.dataset.expanded).toBe("true")
+    expect(fab.status.textContent).toBe("Resolving workflow…")
+    expect(fab.status.style.display).toBe("block")
+  })
+
   it("collapses when Escape releases focus", () => {
     const fab = createLegatoFab(document, { id: "test-legato-fab", title: "PR review", subtitle: "#42", actionLabel: "Start" })
     document.body.append(fab.root)

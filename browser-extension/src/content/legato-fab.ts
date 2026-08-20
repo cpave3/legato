@@ -104,13 +104,19 @@ const stateColors: Record<LegatoFabState, string> = {
     actions.style.display = expanded ? "flex" : "none"
     status.style.display = expanded && status.textContent ? "block" : "none"
   }
+  let handlingActionClick = false
+  actions.addEventListener("click", () => {
+    handlingActionClick = true
+    setExpanded(true)
+    queueMicrotask(() => { handlingActionClick = false })
+  }, { capture: true })
   root.addEventListener("mouseenter", () => setExpanded(true))
   root.addEventListener("mouseleave", () => {
-    if (!root.contains(doc.activeElement)) setExpanded(false)
+    if (!handlingActionClick && !root.contains(doc.activeElement)) setExpanded(false)
   })
   root.addEventListener("focusin", () => setExpanded(true))
   root.addEventListener("focusout", (event) => {
-    if (!root.contains(event.relatedTarget as Node | null)) setExpanded(false)
+    if (!handlingActionClick && !root.contains(event.relatedTarget as Node | null)) setExpanded(false)
   })
   root.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return
