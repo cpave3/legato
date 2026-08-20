@@ -45,6 +45,13 @@ describe("LegatoClient", () => {
     expect(fetcher.mock.calls[0][0]).toBe("http://localhost:3080/api/workflow-runs?workflow_name=review-pr&limit=100&input.repo=cpave3%2Flegato&input.pr_number=42")
   })
 
+  it("normalizes a null workflow run list to an empty collection", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("null", { status: 200 }))
+    const client = new LegatoClient("http://localhost:3080", "top-secret", fetcher)
+
+    await expect(client.listWorkflowRuns("review-pr", {})).resolves.toEqual([])
+  })
+
   it("fetches workflow details and artifact text with authentication", async () => {
     const fetcher = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(new Response(JSON.stringify({ run: { id: "run-1" } }), { status: 200 }))

@@ -139,6 +139,9 @@ func (s *Server) workflowRunsHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), 500)
 			return
 		}
+		if runs == nil {
+			runs = []store.WorkflowRun{}
+		}
 		s.writeJSON(w, 200, runs)
 	}
 }

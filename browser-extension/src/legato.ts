@@ -53,10 +53,10 @@ export class LegatoClient {
     })
   }
 
-  listWorkflowRuns(workflowName: string, inputs: Record<string, string>, limit = 100): Promise<WorkflowRun[]> {
+  async listWorkflowRuns(workflowName: string, inputs: Record<string, string>, limit = 100): Promise<WorkflowRun[]> {
     const query = new URLSearchParams({ workflow_name: workflowName, limit: String(limit) })
     for (const [key, value] of Object.entries(inputs)) query.set(`input.${key}`, value)
-    return this.request<WorkflowRun[]>(`/api/workflow-runs?${query}`)
+    return (await this.request<WorkflowRun[] | null>(`/api/workflow-runs?${query}`)) ?? []
   }
 
   workflowRun(id: string): Promise<WorkflowRunView> {
