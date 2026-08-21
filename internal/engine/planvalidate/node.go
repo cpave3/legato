@@ -16,10 +16,17 @@ import (
 const (
 	mermaidVersion  = "11.16.0"
 	wiremarkVersion = "0.1.0"
+	jsdomVersion    = "29.0.1"
 )
 
-var nodeHelper = []byte(`import mermaid from "mermaid";
+var nodeHelper = []byte(`import { JSDOM } from "jsdom";
 import { parse as parseWiremark } from "@wiremark/core";
+
+const dom = new JSDOM("");
+globalThis.window = dom.window;
+globalThis.document = dom.window.document;
+globalThis.DOMPurify = (await import("dompurify")).default;
+const mermaid = (await import("mermaid")).default;
 
 const input = JSON.parse(await new Promise((resolve, reject) => {
   let value = "";
@@ -143,7 +150,7 @@ func ensureNodeCache(options Options) (string, error) {
 		root = filepath.Join(userCache, "legato", "plan-validator")
 	}
 	hash := sha256.Sum256(nodeHelper)
-	key := fmt.Sprintf("v1-mermaid-%s-wiremark-%s-%s", mermaidVersion, wiremarkVersion, hex.EncodeToString(hash[:6]))
+	key := fmt.Sprintf("v1-mermaid-%s-wiremark-%s-jsdom-%s-%s", mermaidVersion, wiremarkVersion, jsdomVersion, hex.EncodeToString(hash[:6]))
 	cacheDir := filepath.Join(root, key)
 	if cacheComplete(cacheDir) {
 		return cacheDir, nil
@@ -156,7 +163,7 @@ func ensureNodeCache(options Options) (string, error) {
 		return "", fmt.Errorf("create plan validator cache: %w", err)
 	}
 	defer os.RemoveAll(temporary)
-	packageJSON := fmt.Sprintf(`{"private":true,"type":"module","dependencies":{"mermaid":"%s","@wiremark/core":"%s"}}`, mermaidVersion, wiremarkVersion)
+	packageJSON := fmt.Sprintf(`{"private":true,"type":"module","dependencies":{"mermaid":"%s","@wiremark/core":"%s","jsdom":"%s"}}`, mermaidVersion, wiremarkVersion, jsdomVersion)
 	if err := os.WriteFile(filepath.Join(temporary, "package.json"), []byte(packageJSON), 0o644); err != nil {
 		return "", err
 	}
@@ -168,7 +175,7 @@ func ensureNodeCache(options Options) (string, error) {
 		npm = "npm"
 	}
 	if _, err := runCommand(options, npm, []string{"install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false"}, temporary, nil); err != nil {
-		return "", fmt.Errorf("install mermaid@%s and @wiremark/core@%s with npm: %w", mermaidVersion, wiremarkVersion, err)
+		return "", fmt.Errorf("install mermaid@%s, @wiremark/core@%s, and jsdom@%s with npm: %w", mermaidVersion, wiremarkVersion, jsdomVersion, err)
 	}
 	if !cacheComplete(temporary) {
 		return "", errors.New("npm completed without installing the plan validator packages")
@@ -183,7 +190,7 @@ func ensureNodeCache(options Options) (string, error) {
 }
 
 func cacheComplete(path string) bool {
-	for _, relative := range []string{"validate.mjs", "node_modules/mermaid/package.json", "node_modules/@wiremark/core/package.json"} {
+	for _, relative := range []string{"validate.mjs", "node_modules/mermaid/package.json", "node_modules/@wiremark/core/package.json", "node_modules/jsdom/package.json"} {
 		if info, err := os.Stat(filepath.Join(path, relative)); err != nil || info.IsDir() {
 			return false
 		}

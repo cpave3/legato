@@ -49,7 +49,7 @@ func TestValidateInstallsPinnedPackagesOnceAndTypesInstallFailure(t *testing.T) 
 	run := func(name string, args []string, dir string, stdin []byte) ([]byte, error) {
 		if name == "npm" {
 			installs++
-			for _, relative := range []string{"node_modules/mermaid/package.json", "node_modules/@wiremark/core/package.json"} {
+			for _, relative := range []string{"node_modules/mermaid/package.json", "node_modules/@wiremark/core/package.json", "node_modules/jsdom/package.json"} {
 				path := filepath.Join(dir, relative)
 				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 					return nil, err
