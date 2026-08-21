@@ -3,9 +3,10 @@ import { MemoryRouter, useLocation } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TaskAgentAction } from "../TaskAgentAction"
 
-const { apiFetch, select, runningAgentState } = vi.hoisted(() => ({
+const { apiFetch, select, startSwarmProps, runningAgentState } = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   select: vi.fn(),
+  startSwarmProps: { current: null as null | Record<string, unknown> },
   runningAgentState: {
     agent: null as null | { task_id: string; task_title: string; status: string },
     agents: [] as { task_id: string; task_title: string; status: string }[],
@@ -21,6 +22,7 @@ vi.mock("../../../hooks/useSettings", () => {
   return { useSettings: () => ({ data }) }
 })
 vi.mock("../../../lib/api", () => ({ apiFetch }))
+vi.mock("../../StartSwarmModal", () => ({ StartSwarmModal: (props: Record<string, unknown>) => { startSwarmProps.current = props; return null } }))
 
 function CurrentPath() {
   return <span data-testid="current-path">{useLocation().pathname}</span>
@@ -34,6 +36,7 @@ describe("TaskAgentAction", () => {
     runningAgentState.agent = null
     runningAgentState.agents = []
     runningAgentState.loading = false
+    startSwarmProps.current = null
   })
 
   it("goes directly to the running agent without opening or launching", () => {
@@ -92,6 +95,37 @@ describe("TaskAgentAction", () => {
     view.rerender(<MemoryRouter><TaskAgentAction taskId="T-1" /></MemoryRouter>)
     expect(screen.getByRole("button", { name: "Open agent" })).toBeTruthy()
     expect(screen.queryByRole("button", { name: "Go to agent" })).toBeNull()
+  })
+
+  it("opens a task-scoped swarm launch with the resolved directory", () => {
+    render(<MemoryRouter><TaskAgentAction taskId="T-1" worktreePath="/trees/t-1" rememberedWorkingDir="/remembered" /></MemoryRouter>)
+
+    fireEvent.click(screen.getByRole("button", { name: "Start swarm" }))
+
+    expect(startSwarmProps.current).toEqual(expect.objectContaining({
+      open: true,
+      preSelectedParentId: "T-1",
+      initialWorkingDir: "/trees/t-1",
+    }))
+  })
+
+  it("goes directly to a task swarm conductor", () => {
+    runningAgentState.agents = [{
+      task_id: "T-1",
+      task_title: "Conductor",
+      status: "running",
+      role: "conductor",
+      parent_task_id: "T-1",
+    } as typeof runningAgentState.agents[number]]
+    render(<MemoryRouter initialEntries={["/board"]}>
+      <TaskAgentAction taskId="T-1" />
+      <CurrentPath />
+    </MemoryRouter>)
+
+    fireEvent.click(screen.getByRole("button", { name: "Go to swarm" }))
+
+    expect(select).toHaveBeenCalledWith("T-1")
+    expect(screen.getByTestId("current-path").textContent).toBe("/agents")
   })
 
   it("defaults agent launch to the task worktree", async () => {

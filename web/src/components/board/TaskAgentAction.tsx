@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Bot } from "lucide-react"
+import { Bot, Layers } from "lucide-react"
 import { useServer } from "../../hooks/useServer"
 import { useAgentSelection } from "../../hooks/useAgentSelection"
 import { useRunningAgent } from "../../hooks/useRunningAgent"
@@ -10,6 +10,8 @@ import { RepositoryPresetSelect, type RepositoryPreset } from "../RepositoryPres
 import { Button } from "../ui/Button"
 import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "../ui/Dialog"
 import { InlineNotice } from "../ui/InlineNotice"
+import { StartSwarmModal } from "../StartSwarmModal"
+import { resolveTaskWorkingDirectory } from "../../lib/taskLaunch"
 
 export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDir = "", hasChimeraSession = false }: { taskId: string; worktreePath?: string; rememberedWorkingDir?: string; hasChimeraSession?: boolean }) {
   const { baseUrl } = useServer()
@@ -18,6 +20,7 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
   const { setSelectedAgentId } = useAgentSelection()
   const { agent, agents, loading } = useRunningAgent(taskId)
   const [open, setOpen] = useState(false)
+  const [swarmOpen, setSwarmOpen] = useState(false)
   const [agentKind, setAgentKind] = useState("")
   const [workingDir, setWorkingDir] = useState("")
   const [repositories, setRepositories] = useState<RepositoryPreset[]>([])
@@ -32,7 +35,7 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
   useEffect(() => {
     if (!open) return
     setRepositoryPreset("")
-    setWorkingDir(worktreePath || rememberedWorkingDir || settings.data?.working_dir || "")
+    setWorkingDir(resolveTaskWorkingDirectory(worktreePath, rememberedWorkingDir, settings.data?.working_dir || ""))
     setChimeraSessionPolicy("resume")
     setInitialized(false)
     setRepositories((settings.data?.repositories ?? []) as RepositoryPreset[])
@@ -45,6 +48,8 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
   }, [open, baseUrl, worktreePath, rememberedWorkingDir, settings.data])
 
   const offersChimeraSessionChoice = hasChimeraSession && (agentKind === "chimera" || (agentKind === "" && defaultAdapter === "chimera"))
+  const swarmConductor = agents.find((value) => value.role === "conductor" && value.parent_task_id === taskId)
+  const initialWorkingDir = resolveTaskWorkingDirectory(worktreePath, rememberedWorkingDir, settings.data?.working_dir || "")
 
   async function launch() {
     setBusy(true)
@@ -70,19 +75,27 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
   }
 
   return <>
-    {loading
-      ? <Button data-task-primary-action size="sm" className="w-full justify-start" disabled><Bot size={14} />Checking agent…</Button>
-      : agent
-        ? <Button data-task-primary-action size="sm" className="w-full justify-start" onClick={() => {
-          setSelectedAgentId(agent.task_id)
-          navigate("/agents")
-        }}><Bot size={14} />Go to agent</Button>
-        : agents.length > 1
+    <div className="space-y-2">
+      {loading
+        ? <Button data-task-primary-action size="sm" className="w-full justify-start" disabled><Bot size={14} />Checking agent…</Button>
+        : agent
           ? <Button data-task-primary-action size="sm" className="w-full justify-start" onClick={() => {
-            setSelectedAgentId(null)
+            setSelectedAgentId(agent.task_id)
             navigate("/agents")
-          }}><Bot size={14} />Go to agents</Button>
-          : <Button data-task-primary-action size="sm" className="w-full justify-start" onClick={() => setOpen(true)}><Bot size={14} />Open agent</Button>}
+          }}><Bot size={14} />Go to agent</Button>
+          : agents.length > 1
+            ? <Button data-task-primary-action size="sm" className="w-full justify-start" onClick={() => {
+              setSelectedAgentId(null)
+              navigate("/agents")
+            }}><Bot size={14} />Go to agents</Button>
+            : <Button data-task-primary-action size="sm" className="w-full justify-start" onClick={() => setOpen(true)}><Bot size={14} />Open agent</Button>}
+      {!loading && (swarmConductor
+        ? <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => {
+          setSelectedAgentId(swarmConductor.task_id)
+          navigate("/agents")
+        }}><Layers size={14} />Go to swarm</Button>
+        : <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => setSwarmOpen(true)}><Layers size={14} />Start swarm</Button>)}
+    </div>
     <Dialog open={open} onClose={() => setOpen(false)} dismissible={!busy}>
       <DialogPanel>
         <DialogHeader><DialogTitle>Open task agent</DialogTitle><DialogClose disabled={busy} /></DialogHeader>
@@ -132,5 +145,12 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
         </DialogFooter>
       </DialogPanel>
     </Dialog>
+    <StartSwarmModal
+      open={swarmOpen}
+      onClose={() => setSwarmOpen(false)}
+      preSelectedParentId={taskId}
+      initialWorkingDir={initialWorkingDir}
+      onStarted={() => navigate(`/agents?task=${encodeURIComponent(taskId)}`)}
+    />
   </>
 }
