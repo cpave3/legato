@@ -10,6 +10,7 @@ import { PromptBar, type PromptBarHandle } from "../components/PromptBar"
 import { StartSwarmModal } from "../components/StartSwarmModal"
 import { SpawnEphemeralModal } from "../components/SpawnEphemeralModal"
 import { SwarmEventLog } from "../components/SwarmEventLog"
+import { SwarmCommandCenter } from "../components/SwarmCommandCenter"
 import { AgentSelect } from "../components/AgentSelect"
 import { useServer } from "../hooks/useServer"
 import { useSwarmEvents } from "../hooks/useSwarmEvents"
@@ -50,9 +51,9 @@ function isModifierKey(e: globalThis.KeyboardEvent, mod: string): boolean {
 }
 
 export function AgentsPage() {
-  const { send, subscribe, connected } = useWebSocket()
+  const { send, subscribe, connected, connectionGeneration } = useWebSocket()
   const { baseUrl } = useServer()
-  const { fetchState } = useSwarmEvents()
+  const { states: swarmStates, fetchState } = useSwarmEvents()
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const { selectedAgentId: selectedId, setSelectedAgentId: setSelectedId } = useAgentSelection()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -65,6 +66,9 @@ export function AgentsPage() {
   const [showStartSwarm, setShowStartSwarm] = useState(false)
   const [startSwarmPreselect, setStartSwarmPreselect] = useState<string | undefined>(undefined)
   const [showSpawn, setShowSpawn] = useState(false)
+  const [singleAgentOverride, setSingleAgentOverride] = useState(false)
+  const [activeSwarmParentId, setActiveSwarmParentId] = useState<string | null>(null)
+  const subscribedAgentIds = useRef<Set<string>>(new Set())
   const [agentContextMenu, setAgentContextMenu] = useState<{
     agent: AgentInfo
     position: { x: number; y: number }
@@ -171,15 +175,12 @@ export function AgentsPage() {
 
   const handleSelect = useCallback(
     (taskId: string) => {
-      if (selectedId) {
-        send({ type: "unsubscribe_agent", agent_id: selectedId })
-      }
+      setSingleAgentOverride(false)
       setSelectedId(taskId)
       setPromptState(null)
       dismissedPromptTypeRef.current = null
-      send({ type: "subscribe_agent", agent_id: taskId })
     },
-    [selectedId, send, setSelectedId]
+    [setSelectedId]
   )
 
   const handleSendKeys = useCallback(
@@ -246,13 +247,10 @@ export function AgentsPage() {
   }, [selectedId, baseUrl, fetchAgents])
 
   const handleDisconnect = useCallback(() => {
-    if (selectedId) {
-      send({ type: "unsubscribe_agent", agent_id: selectedId })
-    }
     setSelectedId(null)
     setPromptState(null)
     dismissedPromptTypeRef.current = null
-  }, [selectedId, send, setSelectedId])
+  }, [setSelectedId])
 
   const killAgent = useCallback(async (taskId: string) => {
     if (!window.confirm("Kill this agent session?")) return
@@ -294,19 +292,56 @@ export function AgentsPage() {
     }
   }, [selectedId, promptDetectionOverrides])
 
-  // Re-subscribe to the selected agent after a WebSocket reconnect.
-  // The server-side subscription is lost when the old connection drops.
-  useEffect(() => {
-    if (connected && selectedId) {
-      send({ type: "subscribe_agent", agent_id: selectedId })
-    }
-  }, [connected, selectedId, send])
-
   const runningAgents = useMemo(() => agents.filter((a) => a.status === "running"), [agents])
 
   const selectedAgent = agents.find((a) => a.task_id === selectedId)
-  const selectedParentId = selectedAgent?.parent_task_id ?? null
+  const selectedParentId = selectedAgent?.parent_task_id ?? activeSwarmParentId
+  const swarmMode = Boolean(selectedParentId && !singleAgentOverride)
+  const conductor = selectedParentId
+    ? runningAgents.find((agent) => agent.parent_task_id === selectedParentId && agent.role === "conductor")
+    : null
+  const interactiveAgentIds = useMemo(() => {
+    if (!selectedId) return []
+    if (!swarmMode) return [selectedId]
+    return Array.from(new Set([conductor?.task_id, selectedId].filter((id): id is string => Boolean(id))))
+  }, [conductor?.task_id, selectedId, swarmMode])
   const { items: relatedWork } = useTaskActivity(selectedId ?? "")
+
+  useEffect(() => {
+    if (selectedAgent?.parent_task_id && !singleAgentOverride) {
+      setActiveSwarmParentId(selectedAgent.parent_task_id)
+    } else if (!selectedId || singleAgentOverride || !selectedAgent?.parent_task_id) {
+      setActiveSwarmParentId(null)
+    }
+  }, [selectedAgent?.parent_task_id, selectedId, singleAgentOverride])
+
+  useEffect(() => {
+    if (selectedId && !selectedAgent && conductor) {
+      setSelectedId(conductor.task_id)
+      setPromptState(null)
+    }
+  }, [conductor, selectedAgent, selectedId, setSelectedId])
+
+  useEffect(() => {
+    if (!selectedParentId || !swarmMode) return
+    void fetchState(selectedParentId)
+  }, [fetchState, selectedParentId, swarmMode])
+
+  useEffect(() => {
+    if (!connected) return
+    const next = new Set(interactiveAgentIds)
+    for (const id of subscribedAgentIds.current) {
+      if (!next.has(id)) send({ type: "unsubscribe_agent", agent_id: id })
+    }
+    for (const id of next) {
+      if (!subscribedAgentIds.current.has(id)) send({ type: "subscribe_agent", agent_id: id })
+    }
+    subscribedAgentIds.current = next
+    return () => {
+      for (const id of next) send({ type: "unsubscribe_agent", agent_id: id })
+      subscribedAgentIds.current = new Set()
+    }
+  }, [connected, connectionGeneration, interactiveAgentIds, send])
 
   const handleToggleNotify = useCallback(async () => {
     if (!selectedId) return
@@ -438,8 +473,30 @@ export function AgentsPage() {
         <RelatedWorkStrip items={relatedWork} />
         {selectedId ? (
           <>
-            <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-              {selectedAgent?.has_chimera_endpoint ? (
+            <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+              {swarmMode && selectedParentId ? (
+                <SwarmCommandCenter
+                  parentId={selectedParentId}
+                  agents={runningAgents}
+                  status={swarmStates[selectedParentId]?.status ?? null}
+                  focusedId={selectedId}
+                  mobile={isMobile}
+                  onFocus={handleSelect}
+                  onOpenSingle={(taskId) => {
+                    setSingleAgentOverride(true)
+                    setSelectedId(taskId)
+                    setPromptState(null)
+                  }}
+                  renderParticipant={(agent) => agent.has_chimera_endpoint ? (
+                    <NativeAgentPanel agentId={agent.task_id} agentKind={agent.agent_kind} />
+                  ) : (
+                    <TerminalPanel agentId={agent.task_id} onGlitch={triggerGlitch} onClickTerminal={() => {
+                      handleSelect(agent.task_id)
+                      promptBarRef.current?.focus()
+                    }} />
+                  )}
+                />
+              ) : selectedAgent?.has_chimera_endpoint ? (
                 <NativeAgentPanel
                   agentId={selectedId}
                   onKill={handleKill}
@@ -459,30 +516,30 @@ export function AgentsPage() {
               )}
             </div>
             {!selectedAgent?.has_chimera_endpoint && (
-            <PromptBar
-              ref={promptBarRef}
-              promptState={isPromptDetectionEnabled ? promptState : null}
-              onSendKeys={handleSendKeys}
-              onSubmitMessage={handleSubmitMessage}
-              onDismissPrompt={handleDismissPrompt}
-              onDetectPrompt={handleDetectPrompt}
-              onDisconnect={handleDisconnect}
-              onKill={handleKill}
-              onRefresh={handleRefresh}
-              onTogglePromptDetection={handleTogglePromptDetection}
-              promptDetectionEnabled={isPromptDetectionEnabled}
-              agentId={selectedId}
-              agentTitle={selectedAgent?.task_title}
-              agentActivity={selectedAgent?.activity}
-              agentCommand={selectedAgent?.command}
-              agentKind={selectedAgent?.agent_kind}
-              connected={connected}
-              ntfyConfigured={ntfyConfigured}
-              notifyEnabled={selectedAgent?.notify_enabled}
-              onToggleNotify={handleToggleNotify}
-              voiceEnabled={voiceEnabled}
-              onUpgradeChimera={selectedAgent?.agent_kind === "chimera" ? handleUpgradeChimera : undefined}
-            />
+              <PromptBar
+                ref={promptBarRef}
+                promptState={isPromptDetectionEnabled ? promptState : null}
+                onSendKeys={handleSendKeys}
+                onSubmitMessage={handleSubmitMessage}
+                onDismissPrompt={handleDismissPrompt}
+                onDetectPrompt={handleDetectPrompt}
+                onDisconnect={handleDisconnect}
+                onKill={handleKill}
+                onRefresh={handleRefresh}
+                onTogglePromptDetection={handleTogglePromptDetection}
+                promptDetectionEnabled={isPromptDetectionEnabled}
+                agentId={selectedId}
+                agentTitle={selectedAgent?.task_title}
+                agentActivity={selectedAgent?.activity}
+                agentCommand={selectedAgent?.command}
+                agentKind={selectedAgent?.agent_kind}
+                connected={connected}
+                ntfyConfigured={ntfyConfigured}
+                notifyEnabled={selectedAgent?.notify_enabled}
+                onToggleNotify={handleToggleNotify}
+                voiceEnabled={voiceEnabled}
+                onUpgradeChimera={selectedAgent?.agent_kind === "chimera" ? handleUpgradeChimera : undefined}
+              />
             )}
           </>
         ) : (

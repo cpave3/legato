@@ -63,6 +63,7 @@ export interface SwarmStatusData {
     title: string
     status: string
     working_dir?: string
+    active_step: number
   }
   subtasks: {
     id: string
@@ -72,6 +73,7 @@ export interface SwarmStatusData {
     agent?: string
     scope_globs: string[]
     status: string
+    step_index: number
     worker_agent_id?: number
     started_at?: string
     completed_at?: string

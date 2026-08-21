@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useWebSocket } from "./useWebSocket"
 import { useServer } from "./useServer"
 import { getSwarmStatus, peekInbox, type SwarmStatusData, type InboxEntry } from "../lib/swarm"
@@ -12,8 +12,6 @@ export function useSwarmEvents() {
   const { subscribe } = useWebSocket()
   const { baseUrl } = useServer()
   const [states, setStates] = useState<Record<string, SwarmState>>({})
-  const statesRef = useRef(states)
-  statesRef.current = states
 
   const fetchState = useCallback(async (parentID: string) => {
     try {
@@ -35,8 +33,9 @@ export function useSwarmEvents() {
           ...prev,
           [pid]: { ...prev[pid], lastChangedAt: Date.now() },
         }))
-        // Refetch the full status on the next tick.
-        setTimeout(() => fetchState(pid), 0)
+        if (msg.status !== "event") {
+          setTimeout(() => fetchState(pid), 0)
+        }
       }
       if (msg.type === "plan_proposed" && msg.parent_task_id) {
         const pid = msg.parent_task_id
@@ -53,6 +52,7 @@ export function useSwarmEvents() {
 
 export function useSwarmInbox(parentId: string | null) {
   const { baseUrl } = useServer()
+  const { subscribe } = useWebSocket()
   const [entries, setEntries] = useState<InboxEntry[]>([])
 
   const peek = useCallback(async () => {
@@ -69,6 +69,12 @@ export function useSwarmInbox(parentId: string | null) {
     setEntries([])
     peek()
   }, [peek])
+
+  useEffect(() => subscribe((message) => {
+    if (message.type === "swarm_changed" && message.parent_task_id === parentId) {
+      void peek()
+    }
+  }), [parentId, peek, subscribe])
 
   const clear = useCallback(() => {
     setEntries([])
