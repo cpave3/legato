@@ -324,6 +324,9 @@ type promptAgentService struct {
 	permissionReqID  string
 	permissionAction service.PermissionAction
 	permissionErr    error
+	captureOutput    string
+	captureErr       error
+	capturedTaskID   string
 }
 
 func (p *promptAgentService) SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error {
@@ -338,8 +341,9 @@ func (p *promptAgentService) ListAgentsByParent(context.Context, string) ([]serv
 	return nil, nil
 }
 func (p *promptAgentService) ReconcileSessions(context.Context) error { return nil }
-func (p *promptAgentService) CaptureOutput(context.Context, string) (string, error) {
-	return "", nil
+func (p *promptAgentService) CaptureOutput(_ context.Context, taskID string) (string, error) {
+	p.capturedTaskID = taskID
+	return p.captureOutput, p.captureErr
 }
 func (p *promptAgentService) AttachCmd(context.Context, string) (*exec.Cmd, error) {
 	return nil, nil

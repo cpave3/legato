@@ -207,6 +207,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/swarm/inbox/", s.swarmInboxHandler())
 	mux.HandleFunc("/api/swarm/pending-plan/", s.swarmPendingPlanHandler())
 	mux.HandleFunc("/api/swarm/pending-plans", s.swarmPendingPlansHandler())
+	mux.HandleFunc("/api/agents/{task_id}/preview", s.agentPreviewHandler())
 	mux.HandleFunc("/api/agents/{task_id}/chimera/discover", s.chimeraDiscoverHandler())
 	mux.HandleFunc("/api/agents/{task_id}/chimera/downgrade", s.chimeraDowngradeHandler())
 	mux.HandleFunc("/api/agents/{task_id}/chimera/snapshot", s.chimeraSnapshotHandler())

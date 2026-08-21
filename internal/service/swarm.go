@@ -1435,6 +1435,7 @@ func (s *swarmService) recordEventForConductor(parentTaskID, subtaskID, kind, wo
 	if err != nil {
 		return
 	}
+	s.publishChanged(parentTaskID, subtaskID, "event")
 
 	sess, err := s.store.GetAgentSessionByTaskID(context.Background(), parentTaskID)
 	if err != nil || sess == nil {

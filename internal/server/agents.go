@@ -6,7 +6,10 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
@@ -15,7 +18,10 @@ import (
 const (
 	defaultSparklineWindow  = 10 * time.Minute
 	defaultSparklineBuckets = 10
+	agentPreviewMaxRunes    = 4000
 )
+
+var agentPreviewANSI = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))`)
 
 // SetNtfyConfigured records whether an ntfy channel is wired so the UI
 // can conditionally show notification toggles.
@@ -160,6 +166,50 @@ func (s *Server) killAgentHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	}
+}
+
+func (s *Server) agentPreviewHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if s.agents == nil {
+			http.Error(w, "agent service not available", http.StatusServiceUnavailable)
+			return
+		}
+
+		taskID := r.PathValue("task_id")
+		if taskID == "" {
+			http.Error(w, "task_id is required", http.StatusBadRequest)
+			return
+		}
+		if s.agents.HasChimeraEndpoint(r.Context(), taskID) {
+			http.Error(w, "preview is not available for native agents", http.StatusConflict)
+			return
+		}
+
+		output, err := s.agents.CaptureOutput(r.Context(), taskID)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				http.Error(w, "running agent not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, "capture agent preview: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+
+		content := strings.TrimSpace(agentPreviewANSI.ReplaceAllString(output, ""))
+		if utf8.RuneCountInString(content) > agentPreviewMaxRunes {
+			runes := []rune(content)
+			content = string(runes[len(runes)-agentPreviewMaxRunes:])
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{
+			"task_id":     taskID,
+			"content":     content,
+			"captured_at": time.Now().UTC(),
+		})
 	}
 }
 

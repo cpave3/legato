@@ -80,10 +80,52 @@ func seedSubtask(t *testing.T, st *store.Store, id, parentID, status string) {
 	}
 }
 
-// TestProgressFirstCallNoDeadlock is the regression test for the
-// scheduleProgressEvent → pendingProgressMeta double-lock deadlock. Before the
-// fix, the first Progress call from a fresh worker hung the goroutine because
-// both functions tried to acquire the non-reentrant debounceMu.
+func TestQuestionPublishesEventOnlySwarmChange(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-events")
+	seedSubtask(t, st, "st-event-question", "parent-events", "in_progress")
+	concrete := sw.(*swarmService)
+	changes := concrete.bus.Subscribe(events.EventSwarmChanged)
+
+	if err := sw.Question(context.Background(), "st-event-question", "Need a decision"); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case event := <-changes:
+		payload, ok := event.Payload.(events.SwarmChangedPayload)
+		if !ok || payload.ParentTaskID != "parent-events" || payload.SubtaskID != "st-event-question" || payload.NewStatus != "event" {
+			t.Fatalf("payload=%#v", event.Payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for event-only swarm change")
+	}
+}
+
+func TestDebouncedProgressPublishesEventOnlySwarmChange(t *testing.T) {
+	sw, _, st, _ := newTestSwarmService(t)
+	seedParentTask(t, st, "parent-progress-events")
+	seedSubtask(t, st, "st-event-progress", "parent-progress-events", "in_progress")
+	concrete := sw.(*swarmService)
+	changes := concrete.bus.Subscribe(events.EventSwarmChanged)
+
+	if err := sw.Progress(context.Background(), "st-event-progress", "latest update"); err != nil {
+		t.Fatal(err)
+	}
+	concrete.flushProgressEvent("st-event-progress")
+
+	select {
+	case event := <-changes:
+		payload, ok := event.Payload.(events.SwarmChangedPayload)
+		if !ok || payload.ParentTaskID != "parent-progress-events" || payload.NewStatus != "event" {
+			t.Fatalf("payload=%#v", event.Payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for progress swarm change")
+	}
+}
+
+// TestProgressFirstCallNoDeadlock guards the progress debouncer's first insert.
 func TestProgressFirstCallNoDeadlock(t *testing.T) {
 	sw, _, st, _ := newTestSwarmService(t)
 	seedParentTask(t, st, "parent-1")
