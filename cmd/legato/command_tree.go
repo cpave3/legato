@@ -186,7 +186,7 @@ func commandTree() *commandDef {
 
 	reviewFlags := reviewCommandFlags()
 	plan := legacyVerbGroup("plan", "Manage collaborative implementation plans", runPlanCmd,
-		[]string{"submit", "show", "feedback", "status", "answer", "complete", "withdraw", "claim", "inbox"},
+		[]string{"validate", "submit", "show", "feedback", "status", "answer", "complete", "withdraw", "claim", "inbox"},
 		reviewFlags)
 	review := legacyVerbGroup("review", "Create and manage review tours", runReviewCmd,
 		[]string{"chapter", "chapters", "annotate", "annotation", "answer", "ready", "show", "sync", "discard", "restart", "claim", "inbox"},
@@ -287,6 +287,10 @@ func planSelectors() []commandFlag {
 func configurePlanCommands(plan *commandDef) {
 	selectors := planSelectors()
 	applyCommandShapes(plan, map[string]commandShape{
+		"validate": {
+			arguments: []argumentDef{arg("markdown-file", "Plan Markdown file to validate")},
+			examples:  []string{"legato plan validate plan.md", "legato plan validate .legato/plans/search/plan.md"},
+		},
 		"submit": {
 			arguments: []argumentDef{arg("bundle-dir", "Directory containing plan.md and plan.json")},
 			flags: append(append([]commandFlag{}, selectors...),
@@ -307,7 +311,7 @@ func configurePlanCommands(plan *commandDef) {
 		"claim":    {flags: selectors, examples: []string{"legato plan claim --task <plan-task-id> --name search"}},
 		"inbox":    {flags: []commandFlag{jsonFlag}, examples: []string{"legato plan inbox --json"}},
 	})
-	plan.Examples = []string{"legato plan status --json --name search", "legato plan submit .legato/plans/search --name search"}
+	plan.Examples = []string{"legato plan validate .legato/plans/search/plan.md", "legato plan status --json --name search", "legato plan submit .legato/plans/search --name search"}
 }
 
 func reviewCommandFlags() []commandFlag {

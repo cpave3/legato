@@ -11,6 +11,27 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
+func TestPlanValidateAcceptsMarkdownWithoutTaskOrConfiguration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "plan.md")
+	if err := os.WriteFile(path, []byte("# Plan\n\nNo visuals are required.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_TASK_ID", "")
+	t.Setenv("LEGATO_CONFIG", filepath.Join(t.TempDir(), "missing-config.yaml"))
+
+	var code int
+	output := captureStdout(t, func() int {
+		code = runPlanCmd([]string{"validate", path})
+		return code
+	})
+	if code != 0 {
+		t.Fatalf("exit code = %d, output = %q", code, output)
+	}
+	if output != "Plan is valid.\n" {
+		t.Fatalf("output = %q", output)
+	}
+}
+
 func TestPlanCompleteCommandCleansApprovedBundle(t *testing.T) {
 	dbPath, s := reviewCLITestStore(t)
 	ctx := context.Background()

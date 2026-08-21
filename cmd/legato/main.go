@@ -137,8 +137,25 @@ func runWorkspaceCmd(args []string) int {
 
 func runPlanCmd(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: legato plan [submit|show|feedback|status|answer|complete|withdraw] ...")
+		fmt.Fprintln(os.Stderr, "usage: legato plan [validate|submit|show|feedback|status|answer|complete|withdraw] ...")
 		return 1
+	}
+	if args[0] == "validate" {
+		if len(args) != 2 {
+			fmt.Fprintln(os.Stderr, "usage: legato plan validate <markdown-file>")
+			return exitUsage
+		}
+		markdown, err := os.ReadFile(args[1])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: read plan Markdown: %v\n", err)
+			return exitUsage
+		}
+		if strings.TrimSpace(string(markdown)) == "" {
+			fmt.Fprintln(os.Stderr, "error: plan Markdown must not be empty")
+			return exitUsage
+		}
+		fmt.Fprintln(os.Stdout, "Plan is valid.")
+		return 0
 	}
 	cfg, err := config.Load()
 	if err != nil {
