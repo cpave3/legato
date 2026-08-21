@@ -32,6 +32,17 @@ describe("NativeAgentPanel", () => {
     vi.restoreAllMocks()
   })
 
+  it("can hide its composer when embedded in the swarm command center", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const path = String(input)
+      if (path.includes("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      return new Response("[]", { status: 200 })
+    })
+    render(<NativeAgentPanel agentId="agent-1" composerEnabled={false} />)
+    await waitFor(() => expect(screen.queryByText("Loading native Chimera session…")).toBeNull())
+    expect(screen.queryByTestId("agent-composer")).toBeNull()
+  })
+
   it("marks only the first snapshot as initial hydration", async () => {
     const snapshotRequests: string[] = []
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {

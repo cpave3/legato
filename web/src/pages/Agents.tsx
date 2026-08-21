@@ -302,9 +302,10 @@ export function AgentsPage() {
     : null
   const interactiveAgentIds = useMemo(() => {
     if (!selectedId) return []
-    if (!swarmMode) return [selectedId]
-    return Array.from(new Set([conductor?.task_id, selectedId].filter((id): id is string => Boolean(id))))
-  }, [conductor?.task_id, selectedId, swarmMode])
+    const ids = swarmMode ? [conductor?.task_id, selectedId] : [selectedId]
+    return Array.from(new Set(ids.filter((id): id is string => Boolean(id))))
+      .filter((id) => !agents.find((agent) => agent.task_id === id)?.has_chimera_endpoint)
+  }, [agents, conductor?.task_id, selectedId, swarmMode])
   const { items: relatedWork } = useTaskActivity(selectedId ?? "")
 
   useEffect(() => {
@@ -316,7 +317,7 @@ export function AgentsPage() {
   }, [selectedAgent?.parent_task_id, selectedId, singleAgentOverride])
 
   useEffect(() => {
-    if (selectedId && !selectedAgent && conductor) {
+    if (selectedId && (!selectedAgent || selectedAgent.status !== "running") && conductor) {
       setSelectedId(conductor.task_id)
       setPromptState(null)
     }
@@ -400,10 +401,10 @@ export function AgentsPage() {
 
   // If the selected agent died, deselect it.
   useEffect(() => {
-    if (selectedId && selectedAgent && selectedAgent.status !== "running") {
+    if (selectedId && selectedAgent && selectedAgent.status !== "running" && !conductor) {
       handleDisconnect()
     }
-  }, [selectedId, selectedAgent, handleDisconnect])
+  }, [selectedId, selectedAgent, conductor, handleDisconnect])
 
   const handleOpenStartSwarm = useCallback(() => {
     setStartSwarmPreselect(selectedParentId ?? undefined)
@@ -488,7 +489,11 @@ export function AgentsPage() {
                     setPromptState(null)
                   }}
                   renderParticipant={(agent) => agent.has_chimera_endpoint ? (
-                    <NativeAgentPanel agentId={agent.task_id} agentKind={agent.agent_kind} />
+                    <NativeAgentPanel
+                      agentId={agent.task_id}
+                      agentKind={agent.agent_kind}
+                      composerEnabled={agent.task_id === selectedId}
+                    />
                   ) : (
                     <TerminalPanel agentId={agent.task_id} onGlitch={triggerGlitch} onClickTerminal={() => {
                       handleSelect(agent.task_id)
@@ -563,11 +568,18 @@ export function AgentsPage() {
       )}
 
       {/* Right sidebar: swarm event log for swarm participants */}
-      {selectedParentId && !isMobile && (
-        <div className="hidden md:flex w-64 flex-col border-l border-zinc-800">
+      {selectedParentId && (isMobile ? (
+        <details className="fixed inset-x-2 bottom-2 z-30 max-h-[45vh] overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950 shadow-2xl">
+          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-zinc-300">Swarm events</summary>
+          <div className="max-h-[38vh] overflow-y-auto border-t border-zinc-800">
+            <SwarmEventLog parentId={selectedParentId} />
+          </div>
+        </details>
+      ) : (
+        <div className="hidden w-64 flex-col border-l border-zinc-800 md:flex">
           <SwarmEventLog parentId={selectedParentId} />
         </div>
-      )}
+      ))}
 
       <SpawnEphemeralModal
         open={showSpawn}

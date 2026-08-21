@@ -19,6 +19,7 @@ afterEach(cleanup)
 it("locks a fixed task, uses its initial directory, and skips the task picker request", async () => {
   render(<StartSwarmModal open onClose={() => {}} preSelectedParentId="T-1" initialWorkingDir="/trees/t-1" onStarted={started} />)
 
+  expect(screen.getByRole("dialog", { name: "Start Swarm" })).toBeTruthy()
   expect(screen.getByText("T-1")).toBeTruthy()
   expect((screen.getByLabelText("Working Directory") as HTMLInputElement).value).toBe("/trees/t-1")
   expect(apiFetch).not.toHaveBeenCalled()

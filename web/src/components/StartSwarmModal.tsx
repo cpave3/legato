@@ -6,7 +6,8 @@ import { apiFetch } from "../lib/api"
 import { startSwarm } from "../lib/swarm"
 import { cn } from "../lib/utils"
 import { RepositoryPresetSelect, type RepositoryPreset } from "./RepositoryPresetSelect"
-import { X, Play } from "lucide-react"
+import { Play } from "lucide-react"
+import { Dialog, DialogBody, DialogClose, DialogHeader, DialogPanel, DialogTitle } from "./ui/Dialog"
 
 interface ParentCard {
   key: string
@@ -83,22 +84,16 @@ export function StartSwarmModal({
     }
   }
 
-  if (!open) return null
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
-          <h2 className="text-sm font-semibold text-zinc-200">Start Swarm</h2>
-          <button
-            onClick={onClose}
-            className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
-          >
-            <X size={16} />
-          </button>
-        </div>
+    <Dialog open={open} onClose={onClose} dismissible={!loading}>
+      <DialogPanel>
+        <DialogHeader>
+          <DialogTitle>Start Swarm</DialogTitle>
+          <DialogClose disabled={loading} />
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
+        <form onSubmit={handleSubmit}>
+          <DialogBody>
           {error && (
             <div className="rounded border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-300">
               {error}
@@ -106,13 +101,14 @@ export function StartSwarmModal({
           )}
 
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-zinc-400">Parent Task</label>
+            <label htmlFor="swarm-parent-task" className="text-xs font-medium text-zinc-400">Parent Task</label>
             {preSelectedParentId ? (
-              <div className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-mono text-zinc-300">
+              <div id="swarm-parent-task" className="rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-mono text-zinc-300">
                 {preSelectedParentId}
               </div>
             ) : (
               <select
+                id="swarm-parent-task"
                 value={parentId}
                 onChange={(e) => setParentId(e.target.value)}
                 className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500"
@@ -166,8 +162,9 @@ export function StartSwarmModal({
               {loading ? "Starting..." : "Start Swarm"}
             </button>
           </div>
+          </DialogBody>
         </form>
-      </div>
-    </div>
+      </DialogPanel>
+    </Dialog>
   )
 }

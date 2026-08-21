@@ -146,9 +146,10 @@ interface NativeAgentPanelProps {
   onToggleNotify?: () => void
   voiceEnabled?: boolean
   agentKind?: string
+  composerEnabled?: boolean
 }
 
-export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   const { baseUrl } = useServer()
   const [syncState, setSyncState] = useState<NativeSyncState>(() => createNativeSyncState())
@@ -951,7 +952,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
       </div>
 
       {/* Composer */}
-      <div className="relative border-t border-zinc-800 p-3">
+      {composerEnabled && <div className="relative border-t border-zinc-800 p-3">
         {slashOpen && (
           <div className="absolute bottom-full left-3 right-3 mb-1 max-h-48 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl z-20">
             {slashSuggestions.map((s, i) => (
@@ -1030,7 +1031,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
             ) : <div aria-hidden="true" />}
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   )
 }
