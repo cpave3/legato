@@ -91,7 +91,8 @@ database is loaded.
 
 ### Collaborative plan verbs
 
-- `legato plan submit <bundle-dir> [--task <id>] [--name <name>]` — validate `plan.md`/`plan.json`, snapshot them, and propose a new immutable revision
+- `legato plan validate <markdown-file>` — validate Markdown plus `mermaid` and canonical `wireframe` fences without task or database context; prints `Plan is valid.` on success, exits `2` for content errors, and installs pinned Node parsers into the user cache when absent
+- `legato plan submit <bundle-dir> [--task <id>] [--name <name>]` — validate `plan.md`/`plan.json`, including plan visuals, snapshot them, and propose a new immutable revision
 - `legato plan show|feedback --json [--task <id>] [--name <name>]` — print the current revision, choices, responses, comments, and Q&A transcript
 - `legato plan status --json [--task <id>] [--name <name>]` — print lifecycle status and revision
 - `legato plan answer <thread-id> "<markdown>" [--task <id>] [--name <name>]` — answer immediate plan Q&A

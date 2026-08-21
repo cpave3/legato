@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -21,7 +22,7 @@ func TestPlanValidateAcceptsMarkdownWithoutTaskOrConfiguration(t *testing.T) {
 
 	var code int
 	output := captureStdout(t, func() int {
-		code = runPlanCmd([]string{"validate", path})
+		code = runCLI([]string{"plan", "validate", path})
 		return code
 	})
 	if code != 0 {
@@ -29,6 +30,26 @@ func TestPlanValidateAcceptsMarkdownWithoutTaskOrConfiguration(t *testing.T) {
 	}
 	if output != "Plan is valid.\n" {
 		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestPlanValidateReportsAllVisualErrorsWithSourceLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "plan.md")
+	markdown := "# Plan\n\n```wireframe\nWireframe mobile\n  FancyPanel\n```\n\n```wireframe\nWireframe #start mobile\n  Button \"Next\" to=#missing\n```\n"
+	if err := os.WriteFile(path, []byte(markdown), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stderr, code := captureStderrWithCode(t, func() int {
+		return runCLI([]string{"plan", "validate", path})
+	})
+	if code != exitUsage {
+		t.Fatalf("exit code = %d, stderr = %q", code, stderr)
+	}
+	for _, want := range []string{path + ":5: wireframe block 1", "FancyPanel", path + ":10: wireframe block 2", "#missing"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr %q does not contain %q", stderr, want)
+		}
 	}
 }
 

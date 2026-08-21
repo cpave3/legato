@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -26,6 +27,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/hotreload"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/jira"
+	"github.com/cpave3/legato/internal/engine/planvalidate"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
 	"github.com/cpave3/legato/internal/engine/tmux"
@@ -152,6 +154,22 @@ func runPlanCmd(args []string) int {
 		}
 		if strings.TrimSpace(string(markdown)) == "" {
 			fmt.Fprintln(os.Stderr, "error: plan Markdown must not be empty")
+			return exitUsage
+		}
+		diagnostics, err := planvalidate.Validate(markdown, planvalidate.Options{})
+		if err != nil {
+			var dependency *planvalidate.DependencyError
+			if errors.As(err, &dependency) {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				return exitDependency
+			}
+			fmt.Fprintf(os.Stderr, "error: validate plan Markdown: %v\n", err)
+			return exitInternal
+		}
+		if len(diagnostics) != 0 {
+			for _, diagnostic := range diagnostics {
+				fmt.Fprintf(os.Stderr, "error: %s\n", planvalidate.FormatDiagnostic(args[1], diagnostic))
+			}
 			return exitUsage
 		}
 		fmt.Fprintln(os.Stdout, "Plan is valid.")

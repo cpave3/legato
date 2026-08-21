@@ -13,6 +13,20 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
+func TestSubmitRejectsInvalidPlanVisualBeforePersisting(t *testing.T) {
+	_, svc, bundle := newPlanFixture(t)
+	if err := os.WriteFile(filepath.Join(bundle, "plan.md"), []byte("# Plan\n\n```wireframe\nWireframe mobile\n  FancyPanel\n```\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := svc.Submit(context.Background(), "task-1", "invalid-visual", bundle)
+	if err == nil || !strings.Contains(err.Error(), "plan.md:5") || !strings.Contains(err.Error(), "FancyPanel") {
+		t.Fatalf("error = %v", err)
+	}
+	if _, resolveErr := svc.Resolve(context.Background(), "task-1", "invalid-visual"); !errors.Is(resolveErr, store.ErrNotFound) {
+		t.Fatalf("plan persisted after failed validation: %v", resolveErr)
+	}
+}
+
 func TestSubmitPlanBundleSnapshotsFilesAndAppearsInQueue(t *testing.T) {
 	s, svc, bundle := newPlanFixture(t)
 	view, err := svc.Submit(context.Background(), "task-1", "search", bundle)

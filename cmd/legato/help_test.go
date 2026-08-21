@@ -37,6 +37,7 @@ func TestPublicHelpIncludesUsefulExamplesAtEveryKindOfCommandLevel(t *testing.T)
 		{name: "group", args: []string{"task", "--help"}, want: []string{"Commands:", "Examples (run subcommand help for more specific examples):", "legato task list", "legato task update --status Doing", `legato task update <task-id> --title "Clarify failure"`, "legato task github refresh <task-id>", "legato task archive list"}},
 		{name: "runnable group", args: []string{"workflow", "step", "--help"}, want: []string{"legato workflow step complete --output result=value --artifact review=review.md --json", `legato workflow step fail "reason" --json`}},
 		{name: "legacy leaf", args: []string{"plan", "submit", "--help"}, want: []string{"<bundle-dir>", "Examples:", "legato plan submit .legato/plans/search"}},
+		{name: "plan validate", args: []string{"plan", "validate", "--help"}, want: []string{"Validate", "<markdown-file>", "Plan Markdown file to validate", "Examples:", "legato plan validate plan.md", "legato plan validate .legato/plans/search/plan.md"}},
 		{name: "configured swarm leaf", args: []string{"swarm", "propose-plan", "--help"}, want: []string{"<plan-file>", "--timeout", "legato swarm propose-plan swarm.yaml"}},
 		{name: "nested complete callback", args: []string{"workflow", "step", "complete", "--help"}, want: []string{"--output", "--artifact", "legato workflow step complete"}},
 		{name: "nested fail callback", args: []string{"workflow", "step", "fail", "--help"}, want: []string{"<reason>", "--attempt", `legato workflow step fail "reason"`}},

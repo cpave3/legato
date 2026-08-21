@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/planvalidate"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -113,6 +114,17 @@ func (p *PlanService) SubmitWithOrigin(ctx context.Context, taskID, name, bundle
 	}
 	if err := validatePlanManifest(manifest, string(markdown)); err != nil {
 		return nil, err
+	}
+	visualDiagnostics, err := planvalidate.Validate(markdown, planvalidate.Options{})
+	if err != nil {
+		return nil, fmt.Errorf("validate plan.md: %w", err)
+	}
+	if len(visualDiagnostics) != 0 {
+		messages := make([]string, 0, len(visualDiagnostics))
+		for _, diagnostic := range visualDiagnostics {
+			messages = append(messages, planvalidate.FormatDiagnostic("plan.md", diagnostic))
+		}
+		return nil, fmt.Errorf("validate plan.md:\n%s", strings.Join(messages, "\n"))
 	}
 
 	planID := "pl-" + taskID
