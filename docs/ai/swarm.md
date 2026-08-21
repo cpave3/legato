@@ -33,6 +33,16 @@ Swarm orchestration in legato is conductor-driven: pressing `S` on a card spawns
 
 7. **Finish.** When the goal is met, conductor runs `legato swarm finish <parent-id> "<summary>"`. All worker sessions are killed and the summary is appended to the parent task description. **The conductor session is left alive** so the user can still query it for confirmation or follow-up questions. Dismiss the conductor manually via the agents view (`K`) when done.
 
+### Web command center
+
+Selecting a swarm participant in the web Agents page opens the swarm as one unit. On desktop, the conductor remains visible while all workers appear in a scrollable stack. Selecting a live worker expands one interactive worker pane beside the conductor. Queued, completed, cancelled, and dead workers remain represented from the durable status response even when no live session exists.
+
+Compact tmux worker cards use bounded plain-text snapshots from `GET /api/agents/{task_id}/preview`. They do not subscribe to terminal streams and do not send resize messages. Only the conductor and one expanded worker can control terminal geometry. Native Chimera cards show lifecycle and activity metadata until expanded. Mobile uses one participant picker and one interactive pane.
+
+The web board can start a swarm directly from task detail. Its working directory uses the same precedence as solo task launch: task worktree, remembered task directory, then configured default. After launch, the Agents page waits for and selects the task's conductor.
+
+Questions and debounced progress inserts publish an event-only `swarm_changed` notification. The web event log responds with a peek request, which refreshes the list without acknowledging events. Drain remains explicit because the conductor can read the same inbox.
+
 ### Cancellation & recreation
 
 A swarm can be cancelled from any state via `legato swarm cancel <parent-id>` (CLI), the TUI detail panel, or the web PWA detail panel. Cancellation kills the conductor and every live worker, transitions non-terminal sub-tasks to `cancelled`, deletes all sub-tasks, clears the parent's working directory, and removes pending plans and runtime files. The parent task card and its history remain.
