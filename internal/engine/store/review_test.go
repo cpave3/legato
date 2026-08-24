@@ -250,6 +250,75 @@ func TestReviewTranscriptAppendAndList(t *testing.T) {
 	}
 }
 
+func TestReplaceLatestReviewAnswerIsIdempotentPerQuestion(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, Task{ID: "t1", Title: "Task", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EnsureReviewTour(ctx, "t1", ""); err != nil {
+		t.Fatal(err)
+	}
+	answer := ReviewMessage{TaskID: "t1", TourID: "rt-t1", StepID: "rs-1", Author: "agent"}
+
+	answer.Body = "rejected"
+	if _, err := s.ReplaceLatestReviewAnswer(ctx, answer); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("answer without question error = %v, want ErrNotFound", err)
+	}
+	if msgs, _ := s.ListReviewMessages(ctx, "rt-t1"); len(msgs) != 0 {
+		t.Fatalf("rejected answer mutated transcript: %+v", msgs)
+	}
+
+	if _, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", TourID: "rt-t1", StepID: "rs-1", Kind: "question", Author: "user", Body: "first?"}, true); err != nil {
+		t.Fatal(err)
+	}
+	answer.Body = "first answer"
+	first, err := s.ReplaceLatestReviewAnswer(ctx, answer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	answer.Body = "corrected answer"
+	corrected, err := s.ReplaceLatestReviewAnswer(ctx, answer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if corrected.ID != first.ID {
+		t.Fatalf("retry created answer %d, want canonical row %d", corrected.ID, first.ID)
+	}
+
+	// Simulate duplicates created before replacement semantics existed.
+	if _, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", TourID: "rt-t1", StepID: "rs-1", Kind: "answer", Author: "agent", Body: "duplicate"}, true); err != nil {
+		t.Fatal(err)
+	}
+	answer.Body = "final answer"
+	if _, err := s.ReplaceLatestReviewAnswer(ctx, answer); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := s.ListReviewMessages(ctx, "rt-t1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 || msgs[1].ID != first.ID || msgs[1].Body != "final answer" {
+		t.Fatalf("corrected transcript = %+v", msgs)
+	}
+
+	if _, err := s.InsertReviewMessage(ctx, ReviewMessage{TaskID: "t1", TourID: "rt-t1", StepID: "rs-1", Kind: "question", Author: "user", Body: "second?"}, true); err != nil {
+		t.Fatal(err)
+	}
+	answer.Body = "second answer"
+	second, err := s.ReplaceLatestReviewAnswer(ctx, answer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID == first.ID {
+		t.Fatal("new question replaced the prior question's answer")
+	}
+	msgs, _ = s.ListReviewMessages(ctx, "rt-t1")
+	if len(msgs) != 4 || msgs[1].Body != "final answer" || msgs[3].Body != "second answer" {
+		t.Fatalf("multiple question turns = %+v", msgs)
+	}
+}
+
 func TestUnreviewedReviewCounts(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

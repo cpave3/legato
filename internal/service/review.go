@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cpave3/legato/internal/engine/events"
 	gitpkg "github.com/cpave3/legato/internal/engine/git"
@@ -1887,7 +1888,7 @@ func (r *ReviewService) AskQuestion(ctx context.Context, tourID, stepID string, 
 	}
 
 	line := fmt.Sprintf(
-		"[legato review] Question on step %s (%q): %s — reply by running: legato review answer %s \"<your answer>\". Reply in Markdown, using fenced code blocks where useful.",
+		"[legato review] Question on step %s (%q): %s — Reply in Markdown through this safe stdin command:\n\nlegato review answer %s --file - <<'LEGATO_ANSWER'\n<your Markdown answer>\nLEGATO_ANSWER\n\nThe quoted heredoc delimiter prevents shell interpretation. Use fenced code blocks where useful.",
 		step.ID, step.Title, body, step.ID)
 
 	message, err := r.store.InsertReviewMessage(ctx, store.ReviewMessage{
@@ -1951,6 +1952,12 @@ func (r *ReviewService) reviewSelectionExcerpt(ctx context.Context, tourID, step
 // Answer records an agent's reply to a reviewer question. stepID may be an
 // ID prefix (as printed in the delivered question line).
 func (r *ReviewService) Answer(ctx context.Context, tourID, stepID, text string) error {
+	if !utf8.ValidString(text) {
+		return fmt.Errorf("review answer must be valid UTF-8 text")
+	}
+	if strings.TrimSpace(text) == "" {
+		return fmt.Errorf("review answer must not be blank")
+	}
 	if err := r.Sync(ctx, tourID); err != nil {
 		return err
 	}
@@ -1966,9 +1973,12 @@ func (r *ReviewService) Answer(ctx context.Context, tourID, stepID, text string)
 	if step.TourID != tourID {
 		return store.ErrNotFound
 	}
-	if _, err := r.store.InsertReviewMessage(ctx, store.ReviewMessage{
+	if _, err := r.store.ReplaceLatestReviewAnswer(ctx, store.ReviewMessage{
 		TaskID: taskID, TourID: tourID, StepID: step.ID, Kind: "answer", Author: "agent", Body: text,
-	}, true); err != nil {
+	}); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("review step has no question to answer: %w", err)
+		}
 		return err
 	}
 	r.publish(tourID, step.ID, "answer")

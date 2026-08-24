@@ -301,6 +301,129 @@ func TestPublicReviewMutationCommandsUpdatePacket(t *testing.T) {
 	}
 }
 
+func TestPublicReviewAnswerPreservesMarkdownAndReplacesRetry(t *testing.T) {
+	dbPath, s := reviewCLITestStore(t)
+	ctx := context.Background()
+	repo := initReviewCLIRepo(t)
+	if err := s.CreateTask(ctx, store.Task{ID: "task-answer", Title: "Task", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTaskWorktree(ctx, "task-answer", &store.TaskWorktree{PrimaryDir: repo, Path: repo, Branch: "feature", BaseBranch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	tour, _ := s.EnsureReviewTour(ctx, "task-answer", "")
+	svc := service.NewReviewService(s, nil, nil)
+	stepID, err := svc.CreateChapter(ctx, tour.ID, service.ChapterArgs{Title: "Answer", Includes: []service.ChapterInclude{{FilePath: "chapter.go", Hunk: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertReviewMessage(ctx, store.ReviewMessage{TaskID: "task-answer", TourID: tour.ID, StepID: stepID, Kind: "question", Author: "user", Body: "Explain"}, true); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	configureReviewCLITest(t, dbPath)
+
+	stdinBody := "Uses `ProposalDraft`.\n\n```sh\nprintf '%s' \"$VARIABLE $(command) isn't expanded\"\n```\n"
+	withReviewStdin(t, stdinBody, func() {
+		if code := runCLI([]string{"review", "answer", stepID[:8], "--file", "-", "--task", "task-answer"}); code != 0 {
+			t.Fatalf("stdin answer code = %d", code)
+		}
+	})
+	s, err = store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := s.ListReviewMessages(ctx, tour.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 || msgs[1].Body != stdinBody {
+		t.Fatalf("stdin transcript = %+v", msgs)
+	}
+	s.Close()
+
+	fileBody := "Corrected `ProposalDraft` with $VARIABLE, $(command), \"quotes\", and apostrophes.\n"
+	answerPath := filepath.Join(t.TempDir(), "answer.md")
+	if err := os.WriteFile(answerPath, []byte(fileBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := runCLI([]string{"review", "answer", stepID[:8], "--file", answerPath, "--task", "task-answer"}); code != 0 {
+		t.Fatalf("file answer code = %d", code)
+	}
+
+	s, err = store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	msgs, err = s.ListReviewMessages(ctx, tour.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 || msgs[1].Kind != "answer" || msgs[1].Body != fileBody {
+		t.Fatalf("transcript = %+v", msgs)
+	}
+}
+
+func TestPublicReviewAnswerRejectsUnsafeOrInvalidInputWithoutMutation(t *testing.T) {
+	dbPath, s := reviewCLITestStore(t)
+	ctx := context.Background()
+	repo := initReviewCLIRepo(t)
+	if err := s.CreateTask(ctx, store.Task{ID: "task-answer", Title: "Task", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTaskWorktree(ctx, "task-answer", &store.TaskWorktree{PrimaryDir: repo, Path: repo, Branch: "feature", BaseBranch: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	tour, _ := s.EnsureReviewTour(ctx, "task-answer", "")
+	svc := service.NewReviewService(s, nil, nil)
+	stepID, err := svc.CreateChapter(ctx, tour.ID, service.ChapterArgs{Title: "Answer", Includes: []service.ChapterInclude{{FilePath: "chapter.go", Hunk: 1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertReviewMessage(ctx, store.ReviewMessage{TaskID: "task-answer", TourID: tour.ID, StepID: stepID, Kind: "question", Author: "user", Body: "Explain"}, true); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	configureReviewCLITest(t, dbPath)
+
+	invalidUTF8 := filepath.Join(t.TempDir(), "invalid.md")
+	if err := os.WriteFile(invalidUTF8, []byte{0xff}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	blank := filepath.Join(t.TempDir(), "blank.md")
+	if err := os.WriteFile(blank, []byte(" \n\t"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := [][]string{
+		{"review", "answer", stepID[:8], "damaged text", "--task", "task-answer"},
+		{"review", "answer", stepID[:8], "--task", "task-answer"},
+		{"review", "answer", stepID[:8], "--file", blank, "--file", blank, "--task", "task-answer"},
+		{"review", "answer", stepID[:8], "--file", filepath.Join(t.TempDir(), "missing.md"), "--task", "task-answer"},
+		{"review", "answer", stepID[:8], "--file", invalidUTF8, "--task", "task-answer"},
+		{"review", "answer", stepID[:8], "--file", blank, "--task", "task-answer"},
+	}
+	for _, args := range cases {
+		stderr, code := captureStderrWithCode(t, func() int { return runCLI(args) })
+		if code == 0 || !strings.Contains(stderr, "--file - <<'LEGATO_ANSWER'") {
+			t.Fatalf("runCLI(%v) code=%d stderr=%q", args, code, stderr)
+		}
+	}
+
+	s, err = store.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	msgs, err := s.ListReviewMessages(ctx, tour.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].Kind != "question" {
+		t.Fatalf("rejected answers mutated transcript: %+v", msgs)
+	}
+}
+
 func TestPublicReviewMutationHelpResolves(t *testing.T) {
 	for _, path := range [][]string{{"review", "chapter", "edit"}, {"review", "chapter", "remove"}, {"review", "annotation", "edit"}, {"review", "annotation", "remove"}} {
 		out := helpText(path)
@@ -335,6 +458,25 @@ func initReviewCLIRepo(t *testing.T) string {
 	git("add", ".")
 	git("commit", "-m", "add chapter")
 	return dir
+}
+
+func withReviewStdin(t *testing.T, body string, run func()) {
+	t.Helper()
+	old := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdin = r
+	defer func() {
+		os.Stdin = old
+		r.Close()
+	}()
+	go func() {
+		_, _ = io.WriteString(w, body)
+		_ = w.Close()
+	}()
+	run()
 }
 
 func captureStdout(t *testing.T, run func() int) string {

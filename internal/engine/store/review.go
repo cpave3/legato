@@ -611,6 +611,72 @@ func (s *Store) InsertReviewMessage(ctx context.Context, m ReviewMessage, delive
 	return &out, nil
 }
 
+// ReplaceLatestReviewAnswer inserts or replaces the answer after the latest
+// question for a step in the active review pass.
+func (s *Store) ReplaceLatestReviewAnswer(ctx context.Context, m ReviewMessage) (*ReviewMessage, error) {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var questionID int
+	if err := tx.GetContext(ctx, &questionID, `
+		SELECT id FROM review_transcript
+		WHERE tour_id = ? AND step_id = ? AND kind = 'question'
+		  AND pass_id = COALESCE((SELECT id FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1), '')
+		ORDER BY id DESC LIMIT 1`, m.TourID, m.StepID, m.TourID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("latest review question: %w", ErrNotFound)
+		}
+		return nil, err
+	}
+
+	var answerID int
+	err = tx.GetContext(ctx, &answerID, `
+		SELECT id FROM review_transcript
+		WHERE tour_id = ? AND step_id = ? AND kind = 'answer' AND id > ?
+		  AND pass_id = COALESCE((SELECT id FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1), '')
+		ORDER BY id ASC LIMIT 1`, m.TourID, m.StepID, questionID, m.TourID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		res, insertErr := tx.ExecContext(ctx, `
+			INSERT INTO review_transcript (task_id, tour_id, pass_id, step_id, kind, author, body, delivered_at)
+			VALUES (?, ?, COALESCE((SELECT id FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1), ''),
+				?, 'answer', ?, ?, datetime('now'))`, m.TaskID, m.TourID, m.TourID, m.StepID, m.Author, m.Body)
+		if insertErr != nil {
+			return nil, insertErr
+		}
+		id, insertErr := res.LastInsertId()
+		if insertErr != nil {
+			return nil, insertErr
+		}
+		answerID = int(id)
+	case err != nil:
+		return nil, err
+	default:
+		if _, err := tx.ExecContext(ctx, "UPDATE review_transcript SET body = ?, author = ?, delivered_at = COALESCE(delivered_at, datetime('now')) WHERE id = ?", m.Body, m.Author, answerID); err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM review_transcript
+			WHERE tour_id = ? AND step_id = ? AND kind = 'answer' AND id > ? AND id != ?
+			  AND pass_id = COALESCE((SELECT id FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1), '')`,
+			m.TourID, m.StepID, questionID, answerID, m.TourID); err != nil {
+			return nil, err
+		}
+	}
+
+	var out ReviewMessage
+	if err := tx.GetContext(ctx, &out, "SELECT * FROM review_transcript WHERE id = ?", answerID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // ListReviewMessages returns a tour's Q&A transcript, oldest first.
 func (s *Store) ListReviewMessages(ctx context.Context, tourID string) ([]ReviewMessage, error) {
 	var msgs []ReviewMessage

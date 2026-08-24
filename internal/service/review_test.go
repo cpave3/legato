@@ -1383,7 +1383,7 @@ func TestReviewQuestionAndAnswerLoop(t *testing.T) {
 	}
 	if !strings.Contains(lines[0], "[legato review]") ||
 		!strings.Contains(lines[0], stepID) ||
-		!strings.Contains(lines[0], "legato review answer") ||
+		!strings.Contains(lines[0], "legato review answer "+stepID+" --file - <<'LEGATO_ANSWER'") ||
 		!strings.Contains(lines[0], "why not reuse the helper?") {
 		t.Fatalf("question line = %q", lines[0])
 	}
@@ -1399,6 +1399,23 @@ func TestReviewQuestionAndAnswerLoop(t *testing.T) {
 	msgs, _ = f.store.ListReviewMessages(ctx, f.tourID)
 	if len(msgs) != 2 || msgs[1].Kind != "answer" || msgs[1].Author != "agent" {
 		t.Fatalf("transcript after answer = %+v", msgs)
+	}
+	answerID := msgs[1].ID
+	if err := f.svc.Answer(ctx, f.tourID, stepID[:6], "the corrected helper answer"); err != nil {
+		t.Fatal(err)
+	}
+	msgs, _ = f.store.ListReviewMessages(ctx, f.tourID)
+	if len(msgs) != 2 || msgs[1].ID != answerID || msgs[1].Body != "the corrected helper answer" {
+		t.Fatalf("transcript after correction = %+v", msgs)
+	}
+	for _, invalid := range []string{"", " \n\t", string([]byte{0xff})} {
+		if err := f.svc.Answer(ctx, f.tourID, stepID, invalid); err == nil {
+			t.Fatalf("Answer(%q) succeeded", invalid)
+		}
+	}
+	msgs, _ = f.store.ListReviewMessages(ctx, f.tourID)
+	if len(msgs) != 2 {
+		t.Fatalf("invalid answers mutated transcript: %+v", msgs)
 	}
 
 	// Dead session: question stored undelivered, typed error returned.

@@ -340,9 +340,11 @@ func configureReviewCommands(review *commandDef) {
 			examples: []string{`legato review annotate "Check error handling" --file cmd/legato/main.go --hunk 2 --risk high`},
 		},
 		"answer": {
-			arguments: []argumentDef{arg("step-id", "Review question step ID"), arg("text", "Markdown answer")},
-			flags:     selectors,
-			examples:  []string{`legato review answer <step-id> "The handler preserves the existing contract."`},
+			arguments: []argumentDef{arg("step-id", "Review question step ID")},
+			flags:     append(append([]commandFlag{}, selectors...), valueFlag("file", "path", "Markdown answer file; use - for stdin")),
+			examples: []string{`legato review answer <step-id> --file answer.md`, `legato review answer <step-id> --file - <<'LEGATO_ANSWER'
+The handler preserves the ` + "`" + `existing contract` + "`" + `.
+LEGATO_ANSWER`},
 		},
 		"ready": {
 			arguments: []argumentDef{optionalArg("summary", "One-line review summary")},

@@ -110,6 +110,20 @@ plan submission records the current agent separately from an explicit `--task`,
 so an ephemeral implementation task can receive feedback for a plan attached to
 another board task.
 
+Submit review answers from a file or stdin. Positional answer text is not
+supported because a shell can expand Markdown before Legato receives it. Use a
+quoted heredoc to preserve backticks, dollar signs, quotes, and fenced code:
+
+```sh
+legato review answer <step-id> --file - <<'LEGATO_ANSWER'
+Markdown with `inline code`, $VARIABLE, and $(command).
+LEGATO_ANSWER
+```
+
+`--file <path>` reads the same Markdown from a named file. The answer must be
+non-blank UTF-8 text. A retry replaces the answer after the latest question on
+the step. A later question starts a new transcript turn.
+
 ### Swarm verbs
 
 Conductor-only:

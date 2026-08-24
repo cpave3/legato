@@ -10,6 +10,9 @@ import (
 func TestChimeraGeneralPromptTeachesReviewCapture(t *testing.T) {
 	prompt := NewChimeraAdapter("legato").GeneralPrompt()
 
+	if strings.Contains(prompt, `legato review answer <step-id> \"`) {
+		t.Error("standalone prompt contains the unsafe positional answer form")
+	}
 	for _, want := range []string{
 		"reasonable semantic commits",
 		"legato plan submit",
@@ -24,7 +27,7 @@ func TestChimeraGeneralPromptTeachesReviewCapture(t *testing.T) {
 		"legato review show",
 		"diff",
 		"legato review ready",
-		"legato review answer",
+		"legato review answer <step-id> --file - <<'LEGATO_ANSWER'",
 		"Format review answers as Markdown",
 		"[legato review]",
 		"LEGATO_TASK_EPHEMERAL=1",
@@ -79,6 +82,9 @@ func TestChimeraSandboxPreambleCoversReviewVerbs(t *testing.T) {
 func TestConductorPromptTeachesReviewPacket(t *testing.T) {
 	prompt := builtinRolePrompt("conductor")
 
+	if strings.Contains(prompt, `legato review answer <step-id> \"`) {
+		t.Error("conductor prompt contains the unsafe positional answer form")
+	}
 	for _, want := range []string{
 		"Legato-Subtask:",
 		"reasonable semantic commit",
@@ -90,7 +96,7 @@ func TestConductorPromptTeachesReviewPacket(t *testing.T) {
 		"legato review show",
 		"diff",
 		"legato review ready",
-		"legato review answer",
+		"legato review answer <step-id> --file - <<'LEGATO_ANSWER'",
 		"Format review answers as Markdown",
 		"[legato review]",
 		"If `LEGATO_TASK_EPHEMERAL=1`",

@@ -177,11 +177,11 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"- **Signal when you're done.** Run `legato review ready \"<one-line summary>\"` " +
 	"when your work is ready for human review.\n" +
 	"- **Answer review questions.** Messages prefixed `[legato review]` are " +
-	"reviewer questions about a specific step; each includes the exact " +
-	"`legato review answer <step-id> \"...\"` command to reply with. Answer " +
-	"through that command (not just chat) so the reply lands in the review record. " +
-	"Format review answers as Markdown, using lists, inline code, and fenced code " +
-	"blocks where they improve clarity.\n" +
+	"reviewer questions about a specific step; each includes the exact safe stdin command " +
+	"`legato review answer <step-id> --file - <<'LEGATO_ANSWER'` to reply with. Put the " +
+	"Markdown answer on following lines and end it with `LEGATO_ANSWER`. Answer through that " +
+	"command (not just chat) so the reply lands in the review record. Format review answers " +
+	"as Markdown, using lists, inline code, and fenced code blocks where they improve clarity.\n" +
 	"- **Replace stale tours instead of patching them.** After a rebase or " +
 	"substantial rework, run `legato review restart --feedback \"<guidance>\"` to clear the selected pass " +
 	"and retain its capture boundary, then author the replacement. Use `legato " +

@@ -138,8 +138,12 @@ func resolveTaskID(positionals []string) (string, []string, *commandError) {
 }
 
 func readTextInput(inline string, hasInline bool, path string, hasPath bool, stdin io.Reader) (string, *commandError) {
+	return readNamedTextInput("description", "--description", "--description-file", inline, hasInline, path, hasPath, stdin)
+}
+
+func readNamedTextInput(label, inlineFlag, fileFlag, inline string, hasInline bool, path string, hasPath bool, stdin io.Reader) (string, *commandError) {
 	if hasInline && hasPath {
-		return "", usageError("conflicting_input", "use only one of --description and --description-file")
+		return "", usageError("conflicting_input", fmt.Sprintf("use only one of %s and %s", inlineFlag, fileFlag))
 	}
 	if hasInline {
 		return inline, nil
@@ -157,10 +161,10 @@ func readTextInput(inline string, hasInline bool, path string, hasPath bool, std
 		data, err = os.ReadFile(path)
 	}
 	if err != nil {
-		return "", &commandError{Code: "input_unavailable", Message: fmt.Sprintf("read description: %v", err), Exit: exitUsage}
+		return "", &commandError{Code: "input_unavailable", Message: fmt.Sprintf("read %s: %v", label, err), Exit: exitUsage}
 	}
 	if !utf8.Valid(data) {
-		return "", usageError("invalid_text", "description must be valid UTF-8 text")
+		return "", usageError("invalid_text", fmt.Sprintf("%s must be valid UTF-8 text", label))
 	}
 	return string(data), nil
 }

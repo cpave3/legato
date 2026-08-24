@@ -583,16 +583,27 @@ func runReviewCmd(args []string) int {
 		}
 		return 0
 	case "answer":
-		if len(positional) != 2 {
-			fmt.Fprintln(os.Stderr, `usage: legato review answer <step-id> "text" [--task <id>] [--name <name>]`)
-			return 1
+		answerUsage := "usage: legato review answer <step-id> --file <path|-> [--task <id>] [--name <name>]\n" +
+			"safe stdin example: legato review answer <step-id> --file - <<'LEGATO_ANSWER'"
+		if len(positional) != 1 || len(listFlags["file"]) != 1 {
+			fmt.Fprintln(os.Stderr, answerUsage)
+			return exitUsage
+		}
+		text, inputErr := readNamedTextInput("answer", "", "--file", "", false, listFlags["file"][0], true, os.Stdin)
+		if inputErr != nil {
+			fmt.Fprintf(os.Stderr, "error: %s\n%s\n", inputErr.Message, answerUsage)
+			return inputErr.Exit
+		}
+		if strings.TrimSpace(text) == "" {
+			fmt.Fprintf(os.Stderr, "error: answer must not be blank\n%s\n", answerUsage)
+			return exitUsage
 		}
 		tourID, err := resolveTourID()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
-		if err := cli.ReviewAnswer(svc, tourID, positional[0], positional[1]); err != nil {
+		if err := cli.ReviewAnswer(svc, tourID, positional[0], text); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
