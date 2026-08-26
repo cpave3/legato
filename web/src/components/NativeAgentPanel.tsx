@@ -635,7 +635,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
   }
 
   return (
-    <div className="relative flex h-full min-w-0 flex-col overflow-hidden bg-zinc-950">
+    <div className="relative flex h-full min-w-0 w-full flex-1 flex-col overflow-hidden bg-zinc-950">
       {/* Conversation viewport owns both scrolling and its floating action. */}
       <div role="region" aria-label="Conversation" className="relative min-h-0 flex-1">
         <div data-conversation-scroll ref={scrollRef} className="h-full overflow-y-auto overflow-x-hidden" onScroll={(e) => { const el = e.currentTarget; const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40; isScrolledUpRef.current = !atBottom; setIsScrolledUp(!atBottom) }}>

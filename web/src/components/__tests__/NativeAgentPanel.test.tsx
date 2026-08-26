@@ -32,6 +32,27 @@ describe("NativeAgentPanel", () => {
     vi.restoreAllMocks()
   })
 
+  it("fills its host when snapshot history contains only an assistant message", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({
+          id: "session-1",
+          status: "idle",
+          messages: [
+            { role: "user", content: "Launch prompt" },
+            { role: "assistant", content: "Ready" },
+          ],
+          toolCalls: [],
+        }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    const view = render(<NativeAgentPanel agentId="agent-1" />)
+    await within(view.container).findByText("Ready")
+    const panel = view.container.firstElementChild as HTMLElement
+
+    expect(panel.className).toContain("w-full")
+    expect(panel.className).toContain("flex-1")
+  })
+
   it("can hide its composer when embedded in the swarm command center", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const path = String(input)
