@@ -490,6 +490,7 @@ export function AgentsPage() {
                   }}
                   renderParticipant={(agent) => agent.has_chimera_endpoint ? (
                     <NativeAgentPanel
+                      key={agent.task_id}
                       agentId={agent.task_id}
                       agentKind={agent.agent_kind}
                       composerEnabled={agent.task_id === selectedId}
@@ -503,6 +504,7 @@ export function AgentsPage() {
                 />
               ) : selectedAgent?.has_chimera_endpoint ? (
                 <NativeAgentPanel
+                  key={selectedId}
                   agentId={selectedId}
                   onKill={handleKill}
                   onDisconnect={handleDisconnect}
