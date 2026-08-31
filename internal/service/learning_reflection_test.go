@@ -154,6 +154,24 @@ func TestLearningServiceSubmitReflectionJSONRequiresExplicitObservationArray(t *
 	}
 }
 
+func TestLearningServiceSubmitReflectionJSONAcceptsRequiredFieldsOnly(t *testing.T) {
+	db := newServiceTestStore(t)
+	svc := NewLearningService(db, nil)
+	ctx := context.Background()
+	req, err := svc.CreateReflectionRequest(ctx, CreateReflectionRequestInput{WorkflowRunID: "run", StepID: "reflect", AttemptID: "minimal-json", TaskID: "task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.SubmitReflectionJSON(ctx, req.ID, []byte(`{"schema_version":1,"observations":[{"kind":"technical_fact","content":"A durable claim"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Request.Status != "submitted" || len(result.Evidence) != 1 || result.Evidence[0].Content != "A durable claim" {
+		t.Fatalf("minimal reflection result = %+v", result)
+	}
+}
+
 func TestLearningServiceSubmitReflectionJSONRejectsUnknownFieldsAndDeepInput(t *testing.T) {
 	db := newServiceTestStore(t)
 	svc := NewLearningService(db, nil)
@@ -162,8 +180,18 @@ func TestLearningServiceSubmitReflectionJSONRejectsUnknownFieldsAndDeepInput(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.SubmitReflectionJSON(ctx, req.ID, []byte(`{"schema_version":1,"observations":[{"kind":"fact","content":"x","unknown":true}]}`)); !errors.Is(err, ErrInvalidReflection) {
+	_, err = svc.SubmitReflectionJSON(ctx, req.ID, []byte(`{"schema_version":1,"observations":[{"kind":"fact","content":"x","unknown":true}]}`))
+	if !errors.Is(err, ErrInvalidReflection) {
 		t.Fatalf("unknown field error = %v", err)
+	}
+	for _, want := range []string{
+		`unknown field "unknown"`,
+		"expected top-level fields: schema_version, observations",
+		"observation fields: kind, content, rationale, metadata",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("unknown field error missing %q: %v", want, err)
+		}
 	}
 	deep := `{"schema_version":1,"observations":[{"kind":"fact","content":"x","metadata":{"a":{"b":{"c":{"d":{"e":1}}}}}}]}`
 	if _, err := svc.SubmitReflectionJSON(ctx, req.ID, []byte(deep)); !errors.Is(err, ErrInvalidReflection) {

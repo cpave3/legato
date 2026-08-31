@@ -99,6 +99,32 @@ func TestTaskUpdateHelpExplainsProviderRestrictions(t *testing.T) {
 	}
 }
 
+func TestReflectionSubmitHelpDocumentsJSONContract(t *testing.T) {
+	out := captureStdout(t, func() int {
+		code := runCLI([]string{"learn", "reflection", "submit", "--help"})
+		if code != 0 {
+			t.Errorf("reflection submit help exit = %d, want 0", code)
+		}
+		return code
+	})
+	for _, want := range []string{
+		`"schema_version": 1`,
+		`"observations"`,
+		`"kind"`,
+		`"content"`,
+		`"rationale"`,
+		`"metadata"`,
+		"Each observation requires kind and content",
+		"Recommended kind values:",
+		"An empty observations array is valid",
+		`printf '%s\n' '{"schema_version":1,"observations":[]}' | legato learn reflection submit --request <id> --file -`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("help missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestAgentPrimerCoversDiscoveryAndCoreWorkflow(t *testing.T) {
 	for _, want := range []string{
 		"# Legato CLI primer",

@@ -94,6 +94,8 @@ JSON
 legato learn reflection submit --request <request-id> --file reflection.json
 ```
 
+The version 1 document has two top-level fields: required integer `schema_version` (currently `1`) and required array `observations`. Each observation requires string fields `kind` and `content`. The string `rationale` and object `metadata` fields are optional. Recommended `kind` values are `invariant`, `convention`, `pitfall`, `preference`, `process_improvement`, `module_rule`, and `technical_fact`; other non-empty values are accepted.
+
 The request can also come from `LEGATO_LEARNING_REQUEST_ID`; omitting `--file` or using `--file -` reads stdin. Submission validates and persists the reflection **before** completing the exact workflow run/step/attempt associated with the request. An exact replay is idempotent; a changed or stale replay fails. Submit `{"schema_version":1,"observations":[]}` when nothing durable was learned; this completes normally and creates no evidence. Limits currently include zero to 32 observations, 64 KiB per document, and 8 KiB per observation content/rationale.
 
 After reflection is persisted and the bounded packet is prepared, the borrowed task agent remains online and associated with its original task. Curator and critic agents run under the separate generated workflow task, so their lifecycle does not require or affect the interviewed session.

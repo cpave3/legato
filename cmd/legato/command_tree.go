@@ -60,6 +60,25 @@ func boolFlag(name, description string) commandFlag {
 
 var jsonFlag = boolFlag("json", "Emit a stable JSON result or error envelope")
 
+const reflectionSubmitDescription = `The input must be a JSON document with this shape:
+
+{
+  "schema_version": 1,
+  "observations": [
+    {
+      "kind": "technical_fact",
+      "content": "The learning claim",
+      "rationale": "Why it matters",
+      "metadata": {}
+    }
+  ]
+}
+
+Each observation requires kind and content. Rationale and metadata are optional.
+Recommended kind values: invariant, convention, pitfall, preference,
+process_improvement, module_rule, technical_fact.
+An empty observations array is valid when nothing durable was learned.`
+
 func leaf(name, summary string, run commandHandler, args []argumentDef, flags []commandFlag, examples ...string) *commandDef {
 	return &commandDef{Name: name, Summary: summary, Run: run, Arguments: args, Flags: flags, Examples: examples}
 }
@@ -242,6 +261,11 @@ func commandTree() *commandDef {
 	markCapabilities(root)
 	if update, ok := findCommand(root, []string{"task", "update"}); ok {
 		update.Description = "Status and Legato-owned descriptions can be changed for any task. Provider-backed titles and provider descriptions remain read-only."
+	}
+	if reflectionSubmit, ok := findCommand(root, []string{"learn", "reflection", "submit"}); ok {
+		reflectionSubmit.Description = reflectionSubmitDescription
+		reflectionSubmit.Examples = append(reflectionSubmit.Examples,
+			`printf '%s\n' '{"schema_version":1,"observations":[]}' | legato learn reflection submit --request <id> --file -`)
 	}
 	return root
 }

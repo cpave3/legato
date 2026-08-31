@@ -28,6 +28,8 @@ var (
 	ErrReflectionStale   = errors.New("reflection request is stale or already completed")
 )
 
+const reflectionJSONFieldHint = "expected top-level fields: schema_version, observations; observation fields: kind, content, rationale, metadata"
+
 // ReflectionDocument is the versioned callback schema. Observation content and
 // metadata are untrusted agent-provided data and must remain attributable.
 type ReflectionDocument struct {
@@ -171,7 +173,7 @@ func (s *LearningService) SubmitReflectionJSON(ctx context.Context, requestID st
 	decoder.UseNumber()
 	var document ReflectionDocument
 	if err := decoder.Decode(&document); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidReflection, err)
+		return nil, fmt.Errorf("%w: %v; %s", ErrInvalidReflection, err, reflectionJSONFieldHint)
 	}
 	if document.Observations == nil {
 		return nil, fmt.Errorf("%w: observations must be an array", ErrInvalidReflection)
