@@ -50,7 +50,7 @@ Remote web interface for monitoring and interacting with agent sessions from any
 
 **Sparkline data**: `/api/agents` now includes a per-agent `state_timeline` field — a string slice (one entry per bucket, values: `"working"`, `"waiting"`, `""` for idle). Driven by `Store.GetStateTimeline(taskID, window, buckets)`. Window defaults to 10 minutes / 10 buckets and is configured via `Server.SetSparklineWindow(window, buckets)` from the `agents.sparkline_window` config field. `AgentSidebar` renders the timeline as a row of colored divs in each agent card.
 
-**Agent management**: `POST /api/agents/spawn` creates ephemeral agent (title input, defaults to "Ephemeral session"). `POST /api/agents/kill` terminates agent tmux session. Both broadcast `agents_changed`. Dead agent detection: `onStreamEnd` callback fires on pipe-pane EOF → `ReconcileSessions` updates DB → `agents_changed` broadcast → web sidebar filters to `status === "running"` only. Auto-disconnect from selected agent if it dies.
+**Agent management**: `POST /api/agents/spawn` creates ephemeral agent (title input, defaults to "Ephemeral session"). `POST /api/agents/kill` terminates an ordinary agent session; a conductor task ID routes through full swarm cancellation. Both broadcast `agents_changed`. Dead agent detection: `onStreamEnd` callback fires on pipe-pane EOF → `ReconcileSessions` updates DB → `agents_changed` broadcast → web sidebar filters to `status === "running"` only. Auto-disconnect from selected agent if it dies.
 
 **Mobile support**: Custom touch-to-scroll handler intercepts `touchstart`/`touchmove` on terminal container, calculates swipe delta, calls `term.scrollLines()` directly (xterm.js built-in touch doesn't work on mobile browsers). `touchmove` uses `preventDefault` (non-passive) to block pull-to-refresh. `overscroll-behavior: none` on body as fallback. Floating scroll-to-bottom button appears when scrolled up from bottom (tracks `buffer.active.viewportY < baseY`).
 
@@ -101,7 +101,7 @@ The modal does not include in-browser YAML editing (v1). Users who need surgical
 
 **Extension plans.** When a conductor calls `legato swarm extend-plan` (or the server receives `plan_extension_proposed` over WebSocket), the modal title changes to "Extension plan — append to existing swarm". The rest of the approval flow — approve, reject with notes, dismiss — is unchanged. Web clients track whether the current modal is an extension via the `mode` field on `plan_proposed` IPC events.
 
-**Cancel swarm.** The board detail panel (`DetailPanel.tsx`) shows a red "Cancel swarm" button when the card has active swarm stats or a working directory. Clicking it opens `CancelSwarmModal.tsx`, which confirms that the action kills the conductor + all live workers, deletes sub-tasks, and clears swarm state. The card itself and its history remain.
+**Cancel swarm.** The board detail panel (`DetailPanel.tsx`) shows a red "Cancel swarm" button when the card has active swarm stats or a working directory. Clicking it opens `CancelSwarmModal.tsx`, which confirms that the action kills the conductor + all live workers, deletes sub-tasks, and clears swarm state. Killing a conductor from the Agents dot menu or right-click menu routes through the same full swarm cancellation. The card itself and its history remain.
 
 **Per-worker action menu.** Each agent entry in the sidebar has an overflow `⋯` button that opens a role-appropriate menu:
 - **Worker** → Send message (free-text input → `POST /api/swarm/message`), Close worker (`POST /api/swarm/close`)

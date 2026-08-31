@@ -157,7 +157,22 @@ func (s *Server) killAgentHandler() http.HandlerFunc {
 			return
 		}
 
-		if err := s.agents.KillAgent(context.Background(), req.TaskID); err != nil {
+		ctx := r.Context()
+		cancelSwarm, err := s.isSwarmConductor(ctx, req.TaskID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if cancelSwarm {
+			if s.swarm == nil {
+				http.Error(w, "swarm service not available", http.StatusServiceUnavailable)
+				return
+			}
+			err = s.swarm.CancelSwarm(ctx, req.TaskID)
+		} else {
+			err = s.agents.KillAgent(ctx, req.TaskID)
+		}
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -167,6 +182,19 @@ func (s *Server) killAgentHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}
+}
+
+func (s *Server) isSwarmConductor(ctx context.Context, taskID string) (bool, error) {
+	agents, err := s.agents.ListAgents(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, agent := range agents {
+		if agent.TaskID == taskID {
+			return agent.Role == "conductor", nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Server) agentPreviewHandler() http.HandlerFunc {

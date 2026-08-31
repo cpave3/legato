@@ -252,8 +252,11 @@ export function AgentsPage() {
     dismissedPromptTypeRef.current = null
   }, [setSelectedId])
 
-  const killAgent = useCallback(async (taskId: string) => {
-    if (!window.confirm("Kill this agent session?")) return
+  const killAgent = useCallback(async (taskId: string, role?: string) => {
+    const confirmation = role === "conductor"
+      ? "Cancel this swarm? This kills the conductor and all workers."
+      : "Kill this agent session?"
+    if (!window.confirm(confirmation)) return
     localStorage.removeItem(`legato:draft:${taskId}`)
     try {
       const response = await apiFetch(baseUrl, "/api/agents/kill", {
@@ -270,8 +273,8 @@ export function AgentsPage() {
   }, [baseUrl, addToast])
 
   const handleKill = useCallback(() => {
-    if (selectedId) void killAgent(selectedId)
-  }, [selectedId, killAgent])
+    if (selectedId) void killAgent(selectedId, agents.find((agent) => agent.task_id === selectedId)?.role)
+  }, [selectedId, agents, killAgent])
 
   const handleSpawn = useCallback(() => {
     setShowSpawn(true)
@@ -564,7 +567,7 @@ export function AgentsPage() {
           onKill={() => {
             const taskId = agentContextMenu.agent.task_id
             setAgentContextMenu(null)
-            void killAgent(taskId)
+            void killAgent(taskId, agentContextMenu.agent.role)
           }}
         />
       )}

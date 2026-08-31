@@ -327,12 +327,16 @@ type promptAgentService struct {
 	captureOutput    string
 	captureErr       error
 	capturedTaskID   string
+	killedTaskID     string
 }
 
 func (p *promptAgentService) SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error {
 	return nil
 }
-func (p *promptAgentService) KillAgent(context.Context, string) error             { return nil }
+func (p *promptAgentService) KillAgent(_ context.Context, taskID string) error {
+	p.killedTaskID = taskID
+	return nil
+}
 func (p *promptAgentService) SetTaskGroup(context.Context, string, *string) error { return nil }
 func (p *promptAgentService) ListAgents(context.Context) ([]service.AgentSession, error) {
 	return []service.AgentSession{p.agent}, nil
@@ -1984,4 +1988,52 @@ func TestCORSAllowsBoardMethods(t *testing.T) {
 			t.Errorf("Allow-Methods = %q, expected DELETE", methods)
 		}
 	})
+}
+
+func TestKillAgentHandlerCancelsConductorSwarm(t *testing.T) {
+	agents := &promptAgentService{agent: service.AgentSession{TaskID: "PARENT-1", Role: "conductor"}}
+	var cancelled string
+	swarmSvc := &mockSwarmService{cancelSwarmFunc: func(_ context.Context, parentID string) error {
+		cancelled = parentID
+		return nil
+	}}
+	srv := NewWithSwarm(nil, agents, nil, "", swarmSvc, nil, "")
+	req := httptest.NewRequest(http.MethodPost, "/api/agents/kill", strings.NewReader(`{"task_id":"PARENT-1"}`))
+	rec := httptest.NewRecorder()
+
+	srv.killAgentHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if cancelled != "PARENT-1" {
+		t.Fatalf("cancelled swarm = %q, want PARENT-1", cancelled)
+	}
+	if agents.killedTaskID != "" {
+		t.Fatalf("directly killed agent %q; conductor must route through CancelSwarm", agents.killedTaskID)
+	}
+}
+
+func TestKillAgentHandlerKillsOrdinaryAgentOnly(t *testing.T) {
+	agents := &promptAgentService{agent: service.AgentSession{TaskID: "AGENT-1", Role: "worker"}}
+	cancelled := false
+	swarmSvc := &mockSwarmService{cancelSwarmFunc: func(context.Context, string) error {
+		cancelled = true
+		return nil
+	}}
+	srv := NewWithSwarm(nil, agents, nil, "", swarmSvc, nil, "")
+	req := httptest.NewRequest(http.MethodPost, "/api/agents/kill", strings.NewReader(`{"task_id":"AGENT-1"}`))
+	rec := httptest.NewRecorder()
+
+	srv.killAgentHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if agents.killedTaskID != "AGENT-1" {
+		t.Fatalf("killed agent = %q, want AGENT-1", agents.killedTaskID)
+	}
+	if cancelled {
+		t.Fatal("ordinary agent kill cancelled a swarm")
+	}
 }

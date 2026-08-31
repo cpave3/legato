@@ -24,13 +24,15 @@ vi.mock("../../hooks/useSwarmEvents", () => ({ useSwarmEvents: () => ({ fetchSta
 vi.mock("../../hooks/useTaskActivity", () => ({ useTaskActivity: () => ({ items: [] }) }))
 vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast }) }))
 vi.mock("../../components/TerminalPanel", () => ({ TerminalPanel: () => <div>Terminal session</div> }))
-vi.mock("../../components/PromptBar", () => ({ PromptBar: () => null }))
+vi.mock("../../components/PromptBar", () => ({
+  PromptBar: ({ onKill }: { onKill: () => void }) => <button onClick={onKill}>Dot menu kill</button>,
+}))
 vi.mock("../../components/RelatedWorkStrip", () => ({ RelatedWorkStrip: () => null }))
 vi.mock("../../components/StartSwarmModal", () => ({ StartSwarmModal: () => null }))
 vi.mock("../../components/SpawnEphemeralModal", () => ({ SpawnEphemeralModal: () => null }))
 vi.mock("../../components/SwarmEventLog", () => ({ SwarmEventLog: () => null }))
 
-function agent(taskId: string) {
+function agent(taskId: string, role = "") {
   return {
     id: taskId === "TASK-1" ? 1 : 2,
     task_id: taskId,
@@ -40,6 +42,7 @@ function agent(taskId: string) {
     agent_kind: "chimera",
     status: "running",
     activity: "working",
+    role,
     started_at: "2026-08-13T00:00:00Z",
     working_seconds: 1,
     waiting_seconds: 0,
@@ -133,4 +136,50 @@ describe("AgentsPage sidebar context menu", () => {
 
     await waitFor(() => expect(addToast).toHaveBeenCalledWith("agent refused to stop", "error"))
   })
+  it("cancels the swarm from the conductor right-click menu", async () => {
+    mockFetch.mockImplementation((input: RequestInfo | URL) => {
+      const path = String(input)
+      if (path === "/api/agents") {
+        return Promise.resolve({ ok: true, status: 200, json: async () => [agent("TASK-1"), agent("PARENT-1", "conductor")] })
+      }
+      if (path === "/api/agents/kill") {
+        return Promise.resolve({ ok: true, status: 200, text: async () => "" })
+      }
+      throw new Error(`unexpected request: ${path}`)
+    })
+
+    render(<MemoryRouter><AgentsPage /></MemoryRouter>)
+    fireEvent.contextMenu(await screen.findByRole("button", { name: /PARENT-1/ }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Kill agent" }))
+
+    expect(window.confirm).toHaveBeenCalledWith("Cancel this swarm? This kills the conductor and all workers.")
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(
+      "/api/agents/kill",
+      expect.objectContaining({ body: JSON.stringify({ task_id: "PARENT-1" }) }),
+    ))
+  })
+
+  it("cancels the swarm from the selected conductor dot menu action", async () => {
+    mockFetch.mockImplementation((input: RequestInfo | URL) => {
+      const path = String(input)
+      if (path === "/api/agents") {
+        return Promise.resolve({ ok: true, status: 200, json: async () => [agent("TASK-1", "conductor")] })
+      }
+      if (path === "/api/agents/kill") {
+        return Promise.resolve({ ok: true, status: 200, text: async () => "" })
+      }
+      throw new Error(`unexpected request: ${path}`)
+    })
+
+    render(<MemoryRouter><AgentsPage /></MemoryRouter>)
+    await screen.findByRole("button", { name: /TASK-1/ })
+    fireEvent.click(screen.getByRole("button", { name: "Dot menu kill" }))
+
+    expect(window.confirm).toHaveBeenCalledWith("Cancel this swarm? This kills the conductor and all workers.")
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(
+      "/api/agents/kill",
+      expect.objectContaining({ body: JSON.stringify({ task_id: "TASK-1" }) }),
+    ))
+  })
+
 })
