@@ -38,6 +38,7 @@ Version 1 executes steps in declaration order and supports these executors:
 - `agent.stop`: idempotently stop the active agent for the resolved `with.task`. Built-in Learn does not use it because interviews borrow the original task session; curator and critic agents run under the separate generated workflow task.
 - `worktree.remove`: validate and remove the shared task's worktree through Yggdrasil, then clear task metadata.
 - `file.remove`: idempotently remove one regular file beneath an explicit working directory. Absolute paths, traversal, symlink escapes, and directories are rejected.
+- `chimera.session.remove`: remove the exact Chimera session retained by the selected task, then clear its resume and native binding data. The action is idempotent when no session exists, refuses a running agent or a parent session with children, and returns `removed` and `metadata_cleared` booleans. Use an explicit `agent.stop` step first when the workflow should stop an active agent.
 - `task.context`: render the selected task's full Markdown context, including structured fields, effective provider/local description, and task notes, as the `content` output.
 - `task.working_dir.resolve`: choose a selected task's linked worktree when present, otherwise use the required `with.fallback` repository path. Outputs are `path` and `source` (`worktree` or `repository`).
 - `task.note`: add Markdown to a selected task. Pass a resolved `task` input plus either inline `body` or a managed/file `body_path`. Notes are stored locally in Legato and shown in task detail, including for provider-backed tasks; they are not published to Jira.
@@ -83,19 +84,19 @@ on:
           not_equals: true
 ```
 
-Conditions support nested `all`, `any`, and `not`, and field comparisons using `exists`, `equals`, `not_equals`, or `in`. In addition to task snapshot, metadata, and transition fields, `task.has_active_agent` resolves at trigger time to whether the task has an open agent session. An open session includes working, waiting, idle, and error activity states; completed/dead sessions do not match.
+Conditions support nested `all`, `any`, and `not`, and field comparisons using `exists`, `equals`, `not_equals`, or `in`. In addition to task snapshot, metadata, and transition fields, `task.has_active_agent` resolves at trigger time to whether the task has an open agent session. An open session includes working, waiting, idle, and error activity states; completed/dead sessions do not match. `task.has_chimera_session` resolves from the task's current retained Chimera resume ID. Both dynamic fields are re-evaluated when a confirmed trigger starts.
 
 Set `confirm: true` on a column trigger to require explicit approval after its conditions match and inputs resolve. Existing triggers without it continue to start automatically. Confirmable requests remain recoverable in Attention: closing the immediate prompt means **Not now** and makes no state change, while **Skip** terminates the request. Conditions are re-evaluated when the user confirms, so a session that closes while the prompt is pending causes the trigger to skip without creating a workflow run.
 
 Automatic triggers run for explicit local moves, including local moves of provider-backed tasks; pull-sync status changes do not trigger workflows. Trigger requests are durable and idempotent. Missing required inputs leave the card in its destination column and create a recoverable Attention item; for confirmable triggers, supplying those inputs advances to confirmation instead of starting immediately. The workflow can always be started manually as a separate run.
 
-For example, this user-defined workflow offers to stop an open task agent when the task enters Done. Put it in a discovered workflow directory; it is not built into Legato:
+For example, this user-defined workflow offers to stop an open task agent and remove its retained Chimera session when the task enters Done. Put it in a discovered workflow directory; it is not built into Legato. Confirmation is recommended because session deletion cannot be undone. A parent session with child or fork sessions fails safely and retains its resume data until the children are removed.
 
 ```yaml
 schema_version: 1
 name: close-active-agent
-title: Close active agent
-description: Close the open agent session attached to a task moved to Done.
+title: Close agent and remove Chimera session
+description: Stop the task agent and remove retained Chimera history when a task moves to Done.
 inputs:
   task: {type: task, required: true}
 on:
@@ -105,8 +106,10 @@ on:
     inputs:
       task: ${{ event.task }}
     conditions:
-      all:
+      any:
         - field: task.has_active_agent
+          equals: true
+        - field: task.has_chimera_session
           equals: true
 steps:
   - id: close
@@ -114,6 +117,14 @@ steps:
     type: agent.stop
     with:
       task: ${{ workflow.inputs.task }}
+  - id: remove-session
+    title: Remove Chimera session
+    type: chimera.session.remove
+    with:
+      task: ${{ workflow.inputs.task }}
+    outputs:
+      removed: {type: boolean}
+      metadata_cleared: {type: boolean}
 ```
 
 ```yaml
