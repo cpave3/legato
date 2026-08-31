@@ -443,7 +443,7 @@ func TestClearTaskChimeraSessionRefusesRunningAgent(t *testing.T) {
 	}
 }
 
-func TestClearTaskChimeraSessionPreservesReplacementSession(t *testing.T) {
+func TestClearTaskChimeraSessionPreservesReplacementSessionAndClearsOldBindings(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	if err := s.CreateTask(ctx, Task{ID: "task-replaced", Title: "Replaced", Status: "Done"}); err != nil {
@@ -452,15 +452,26 @@ func TestClearTaskChimeraSessionPreservesReplacementSession(t *testing.T) {
 	if err := s.SetTaskChimeraSessionID(ctx, "task-replaced", "chimera-new"); err != nil {
 		t.Fatal(err)
 	}
+	sessionID, err := s.InsertAgentSessionReturningID(ctx, AgentSession{TaskID: "task-replaced", TmuxSession: "dead", AgentKind: "chimera", Status: "dead"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB().ExecContext(ctx, `UPDATE agent_sessions SET chimera_session_id = ?, chimera_endpoint = ?, last_event_id = ? WHERE id = ?`, "chimera-old", "http://old", "event-1", sessionID); err != nil {
+		t.Fatal(err)
+	}
 	cleared, err := s.ClearTaskChimeraSession(ctx, "task-replaced", "chimera-old")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cleared {
-		t.Fatal("replacement metadata was cleared")
+	if !cleared {
+		t.Fatal("old agent binding was not cleared")
 	}
 	task, _ := s.GetTask(ctx, "task-replaced")
 	if task.ChimeraSessionID == nil || *task.ChimeraSessionID != "chimera-new" {
 		t.Fatalf("task ChimeraSessionID = %v", task.ChimeraSessionID)
+	}
+	agent, _ := s.GetAgentSessionByID(ctx, sessionID)
+	if agent.ChimeraSessionID != nil || agent.ChimeraEndpoint != nil || agent.LastEventID != nil {
+		t.Fatalf("old agent binding remains: %+v", agent)
 	}
 }

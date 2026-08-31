@@ -38,7 +38,6 @@ func (s *Store) ClearTaskChimeraSession(ctx context.Context, taskID, expectedSes
 		if exists == 0 {
 			return false, ErrNotFound
 		}
-		return false, tx.Commit()
 	}
 	result, err = tx.ExecContext(ctx, `
 		UPDATE agent_sessions
@@ -47,8 +46,12 @@ func (s *Store) ClearTaskChimeraSession(ctx context.Context, taskID, expectedSes
 	if err != nil {
 		return false, err
 	}
+	agentRows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
 	if err := tx.Commit(); err != nil {
 		return false, err
 	}
-	return true, nil
+	return taskRows > 0 || agentRows > 0, nil
 }
