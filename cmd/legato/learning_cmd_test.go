@@ -93,8 +93,8 @@ func TestLearningSearchHelpDocumentsSafeDefaultsAndOverrides(t *testing.T) {
 	}
 }
 
-func TestLearningWorkflowOptionsFallBackToSwarmDefaultAgent(t *testing.T) {
-	cfg := &config.Config{Swarm: config.SwarmConfig{DefaultAgent: "chimera"}, Learning: config.LearningConfig{PacketMaxItems: 1, PacketMaxBytes: 1}}
+func TestLearningWorkflowOptionsFallBackToSwarmWorkerAgent(t *testing.T) {
+	cfg := &config.Config{Swarm: config.SwarmConfig{Worker: config.SwarmParticipantConfig{Agent: "chimera"}}, Learning: config.LearningConfig{PacketMaxItems: 1, PacketMaxBytes: 1}}
 	options := learningWorkflowOptions(cfg)
 	if options.Adapter != "chimera" {
 		t.Fatalf("adapter = %q, want chimera", options.Adapter)

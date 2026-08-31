@@ -32,7 +32,7 @@ func injectBuiltInLearningTriggers(result workflowengine.DiscoveryResult, cfg *c
 		return result
 	}
 	definitions, err := service.BuiltInTriggeredLearningWorkflows(cfg.Learning.TransitionColumns, service.LearningWorkflowOptions{
-		Adapter: firstNonEmpty(cfg.Learning.CuratorAdapter, cfg.Swarm.DefaultAgent), Tier: cfg.Learning.CuratorTier,
+		Adapter: firstNonEmpty(cfg.Learning.CuratorAdapter, cfg.Swarm.Worker.Agent), Tier: cfg.Learning.CuratorTier,
 		WorkingDir: cfg.Learning.CuratorWorkingDir, PacketMaxItems: cfg.Learning.PacketMaxItems,
 		PacketMaxBytes: cfg.Learning.PacketMaxBytes,
 	})

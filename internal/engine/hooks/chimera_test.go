@@ -217,7 +217,7 @@ func TestChimeraLaunchCommand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			a := hooks.NewChimeraAdapter("/usr/bin/legato")
-			cmd := a.LaunchCommand(tt.env, "", "")
+			cmd := a.LaunchCommand(tt.env, "", "", "")
 			for _, want := range tt.wantSub {
 				if !strings.Contains(cmd, want) {
 					t.Errorf("cmd missing %q: %s", want, cmd)

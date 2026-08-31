@@ -78,7 +78,7 @@ func TestChimeraAdapterImplementsRolePrompts(t *testing.T) {
 func TestClaudeAdapterLaunchCommand(t *testing.T) {
 	a := NewClaudeCodeAdapter("/usr/bin/legato")
 
-	got := a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "")
+	got := a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "", "")
 	if !strings.Contains(got, "claude") {
 		t.Errorf("expected claude in launch command, got %q", got)
 	}
@@ -93,12 +93,12 @@ func TestClaudeAdapterLaunchCommand(t *testing.T) {
 	}
 
 	// Without LEGATO_ROLE_PROMPT_FILE in env — bare claude launch.
-	if got := a.LaunchCommand(map[string]string{}, "", ""); got != "claude" {
+	if got := a.LaunchCommand(map[string]string{}, "", "", ""); got != "claude" {
 		t.Errorf("expected bare claude command without role prompt file env, got %q", got)
 	}
 
 	// Nil env returns empty.
-	if got := a.LaunchCommand(nil, "", ""); got != "" {
+	if got := a.LaunchCommand(nil, "", "", ""); got != "" {
 		t.Errorf("expected empty command for nil env, got %q", got)
 	}
 }
@@ -106,7 +106,7 @@ func TestClaudeAdapterLaunchCommand(t *testing.T) {
 func TestChimeraAdapterLaunchCommand(t *testing.T) {
 	a := NewChimeraAdapter("/usr/bin/legato")
 
-	got := a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "")
+	got := a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "", "")
 	if !strings.Contains(got, "chimera") {
 		t.Errorf("expected chimera in launch command, got %q", got)
 	}
@@ -117,7 +117,7 @@ func TestChimeraAdapterLaunchCommand(t *testing.T) {
 		t.Errorf("expected file path env var reference, got %q", got)
 	}
 
-	if got := a.LaunchCommand(map[string]string{}, "", ""); got != "chimera" {
+	if got := a.LaunchCommand(map[string]string{}, "", "", ""); got != "chimera" {
 		t.Errorf("expected bare chimera command without role prompt file env, got %q", got)
 	}
 }
@@ -129,7 +129,7 @@ func TestChimeraAdapterLaunchCommandResumesStoredSession(t *testing.T) {
 		"LEGATO_CHIMERA_SESSION_ID":     "existing-session",
 		"LEGATO_CHIMERA_SESSION_EXISTS": "resume",
 		"LEGATO_ROLE_PROMPT_FILE":       "/tmp/role.md",
-	}, "", "")
+	}, "", "", "")
 
 	if !strings.Contains(got, "--session existing-session") {
 		t.Errorf("expected direct session resume in launch command, got %q", got)
@@ -149,7 +149,7 @@ func TestClaudeAdapterLaunchCommandWithTier(t *testing.T) {
 		"large": {"--model", "claude-opus-4-7"},
 	})
 
-	got := a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "small")
+	got := a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "", "small")
 	if !strings.Contains(got, "--dangerously-skip-permissions") {
 		t.Errorf("expected base launch_args, got %q", got)
 	}
@@ -165,14 +165,14 @@ func TestClaudeAdapterLaunchCommandWithTier(t *testing.T) {
 	}
 
 	// Empty tier → no tier args.
-	got = a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "")
+	got = a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "", "")
 	if strings.Contains(got, "--model") {
 		t.Errorf("empty tier should not inject --model, got %q", got)
 	}
 
 	// Unknown tier → no tier args (validation rejects unknown tiers earlier;
 	// the adapter just looks up by name and treats a miss as a no-op).
-	got = a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "ghost")
+	got = a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "", "ghost")
 	if strings.Contains(got, "--model") {
 		t.Errorf("unknown tier should not inject anything, got %q", got)
 	}
@@ -185,7 +185,7 @@ func TestChimeraAdapterLaunchCommandWithTaskSession(t *testing.T) {
 		"LEGATO_CHIMERA_SESSION_ID":     "TASK-42",
 		"LEGATO_CHIMERA_SESSION_NAME":   "TASK-42",
 		"LEGATO_CHIMERA_SESSION_EXISTS": "resume",
-	}, "", "")
+	}, "", "", "")
 	if !strings.Contains(got, "--session TASK-42") {
 		t.Errorf("LaunchCommand() = %q, missing direct session resume", got)
 	}
@@ -198,7 +198,7 @@ func TestChimeraAdapterLaunchCommandWithTier(t *testing.T) {
 		"quick": {"--model", "haiku"},
 	})
 
-	got := a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "quick")
+	got := a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "", "quick")
 	if !strings.Contains(got, "--sandbox") {
 		t.Errorf("expected base launch_args, got %q", got)
 	}
@@ -206,8 +206,45 @@ func TestChimeraAdapterLaunchCommandWithTier(t *testing.T) {
 		t.Errorf("expected tier args, got %q", got)
 	}
 
-	got = a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "")
+	got = a.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "", "")
 	if strings.Contains(got, "--model") {
 		t.Errorf("empty tier should not inject --model, got %q", got)
+	}
+}
+
+func TestBuiltInAdaptersApplyDirectModelBeforeTier(t *testing.T) {
+	tests := []struct {
+		name    string
+		command func() string
+	}{
+		{name: "claude-code", command: func() string {
+			a := NewClaudeCodeAdapter("legato")
+			a.SetLaunchArgs([]string{"--base"})
+			a.SetTiers(map[string][]string{"large": {"--model", "tier-model"}})
+			return a.LaunchCommand(map[string]string{}, "", "direct model", "large")
+		}},
+		{name: "chimera", command: func() string {
+			a := NewChimeraAdapter("legato")
+			a.SetLaunchArgs([]string{"--base"})
+			a.SetTiers(map[string][]string{"large": {"--model", "tier-model"}})
+			return a.LaunchCommand(map[string]string{}, "", "direct model", "large")
+		}},
+		{name: "codex", command: func() string {
+			a := NewCodexAdapter("legato")
+			a.SetLaunchArgs([]string{"--base"})
+			a.SetTiers(map[string][]string{"large": {"--model", "tier-model"}})
+			return a.LaunchCommand(map[string]string{}, "", "direct model", "large")
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := tc.command()
+			base := strings.Index(cmd, "--base")
+			direct := strings.Index(cmd, "--model 'direct model'")
+			tier := strings.LastIndex(cmd, "--model tier-model")
+			if base < 0 || direct < base || tier < direct {
+				t.Fatalf("command order = %q", cmd)
+			}
+		})
 	}
 }

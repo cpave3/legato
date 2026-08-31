@@ -120,7 +120,7 @@ learning:
   # Defaults false; existing sessions are never modified.
   prompt_enabled: false
   transition_columns: [Review]
-  # Optional overrides. Without curator_adapter, swarm.default_agent is used.
+  # Optional overrides. Without curator_adapter, swarm.worker.agent is used.
   curator_adapter: chimera
   curator_tier: careful
   # Usually omit this: task curation uses that task's checkout/worktree.
@@ -135,7 +135,7 @@ learning:
   consolidation_threshold: 50
 ```
 
-`learning.enabled` defaults to `false` and gates injection of built-in task-column triggers. When enabled, every named transition column must exist. `curator_adapter` overrides `swarm.default_agent`; one of them must name a configured adapter, and `curator_tier`, when set, must exist for that adapter. Task curation derives the curator working directory from the task's durable checkout/worktree. `curator_working_dir` is an optional global override and must be absolute when set. Triggered definitions ignore tasks marked as learning-workflow execution tasks, preventing recursion.
+`learning.enabled` defaults to `false` and gates injection of built-in task-column triggers. When enabled, every named transition column must exist. `curator_adapter` overrides `swarm.worker.agent`; one of them must name a configured adapter, and `curator_tier`, when set, must exist for that adapter. Task curation derives the curator working directory from the task's durable checkout/worktree. `curator_working_dir` is an optional global override and must be absolute when set. Triggered definitions ignore tasks marked as learning-workflow execution tasks, preventing recursion.
 
 `enabled` controls only automatic transition-triggered reflection/curation. `prompt_enabled` independently gates launch-time prompt composition. The local ledger, CLI/API, web pages, and manual `learn curate`/`consolidate` remain available regardless. Accepted learnings start prompt-disabled; enablement is an explicit, reversible decision in Learning. Manual curation still needs a valid curator adapter in practice. `reflection_timeout`, `reflection_retries`, `consolidation_automatic`, and `consolidation_threshold` are reserved settings: they are parsed and validated but currently have no operational effect. Consolidation remains manual.
 

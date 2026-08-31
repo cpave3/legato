@@ -408,7 +408,7 @@ func TestCodexAdapter_UninstallHooks_NoOpWhenMissing(t *testing.T) {
 
 func TestCodexAdapter_LaunchCommand_NoArgs(t *testing.T) {
 	adapter := hooks.NewCodexAdapter("/usr/bin/legato")
-	got := adapter.LaunchCommand(nil, "", "")
+	got := adapter.LaunchCommand(nil, "", "", "")
 	if got != "codex" {
 		t.Errorf("LaunchCommand() = %q, want %q", got, "codex")
 	}
@@ -417,7 +417,7 @@ func TestCodexAdapter_LaunchCommand_NoArgs(t *testing.T) {
 func TestCodexAdapter_LaunchCommand_WithArgs(t *testing.T) {
 	adapter := hooks.NewCodexAdapter("/usr/bin/legato")
 	adapter.SetLaunchArgs([]string{"--model", "gpt-4o"})
-	got := adapter.LaunchCommand(nil, "", "")
+	got := adapter.LaunchCommand(nil, "", "", "")
 	want := "codex --model gpt-4o"
 	if got != want {
 		t.Errorf("LaunchCommand() = %q, want %q", got, want)
@@ -426,7 +426,7 @@ func TestCodexAdapter_LaunchCommand_WithArgs(t *testing.T) {
 
 func TestCodexAdapter_LaunchCommand_WithRolePromptFile(t *testing.T) {
 	adapter := hooks.NewCodexAdapter("/usr/bin/legato")
-	got := adapter.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "")
+	got := adapter.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "", "")
 	want := `codex -c developer_instructions="$(cat $LEGATO_ROLE_PROMPT_FILE)"`
 	if got != want {
 		t.Errorf("LaunchCommand() = %q, want %q", got, want)
@@ -436,7 +436,7 @@ func TestCodexAdapter_LaunchCommand_WithRolePromptFile(t *testing.T) {
 func TestCodexAdapter_LaunchCommand_WithRolePromptFileAndArgs(t *testing.T) {
 	adapter := hooks.NewCodexAdapter("/usr/bin/legato")
 	adapter.SetLaunchArgs([]string{"--model", "gpt-4o"})
-	got := adapter.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "")
+	got := adapter.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "", "")
 	want := `codex -c developer_instructions="$(cat $LEGATO_ROLE_PROMPT_FILE)" --model gpt-4o`
 	if got != want {
 		t.Errorf("LaunchCommand() = %q, want %q", got, want)
@@ -449,7 +449,7 @@ func TestCodexAdapter_LaunchCommand_WithTier(t *testing.T) {
 	adapter.SetTiers(map[string][]string{
 		"large": {"--model", "o3-mini"},
 	})
-	got := adapter.LaunchCommand(nil, "", "large")
+	got := adapter.LaunchCommand(nil, "", "", "large")
 	want := "codex --model gpt-4o --model o3-mini"
 	if got != want {
 		t.Errorf("LaunchCommand() = %q, want %q", got, want)
@@ -462,7 +462,7 @@ func TestCodexAdapter_LaunchCommand_WithRolePromptFileAndTier(t *testing.T) {
 	adapter.SetTiers(map[string][]string{
 		"large": {"--model", "o3-mini"},
 	})
-	got := adapter.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "large")
+	got := adapter.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "", "large")
 	want := `codex -c developer_instructions="$(cat $LEGATO_ROLE_PROMPT_FILE)" --model gpt-4o --model o3-mini`
 	if got != want {
 		t.Errorf("LaunchCommand() = %q, want %q", got, want)
@@ -471,7 +471,7 @@ func TestCodexAdapter_LaunchCommand_WithRolePromptFileAndTier(t *testing.T) {
 
 func TestCodexAdapter_LaunchCommand_UnknownTier(t *testing.T) {
 	adapter := hooks.NewCodexAdapter("/usr/bin/legato")
-	got := adapter.LaunchCommand(nil, "", "ghost")
+	got := adapter.LaunchCommand(nil, "", "", "ghost")
 	if got != "codex" {
 		t.Errorf("LaunchCommand() with unknown tier = %q, want %q", got, "codex")
 	}

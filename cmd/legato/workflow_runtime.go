@@ -9,7 +9,6 @@ import (
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/events"
 	gitengine "github.com/cpave3/legato/internal/engine/git"
-	"github.com/cpave3/legato/internal/engine/hooks"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/tmux"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
@@ -67,28 +66,12 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		if binary == "" {
 			binary = "legato"
 		}
-		claude := hooks.NewClaudeCodeAdapter(binary)
-		chimera := hooks.NewChimeraAdapter(binary)
-		codex := hooks.NewCodexAdapter(binary)
-		configure := func(adapter interface {
-			Name() string
-			SetLaunchArgs([]string)
-			SetTiers(map[string][]string)
-		}) {
-			if configured, ok := cfg.Adapters[adapter.Name()]; ok {
-				adapter.SetLaunchArgs(configured.LaunchArgs)
-				adapter.SetTiers(adapterTierLaunchArgs(configured))
-			}
-		}
-		configure(claude)
-		configure(chimera)
-		configure(codex)
-		adapters := map[string]service.AIToolAdapter{claude.Name(): claude, chimera.Name(): chimera, codex.Name(): codex}
+		defaultAdapter, adapters := configuredAdapters(cfg, binary)
 		var promptProvider service.LearningPromptProvider
 		if cfg.Learning.PromptEnabled {
 			promptProvider = learningSvc
 		}
-		agentSvc = service.NewAgentService(db, mgr, opts.WorkDir, service.AgentServiceOptions{Adapter: chimera, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes, DisablePeerAwareness: !cfg.Agents.PeerAwareness})
+		agentSvc = service.NewAgentService(db, mgr, opts.WorkDir, service.AgentServiceOptions{Adapter: defaultAdapter, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes, DisablePeerAwareness: !cfg.Agents.PeerAwareness})
 	}
 	binary, _ := os.Executable()
 	runner := service.NewWorkflowAgentRunner(agentSvc, db, binary)

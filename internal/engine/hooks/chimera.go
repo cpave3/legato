@@ -236,7 +236,7 @@ const chimeraSandboxPreamble = "## Chimera-specific guidance for legato\n" +
 // initial user turn — no separate kickoff send-keys is needed.
 //
 // Returns empty string when no role prompt file is set.
-func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief, tier string) string {
+func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief, model, tier string) string {
 	if env == nil {
 		return ""
 	}
@@ -271,6 +271,9 @@ func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief, tier string
 
 	for _, arg := range a.launchArgs {
 		cmd += " " + shellQuote(arg)
+	}
+	if model != "" {
+		cmd += " --model " + shellQuote(model)
 	}
 	if tier != "" {
 		args, ok := a.tiers[tier]

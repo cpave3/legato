@@ -294,14 +294,14 @@ func TestDispatchPassesTierToAdapter(t *testing.T) {
 	adapter := &fakeAdapter{
 		name:        "fake",
 		rolePrompts: map[string]string{"worker": "be a worker"},
-		launchFn: func(env map[string]string, brief, tier string) string {
+		launchFn: func(env map[string]string, brief, model, tier string) string {
 			capturedTier = tier
 			return ""
 		},
 	}
 	sw, _, st, _ := newTestSwarmServiceWithAdapter(t, adapter, SwarmConfig{
 		MaxConcurrentAgents: 4,
-		DefaultAgent:        "fake",
+		Worker:              SwarmParticipantConfig{Agent: "fake"},
 	})
 
 	seedParentTask(t, st, "parent-tier-dispatch")
@@ -329,9 +329,8 @@ func TestDispatchPassesTierToAdapter(t *testing.T) {
 	}
 }
 
-// TestStartSwarmUsesConductorTierAndAppendsCatalog verifies that StartSwarm
-// passes the configured ConductorTier to the adapter and appends the tier
-// catalog to the conductor's brief.
+// TestStartSwarmUsesConductorModelAndAppendsCatalog verifies that StartSwarm
+// passes the configured conductor model and appends the tier catalog.
 //
 // The brief is observed by capturing it inside launchFn — agent.go always
 // invokes LaunchCommand even when the return is "", so this side-channel
@@ -339,22 +338,22 @@ func TestDispatchPassesTierToAdapter(t *testing.T) {
 // below would silently see empty strings instead of asserting against the
 // real brief; revisit this if either Contains check starts spuriously
 // failing.
-func TestStartSwarmUsesConductorTierAndAppendsCatalog(t *testing.T) {
-	var capturedTier string
+func TestStartSwarmUsesConductorModelAndAppendsCatalog(t *testing.T) {
+	var capturedModel string
 	var capturedBrief string
 	adapter := &fakeAdapter{
 		name:        "fake",
 		rolePrompts: map[string]string{"conductor": "be a conductor"},
-		launchFn: func(env map[string]string, brief, tier string) string {
-			capturedTier = tier
+		launchFn: func(env map[string]string, brief, model, tier string) string {
+			capturedModel = model
 			capturedBrief = brief
 			return ""
 		},
 	}
 	sw, _, st, _ := newTestSwarmServiceWithAdapter(t, adapter, SwarmConfig{
 		MaxConcurrentAgents: 4,
-		DefaultAgent:        "fake",
-		ConductorTier:       "large",
+		Worker:              SwarmParticipantConfig{Agent: "fake"},
+		Conductor:           SwarmParticipantConfig{Model: "large-model"},
 		TierCatalog: map[string]map[string]string{
 			"fake": {
 				"small": "fast/cheap",
@@ -367,8 +366,8 @@ func TestStartSwarmUsesConductorTierAndAppendsCatalog(t *testing.T) {
 	if err := sw.StartSwarm(context.Background(), "parent-conductor-tier", t.TempDir()); err != nil {
 		t.Fatalf("StartSwarm: %v", err)
 	}
-	if capturedTier != "large" {
-		t.Errorf("conductor tier = %q, want large", capturedTier)
+	if capturedModel != "large-model" {
+		t.Errorf("conductor model = %q, want large-model", capturedModel)
 	}
 	if !strings.Contains(capturedBrief, "## Available tiers") {
 		t.Errorf("brief missing tier catalog: %q", capturedBrief)
@@ -385,7 +384,7 @@ func TestCreateAdhocSwarmPromotesExistingSession(t *testing.T) {
 	}
 	sw, agentSvc, st, mt := newTestSwarmServiceWithAdapter(t, adapter, SwarmConfig{
 		MaxConcurrentAgents: 4,
-		DefaultAgent:        "fake",
+		Worker:              SwarmParticipantConfig{Agent: "fake"},
 		TierCatalog: map[string]map[string]string{
 			"fake": {"large": "deep reasoning"},
 		},
@@ -531,16 +530,14 @@ func TestCreateAdhocSwarmRejectsWorkerSession(t *testing.T) {
 	}
 }
 
-// TestStartSwarmUsesConductorAgentOverride verifies that when
-// ConductorAgent is set, the conductor spawns with that adapter rather than
-// DefaultAgent, while workers without explicit agent: still fall back to
-// DefaultAgent.
+// TestStartSwarmUsesConductorAgentOverride verifies that the conductor profile
+// overrides the worker adapter profile.
 func TestStartSwarmUsesConductorAgentOverride(t *testing.T) {
 	var capturedAgentKind string
 	conductorAdapter := &fakeAdapter{
 		name:        "conductor-fake",
 		rolePrompts: map[string]string{"conductor": "be a conductor"},
-		launchFn: func(env map[string]string, brief, tier string) string {
+		launchFn: func(env map[string]string, brief, model, tier string) string {
 			capturedAgentKind = "conductor-fake"
 			return ""
 		},
@@ -548,7 +545,7 @@ func TestStartSwarmUsesConductorAgentOverride(t *testing.T) {
 	workerAdapter := &fakeAdapter{
 		name:        "worker-fake",
 		rolePrompts: map[string]string{"worker": "be a worker"},
-		launchFn: func(env map[string]string, brief, tier string) string {
+		launchFn: func(env map[string]string, brief, model, tier string) string {
 			return ""
 		},
 	}
@@ -569,8 +566,8 @@ func TestStartSwarmUsesConductorAgentOverride(t *testing.T) {
 	bus := events.New()
 	sw := NewSwarmService(st, agents, bus, SwarmConfig{
 		MaxConcurrentAgents: 4,
-		DefaultAgent:        "worker-fake",
-		ConductorAgent:      "conductor-fake",
+		Worker:              SwarmParticipantConfig{Agent: "worker-fake"},
+		Conductor:           SwarmParticipantConfig{Agent: "conductor-fake"},
 	}, t.TempDir())
 
 	seedParentTask(t, st, "parent-split-agent")
@@ -599,7 +596,7 @@ func TestApplyApprovedPlanRejectsUnknownTier(t *testing.T) {
 	bus := events.New()
 	cfg := SwarmConfig{
 		MaxConcurrentAgents: 4,
-		DefaultAgent:        "claude-code",
+		Worker:              SwarmParticipantConfig{Agent: "claude-code"},
 		ValidateOptions: swarm.ValidateOptions{
 			RegisteredAdapters: []string{"claude-code"},
 			DefaultAgent:       "claude-code",
@@ -1455,5 +1452,59 @@ func TestBumpSnapshotAfterClose(t *testing.T) {
 	}
 	if snap.Active != 0 {
 		t.Errorf("Active after close = %d, want 0", snap.Active)
+	}
+}
+
+func TestDispatchAppliesWorkerModelPrecedence(t *testing.T) {
+	tests := []struct {
+		name        string
+		worker      SwarmParticipantConfig
+		agent       string
+		tier        string
+		wantModel   string
+		wantTier    string
+		wantAdapter string
+	}{
+		{name: "fallback worker", worker: SwarmParticipantConfig{Agent: "worker-fake", Model: "worker-model"}, wantModel: "worker-model", wantAdapter: "worker-fake"},
+		{name: "explicit same agent", worker: SwarmParticipantConfig{Agent: "worker-fake", Model: "worker-model"}, agent: "worker-fake", wantModel: "worker-model", wantAdapter: "worker-fake"},
+		{name: "explicit different agent", worker: SwarmParticipantConfig{Agent: "worker-fake", Model: "worker-model"}, agent: "other-fake", wantAdapter: "other-fake"},
+		{name: "tier suppresses model", worker: SwarmParticipantConfig{Agent: "worker-fake", Model: "worker-model"}, tier: "large", wantTier: "large", wantAdapter: "worker-fake"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotModel, gotTier, gotAdapter string
+			makeAdapter := func(name string) *fakeAdapter {
+				return &fakeAdapter{name: name, rolePrompts: map[string]string{"worker": "work"}, launchFn: func(_ map[string]string, _ string, model string, tier string) string {
+					gotAdapter, gotModel, gotTier = name, model, tier
+					return ""
+				}}
+			}
+			workerAdapter := makeAdapter("worker-fake")
+			otherAdapter := makeAdapter("other-fake")
+			dbPath := filepath.Join(t.TempDir(), "swarm.db")
+			st, err := store.New(dbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { st.Close() })
+			agents := NewAgentService(st, newMockTmux(), t.TempDir(), AgentServiceOptions{Adapter: workerAdapter, Adapters: map[string]AIToolAdapter{"worker-fake": workerAdapter, "other-fake": otherAdapter}})
+			sw := NewSwarmService(st, agents, events.New(), SwarmConfig{MaxConcurrentAgents: 4, Worker: tc.worker}, t.TempDir())
+			parentID := "parent-model-" + strings.ReplaceAll(tc.name, " ", "-")
+			seedParentTask(t, st, parentID)
+			wd := t.TempDir()
+			if err := st.SetTaskSwarmWorkingDir(context.Background(), parentID, &wd); err != nil {
+				t.Fatal(err)
+			}
+			id := "st-" + strings.ReplaceAll(tc.name, " ", "-")
+			if err := st.CreateSubtask(context.Background(), store.Subtask{ID: id, ParentTaskID: parentID, Title: tc.name, Role: "worker", AgentKind: tc.agent, Tier: tc.tier, Status: "queued"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := sw.Dispatch(context.Background(), id); err != nil {
+				t.Fatal(err)
+			}
+			if gotAdapter != tc.wantAdapter || gotModel != tc.wantModel || gotTier != tc.wantTier {
+				t.Fatalf("launch = adapter %q model %q tier %q; want %q %q %q", gotAdapter, gotModel, gotTier, tc.wantAdapter, tc.wantModel, tc.wantTier)
+			}
+		})
 	}
 }

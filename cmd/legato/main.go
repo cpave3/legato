@@ -1396,10 +1396,6 @@ func runServeCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
-	if err := config.ValidateConductorTier(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
-		return 1
-	}
 
 	db, err := openStore(cfg)
 	if err != nil {
@@ -1443,6 +1439,11 @@ func runServeCmd(args []string) int {
 	var tmuxMgr service.TmuxManager
 	if mgr, tmuxErr := tmux.New(tmux.Options{}); tmuxErr == nil {
 		tmuxMgr = mgr
+		legatoBin, binErr := os.Executable()
+		if binErr != nil {
+			legatoBin = "legato"
+		}
+		defaultAdapter, adapters := configuredAdapters(cfg, legatoBin)
 		var notifier service.Notifier
 		if cfg.Notifications.Ntfy.Topic != "" {
 			notifier = service.NewNtfyNotifier(cfg.Notifications.Ntfy.URL, cfg.Notifications.Ntfy.Topic, cfg.Notifications.Ntfy.Token)
@@ -1452,6 +1453,7 @@ func runServeCmd(args []string) int {
 			osNotifier = service.NewOSNotifier()
 		}
 		agentSvc = service.NewAgentService(db, mgr, wd, service.AgentServiceOptions{
+			Adapter: defaultAdapter, Adapters: adapters,
 			Notifier: notifier, OSNotifier: osNotifier,
 			LearningPromptProvider: learningPromptProvider(cfg, db, bus),
 			LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
@@ -1468,9 +1470,8 @@ func runServeCmd(args []string) int {
 			MaxStepsPerPlan:     cfg.Swarm.MaxStepsPerPlan,
 			StrictScope:         cfg.Swarm.StrictScope,
 			RequireUserClose:    cfg.Swarm.RequireUserClose,
-			DefaultAgent:        cfg.Swarm.DefaultAgent,
-			ConductorAgent:      cfg.Swarm.ConductorAgent,
-			ConductorTier:       cfg.Swarm.ConductorTier,
+			Conductor:           service.SwarmParticipantConfig{Agent: cfg.Swarm.Conductor.Agent, Model: cfg.Swarm.Conductor.Model},
+			Worker:              service.SwarmParticipantConfig{Agent: cfg.Swarm.Worker.Agent, Model: cfg.Swarm.Worker.Model},
 			TierCatalog:         tierCatalog(cfg.Adapters),
 			ValidateOptions:     buildValidateOptions(cfg),
 		}
@@ -1598,10 +1599,6 @@ func runTUI() int {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
-	if err := config.ValidateConductorTier(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
-		return 1
-	}
 
 	db, err := openStore(cfg)
 	if err != nil {
@@ -1627,10 +1624,6 @@ func runTUI() int {
 		cfg, err = config.Load()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "config reload: %v\n", err)
-			return 1
-		}
-		if err := config.ValidateConductorTier(cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "config: %v\n", err)
 			return 1
 		}
 	}
@@ -1693,70 +1686,11 @@ func runTUI() int {
 	if mgr, tmuxErr := tmux.New(tmux.Options{EscapeKey: tmuxEscapeKey(escapeKey)}); tmuxErr == nil {
 		tmuxMgr = mgr
 
-		// Configure AI tool adapter for env var injection.
 		legatoBin, binErr := os.Executable()
 		if binErr != nil {
 			legatoBin = "legato"
 		}
-		ccAdapter := hooks.NewClaudeCodeAdapter(legatoBin)
-		if overrides := buildAdapterRoleOverrides(cfg, ccAdapter.Name()); overrides != nil {
-			ccAdapter.SetRoleOverrides(overrides)
-		}
-		if a, ok := cfg.Adapters[ccAdapter.Name()]; ok {
-			if len(a.LaunchArgs) > 0 {
-				ccAdapter.SetLaunchArgs(a.LaunchArgs)
-			}
-			if tierArgs := adapterTierLaunchArgs(a); tierArgs != nil {
-				ccAdapter.SetTiers(tierArgs)
-			}
-		}
-		chimeraAdapter := hooks.NewChimeraAdapter(legatoBin)
-		if overrides := buildAdapterRoleOverrides(cfg, chimeraAdapter.Name()); overrides != nil {
-			chimeraAdapter.SetRoleOverrides(overrides)
-		}
-		if a, ok := cfg.Adapters[chimeraAdapter.Name()]; ok {
-			if len(a.LaunchArgs) > 0 {
-				chimeraAdapter.SetLaunchArgs(a.LaunchArgs)
-			}
-			// SetModes only when the user explicitly configured the field;
-			// nil-Modes means "fall back to defaults" inside the adapter.
-			if a.Modes != nil {
-				chimeraAdapter.SetModes(a.Modes)
-			}
-			if tierArgs := adapterTierLaunchArgs(a); tierArgs != nil {
-				chimeraAdapter.SetTiers(tierArgs)
-			}
-		}
-		codexAdapter := hooks.NewCodexAdapter(legatoBin)
-		if overrides := buildAdapterRoleOverrides(cfg, codexAdapter.Name()); overrides != nil {
-			codexAdapter.SetRoleOverrides(overrides)
-		}
-		if a, ok := cfg.Adapters[codexAdapter.Name()]; ok {
-			if len(a.LaunchArgs) > 0 {
-				codexAdapter.SetLaunchArgs(a.LaunchArgs)
-			}
-			if tierArgs := adapterTierLaunchArgs(a); tierArgs != nil {
-				codexAdapter.SetTiers(tierArgs)
-			}
-		}
-
-		// Pick the default adapter from cfg.Swarm.DefaultAgent. The full
-		// registry is passed via Adapters so per-sub-task `agent:` overrides
-		// in the conductor's plan can resolve any registered name.
-		var defaultAdapter service.AIToolAdapter = ccAdapter
-		switch cfg.Swarm.DefaultAgent {
-		case chimeraAdapter.Name():
-			defaultAdapter = chimeraAdapter
-		case codexAdapter.Name():
-			defaultAdapter = codexAdapter
-		case ccAdapter.Name(), "":
-			defaultAdapter = ccAdapter
-		}
-		adapters := map[string]service.AIToolAdapter{
-			ccAdapter.Name():      ccAdapter,
-			chimeraAdapter.Name(): chimeraAdapter,
-			codexAdapter.Name():   codexAdapter,
-		}
+		defaultAdapter, adapters := configuredAdapters(cfg, legatoBin)
 		var notifier service.Notifier
 		if cfg.Notifications.Ntfy.Topic != "" {
 			notifier = service.NewNtfyNotifier(cfg.Notifications.Ntfy.URL, cfg.Notifications.Ntfy.Topic, cfg.Notifications.Ntfy.Token)
@@ -1792,9 +1726,8 @@ func runTUI() int {
 		MaxStepsPerPlan:     cfg.Swarm.MaxStepsPerPlan,
 		StrictScope:         cfg.Swarm.StrictScope,
 		RequireUserClose:    cfg.Swarm.RequireUserClose,
-		DefaultAgent:        cfg.Swarm.DefaultAgent,
-		ConductorAgent:      cfg.Swarm.ConductorAgent,
-		ConductorTier:       cfg.Swarm.ConductorTier,
+		Conductor:           service.SwarmParticipantConfig{Agent: cfg.Swarm.Conductor.Agent, Model: cfg.Swarm.Conductor.Model},
+		Worker:              service.SwarmParticipantConfig{Agent: cfg.Swarm.Worker.Agent, Model: cfg.Swarm.Worker.Model},
 		TierCatalog:         tierCatalog(cfg.Adapters),
 		ValidateOptions:     buildValidateOptions(cfg),
 	}
@@ -2206,7 +2139,10 @@ func buildValidateOptions(cfg *config.Config) swarm.ValidateOptions {
 		return opts
 	}
 	opts.AdapterTiers = adapterTiersRegistry(cfg.Adapters)
-	opts.DefaultAgent = cfg.Swarm.DefaultAgent
+	opts.DefaultAgent = cfg.Swarm.Worker.Agent
+	if opts.DefaultAgent == "" {
+		opts.DefaultAgent = "claude-code"
+	}
 	if cfg.Swarm.MaxSubtasksPerPlan > 0 {
 		opts.MaxSubtasks = cfg.Swarm.MaxSubtasksPerPlan
 	} else {
@@ -2358,10 +2294,6 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return nil, nil, 1
 	}
-	if err := config.ValidateConductorTier(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
-		return nil, nil, 1
-	}
 	db, err := openStore(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "database: %v\n", err)
@@ -2379,56 +2311,10 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 
 	bus := events.New()
 	legatoBin, _ := os.Executable()
-	ccAdapter := hooks.NewClaudeCodeAdapter(legatoBin)
-	if overrides := buildAdapterRoleOverrides(cfg, ccAdapter.Name()); overrides != nil {
-		ccAdapter.SetRoleOverrides(overrides)
+	if legatoBin == "" {
+		legatoBin = "legato"
 	}
-	if a, ok := cfg.Adapters[ccAdapter.Name()]; ok {
-		if len(a.LaunchArgs) > 0 {
-			ccAdapter.SetLaunchArgs(a.LaunchArgs)
-		}
-		if tierArgs := adapterTierLaunchArgs(a); tierArgs != nil {
-			ccAdapter.SetTiers(tierArgs)
-		}
-	}
-	chimeraAdapter := hooks.NewChimeraAdapter(legatoBin)
-	if overrides := buildAdapterRoleOverrides(cfg, chimeraAdapter.Name()); overrides != nil {
-		chimeraAdapter.SetRoleOverrides(overrides)
-	}
-	if a, ok := cfg.Adapters[chimeraAdapter.Name()]; ok {
-		if len(a.LaunchArgs) > 0 {
-			chimeraAdapter.SetLaunchArgs(a.LaunchArgs)
-		}
-		if a.Modes != nil {
-			chimeraAdapter.SetModes(a.Modes)
-		}
-		if tierArgs := adapterTierLaunchArgs(a); tierArgs != nil {
-			chimeraAdapter.SetTiers(tierArgs)
-		}
-	}
-	codexAdapter := hooks.NewCodexAdapter(legatoBin)
-	if overrides := buildAdapterRoleOverrides(cfg, codexAdapter.Name()); overrides != nil {
-		codexAdapter.SetRoleOverrides(overrides)
-	}
-	if a, ok := cfg.Adapters[codexAdapter.Name()]; ok {
-		if len(a.LaunchArgs) > 0 {
-			codexAdapter.SetLaunchArgs(a.LaunchArgs)
-		}
-		if tierArgs := adapterTierLaunchArgs(a); tierArgs != nil {
-			codexAdapter.SetTiers(tierArgs)
-		}
-	}
-	defaultAdapter := service.AIToolAdapter(ccAdapter)
-	if cfg.Swarm.DefaultAgent == chimeraAdapter.Name() {
-		defaultAdapter = chimeraAdapter
-	} else if cfg.Swarm.DefaultAgent == codexAdapter.Name() {
-		defaultAdapter = codexAdapter
-	}
-	adapters := map[string]service.AIToolAdapter{
-		ccAdapter.Name():      ccAdapter,
-		chimeraAdapter.Name(): chimeraAdapter,
-		codexAdapter.Name():   codexAdapter,
-	}
+	defaultAdapter, adapters := configuredAdapters(cfg, legatoBin)
 	agents := service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
 		Adapter:                defaultAdapter,
 		Adapters:               adapters,
@@ -2445,9 +2331,8 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		MaxStepsPerPlan:     cfg.Swarm.MaxStepsPerPlan,
 		StrictScope:         cfg.Swarm.StrictScope,
 		RequireUserClose:    cfg.Swarm.RequireUserClose,
-		DefaultAgent:        cfg.Swarm.DefaultAgent,
-		ConductorAgent:      cfg.Swarm.ConductorAgent,
-		ConductorTier:       cfg.Swarm.ConductorTier,
+		Conductor:           service.SwarmParticipantConfig{Agent: cfg.Swarm.Conductor.Agent, Model: cfg.Swarm.Conductor.Model},
+		Worker:              service.SwarmParticipantConfig{Agent: cfg.Swarm.Worker.Agent, Model: cfg.Swarm.Worker.Model},
 		TierCatalog:         tierCatalog(cfg.Adapters),
 		ValidateOptions:     buildValidateOptions(cfg),
 	}

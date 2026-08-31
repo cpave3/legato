@@ -1142,7 +1142,7 @@ func TestSpawnAgentMatchesChimeraLockfileByExpectedSession(t *testing.T) {
 		}
 	}))
 	t.Cleanup(chimeraServer.Close)
-	adapter := &fakeAdapter{name: "chimera", launchFn: func(map[string]string, string, string) string {
+	adapter := &fakeAdapter{name: "chimera", launchFn: func(map[string]string, string, string, string) string {
 		lockfiles := map[string]string{
 			"100.json": `{"sessionId":"other-task","url":"http://127.0.0.1:43100"}`,
 			"200.json": fmt.Sprintf(`{"sessionId":"task-fast","url":%q}`, chimeraServer.URL),

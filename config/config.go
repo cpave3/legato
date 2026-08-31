@@ -145,6 +145,12 @@ type TierConfig struct {
 	LaunchArgs []string `yaml:"launch_args"`
 }
 
+// SwarmParticipantConfig selects the adapter and model for a swarm role.
+type SwarmParticipantConfig struct {
+	Agent string `yaml:"agent"`
+	Model string `yaml:"model"`
+}
+
 // SwarmConfig holds swarm-orchestration settings.
 type SwarmConfig struct {
 	// MaxConcurrentAgents caps the number of live workers per swarm.
@@ -156,13 +162,11 @@ type SwarmConfig struct {
 	// MaxStepsPerPlan caps the number of steps in a single plan.
 	// Zero or negative falls back to 10 at runtime.
 	MaxStepsPerPlan int `yaml:"max_steps_per_plan"`
-	// DefaultAgent is the adapter used for swarm participants when a plan
-	// entry doesn't specify one (e.g. "claude-code").
-	DefaultAgent string `yaml:"default_agent"`
-	// ConductorAgent is an optional override for the adapter used when
-	// spawning the conductor. When unset, the conductor falls back to
-	// DefaultAgent so existing configs keep working.
-	ConductorAgent string `yaml:"conductor_agent"`
+	// Conductor selects the adapter and model for newly spawned conductors.
+	// An empty agent falls back to Worker.Agent, then the registered default.
+	Conductor SwarmParticipantConfig `yaml:"conductor"`
+	// Worker selects the adapter and model for workers without plan overrides.
+	Worker SwarmParticipantConfig `yaml:"worker"`
 	// StrictScope makes scope-overlap conflicts hard-block dispatch instead
 	// of advisory.
 	StrictScope bool `yaml:"strict_scope"`
@@ -177,13 +181,6 @@ type SwarmConfig struct {
 	// Outer key: free-form role label ("conductor", "backend", etc.).
 	// Inner key: adapter name ("claude-code", "chimera", "codex").
 	Prompts map[string]map[string]string `yaml:"prompts"`
-	// ConductorTier names a tier the conductor itself runs at. When unset,
-	// the conductor uses the adapter's base launch_args only. Validated
-	// against the configured tiers of swarm.conductor_agent (or
-	// swarm.default_agent as a fallback) at startup; an unknown name is a
-	// fatal config error so we don't silently launch the conductor on the
-	// wrong model.
-	ConductorTier string `yaml:"conductor_tier"`
 }
 
 type TLSConfig struct {
@@ -331,6 +328,9 @@ func Load() (*Config, error) {
 
 	expanded := os.ExpandEnv(string(data))
 
+	if err := validateRemovedSwarmKeys([]byte(expanded)); err != nil {
+		return nil, err
+	}
 	if err := yaml.Unmarshal([]byte(expanded), cfg); err != nil {
 		return nil, err
 	}
@@ -343,6 +343,9 @@ func Load() (*Config, error) {
 	applyDefaults(cfg)
 	if cfg.GitHub.Auth != "auto" && cfg.GitHub.Auth != "gh" && cfg.GitHub.Auth != "token" {
 		return nil, fmt.Errorf("github.auth must be auto, gh, or token")
+	}
+	if err := ValidateSwarmConfig(cfg); err != nil {
+		return nil, err
 	}
 	if err := ValidateLearningConfig(cfg); err != nil {
 		return nil, err
@@ -394,31 +397,56 @@ func extractMacrosRaw(data []byte) ([]macros.Macro, error) {
 	return raw.Macros, nil
 }
 
-// ValidateConductorTier checks that swarm.conductor_tier (when set) names a
-// tier configured under the resolved default agent's adapter. Returns nil
-// when ConductorTier is empty (the conductor falls back to the adapter's
-// base launch_args). Returns an error when the tier name is set but
-// unresolvable, so the caller can refuse to start with an obviously bogus
-// model selector instead of silently launching the conductor on the wrong
-// model.
-func ValidateConductorTier(cfg *Config) error {
-	if cfg == nil || cfg.Swarm.ConductorTier == "" {
+var supportedSwarmAgents = map[string]struct{}{
+	"claude-code": {},
+	"chimera":     {},
+	"codex":       {},
+}
+
+func validateRemovedSwarmKeys(data []byte) error {
+	var raw struct {
+		Swarm map[string]yaml.Node `yaml:"swarm"`
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	replacements := map[string]string{
+		"default_agent":   "swarm.worker.agent",
+		"conductor_agent": "swarm.conductor.agent",
+		"conductor_tier":  "swarm.conductor.model",
+	}
+	for _, key := range []string{"default_agent", "conductor_agent", "conductor_tier"} {
+		if _, ok := raw.Swarm[key]; ok {
+			return fmt.Errorf("swarm.%s was removed; use %s instead", key, replacements[key])
+		}
+	}
+	return nil
+}
+
+// ValidateSwarmConfig validates the nested conductor and worker profiles.
+func ValidateSwarmConfig(cfg *Config) error {
+	if cfg == nil {
 		return nil
 	}
-	tier := cfg.Swarm.ConductorTier
-	agent := cfg.Swarm.ConductorAgent
-	if agent == "" {
-		agent = cfg.Swarm.DefaultAgent
+	profiles := []struct {
+		name    string
+		profile SwarmParticipantConfig
+	}{
+		{"conductor", cfg.Swarm.Conductor},
+		{"worker", cfg.Swarm.Worker},
 	}
-	if agent == "" {
-		return fmt.Errorf("swarm.conductor_tier %q set but swarm.conductor_agent and swarm.default_agent are empty; cannot resolve which adapter's tiers to use", tier)
-	}
-	ac, ok := cfg.Adapters[agent]
-	if !ok || len(ac.Tiers) == 0 {
-		return fmt.Errorf("swarm.conductor_tier %q set but adapter %q has no tiers configured", tier, agent)
-	}
-	if _, ok := ac.Tiers[tier]; !ok {
-		return fmt.Errorf("swarm.conductor_tier %q is not configured for adapter %q", tier, agent)
+	for _, item := range profiles {
+		if item.profile.Agent != "" && strings.TrimSpace(item.profile.Agent) == "" {
+			return fmt.Errorf("swarm.%s.agent must not be blank", item.name)
+		}
+		if item.profile.Model != "" && strings.TrimSpace(item.profile.Model) == "" {
+			return fmt.Errorf("swarm.%s.model must not be blank", item.name)
+		}
+		if item.profile.Agent != "" {
+			if _, ok := supportedSwarmAgents[item.profile.Agent]; !ok {
+				return fmt.Errorf("swarm.%s.agent %q is not a registered adapter", item.name, item.profile.Agent)
+			}
+		}
 	}
 	return nil
 }
@@ -494,10 +522,10 @@ func ValidateLearningConfig(cfg *Config) error {
 	}
 	adapter := learning.CuratorAdapter
 	if adapter == "" {
-		adapter = cfg.Swarm.DefaultAgent
+		adapter = cfg.Swarm.Worker.Agent
 	}
 	if adapter == "" {
-		return fmt.Errorf("learning.curator_adapter or swarm.default_agent is required when learning is enabled")
+		return fmt.Errorf("learning.curator_adapter or swarm.worker.agent is required when learning is enabled")
 	}
 	adapterConfig, ok := cfg.Adapters[adapter]
 	if !ok {

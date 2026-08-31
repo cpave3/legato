@@ -17,7 +17,7 @@ import (
 type fakeAdapter struct {
 	name        string
 	rolePrompts map[string]string
-	launchFn    func(env map[string]string, brief, tier string) string
+	launchFn    func(env map[string]string, brief, model, tier string) string
 }
 
 func (f *fakeAdapter) Name() string                { return f.name }
@@ -34,9 +34,9 @@ func (f *fakeAdapter) RoleSystemPrompt(role string) string {
 }
 func (f *fakeAdapter) InterruptKeys() []string { return []string{"Escape"} }
 
-func (f *fakeAdapter) LaunchCommand(env map[string]string, brief, tier string) string {
+func (f *fakeAdapter) LaunchCommand(env map[string]string, brief, model, tier string) string {
 	if f.launchFn != nil {
-		return f.launchFn(env, brief, tier)
+		return f.launchFn(env, brief, model, tier)
 	}
 	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; !ok {
 		return ""
@@ -386,7 +386,7 @@ func TestSpawnAgent_TaskIDIsChimeraSessionIdentity(t *testing.T) {
 
 			mt := newMockTmux()
 			var launched map[string]string
-			adapter := &fakeAdapter{name: "chimera", launchFn: func(env map[string]string, _, _ string) string {
+			adapter := &fakeAdapter{name: "chimera", launchFn: func(env map[string]string, _, _, _ string) string {
 				launched = maps.Clone(env)
 				return "chimera"
 			}}
@@ -423,7 +423,7 @@ func TestSpawnAgent_NewTaskChimeraSessionIncludesInitialPrompt(t *testing.T) {
 
 	mt := newMockTmux()
 	adapter := generalPromptAdapter{
-		fakeAdapter: &fakeAdapter{name: "chimera", launchFn: func(env map[string]string, _, _ string) string {
+		fakeAdapter: &fakeAdapter{name: "chimera", launchFn: func(env map[string]string, _, _, _ string) string {
 			cmd := "chimera"
 			if env["LEGATO_CHIMERA_SESSION_EXISTS"] != "resume" {
 				cmd += " --prompt initial"

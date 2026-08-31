@@ -636,151 +636,63 @@ func TestResolveDBPathPrecedence(t *testing.T) {
 	})
 }
 
-func TestValidateConductorTierEmpty(t *testing.T) {
-	cases := []struct {
-		name string
-		cfg  *Config
-	}{
-		{"nil cfg", nil},
-		{"empty tier", &Config{}},
+func TestLoadSwarmParticipantProfiles(t *testing.T) {
+	writeTestConfig(t, `
+swarm:
+  conductor:
+    agent: chimera
+    model: manticore/sol
+  worker:
+    agent: chimera
+    model: manticore/luna
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if err := ValidateConductorTier(tc.cfg); err != nil {
-				t.Errorf("expected nil error, got %v", err)
+	if got := cfg.Swarm.Conductor; got != (SwarmParticipantConfig{Agent: "chimera", Model: "manticore/sol"}) {
+		t.Fatalf("conductor = %#v", got)
+	}
+	if got := cfg.Swarm.Worker; got != (SwarmParticipantConfig{Agent: "chimera", Model: "manticore/luna"}) {
+		t.Fatalf("worker = %#v", got)
+	}
+}
+
+func TestLoadRejectsRemovedSwarmKeys(t *testing.T) {
+	for _, tc := range []struct {
+		key         string
+		replacement string
+	}{
+		{"default_agent", "swarm.worker.agent"},
+		{"conductor_agent", "swarm.conductor.agent"},
+		{"conductor_tier", "swarm.conductor.model"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			writeTestConfig(t, "swarm:\n  "+tc.key+": chimera\n")
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), tc.replacement) {
+				t.Fatalf("error = %v, want replacement %q", err, tc.replacement)
 			}
 		})
 	}
 }
 
-func TestValidateConductorTierKnownPasses(t *testing.T) {
-	cfg := &Config{
-		Swarm: SwarmConfig{DefaultAgent: "claude-code", ConductorTier: "large"},
-		Adapters: map[string]AdapterConfig{
-			"claude-code": {Tiers: map[string]TierConfig{
-				"small": {LaunchArgs: []string{"--model", "haiku"}},
-				"large": {LaunchArgs: []string{"--model", "opus"}},
-			}},
-		},
-	}
-	if err := ValidateConductorTier(cfg); err != nil {
-		t.Errorf("expected nil error, got %v", err)
-	}
-}
-
-func TestValidateConductorTierUnknownRejected(t *testing.T) {
-	cfg := &Config{
-		Swarm: SwarmConfig{DefaultAgent: "claude-code", ConductorTier: "ghost"},
-		Adapters: map[string]AdapterConfig{
-			"claude-code": {Tiers: map[string]TierConfig{
-				"small": {LaunchArgs: []string{"--model", "haiku"}},
-			}},
-		},
-	}
-	err := ValidateConductorTier(cfg)
-	if err == nil {
-		t.Fatal("expected error for unknown tier")
-	}
-	msg := err.Error()
-	if !contains(msg, "ghost") || !contains(msg, "claude-code") {
-		t.Errorf("error should name the bad tier and adapter: %q", msg)
-	}
-}
-
-func TestValidateConductorTierMissingDefaultAgentRejected(t *testing.T) {
-	cfg := &Config{
-		Swarm:    SwarmConfig{ConductorTier: "large"},
-		Adapters: map[string]AdapterConfig{},
-	}
-	err := ValidateConductorTier(cfg)
-	if err == nil {
-		t.Fatal("expected error when default_agent and conductor_agent unset and tier set")
-	}
-	msg := err.Error()
-	if !contains(msg, "conductor_agent") || !contains(msg, "default_agent") {
-		t.Errorf("error should mention both missing fields: %q", msg)
-	}
-}
-
-func TestValidateConductorTierConductorAgentAloneSuffices(t *testing.T) {
-	cfg := &Config{
-		Swarm: SwarmConfig{ConductorAgent: "chimera", ConductorTier: "heavy"},
-		Adapters: map[string]AdapterConfig{
-			"chimera": {Tiers: map[string]TierConfig{
-				"heavy": {LaunchArgs: []string{"--model", "opus"}},
-			}},
-		},
-	}
-	if err := ValidateConductorTier(cfg); err != nil {
-		t.Errorf("expected nil error when conductor_agent is set without default_agent, got %v", err)
-	}
-}
-
-func TestValidateConductorTierConductorAgentPriority(t *testing.T) {
-	cfg := &Config{
-		Swarm: SwarmConfig{
-			DefaultAgent:   "claude-code",
-			ConductorAgent: "chimera",
-			ConductorTier:  "heavy",
-		},
-		Adapters: map[string]AdapterConfig{
-			"claude-code": {Tiers: map[string]TierConfig{
-				"small": {LaunchArgs: []string{"--model", "haiku"}},
-			}},
-			"chimera": {Tiers: map[string]TierConfig{
-				"heavy": {LaunchArgs: []string{"--model", "opus"}},
-			}},
-		},
-	}
-	// Tier "heavy" exists only under chimera — conductor_agent should win
-	if err := ValidateConductorTier(cfg); err != nil {
-		t.Errorf("expected nil error when conductor_agent wins, got %v", err)
-	}
-}
-
-func TestValidateConductorTierCodexPasses(t *testing.T) {
-	cfg := &Config{
-		Swarm: SwarmConfig{ConductorAgent: "codex", ConductorTier: "large"},
-		Adapters: map[string]AdapterConfig{
-			"codex": {Tiers: map[string]TierConfig{
-				"small": {LaunchArgs: []string{"--model", "gpt-4o-mini"}},
-				"large": {LaunchArgs: []string{"--model", "gpt-4o"}},
-			}},
-		},
-	}
-	if err := ValidateConductorTier(cfg); err != nil {
-		t.Errorf("expected nil error for codex tier, got %v", err)
-	}
-}
-
-func TestValidateConductorTierCodexUnknownTierRejected(t *testing.T) {
-	cfg := &Config{
-		Swarm: SwarmConfig{ConductorAgent: "codex", ConductorTier: "ghost"},
-		Adapters: map[string]AdapterConfig{
-			"codex": {Tiers: map[string]TierConfig{
-				"small": {LaunchArgs: []string{"--model", "gpt-4o-mini"}},
-			}},
-		},
-	}
-	err := ValidateConductorTier(cfg)
-	if err == nil {
-		t.Fatal("expected error for unknown codex tier")
-	}
-	msg := err.Error()
-	if !contains(msg, "ghost") || !contains(msg, "codex") {
-		t.Errorf("error should name the bad tier and adapter: %q", msg)
-	}
-}
-
-func TestValidateConductorTierAdapterWithoutTiersRejected(t *testing.T) {
-	cfg := &Config{
-		Swarm: SwarmConfig{DefaultAgent: "claude-code", ConductorTier: "large"},
-		Adapters: map[string]AdapterConfig{
-			"claude-code": {LaunchArgs: []string{"--foo"}},
-		},
-	}
-	if err := ValidateConductorTier(cfg); err == nil {
-		t.Fatal("expected error when adapter has no tiers")
+func TestValidateSwarmConfigRejectsInvalidProfiles(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		profile SwarmParticipantConfig
+		want    string
+	}{
+		{"unknown agent", SwarmParticipantConfig{Agent: "other"}, "not a registered adapter"},
+		{"blank agent", SwarmParticipantConfig{Agent: "  "}, "agent must not be blank"},
+		{"blank model", SwarmParticipantConfig{Model: "  "}, "model must not be blank"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateSwarmConfig(&Config{Swarm: SwarmConfig{Worker: tc.profile}})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
 	}
 }
 

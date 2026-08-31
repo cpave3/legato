@@ -40,7 +40,7 @@ func TestMessageUrgentSendsInterruptKeys(t *testing.T) {
 		Adapters: map[string]AIToolAdapter{"fake": adpt},
 	})
 	bus := events.New()
-	sw := NewSwarmService(st, agents, bus, SwarmConfig{MaxConcurrentAgents: 4, DefaultAgent: "fake"}, t.TempDir())
+	sw := NewSwarmService(st, agents, bus, SwarmConfig{MaxConcurrentAgents: 4, Worker: SwarmParticipantConfig{Agent: "fake"}}, t.TempDir())
 
 	seedParentTask(t, st, "parent-msg")
 	if err := st.CreateSubtask(context.Background(), store.Subtask{
@@ -89,7 +89,7 @@ func TestMessageParentUrgentSendsInterruptKeys(t *testing.T) {
 		Adapters: map[string]AIToolAdapter{"fake": adpt},
 	})
 	bus := events.New()
-	sw := NewSwarmService(st, agents, bus, SwarmConfig{MaxConcurrentAgents: 4, DefaultAgent: "fake", ConductorAgent: "fake"}, t.TempDir())
+	sw := NewSwarmService(st, agents, bus, SwarmConfig{MaxConcurrentAgents: 4, Worker: SwarmParticipantConfig{Agent: "fake"}, Conductor: SwarmParticipantConfig{Agent: "fake"}}, t.TempDir())
 
 	seedParentTask(t, st, "parent-conductor")
 	if err := sw.StartSwarm(context.Background(), "parent-conductor", t.TempDir()); err != nil {
@@ -124,7 +124,7 @@ func TestBroadcastUrgentSendsInterruptPerTarget(t *testing.T) {
 		Adapters: map[string]AIToolAdapter{"fake": adpt},
 	})
 	bus := events.New()
-	sw := NewSwarmService(st, agents, bus, SwarmConfig{MaxConcurrentAgents: 4, DefaultAgent: "fake"}, t.TempDir())
+	sw := NewSwarmService(st, agents, bus, SwarmConfig{MaxConcurrentAgents: 4, Worker: SwarmParticipantConfig{Agent: "fake"}}, t.TempDir())
 
 	seedParentTask(t, st, "parent-bc")
 	for _, id := range []string{"st-bc-01", "st-bc-02"} {
@@ -208,7 +208,7 @@ func TestMessageUrgentSendsMultipleInterruptKeys(t *testing.T) {
 		Adapters: map[string]AIToolAdapter{"multi": adpt},
 	})
 	bus := events.New()
-	sw := NewSwarmService(st, agents, bus, SwarmConfig{MaxConcurrentAgents: 4, DefaultAgent: "multi"}, t.TempDir())
+	sw := NewSwarmService(st, agents, bus, SwarmConfig{MaxConcurrentAgents: 4, Worker: SwarmParticipantConfig{Agent: "multi"}}, t.TempDir())
 
 	seedParentTask(t, st, "parent-multi")
 	if err := st.CreateSubtask(context.Background(), store.Subtask{
@@ -258,7 +258,7 @@ func TestBroadcastUrgentMixedAdapters(t *testing.T) {
 		},
 	})
 	bus := events.New()
-	sw := NewSwarmService(st, agents, bus, SwarmConfig{MaxConcurrentAgents: 4, DefaultAgent: "interrupt"}, t.TempDir())
+	sw := NewSwarmService(st, agents, bus, SwarmConfig{MaxConcurrentAgents: 4, Worker: SwarmParticipantConfig{Agent: "interrupt"}}, t.TempDir())
 
 	seedParentTask(t, st, "parent-mixed")
 	if err := st.CreateSubtask(context.Background(), store.Subtask{

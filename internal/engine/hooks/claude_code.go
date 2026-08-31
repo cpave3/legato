@@ -72,7 +72,7 @@ func (a *ClaudeCodeAdapter) InterruptKeys() []string { return []string{"Escape"}
 // expansion time to sidestep quoting issues. The brief is delivered
 // separately by the agent service via a short send-keys pointer to the
 // brief file — see agentService.SpawnAgent.
-func (a *ClaudeCodeAdapter) LaunchCommand(env map[string]string, brief, tier string) string {
+func (a *ClaudeCodeAdapter) LaunchCommand(env map[string]string, brief, model, tier string) string {
 	if env == nil {
 		return ""
 	}
@@ -82,6 +82,9 @@ func (a *ClaudeCodeAdapter) LaunchCommand(env map[string]string, brief, tier str
 	}
 	for _, arg := range a.launchArgs {
 		cmd += " " + shellQuote(arg)
+	}
+	if model != "" {
+		cmd += " --model " + shellQuote(model)
 	}
 	if tier != "" {
 		args, ok := a.tiers[tier]

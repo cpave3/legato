@@ -77,7 +77,7 @@ func (a *CodexAdapter) VoiceTrailingEnters() int { return 2 }
 // session. When LEGATO_ROLE_PROMPT_FILE is set, the role prompt is injected
 // as Codex developer instructions via `-c`. The brief is delivered separately
 // by the agent service via a short send-keys pointer to the brief file.
-func (a *CodexAdapter) LaunchCommand(env map[string]string, brief, tier string) string {
+func (a *CodexAdapter) LaunchCommand(env map[string]string, brief, model, tier string) string {
 	_ = brief
 	cmd := "codex"
 	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; ok {
@@ -85,6 +85,9 @@ func (a *CodexAdapter) LaunchCommand(env map[string]string, brief, tier string) 
 	}
 	for _, arg := range a.launchArgs {
 		cmd += " " + shellQuote(arg)
+	}
+	if model != "" {
+		cmd += " --model " + shellQuote(model)
 	}
 	if tier != "" {
 		args, ok := a.tiers[tier]

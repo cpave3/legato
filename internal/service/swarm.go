@@ -20,20 +20,19 @@ import (
 )
 
 // SwarmConfig configures swarm orchestration limits and behavior.
+type SwarmParticipantConfig struct {
+	Agent string
+	Model string
+}
+
 type SwarmConfig struct {
 	MaxConcurrentAgents int
 	MaxSubtasksPerPlan  int
 	MaxStepsPerPlan     int
 	StrictScope         bool
 	RequireUserClose    bool
-	DefaultAgent        string
-	// ConductorAgent overrides DefaultAgent for the conductor only. Empty
-	// falls back to DefaultAgent so existing configs keep working.
-	ConductorAgent string
-	// ConductorTier names a tier (configured under the resolved conductor
-	// agent's adapter) at which the conductor itself should launch. Empty
-	// falls back to the adapter's base launch_args.
-	ConductorTier string
+	Conductor           SwarmParticipantConfig
+	Worker              SwarmParticipantConfig
 	// TierCatalog is the human-readable map of adapter → tier name →
 	// description. Used to generate the "Available tiers" section appended
 	// to the conductor's brief so it knows which tier names exist and how
@@ -593,9 +592,9 @@ func (s *swarmService) StartSwarm(ctx context.Context, parentID, workingDir stri
 		brief = brief + "\n\n" + catalog
 	}
 
-	conductorAgent := s.cfg.ConductorAgent
+	conductorAgent := s.cfg.Conductor.Agent
 	if conductorAgent == "" {
-		conductorAgent = s.cfg.DefaultAgent
+		conductorAgent = s.cfg.Worker.Agent
 	}
 
 	if err := s.agents.SpawnAgent(ctx, parentID, 0, 0, AgentSpawnOptions{
@@ -606,7 +605,7 @@ func (s *swarmService) StartSwarm(ctx context.Context, parentID, workingDir stri
 		SwarmID:           parentID,
 		WorkingDir:        workingDir,
 		AgentKind:         conductorAgent,
-		Tier:              s.cfg.ConductorTier,
+		Model:             s.cfg.Conductor.Model,
 		Brief:             brief,
 	}); err != nil {
 		// Roll back the working dir on failure.
@@ -702,10 +701,10 @@ func (s *swarmService) CreateAdhocSwarm(ctx context.Context, taskID, goal, worki
 
 	agentKind := sess.AgentKind
 	if agentKind == "" {
-		agentKind = s.cfg.ConductorAgent
+		agentKind = s.cfg.Conductor.Agent
 	}
 	if agentKind == "" {
-		agentKind = s.cfg.DefaultAgent
+		agentKind = s.cfg.Worker.Agent
 	}
 	adapter := s.agents.AdapterFor(agentKind)
 	rolePrompt := rolePromptForAdapter(adapter, "conductor")
@@ -986,7 +985,11 @@ func (s *swarmService) Dispatch(ctx context.Context, subtaskID string) error {
 	scope, _ := store.ParseScopeGlobs(st.ScopeGlobs)
 	agentKind := st.AgentKind
 	if agentKind == "" {
-		agentKind = s.cfg.DefaultAgent
+		agentKind = s.cfg.Worker.Agent
+	}
+	workerModel := ""
+	if st.Tier == "" && (st.AgentKind == "" || st.AgentKind == s.cfg.Worker.Agent) {
+		workerModel = s.cfg.Worker.Model
 	}
 
 	if err := s.agents.SpawnAgent(ctx, subtaskID, 0, 0, AgentSpawnOptions{
@@ -999,6 +1002,7 @@ func (s *swarmService) Dispatch(ctx context.Context, subtaskID string) error {
 		Scope:             scope,
 		WorkingDir:        workingDir,
 		AgentKind:         agentKind,
+		Model:             workerModel,
 		Tier:              st.Tier,
 		Brief:             brief,
 		StrictScope:       s.cfg.StrictScope,
@@ -1051,7 +1055,7 @@ func (s *swarmService) MessageParent(ctx context.Context, parentID, text string,
 	if err != nil {
 		return fmt.Errorf("conductor for parent %s is not running", parentID)
 	}
-	if err := s.maybeInterrupt(sessionTarget{tmuxSession: sess.TmuxSession, agentKind: s.cfg.ConductorAgent}, urgent); err != nil {
+	if err := s.maybeInterrupt(sessionTarget{tmuxSession: sess.TmuxSession, agentKind: s.cfg.Conductor.Agent}, urgent); err != nil {
 		return err
 	}
 	return s.tmuxSendKeysLine(sess.TmuxSession, text)
@@ -1099,7 +1103,7 @@ func (s *swarmService) maybeInterrupt(target sessionTarget, urgent bool) error {
 	}
 	agentKind := target.agentKind
 	if agentKind == "" {
-		agentKind = s.cfg.DefaultAgent
+		agentKind = s.cfg.Worker.Agent
 	}
 	adapter := s.agents.AdapterFor(agentKind)
 	if adapter == nil {

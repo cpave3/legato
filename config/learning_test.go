@@ -138,13 +138,14 @@ func TestLearningConfigRejectsInvalidReflectionTimeout(t *testing.T) {
 	}
 }
 
-func TestLearningConfigFallsBackToSwarmDefaultAgent(t *testing.T) {
+func TestLearningConfigFallsBackToSwarmWorkerAgent(t *testing.T) {
 	writeTestConfig(t, `
 board:
   columns:
     - name: Review
 swarm:
-  default_agent: chimera
+  worker:
+    agent: chimera
 adapters:
   chimera: {}
 learning:

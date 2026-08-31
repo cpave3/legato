@@ -159,9 +159,12 @@ legato swarm status <parent-id>      # JSON snapshot to stdout
 swarm:
   max_concurrent_agents: 4        # cap on live workers per swarm
   max_subtasks_per_plan: 10       # plan size cap
-  default_agent: chimera          # AI tool for workers when plan entry omits `agent`
-  conductor_agent: claude-code    # optional: override for the conductor only
-  conductor_tier: large           # tier used for the conductor itself (see "Tiers" below)
+  conductor:
+    agent: claude-code            # adapter for newly spawned conductors
+    model: claude-opus-4-7        # optional direct model
+  worker:
+    agent: chimera                # fallback when a plan entry omits `agent`
+    model: manticore/luna         # optional direct model for fallback workers
   strict_scope: false             # when true, scope overlap hard-blocks dispatch
   require_user_close: false       # reserved (no-op currently)
   brief_kickoff_delay_ms: 250     # pause between launch and "read your brief" send-keys
@@ -203,36 +206,23 @@ workspaces:
 
 ### Configuring per AI tool
 
-The swarm picks an AI tool at three layers, in priority order:
+The swarm resolves participants by role and then applies plan overrides:
 
-1. **Per-sub-task override** (most specific): the conductor's plan YAML can set `agent:` per sub-task. The conductor decides which tool fits each sub-task.
-   ```yaml
-   subtasks:
-     - title: "Backend API"
-       agent: chimera           # this worker uses Chimera
-       role: backend
-     - title: "Frontend"
-       agent: claude-code       # this worker uses Claude Code
-       role: frontend
-     - title: "Schema migration"
-       agent: codex             # this worker uses Codex
-       role: db
-   ```
+1. **Conductor profile:** `swarm.conductor.agent` selects the adapter for a new conductor. It falls back to `swarm.worker.agent`, then Claude Code. `swarm.conductor.model` adds a direct model selector. Ad-hoc promotion keeps the existing process and cannot change its model.
+2. **Worker adapter:** a sub-task `agent` overrides `swarm.worker.agent`. If both are empty, Legato uses Claude Code.
+3. **Worker model:** a sub-task `tier` suppresses `swarm.worker.model`. An explicit different sub-task agent also suppresses the worker model because model names are adapter-specific.
 
-2. **Conductor override** (`swarm.conductor_agent`, optional): when set, the conductor uses this adapter exclusively while workers still fall back to `default_agent` when no explicit `agent:` is set. This is the clean way to run a mixed-tool swarm (e.g. Claude Code conducts, Chimera workers sandbox).
-   ```yaml
-   swarm:
-     default_agent: chimera     # workers without explicit agent: use Chimera
-     conductor_agent: claude-code  # conductor only: use Claude Code
-   ```
+```yaml
+swarm:
+  conductor:
+    agent: chimera
+    model: manticore/sol
+  worker:
+    agent: chimera
+    model: manticore/luna
+```
 
-3. **Swarm-wide default** (`swarm.default_agent`): used when a plan entry omits `agent` and `conductor_agent` is also unset. In that case the conductor and all fallback workers share the same tool.
-   ```yaml
-   swarm:
-     default_agent: chimera    # conductor + workers (without explicit agent) use Chimera
-   ```
-
-3. **Built-in fallback**: if `swarm.default_agent` is unset, legato uses the first registered adapter (currently Claude Code).
+The removed `default_agent`, `conductor_agent`, and `conductor_tier` keys cause a startup migration error. Move shared non-model tier arguments to adapter `launch_args`; a direct conductor model is not a full replacement for a tier that had other flags.
 
 #### Tiers (per-sub-task model selection)
 
@@ -264,11 +254,14 @@ adapters:
         launch_args: ["--model", "opus"]
 
 swarm:
-  default_agent: claude-code
-  conductor_tier: large           # which tier the conductor itself runs at
+  conductor:
+    agent: claude-code
+    model: claude-opus-4-7
+  worker:
+    agent: claude-code
 ```
 
-**How tiers flow into a launch command.** Tier launch_args are appended *after* the adapter's base `launch_args`, so a tier-specified flag (`--model`) wins on conflict with anything in the base block. For a sub-task with `agent: claude-code`, `tier: small`:
+**How launch arguments are ordered.** Legato appends adapter base `launch_args`, then the role's direct `model`, then explicit tier arguments. A direct model overrides a model in base arguments. A tier model remains final. For a sub-task with `agent: claude-code`, `tier: small`:
 
 ```
 claude --append-system-prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)" --dangerously-skip-permissions --model claude-haiku-4-5
@@ -288,9 +281,7 @@ subtasks:
     tier: large
 ```
 
-**Validation rule.** Plans referencing a tier that isn't configured for the resolved adapter (sub-task `agent`, or `swarm.default_agent` if `agent` is omitted) are **rejected at validation** — there is no silent fallback. This prevents the conductor from inventing a tier name and accidentally launching a worker on the wrong (or unspecified) model. Omit `tier:` to use the adapter's base `launch_args` only.
-
-`swarm.conductor_tier` follows the same rule, but it's checked at startup (against `swarm.default_agent`'s tier set) rather than at propose-plan time. An unknown `conductor_tier` is a fatal config error so the conductor doesn't silently launch on the wrong model.
+**Validation rule.** Plans referencing a tier that isn't configured for the resolved adapter (sub-task `agent`, or `swarm.worker.agent` if `agent` is omitted) are **rejected at validation** — there is no silent fallback. This prevents the conductor from inventing a tier name and accidentally launching a worker on the wrong (or unspecified) model. Omit `tier:` to use the adapter's base `launch_args` only.
 
 #### Adapter-specific launch flags
 
@@ -394,14 +385,16 @@ When unset, the embedded `conductor.md` / `worker.md` defaults apply.
 
 #### Mixing tools in one swarm
 
-Set a default and override per sub-task, or use `conductor_agent` to split the conductor's tool from the worker default.
+Set role profiles and override the worker adapter per sub-task when necessary.
 
-**Clean split via config (`conductor_agent`):**
+**Clean split with role profiles:**
 ```yaml
 # config.yaml
 swarm:
-  default_agent: chimera          # workers without explicit agent: use Chimera
-  conductor_agent: claude-code    # conductor: use Claude Code
+  conductor:
+    agent: claude-code            # conductor: use Claude Code
+  worker:
+    agent: chimera                # workers without explicit agent: use Chimera
 adapters:
   claude-code:
     launch_args: ["--dangerously-skip-permissions"]
@@ -424,8 +417,8 @@ subtasks:
     role: integration
 ```
 
-**Without `conductor_agent` (per-sub-task override only):**
-If you prefer the old style, keep `default_agent: claude-code` and put `agent: chimera` on every sub-task that should be sandboxed. The conductor uses `default_agent` in this mode.
+**Per-sub-task override only:**
+You can set `swarm.worker.agent: claude-code` and put `agent: chimera` on each sub-task that should be sandboxed. The conductor falls back to the worker agent when `swarm.conductor.agent` is empty.
 
 ### Web UI parity
 
