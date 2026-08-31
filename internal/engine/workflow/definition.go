@@ -136,7 +136,7 @@ func (d *Definition) Validate() error {
 		if step.Trigger != "automatic" && step.Trigger != "manual" {
 			return fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger)
 		}
-		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.dispatch" && step.Type != "agent.interview" && step.Type != "agent.stop" && step.Type != "worktree.remove" && step.Type != "file.remove" && step.Type != "task.context" && step.Type != "task.working_dir.resolve" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "task.move" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" {
+		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.dispatch" && step.Type != "agent.interview" && step.Type != "agent.stop" && step.Type != "worktree.remove" && step.Type != "file.remove" && step.Type != "task.context" && step.Type != "task.working_dir.resolve" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "task.move" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" && step.Type != "chimera.session.remove" {
 			return fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type)
 		}
 		if err := validateStepContract(*step, d.Inputs); err != nil {
@@ -197,6 +197,11 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 		}
 	case "agent.stop":
 		required = []string{"task"}
+	case "chimera.session.remove":
+		required = []string{"task"}
+		if task, ok := step.With["task"]; ok && !wholeTaskReference(task, inputs) {
+			return fmt.Errorf("with task must be a whole task reference")
+		}
 	case "learning.packet.prepare":
 		required = []string{"task", "limits"}
 	case "learning.proposals.submit":

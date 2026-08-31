@@ -80,3 +80,29 @@ steps:
 		t.Fatalf("matched = %v, err = %v", matched, err)
 	}
 }
+
+func TestTaskEnteredColumnConditionSupportsRetainedChimeraSession(t *testing.T) {
+	definition, err := workflow.Parse("cleanup.yaml", []byte(`
+schema_version: 1
+name: cleanup
+title: Cleanup
+inputs: {task: {type: task, required: true}}
+on:
+  task.entered_column:
+    column: Done
+    inputs: {task: "${{ event.task }}"}
+    conditions: {all: [{field: task.has_chimera_session, equals: true}]}
+steps:
+  - id: remove
+    title: Remove
+    type: chimera.session.remove
+    with: {task: "${{ workflow.inputs.task }}"}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	matched, err := definition.On.TaskEnteredColumn.Matches(map[string]any{"has_chimera_session": true})
+	if err != nil || !matched {
+		t.Fatalf("matched=%v err=%v", matched, err)
+	}
+}

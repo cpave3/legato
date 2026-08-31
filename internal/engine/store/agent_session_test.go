@@ -387,3 +387,80 @@ func createTestTask(t *testing.T, s *Store, id string) {
 		t.Fatal(err)
 	}
 }
+
+func TestClearTaskChimeraSessionClearsMatchingTaskAndSessionMetadata(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, Task{ID: "task-clean", Title: "Clean", Status: "Done"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTaskChimeraSessionID(ctx, "task-clean", "chimera-old"); err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := s.InsertAgentSessionReturningID(ctx, AgentSession{TaskID: "task-clean", TmuxSession: "dead", AgentKind: "chimera", Status: "dead"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB().ExecContext(ctx, `UPDATE agent_sessions SET chimera_session_id = ?, chimera_endpoint = ?, last_event_id = ? WHERE id = ?`, "chimera-old", "http://old", "event-1", sessionID); err != nil {
+		t.Fatal(err)
+	}
+
+	cleared, err := s.ClearTaskChimeraSession(ctx, "task-clean", "chimera-old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cleared {
+		t.Fatal("metadata was not cleared")
+	}
+	task, _ := s.GetTask(ctx, "task-clean")
+	if task.ChimeraSessionID != nil {
+		t.Fatalf("task ChimeraSessionID = %q", *task.ChimeraSessionID)
+	}
+	agent, _ := s.GetAgentSessionByID(ctx, sessionID)
+	if agent.ChimeraSessionID != nil || agent.ChimeraEndpoint != nil || agent.LastEventID != nil {
+		t.Fatalf("agent metadata remains: %+v", agent)
+	}
+}
+
+func TestClearTaskChimeraSessionRefusesRunningAgent(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, Task{ID: "task-running", Title: "Running", Status: "Done"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTaskChimeraSessionID(ctx, "task-running", "chimera-old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertAgentSession(ctx, AgentSession{TaskID: "task-running", TmuxSession: "live", AgentKind: "chimera", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ClearTaskChimeraSession(ctx, "task-running", "chimera-old"); err == nil {
+		t.Fatal("expected active agent refusal")
+	}
+	task, _ := s.GetTask(ctx, "task-running")
+	if task.ChimeraSessionID == nil || *task.ChimeraSessionID != "chimera-old" {
+		t.Fatalf("task ChimeraSessionID = %v", task.ChimeraSessionID)
+	}
+}
+
+func TestClearTaskChimeraSessionPreservesReplacementSession(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, Task{ID: "task-replaced", Title: "Replaced", Status: "Done"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTaskChimeraSessionID(ctx, "task-replaced", "chimera-new"); err != nil {
+		t.Fatal(err)
+	}
+	cleared, err := s.ClearTaskChimeraSession(ctx, "task-replaced", "chimera-old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared {
+		t.Fatal("replacement metadata was cleared")
+	}
+	task, _ := s.GetTask(ctx, "task-replaced")
+	if task.ChimeraSessionID == nil || *task.ChimeraSessionID != "chimera-new" {
+		t.Fatalf("task ChimeraSessionID = %v", task.ChimeraSessionID)
+	}
+}

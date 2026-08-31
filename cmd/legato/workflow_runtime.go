@@ -79,6 +79,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		service.NewAgentRunExecutor(runner, binary),
 		service.NewAgentDispatchExecutor(agentSvc, db),
 		service.NewAgentStopExecutor(runner),
+		service.NewChimeraSessionRemoveExecutor(db, service.NewChimeraCLISessionRemover("chimera")),
 	}
 	executors = append(executors, learningWorkflowExecutors(db, learningSvc, runner, binary)...)
 	var moveSync service.CardMoveSync

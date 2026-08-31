@@ -127,6 +127,13 @@ func (c *WorkflowTriggerCoordinator) process(ctx context.Context, transition sto
 			return err
 		}
 	}
+	if conditions != nil && conditions.UsesField("task.has_chimera_session") {
+		current, err := c.store.GetTask(ctx, transition.TaskID)
+		if err != nil {
+			return err
+		}
+		task["has_chimera_session"] = current.ChimeraSessionID != nil && *current.ChimeraSessionID != ""
+	}
 	matched, err := definition.On.TaskEnteredColumn.MatchesEvent(task, map[string]any{"from_column": transition.FromColumn, "to_column": transition.ToColumn})
 	if err != nil {
 		return err

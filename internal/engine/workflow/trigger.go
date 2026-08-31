@@ -94,7 +94,7 @@ func (c Condition) validate() error {
 
 func validConditionField(field string) bool {
 	switch field {
-	case "task.id", "task.title", "task.description", "task.status", "task.priority", "task.provider", "task.remote_id", "task.has_active_agent", "event.from_column", "event.to_column":
+	case "task.id", "task.title", "task.description", "task.status", "task.priority", "task.provider", "task.remote_id", "task.has_active_agent", "task.has_chimera_session", "event.from_column", "event.to_column":
 		return true
 	}
 	return strings.HasPrefix(field, "task.metadata.") && len(strings.TrimPrefix(field, "task.metadata.")) > 0

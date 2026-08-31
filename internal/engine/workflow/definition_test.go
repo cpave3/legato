@@ -296,3 +296,39 @@ steps:
 		t.Fatalf("prompt = %q, want %q", got, wantPrompt)
 	}
 }
+
+func TestChimeraSessionRemoveRequiresWholeTaskReference(t *testing.T) {
+	for name, task := range map[string]string{
+		"valid input":   "${{ workflow.inputs.task }}",
+		"valid subject": "${{ workflow.task }}",
+		"missing":       "",
+		"literal":       "task-1",
+		"field":         "${{ workflow.inputs.task.id }}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			with := ""
+			if task != "" {
+				with = "with:\n      task: " + task
+			}
+			_, err := workflow.Parse("remove.yaml", []byte(`
+schema_version: 1
+name: remove
+title: Remove
+inputs:
+  task: {type: task, required: true}
+steps:
+  - id: remove
+    title: Remove
+    type: chimera.session.remove
+    `+with+`
+`))
+			wantValid := name == "valid input" || name == "valid subject"
+			if wantValid && err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			if !wantValid && err == nil {
+				t.Fatal("expected validation error")
+			}
+		})
+	}
+}
