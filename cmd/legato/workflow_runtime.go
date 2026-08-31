@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/chimera"
 	"github.com/cpave3/legato/internal/engine/events"
 	gitengine "github.com/cpave3/legato/internal/engine/git"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -79,7 +80,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		service.NewAgentRunExecutor(runner, binary),
 		service.NewAgentDispatchExecutor(agentSvc, db),
 		service.NewAgentStopExecutor(runner),
-		service.NewChimeraSessionRemoveExecutor(db, service.NewChimeraCLISessionRemover("chimera")),
+		service.NewChimeraSessionRemoveExecutor(db, chimera.NewSessionRemover("chimera")),
 	}
 	executors = append(executors, learningWorkflowExecutors(db, learningSvc, runner, binary)...)
 	var moveSync service.CardMoveSync

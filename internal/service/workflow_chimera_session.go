@@ -2,57 +2,22 @@ package service
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
-type ChimeraSessionRemover interface {
+type chimeraSessionRemover interface {
 	Remove(context.Context, string) (bool, error)
-}
-
-type ChimeraCLISessionRemover struct {
-	binary string
-	run    func(context.Context, string, ...string) ([]byte, error)
-}
-
-func NewChimeraCLISessionRemover(binary string) *ChimeraCLISessionRemover {
-	return &ChimeraCLISessionRemover{
-		binary: binary,
-		run: func(ctx context.Context, name string, args ...string) ([]byte, error) {
-			return exec.CommandContext(ctx, name, args...).CombinedOutput()
-		},
-	}
-}
-
-func (r *ChimeraCLISessionRemover) Remove(ctx context.Context, sessionID string) (bool, error) {
-	output, err := r.run(ctx, r.binary, "sessions", "rm", sessionID, "--exact", "--if-exists", "--json")
-	if err != nil {
-		message := strings.TrimSpace(string(output))
-		if message == "" {
-			message = err.Error()
-		}
-		return false, fmt.Errorf("chimera sessions rm: %s", message)
-	}
-	var result struct {
-		Removed bool `json:"removed"`
-	}
-	if err := json.Unmarshal(output, &result); err != nil {
-		return false, fmt.Errorf("decode chimera sessions rm output: %w", err)
-	}
-	return result.Removed, nil
 }
 
 type ChimeraSessionRemoveExecutor struct {
 	store   *store.Store
-	remover ChimeraSessionRemover
+	remover chimeraSessionRemover
 }
 
-func NewChimeraSessionRemoveExecutor(s *store.Store, remover ChimeraSessionRemover) *ChimeraSessionRemoveExecutor {
+func NewChimeraSessionRemoveExecutor(s *store.Store, remover chimeraSessionRemover) *ChimeraSessionRemoveExecutor {
 	return &ChimeraSessionRemoveExecutor{store: s, remover: remover}
 }
 
@@ -70,24 +35,21 @@ func (e *ChimeraSessionRemoveExecutor) Start(ctx context.Context, step ResolvedW
 	if strings.TrimSpace(taskID) == "" {
 		return WorkflowExecutionResult{}, fmt.Errorf("task id is required")
 	}
-	task, err := e.store.GetTask(ctx, taskID)
+	sessionID, err := e.store.ReserveChimeraCleanup(ctx, taskID, step.RunID, step.StepID)
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
-	if task.ChimeraSessionID == nil || *task.ChimeraSessionID == "" {
+	if sessionID == "" {
 		return WorkflowExecutionResult{Status: "succeeded", Outputs: map[string]any{"removed": false, "metadata_cleared": false}}, nil
-	}
-	sessionID := *task.ChimeraSessionID
-	if _, err := e.store.GetAgentSessionByTaskID(ctx, taskID); err == nil {
-		return WorkflowExecutionResult{}, fmt.Errorf("task %s has a running agent; use agent.stop before chimera.session.remove", taskID)
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return WorkflowExecutionResult{}, err
 	}
 	removed, err := e.remover.Remove(ctx, sessionID)
 	if err != nil {
+		if releaseErr := e.store.ReleaseChimeraCleanup(ctx, taskID, step.RunID, step.StepID, sessionID); releaseErr != nil {
+			return WorkflowExecutionResult{}, fmt.Errorf("removing Chimera session: %w (also failed to release cleanup reservation: %v)", err, releaseErr)
+		}
 		return WorkflowExecutionResult{}, fmt.Errorf("removing Chimera session: %w", err)
 	}
-	cleared, err := e.store.ClearTaskChimeraSession(ctx, taskID, sessionID)
+	cleared, err := e.store.CompleteChimeraCleanup(ctx, taskID, sessionID, step.RunID, step.StepID)
 	if err != nil {
 		return WorkflowExecutionResult{}, fmt.Errorf("clearing Chimera session metadata: %w", err)
 	}

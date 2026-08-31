@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
-	"slices"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -37,7 +36,7 @@ func TestChimeraSessionRemoveExecutorRemovesExactSessionAndClearsResumeMetadata(
 	remover := &fakeChimeraSessionRemover{removed: true}
 	executor := NewChimeraSessionRemoveExecutor(db, remover)
 
-	result, err := executor.Start(ctx, ResolvedWorkflowStep{With: map[string]any{"task": map[string]any{"id": "task-1"}}})
+	result, err := executor.Start(ctx, ResolvedWorkflowStep{RunID: "run-1", StepID: "remove", With: map[string]any{"task": map[string]any{"id": "task-1"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +65,7 @@ func TestChimeraSessionRemoveExecutorPreservesMetadataOnProviderRefusal(t *testi
 	if err := db.SetTaskChimeraSessionID(ctx, "task-1", "chimera-full-id"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = NewChimeraSessionRemoveExecutor(db, &fakeChimeraSessionRemover{err: errors.New("session has children; delete children first")}).Start(ctx, ResolvedWorkflowStep{With: map[string]any{"task": map[string]any{"id": "task-1"}}})
+	_, err = NewChimeraSessionRemoveExecutor(db, &fakeChimeraSessionRemover{err: errors.New("session has children; delete children first")}).Start(ctx, ResolvedWorkflowStep{RunID: "run-1", StepID: "remove", With: map[string]any{"task": map[string]any{"id": "task-1"}}})
 	if err == nil {
 		t.Fatal("expected provider refusal")
 	}
@@ -76,24 +75,45 @@ func TestChimeraSessionRemoveExecutorPreservesMetadataOnProviderRefusal(t *testi
 	}
 }
 
-func TestChimeraCLISessionRemoverUsesExactIdempotentStructuredCommand(t *testing.T) {
-	remover := NewChimeraCLISessionRemover("/opt/chimera")
-	var binary string
-	var args []string
-	remover.run = func(_ context.Context, name string, commandArgs ...string) ([]byte, error) {
-		binary = name
-		args = append([]string(nil), commandArgs...)
-		return []byte(`{"removed":false}`), nil
-	}
-	removed, err := remover.Remove(context.Background(), "chimera-full-id")
+func TestChimeraSessionRemoveExecutorDoesNotCallProviderWithoutRetainedSession(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if removed || binary != "/opt/chimera" {
-		t.Fatalf("removed=%v binary=%q", removed, binary)
+	defer db.Close()
+	ctx := context.Background()
+	if err := db.CreateTask(ctx, store.Task{ID: "task-1", Title: "Done", Status: "Done"}); err != nil {
+		t.Fatal(err)
 	}
-	want := []string{"sessions", "rm", "chimera-full-id", "--exact", "--if-exists", "--json"}
-	if !slices.Equal(args, want) {
-		t.Fatalf("args=%v want=%v", args, want)
+	remover := &fakeChimeraSessionRemover{removed: true}
+	result, err := NewChimeraSessionRemoveExecutor(db, remover).Start(ctx, ResolvedWorkflowStep{RunID: "run-1", StepID: "remove", With: map[string]any{"task": map[string]any{"id": "task-1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remover.ids) != 0 || result.Outputs["removed"] != false || result.Outputs["metadata_cleared"] != false {
+		t.Fatalf("ids=%v result=%+v", remover.ids, result)
+	}
+}
+
+func TestChimeraSessionRemoveExecutorDoesNotCallProviderForRunningAgent(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if err := db.CreateTask(ctx, store.Task{ID: "task-1", Title: "Done", Status: "Done"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTaskChimeraSessionID(ctx, "task-1", "chimera-full-id"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.InsertAgentSession(ctx, store.AgentSession{TaskID: "task-1", TmuxSession: "live", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	remover := &fakeChimeraSessionRemover{removed: true}
+	_, err = NewChimeraSessionRemoveExecutor(db, remover).Start(ctx, ResolvedWorkflowStep{RunID: "run-1", StepID: "remove", With: map[string]any{"task": map[string]any{"id": "task-1"}}})
+	if err == nil || len(remover.ids) != 0 {
+		t.Fatalf("err=%v ids=%v", err, remover.ids)
 	}
 }

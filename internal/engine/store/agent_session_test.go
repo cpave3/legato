@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -473,5 +474,30 @@ func TestClearTaskChimeraSessionPreservesReplacementSessionAndClearsOldBindings(
 	agent, _ := s.GetAgentSessionByID(ctx, sessionID)
 	if agent.ChimeraSessionID != nil || agent.ChimeraEndpoint != nil || agent.LastEventID != nil {
 		t.Fatalf("old agent binding remains: %+v", agent)
+	}
+}
+
+func TestReserveChimeraCleanupCapturesOriginalSessionAndBlocksAgentInsert(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, Task{ID: "task-reserve", Title: "Reserve", Status: "Done"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTaskChimeraSessionID(ctx, "task-reserve", "chimera-old"); err != nil {
+		t.Fatal(err)
+	}
+	sessionID, err := s.ReserveChimeraCleanup(ctx, "task-reserve", "run-1", "remove")
+	if err != nil || sessionID != "chimera-old" {
+		t.Fatalf("sessionID=%q err=%v", sessionID, err)
+	}
+	if err := s.SetTaskChimeraSessionID(ctx, "task-reserve", "chimera-new"); err != nil {
+		t.Fatal(err)
+	}
+	retried, err := s.ReserveChimeraCleanup(ctx, "task-reserve", "run-1", "remove")
+	if err != nil || retried != "chimera-old" {
+		t.Fatalf("retry sessionID=%q err=%v", retried, err)
+	}
+	if err := s.InsertAgentSession(ctx, AgentSession{TaskID: "task-reserve", TmuxSession: "blocked", Status: "running"}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("InsertAgentSession error=%v, want conflict", err)
 	}
 }

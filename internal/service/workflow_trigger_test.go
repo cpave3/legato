@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -360,5 +361,74 @@ steps:
 	}
 	if len(requests) != 1 || requests[0].Status != "started" || len(executor.starts) != 1 {
 		t.Fatalf("requests=%+v starts=%d", requests, len(executor.starts))
+	}
+}
+
+func TestChimeraSessionConditionSkipsWithoutSessionAndReevaluatesConfirmation(t *testing.T) {
+	for _, confirm := range []bool{false, true} {
+		t.Run(fmt.Sprintf("confirm=%v", confirm), func(t *testing.T) {
+			db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			ctx := context.Background()
+			for i, name := range []string{"Doing", "Done"} {
+				if err := db.CreateColumnMapping(ctx, store.ColumnMapping{ColumnName: name, RemoteStatuses: `[]`, SortOrder: i}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := db.CreateTask(ctx, store.Task{ID: "AB-CLEAN", Title: "Finish", Status: "Doing"}); err != nil {
+				t.Fatal(err)
+			}
+			if confirm {
+				if err := db.SetTaskChimeraSessionID(ctx, "AB-CLEAN", "chimera-id"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			dir := t.TempDir()
+			definition := fmt.Sprintf(`schema_version: 1
+name: cleanup
+title: Cleanup
+inputs: {task: {type: task, required: true}}
+on:
+  task.entered_column:
+    column: Done
+    confirm: %v
+    inputs: {task: "${{ event.task }}"}
+    conditions: {all: [{field: task.has_chimera_session, equals: true}]}
+steps:
+  - {id: remove, title: Remove, type: chimera.session.remove, with: {task: "${{ workflow.inputs.task }}"}}
+`, confirm)
+			if err := os.WriteFile(filepath.Join(dir, "cleanup.yaml"), []byte(definition), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			executor := &fakeWorkflowExecutor{typeName: "chimera.session.remove", result: WorkflowExecutionResult{Status: "succeeded"}}
+			coordinator := NewWorkflowTriggerCoordinator(db, NewWorkflowService(db, []WorkflowExecutor{executor}), func() workflowengine.DiscoveryResult { return workflowengine.DiscoverPaths(dir) })
+			board := NewBoardService(db, events.New())
+			if err := board.MoveCard(ctx, "AB-CLEAN", "Done"); err != nil {
+				t.Fatal(err)
+			}
+			if err := coordinator.CaptureLatestForTask(ctx, "AB-CLEAN"); err != nil {
+				t.Fatal(err)
+			}
+			requests, _ := db.ListWorkflowTriggerRequests(ctx, "")
+			if len(requests) != 1 {
+				t.Fatalf("requests=%+v", requests)
+			}
+			if confirm {
+				if err := db.SetTaskChimeraSessionID(ctx, "AB-CLEAN", ""); err != nil {
+					t.Fatal(err)
+				}
+				request, err := coordinator.Confirm(ctx, requests[0].ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				requests[0] = *request
+			}
+			if requests[0].Status != "skipped" || len(executor.starts) != 0 {
+				t.Fatalf("request=%+v starts=%d", requests[0], len(executor.starts))
+			}
+		})
 	}
 }

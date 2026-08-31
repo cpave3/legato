@@ -17,9 +17,17 @@ const agentSessionSelect = `SELECT a.*,
 func (s *Store) InsertAgentSession(ctx context.Context, a AgentSession) error {
 	result, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO agent_sessions (task_id, tmux_session, command, agent_kind, status, role, parent_task_id, subtask_id)
-		VALUES (:task_id, :tmux_session, :command, :agent_kind, :status, :role, :parent_task_id, :subtask_id)`, a)
+		SELECT :task_id, :tmux_session, :command, :agent_kind, :status, :role, :parent_task_id, :subtask_id
+		WHERE :status != 'running' OR NOT EXISTS (SELECT 1 FROM chimera_cleanup_reservations WHERE task_id = :task_id)`, a)
 	if err != nil {
 		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrConflict
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
@@ -33,9 +41,17 @@ func (s *Store) InsertAgentSession(ctx context.Context, a AgentSession) error {
 func (s *Store) InsertAgentSessionReturningID(ctx context.Context, a AgentSession) (int, error) {
 	result, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO agent_sessions (task_id, tmux_session, command, agent_kind, status, role, parent_task_id, subtask_id)
-		VALUES (:task_id, :tmux_session, :command, :agent_kind, :status, :role, :parent_task_id, :subtask_id)`, a)
+		SELECT :task_id, :tmux_session, :command, :agent_kind, :status, :role, :parent_task_id, :subtask_id
+		WHERE :status != 'running' OR NOT EXISTS (SELECT 1 FROM chimera_cleanup_reservations WHERE task_id = :task_id)`, a)
 	if err != nil {
 		return 0, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if rows == 0 {
+		return 0, ErrConflict
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
