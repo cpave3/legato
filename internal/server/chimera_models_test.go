@@ -97,7 +97,7 @@ func TestChimeraModelsHandlerProxiesModelsFromChimera(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode([]map[string]any{
 			{"ref": "manticore/glm", "contextWindow": 256000, "isDefault": true},
-			{"ref": "manticore/gpt", "contextWindow": 256000, "isDefault": false},
+			{"ref": "manticore/gpt", "contextWindow": 256000, "vision": true, "capabilities": map[string]any{"inputModalities": []string{"text", "image"}}, "isDefault": false},
 			{"ref": "manticore/kimi", "contextWindow": 256000, "vision": true, "isDefault": false},
 		})
 	}))
@@ -132,6 +132,9 @@ func TestChimeraModelsHandlerProxiesModelsFromChimera(t *testing.T) {
 	}
 	if models[2]["vision"] != true {
 		t.Fatalf("third model should have vision")
+	}
+	if models[1]["vision"] != true || models[1]["capabilities"] == nil {
+		t.Fatalf("lost discovered Codex vision metadata: %v", models[1])
 	}
 }
 

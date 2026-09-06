@@ -42,6 +42,9 @@ func TestModelSettingsContractRoundTrip(t *testing.T) {
 	if !strings.Contains(string(decoded.Defaults), `"medium"`) {
 		t.Fatalf("lost model defaults: %s", decoded.Defaults)
 	}
+	if !strings.Contains(string(decoded.Capabilities), `"image"`) {
+		t.Fatalf("lost image input modality: %s", decoded.Capabilities)
+	}
 }
 
 func TestGetInstance(t *testing.T) {

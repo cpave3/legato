@@ -1,6 +1,7 @@
 export type ModelSettings = Partial<Record<"thinking" | "reasoningEffort" | "thinkingBudgetTokens" | "reasoningSummary" | "verbosity" | "serviceTier" | "maxOutputTokens" | "temperature" | "topP" | "parallelToolCalls", string | number | boolean>>
 export type ModelSettingsPatch = { [Key in keyof ModelSettings]?: ModelSettings[Key] | null }
 export interface ModelCapabilities {
+  inputModalities?: Array<"text" | "image">
   schemaVersion: 1
   modelId: string
   profile: string

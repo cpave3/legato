@@ -1244,7 +1244,7 @@ describe("NativeAgentPanel", () => {
   it("renders a model dropdown with models from the models endpoint", async () => {
     const modelsData = [
       { ref: "manticore/glm", contextWindow: 256000, isDefault: true },
-      { ref: "manticore/gpt", contextWindow: 256000, isDefault: false },
+      { ref: "manticore/gpt", contextWindow: 256000, vision: true, capabilities: { inputModalities: ["text", "image"] }, isDefault: false },
       { ref: "manticore/kimi", contextWindow: 256000, vision: true, isDefault: false },
     ]
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -1267,7 +1267,7 @@ describe("NativeAgentPanel", () => {
     // The "default" badge appears on the default model entry
     const defaultBadges = screen.getAllByText("default")
     expect(defaultBadges.length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText("👁")).not.toBeNull()
+    expect(screen.getAllByTitle("vision")).toHaveLength(2)
   })
 
   it("POSTs to the model endpoint when selecting a different model from the dropdown", async () => {

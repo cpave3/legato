@@ -9,6 +9,7 @@ describe("native agent synchronization", () => {
     let state = stateFromNativeSnapshot({ model: { providerId: "manticore", modelId: "sol", settings: settings.effective, settingsDefaults: settings.defaults, capabilities: settings.capabilities }, modelSettingsOverrides: { "manticore/sol": settings.overrides }, status: "waiting_for_permission" })
     expect(state.busy).toBe(true)
     expect(state.settingsState).toEqual(settings)
+    expect(state.settingsState?.capabilities.inputModalities).toEqual(["text", "image"])
     state = reduceNativeEvent(state, { eventId: "model", type: "model_changed", to: "manticore/kimi" })
     state = reduceNativeEvent(state, { eventId: "stale", type: "model_settings_changed", settingsState: settings })
     expect(state.model).toBe("manticore/kimi")

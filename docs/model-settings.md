@@ -19,6 +19,12 @@ Keep existing provider credentials, URLs, and headers. The source implementation
 
 The capabilities are model-specific. Codex requires thinking. A reasoning summary can be disabled without disabling reasoning. Some Kimi models have fixed sampling parameters, and unknown local endpoints require an explicit profile.
 
+## Vision metadata
+
+The existing native model selector's vision indicator now includes verified image support discovered by Chimera, including supported Manticore Codex aliases. The Go proxy and native state retain the additive `inputModalities` field. Image routing remains in Chimera: selected vision-capable models keep image turns, while text-only or unknown models use the configured fallback. No new attachment composer or panel-side routing is added.
+
+Release Manticore's image translation and capability metadata before the updated Chimera build. Existing global configuration with `capabilitySource: "manticore"` needs no change. No database migration is required.
+
 ## Verification
 
 The shared fixture is `contracts/model-settings-v1.json`. Tests cover Go serialization, settings patches, frontend controls, errors, reset/cancel, stale responses, and reconnect state. Backend tests use local mocks. No browser, live-model, or end-to-end tests are part of this change.
