@@ -345,7 +345,7 @@ func (s *Server) chimeraModesHandler() http.HandlerFunc {
 // chimeraModelHandler sets the model for the session.
 func (s *Server) chimeraModelHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
+		if r.Method != http.MethodPost && r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -355,20 +355,36 @@ func (s *Server) chimeraModelHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
 		}
-		var req struct {
-			Model string `json:"model"`
-		}
-		json.NewDecoder(r.Body).Decode(&req)
-		var modelRef *string
-		if req.Model != "" && req.Model != "default" && req.Model != "reset" {
-			modelRef = &req.Model
+		var body json.RawMessage
+		if r.Method == http.MethodPost {
+			var req map[string]json.RawMessage
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil || req == nil {
+				http.Error(w, "invalid model settings JSON", http.StatusBadRequest)
+				return
+			}
+			if raw, ok := req["model"]; ok {
+				var ref string
+				if string(raw) != "null" {
+					if err := json.Unmarshal(raw, &ref); err != nil {
+						http.Error(w, "model must be a string or null", http.StatusBadRequest)
+						return
+					}
+					if ref == "" || ref == "default" || ref == "reset" {
+						req["model"] = json.RawMessage(`null`)
+					}
+				}
+			}
+			body, _ = json.Marshal(req)
 		}
 		client := chimera.NewClient(endpoint)
-		if err := client.SetModel(r.Context(), sessionID, modelRef); err != nil {
+		payload, status, err := client.ModelSettings(r.Context(), sessionID, r.Method, body)
+		if err != nil {
 			http.Error(w, "chimera: "+err.Error(), http.StatusBadGateway)
 			return
 		}
-		w.WriteHeader(http.StatusNoContent)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write(payload)
 	}
 }
 

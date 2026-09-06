@@ -4,6 +4,8 @@ A keyboard-driven kanban board TUI for tracking tasks, built for developers who 
 
 ## Features
 
+See [native model settings](docs/model-settings.md) for thinking, reasoning effort, and generation controls in the agent panel.
+
 - **Local-first**: create and manage tasks locally, optionally sync with Jira
 - **Vim-style navigation** (h/j/k/l) across columns and cards
 - **Full-screen detail view** with Glamour-rendered markdown

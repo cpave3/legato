@@ -1292,7 +1292,7 @@ describe("NativeAgentPanel", () => {
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("/chimera/model"), expect.objectContaining({ method: "POST" }))
     })
-    expect(screen.getByTitle("Change model").textContent).toContain("manticore/gpt")
+    await waitFor(() => expect(screen.getByTitle("Change model").textContent).toContain("manticore/gpt"))
   })
 
   it("does not POST when clicking the already-active model", async () => {

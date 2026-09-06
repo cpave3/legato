@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest"
 import { createNativeSyncState, reconcileNativeSnapshot, reduceNativeEvent, stateFromNativeSnapshot } from "../nativeAgentSync"
+import fixture from "../../../../contracts/model-settings-v1.json"
+import type { ModelSettingsState } from "../modelSettings"
 
 describe("native agent synchronization", () => {
+  it("preserves shared settings on reconnect and rejects stale model settings events", () => {
+    const settings = fixture.state as ModelSettingsState
+    let state = stateFromNativeSnapshot({ model: { providerId: "manticore", modelId: "sol", settings: settings.effective, settingsDefaults: settings.defaults, capabilities: settings.capabilities }, modelSettingsOverrides: { "manticore/sol": settings.overrides }, status: "waiting_for_permission" })
+    expect(state.busy).toBe(true)
+    expect(state.settingsState).toEqual(settings)
+    state = reduceNativeEvent(state, { eventId: "model", type: "model_changed", to: "manticore/kimi" })
+    state = reduceNativeEvent(state, { eventId: "stale", type: "model_settings_changed", settingsState: settings })
+    expect(state.model).toBe("manticore/kimi")
+    expect(state.settingsState).toBeUndefined()
+    state = reduceNativeEvent(state, { eventId: "mode", type: "mode_changed", effectiveModel: "manticore/sol" })
+    expect(state.model).toBe("manticore/sol")
+  })
   it("keeps interleaved assistant streams and tools in first-seen order", () => {
     let state = createNativeSyncState()
     state = reduceNativeEvent(state, { eventId: "1", type: "assistant_text_delta", id: "a", delta: "Alpha" })

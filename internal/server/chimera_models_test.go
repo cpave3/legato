@@ -5,11 +5,45 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
+
+func TestChimeraModelSettingsPreservesExplicitValuesAndErrors(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusBadRequest, http.StatusConflict} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			mockChimera := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]json.RawMessage
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				if _, exists := body["model"]; exists {
+					t.Error("settings-only update must not reset model")
+				}
+				var settings map[string]any
+				if err := json.Unmarshal(body["settings"], &settings); err != nil {
+					t.Error(err)
+				}
+				if settings["parallelToolCalls"] != false || settings["reasoningEffort"] != "max" {
+					t.Errorf("settings lost: %v", settings)
+				}
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"error":"model setting rejected"}`))
+			}))
+			defer mockChimera.Close()
+			server := New(nil, &chimeraModelsAgentFake{endpoint: true, session: &store.AgentSession{ChimeraEndpoint: strPtr(mockChimera.URL), ChimeraSessionID: strPtr("s1")}}, nil, ":0")
+			request := httptest.NewRequest(http.MethodPost, "/api/agents/TASK-1/chimera/model", strings.NewReader(`{"settings":{"parallelToolCalls":false,"reasoningEffort":"max"}}`))
+			response := httptest.NewRecorder()
+			server.Handler().ServeHTTP(response, request)
+			if response.Code != status || !strings.Contains(response.Body.String(), "model setting rejected") {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
 
 type chimeraModelsAgentFake struct {
 	service.AgentService

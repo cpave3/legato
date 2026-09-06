@@ -7,11 +7,42 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestModelSettingsContractRoundTrip(t *testing.T) {
+	data, err := os.ReadFile("../../../contracts/model-settings-v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		State struct {
+			Capabilities json.RawMessage `json:"capabilities"`
+			Defaults     json.RawMessage `json:"defaults"`
+		} `json:"state"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(ModelEntry{Ref: "manticore/sol", Capabilities: fixture.State.Capabilities, Defaults: fixture.State.Defaults})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded ModelEntry
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(decoded.Capabilities), `"ultra"`) || !strings.Contains(string(decoded.Capabilities), `"max"`) {
+		t.Fatalf("lost model effort values: %s", decoded.Capabilities)
+	}
+	if !strings.Contains(string(decoded.Defaults), `"medium"`) {
+		t.Fatalf("lost model defaults: %s", decoded.Defaults)
+	}
+}
 
 func TestGetInstance(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -57,21 +57,22 @@ type InstanceInfo struct {
 // Fields are kept as json.RawMessage for the parts Legato doesn't need to
 // decode, so the client tolerates protocol additions without breaking.
 type SessionSnapshot struct {
-	ID                 string               `json:"id"`
-	PendingPermissions *[]PendingPermission `json:"pendingPermissions,omitempty"`
-	Name               string               `json:"name"`
-	CWD                string               `json:"cwd"`
-	Model              json.RawMessage      `json:"model"`
-	SandboxMode        string               `json:"sandboxMode"`
-	Mode               string               `json:"mode"`
-	Status             string               `json:"status"`
-	Messages           json.RawMessage      `json:"messages"`
-	ToolCalls          json.RawMessage      `json:"toolCalls"`
-	Usage              json.RawMessage      `json:"usage"`
-	Tasks              json.RawMessage      `json:"tasks"`
-	ContextWindow      int                  `json:"contextWindow,omitempty"`
-	UsedContextTokens  int                  `json:"usedContextTokens,omitempty"`
-	UserModelOverride  *string              `json:"userModelOverride"`
+	ID                     string               `json:"id"`
+	PendingPermissions     *[]PendingPermission `json:"pendingPermissions,omitempty"`
+	Name                   string               `json:"name"`
+	CWD                    string               `json:"cwd"`
+	Model                  json.RawMessage      `json:"model"`
+	SandboxMode            string               `json:"sandboxMode"`
+	Mode                   string               `json:"mode"`
+	Status                 string               `json:"status"`
+	Messages               json.RawMessage      `json:"messages"`
+	ToolCalls              json.RawMessage      `json:"toolCalls"`
+	Usage                  json.RawMessage      `json:"usage"`
+	Tasks                  json.RawMessage      `json:"tasks"`
+	ContextWindow          int                  `json:"contextWindow,omitempty"`
+	UsedContextTokens      int                  `json:"usedContextTokens,omitempty"`
+	UserModelOverride      *string              `json:"userModelOverride"`
+	ModelSettingsOverrides json.RawMessage      `json:"modelSettingsOverrides,omitempty"`
 }
 
 // PendingPermission is an unresolved permission request in a live Chimera session.
@@ -151,11 +152,13 @@ type SkillInfo struct {
 
 // ModelEntry describes a model available in a Chimera session.
 type ModelEntry struct {
-	Ref             string `json:"ref"`
-	ContextWindow   int    `json:"contextWindow,omitempty"`
-	MaxOutputTokens int    `json:"maxOutputTokens,omitempty"`
-	Vision          bool   `json:"vision,omitempty"`
-	IsDefault       bool   `json:"isDefault"`
+	Capabilities    json.RawMessage `json:"capabilities,omitempty"`
+	Defaults        json.RawMessage `json:"defaults,omitempty"`
+	Ref             string          `json:"ref"`
+	ContextWindow   int             `json:"contextWindow,omitempty"`
+	MaxOutputTokens int             `json:"maxOutputTokens,omitempty"`
+	Vision          bool            `json:"vision,omitempty"`
+	IsDefault       bool            `json:"isDefault"`
 }
 
 // PermissionRequest is the pending permission request state.
@@ -263,7 +266,7 @@ func (c *Client) SetModel(ctx context.Context, sessionID string, modelRef *strin
 	if modelRef != nil {
 		bodyBytes, _ = json.Marshal(map[string]string{"model": *modelRef})
 	} else {
-		bodyBytes, _ = json.Marshal(map[string]string{})
+		bodyBytes = []byte(`{"model":null}`)
 	}
 	resp, err := c.do(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/model", bodyBytes)
 	if err != nil {
@@ -274,6 +277,17 @@ func (c *Client) SetModel(ctx context.Context, sessionID string, modelRef *strin
 		return fmt.Errorf("POST model: %s", resp.Status)
 	}
 	return nil
+}
+
+// ModelSettings forwards the versioned settings contract without narrowing model-specific values.
+func (c *Client) ModelSettings(ctx context.Context, sessionID, method string, body json.RawMessage) (json.RawMessage, int, error) {
+	resp, err := c.do(ctx, method, "/v1/sessions/"+url.PathEscape(sessionID)+"/model", body)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	return payload, resp.StatusCode, err
 }
 
 // Interrupt sends an interrupt to the session via POST /v1/sessions/:id/interrupt.

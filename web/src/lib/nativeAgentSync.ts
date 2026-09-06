@@ -1,3 +1,5 @@
+import type { ModelSettings, ModelCapabilities, ModelSettingsState } from "./modelSettings"
+
 export type NativeItemRole = "user" | "assistant" | "tool" | "system" | "bang"
 
 export interface NativeBangItem {
@@ -98,7 +100,8 @@ export interface NativeSnapshotPermission {
 
 export interface NativeSnapshot {
   mode?: string
-  model?: { providerId?: string; modelId?: string }
+  model?: { providerId?: string; modelId?: string; settings?: ModelSettings; settingsDefaults?: ModelSettings; capabilities?: ModelCapabilities }
+  modelSettingsOverrides?: Record<string, ModelSettings>
   status?: string
   messages?: NativeSnapshotMessage[]
   toolCalls?: NativeSnapshotToolCall[]
@@ -108,6 +111,7 @@ export interface NativeSnapshot {
 }
 
 export interface NativeEvent {
+  settingsState?: ModelSettingsState
   eventId: string
   type: string
   id?: string
@@ -138,12 +142,14 @@ export interface NativeEvent {
   reason?: string
   from?: string
   to?: string
+  effectiveModel?: string
   event?: Omit<NativeEvent, "eventId">
 }
 
 const nativeEventHistoryLimit = 1000
 
 export interface NativeSyncState {
+  settingsState?: ModelSettingsState
   items: NativeConversationItem[]
   cursor: string
   eventIds: Set<string>
@@ -256,12 +262,16 @@ export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncSta
     items.push(permissionConversationItem(permission))
   }
   const state = createNativeSyncState(items, calls.map((call) => call.callId).filter(Boolean))
-  state.busy = snapshot.status === "running"
+  state.busy = snapshot.status === "running" || snapshot.status === "waiting_for_permission"
   if (snapshot.contextWindow && snapshot.usedContextTokens != null) {
     state.contextUsage = { used: snapshot.usedContextTokens, window: snapshot.contextWindow }
   }
   if (snapshot.model) {
     state.model = `${snapshot.model.providerId ?? ""}/${snapshot.model.modelId ?? ""}`
+    if (snapshot.model.capabilities) state.settingsState = {
+      model: state.model, effective: snapshot.model.settings ?? {}, defaults: snapshot.model.settingsDefaults ?? {},
+      capabilities: snapshot.model.capabilities, overrides: snapshot.modelSettingsOverrides?.[state.model] ?? {},
+    }
   }
   return state
 }
@@ -472,8 +482,16 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
     case "run_finished":
       next.busy = false
       break
+    case "mode_changed":
+      next.model = event.effectiveModel || next.model
+      if (next.settingsState?.model !== next.model) next.settingsState = undefined
+      break
     case "model_changed":
       next.model = event.to || next.model
+      if (next.settingsState?.model !== next.model) next.settingsState = undefined
+      break
+    case "model_settings_changed":
+      if (event.settingsState?.model === next.model) next.settingsState = event.settingsState
       break
     case "usage_updated":
       if (event.contextWindow && event.usedContextTokens != null) {

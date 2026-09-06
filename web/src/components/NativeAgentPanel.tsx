@@ -9,6 +9,8 @@ import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
 import { ReviewMessageBody } from "./ReviewMessageBody"
 import { Button } from "./ui/Button"
 import { Dropdown, DropdownItem } from "./ui/Dropdown"
+import { NativeModelSettings } from "./NativeModelSettings"
+import { modelSettingsResponse, type ModelCapabilities, type ModelSettings, type ModelSettingsState } from "../lib/modelSettings"
 import {
   createNativeSyncState,
   reconcileNativeSnapshot,
@@ -49,6 +51,8 @@ interface SkillInfo {
 }
 
 interface ModelInfo {
+  capabilities?: ModelCapabilities
+  defaults?: ModelSettings
   ref: string
   contextWindow?: number
   maxOutputTokens?: number
@@ -154,6 +158,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
   const { baseUrl } = useServer()
   const [syncState, setSyncState] = useState<NativeSyncState>(() => createNativeSyncState())
   const syncStateRef = useRef(syncState)
+  const modelRequestRef = useRef(0)
+  const invalidateModelRequests = useCallback(() => { modelRequestRef.current++ }, [])
   const queuedEventsRef = useRef<ChimeraEvent[] | null>(null)
   const syncGenerationRef = useRef(0)
   const runFinishTimerRef = useRef<number | null>(null)
@@ -191,6 +197,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
   }, [])
 
   const applyEvent = useCallback((event: ChimeraEvent) => {
+    if (event.type === "model_changed" || event.type === "mode_changed") modelRequestRef.current++
     if (queuedEventsRef.current) {
       queuedEventsRef.current.push(event)
       return
@@ -365,15 +372,17 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
 
   useEffect(() => {
     replaceSyncState(createNativeSyncState())
+    invalidateModelRequests()
     initialScrollDone.current = false
     hydratedAgentRef.current = null
     queuedEventsRef.current = []
     return () => {
+      invalidateModelRequests()
       queuedEventsRef.current = null
       hydratedAgentRef.current = null
       if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
     }
-  }, [agentId, replaceSyncState])
+  }, [agentId, replaceSyncState, invalidateModelRequests])
 
   const [bangQueue, setBangQueue] = useState<string[]>([])
   const [bangRunning, setBangRunning] = useState(false)
@@ -586,13 +595,18 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
   const handleModelChange = useCallback((ref: string) => {
     setModelsOpen(false)
     if (ref === model) return
+    const request = ++modelRequestRef.current
     apiFetch(baseUrl, `/api/agents/${agentId}/chimera/model`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: ref }),
-    }).then(() => {
-      replaceSyncState({ ...syncStateRef.current, model: ref })
+      body: JSON.stringify({ model: ref, expectedModel: model }),
+    }).then(modelSettingsResponse).then((body) => {
+      if (request !== modelRequestRef.current) return
+      if (syncStateRef.current.model !== model && syncStateRef.current.model !== ref) return
+      const result = (body ?? {}) as { to?: string; settingsState?: ModelSettingsState }
+      replaceSyncState({ ...syncStateRef.current, model: result.settingsState?.model ?? result.to ?? ref, settingsState: result.settingsState })
     }).catch((reason) => {
+      if (request !== modelRequestRef.current) return
       replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
     })
   }, [agentId, baseUrl, model, replaceSyncState])
@@ -775,6 +789,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
             </Dropdown>
           )}
           {/* Mode selector */}
+          {model && <NativeModelSettings key={`${agentId}:${model}`} agentId={agentId} baseUrl={baseUrl} model={model} busy={busy}
+            onSaved={(settingsState) => replaceSyncState({ ...syncStateRef.current, model: settingsState.model, settingsState })} />}
           {modes.length > 0 && (
             <div className="relative hidden sm:block" ref={modesRef}>
               <button
