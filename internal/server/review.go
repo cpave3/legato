@@ -34,6 +34,7 @@ type ReviewService interface {
 // SetReviewService sets the optional service used by review endpoints.
 func (s *Server) SetReviewService(svc ReviewService) {
 	s.reviews = svc
+	s.handoffs, _ = svc.(HandoffService)
 }
 
 func (s *Server) reviewHandler() http.HandlerFunc {

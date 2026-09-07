@@ -176,6 +176,13 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"metadata. Prefer `restart` when the whole reading order is stale.\n" +
 	"- **Signal when you're done.** Run `legato review ready \"<one-line summary>\"` " +
 	"when your work is ready for human review.\n" +
+	"- **Offer optional handoff context.** After clean commits and `review ready`, use " +
+	"`legato review handoff template` for an editable JSON schema. Replace instructional text and source paths. Inspect `legato review show --json` " +
+	"and `legato review handoff show --json`; bind the exact pass/base/head and latest " +
+	"`expected_revision`, then run `legato review handoff submit --file <packet.json>`. " +
+	"Explain behavior, decisions, risks, source links, and evidence limitations. Imported " +
+	"results remain agent-reported, not proof. Never include secrets or human notes. " +
+	"Handoff is optional and does not change ready or approval semantics.\n" +
 	"- **Answer review questions.** Messages prefixed `[legato review]` are " +
 	"reviewer questions about a specific step; each includes the exact safe stdin command " +
 	"`legato review answer <step-id> --file - <<'LEGATO_ANSWER'` to reply with. Put the " +

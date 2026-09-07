@@ -36,6 +36,10 @@ See `docs/workflows.md` for the schema and lifecycle. Workflow commands currentl
 
 `legato learn` records, retrieves, curates, decides, incorporates, verifies, and checks drift for evidence-backed durable learnings. Commands include `record`, `show`, `list`, `search`, `context`, `curate`, `consolidate`, `accept`, `edit`, `reject`, `incorporate`, `incorporation submit`, `verify`, `drift`, and the workflow callback `reflection submit`. Mutation commands use optimistic `--revision`; reflection and incorporation documents can be read from `--file` or stdin. Successful Learn commands emit raw JSON. See [Legato Learn](learning.md) for exact flags, schemas, privacy boundaries, and lifecycle semantics.
 
+## Review handoff
+
+`legato review handoff template` prints the editable nested contract bound to the current ready review. `legato review handoff submit --file path|-` authors a bounded, strict JSON packet for an existing clean ready review. `show [--json]` reads persisted history; `export --packet ID --format github|maintenance` previews selected Markdown without publishing. Selectors use `--task`/`--name` or the corresponding review environment variables. Human notes are not writable through this authoring CLI. See [Review handoff](../handoff.md) for the full runnable schema example, evidence limits, revision conflicts, API, and privacy rules. Handoff is optional and does not change review readiness or approval.
+
 ## Subcommands
 
 `legato` binary supports subcommand dispatch alongside the default TUI mode:

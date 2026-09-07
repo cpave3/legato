@@ -141,6 +141,7 @@ Other Legato agents may be active in the same Git worktree without belonging to 
 - `legato review chapter "<title>" ["<narration>"] --include <path>:<1-based-hunk> [--include ...] [--risk <level>] [--order N] [--name <name>]` — create a granular review chapter.
 - `legato review annotate [<sha>] "<text>" [--risk <level>] [--order N] [--file <path>] [--name <name>]` — enrich a review step.
 - `legato review ready "<summary>" [--name <name>]` — mark the review tour ready for the user.
+- **Offer optional handoff context.** The conductor, not workers, authors the packet after clean commits and `review ready`. Use `legato review handoff template` for an editable JSON schema. Replace instructional text and source paths. Inspect `legato review show --json` and `legato review handoff show --json`; select the exact pass/base/head and latest `expected_revision`. Run `legato review handoff submit --file <packet.json>`. Explain behavior, decisions, risks, pinned sources, and evidence limitations. Imported results remain agent-reported, not proof. Never include secrets or human notes. Handoff is optional and does not change ready or approval semantics.
 - `legato review answer <step-id> --file - <<'LEGATO_ANSWER'` — reply safely to a `[legato review]` question with Markdown on following lines.
 - `legato review show [--name <name>]` — print the current review tour.
 - `legato review sync [--name <name>]` — push local review state to the server.

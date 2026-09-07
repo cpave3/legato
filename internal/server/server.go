@@ -50,6 +50,7 @@ type Server struct {
 	voiceSvc                 VoiceService
 	voiceAutoSend            bool
 	reviews                  ReviewService
+	handoffs                 HandoffService
 	plans                    PlanService
 	artifacts                ArtifactService
 	workflows                WorkflowService
@@ -145,6 +146,9 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/review/tours/bulk-delete", s.reviewBulkDeleteHandler())
 	mux.HandleFunc("/api/review/tours/{tour_id}", s.reviewHandler())
 	mux.HandleFunc("/api/review/tours/{tour_id}/sync", s.reviewSyncHandler())
+	mux.HandleFunc("/api/review/tours/{tour_id}/handoff", s.handoffHandler())
+	mux.HandleFunc("/api/review/tours/{tour_id}/handoff/export", s.handoffExportHandler())
+	mux.HandleFunc("/api/review/tours/{tour_id}/handoff/{packet_id}/note", s.handoffNoteHandler())
 	mux.HandleFunc("/api/review/tours/{tour_id}/steps/{step_id}/diff", s.reviewStepDiffHandler())
 	mux.HandleFunc("/api/review/tours/{tour_id}/steps/{step_id}/reviewed", s.reviewStepReviewedHandler())
 	mux.HandleFunc("/api/review/tours/{tour_id}/steps/{step_id}/question", s.reviewQuestionHandler())

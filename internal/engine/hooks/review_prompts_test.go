@@ -123,3 +123,13 @@ func TestWorkerPromptUnchangedByReviewFeature(t *testing.T) {
 		t.Error("worker do-not-commit contract must remain")
 	}
 }
+
+func TestAuthorPromptsDiscoverOptionalHandoff(t *testing.T) {
+	for name, prompt := range map[string]string{"solo": NewChimeraAdapter("legato").GeneralPrompt(), "conductor": builtinRolePrompt("conductor")} {
+		for _, want := range []string{"legato review handoff submit --file", "legato review handoff show --json", "expected_revision", "legato review handoff template", "optional"} {
+			if !strings.Contains(prompt, want) {
+				t.Errorf("%s missing %q", name, want)
+			}
+		}
+	}
+}

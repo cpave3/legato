@@ -385,6 +385,7 @@ LEGATO_ANSWER`},
 		"claim": {flags: selectors, examples: []string{"legato review claim --task <review-task-id>"}},
 		"inbox": {flags: []commandFlag{jsonFlag}, examples: []string{"legato review inbox --json"}},
 	})
+	review.Children = append(review.Children, handoffCommands(selectors))
 	review.Examples = []string{"legato review show --json", `legato review ready "Ready for review"`}
 	for i, child := range review.Children {
 		switch child.Name {
