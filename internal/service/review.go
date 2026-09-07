@@ -151,7 +151,11 @@ func (r *ReviewService) Sync(ctx context.Context, tourID string) error {
 	if err != nil {
 		return err
 	}
-	if tour.Status == "reviewed" {
+	hasHandoff, err := r.store.HasHandoffPackets(ctx, tourID)
+	if err != nil {
+		return err
+	}
+	if tour.Status == "reviewed" && !hasHandoff {
 		return nil
 	}
 	taskID := tour.TaskID
@@ -177,6 +181,9 @@ func (r *ReviewService) Sync(ctx context.Context, tourID string) error {
 		if err != nil {
 			return err
 		}
+	}
+	if tour.Status == "reviewed" {
+		return r.observeHandoff(ctx, tourID, base, repo)
 	}
 	commits, err := gitpkg.CommitsAhead(ctx, repo, base)
 	if err != nil {
@@ -240,6 +247,9 @@ func (r *ReviewService) Sync(ctx context.Context, tourID string) error {
 			}
 		}
 		r.publish(tourID, "", "synced")
+	}
+	if hasHandoff {
+		return r.observeHandoff(ctx, tourID, base, repo)
 	}
 	return nil
 }

@@ -243,6 +243,9 @@ func (s *Store) AdvanceReviewPass(ctx context.Context, tourID, guidance string) 
 		last_reviewed_sha = '', ready_at = NULL, updated_at = datetime('now') WHERE id = ?`, tourID); err != nil {
 		return nil, err
 	}
+	if err := markHandoffsOutdated(ctx, tx, tourID, "review pass was replaced"); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -403,6 +406,9 @@ func (s *Store) InsertReviewChapter(ctx context.Context, step ReviewStep, hunks 
 			return err
 		}
 	}
+	if err := markHandoffsOutdated(ctx, tx, step.TourID, "review chapter metadata changed"); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -437,6 +443,9 @@ func (s *Store) UpdateReviewChapter(ctx context.Context, step ReviewStep, hunks 
 			}
 		}
 	}
+	if err := markHandoffsOutdated(ctx, tx, step.TourID, "review chapter metadata changed"); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -455,6 +464,12 @@ func (s *Store) DeleteReviewChapter(ctx context.Context, stepID string) error {
 		return err
 	}
 	defer tx.Rollback()
+	var tourID string
+	if err := tx.GetContext(ctx, &tourID, "SELECT tour_id FROM review_steps WHERE id = ? AND kind = 'chapter'", stepID); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
 	for _, query := range []string{
 		"DELETE FROM review_chapter_hunks WHERE step_id = ?",
 		"DELETE FROM review_hunk_notes WHERE step_id = ?",
@@ -465,6 +480,9 @@ func (s *Store) DeleteReviewChapter(ctx context.Context, stepID string) error {
 		}
 	}
 	if _, err = tx.ExecContext(ctx, "DELETE FROM review_steps WHERE id = ? AND kind = 'chapter'", stepID); err != nil {
+		return err
+	}
+	if err := markHandoffsOutdated(ctx, tx, tourID, "review chapter metadata changed"); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -831,6 +849,9 @@ func (s *Store) RestartReviewTourWithGuidance(ctx context.Context, id, guidance 
 	}
 	if rows == 0 {
 		return ErrNotFound
+	}
+	if err := markHandoffsOutdated(ctx, tx, id, "review was restarted"); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
