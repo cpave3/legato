@@ -7,18 +7,22 @@ import { VisualMarkdownPre } from "./VisualMarkdownPre"
 
 interface MarkdownBodyProps {
   body: string
+  disableImages?: boolean
+  skipHtml?: boolean
   renderMermaid?: boolean
   renderPlanVisuals?: boolean
 }
 
 const compactPreClassName = "my-2 max-w-full overflow-x-auto rounded border border-zinc-700 bg-black/40 p-2 font-mono text-xs leading-5 text-zinc-200"
 
-export const MarkdownBody = memo(function MarkdownBody({ body, renderMermaid = false, renderPlanVisuals = false }: MarkdownBodyProps) {
+export const MarkdownBody = memo(function MarkdownBody({ body, disableImages = false, skipHtml = false, renderMermaid = false, renderPlanVisuals = false }: MarkdownBodyProps) {
   return (
     <div className="min-w-0 break-words text-sm leading-5">
       <ReactMarkdown
+        skipHtml={skipHtml}
         remarkPlugins={[remarkGfm]}
         components={{
+          ...(disableImages ? { img: ({ alt }: { alt?: string }) => <>{alt}</> } : {}),
           p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
           h1: ({ children }) => <h1 className="mb-1 mt-3 text-base font-semibold text-zinc-100 first:mt-0">{children}</h1>,
           h2: ({ children }) => <h2 className="mb-1 mt-3 text-sm font-semibold text-zinc-100 first:mt-0">{children}</h2>,

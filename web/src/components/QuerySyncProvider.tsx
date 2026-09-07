@@ -35,7 +35,10 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
         case "review_changed":
           invalidate(queryKeys.reviewQueue(baseUrl, false))
           invalidate(queryKeys.reviewQueue(baseUrl, true))
-          if (message.tour_id) invalidate(queryKeys.reviewTour(baseUrl, message.tour_id))
+          if (message.tour_id) {
+            invalidate(queryKeys.reviewTour(baseUrl, message.tour_id))
+            invalidate(queryKeys.handoff(baseUrl, message.tour_id))
+          }
           invalidate(queryKeys.navigationSummary(baseUrl))
           break
         case "plan_changed":

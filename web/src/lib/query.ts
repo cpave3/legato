@@ -5,6 +5,7 @@ export const queryKeys = {
   navigationSummary: (baseUrl: string) => [baseUrl, "navigation-summary"] as const,
   board: (baseUrl: string, workspace?: string) => [baseUrl, "board", workspace ?? ""] as const,
   reviewQueue: (baseUrl: string, includeCapturing: boolean) => [baseUrl, "review-queue", includeCapturing] as const,
+  handoff: (baseUrl: string, tourId: string) => [baseUrl, "handoff", tourId] as const,
   reviewTour: (baseUrl: string, tourId: string) => [baseUrl, "review-tour", tourId] as const,
   planQueue: (baseUrl: string) => [baseUrl, "plan-queue"] as const,
   plan: (baseUrl: string, planId: string) => [baseUrl, "plan", planId] as const,

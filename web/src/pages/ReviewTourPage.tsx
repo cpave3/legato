@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
 import { ArrowLeft, Check, Circle, Flag, List, Loader2, MessageSquare, RefreshCw, Send, X } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router-dom"
+import { HandoffView } from "../components/handoff/HandoffView"
 import { DiffView } from "../components/DiffView"
 import { MarkdownBody } from "../components/MarkdownBody"
 import { ReviewMessageBody } from "../components/ReviewMessageBody"
@@ -41,6 +42,8 @@ export function ReviewTourPage() {
   const { baseUrl } = useServer()
   const { data, loading, error, refresh } = useReviewTour(decodedTourId)
   const navigate = useNavigate()
+  const [view, setView] = useState("diff")
+  const [handoffVisited, setHandoffVisited] = useState(false)
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
   const [diff, setDiff] = useState<FileDiff[]>([])
   const [diffLoading, setDiffLoading] = useState(false)
@@ -249,6 +252,10 @@ export function ReviewTourPage() {
         </div>
       </header>
 
+      <nav aria-label="Review view" className="flex gap-2 border-b border-zinc-800 p-2">
+        <Button size="sm" variant="outline" aria-pressed={view === "diff"} onClick={() => setView("diff")}>Diff review</Button>
+        <Button size="sm" variant="outline" aria-pressed={view === "handoff"} onClick={() => { setHandoffVisited(true); setView("handoff") }}>Handoff</Button>
+      </nav>
       <Dialog open={regenerating} onClose={() => setRegenerating(false)} dismissible={!busy}>
         <DialogPanel className="max-w-lg">
           <DialogHeader><DialogTitle>Regenerate review</DialogTitle><DialogClose disabled={busy} /></DialogHeader>
@@ -277,7 +284,8 @@ export function ReviewTourPage() {
       {actionError && <InlineNotice variant="error" className="rounded-none border-x-0 border-t-0 px-5 py-2 text-xs">{actionError}</InlineNotice>}
       {actionNotice && <InlineNotice variant={actionNotice.variant} className="rounded-none border-x-0 border-t-0 px-5 py-2 text-xs">{actionNotice.message}</InlineNotice>}
 
-      <div
+      {handoffVisited && <div hidden={view !== "handoff"} className={view === "handoff" ? "flex min-h-0 flex-1 flex-col" : "hidden"}><HandoffView active={view === "handoff"} key={`${baseUrl}:${decodedTourId}`} tourId={decodedTourId} review={data} onChapter={(id) => { setSelectedStepId(id); setView("diff") }} /></div>}
+      {view === "diff" && <div
         data-review-layout
         style={{ "--qa-width": `${qaWidthRem}rem` } as CSSProperties}
         className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[18rem_minmax(0,1fr)_var(--qa-width)]"
@@ -442,7 +450,7 @@ export function ReviewTourPage() {
             </div>
           </div>
         </aside>
-      </div>
+      </div>}
     </div>
   )
 }

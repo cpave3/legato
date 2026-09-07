@@ -1,5 +1,5 @@
 import { act, render, screen, waitFor } from "@testing-library/react"
-import { QueryClientProvider } from "@tanstack/react-query"
+import { useQuery, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Layout } from "../components/Layout"
@@ -8,7 +8,8 @@ import { PlanQueuePage } from "../pages/PlanQueuePage"
 import App from "../App"
 import { useWorkflowRun, useWorkflowRuns, useWorkflows } from "../hooks/useWorkflow"
 import { useNavigationSummary } from "../hooks/useNavigationSummary"
-import { createQueryClient } from "../lib/query"
+import { fetchHandoff } from "../lib/handoff"
+import { createQueryClient, queryKeys } from "../lib/query"
 import type { WSMessage } from "../hooks/useWebSocket"
 
 const { websocket } = vi.hoisted(() => ({
@@ -223,4 +224,20 @@ describe("web request traffic", () => {
       vi.useRealTimers()
     }
   })
+})
+
+it("refreshes only the server-scoped handoff named by review_changed", async () => {
+  const fetchMock = vi.fn<typeof fetch>(() => response({ tour_id: "a", checked_at: "", packets: [] }))
+  vi.stubGlobal("fetch", fetchMock)
+  function HandoffObservers() {
+    useQuery({ queryKey: queryKeys.handoff("", "a"), queryFn: () => fetchHandoff("", "a") })
+    useQuery({ queryKey: queryKeys.handoff("", "b"), queryFn: () => fetchHandoff("", "b") })
+    useQuery({ queryKey: queryKeys.handoff("https://remote.example", "a"), queryFn: () => fetchHandoff("https://remote.example", "a") })
+    return null
+  }
+  render(<QueryClientProvider client={createQueryClient()}><QuerySyncProvider><HandoffObservers /></QuerySyncProvider></QueryClientProvider>)
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+  act(() => { websocket.handler?.({ type: "review_changed", tour_id: "a" }) })
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+  expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/review/tours/a/handoff")
 })
