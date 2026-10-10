@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react"
 import { ArrowDown, ArrowLeftRight, Check, Cpu, Zap, MoreHorizontal, RefreshCw, Unplug, Skull, Bell, BellOff, Terminal } from "lucide-react"
-import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
+import { useWebSocket, type PromptState, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
 import { apiFetch } from "../lib/api"
@@ -10,12 +10,19 @@ import { ReviewMessageBody } from "./ReviewMessageBody"
 import { Button } from "./ui/Button"
 import { Dropdown, DropdownItem } from "./ui/Dropdown"
 import { NativeModelSettings } from "./NativeModelSettings"
+import { AgentKindBadge } from "./AgentKindBadge"
+import { NativeQuestionCard } from "./NativeQuestionCard"
+import { NativeTerminalPrompt } from "./NativeTerminalPrompt"
+import { nativeToolName } from "../lib/agentKind"
+import { parseLegatoMessage } from "../lib/legatoMessage"
 import { modelSettingsResponse, type ModelCapabilities, type ModelSettings, type ModelSettingsState } from "../lib/modelSettings"
 import {
   createNativeSyncState,
   reconcileNativeSnapshot,
   reduceNativeEvent,
   updatePermissionState,
+  updateQuestionState,
+  type NativeConversationItem,
   type NativeEvent as ChimeraEvent,
   type NativePermissionItem,
   type NativeSnapshot as SessionSnapshot,
@@ -75,19 +82,34 @@ function permissionFindingLabel(finding: NonNullable<NativePermissionItem["polic
   return "unresolved"
 }
 
+// The native panel serves Chimera sessions and, through Legato's bridges,
+// Claude Code and Codex sessions. This is the name its wording uses for each.
+const agentToolName = nativeToolName
+
+// How often the panel asks what the agent's terminal is showing, for prompts
+// that never reach Legato as requests of their own.
+const TERMINAL_PROMPT_POLL_MS = 2000
+
+// The prompt types that ask the person to pick something.
+const terminalPromptTypes = new Set<PromptState["type"]>(["menu", "tool_approval", "plan_approval", "question"])
+
 function PermissionCard({
   permission,
+  agentKind,
   onResolve,
 }: {
   permission: NativePermissionItem
-  onResolve: (requestId: string, decision: "allow" | "deny", feedback?: string) => void
+  agentKind?: string
+  onResolve: (requestId: string, decision: "allow" | "deny", feedback?: string, option?: string) => void
 }) {
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedback, setFeedback] = useState("")
   const pending = permission.status === "pending"
   const submitting = permission.status === "submitting"
+  const isPlan = Boolean(permission.plan)
+  const takenOption = permission.options?.find((option) => option.id === permission.option)?.label
   const resolvedLabel = permission.status === "allowed"
-    ? "Allowed"
+    ? (takenOption ? `Allowed · ${takenOption}` : "Allowed")
     : permission.status === "denied"
       ? "Denied"
       : permission.status === "expired"
@@ -97,12 +119,18 @@ function PermissionCard({
   return (
     <section aria-label={`Permission request for ${permission.tool}`} className="mx-4 my-2 min-w-0 rounded-lg border border-yellow-600/40 bg-yellow-900/10 p-3">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <div className="text-sm font-semibold text-yellow-200">Host command approval</div>
+        <div className="text-sm font-semibold text-yellow-200">{isPlan ? "Plan approval" : !agentKind || agentKind === "chimera" ? "Host command approval" : "Tool approval"}</div>
         <span className="rounded bg-yellow-950/70 px-1.5 py-0.5 font-mono text-[11px] text-yellow-300">{permission.tool} · {permission.target}</span>
         {resolvedLabel && <span className="ml-auto text-xs font-medium text-zinc-300">{resolvedLabel}</span>}
       </div>
       {permission.reason && <p className="mt-2 text-xs text-zinc-300">{permission.reason}</p>}
-      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/30 p-2 font-mono text-xs text-zinc-100">{permission.command}</pre>
+      {permission.plan ? (
+        <div className="mt-2 max-h-96 overflow-auto rounded bg-black/30 p-2 text-sm text-zinc-100">
+          <ReviewMessageBody body={permission.plan} />
+        </div>
+      ) : (
+        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/30 p-2 font-mono text-xs text-zinc-100">{permission.command}</pre>
+      )}
       {permission.policyAnalysis?.findings.length ? (
         <div className="mt-2 space-y-1" aria-label="Policy findings">
           {permission.policyAnalysis.findings.map((finding, index) => (
@@ -118,14 +146,18 @@ function PermissionCard({
       {(pending || submitting) && (
         <div className="mt-3 space-y-2">
           <div className="flex flex-wrap gap-2">
-            <button disabled={submitting} className="rounded bg-green-700/60 px-2 py-1 text-xs text-white hover:bg-green-600/60 disabled:cursor-wait disabled:opacity-50" onClick={() => onResolve(permission.requestId, "allow")}>Allow</button>
-            <button disabled={submitting} className="rounded bg-red-700/60 px-2 py-1 text-xs text-white hover:bg-red-600/60 disabled:cursor-wait disabled:opacity-50" onClick={() => onResolve(permission.requestId, "deny")}>Deny</button>
-            <button disabled={submitting} className="rounded border border-red-700/70 px-2 py-1 text-xs text-red-200 hover:bg-red-950/50 disabled:cursor-wait disabled:opacity-50" onClick={() => setFeedbackOpen(true)}>Deny with feedback</button>
+            {permission.options?.length ? permission.options.map((option) => (
+              <button key={option.id} disabled={submitting} className="rounded bg-green-700/60 px-2 py-1 text-left text-xs text-white hover:bg-green-600/60 disabled:cursor-wait disabled:opacity-50" onClick={() => onResolve(permission.requestId, "allow", undefined, option.id)}>{option.label}</button>
+            )) : (
+              <button disabled={submitting} className="rounded bg-green-700/60 px-2 py-1 text-xs text-white hover:bg-green-600/60 disabled:cursor-wait disabled:opacity-50" onClick={() => onResolve(permission.requestId, "allow")}>Allow</button>
+            )}
+            <button disabled={submitting} className="rounded bg-red-700/60 px-2 py-1 text-xs text-white hover:bg-red-600/60 disabled:cursor-wait disabled:opacity-50" onClick={() => onResolve(permission.requestId, "deny")}>{isPlan ? "Reject" : "Deny"}</button>
+            <button disabled={submitting} className="rounded border border-red-700/70 px-2 py-1 text-xs text-red-200 hover:bg-red-950/50 disabled:cursor-wait disabled:opacity-50" onClick={() => setFeedbackOpen(true)}>{isPlan ? "Request changes" : "Deny with feedback"}</button>
             {submitting && <span role="status" className="self-center text-xs text-yellow-300">Submitting…</span>}
           </div>
           {feedbackOpen && (
             <div className="space-y-2">
-              <label className="block text-xs text-zinc-300" htmlFor={`permission-feedback-${permission.requestId}`}>Feedback for Chimera</label>
+              <label className="block text-xs text-zinc-300" htmlFor={`permission-feedback-${permission.requestId}`}>Feedback for {agentToolName(agentKind)}</label>
               <textarea id={`permission-feedback-${permission.requestId}`} value={feedback} disabled={submitting} onChange={(event) => setFeedback(event.target.value)} className="min-h-20 w-full resize-y rounded border border-zinc-700 bg-zinc-950 p-2 text-sm text-zinc-200 focus:border-red-500 focus:outline-none" />
               <div className="flex flex-wrap gap-2">
                 <button disabled={submitting || !feedback.trim()} className="rounded bg-red-700/60 px-2 py-1 text-xs text-white disabled:opacity-40" onClick={() => onResolve(permission.requestId, "deny", feedback.trim())}>Send denial</button>
@@ -171,6 +203,17 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
   const scrollRef = useRef<HTMLDivElement>(null)
   const draftKey = `legato:chimera-draft:${agentId}`
   const { items, busy, error, contextUsage, model } = syncState
+  const blocks = useMemo(() => conversationBlocks(items), [items])
+  // The agent has stopped on a permission prompt or a question of its own.
+  const awaitingRequest = items.some((item) => (item.permission ?? item.question)?.status === "pending")
+  // What the agent's terminal is asking, as read off its screen. A request
+  // the agent raised itself is drawn by its own card; the terminal shows the
+  // same request as a dialog, which is not shown twice.
+  const [terminalPrompt, setTerminalPrompt] = useState<PromptState | null>(null)
+  const terminalAsking = !awaitingRequest && terminalPrompt !== null && terminalPromptTypes.has(terminalPrompt.type) && (terminalPrompt.actions?.length ?? 0) > 0
+  const awaitingPerson = awaitingRequest || terminalAsking
+  // The effort the model runs at, when the session reports one.
+  const effort = syncState.settingsState?.effective.reasoningEffort
   const [isScrolledUp, setIsScrolledUp] = useState(false)
   const isScrolledUpRef = useRef(false)
   const [modes, setModes] = useState<ModeInfo[]>([])
@@ -409,11 +452,20 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
   useEffect(() => {
     const unsubscribe = subscribe((msg: WSMessage) => {
       if (msg.agent_id !== agentId) return
+      if (msg.type === "prompt_state") {
+        setTerminalPrompt(msg.prompt ?? null)
+        return
+      }
       if (msg.type === "error" && msg.request_id) {
-        replaceSyncState(updatePermissionState(syncStateRef.current, msg.request_id, (permission) => ({
+        const reopened = updatePermissionState(syncStateRef.current, msg.request_id, (permission) => ({
           ...permission,
           status: "pending",
           error: msg.error || "Permission request failed",
+        }))
+        replaceSyncState(updateQuestionState(reopened, msg.request_id, (question) => ({
+          ...question,
+          status: "pending",
+          error: msg.error || "The answer could not be delivered",
         })))
         return
       }
@@ -446,7 +498,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
           }
         })
       } catch {
-        replaceSyncState({ ...syncStateRef.current, error: "Invalid Chimera event; refresh from snapshot" })
+        replaceSyncState({ ...syncStateRef.current, error: "Invalid native event; refresh from snapshot" })
       }
     })
     if (connected) {
@@ -516,7 +568,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
   }, [agentId, send])
 
   const handlePermission = useCallback(
-    (requestId: string, decision: "allow" | "deny", feedback?: string) => {
+    (requestId: string, decision: "allow" | "deny", feedback?: string, option?: string) => {
       const current = syncStateRef.current.items.find((item) => item.permission?.requestId === requestId)?.permission
       if (!current || current.status !== "pending") return
       replaceSyncState(updatePermissionState(syncStateRef.current, requestId, (permission) => ({
@@ -530,6 +582,47 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
         request_id: requestId,
         decision,
         ...(feedback ? { feedback } : {}),
+        ...(option ? { option } : {}),
+      })
+    },
+    [agentId, replaceSyncState, send],
+  )
+
+  // A prompt can be up in the terminal without the agent having raised
+  // anything: an update notice, a trust question. The server reads the
+  // terminal's screen when asked.
+  useEffect(() => {
+    setTerminalPrompt(null)
+    if (!connected) return
+    const detect = () => send({ type: "detect_prompt", agent_id: agentId })
+    detect()
+    const timer = window.setInterval(detect, TERMINAL_PROMPT_POLL_MS)
+    return () => window.clearInterval(timer)
+  }, [agentId, connected, send])
+
+  const handleTerminalChoice = useCallback((keys: string) => {
+    send({ type: "send_keys", agent_id: agentId, keys })
+    // The prompt is answered; what the terminal shows next is read at once.
+    setTerminalPrompt(null)
+    window.setTimeout(() => send({ type: "detect_prompt", agent_id: agentId }), 400)
+  }, [agentId, send])
+
+  // Answers a question the agent asked, or closes it unanswered when
+  // `answers` is left out.
+  const handleQuestion = useCallback(
+    (requestId: string, answers?: Record<string, string[]>) => {
+      const current = syncStateRef.current.items.find((item) => item.question?.requestId === requestId)?.question
+      if (!current || current.status !== "pending") return
+      replaceSyncState(updateQuestionState(syncStateRef.current, requestId, (question) => ({
+        ...question,
+        status: "submitting",
+        error: undefined,
+      })))
+      send({
+        type: "agent_question",
+        agent_id: agentId,
+        request_id: requestId,
+        ...(answers ? { answers } : { dismissed: true }),
       })
     },
     [agentId, replaceSyncState, send],
@@ -632,7 +725,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-zinc-500">Loading Chimera session...</p>
+        <p className="text-zinc-500">Loading {agentToolName(agentKind)} session...</p>
       </div>
     )
   }
@@ -641,7 +734,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <p className="text-zinc-500 mb-2">No Chimera endpoint discovered</p>
+          <p className="text-zinc-500 mb-2">{!agentKind || agentKind === "chimera" ? "No Chimera endpoint discovered" : `No ${agentToolName(agentKind)} bridge connected`}</p>
           <p className="text-xs text-zinc-600">{error}</p>
         </div>
       </div>
@@ -660,8 +753,43 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
             </p>
           </div>
         )}
-        {items.map((item) => {
+        {blocks.map((block) => {
+          if (block.kind === "tools") return <ToolCallGroup key={block.key} tools={block.tools} />
+          const item = block.item
           if (item.role === "user") {
+            // Legato's own messages arrive as user turns; they are drawn
+            // apart from what the person typed.
+            const legato = parseLegatoMessage(item.text)
+            if (legato?.peer !== undefined) {
+              // Another agent wrote this and Legato only carried it, so it
+              // has a look of its own, labelled with who sent it.
+              return (
+                <div key={item.key} className="flex justify-end px-4 py-2">
+                  <div
+                    aria-label={legato.peer ? `Message from agent ${legato.peer}` : "Message from another agent"}
+                    className="max-w-[75%] rounded-lg border border-fuchsia-800/60 bg-fuchsia-950/30 px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words"
+                  >
+                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-fuchsia-400">
+                      Agent{legato.peer && <> · <span className="normal-case">{legato.peer}</span></>}
+                    </div>
+                    <div>{legato.body}</div>
+                  </div>
+                </div>
+              )
+            }
+            if (legato) {
+              return (
+                <div key={item.key} className="flex justify-end px-4 py-2">
+                  <div
+                    aria-label={`Message from Legato: ${legato.label}`}
+                    className="max-w-[75%] rounded-lg border border-teal-800/60 bg-teal-950/30 px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words"
+                  >
+                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-teal-400">Legato · {legato.label}</div>
+                    <div>{legato.body}</div>
+                  </div>
+                </div>
+              )
+            }
             return (
               <div key={item.key} className="flex justify-end px-4 py-2">
                 <div className="max-w-[75%] rounded-lg bg-blue-600/20 px-3 py-2 text-sm text-zinc-200 whitespace-pre-wrap break-words">
@@ -681,7 +809,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
             )
           }
           if (item.role === "tool" && item.tool) {
-            return <ToolCallCard key={item.key} tool={item.tool} />
+            // Every other tool call is in a "tools" block.
+            return <SubagentCard key={item.key} tool={item.tool} />
           }
           if (item.role === "bang" && item.bang) {
             const b = item.bang
@@ -712,10 +841,21 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
             )
           }
           if (item.permission) {
-            return <PermissionCard key={item.key} permission={item.permission} onResolve={handlePermission} />
+            return <PermissionCard key={item.key} permission={item.permission} agentKind={agentKind} onResolve={handlePermission} />
+          }
+          if (item.question) {
+            return <NativeQuestionCard key={item.key} question={item.question} askedBy={agentToolName(agentKind)} onAnswer={handleQuestion} onDismiss={handleQuestion} />
           }
           return null
           })}
+          {terminalAsking && terminalPrompt && (
+            <NativeTerminalPrompt
+              prompt={terminalPrompt}
+              askedBy={agentToolName(agentKind)}
+              onChoose={handleTerminalChoice}
+              onOpenTerminal={onDowngradeChimera ? () => { void onDowngradeChimera().catch(() => {}) } : undefined}
+            />
+          )}
         </div>
 
         {/* Scroll to bottom button */}
@@ -732,7 +872,16 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
 
       {/* Status bar */}
       <div className="flex items-center gap-3 border-t border-zinc-800 px-4 py-1.5 text-xs text-zinc-500">
-        {busy ? (
+        {/* Below md the agent picker above the panel already names the tool. */}
+        <AgentKindBadge kind={agentKind} isNative className="hidden md:inline-flex" />
+        {awaitingPerson ? (
+          // The request is the newest thing in the conversation, which may
+          // be scrolled well away from it.
+          <button onClick={scrollToBottom} className="flex items-center gap-1.5 text-amber-300 hover:text-amber-200">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-300" />
+            Waiting for you
+          </button>
+        ) : busy ? (
           <span className="flex items-center gap-1.5 text-green-400">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
             Working
@@ -775,6 +924,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
                 >
                   <Cpu size={12} />
                   <span className="font-mono hidden sm:inline">{model || "model"}</span>
+                  {effort !== undefined && <span className="hidden text-zinc-500 sm:inline">{String(effort)}</span>}
                 </button>
               }
             >
@@ -1104,11 +1254,101 @@ const SubagentCard = memo(function SubagentCard({ tool }: { tool: ToolCallItem }
   )
 })
 
-const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCallItem }) {
-  const [expanded, setExpanded] = useState(tool.toolName === "edit")
+// One file of a "patch" tool call: what changed in it, as a unified diff, or
+// its whole content when the file is new or gone.
+interface PatchChange {
+  path: string
+  kind: "add" | "delete" | "update" | string
+  diff: string
+  movePath?: string
+}
+
+// The lines of a change as a diff reads: a new file is all additions and a
+// deleted one all removals.
+function patchLines(change: PatchChange): string[] {
+  const lines = change.diff.replace(/\n$/, "").split("\n")
+  if (change.kind === "add") return lines.map((line) => `+${line}`)
+  if (change.kind === "delete") return lines.map((line) => `-${line}`)
+  return lines
+}
+
+function patchLineClass(line: string): string {
+  if (line.startsWith("@@")) return "text-sky-300"
+  if (line.startsWith("+")) return "bg-green-900/30 text-green-300"
+  if (line.startsWith("-")) return "bg-red-900/30 text-red-300"
+  return "text-zinc-400"
+}
+
+type ConversationBlock =
+  | { kind: "item"; item: NativeConversationItem }
+  | { kind: "tools"; key: string; tools: ToolCallItem[] }
+
+// Tool calls made back to back are drawn as one block. A subagent spawn keeps
+// its own card, so it also ends the run before it.
+function conversationBlocks(items: NativeConversationItem[]): ConversationBlock[] {
+  const blocks: ConversationBlock[] = []
+  for (const item of items) {
+    if (item.role === "tool" && item.tool && item.tool.toolName !== "spawn_agent") {
+      const last = blocks[blocks.length - 1]
+      if (last?.kind === "tools") last.tools.push(item.tool)
+      else blocks.push({ kind: "tools", key: item.key, tools: [item.tool] })
+      continue
+    }
+    blocks.push({ kind: "item", item })
+  }
+  return blocks
+}
+
+// How many calls of a long run stay in view; the ones before them fold behind a count.
+const VISIBLE_TOOL_CALLS = 5
+
+// "3 read · 2 bash": the tools some calls used, the most used first.
+function toolCounts(tools: ToolCallItem[]): string {
+  const counts = new Map<string, number>()
+  for (const tool of tools) counts.set(tool.toolName, (counts.get(tool.toolName) ?? 0) + 1)
+  return [...counts].sort((a, b) => b[1] - a[1]).map(([name, count]) => `${count} ${name}`).join(" · ")
+}
+
+const ToolCallGroup = memo(function ToolCallGroup({ tools }: { tools: ToolCallItem[] }) {
+  const [showEarlier, setShowEarlier] = useState(false)
+  const grouped = tools.length > 1
+  // A lone read stays a bare line, as light as it was before grouping.
+  const bare = !grouped && tools[0].toolName === "read"
+  // The count takes a line of its own, so it must stand for at least two calls.
+  const earlier = tools.length > VISIBLE_TOOL_CALLS + 1 ? tools.length - VISIBLE_TOOL_CALLS : 0
+  const visible = earlier > 0 && !showEarlier ? tools.slice(-VISIBLE_TOOL_CALLS) : tools
+
+  return (
+    <div
+      role={grouped ? "group" : undefined}
+      aria-label={grouped ? `${tools.length} tool calls` : undefined}
+      className={bare ? "mx-4 my-1" : "mx-4 my-1.5 divide-y divide-zinc-800 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/50"}
+    >
+      {earlier > 0 && (
+        <button
+          aria-expanded={showEarlier}
+          className="flex w-full items-center gap-2 px-3 py-1 text-left text-xs text-zinc-500 transition-colors hover:text-zinc-300"
+          onClick={() => setShowEarlier(!showEarlier)}
+        >
+          <span className="shrink-0">{earlier} earlier tool calls</span>
+          <span className="min-w-0 truncate text-zinc-600">{toolCounts(tools.slice(0, earlier))}</span>
+          <span className="ml-auto shrink-0">{showEarlier ? "▼" : "▶"}</span>
+        </button>
+      )}
+      {visible.map((tool) => <ToolCallCard key={tool.key} tool={tool} grouped={grouped} />)}
+    </div>
+  )
+}, (prev, next) => prev.tools.length === next.tools.length && prev.tools.every((tool, index) => tool === next.tools[index]))
+
+// One row of a ToolCallGroup, which draws the border around it.
+const ToolCallCard = memo(function ToolCallCard({ tool, grouped }: { tool: ToolCallItem; grouped: boolean }) {
+  // An edit opens its diff unasked only when it stands alone; in a group every
+  // call starts as one line. A click overrides either default.
+  const [override, setExpanded] = useState<boolean | null>(null)
+  const expanded = override ?? ((tool.toolName === "edit" || tool.toolName === "patch") && !grouped)
 
   const name = tool.toolName
-  if (name === "spawn_agent") return <SubagentCard tool={tool} />
+  const headerClass = `flex w-full items-center gap-2 px-3 text-left ${grouped ? "py-1" : "py-1.5"}`
   const args = tool.args || {}
   const summary = tool.summary || ""
   const result = tool.result || {}
@@ -1123,15 +1363,15 @@ const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCallItem }
     const filename = path.split("/").pop() || path
 
     return (
-      <div className="mx-4 my-1.5 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/50">
+      <div>
         <button
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
+          className={headerClass}
           onClick={() => setExpanded(!expanded)}
         >
           <span className="rounded bg-purple-700/60 px-1.5 py-0.5 font-mono text-xs text-white">edit</span>
           <span className="text-xs text-zinc-300 font-mono truncate">{filename}</span>
           {replacements !== undefined && (
-            <span className="text-xs text-zinc-500">({replacements} replacement{replacements !== 1 ? "s" : ""})</span>
+            <span className="shrink-0 text-xs text-zinc-500">({replacements} replacement{replacements !== 1 ? "s" : ""})</span>
           )}
           {durationMs !== undefined && <span className="text-xs text-zinc-600">{durationMs}ms</span>}
           <span className="ml-auto text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
@@ -1157,6 +1397,45 @@ const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCallItem }
     )
   }
 
+  // A change to one or more files, as the diff of each
+  if (name === "patch") {
+    const changes = (Array.isArray(args.changes) ? args.changes : []) as PatchChange[]
+    const failure = result.error as string | undefined
+    return (
+      <div>
+        <button
+          className={headerClass}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <span className="rounded bg-purple-700/60 px-1.5 py-0.5 font-mono text-xs text-white">patch</span>
+          <span className="text-xs text-zinc-300 font-mono truncate">{summary || changes.map((change) => change.path.split("/").pop()).join(", ")}</span>
+          {failure && <span className="shrink-0 text-xs text-red-400">not applied</span>}
+          {durationMs !== undefined && <span className="text-xs text-zinc-600">{durationMs}ms</span>}
+          <span className="ml-auto text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
+        </button>
+        {expanded && (
+          <div className="space-y-2 border-t border-zinc-800 px-3 py-2">
+            {failure && <div className="text-xs text-red-400">{failure}</div>}
+            {changes.map((change) => (
+              <div key={change.path}>
+                <div className="mb-1 flex min-w-0 flex-wrap gap-x-2 text-xs text-zinc-500">
+                  <span className="uppercase tracking-wide">{change.kind}</span>
+                  <span className="min-w-0 break-all">{change.path}</span>
+                  {change.movePath && <span className="min-w-0 break-all">→ {change.movePath}</span>}
+                </div>
+                <div className="font-mono text-xs whitespace-pre overflow-x-auto">
+                  {patchLines(change).map((line, i) => (
+                    <div key={i} className={`px-2 ${patchLineClass(line)}`}>{line}</div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   // For write tool calls, show the path and content preview
   if (name === "write") {
     const path = args.path as string || ""
@@ -1166,9 +1445,9 @@ const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCallItem }
     const filename = path.split("/").pop() || path
 
     return (
-      <div className="mx-4 my-1.5 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/50">
+      <div>
         <button
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
+          className={headerClass}
           onClick={() => setExpanded(!expanded)}
         >
           <span className="rounded bg-green-700/60 px-1.5 py-0.5 font-mono text-xs text-white">write</span>
@@ -1196,15 +1475,15 @@ const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCallItem }
     const exitCode = result.exit_code as number | undefined
 
     return (
-      <div className="mx-4 my-1.5 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/50">
+      <div>
         <button
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
+          className={headerClass}
           onClick={() => setExpanded(!expanded)}
         >
           <span className="rounded bg-zinc-600 px-1.5 py-0.5 font-mono text-xs text-white">bash</span>
           <span className="text-xs text-zinc-300 font-mono truncate">{command.slice(0, 80)}{command.length > 80 ? "…" : ""}</span>
           {exitCode !== undefined && (
-            <span className={`text-xs ${exitCode === 0 ? "text-green-500" : "text-red-400"}`}>exit {exitCode}</span>
+            <span className={`shrink-0 text-xs ${exitCode === 0 ? "text-green-500" : "text-red-400"}`}>exit {exitCode}</span>
           )}
           {durationMs !== undefined && <span className="text-xs text-zinc-600">{durationMs}ms</span>}
           <span className="ml-auto text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
@@ -1225,7 +1504,7 @@ const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCallItem }
     const path = args.path as string || ""
     const filename = path.split("/").pop() || path
     return (
-      <div className="mx-4 my-1 px-1 py-0.5 text-xs text-zinc-400">
+      <div className={`text-xs text-zinc-400 ${grouped ? "px-3 py-1" : "px-1 py-0.5"}`}>
         <div className="flex items-center gap-2">
           <span className="rounded bg-blue-700/40 px-1.5 py-0.5 font-mono text-white">read</span>
           <span className="font-mono truncate">{filename}</span>
@@ -1239,9 +1518,9 @@ const ToolCallCard = memo(function ToolCallCard({ tool }: { tool: ToolCallItem }
 
   // Default: compact tool card
   return (
-    <div className="mx-4 my-1.5 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/50">
+    <div>
       <button
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
+        className={headerClass}
         onClick={() => setExpanded(!expanded)}
       >
         <span className="rounded bg-zinc-600 px-1.5 py-0.5 font-mono text-xs text-white">{name}</span>

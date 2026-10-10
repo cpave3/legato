@@ -87,6 +87,17 @@ type GeneralPromptAdapter interface {
 	GeneralPrompt() string
 }
 
+// NativeBindingAdapter is an optional capability for adapters whose sessions
+// bind a native endpoint on their own shortly after launch (Claude Code, once
+// the Legato mod has started its bridge). The agent service then holds the
+// messages it sends at launch until that endpoint is bound and delivers them
+// over it, instead of typing them into a tool that is still starting up.
+type NativeBindingAdapter interface {
+	// BindsNativeEndpoint reports whether sessions launched by this adapter
+	// are expected to bind a native endpoint.
+	BindsNativeEndpoint() bool
+}
+
 // InterruptAdapter is an optional capability adapters implement to describe
 // which tmux key names should be sent before an urgent message in order to
 // abort the agent's current turn. Adapters that don't implement this

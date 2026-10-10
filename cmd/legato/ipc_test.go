@@ -193,3 +193,21 @@ func TestIPCMessage_NilNotifierDoesNotPanic(t *testing.T) {
 		t.Errorf("Type = %v, want EventCardUpdated", ev.Type)
 	}
 }
+
+func TestIPCMessage_AgentsChangedRefreshesNativeBindings(t *testing.T) {
+	bus := events.New()
+	discovered := bus.Subscribe(events.EventAgentChimeraDiscovered)
+	fn := &fakeNotifier{}
+
+	// A Claude Code bridge binds and unbinds its agent from its own process.
+	handleIPCMessage(ipc.Message{Type: "agents_changed", TaskID: "task-1"}, bus, fn)
+
+	ev := drainEvent(t, discovered)
+	payload, ok := ev.Payload.(events.AgentChimeraDiscoveredPayload)
+	if !ok || payload.TaskID != "task-1" {
+		t.Fatalf("payload = %#v", ev.Payload)
+	}
+	if !fn.called {
+		t.Error("NotifyAgentsChanged should be called so web clients re-read the agent list")
+	}
+}

@@ -57,22 +57,25 @@ type InstanceInfo struct {
 // Fields are kept as json.RawMessage for the parts Legato doesn't need to
 // decode, so the client tolerates protocol additions without breaking.
 type SessionSnapshot struct {
-	ID                     string               `json:"id"`
-	PendingPermissions     *[]PendingPermission `json:"pendingPermissions,omitempty"`
-	Name                   string               `json:"name"`
-	CWD                    string               `json:"cwd"`
-	Model                  json.RawMessage      `json:"model"`
-	SandboxMode            string               `json:"sandboxMode"`
-	Mode                   string               `json:"mode"`
-	Status                 string               `json:"status"`
-	Messages               json.RawMessage      `json:"messages"`
-	ToolCalls              json.RawMessage      `json:"toolCalls"`
-	Usage                  json.RawMessage      `json:"usage"`
-	Tasks                  json.RawMessage      `json:"tasks"`
-	ContextWindow          int                  `json:"contextWindow,omitempty"`
-	UsedContextTokens      int                  `json:"usedContextTokens,omitempty"`
-	UserModelOverride      *string              `json:"userModelOverride"`
-	ModelSettingsOverrides json.RawMessage      `json:"modelSettingsOverrides,omitempty"`
+	ID                 string               `json:"id"`
+	PendingPermissions *[]PendingPermission `json:"pendingPermissions,omitempty"`
+	// PendingQuestions are the questions the agent is waiting on the person
+	// to answer. Absent from an endpoint that does not ask any.
+	PendingQuestions       json.RawMessage `json:"pendingQuestions,omitempty"`
+	Name                   string          `json:"name"`
+	CWD                    string          `json:"cwd"`
+	Model                  json.RawMessage `json:"model"`
+	SandboxMode            string          `json:"sandboxMode"`
+	Mode                   string          `json:"mode"`
+	Status                 string          `json:"status"`
+	Messages               json.RawMessage `json:"messages"`
+	ToolCalls              json.RawMessage `json:"toolCalls"`
+	Usage                  json.RawMessage `json:"usage"`
+	Tasks                  json.RawMessage `json:"tasks"`
+	ContextWindow          int             `json:"contextWindow,omitempty"`
+	UsedContextTokens      int             `json:"usedContextTokens,omitempty"`
+	UserModelOverride      *string         `json:"userModelOverride"`
+	ModelSettingsOverrides json.RawMessage `json:"modelSettingsOverrides,omitempty"`
 }
 
 // PendingPermission is an unresolved permission request in a live Chimera session.
@@ -84,6 +87,10 @@ type PendingPermission struct {
 	Reason         string          `json:"reason,omitempty"`
 	CWD            string          `json:"cwd"`
 	PolicyAnalysis json.RawMessage `json:"policyAnalysis,omitempty"`
+	// Plan is a Markdown plan the request asks the person to approve, and
+	// Options the ways it can be allowed when the agent offers several.
+	Plan    string          `json:"plan,omitempty"`
+	Options json.RawMessage `json:"options,omitempty"`
 }
 
 // SessionContext describes the provider-reported occupancy of a session's
@@ -307,6 +314,9 @@ func (c *Client) Interrupt(ctx context.Context, sessionID string) error {
 type PermissionAction struct {
 	Decision string `json:"decision"`
 	Feedback string `json:"feedback,omitempty"`
+	// Option names which of the request's options an allow takes, for a
+	// request that listed several.
+	Option string `json:"option,omitempty"`
 }
 
 // ResolvePermission resolves a pending permission request via
@@ -322,6 +332,31 @@ func (c *Client) ResolvePermission(ctx context.Context, sessionID, requestID str
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("resolvePermission: %s", resp.Status)
+	}
+	return nil
+}
+
+// QuestionAnswer answers a question the agent put to the person: per question
+// ID, the options chosen and any answer they typed. Dismissed closes the
+// request without one.
+type QuestionAnswer struct {
+	Answers   map[string][]string `json:"answers,omitempty"`
+	Dismissed bool                `json:"dismissed,omitempty"`
+}
+
+// AnswerQuestion answers a pending question request via
+// POST /v1/sessions/:id/questions/:requestId.
+func (c *Client) AnswerQuestion(ctx context.Context, sessionID, requestID string, answer QuestionAnswer) error {
+	bodyBytes, _ := json.Marshal(answer)
+
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/questions/" + url.PathEscape(requestID)
+	resp, err := c.do(ctx, http.MethodPost, path, bodyBytes)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("answerQuestion: %s", resp.Status)
 	}
 	return nil
 }

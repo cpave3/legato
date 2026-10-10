@@ -54,6 +54,9 @@ func TestRequiredPreviouslyMissingCommandsAreRegistered(t *testing.T) {
 		{"swarm", "create"},
 		{"swarm", "next-step"},
 		{"agent", "session-created"},
+		{"agent", "bridge"},
+		{"agent", "codex"},
+		{"agent", "codex-bridge"},
 		{"review", "chapter", "edit"},
 		{"review", "chapter", "remove"},
 		{"review", "annotation", "edit"},
@@ -109,6 +112,7 @@ func TestInstalledHookCommandLinesResolve(t *testing.T) {
 	for _, args := range [][]string{
 		{"agent", "state", "task-id", "--activity", "working", "--working-dir", "/tmp/work", "--session-id", "chimera-child", "--event", "Stop"},
 		{"agent", "session-created", "task-id", "session-id", "--hook-payload"},
+		{"agent", "bridge", "task-id", "--execution-id", "ex-1"},
 		{"task", "link", "task-id", "--repo", "owner/repo", "--sha", "abc"},
 		{"task", "worktree", "set", "task-id", "--path", "/tmp/work"},
 	} {

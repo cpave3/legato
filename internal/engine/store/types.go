@@ -329,6 +329,10 @@ const (
 	ActivityWorking = "working"
 	ActivityWaiting = "waiting"
 	ActivityError   = "error"
+	// ActivityBackground is an agent whose turn ended while work it started
+	// (a shell, a subagent) still runs and will wake it. It is a live status
+	// only: reporting counts the agent's own turns, so no span is recorded.
+	ActivityBackground = "background"
 )
 
 // Execution is one independently startable and terminable unit of agent work.

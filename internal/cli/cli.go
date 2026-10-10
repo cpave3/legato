@@ -431,7 +431,13 @@ func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifie
 	// Legacy hooks omit execution identity. Keep the live operational status
 	// useful, but never infer an execution or write reporting activity.
 	if report.ExecutionID != "" {
-		if err := s.RecordExecutionActivity(ctx, report.ExecutionID, report.Activity, report.WorkingDir); err != nil {
+		// Waiting on background work is not a turn of the agent's own: for
+		// reporting it ends the span in progress, as going idle does.
+		reported := report.Activity
+		if reported == store.ActivityBackground {
+			reported = ""
+		}
+		if err := s.RecordExecutionActivity(ctx, report.ExecutionID, reported, report.WorkingDir); err != nil {
 			return fmt.Errorf("recording execution activity: %w", err)
 		}
 	}

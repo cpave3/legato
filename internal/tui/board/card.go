@@ -245,6 +245,10 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 	case "waiting":
 		agentStyle := lipgloss.NewStyle().Foreground(theme.ColReady).Bold(true)
 		agentPrefix = agentStyle.Render(icons.AgentWaiting+" WAITING") + " "
+	case "background":
+		// Its turn ended with a shell or subagent of its own still running.
+		agentStyle := lipgloss.NewStyle().Foreground(theme.AgentBackground).Bold(true)
+		agentPrefix = agentStyle.Render(icons.Terminal+" BACKGROUND") + " "
 	case "error":
 		agentStyle := lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true)
 		agentPrefix = agentStyle.Render(icons.Warning+" ERROR") + " "
@@ -321,6 +325,8 @@ func RenderCard(card CardData, width int, selected bool, column string, icons th
 			sAgentPrefix = s(lipgloss.Color("#287828")).Bold(true).Render(icons.AgentWorking + " RUNNING ")
 		case "waiting":
 			sAgentPrefix = s(lipgloss.Color("#285878")).Bold(true).Render(icons.AgentWaiting + " WAITING ")
+		case "background":
+			sAgentPrefix = s(theme.AgentBackgroundOnLight).Bold(true).Render(icons.Terminal + " BACKGROUND ")
 		case "error":
 			sAgentPrefix = s(lipgloss.Color("#993C1D")).Bold(true).Render(icons.Warning + " ERROR ")
 		default:

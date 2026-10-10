@@ -30,6 +30,13 @@ func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 		if wn != nil {
 			wn.NotifyAgentsChanged()
 		}
+	case "agents_changed":
+		// A Claude Code bridge bound or unbound its agent's native endpoint
+		// from its own process; the agent list's native flag is stale.
+		bus.Publish(events.Event{Type: events.EventAgentChimeraDiscovered, At: time.Now(), Payload: events.AgentChimeraDiscoveredPayload{TaskID: msg.TaskID}})
+		if wn != nil {
+			wn.NotifyAgentsChanged()
+		}
 	case "pr_linked":
 		bus.Publish(events.Event{Type: events.EventPRStatusUpdated, At: time.Now()})
 		if wn != nil {

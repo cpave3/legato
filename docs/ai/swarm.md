@@ -95,7 +95,9 @@ When `SwarmService.Finish` is called, the swarm's runtime files are removed: per
 
 ### IPC: send-keys is the message bus
 
-For inter-agent communication, legato relies on `tmux send-keys`:
+For inter-agent communication, legato relies on `tmux send-keys`, except for participants bound to a native endpoint (a Chimera session with a discovered endpoint, or a Claude Code session through its bridge). Those receive `message`, `broadcast`, urgent interrupts and conductor event pointers over the endpoint instead: an idle agent starts a turn on the message and a busy one reads it at its next step, with no keystroke timing involved. The launch kickoff waits for a Claude Code session's bridge and is submitted over it; other adapters get it typed after `brief_kickoff_delay_ms`.
+
+For everything else:
 
 - `legato swarm message <subtask-id> "<text>"` → `tmux send-keys -t legato-<subtask-id> "<text>" Enter`. The text appears as the worker's next user turn.
 - Worker → conductor: `legato swarm progress` formats a `[swarm event]` line and sends-keys it into the conductor's pane.

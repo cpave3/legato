@@ -375,3 +375,17 @@ func TestCardWithPRSelectedRender(t *testing.T) {
 		t.Errorf("selected card with failing CI should show fail icon, got: %q", out)
 	}
 }
+
+func TestCardWithAgentWaitingOnBackgroundWork(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test task", AgentActive: true, AgentState: "background"}
+
+	for _, selected := range []bool{false, true} {
+		out := RenderCard(card, 30, selected, "Doing", testIcons)
+		if !strings.Contains(out, "BACKGROUND") {
+			t.Errorf("selected=%v: card should say BACKGROUND, got: %q", selected, out)
+		}
+		if strings.Contains(out, "IDLE") {
+			t.Errorf("selected=%v: an agent with a shell still running is not idle: %q", selected, out)
+		}
+	}
+}

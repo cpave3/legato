@@ -324,6 +324,10 @@ type promptAgentService struct {
 	permissionReqID  string
 	permissionAction service.PermissionAction
 	permissionErr    error
+	questionTaskID   string
+	questionReqID    string
+	questionAnswer   service.QuestionAnswer
+	questionErr      error
 	captureOutput    string
 	captureErr       error
 	capturedTaskID   string
@@ -410,6 +414,12 @@ func (p *promptAgentService) ResolvePermission(_ context.Context, taskID, reques
 	p.permissionReqID = requestID
 	p.permissionAction = action
 	return p.permissionErr
+}
+func (p *promptAgentService) AnswerQuestion(_ context.Context, taskID, requestID string, answer service.QuestionAnswer) error {
+	p.questionTaskID = taskID
+	p.questionReqID = requestID
+	p.questionAnswer = answer
+	return p.questionErr
 }
 func (p *promptAgentService) HasChimeraEndpoint(context.Context, string) bool {
 	return p.chimeraEndpoint != ""

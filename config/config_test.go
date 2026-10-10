@@ -774,3 +774,99 @@ ssh_agent_socket: /custom/agent.sock
 		t.Fatalf("expected SSH_AUTH_SOCK=/custom/agent.sock, got %q", got)
 	}
 }
+
+func TestAdapterNativeBridgeIsOnUnlessDisabled(t *testing.T) {
+	writeTestConfig(t, `
+adapters:
+  claude-code:
+    launch_args: ["--dangerously-skip-permissions"]
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Adapters["claude-code"].NativeBridge != nil {
+		t.Fatalf("native_bridge = %v, want unset so the default applies", *cfg.Adapters["claude-code"].NativeBridge)
+	}
+
+	writeTestConfig(t, `
+adapters:
+  claude-code:
+    native_bridge: false
+`)
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled := cfg.Adapters["claude-code"].NativeBridge; disabled == nil || *disabled {
+		t.Fatalf("native_bridge = %v, want false", disabled)
+	}
+}
+
+func TestAdapterModelsListTheChoicesOfferedInTheNativePanel(t *testing.T) {
+	writeTestConfig(t, `
+adapters:
+  claude-code:
+    models:
+      - claude-sonnet-5-5
+      - claude-haiku-5-5
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(cfg.Adapters["claude-code"].Models, ","); got != "claude-sonnet-5-5,claude-haiku-5-5" {
+		t.Fatalf("models = %q", got)
+	}
+}
+
+func TestManticoreUsageReportingLoadsWithItsKeyFromTheEnvironment(t *testing.T) {
+	t.Setenv("LEGATO_MANTICORE_KEY", "mc_secret")
+	writeTestConfig(t, `
+manticore:
+  url: http://192.168.1.220:3456/
+  api_key: ${LEGATO_MANTICORE_KEY}
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The trailing slash is the person's habit, not part of the address.
+	if cfg.Manticore != (ManticoreConfig{URL: "http://192.168.1.220:3456", APIKey: "mc_secret"}) {
+		t.Fatalf("Manticore config = %+v", cfg.Manticore)
+	}
+}
+
+func TestManticoreUsageReportingIsOffWhenAbsent(t *testing.T) {
+	writeTestConfig(t, "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Manticore != (ManticoreConfig{}) {
+		t.Fatalf("Manticore config = %+v, want it unset", cfg.Manticore)
+	}
+}
+
+func TestManticoreUsageReportingRejectsAHalfConfiguredInstance(t *testing.T) {
+	t.Setenv("LEGATO_MANTICORE_KEY", "")
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{name: "no key", yaml: "manticore:\n  url: http://manticore.local:3456\n", wantErr: "manticore.api_key"},
+		{name: "a key whose variable is unset", yaml: "manticore:\n  url: http://manticore.local:3456\n  api_key: ${LEGATO_MANTICORE_KEY}\n", wantErr: "manticore.api_key"},
+		{name: "a key with nowhere to send to", yaml: "manticore:\n  api_key: mc_secret\n", wantErr: "manticore.url"},
+		{name: "an address without a scheme", yaml: "manticore:\n  url: manticore.local:3456\n  api_key: mc_secret\n", wantErr: "manticore.url"},
+		{name: "an address that is not http", yaml: "manticore:\n  url: ftp://manticore.local\n  api_key: mc_secret\n", wantErr: "manticore.url"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			writeTestConfig(t, tt.yaml)
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}

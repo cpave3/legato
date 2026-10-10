@@ -1,0 +1,6 @@
+{
+  "name": "legato",
+  "version": "0.1.0",
+  "description": "Connects a Legato-launched Claude Code session to Legato: direct messages, interrupts, permission decisions and the native panel.",
+  "author": { "name": "Legato" }
+}

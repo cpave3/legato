@@ -1357,6 +1357,9 @@ func (f *fakeAgentService) InterruptAgent(_ context.Context, _ string) error {
 func (f *fakeAgentService) ResolvePermission(_ context.Context, _ string, _ string, _ service.PermissionAction) error {
 	return nil
 }
+func (f *fakeAgentService) AnswerQuestion(_ context.Context, _ string, _ string, _ service.QuestionAnswer) error {
+	return nil
+}
 func (f *fakeAgentService) HasChimeraEndpoint(_ context.Context, _ string) bool {
 	return false
 }

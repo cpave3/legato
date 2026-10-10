@@ -170,6 +170,76 @@ it("offers native Chimera upgrade and surfaces failures without hiding the termi
   expect(screen.getByPlaceholderText("Type a message...")).not.toBeNull()
 })
 
+it("shows which agent tool a terminal session runs", () => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [] }) })
+  render(<PromptBar
+    promptState={null}
+    onSendKeys={vi.fn()}
+    onSubmitMessage={vi.fn()}
+    onDismissPrompt={vi.fn()}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="TASK-42"
+    agentKind="codex"
+  />)
+
+  expect(screen.getByLabelText("Codex, terminal session")).not.toBeNull()
+})
+
+it("leaves the agent tool out of the prompt bar where the mobile agent picker shows it", () => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [] }) })
+  render(<PromptBar
+    promptState={null}
+    onSendKeys={vi.fn()}
+    onSubmitMessage={vi.fn()}
+    onDismissPrompt={vi.fn()}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="TASK-42"
+    agentKind="codex"
+  />)
+
+  // The picker replaces the sidebar below md, and names the tool itself.
+  const badge = screen.getByLabelText("Codex, terminal session")
+  expect(badge.classList.contains("hidden")).toBe(true)
+  expect(badge.classList.contains("md:inline-flex")).toBe(true)
+  expect(badge.classList.contains("inline-flex")).toBe(false)
+})
+
+it("offers the native panel for Claude Code terminals", () => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [] }) })
+  const onUpgradeChimera = vi.fn().mockResolvedValue(undefined)
+  render(<PromptBar
+    promptState={null}
+    onSendKeys={vi.fn()}
+    onSubmitMessage={vi.fn()}
+    onDismissPrompt={vi.fn()}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="TASK-42"
+    agentKind="claude-code"
+    onUpgradeChimera={onUpgradeChimera}
+  />)
+
+  fireEvent.click(screen.getByTitle("More actions"))
+  expect(screen.queryByRole("button", { name: "Upgrade to native Chimera" })).toBeNull()
+  fireEvent.click(screen.getByRole("button", { name: "Upgrade to native panel" }))
+
+  expect(onUpgradeChimera).toHaveBeenCalledOnce()
+})
+
 it("does not offer native upgrade for non-Chimera terminals", () => {
   mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [] }) })
   render(<PromptBar
@@ -217,4 +287,53 @@ it("submits typed text as message content without a terminal newline", () => {
   fireEvent.click(promptBar.getByRole("button", { name: "Send" }))
 
   expect(onSubmitMessage).toHaveBeenCalledWith("hello agent")
+})
+
+it("offers the native panel for Codex terminals", () => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [] }) })
+  const onUpgradeChimera = vi.fn().mockResolvedValue(undefined)
+  render(<PromptBar
+    promptState={null}
+    onSendKeys={vi.fn()}
+    onSubmitMessage={vi.fn()}
+    onDismissPrompt={vi.fn()}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="TASK-42"
+    agentKind="codex"
+    onUpgradeChimera={onUpgradeChimera}
+  />)
+
+  fireEvent.click(screen.getByTitle("More actions"))
+  fireEvent.click(screen.getByRole("button", { name: "Upgrade to native panel" }))
+
+  expect(onUpgradeChimera).toHaveBeenCalledOnce()
+})
+
+it("offers the options of a menu the tool is showing in its terminal", () => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [] }) })
+  const onSendKeys = vi.fn()
+  render(<PromptBar
+    promptState={{ type: "menu", context: "Update available", actions: [{ label: "Update now", keys: "Enter" }, { label: "Skip", keys: "Down Enter" }] }}
+    onSendKeys={onSendKeys}
+    onSubmitMessage={vi.fn()}
+    onDismissPrompt={vi.fn()}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="TASK-42"
+    agentKind="codex"
+    agentActivity="waiting"
+  />)
+
+  fireEvent.click(screen.getByText("Skip"))
+
+  expect(onSendKeys).toHaveBeenCalledWith("Down Enter")
 })

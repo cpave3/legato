@@ -23,6 +23,7 @@ const (
 	MsgAgentMessage     = "agent_message"
 	MsgAgentInterrupt   = "agent_interrupt"
 	MsgAgentPermission  = "agent_permission"
+	MsgAgentQuestion    = "agent_question"
 	MsgResize           = "resize"
 	MsgDetectPrompt     = "detect_prompt"
 	MsgRefreshPane      = "refresh_pane"
@@ -83,6 +84,11 @@ type WSMessage struct {
 	Queue          bool                `json:"queue,omitempty"`
 	Decision       string              `json:"decision,omitempty"`
 	Feedback       *string             `json:"feedback,omitempty"`
+	// Option names which of a permission request's options an allow takes.
+	Option string `json:"option,omitempty"`
+	// Answers and Dismissed answer a question the agent asked (agent_question).
+	Answers   map[string][]string `json:"answers,omitempty"`
+	Dismissed bool                `json:"dismissed,omitempty"`
 }
 
 // wsClient represents a connected WebSocket client.
@@ -204,6 +210,8 @@ func (s *Server) handleWSMessage(client *wsClient, msg WSMessage) {
 		s.handleAgentInterrupt(client, msg)
 	case MsgAgentPermission:
 		s.handleAgentPermission(client, msg)
+	case MsgAgentQuestion:
+		s.handleAgentQuestion(client, msg)
 	case MsgResize:
 		s.handleResize(client, msg)
 	case MsgDetectPrompt:
@@ -340,9 +348,41 @@ func (s *Server) handleAgentPermission(client *wsClient, msg WSMessage) {
 		sendError("feedback is only valid when denying permission")
 		return
 	}
-	action := service.PermissionAction{Decision: msg.Decision, Feedback: feedback}
+	if msg.Decision != "allow" && msg.Option != "" {
+		sendError("an option is only valid when allowing permission")
+		return
+	}
+	action := service.PermissionAction{Decision: msg.Decision, Feedback: feedback, Option: msg.Option}
 	if err := s.agents.ResolvePermission(context.Background(), msg.AgentID, msg.RequestID, action); err != nil {
 		sendError("resolve permission failed: " + err.Error())
+	}
+}
+
+// handleAgentQuestion answers, or dismisses, a question the agent put to the
+// person. The agent's endpoint checks the answers against what it asked.
+func (s *Server) handleAgentQuestion(client *wsClient, msg WSMessage) {
+	sendError := func(message string) {
+		client.send(WSMessage{Type: MsgError, AgentID: msg.AgentID, RequestID: msg.RequestID, Error: message})
+	}
+	if s.agents == nil {
+		sendError("agent service not available")
+		return
+	}
+	if msg.AgentID == "" || msg.RequestID == "" {
+		sendError("agent_id and request_id are required")
+		return
+	}
+	if msg.Dismissed && len(msg.Answers) > 0 {
+		sendError("a dismissed question takes no answers")
+		return
+	}
+	if !msg.Dismissed && len(msg.Answers) == 0 {
+		sendError("answers are required unless the question is dismissed")
+		return
+	}
+	answer := service.QuestionAnswer{Answers: msg.Answers, Dismissed: msg.Dismissed}
+	if err := s.agents.AnswerQuestion(context.Background(), msg.AgentID, msg.RequestID, answer); err != nil {
+		sendError("answer question failed: " + err.Error())
 	}
 }
 

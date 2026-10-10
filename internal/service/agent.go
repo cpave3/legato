@@ -178,6 +178,9 @@ type AgentService interface {
 	// ResolvePermission resolves a pending permission request for the
 	// agent. Only applies to agents with structured permissions (Chimera).
 	ResolvePermission(ctx context.Context, taskID, requestID string, action PermissionAction) error
+	// AnswerQuestion answers a question the agent put to the person. Only
+	// applies to agents driven through a native endpoint.
+	AnswerQuestion(ctx context.Context, taskID, requestID string, answer QuestionAnswer) error
 	// HasChimeraEndpoint returns true if the agent has a discovered Chimera
 	// endpoint, meaning the web UI should render the structured panel
 	// instead of the xterm terminal.
@@ -220,6 +223,9 @@ type agentService struct {
 	learningMaxItems  int
 	learningMaxBytes  int
 	peerAwareness     bool
+	// nativeBindTimeout bounds how long a launch message waits for the
+	// session's native endpoint before it is typed into the pane instead.
+	nativeBindTimeout time.Duration
 
 	sendKeysAdapter AgentInteraction
 	chimeraAdapter  AgentInteraction
@@ -260,6 +266,14 @@ func (a *agentService) Tmux() TmuxManager {
 // AgentServiceOptions.BriefKickoffDelay (wired from cfg.Swarm.BriefKickoffDelayMs).
 // 250ms covers claude/chimera boot in practice on local hardware.
 const briefKickoffDelay = 250 * time.Millisecond
+
+// nativeBindTimeout is how long a launch message waits for a session that is
+// expected to bind a native endpoint. It covers the tool's boot; a session
+// that has not bound by then gets the message typed, as before.
+const nativeBindTimeout = 30 * time.Second
+
+// nativeBindPoll is how often a waiting launch message checks for the binding.
+const nativeBindPoll = 50 * time.Millisecond
 
 // briefKickoffMessage is the short instruction send-keysed to a swarm agent
 // after auto-launch. It is intentionally terse and directive: read the brief
@@ -384,7 +398,7 @@ type AgentServiceOptions struct {
 
 // NewAgentService creates an AgentService.
 func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...AgentServiceOptions) AgentService {
-	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay, peerAwareness: true}
+	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay, peerAwareness: true, nativeBindTimeout: nativeBindTimeout}
 	if len(opts) > 0 {
 		svc.adapter = opts[0].Adapter
 		svc.adapters = opts[0].Adapters
@@ -757,12 +771,16 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 					skip = true
 				}
 				if !skip {
-					// Deliver the brief pointer on a short delay so the AI tool's
-					// boot sequence has rendered its prompt. The brief itself is
-					// on disk; we only need the agent to notice it.
-					delay := a.briefKickoffDelay
+					// Deliver the brief pointer once the AI tool can take it. The
+					// brief itself is on disk; we only need the agent to notice it.
 					go func(session string) {
-						time.Sleep(delay)
+						if a.awaitNativeEndpoint(taskID, adapter) {
+							err := a.QueueMessage(context.Background(), taskID, briefKickoffMessage)
+							if err == nil {
+								return
+							}
+							log.Printf("auto-launch brief kickoff over the native endpoint failed for %s: %v", session, err)
+						}
 						if err := a.tmux.SendKeysLine(session, briefKickoffMessage); err != nil {
 							log.Printf("auto-launch brief kickoff failed for %s: %v", session, err)
 						}
@@ -798,7 +816,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		a.bus.PublishAgentStarted(taskID)
 	}
 	if len(launchPeers) > 0 {
-		go a.notifyPeerJoin(taskID, executionID, workDir, launchPeers, !peerContextInjected)
+		go a.notifyPeerJoin(taskID, executionID, workDir, adapter, launchPeers, !peerContextInjected)
 	}
 
 	return nil
@@ -812,22 +830,57 @@ func peerCoordinationContext(peers []AgentPeer) string {
 	return fmt.Sprintf("## Active worktree peers\n\nAgents already working in this Git worktree: %s. Before reverting unexpected changes, use `legato agent message <task-id> <text>` to coordinate.", strings.Join(peerIDs, ", "))
 }
 
-func (a *agentService) notifyPeerJoin(taskID, executionID, workDir string, peers []AgentPeer, notifyNewcomer bool) {
+func (a *agentService) notifyPeerJoin(taskID, executionID, workDir string, adapter AIToolAdapter, peers []AgentPeer, notifyNewcomer bool) {
 	root, err := gitWorktreeRoot(workDir)
 	if err != nil {
 		root = workDir
 	}
 	if notifyNewcomer {
-		time.Sleep(a.briefKickoffDelay)
+		// The newcomer is told once it can take a message; its peers hear of
+		// it after that, as they always did.
+		a.awaitNativeEndpoint(taskID, adapter)
 		if err := a.QueueMessage(context.Background(), taskID, "[legato coordination] "+strings.TrimPrefix(peerCoordinationContext(peers), "## Active worktree peers\n\n")); err != nil {
 			log.Printf("agent coordination notice to %s (%s) failed: %v", taskID, executionID, err)
 		}
 	}
+	// Legato's own notice, not the newcomer's words: it goes out without the
+	// peer framing and names the command that reaches the newcomer itself.
+	notice := fmt.Sprintf("[legato coordination] Agent %s (%s) joined Git worktree %s. It may create shared-tree changes; use `legato agent message %s <text>` before reverting unexpected edits.", taskID, executionID, root, taskID)
 	for _, peer := range peers {
-		notice := fmt.Sprintf("[legato coordination] Agent %s (%s) joined Git worktree %s. It may create shared-tree changes; message it before reverting unexpected edits.", taskID, executionID, root)
-		if err := a.SendPeerMessage(context.Background(), taskID, peer.TaskID, notice); err != nil {
+		if err := a.QueueMessage(context.Background(), peer.TaskID, notice); err != nil {
 			log.Printf("agent coordination join notice from %s to %s failed: %v", taskID, peer.TaskID, err)
 		}
+	}
+}
+
+// awaitNativeEndpoint gives a freshly launched agent time to become reachable
+// and reports whether it bound a native endpoint.
+//
+// A session whose adapter binds one (see NativeBindingAdapter) is waited for
+// until the binding appears: a message delivered over it is a prompt, while
+// the same text typed into a tool that is still starting lands in its prompt
+// box with the Enter lost. False means the message has to be typed: the
+// adapter binds nothing, the agent is gone, or nothing was bound in time. An
+// adapter that binds nothing gets the fixed kickoff delay instead.
+func (a *agentService) awaitNativeEndpoint(taskID string, adapter AIToolAdapter) bool {
+	binder, ok := adapter.(NativeBindingAdapter)
+	if !ok || !binder.BindsNativeEndpoint() {
+		time.Sleep(a.briefKickoffDelay)
+		return false
+	}
+	deadline := time.Now().Add(a.nativeBindTimeout)
+	for {
+		session, err := a.store.GetAgentSessionByTaskID(context.Background(), taskID)
+		if err != nil {
+			return false
+		}
+		if session.ChimeraEndpoint != nil && session.ChimeraSessionID != nil {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(nativeBindPoll)
 	}
 }
 
@@ -1388,12 +1441,16 @@ func (a *agentService) resolveAgentAddress(ctx context.Context, address string) 
 	return execution.ExecutionTaskID, nil
 }
 
+// formatPeerMessage frames another agent's words for delivery. The opening
+// `[legato peer <sender>]` tag tells them from Legato's own `[legato ...]`
+// messages and from what a person typed; the footer tells the recipient how
+// to answer.
 func formatPeerMessage(senderTaskID, message string) string {
 	message = strings.TrimSpace(message)
 	if senderTaskID == "" {
-		return message + "\n\n---\nAgent-to-agent message. Reply with `legato agent message <task-id> \"<reply>\"`."
+		return "[legato peer] " + message + "\n\n---\nAgent-to-agent message. Reply with `legato agent message <task-id> \"<reply>\"`."
 	}
-	return fmt.Sprintf("%s\n\n---\nAgent-to-agent message from `%s`. Reply with `legato agent message %s \"<reply>\"`.", message, senderTaskID, senderTaskID)
+	return fmt.Sprintf("[legato peer %s] %s\n\n---\nAgent-to-agent message from `%s`. Reply with `legato agent message %s \"<reply>\"`.", senderTaskID, message, senderTaskID, senderTaskID)
 }
 
 // BroadcastToPeers sends a non-urgent message to every current worktree peer
@@ -1463,6 +1520,11 @@ func (a *agentService) InterruptAgent(ctx context.Context, taskID string) error 
 func (a *agentService) ResolvePermission(ctx context.Context, taskID, requestID string, action PermissionAction) error {
 	adapter := a.resolveInteractionAdapter(ctx, taskID)
 	return adapter.ResolvePermission(ctx, taskID, requestID, action)
+}
+
+// AnswerQuestion answers a question the agent put to the person.
+func (a *agentService) AnswerQuestion(ctx context.Context, taskID, requestID string, answer QuestionAnswer) error {
+	return a.resolveInteractionAdapter(ctx, taskID).AnswerQuestion(ctx, taskID, requestID, answer)
 }
 
 // HasChimeraEndpoint returns true if the agent has a discovered Chimera
@@ -1559,12 +1621,21 @@ var (
 
 const chimeraDiscoveryRequestTimeout = 2 * time.Second
 
-// DiscoverChimera scans all current Chimera lockfiles and upgrades the active
-// task agent only when exactly one live endpoint serves the task-bound session.
+// DiscoverChimera binds the active task agent to its native endpoint. For a
+// Chimera agent it scans all current Chimera lockfiles and upgrades only when
+// exactly one live endpoint serves the task-bound session; a Claude Code or
+// Codex agent is bound to the bridge its session started (see
+// discoverClaudeBridge and discoverCodexBridge).
 func (a *agentService) DiscoverChimera(ctx context.Context, taskID string) error {
 	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
 	if err != nil {
 		return err
+	}
+	if session.AgentKind == claudeCodeAgentKind {
+		return a.discoverClaudeBridge(ctx, taskID, session.ID)
+	}
+	if session.AgentKind == codexAgentKind {
+		return a.discoverCodexBridge(ctx, taskID, session.ID)
 	}
 	return a.discoverChimeraFromLockfiles(ctx, taskID, session.ID, taskID, nil)
 }
@@ -1601,18 +1672,7 @@ func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID 
 			continue
 		}
 		seenEndpoints[lf.URL] = true
-		requestCtx, cancel := context.WithTimeout(ctx, chimeraDiscoveryRequestTimeout)
-		httpClient := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		}}
-		client := chimera.NewClientWithHTTPClient(lf.URL, httpClient)
-		_, instanceErr := client.GetInstance(requestCtx)
-		// Fetch the snapshot using the lockfile's actual session ID, then
-		// verify by session name (which Chimera preserves from --session-name)
-		// rather than by exact session ID (which may be random on collision).
-		snapshot, sessionErr := client.GetSession(requestCtx, lf.SessionID)
-		cancel()
-		if instanceErr != nil || sessionErr != nil || snapshot.Name != expectedSessionName {
+		if !nativeEndpointServes(ctx, lf.URL, lf.SessionID, expectedSessionName) {
 			continue
 		}
 		valid = append(valid, candidate{sessionID: lf.SessionID, endpoint: lf.URL})
@@ -1631,6 +1691,24 @@ func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID 
 		a.bus.PublishAgentChimeraDiscovered(taskID)
 	}
 	return nil
+}
+
+// nativeEndpointServes reports whether endpoint is a live native-protocol
+// instance serving a session under the expected name. The snapshot is fetched
+// by the advertised session ID and verified by name, which Chimera preserves
+// from --session-name while the ID may be random on collision.
+func nativeEndpointServes(ctx context.Context, endpoint, sessionID, expectedSessionName string) bool {
+	requestCtx, cancel := context.WithTimeout(ctx, chimeraDiscoveryRequestTimeout)
+	defer cancel()
+	httpClient := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	client := chimera.NewClientWithHTTPClient(endpoint, httpClient)
+	if _, err := client.GetInstance(requestCtx); err != nil {
+		return false
+	}
+	snapshot, err := client.GetSession(requestCtx, sessionID)
+	return err == nil && snapshot.Name == expectedSessionName
 }
 
 func isLoopbackHTTPURL(raw string) bool {

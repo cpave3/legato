@@ -2,6 +2,8 @@ import type { AgentInfo } from "../hooks/useWebSocket";
 import { cn } from "../lib/utils";
 import { Plus, Play, Pause, Layers, Bell, AlertTriangle } from "lucide-react";
 import { AgentActionMenu } from "./AgentActionMenu";
+import { AgentKindBadge } from "./AgentKindBadge";
+import { isAgentToolInForeground } from "../lib/agentKind";
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) return "<1m";
@@ -36,6 +38,14 @@ function activityBadge(activity: string) {
         <span
           className="inline-flex h-2 w-2 rounded-full bg-yellow-500"
           title="Waiting"
+        />
+      );
+    case "background":
+      // Its turn ended with a shell or subagent of its own still running.
+      return (
+        <span
+          className="inline-flex h-2 w-2 rounded-full bg-sky-400"
+          title="Background work running"
         />
       );
     case "error":
@@ -233,8 +243,13 @@ export function AgentSidebar({
                       {agent.task_title}
                     </span>
                   )}
-                  <span className="text-xs text-zinc-600 truncate pl-4 font-mono">
-                    {agent.command}
+                  <span className="flex min-w-0 items-center gap-1.5 pl-4">
+                    <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} />
+                    {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
+                      <span className="min-w-0 truncate font-mono text-xs text-zinc-600">
+                        {agent.command}
+                      </span>
+                    )}
                   </span>
                   {(agent.working_seconds >= 60 ||
                     agent.waiting_seconds >= 60 ||

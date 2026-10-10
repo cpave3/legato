@@ -729,6 +729,9 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 		case a.Activity == "waiting":
 			statusLine = selIndicator(selDim, true).
 				Render(m.icons.AgentWaiting + " WAITING")
+		case a.Activity == "background":
+			statusLine = selIndicator(theme.AgentBackgroundOnLight, true).
+				Render(m.icons.Terminal + " BACKGROUND")
 		case a.Activity == "error":
 			statusLine = selIndicator(lipgloss.Color("#993C1D"), true).
 				Render(m.icons.Warning + " ERROR")
@@ -748,6 +751,9 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 		case a.Activity == "waiting":
 			statusLine = lipgloss.NewStyle().Foreground(theme.ColReady).Bold(true).
 				Render(m.icons.AgentWaiting + " WAITING")
+		case a.Activity == "background":
+			statusLine = lipgloss.NewStyle().Foreground(theme.AgentBackground).Bold(true).
+				Render(m.icons.Terminal + " BACKGROUND")
 		case a.Activity == "error":
 			statusLine = lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).
 				Render(m.icons.Warning + " ERROR")
@@ -917,6 +923,8 @@ func (m Model) renderTerminalHeader(width int) string {
 		statusDot = lipgloss.NewStyle().Foreground(theme.SyncOK).Bold(true).Render("●")
 	case a.Activity == "waiting":
 		statusDot = lipgloss.NewStyle().Foreground(theme.ColReady).Render("●")
+	case a.Activity == "background":
+		statusDot = lipgloss.NewStyle().Foreground(theme.AgentBackground).Render("●")
 	case a.Activity == "error":
 		statusDot = lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).Render("●")
 	default:
@@ -976,6 +984,8 @@ func (m Model) renderTerminalHeader(width int) string {
 		liveLabel = lipgloss.NewStyle().Foreground(theme.SyncOK).Bold(true).Render(m.icons.AgentWorking + " RUNNING")
 	case a.Activity == "waiting":
 		liveLabel = lipgloss.NewStyle().Foreground(theme.ColReady).Bold(true).Render(m.icons.AgentWaiting + " WAITING")
+	case a.Activity == "background":
+		liveLabel = lipgloss.NewStyle().Foreground(theme.AgentBackground).Bold(true).Render(m.icons.Terminal + " BACKGROUND")
 	case a.Activity == "error":
 		liveLabel = lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).Render(m.icons.Warning + " ERROR")
 	default:

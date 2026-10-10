@@ -395,6 +395,48 @@ func TestSendPeerMessageQueuesForBusyChimeraAndAddsReplyFooter(t *testing.T) {
 	}
 }
 
+func TestSendPeerMessageOpensWithATagNamingTheSender(t *testing.T) {
+	svc, _, mt := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, svc.(*agentService).store, "recipient")
+	if err := svc.SpawnAgent(ctx, "recipient", 80, 24); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.SendPeerMessage(ctx, "sender", "recipient", "Can you avoid agent.go?"); err != nil {
+		t.Fatal(err)
+	}
+
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+	messages := mt.sentMultiline["legato-recipient"]
+	// The tag comes first, so the recipient and the conversation view can tell
+	// another agent's words from Legato's own and from what a person typed.
+	if len(messages) != 1 || !strings.HasPrefix(messages[0], "[legato peer sender] Can you avoid agent.go?\n") {
+		t.Fatalf("messages = %#v, want one opening with the sender's tag", messages)
+	}
+}
+
+func TestSendPeerMessageFromOutsideAnAgentSessionIsStillTagged(t *testing.T) {
+	svc, _, mt := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, svc.(*agentService).store, "recipient")
+	if err := svc.SpawnAgent(ctx, "recipient", 80, 24); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.SendPeerMessage(ctx, "", "recipient", "hello from a shell"); err != nil {
+		t.Fatal(err)
+	}
+
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+	messages := mt.sentMultiline["legato-recipient"]
+	if len(messages) != 1 || !strings.HasPrefix(messages[0], "[legato peer] hello from a shell\n") {
+		t.Fatalf("messages = %#v, want one opening with the peer tag", messages)
+	}
+}
+
 func TestSendPeerMessageAcceptsExecutionIDAsRecipient(t *testing.T) {
 	svc, _, mt := newTestAgentService(t)
 	ctx := context.Background()
@@ -567,6 +609,14 @@ func TestSpawnAgentNotifiesNewAndExistingWorktreePeers(t *testing.T) {
 		if len(first) == 1 && len(second) == 1 {
 			if !strings.Contains(first[0], "second") || !strings.Contains(first[0], "joined") {
 				t.Fatalf("existing peer notice = %q", first[0])
+			}
+			// Legato wrote the notice; the newcomer did not. It is not framed
+			// as that agent's own words, and still says how to reach it.
+			if !strings.HasPrefix(first[0], "[legato coordination] ") || strings.Contains(first[0], "[legato peer") || strings.Contains(first[0], "Agent-to-agent message") {
+				t.Fatalf("existing peer notice = %q, want Legato's own coordination notice", first[0])
+			}
+			if !strings.Contains(first[0], "`legato agent message second <text>`") {
+				t.Fatalf("existing peer notice = %q, want the command that reaches the newcomer", first[0])
 			}
 			if !strings.Contains(second[0], "first") || !strings.Contains(second[0], "already working") {
 				t.Fatalf("new peer notice = %q", second[0])

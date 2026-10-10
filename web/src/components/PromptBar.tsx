@@ -6,6 +6,8 @@ import { apiFetch } from "../lib/api"
 import { cn } from "../lib/utils"
 import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff, Terminal, Zap, Bell, BellOff, Sparkles } from "lucide-react"
 import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
+import { AgentKindBadge } from "./AgentKindBadge"
+import { canBeNative } from "../lib/agentKind"
 
 interface ActionListProps {
   actions: { label: string; keys: string }[]
@@ -274,10 +276,14 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   return (
     <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-3">
       <div className="flex items-center justify-between gap-2">
-        {/* Left: title */}
-        {agentTitle && (
-          <div className="text-xs text-zinc-500 truncate">{agentTitle}</div>
-        )}
+        {/* Left: which agent tool this terminal runs, then its title */}
+        <div className="flex min-w-0 items-center gap-2">
+          {/* Below md the agent picker above the terminal already names the tool. */}
+          <AgentKindBadge kind={agentKind} isNative={false} className="hidden md:inline-flex" />
+          {agentTitle && (
+            <div className="text-xs text-zinc-500 truncate">{agentTitle}</div>
+          )}
+        </div>
 
         {/* Right: action buttons */}
         <div className="ml-auto flex items-center gap-1.5 shrink-0">
@@ -355,7 +361,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
             </button>
             {menuOpen && (
               <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
-                {agentKind === "chimera" && onUpgradeChimera && (
+                {canBeNative(agentKind) && onUpgradeChimera && (
                   <button
                     onClick={() => {
                       setUpgradeError("")
@@ -369,7 +375,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-indigo-300 hover:bg-zinc-800 transition-colors disabled:opacity-50"
                   >
                     <Sparkles size={12} />
-                    {upgradePending ? "Upgrading…" : "Upgrade to native Chimera"}
+                    {upgradePending ? "Upgrading…" : agentKind === "chimera" ? "Upgrade to native Chimera" : "Upgrade to native panel"}
                   </button>
                 )}
                 <button
@@ -427,7 +433,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
 
       {/* Prompt-specific controls */}
       <div className="mt-2">
-        {(type === "tool_approval" || type === "plan_approval" || type === "question") && promptState?.actions && (
+        {(type === "tool_approval" || type === "plan_approval" || type === "question" || type === "menu") && promptState?.actions && (
           <ActionList
             actions={promptState.actions}
             type={type}

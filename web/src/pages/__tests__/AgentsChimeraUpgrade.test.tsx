@@ -129,3 +129,37 @@ it("rescans Chimera and replaces the terminal with the native panel", async () =
     expect.objectContaining({ method: "POST" }),
   )
 })
+
+it("reconnects a Claude Code terminal to its native panel", async () => {
+  let agentFetches = 0
+  mockFetch.mockImplementation((input: RequestInfo | URL) => {
+    const path = String(input)
+    if (path === "/api/agents") {
+      agentFetches += 1
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => [{ ...terminalAgent, agent_kind: "claude-code", command: "claude", has_chimera_endpoint: agentFetches > 1 }],
+      })
+    }
+    if (path === "/api/macros") {
+      return Promise.resolve({ ok: true, json: async () => ({ macros: [] }) })
+    }
+    if (path === "/api/agents/TASK-42/chimera/discover") {
+      return Promise.resolve({ ok: true, status: 200, text: async () => "" })
+    }
+    throw new Error(`unexpected request: ${path}`)
+  })
+
+  render(<MemoryRouter><AgentsPage /></MemoryRouter>)
+  expect(await screen.findByText("Terminal session")).not.toBeNull()
+
+  fireEvent.click(screen.getByTitle("More actions"))
+  fireEvent.click(screen.getByRole("button", { name: "Upgrade to native panel" }))
+
+  await waitFor(() => expect(screen.queryByText("Terminal session")).toBeNull())
+  expect(mockFetch).toHaveBeenCalledWith(
+    "/api/agents/TASK-42/chimera/discover",
+    expect.objectContaining({ method: "POST" }),
+  )
+})

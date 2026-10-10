@@ -27,6 +27,11 @@ var (
 	SyncError   = lipgloss.Color("#E06C75")
 	SyncOffline = lipgloss.Color("#6C7086")
 
+	// An agent whose turn ended while a shell or subagent it started still
+	// runs. The second is for dark text on a selected, light surface.
+	AgentBackground        = lipgloss.Color("#56B6C2")
+	AgentBackgroundOnLight = lipgloss.Color("#1F6F78")
+
 	// Column border colors
 	ColBacklog = lipgloss.Color("#B4B2A9")
 	ColReady   = lipgloss.Color("#85B7EB")

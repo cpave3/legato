@@ -23,7 +23,8 @@ vi.mock("../../hooks/useServer", () => ({
 
 describe("NativeAgentPanel", () => {
   beforeEach(() => {
-    send.mockClear()
+    // Reset, not clear: a test may give send a behaviour of its own.
+    send.mockReset()
     websocketConnected = true
   })
 
@@ -229,6 +230,168 @@ describe("NativeAgentPanel", () => {
     })
   })
 
+  it("speaks of Claude Code in a Claude Code session's permission prompt", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "task-1", status: "idle", messages: [], toolCalls: [], pendingPermissions: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" />)
+    await screen.findByText("Session ready — send a message to start")
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "event-1", type: "permission_request", requestId: "req-1", tool: "Edit", target: "host", command: "Edit /work/a.go" }),
+    }))
+
+    const card = screen.getByRole("region", { name: "Permission request for Edit" })
+    // A Claude Code prompt covers any tool, not only commands run on the host.
+    expect(within(card).getByText("Tool approval")).not.toBeNull()
+    expect(within(card).queryByText("Host command approval")).toBeNull()
+    fireEvent.click(within(card).getByRole("button", { name: "Deny with feedback" }))
+    expect(within(card).getByLabelText("Feedback for Claude Code")).not.toBeNull()
+  })
+
+  it("sets messages Legato sent apart from what the person typed", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({
+          id: "task-1", status: "idle", toolCalls: [], pendingPermissions: [],
+          messages: [
+            { role: "system", content: "" },
+            { role: "user", content: "[legato coordination] Agents already working in this Git worktree: 4wzjxm22 (ex-cs7ntyx6)." },
+            { role: "user", content: "please rebase first" },
+          ],
+        }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" />)
+
+    const notice = await screen.findByLabelText("Message from Legato: coordination")
+    // The tag becomes the label; the body is what is left.
+    expect(within(notice).getByText("Legato · coordination")).not.toBeNull()
+    expect(within(notice).getByText("Agents already working in this Git worktree: 4wzjxm22 (ex-cs7ntyx6).")).not.toBeNull()
+    expect(notice.className).not.toContain("bg-blue-600/20")
+
+    const typed = screen.getByText("please rebase first")
+    expect(typed.className).toContain("bg-blue-600/20")
+    expect(screen.getAllByLabelText(/^Message from Legato/)).toHaveLength(1)
+
+    // One that arrives while the panel is open is told apart the same way.
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "event-1", type: "user_message", content: "[legato review] Question on step 2: why?" }),
+    }))
+    expect(screen.getByLabelText("Message from Legato: review")).not.toBeNull()
+  })
+
+  it("sets another agent's messages apart from Legato's and from what the person typed", async () => {
+    const footer = "\n\n---\nAgent-to-agent message from `pm4d4m4e`. Reply with `legato agent message pm4d4m4e \"<reply>\"`."
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({
+          id: "task-1", status: "idle", toolCalls: [], pendingPermissions: [],
+          messages: [
+            { role: "system", content: "" },
+            { role: "user", content: "[legato coordination] Agent pm4d4m4e (ex-1) joined Git worktree /repo." },
+            { role: "user", content: `[legato peer pm4d4m4e] Please leave PromptBar.tsx alone.${footer}` },
+            { role: "user", content: "please rebase first" },
+          ],
+        }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" />)
+
+    const peer = await screen.findByLabelText("Message from agent pm4d4m4e")
+    // The tag becomes the label, with the sender's ID as it is written, and
+    // the reply instructions meant for the agent are left out.
+    expect(within(peer).getByText("pm4d4m4e")).not.toBeNull()
+    expect(within(peer).getByText("Please leave PromptBar.tsx alone.")).not.toBeNull()
+    expect(screen.queryByText(/Agent-to-agent message/)).toBeNull()
+
+    // Three writers, three looks.
+    const notice = screen.getByLabelText("Message from Legato: coordination")
+    const typed = screen.getByText("please rebase first")
+    expect(screen.getAllByLabelText(/^Message from Legato/)).toHaveLength(1)
+    expect(peer.className).not.toBe(notice.className)
+    expect(peer.className).not.toContain("bg-blue-600/20")
+    expect(typed.className).toContain("bg-blue-600/20")
+
+    // A sender that did not name itself is still another agent.
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "event-1", type: "user_message", content: "[legato peer] hello from a shell\n\n---\nAgent-to-agent message. Reply with `legato agent message <task-id> \"<reply>\"`." }),
+    }))
+    const unnamed = screen.getByLabelText("Message from another agent")
+    expect(within(unnamed).getByText("hello from a shell")).not.toBeNull()
+    expect(unnamed.className).toBe(peer.className)
+  })
+
+  it("shows the effort in force beside the model", async () => {
+    const capabilities = {
+      schemaVersion: 1, modelId: "claude-opus-5-5", profile: "claude-code", source: "test", fingerprint: "f",
+      settings: { reasoningEffort: { status: "supported", type: "enum", values: ["low", "medium", "high", "xhigh", "max"] } },
+    }
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const path = String(input)
+      if (path.includes("/snapshot")) return new Response(JSON.stringify({
+        id: "task-1", status: "idle", messages: [], toolCalls: [], pendingPermissions: [],
+        model: { providerId: "anthropic", modelId: "claude-opus-5-5", settings: { reasoningEffort: "xhigh" }, settingsDefaults: { reasoningEffort: "medium" }, capabilities },
+      }), { status: 200 })
+      if (path.endsWith("/chimera/models")) return new Response(JSON.stringify([{ ref: "anthropic/claude-opus-5-5", isDefault: true }]), { status: 200 })
+      return new Response("[]", { status: 200 })
+    })
+
+    render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" />)
+    const modelButton = await screen.findByTitle("Change model")
+
+    expect(within(modelButton).getByText("xhigh")).not.toBeNull()
+
+    // A choice made elsewhere (another client, the same panel's dialog) follows.
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({
+        eventId: "event-1", type: "model_settings_changed",
+        settingsState: { model: "anthropic/claude-opus-5-5", overrides: { reasoningEffort: "low" }, defaults: { reasoningEffort: "medium" }, effective: { reasoningEffort: "low" }, capabilities },
+      }),
+    }))
+    expect(within(screen.getByTitle("Change model")).getByText("low")).not.toBeNull()
+  })
+
+  it("shows which agent tool the native session belongs to", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "task-1", status: "idle", messages: [], toolCalls: [], pendingPermissions: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" />)
+    await screen.findByText("Session ready — send a message to start")
+
+    expect(screen.getByLabelText("Claude Code, native session")).not.toBeNull()
+  })
+
+  it("leaves the agent tool out of the status bar where the mobile agent picker shows it", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "task-1", status: "idle", messages: [], toolCalls: [], pendingPermissions: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" />)
+    await screen.findByText("Session ready — send a message to start")
+
+    // The picker replaces the sidebar below md, and names the tool itself.
+    const badge = screen.getByLabelText("Claude Code, native session")
+    expect(badge.classList.contains("hidden")).toBe(true)
+    expect(badge.classList.contains("md:inline-flex")).toBe(true)
+    expect(badge.classList.contains("inline-flex")).toBe(false)
+  })
+
+  it("names the Claude Code session while it loads", () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise<Response>(() => {}))
+
+    render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" />)
+
+    expect(screen.getByText("Loading Claude Code session...")).not.toBeNull()
+  })
+
   it("shows a correlated permission failure and permits retry", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
@@ -410,14 +573,15 @@ describe("NativeAgentPanel", () => {
     expect(interrupt.className).toContain("w-full")
   })
 
-  it("expands edit diffs by default without expanding other tool calls", async () => {
+  it("expands a lone edit's diff by default without expanding other tool calls", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({
           id: "session-1",
           status: "idle",
           messages: [
             { role: "user", content: "system" },
-            { role: "assistant", content: [{ type: "tool-call" }, { type: "tool-call" }] },
+            { role: "assistant", content: [{ type: "tool-call" }] },
+            { role: "assistant", content: [{ type: "text", text: "Running the tests" }, { type: "tool-call" }] },
           ],
           toolCalls: [
             { callId: "edit-1", name: "edit", args: { path: "main.go", old_string: "old line", new_string: "new line" } },
@@ -856,7 +1020,10 @@ describe("NativeAgentPanel", () => {
     websocketConnected = true
     view.rerender(<NativeAgentPanel agentId="task-1" />)
 
-    expect(send).toHaveBeenLastCalledWith({ type: "subscribe_agent", agent_id: "task-1", cursor: "cursor-1" })
+    // The latest subscription carries the cursor (the panel also asks what
+    // the terminal is showing, so it is not the last message of all).
+    const subscriptions = send.mock.calls.map(([message]) => message).filter((message) => message.type === "subscribe_agent")
+    expect(subscriptions.at(-1)).toEqual({ type: "subscribe_agent", agent_id: "task-1", cursor: "cursor-1" })
   })
 
   it("repairs from snapshot when the server cannot replay its cursor", async () => {
@@ -1239,6 +1406,149 @@ describe("NativeAgentPanel", () => {
     for (const text of ["First update", "Second update", "Writing the file", "Fourth update", "Fifth update"]) {
       expect(screen.getByText(text)).not.toBeNull()
     }
+  })
+
+  describe("consecutive tool calls", () => {
+    type SnapshotCall = { callId: string; name: string; args: Record<string, unknown>; result?: Record<string, unknown> }
+
+    // Each inner list is one assistant turn; a turn after the first opens with text.
+    function mockToolTurns(turns: SnapshotCall[][], status = "idle") {
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+        ? new Response(JSON.stringify({
+            id: "session-1",
+            status,
+            messages: [
+              { role: "user", content: "system" },
+              ...turns.map((calls, turn) => ({
+                role: "assistant",
+                content: [
+                  ...(turn > 0 ? [{ type: "text", text: `Turn ${turn + 1}` }] : []),
+                  ...calls.map(() => ({ type: "tool-call" })),
+                ],
+              })),
+            ],
+            toolCalls: turns.flat(),
+          }), { status: 200 })
+        : new Response("[]", { status: 200 }))
+    }
+
+    const read = (callId: string, path: string): SnapshotCall => ({ callId, name: "read", args: { path } })
+
+    it("gathers them into one group and leaves a call after a reply on its own", async () => {
+      mockToolTurns([
+        [read("c1", "a.go"), { callId: "c2", name: "bash", args: { command: "go test ./..." } }, read("c3", "b.go")],
+        [read("c4", "c.go")],
+      ])
+
+      const view = render(<NativeAgentPanel agentId="task-1" />)
+
+      const group = await within(view.container).findByRole("group", { name: "3 tool calls" })
+      expect(within(group).getByText("a.go")).not.toBeNull()
+      expect(within(group).getByText("go test ./...")).not.toBeNull()
+      expect(within(group).getByText("b.go")).not.toBeNull()
+      expect(within(group).queryByText("c.go")).toBeNull()
+      expect(within(view.container).getByText("c.go")).not.toBeNull()
+      expect(within(view.container).getAllByRole("group")).toHaveLength(1)
+    })
+
+    it("keeps an edit's diff closed inside a group until it is opened", async () => {
+      mockToolTurns([[
+        { callId: "e1", name: "edit", args: { path: "main.go", old_string: "old line", new_string: "new line" } },
+        read("c2", "b.go"),
+      ]])
+
+      const view = render(<NativeAgentPanel agentId="task-1" />)
+
+      const group = await within(view.container).findByRole("group", { name: "2 tool calls" })
+      expect(within(group).queryByText("- old line")).toBeNull()
+
+      fireEvent.click(within(group).getByRole("button", { name: /main\.go/ }))
+
+      expect(within(group).getByText("- old line")).not.toBeNull()
+      expect(within(group).getByText("+ new line")).not.toBeNull()
+    })
+
+    it("shows the latest five of a long run under a count of the earlier ones", async () => {
+      mockToolTurns([Array.from({ length: 8 }, (_, index) => read(`c${index + 1}`, `file-${index + 1}.go`))])
+
+      const view = render(<NativeAgentPanel agentId="task-1" />)
+
+      const group = await within(view.container).findByRole("group", { name: "8 tool calls" })
+      const shown = () => Array.from({ length: 8 }, (_, index) => `file-${index + 1}.go`).filter((name) => within(group).queryByText(name))
+      expect(shown()).toEqual(["file-4.go", "file-5.go", "file-6.go", "file-7.go", "file-8.go"])
+
+      const earlier = within(group).getByRole("button", { name: /3 earlier tool calls/ })
+      expect(earlier.getAttribute("aria-expanded")).toBe("false")
+      // The count sits above the calls that follow the ones it stands for.
+      expect(earlier.compareDocumentPosition(within(group).getByText("file-4.go")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+      fireEvent.click(earlier)
+      expect(shown()).toHaveLength(8)
+      expect(earlier.getAttribute("aria-expanded")).toBe("true")
+
+      fireEvent.click(earlier)
+      expect(shown()).toHaveLength(5)
+    })
+
+    it("adds a live call to the run in progress and folds only once that saves a line", async () => {
+      mockToolTurns([Array.from({ length: 5 }, (_, index) => read(`c${index + 1}`, `file-${index + 1}.go`))], "running")
+      const liveRead = (n: number) => act(() => websocketHandler?.({
+        type: "chimera_event",
+        agent_id: "task-1",
+        content: JSON.stringify({ eventId: `live-${n}`, type: "tool_call_start", callId: `c${n}`, name: "read", args: { path: `file-${n}.go` } }),
+      }))
+
+      const view = render(<NativeAgentPanel agentId="task-1" />)
+      await within(view.container).findByRole("group", { name: "5 tool calls" })
+
+      // Folding one call behind a count would take the line it frees.
+      liveRead(6)
+      const six = within(view.container).getByRole("group", { name: "6 tool calls" })
+      expect(within(six).getByText("file-1.go")).not.toBeNull()
+      expect(within(six).getByText("file-6.go")).not.toBeNull()
+      expect(within(six).queryByRole("button", { name: /earlier tool call/ })).toBeNull()
+
+      liveRead(7)
+      const seven = within(view.container).getByRole("group", { name: "7 tool calls" })
+      expect(within(seven).getByRole("button", { name: /2 earlier tool calls/ })).not.toBeNull()
+      expect(within(seven).queryByText("file-2.go")).toBeNull()
+      expect(within(seven).getByText("file-3.go")).not.toBeNull()
+      expect(within(seven).getByText("file-7.go")).not.toBeNull()
+    })
+
+    it("says which tools the earlier calls used", async () => {
+      mockToolTurns([[
+        { callId: "c1", name: "bash", args: { command: "git status" } },
+        read("c2", "a.go"),
+        { callId: "c3", name: "edit", args: { path: "a.go", old_string: "x", new_string: "y" } },
+        read("c4", "b.go"),
+        ...Array.from({ length: 5 }, (_, index) => read(`late-${index}`, `late-${index}.go`)),
+      ]])
+
+      const view = render(<NativeAgentPanel agentId="task-1" />)
+
+      const earlier = await within(view.container).findByRole("button", { name: /4 earlier tool calls/ })
+      expect(within(earlier).getByText("2 read · 1 bash · 1 edit")).not.toBeNull()
+    })
+
+    it("leaves a subagent in its own card between the runs around it", async () => {
+      mockToolTurns([[
+        read("c1", "a.go"),
+        read("c2", "b.go"),
+        { callId: "spawn-1", name: "spawn_agent", args: { purpose: "Review the change", prompt: "Review it" } },
+        read("c3", "c.go"),
+        read("c4", "d.go"),
+      ]])
+
+      const view = render(<NativeAgentPanel agentId="task-1" />)
+
+      const card = await within(view.container).findByTestId("subagent-card-spawn-1")
+      const groups = within(view.container).getAllByRole("group", { name: "2 tool calls" })
+      expect(groups).toHaveLength(2)
+      expect(groups.some((group) => group.contains(card))).toBe(false)
+      expect(within(groups[0]).getByText("b.go")).not.toBeNull()
+      expect(within(groups[1]).getByText("c.go")).not.toBeNull()
+    })
   })
 
   it("renders a model dropdown with models from the models endpoint", async () => {

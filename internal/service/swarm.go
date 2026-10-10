@@ -738,7 +738,7 @@ func (s *swarmService) CreateAdhocSwarm(ctx context.Context, taskID, goal, worki
 	if rolePath == "" {
 		kickoff = fmt.Sprintf("You are now the Legato swarm conductor for this adhoc request. Parent task ID: %s. Read the full brief at %s, then create, validate, and propose a swarm plan.", taskID, briefPath)
 	}
-	if err := tmuxer.Tmux().SendKeysLine(sess.TmuxSession, kickoff); err != nil {
+	if err := s.deliver(ctx, sessionTarget{taskID: taskID, tmuxSession: sess.TmuxSession}, kickoff); err != nil {
 		return fmt.Errorf("send conductor kickoff: %w", err)
 	}
 
@@ -1030,9 +1030,8 @@ func (s *swarmService) Dispatch(ctx context.Context, subtaskID string) error {
 	return nil
 }
 
-// Message sends text into a worker's tmux pane via send-keys. When urgent is
-// true the adapter's interrupt keys are sent first (e.g. Escape) to abort the
-// agent's current turn before the message is delivered.
+// Message sends text to a worker (see deliver). When urgent is true the
+// worker's current turn is interrupted first so the message is read now.
 func (s *swarmService) Message(ctx context.Context, subtaskID, text string, urgent bool) error {
 	st, err := s.store.GetSubtask(ctx, subtaskID)
 	if err != nil {
@@ -1042,23 +1041,25 @@ func (s *swarmService) Message(ctx context.Context, subtaskID, text string, urge
 	if err != nil {
 		return fmt.Errorf("worker %s is not running", subtaskID)
 	}
-	if err := s.maybeInterrupt(sessionTarget{tmuxSession: sess.TmuxSession, agentKind: st.AgentKind}, urgent); err != nil {
+	target := sessionTarget{taskID: subtaskID, tmuxSession: sess.TmuxSession, agentKind: st.AgentKind}
+	if err := s.maybeInterrupt(ctx, target, urgent); err != nil {
 		return err
 	}
-	return s.tmuxSendKeysLine(sess.TmuxSession, text)
+	return s.deliver(ctx, target, text)
 }
 
-// MessageParent sends text into the conductor's tmux pane via send-keys. When
-// urgent is true the conductor adapter's interrupt keys are sent first.
+// MessageParent sends text to the conductor (see deliver). When urgent is
+// true the conductor's current turn is interrupted first.
 func (s *swarmService) MessageParent(ctx context.Context, parentID, text string, urgent bool) error {
 	sess, err := s.store.GetAgentSessionByTaskID(ctx, parentID)
 	if err != nil {
 		return fmt.Errorf("conductor for parent %s is not running", parentID)
 	}
-	if err := s.maybeInterrupt(sessionTarget{tmuxSession: sess.TmuxSession, agentKind: s.cfg.Conductor.Agent}, urgent); err != nil {
+	target := sessionTarget{taskID: parentID, tmuxSession: sess.TmuxSession, agentKind: s.cfg.Conductor.Agent}
+	if err := s.maybeInterrupt(ctx, target, urgent); err != nil {
 		return err
 	}
-	return s.tmuxSendKeysLine(sess.TmuxSession, text)
+	return s.deliver(ctx, target, text)
 }
 
 // Broadcast sends text to every live worker in the swarm. When urgent is true
@@ -1077,29 +1078,51 @@ func (s *swarmService) Broadcast(ctx context.Context, parentID, text string, urg
 		if err != nil {
 			continue
 		}
-		if err := s.maybeInterrupt(sessionTarget{tmuxSession: sess.TmuxSession, agentKind: st.AgentKind}, urgent); err != nil {
+		target := sessionTarget{taskID: st.ID, tmuxSession: sess.TmuxSession, agentKind: st.AgentKind}
+		if err := s.maybeInterrupt(ctx, target, urgent); err != nil {
 			continue
 		}
-		if err := s.tmuxSendKeysLine(sess.TmuxSession, text); err == nil {
+		if err := s.deliver(ctx, target, text); err == nil {
 			count++
 		}
 	}
 	return count, nil
 }
 
-// sessionTarget bundles the tmux session name and the adapter kind so that
-// maybeInterrupt can resolve the correct adapter for interrupt keys.
+// sessionTarget identifies a swarm participant for delivery: its task (the
+// identity a native endpoint is bound to), its tmux session, and the adapter
+// kind that knows its interrupt keys.
 type sessionTarget struct {
+	taskID      string
 	tmuxSession string
 	agentKind   string
 }
 
-// maybeInterrupt sends the adapter's interrupt keys when urgent is true. If the
-// adapter doesn't implement InterruptAdapter the method is a no-op. Each key is
-// sent with the standard send-keys inter-call gap.
-func (s *swarmService) maybeInterrupt(target sessionTarget, urgent bool) error {
+// deliver sends text to a swarm participant. An agent bound to a native
+// endpoint (a Chimera session, or a Claude Code session through its bridge)
+// receives it over that endpoint: an idle agent starts a turn on it, a busy
+// one reads it at its next step. Any other agent has it typed into its pane.
+func (s *swarmService) deliver(ctx context.Context, target sessionTarget, text string) error {
+	if !s.agents.HasChimeraEndpoint(ctx, target.taskID) {
+		return s.tmuxSendKeysLine(target.tmuxSession, text)
+	}
+	if queuer, ok := s.agents.(AgentMessageQueuer); ok {
+		return queuer.QueueMessage(ctx, target.taskID, text)
+	}
+	return s.agents.SendMessage(ctx, target.taskID, text)
+}
+
+// maybeInterrupt aborts the participant's current turn when urgent is true.
+// An agent bound to a native endpoint is interrupted over it. Any other gets
+// its adapter's interrupt keys, each sent with the standard send-keys
+// inter-call gap; an adapter that does not implement InterruptAdapter is left
+// alone.
+func (s *swarmService) maybeInterrupt(ctx context.Context, target sessionTarget, urgent bool) error {
 	if !urgent {
 		return nil
+	}
+	if s.agents.HasChimeraEndpoint(ctx, target.taskID) {
+		return s.agents.InterruptAgent(ctx, target.taskID)
 	}
 	agentKind := target.agentKind
 	if agentKind == "" {
@@ -1457,6 +1480,12 @@ func (s *swarmService) recordEventForConductor(parentTaskID, subtaskID, kind, wo
 	mu := s.conductorLock(parentTaskID)
 	mu.Lock()
 	defer mu.Unlock()
+	if s.agents.HasChimeraEndpoint(context.Background(), parentTaskID) {
+		// Delivered as a message, not as keystrokes: there is no input
+		// handler to outrun, so no gap is needed.
+		_ = s.deliver(context.Background(), sessionTarget{taskID: parentTaskID, tmuxSession: sess.TmuxSession}, pointer)
+		return
+	}
 	_ = s.tmuxSendKeysLine(sess.TmuxSession, pointer)
 	time.Sleep(conductorEventGap)
 }

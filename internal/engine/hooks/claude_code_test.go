@@ -237,8 +237,11 @@ func TestClaudeCodeAdapter_HookScriptChecksEnvVar(t *testing.T) {
 	if !strings.Contains(script, "LEGATO_TASK_ID") {
 		t.Error("hook script doesn't check LEGATO_TASK_ID")
 	}
-	if !strings.Contains(script, "agent state") {
-		t.Error("hook script should call 'legato agent state', not 'legato task update'")
+	if !strings.Contains(script, "legato agent stopped") {
+		t.Error("the Stop hook should hand its payload to 'legato agent stopped'")
+	}
+	if strings.Contains(script, "cat >/dev/null\n\n# Only act") {
+		t.Error("the Stop hook must not drain the payload it hands on")
 	}
 	if !strings.Contains(script, `--execution-id "$LEGATO_EXECUTION_ID"`) || !strings.Contains(script, `[ -z "$LEGATO_EXECUTION_ID" ] && exit 1`) {
 		t.Error("hook script must require and report the owning execution ID")
@@ -258,7 +261,8 @@ func TestClaudeCodeAdapter_HookScriptActivities(t *testing.T) {
 	}{
 		{"legato-prompt-submit.sh", "--activity \"working\""},
 		{"legato-post-tool-use.sh", "--activity \"working\""},
-		{"legato-stop.sh", "--activity \"\""},
+		// Stop hands its payload on: it says whether a shell is still running.
+		{"legato-stop.sh", "agent stopped \"$LEGATO_TASK_ID\""},
 		{"legato-permission-request.sh", "--activity \"waiting\""},
 		{"legato-session-end.sh", "--activity \"\""},
 	}

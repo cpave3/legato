@@ -16,6 +16,7 @@ import { useServer } from "../hooks/useServer"
 import { useSwarmEvents } from "../hooks/useSwarmEvents"
 import { useTaskActivity } from "../hooks/useTaskActivity"
 import { apiFetch, toggleAgentNotify } from "../lib/api"
+import { canBeNative } from "../lib/agentKind"
 import { useAgentSelection } from "../hooks/useAgentSelection"
 import { useSettings } from "../hooks/useSettings"
 import { useToast } from "../hooks/useToast"
@@ -230,7 +231,7 @@ export function AgentsPage() {
       method: "POST",
     })
     if (!response.ok) {
-      throw new Error((await response.text()).trim() || "Could not upgrade Chimera agent")
+      throw new Error((await response.text()).trim() || "Could not upgrade the agent to the native panel")
     }
     await fetchAgents()
   }, [selectedId, baseUrl, fetchAgents])
@@ -241,7 +242,7 @@ export function AgentsPage() {
       method: "POST",
     })
     if (!response.ok) {
-      throw new Error((await response.text()).trim() || "Could not downgrade Chimera agent")
+      throw new Error((await response.text()).trim() || "Could not downgrade the agent to tmux")
     }
     await fetchAgents()
   }, [selectedId, baseUrl, fetchAgents])
@@ -548,7 +549,7 @@ export function AgentsPage() {
                 notifyEnabled={selectedAgent?.notify_enabled}
                 onToggleNotify={handleToggleNotify}
                 voiceEnabled={voiceEnabled}
-                onUpgradeChimera={selectedAgent?.agent_kind === "chimera" ? handleUpgradeChimera : undefined}
+                onUpgradeChimera={canBeNative(selectedAgent?.agent_kind) ? handleUpgradeChimera : undefined}
               />
             )}
           </>

@@ -162,12 +162,16 @@ func commandTree() *commandDef {
 	agent := group("agent", "Report and inspect AI-agent activity", []string{"legato agent peers --json", "legato agent state <task-id> --activity working"},
 		leaf("state", "Report agent activity for a task", runAgentStateContract,
 			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")},
-			[]commandFlag{valueFlag("activity", "working|waiting|error|empty", "Current activity"), valueFlag("execution-id", "id", "Owning Legato execution ID"), valueFlag("working-dir", "path", "Agent working directory"), valueFlag("session-id", "id", "Reporting integration session ID"), valueFlag("event", "name", "Reporting integration lifecycle event"), jsonFlag},
+			[]commandFlag{valueFlag("activity", "working|waiting|background|error|empty", "Current activity"), valueFlag("execution-id", "id", "Owning Legato execution ID"), valueFlag("working-dir", "path", "Agent working directory"), valueFlag("session-id", "id", "Reporting integration session ID"), valueFlag("event", "name", "Reporting integration lifecycle event"), jsonFlag},
 			"legato agent state <task-id> --activity working"),
 		leaf("permission-resolved", "Map a Chimera permission resolution payload to agent activity", runAgentPermissionResolvedContract,
 			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")},
 			[]commandFlag{valueFlag("execution-id", "id", "Owning Legato execution ID"), valueFlag("working-dir", "path", "Agent working directory"), valueFlag("session-id", "id", "Reporting Chimera session ID"), jsonFlag},
 			"legato agent permission-resolved <task-id> --execution-id <id>"),
+		leaf("stopped", "Map a Claude Code Stop hook payload to agent activity", runAgentStoppedContract,
+			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")},
+			[]commandFlag{valueFlag("execution-id", "id", "Owning Legato execution ID"), valueFlag("working-dir", "path", "Agent working directory"), jsonFlag},
+			"legato agent stopped <task-id> --execution-id <id> < stop-payload.json"),
 		leaf("session-created", "Record an integration-created agent session", runAgentSessionCreatedContract,
 			[]argumentDef{arg("task-id", "Task ID"), arg("session-id", "External session ID")}, []commandFlag{boolFlag("hook-payload", "Validate a Chimera SessionCreated JSON payload from stdin"), jsonFlag},
 			"legato agent session-created <task-id> <session-id>"),
@@ -187,8 +191,26 @@ func commandTree() *commandDef {
 			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")},
 			[]commandFlag{valueFlag("format", "tmux", "Integration output format"), jsonFlag},
 			"legato agent status <task-id> --format tmux"),
+		leaf("codex", "Start Codex for an agent session with its native bridge", runAgentCodexContract,
+			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")},
+			[]commandFlag{valueFlag("execution-id", "id", "Owning Legato execution ID; defaults to LEGATO_EXECUTION_ID")},
+			"legato agent codex -- --model gpt-6-sol"),
+		leaf("codex-bridge", "Serve a Codex session to Legato's native panel", runAgentCodexBridgeContract,
+			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")},
+			[]commandFlag{valueFlag("execution-id", "id", "Owning Legato execution ID; defaults to LEGATO_EXECUTION_ID")},
+			"legato agent codex-bridge <task-id> --execution-id <id>"),
+		leaf("bridge", "Serve a Claude Code session to Legato's native panel", runAgentBridgeContract,
+			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")},
+			[]commandFlag{valueFlag("execution-id", "id", "Owning Legato execution ID; defaults to LEGATO_EXECUTION_ID")},
+			"legato agent bridge <task-id> --execution-id <id>"),
 	)
 	agent.Children[1].Capabilities.Integration = true
+	agent.Children[len(agent.Children)-1].Capabilities = commandCapabilities{Integration: true, LongRunning: true}
+	for _, child := range agent.Children {
+		if child.Name == "codex" || child.Name == "codex-bridge" {
+			child.Capabilities = commandCapabilities{Integration: true, LongRunning: true}
+		}
+	}
 
 	hooks := group("hooks", "Manage AI-tool integration hooks", []string{"legato hooks install --tool chimera"},
 		leaf("install", "Install integration hooks", func(a []string) int { return runHooksContract(append([]string{"install"}, a...)) }, nil,

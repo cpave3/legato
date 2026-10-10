@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from "react"
 import type { AgentInfo } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
 import { ChevronDown, Play, Pause, AlertTriangle } from "lucide-react"
+import { AgentKindBadge } from "./AgentKindBadge"
+import { isAgentToolInForeground } from "../lib/agentKind"
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) return "<1m"
@@ -18,6 +20,9 @@ function ActivityDot({ activity }: { activity: string }) {
       return <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" title="Working" />
     case "waiting":
       return <span className="inline-flex h-2 w-2 rounded-full bg-yellow-500" title="Waiting" />
+    case "background":
+      // Its turn ended with a shell or subagent of its own still running.
+      return <span className="inline-flex h-2 w-2 rounded-full bg-sky-400" title="Background work running" />
     case "error":
       return <span className="inline-flex h-2 w-2 rounded-full bg-red-500" title="Error" />
     default:
@@ -31,6 +36,8 @@ function ActivityLabel({ activity }: { activity: string }) {
       return <span className="text-[10px] font-medium uppercase text-emerald-400">Working</span>
     case "waiting":
       return <span className="text-[10px] font-medium uppercase text-yellow-400">Waiting</span>
+    case "background":
+      return <span className="text-[10px] font-medium uppercase text-sky-300">Background</span>
     case "error":
       return <span className="text-[10px] font-medium uppercase text-red-400">Error</span>
     default:
@@ -87,6 +94,7 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
                 {selectedAgent.task_id}
               </span>
             </div>
+            <AgentKindBadge kind={selectedAgent.agent_kind} isNative={!!selectedAgent.has_chimera_endpoint} />
           </>
         ) : (
           <span className="flex-1 truncate text-sm text-zinc-500">Select agent…</span>
@@ -132,7 +140,12 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
                 {agent.task_title && (
                   <span className="truncate pl-4 text-xs text-zinc-300">{agent.task_title}</span>
                 )}
-                <span className="truncate pl-4 text-xs font-mono text-zinc-500">{agent.command}</span>
+                <span className="flex min-w-0 items-center gap-1.5 pl-4">
+                  <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} />
+                  {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
+                    <span className="min-w-0 truncate font-mono text-xs text-zinc-500">{agent.command}</span>
+                  )}
+                </span>
 
                 <div className="flex items-center gap-2 pl-4">
                   <ActivityLabel activity={agent.activity} />

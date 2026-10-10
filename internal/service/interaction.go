@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -17,6 +18,17 @@ import (
 type PermissionAction struct {
 	Decision string `json:"decision"`
 	Feedback string `json:"feedback,omitempty"`
+	// Option names which of the request's options an allow takes, for a
+	// request that listed several.
+	Option string `json:"option,omitempty"`
+}
+
+// QuestionAnswer answers a question an agent put to the person: per question
+// ID, the options chosen and any answer they typed. Dismissed closes the
+// request without one.
+type QuestionAnswer struct {
+	Answers   map[string][]string `json:"answers,omitempty"`
+	Dismissed bool                `json:"dismissed,omitempty"`
 }
 
 type AgentInteraction interface {
@@ -30,6 +42,8 @@ type AgentInteraction interface {
 	Interrupt(ctx context.Context, taskID string) error
 	// ResolvePermission resolves a pending structured permission request.
 	ResolvePermission(ctx context.Context, taskID, requestID string, action PermissionAction) error
+	// AnswerQuestion answers a pending structured question request.
+	AnswerQuestion(ctx context.Context, taskID, requestID string, answer QuestionAnswer) error
 }
 
 // SendKeysAdapter wraps the existing tmux send-keys behavior as the
@@ -69,4 +83,10 @@ func (a *SendKeysAdapter) Interrupt(ctx context.Context, taskID string) error {
 func (a *SendKeysAdapter) ResolvePermission(ctx context.Context, taskID, requestID string, action PermissionAction) error {
 	// Non-Chimera agents don't have structured permissions.
 	return nil
+}
+
+func (a *SendKeysAdapter) AnswerQuestion(ctx context.Context, taskID, requestID string, answer QuestionAnswer) error {
+	// A terminal-backed agent asks in its own dialog; nothing here is waiting
+	// on this answer, and saying so beats losing it silently.
+	return errors.New("agent " + taskID + " has no native endpoint to answer a question through")
 }

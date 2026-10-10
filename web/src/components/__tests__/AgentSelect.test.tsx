@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import { AgentSelect } from "../AgentSelect"
 import type { AgentInfo } from "../../hooks/useWebSocket"
@@ -18,5 +18,13 @@ describe("AgentSelect", () => {
     expect(screen.getByTitle("Error").className).toContain("bg-red-500")
     fireEvent.click(screen.getByRole("button"))
     expect(screen.getByText("Error").className).toContain("text-red-400")
+  })
+
+  it("tells an agent waiting on background work from an idle one", () => {
+    // Scoped to this render: the file's tests share one document.
+    const view = within(render(<AgentSelect agents={[{ ...errorAgent, activity: "background" }]} selectedId="task-error" onSelect={() => {}} />).container)
+    expect(view.getByTitle("Background work running").className).toContain("bg-sky-400")
+    fireEvent.click(view.getByRole("button"))
+    expect(view.getByText("Background").className).toContain("text-sky-300")
   })
 })

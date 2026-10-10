@@ -125,3 +125,12 @@ func (a *ChimeraInteractionAdapter) ResolvePermission(ctx context.Context, taskI
 	client := a.clientFactory(endpoint)
 	return client.ResolvePermission(ctx, sessionID, requestID, chimera.PermissionAction(action))
 }
+
+func (a *ChimeraInteractionAdapter) AnswerQuestion(ctx context.Context, taskID, requestID string, answer QuestionAnswer) error {
+	endpoint, sessionID, err := a.getEndpointAndSession(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	client := a.clientFactory(endpoint)
+	return client.AnswerQuestion(ctx, sessionID, requestID, chimera.QuestionAnswer(answer))
+}

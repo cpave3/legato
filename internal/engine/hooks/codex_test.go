@@ -554,3 +554,34 @@ func TestCodexAdapter_InstallHooks_ScriptActivities(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexAdapter_LaunchesThroughLegatoWhenTheNativeBridgeIsOn(t *testing.T) {
+	adapter := hooks.NewCodexAdapter("/opt/my tools/legato")
+	adapter.SetLaunchArgs([]string{"--search"})
+	adapter.SetTiers(map[string][]string{"large": {"--model", "gpt-6-sol"}})
+	adapter.SetNativeBridge(true)
+
+	got := adapter.LaunchCommand(map[string]string{"LEGATO_ROLE_PROMPT_FILE": "/tmp/role.md"}, "", "", "large")
+
+	// The same Codex arguments as before, handed to the launcher that brings
+	// up the session's bridge and then becomes Codex.
+	want := `'/opt/my tools/legato' agent codex -- -c developer_instructions="$(cat $LEGATO_ROLE_PROMPT_FILE)" --search --model gpt-6-sol`
+	if got != want {
+		t.Fatalf("LaunchCommand() =\n  %s\nwant\n  %s", got, want)
+	}
+	// Messages sent at launch wait for the bridge instead of being typed.
+	if !adapter.BindsNativeEndpoint() {
+		t.Fatal("a bridged Codex session should bind a native endpoint")
+	}
+}
+
+func TestCodexAdapter_StartsCodexDirectlyWithoutTheNativeBridge(t *testing.T) {
+	adapter := hooks.NewCodexAdapter("/opt/legato")
+
+	if got := adapter.LaunchCommand(nil, "", "", ""); got != "codex" {
+		t.Fatalf("LaunchCommand() = %q, want codex", got)
+	}
+	if adapter.BindsNativeEndpoint() {
+		t.Fatal("a Codex session without the bridge binds nothing")
+	}
+}

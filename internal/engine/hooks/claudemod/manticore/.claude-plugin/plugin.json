@@ -1,0 +1,6 @@
+{
+  "name": "legato-manticore",
+  "version": "0.1.0",
+  "description": "Reports what each model request of a Legato-launched Claude Code session cost (token counts, model, timing; never content) to a Manticore instance.",
+  "author": { "name": "Legato" }
+}

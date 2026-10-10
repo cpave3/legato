@@ -5,7 +5,7 @@ import { clearFrontendUpdateAttempt, coordinateFrontendUpdate, updateRegisteredS
 export interface WSMessage {
   type: "agent_output" | "agent_list" | "agents_changed" | "prompt_state" | "error" | "chimera_event" | "chimera_sync_required"
     | "subscribe_agent" | "unsubscribe_agent" | "send_keys" | "resize" | "detect_prompt" | "refresh_pane"
-    | "agent_message" | "agent_interrupt" | "agent_permission"
+    | "agent_message" | "agent_interrupt" | "agent_permission" | "agent_question"
     | "plan_proposed" | "plan_verdict" | "plan_changed" | "swarm_changed" | "cards_changed" | "review_changed" | "workflow_changed" | "attention_changed"
   agent_id?: string
   cursor?: string
@@ -42,6 +42,12 @@ export interface WSMessage {
   request_id?: string
   decision?: "allow" | "deny"
   feedback?: string
+  // agent_permission: which of the request's options an allow takes.
+  option?: string
+  // agent_question: what the person answered, per question ID, or that they
+  // closed the question unanswered.
+  answers?: Record<string, string[]>
+  dismissed?: boolean
 }
 
 export interface AgentInfo {
@@ -71,7 +77,8 @@ export interface AgentInfo {
 }
 
 export interface PromptState {
-  type: "tool_approval" | "plan_approval" | "question" | "free_text" | "working"
+  // menu: any other list of options the tool is showing in its terminal.
+  type: "tool_approval" | "plan_approval" | "question" | "menu" | "free_text" | "working"
   context?: string
   actions?: { label: string; keys: string }[]
 }

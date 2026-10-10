@@ -206,6 +206,12 @@ func DetectForAgent(agentKind, output string) Detection {
 		}
 	}
 
+	// Any other menu the tool is showing: one Legato has no reading of its
+	// own for, such as an update notice or a trust question.
+	if state, ok := detectMenu(cleaned); ok {
+		return Detection{State: state, Blocking: true}
+	}
+
 	return Detection{State: Detect(output)}
 }
 

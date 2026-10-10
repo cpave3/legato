@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -156,5 +157,50 @@ func TestChimeraDiscoverEndpointRejectsInvalidTargetsAndDiscoveryFailures(t *tes
 				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestNativeUpgradeEndpointRebindsAClaudeCodeAgent(t *testing.T) {
+	agents := &chimeraDiscoveryAgentFake{session: &store.AgentSession{TaskID: "TASK-42", AgentKind: "claude-code", Status: "running"}}
+	server := New(nil, agents, nil, ":0")
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/agents/TASK-42/chimera/discover", nil))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if agents.discovered != "TASK-42" {
+		t.Fatalf("discovered task = %q", agents.discovered)
+	}
+}
+
+func TestNativeUpgradeEndpointExplainsAMissingClaudeCodeBridge(t *testing.T) {
+	agents := &chimeraDiscoveryAgentFake{
+		session:     &store.AgentSession{TaskID: "TASK-42", AgentKind: "claude-code", Status: "running"},
+		discoverErr: service.ErrChimeraDiscoveryNotFound,
+	}
+	server := New(nil, agents, nil, ":0")
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/agents/TASK-42/chimera/discover", nil))
+
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if body := response.Body.String(); !strings.Contains(body, "Claude Code") || strings.Contains(body, "Chimera") {
+		t.Fatalf("body=%q, want it to speak of the Claude Code session, not Chimera", body)
+	}
+}
+
+func TestNativeUpgradeEndpointRejectsAgentsWithNoNativeProtocol(t *testing.T) {
+	agents := &chimeraDiscoveryAgentFake{session: &store.AgentSession{TaskID: "TASK-42", AgentKind: "codex", Status: "running"}}
+	server := New(nil, agents, nil, ":0")
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/agents/TASK-42/chimera/discover", nil))
+
+	if response.Code != http.StatusConflict || agents.discovered != "" {
+		t.Fatalf("status=%d discovered=%q", response.Code, agents.discovered)
 	}
 }

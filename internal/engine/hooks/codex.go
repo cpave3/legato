@@ -30,6 +30,9 @@ type CodexAdapter struct {
 	// selector). Layered after launchArgs at LaunchCommand time so tier
 	// args win on conflicts.
 	tiers map[string][]string
+	// nativeBridge starts sessions through `legato agent codex`, which gives
+	// them a bridge to Legato beside their terminal.
+	nativeBridge bool
 }
 
 // NewCodexAdapter creates a Codex adapter.
@@ -58,6 +61,22 @@ func (a *CodexAdapter) SetTiers(tiers map[string][]string) {
 	a.tiers = tiers
 }
 
+// SetNativeBridge chooses how sessions are started. On, the launch command is
+// `legato agent codex -- <codex arguments>`: it brings up a Codex app server
+// with Legato's bridge on it and attaches the Codex terminal UI to the same
+// server, which gives Legato direct messages, interrupts, approvals and the
+// native panel. Off, `codex` is started on its own and driven by send-keys.
+func (a *CodexAdapter) SetNativeBridge(enabled bool) {
+	a.nativeBridge = enabled
+}
+
+// BindsNativeEndpoint implements service.NativeBindingAdapter: a bridged
+// session binds itself once its terminal has attached, so messages sent at
+// launch wait for that rather than being typed into a tool still starting.
+func (a *CodexAdapter) BindsNativeEndpoint() bool {
+	return a.nativeBridge
+}
+
 // RoleSystemPrompt returns the system prompt for a swarm role.
 func (a *CodexAdapter) RoleSystemPrompt(role string) string {
 	return resolveRolePrompt(a.roleOverrides, role)
@@ -80,6 +99,11 @@ func (a *CodexAdapter) VoiceTrailingEnters() int { return 2 }
 func (a *CodexAdapter) LaunchCommand(env map[string]string, brief, model, tier string) string {
 	_ = brief
 	cmd := "codex"
+	if a.nativeBridge {
+		// The launcher takes Codex's own arguments after "--" and passes the
+		// configuration among them to the session's app server as well.
+		cmd = shellQuote(a.legatoBin) + " agent codex --"
+	}
 	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; ok {
 		cmd += ` -c developer_instructions="$(cat $LEGATO_ROLE_PROMPT_FILE)"`
 	}

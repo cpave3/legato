@@ -231,4 +231,12 @@ describe("BoardCard", () => {
     expect(event.defaultPrevented).toBe(true)
     expect(onContextMenu).toHaveBeenCalledWith({ x: 120, y: 80 })
   })
+
+  it("says when a card's agent is waiting on background work it started", () => {
+    const view = render(<BoardCard card={makeCard({ agent_state: "background" })} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
+    const card = within(view.container)
+
+    expect(card.getByText("BACKGROUND")).not.toBeNull()
+    expect(card.queryByText("RUNNING")).toBeNull()
+  })
 })

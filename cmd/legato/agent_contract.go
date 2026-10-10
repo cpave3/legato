@@ -26,6 +26,12 @@ func runAgentContract(args []string) int {
 		return runAgentSessionCreatedContract(args[1:])
 	case "permission-resolved":
 		return runAgentPermissionResolvedContract(args[1:])
+	case "stopped":
+		return runAgentStoppedContract(args[1:])
+	case "codex":
+		return runAgentCodexContract(args[1:])
+	case "codex-bridge":
+		return runAgentCodexBridgeContract(args[1:])
 	case "peers":
 		return runAgentPeersContract(args[1:])
 	case "message":
@@ -230,6 +236,47 @@ func chimeraPermissionResolvedActivity(reader io.Reader) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported session_status %q", payload.SessionStatus)
 	}
+}
+
+// claudeStopActivity reads a Claude Code Stop hook payload and returns the
+// activity the session is left in: background while work the turn started (a
+// shell, a subagent) is still in flight and will wake the session, idle
+// otherwise. A payload it cannot read is idle too: a Stop hook that fails is
+// shown to the person at the end of every turn.
+func claudeStopActivity(reader io.Reader) string {
+	var payload struct {
+		BackgroundTasks []json.RawMessage `json:"background_tasks"`
+	}
+	if err := json.NewDecoder(reader).Decode(&payload); err != nil || len(payload.BackgroundTasks) == 0 {
+		return ""
+	}
+	return store.ActivityBackground
+}
+
+func runAgentStoppedContract(args []string) int {
+	const command = "agent.stopped"
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("agent", "stopped"))
+	jsonMode := parsed.Present["json"]
+	if parseErr != nil {
+		return renderCommandError(command, parseErr, jsonMode)
+	}
+	taskID, rest, idErr := resolveTaskID(parsed.Positionals)
+	if idErr != nil {
+		return renderCommandError(command, idErr, jsonMode)
+	}
+	if len(rest) != 0 {
+		return renderCommandError(command, usageError("unexpected_argument", "agent stopped accepts one task ID"), jsonMode)
+	}
+	stateArgs := []string{taskID, "--activity", claudeStopActivity(os.Stdin), "--event", "Stop"}
+	for _, flag := range []string{"execution-id", "working-dir"} {
+		if value := parsed.Values[flag]; value != "" {
+			stateArgs = append(stateArgs, "--"+flag, value)
+		}
+	}
+	if jsonMode {
+		stateArgs = append(stateArgs, "--json")
+	}
+	return runAgentStateContract(stateArgs)
 }
 
 func runAgentPermissionResolvedContract(args []string) int {

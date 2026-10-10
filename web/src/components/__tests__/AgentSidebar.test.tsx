@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { AgentSidebar } from "../AgentSidebar"
 import type { AgentInfo } from "../../hooks/useWebSocket"
@@ -52,6 +52,42 @@ describe("AgentSidebar", () => {
     expect(agentButton.classList.contains("max-w-full")).toBe(true)
   })
 
+  it("shows which agent tool each session runs and how it is connected", () => {
+    render(
+      <AgentSidebar
+        agents={[
+          { ...longAgent, id: 1, task_id: "task-claude", agent_kind: "claude-code", command: "claude", has_chimera_endpoint: true },
+          { ...longAgent, id: 2, task_id: "task-codex", agent_kind: "codex", command: "codex" },
+        ]}
+        selectedId={null}
+        onSelect={vi.fn()}
+        onSpawn={vi.fn()}
+      />,
+    )
+
+    expect(within(screen.getByRole("button", { name: /task-claude/ })).getByLabelText("Claude Code, native session")).not.toBeNull()
+    expect(within(screen.getByRole("button", { name: /task-codex/ })).getByLabelText("Codex, terminal session")).not.toBeNull()
+  })
+
+  it("names the foreground process only when it is not the agent tool itself", () => {
+    render(
+      <AgentSidebar
+        agents={[
+          { ...longAgent, id: 1, task_id: "task-running", agent_kind: "claude-code", command: "claude" },
+          { ...longAgent, id: 2, task_id: "task-exited", agent_kind: "claude-code", command: "zsh" },
+        ]}
+        selectedId={null}
+        onSelect={vi.fn()}
+        onSpawn={vi.fn()}
+      />,
+    )
+
+    // "claude" beside a Claude Code badge says nothing; "zsh" says the tool
+    // is not what is running in that pane.
+    expect(within(screen.getByRole("button", { name: /task-running/ })).queryByText("claude")).toBeNull()
+    expect(within(screen.getByRole("button", { name: /task-exited/ })).getByText("zsh")).not.toBeNull()
+  })
+
   it("reports the right-clicked agent without changing left-click selection", () => {
     const onSelect = vi.fn()
     const onAgentContextMenu = vi.fn()
@@ -73,5 +109,19 @@ describe("AgentSidebar", () => {
 
     fireEvent.click(agentButton)
     expect(onSelect).toHaveBeenCalledWith(longAgent.task_id)
+  })
+
+  it("marks an agent that is waiting on its own background work", () => {
+    render(
+      <AgentSidebar
+        agents={[{ ...longAgent, activity: "background" }]}
+        selectedId={longAgent.task_id}
+        onSelect={() => {}}
+        onSpawn={() => {}}
+      />,
+    )
+    // Neither working nor idle: a shell it started is still running.
+    expect(screen.getByTitle("Background work running").className).toContain("bg-sky-400")
+    expect(screen.queryByTitle("Idle")).toBeNull()
   })
 })

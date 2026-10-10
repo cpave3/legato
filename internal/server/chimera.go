@@ -11,6 +11,13 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
+// nativeAgentKinds are the adapters whose sessions can be driven through the
+// native protocol, by the name shown in messages about them.
+var nativeAgentKinds = map[string]string{
+	"chimera":     "Chimera",
+	"claude-code": "Claude Code",
+}
+
 func (s *Server) chimeraDiscoverHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -31,16 +38,21 @@ func (s *Server) chimeraDiscoverHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if session.AgentKind != "chimera" || session.Status != "running" {
-			http.Error(w, "native upgrade requires an active Chimera agent", http.StatusConflict)
+		// Chimera sessions serve the native protocol themselves; a Claude Code
+		// session serves it through the bridge its Legato mod starts.
+		native := nativeAgentKinds[session.AgentKind]
+		if native == "" || session.Status != "running" {
+			http.Error(w, "native upgrade requires an active Chimera or Claude Code agent", http.StatusConflict)
 			return
 		}
 		if session.ChimeraEndpoint != nil || session.ChimeraSessionID != nil {
-			http.Error(w, "Chimera agent is already native", http.StatusConflict)
+			http.Error(w, native+" agent is already native", http.StatusConflict)
 			return
 		}
 		if err := s.agents.DiscoverChimera(r.Context(), taskID); err != nil {
 			switch {
+			case errors.Is(err, service.ErrChimeraDiscoveryNotFound) && session.AgentKind == "claude-code":
+				http.Error(w, "no live Claude Code bridge for this task was found; the session may not have loaded the Legato mod", http.StatusNotFound)
 			case errors.Is(err, service.ErrChimeraDiscoveryNotFound):
 				http.Error(w, "no live Chimera instance for this task was found", http.StatusNotFound)
 			case errors.Is(err, service.ErrChimeraDiscoveryAmbiguous):
@@ -269,6 +281,7 @@ func (s *Server) chimeraPermissionHandler() http.HandlerFunc {
 			RequestID string  `json:"request_id"`
 			Decision  string  `json:"decision"`
 			Feedback  *string `json:"feedback,omitempty"`
+			Option    string  `json:"option,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -294,7 +307,11 @@ func (s *Server) chimeraPermissionHandler() http.HandlerFunc {
 		}
 
 		client := chimera.NewClient(endpoint)
-		action := chimera.PermissionAction{Decision: req.Decision, Feedback: feedback}
+		if req.Option != "" && req.Decision != "allow" {
+			http.Error(w, "an option is only valid for allow", http.StatusBadRequest)
+			return
+		}
+		action := chimera.PermissionAction{Decision: req.Decision, Feedback: feedback, Option: req.Option}
 		if err := client.ResolvePermission(r.Context(), sessionID, req.RequestID, action); err != nil {
 			http.Error(w, "chimera: "+err.Error(), http.StatusBadGateway)
 			return

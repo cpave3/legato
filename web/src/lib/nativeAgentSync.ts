@@ -60,6 +60,48 @@ export interface NativePermissionItem {
   }
   status: "pending" | "submitting" | "allowed" | "denied" | "expired"
   remembered?: boolean
+  // A Markdown plan the request asks the person to approve.
+  plan?: string
+  // The ways the request can be allowed, when the agent offers several. A
+  // request that lists none takes a plain allow.
+  options?: NativePermissionOption[]
+  // Which of them the allow took.
+  option?: string
+  error?: string
+}
+
+export interface NativePermissionOption {
+  id: string
+  label: string
+}
+
+export interface NativeQuestionOption {
+  label: string
+  description?: string
+  // Shown beside the option while it is the one chosen: a mockup, a snippet.
+  preview?: string
+}
+
+// One thing an agent asks the person. Any agent can ask: nothing here names
+// the tool the question came from.
+export interface NativeQuestion {
+  // Names the question in the answers sent back.
+  id: string
+  header?: string
+  question: string
+  options: NativeQuestionOption[]
+  multiSelect?: boolean
+  // The person may type an answer of their own. Absent means they may.
+  allowOther?: boolean
+}
+
+export interface NativeQuestionItem {
+  requestId: string
+  questions: NativeQuestion[]
+  // expired: no longer answerable here (answered elsewhere, or its turn ended).
+  status: "pending" | "submitting" | "answered" | "dismissed" | "expired"
+  // What was answered, per question ID.
+  answers?: Record<string, string[]>
   error?: string
 }
 
@@ -70,6 +112,7 @@ export interface NativeConversationItem {
   isStreaming?: boolean
   tool?: NativeToolItem
   permission?: NativePermissionItem
+  question?: NativeQuestionItem
   bang?: NativeBangItem
 }
 
@@ -96,6 +139,13 @@ export interface NativeSnapshotPermission {
   reason?: string
   cwd: string
   policyAnalysis?: NativePermissionItem["policyAnalysis"]
+  plan?: string
+  options?: NativePermissionOption[]
+}
+
+export interface NativeSnapshotQuestion {
+  requestId: string
+  questions: NativeQuestion[]
 }
 
 export interface NativeSnapshot {
@@ -106,6 +156,7 @@ export interface NativeSnapshot {
   messages?: NativeSnapshotMessage[]
   toolCalls?: NativeSnapshotToolCall[]
   pendingPermissions?: NativeSnapshotPermission[]
+  pendingQuestions?: NativeSnapshotQuestion[]
   contextWindow?: number
   usedContextTokens?: number
 }
@@ -129,6 +180,12 @@ export interface NativeEvent {
   command?: string
   decision?: "allow" | "deny"
   remembered?: boolean
+  plan?: string
+  options?: NativePermissionOption[]
+  option?: string
+  questions?: NativeQuestion[]
+  answers?: Record<string, string[]>
+  dismissed?: boolean
   policyAnalysis?: NativePermissionItem["policyAnalysis"]
   error?: string
   contextWindow?: number
@@ -206,8 +263,19 @@ function permissionConversationItem(permission: NativeSnapshotPermission): Nativ
       command: permission.command,
       reason: permission.reason,
       policyAnalysis: permission.policyAnalysis,
+      plan: permission.plan,
+      options: permission.options,
       status: "pending",
     },
+  }
+}
+
+function questionConversationItem(question: NativeSnapshotQuestion): NativeConversationItem {
+  return {
+    key: question.requestId,
+    role: "system",
+    text: "",
+    question: { requestId: question.requestId, questions: question.questions, status: "pending" },
   }
 }
 
@@ -261,8 +329,11 @@ export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncSta
   for (const permission of snapshot.pendingPermissions ?? []) {
     items.push(permissionConversationItem(permission))
   }
+  for (const question of snapshot.pendingQuestions ?? []) {
+    items.push(questionConversationItem(question))
+  }
   const state = createNativeSyncState(items, calls.map((call) => call.callId).filter(Boolean))
-  state.busy = snapshot.status === "running" || snapshot.status === "waiting_for_permission"
+  state.busy = snapshot.status === "running" || snapshot.status === "waiting_for_permission" || snapshot.status === "waiting_for_input"
   if (snapshot.contextWindow && snapshot.usedContextTokens != null) {
     state.contextUsage = { used: snapshot.usedContextTokens, window: snapshot.contextWindow }
   }
@@ -309,6 +380,12 @@ export function reconcileNativeSnapshot(
   } else {
     next.items.push(...previousPermissionItems.filter((item) =>
       item.permission && item.permission.status !== "pending" && item.permission.status !== "submitting"))
+  }
+  // A settled question is on record as the transcript's own tool call, so
+  // only open ones are kept, and only when the snapshot cannot say which are.
+  if (snapshot.pendingQuestions === undefined) {
+    next.items.push(...previous.items.filter((item) =>
+      item.question && (item.question.status === "pending" || item.question.status === "submitting")))
   }
   next.cursor = previous.cursor
   next.eventIds = new Set(previous.eventIds)
@@ -458,6 +535,8 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
           reason: event.reason,
           cwd: "",
           policyAnalysis: event.policyAnalysis,
+          plan: event.plan,
+          options: event.options,
         })
         const existingIndex = next.items.findIndex((item) => item.permission?.requestId === event.requestId)
         if (existingIndex >= 0) next.items[existingIndex] = permissionItem
@@ -470,6 +549,7 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
           ...permission,
           status: event.decision === "allow" ? "allowed" : "denied",
           remembered: event.remembered,
+          option: event.option,
           error: undefined,
         }))
       }
@@ -477,6 +557,30 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
     case "permission_timeout":
       if (event.requestId) {
         updatePermission(next.items, event.requestId, (permission) => ({ ...permission, status: "expired", error: undefined }))
+      }
+      break
+    case "question_request":
+      next.busy = false
+      if (event.requestId && event.questions?.length) {
+        const questionItem = questionConversationItem({ requestId: event.requestId, questions: event.questions })
+        const existingIndex = next.items.findIndex((item) => item.question?.requestId === event.requestId)
+        if (existingIndex >= 0) next.items[existingIndex] = questionItem
+        else next.items.push(questionItem)
+      }
+      break
+    case "question_resolved":
+      if (event.requestId) {
+        updateQuestion(next.items, event.requestId, (question) => ({
+          ...question,
+          status: event.dismissed ? "dismissed" : "answered",
+          answers: event.answers,
+          error: undefined,
+        }))
+      }
+      break
+    case "question_timeout":
+      if (event.requestId) {
+        updateQuestion(next.items, event.requestId, (question) => ({ ...question, status: "expired", error: undefined }))
       }
       break
     case "run_finished":
@@ -524,6 +628,26 @@ function updatePermission(
   const index = items.findIndex((item) => item.permission?.requestId === requestId)
   if (index < 0 || !items[index].permission) return
   items[index] = { ...items[index], permission: update(items[index].permission!) }
+}
+
+export function updateQuestionState(
+  state: NativeSyncState,
+  requestId: string,
+  update: (question: NativeQuestionItem) => NativeQuestionItem,
+): NativeSyncState {
+  const items = [...state.items]
+  updateQuestion(items, requestId, update)
+  return { ...state, items }
+}
+
+function updateQuestion(
+  items: NativeConversationItem[],
+  requestId: string,
+  update: (question: NativeQuestionItem) => NativeQuestionItem,
+) {
+  const index = items.findIndex((item) => item.question?.requestId === requestId)
+  if (index < 0 || !items[index].question) return
+  items[index] = { ...items[index], question: update(items[index].question!) }
 }
 
 function updateTool(items: NativeConversationItem[], callId: string, update: (tool: NativeToolItem) => NativeToolItem) {

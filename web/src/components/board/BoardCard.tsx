@@ -16,6 +16,7 @@ import {
   Diamond,
   Play,
   Pause,
+  Hourglass,
   ListChecks,
   MoreHorizontal,
   GitPullRequest,
@@ -136,6 +137,11 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
         {card.agent_state === "waiting" && (
           <span className="flex items-center gap-0.5 text-[10px] font-bold text-[#E5C07B]">
             <Pause size={8} /> WAITING
+          </span>
+        )}
+        {card.agent_state === "background" && (
+          <span className="flex items-center gap-0.5 text-[10px] font-bold text-sky-300">
+            <Hourglass size={8} /> BACKGROUND
           </span>
         )}
         {card.agent_state === "error" && (

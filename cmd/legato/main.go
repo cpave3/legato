@@ -1459,6 +1459,7 @@ func runServeCmd(args []string) int {
 			LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 		})
+		recoverNativeEndpoints(agentSvc)
 	}
 
 	// Swarm service for HTTP endpoints.
@@ -1714,6 +1715,7 @@ func runTUI() int {
 			LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 		})
+		recoverNativeEndpoints(agentSvc)
 	}
 
 	icons := theme.NewIcons(cfg.Icons)

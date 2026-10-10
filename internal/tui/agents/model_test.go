@@ -708,3 +708,20 @@ func TestWorkerDetailsPaneConditionallyShown(t *testing.T) {
 		t.Error("worker view with showWorkerDetails=true should contain WORKER header")
 	}
 }
+
+func TestSidebarShowsAnAgentWaitingOnBackgroundWork(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents([]service.AgentSession{
+		{ID: 1, TaskID: "t1", TmuxSession: "legato-t1", Command: "claude", Status: "running", Activity: "background", StartedAt: time.Now()},
+	})
+	m.SetSize(120, 40)
+
+	view := m.View()
+
+	if !containsStr(view, "BACKGROUND") {
+		t.Error("view should say the agent is waiting on background work")
+	}
+	if containsStr(view, "IDLE") {
+		t.Error("an agent with a shell still running is not idle")
+	}
+}

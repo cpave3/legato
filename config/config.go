@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,6 +39,19 @@ type Config struct {
 	Repositories           []RepositoryConfig       `yaml:"repositories"`
 	Learning               LearningConfig           `yaml:"learning"`
 	SSHAgentSocket         string                   `yaml:"ssh_agent_socket"`
+	Manticore              ManticoreConfig          `yaml:"manticore"`
+}
+
+// ManticoreConfig names the Manticore instance that Claude Code sessions
+// report their usage to. Claude Code's requests go straight to its provider,
+// so Manticore cannot see them as a proxy; with a URL set, Legato loads a mod
+// into each Claude Code session it launches that reports token counts after
+// the fact. Unset, nothing is installed or sent.
+type ManticoreConfig struct {
+	// URL is the instance's base address, e.g. http://192.168.1.220:3456.
+	URL string `yaml:"url"`
+	// APIKey is the key of the Manticore Client the usage is attributed to.
+	APIKey string `yaml:"api_key"`
 }
 
 // LearningConfig controls opt-in learning automation and its bounded inputs.
@@ -134,6 +148,20 @@ type AdapterConfig struct {
 	// adapter's base launch_args when spawning the worker. Tier args layered
 	// last so a tier-specified flag (typically `--model`) wins on conflicts.
 	Tiers map[string]TierConfig `yaml:"tiers"`
+	// NativeBridge controls whether sessions of this adapter are connected to
+	// Legato beyond their terminal, which lets Legato message, interrupt and
+	// approve directly and show the session in the native panel. `claude-code`
+	// sessions load the Legato mod; `codex` sessions are started through
+	// `legato agent codex`, sharing a Codex app server with Legato's bridge.
+	// Unset means enabled; set `native_bridge: false` to keep an adapter's
+	// sessions tmux-only. Other adapters ignore it.
+	NativeBridge *bool `yaml:"native_bridge"`
+	// Models are the model IDs the native panel offers for sessions of this
+	// adapter, beside the model each session already runs. Only `claude-code`
+	// reads it, and it takes full IDs (`claude-sonnet-5-5`), not the aliases
+	// `/model` accepts: a choice is applied to each request as it is sent,
+	// where the engine no longer resolves aliases.
+	Models []string `yaml:"models"`
 }
 
 // TierConfig describes a single named launch profile for an adapter — see
@@ -353,7 +381,33 @@ func Load() (*Config, error) {
 	if err := ValidateWorkspaceDefaults(cfg); err != nil {
 		return nil, err
 	}
+	if err := normalizeManticoreConfig(cfg); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+// normalizeManticoreConfig trims the Manticore settings and rejects an
+// instance that is only half described: reporting needs both where to send
+// and the key that says whose usage it is.
+func normalizeManticoreConfig(cfg *Config) error {
+	manticore := &cfg.Manticore
+	manticore.URL = strings.TrimRight(strings.TrimSpace(manticore.URL), "/")
+	manticore.APIKey = strings.TrimSpace(manticore.APIKey)
+	if manticore.URL == "" && manticore.APIKey == "" {
+		return nil
+	}
+	if manticore.URL == "" {
+		return fmt.Errorf("manticore.url is required when manticore.api_key is set")
+	}
+	parsed, err := url.Parse(manticore.URL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return fmt.Errorf("manticore.url must be an http or https address, got %q", manticore.URL)
+	}
+	if manticore.APIKey == "" {
+		return fmt.Errorf("manticore.api_key is required when manticore.url is set")
+	}
+	return nil
 }
 
 // ValidateWorkspaceDefaults checks workspace identities and configured default references.
