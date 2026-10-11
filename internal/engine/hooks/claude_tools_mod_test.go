@@ -2,6 +2,7 @@ package hooks_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -67,8 +68,8 @@ func TestClaudeToolsModAllowsOnlyLegatosOwnToolsWithoutAsking(t *testing.T) {
 	}
 	readJSON(t, filepath.Join(pluginDir, "hooks", "hooks.json"), &config)
 	entries := config.Hooks["PreToolUse"]
-	if len(config.Hooks) != 1 || len(entries) != 1 || len(entries[0].Hooks) != 1 {
-		t.Fatalf("hooks = %#v, want one PreToolUse hook", config.Hooks)
+	if len(config.Hooks) != 1 || len(entries) != 2 || len(entries[0].Hooks) != 1 {
+		t.Fatalf("hooks = %#v, want two PreToolUse hooks: Legato's tools, and reads of pasted images", config.Hooks)
 	}
 	matcher, err := regexp.Compile("^(?:" + entries[0].Matcher + ")$")
 	if err != nil {
@@ -121,5 +122,86 @@ func TestClaudeCodeAdapterLoadsTheToolsModBesideTheOthers(t *testing.T) {
 	want := strings.Join([]string{"/home/me/mods/tally", "/data/claude-mod/legato", "/data/claude-mod/legato-tools"}, string(os.PathListSeparator))
 	if got != want {
 		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want %q", got, want)
+	}
+}
+
+// Claude Code asks before it reads a file outside its working directory. The
+// plugin's second hook lets it read an image the person pasted for the
+// session without asking, by putting the question to `legato agent
+// allow-read`. Every other read must cost nothing and change nothing.
+func TestClaudeToolsModAsksLegatoOnlyAboutReadsOfPastedImages(t *testing.T) {
+	pluginDir, err := hooks.InstallClaudeToolsMod(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	readJSON(t, filepath.Join(pluginDir, "hooks", "hooks.json"), &config)
+	entry := config.Hooks["PreToolUse"][1]
+	matcher := regexp.MustCompile("^(?:" + entry.Matcher + ")$")
+	if !matcher.MatchString("Read") {
+		t.Fatalf("matcher %q does not cover Read", entry.Matcher)
+	}
+	for _, tool := range []string{"Write", "Edit", "Bash", "NotebookRead", "mcp__plugin_legato-tools_legato__show_card"} {
+		if matcher.MatchString(tool) {
+			t.Errorf("matcher %q also covers %s", entry.Matcher, tool)
+		}
+	}
+	if len(entry.Hooks) != 1 || entry.Hooks[0].Type != "command" {
+		t.Fatalf("hook = %#v, want one command", entry.Hooks)
+	}
+
+	// A stand-in for the legato binary records what it was run with and
+	// answers as the real command does.
+	dir := t.TempDir()
+	record := filepath.Join(dir, "calls")
+	binary := filepath.Join(dir, "legato")
+	script := "#!/bin/sh\n{ echo \"args: $*\"; cat; echo; } >> " + record + "\nprintf 'ALLOWED'\n"
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(payload string, env ...string) string {
+		t.Helper()
+		cmd := exec.Command("sh", "-c", entry.Hooks[0].Command)
+		cmd.Stdin = strings.NewReader(payload)
+		cmd.Env = append([]string{"PATH=" + os.Getenv("PATH")}, env...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("the hook command failed, which would get in the way of the read: %v: %s", err, out)
+		}
+		return string(out)
+	}
+	pasted := `{"tool_name":"Read","tool_input":{"file_path":"/tmp/legato-1000/pasted-images/task-1/pasted-1.png"}}`
+	other := `{"tool_name":"Read","tool_input":{"file_path":"/repo/internal/server/server.go"}}`
+
+	if out := run(pasted, "LEGATO_BIN="+binary); out != "ALLOWED" {
+		t.Errorf("a read of a pasted image: the hook printed %q, want Legato's answer", out)
+	}
+	recorded, _ := os.ReadFile(record)
+	if !strings.Contains(string(recorded), "args: agent allow-read") || !strings.Contains(string(recorded), pasted) {
+		t.Errorf("Legato was not asked with the hook's payload: %q", recorded)
+	}
+
+	// Any other read does not start Legato at all.
+	if err := os.Remove(record); err != nil {
+		t.Fatal(err)
+	}
+	if out := run(other, "LEGATO_BIN="+binary); out != "" {
+		t.Errorf("another read: the hook printed %q", out)
+	}
+	if _, err := os.Stat(record); !os.IsNotExist(err) {
+		t.Errorf("Legato was started for a read that names no pasted image")
+	}
+
+	// Outside a Legato session there is no binary to ask, and no error.
+	if out := run(pasted); out != "" {
+		t.Errorf("without LEGATO_BIN: the hook printed %q", out)
 	}
 }

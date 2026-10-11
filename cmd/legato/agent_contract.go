@@ -28,6 +28,8 @@ func runAgentContract(args []string) int {
 		return runAgentPermissionResolvedContract(args[1:])
 	case "stopped":
 		return runAgentStoppedContract(args[1:])
+	case "allow-read":
+		return runAgentAllowReadContract(args[1:])
 	case "codex":
 		return runAgentCodexContract(args[1:])
 	case "codex-bridge":
@@ -277,6 +279,20 @@ func runAgentStoppedContract(args []string) int {
 		stateArgs = append(stateArgs, "--json")
 	}
 	return runAgentStateContract(stateArgs)
+}
+
+// runAgentAllowReadContract answers the Claude Code plugin's hook before a
+// Read: it prints the output that allows the read when the file is an image
+// the person pasted for this session, and nothing otherwise. It reads no
+// configuration and no database, and it exits 0 whatever it is given: a hook
+// that fails would get in the way of the tool call it was asked about.
+func runAgentAllowReadContract(args []string) int {
+	taskID := strings.TrimSpace(os.Getenv("LEGATO_TASK_ID"))
+	if parsed, err := parseCommandArgs(args, commandFlagSpecs("agent", "allow-read")); err == nil && len(parsed.Positionals) == 1 {
+		taskID = parsed.Positionals[0]
+	}
+	fmt.Print(cli.ClaudeReadPermission(os.Stdin, taskID))
+	return 0
 }
 
 func runAgentPermissionResolvedContract(args []string) int {

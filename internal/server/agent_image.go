@@ -10,11 +10,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/chimera"
+	"github.com/cpave3/legato/internal/service"
 )
 
 // agentImageMaxBytes bounds an image the web UI may ask for.
@@ -47,18 +47,6 @@ const (
 	pastedImagesKept    = 20
 )
 
-// A task's ID becomes a folder name.
-var pastedImageTaskID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-
-// pastedImageDir is where a task's pasted images are kept: under the
-// system's temporary directory, because that is a place every agent tool
-// lets its agent read (Chimera's read tool takes the working directory or
-// /tmp and nothing else). It is not the worktree, where the files would show
-// up as changes.
-func pastedImageDir(taskID string) string {
-	return filepath.Join(os.TempDir(), fmt.Sprintf("legato-%d", os.Getuid()), "pasted-images", taskID)
-}
-
 // agentImageHandler is the two halves of images in a conversation: GET
 // serves an image file an agent read, so the web UI can show it, and POST
 // stores an image the person pasted, so an agent can read it.
@@ -82,7 +70,7 @@ func (s *Server) agentImageHandler() http.HandlerFunc {
 // works for every agent, whatever it can be sent directly.
 func (s *Server) storePastedImage(w http.ResponseWriter, r *http.Request) {
 	taskID := r.PathValue("task_id")
-	if !pastedImageTaskID.MatchString(taskID) {
+	if !service.ValidPastedImageTaskID(taskID) {
 		s.writeError(w, http.StatusBadRequest, "the task ID is not valid")
 		return
 	}
@@ -103,7 +91,7 @@ func (s *Server) storePastedImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dir := pastedImageDir(taskID)
+	dir := service.PastedImageDir(taskID)
 	// A pasted image may be private: the folder and the file are the user's only.
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		s.writeError(w, http.StatusInternalServerError, "the image could not be stored: "+err.Error())

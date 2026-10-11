@@ -66,7 +66,7 @@ A swarm worker's own identity is its sub-task, which has no description or notes
 
 **No approval prompt.** Each agent tool is told to run these tools without asking:
 
-- Claude Code: a `PreToolUse` hook in the plugin answers `allow` for `mcp__plugin_legato-tools_legato__.*` and nothing else.
+- Claude Code: a `PreToolUse` hook in the plugin answers `allow` for `mcp__plugin_legato-tools_legato__.*` and nothing else. (The plugin's second hook is about `Read` and pasted images, not about these tools; see [Claude Code native integration](claude-code-native.md) § Legato's tools in a session.)
 - Codex: the tools are annotated as not destructive and closed-world; Codex runs them without an approval request.
 - Chimera: the entry's `trustedTools` lists every tool name (`cli.MCPToolNames()`).
 

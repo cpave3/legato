@@ -202,6 +202,10 @@ To drive a session without the web UI, a mod of a few lines loaded with `CLAUDE_
 
 A third plugin, `legato-tools` (`internal/engine/hooks/claudemod/tools/`), gives a session Legato's own MCP server, `legato mcp serve`: tools to show an artifact or a card in the web UI, read the task, record a note and message peers. It is an ordinary plugin, not a mod, and does not need the bridge mod: a `.mcp.json` that starts `${LEGATO_BIN} mcp serve`, and a `PreToolUse` hook that allows that server's tools (`mcp__plugin_legato-tools_legato__.*`) without a prompt. `configuredAdapters` installs it to `<data_dir>/claude-mod/legato-tools` when `agents.mcp.enabled` and adds the folder to the session's `CLAUDE_CODE_PLUGIN_DIRS`.
 
+**Reading a pasted image without a request.** The plugin has a second `PreToolUse` hook, for `Read`. Claude Code asks the person before it reads a file outside its working directory, and an image the person pasted for the session (see [Web UI](web-ui.md) § Pasting an image for an agent) is such a file: the request would ask them to approve what they just did. The hook puts the question to `legato agent allow-read`, which prints an allow decision only when the file is really in this task's folder of pasted images (`service.IsPastedImage`): the path is resolved first, so a path that climbs out of the folder, a link in it that leads elsewhere, and another task's folder all get no answer, which leaves the decision to Claude Code's own rules. The hook starts Legato only when the payload names `pasted-images`, so every other read costs one shell and nothing more; it does nothing outside a Legato session (`LEGATO_BIN` unset) and always exits 0.
+
+Checked with a live session: a pasted image was read with no request, and a file at `…/outside/pasted-images/shot.png` still raised one.
+
 Checked against Claude Code 2.1.296:
 
 - A plugin's MCP server is started with the session's whole environment, so the server finds its session from `LEGATO_TASK_ID` and `LEGATO_EXECUTION_ID` with nothing passed to it. `${VAR}` in `.mcp.json` is expanded from that environment.

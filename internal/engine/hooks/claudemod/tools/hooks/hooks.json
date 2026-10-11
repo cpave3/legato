@@ -9,6 +9,15 @@
             "command": "printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"Legato session tool\"}}'"
           }
         ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "payload=$(cat); case \"$payload\" in *pasted-images*) [ -n \"$LEGATO_BIN\" ] && printf '%s' \"$payload\" | \"$LEGATO_BIN\" agent allow-read ;; esac; exit 0"
+          }
+        ]
       }
     ]
   }
