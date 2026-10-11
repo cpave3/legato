@@ -84,6 +84,20 @@ Adapters whose tool needs the launch prompt implement `service.ToolsPromptAdapte
 
 The guidance names tools by their own names, since each agent tool adds a prefix of its own, and it gives concrete triggers: prefer a card to a Markdown table or a list of numbers; prefer an artifact to a reply longer than about a screen; after showing something, say in one sentence what it is.
 
+**Which form, and how far to go.** The guidance and the tool descriptions say two things together:
+
+- `show_components` is the simplest way, and the right one when its ready-made parts say it well.
+- Custom HTML is there to be used in full when it gives the person a better experience: the agent's own layout and CSS, inline SVG, JavaScript for interaction, a diagram or chart library. An architecture or an explanation is a page the person explores, not a document they scroll: a Mermaid diagram carries the structure, the agent styles it, and the detail of a part shows when the person clicks it. Markdown is for plain prose.
+
+The second point exists because of what agents did without it, in two steps:
+
+1. Told only what the frame forbids, an agent asked for an architecture wrote 11 KB of HTML with no SVG, no script and no library: boxes in a grid, with the connections typed as `↓` and `→`. The capability was there and unused. The descriptions of the two HTML tools therefore say what *works* in the frame (see The sandbox).
+2. Told that Mermaid exists, the same kind of agent made a Markdown document with a flowchart in it: correct, and dull. `show_artifact` now asks for a page that is designed and can be explored, says that the panel is narrow (one column, short node labels, the detail in what opens on a click), and keeps `format: markdown` for plain prose. The HTML tools teach Legato's own way to draw a diagram (see Diagrams in a frame), with an example that was run in the frame; with no host allowed that serves Mermaid (`drawsDiagrams`), they do not mention it.
+
+Checked after the second step: a Chimera agent, asked to "show me its architecture" with no hint about format, made an HTML page with a summary, four tabs, four Mermaid diagrams with named colors, and `legato.diagrams({ onNode })` showing a part's detail and source paths on a click. It loaded no library of its own. In the panel the three diagrams in hidden tabs drew at full size, and the downloaded file behaved the same. A Claude Code agent on its default model, given the same prompt, made a page with five tabs, five diagrams, a walk-through of the parts and a detail sheet, using `legato.diagrams`, `legato.selectNode` and `legato.proposeMessage`; all five diagrams drew. Before it showed the page it parsed its diagrams and ran its script against a stand-in for the helper, since an agent cannot see what it drew. That is one run with each agent; Codex was not run.
+
+The loop used to get here (measure the output, name the gap, prove the target by hand, change the smallest thing, verify with a real agent) is the repository skill `.claude/skills/improve-agent-artifacts`, with the scripts it needs.
+
 Checked with a question that names no tool ("compare these three search backends"): Codex, Chimera and Claude Code on its default model each answered with a component card. A small model (Claude Haiku) answered in text wherever the guidance was placed.
 
 **About prompts and messages in general.** A launch-time system addendum has been reliable since it became a launch flag, not typed text: `--append-system-prompt` (Claude Code), `developer_instructions` (Codex, given to the app server by the launcher) and `--prompt` (Chimera). What the native bridges added is reliable delivery of *messages after launch* (the kickoff, peer notices): they are submitted over the session's endpoint instead of being typed. Server instructions go one step further for Claude Code, because they do not depend on Legato typing the launch command at all.
@@ -115,6 +129,7 @@ The web UI draws them with its own elements (`AgentUIComponents`). Nothing the a
 
 **Artifact panel** (`AgentArtifactPanel`). It lists what the session showed as tabs, artifacts first, with a revision stepper, Copy source, Download and Remove.
 
+- **Download** saves an HTML item as a whole page that looks the same outside Legato (`buildStandaloneDocument`). The agent wrote its styles against Legato's theme, which the frame supplies and a raw file would be without, so the theme variables and base styles go into the file. So does the content security policy: outside Legato nothing else limits what the agent's scripts may reach. `legato.proposeMessage` does nothing there and `legato.openLink` opens the link, so scripts that call them do not fail. Markdown and component cards are saved as the agent wrote them (`.md`, `.json`). **Copy source** always gives what the agent wrote.
 - On a wide screen it is a resizable column beside the conversation (drag its left edge, or Left/Right on it; the width is remembered).
 - Below 1100 px of viewport (1500 px beside the swarm event log) it is a full-screen sheet, as on a phone, above the bottom navigation.
 - `useArtifactPanel` decides when it opens: a new artifact from the agent in view opens it, focused on that artifact; one from another agent is counted on that agent's sidebar entry and opens when the person goes there. A card never opens it. Where the panel is a sheet, a new artifact only marks the button, so it cannot land on top of what the person is typing.
@@ -131,7 +146,47 @@ The web UI draws them with its own elements (`AgentUIComponents`). Nothing the a
 
 Checked in a browser: script in a frame was refused the parent's storage and document, `fetch` to Legato and to another site, `window.open`, navigating the top window, and a script from an unlisted host.
 
-A frame starts with a small script that gives the content `legato.proposeMessage(text)` and `legato.openLink(url)`, reports its height, and passes link clicks to the host. The messages are JSON-RPC with MCP Apps' method names (`ui/notifications/size-changed`, `ui/open-link`, `ui/message`), and the theme is given as MCP Apps' CSS variables (`--color-background-primary`, `--color-text-primary`, `--font-sans`, …), so the frame is a start on drawing other MCP servers' UI. The host acts only on messages from the frame's own window, and opens only `http` and `https` links, after the person confirms.
+What an agent's page can and cannot do there. Each entry was checked in a browser, except `sessionStorage`, cookies, submitting forms and `eval`, which follow from the same sandbox attribute and policy:
+
+| Works | Does not work |
+| --- | --- |
+| The page's own `<style>` and `<script>`, inline SVG, canvas | `fetch`, XHR, WebSocket (`connect-src 'none'`) |
+| Scripts for interaction: tabs, sections that open, details on click | `localStorage`, `sessionStorage`, cookies (they throw: the origin is opaque) |
+| Libraries from the allowed hosts as a classic script or an ES module: Mermaid and D3 were run | Web workers (`child-src 'none'`), which a few libraries need |
+| A `<pre class="mermaid">` block, drawn by the frame's own script (see Diagrams in a frame) | Forms that submit, pop-ups, navigating the top window, `eval` |
+| A `mermaid` fence in a Markdown artifact, drawn by Legato's own bundled Mermaid | |
+
+A frame starts with a small script that gives the content `legato.proposeMessage(text)` and `legato.openLink(url)`, reports its height, and passes link clicks to the host (`legato.diagrams` and `legato.selectNode` are described below). The messages are JSON-RPC with MCP Apps' method names (`ui/notifications/size-changed`, `ui/open-link`, `ui/message`), and the theme is given as MCP Apps' CSS variables (`--color-background-primary`, `--color-text-primary`, `--font-sans`, …), so the frame is a start on drawing other MCP servers' UI. The host acts only on messages from the frame's own window, and opens only `http` and `https` links, after the person confirms.
+
+**Diagrams in a frame.** The frame's script also draws Mermaid, so an agent writes a diagram's source and no library code (`diagramsScript` in `web/src/lib/agentUi.ts`):
+
+```html
+<pre class="mermaid">flowchart TB; api[API]:::blue --> db[(Database)]:::cyan</pre>
+<p id="about">Select a part.</p>
+<script>
+  const about = { api: "Checks the token and routes the call.", db: "One container for each domain." }
+  legato.diagrams({ onNode: (id) => { document.getElementById("about").textContent = about[id] } })
+</script>
+```
+
+- `legato.diagrams(options)` draws every `.mermaid` block on the page and returns a promise. A page that only wrote the blocks gets them drawn when it has loaded. A page that loads a Mermaid of its own is left alone.
+- `onNode(id, element)` makes every node a button: reachable with the keyboard, marked `aria-pressed="true"` when chosen, and scrolled into view. `id` is the node's name in the diagram's source. `legato.selectNode(id)` chooses a node from the page's own script.
+- A node takes a color by name: `:::blue`, `:::cyan`, `:::green`, `:::amber`, `:::red`, `:::pink`, `:::purple`, `:::gray`. `classDef` still works for a style of the agent's own.
+- The diagram is drawn in Legato's theme (`mermaidConfig`, `diagramStyle`), with Mermaid's `securityLevel: "loose"`: the frame is the sandbox, so a label may hold markup and a diagram's own `click` lines work.
+- Mermaid is loaded from the first allowed host that serves it (`MERMAID_SOURCES`: jsDelivr, then unpkg), at the release the web UI bundles. With neither allowed, a block stays as its text and the page's script carries on.
+- A diagram Mermaid cannot read stays as its source, with the error in its `title`; the others are drawn.
+
+Each of these is something an agent got wrong, or would, when it ran Mermaid itself. The first two rows were measured in the frame with Mermaid 11.16; the others follow from how Mermaid sizes and replaces a block:
+
+| Without the helper | What the helper does |
+| --- | --- |
+| A diagram drawn inside a hidden tab is 16 px wide: Mermaid measures text in the block it draws into. | Draws outside the block, then puts the result in. |
+| A node's group is named `mermaid-<n>-flowchart-<name>-<i>` and has no `data-id`, so a click handler written from memory finds nothing. | Reads the name out for flowcharts, state, class and entity diagrams, and hands it to `onNode`. |
+| A wide diagram shrinks with the panel until its text cannot be read. | Stops at 70% (14 px text at 10 px); the block scrolls sideways from there. |
+| Mermaid's own dark theme. | Legato's colors and font. |
+| The diagram's source shows until the library has loaded. | The source is hidden while the diagram is on its way, and shown again if it will never come. |
+
+The saved file (`buildStandaloneDocument`) carries the same script, so a downloaded page draws its diagrams when it is opened with a network connection.
 
 **Proposing a message.** A card or an artifact can put text in the person's message box: an `actions` component's button, or `legato.proposeMessage(text)` from HTML. The text is added to what is there, a notice says where it came from, and nothing is sent until the person sends it. It travels as a window event (`proposeComposerText` / `onComposerProposal`), so the native composer and the terminal `PromptBar` both take it without knowing of the panel.
 

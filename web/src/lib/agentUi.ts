@@ -214,22 +214,243 @@ const BOOTSTRAP = `(function () {
   })
 })()`
 
-export interface SandboxDocumentInput {
-  html: string
-  resourceDomains: string[]
-  // fill: the frame is as tall as its container and the content scrolls
-  // inside it (the side panel). Otherwise the frame grows to its content.
-  fill: boolean
+// What stands in for the host in a page saved from Legato. There is no
+// message box out there, so proposing a message does nothing, and a link
+// just opens. A script that calls either must not fail for want of them.
+const STANDALONE_STUB = `window.legato = {
+  proposeMessage: function () {},
+  openLink: function (url) { window.open(String(url), "_blank", "noopener") }
+}`
+
+// The Mermaid release a frame loads: the one the web UI itself bundles, and
+// the one every statement about diagrams in a frame was checked against.
+const MERMAID_VERSION = "11.16.0"
+
+const MERMAID_SOURCES: [host: string, url: string][] = [
+  ["cdn.jsdelivr.net", `https://cdn.jsdelivr.net/npm/mermaid@${MERMAID_VERSION}/dist/mermaid.min.js`],
+  ["unpkg.com", `https://unpkg.com/mermaid@${MERMAID_VERSION}/dist/mermaid.min.js`],
+]
+
+// mermaidScriptURL is where a frame may load Mermaid from, or "" when none of
+// the hosts it may load from serves it.
+function mermaidScriptURL(resourceDomains: string[]): string {
+  return MERMAID_SOURCES.find(([host]) => resourceDomains.includes(host))?.[1] ?? ""
 }
 
-// buildSandboxDocument wraps an agent's HTML in the document a sandboxed
-// frame draws: a content security policy ahead of everything the agent wrote,
-// Legato's theme, and the bootstrap script. The policy allows no network
-// except loading scripts, styles, fonts and images from the allowed hosts.
-export function buildSandboxDocument({ html, resourceDomains, fill }: SandboxDocumentInput): string {
+// The colors a node can be given by name in a diagram's source ("A:::blue"),
+// so an agent can tell kinds of thing apart without choosing colors that
+// suit a dark page.
+const DIAGRAM_HUES: Record<string, string> = {
+  blue: "#60a5fa",
+  cyan: "#22d3ee",
+  green: "#34d399",
+  amber: "#fbbf24",
+  red: "#f87171",
+  pink: "#f472b6",
+  purple: "#a78bfa",
+  gray: "#a1a1aa",
+}
+
+// tint is a hue laid thinly over the page's background: a node's fill.
+function tint(hue: string, amount: number): string {
+  const channels = (color: string) => [1, 3, 5].map((at) => parseInt(color.slice(at, at + 2), 16))
+  const [from, to] = [channels(THEME_VARIABLES["--color-background-primary"]), channels(hue)]
+  return `#${from.map((channel, index) => Math.round(channel + (to[index] - channel) * amount).toString(16).padStart(2, "0")).join("")}`
+}
+
+// diagramStyle is what Legato adds to Mermaid's own style sheet for a
+// diagram: softer shapes, the named colors, and how a node that is a button
+// shows it. Mermaid scopes it to the diagram, ahead of its own rules.
+function diagramStyle(): string {
+  const shape = (node: string) => `${node} .label-container, ${node} .label-container path, ${node} > rect, ${node} > circle, ${node} > ellipse, ${node} > polygon, ${node} > path`
+  const hues = Object.entries(DIAGRAM_HUES).map(([name, hue]) =>
+    `${shape(`.node.${name}`)} { fill: ${tint(hue, 0.16)} !important; stroke: ${hue} !important; } .node.${name} { color: ${hue}; }`).join(" ")
+  return `.node rect { rx: 8px; ry: 8px; } .cluster rect { rx: 12px; ry: 12px; stroke-dasharray: 4 4; } .nodeLabel { font-weight: 600; } .cluster-label .nodeLabel { font-weight: 500; }
+${hues}
+.node[role="button"] { cursor: pointer; outline: none; }
+.node[role="button"]:hover, .node[role="button"]:focus-visible { filter: brightness(1.3); }
+${shape('.node[aria-pressed="true"]')} { stroke: currentColor !important; stroke-width: 2.5px !important; }
+.node[aria-pressed="true"] { filter: drop-shadow(0 0 5px currentColor); }`
+}
+
+// mermaidConfig is how a frame sets Mermaid up: Legato's colors and font in
+// place of Mermaid's own look.
+function mermaidConfig() {
+  const theme = THEME_VARIABLES
+  const [page, raised, line] = [theme["--color-background-primary"], theme["--color-background-secondary"], theme["--color-background-tertiary"]]
+  const [text, quiet, faint] = [theme["--color-text-primary"], theme["--color-text-secondary"], theme["--color-text-tertiary"]]
+  return {
+    startOnLoad: false,
+    // The frame is the sandbox, and the agent's own script already runs in
+    // it: a label may hold markup, and a diagram's own click lines work.
+    securityLevel: "loose",
+    // A diagram Mermaid cannot read must not leave its error drawing behind.
+    suppressErrorRendering: true,
+    theme: "base",
+    fontFamily: theme["--font-sans"],
+    themeVariables: {
+      darkMode: true,
+      background: page,
+      fontSize: "14px",
+      primaryColor: raised,
+      primaryTextColor: text,
+      primaryBorderColor: "#52525b",
+      secondaryColor: line,
+      tertiaryColor: raised,
+      lineColor: faint,
+      textColor: text,
+      titleColor: quiet,
+      clusterBkg: tint("#ffffff", 0.03),
+      clusterBorder: line,
+      edgeLabelBackground: page,
+      actorBkg: raised,
+      actorBorder: "#52525b",
+      actorTextColor: text,
+      actorLineColor: line,
+      signalColor: quiet,
+      signalTextColor: text,
+      labelBoxBkgColor: raised,
+      labelBoxBorderColor: "#52525b",
+      labelTextColor: text,
+      loopTextColor: quiet,
+      noteBkgColor: line,
+      noteBorderColor: "#52525b",
+      noteTextColor: text,
+      activationBkgColor: line,
+      activationBorderColor: faint,
+    },
+    themeCSS: diagramStyle(),
+  }
+}
+
+// diagramsScript is the part of the frame's script that draws Mermaid
+// diagrams: it adds legato.diagrams to the object the page already has. It
+// runs inside the sandbox like the rest, and hides from the agent what a
+// diagram needs to come out right there.
+function diagramsScript(resourceDomains: string[]): string {
+  return `(function () {
+  var MERMAID_URL = ${JSON.stringify(mermaidScriptURL(resourceDomains))}
+  var MERMAID_CONFIG = ${JSON.stringify(mermaidConfig()).replace(/</g, "\\u003c")}
+  var loading = null
+  var count = 0
+  // While a diagram is on its way its source is not shown (see the theme's
+  // style). Whatever happens, this ends: text that will never be a diagram
+  // must be readable.
+  var root = document.documentElement
+  if (MERMAID_URL) root.setAttribute("data-diagrams", "loading")
+  function settled() { root.removeAttribute("data-diagrams") }
+  // A page that brought a Mermaid of its own keeps it.
+  function library() {
+    if (window.mermaid) return Promise.resolve(window.mermaid)
+    if (!MERMAID_URL) return Promise.resolve(null)
+    if (!loading) loading = new Promise(function (resolve) {
+      var script = document.createElement("script")
+      script.src = MERMAID_URL
+      script.onload = function () { resolve(window.mermaid || null) }
+      script.onerror = function () { resolve(null) }
+      document.head.appendChild(script)
+    })
+    return loading
+  }
+  // What the agent wrote, as Mermaid reads a block: the markup itself, so a
+  // <br> in a label stays, with the characters HTML escaped put back.
+  function sourceOf(block) {
+    return block.innerHTML.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").trim()
+  }
+  // Mermaid names a node's group "<diagram>-<kind>-<the name in the source>-<number>".
+  // The page is told the name: the rest changes between Mermaid releases.
+  var NODE_ID = /(?:^|-)(?:flowchart|state|classId|entity)-(.+)-\\d+$/
+  function choose(block, node, onNode) {
+    Array.prototype.forEach.call(block.querySelectorAll("[data-node-id]"), function (other) {
+      other.setAttribute("aria-pressed", String(other === node))
+    })
+    // A diagram wider than the panel scrolls sideways, and the page's own
+    // controls can choose a node that is out of view.
+    if (node.scrollIntoView) node.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" })
+    onNode(node.getAttribute("data-node-id"), node)
+  }
+  // Each node becomes a button the person can click or reach with the keyboard.
+  function wire(block, onNode) {
+    Array.prototype.forEach.call(block.querySelectorAll("g.node"), function (node) {
+      var name = NODE_ID.exec(node.id)
+      if (!name) return
+      node.setAttribute("data-node-id", name[1])
+      node.setAttribute("role", "button")
+      node.setAttribute("tabindex", "0")
+      node.setAttribute("aria-pressed", "false")
+      node.addEventListener("click", function () { choose(block, node, onNode) })
+      node.addEventListener("keydown", function (event) {
+        if (event.key !== "Enter" && event.key !== " ") return
+        event.preventDefault()
+        choose(block, node, onNode)
+      })
+    })
+  }
+  function draw(mermaid, block, options) {
+    return mermaid.render("legato-diagram-" + (++count), sourceOf(block)).then(function (result) {
+      block.innerHTML = result.svg
+      block.setAttribute("data-processed", "true")
+      if (result.bindFunctions) result.bindFunctions(block)
+      // Mermaid lets a diagram shrink with its container without limit, and
+      // in a narrow panel the text becomes too small to read. It stops where
+      // its 14px text is 10px, and the block scrolls sideways from there.
+      var svg = block.querySelector("svg")
+      var natural = svg ? parseFloat(svg.style.maxWidth) : 0
+      if (natural > 0) svg.style.minWidth = Math.round(natural * 0.7) + "px"
+      if (typeof options.onNode === "function") wire(block, options.onNode)
+    }, function (error) {
+      // What Mermaid could not read stays as the text the agent wrote, and
+      // says why. The other diagrams are still drawn.
+      block.setAttribute("title", "Mermaid could not draw this: " + (error && error.message ? error.message : error))
+    })
+  }
+  // A script may ask before the browser has read the blocks that follow it.
+  function parsed() {
+    if (document.readyState !== "loading") return Promise.resolve()
+    return new Promise(function (resolve) { document.addEventListener("DOMContentLoaded", function () { resolve() }) })
+  }
+  var asked = false
+  // Without the library a block stays as the text the agent wrote, which
+  // still reads, and the page's own script carries on.
+  window.legato.diagrams = function (options) {
+    asked = true
+    options = options || {}
+    return Promise.all([library(), parsed()]).then(function (ready) {
+      var mermaid = ready[0]
+      if (!mermaid) return
+      mermaid.initialize(MERMAID_CONFIG)
+      var blocks = Array.prototype.slice.call(document.querySelectorAll(".mermaid:not([data-processed])"))
+      return blocks.reduce(function (drawn, block) { return drawn.then(function () { return draw(mermaid, block, options) }) }, Promise.resolve())
+    }).then(settled, function (error) { settled(); throw error })
+  }
+  // The page's own controls (a list, a "next" button) choose a node the way
+  // a click on it does. A name no node has does nothing.
+  window.legato.selectNode = function (id) {
+    var nodes = document.querySelectorAll("[data-node-id]")
+    for (var at = 0; at < nodes.length; at++) {
+      if (nodes[at].getAttribute("data-node-id") !== String(id)) continue
+      nodes[at].dispatchEvent(new Event("click", { bubbles: true }))
+      return
+    }
+  }
+  // A page that only wrote the blocks gets them drawn too. One that brought a
+  // Mermaid of its own draws them itself.
+  window.addEventListener("load", function () {
+    if (asked) return
+    if (!window.mermaid && document.querySelector(".mermaid")) window.legato.diagrams()
+    else settled()
+  })
+})()`
+}
+
+// contentPolicy is the content security policy every page of agent HTML
+// starts with. It allows no network except loading scripts, styles, fonts and
+// images from the allowed hosts. Anything that is not a plain host name is
+// dropped, so a value can never rewrite the policy.
+function contentPolicy(resourceDomains: string[]): string {
   const hosts = resourceDomains.filter((domain) => HOST_NAME.test(domain)).map((domain) => `https://${domain}`).join(" ")
   const withHosts = (base: string) => (hosts ? `${base} ${hosts}` : base)
-  const policy = [
+  return [
     "default-src 'none'",
     `script-src ${withHosts("'unsafe-inline'")}`,
     `style-src ${withHosts("'unsafe-inline'")}`,
@@ -243,15 +464,59 @@ export function buildSandboxDocument({ html, resourceDomains, fill }: SandboxDoc
     "form-action 'none'",
     "base-uri 'none'",
   ].join("; ")
+}
+
+// themeStyle is Legato's theme as a style sheet: the variables agent HTML is
+// written against, and the page's base look. fill is a page that owns its
+// whole view (the side panel, a saved file); otherwise a card that is as tall
+// as its content.
+function themeStyle(fill: boolean): string {
   const variables = Object.entries(THEME_VARIABLES).map(([name, value]) => `${name}: ${value};`).join(" ")
-  const baseStyle = `:root { color-scheme: dark; ${variables} }
+  return `:root { color-scheme: dark; ${variables} }
 html { background: var(--color-background-primary); }
 body { margin: 0; padding: ${fill ? "20px" : "12px"}; color: var(--color-text-primary); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; ${fill ? "" : "overflow-x: auto;"} }
 a { color: #a5b4fc; }
 img, svg, video, canvas { max-width: 100%; }
 table { border-collapse: collapse; }
-pre, code { font-family: var(--font-mono); }`
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${baseStyle}</style><script>${BOOTSTRAP}</script></head><body>${html}</body></html>`
+pre, code { font-family: var(--font-mono); }
+.mermaid { overflow-x: auto; }
+.mermaid[data-processed] { margin: 0; text-align: center; }
+[data-diagrams="loading"] .mermaid:not([data-processed]) { visibility: hidden; }`
+}
+
+function escapeHTML(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+}
+
+export interface SandboxDocumentInput {
+  html: string
+  resourceDomains: string[]
+  // fill: the frame is as tall as its container and the content scrolls
+  // inside it (the side panel). Otherwise the frame grows to its content.
+  fill: boolean
+}
+
+// buildSandboxDocument wraps an agent's HTML in the document a sandboxed
+// frame draws: a content security policy ahead of everything the agent wrote,
+// Legato's theme, and the bootstrap script.
+export function buildSandboxDocument({ html, resourceDomains, fill }: SandboxDocumentInput): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${contentPolicy(resourceDomains)}"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${themeStyle(fill)}</style><script>${BOOTSTRAP}</script><script>${diagramsScript(resourceDomains)}</script></head><body>${html}</body></html>`
+}
+
+export interface StandaloneDocumentInput {
+  html: string
+  title: string
+  resourceDomains: string[]
+}
+
+// buildStandaloneDocument is an agent's HTML as a file to keep: a whole page
+// that looks as it does in Legato when opened anywhere else. The agent wrote
+// its styles against Legato's theme, which the frame supplies and a saved
+// file would be without, so the theme goes into the file. The same content
+// security policy goes with it: outside Legato nothing else limits what the
+// agent's scripts may reach.
+export function buildStandaloneDocument({ html, title, resourceDomains }: StandaloneDocumentInput): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${contentPolicy(resourceDomains)}"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHTML(title)}</title><style>${themeStyle(true)}</style><script>${STANDALONE_STUB}</script><script>${diagramsScript(resourceDomains)}</script></head><body>${html}</body></html>`
 }
 
 const MAX_PROPOSED_MESSAGE = 4000

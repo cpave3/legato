@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { buildSandboxDocument, legatoUICall, proposedMessageText } from "../agentUi"
+import { buildSandboxDocument, buildStandaloneDocument, legatoUICall, proposedMessageText } from "../agentUi"
 import type { NativeToolItem } from "../nativeAgentSync"
 
 function tool(toolName: string, result?: Record<string, unknown>, args: Record<string, unknown> = {}): NativeToolItem {
@@ -115,5 +115,62 @@ describe("proposedMessageText", () => {
     expect(proposedMessageText({ content: { type: "text", text: "   " } })).toBeNull()
     expect(proposedMessageText(null)).toBeNull()
     expect(proposedMessageText("hello")).toBeNull()
+  })
+})
+
+// A downloaded artifact is opened outside Legato, where nothing supplies the
+// theme the agent's HTML was written against.
+describe("buildStandaloneDocument", () => {
+  const html = `<div style="color: var(--color-text-secondary)">27 C</div><button onclick="legato.proposeMessage('more')">More</button>`
+
+  it("is a whole page that carries Legato's theme with it", () => {
+    const doc = buildStandaloneDocument({ html, title: "Sync design", resourceDomains: [] })
+
+    expect(doc.startsWith("<!doctype html>")).toBe(true)
+    expect(doc).toContain("<title>Sync design</title>")
+    expect(doc).toContain(html)
+    // The variables the agent's styles refer to are defined in the file.
+    for (const name of ["--color-background-primary:", "--color-text-primary:", "--color-text-secondary:", "--color-border-primary:", "--font-sans:", "--font-mono:"]) {
+      expect(doc).toContain(name)
+    }
+    // And the page's own base look: background, text colour, font.
+    expect(doc).toContain("background: var(--color-background-primary)")
+    expect(doc).toContain("font-family: var(--font-sans)")
+  })
+
+  it("looks the same as in Legato: the same theme and base styles as the sandboxed frame", () => {
+    const inLegato = buildSandboxDocument({ html, resourceDomains: [], fill: true })
+    const downloaded = buildStandaloneDocument({ html, title: "x", resourceDomains: [] })
+    const styleOf = (doc: string) => /<style>([\s\S]*?)<\/style>/.exec(doc)?.[1]
+
+    expect(styleOf(downloaded)).toBeTruthy()
+    expect(styleOf(downloaded)).toBe(styleOf(inLegato))
+  })
+
+  it("keeps the same limits on what the content may load", () => {
+    const policyOf = (doc: string) => /http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(doc)?.[1]
+    const domains = ["cdn.jsdelivr.net"]
+
+    const downloaded = buildStandaloneDocument({ html, title: "x", resourceDomains: domains })
+
+    expect(policyOf(downloaded)).toBe(policyOf(buildSandboxDocument({ html, resourceDomains: domains, fill: true })))
+    expect(downloaded.indexOf("Content-Security-Policy")).toBeLessThan(downloaded.indexOf(html))
+  })
+
+  it("does not talk to a host that is not there, and scripts that call legato do not fail", () => {
+    const doc = buildStandaloneDocument({ html, title: "x", resourceDomains: [] })
+
+    expect(doc).not.toContain("parent.postMessage")
+    // Outside Legato there is no message box; the calls must still exist.
+    expect(doc).toContain("window.legato")
+    expect(doc).toContain("proposeMessage")
+    expect(doc).toContain("openLink")
+  })
+
+  it("does not let a title break out of the page's head", () => {
+    const doc = buildStandaloneDocument({ html, title: `</title><script>alert(1)</script>`, resourceDomains: [] })
+
+    expect(doc).not.toContain("<title></title><script>alert(1)</script>")
+    expect(doc).toContain("&lt;/title&gt;&lt;script&gt;alert(1)&lt;/script&gt;")
   })
 })

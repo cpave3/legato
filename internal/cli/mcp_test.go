@@ -554,3 +554,144 @@ func TestMCPShowResultAsksForAShortReplyInsteadOfSilence(t *testing.T) {
 		t.Fatalf("result = %q", text)
 	}
 }
+
+// mcpDescriptions returns each tool's description as a server with the given
+// content hosts offers it.
+func mcpDescriptions(t *testing.T, resourceDomains []string) map[string]string {
+	t.Helper()
+	s := newTestStore(t)
+	executionID := seedMCPAgent(t, s, "task1")
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: "task1", ExecutionID: executionID, ResourceDomains: resourceDomains})
+	listed, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptions := map[string]string{}
+	for _, tool := range listed.Tools {
+		descriptions[tool.Name] = tool.Description
+	}
+	return descriptions
+}
+
+// An agent that knows only what the frame forbids writes boxes with arrows
+// typed as text. The guidance has to say both things: the ready-made
+// components are the simple way, and custom HTML is there to be used fully
+// when it gives the person something better.
+func TestMCPGuidancePrefersComponentsWhenSimplerAndEncouragesCustomHTML(t *testing.T) {
+	for _, want := range []string{"simplest", "CSS", "SVG", "JavaScript", "Mermaid", "better experience"} {
+		if !strings.Contains(cli.MCPGuidance, want) {
+			t.Errorf("the guidance does not mention %q", want)
+		}
+	}
+
+	descriptions := mcpDescriptions(t, []string{"cdn.jsdelivr.net"})
+
+	// Each card tool points to the other for what it does better.
+	if d := descriptions["show_components"]; !strings.Contains(d, "simplest") || !strings.Contains(d, "show_card") {
+		t.Errorf("show_components does not say it is the simple way, with show_card beyond it: %q", d)
+	}
+	if d := descriptions["show_card"]; !strings.Contains(d, "show_components") || !strings.Contains(d, "SVG") {
+		t.Errorf("show_card does not say when to use it over show_components: %q", d)
+	}
+	// An artifact is where a diagram belongs, and Markdown can hold one too.
+	artifact := descriptions["show_artifact"]
+	for _, want := range []string{"diagram", "SVG", "Mermaid", "```mermaid", "tabs"} {
+		if !strings.Contains(artifact, want) {
+			t.Errorf("show_artifact does not mention %q: %q", want, artifact)
+		}
+	}
+}
+
+// What the frame allows was measured in a browser: scripts, SVG and
+// libraries from the allowed hosts work; storage and workers do not. An
+// agent that is not told writes pages that fail in ways it cannot see.
+func TestMCPHTMLToolsSayWhatTheFrameAllows(t *testing.T) {
+	withHosts := mcpDescriptions(t, []string{"cdn.jsdelivr.net", "unpkg.com"})
+	for _, tool := range []string{"show_artifact", "show_card"} {
+		d := withHosts[tool]
+		for _, want := range []string{"<script>", "SVG", "cdn.jsdelivr.net", "unpkg.com", "pinned version", "localStorage", "workers", "fetch"} {
+			if !strings.Contains(d, want) {
+				t.Errorf("%s does not mention %q: %q", tool, want, d)
+			}
+		}
+	}
+
+	withoutHosts := mcpDescriptions(t, nil)
+	for _, tool := range []string{"show_artifact", "show_card"} {
+		d := withoutHosts[tool]
+		if !strings.Contains(d, "inline") {
+			t.Errorf("%s does not say everything must be inline when no host is allowed: %q", tool, d)
+		}
+		// With no host allowed, a library cannot be loaded. Markdown's own
+		// diagrams still work, so Mermaid itself may be named.
+		if strings.Contains(d, "may load from") || strings.Contains(d, "D3") {
+			t.Errorf("%s offers libraries that cannot be loaded: %q", tool, d)
+		}
+	}
+}
+
+// An agent told only that Mermaid exists wrote a Markdown document with a
+// diagram in it: correct, and dull. The guidance asks for a page that is
+// designed and can be explored, and keeps Markdown for plain prose.
+func TestMCPGuidanceAsksForADesignedPageNotADocument(t *testing.T) {
+	for _, want := range []string{"design", "Mermaid", "click", "plain prose"} {
+		if !strings.Contains(cli.MCPGuidance, want) {
+			t.Errorf("the guidance does not mention %q", want)
+		}
+	}
+	artifact := mcpDescriptions(t, []string{"cdn.jsdelivr.net"})["show_artifact"]
+	for _, want := range []string{"not a document", "click", "narrow", "plain prose"} {
+		if !strings.Contains(artifact, want) {
+			t.Errorf("show_artifact does not mention %q: %q", want, artifact)
+		}
+	}
+}
+
+// Legato draws Mermaid for the page: it loads the library, applies the app's
+// theme, draws inside hidden tabs and reports a click by the node's own
+// name. Each of those went wrong when an agent did it by hand, so the HTML
+// tools teach Legato's way and give an example that was run in the frame.
+func TestMCPHTMLToolsTeachDiagramsThroughLegato(t *testing.T) {
+	cases := map[string]struct {
+		domains   []string
+		available bool
+	}{
+		"jsdelivr allowed":      {[]string{"cdnjs.cloudflare.com", "cdn.jsdelivr.net", "unpkg.com"}, true},
+		"only unpkg allowed":    {[]string{"unpkg.com"}, true},
+		"no library host known": {[]string{"assets.example.com"}, false},
+		"no host at all":        {nil, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			for tool, description := range mcpDescriptions(t, tc.domains) {
+				if tool != "show_artifact" && tool != "show_card" {
+					continue
+				}
+				// Never the library itself: a page that loads and runs its own
+				// Mermaid gets none of what Legato does for it.
+				for _, unwanted := range []string{"mermaid.min.js", "mermaid.run()", "mermaid.initialize"} {
+					if strings.Contains(description, unwanted) {
+						t.Errorf("%s teaches %q: %q", tool, unwanted, description)
+					}
+				}
+				if !tc.available {
+					if strings.Contains(description, "legato.diagrams") || strings.Contains(description, `class="mermaid"`) {
+						t.Errorf("%s offers diagrams the frame cannot draw: %q", tool, description)
+					}
+					continue
+				}
+				for _, want := range []string{`<pre class="mermaid">`, "legato.diagrams({", "onNode", "legato.selectNode(", "hidden"} {
+					if !strings.Contains(description, want) {
+						t.Errorf("%s does not mention %q: %q", tool, want, description)
+					}
+				}
+				// The colors a node can be given by name are the ones the frame styles.
+				for _, hue := range []string{"blue", "cyan", "green", "amber", "red", "pink", "purple", "gray"} {
+					if !strings.Contains(description, ":::"+hue) {
+						t.Errorf("%s does not offer the color %q: %q", tool, hue, description)
+					}
+				}
+			}
+		})
+	}
+}

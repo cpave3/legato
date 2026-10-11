@@ -104,6 +104,47 @@ describe("AgentArtifactPanel", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("# Design, second draft"))
   })
 
+  // What is saved from an HTML artifact is opened outside Legato, so it has
+  // to bring the theme its styles depend on.
+  it("downloads an HTML artifact as a page that carries Legato's styles", async () => {
+    const page: AgentUIItem = { ...base, id: "ui-dddddddddd", placement: "panel", format: "html", title: "Rough architecture", revision: 1, oldest_revision: 1 }
+    contents["ui-dddddddddd?revision=0"] = `<h1 style="color: var(--color-text-primary)">Autopilot</h1>`
+    mockAPI([page])
+    let saved: Blob | undefined
+    let savedAs = ""
+    const createObjectURL = vi.fn((blob: Blob) => { saved = blob; return "blob:saved" })
+    Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true })
+    Object.defineProperty(URL, "revokeObjectURL", { value: vi.fn(), configurable: true })
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { savedAs = this.download })
+    render(<AgentArtifactPanel agentId="task-1" focus={null} onFocus={() => {}} onClose={() => {}} mobile={false} />, { wrapper })
+    await screen.findByTitle("Rough architecture")
+
+    fireEvent.click(screen.getByRole("button", { name: "Download" }))
+
+    expect(savedAs).toBe("Rough-architecture.html")
+    expect(saved?.type).toBe("text/html")
+    const text = await saved!.text()
+    expect(text.startsWith("<!doctype html>")).toBe(true)
+    expect(text).toContain("<title>Rough architecture</title>")
+    expect(text).toContain("--color-text-primary:")
+    expect(text).toContain(`<h1 style="color: var(--color-text-primary)">Autopilot</h1>`)
+  })
+
+  it("downloads a Markdown artifact as the Markdown the agent wrote", async () => {
+    mockAPI([design])
+    let saved: Blob | undefined
+    Object.defineProperty(URL, "createObjectURL", { value: vi.fn((blob: Blob) => { saved = blob; return "blob:saved" }), configurable: true })
+    Object.defineProperty(URL, "revokeObjectURL", { value: vi.fn(), configurable: true })
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
+    render(<AgentArtifactPanel agentId="task-1" focus={{ itemId: "ui-aaaaaaaaaa", revision: 0 }} onFocus={() => {}} onClose={() => {}} mobile={false} />, { wrapper })
+    await screen.findByRole("heading", { name: "Design, second draft" })
+
+    fireEvent.click(screen.getByRole("button", { name: "Download" }))
+
+    expect(saved?.type).toBe("text/markdown")
+    expect(await saved!.text()).toBe("# Design, second draft")
+  })
+
   it("removes an artifact only after the person confirms", async () => {
     const fetchMock = mockAPI([design])
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)

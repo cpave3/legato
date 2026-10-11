@@ -47,8 +47,9 @@ const MCPGuidance = `You are running inside Legato, the app the person uses to w
 
 Use these tools without being asked. They are how you give the person something better than a wall of text:
 
-- When your answer is mainly data (figures, a status, a comparison of options, a ranking, progress, a small chart), prefer a card to a Markdown table or a list of numbers: call show_components with the parts of the card and Legato draws it in the conversation. Call show_card with HTML of your own design when those parts are not enough.
-- When your answer is long or has structure (an explanation that needs a diagram, a design, a plan, a report, anything longer than about a screen), prefer an artifact to a long reply: call show_artifact and it opens beside the conversation, where the person can keep it open. Call it again with the same key to revise it.
+- When your answer is mainly data (figures, a status, a comparison of options, a ranking, progress, a small chart), prefer a card to a Markdown table or a list of numbers. show_components is the simplest way: you name ready-made parts and Legato draws them to match the app. When those parts cannot say it well, call show_card and design the card yourself.
+- When your answer is long or has structure (an architecture, an explanation that needs a diagram, a design, a plan, a report, anything longer than about a screen), prefer an artifact to a long reply: call show_artifact and it opens beside the conversation, where the person can keep it open. Call it again with the same key to revise it.
+- Custom HTML is yours to use in full when it gives the person a better experience: your own layout and CSS, inline SVG, JavaScript for interaction, a diagram or chart library. An architecture or an explanation is a page the person explores, not a document they scroll: let a Mermaid diagram carry the structure, style it as your own, and show the detail of a part when they click it. Never draw boxes with arrows typed as text. Markdown is for plain prose.
 - After you show something, say in one sentence what it is, and do not repeat its content.
 - A short, plain answer stays plain text.
 
@@ -171,7 +172,11 @@ func (m *mcpTools) showArtifact() mcpserver.Tool {
 		Name:  "show_artifact",
 		Title: "Show an artifact",
 		Description: "Shows a page of your own making in a panel beside the conversation in Legato, where the person can read it while you carry on. " +
-			"Use it without being asked for something worth more than a reply: an explanation with diagrams, a design, a report, a comparison. " +
+			"Use it without being asked for something worth more than a reply: an architecture, an explanation with diagrams, a design, a report, a comparison. " +
+			"Make it a page the person explores, not a document: a short summary at the top, a diagram that carries the structure (Mermaid for the layout, or SVG), " +
+			"your own styling, and scripts for tabs, sections that open and the detail of a part shown when the person clicks it. " +
+			"The panel is narrow (about 500px, and a phone is narrower): use one column and short node labels, and keep the detail for what opens on a click. " +
+			"format markdown is for plain prose only; a ```mermaid fence in it is drawn as a diagram. " +
 			m.htmlGuide(),
 		ReadOnly: true,
 	}, func(ctx context.Context, in showArtifactInput) (mcpserver.Result, error) {
@@ -196,8 +201,9 @@ func (m *mcpTools) showCard() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name:  "show_card",
 		Title: "Show a card",
-		Description: "Shows a card of your own design in the conversation in Legato, in place of text. Use it without being asked when an answer is better seen than read: " +
-			"a weather report, a status, a comparison, a small chart. Write the card as HTML; for plain figures, tables and lists show_components costs less. " +
+		Description: "Shows a card of your own design in the conversation in Legato, in place of text. Use it without being asked when an answer is better seen than read " +
+			"and show_components does not have the parts for it: a custom layout, an illustration or a small diagram in SVG, a chart, something the person can click through. " +
+			"Write the card as an HTML fragment sized by its content. " +
 			m.htmlGuide(),
 		ReadOnly: true,
 	}, func(ctx context.Context, in showCardInput) (mcpserver.Result, error) {
@@ -220,7 +226,8 @@ func (m *mcpTools) showComponents() mcpserver.Tool {
 		Name:  "show_components",
 		Title: "Show a component card",
 		Description: "Shows a card in the conversation in Legato, built from Legato's own components instead of HTML: you name what to show and Legato draws it to match the app. " +
-			"Use it without being asked when an answer is better seen than read, and prefer it to show_card for figures, tables, lists, progress and simple bar charts.\n\n" + service.UIComponentGuide,
+			"Use it without being asked when an answer is better seen than read. It is the simplest way to show figures, a status, tables, lists, progress and simple bar charts; " +
+			"when these components cannot say it well, use show_card and design the card yourself.\n\n" + service.UIComponentGuide,
 		ReadOnly: true,
 	}, func(ctx context.Context, in showComponentsInput) (mcpserver.Result, error) {
 		return m.show(ctx, service.AgentUIShowInput{
@@ -434,16 +441,55 @@ func (m *mcpTools) broadcastPeers() mcpserver.Tool {
 	})
 }
 
-// htmlGuide tells an agent what the frame its HTML is drawn in allows.
+// mermaidHosts are the hosts the web UI's frame can load Mermaid from
+// (MERMAID_SOURCES in web/src/lib/agentUi.ts). With none of them allowed the
+// frame cannot draw a diagram, and an agent must not be told that it can.
+var mermaidHosts = []string{"cdn.jsdelivr.net", "unpkg.com"}
+
+// drawsDiagrams reports whether a frame that may load from these hosts can
+// draw Mermaid diagrams.
+func drawsDiagrams(domains []string) bool {
+	for _, domain := range domains {
+		for _, host := range mermaidHosts {
+			if domain == host {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// diagramGuide teaches Legato's way to draw a Mermaid diagram in the frame.
+// An agent that loads and runs Mermaid itself gets a broken diagram inside a
+// hidden tab, Mermaid's own look, and click handlers that do not find their
+// node, since Mermaid's names for nodes change between releases. Legato's
+// frame does those for it. The example was run in the frame as written.
+const diagramGuide = "Legato draws Mermaid for you: write <pre class=\"mermaid\">…</pre> and do not load Mermaid yourself. " +
+	"It is drawn in the app's theme, inside a hidden tab too. " +
+	"Add :::blue, :::cyan, :::green, :::amber, :::red, :::pink, :::purple or :::gray to a node to color it, so kinds of thing can be told apart; classDef works for a style of your own. " +
+	"Call legato.diagrams({ onNode(id, element) { … } }) once to make every node a button: id is the node's name in your source, and the chosen node gets aria-pressed=\"true\". " +
+	"legato.selectNode(id) chooses a node from your own script, for a default choice or a link between parts. " +
+	"Example: <pre class=\"mermaid\">flowchart TB; api[API]:::blue --> db[(Database)]:::cyan</pre><p id=\"about\">Select a part.</p>" +
+	"<script>const about = { api: \"Checks the token and routes the call.\", db: \"One container for each domain.\" }; " +
+	"legato.diagrams({ onNode: (id) => { document.getElementById(\"about\").textContent = about[id] } })</script> "
+
+// htmlGuide tells an agent what the frame its HTML is drawn in allows. Each
+// statement was checked in a browser: scripts, inline SVG and libraries from
+// the allowed hosts work; storage, workers and the network do not. An agent
+// told only what is forbidden writes boxes and text.
 func (m *mcpTools) htmlGuide() string {
-	guide := "HTML is drawn in a sandboxed frame with Legato's theme: inline <style> and <script> work, and CSS variables such as " +
-		"--color-background-primary, --color-text-primary, --color-text-secondary, --color-border-primary, --font-sans and --font-mono match the app. " +
-		"The frame cannot fetch, submit forms or open windows. "
+	guide := "HTML is drawn in a sandboxed frame with Legato's theme. Your own <style> and <script> run, and inline SVG and canvas work. " +
+		"CSS variables such as --color-background-primary, --color-text-primary, --color-text-secondary, --color-border-primary, --font-sans and --font-mono match the app. "
 	if len(m.opts.ResourceDomains) > 0 {
-		guide += "Scripts, styles, fonts and images may load from: " + strings.Join(m.opts.ResourceDomains, ", ") + ". "
+		guide += "Scripts, styles, fonts and images may load from: " + strings.Join(m.opts.ResourceDomains, ", ") +
+			". Use that for a chart library (D3, Chart.js) at a pinned version. "
+		if drawsDiagrams(m.opts.ResourceDomains) {
+			guide += diagramGuide
+		}
 	} else {
 		guide += "Nothing loads from the network, so keep every script, style and image inline. "
 	}
-	guide += "Call legato.proposeMessage(text) from a script to put text in the person's message box for them to send, and legato.openLink(url) to offer a link."
+	guide += "The frame has no storage (localStorage and cookies throw), no workers, and cannot fetch, submit forms or open windows, so put the data in the page. " +
+		"Call legato.proposeMessage(text) from a script to put text in the person's message box for them to send, and legato.openLink(url) to offer a link."
 	return guide
 }

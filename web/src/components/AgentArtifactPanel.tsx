@@ -4,7 +4,7 @@ import { useAgentUIItem, useAgentUIItems } from "../hooks/useAgentUI"
 import { useProposeMessage } from "../hooks/useProposeMessage"
 import { useServer } from "../hooks/useServer"
 import { useToast } from "../hooks/useToast"
-import { deleteAgentUIItem, type AgentUIItem } from "../lib/agentUi"
+import { buildStandaloneDocument, deleteAgentUIItem, type AgentUIItem } from "../lib/agentUi"
 import { AgentUIItemView } from "./AgentUIItemView"
 
 export interface ArtifactFocus {
@@ -125,7 +125,13 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
 
   function download() {
     if (!item?.content) return
-    const url = URL.createObjectURL(new Blob([item.content], { type: MEDIA_TYPE[item.format] }))
+    // HTML is saved as a whole page with Legato's theme in it: the agent's
+    // styles depend on that theme, and outside Legato nothing supplies it.
+    // Markdown and component cards are saved as the agent wrote them.
+    const saved = item.format === "html"
+      ? buildStandaloneDocument({ html: item.content, title: itemLabel(item), resourceDomains: item.resource_domains ?? [] })
+      : item.content
+    const url = URL.createObjectURL(new Blob([saved], { type: MEDIA_TYPE[item.format] }))
     const link = document.createElement("a")
     link.href = url
     link.download = fileName(item)
