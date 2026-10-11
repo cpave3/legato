@@ -213,6 +213,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/swarm/pending-plan/", s.swarmPendingPlanHandler())
 	mux.HandleFunc("/api/swarm/pending-plans", s.swarmPendingPlansHandler())
 	mux.HandleFunc("/api/agents/{task_id}/preview", s.agentPreviewHandler())
+	mux.HandleFunc("/api/agents/{task_id}/conversation", s.agentConversationHandler())
 	mux.HandleFunc("/api/agents/{task_id}/image", s.agentImageHandler())
 	mux.HandleFunc("/api/agents/{task_id}/ui-items", s.agentUIItemsHandler())
 	mux.HandleFunc("/api/ui-items/{id}", s.agentUIItemHandler())

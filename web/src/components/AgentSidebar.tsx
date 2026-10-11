@@ -1,6 +1,6 @@
 import type { AgentInfo } from "../hooks/useWebSocket";
 import { cn } from "../lib/utils";
-import { Plus, Play, Pause, Layers, Bell, AlertTriangle } from "lucide-react";
+import { Plus, Play, Pause, Layers, Bell, AlertTriangle, LayoutGrid } from "lucide-react";
 import { AgentActionMenu } from "./AgentActionMenu";
 import { AgentKindBadge } from "./AgentKindBadge";
 import { isAgentToolInForeground } from "../lib/agentKind";
@@ -20,6 +20,8 @@ interface AgentSidebarProps {
   onSelect: (taskId: string) => void;
   onSpawn: () => void;
   onStartSwarm?: () => void;
+  // Shows every agent at once, in place of the list and one agent.
+  onShowEnsemble?: () => void;
   onAgentContextMenu?: (agent: AgentInfo, position: { x: number; y: number }) => void;
   modifierHeld?: boolean;
   // Artifacts each agent showed while it was not in view, by task ID.
@@ -140,6 +142,7 @@ export function AgentSidebar({
   onSelect,
   onSpawn,
   onStartSwarm,
+  onShowEnsemble,
   onAgentContextMenu,
   modifierHeld,
   unseenArtifacts,
@@ -153,6 +156,16 @@ export function AgentSidebar({
           Agents ({agents.length})
         </span>
         <div className="flex items-center gap-0.5">
+          {onShowEnsemble && (
+            <button
+              onClick={onShowEnsemble}
+              aria-label="Ensemble"
+              className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+              title="Ensemble: every agent at once (e)"
+            >
+              <LayoutGrid size={14} />
+            </button>
+          )}
           {onStartSwarm && (
             <button
               onClick={onStartSwarm}

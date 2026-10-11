@@ -12,7 +12,9 @@ interface UseMacroHotkeysOptions {
   onSelect: (keys: string) => void
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
+// Whether a key event was aimed at something the person types into. Such a
+// key is theirs to type; page shortcuts leave it alone.
+export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
   if (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return true
   return target.isContentEditable || target.closest('[contenteditable]:not([contenteditable="false"])') !== null

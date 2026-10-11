@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import { LayoutGrid } from "lucide-react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "../hooks/useWebSocket"
 import { AgentSidebar } from "../components/AgentSidebar"
@@ -11,6 +12,7 @@ import { StartSwarmModal } from "../components/StartSwarmModal"
 import { SpawnEphemeralModal } from "../components/SpawnEphemeralModal"
 import { SwarmEventLog } from "../components/SwarmEventLog"
 import { SwarmCommandCenter } from "../components/SwarmCommandCenter"
+import { AgentEnsemble } from "../components/AgentEnsemble"
 import { AgentSelect } from "../components/AgentSelect"
 import { AgentArtifactPanel } from "../components/AgentArtifactPanel"
 import { useAgentUIItems } from "../hooks/useAgentUI"
@@ -21,6 +23,7 @@ import { useTaskActivity } from "../hooks/useTaskActivity"
 import { apiFetch, toggleAgentNotify } from "../lib/api"
 import { canBeNative } from "../lib/agentKind"
 import { useAgentSelection } from "../hooks/useAgentSelection"
+import { isEditableTarget } from "../hooks/useMacroHotkeys"
 import { useSettings } from "../hooks/useSettings"
 import { useToast } from "../hooks/useToast"
 
@@ -63,6 +66,15 @@ export function AgentsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const linkedTask = searchParams.get("task")
   const workflowRun = searchParams.get("workflow")
+  // The ensemble shows every agent at once, in place of the list and the one
+  // agent in view. It is part of the address, so Back returns to it.
+  const ensemble = searchParams.get("view") === "ensemble"
+  const showEnsemble = useCallback((show: boolean) => {
+    const next = new URLSearchParams(searchParams)
+    if (show) next.set("view", "ensemble")
+    else next.delete("view")
+    setSearchParams(next)
+  }, [searchParams, setSearchParams])
   const [promptState, setPromptState] = useState<PromptState | null>(null)
   const [glitching, setGlitching] = useState(false)
   const glitchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -314,11 +326,12 @@ export function AgentsPage() {
     ? runningAgents.find((agent) => agent.parent_task_id === selectedParentId && agent.role === "conductor")
     : null
   const interactiveAgentIds = useMemo(() => {
-    if (!selectedId) return []
+    // The ensemble shows no terminal, so none is streamed for it.
+    if (!selectedId || ensemble) return []
     const ids = swarmMode ? [conductor?.task_id, selectedId] : [selectedId]
     return Array.from(new Set(ids.filter((id): id is string => Boolean(id))))
       .filter((id) => !agents.find((agent) => agent.task_id === id)?.has_chimera_endpoint)
-  }, [agents, conductor?.task_id, selectedId, swarmMode])
+  }, [agents, conductor?.task_id, ensemble, selectedId, swarmMode])
   const { items: relatedWork } = useTaskActivity(selectedId ?? "")
 
   useEffect(() => {
@@ -447,6 +460,22 @@ export function AgentsPage() {
     setShowStartSwarm(true)
   }, [selectedParentId])
 
+  // e changes between the list and the ensemble, unless the key is being
+  // typed somewhere or a dialog is open.
+  const hasAgents = runningAgents.length > 0
+  useEffect(() => {
+    if (!hasAgents) return
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return
+      if (event.key.toLowerCase() !== "e" || isEditableTarget(event.target)) return
+      if (document.querySelector('[role="dialog"]')) return
+      event.preventDefault()
+      showEnsemble(!ensemble)
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [ensemble, hasAgents, showEnsemble])
+
   if (runningAgents.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4">
@@ -477,6 +506,27 @@ export function AgentsPage() {
     )
   }
 
+  if (ensemble) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden">
+        <AgentEnsemble
+          agents={runningAgents}
+          onOpen={(taskId) => {
+            handleSelect(taskId)
+            showEnsemble(false)
+          }}
+          onSpawn={handleSpawn}
+          onShowList={() => showEnsemble(false)}
+        />
+        <SpawnEphemeralModal
+          open={showSpawn}
+          onClose={() => setShowSpawn(false)}
+          onSpawned={fetchAgents}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full flex-col overflow-hidden md:flex-row">
       {workflowRun && <Link to={`/workflows/runs/${workflowRun}`} className="absolute right-3 top-3 z-30 rounded bg-zinc-900 px-3 py-2 text-xs text-indigo-300 shadow">Back to workflow</Link>}
@@ -487,6 +537,14 @@ export function AgentsPage() {
             selectedId={selectedId}
             onSelect={handleSelect}
           />
+          <button
+            onClick={() => showEnsemble(true)}
+            aria-label="Ensemble"
+            title="Ensemble: every agent at once"
+            className="flex items-center rounded border border-zinc-700 px-3 py-2 text-zinc-300 transition-colors hover:bg-zinc-800"
+          >
+            <LayoutGrid size={16} aria-hidden="true" />
+          </button>
           <button
             onClick={handleSpawn}
             className="rounded bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
@@ -501,6 +559,7 @@ export function AgentsPage() {
           onSelect={handleSelect}
           onSpawn={handleSpawn}
           onStartSwarm={handleOpenStartSwarm}
+          onShowEnsemble={() => showEnsemble(true)}
           onAgentContextMenu={(agent, position) => setAgentContextMenu({ agent, position })}
           modifierHeld={modifierHeld}
           unseenArtifacts={artifacts.unseen}

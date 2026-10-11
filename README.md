@@ -351,6 +351,8 @@ Agents are listed by what they are doing, the ones that need you first. `e` chan
 
 With a `manticore:` block in the config, the agent view also shows the tokens used today.
 
+The web UI has the same ensemble at `/agents?view=ensemble`: the grid button in the agent list, or `e`.
+
 ## Architecture
 
 ```
