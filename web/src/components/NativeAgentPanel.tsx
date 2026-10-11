@@ -14,6 +14,9 @@ import { NativeModelSettings } from "./NativeModelSettings"
 import { AgentKindBadge } from "./AgentKindBadge"
 import { NativeQuestionCard } from "./NativeQuestionCard"
 import { NativeTerminalPrompt } from "./NativeTerminalPrompt"
+import { AgentUICallCard } from "./AgentUICallCard"
+import { ArtifactsButton, type ArtifactsButtonProps } from "./ArtifactsButton"
+import { appendProposal, legatoUICall, onComposerProposal } from "../lib/agentUi"
 import { nativeToolName } from "../lib/agentKind"
 import { parseLegatoMessage } from "../lib/legatoMessage"
 import { modelSettingsResponse, type ModelCapabilities, type ModelSettings, type ModelSettingsState } from "../lib/modelSettings"
@@ -184,9 +187,14 @@ interface NativeAgentPanelProps {
   voiceEnabled?: boolean
   agentKind?: string
   composerEnabled?: boolean
+  // Open something the agent showed (an artifact, or a card at full size)
+  // in the side panel.
+  onOpenUIItem?: (itemId: string, revision: number) => void
+  // The session's artifacts, offered from the toolbar.
+  artifacts?: ArtifactsButtonProps
 }
 
-export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, artifacts }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   const { baseUrl } = useServer()
   const [syncState, setSyncState] = useState<NativeSyncState>(() => createNativeSyncState())
@@ -283,6 +291,16 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
       }
     }
   }, [loading, syncState.items])
+
+  // A card or an artifact the agent showed may put text in the message box.
+  // It is added to what is there and never sent from here.
+  useEffect(() => {
+    if (!composerEnabled) return
+    return onComposerProposal(agentId, (text) => {
+      setDraft((current) => appendProposal(current, text))
+      textareaRef.current?.focus()
+    })
+  }, [agentId, composerEnabled])
 
   // Load/save draft
   useEffect(() => {
@@ -813,6 +831,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
           }
           if (item.role === "tool" && item.tool) {
             // Every other tool call is in a "tools" block.
+            const uiCall = shownUICall(item.tool)
+            if (uiCall) return <AgentUICallCard key={item.key} call={uiCall} agentId={agentId} onOpen={onOpenUIItem} />
             return <SubagentCard key={item.key} tool={item.tool} />
           }
           if (item.role === "bang" && item.bang) {
@@ -911,23 +931,28 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
         })()}
         {error && <span className="text-red-400">{error}</span>}
         {/* Action buttons */}
-        <div className="ml-auto flex items-center gap-1.5 shrink-0">
+        {/* The model's name is the one thing here that can give up room: it
+            shrinks, down to its icon, before any button is pushed out of a
+            narrow panel (a small window, or the artifact panel open beside). */}
+        <div className="ml-auto flex min-w-0 items-center gap-1.5">
+          {artifacts && <ArtifactsButton {...artifacts} />}
           {/* Model selector */}
           {models.length > 0 && (
             <Dropdown
               open={modelsOpen}
               onOpenChange={setModelsOpen}
               minWidth={220}
-              className="inline-block"
+              className="min-w-0"
               trigger={
                 <button
                   onClick={() => setModelsOpen((v) => !v)}
-                  className={"flex items-center gap-1 rounded px-2 py-1 text-xs border transition-colors " + (modelsOpen ? "text-zinc-200 bg-zinc-800 border-zinc-600" : "text-zinc-400 border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200")}
+                  className={"flex max-w-full min-w-0 items-center gap-1 overflow-hidden rounded px-2 py-1 text-xs border transition-colors " + (modelsOpen ? "text-zinc-200 bg-zinc-800 border-zinc-600" : "text-zinc-400 border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200")}
                   title="Change model"
                 >
-                  <Cpu size={12} />
-                  <span className="font-mono hidden sm:inline">{model || "model"}</span>
-                  {effort !== undefined && <span className="hidden text-zinc-500 sm:inline">{String(effort)}</span>}
+                  <Cpu size={12} className="shrink-0" />
+                  {/* The name gives up its room first, then the effort. */}
+                  <span className="hidden min-w-0 shrink-[100] truncate font-mono sm:inline-block">{model || "model"}</span>
+                  {effort !== undefined && <span className="hidden min-w-0 truncate text-zinc-500 sm:inline-block">{String(effort)}</span>}
                 </button>
               }
             >
@@ -1286,12 +1311,21 @@ type ConversationBlock =
   | { kind: "item"; item: NativeConversationItem }
   | { kind: "tools"; key: string; tools: ToolCallItem[] }
 
+// shownUICall returns the call when a tool call asked Legato to show
+// something and has not failed: that call is drawn as what it shows. A failed
+// one stays an ordinary tool row, where its error can be read.
+function shownUICall(tool: ToolCallItem) {
+  const call = legatoUICall(tool)
+  return call && call.state !== "failed" ? call : null
+}
+
 // Tool calls made back to back are drawn as one block. A subagent spawn keeps
-// its own card, so it also ends the run before it.
+// its own card, and so does a call that showed a card or an artifact, so each
+// also ends the run before it.
 function conversationBlocks(items: NativeConversationItem[]): ConversationBlock[] {
   const blocks: ConversationBlock[] = []
   for (const item of items) {
-    if (item.role === "tool" && item.tool && item.tool.toolName !== "spawn_agent") {
+    if (item.role === "tool" && item.tool && item.tool.toolName !== "spawn_agent" && !shownUICall(item.tool)) {
       const last = blocks[blocks.length - 1]
       if (last?.kind === "tools") last.tools.push(item.tool)
       else blocks.push({ kind: "tools", key: item.key, tools: [item.tool] })

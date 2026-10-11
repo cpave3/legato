@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "legato": {
+      "command": "${LEGATO_BIN}",
+      "args": ["mcp", "serve"]
+    }
+  }
+}

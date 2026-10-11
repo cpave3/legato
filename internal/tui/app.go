@@ -174,6 +174,10 @@ type App struct {
 	attentionView            attention.Model
 	attentionSvc             attention.Service
 	attentionSub             <-chan events.Event
+	agentUISvc               AgentUIService
+	agentUIWebURL            string
+	agentUISub               <-chan events.Event
+	openURL                  func(string) error
 	statusBar                statusbar.Model
 	clip                     *clipboard.Clipboard
 	editor                   string
@@ -327,6 +331,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		reportView:    report.New(reportSvc),
 		statusBar:     statusbar.New(),
 		clip:          clip,
+		openURL:       clipboard.OpenURL,
 		editor:        editor,
 		active:        viewBoard,
 		eventBus:      bus,
@@ -360,6 +365,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		app.durablePlanSub = bus.Subscribe(events.EventPlanChanged)
 		app.reviewSub = bus.Subscribe(events.EventReviewChanged)
 		app.attentionSub = bus.Subscribe(events.EventAttentionChanged)
+		app.agentUISub = bus.Subscribe(events.EventAgentUIChanged)
 	}
 	return app
 }
@@ -393,6 +399,9 @@ func (a App) Init() tea.Cmd {
 	}
 	if a.attentionSub != nil {
 		cmds = append(cmds, a.listenAttentionUpdates())
+	}
+	if a.agentUISub != nil {
+		cmds = append(cmds, a.listenAgentUIUpdates())
 	}
 	if a.reviewSvc != nil {
 		cmds = append(cmds, a.loadReviewBadges())
@@ -723,7 +732,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agents.AgentsRefreshedMsg:
 		a.agentView, _ = a.agentView.Update(msg)
+		// The list changed, so what each agent has shown is asked for again.
+		return a, a.loadAgentShown(msg.Agents)
+
+	case agents.ShownRefreshedMsg:
+		a.agentView, _ = a.agentView.Update(msg)
 		return a, nil
+
+	case agentUIUpdateMsg:
+		return a.handleAgentUIUpdate(msg)
+
+	case agents.OpenShownMsg:
+		return a.handleOpenShown(msg)
 
 	case agents.StateTimelinesRefreshedMsg:
 		a.agentView, _ = a.agentView.Update(msg)
@@ -1415,6 +1435,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusbar.ErrorMsg:
 		a.statusBar, _ = a.statusBar.Update(msg)
 		return a, nil
+
+	case statusbar.InfoMsg:
+		// A notice a command produced, such as what an agent showed. The
+		// status bar's own command clears it after a moment.
+		var cmd tea.Cmd
+		a.statusBar, cmd = a.statusBar.Update(msg)
+		return a, cmd
 
 	case board.DataLoadedMsg:
 		// Forward data loaded to board
@@ -2783,6 +2810,9 @@ func (a App) hotkeyContext() hotkey.Context {
 	}
 	if a.attentionSvc != nil {
 		ctx.Capabilities[hotkey.CapabilityAttention] = true
+	}
+	if a.agentUISvc != nil {
+		ctx.Capabilities[hotkey.CapabilityAgentUI] = true
 	}
 	if a.voiceEnabled {
 		ctx.Capabilities[hotkey.CapabilityVoice] = true

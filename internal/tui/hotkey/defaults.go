@@ -72,6 +72,9 @@ const (
 	ActionAgentsDetails ActionID = "agents.details"
 	ActionAgentsNotify  ActionID = "agents.notify"
 	ActionAgentsVoice   ActionID = "agents.voice"
+	// ActionAgentsOpenShown opens the cards and artifacts the selected agent
+	// showed, which only the web UI can draw.
+	ActionAgentsOpenShown ActionID = "agents.open-shown"
 
 	ActionReportPeriod   ActionID = "report.period"
 	ActionReportPrevious ActionID = "report.previous"
@@ -247,6 +250,7 @@ func addPageBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Ke
 	add(ActionAgentsDetails, agents, TargetPage, []Key{Rune('l')}, "details", "Toggle worker details", "Agents", 50, 26, FullHelp)
 	add(ActionAgentsNotify, agents, TargetPage, []Key{Rune('n')}, "notify", "Toggle notifications", "Agents", 50, 27, FullHelp|ShortcutBar, CapabilityNotifications)
 	add(ActionAgentsVoice, agents, TargetPage, []Key{Rune('v')}, "voice", "Start voice dictation", "Agents", 50, 28, FullHelp|ShortcutBar, CapabilityVoice)
+	add(ActionAgentsOpenShown, agents, TargetPage, []Key{Rune('o')}, "open shown", "Open the agent's cards and artifacts in the web UI", "Agents", 50, 29, FullHelp, CapabilityAgentUI)
 
 	report := PageScope(PageReport)
 	add(ActionBack, report, TargetPage, []Key{Special(tea.KeyEsc, "esc"), Rune('q')}, "back", "Return to board", "Reports", 60, 1, FullHelp|Shortlist|ShortcutBar)

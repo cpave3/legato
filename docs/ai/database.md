@@ -48,6 +48,10 @@ Explicit local column moves atomically persist a `task_transitions` snapshot. Ma
 
 Migrations 044-046 add task metadata, transition/request persistence, and the workflow-run trigger link. Migration 047 adds `code_context`, backfills repository identity from legacy `pr_meta`, and pins existing numbered PR links. Migration 048 repairs early migration-045 databases by adding the missing workflow-trigger definition snapshot column. Migration 058 extends the trigger status constraint for explicit confirmation.
 
+### Agent UI items
+
+Migration 063 adds `agent_ui_items` and `agent_ui_item_revisions`: what agents asked Legato to show through `legato mcp serve`. An item (`ui-<10 hex>`) has a placement (`panel` for an artifact, `inline` for a card), an optional agent-chosen key that is unique per task and placement, and a current revision; each revision holds its format (`html`, `markdown`, `components`), title, content and fallback text. `task_id` is the agent's own identity, which is a sub-task ID for a swarm worker, so it has no foreign key: `Store.DeleteTask` removes a task's items and its workers', and `Store.DeleteSubtask` a worker's. `SaveAgentUIItem` trims an item to its newest revisions and a task to its newest items in the same transaction; the limits are the service's. See [Agent tools](agent-mcp.md).
+
 ### Future PostgreSQL work
 
 This boundary prepares but does not claim PostgreSQL support. A later change must test against a real PostgreSQL server, add a PostgreSQL baseline and advisory migration locking, implement dialect-specific reporting/search/generated IDs, and provide a one-way SQLite importer. Safe shared multi-host operation also requires node ownership and coordination beyond the database driver.

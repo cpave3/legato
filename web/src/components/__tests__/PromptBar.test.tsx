@@ -337,3 +337,64 @@ it("offers the options of a menu the tool is showing in its terminal", () => {
 
   expect(onSendKeys).toHaveBeenCalledWith("Down Enter")
 })
+
+// A terminal session has no conversation feed, but what its agent shows in
+// the side panel can still propose a message.
+it("puts a message proposed by the agent's content in the input and does not submit it", async () => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [] }) })
+  const { act } = await import("@testing-library/react")
+  const { proposeComposerText } = await import("../../lib/agentUi")
+  const onSubmitMessage = vi.fn()
+  const onSendKeys = vi.fn()
+  render(<PromptBar
+    promptState={null}
+    onSendKeys={onSendKeys}
+    onSubmitMessage={onSubmitMessage}
+    onDismissPrompt={vi.fn()}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="agent-1"
+    connected
+  />)
+  const input = screen.getByRole("textbox") as HTMLTextAreaElement
+  fireEvent.change(input, { target: { value: "Thanks." } })
+
+  act(() => proposeComposerText("agent-2", "for another agent"))
+  expect(input.value).toBe("Thanks.")
+
+  act(() => proposeComposerText("agent-1", "Show the 7 day forecast"))
+
+  expect(input.value).toBe("Thanks.\nShow the 7 day forecast")
+  // The draft is kept like anything typed, and nothing was sent.
+  expect(localStorage.getItem("legato:draft:agent-1")).toBe("Thanks.\nShow the 7 day forecast")
+  expect(onSubmitMessage).not.toHaveBeenCalled()
+  expect(onSendKeys).not.toHaveBeenCalled()
+})
+
+it("offers a terminal session's artifacts from its toolbar", () => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [] }) })
+  const onToggle = vi.fn()
+  render(<PromptBar
+    promptState={null}
+    onSendKeys={vi.fn()}
+    onSubmitMessage={vi.fn()}
+    onDismissPrompt={vi.fn()}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="agent-1"
+    connected
+    artifacts={{ count: 3, fresh: 0, onToggle }}
+  />)
+
+  fireEvent.click(screen.getByRole("button", { name: "Artifacts (3)" }))
+
+  expect(onToggle).toHaveBeenCalledTimes(1)
+})

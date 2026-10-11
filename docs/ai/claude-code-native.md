@@ -198,6 +198,19 @@ Three things that go wrong otherwise:
 
 To drive a session without the web UI, a mod of a few lines loaded with `CLAUDE_CODE_PLUGIN_DIRS=<folder> claude` in a tmux session of its own answers most "what does the engine do with this" questions in a minute; the facts under "What Claude Code accepts from the mod" came from one.
 
+## Legato's tools in a session
+
+A third plugin, `legato-tools` (`internal/engine/hooks/claudemod/tools/`), gives a session Legato's own MCP server, `legato mcp serve`: tools to show an artifact or a card in the web UI, read the task, record a note and message peers. It is an ordinary plugin, not a mod, and does not need the bridge mod: a `.mcp.json` that starts `${LEGATO_BIN} mcp serve`, and a `PreToolUse` hook that allows that server's tools (`mcp__plugin_legato-tools_legato__.*`) without a prompt. `configuredAdapters` installs it to `<data_dir>/claude-mod/legato-tools` when `agents.mcp.enabled` and adds the folder to the session's `CLAUDE_CODE_PLUGIN_DIRS`.
+
+Checked against Claude Code 2.1.296:
+
+- A plugin's MCP server is started with the session's whole environment, so the server finds its session from `LEGATO_TASK_ID` and `LEGATO_EXECUTION_ID` with nothing passed to it. `${VAR}` in `.mcp.json` is expanded from that environment.
+- The server's MCP `instructions` reach the model, in every session that loads the plugin. That is how the agent learns the tools exist and when to use them unasked; nothing is added to the launch command for it.
+- The model is given a tool result's structured content *in place of* its text when both are present, which is why the display tools return text only.
+- MCP tools are kept out of the model's tool list until it looks them up (`ToolSearch`), so a tool's description is not seen until then.
+
+See [Agent tools](agent-mcp.md).
+
 ## Reporting usage to Manticore
 
 A second mod, `legato-manticore` (`internal/engine/hooks/claudemod/manticore/`), rides beside the bridge mod. Claude Code calls its provider directly, so Manticore cannot see its requests as a proxy; this mod tells a Manticore instance what each request cost after the fact. It is separate from the bridge mod and does not need it: with `native_bridge: false` a session still reports.

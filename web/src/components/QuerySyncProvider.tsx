@@ -55,6 +55,11 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           if (message.workflow_run_id) invalidate(queryKeys.workflowRun(baseUrl, message.workflow_run_id))
           invalidate(queryKeys.navigationSummary(baseUrl))
           break
+        case "agent_ui_changed":
+          // An agent showed, replaced or lost an artifact or a card.
+          if (message.task_id) invalidate(queryKeys.agentUIItems(baseUrl, message.task_id))
+          if (message.item_id) invalidate([baseUrl, "agent-ui-item", message.item_id], false)
+          break
         case "cards_changed":
           invalidate([baseUrl, "board"], false)
           break

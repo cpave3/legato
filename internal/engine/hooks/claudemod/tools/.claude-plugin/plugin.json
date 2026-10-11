@@ -1,0 +1,6 @@
+{
+  "name": "legato-tools",
+  "version": "0.1.0",
+  "description": "Gives a Legato-launched Claude Code session Legato's own tools: show an artifact or a card in the Legato web UI, read the task, record a note, message peer agents.",
+  "author": { "name": "Legato" }
+}

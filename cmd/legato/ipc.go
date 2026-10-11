@@ -16,6 +16,31 @@ type workflowWebNotifier interface {
 	NotifyWorkflowChanged(runID, stepID string)
 }
 
+// serveNotifier is the subset of *server.Server the standalone server's IPC
+// handler needs.
+type serveNotifier interface {
+	webNotifier
+	workflowWebNotifier
+	NotifyAgentChanged(taskID string)
+}
+
+// handleServeIPCMessage is what `legato serve` does with a message from a
+// CLI process. It has no TUI to refresh, so it acts on fewer messages than
+// handleIPCMessage and tells the web server about most of them directly.
+func handleServeIPCMessage(msg ipc.Message, bus *events.Bus, srv serveNotifier) {
+	switch msg.Type {
+	case "task_update", "task_note", "agent_state", "pr_linked":
+		srv.NotifyAgentChanged(msg.TaskID)
+	case "review_changed", "plan_changed", "agent_ui_changed":
+		handleIPCMessage(msg, bus, nil)
+	case "workflow_changed":
+		srv.NotifyWorkflowChanged(msg.WorkflowRunID, msg.WorkflowStepID)
+		if msg.Kind == "completed_step" {
+			srv.NotifyAgentsChanged()
+		}
+	}
+}
+
 func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 	switch msg.Type {
 	case "task_update", "task_note", "worktree_changed":
@@ -61,6 +86,15 @@ func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 				TourID: msg.TourID,
 				StepID: msg.StepID,
 				Kind:   msg.Kind,
+			},
+		})
+	case "agent_ui_changed":
+		// An agent showed something through its own `legato mcp serve`.
+		bus.Publish(events.Event{
+			Type: events.EventAgentUIChanged,
+			At:   time.Now(),
+			Payload: events.AgentUIChangedPayload{
+				TaskID: msg.TaskID, ItemID: msg.ItemID, Placement: msg.Placement, Revision: msg.Revision, Kind: msg.Kind,
 			},
 		})
 	case "workflow_changed":

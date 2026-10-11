@@ -5,9 +5,15 @@ import (
 	"path/filepath"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/hooks"
 	"github.com/cpave3/legato/internal/service"
 )
+
+// chimeraMCPConfigProbe, when set, replaces how the Chimera adapter learns
+// whether the installed Chimera accepts --mcp-config. Tests set it so they
+// do not depend on a Chimera being installed.
+var chimeraMCPConfigProbe func() bool
 
 func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAdapter, map[string]service.AIToolAdapter) {
 	claude := hooks.NewClaudeCodeAdapter(legatoBin)
@@ -57,6 +63,30 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 		codex.SetTiers(adapterTierLaunchArgs(configured))
 	}
 	codex.SetNativeBridge(nativeBridgeEnabled(cfg, codex.Name()))
+	if cfg.Agents.MCP.Enabled {
+		// Every session gets Legato's own tools through `legato mcp serve`,
+		// added for that session only: nothing is written to the agent
+		// tool's own configuration. Each tool is run without asking.
+		//
+		// A failed install leaves Claude Code sessions without the tools;
+		// nothing else about them changes.
+		if pluginDir, err := hooks.InstallClaudeToolsMod(filepath.Join(config.ResolveDataDir(cfg), "claude-mod")); err != nil {
+			log.Printf("claude-code Legato tools unavailable: %v", err)
+		} else {
+			claude.SetToolsModDir(pluginDir)
+		}
+		codex.SetMCPTools(true)
+		chimera.SetMCPTools(true, cli.MCPToolNames())
+		// Claude Code gives its model the server's own instructions. Codex
+		// and Chimera do not, so the same guidance goes in their launch
+		// prompt, where it tells the agent to use the tools unasked.
+		toolsPrompt := "## Legato tools\n\n" + cli.MCPGuidance
+		codex.SetToolsPrompt(toolsPrompt)
+		chimera.SetToolsPrompt(toolsPrompt)
+		if chimeraMCPConfigProbe != nil {
+			chimera.SetMCPConfigProbe(chimeraMCPConfigProbe)
+		}
+	}
 
 	adapters := map[string]service.AIToolAdapter{
 		claude.Name():  claude,

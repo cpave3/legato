@@ -45,7 +45,8 @@ type Model struct {
 	agents            []service.AgentSession
 	durations         map[string]DurationData
 	timelines         map[string][]string
-	notifyStates      map[string]bool // taskID -> notify enabled
+	notifyStates      map[string]bool  // taskID -> notify enabled
+	shown             map[string]Shown // taskID -> cards and artifacts shown in the web UI
 	selected          int
 	termContent       string
 	width             int
@@ -256,6 +257,15 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.termContent = msg.Output
 		return m, nil
 
+	case ShownRefreshedMsg:
+		m.shown = msg.Shown
+		if m.shown == nil {
+			// Loaded and empty, which is not the same as never loaded: the
+			// open key answers once there is somewhere to ask.
+			m.shown = map[string]Shown{}
+		}
+		return m, nil
+
 	case StateTimelinesRefreshedMsg:
 		if m.timelines == nil {
 			m.timelines = make(map[string][]string)
@@ -312,6 +322,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if m.voiceEnabled {
 		ctx.Capabilities[hotkey.CapabilityVoice] = true
 	}
+	if m.shown != nil {
+		ctx.Capabilities[hotkey.CapabilityAgentUI] = true
+	}
 	// The page still checks whether the selected agent belongs to a swarm.
 	ctx.Capabilities[hotkey.CapabilitySwarm] = true
 	binding, ok := hotkey.DefaultRegistry().Resolve(msg, ctx)
@@ -353,6 +366,13 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 		return m, func() tea.Msg { return ReturnToBoardMsg{} }
 	case hotkey.ActionAgentsMacro:
 		return m, func() tea.Msg { return OpenMacroPickerMsg{} }
+	case hotkey.ActionAgentsOpenShown:
+		if a := m.SelectedAgent(); a != nil {
+			shown := m.shown[a.TaskID]
+			msg := OpenShownMsg{TaskID: a.TaskID, URL: shown.URL, Count: shown.Count()}
+			return m, func() tea.Msg { return msg }
+		}
+		return m, nil
 	case hotkey.ActionAgentsGroup:
 		if a := m.SelectedAgent(); a != nil {
 			return m, func() tea.Msg { return OpenGroupMsg{TaskID: a.TaskID, Group: a.Group} }
@@ -874,8 +894,11 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 func (m Model) renderTerminalPanel() string {
 	termW := m.terminalWidth()
 
-	// Terminal header
+	// Terminal header, and under it what the agent showed in the web UI
 	header := m.renderTerminalHeader(termW)
+	if bar := m.renderShownBar(termW); bar != "" {
+		header = lipgloss.JoinVertical(lipgloss.Left, header, bar)
+	}
 	headerHeight := lipgloss.Height(header)
 
 	// Voice overlay bar height (1-2 lines)

@@ -28,6 +28,7 @@ type ClaudeCodeAdapter struct {
 	launchArgs    []string            // appended to `claude` invocation in LaunchCommand
 	tiers         map[string][]string // tier name → extra launch args (typically `--model <id>`)
 	modDir        string              // installed Legato mod (see InstallClaudeMod); "" leaves sessions tmux-only
+	toolsModDir   string              // installed tools plugin (see InstallClaudeToolsMod); "" gives sessions no Legato tools
 	// usage names the usage mod and the Manticore instance it reports to;
 	// zero when no instance is configured.
 	usage claudeUsageReporting
@@ -64,6 +65,13 @@ func (a *ClaudeCodeAdapter) SetTiers(tiers map[string][]string) {
 // interrupts, permission decisions and the native panel for them.
 func (a *ClaudeCodeAdapter) SetModDir(pluginDir string) {
 	a.modDir = pluginDir
+}
+
+// SetToolsModDir names the installed tools plugin's directory. Sessions the
+// adapter launches then load it, which gives their agent Legato's own tools
+// through `legato mcp serve`. It works with or without the bridge mod.
+func (a *ClaudeCodeAdapter) SetToolsModDir(pluginDir string) {
+	a.toolsModDir = pluginDir
 }
 
 // claudeUsageReporting is what a session needs to report its usage: the
@@ -161,7 +169,12 @@ func (a *ClaudeCodeAdapter) EnvVars(taskID, socketPath string) map[string]string
 		vars["LEGATO_MANTICORE_URL"] = a.usage.url
 		vars["LEGATO_MANTICORE_API_KEY"] = a.usage.apiKey
 	}
-	if a.modDir != "" || a.usage.modDir != "" {
+	if a.toolsModDir != "" {
+		dirs = append(dirs, a.toolsModDir)
+		// The plugin starts `legato mcp serve` by this path.
+		vars["LEGATO_BIN"] = a.legatoBin
+	}
+	if a.modDir != "" || a.usage.modDir != "" || a.toolsModDir != "" {
 		vars["CLAUDE_CODE_PLUGIN_DIRS"] = strings.Join(dirs, string(os.PathListSeparator))
 	}
 	return vars

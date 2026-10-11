@@ -272,8 +272,17 @@ func commandTree() *commandDef {
 		group("reflection", "Submit typed session reflections", []string{"legato learn reflection submit --request <id> --file reflection.json"}, leaf("submit", "Submit a reflection and complete its workflow step", func(a []string) int { return runLearnCmd(append([]string{"reflection", "submit"}, a...)) }, nil, []commandFlag{valueFlag("request", "request-id", "Reflection request ID"), valueFlag("file", "path|-", "JSON file; defaults to stdin"), jsonFlag}, "legato learn reflection submit --request <id> --file reflection.json")),
 	)
 
+	mcp := group("mcp", "Give an agent Legato's tools over the Model Context Protocol", []string{"legato mcp serve"},
+		leaf("serve", "Serve Legato's tools to the agent of this session over stdio", runMCPServeContract, nil,
+			[]commandFlag{valueFlag("task", "task-id", "Session task; defaults to LEGATO_TASK_ID"), valueFlag("execution-id", "id", "Owning Legato execution ID; defaults to LEGATO_EXECUTION_ID")},
+			"legato mcp serve", "legato mcp serve --task <task-id> --execution-id <id>"),
+	)
+	mcp.Children[0].Capabilities = commandCapabilities{Integration: true, LongRunning: true}
+	mcp.Children[0].Description = "Legato adds this server to every agent session it launches, so it is not run by hand. " +
+		"It speaks MCP on stdin and stdout and acts on the session it was started in: showing artifacts and cards in the web UI, reading the task, recording notes and messaging peer agents."
+
 	root := group("", "Legato task management and AI-agent orchestration", []string{"legato task list", "legato workflow list --json"},
-		task, workspace, columns, agent, plan, review, workflow, swarm, attention, learn, hooks,
+		task, workspace, columns, agent, plan, review, workflow, swarm, attention, learn, hooks, mcp,
 		leaf("serve", "Run the Legato web server", runServeCmd, nil, []commandFlag{valueFlag("port", "port", "Listening port"), boolFlag("hot-reload", "Supervise this foreground server and restart after binary replacement")}, "legato serve --port 3080", "legato --hot-reload serve --port 3080"),
 		authGroup,
 		leaf("pair", "Pair a device with the Legato web UI", runPairContract, nil, []commandFlag{valueFlag("host", "host|ip", "Address this device uses to reach this specific Legato instance"), valueFlag("port", "port", "Server port"), jsonFlag}, "legato pair --host 192.168.1.20"),

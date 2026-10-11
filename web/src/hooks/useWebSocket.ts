@@ -7,6 +7,7 @@ export interface WSMessage {
     | "subscribe_agent" | "unsubscribe_agent" | "send_keys" | "resize" | "detect_prompt" | "refresh_pane"
     | "agent_message" | "agent_interrupt" | "agent_permission" | "agent_question"
     | "plan_proposed" | "plan_verdict" | "plan_changed" | "swarm_changed" | "cards_changed" | "review_changed" | "workflow_changed" | "attention_changed"
+    | "agent_ui_changed"
   agent_id?: string
   cursor?: string
   queue?: boolean
@@ -37,6 +38,9 @@ export interface WSMessage {
   workflow_run_id?: string
   workflow_step_id?: string
   item_id?: string
+  // agent_ui_changed: where the item is drawn and which revision it is at.
+  placement?: "panel" | "inline"
+  revision?: number
   producer?: string
   source_key?: string
   request_id?: string

@@ -1,11 +1,16 @@
 package hooks
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 )
 
 // chimeraScripts pairs each Chimera hook event with its installed script name
@@ -42,11 +47,107 @@ type ChimeraAdapter struct {
 	// selector). Layered after launchArgs at LaunchCommand time so tier
 	// args win on conflicts.
 	tiers map[string][]string
+	// mcpTools gives sessions Legato's MCP server, `legato mcp serve`, with
+	// mcpTrustedTools callable without a prompt.
+	mcpTools        bool
+	mcpTrustedTools []string
+	// toolsPrompt tells a session's agent about those tools. Chimera does
+	// not pass an MCP server's own instructions to its model.
+	toolsPrompt string
+	// mcpConfigProbe reports whether the installed Chimera accepts
+	// --mcp-config. It is asked once, at the first launch that needs it.
+	mcpConfigProbe  func() bool
+	mcpConfigOnce   sync.Once
+	mcpConfigUsable bool
 }
 
 // NewChimeraAdapter creates a Chimera adapter.
 func NewChimeraAdapter(legatoBin string) *ChimeraAdapter {
 	return &ChimeraAdapter{legatoBin: legatoBin}
+}
+
+// SetMCPTools gives the sessions the adapter launches Legato's own tools:
+// LaunchCommand then passes `legato mcp serve` to Chimera as a server for that
+// session only (--mcp-config), so nothing is written to the person's Chimera
+// config. trustedTools are the tool names Chimera runs without asking.
+func (a *ChimeraAdapter) SetMCPTools(enabled bool, trustedTools []string) {
+	a.mcpTools = enabled
+	a.mcpTrustedTools = trustedTools
+}
+
+// SetToolsPrompt sets what a session's agent is told about Legato's tools.
+func (a *ChimeraAdapter) SetToolsPrompt(prompt string) {
+	a.toolsPrompt = prompt
+}
+
+// ToolsPrompt implements service.ToolsPromptAdapter: the guidance belongs in
+// the launch prompt of a session whose launch adds the server, and of no
+// other (the tools are off, Chimera is too old for the flag, or the person's
+// own --mcp-config replaced Legato's).
+func (a *ChimeraAdapter) ToolsPrompt() string {
+	if a.mcpConfigFlag() == "" {
+		return ""
+	}
+	return a.toolsPrompt
+}
+
+// SetMCPConfigProbe replaces how the adapter learns whether the installed
+// Chimera accepts --mcp-config. The default reads `chimera --help`.
+func (a *ChimeraAdapter) SetMCPConfigProbe(probe func() bool) {
+	a.mcpConfigProbe = probe
+}
+
+// chimeraAcceptsMCPConfig reads `chimera --help` for the flag. A Chimera from
+// before the flag existed exits on it as an unknown option, so a session
+// would not start at all.
+func chimeraAcceptsMCPConfig() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "chimera", "--help").Output()
+	return err == nil && strings.Contains(string(out), "--mcp-config")
+}
+
+// mcpConfigFlag returns the --mcp-config argument that adds Legato's server
+// to a session, or "" when the session gets none.
+func (a *ChimeraAdapter) mcpConfigFlag() string {
+	if !a.mcpTools || launchArgsContain(a.launchArgs, "--mcp-config") {
+		// With a flag of their own in launch_args, the person's wins:
+		// Chimera takes the flag once.
+		return ""
+	}
+	a.mcpConfigOnce.Do(func() {
+		probe := a.mcpConfigProbe
+		if probe == nil {
+			probe = chimeraAcceptsMCPConfig
+		}
+		a.mcpConfigUsable = probe()
+		if !a.mcpConfigUsable {
+			log.Printf("chimera does not accept --mcp-config; its sessions start without Legato's tools (update Chimera to add them)")
+		}
+	})
+	if !a.mcpConfigUsable {
+		return ""
+	}
+	type server struct {
+		Transport string   `json:"transport"`
+		Command   string   `json:"command"`
+		Args      []string `json:"args"`
+		// Chimera starts a stdio server with a few variables unless its
+		// entry has an env map, and then with all of its own. The one
+		// reference is to a variable every Legato session has: Chimera
+		// refuses to start a server whose reference is unset.
+		Env          map[string]string `json:"env"`
+		TrustedTools []string          `json:"trustedTools,omitempty"`
+	}
+	document, err := json.Marshal(map[string]map[string]server{"mcpServers": {mcpServerName: {
+		Transport: "stdio", Command: a.legatoBin, Args: mcpServerArgs,
+		Env:          map[string]string{"LEGATO_TASK_ID": "env:LEGATO_TASK_ID"},
+		TrustedTools: a.mcpTrustedTools,
+	}}})
+	if err != nil {
+		return ""
+	}
+	return " --mcp-config " + shellQuote(string(document))
 }
 
 // SetRoleOverrides configures user-supplied role prompts.
@@ -276,6 +377,8 @@ func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief, model, tier
 		}
 	}
 
+	cmd += a.mcpConfigFlag()
+
 	for _, arg := range a.launchArgs {
 		cmd += " " + shellQuote(arg)
 	}
@@ -301,8 +404,14 @@ func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief, model, tier
 // already include a `--mode` flag. When true, the adapter skips its
 // automatic mode injection so the user override wins.
 func launchArgsContainsMode(args []string) bool {
+	return launchArgsContain(args, "--mode")
+}
+
+// launchArgsContain reports whether launch args already give flag, as
+// `--flag value` or `--flag=value`.
+func launchArgsContain(args []string, flag string) bool {
 	for _, a := range args {
-		if a == "--mode" || strings.HasPrefix(a, "--mode=") {
+		if a == flag || strings.HasPrefix(a, flag+"=") {
 			return true
 		}
 	}

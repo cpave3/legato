@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/jmoiron/sqlx"
 )
 
 // MarshalScopeGlobs serializes a []string of glob patterns to a JSON string for storage.
@@ -214,10 +216,15 @@ func (s *Store) SetSubtaskReviewerAgent(ctx context.Context, subtaskID string, a
 	return nil
 }
 
-// DeleteSubtask removes a sub-task row.
+// DeleteSubtask removes a sub-task row, and what its worker showed in Legato.
 func (s *Store) DeleteSubtask(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM swarm_subtasks WHERE id = ?", id)
-	return err
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM agent_ui_items WHERE task_id = ?", id); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "DELETE FROM swarm_subtasks WHERE id = ?", id)
+		return err
+	})
 }
 
 // InsertSwarmEvent appends a conductor-bound event to the inbox. Returns the

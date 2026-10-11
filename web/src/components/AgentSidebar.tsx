@@ -22,6 +22,8 @@ interface AgentSidebarProps {
   onStartSwarm?: () => void;
   onAgentContextMenu?: (agent: AgentInfo, position: { x: number; y: number }) => void;
   modifierHeld?: boolean;
+  // Artifacts each agent showed while it was not in view, by task ID.
+  unseenArtifacts?: Record<string, number>;
 }
 
 function activityBadge(activity: string) {
@@ -140,6 +142,7 @@ export function AgentSidebar({
   onStartSwarm,
   onAgentContextMenu,
   modifierHeld,
+  unseenArtifacts,
 }: AgentSidebarProps) {
   const grouped = groupAndSortAgents(agents);
 
@@ -237,6 +240,15 @@ export function AgentSidebar({
                     <span className="min-w-0 truncate text-sm font-mono">
                       {agent.task_id}
                     </span>
+                    {(unseenArtifacts?.[agent.task_id] ?? 0) > 0 && (
+                      <span
+                        aria-label={`${unseenArtifacts![agent.task_id]} new artifact${unseenArtifacts![agent.task_id] === 1 ? "" : "s"}`}
+                        title="New artifacts from this agent"
+                        className="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-indigo-500 px-1 text-[10px] font-semibold text-white"
+                      >
+                        {unseenArtifacts![agent.task_id]}
+                      </span>
+                    )}
                   </div>
                   {agent.task_title && (
                     <span className="text-xs text-zinc-500 truncate pl-4">

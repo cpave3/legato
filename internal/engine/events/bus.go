@@ -33,6 +33,7 @@ const (
 	EventWorkflowTriggerChanged
 	EventAttentionChanged
 	EventLearningChanged
+	EventAgentUIChanged
 )
 
 // ErrorPayload carries structured error information for error events.
@@ -106,6 +107,17 @@ type AttentionChangedPayload struct {
 	Producer  string
 	SourceKey string
 	Kind      string
+}
+
+// AgentUIChangedPayload is published when an agent shows, replaces or loses
+// an item in Legato's UI: an artifact in the side panel or a card in the
+// conversation.
+type AgentUIChangedPayload struct {
+	TaskID    string
+	ItemID    string
+	Placement string
+	Revision  int
+	Kind      string // "shown", "deleted"
 }
 
 type WorkflowChangedPayload struct {

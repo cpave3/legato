@@ -12,6 +12,9 @@ import { SpawnEphemeralModal } from "../components/SpawnEphemeralModal"
 import { SwarmEventLog } from "../components/SwarmEventLog"
 import { SwarmCommandCenter } from "../components/SwarmCommandCenter"
 import { AgentSelect } from "../components/AgentSelect"
+import { AgentArtifactPanel } from "../components/AgentArtifactPanel"
+import { useAgentUIItems } from "../hooks/useAgentUI"
+import { useArtifactPanel } from "../hooks/useArtifactPanel"
 import { useServer } from "../hooks/useServer"
 import { useSwarmEvents } from "../hooks/useSwarmEvents"
 import { useTaskActivity } from "../hooks/useTaskActivity"
@@ -139,11 +142,17 @@ export function AgentsPage() {
 
   // Treat ?task= as a one-shot deep link: select it once, then clear the param
   // so it doesn't reassert on every agents update and fight sidebar selection.
+  // &artifact= names something that agent showed (the TUI links to it, since
+  // it cannot draw it): it is handed to the artifact panel below.
+  const [artifactLink, setArtifactLink] = useState<{ agentId: string; itemId: string } | null>(null)
   useEffect(() => {
     if (linkedTask && agents.some((agent) => agent.task_id === linkedTask)) {
+      const linkedItem = searchParams.get("artifact")
+      if (linkedItem) setArtifactLink({ agentId: linkedTask, itemId: linkedItem })
       setSelectedId(linkedTask)
       const next = new URLSearchParams(searchParams)
       next.delete("task")
+      next.delete("artifact")
       setSearchParams(next, { replace: true })
     }
   }, [agents, linkedTask, setSelectedId, searchParams, setSearchParams])
@@ -396,12 +405,35 @@ export function AgentsPage() {
 
   // Mobile: use select dropdown on narrow screens
   const [isMobile, setIsMobile] = useState(false)
+  // The artifact panel needs room beside the conversation (and beside the
+  // swarm event log, when there is one). Without it, it is a full-screen
+  // sheet, as on a phone.
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
   useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth <= 768)
+    const check = () => {
+      setIsMobile(window.innerWidth <= 768)
+      setViewportWidth(window.innerWidth)
+    }
     check()
     window.addEventListener("resize", check)
     return () => window.removeEventListener("resize", check)
   }, [])
+  const artifactSheet = viewportWidth < (selectedParentId ? 1500 : 1100)
+  const artifacts = useArtifactPanel(selectedId, !artifactSheet)
+  const showLinkedArtifact = artifacts.showFor
+  useEffect(() => {
+    if (!artifactLink) return
+    showLinkedArtifact(artifactLink.agentId, artifactLink.itemId)
+    setArtifactLink(null)
+  }, [artifactLink, showLinkedArtifact])
+  const { items: shownItems } = useAgentUIItems(selectedId)
+  // A native session draws its cards in the conversation; a terminal session
+  // has only the panel to show them in.
+  const artifactCount = selectedAgent?.has_chimera_endpoint
+    ? shownItems.filter((item) => item.placement === "panel").length
+    : shownItems.length
+  const newArtifacts = selectedId ? artifacts.unseen[selectedId] ?? 0 : 0
+  const artifactsButton = { count: artifactCount, fresh: newArtifacts, onToggle: artifacts.toggle }
 
   // If the selected agent died, deselect it.
   useEffect(() => {
@@ -471,6 +503,7 @@ export function AgentsPage() {
           onStartSwarm={handleOpenStartSwarm}
           onAgentContextMenu={(agent, position) => setAgentContextMenu({ agent, position })}
           modifierHeld={modifierHeld}
+          unseenArtifacts={artifacts.unseen}
         />
       )}
 
@@ -498,6 +531,8 @@ export function AgentsPage() {
                       agentId={agent.task_id}
                       agentKind={agent.agent_kind}
                       composerEnabled={agent.task_id === selectedId}
+                      onOpenUIItem={agent.task_id === selectedId ? artifacts.openItem : undefined}
+                      artifacts={agent.task_id === selectedId ? artifactsButton : undefined}
                     />
                   ) : (
                     <TerminalPanel agentId={agent.task_id} onGlitch={triggerGlitch} onClickTerminal={() => {
@@ -518,6 +553,8 @@ export function AgentsPage() {
                   onToggleNotify={handleToggleNotify}
                   voiceEnabled={voiceEnabled}
                   agentKind={selectedAgent?.agent_kind}
+                  onOpenUIItem={artifacts.openItem}
+                  artifacts={artifactsButton}
                 />
               ) : (
                 <TerminalPanel agentId={selectedId} onGlitch={triggerGlitch} onClickTerminal={() => promptBarRef.current?.focus()} />
@@ -550,6 +587,7 @@ export function AgentsPage() {
                 onToggleNotify={handleToggleNotify}
                 voiceEnabled={voiceEnabled}
                 onUpgradeChimera={canBeNative(selectedAgent?.agent_kind) ? handleUpgradeChimera : undefined}
+                artifacts={artifactsButton}
               />
             )}
           </>
@@ -559,6 +597,16 @@ export function AgentsPage() {
           </div>
         )}
       </div>
+
+      {selectedId && artifacts.open && (
+        <AgentArtifactPanel
+          agentId={selectedId}
+          focus={artifacts.focus}
+          onFocus={artifacts.openItem}
+          onClose={artifacts.close}
+          mobile={artifactSheet}
+        />
+      )}
 
       {agentContextMenu && (
         <AgentContextMenu

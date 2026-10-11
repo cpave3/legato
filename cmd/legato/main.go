@@ -1542,17 +1542,7 @@ func runServeCmd(args []string) int {
 	// IPC server for receiving CLI→web updates.
 	socketPath := ipc.SocketPath()
 	ipcSrv, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
-		switch msg.Type {
-		case "task_update", "task_note", "agent_state", "pr_linked":
-			srv.NotifyAgentChanged(msg.TaskID)
-		case "review_changed", "plan_changed":
-			handleIPCMessage(msg, bus, nil)
-		case "workflow_changed":
-			srv.NotifyWorkflowChanged(msg.WorkflowRunID, msg.WorkflowStepID)
-			if msg.Kind == "completed_step" {
-				srv.NotifyAgentsChanged()
-			}
-		}
+		handleServeIPCMessage(msg, bus, srv)
 	})
 	if ipcErr == nil {
 		defer ipcSrv.Close()
@@ -1581,6 +1571,7 @@ func runServeCmd(args []string) int {
 	srv.StartPlanEvents()
 	srv.StartBoardEvents()
 	srv.StartLearningEvents()
+	wireAgentUI(srv, cfg, db, bus)
 
 	scheme := "http"
 	if certFile != "" {
@@ -1813,6 +1804,7 @@ func runTUI() int {
 			webSrv.StartPlanEvents()
 			webSrv.StartBoardEvents()
 			webSrv.StartLearningEvents()
+			wireAgentUI(webSrv, cfg, db, bus)
 			go func() {
 				if err := webSrv.Serve(ln); err != nil && err.Error() != "http: Server closed" {
 					log.Printf("web server: %v", err)
@@ -1867,6 +1859,9 @@ func runTUI() int {
 		log.Printf("attention: startup signal counts: %v", counts)
 	}
 	app.SetAttentionService(attentionSvc)
+	// The TUI cannot draw what agents show through their Legato tools; it
+	// counts it and links to the web UI.
+	app.SetAgentUIService(service.NewAgentUIService(db, bus, service.AgentUIOptions{}), localWebURL(cfg))
 	app.SetGroupDefaults(cfg.Groups.Defaults)
 	if worktreeSvc != nil {
 		app.SetWorktreeService(worktreeSvc)

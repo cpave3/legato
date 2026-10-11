@@ -155,3 +155,87 @@ func TestConfiguredAdaptersInstallNoUsageModWithoutAManticore(t *testing.T) {
 		t.Fatalf("the usage mod was installed although no Manticore instance is configured: %v", err)
 	}
 }
+
+func TestConfiguredAdaptersGiveEverySessionLegatosMCPServer(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_PLUGIN_DIRS", "")
+	dataDir := t.TempDir()
+	disabled := false
+	cfg := &config.Config{
+		DataDir: dataDir,
+		Agents:  config.AgentsConfig{MCP: config.AgentMCPConfig{Enabled: true}},
+		// The tools must not depend on the native bridge.
+		Adapters: map[string]config.AdapterConfig{"claude-code": {NativeBridge: &disabled}, "codex": {NativeBridge: &disabled}},
+	}
+	oldProbe := chimeraMCPConfigProbe
+	chimeraMCPConfigProbe = func() bool { return true }
+	t.Cleanup(func() { chimeraMCPConfigProbe = oldProbe })
+
+	_, adapters := configuredAdapters(cfg, "/opt/legato")
+
+	claude := adapters["claude-code"].EnvVars("task-1", "")
+	toolsDir := filepath.Join(dataDir, "claude-mod", "legato-tools")
+	if claude["CLAUDE_CODE_PLUGIN_DIRS"] != toolsDir || claude["LEGATO_BIN"] != "/opt/legato" {
+		t.Fatalf("claude env = %v, want the tools plugin at %s", claude, toolsDir)
+	}
+	if _, err := os.Stat(filepath.Join(toolsDir, ".mcp.json")); err != nil {
+		t.Fatalf("the tools plugin was not installed: %v", err)
+	}
+
+	codex := adapters["codex"].(service.LaunchCommandAdapter).LaunchCommand(map[string]string{}, "", "", "")
+	if !strings.Contains(codex, `mcp_servers.legato.command="/opt/legato"`) {
+		t.Fatalf("codex command %q defines no legato server", codex)
+	}
+
+	chimera := adapters["chimera"].(service.LaunchCommandAdapter).LaunchCommand(map[string]string{}, "", "", "")
+	if !strings.Contains(chimera, "--mcp-config") || !strings.Contains(chimera, `"command":"/opt/legato"`) {
+		t.Fatalf("chimera command %q adds no legato server", chimera)
+	}
+	// Codex and Chimera do not pass the server's own instructions to their
+	// model, so their launch prompt carries the same guidance. Claude Code
+	// reads the instructions and needs no second copy.
+	for _, name := range []string{"codex", "chimera"} {
+		prompt := adapters[name].(service.ToolsPromptAdapter).ToolsPrompt()
+		if !strings.HasPrefix(prompt, "## Legato tools\n") || !strings.Contains(prompt, "without being asked") || !strings.Contains(prompt, "show_artifact") {
+			t.Fatalf("%s tools guidance = %q", name, prompt)
+		}
+	}
+	if _, repeats := adapters["claude-code"].(service.ToolsPromptAdapter); repeats {
+		t.Fatal("claude-code repeats guidance its sessions get from the server")
+	}
+	// Every tool is trusted, so Chimera asks before none of them.
+	for _, tool := range []string{"show_artifact", "show_card", "show_components", "task_context", "add_task_note", "list_peers"} {
+		if !strings.Contains(chimera, `"`+tool+`"`) {
+			t.Fatalf("chimera command %q does not trust %s", chimera, tool)
+		}
+	}
+}
+
+func TestConfiguredAdaptersAddNoMCPServerWhenTheSettingIsOff(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_PLUGIN_DIRS", "")
+	dataDir := t.TempDir()
+	disabled := false
+	cfg := &config.Config{DataDir: dataDir, Adapters: map[string]config.AdapterConfig{"claude-code": {NativeBridge: &disabled}}}
+	oldProbe := chimeraMCPConfigProbe
+	chimeraMCPConfigProbe = func() bool { return true }
+	t.Cleanup(func() { chimeraMCPConfigProbe = oldProbe })
+
+	_, adapters := configuredAdapters(cfg, "/opt/legato")
+
+	if dirs, ok := adapters["claude-code"].EnvVars("task-1", "")["CLAUDE_CODE_PLUGIN_DIRS"]; ok {
+		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want none", dirs)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "claude-mod", "legato-tools")); !os.IsNotExist(err) {
+		t.Fatalf("the tools plugin was installed with the setting off: %v", err)
+	}
+	for _, name := range []string{"codex", "chimera"} {
+		command := adapters[name].(service.LaunchCommandAdapter).LaunchCommand(map[string]string{}, "", "", "")
+		if strings.Contains(command, "mcp") {
+			t.Fatalf("%s command %q mentions an MCP server", name, command)
+		}
+	}
+	for _, name := range []string{"codex", "chimera"} {
+		if prompt := adapters[name].(service.ToolsPromptAdapter).ToolsPrompt(); prompt != "" {
+			t.Fatalf("%s is told about tools it does not have: %q", name, prompt)
+		}
+	}
+}

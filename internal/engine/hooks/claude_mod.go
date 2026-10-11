@@ -34,6 +34,19 @@ const (
 	claudeUsageModName   = "legato-manticore"
 )
 
+// claudeToolsModFS holds the tools plugin for Claude Code: a third plugin,
+// independent of the other two, that adds Legato's MCP server (`legato mcp
+// serve`) to a session and answers the permission prompt for that server's
+// tools. It has no hooks module, so it is an ordinary plugin, not a mod.
+//
+//go:embed all:claudemod/tools
+var claudeToolsModFS embed.FS
+
+const (
+	claudeToolsModSource = "claudemod/tools"
+	claudeToolsModName   = "legato-tools"
+)
+
 // InstallClaudeMod writes the mod under root and returns its plugin
 // directory, the path Claude Code loads it from.
 //
@@ -55,6 +68,17 @@ func InstallClaudeUsageMod(root string) (string, error) {
 	pluginDir := filepath.Join(root, claudeUsageModName)
 	if err := installEmbeddedMod(claudeUsageModFS, claudeUsageModSource, pluginDir); err != nil {
 		return "", fmt.Errorf("installing the Claude Code usage mod: %w", err)
+	}
+	return pluginDir, nil
+}
+
+// InstallClaudeToolsMod writes the tools plugin under root, beside the mods,
+// and returns its plugin directory. Like InstallClaudeMod it leaves an
+// up-to-date install untouched.
+func InstallClaudeToolsMod(root string) (string, error) {
+	pluginDir := filepath.Join(root, claudeToolsModName)
+	if err := installEmbeddedMod(claudeToolsModFS, claudeToolsModSource, pluginDir); err != nil {
+		return "", fmt.Errorf("installing the Claude Code tools plugin: %w", err)
 	}
 	return pluginDir, nil
 }

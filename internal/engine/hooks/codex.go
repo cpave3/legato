@@ -33,6 +33,11 @@ type CodexAdapter struct {
 	// nativeBridge starts sessions through `legato agent codex`, which gives
 	// them a bridge to Legato beside their terminal.
 	nativeBridge bool
+	// mcpTools gives sessions Legato's MCP server, `legato mcp serve`.
+	mcpTools bool
+	// toolsPrompt tells a session's agent about those tools. Codex does not
+	// pass an MCP server's own instructions to its model.
+	toolsPrompt string
 }
 
 // NewCodexAdapter creates a Codex adapter.
@@ -52,6 +57,28 @@ func (a *CodexAdapter) SetRoleOverrides(overrides RolePromptOverrides) {
 // across all swarm participants using this adapter.
 func (a *CodexAdapter) SetLaunchArgs(args []string) {
 	a.launchArgs = args
+}
+
+// SetMCPTools gives the sessions the adapter launches Legato's own tools:
+// LaunchCommand then defines `legato mcp serve` as an MCP server through
+// configuration overrides, so nothing is written to the person's Codex
+// config and a Codex started outside Legato is unaffected.
+func (a *CodexAdapter) SetMCPTools(enabled bool) {
+	a.mcpTools = enabled
+}
+
+// SetToolsPrompt sets what a session's agent is told about Legato's tools.
+func (a *CodexAdapter) SetToolsPrompt(prompt string) {
+	a.toolsPrompt = prompt
+}
+
+// ToolsPrompt implements service.ToolsPromptAdapter: the guidance belongs in
+// the launch prompt of a session that has the tools, and of no other.
+func (a *CodexAdapter) ToolsPrompt() string {
+	if !a.mcpTools {
+		return ""
+	}
+	return a.toolsPrompt
 }
 
 // SetTiers configures named launch profiles that LaunchCommand appends based
@@ -103,6 +130,19 @@ func (a *CodexAdapter) LaunchCommand(env map[string]string, brief, model, tier s
 		// The launcher takes Codex's own arguments after "--" and passes the
 		// configuration among them to the session's app server as well.
 		cmd = shellQuote(a.legatoBin) + " agent codex --"
+	}
+	if a.mcpTools {
+		// Ahead of the person's own launch args, so an override of theirs for
+		// the same server wins. Codex starts an MCP server with a short list
+		// of variables; env_vars adds the ones the server finds its session by.
+		server := "mcp_servers." + mcpServerName
+		for _, override := range []string{
+			server + ".command=" + tomlString(a.legatoBin),
+			server + ".args=" + tomlStringArray(mcpServerArgs),
+			server + ".env_vars=" + tomlStringArray(mcpServerEnv),
+		} {
+			cmd += " -c " + shellQuote(override)
+		}
 	}
 	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; ok {
 		cmd += ` -c developer_instructions="$(cat $LEGATO_ROLE_PROMPT_FILE)"`

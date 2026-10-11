@@ -46,6 +46,7 @@ const (
 	MsgWorkflowChanged     = "workflow_changed"
 	MsgAttentionChanged    = "attention_changed"
 	MsgLearningChanged     = "learning_changed"
+	MsgAgentUIChanged      = "agent_ui_changed"
 	MsgError               = "error"
 )
 
@@ -76,6 +77,8 @@ type WSMessage struct {
 	WorkflowRunID  string              `json:"workflow_run_id,omitempty"`
 	WorkflowStepID string              `json:"workflow_step_id,omitempty"`
 	ItemID         string              `json:"item_id,omitempty"`
+	Placement      string              `json:"placement,omitempty"`
+	Revision       int                 `json:"revision,omitempty"`
 	LearningID     string              `json:"learning_id,omitempty"`
 	Producer       string              `json:"producer,omitempty"`
 	SourceKey      string              `json:"source_key,omitempty"`

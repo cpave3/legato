@@ -8,6 +8,8 @@ import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizon
 import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
 import { AgentKindBadge } from "./AgentKindBadge"
 import { canBeNative } from "../lib/agentKind"
+import { appendProposal, onComposerProposal } from "../lib/agentUi"
+import { ArtifactsButton, type ArtifactsButtonProps } from "./ArtifactsButton"
 
 interface ActionListProps {
   actions: { label: string; keys: string }[]
@@ -115,6 +117,8 @@ interface PromptBarProps {
   onToggleNotify?: () => void
   voiceEnabled?: boolean
   onUpgradeChimera?: () => Promise<void>
+  // The session's artifacts, offered from the toolbar.
+  artifacts?: ArtifactsButtonProps
 }
 
 function draftKey(id: string) { return `legato:draft:${id}` }
@@ -127,7 +131,7 @@ export interface PromptBarHandle {
   voiceIsRecording: () => boolean
 }
 
-export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera }, ref) {
+export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera, artifacts }, ref) {
   const { baseUrl } = useServer()
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
   const [menuOpen, setMenuOpen] = useState(false)
@@ -196,6 +200,15 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
       localStorage.removeItem(draftKey(agentId))
     }
   }
+
+  // Something the agent showed in the side panel may put text in the input.
+  // It is added to what is there, kept as a draft, and never sent from here.
+  useEffect(() => onComposerProposal(agentId, (text) => {
+    const next = appendProposal(inputRef.current, text)
+    setInput(next)
+    localStorage.setItem(draftKey(agentId), next)
+    textareaRef.current?.focus()
+  }), [agentId])
 
   // Close menu on outside click.
   useEffect(() => {
@@ -305,6 +318,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
               <span>Stop</span>
             </button>
           )}
+          {artifacts && <ArtifactsButton {...artifacts} />}
           {/* Macros dropdown */}
           <div className="relative" ref={macrosRef}>
             <button

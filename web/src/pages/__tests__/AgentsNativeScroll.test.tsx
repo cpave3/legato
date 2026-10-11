@@ -24,6 +24,10 @@ vi.mock("../../hooks/useSwarmEvents", () => ({
   useSwarmEvents: () => ({ states: {}, fetchState: vi.fn() }),
 }))
 vi.mock("../../hooks/useTaskActivity", () => ({ useTaskActivity: () => ({ items: [] }) }))
+vi.mock("../../hooks/useAgentUI", () => ({
+  useAgentUIItems: () => ({ items: [], loading: false, error: null }),
+  useAgentUIItem: () => ({ item: null, loading: false, error: null }),
+}))
 vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
 vi.mock("../../components/AgentSidebar", () => ({
   AgentSidebar: ({ agents, onSelect }: { agents: AgentInfo[]; onSelect: (taskId: string) => void }) => (

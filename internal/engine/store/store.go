@@ -525,6 +525,13 @@ func (s *Store) DeleteTask(ctx context.Context, id string) error {
 			)`, id); err != nil {
 			return err
 		}
+		// Agent UI items are keyed by the agent's own task identity, which is
+		// a sub-task ID for a swarm worker, so no foreign key removes them.
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM agent_ui_items WHERE task_id = ?
+				OR task_id IN (SELECT id FROM swarm_subtasks WHERE parent_task_id = ?)`, id, id); err != nil {
+			return err
+		}
 		_, err := tx.ExecContext(ctx, "DELETE FROM tasks WHERE id = ?", id)
 		return err
 	})

@@ -561,6 +561,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		rolePrompt = joinPromptSections(rolePrompt, peerCoordinationContext(launchPeers))
 		peerContextInjected = true
 	}
+	// After the peer decision above, so that a session whose only launch
+	// prompt is this guidance still gets its peers as a message, as before.
+	if tp, ok := adapter.(ToolsPromptAdapter); ok {
+		rolePrompt = joinPromptSections(rolePrompt, tp.ToolsPrompt())
+	}
 	var promptManifestID string
 	if a.learning != nil && adapter != nil {
 		projectKey := ""

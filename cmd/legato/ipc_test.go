@@ -211,3 +211,67 @@ func TestIPCMessage_AgentsChangedRefreshesNativeBindings(t *testing.T) {
 		t.Error("NotifyAgentsChanged should be called so web clients re-read the agent list")
 	}
 }
+
+// An agent's `legato mcp serve` runs in its own process: what it shows reaches
+// the running Legato as an IPC message, which must become the bus event the
+// web server forwards.
+func TestIPCMessage_AgentUIChangedPublishesTheItemToTheBus(t *testing.T) {
+	bus := events.New()
+	ch := bus.Subscribe(events.EventAgentUIChanged)
+
+	handleIPCMessage(ipc.Message{Type: "agent_ui_changed", TaskID: "task1", ItemID: "ui-0123456789", Placement: "inline", Revision: 3, Kind: "shown"}, bus, nil)
+
+	payload, ok := drainEvent(t, ch).Payload.(events.AgentUIChangedPayload)
+	if !ok {
+		t.Fatalf("expected AgentUIChangedPayload")
+	}
+	if payload.TaskID != "task1" || payload.ItemID != "ui-0123456789" || payload.Placement != "inline" || payload.Revision != 3 || payload.Kind != "shown" {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+// recordingServeNotifier records what the standalone server's IPC handler asks of the
+// web server.
+type recordingServeNotifier struct {
+	fakeNotifier
+	agentChanged []string
+}
+
+func (f *recordingServeNotifier) NotifyAgentChanged(taskID string) {
+	f.agentChanged = append(f.agentChanged, taskID)
+}
+
+// `legato serve` has its own, shorter list of IPC messages it acts on. What
+// an agent shows must be on it, or the web UI of a standalone server never
+// hears about a new artifact.
+func TestServeIPCMessage_AgentUIChangedReachesTheBus(t *testing.T) {
+	bus := events.New()
+	ch := bus.Subscribe(events.EventAgentUIChanged)
+
+	handleServeIPCMessage(ipc.Message{Type: "agent_ui_changed", TaskID: "task1", ItemID: "ui-0123456789", Placement: "panel", Revision: 1, Kind: "shown"}, bus, &recordingServeNotifier{})
+
+	payload, ok := drainEvent(t, ch).Payload.(events.AgentUIChangedPayload)
+	if !ok || payload.TaskID != "task1" || payload.ItemID != "ui-0123456789" || payload.Placement != "panel" || payload.Kind != "shown" {
+		t.Fatalf("payload = %+v", payload)
+	}
+}
+
+func TestServeIPCMessage_KeepsItsExistingRoutes(t *testing.T) {
+	bus := events.New()
+	reviews := bus.Subscribe(events.EventReviewChanged)
+	notifier := &recordingServeNotifier{}
+
+	handleServeIPCMessage(ipc.Message{Type: "task_note", TaskID: "task1"}, bus, notifier)
+	handleServeIPCMessage(ipc.Message{Type: "review_changed", TourID: "rt-1", Kind: "answer"}, bus, notifier)
+	handleServeIPCMessage(ipc.Message{Type: "workflow_changed", WorkflowRunID: "wr-1", Kind: "completed_step"}, bus, notifier)
+
+	if len(notifier.agentChanged) != 1 || notifier.agentChanged[0] != "task1" {
+		t.Fatalf("agent changes = %v", notifier.agentChanged)
+	}
+	if payload, ok := drainEvent(t, reviews).Payload.(events.ReviewChangedPayload); !ok || payload.TourID != "rt-1" {
+		t.Fatalf("review payload = %+v", payload)
+	}
+	if !notifier.workflowChanged || !notifier.called {
+		t.Fatalf("workflow change was not passed on: %+v", notifier)
+	}
+}

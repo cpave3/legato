@@ -46,12 +46,8 @@ func (e *TaskNoteExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 	if body == "" {
 		return WorkflowExecutionResult{}, fmt.Errorf("body or body_path is required")
 	}
-	_, err := e.store.GetTask(ctx, taskID)
+	note, err := AddTaskNote(ctx, e.store, taskID, body, "workflow")
 	if err != nil {
-		return WorkflowExecutionResult{}, fmt.Errorf("task %q not found: %w", taskID, err)
-	}
-	note := store.TaskNote{ID: workflowID("tn-"), TaskID: taskID, Body: body, Source: "workflow"}
-	if err := e.store.InsertTaskNote(ctx, note); err != nil {
 		return WorkflowExecutionResult{}, err
 	}
 	return WorkflowExecutionResult{Status: "succeeded", Outputs: map[string]any{"note_id": note.ID, "task_id": taskID}}, nil

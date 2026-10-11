@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -263,6 +264,24 @@ type AgentsConfig struct {
 	TmuxOptions     map[string]string `yaml:"tmux_options"`
 	SparklineWindow string            `yaml:"sparkline_window"` // Go duration string, default "10m"
 	PeerAwareness   bool              `yaml:"peer_awareness"`   // automatic peer context and join notices; default true
+	MCP             AgentMCPConfig    `yaml:"mcp"`
+}
+
+// AgentMCPConfig configures the tools Legato gives the agents it launches,
+// through the MCP server `legato mcp serve`.
+type AgentMCPConfig struct {
+	// Enabled adds the server to every agent session Legato launches.
+	// Default true.
+	Enabled bool `yaml:"enabled"`
+	// ResourceDomains are the hosts HTML an agent shows may load scripts,
+	// styles, fonts and images from. An empty list allows none.
+	ResourceDomains []string `yaml:"resource_domains"`
+}
+
+// DefaultAgentResourceDomains are the hosts an agent's HTML may load from
+// unless the config says otherwise: the common script and font CDNs.
+func DefaultAgentResourceDomains() []string {
+	return []string{"cdnjs.cloudflare.com", "cdn.jsdelivr.net", "unpkg.com", "fonts.googleapis.com", "fonts.gstatic.com"}
 }
 
 type JiraConfig struct {
@@ -384,7 +403,33 @@ func Load() (*Config, error) {
 	if err := normalizeManticoreConfig(cfg); err != nil {
 		return nil, err
 	}
+	if err := normalizeAgentMCPConfig(cfg); err != nil {
+		return nil, err
+	}
 	return cfg, nil
+}
+
+var resourceDomainPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
+
+// normalizeAgentMCPConfig lower-cases and de-duplicates the hosts an agent's
+// HTML may load from, and rejects anything that is not a plain host name.
+// The list becomes part of a content security policy in the browser, so a
+// scheme, a wildcard or a policy keyword must never get through.
+func normalizeAgentMCPConfig(cfg *Config) error {
+	domains := make([]string, 0, len(cfg.Agents.MCP.ResourceDomains))
+	seen := map[string]bool{}
+	for _, entry := range cfg.Agents.MCP.ResourceDomains {
+		domain := strings.ToLower(strings.TrimSpace(entry))
+		if !resourceDomainPattern.MatchString(domain) {
+			return fmt.Errorf("agents.mcp.resource_domains: %q is not a host name such as cdn.jsdelivr.net", entry)
+		}
+		if !seen[domain] {
+			seen[domain] = true
+			domains = append(domains, domain)
+		}
+	}
+	cfg.Agents.MCP.ResourceDomains = domains
+	return nil
 }
 
 // normalizeManticoreConfig trims the Manticore settings and rejects an
@@ -653,7 +698,7 @@ func defaults() *Config {
 		Keybindings: KeybindingsConfig{
 			VimMode: true,
 		},
-		Agents: AgentsConfig{PeerAwareness: true},
+		Agents: AgentsConfig{PeerAwareness: true, MCP: AgentMCPConfig{Enabled: true, ResourceDomains: DefaultAgentResourceDomains()}},
 		Learning: LearningConfig{
 			PacketMaxItems:         100,
 			PacketMaxBytes:         256 * 1024,

@@ -21,6 +21,22 @@ const longAgent: AgentInfo = {
 afterEach(cleanup)
 
 describe("AgentSidebar", () => {
+  it("marks an agent that showed artifacts the person has not seen", () => {
+    const quiet: AgentInfo = { ...longAgent, id: 2, task_id: "quiet-task", task_title: "Quiet" }
+    render(
+      <AgentSidebar
+        agents={[{ ...longAgent, task_id: "busy-task" }, quiet]}
+        selectedId="quiet-task"
+        onSelect={() => {}}
+        onSpawn={() => {}}
+        unseenArtifacts={{ "busy-task": 2 }}
+      />,
+    )
+
+    expect(screen.getByLabelText("2 new artifacts").textContent).toBe("2")
+    expect(screen.getAllByLabelText(/new artifact/)).toHaveLength(1)
+  })
+
   it("renders error activity and timeline in red", () => {
     render(
       <AgentSidebar

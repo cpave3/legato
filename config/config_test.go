@@ -870,3 +870,80 @@ func TestManticoreUsageReportingRejectsAHalfConfiguredInstance(t *testing.T) {
 		})
 	}
 }
+
+func TestAgentsMCPConfig(t *testing.T) {
+	load := func(t *testing.T, yaml string) (*Config, error) {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("LEGATO_CONFIG", path)
+		return Load()
+	}
+
+	t.Run("defaults give agents the tools and a short list of content hosts", func(t *testing.T) {
+		t.Setenv("LEGATO_CONFIG", filepath.Join(t.TempDir(), "missing.yaml"))
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cfg.Agents.MCP.Enabled {
+			t.Fatal("agent tools should be on by default")
+		}
+		want := "cdnjs.cloudflare.com,cdn.jsdelivr.net,unpkg.com,fonts.googleapis.com,fonts.gstatic.com"
+		if got := strings.Join(cfg.Agents.MCP.ResourceDomains, ","); got != want {
+			t.Fatalf("default resource domains = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("an unrelated agents setting keeps the defaults", func(t *testing.T) {
+		cfg, err := load(t, "agents:\n  peer_awareness: false\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !cfg.Agents.MCP.Enabled || len(cfg.Agents.MCP.ResourceDomains) != 5 {
+			t.Fatalf("mcp config = %#v", cfg.Agents.MCP)
+		}
+	})
+
+	t.Run("explicit values win, normalised", func(t *testing.T) {
+		cfg, err := load(t, "agents:\n  mcp:\n    enabled: false\n    resource_domains: [\" CDN.Example.com \", cdn.example.com, esm.sh]\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Agents.MCP.Enabled {
+			t.Fatal("agent tools should honor explicit false")
+		}
+		if got := strings.Join(cfg.Agents.MCP.ResourceDomains, ","); got != "cdn.example.com,esm.sh" {
+			t.Fatalf("resource domains = %q", got)
+		}
+	})
+
+	t.Run("an empty list means no network at all", func(t *testing.T) {
+		cfg, err := load(t, "agents:\n  mcp:\n    resource_domains: []\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.Agents.MCP.ResourceDomains) != 0 {
+			t.Fatalf("resource domains = %v, want none", cfg.Agents.MCP.ResourceDomains)
+		}
+	})
+
+	for name, value := range map[string]string{
+		"a URL":            "https://cdn.example.com",
+		"a path":           "cdn.example.com/npm",
+		"a wildcard":       "*.example.com",
+		"a CSP keyword":    "'unsafe-eval'",
+		"several in one":   "cdn.example.com evil.example.com",
+		"a port":           "cdn.example.com:8443",
+		"a bare top level": "localhost",
+	} {
+		t.Run("rejects "+name, func(t *testing.T) {
+			_, err := load(t, "agents:\n  mcp:\n    resource_domains: [\""+value+"\"]\n")
+			if err == nil || !strings.Contains(err.Error(), "agents.mcp.resource_domains") {
+				t.Fatalf("error = %v, want one naming agents.mcp.resource_domains", err)
+			}
+		})
+	}
+}

@@ -82,6 +82,19 @@ The bridge does not create the thread; the terminal UI does, and the bridge lear
 
 **Not supported from the panel.** Chimera-style modes: the bridge lists none and answers `409` to a change.
 
+## Legato's tools in a session
+
+With `agents.mcp.enabled`, `CodexAdapter.LaunchCommand` defines Legato's MCP server for the session through configuration overrides, ahead of the person's `launch_args`: `-c mcp_servers.legato.command="<legato>"`, `-c mcp_servers.legato.args=["mcp","serve"]` and `-c mcp_servers.legato.env_vars=[…]`. Nothing is written to `~/.codex/config.toml`. Because the launcher gives every `-c` to the app server, the server process that starts MCP servers gets them, bridge or no bridge.
+
+Checked against Codex 0.157.1:
+
+- Codex starts an MCP server with a short list of variables. `env_vars` names the ones to pass on; a name that is not set is skipped. Legato passes the session IDs and what locates the same Legato (`LEGATO_CONFIG`, `LEGATO_HOME`, the XDG directories, tmux).
+- The tools run without an approval request (they are annotated as not destructive and closed-world).
+- Codex does **not** give a server's MCP `instructions` to its model, and it keeps MCP tools out of the model's tool list until they are looked up. So the guidance about the tools is part of the launch prompt (`developer_instructions`), through `service.ToolsPromptAdapter`; a plain session, which had no launch prompt, now has one.
+- The bridge names an MCP call `<server>.<tool>` (`legato.show_card`), which is what the native panel recognises.
+
+See [Agent tools](agent-mcp.md).
+
 ## Prompts only the terminal shows
 
 Some prompts never reach any client as a request: the update notice, a directory or hook trust question on a new repository, a picker opened in the terminal. The native panel asks the server every two seconds what the agent's terminal is showing (`detect_prompt`), and the prompt detector reads any numbered menu with a cursor on one of its options (`internal/engine/prompt/menu.go`, prompt type `menu`), whichever tool drew it. The panel shows it as **`<Tool> is asking in its terminal`** with the text above the menu and a button per option; choosing one sends the keys that move the cursor there and confirm (`Down Down Enter`), and **Cancel (Esc)** is offered when the menu's hint mentions it. **Open terminal** switches the agent to its terminal view.

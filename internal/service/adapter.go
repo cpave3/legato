@@ -87,6 +87,18 @@ type GeneralPromptAdapter interface {
 	GeneralPrompt() string
 }
 
+// ToolsPromptAdapter is an optional adapter capability for tools whose
+// sessions are given Legato's own tools (`legato mcp serve`) but whose model
+// is not told about them by the tool itself: it does not pass an MCP server's
+// instructions on. ToolsPrompt returns the text that says the tools exist and
+// when to use them without being asked. The agent service adds it to the
+// prompt every launch injects, whatever the session's role, so a session that
+// had no launch prompt gets one. Return empty string when there is nothing to
+// add: the session gets no tools.
+type ToolsPromptAdapter interface {
+	ToolsPrompt() string
+}
+
 // NativeBindingAdapter is an optional capability for adapters whose sessions
 // bind a native endpoint on their own shortly after launch (Claude Code, once
 // the Legato mod has started its bridge). The agent service then holds the

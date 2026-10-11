@@ -29,6 +29,9 @@ type Message struct {
 	RevisionID     string `json:"revision_id,omitempty"`      // plan revision identity for plan_changed
 	WorkflowRunID  string `json:"workflow_run_id,omitempty"`  // workflow identity for workflow_changed
 	WorkflowStepID string `json:"workflow_step_id,omitempty"` // workflow step identity for workflow_changed
+	ItemID         string `json:"item_id,omitempty"`          // agent UI item identity for agent_ui_changed
+	Placement      string `json:"placement,omitempty"`        // where the item is drawn, for agent_ui_changed
+	Revision       int    `json:"revision,omitempty"`         // item revision for agent_ui_changed
 }
 
 // SocketDir returns the directory for Legato IPC sockets.
