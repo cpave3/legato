@@ -410,6 +410,10 @@ export function reconcileNativeSnapshot(
     }
     next = reduceNativeEvent(next, event)
   }
+  // Events replayed over a snapshot can ask and settle a question that the
+  // snapshot already has on record as a tool call, earlier in the feed.
+  next.items = next.items.filter((item) =>
+    !item.question || item.question.status === "pending" || item.question.status === "submitting")
   return next
 }
 

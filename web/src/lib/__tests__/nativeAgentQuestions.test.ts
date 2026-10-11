@@ -86,6 +86,43 @@ describe("questions an agent puts to the person", () => {
     expect(state.items[0]?.question?.status).toBe("pending")
   })
 
+  it("does not draw a settled question again when its events are replayed over a snapshot", () => {
+    // A panel that opens on a session the server is already streaming gets the
+    // snapshot and then the events the server kept, this question's among them.
+    const state = reconcileNativeSnapshot({
+      messages: [
+        { role: "user", content: "system" },
+        { role: "assistant", content: [{ type: "text", text: "Let me ask." }, { type: "tool-call" }] },
+        { role: "assistant", content: [{ type: "text", text: "Blue it is." }] },
+      ],
+      toolCalls: [{ callId: "call-ask", name: "AskUserQuestion", args: {}, result: { answered: true } }],
+      pendingPermissions: [],
+      pendingQuestions: [],
+    }, createNativeSyncState(), [
+      { eventId: "1", type: "tool_call_start", callId: "call-ask", name: "AskUserQuestion", args: {} },
+      { eventId: "2", type: "question_request", requestId: "req-1", questions: [color] },
+      { eventId: "3", type: "question_resolved", requestId: "req-1", answers: { q1: ["Blue"] } },
+      { eventId: "4", type: "assistant_text_done", id: "a", text: "Blue it is." },
+    ])
+
+    expect(state.items.map((item) => item.question ? "question card" : item.tool?.toolName ?? item.text)).toEqual([
+      "Let me ask.",
+      "AskUserQuestion",
+      "Blue it is.",
+    ])
+  })
+
+  it("draws a question that is still open once when its request is replayed over a snapshot", () => {
+    const state = reconcileNativeSnapshot({
+      messages: [], toolCalls: [], pendingPermissions: [],
+      pendingQuestions: [{ requestId: "req-1", questions: [color] }],
+    }, createNativeSyncState(), [
+      { eventId: "1", type: "question_request", requestId: "req-1", questions: [color] },
+    ])
+
+    expect(state.items.map((item) => item.question?.status)).toEqual(["pending"])
+  })
+
   it("keeps an open question when the snapshot does not say which are open", () => {
     const state = reconcileNativeSnapshot({ messages: [], toolCalls: [] }, asked(), [])
 
