@@ -79,6 +79,19 @@ describe("AgentSelectionProvider", () => {
     expect(() => fireEvent.click(screen.getByRole("button", { name: "Open agent" }))).not.toThrow()
   })
 
+  it("selects agents in an older app, whose shell takes no messages", () => {
+    // The app exposes the object to every page it opens; only versions that
+    // listen for messages put postMessage on it.
+    window.ReactNativeWebView = {}
+    render(
+      <AgentSelectionProvider>
+        <AgentControls />
+      </AgentSelectionProvider>
+    )
+
+    expect(() => fireEvent.click(screen.getByRole("button", { name: "Open agent" }))).not.toThrow()
+  })
+
   it("tells the open agent's panel when that agent is picked again", () => {
     const onReselected = renderWithOpenAgentPanel()
 

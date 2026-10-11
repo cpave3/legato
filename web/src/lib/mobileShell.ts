@@ -1,7 +1,9 @@
 declare global {
   interface Window {
-    // Present only inside the Legato mobile app's WebView.
-    ReactNativeWebView?: { postMessage: (message: string) => void }
+    // Present only inside the Legato mobile app's WebView. Every version of the
+    // app exposes the object; only those that listen for messages put
+    // postMessage on it.
+    ReactNativeWebView?: { postMessage?: (message: string) => void }
   }
 }
 
@@ -9,7 +11,7 @@ declare global {
 // app was in the background. What a view keeps only in memory is gone by then,
 // so the view names the address that brings it back.
 export function tellShellWhereToReturn(path: string): void {
-  window.ReactNativeWebView?.postMessage(JSON.stringify({
+  window.ReactNativeWebView?.postMessage?.(JSON.stringify({
     legatoShell: "restore",
     url: new URL(path, window.location.origin).toString(),
   }))
