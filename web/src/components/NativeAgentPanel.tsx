@@ -3,6 +3,7 @@ import { ArrowDown, ArrowLeftRight, Check, Cpu, Zap, MoreHorizontal, RefreshCw, 
 import { useWebSocket, type PromptState, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
+import { useAgentReselected } from "../hooks/useAgentSelection"
 import { apiFetch } from "../lib/api"
 import { dispatchAgentInput } from "../lib/agentInput"
 import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
@@ -412,6 +413,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
       }
     }
   }, [agentId, baseUrl, replaceSyncState])
+  // Picking the agent that is already open asks for a fresh view of it.
+  useAgentReselected(agentId, resync)
 
   useEffect(() => {
     replaceSyncState(createNativeSyncState())

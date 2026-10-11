@@ -44,3 +44,35 @@ Legato's locally issued HTTPS certificates. Build the Legato APK with
 Legato build opts into both Android's system and user CA stores; after installing
 the CA offered by a connection, restart the app and connect using the exact IP
 address advertised by `legato pair --host`.
+
+## Returning from the background
+
+Android reclaims the memory of a WebView's page while the app is in the
+background, without closing the app. The page would then come back blank. The
+app reopens it instead, at the page it was on (`src/ServerWebView.tsx`):
+
+- When the system reports the page's process gone (`onRenderProcessGone`; on
+  iOS, `onContentProcessDidTerminate`). A page lost in the background is
+  reopened when the app returns to the foreground, not before.
+- When the app returns and the page does not answer within four seconds, or
+  answers that it has nothing on screen.
+
+A page lost again within 30 seconds of being reopened, with the app in front the
+whole time, is not reopened again: the app returns to the server list and says
+so.
+
+A reopened page is a fresh load, so what the web interface kept only in memory
+is gone. The interface names the address that brings its view back by posting
+`{"legatoShell":"restore","url":"…"}` through `window.ReactNativeWebView`
+(`web/src/lib/mobileShell.ts`). The agents page does, so the agent that was open
+is open again afterwards. A server built before that reopens at the same address
+with no agent selected.
+
+A page that is still there on return is told so: the app dispatches a
+`legato:shell-return` event on its `window`. The web interface treats that as
+picking the open agent again, which refreshes a native agent panel from its
+snapshot (the same as choosing the agent in the picker while it is already
+open). Terminal-backed agents are not refreshed this way.
+
+`adb logcat -s RNCWebViewClient` shows "The WebView rendering process was killed
+by the system." each time Android reclaims the page.

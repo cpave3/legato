@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { BackHandler, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native"
+import { BackHandler, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native"
 import { CameraView, useCameraPermissions } from "expo-camera"
 import * as Crypto from "expo-crypto"
 import * as ExpoLinking from "expo-linking"
@@ -8,10 +8,9 @@ import * as IntentLauncher from "expo-intent-launcher"
 import * as NavigationBar from "expo-navigation-bar"
 import { StatusBar } from "expo-status-bar"
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context"
-import { WebView } from "react-native-webview"
-import type { WebViewNavigation } from "react-native-webview"
-import { allowNavigation, bootstrapScript, probeHealth, probeServer } from "./src/compat"
+import { probeHealth, probeServer } from "./src/compat"
 import { normalizeServerUrl, parsePairUri, type LegatoConnection } from "./src/model"
+import { ServerWebView, type ServerWebViewHandle } from "./src/ServerWebView"
 import { loadConnections, loadToken, removeConnection, saveConnection, updateConnection } from "./src/storage"
 
 type Screen = "connections" | "add" | "scan" | "web"
@@ -26,7 +25,7 @@ export default function App() {
   const [draft, setDraft] = useState<{ name: string; url: string; token: string; caCertificate?: string }>({ name: "", url: "", token: "" })
   const [editTarget, setEditTarget] = useState<LegatoConnection>()
   const [permission, requestPermission] = useCameraPermissions()
-  const webRef = useRef<WebView>(null)
+  const webRef = useRef<ServerWebViewHandle>(null)
   const [canGoBack, setCanGoBack] = useState(false)
   const [reachability, setReachability] = useState<Record<string, Reachability>>({})
   const [serverVersions, setServerVersions] = useState<Record<string, string>>({})
@@ -213,10 +212,9 @@ export default function App() {
         <CompactButton label="↻" accessibilityLabel="Reload server" onPress={() => webRef.current?.reload()} />
       </View>
       <View style={styles.webViewport}>
-        <WebView ref={webRef} style={styles.webView} key={active.id} source={{ uri: active.baseUrl }} injectedJavaScriptBeforeContentLoaded={bootstrapScript(active.baseUrl, token)}
-          mixedContentMode="never" overScrollMode="never" onNavigationStateChange={(state: WebViewNavigation) => setCanGoBack(state.canGoBack)}
-          onShouldStartLoadWithRequest={({ url }) => { if (allowNavigation(active.baseUrl, url)) return true; Linking.openURL(url).catch(() => setError(`Blocked link: ${url}`)); return false }}
-          onError={({ nativeEvent }) => { setError(nativeEvent.description); setScreen("connections") }} />
+        <ServerWebView ref={webRef} key={active.id} baseUrl={active.baseUrl} token={token} onCanGoBackChange={setCanGoBack}
+          onBlockedLink={(url) => setError(`Blocked link: ${url}`)}
+          onUnavailable={(reason) => { setError(reason); setScreen("connections") }} />
       </View>
     </View>}
   </SafeAreaView></SafeAreaProvider>
@@ -265,7 +263,6 @@ const styles = StyleSheet.create({
   label: { color: "#d4d4d8", marginBottom: 6 }, input: { minHeight: 48, color: "#fafafa", backgroundColor: "#18181b", borderColor: "#52525b", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12 },
   camera: { flex: 1 }, cameraFooter: { position: "absolute", bottom: 24, alignSelf: "center" }, web: { flex: 1, overflow: "hidden" },
   webViewport: { flex: 1, overflow: "hidden", backgroundColor: "#0a0a0f" },
-  webView: { flex: 1, backgroundColor: "#0a0a0f" },
   header: { height: 38, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#18181b", borderBottomColor: "#27272a", borderBottomWidth: StyleSheet.hairlineWidth },
   headerTitle: { flex: 1, color: "#a1a1aa", fontSize: 12, textAlign: "center", fontWeight: "600" },
   compactButton: { width: 24, height: 30, justifyContent: "center", alignItems: "flex-end" },
