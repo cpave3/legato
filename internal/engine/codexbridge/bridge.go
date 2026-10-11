@@ -289,6 +289,26 @@ func (b *Bridge) handle(incoming frame) {
 			return
 		}
 		b.onThread(params.ThreadID, func(s *session) []nativeEvent { return s.applyDelta(params.ItemID, params.Delta) })
+	case "item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "item/reasoning/summaryPartAdded":
+		// A summary of the model's reasoning, or the reasoning itself from a
+		// model that lets it be read. A summary comes in parts; each part
+		// after the first begins a paragraph.
+		var params struct {
+			ThreadID     string `json:"threadId"`
+			ItemID       string `json:"itemId"`
+			Delta        string `json:"delta"`
+			SummaryIndex int    `json:"summaryIndex"`
+		}
+		if json.Unmarshal(incoming.Params, &params) != nil {
+			return
+		}
+		if incoming.Method == "item/reasoning/summaryPartAdded" {
+			if params.SummaryIndex == 0 {
+				return
+			}
+			params.Delta = "\n\n"
+		}
+		b.onThread(params.ThreadID, func(s *session) []nativeEvent { return s.applyReasoningDelta(params.ItemID, params.Delta) })
 	case "thread/tokenUsage/updated":
 		var params struct {
 			ThreadID   string `json:"threadId"`

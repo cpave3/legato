@@ -1,6 +1,8 @@
 import type { ModelSettings, ModelCapabilities, ModelSettingsState } from "./modelSettings"
 
-export type NativeItemRole = "user" | "assistant" | "tool" | "system" | "bang"
+// reasoning: what the agent thought on its way to a reply or a tool call, as
+// far as its model lets that be seen.
+export type NativeItemRole = "user" | "assistant" | "tool" | "system" | "bang" | "reasoning"
 
 export interface NativeBangItem {
   key: string
@@ -299,6 +301,9 @@ export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncSta
       continue
     }
     const text = message.content.filter((part) => part.type === "text" && part.text).map((part) => part.text).join("")
+    // What the agent thought comes before what the same message said and did.
+    const reasoning = message.content.filter((part) => part.type === "reasoning" && part.text).map((part) => part.text).join("\n\n")
+    if (reasoning) items.push({ key: `snap-reasoning-${index}`, role: "reasoning", text: reasoning })
     // Render assistant messages that are bang command results as bang items
     if (message.role === "assistant") {
       const bang = parseBangResult(text)
@@ -392,6 +397,9 @@ export function reconcileNativeSnapshot(
   next.eventOrder = [...previous.eventOrder]
   const snapshotUserTexts = new Set(next.items.filter((item) => item.role === "user").map((item) => item.text))
   const snapshotAssistantTexts = new Set(next.items.filter((item) => item.role === "assistant").map((item) => item.text))
+  // A snapshot joins the thoughts of one message, so a replayed thought is
+  // looked for inside its texts.
+  const snapshotReasoning = next.items.filter((item) => item.role === "reasoning").map((item) => item.text)
   for (const event of queuedEvents) {
     if (event.type === "user_message" && event.content && snapshotUserTexts.delete(event.content)) {
       next = acceptWithoutRendering(next, event)
@@ -407,6 +415,11 @@ export function reconcileNativeSnapshot(
         next = acceptWithoutRendering(next, event)
         continue
       }
+    }
+    const thought = event.type === "reasoning_text_done" ? event.text : event.type === "reasoning_text_delta" ? event.delta : undefined
+    if (thought && snapshotReasoning.some((text) => text.includes(thought))) {
+      next = acceptWithoutRendering(next, event)
+      continue
     }
     next = reduceNativeEvent(next, event)
   }
@@ -453,14 +466,32 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
       if (!event.delta) break
       const text = (next.streamText.get(streamID) ?? "") + event.delta
       next.streamText.set(streamID, text)
-      upsertAssistant(next.items, streamID, text, true)
+      upsertStream(next.items, "assistant", streamID, text, true)
       break
     }
     case "assistant_text_done": {
       const streamID = event.id || event.eventId
       const text = event.text ?? next.streamText.get(streamID) ?? ""
       next.streamText.delete(streamID)
-      if (text) upsertAssistant(next.items, streamID, text, false)
+      if (text) upsertStream(next.items, "assistant", streamID, text, false)
+      break
+    }
+    case "reasoning_text_delta": {
+      // A thought and a reply may carry the same ID, so each has its own.
+      const streamID = `reasoning-${event.id || event.eventId}`
+      if (!event.delta) break
+      const text = (next.streamText.get(streamID) ?? "") + event.delta
+      next.streamText.set(streamID, text)
+      upsertStream(next.items, "reasoning", streamID, text, true)
+      break
+    }
+    case "reasoning_text_done": {
+      const streamID = `reasoning-${event.id || event.eventId}`
+      const text = event.text ?? next.streamText.get(streamID) ?? ""
+      next.streamText.delete(streamID)
+      if (text) upsertStream(next.items, "reasoning", streamID, text, false)
+      // A thought that ends with nothing to show leaves no item behind.
+      else next.items = next.items.filter((item) => item.key !== `stream-${streamID}`)
       break
     }
     case "tool_call_start": {
@@ -721,12 +752,14 @@ function addEventID(state: NativeSyncState, eventID: string) {
   return { eventIds, eventOrder }
 }
 
-function upsertAssistant(items: NativeConversationItem[], streamID: string, text: string, streaming: boolean) {
+// upsertStream sets the text of the item a stream is writing, adding the item
+// when the stream has none yet.
+function upsertStream(items: NativeConversationItem[], role: "assistant" | "reasoning", streamID: string, text: string, streaming: boolean) {
   const key = `stream-${streamID}`
   const index = items.findIndex((item) => item.key === key)
   if (index >= 0) {
     items[index] = { ...items[index], text, isStreaming: streaming }
   } else {
-    items.push({ key, role: "assistant", text, isStreaming: streaming })
+    items.push({ key, role, text, isStreaming: streaming })
   }
 }

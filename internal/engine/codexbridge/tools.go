@@ -27,8 +27,12 @@ type threadItem struct {
 	Type string `json:"type"`
 	ID   string `json:"id"`
 
-	// userMessage
-	Content []userInput `json:"content"`
+	// userMessage: what was sent, as inputs. reasoning: the model's own
+	// reasoning, as strings, when the model lets it be read.
+	Content json.RawMessage `json:"content"`
+
+	// reasoning: what the model said of its reasoning, in parts
+	Summary []string `json:"summary"`
 
 	// agentMessage, plan
 	Text string `json:"text"`
@@ -68,9 +72,22 @@ type fileChange struct {
 	Diff string `json:"diff"`
 }
 
+// reasoningText is what can be read of a reasoning item: the model's summary
+// of its reasoning, or the reasoning itself when there is no summary.
+func (i threadItem) reasoningText() string {
+	parts := i.Summary
+	if strings.TrimSpace(strings.Join(parts, "")) == "" {
+		parts = nil
+		_ = json.Unmarshal(i.Content, &parts)
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+}
+
 func (i threadItem) userText() string {
 	var out strings.Builder
-	for _, input := range i.Content {
+	var inputs []userInput
+	_ = json.Unmarshal(i.Content, &inputs)
+	for _, input := range inputs {
 		if input.Type == "text" {
 			out.WriteString(input.Text)
 		}

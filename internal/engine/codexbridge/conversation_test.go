@@ -112,8 +112,8 @@ func TestOtherToolsKeepTheirNameAndArguments(t *testing.T) {
 		t.Fatalf("result = %v", result)
 	}
 
-	// Reasoning and other bookkeeping items are not part of what the panel shows.
-	h.item("completed", map[string]any{"type": "reasoning", "id": "r-1", "summary": []any{"thinking"}, "content": []any{}})
+	// Bookkeeping items, such as a compaction, are not part of what the panel shows.
+	h.item("completed", map[string]any{"type": "contextCompaction", "id": "c-1"})
 	h.item("completed", agentMessage("item-a1", "done"))
 	if next := nextEvent(t, events); next["type"] != "assistant_text_done" {
 		t.Fatalf("event = %v", next)

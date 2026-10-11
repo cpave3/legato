@@ -23,6 +23,7 @@ import { insertAtCursor, isImagePath } from "../lib/agentImage"
 import { usePastedImages } from "../hooks/usePastedImages"
 import { nativeToolName } from "../lib/agentKind"
 import { parseLegatoMessage } from "../lib/legatoMessage"
+import { plainText } from "../lib/agentGlance"
 import { modelSettingsResponse, type ModelCapabilities, type ModelSettings, type ModelSettingsState } from "../lib/modelSettings"
 import {
   createNativeSyncState,
@@ -784,7 +785,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
           </div>
         )}
         {blocks.map((block) => {
-          if (block.kind === "tools") return <ToolCallGroup key={block.key} agentId={agentId} tools={block.tools} />
+          if (block.kind === "steps") return <StepGroup key={block.key} agentId={agentId} rows={block.rows} />
           const item = block.item
           if (item.role === "user") {
             // Legato's own messages arrive as user turns; they are drawn
@@ -1318,9 +1319,11 @@ function patchLineClass(line: string): string {
   return "text-zinc-400"
 }
 
+// A step is something the agent did on its way to a reply: a tool call, or a
+// thought.
 type ConversationBlock =
   | { kind: "item"; item: NativeConversationItem }
-  | { kind: "tools"; key: string; tools: ToolCallItem[] }
+  | { kind: "steps"; key: string; rows: NativeConversationItem[] }
 
 // shownUICall returns the call when a tool call asked Legato to show
 // something and has not failed: that call is drawn as what it shows. A failed
@@ -1330,16 +1333,18 @@ function shownUICall(tool: ToolCallItem) {
   return call && call.state !== "failed" ? call : null
 }
 
-// Tool calls made back to back are drawn as one block. A subagent spawn keeps
-// its own card, and so does a call that showed a card or an artifact, so each
-// also ends the run before it.
+// Tool calls made back to back are drawn as one block, with what the agent
+// thought between them. A subagent spawn keeps its own card, and so does a
+// call that showed a card or an artifact, so each also ends the run before it.
 function conversationBlocks(items: NativeConversationItem[]): ConversationBlock[] {
   const blocks: ConversationBlock[] = []
   for (const item of items) {
-    if (item.role === "tool" && item.tool && item.tool.toolName !== "spawn_agent" && !shownUICall(item.tool)) {
+    const step = item.role === "reasoning"
+      || (item.role === "tool" && item.tool && item.tool.toolName !== "spawn_agent" && !shownUICall(item.tool))
+    if (step) {
       const last = blocks[blocks.length - 1]
-      if (last?.kind === "tools") last.tools.push(item.tool)
-      else blocks.push({ kind: "tools", key: item.key, tools: [item.tool] })
+      if (last?.kind === "steps") last.rows.push(item)
+      else blocks.push({ kind: "steps", key: item.key, rows: [item] })
       continue
     }
     blocks.push({ kind: "item", item })
@@ -1357,19 +1362,29 @@ function toolCounts(tools: ToolCallItem[]): string {
   return [...counts].sort((a, b) => b[1] - a[1]).map(([name, count]) => `${count} ${name}`).join(" · ")
 }
 
-const ToolCallGroup = memo(function ToolCallGroup({ agentId, tools }: { agentId: string; tools: ToolCallItem[] }) {
+const StepGroup = memo(function StepGroup({ agentId, rows }: { agentId: string; rows: NativeConversationItem[] }) {
   const [showEarlier, setShowEarlier] = useState(false)
+  const tools = rows.flatMap((row) => row.tool ? [row.tool] : [])
+  // Several rows share one border. What a tool call does when it stands alone
+  // depends on the other calls only: a thought beside it changes nothing.
+  const boxed = rows.length > 1
   const grouped = tools.length > 1
-  // A lone read stays a bare line, as light as it was before grouping.
-  const bare = !grouped && tools[0].toolName === "read"
+  // A lone read or a lone thought stays a bare line.
+  const bare = !boxed && (rows[0].role === "reasoning" || rows[0].tool?.toolName === "read")
   // The count takes a line of its own, so it must stand for at least two calls.
   const earlier = tools.length > VISIBLE_TOOL_CALLS + 1 ? tools.length - VISIBLE_TOOL_CALLS : 0
-  const visible = earlier > 0 && !showEarlier ? tools.slice(-VISIBLE_TOOL_CALLS) : tools
+  let first = 0
+  if (earlier > 0 && !showEarlier) {
+    // The first call that stays in view, and the thoughts that led to it.
+    first = rows.indexOf(rows.filter((row) => row.tool)[earlier])
+    while (first > 0 && rows[first - 1].role === "reasoning") first--
+  }
+  const label = tools.length === 0 ? "Thinking" : tools.length === 1 ? "1 tool call" : `${tools.length} tool calls`
 
   return (
     <div
-      role={grouped ? "group" : undefined}
-      aria-label={grouped ? `${tools.length} tool calls` : undefined}
+      role={boxed ? "group" : undefined}
+      aria-label={boxed ? label : undefined}
       className={bare ? "mx-4 my-1" : "mx-4 my-1.5 divide-y divide-zinc-800 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/50"}
     >
       {earlier > 0 && (
@@ -1383,12 +1398,43 @@ const ToolCallGroup = memo(function ToolCallGroup({ agentId, tools }: { agentId:
           <span className="ml-auto shrink-0">{showEarlier ? "▼" : "▶"}</span>
         </button>
       )}
-      {visible.map((tool) => <ToolCallCard key={tool.key} agentId={agentId} tool={tool} grouped={grouped} />)}
+      {rows.slice(first).map((row) => row.tool
+        ? <ToolCallCard key={row.key} agentId={agentId} tool={row.tool} grouped={grouped} />
+        : <ThinkingRow key={row.key} item={row} boxed={boxed} />)}
     </div>
   )
-}, (prev, next) => prev.agentId === next.agentId && prev.tools.length === next.tools.length && prev.tools.every((tool, index) => tool === next.tools[index]))
+}, (prev, next) => prev.agentId === next.agentId && prev.rows.length === next.rows.length && prev.rows.every((row, index) => row === next.rows[index]))
 
-// One row of a ToolCallGroup, which draws the border around it.
+// What the agent thought, as one quiet line that opens to all of it. While
+// the thought is still arriving the line follows it; afterwards it shows how
+// the thought began.
+const ThinkingRow = memo(function ThinkingRow({ item, boxed }: { item: NativeConversationItem; boxed: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const lines = plainText(item.text).split("\n")
+  const line = item.isStreaming ? lines[lines.length - 1] : lines[0]
+
+  return (
+    <div>
+      <button
+        aria-expanded={expanded}
+        className={`flex w-full items-center gap-2 text-left text-xs ${boxed ? "px-3 py-1" : "px-1 py-0.5"}`}
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 italic text-zinc-400">Thinking</span>
+        <span className="min-w-0 truncate italic text-zinc-500">{line}</span>
+        {item.isStreaming && <span aria-hidden="true" className="shrink-0 animate-pulse text-zinc-500">▋</span>}
+        <span aria-hidden="true" className="ml-auto shrink-0 text-zinc-500">{expanded ? "▼" : "▶"}</span>
+      </button>
+      {expanded && (
+        <div className={`text-xs text-zinc-400 ${boxed ? "border-t border-zinc-800 px-3 py-2" : "px-1 py-1"}`}>
+          <ReviewMessageBody body={item.text} />
+        </div>
+      )}
+    </div>
+  )
+})
+
+// One row of a StepGroup, which draws the border around it.
 const ToolCallCard = memo(function ToolCallCard({ agentId, tool, grouped }: { agentId: string; tool: ToolCallItem; grouped: boolean }) {
   // An edit opens its diff unasked only when it stands alone; in a group every
   // call starts as one line. A click overrides either default.

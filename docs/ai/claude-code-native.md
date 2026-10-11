@@ -43,13 +43,13 @@ A mod cannot listen for connections: it can only call out and spawn a child. So 
 | --- | --- |
 | `session.start` | Describes the session (`hello`) and spawns `legato agent bridge` once per process. A second session under the same process (`/clear`, `/resume`) is described to the bridge already running. |
 | `session.end` | On `clear` or `resume`, tells the bridge the conversation was replaced (`reset`); on `resume` it waits for the session ID to change and describes the session again. |
-| `session.append` | Forwards each stored user or assistant row (`row`), with long text, arguments and results cut to bounded sizes. Rows the engine writes beside the conversation never leave the session. |
+| `session.append` | Forwards each stored user or assistant row (`row`), with long text, arguments and results cut to bounded sizes. A thinking block goes with what can be read of it, without its signature. Rows the engine writes beside the conversation never leave the session. |
 | `turn.start`, `turn.complete` | Report the turn's start and end. At the end it also sends the model and context fill, and submits as a new prompt any message that was folded into the turn but never read. |
-| `turn.step` | Applies the model and effort chosen in Legato to the request, forwards the reply text as it streams (`text_delta`), reports messages the request carried (`user_note`) and the context fill after it (`usage`). Subagent requests pass through untouched. |
+| `turn.step` | Applies the model and effort chosen in Legato to the request, forwards the reply text and the thinking before it as they stream (`text_delta`, `thinking_delta`), reports messages the request carried (`user_note`) and the context fill after it (`usage`). Subagent requests pass through untouched. |
 | `agent.spawn` | Reports a subagent launched by the main loop (`agent_spawn`) so its activity is grouped under the call that spawned it. |
 | `classic.PermissionRequest` | Posts the request to `POST <endpoint>/mod/permissions` and waits inside that call for a decision. This one hook carries tool approvals, plan approval and the model's questions. |
 
-**What the mod posts** (`POST <endpoint>/mod/events`, batched, in order): `hello`, `reset`, `row`, `turn_start`, `turn_complete`, `text_delta`, `user_note`, `usage`, `model`, `settings`, `agent_spawn`. Hooks only add to a queue; one pump per bridge sends it, so no hook waits on the bridge.
+**What the mod posts** (`POST <endpoint>/mod/events`, batched, in order): `hello`, `reset`, `row`, `turn_start`, `turn_complete`, `text_delta`, `thinking_delta`, `user_note`, `usage`, `model`, `settings`, `agent_spawn`. Hooks only add to a queue; one pump per bridge sends it, so no hook waits on the bridge.
 
 **What the bridge writes back** (one JSON object per line on its stdout):
 
@@ -95,6 +95,10 @@ An allow can carry more than a yes, as the terminal's own dialog does. When Clau
 **Plan approval.** `ExitPlanMode` raises a permission request that carries the plan as Markdown, which the panel renders, and two ways to approve it: accept edits without asking (`acceptEdits`) or ask before each edit (`default`). Claude Code accepts a plan from a hook only when the allow hands the tool's input back (`updatedInput`); a plain allow is ignored and the dialog stays open. The chosen edit mode travels as a `setMode` permission update for the session. Rejecting with feedback is the terminal's "Tell Claude what to change".
 
 **Questions.** An `AskUserQuestion` dialog is the tool's permission prompt, so it arrives through the same hook. While a native viewer is attached the bridge raises it as a question request, and the panel draws a card with each question's options, descriptions and previews, checkboxes where several answers are allowed, and a field for an answer of the person's own. The terminal dialog stays open as well; whichever side answers first settles it. Answers given in Legato go back to Claude Code inside the tool's own input (`updatedInput.answers`, keyed by the question's text, several choices joined with a comma), which is how the engine reads them from its dialog. Dismissing the card denies the call with a message saying the person chose not to answer. With no viewer attached the question is not raised in Legato at all.
+
+**Thinking.** A response's thinking block reaches the panel as a **Thinking** row (see [web UI](web-ui.md) § Thinking in the native panel). The mod forwards `thinking` chunks of the reply stream (`thinking_delta`), which the bridge emits as `reasoning_text_delta`, and the stored row's `thinking` block, which settles the oldest thought still streaming as `reasoning_text_done` and puts a `reasoning` part in the snapshot. When the stored block has no text, what streamed is kept as the thought; a block with neither is not shown. A subagent's thinking, when it has text, is a line of its card.
+
+How much of this there is depends on the model. Checked with Claude Code 2.1.296: Opus 5.5, Sonnet 5.5 and Haiku 5.5 each returned a thinking block for a short question, streamed no thinking chunk and stored the block with empty text, so there was nothing to show. In a long working session about one block in twenty carried a line or two of text (a summary of where the work stands); those are what the panel shows.
 
 **Interrupt.** `InterruptAgent` calls `$.turn.abort` instead of sending Escape.
 
@@ -171,6 +175,7 @@ Checked against Claude Code 2.1.296 with a probe mod in a live session; none of 
 - `ExitPlanMode` ignores a plain `allow` from the hook: the dialog stays open. `allow` with `updatedInput` (the input handed back unchanged) is accepted as approval, and a `setMode` entry in `updatedPermissions` sets the mode the session continues in.
 - `updatedPermissions` given the request's own `permission_suggestions` behaves as the terminal's "don't ask again" choice: a second matching call is not prompted. The suggestions carry their own destinations, so they may be written to settings files.
 - A `deny` message is shown to the model as the tool's error. A model given only the feedback text treated it as coming from the tool and disregarded it, which is why the bridge words denials as the person's.
+- `turn.step` yields `thinking` chunks beside `text` ones, each with the index of its content block; a response's thinking block is index 0 and its reply the next. The stored thinking block has `thinking` and `signature`; the three current models left `thinking` empty.
 - The `Stop` hook's payload lists in-flight work under `background_tasks` (`type: "shell"`, `status`, `command`). When that work finishes the session is woken by a prompt that fires `UserPromptSubmit`. The shell hooks use this for the `background` activity; see [CLI](cli.md).
 
 ## Trying it without touching real state
@@ -252,6 +257,7 @@ The `X-Session-Id` header is the Legato task ID, so a task's requests stay group
 
 ## Known limits
 
+- Thinking is shown as far as the model lets it be read, which for current Claude models is seldom (see Thinking above). A resumed session's earlier thinking is not shown: the transcript read back at start carries text and tool calls only.
 - The mod API is early access. A hook that fails is skipped by the engine, so a breaking change degrades the session to tmux-only behaviour rather than stopping it.
 - The shell hooks from `legato hooks install --tool claude-code` still own activity (working, waiting, background, idle). The mod does not report it, so a session without those hooks shows no activity however well the native panel works.
 - MCP elicitation dialogs, the workspace trust prompt and Claude Code's own pickers (`/resume`, `/model`) do not reach the mod as requests. The panel shows the ones drawn as a numbered menu with a cursor through its terminal-prompt card (see [web UI](web-ui.md) § Terminal prompts in the native panel), which presses the keys for the chosen option; anything else (a form, free text) is answered at the terminal.

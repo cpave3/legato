@@ -15,9 +15,12 @@ const INTERACTIVE = { cwd: '/work/repo', surface: 'terminal', isInteractive: tru
 // lines it prints), the bridge's HTTP endpoint, and the session it reads.
 type Transcript = { role: 'user' | 'assistant'; text: string; toolUses: [] }[]
 
+// A piece of a model's response as it streams.
+type Piece = { kind: 'text' | 'thinking'; index: number; text: string }
+
 const world = (
   on: On,
-  script: { lines?: string[]; permission?: object; startsAfter?: Promise<void> } = {},
+  script: { lines?: string[]; permission?: object; startsAfter?: Promise<void>; reply?: Piece[] } = {},
 ) => {
   // The session the mod reads; a test swaps it to stand for a resume.
   const session: { id: string; messages: Transcript; tokens: number } = {
@@ -72,7 +75,10 @@ const world = (
   }))
   on('turn.step', async function* ($, e) {
     requested.push({ model: e.model, effort: e.effort })
-    yield { kind: 'text', index: 0, text: 'ok' }
+
+    for (const piece of script.reply ?? [{ kind: 'text', index: 0, text: 'ok' }]) {
+      yield piece
+    }
 
     return {
       turnId: e.turnId,
@@ -584,6 +590,94 @@ test('the rules the engine suggests for not asking again reach the bridge', asyn
   expect(asked?.body.suggestions).toEqual(suggestions)
   // Allowed as asked for: the command itself is not rewritten.
   expect(answered.decision).toEqual({ behavior: 'allow', updatedPermissions: suggestions })
+
+  exit()
+  await clock.settle()
+})
+
+test('the model\'s thinking reaches the bridge as it streams, apart from its reply', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { events, exit } = world(on, {
+    lines: [READY],
+    reply: [
+      { kind: 'thinking', index: 0, text: 'The flag belongs ' },
+      { kind: 'thinking', index: 0, text: 'in list.ts.' },
+      { kind: 'text', index: 1, text: 'Adding it.' },
+    ],
+  })
+
+  await $.session.start(INTERACTIVE)
+  await $.turn.start({ text: 'add a flag', turnId: 'turn-1' })
+
+  const passed: string[] = []
+
+  for await (const chunk of $.turn.step(STEP)) {
+    passed.push(chunk.kind)
+  }
+
+  await clock.settle()
+
+  // Every piece went on to the engine as it came.
+  expect(passed).toEqual(['thinking', 'thinking', 'text'])
+
+  const streamed = events()
+    .filter(event => event.type === 'thinking_delta' || event.type === 'text_delta')
+    .map(event => ({ type: event.type, index: event.index, text: event.text }))
+
+  expect(streamed.map(event => event.type)).toEqual(expect.arrayContaining(['thinking_delta', 'text_delta']))
+  expect(streamed.filter(event => event.type === 'thinking_delta').map(event => event.text).join('')).toBe(
+    'The flag belongs in list.ts.',
+  )
+  expect(streamed.filter(event => event.type === 'text_delta').map(event => event.text).join('')).toBe('Adding it.')
+  expect(streamed.find(event => event.type === 'thinking_delta')).toEqual(
+    expect.objectContaining({ index: 0 }),
+  )
+
+  exit()
+  await clock.settle()
+})
+
+test('a stored thinking block reaches the bridge with what can be read of it and no more', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  mock.session(on)
+  const { events, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await $.session.append({
+    uuid: 'row-1',
+    door: 'response',
+    origin: { kind: 'model', model: 'claude-opus-5-5' },
+    message: {
+      type: 'assistant',
+      role: 'assistant',
+      content: [{ type: 'thinking', thinking: 'Read the file first.', signature: 'signed-by-the-model' }],
+    },
+  } as never)
+  // Most models keep their thinking to themselves: the block has no text.
+  await $.session.append({
+    uuid: 'row-2',
+    door: 'response',
+    origin: { kind: 'model', model: 'claude-opus-5-5' },
+    message: {
+      type: 'assistant',
+      role: 'assistant',
+      content: [{ type: 'thinking', thinking: '', signature: 'signed-by-the-model' }],
+    },
+  } as never)
+  await clock.settle()
+
+  const rows = events()
+    .filter(event => event.type === 'row')
+    .map(event => (event.message as { content: unknown }).content)
+
+  // The empty block still goes: it is what settles a thought that streamed.
+  expect(rows).toEqual([
+    [{ type: 'thinking', thinking: 'Read the file first.' }],
+    [{ type: 'thinking', thinking: '' }],
+  ])
+  expect(JSON.stringify(events())).not.toContain('signed-by-the-model')
 
   exit()
   await clock.settle()

@@ -12,6 +12,8 @@ const (
 	itemUser itemKind = iota
 	itemAssistant
 	itemTool
+	// itemReasoning is what the model thought on its way to a reply or a call.
+	itemReasoning
 )
 
 // item is one entry of the conversation as the panel shows it.
@@ -262,6 +264,22 @@ func (s *session) applyItem(entry threadItem, settled bool, now time.Time) []nat
 			return nil
 		}
 		return []nativeEvent{{"type": "assistant_text_done", "id": entry.ID, "text": entry.Text}}
+	case "reasoning":
+		if !known {
+			index = s.add(item{kind: itemReasoning, id: entry.ID})
+		}
+		if !settled {
+			return nil
+		}
+		text := entry.reasoningText()
+		s.items[index].text = text
+		s.items[index].settled = true
+		// Codex reports that the model reasoned also when nothing of it can
+		// be read: the summary is off, or the model keeps its reasoning.
+		if text == "" {
+			return nil
+		}
+		return []nativeEvent{{"type": "reasoning_text_done", "id": entry.ID, "text": text}}
 	}
 
 	name, args, summary, isTool := nativeTool(entry)
@@ -311,6 +329,17 @@ func (s *session) applyDelta(itemID, delta string) []nativeEvent {
 		s.add(item{kind: itemAssistant, id: itemID})
 	}
 	return []nativeEvent{{"type": "assistant_text_delta", "id": itemID, "delta": delta}}
+}
+
+// applyReasoningDelta is a piece of the model's reasoning as it streams.
+func (s *session) applyReasoningDelta(itemID, delta string) []nativeEvent {
+	if itemID == "" || delta == "" {
+		return nil
+	}
+	if _, known := s.byID[itemID]; !known {
+		s.add(item{kind: itemReasoning, id: itemID})
+	}
+	return []nativeEvent{{"type": "reasoning_text_delta", "id": itemID, "delta": delta}}
 }
 
 func (s *session) applyUsage(lastTokens, window int) []nativeEvent {
@@ -415,8 +444,19 @@ func (s *session) snapshot(taskID string, models []modelInfo) sessionSnapshot {
 			if !entry.settled || strings.TrimSpace(entry.text) == "" {
 				continue
 			}
+			// A reply follows the thought that led to it in the same step.
+			if len(open) != 1 || open[0].Type != "reasoning" {
+				flush()
+			}
+			open = append(open, snapshotPart{Type: "text", Text: entry.text})
+		case itemReasoning:
+			// A thought opens the step it led to: the reply or the calls that
+			// follow join it.
+			if !entry.settled || entry.text == "" {
+				continue
+			}
 			flush()
-			open = []snapshotPart{{Type: "text", Text: entry.text}}
+			open = []snapshotPart{{Type: "reasoning", Text: entry.text}}
 		case itemTool:
 			open = append(open, snapshotPart{Type: "tool-call"})
 			toolCalls = append(toolCalls, snapshotToolCall{

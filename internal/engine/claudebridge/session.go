@@ -28,7 +28,7 @@ type modEvent struct {
 	// settings
 	Effort string `json:"effort"`
 
-	// turn_start, turn_complete, text_delta
+	// turn_start, turn_complete, text_delta, thinking_delta
 	TurnID string `json:"turnId"`
 	Reason string `json:"reason"`
 	Step   int    `json:"step"`
@@ -93,6 +93,9 @@ type contentBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 
+	// thinking: what the model lets be read of its thinking, often nothing
+	Thinking string `json:"thinking"`
+
 	// tool_use
 	ID    string         `json:"id"`
 	Name  string         `json:"name"`
@@ -130,6 +133,8 @@ const (
 	itemUser itemKind = iota
 	itemAssistant
 	itemTool
+	// itemReasoning is what the model thought on its way to a reply or a call.
+	itemReasoning
 )
 
 // item is one entry of the conversation in display order.
@@ -210,6 +215,10 @@ type session struct {
 	// has settled yet, oldest first.
 	openStreams []string
 	streamSeen  map[string]bool
+	// openThoughts are the thinking blocks streamed this turn that no stored
+	// row has settled yet, oldest first, and thoughtText what each streamed.
+	openThoughts []string
+	thoughtText  map[string]string
 	// pending are the permission requests Legato has yet to answer, in the
 	// order they were raised.
 	pending []permission
@@ -235,6 +244,8 @@ func (s *session) clearConversation() {
 	s.seenRows = map[string]bool{}
 	s.openStreams = nil
 	s.streamSeen = map[string]bool{}
+	s.openThoughts = nil
+	s.thoughtText = map[string]string{}
 	s.pending = nil
 	s.subagents = map[string]string{}
 }
@@ -305,12 +316,16 @@ func (s *session) apply(event modEvent, now time.Time) []nativeEvent {
 		s.busy = false
 		s.openStreams = nil
 		s.streamSeen = map[string]bool{}
+		s.openThoughts = nil
+		s.thoughtText = map[string]string{}
 		// A turn that ended took its unanswered permission prompts with it.
 		out := s.expirePermissions()
 		out = append(out, s.applyContext(event.Context)...)
 		return append(out, nativeEvent{"type": "run_finished", "reason": runFinishReason(event.Reason)})
 	case "text_delta":
 		return s.applyTextDelta(event)
+	case "thinking_delta":
+		return s.applyThinkingDelta(event)
 	case "row":
 		return s.applyRow(event, now)
 	}
@@ -410,6 +425,10 @@ func (s *session) applySubagentRow(event modEvent) []nativeEvent {
 		case "text":
 			if event.Message.Role == "assistant" && strings.TrimSpace(block.Text) != "" {
 				out = append(out, wrap(nativeEvent{"type": "assistant_text_done", "text": block.Text}))
+			}
+		case "thinking":
+			if strings.TrimSpace(block.Thinking) != "" {
+				out = append(out, wrap(nativeEvent{"type": "reasoning_text_done", "text": block.Thinking}))
 			}
 		case "tool_use":
 			_, _, summary := nativeToolCall(block.Name, block.Input)
@@ -579,6 +598,20 @@ func (s *session) applyTextDelta(event modEvent) []nativeEvent {
 	return []nativeEvent{{"type": "assistant_text_delta", "id": streamID, "delta": event.Text}}
 }
 
+// applyThinkingDelta is a piece of the model's thinking as it streams. What
+// streamed is kept: the row that settles the block often holds none of it.
+func (s *session) applyThinkingDelta(event modEvent) []nativeEvent {
+	if event.AgentID != "" || event.Text == "" {
+		return nil
+	}
+	streamID := fmt.Sprintf("%s:%d:%d", event.TurnID, event.Step, event.Index)
+	if _, open := s.thoughtText[streamID]; !open {
+		s.openThoughts = append(s.openThoughts, streamID)
+	}
+	s.thoughtText[streamID] += event.Text
+	return []nativeEvent{{"type": "reasoning_text_delta", "id": streamID, "delta": event.Text}}
+}
+
 func (s *session) applyRow(event modEvent, now time.Time) []nativeEvent {
 	if event.UUID != "" {
 		if s.seenRows[event.UUID] {
@@ -613,6 +646,25 @@ func (s *session) applyAssistantRow(event modEvent, now time.Time) []nativeEvent
 	var out []nativeEvent
 	for index, block := range event.Message.Content {
 		switch block.Type {
+		case "thinking":
+			// A stored thinking block settles the oldest one still streaming.
+			// The transcript keeps the block the model signed, which for most
+			// models has no text: what streamed is then what there is to show.
+			streamID := fmt.Sprintf("%s:%d", event.UUID, index)
+			text := block.Thinking
+			if len(s.openThoughts) > 0 {
+				streamID = s.openThoughts[0]
+				s.openThoughts = s.openThoughts[1:]
+				if strings.TrimSpace(text) == "" {
+					text = s.thoughtText[streamID]
+				}
+				delete(s.thoughtText, streamID)
+			}
+			if strings.TrimSpace(text) == "" {
+				continue
+			}
+			s.items = append(s.items, item{kind: itemReasoning, text: text})
+			out = append(out, nativeEvent{"type": "reasoning_text_done", "id": streamID, "text": text})
 		case "text":
 			if strings.TrimSpace(block.Text) == "" || block.Text == emptyMessageText {
 				continue
@@ -804,9 +856,17 @@ func (s *session) snapshot(taskID string) sessionSnapshot {
 		case itemUser:
 			flush()
 			messages = append(messages, snapshotMessage{Role: "user", Content: entry.text})
-		case itemAssistant:
+		case itemReasoning:
+			// A thought opens the step it led to: the reply or the calls that
+			// follow join it.
 			flush()
-			open = []snapshotPart{{Type: "text", Text: entry.text}}
+			open = []snapshotPart{{Type: "reasoning", Text: entry.text}}
+		case itemAssistant:
+			// A reply follows the thought that led to it in the same step.
+			if len(open) != 1 || open[0].Type != "reasoning" {
+				flush()
+			}
+			open = append(open, snapshotPart{Type: "text", Text: entry.text})
 		case itemTool:
 			open = append(open, snapshotPart{Type: "tool-call"})
 			toolCalls = append(toolCalls, snapshotToolCall{

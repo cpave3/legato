@@ -64,7 +64,18 @@ The bridge does not create the thread; the terminal UI does, and the bridge lear
 
 **What the person typed.** Codex reports a turn's input back as one `userMessage` item: every piece of text that was sent, run together. The bridge remembers what it sent, so a held message is not shown a second time and context attached to a message (`@path` snapshots, appended with `?append=true` and sent as extra text inputs of the next turn) is not shown as part of what the person wrote.
 
-**Tool calls.** `commandExecution` becomes a native `bash` call with the login-shell wrapper removed (`/usr/bin/zsh -lc 'git status'` → `git status`), its output and exit code. `fileChange` becomes a `patch` call carrying each file's path, kind (`add`, `delete`, `update`) and diff, which the panel draws as a diff per file. `mcpToolCall` and `dynamicToolCall` keep their name (`server.tool`) and arguments; `webSearch` is `web_search`. `agentMessage` and `plan` items are assistant text. Reasoning, review-mode and compaction items are not shown.
+**Tool calls.** `commandExecution` becomes a native `bash` call with the login-shell wrapper removed (`/usr/bin/zsh -lc 'git status'` → `git status`), its output and exit code. `fileChange` becomes a `patch` call carrying each file's path, kind (`add`, `delete`, `update`) and diff, which the panel draws as a diff per file. `mcpToolCall` and `dynamicToolCall` keep their name (`server.tool`) and arguments; `webSearch` is `web_search`. `agentMessage` and `plan` items are assistant text. Review-mode and compaction items are not shown.
+
+**Reasoning.** A `reasoning` item is what the model thought before a reply or a call. The bridge shows its summary: `item/reasoning/summaryTextDelta` as it streams (`reasoning_text_delta`, with a paragraph break where `item/reasoning/summaryPartAdded` opens a further part), and the completed item's `summary` as the thought's final text (`reasoning_text_done`, and a `reasoning` part in the snapshot, ahead of the reply or the calls it led to). A model that lets its reasoning itself be read sends `item/reasoning/textDelta` and a `content` list; that is shown when there is no summary. History read on joining a thread carries its reasoning items too.
+
+Codex makes a summary only when told to. By default the item arrives with an empty `summary` and no deltas (checked with GPT-6-Astra), and nothing is shown. To have summaries:
+
+```toml
+# ~/.codex/config.toml
+model_reasoning_summary = "detailed"   # or "concise"
+```
+
+or, for the sessions Legato launches only, `adapters.codex.launch_args: ["-c", "model_reasoning_summary=\"detailed\""]`: the launcher gives every `-c` to the app server.
 
 **Approvals.** The app server sends an approval to every client as a request (`item/commandExecution/requestApproval`, `item/fileChange/requestApproval`); whichever client answers first settles it, and the others are told by `serverRequest/resolved`. The bridge raises each as a native permission request, so the panel's card and the terminal's own dialog are up together. A command approval lists the server's `availableDecisions` as options: **Allow once** (`accept`), **Allow for this session** (`acceptForSession`), **Allow, and don't ask again for commands that start with …** (`acceptWithExecpolicyAmendment`), handed back to the server unchanged. A file-change approval shows the change and offers once or for the session. Denying sends `decline` where the request can be declined; a request that offers only `cancel` is cancelled, which ends the turn. Unlike a Claude Code request, an approval is raised whether or not a viewer is attached: it is in the snapshot for a panel opened later.
 
@@ -128,6 +139,7 @@ adapters:
 
 - The app-server protocol is experimental. A Codex without `app-server`, `--remote` and `--remote-auth-token-env` is started without the bridge.
 - A model or effort chosen in the panel takes effect with the next turn Legato starts, not at once.
+- Reasoning is shown only when Codex makes a summary of it, which it does not by default (see Reasoning).
 - `requestUserInput` questions, MCP elicitation and wider-permission requests were not exercised against a live session; the last two are left to the terminal.
 - Subagent threads are not shown in the panel.
 - Resolved approval cards are appended after the conversation when the panel re-reads its snapshot, as they are for the other native agents.

@@ -98,6 +98,13 @@ const slimBlock = (block: Block): Block | undefined => {
     return { type: 'text', text: cap(block.text, TEXT_LIMIT) }
   }
 
+  // What the model lets be read of its thinking, which is often nothing; the
+  // block's signature is the model's and stays in the session. An empty block
+  // still goes: it is what settles a thought that streamed.
+  if (block.type === 'thinking') {
+    return { type: 'thinking', thinking: typeof block.thinking === 'string' ? cap(block.thinking, TEXT_LIMIT) : '' }
+  }
+
   if (block.type === 'tool_use') {
     return { type: 'tool_use', id: block.id, name: block.name, input: capArguments(block.input) }
   }
@@ -149,9 +156,10 @@ const post = (event: BridgeEvent): void => {
   }
 
   const last = queue.at(-1)
+  // Pieces of one block that are still waiting to be sent go as one.
   const isSameBlock =
-    event.type === 'text_delta' &&
-    last?.type === 'text_delta' &&
+    (event.type === 'text_delta' || event.type === 'thinking_delta') &&
+    last?.type === event.type &&
     last.turnId === event.turnId &&
     last.step === event.step &&
     last.index === event.index &&
@@ -563,8 +571,9 @@ export const register: Register = on => {
   })
 
   // One model request of a turn. The session's requests go out with the
-  // model and effort chosen in Legato, when one was; the reply is forwarded
-  // as it streams, every chunk passed on exactly as it came.
+  // model and effort chosen in Legato, when one was; the reply and the
+  // thinking before it are forwarded as they stream, every chunk passed on
+  // exactly as it came.
   on('turn.step', async function* ($, e, next) {
     if (e.agentId !== undefined) {
       return yield* next(e)
@@ -588,9 +597,9 @@ export const register: Register = on => {
     unreadNotes = []
 
     for await (const chunk of stream) {
-      if (chunk.kind === 'text' && chunk.text !== '') {
+      if ((chunk.kind === 'text' || chunk.kind === 'thinking') && chunk.text !== '') {
         post({
-          type: 'text_delta',
+          type: chunk.kind === 'text' ? 'text_delta' : 'thinking_delta',
           turnId: e.turnId,
           step: e.index,
           index: chunk.index,
