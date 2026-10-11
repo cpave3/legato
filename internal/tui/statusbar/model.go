@@ -42,6 +42,10 @@ type HotkeyContextMsg struct {
 	Context  hotkey.Context
 }
 
+// StatusShownElsewhereMsg says whether the active view shows the sync state,
+// the workspace and the web server itself. The bar then leaves them out.
+type StatusShownElsewhereMsg struct{ Elsewhere bool }
+
 // NtfyMsg tells the status bar whether ntfy notifications are configured,
 // so the 'n' (notify) hint shows conditionally in agent mode.
 type NtfyMsg struct{ Configured bool }
@@ -52,20 +56,21 @@ type VoiceMsg struct{ Enabled bool }
 
 // Model is the status bar Bubbletea model.
 type Model struct {
-	state          SyncState
-	lastSync       time.Time
-	warning        string
-	errorText      string
-	infoText       string
-	progressText   string
-	transientSeq   uint64
-	workspaceName  string
-	workspaceColor string
-	webServerPort  string
-	hotkeys        *hotkey.Registry
-	hotkeyContext  hotkey.Context
-	width          int
-	now            func() time.Time // for testing
+	state           SyncState
+	lastSync        time.Time
+	warning         string
+	errorText       string
+	infoText        string
+	progressText    string
+	transientSeq    uint64
+	workspaceName   string
+	workspaceColor  string
+	webServerPort   string
+	statusElsewhere bool
+	hotkeys         *hotkey.Registry
+	hotkeyContext   hotkey.Context
+	width           int
+	now             func() time.Time // for testing
 }
 
 // New creates a new status bar model.
@@ -123,6 +128,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	case HotkeyContextMsg:
 		m.hotkeys = msg.Registry
 		m.hotkeyContext = msg.Context
+	case StatusShownElsewhereMsg:
+		m.statusElsewhere = msg.Elsewhere
 	case NtfyMsg:
 		if m.hotkeyContext.Capabilities == nil {
 			m.hotkeyContext.Capabilities = hotkey.NewCapabilities()
@@ -157,105 +164,117 @@ func (m Model) ClearWebServer() Model {
 	return m
 }
 
-// View renders the status bar.
+// barPadding is the space at each end of the bar.
+const barPadding = 2
+
+// hintGap is the space between two hints.
+const hintGap = "   "
+
+// View renders the bar: one line, as wide as the terminal. A message comes
+// first, then the active page's keys; the keys that leave the page or change
+// how it is shown sit at the far end.
 func (m Model) View() string {
 	if m.width == 0 {
 		return ""
 	}
+	inner := m.width - 2*barPadding
+	if inner < 1 {
+		return theme.Fill("", m.width, theme.Bar)
+	}
 
-	// Sync indicator
-	syncDisplay := m.renderSyncState()
-
-	// Workspace indicator
-	wsDisplay := ""
-	if m.workspaceName != "" {
-		wsColor := lipgloss.Color(theme.TextTertiary)
-		if m.workspaceColor != "" {
-			wsColor = lipgloss.Color(m.workspaceColor)
+	var lead []string
+	if !m.statusElsewhere {
+		lead = append(lead, m.SyncLabel())
+		if name, color := m.Workspace(); name != "" {
+			lead = append(lead, lipgloss.NewStyle().Foreground(color).Render(name))
 		}
-		wsStyle := lipgloss.NewStyle().Foreground(wsColor)
-		wsDisplay = "  " + wsStyle.Render(m.workspaceName)
+		if web := m.WebLabel(); web != "" {
+			lead = append(lead, lipgloss.NewStyle().Foreground(theme.Blue).Render(web))
+		}
+	}
+	if message := m.renderMessage(); message != "" {
+		lead = append(lead, message)
+	}
+	left := strings.Join(lead, "  ")
+
+	pageHints, endHints := m.hintGroups()
+	// The far group gives way from its front, so the key reference stays.
+	right := fitHintsFromEnd(endHints, inner-lipgloss.Width(left)-1)
+	room := inner - lipgloss.Width(left) - lipgloss.Width(right)
+	if left != "" {
+		room -= len(hintGap)
+	}
+	if right != "" {
+		room -= len(hintGap)
+	}
+	if hints := fitHints(pageHints, room); hints != "" {
+		if left != "" {
+			left += hintGap
+		}
+		left += hints
 	}
 
-	// Web server indicator
-	webDisplay := ""
-	if m.webServerPort != "" {
-		webStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#60a5fa"))
-		webDisplay = "  " + webStyle.Render("Web :"+m.webServerPort)
-	}
-
-	// Progress > error > warning > info (priority order)
-	var warningDisplay string
-	if m.progressText != "" {
-		progressStyle := lipgloss.NewStyle().Foreground(theme.SyncActive)
-		warningDisplay = "  " + progressStyle.Render(m.progressText)
-	} else if m.errorText != "" {
-		errorStyle := lipgloss.NewStyle().Foreground(theme.SyncError)
-		warningDisplay = "  " + errorStyle.Render(m.errorText)
-	} else if m.warning != "" {
-		warningStyle := lipgloss.NewStyle().Foreground(theme.SyncActive)
-		warningDisplay = "  " + warningStyle.Render(m.warning)
-	} else if m.infoText != "" {
-		infoStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
-		warningDisplay = "  " + infoStyle.Render(m.infoText)
-	}
-
-	// Key hints — context-aware per active view, trimmed to essentials.
-	hints := m.hintsForMode()
-
-	// Render each hint as a single unit so key+label can't be broken apart.
-	var hintParts []string
-	for _, h := range hints {
-		part := lipgloss.NewStyle().
-			Render(theme.KeyHintKey.Render(h.key) + " " + theme.KeyHintLabel.Render(h.label))
-		hintParts = append(hintParts, part)
-	}
-
-	// The status bar style adds 1 char of left padding, so the inner
-	// content width is m.width - 1. Budget the gap + hints from that.
-	const padding = 1
-	contentMax := m.width - padding
-	leftPart := syncDisplay + wsDisplay + webDisplay + warningDisplay
-	leftW := lipgloss.Width(leftPart)
-	maxHintsW := contentMax - leftW - 1 // at least 1-space gap
-	if maxHintsW < 0 {
-		maxHintsW = 0
-	}
-
-	// Truncate hints to fit
-	hintsStr := truncateHints(hintParts, maxHintsW)
-
-	// Recalculate gap with the final hint width so the line is exactly full.
-	gap := contentMax - leftW - lipgloss.Width(hintsStr)
-	if gap < 1 {
-		gap = 1
-	}
-
-	content := leftPart + strings.Repeat(" ", gap) + hintsStr
-	return theme.StatusBar.Width(m.width).Render(content)
+	line := strings.Repeat(" ", barPadding) + theme.Spread(left, right, inner)
+	return theme.Fill(line, m.width, theme.Bar)
 }
 
-func (m Model) renderSyncState() string {
-	var dot, text string
+// renderMessage returns what the bar has to say, the most pressing first:
+// work in progress, an error, a standing warning, a passing notice.
+func (m Model) renderMessage() string {
+	switch {
+	case m.progressText != "":
+		return lipgloss.NewStyle().Foreground(theme.SyncActive).Render(m.progressText)
+	case m.errorText != "":
+		return lipgloss.NewStyle().Foreground(theme.SyncError).Render(m.errorText)
+	case m.warning != "":
+		return lipgloss.NewStyle().Foreground(theme.Amber).Render(m.warning)
+	case m.infoText != "":
+		return lipgloss.NewStyle().Foreground(theme.TextPrimary).Render(m.infoText)
+	}
+	return ""
+}
+
+// SyncLabel is the sync state as a colored dot and a few words. A view that
+// shows the state itself draws this.
+func (m Model) SyncLabel() string {
+	var text string
 	var color lipgloss.Color
 
 	switch m.state {
 	case StateSynced:
-		dot, text, color = "●", "synced", theme.SyncOK
+		text, color = "synced", theme.SyncOK
 		if !m.lastSync.IsZero() {
 			elapsed := m.now().Sub(m.lastSync)
 			text += " " + formatRelativeTime(elapsed)
 		}
 	case StateSyncing:
-		dot, text, color = "●", "syncing...", theme.SyncActive
+		text, color = "syncing...", theme.SyncActive
 	case StateError:
-		dot, text, color = "●", "sync error", theme.SyncError
+		text, color = "sync error", theme.SyncError
 	default:
-		dot, text, color = "●", "offline", theme.SyncOffline
+		text, color = "offline", theme.SyncOffline
 	}
 
-	dotStyle := lipgloss.NewStyle().Foreground(color)
-	return dotStyle.Render(dot) + " " + text
+	return lipgloss.NewStyle().Foreground(color).Render("●") + " " +
+		lipgloss.NewStyle().Foreground(theme.TextSecondary).Render(text)
+}
+
+// WebLabel names the port of the running web server, or is "" without one.
+func (m Model) WebLabel() string {
+	if m.webServerPort == "" {
+		return ""
+	}
+	return "web :" + m.webServerPort
+}
+
+// Workspace returns the name of the workspace the board is filtered to and
+// the color to write it in. The name is "" when the bar was told none.
+func (m Model) Workspace() (string, lipgloss.Color) {
+	color := theme.TextSecondary
+	if m.workspaceColor != "" {
+		color = lipgloss.Color(m.workspaceColor)
+	}
+	return m.workspaceName, color
 }
 
 func formatRelativeTime(d time.Duration) string {
@@ -269,18 +288,22 @@ func formatRelativeTime(d time.Duration) string {
 	}
 }
 
-func truncateHints(hints []string, maxWidth int) string {
-	if maxWidth <= 0 {
-		return ""
-	}
+// hint is one entry of the bar: the keys for an action and its name.
+type hint struct{ key, label string }
+
+func (h hint) render() string {
+	return theme.KeyHintKey.Render(h.key) + " " + theme.KeyHintLabel.Render(h.label)
+}
+
+// fitHints joins as many hints as fit in maxWidth, from the first.
+func fitHints(hints []hint, maxWidth int) string {
 	var result string
-	sep := "  "
 	for i, h := range hints {
 		candidate := result
 		if i > 0 {
-			candidate += sep
+			candidate += hintGap
 		}
-		candidate += h
+		candidate += h.render()
 		if lipgloss.Width(candidate) > maxWidth {
 			break
 		}
@@ -289,16 +312,52 @@ func truncateHints(hints []string, maxWidth int) string {
 	return result
 }
 
-// hintsForMode returns the compact key-hint set for the active view. The full
-// reference is always available via the ? overlay.
-func (m Model) hintsForMode() []struct{ key, label string } {
+// fitHintsFromEnd joins as many hints as fit in maxWidth, keeping the last.
+func fitHintsFromEnd(hints []hint, maxWidth int) string {
+	var result string
+	for i := len(hints) - 1; i >= 0; i-- {
+		candidate := hints[i].render()
+		if result != "" {
+			candidate += hintGap + result
+		}
+		if lipgloss.Width(candidate) > maxWidth {
+			break
+		}
+		result = candidate
+	}
+	return result
+}
+
+// hintGroups returns the compact key hints of the active view: the page's
+// own, and those that go at the bar's far end. Neighbours with the same name
+// become one hint ("j/k select"). The full reference is always available via
+// the ? overlay.
+func (m Model) hintGroups() (page, end []hint) {
 	if m.hotkeys == nil {
-		return nil
+		return nil, nil
 	}
-	bindings := m.hotkeys.Bindings(m.hotkeyContext, hotkey.ShortcutBar)
-	hints := make([]struct{ key, label string }, 0, len(bindings))
-	for _, binding := range bindings {
-		hints = append(hints, struct{ key, label string }{hotkey.DisplayKey(binding), binding.Label})
+	for _, binding := range m.hotkeys.Bindings(m.hotkeyContext, hotkey.ShortcutBar) {
+		group := &page
+		if binding.Surfaces&hotkey.BarEnd != 0 {
+			group = &end
+		}
+		key := barKey(binding)
+		if last := len(*group) - 1; last >= 0 && (*group)[last].label == binding.Label {
+			(*group)[last].key += "/" + key
+			continue
+		}
+		*group = append(*group, hint{key: key, label: binding.Label})
 	}
-	return hints
+	return page, end
+}
+
+// barKey is the first key of a binding as the bar writes it.
+func barKey(binding hotkey.Binding) string {
+	if len(binding.Keys) == 0 {
+		return ""
+	}
+	if key := binding.Keys[0].Display; key != "enter" {
+		return key
+	}
+	return "↵"
 }

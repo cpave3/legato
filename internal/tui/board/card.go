@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -68,391 +69,231 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh %dm", hours, minutes)
 }
 
-// renderDurationLine builds a duration summary line showing both working and waiting times.
-// Format: "⟳ 45m · ◆ 10m" using the agent state icons.
-// Returns empty string if no durations to show.
-func renderDurationLine(card CardData, icons theme.Icons, selected bool) string {
-	if card.WorkingDuration <= 0 && card.WaitingDuration <= 0 {
-		return ""
-	}
-
-	dimColor := theme.TextTertiary
-	workingColor := theme.SyncOK
-	waitingColor := theme.ColReady
-	bg := lipgloss.Color("#252540") // CardBase background
-	if selected {
-		dimColor = lipgloss.Color("#585878")
-		workingColor = lipgloss.Color("#287828")
-		waitingColor = lipgloss.Color("#285878")
-		bg = lipgloss.Color("#EEEDFE") // CardSelected background
-	}
-
-	var parts []string
-	if d := formatDuration(card.WorkingDuration); d != "" {
-		wStyle := lipgloss.NewStyle().Foreground(workingColor).Background(bg)
-		dStyle := lipgloss.NewStyle().Foreground(dimColor).Background(bg)
-		parts = append(parts, wStyle.Render(icons.AgentWorking+" ")+dStyle.Render(d))
-	}
-	if d := formatDuration(card.WaitingDuration); d != "" {
-		wStyle := lipgloss.NewStyle().Foreground(waitingColor).Background(bg)
-		dStyle := lipgloss.NewStyle().Foreground(dimColor).Background(bg)
-		parts = append(parts, wStyle.Render(icons.AgentWaiting+" ")+dStyle.Render(d))
-	}
-
-	dotStyle := lipgloss.NewStyle().Foreground(dimColor).Background(bg)
-	return strings.Join(parts, dotStyle.Render(" · "))
+func colored(color lipgloss.Color, text string) string {
+	return lipgloss.NewStyle().Foreground(color).Render(text)
 }
 
-// renderSwarmBadge renders a compact swarm progress badge: "1/3 ◊"
-// (done/total + diamond icon). Returns empty if the card is not a swarm parent.
-func renderSwarmBadge(card CardData, selected bool) string {
-	if !card.SwarmStats.HasSwarm() {
-		return ""
-	}
-	bg := lipgloss.Color("#252540")
-	fg := theme.AccentPurple
-	if selected {
-		bg = lipgloss.Color("#EEEDFE")
-		fg = lipgloss.Color("#5b3fa3")
-	}
-	style := lipgloss.NewStyle().Foreground(fg).Background(bg).Bold(true)
-	return style.Render(fmt.Sprintf("%d/%d ◊", card.SwarmStats.Done, card.SwarmStats.Total))
+var metaSeparator = colored(theme.TextFaint, " · ")
+
+// agentStrip is the line at the foot of a card that reports its agent.
+type agentStrip struct {
+	state string // names the color and the tint; "" for a quiet strip
+	mark  string
+	text  string
+	right string
 }
 
-// renderReviewBadge renders a compact "needs review" badge: "⏵2" (unreviewed
-// step count). Returns empty when the task has no reviewable work.
-func renderReviewBadge(card CardData, selected bool) string {
-	if card.ReviewUnreviewed == 0 && !card.ReviewReady {
-		return ""
-	}
-	bg := lipgloss.Color("#252540")
-	fg := theme.SyncActive
-	if selected {
-		bg = lipgloss.Color("#EEEDFE")
-		fg = lipgloss.Color("#854F0B")
-	}
-	style := lipgloss.NewStyle().Foreground(fg).Background(bg).Bold(true)
-	return style.Render(fmt.Sprintf("⏵%d", card.ReviewUnreviewed))
-}
-
-// renderPRLine builds a compact PR status indicator line.
-// Format: "✓ CI · ✓ Approved · ▪ 3" or "✗ CI · ⚑ Changes" etc.
-// Returns empty string if no PR linked.
-func renderPRLine(card CardData, icons theme.Icons, selected bool) string {
-	if card.PRNumber == 0 {
-		return ""
-	}
-
-	bg := lipgloss.Color("#252540")
-	dimColor := theme.TextTertiary
-	passColor := theme.SyncOK
-	failColor := theme.SyncError
-	pendingColor := theme.ColReady
-	if selected {
-		bg = lipgloss.Color("#EEEDFE")
-		dimColor = lipgloss.Color("#585878")
-		passColor = lipgloss.Color("#287828")
-		failColor = lipgloss.Color("#993C1D")
-		pendingColor = lipgloss.Color("#285878")
-	}
-
-	s := func(fg lipgloss.Color) lipgloss.Style {
-		return lipgloss.NewStyle().Foreground(fg).Background(bg)
-	}
-	dotStyle := s(dimColor)
-
-	var parts []string
-
-	if card.PRIsDraft {
-		parts = append(parts, s(dimColor).Render(icons.PRDraft+" Draft"))
-	} else {
-		// CI status
-		switch card.PRCheckStatus {
-		case "pass":
-			parts = append(parts, s(passColor).Render(icons.CIPass+" CI"))
-		case "fail":
-			parts = append(parts, s(failColor).Render(icons.CIFail+" CI"))
-		case "pending":
-			parts = append(parts, s(pendingColor).Render(icons.CIPending+" CI"))
-		}
-
-		// Review decision
-		switch card.PRReviewDecision {
-		case "APPROVED":
-			parts = append(parts, s(passColor).Render(icons.PRApproved+" OK"))
-		case "CHANGES_REQUESTED":
-			parts = append(parts, s(failColor).Render(icons.PRChanges+" Changes"))
-		}
-	}
-
-	// Comment count
-	if card.PRCommentCount > 0 {
-		parts = append(parts, s(dimColor).Render(fmt.Sprintf("%s %d", icons.PRComments, card.PRCommentCount)))
-	}
-
-	if len(parts) == 0 {
-		return ""
-	}
-
-	return strings.Join(parts, dotStyle.Render(" · "))
-}
-
-// RenderCard renders a single card with the given parameters.
-func RenderCard(card CardData, width int, selected bool, column string, icons theme.Icons) string {
-	isDone := column == "Done"
-
-	// Content width = total width minus border (2) minus padding (2)
-	contentWidth := width - 4
-	if contentWidth < 4 {
-		contentWidth = 4
-	}
-
-	// Truncate title
-	title := truncateTitle(card.Title, contentWidth)
-
-	// Provider icon
-	providerIcon := ""
-	{
-		iconStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
-		switch card.Provider {
-		case "jira":
-			providerIcon = iconStyle.Foreground(theme.ColReady).Render(icons.Jira) + " "
-		case "github":
-			providerIcon = iconStyle.Foreground(theme.TextPrimary).Render(icons.GitHub) + " "
-		default:
-			providerIcon = iconStyle.Render(icons.Local) + " "
-		}
-	}
-
-	worktreePrefix := ""
-	if card.HasWorktree {
-		worktreePrefix = lipgloss.NewStyle().Foreground(theme.AccentPurple).Render(icons.Worktree) + " "
-	}
-
-	// Warning indicator for failed transitions
-	warningPrefix := ""
-	if card.Warning {
-		warningStyle := lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true)
-		warningPrefix = warningStyle.Render(icons.Warning) + " "
-	}
-
-	// Agent activity indicator (back on key line)
-	agentPrefix := ""
+// stripFor returns the strip of a card, and false for a card with nothing to
+// report: no agent now and none before.
+func stripFor(card CardData, icons theme.Icons) (agentStrip, bool) {
 	switch card.AgentState {
 	case "working":
-		agentStyle := lipgloss.NewStyle().Foreground(theme.SyncOK).Bold(true)
-		agentPrefix = agentStyle.Render(icons.AgentWorking+" RUNNING") + " "
+		return agentStrip{"working", icons.AgentWorking, "running", formatDuration(card.WorkingDuration)}, true
 	case "waiting":
-		agentStyle := lipgloss.NewStyle().Foreground(theme.ColReady).Bold(true)
-		agentPrefix = agentStyle.Render(icons.AgentWaiting+" WAITING") + " "
+		return agentStrip{"waiting", icons.AgentWaiting, "needs you", formatDuration(card.WaitingDuration)}, true
 	case "background":
 		// Its turn ended with a shell or subagent of its own still running.
-		agentStyle := lipgloss.NewStyle().Foreground(theme.AgentBackground).Bold(true)
-		agentPrefix = agentStyle.Render(icons.Terminal+" BACKGROUND") + " "
+		return agentStrip{"background", icons.AgentBackground, "background", formatDuration(card.WorkingDuration)}, true
 	case "error":
-		agentStyle := lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true)
-		agentPrefix = agentStyle.Render(icons.Warning+" ERROR") + " "
+		return agentStrip{"error", icons.Warning, "error", ""}, true
 	case "mixed":
-		agentStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple).Bold(true)
-		agentPrefix = agentStyle.Render(icons.Terminal+" MIXED") + " "
-	default:
-		if card.AgentActive {
-			agentStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
-			agentPrefix = agentStyle.Render(icons.Terminal+" IDLE") + " "
-		}
+		return agentStrip{"mixed", icons.AgentMixed, "mixed", ""}, true
 	}
-
-	// Key line: styled dimmer than title for hierarchy
-	keyStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
-	titleStyle := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true)
-
-	// Build metadata line: priority + dot + issue type + workspace tag
-	dotStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
-	var metaParts []string
-	if card.Priority != "" {
-		metaParts = append(metaParts, renderPriorityBadge(card.Priority))
+	if card.ReviewReady {
+		return agentStrip{"done", icons.AgentDone, "ready for review", ""}, true
 	}
-	if card.IssueType != "" {
-		metaParts = append(metaParts, theme.TypeBadge.Render(card.IssueType))
+	if card.AgentActive {
+		return agentStrip{"", icons.AgentIdle, "idle", formatDuration(card.WorkingDuration)}, true
 	}
-	if card.WorkspaceName != "" {
-		wsColor := lipgloss.Color(theme.TextTertiary)
-		if card.WorkspaceColor != "" {
-			wsColor = lipgloss.Color(card.WorkspaceColor)
-		}
-		wsStyle := lipgloss.NewStyle().Foreground(wsColor)
-		metaParts = append(metaParts, wsStyle.Render(card.WorkspaceName))
-	}
-	if badge := renderSwarmBadge(card, selected); badge != "" {
-		metaParts = append(metaParts, badge)
-	}
-	if badge := renderReviewBadge(card, selected); badge != "" {
-		metaParts = append(metaParts, badge)
-	}
-	metaLine := ""
-	if len(metaParts) > 0 {
-		metaLine = lipgloss.JoinHorizontal(lipgloss.Left, joinWithDot(metaParts, dotStyle)...)
-	}
-
-	// Duration line (bottom row, always shown when durations exist)
-	durationLine := renderDurationLine(card, icons, selected)
-
-	// PR status line
-	prLine := renderPRLine(card, icons, selected)
-
-	// Selected cards need dark-on-light colors
-	if selected {
-		selectedBg := lipgloss.Color("#EEEDFE")
-		darkText := lipgloss.Color("#1E1E2E")
-		dimText := lipgloss.Color("#585878")
-		s := func(fg lipgloss.Color) lipgloss.Style {
-			return lipgloss.NewStyle().Foreground(fg).Background(selectedBg)
-		}
-
-		// Provider icon with selected background
-		sProviderIcon := s(dimText).Render(icons.Local + " ")
-		switch card.Provider {
-		case "jira":
-			sProviderIcon = s(lipgloss.Color("#285878")).Render(icons.Jira + " ")
-		case "github":
-			sProviderIcon = s(darkText).Render(icons.GitHub + " ")
-		}
-
-		// Agent prefix
-		sAgentPrefix := ""
-		switch card.AgentState {
-		case "working":
-			sAgentPrefix = s(lipgloss.Color("#287828")).Bold(true).Render(icons.AgentWorking + " RUNNING ")
-		case "waiting":
-			sAgentPrefix = s(lipgloss.Color("#285878")).Bold(true).Render(icons.AgentWaiting + " WAITING ")
-		case "background":
-			sAgentPrefix = s(theme.AgentBackgroundOnLight).Bold(true).Render(icons.Terminal + " BACKGROUND ")
-		case "error":
-			sAgentPrefix = s(lipgloss.Color("#993C1D")).Bold(true).Render(icons.Warning + " ERROR ")
-		default:
-			if card.AgentActive {
-				sAgentPrefix = s(dimText).Render(icons.Terminal + " IDLE ")
-			}
-		}
-
-		sWorktreePrefix := ""
-		if card.HasWorktree {
-			sWorktreePrefix = s(lipgloss.Color("#5b3fa3")).Render(icons.Worktree + " ")
-		}
-
-		// Warning
-		sWarningPrefix := ""
-		if card.Warning {
-			sWarningPrefix = s(theme.SyncError).Bold(true).Render(icons.Warning + " ")
-		}
-
-		var sMetaParts []string
-		if card.Priority != "" {
-			sMetaParts = append(sMetaParts, s(dimText).Render(card.Priority))
-		}
-		if card.IssueType != "" {
-			sMetaParts = append(sMetaParts, s(dimText).Render(card.IssueType))
-		}
-		if card.WorkspaceName != "" {
-			wsColor := dimText
-			if card.WorkspaceColor != "" {
-				wsColor = lipgloss.Color(card.WorkspaceColor)
-			}
-			sMetaParts = append(sMetaParts, s(wsColor).Render(card.WorkspaceName))
-		}
-		sMetaLine := ""
-		if len(sMetaParts) > 0 {
-			sMetaLine = strings.Join(sMetaParts, s(dimText).Render(" · "))
-		}
-
-		content := sProviderIcon + sAgentPrefix + sWorktreePrefix + sWarningPrefix + s(dimText).Render(card.Key) + "\n" +
-			s(darkText).Bold(true).Render(title) + "\n" + sMetaLine
-		if prLine != "" {
-			content += "\n" + prLine
-		}
-		if durationLine != "" {
-			content += "\n" + durationLine
-		}
-
-		style := theme.CardSelected.Width(contentWidth)
-		return style.Render(content)
-	}
-
-	// Apply done-column muted styling
-	if isDone {
-		keyLine := theme.DoneMuted.Render(worktreePrefix + card.Key)
-		title = theme.DoneMuted.Render(title)
-		metaLine = theme.DoneMuted.Render(card.IssueType)
-		content := keyLine + "\n" + title + "\n" + metaLine
-		if prLine != "" {
-			content += "\n" + prLine
-		}
-		if durationLine != "" {
-			content += "\n" + durationLine
-		}
-
-		style := theme.CardBase.
-			Width(contentWidth).
-			BorderLeft(true).
-			BorderForeground(theme.ColDone)
-		return style.Render(content)
-	}
-
-	keyLine := providerIcon + agentPrefix + worktreePrefix + warningPrefix + keyStyle.Render(card.Key)
-	titleLine := titleStyle.Render(title)
-	content := keyLine + "\n" + titleLine + "\n" + metaLine
-	if prLine != "" {
-		content += "\n" + prLine
-	}
-	if durationLine != "" {
-		content += "\n" + durationLine
-	}
-
-	var style lipgloss.Style
-	{
-		borderColor := theme.PriorityBorderColor(card.Priority)
-		style = theme.CardBase.
-			Width(contentWidth).
-			BorderLeft(true).
-			BorderForeground(borderColor)
-	}
-
-	return style.Render(content)
+	return agentStrip{}, false
 }
 
-func joinWithDot(parts []string, dotStyle lipgloss.Style) []string {
-	if len(parts) == 0 {
+func (s agentStrip) render(width int) string {
+	left := " " + colored(theme.StateColor(s.state), s.mark) + " " + colored(theme.TextPrimary, s.text)
+	right := ""
+	if s.right != "" {
+		right = colored(theme.TextSecondary, s.right) + " "
+	}
+	return theme.Fill(theme.Spread(left, right, width), width, theme.StateTint(s.state))
+}
+
+// historyLine reports the time agents spent on a card that has none now.
+func historyLine(card CardData, icons theme.Icons) string {
+	var parts []string
+	if d := formatDuration(card.WorkingDuration); d != "" {
+		parts = append(parts, colored(theme.TextFaint, icons.AgentWorked+" ")+colored(theme.TextSecondary, d))
+	}
+	if d := formatDuration(card.WaitingDuration); d != "" {
+		parts = append(parts, colored(theme.TextFaint, icons.AgentWaiting+" ")+colored(theme.TextSecondary, d))
+	}
+	return strings.Join(parts, metaSeparator)
+}
+
+// pullRequestParts names the state of a card's pull request: "draft PR", or
+// its checks and its review, then how many comments it has.
+func pullRequestParts(card CardData, icons theme.Icons) []string {
+	if card.PRNumber == 0 {
 		return nil
 	}
-	var result []string
-	for i, p := range parts {
-		if i > 0 {
-			result = append(result, dotStyle.Render(" · "))
+	var parts []string
+	if card.PRIsDraft {
+		parts = append(parts, colored(theme.TextSecondary, icons.PRDraft+" draft PR"))
+	} else {
+		switch card.PRCheckStatus {
+		case "pass":
+			parts = append(parts, colored(theme.Green, icons.CIPass+" CI"))
+		case "fail":
+			parts = append(parts, colored(theme.Red, icons.CIFail+" CI"))
+		case "pending":
+			parts = append(parts, colored(theme.Yellow, icons.CIPending+" CI"))
 		}
-		result = append(result, p)
+		switch card.PRReviewDecision {
+		case "APPROVED":
+			parts = append(parts, colored(theme.Green, icons.PRApproved+" review"))
+		case "CHANGES_REQUESTED":
+			parts = append(parts, colored(theme.Red, icons.PRChanges+" changes"))
+		}
 	}
-	return result
+	if card.PRCommentCount == 1 {
+		parts = append(parts, colored(theme.TextSecondary, "1 comment"))
+	} else if card.PRCommentCount > 1 {
+		parts = append(parts, colored(theme.TextSecondary, fmt.Sprintf("%d comments", card.PRCommentCount)))
+	}
+	return parts
 }
 
-func renderPriorityBadge(priority string) string {
-	switch priority {
-	case "High", "Highest":
-		return theme.PriorityBadgeHigh.Render(priority)
-	case "Medium":
-		return theme.PriorityBadgeMed.Render(priority)
-	case "Low", "Lowest":
-		return theme.PriorityBadgeLow.Render(priority)
+// taskParts names what kind of task a card is and where it belongs.
+func taskParts(card CardData) []string {
+	var parts []string
+	if card.IssueType != "" {
+		color := theme.TextSecondary
+		if strings.EqualFold(card.IssueType, "bug") {
+			color = theme.Red
+		}
+		parts = append(parts, colored(color, strings.ToLower(card.IssueType)))
+	}
+	if card.WorkspaceName != "" {
+		color := theme.TextSecondary
+		if card.WorkspaceColor != "" {
+			color = lipgloss.Color(card.WorkspaceColor)
+		}
+		parts = append(parts, colored(color, card.WorkspaceName))
+	}
+	if card.SwarmStats.HasSwarm() {
+		parts = append(parts, colored(theme.Accent, fmt.Sprintf("%d/%d ◊", card.SwarmStats.Done, card.SwarmStats.Total)))
+	}
+	if card.ReviewUnreviewed > 0 {
+		parts = append(parts, colored(theme.Yellow, fmt.Sprintf("⏵%d", card.ReviewUnreviewed)))
+	}
+	return parts
+}
+
+// sourceLabel says where a task comes from.
+func sourceLabel(card CardData, icons theme.Icons) string {
+	switch card.Provider {
+	case "jira":
+		return colored(theme.TextSecondary, icons.Jira+" jira")
+	case "github":
+		return colored(theme.TextSecondary, icons.GitHub+" github")
+	case "":
+		return colored(theme.TextFaint, "local")
 	default:
+		return colored(theme.TextSecondary, card.Provider)
+	}
+}
+
+// priorityMark is the sign a card opens with: an arrow in the priority's
+// color, or a faint dot for a task with none.
+func priorityMark(priority string) string {
+	switch priority {
+	case "High", "Highest", "Medium":
+		return colored(theme.PriorityColor(priority), "▲")
+	case "Low", "Lowest":
+		return colored(theme.PriorityColor(priority), "▼")
+	default:
+		return colored(theme.TextFaint, "·")
+	}
+}
+
+// RenderCard renders one card as a block exactly width columns wide.
+//
+// The first and the last line of the block are the card's frame. They are
+// drawn only for the selected card and are blank otherwise, so a card takes
+// the same room either way; a column lays the last line of one card over the
+// first line of the next.
+func RenderCard(card CardData, width int, selected bool, column string, icons theme.Icons) string {
+	// One column at each side for the frame, and one inside it as padding.
+	fill := width - 2
+	if fill < 6 {
+		fill = 6
+	}
+	text := fill - 2
+	done := strings.EqualFold(column, "Done")
+
+	key := priorityMark(card.Priority) + " " + colored(theme.TextSecondary, card.Key)
+	if card.HasWorktree {
+		key += " " + colored(theme.Accent, icons.Worktree)
+	}
+	if card.Warning {
+		key += " " + lipgloss.NewStyle().Foreground(theme.Red).Bold(true).Render(icons.Warning)
+	}
+	keyLine := theme.Spread(key, sourceLabel(card, icons), text)
+
+	titleStyle := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true)
+	if done {
+		titleStyle = lipgloss.NewStyle().Foreground(theme.TextSecondary).Strikethrough(true)
+	}
+	titleLine := titleStyle.Render(truncateTitle(card.Title, text))
+
+	// What the task is and the state of its pull request share a line when
+	// both fit; otherwise the pull request has the next line to itself.
+	lines := []string{keyLine, titleLine}
+	task, pr := taskParts(card), pullRequestParts(card, icons)
+	if joined := strings.Join(append(append([]string{}, task...), pr...), metaSeparator); lipgloss.Width(joined) <= text || len(task) == 0 || len(pr) == 0 {
+		lines = append(lines, joined)
+	} else {
+		lines = append(lines, strings.Join(task, metaSeparator), strings.Join(pr, metaSeparator))
+	}
+
+	bg := theme.Card
+	if selected {
+		bg = theme.CardActive
+	}
+	rows := make([]string, 0, len(lines)+1)
+	for _, line := range lines {
+		rows = append(rows, theme.Fill(" "+line, fill, bg))
+	}
+	if strip, ok := stripFor(card, icons); ok {
+		rows = append(rows, strip.render(fill))
+	} else if history := historyLine(card, icons); history != "" {
+		rows = append(rows, theme.Fill(" "+history, fill, bg))
+	}
+
+	if !selected {
+		blank := strings.Repeat(" ", fill+2)
+		out := make([]string, 0, len(rows)+2)
+		out = append(out, blank)
+		for _, row := range rows {
+			out = append(out, " "+row+" ")
+		}
+		return strings.Join(append(out, blank), "\n")
+	}
+
+	frame := lipgloss.NewStyle().Foreground(theme.Accent)
+	side := frame.Render("│")
+	out := make([]string, 0, len(rows)+2)
+	out = append(out, frame.Render("╭"+strings.Repeat("─", fill)+"╮"))
+	for _, row := range rows {
+		out = append(out, side+row+side)
+	}
+	return strings.Join(append(out, frame.Render("╰"+strings.Repeat("─", fill)+"╯")), "\n")
+}
+
+// truncateTitle cuts a title to maxWidth columns, ending it with an ellipsis
+// when something was cut.
+func truncateTitle(s string, maxWidth int) string {
+	if maxWidth < 1 {
 		return ""
 	}
-}
-
-func truncateTitle(s string, maxWidth int) string {
-	if len(s) <= maxWidth {
-		return s
-	}
-	if maxWidth <= 3 {
-		return s[:maxWidth]
-	}
-	return s[:maxWidth-3] + "..."
+	return ansi.Truncate(s, maxWidth, "…")
 }

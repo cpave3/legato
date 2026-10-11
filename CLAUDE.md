@@ -62,6 +62,7 @@ Post-v0: Attention dashboard (complete) — durable generic registry with centra
 @docs/ai/pr-tracking.md
 @docs/ai/cli.md
 @docs/ai/web-ui.md
+@docs/ai/tui.md
 @docs/ai/swarm.md
 @docs/ai/attention.md
 @docs/ai/learning.md

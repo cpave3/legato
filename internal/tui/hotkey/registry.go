@@ -59,6 +59,9 @@ const (
 	Shortlist
 	ShortcutBar
 	InlineHint
+	// BarEnd places a ShortcutBar binding in the group at the bar's far end:
+	// the keys that leave the page or change how it is shown.
+	BarEnd
 )
 
 // Key is a canonical Bubble Tea key plus its user-facing representation.

@@ -246,6 +246,8 @@ The `X-Session-Id` header is the Legato task ID, so a task's requests stay group
 
 **Not reported.** Requests that got no response (an API error, an interrupt before the first message). The request a compaction makes, because the engine reports its token counts without naming the model that ran it. Any request the engine makes outside a turn. Cost in dollars: Manticore records tokens only.
 
+**Reading it back.** The TUI's agents view shows the tokens the instance recorded today, in and out, and the ensemble draws the last 24 hours. That is read from the instance's dashboard API by `internal/engine/manticore`, not by the mod, and it counts every Client of the instance. See [TUI](tui.md) § Token usage.
+
 **Testing.** `claude plugin test internal/engine/hooks/claudemod/manticore` runs the mod's tests; `claude plugin validate` on the same folder lists what it hooks and calls. To watch a real session, set the three variables and `CLAUDE_CODE_PLUGIN_DIRS` by hand and run `claude -p ... --debug-file <file>`: each report is a `$.http.fetch (legato-manticore)` line.
 
 ## Known limits

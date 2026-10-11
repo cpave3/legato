@@ -27,6 +27,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/hotreload"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/jira"
+	"github.com/cpave3/legato/internal/engine/manticore"
 	"github.com/cpave3/legato/internal/engine/planvalidate"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
@@ -1863,6 +1864,11 @@ func runTUI() int {
 	// counts it and links to the web UI.
 	app.SetAgentUIService(service.NewAgentUIService(db, bus, service.AgentUIOptions{}), localWebURL(cfg))
 	app.SetGroupDefaults(cfg.Groups.Defaults)
+	if cfg.Manticore.URL != "" {
+		// The instance that records the agents' usage can also say how much
+		// it has recorded.
+		app.SetUsageService(service.NewUsageService(manticore.New(cfg.Manticore.URL)))
+	}
 	if worktreeSvc != nil {
 		app.SetWorktreeService(worktreeSvc)
 	}

@@ -8,7 +8,7 @@ import (
 // panelStyle is the shared style for overlay panels.
 var panelStyle = lipgloss.NewStyle().
 	Border(lipgloss.RoundedBorder()).
-	BorderForeground(theme.ColReview).
+	BorderForeground(theme.Accent).
 	Padding(1, 2)
 
 // RenderPanel renders content inside a centered overlay panel.

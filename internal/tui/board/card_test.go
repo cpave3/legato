@@ -4,7 +4,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -25,7 +27,7 @@ func TestCardRenderContainsKey(t *testing.T) {
 func TestCardRenderContainsType(t *testing.T) {
 	card := CardData{Key: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug"}
 	out := RenderCard(card, 30, false, "Doing", testIcons)
-	if !strings.Contains(out, "Bug") {
+	if !strings.Contains(out, "bug") {
 		t.Errorf("card should contain issue type, got: %q", out)
 	}
 }
@@ -33,11 +35,87 @@ func TestCardRenderContainsType(t *testing.T) {
 func TestCardTitleTruncation(t *testing.T) {
 	long := "This is a very long summary that definitely exceeds the width"
 	truncated := truncateTitle(long, 20)
-	if len(truncated) > 20 {
-		t.Errorf("truncated summary too long: %d > 20", len(truncated))
+	if w := lipgloss.Width(truncated); w > 20 {
+		t.Errorf("truncated summary too long: %d > 20", w)
 	}
-	if !strings.HasSuffix(truncated, "...") {
+	if !strings.HasSuffix(truncated, "…") {
 		t.Errorf("truncated summary should end with ellipsis, got: %q", truncated)
+	}
+}
+
+func TestCardTitleTruncationKeepsWholeCharacters(t *testing.T) {
+	truncated := truncateTitle("Größenänderung für Übersichtsseite", 10)
+	if !utf8.ValidString(truncated) {
+		t.Errorf("truncation cut a character in two: %q", truncated)
+	}
+}
+
+func TestCardIsABlockOfTheWidthAsked(t *testing.T) {
+	card := CardData{Key: "REX-1", Title: "A title that is longer than the card is wide", Priority: "High", IssueType: "Bug", WorkspaceName: "Work", AgentActive: true, AgentState: "working"}
+	for _, selected := range []bool{false, true} {
+		for i, line := range strings.Split(RenderCard(card, 30, selected, "Doing", testIcons), "\n") {
+			if w := lipgloss.Width(line); w != 30 {
+				t.Errorf("selected=%v: line %d is %d wide, want 30: %q", selected, i, w, line)
+			}
+		}
+	}
+}
+
+func TestSelectingACardDoesNotChangeItsSize(t *testing.T) {
+	card := CardData{Key: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug"}
+	selected := RenderCard(card, 30, true, "Doing", testIcons)
+	unselected := RenderCard(card, 30, false, "Doing", testIcons)
+
+	if lipgloss.Height(selected) != lipgloss.Height(unselected) {
+		t.Fatalf("selected card is %d lines, unselected %d", lipgloss.Height(selected), lipgloss.Height(unselected))
+	}
+	if !hasSelectedFrame(selected) || hasSelectedFrame(unselected) {
+		t.Fatalf("only the selected card should have a frame")
+	}
+}
+
+func TestCardMarksPriorityAndSaysWhereTheTaskComesFrom(t *testing.T) {
+	local := RenderCard(CardData{Key: "f41p6uf0", Title: "Local"}, 34, false, "Backlog", testIcons)
+	if !strings.Contains(local, "· f41p6uf0") || !strings.Contains(local, "local") {
+		t.Errorf("a local task with no priority: %q", local)
+	}
+
+	tracked := RenderCard(CardData{Key: "AG-7467", Title: "Tracked", Priority: "Medium", Provider: "jira"}, 34, false, "Backlog", testIcons)
+	if !strings.Contains(tracked, "▲ AG-7467") || !strings.Contains(tracked, "jira") {
+		t.Errorf("a tracked task with a priority: %q", tracked)
+	}
+}
+
+func TestCardPutsTypeWorkspaceAndPullRequestOnOneLineWhenTheyFit(t *testing.T) {
+	card := CardData{Key: "AG-9967", Title: "Convert", IssueType: "Task", WorkspaceName: "work", PRNumber: 7, PRCheckStatus: "pass", PRReviewDecision: "APPROVED"}
+
+	wide := RenderCard(card, 60, false, "Doing", testIcons)
+	narrow := RenderCard(card, 24, false, "Doing", testIcons)
+
+	if !strings.Contains(wide, "task · work · ✓ CI · ✓ review") {
+		t.Errorf("wide card should say it on one line: %q", wide)
+	}
+	if lipgloss.Height(narrow) != lipgloss.Height(wide)+1 {
+		t.Errorf("narrow card should give the pull request a line of its own: %q", narrow)
+	}
+	if !strings.Contains(narrow, "✓ CI") || !strings.Contains(narrow, "✓ review") {
+		t.Errorf("narrow card lost the pull request state: %q", narrow)
+	}
+}
+
+func TestCardSaysWhenItsAgentMarkedTheWorkReadyForReview(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test", AgentActive: true, ReviewReady: true, ReviewUnreviewed: 2}
+	out := RenderCard(card, 40, false, "Doing", testIcons)
+	if !strings.Contains(out, "ready for review") {
+		t.Errorf("card should say the work is ready for review: %q", out)
+	}
+	if strings.Contains(out, "idle") {
+		t.Errorf("an agent that handed its work over should not read as idle: %q", out)
+	}
+
+	busy := RenderCard(CardData{Key: "task1", Title: "Test", AgentActive: true, AgentState: "working", ReviewReady: true}, 40, false, "Doing", testIcons)
+	if !strings.Contains(busy, "running") {
+		t.Errorf("what the agent is doing now comes first: %q", busy)
 	}
 }
 
@@ -102,8 +180,8 @@ func TestCardNoWarningByDefault(t *testing.T) {
 func TestCardAgentActiveIndicator(t *testing.T) {
 	card := CardData{Key: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug", AgentActive: true}
 	out := RenderCard(card, 30, false, "Doing", testIcons)
-	if !strings.Contains(out, "▶") {
-		t.Errorf("agent-active card should contain '▶' indicator, got: %q", out)
+	if !strings.Contains(out, "○ idle") {
+		t.Errorf("a card with an idle agent should say so, got: %q", out)
 	}
 }
 
@@ -137,8 +215,8 @@ func TestCardWithoutWorktreeHasNoWorktreeIndicator(t *testing.T) {
 func TestCardNoAgentIndicatorByDefault(t *testing.T) {
 	card := CardData{Key: "REX-1", Title: "Test", Priority: "High", IssueType: "Bug"}
 	out := RenderCard(card, 30, false, "Doing", testIcons)
-	if strings.Contains(out, "▶") {
-		t.Error("card without agent should not have ▶ indicator")
+	if strings.Contains(out, "idle") {
+		t.Error("card without agent should not have an agent line")
 	}
 }
 
@@ -179,8 +257,8 @@ func TestCardWithAgentStateLine(t *testing.T) {
 		WorkingDuration: 45 * time.Minute,
 	}
 	out := RenderCard(card, 30, false, "Doing", testIcons)
-	if !strings.Contains(out, "RUNNING") {
-		t.Error("card with working agent should contain RUNNING")
+	if !strings.Contains(out, "running") {
+		t.Error("card with working agent should say running")
 	}
 	if !strings.Contains(out, "45m") {
 		t.Errorf("card should contain duration '45m', got: %q", out)
@@ -196,8 +274,8 @@ func TestCardWithWaitingAgentState(t *testing.T) {
 		WaitingDuration: 2*time.Hour + 15*time.Minute,
 	}
 	out := RenderCard(card, 30, false, "Doing", testIcons)
-	if !strings.Contains(out, "WAITING") {
-		t.Error("card with waiting agent should contain WAITING")
+	if !strings.Contains(out, "needs you") {
+		t.Error("card with waiting agent should say it needs the person")
 	}
 	if !strings.Contains(out, "2h 15m") {
 		t.Errorf("card should contain '2h 15m', got: %q", out)
@@ -207,11 +285,11 @@ func TestCardWithWaitingAgentState(t *testing.T) {
 func TestCardWithMixedAgentState(t *testing.T) {
 	card := CardData{Key: "task1", Title: "Test task", AgentActive: true, AgentState: "mixed"}
 	out := RenderCard(card, 30, false, "Doing", testIcons)
-	if !strings.Contains(out, "MIXED") {
-		t.Fatalf("mixed card should contain MIXED: %q", out)
+	if !strings.Contains(out, "mixed") {
+		t.Fatalf("mixed card should say mixed: %q", out)
 	}
-	if strings.Contains(out, "IDLE") {
-		t.Fatalf("mixed card should not contain IDLE: %q", out)
+	if strings.Contains(out, "idle") {
+		t.Fatalf("mixed card should not say idle: %q", out)
 	}
 }
 
@@ -219,11 +297,11 @@ func TestCardWithErrorAgentState(t *testing.T) {
 	card := CardData{Key: "task1", Title: "Test task", AgentActive: true, AgentState: "error"}
 	for _, selected := range []bool{false, true} {
 		out := RenderCard(card, 30, selected, "Doing", testIcons)
-		if !strings.Contains(out, "ERROR") {
-			t.Errorf("selected=%v: error card should contain ERROR: %q", selected, out)
+		if !strings.Contains(out, "error") {
+			t.Errorf("selected=%v: error card should say error: %q", selected, out)
 		}
-		if strings.Contains(out, "IDLE") {
-			t.Errorf("selected=%v: error card should not contain IDLE: %q", selected, out)
+		if strings.Contains(out, "idle") {
+			t.Errorf("selected=%v: error card should not say idle: %q", selected, out)
 		}
 	}
 }
@@ -251,7 +329,7 @@ func TestCardWithoutAgentInfoHasNoAgentLine(t *testing.T) {
 	lines := strings.Split(out, "\n")
 	// Without agent info, card should be shorter (3 content lines + border)
 	for _, line := range lines {
-		if strings.Contains(line, "RUNNING") || strings.Contains(line, "WAITING") || strings.Contains(line, "IDLE") {
+		if strings.Contains(line, "running") || strings.Contains(line, "needs you") || strings.Contains(line, "idle") {
 			t.Error("card without agent info should not have agent line")
 		}
 	}
@@ -338,24 +416,24 @@ func TestCardWithPRPendingCI(t *testing.T) {
 func TestCardWithPRChangesRequested(t *testing.T) {
 	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRCheckStatus: "pass", PRReviewDecision: "CHANGES_REQUESTED"}
 	out := RenderCard(card, 40, false, "Review", testIcons)
-	if !strings.Contains(out, "Changes") {
-		t.Errorf("card with changes requested should show Changes, got: %q", out)
+	if !strings.Contains(out, "changes") {
+		t.Errorf("card with changes requested should say so, got: %q", out)
 	}
 }
 
 func TestCardWithPRDraft(t *testing.T) {
 	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRIsDraft: true}
 	out := RenderCard(card, 40, false, "Doing", testIcons)
-	if !strings.Contains(out, "Draft") {
-		t.Errorf("card with draft PR should show Draft, got: %q", out)
+	if !strings.Contains(out, "draft PR") {
+		t.Errorf("card with draft PR should say so, got: %q", out)
 	}
 }
 
 func TestCardWithPRComments(t *testing.T) {
 	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRCheckStatus: "pass", PRCommentCount: 5}
 	out := RenderCard(card, 40, false, "Review", testIcons)
-	if !strings.Contains(out, "5") {
-		t.Errorf("card with 5 comments should show 5, got: %q", out)
+	if !strings.Contains(out, "5 comments") {
+		t.Errorf("card with 5 comments should count them, got: %q", out)
 	}
 }
 
@@ -363,7 +441,7 @@ func TestCardWithNoPR(t *testing.T) {
 	card := CardData{Key: "task1", Title: "Test", Priority: "High"}
 	out := RenderCard(card, 40, false, "Doing", testIcons)
 	// Should NOT contain any PR indicators
-	if strings.Contains(out, "CI") || strings.Contains(out, "Draft") || strings.Contains(out, "Changes") {
+	if strings.Contains(out, "CI") || strings.Contains(out, "draft") || strings.Contains(out, "changes") {
 		t.Errorf("card without PR should not show PR indicators, got: %q", out)
 	}
 }
@@ -381,10 +459,10 @@ func TestCardWithAgentWaitingOnBackgroundWork(t *testing.T) {
 
 	for _, selected := range []bool{false, true} {
 		out := RenderCard(card, 30, selected, "Doing", testIcons)
-		if !strings.Contains(out, "BACKGROUND") {
-			t.Errorf("selected=%v: card should say BACKGROUND, got: %q", selected, out)
+		if !strings.Contains(out, "background") {
+			t.Errorf("selected=%v: card should say background, got: %q", selected, out)
 		}
-		if strings.Contains(out, "IDLE") {
+		if strings.Contains(out, "idle") {
 			t.Errorf("selected=%v: an agent with a shell still running is not idle: %q", selected, out)
 		}
 	}

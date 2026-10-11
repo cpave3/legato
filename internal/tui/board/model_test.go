@@ -4,15 +4,20 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
 // fakeBoardService implements the subset of BoardService needed by the board model.
-type fakeBoardService struct{}
+type fakeBoardService struct {
+	// descriptions holds what GetCard answers, by task ID.
+	descriptions map[string]string
+}
 
 func (f *fakeBoardService) ListColumns(_ context.Context) ([]service.Column, error) {
 	return []service.Column{
@@ -41,8 +46,12 @@ func (f *fakeBoardService) ListCards(_ context.Context, column string) ([]servic
 	return cards[column], nil
 }
 
-func (f *fakeBoardService) GetCard(_ context.Context, _ string) (*service.CardDetail, error) {
-	return nil, nil
+func (f *fakeBoardService) GetCard(_ context.Context, id string) (*service.CardDetail, error) {
+	description, ok := f.descriptions[id]
+	if !ok {
+		return nil, nil
+	}
+	return &service.CardDetail{ID: id, DescriptionMD: description}, nil
 }
 func (f *fakeBoardService) MoveCard(_ context.Context, _ string, _ string) error { return nil }
 func (f *fakeBoardService) ReorderCard(_ context.Context, _ string, _ int) error { return nil }
@@ -568,5 +577,240 @@ func TestWindowSizeSetsMaxVisible(t *testing.T) {
 	m, _ = m.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
 	if m.maxVisible != 1 {
 		t.Fatalf("maxVisible = %d, want 1 (only 1 card fits in height=5)", m.maxVisible)
+	}
+}
+
+// sizedModel is a board that was told its size the way the app tells it.
+func sizedModel(width, height int) Model {
+	m := New(&fakeBoardService{descriptions: map[string]string{
+		"REX-1": "## Steps\n\nOpen a listing on a phone.\nThe selector is off screen.",
+	}}, theme.NewIcons("unicode"))
+	m = m.loadData()
+	m, _ = m.Update(tea.WindowSizeMsg{Width: width, Height: height})
+	return m
+}
+
+func TestViewFillsExactlyTheSizeItWasGiven(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{160, 40}, {100, 30}, {60, 20}} {
+		m := sizedModel(size.width, size.height)
+
+		lines := strings.Split(m.View(), "\n")
+
+		if len(lines) != size.height {
+			t.Errorf("%dx%d: view is %d lines tall", size.width, size.height, len(lines))
+		}
+		for i, line := range lines {
+			if w := lipgloss.Width(line); w != size.width {
+				t.Errorf("%dx%d: line %d is %d wide: %q", size.width, size.height, i, w, line)
+				break
+			}
+		}
+	}
+}
+
+func TestViewOpensWithWhatIsOnTheBoard(t *testing.T) {
+	m := sizedModel(160, 40)
+	m.SetActiveAgents(map[string]bool{"REX-4": true})
+
+	header := strings.Split(m.View(), "\n")[0]
+
+	for _, want := range []string{"♩ legato", "board", "5 tasks", "1 with an agent"} {
+		if !strings.Contains(header, want) {
+			t.Errorf("header should contain %q, got: %q", want, header)
+		}
+	}
+}
+
+func TestHeaderShowsTheFilterAndTheStatusItIsGiven(t *testing.T) {
+	m := sizedModel(160, 40)
+	m.SetWorkspaces([]service.Workspace{{ID: 7, Name: "Work", Color: "#4A9EEF"}})
+	m.SetStatus("● synced 2m ago", "web :3080")
+
+	if header := strings.Split(m.View(), "\n")[0]; !strings.Contains(header, "all workspaces") || !strings.Contains(header, "synced 2m ago") || !strings.Contains(header, "web :3080") {
+		t.Errorf("header = %q", header)
+	}
+
+	m.SetWorkspaceView(store.WorkspaceView{Kind: store.ViewWorkspace, WorkspaceID: 7})
+	if header := strings.Split(m.View(), "\n")[0]; !strings.Contains(header, "Work") || strings.Contains(header, "all workspaces") {
+		t.Errorf("header for one workspace = %q", header)
+	}
+}
+
+func TestEmptyColumnsAreCollapsedUntilAsked(t *testing.T) {
+	m := sizedModel(160, 40)
+
+	collapsed := m.View()
+	if strings.Contains(collapsed, "REVIEW") {
+		t.Errorf("the empty Review column should be collapsed, got: %q", collapsed)
+	}
+	if !strings.Contains(collapsed, "hide empty: on") {
+		t.Errorf("the header should say empty columns are hidden, got: %q", strings.Split(collapsed, "\n")[0])
+	}
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	open := m.View()
+	if !strings.Contains(open, "REVIEW") || !strings.Contains(open, "hide empty: off") {
+		t.Errorf("z should open the empty column, got: %q", open)
+	}
+}
+
+func TestColumnsWithCardsGetTheRoomOfTheCollapsedOnes(t *testing.T) {
+	// Too narrow for a panel, and just wide enough for four open columns.
+	m := sizedModel(98, 40)
+	title := "A title of twenty-one"
+	m.cards["Backlog"][0].Title = title
+
+	if !strings.Contains(m.View(), title) {
+		t.Errorf("with the empty column collapsed the title should fit")
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	if strings.Contains(m.View(), title) {
+		t.Errorf("with every column open the title should be cut")
+	}
+}
+
+func TestBoardWithNothingOnItKeepsItsColumnsOpen(t *testing.T) {
+	m := sizedModel(160, 40)
+	for name := range m.cards {
+		m.cards[name] = nil
+	}
+
+	if view := m.View(); !strings.Contains(view, "BACKLOG") || !strings.Contains(view, "REVIEW") {
+		t.Errorf("an empty board should still name its columns, got: %q", view)
+	}
+}
+
+func TestSelectedTaskIsDescribedBesideTheBoard(t *testing.T) {
+	m := sizedModel(160, 40)
+	m.SetAgentStates(map[string]string{"REX-1": "waiting"})
+
+	view := m.View()
+
+	for _, want := range []string{"high · bug · REX-1", "column", "backlog", "source", "needs you", "Open a listing on a phone.", "ACTIONS", "Move task"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the panel should contain %q, got: %q", want, view)
+		}
+	}
+	if strings.Contains(view, "## Steps") {
+		t.Errorf("the description should be shown without its markup, got: %q", view)
+	}
+}
+
+func TestPanelFollowsTheSelection(t *testing.T) {
+	m := sizedModel(160, 40)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+
+	view := m.View()
+
+	if !strings.Contains(view, "medium · story · REX-2") {
+		t.Errorf("the panel should describe the newly selected task, got: %q", view)
+	}
+	if strings.Contains(view, "Open a listing on a phone.") {
+		t.Errorf("the panel kept the description of the task that was selected before")
+	}
+}
+
+func TestNarrowBoardHasNoPanel(t *testing.T) {
+	if view := sizedModel(90, 40).View(); strings.Contains(view, "ACTIONS") {
+		t.Errorf("a narrow board should give all its width to the columns, got: %q", view)
+	}
+}
+
+func TestPanelSaysWhenNoTaskIsSelected(t *testing.T) {
+	m := sizedModel(160, 40)
+	m.cursorCol = 2 // Review, which is empty
+
+	if view := m.View(); !strings.Contains(view, "No task selected") {
+		t.Errorf("got: %q", view)
+	}
+}
+
+func TestOnlyAsManyCardsAsFitAreDrawn(t *testing.T) {
+	// Two rows of header, one of padding, two of column header: 15 rows are
+	// left for cards, and each takes four, plus one to close the last.
+	m := sizedModel(160, 20)
+
+	if m.maxVisible != 3 {
+		t.Fatalf("maxVisible = %d, want 3", m.maxVisible)
+	}
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 160, Height: 16})
+	if m.maxVisible != 2 {
+		t.Fatalf("maxVisible = %d, want 2", m.maxVisible)
+	}
+}
+
+func TestLeftAndRightStepOverACollapsedColumn(t *testing.T) {
+	m := sizedModel(160, 40)
+	m.cursorCol = 1 // Doing; Review, to its right, is empty
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if got := m.columns[m.cursorCol]; got != "Done" {
+		t.Fatalf("l from Doing went to %s, want Done", got)
+	}
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'h'}})
+	if got := m.columns[m.cursorCol]; got != "Doing" {
+		t.Fatalf("h from Done went to %s, want Doing", got)
+	}
+
+	// With every column open there is nothing to step over.
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}})
+	if got := m.columns[m.cursorCol]; got != "Review" {
+		t.Fatalf("l from Doing went to %s, want Review", got)
+	}
+}
+
+func TestANumberKeyStillReachesACollapsedColumn(t *testing.T) {
+	m := sizedModel(160, 40)
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}})
+
+	if got := m.columns[m.cursorCol]; got != "Review" {
+		t.Fatalf("3 went to %s, want Review", got)
+	}
+}
+
+func TestDescriptionKeepsItsHeadingsApartFromItsText(t *testing.T) {
+	lines := describe("## Steps\n\nOpen a listing.\n\n```sh\nmake run\n```\n", 40)
+
+	if len(lines) != 3 {
+		t.Fatalf("got %d lines, want the heading, the sentence and the command: %+v", len(lines), lines)
+	}
+	if lines[0] != (descriptionLine{text: "Steps", heading: true}) {
+		t.Errorf("first line = %+v, want the heading without its marks", lines[0])
+	}
+	if lines[1].heading || lines[2].text != "make run" {
+		t.Errorf("text lines = %+v", lines[1:])
+	}
+}
+
+func TestTheStripOfARunningAgentTurns(t *testing.T) {
+	m := sizedModel(160, 40)
+	m.SetActiveAgents(map[string]bool{"REX-4": true})
+	m.SetAgentStates(map[string]string{"REX-4": "working"})
+	if !m.HasWorkingAgent() {
+		t.Fatal("REX-4 has a running agent")
+	}
+
+	for _, frame := range []int{0, 3} {
+		m.SetSpinner(frame)
+		if view := m.View(); !strings.Contains(view, theme.Spinner(frame)+" running") {
+			t.Errorf("frame %d: the strip should be marked %q: %q", frame, theme.Spinner(frame), view)
+		}
+	}
+}
+
+func TestTheTimeAnAgentSpentDoesNotMove(t *testing.T) {
+	m := sizedModel(160, 40)
+	m.SetDurations(map[string]DurationData{"REX-1": {Working: time.Hour}})
+	still := m.View()
+
+	m.SetSpinner(3)
+
+	if m.View() != still {
+		t.Error("no agent runs, so nothing should move")
+	}
+	if m.HasWorkingAgent() {
+		t.Error("time spent is not an agent at work")
 	}
 }

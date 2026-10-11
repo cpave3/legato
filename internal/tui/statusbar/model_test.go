@@ -293,18 +293,90 @@ func TestNarrowTerminalTruncatesHints(t *testing.T) {
 	}
 }
 
-func TestStatusBarContentStaysSingleLine(t *testing.T) {
+func TestBarIsOneLineAsWideAsTheTerminal(t *testing.T) {
 	m := New()
 	m.width = 120
 	m, _ = m.Update(HotkeyContextMsg{Registry: hotkey.DefaultRegistry(), Context: hotkey.Context{Page: hotkey.PageAgents}})
 	m, _ = m.Update(NtfyMsg{Configured: true})
 	m, _ = m.Update(VoiceMsg{Enabled: true})
+
 	view := m.View()
-	// The status bar renders a top border plus one content line. Wrapping the
-	// content would produce more than 2 total lines.
-	lines := strings.Split(view, "\n")
-	if len(lines) > 2 {
-		t.Errorf("status bar should be border + one content line, got %d lines: %q", len(lines), view)
+
+	if strings.Contains(view, "\n") {
+		t.Fatalf("the bar should be one line, got: %q", view)
+	}
+	if w := lipgloss.Width(view); w != 120 {
+		t.Fatalf("the bar is %d wide, want 120: %q", w, view)
+	}
+}
+
+func TestBarPutsThePagesKeysFirstAndTheGlobalOnesAtTheRightEdge(t *testing.T) {
+	m := New()
+	m.width = 160
+	m, _ = m.Update(StatusShownElsewhereMsg{Elsewhere: true})
+
+	view := m.View()
+
+	if !strings.HasPrefix(strings.TrimSpace(view), "↵ detail") {
+		t.Fatalf("the bar should open with the page's first key, got: %q", view)
+	}
+	if !strings.HasSuffix(strings.TrimRight(view, " "), "? keys") {
+		t.Fatalf("the bar should end with the key reference, got: %q", view)
+	}
+	pageKeys, viewKeys := strings.Index(view, "search"), strings.Index(view, "agents")
+	if gap := view[pageKeys:viewKeys]; !strings.Contains(gap, "      ") {
+		t.Fatalf("the two groups should be apart, got: %q", view)
+	}
+}
+
+func TestBarNamesTwoKeysForTheSameThingOnce(t *testing.T) {
+	m := New()
+	m.width = 160
+	m, _ = m.Update(HotkeyContextMsg{Registry: hotkey.DefaultRegistry(), Context: hotkey.Context{Page: hotkey.PageAgents}})
+
+	view := m.View()
+
+	if !strings.Contains(view, "j/k select") {
+		t.Fatalf("up and down should be one hint, got: %q", view)
+	}
+	if strings.Count(view, "select") != 1 {
+		t.Fatalf("select is named more than once: %q", view)
+	}
+}
+
+func TestBarLeavesTheSyncStateOutWhenTheViewShowsIt(t *testing.T) {
+	m := New()
+	m.width = 160
+	m, _ = m.Update(WorkspaceMsg{Name: "Work", Color: "#4A9EEF"})
+	m = m.SetWebServer("3080")
+	m, _ = m.Update(StatusShownElsewhereMsg{Elsewhere: true})
+
+	view := m.View()
+
+	for _, shownElsewhere := range []string{"offline", "Work", "3080"} {
+		if strings.Contains(view, shownElsewhere) {
+			t.Errorf("the bar should leave %q to the view, got: %q", shownElsewhere, view)
+		}
+	}
+	if got := m.SyncLabel(); !strings.Contains(got, "offline") {
+		t.Errorf("SyncLabel() = %q, want the sync state", got)
+	}
+	if got := m.WebLabel(); got != "web :3080" {
+		t.Errorf("WebLabel() = %q, want %q", got, "web :3080")
+	}
+}
+
+func TestBarShowsAMessageBeforeTheKeys(t *testing.T) {
+	m := New()
+	m.width = 160
+	m, _ = m.Update(StatusShownElsewhereMsg{Elsewhere: true})
+	m, _ = m.Update(ErrorMsg{Text: "import failed"})
+
+	view := m.View()
+
+	message, keys := strings.Index(view, "import failed"), strings.Index(view, "detail")
+	if message < 0 || keys < message {
+		t.Fatalf("the message should come before the keys, got: %q", view)
 	}
 }
 

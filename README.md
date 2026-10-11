@@ -240,9 +240,10 @@ When you spawn an agent from Legato (`a` on a card), the tmux session gets a `LE
 
 | Card indicator | Meaning | Triggered by |
 |---|---|---|
-| `⟳ RUNNING` (green) | Claude is actively working | `UserPromptSubmit` / `PostToolUse` hooks |
-| `◆ WAITING` (blue) | Claude needs your approval | `PermissionRequest` hook |
-| `▶ IDLE` (dim) | Agent session alive, not working | `Stop` hook / default |
+| `⠹ running` (green) | Claude is actively working | `UserPromptSubmit` / `PostToolUse` hooks |
+| `◆ needs you` (amber) | Claude needs your approval | `PermissionRequest` hook |
+| `◐ background` (cyan) | The turn ended while a shell or subagent it started still runs | `Stop` hook |
+| `○ idle` (dim) | Agent session alive, not working | `Stop` hook / default |
 
 Hooks only fire inside Legato-spawned tmux sessions — they're no-ops elsewhere.
 
@@ -301,6 +302,7 @@ legato    # launch the TUI
 | `j` / `k` | Move between cards |
 | `g` / `G` | Jump to first/last card |
 | `1`-`5` | Jump to column by number |
+| `z` | Open or collapse the columns that have no cards |
 | `enter` | Open task detail view |
 | `m` | Move card to another column |
 | `n` | Create new task |
@@ -334,14 +336,20 @@ legato    # launch the TUI
 
 #### Agent View
 
+Agents are listed by what they are doing, the ones that need you first. `e` changes between the list, with the selected agent's terminal beside it, and the ensemble, which shows every agent at once.
+
 | Key | Action |
 |-----|--------|
-| `j` / `k` | Navigate agent list |
+| `j` / `k` | Navigate agents (`h` / `l` too in the ensemble) |
+| `w` | Select the next agent that needs you |
+| `e` | Change between the list and the ensemble |
 | `s` | Spawn new agent |
-| `x` | Kill selected agent |
+| `X` | Kill selected agent |
 | `m` | Open macro picker |
 | `enter` | Attach to tmux session |
 | `esc` / `q` | Back to board |
+
+With a `manticore:` block in the config, the agent view also shows the tokens used today.
 
 ## Architecture
 

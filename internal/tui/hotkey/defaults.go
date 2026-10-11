@@ -39,11 +39,14 @@ const (
 	ActionBoardSpawnAgent    ActionID = "board.spawn-agent"
 	ActionBoardTerminal      ActionID = "board.terminal"
 	ActionBoardToggleWeb     ActionID = "board.toggle-web"
-	ActionViewAgents         ActionID = "view.agents"
-	ActionViewReport         ActionID = "view.reporting"
-	ActionViewReview         ActionID = "view.reviews"
-	ActionViewPlans          ActionID = "view.plans"
-	ActionViewAttention      ActionID = "view.attention"
+	// ActionBoardToggleEmpty opens the columns that have no cards, or
+	// collapses them again.
+	ActionBoardToggleEmpty ActionID = "board.toggle-empty"
+	ActionViewAgents       ActionID = "view.agents"
+	ActionViewReport       ActionID = "view.reporting"
+	ActionViewReview       ActionID = "view.reviews"
+	ActionViewPlans        ActionID = "view.plans"
+	ActionViewAttention    ActionID = "view.attention"
 
 	ActionDetailDown            ActionID = "detail.down"
 	ActionDetailUp              ActionID = "detail.up"
@@ -75,6 +78,14 @@ const (
 	// ActionAgentsOpenShown opens the cards and artifacts the selected agent
 	// showed, which only the web UI can draw.
 	ActionAgentsOpenShown ActionID = "agents.open-shown"
+	// ActionAgentsNextWaiting selects the next agent that needs the person.
+	ActionAgentsNextWaiting ActionID = "agents.next-waiting"
+	// ActionAgentsEnsemble shows every agent at once, as a grid of tiles, and
+	// ActionAgentsList goes back to the list with one agent's terminal.
+	ActionAgentsEnsemble ActionID = "agents.ensemble"
+	ActionAgentsList     ActionID = "agents.list"
+	ActionAgentsLeft     ActionID = "agents.left"
+	ActionAgentsRight    ActionID = "agents.right"
 
 	ActionReportPeriod   ActionID = "report.period"
 	ActionReportPrevious ActionID = "report.previous"
@@ -138,6 +149,9 @@ const (
 	ModeQuestionInput Mode = "question-input"
 	ModeTextInput     Mode = "text-input"
 	ModeApproval      Mode = "approval"
+	// ModeList and ModeGrid are the two layouts of the agents page.
+	ModeList Mode = "list"
+	ModeGrid Mode = "grid"
 )
 
 const (
@@ -156,7 +170,7 @@ func DefaultBindings() []Binding {
 		bindings = append(bindings, Binding{ID: id, Scope: scope, Target: target, Keys: keys, Label: label, Help: help, Section: section, SectionOrder: sectionOrder, Order: order, Surfaces: surfaces, Requires: requires})
 	}
 	global := GlobalScope()
-	add(ActionHelp, global, TargetRoot, []Key{Rune('?')}, "keys", "Toggle keyboard reference", "General", 90, 10, FullHelp|ShortcutBar)
+	add(ActionHelp, global, TargetRoot, []Key{Rune('?')}, "keys", "Toggle keyboard reference", "General", 90, 10, FullHelp|ShortcutBar|BarEnd)
 	bindings[len(bindings)-1].Precedence = YieldToSpecific
 	add(ActionQuit, global, TargetRoot, []Key{Rune('q'), Special(tea.KeyCtrlC, "ctrl+c")}, "quit", "Quit Legato", "General", 90, 20, FullHelp)
 	bindings[len(bindings)-1].Precedence = YieldToSpecific
@@ -188,12 +202,13 @@ func DefaultBindings() []Binding {
 	add(ActionBoardArchive, board, TargetRoot, []Key{Rune('X')}, "archive", "Archive done cards", "Actions", 20, 120, FullHelp)
 	add(ActionBoardArchived, board, TargetRoot, []Key{Rune('B')}, "archived", "Browse archived tasks", "Actions", 20, 130, FullHelp)
 	add(ActionBoardWorktree, board, TargetRoot, []Key{Rune('b')}, "worktree", "Create task worktree", "Actions", 20, 140, FullHelp, CapabilityWorktrees)
-	add(ActionBoardSpawnAgent, board, TargetRoot, []Key{Rune('a')}, "agent", "Spawn agent for task", "Actions", 20, 150, FullHelp)
+	add(ActionBoardSpawnAgent, board, TargetRoot, []Key{Rune('a')}, "agent", "Spawn agent for task", "Actions", 20, 150, FullHelp|ShortcutBar)
 	add(ActionBoardTerminal, board, TargetRoot, []Key{Rune('t')}, "terminal", "Open task agent terminal", "Actions", 20, 160, FullHelp)
 	add(ActionBoardStartSwarm, board, TargetRoot, []Key{Rune('S')}, "start swarm", "Start a swarm", "Swarm", 30, 10, FullHelp, CapabilitySwarm)
 	add(ActionBoardCancelSwarm, board, TargetRoot, []Key{Rune('C')}, "cancel swarm", "Cancel active swarm", "Swarm", 30, 20, FullHelp, CapabilitySwarm)
 	add(ActionBoardToggleWeb, board, TargetRoot, []Key{Rune('W')}, "web", "Toggle web server", "Actions", 20, 170, FullHelp)
-	add(ActionViewAgents, board, TargetRoot, []Key{Rune('A')}, "agents", "Open agents view", "Views", 40, 10, FullHelp)
+	add(ActionBoardToggleEmpty, board, TargetPage, []Key{Rune('z')}, "empty columns", "Open or collapse columns with no cards", "Views", 40, 5, FullHelp|ShortcutBar|BarEnd)
+	add(ActionViewAgents, board, TargetRoot, []Key{Rune('A')}, "agents", "Open agents view", "Views", 40, 10, FullHelp|ShortcutBar|BarEnd)
 	add(ActionViewReport, board, TargetRoot, []Key{Rune('R')}, "reports", "Open reporting view", "Views", 40, 20, FullHelp)
 	add(ActionViewReview, board, TargetRoot, []Key{Rune('V')}, "reviews", "Open review tours", "Views", 40, 30, FullHelp, CapabilityReview)
 	add(ActionViewPlans, board, TargetRoot, []Key{Rune('P')}, "plans", "Open implementation plans", "Views", 40, 40, FullHelp, CapabilityPlans)
@@ -238,9 +253,10 @@ func addPageBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Ke
 	(*bindings)[len(*bindings)-1].When = []Predicate{PredicateSwarmNext}
 
 	agents := PageScope(PageAgents)
-	add(ActionBack, agents, TargetPage, []Key{Special(tea.KeyEsc, "esc"), Rune('q')}, "board", "Return to board", "Agents", 50, 1, FullHelp|ShortcutBar)
+	add(ActionBack, agents, TargetPage, []Key{Special(tea.KeyEsc, "esc"), Rune('q')}, "board", "Return to board", "Agents", 50, 1, FullHelp|ShortcutBar|BarEnd)
 	add(ActionAgentsDown, agents, TargetPage, []Key{Rune('j')}, "select", "Select next agent", "Agents", 50, 10, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsUp, agents, TargetPage, []Key{Rune('k')}, "select", "Select previous agent", "Agents", 50, 11, FullHelp|Shortlist|ShortcutBar)
+	add(ActionAgentsNextWaiting, agents, TargetPage, []Key{Rune('w')}, "next waiting", "Select the next agent that needs you", "Agents", 50, 12, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsSpawn, agents, TargetPage, []Key{Rune('s')}, "spawn", "Spawn agent", "Agents", 50, 20, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsKill, agents, TargetPage, []Key{Rune('X')}, "kill", "Kill agent", "Agents", 50, 21, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsAttach, agents, TargetPage, []Key{Special(tea.KeyEnter, "enter"), Special(tea.KeyTab, "tab")}, "attach", "Attach to agent session", "Agents", 50, 22, FullHelp|Shortlist|ShortcutBar)
@@ -248,9 +264,16 @@ func addPageBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Ke
 	add(ActionAgentsGroup, agents, TargetPage, []Key{Rune('g')}, "group", "Set task group", "Agents", 50, 24, FullHelp)
 	add(ActionAgentsActions, agents, TargetPage, []Key{Rune('M')}, "actions", "Open swarm agent actions", "Agents", 50, 25, FullHelp, CapabilitySwarm)
 	add(ActionAgentsDetails, agents, TargetPage, []Key{Rune('l')}, "details", "Toggle worker details", "Agents", 50, 26, FullHelp)
+	// In the ensemble l moves to the tile on the right.
+	(*bindings)[len(*bindings)-1].Precedence = YieldToSpecific
 	add(ActionAgentsNotify, agents, TargetPage, []Key{Rune('n')}, "notify", "Toggle notifications", "Agents", 50, 27, FullHelp|ShortcutBar, CapabilityNotifications)
 	add(ActionAgentsVoice, agents, TargetPage, []Key{Rune('v')}, "voice", "Start voice dictation", "Agents", 50, 28, FullHelp|ShortcutBar, CapabilityVoice)
 	add(ActionAgentsOpenShown, agents, TargetPage, []Key{Rune('o')}, "open shown", "Open the agent's cards and artifacts in the web UI", "Agents", 50, 29, FullHelp, CapabilityAgentUI)
+	add(ActionAgentsEnsemble, PageModeScope(PageAgents, ModeList), TargetPage, []Key{Rune('e')}, "ensemble", "Show every agent at once", "Agents", 50, 40, FullHelp|ShortcutBar|BarEnd)
+	ensemble := PageModeScope(PageAgents, ModeGrid)
+	add(ActionAgentsList, ensemble, TargetPage, []Key{Rune('e')}, "list", "Show the agent list and one terminal", "Agents", 50, 40, FullHelp|ShortcutBar|BarEnd)
+	add(ActionAgentsLeft, ensemble, TargetPage, []Key{Rune('h')}, "select", "Select the agent to the left", "Agents", 50, 8, FullHelp|ShortcutBar)
+	add(ActionAgentsRight, ensemble, TargetPage, []Key{Rune('l')}, "select", "Select the agent to the right", "Agents", 50, 9, FullHelp|ShortcutBar)
 
 	report := PageScope(PageReport)
 	add(ActionBack, report, TargetPage, []Key{Special(tea.KeyEsc, "esc"), Rune('q')}, "back", "Return to board", "Reports", 60, 1, FullHelp|Shortlist|ShortcutBar)

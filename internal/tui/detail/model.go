@@ -742,7 +742,7 @@ func (m Model) View() string {
 
 func (m Model) renderStatusBar() string {
 	if m.feedback != "" {
-		return theme.StatusBar.Width(m.width).Render(m.feedback)
+		return theme.Fill("  "+lipgloss.NewStyle().Foreground(theme.TextPrimary).Render(m.feedback), m.width, theme.Bar)
 	}
 
 	ctx := hotkey.Context{Page: hotkey.PageDetail, Predicates: m.HotkeyPredicates()}
@@ -753,7 +753,7 @@ func (m Model) renderStatusBar() string {
 			theme.KeyHintKey.Render(hotkey.DisplayKey(binding))+" "+theme.KeyHintLabel.Render(binding.Label))
 	}
 
-	return theme.StatusBar.Width(m.width).Render(strings.Join(parts, "  "))
+	return theme.Fill("  "+strings.Join(parts, "   "), m.width, theme.Bar)
 }
 
 // TaskID returns the current ticket ID.

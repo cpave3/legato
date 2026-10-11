@@ -18,8 +18,6 @@ type DurationData struct {
 	Waiting time.Duration
 }
 
-const minColumnWidth = 20
-
 // Model is the board Bubbletea model.
 type Model struct {
 	svc           service.BoardService
@@ -34,6 +32,22 @@ type Model struct {
 	height        int
 	workspaceView store.WorkspaceView
 	workspaces    []service.Workspace
+	// hideEmpty collapses a column with no cards to a narrow rail.
+	hideEmpty bool
+	// syncLabel and webLabel are shown at the end of the header as given.
+	syncLabel string
+	webLabel  string
+	// preview is what the panel beside the board says about the selected
+	// task beyond what its card holds.
+	preview preview
+	// spinner is the frame the mark of a running agent is drawn at.
+	spinner int
+}
+
+// preview is the description of one task, read when the task is selected.
+type preview struct {
+	key         string
+	description string
 }
 
 // New creates a new board model.
@@ -43,7 +57,40 @@ func New(svc service.BoardService, icons theme.Icons) Model {
 		icons:         icons,
 		cards:         make(map[string][]CardData),
 		workspaceView: store.WorkspaceView{Kind: store.ViewAll},
+		hideEmpty:     true,
 	}
+}
+
+// SetSpinner sets the frame the mark of a running agent is drawn at.
+func (m *Model) SetSpinner(frame int) {
+	m.spinner = frame
+}
+
+// HasWorkingAgent reports whether any card has a running agent, which is
+// what there is to animate.
+func (m Model) HasWorkingAgent() bool {
+	for _, cards := range m.cards {
+		for _, card := range cards {
+			if card.AgentState == "working" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// liveIcons are the icons with the mark of a running agent at its frame.
+func (m Model) liveIcons() theme.Icons {
+	icons := m.icons
+	icons.AgentWorking = theme.Spinner(m.spinner)
+	return icons
+}
+
+// SetStatus sets what the header shows at its end: the sync state and the
+// web server, each already worded.
+func (m *Model) SetStatus(sync, web string) {
+	m.syncLabel = sync
+	m.webLabel = web
 }
 
 // SetWorkspaceView sets the active workspace filter.
@@ -162,6 +209,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.cards = msg.cards
 		m.computeMaxVisible()
 		m.clampRow()
+		// The selected task may have changed with the data.
+		m.preview = preview{}
+		m.syncPreview()
 		return m, nil
 
 	case tea.WindowSizeMsg:
@@ -169,6 +219,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		m.height = msg.Height
 		m.computeMaxVisible()
 		m.syncScrollOffset()
+		m.syncPreview()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -187,17 +238,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 
 // HandleAction executes a registry action owned by the board model.
 func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
+	m, cmd := m.handleAction(action)
+	m.syncPreview()
+	return m, cmd
+}
+
+func (m Model) handleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 	switch action {
+	case hotkey.ActionBoardToggleEmpty:
+		m.hideEmpty = !m.hideEmpty
+		m.computeMaxVisible()
+		m.syncScrollOffset()
 	case hotkey.ActionBoardLeft:
-		if m.cursorCol > 0 {
-			m.cursorCol--
-			m.clampRow()
-		}
+		m.stepColumn(-1)
 	case hotkey.ActionBoardRight:
-		if m.cursorCol < len(m.columns)-1 {
-			m.cursorCol++
-			m.clampRow()
-		}
+		m.stepColumn(1)
 	case hotkey.ActionBoardDown:
 		max := m.currentColumnCardCount() - 1
 		if m.cursorRow < max {
@@ -405,8 +460,22 @@ func (m *Model) NavigateTo(cardID string) {
 				m.cursorCol = colIdx
 				m.cursorRow = rowIdx
 				m.syncScrollOffset()
+				m.syncPreview()
 				return
 			}
+		}
+	}
+}
+
+// stepColumn moves the cursor to the next open column in a direction. A
+// collapsed column has nothing to select, so the cursor steps over it; it
+// stays where it is when no open column lies that way.
+func (m *Model) stepColumn(direction int) {
+	for next := m.cursorCol + direction; next >= 0 && next < len(m.columns); next += direction {
+		if !m.collapsed(next) {
+			m.cursorCol = next
+			m.clampRow()
+			return
 		}
 	}
 }
@@ -457,128 +526,31 @@ func (m *Model) syncScrollOffset() {
 }
 
 // computeMaxVisible figures out how many cards fit vertically in the terminal.
-// It measures the tallest rendered card actually on the board, and accounts
-// for the newline separator between cards in the column output.
+// It measures the tallest card on the board at the width columns have now.
 func (m *Model) computeMaxVisible() {
 	if m.height <= 0 {
 		m.maxVisible = 0
 		return
 	}
 
-	// Measure the tallest card actually loaded on the board.
-	// This is more accurate than a fabricated max-height sample.
-	maxH := 0
+	width := m.openColumnWidth()
+	tallest := 0
 	for _, colName := range m.columns {
-		for i, card := range m.cards[colName] {
-			selected := i == m.cursorRow && colName == m.columns[m.cursorCol]
-			h := lipgloss.Height(RenderCard(card, 30, selected, colName, m.icons))
-			if h > maxH {
-				maxH = h
+		for _, card := range m.cards[colName] {
+			if h := lipgloss.Height(RenderCard(card, width, false, colName, m.icons)); h > tallest {
+				tallest = h
 			}
 		}
 	}
-
-	// Fallback to a representative card if the board is empty or all cards
-	// returned zero height.
-	if maxH <= 0 {
-		sample := CardData{
-			Key:              "SAMPLE",
-			Title:            "Sample",
-			Priority:         "High",
-			IssueType:        "Bug",
-			Provider:         "jira",
-			AgentActive:      true,
-			AgentState:       "working",
-			WorkingDuration:  time.Hour,
-			WaitingDuration:  time.Hour,
-			PRCheckStatus:    "pass",
-			PRReviewDecision: "APPROVED",
-			PRCommentCount:   5,
-			PRNumber:         1,
-		}
-		maxH = lipgloss.Height(RenderCard(sample, 30, true, "Doing", m.icons))
-		if maxH <= 0 {
-			maxH = 5
-		}
+	if tallest == 0 {
+		// A card with a line for its agent stands in for a board with none.
+		tallest = lipgloss.Height(RenderCard(CardData{Key: "sample", AgentActive: true}, width, false, "", m.icons))
 	}
 
-	// Each real card in RenderColumn is linked by a newline, so
-	// a column of N cards takes N*maxH + (N-1) lines.
-	headerH := 2 // top bar + separator
-	avail := m.height - headerH
-	if avail <= 0 {
-		m.maxVisible = 1
-		return
-	}
-
-	// Solve N*maxH + (N-1) <= avail  =>  N*(maxH+1) <= avail+1
-	m.maxVisible = (avail + 1) / (maxH + 1)
+	// Cards share the line between them, so N of them take N*(tallest-1)+1.
+	avail := m.height - headerHeight - columnsTopPadding - columnHeaderHeight
+	m.maxVisible = (avail - 1) / (tallest - 1)
 	if m.maxVisible < 1 {
 		m.maxVisible = 1
 	}
-}
-
-// View renders the board.
-func (m Model) View() string {
-	if len(m.columns) == 0 || m.width == 0 {
-		return ""
-	}
-
-	const colGap = 1
-
-	// Account for gaps between columns in width calculation
-	totalGaps := len(m.columns) - 1
-	availWidth := m.width - (totalGaps * colGap)
-	colWidth := availWidth / len(m.columns)
-	if colWidth < minColumnWidth {
-		colWidth = minColumnWidth
-	}
-
-	// Determine visible columns (centered around cursor)
-	visibleCount := (m.width + colGap) / (colWidth + colGap)
-	if visibleCount > len(m.columns) {
-		visibleCount = len(m.columns)
-	}
-	if visibleCount == 0 {
-		visibleCount = 1
-	}
-
-	startCol := m.cursorCol - visibleCount/2
-	if startCol < 0 {
-		startCol = 0
-	}
-	if startCol+visibleCount > len(m.columns) {
-		startCol = len(m.columns) - visibleCount
-	}
-
-	gap := lipgloss.NewStyle().Width(colGap).Render(" ")
-
-	var rendered []string
-	for i := startCol; i < startCol+visibleCount; i++ {
-		if i > startCol {
-			rendered = append(rendered, gap)
-		}
-		colName := m.columns[i]
-		allCards := m.cards[colName]
-		active := i == m.cursorCol
-		selectedIdx := -1
-		if active {
-			selectedIdx = m.cursorRow
-		}
-		var cards []CardData
-		if active && m.maxVisible > 0 && len(allCards) > m.maxVisible {
-			// Slice active column to visible window and adjust selectedIdx relative to the slice
-			cards = allCards[m.rowOffset : m.rowOffset+m.maxVisible]
-			selectedIdx = m.cursorRow - m.rowOffset
-		} else if m.maxVisible > 0 && len(allCards) > m.maxVisible {
-			// Inactive columns: cap to maxVisible from top so they don't blow out the layout
-			cards = allCards[:m.maxVisible]
-		} else {
-			cards = allCards
-		}
-		col := RenderColumn(colName, cards, colWidth, active, selectedIdx, len(allCards), m.icons)
-		rendered = append(rendered, col)
-	}
-
-	return lipgloss.JoinHorizontal(lipgloss.Top, rendered...)
 }

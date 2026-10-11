@@ -92,3 +92,17 @@ type VoiceTranscriptionMsg struct {
 
 // VoiceTranscribingMsg signals that transcription is in progress.
 type VoiceTranscribingMsg struct{}
+
+// PreviewMsg carries what one agent's terminal shows, for its tile in the
+// ensemble. It is what there is for an agent driven through its terminal.
+type PreviewMsg struct {
+	TaskID string
+	Output string
+}
+
+// ConversationMsg carries the end of one native agent's conversation, for its
+// tile in the ensemble.
+type ConversationMsg struct {
+	TaskID string
+	Tail   service.ConversationTail
+}

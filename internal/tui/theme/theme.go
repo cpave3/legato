@@ -1,134 +1,161 @@
 package theme
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
 
-// Color palette
+	"github.com/charmbracelet/lipgloss"
+)
+
+// Surfaces, from the page outward. A panel that sits beside the page is
+// darker than it; what is laid on the page is lighter.
 var (
-	Background    = lipgloss.Color("#1E1E2E")
-	TextPrimary   = lipgloss.Color("#CDD6F4")
-	TextSecondary = lipgloss.Color("#A6ADC8")
-	TextTertiary  = lipgloss.Color("#6C7086")
+	Background = lipgloss.Color("#1f1d27") // the page
+	Surface    = lipgloss.Color("#1b1a22") // side panels
+	Inset      = lipgloss.Color("#191720") // a command set apart from the text around it
+	Card       = lipgloss.Color("#24222d") // a card, and the header of a quiet tile
+	CardActive = lipgloss.Color("#2a2735") // the selected card or row
+	Bar        = lipgloss.Color("#26232f") // the key bar, and a chip
+	Border     = lipgloss.Color("#3a3648")
+)
 
-	AccentPurple    = lipgloss.Color("#7F77DD")
-	AccentPurpleAlt = lipgloss.Color("#AFA9EC")
+// Text, from what is read first to what only separates.
+var (
+	TextPrimary   = lipgloss.Color("#dcd9e6")
+	TextSecondary = lipgloss.Color("#7d7896")
+	TextFaint     = lipgloss.Color("#57536a")
 
-	// Priority colors
-	PriorityHighBg = lipgloss.Color("#FAECE7")
-	PriorityHighFg = lipgloss.Color("#993C1D")
-	PriorityMedBg  = lipgloss.Color("#FAEEDA")
-	PriorityMedFg  = lipgloss.Color("#854F0B")
-	PriorityLowBg  = lipgloss.Color("#E1F5EE")
-	PriorityLowFg  = lipgloss.Color("#0F6E56")
-	PriorityNone   = lipgloss.Color("#B4B2A9")
+	// TextTertiary is the old name of the quiet text color. Text in it has to
+	// stay readable, so it is the secondary color; separators use TextFaint.
+	TextTertiary = TextSecondary
+)
 
-	// Sync state colors
-	SyncOK      = lipgloss.Color("#1D9E75")
-	SyncActive  = lipgloss.Color("#E5C07B")
-	SyncError   = lipgloss.Color("#E06C75")
-	SyncOffline = lipgloss.Color("#6C7086")
+// Accent and the colors that carry a meaning.
+var (
+	Accent    = lipgloss.Color("#b79cf7")
+	AccentAlt = lipgloss.Color("#d4c4ff")
 
-	// An agent whose turn ended while a shell or subagent it started still
-	// runs. The second is for dark text on a selected, light surface.
-	AgentBackground        = lipgloss.Color("#56B6C2")
-	AgentBackgroundOnLight = lipgloss.Color("#1F6F78")
+	Green  = lipgloss.Color("#8fd18b") // running, passed, added
+	Amber  = lipgloss.Color("#f0b35a") // needs the person
+	Blue   = lipgloss.Color("#7aa7ff") // finished and handed over
+	Red    = lipgloss.Color("#f08a8a") // failed, removed
+	Yellow = lipgloss.Color("#e6d76a") // in progress, a command
+	Cyan   = lipgloss.Color("#74c7d4") // waiting on its own background work
 
-	// Column border colors
-	ColBacklog = lipgloss.Color("#B4B2A9")
-	ColReady   = lipgloss.Color("#85B7EB")
-	ColDoing   = lipgloss.Color("#7F77DD")
-	ColReview  = lipgloss.Color("#5DCAA5")
-	ColDone    = lipgloss.Color("#97C459")
+	// What a strip of each meaning is laid on.
+	TintGreen = lipgloss.Color("#1f2a24")
+	TintAmber = lipgloss.Color("#2e2820")
+	TintBlue  = lipgloss.Color("#1f2433")
+	TintRed   = lipgloss.Color("#3a2228")
+	TintCyan  = lipgloss.Color("#1c2a2e")
+
+	AccentPurple    = Accent
+	AccentPurpleAlt = AccentAlt
+)
+
+// Sync state colors
+var (
+	SyncOK      = Green
+	SyncActive  = Yellow
+	SyncError   = Red
+	SyncOffline = TextSecondary
+)
+
+// An agent whose turn ended while a shell or subagent it started still runs.
+var AgentBackground = Cyan
+
+// Column colors
+var (
+	ColBacklog = lipgloss.Color("#8a869c")
+	ColTriage  = lipgloss.Color("#b0a98a")
+	ColReady   = Blue
+	ColDoing   = Accent
+	ColReview  = lipgloss.Color("#5fcfa4")
+	ColDone    = lipgloss.Color("#9bc85a")
+	ColOther   = TextFaint
 )
 
 // Styles
 var (
-	CardBase = lipgloss.NewStyle().
-			Background(lipgloss.Color("#252540")).
-			Foreground(TextPrimary).
-			Padding(0, 1).
-			MarginBottom(1).
-			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(TextTertiary)
-
-	CardSelected = lipgloss.NewStyle().
-			Background(lipgloss.Color("#EEEDFE")).
-			Foreground(lipgloss.Color("#1E1E2E")).
-			Padding(0, 1).
-			MarginBottom(1).
-			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(AccentPurple)
-
-	ColumnHeader = lipgloss.NewStyle().
-			Foreground(TextSecondary).
-			Bold(true).
-			PaddingLeft(1)
-
-	ColumnHeaderActive = lipgloss.NewStyle().
-				Foreground(AccentPurple).
-				Bold(true).
-				PaddingLeft(1)
-
-	StatusBar = lipgloss.NewStyle().
-			Foreground(TextSecondary).
-			Background(Background).
-			BorderTop(true).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(TextTertiary).
-			PaddingLeft(1)
-
 	KeyHintKey = lipgloss.NewStyle().
-			Foreground(AccentPurple).
-			Bold(true)
+			Foreground(TextPrimary)
 
 	KeyHintLabel = lipgloss.NewStyle().
-			Foreground(TextTertiary)
+			Foreground(TextSecondary)
 
-	DoneMuted = lipgloss.NewStyle().
-			Foreground(TextTertiary).
-			Strikethrough(true)
-
-	// Priority badge styles — subtle tinted text, no background
-	PriorityBadgeHigh = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#E06C75"))
-
-	PriorityBadgeMed = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#E5C07B"))
-
-	PriorityBadgeLow = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#5DCAA5"))
-
-	TypeBadge = lipgloss.NewStyle().
-			Foreground(TextTertiary)
+	// SectionLabel is the small capital heading of a group.
+	SectionLabel = lipgloss.NewStyle().
+			Foreground(TextSecondary)
 )
 
-// ColumnBorderColor returns the border color for a given column name.
+// ColumnBorderColor returns the color a board column is marked with.
 func ColumnBorderColor(column string) lipgloss.Color {
-	switch column {
-	case "Backlog":
+	switch strings.ToLower(column) {
+	case "backlog":
 		return ColBacklog
-	case "Ready":
+	case "triage":
+		return ColTriage
+	case "ready":
 		return ColReady
-	case "Doing":
+	case "doing":
 		return ColDoing
-	case "Review":
+	case "review":
 		return ColReview
-	case "Done":
+	case "done":
 		return ColDone
 	default:
-		return PriorityNone
+		return ColOther
 	}
 }
 
-// PriorityBorderColor returns the border color for a given priority level.
-func PriorityBorderColor(priority string) lipgloss.Color {
+// PriorityColor returns the color of a priority's mark. A task with no
+// priority has a faint one.
+func PriorityColor(priority string) lipgloss.Color {
 	switch priority {
 	case "High", "Highest":
-		return PriorityHighFg
+		return Red
 	case "Medium":
-		return PriorityMedFg
+		return Amber
 	case "Low", "Lowest":
-		return PriorityLowFg
+		return Blue
 	default:
-		return PriorityNone
+		return TextFaint
+	}
+}
+
+// StateColor returns the color of an agent activity, and StateTint the
+// background of a strip that reports it.
+func StateColor(activity string) lipgloss.Color {
+	switch activity {
+	case "working":
+		return Green
+	case "waiting":
+		return Amber
+	case "background":
+		return Cyan
+	case "error", "dead":
+		return Red
+	case "done":
+		return Blue
+	case "mixed":
+		return Accent
+	default:
+		return TextFaint
+	}
+}
+
+func StateTint(activity string) lipgloss.Color {
+	switch activity {
+	case "working":
+		return TintGreen
+	case "waiting":
+		return TintAmber
+	case "background":
+		return TintCyan
+	case "error", "dead":
+		return TintRed
+	case "done":
+		return TintBlue
+	default:
+		return Card
 	}
 }

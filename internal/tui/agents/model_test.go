@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
@@ -50,11 +51,14 @@ func TestErrorAgentRendersErrorAcrossSelectedView(t *testing.T) {
 	m.SetSize(120, 40)
 
 	out := m.View()
-	if strings.Count(out, "ERROR") < 2 {
-		t.Fatalf("error agent should render ERROR in sidebar and header: %q", out)
+	if strings.Count(out, "error") < 2 {
+		t.Fatalf("error agent should say error in sidebar and header: %q", out)
+	}
+	if !strings.Contains(out, "NEEDS YOU · 1") {
+		t.Fatalf("an agent that failed needs the person: %q", out)
 	}
 	if strings.Contains(out, "IDLE") {
-		t.Fatalf("error agent should not render IDLE: %q", out)
+		t.Fatalf("error agent should not be listed as idle: %q", out)
 	}
 }
 
@@ -333,7 +337,7 @@ func TestGroupColorIsDeterministicAndFromAccessiblePalette(t *testing.T) {
 	}
 }
 
-func TestViewRendersSoloGroupHeadersOnceAndUngroupedLast(t *testing.T) {
+func TestAGroupedAgentNamesItsGroupAndAnUngroupedOneDoesNot(t *testing.T) {
 	m := New(theme.NewIcons("unicode"))
 	m.SetAgents([]service.AgentSession{
 		{TaskID: "plain"},
@@ -344,13 +348,27 @@ func TestViewRendersSoloGroupHeadersOnceAndUngroupedLast(t *testing.T) {
 	m.SetSize(120, 40)
 
 	view := m.View()
-	if strings.Count(view, "\n ● api ") != 1 || strings.Count(view, "\n ● web ") != 1 {
-		t.Fatalf("expected one colored header per group in view: %q", view)
+	if strings.Count(view, "● api") != 2 || strings.Count(view, "● web") != 1 {
+		t.Fatalf("each grouped agent should name its group: %q", view)
 	}
-	apiHeader, webHeader := strings.Index(view, "● api"), strings.Index(view, "● web")
-	ungroupedHeader, plain := strings.Index(view, "Ungrouped"), strings.Index(view, "plain")
-	if !(apiHeader >= 0 && webHeader > apiHeader && ungroupedHeader > webHeader && plain > ungroupedHeader) {
-		t.Fatalf("group headers, Ungrouped header, and ungrouped agent rendered out of order")
+	if got, want := taskIDs(m.Agents()), []string{"api-1", "api-2", "web-1", "plain"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("agents of one group should stay together, ungrouped last: %v", got)
+	}
+}
+
+func TestASwarmWorkerNamesItsRoleAndItsSwarm(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents([]service.AgentSession{
+		{TaskID: "st-1", ParentTaskID: "swarm-9", Role: "backend", AgentKind: "chimera", Title: "API"},
+		{TaskID: "swarm-9", ParentTaskID: "swarm-9", Role: "conductor", AgentKind: "claude-code", Title: "Ship it"},
+	})
+	m.SetSize(140, 40)
+
+	view := m.View()
+	for _, want := range []string{"claude · conductor · Ship it", "chimera · backend · API", "swarm swarm-9"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view should contain %q: %q", want, view)
+		}
 	}
 }
 
@@ -464,18 +482,10 @@ func TestSidebarActivityIndicators(t *testing.T) {
 
 	view := m.View()
 
-	// Check activity labels match board card indicators
-	if !containsStr(view, "RUNNING") {
-		t.Error("view should contain RUNNING indicator")
-	}
-	if !containsStr(view, "WAITING") {
-		t.Error("view should contain WAITING indicator")
-	}
-	if !containsStr(view, "IDLE") {
-		t.Error("view should contain IDLE indicator for idle agent")
-	}
-	if !containsStr(view, "DEAD") {
-		t.Error("view should contain DEAD indicator")
+	for _, section := range []string{"NEEDS YOU · 1", "RUNNING · 1", "IDLE · 1", "ENDED · 1"} {
+		if !containsStr(view, section) {
+			t.Errorf("view should list agents under %q", section)
+		}
 	}
 }
 
@@ -500,11 +510,14 @@ func TestSidebarSelectionHighlighting(t *testing.T) {
 
 func TestSidebarWidth(t *testing.T) {
 	m := newTestModel()
-	// The sidebar is SidebarWidth=30, terminal fills the rest
+	// The terminal fills what the sidebar leaves.
 	tw := m.terminalWidth()
-	expected := 120 - SidebarWidth
+	expected := 120 - SidebarWidthFor(120)
 	if tw != expected {
 		t.Errorf("terminalWidth() = %d, want %d", tw, expected)
+	}
+	if SidebarWidthFor(80) >= SidebarWidthFor(160) {
+		t.Errorf("a narrow terminal should have a narrower sidebar")
 	}
 }
 
@@ -723,5 +736,158 @@ func TestSidebarShowsAnAgentWaitingOnBackgroundWork(t *testing.T) {
 	}
 	if containsStr(view, "IDLE") {
 		t.Error("an agent with a shell still running is not idle")
+	}
+}
+
+func mixedAgents() []service.AgentSession {
+	return []service.AgentSession{
+		{TaskID: "idle-1", Status: "running", AgentKind: "claude-code", Title: "Legato app"},
+		{TaskID: "busy-1", Status: "running", Activity: "working", AgentKind: "chimera", Title: "Uplift"},
+		{TaskID: "gone-1", Status: "dead"},
+		{TaskID: "ask-1", Status: "running", Activity: "waiting", AgentKind: "codex", Title: "rf dominion"},
+		{TaskID: "back-1", Status: "running", Activity: "background"},
+		{TaskID: "fail-1", Status: "running", Activity: "error"},
+	}
+}
+
+func TestAgentsAreListedByWhatTheyAreDoingTheOnesThatNeedThePersonFirst(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents(mixedAgents())
+
+	got := taskIDs(m.Agents())
+	want := []string{"ask-1", "fail-1", "busy-1", "back-1", "idle-1", "gone-1"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("agent order = %v, want %v", got, want)
+	}
+}
+
+func TestSelectionFollowsAnAgentThatChangesSection(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents(mixedAgents())
+	m.SelectByTaskID("idle-1")
+
+	changed := mixedAgents()
+	changed[0].Activity = "waiting"
+	m, _ = m.Update(AgentsRefreshedMsg{Agents: changed})
+
+	if got := m.SelectedAgent().TaskID; got != "idle-1" {
+		t.Fatalf("selection moved to %s", got)
+	}
+}
+
+func TestSidebarEntryNamesTheToolTheTaskAndTheTime(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents(mixedAgents())
+	m.SetDurations(map[string]DurationData{"busy-1": {Working: 3*time.Hour + 34*time.Minute}, "ask-1": {Waiting: 12 * time.Minute}})
+	m.SetTimelines(map[string][]string{"busy-1": {"", "working", "waiting", "working"}})
+	m.SetSize(140, 40)
+
+	view := m.View()
+	for _, want := range []string{"claude · Legato app", "chimera · Uplift", "codex · rf dominion", "3h 34m", "12m", "▱▰▰▰"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view should contain %q: %q", want, view)
+		}
+	}
+}
+
+func TestSidebarOpensWithTheCountAndClosesWithTheStatusItIsGiven(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents(mixedAgents())
+	m.SetStatus("● synced 2m ago", "web :3080")
+	m.SetSize(140, 40)
+
+	lines := strings.Split(m.View(), "\n")
+	if !strings.Contains(lines[1], "♩ legato") || !strings.Contains(lines[1], "6 agents") {
+		t.Errorf("sidebar should open with the brand and the count, got: %q", lines[1])
+	}
+	foot := lines[len(lines)-2]
+	if !strings.Contains(foot, "synced 2m ago") || !strings.Contains(foot, "web :3080") {
+		t.Errorf("sidebar should close with the status, got: %q", foot)
+	}
+}
+
+func TestViewFillsExactlyTheSizeItWasGiven(t *testing.T) {
+	for _, size := range []struct{ width, height int }{{160, 40}, {100, 24}, {60, 16}} {
+		m := New(theme.NewIcons("unicode"))
+		m.SetAgents(mixedAgents())
+		m.SetSize(size.width, size.height)
+		m, _ = m.Update(CaptureOutputMsg{Output: strings.Repeat("output\n", 60)})
+
+		lines := strings.Split(m.View(), "\n")
+
+		if len(lines) != size.height {
+			t.Errorf("%dx%d: view is %d lines tall", size.width, size.height, len(lines))
+		}
+		for i, line := range lines {
+			if w := lipgloss.Width(line); w != size.width {
+				t.Errorf("%dx%d: line %d is %d wide: %q", size.width, size.height, i, w, line)
+				break
+			}
+		}
+	}
+}
+
+func TestHeaderLeadsFromTheAgentToItsToolToItsTask(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents(mixedAgents())
+	m.SelectByTaskID("busy-1")
+	m.SetDurations(map[string]DurationData{"busy-1": {Working: 3 * time.Hour}})
+	m.SetSize(140, 40)
+
+	header := strings.Split(m.View(), "\n")[0]
+	if !strings.Contains(header, "busy-1 › chimera › Uplift") || !strings.Contains(header, "running 3h") {
+		t.Errorf("header = %q", header)
+	}
+}
+
+func TestBannerSaysWhenAnotherAgentNeedsThePerson(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents(mixedAgents())
+	m.SetSize(140, 40)
+
+	m.SelectByTaskID("busy-1")
+	if view := m.View(); !strings.Contains(view, "ask-1 needs you") || !strings.Contains(view, "1 more") {
+		t.Errorf("the banner should name the first agent that needs the person and count the rest: %q", view)
+	}
+
+	// Looking at the one agent that waits, there is no other to point to.
+	only := mixedAgents()[:4]
+	m.SetAgents(only)
+	m.SelectByTaskID("ask-1")
+	if view := m.View(); strings.Contains(view, "needs you ·") || strings.Contains(view, "jump") {
+		t.Errorf("no banner is due for the agent in view: %q", view)
+	}
+}
+
+func TestWJumpsToTheNextAgentThatNeedsThePerson(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents(mixedAgents())
+	m.SelectByTaskID("busy-1")
+	press := func() {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
+	}
+
+	press()
+	if got := m.SelectedAgent().TaskID; got != "ask-1" {
+		t.Fatalf("w selected %s, want ask-1", got)
+	}
+	press()
+	if got := m.SelectedAgent().TaskID; got != "fail-1" {
+		t.Fatalf("second w selected %s, want fail-1", got)
+	}
+	press()
+	if got := m.SelectedAgent().TaskID; got != "ask-1" {
+		t.Fatalf("third w selected %s, want ask-1 again", got)
+	}
+}
+
+func TestWStaysPutWhenNoAgentNeedsThePerson(t *testing.T) {
+	m := newTestModel()
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
+
+	if got := m.SelectedAgent().TaskID; got != "REX-1239" {
+		t.Fatalf("selection moved to %s", got)
 	}
 }

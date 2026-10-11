@@ -3,6 +3,7 @@ package agents
 import (
 	"fmt"
 	"hash/fnv"
+	"sort"
 	"strings"
 	"time"
 
@@ -16,8 +17,18 @@ import (
 
 const pollInterval = 200 * time.Millisecond
 
-// SidebarWidth is the fixed width of the agent sidebar in characters.
-const SidebarWidth = 30
+// SidebarWidthFor is the width of the agent sidebar in a terminal of the
+// given width, its edge included.
+func SidebarWidthFor(width int) int {
+	switch {
+	case width >= 140:
+		return 40
+	case width >= 100:
+		return 34
+	default:
+		return 28
+	}
+}
 
 var groupColorPalette = []lipgloss.Color{
 	"#0072B2", // blue
@@ -56,14 +67,35 @@ type Model struct {
 	icons             theme.Icons
 	ntfyConfigured    bool
 	voiceEnabled      bool
-	recording         bool
-	transcribing      bool
-	audioLevels       []float64
+	// syncLabel and webLabel close the sidebar as given.
+	syncLabel string
+	webLabel  string
+	// usage is how many tokens were used; nil when that is not known.
+	usage *Usage
+	// spinner is the frame the mark of a running agent is drawn at.
+	spinner int
+	// layout is how the agents are shown: a list beside one terminal, or
+	// every agent at once.
+	layout Layout
+	// previews holds the end of each agent's terminal, for the ensemble, and
+	// conversations the end of what a native agent said and did. An agent is
+	// in one of the two: the one that was read last.
+	previews      map[string][]string
+	conversations map[string]service.ConversationTail
+	previewsAt    time.Time
+	// feed is what changed among the agents since the view first saw them,
+	// oldest first, and seen the state each agent was last seen in.
+	feed         []feedEvent
+	seen         map[string]string
+	now          func() time.Time
+	recording    bool
+	transcribing bool
+	audioLevels  []float64
 }
 
 // New creates a new agent view model.
 func New(icons theme.Icons) Model {
-	return Model{icons: icons, showWorkerDetails: true, notifyStates: make(map[string]bool)}
+	return Model{icons: icons, showWorkerDetails: true, notifyStates: make(map[string]bool), now: time.Now}
 }
 
 // SetNtfyConfigured records whether a notification channel is available.
@@ -76,7 +108,31 @@ func (m *Model) SetVoiceEnabled(v bool) {
 	m.voiceEnabled = v
 }
 
-// SetAgents updates the agent list. Agents are grouped so swarm participants
+// SetSpinner sets the frame the mark of a running agent is drawn at.
+func (m *Model) SetSpinner(frame int) {
+	m.spinner = frame
+}
+
+// HasWorkingAgent reports whether any agent is running, which is what there
+// is to animate.
+func (m Model) HasWorkingAgent() bool {
+	for _, a := range m.agents {
+		if stateOf(a) == "working" {
+			return true
+		}
+	}
+	return false
+}
+
+// SetStatus sets what the sidebar closes with: the sync state and the web
+// server, each already worded.
+func (m *Model) SetStatus(sync, web string) {
+	m.syncLabel = sync
+	m.webLabel = web
+}
+
+// SetAgents updates the agent list. Agents are listed by what they are doing,
+// the ones that need the person first. Within one state, swarm participants
 // for the same parent_task_id are contiguous (conductor first, then workers
 // alphabetically by sub-task ID), and solo (non-swarm) sessions appear after
 // all swarm groups.
@@ -87,7 +143,8 @@ func (m *Model) SetAgents(agents []service.AgentSession) {
 		prevSelTaskID = m.agents[m.selected].TaskID
 	}
 
-	m.agents = sortAgentsForGrouping(agents)
+	m.observe(agents)
+	m.agents = orderAgents(agents)
 
 	// Re-locate the selection if it still exists.
 	m.selected = 0
@@ -100,6 +157,16 @@ func (m *Model) SetAgents(agents []service.AgentSession) {
 	if m.selected >= len(m.agents) {
 		m.selected = max(0, len(m.agents)-1)
 	}
+}
+
+// orderAgents returns agents in the order the view lists them: by section,
+// and inside a section as sortAgentsForGrouping clusters them.
+func orderAgents(agents []service.AgentSession) []service.AgentSession {
+	ordered := sortAgentsForGrouping(agents)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return sectionOf(ordered[i]) < sectionOf(ordered[j])
+	})
+	return ordered
 }
 
 // sortAgentsForGrouping returns agents ordered so swarm sessions cluster by
@@ -238,7 +305,8 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if m.selected < len(m.agents) {
 			prevSelTaskID = m.agents[m.selected].TaskID
 		}
-		m.agents = sortAgentsForGrouping(msg.Agents)
+		m.observe(msg.Agents)
+		m.agents = orderAgents(msg.Agents)
 		for _, a := range m.agents {
 			m.notifyStates[a.TaskID] = a.NotifyEnabled
 		}
@@ -255,6 +323,22 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 
 	case CaptureOutputMsg:
 		m.termContent = msg.Output
+		return m, nil
+
+	case PreviewMsg:
+		if m.previews == nil {
+			m.previews = make(map[string][]string)
+		}
+		m.previews[msg.TaskID] = previewLines(msg.Output)
+		delete(m.conversations, msg.TaskID)
+		return m, nil
+
+	case ConversationMsg:
+		if m.conversations == nil {
+			m.conversations = make(map[string]service.ConversationTail)
+		}
+		m.conversations[msg.TaskID] = msg.Tail
+		delete(m.previews, msg.TaskID)
 		return m, nil
 
 	case ShownRefreshedMsg:
@@ -315,7 +399,7 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
-	ctx := hotkey.Context{Page: hotkey.PageAgents, Capabilities: hotkey.NewCapabilities()}
+	ctx := hotkey.Context{Page: hotkey.PageAgents, Mode: m.HotkeyMode(), Capabilities: hotkey.NewCapabilities()}
 	if m.ntfyConfigured {
 		ctx.Capabilities[hotkey.CapabilityNotifications] = true
 	}
@@ -337,16 +421,31 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 // HandleAction executes a registry action owned by the agents model.
 func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 	switch action {
-	case hotkey.ActionAgentsDown:
-		if m.selected < len(m.agents)-1 {
-			m.selected++
+	case hotkey.ActionAgentsEnsemble:
+		m.layout = LayoutGrid
+		return m, nil
+	case hotkey.ActionAgentsList:
+		m.layout = LayoutList
+		m.termContent = ""
+		return m, nil
+	case hotkey.ActionAgentsDown, hotkey.ActionAgentsUp, hotkey.ActionAgentsLeft, hotkey.ActionAgentsRight:
+		if next := m.neighbour(action); next != m.selected {
+			m.selected = next
 			m.termContent = "" // clear stale content while new capture loads
 		}
 		return m, nil
-	case hotkey.ActionAgentsUp:
-		if m.selected > 0 {
-			m.selected--
-			m.termContent = ""
+	case hotkey.ActionAgentsNextWaiting:
+		// The next agent that needs the person, from the one after the
+		// selection and around.
+		for step := 1; step <= len(m.agents); step++ {
+			next := (m.selected + step) % len(m.agents)
+			if sectionOf(m.agents[next]) == sectionNeedsYou {
+				if next != m.selected {
+					m.selected = next
+					m.termContent = ""
+				}
+				break
+			}
 		}
 		return m, nil
 	case hotkey.ActionAgentsSpawn:
@@ -420,616 +519,6 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// View renders the agent view: sidebar on the left, terminal panel on the right.
-// When the selected agent is a swarm worker, a third panel with worker details
-// is appended.
-func (m Model) View() string {
-	if m.width == 0 {
-		return ""
-	}
-
-	sidebar := m.renderSidebar()
-
-	a := m.SelectedAgent()
-	if a == nil || a.ParentTaskID == "" || a.Role == "conductor" || !m.showWorkerDetails {
-		termPanel := m.renderTerminalPanel()
-		return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, termPanel)
-	}
-
-	// 3-panel layout: sidebar | terminal (60% of remaining) | worker details (40%)
-	remaining := m.width - SidebarWidth
-	if remaining < 20 {
-		// Too narrow — fall back to 2-panel layout.
-		termPanel := m.renderTerminalPanel()
-		return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, termPanel)
-	}
-	termWidth := remaining * 6 / 10
-	coordWidth := remaining - termWidth
-	termPanel := m.renderTerminalPanelWithWidth(termWidth)
-	coordPanel := m.renderWorkerDetailsPanel(coordWidth)
-	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, termPanel, coordPanel)
-}
-
-// renderTerminalPanelWithWidth is a width-overridden version of renderTerminalPanel
-// for the 3-panel coordination layout.
-func (m Model) renderTerminalPanelWithWidth(width int) string {
-	original := m.width
-	m.width = SidebarWidth + width
-	out := m.renderTerminalPanel()
-	m.width = original
-	return out
-}
-
-// renderWorkerDetailsPanel renders the selected swarm worker's role, scope,
-// and instructions. It replaces the raw JSON swarm snapshot so the user can
-// see the purpose of the focused worker at a glance.
-func (m Model) renderWorkerDetailsPanel(width int) string {
-	a := m.SelectedAgent()
-	if a == nil || a.ParentTaskID == "" {
-		return ""
-	}
-
-	cardW := width - 1 // -1 for border
-	if cardW < 4 {
-		cardW = 4
-	}
-
-	// Header
-	header := lipgloss.NewStyle().
-		Foreground(theme.AccentPurple).
-		Bold(true).
-		PaddingLeft(1).
-		PaddingBottom(1).
-		Render("WORKER")
-
-	// Content lines
-	var parts []string
-	labelStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary).Bold(true)
-	valueStyle := lipgloss.NewStyle().Foreground(theme.TextPrimary)
-	wrapStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary)
-	dimStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary).Italic(true)
-
-	// Title
-	if a.Title != "" {
-		parts = append(parts, wrapStyle.Render(a.Title))
-	}
-
-	// Role + Subtask
-	if a.Role != "" && a.Role != "conductor" {
-		parts = append(parts, labelStyle.Render("role")+" "+valueStyle.Render(a.Role))
-	}
-	if a.SubtaskID != "" {
-		parts = append(parts, labelStyle.Render("subtask")+" "+dimStyle.Render(a.SubtaskID))
-	}
-
-	// Scope
-	if len(a.Scope) > 0 {
-		scopeText := strings.Join(a.Scope, "\n")
-		parts = append(parts,
-			labelStyle.Render("scope"),
-			wrapStyle.Render(scopeText),
-		)
-	}
-
-	// Prompt / instructions
-	if a.Prompt != "" {
-		parts = append(parts,
-			"",
-			labelStyle.Render("instructions"),
-			wrapStyle.Render(a.Prompt),
-		)
-	} else if a.Description != "" {
-		parts = append(parts,
-			"",
-			labelStyle.Render("instructions"),
-			wrapStyle.Render(a.Description),
-		)
-	}
-
-	body := lipgloss.NewStyle().
-		Padding(0, 1).
-		Width(cardW).
-		Render(strings.Join(parts, "\n"))
-
-	// Clip to available vertical space (lipgloss Height pads but never truncates)
-	bodyHeight := m.height - lipgloss.Height(header)
-	if bodyHeight < 1 {
-		bodyHeight = 1
-	}
-	if bodyLines := strings.Split(body, "\n"); len(bodyLines) > bodyHeight {
-		body = strings.Join(bodyLines[:bodyHeight], "\n")
-	}
-
-	content := lipgloss.JoinVertical(lipgloss.Left, header, body)
-	return lipgloss.NewStyle().
-		Width(width - 1).
-		Height(m.height).
-		BorderLeft(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(theme.TextTertiary).
-		Render(content)
-}
-
-func (m Model) renderSidebar() string {
-	sidebarContentWidth := SidebarWidth - 1 // -1 for right border
-
-	// Header
-	headerStyle := lipgloss.NewStyle().
-		Foreground(theme.TextTertiary).
-		PaddingLeft(1).
-		PaddingBottom(1)
-	header := headerStyle.Render("ACTIVE AGENTS")
-
-	headerHeight := lipgloss.Height(header)
-
-	// Available height for the agent list
-	listHeight := m.height - headerHeight
-	if listHeight < 1 {
-		listHeight = 1
-	}
-
-	// Agent entries (or empty state)
-	var entries string
-	if len(m.agents) == 0 {
-		emptyStyle := lipgloss.NewStyle().
-			Foreground(theme.TextTertiary).
-			PaddingLeft(1).
-			Width(sidebarContentWidth)
-		entries = emptyStyle.Render("No agents\n\nPress s to spawn\nan agent session")
-	} else {
-		var entryLines []string
-		selectedEntryIdx := -1
-		var prevParent string
-		var prevGroup string
-		hasSoloGroups := false
-		for _, agent := range m.agents {
-			if agent.ParentTaskID == "" && agent.Group != "" {
-				hasSoloGroups = true
-				break
-			}
-		}
-		for i, a := range m.agents {
-			// Emit a small group header before the first session of each swarm.
-			if a.ParentTaskID != "" && a.ParentTaskID != prevParent {
-				entryLines = append(entryLines, m.renderSwarmGroupHeader(a.ParentTaskID, sidebarContentWidth))
-				prevParent = a.ParentTaskID
-			}
-			if a.ParentTaskID == "" && prevParent != "" {
-				// Transitioning from swarm groups to solo sessions — emit a divider.
-				entryLines = append(entryLines, m.renderSoloDivider(sidebarContentWidth))
-				prevParent = ""
-			}
-			if a.ParentTaskID == "" {
-				if a.Group != "" && a.Group != prevGroup {
-					entryLines = append(entryLines, m.renderSoloGroupHeader(a.Group, sidebarContentWidth))
-				} else if a.Group == "" && prevGroup != "" && hasSoloGroups {
-					entryLines = append(entryLines, m.renderUngroupedHeader(sidebarContentWidth))
-				}
-				prevGroup = a.Group
-			}
-			if i == m.selected {
-				selectedEntryIdx = len(entryLines)
-			}
-			entryLines = append(entryLines, m.renderSidebarEntry(a, i == m.selected, sidebarContentWidth))
-		}
-		entries = strings.Join(entryLines, "\n")
-
-		// Scroll if entries exceed listHeight, using real per-entry heights so
-		// variable-height cards (titles, role tags, swarm headers) stay aligned.
-		entryRenderedHeight := lipgloss.Height(entries)
-		if entryRenderedHeight > listHeight {
-			selectedStart := 0
-			selectedHeight := 0
-			for k, e := range entryLines {
-				h := lipgloss.Height(e)
-				if k == selectedEntryIdx {
-					selectedHeight = h
-					break
-				}
-				selectedStart += h
-			}
-			margin := (listHeight - selectedHeight) / 2
-			if margin < 0 {
-				margin = 0
-			}
-			scrollOffset := selectedStart - margin
-			lines := strings.Split(entries, "\n")
-			if scrollOffset+listHeight > len(lines) {
-				scrollOffset = len(lines) - listHeight
-			}
-			if scrollOffset < 0 {
-				scrollOffset = 0
-			}
-			end := scrollOffset + listHeight
-			if end > len(lines) {
-				end = len(lines)
-			}
-			entries = strings.Join(lines[scrollOffset:end], "\n")
-		}
-
-		// Final clamp: lipgloss Height pads but never truncates, so guarantee
-		// the sidebar can't grow past listHeight and break the side-by-side
-		// JoinHorizontal layout with the terminal panel.
-		if lipgloss.Height(entries) > listHeight {
-			lines := strings.Split(entries, "\n")
-			entries = strings.Join(lines[:listHeight], "\n")
-		}
-	}
-
-	// Constrain list to available height
-	listStyle := lipgloss.NewStyle().
-		Width(sidebarContentWidth).
-		Height(listHeight)
-	list := listStyle.Render(entries)
-
-	// Compose sidebar
-	content := lipgloss.JoinVertical(lipgloss.Left, header, list)
-
-	// Width(SidebarWidth-1) + BorderRight = exactly SidebarWidth columns total.
-	// Lipgloss adds borders OUTSIDE the configured Width, so without the -1
-	// the sidebar would render 1 col over and force the terminal panel into
-	// the next line — breaking the side-by-side layout.
-	return lipgloss.NewStyle().
-		Width(SidebarWidth - 1).
-		Height(m.height).
-		BorderRight(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(theme.TextTertiary).
-		Render(content)
-}
-
-// renderSwarmGroupHeader returns a single-line header that visually marks the
-// start of a swarm group in the sidebar. The header includes a swarm icon
-// and the parent task ID so the user can tell at a glance which sessions
-// belong together.
-func (m Model) renderSwarmGroupHeader(parentTaskID string, width int) string {
-	style := lipgloss.NewStyle().
-		Foreground(theme.AccentPurple).
-		Bold(true).
-		PaddingLeft(1).
-		PaddingTop(1).
-		Width(width)
-	return style.Render("◆ swarm: " + parentTaskID)
-}
-
-// renderSoloDivider visually separates the swarm groups from solo agent
-// sessions in the sidebar.
-func (m Model) renderSoloGroupHeader(group string, width int) string {
-	return lipgloss.NewStyle().Foreground(groupColor(group)).Bold(true).PaddingLeft(1).PaddingTop(1).Width(width).Render("● " + group)
-}
-
-func (m Model) renderUngroupedHeader(width int) string {
-	return lipgloss.NewStyle().Foreground(theme.TextTertiary).Bold(true).PaddingLeft(1).PaddingTop(1).Width(width).Render("○ Ungrouped")
-}
-
-func (m Model) renderSoloDivider(width int) string {
-	style := lipgloss.NewStyle().
-		Foreground(theme.TextTertiary).
-		PaddingLeft(1).
-		PaddingTop(1).
-		Width(width)
-	return style.Render("── solo ──")
-}
-
-func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width int) string {
-	// Card-like content width (minus border + padding)
-	cardContentWidth := width - 4 // 2 border + 2 padding
-	if cardContentWidth < 8 {
-		cardContentWidth = 8
-	}
-
-	// Colors vary based on selection (dark-on-light when selected)
-	var statusLine string
-	idStyle := lipgloss.NewStyle().Foreground(theme.TextSecondary).Bold(true)
-	dimStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
-
-	if selected {
-		// Selected: dark text on light background — all inner styles must set bg too
-		selBg := lipgloss.Color("#EEEDFE")
-		selDark := lipgloss.Color("#3C3489")
-		selDim := lipgloss.Color("#534AB7")
-		idStyle = lipgloss.NewStyle().Foreground(selDark).Background(selBg).Bold(true)
-		dimStyle = lipgloss.NewStyle().Foreground(selDim).Background(selBg)
-
-		// Activity indicator uses selected-friendly colors
-		selIndicator := func(fg lipgloss.Color, bold bool) lipgloss.Style {
-			s := lipgloss.NewStyle().Foreground(fg).Background(selBg)
-			if bold {
-				s = s.Bold(true)
-			}
-			return s
-		}
-		switch {
-		case a.Status == "dead":
-			statusLine = selIndicator(lipgloss.Color("#993C1D"), false).
-				Render(m.icons.Warning + " DEAD")
-		case a.Activity == "working":
-			statusLine = selIndicator(lipgloss.Color("#0F6E56"), true).
-				Render(m.icons.AgentWorking + " RUNNING")
-		case a.Activity == "waiting":
-			statusLine = selIndicator(selDim, true).
-				Render(m.icons.AgentWaiting + " WAITING")
-		case a.Activity == "background":
-			statusLine = selIndicator(theme.AgentBackgroundOnLight, true).
-				Render(m.icons.Terminal + " BACKGROUND")
-		case a.Activity == "error":
-			statusLine = selIndicator(lipgloss.Color("#993C1D"), true).
-				Render(m.icons.Warning + " ERROR")
-		default:
-			statusLine = selIndicator(selDim, false).
-				Render(m.icons.Terminal + " IDLE")
-		}
-	} else {
-		// Unselected: light text on dark background
-		switch {
-		case a.Status == "dead":
-			statusLine = lipgloss.NewStyle().Foreground(theme.SyncError).
-				Render(m.icons.Warning + " DEAD")
-		case a.Activity == "working":
-			statusLine = lipgloss.NewStyle().Foreground(theme.SyncOK).Bold(true).
-				Render(m.icons.AgentWorking + " RUNNING")
-		case a.Activity == "waiting":
-			statusLine = lipgloss.NewStyle().Foreground(theme.ColReady).Bold(true).
-				Render(m.icons.AgentWaiting + " WAITING")
-		case a.Activity == "background":
-			statusLine = lipgloss.NewStyle().Foreground(theme.AgentBackground).Bold(true).
-				Render(m.icons.Terminal + " BACKGROUND")
-		case a.Activity == "error":
-			statusLine = lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).
-				Render(m.icons.Warning + " ERROR")
-		default:
-			statusLine = lipgloss.NewStyle().Foreground(theme.TextTertiary).
-				Render(m.icons.Terminal + " IDLE")
-		}
-	}
-
-	idStr := truncateID(a.TaskID, cardContentWidth)
-
-	// Conductor and worker labels appear before the ID for at-a-glance role
-	// recognition. Conductor gets a diamond + accent color; workers get a
-	// subtle "└─" branch indicator.
-	rolePrefix := ""
-	if a.Role == "conductor" {
-		bg := lipgloss.Color("#252540")
-		if selected {
-			bg = lipgloss.Color("#EEEDFE")
-		}
-		rolePrefix = lipgloss.NewStyle().Foreground(theme.AccentPurple).Background(bg).Bold(true).Render("◆ ")
-	} else if a.ParentTaskID != "" {
-		bg := lipgloss.Color("#252540")
-		if selected {
-			bg = lipgloss.Color("#EEEDFE")
-		}
-		rolePrefix = lipgloss.NewStyle().Foreground(theme.TextTertiary).Background(bg).Render("└─ ")
-	}
-
-	// Status on its own line; the role badge + task ID on the next line so
-	// the swarm group structure (`◆` for conductor, `└─` for worker) sits
-	// directly under the status indicator rather than competing with it.
-	line1 := statusLine
-	line2 := rolePrefix + idStyle.Render(idStr)
-	line3 := dimStyle.Render(a.Command)
-
-	content := line1 + "\n" + line2 + "\n" + line3
-
-	// Add title line if present, truncated to fit
-	if a.Title != "" {
-		titleStr := truncateID(a.Title, cardContentWidth)
-		content += "\n" + dimStyle.Render(titleStr)
-	}
-
-	// Add a small role tag below the title for swarm workers (so the user can
-	// see "backend", "frontend" etc. without inspecting the brief).
-	if a.Role != "" && a.Role != "conductor" && a.ParentTaskID != "" {
-		roleTag := lipgloss.NewStyle().Foreground(theme.TextTertiary).Italic(true).Render("role: " + a.Role)
-		content += "\n" + roleTag
-	}
-
-	// Notify bell indicator
-	if m.ntfyConfigured && m.notifyStates[a.TaskID] {
-		bell := lipgloss.NewStyle().Foreground(theme.AccentPurple).Render("🔔")
-		content += "\n" + bell
-	}
-
-	// Sparkline
-	if tl, ok := m.timelines[a.TaskID]; ok && len(tl) > 0 {
-		var bars []string
-		for _, s := range tl {
-			var bar string
-			switch s {
-			case "working":
-				bar = lipgloss.NewStyle().Foreground(theme.SyncOK).Render("█")
-			case "waiting":
-				bar = lipgloss.NewStyle().Foreground(theme.ColReady).Render("█")
-			case "error":
-				bar = lipgloss.NewStyle().Foreground(theme.SyncError).Render("█")
-			default:
-				bar = lipgloss.NewStyle().Foreground(theme.TextTertiary).Render("░")
-			}
-			bars = append(bars, bar)
-		}
-		content += "\n" + strings.Join(bars, "")
-	}
-
-	// Card styling
-	if selected {
-		return lipgloss.NewStyle().
-			Background(lipgloss.Color("#EEEDFE")).
-			Width(cardContentWidth).
-			Padding(0, 1).
-			MarginBottom(1).
-			MarginLeft(1).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderLeft(true).
-			BorderRight(false).
-			BorderTop(false).
-			BorderBottom(false).
-			BorderForeground(theme.AccentPurple).
-			Render(content)
-	}
-
-	// Border accent: swarm sessions get the accent purple to visually group
-	// them together; solo sessions keep the muted gray.
-	borderColor := theme.TextTertiary
-	if a.ParentTaskID != "" {
-		borderColor = theme.AccentPurple
-	}
-
-	return lipgloss.NewStyle().
-		Background(lipgloss.Color("#252540")).
-		Foreground(theme.TextPrimary).
-		Width(cardContentWidth).
-		Padding(0, 1).
-		MarginBottom(1).
-		MarginLeft(1).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderLeft(true).
-		BorderRight(false).
-		BorderTop(false).
-		BorderBottom(false).
-		BorderForeground(borderColor).
-		Render(content)
-}
-
-func (m Model) renderTerminalPanel() string {
-	termW := m.terminalWidth()
-
-	// Terminal header, and under it what the agent showed in the web UI
-	header := m.renderTerminalHeader(termW)
-	if bar := m.renderShownBar(termW); bar != "" {
-		header = lipgloss.JoinVertical(lipgloss.Left, header, bar)
-	}
-	headerHeight := lipgloss.Height(header)
-
-	// Voice overlay bar height (1-2 lines)
-	overlayHeight := 0
-	if m.recording || m.transcribing {
-		overlayHeight = 2
-	}
-
-	// Terminal content
-	termHeight := m.height - headerHeight - overlayHeight
-	if termHeight < 1 {
-		termHeight = 1
-	}
-
-	terminal := m.renderTerminal(termW, termHeight)
-
-	if overlayHeight > 0 {
-		overlay := m.renderVoiceBar(termW, overlayHeight)
-		return lipgloss.JoinVertical(lipgloss.Left, header, terminal, overlay)
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Left, header, terminal)
-}
-
-func (m Model) renderTerminalHeader(width int) string {
-	if len(m.agents) == 0 {
-		return lipgloss.NewStyle().
-			Width(width).
-			BorderBottom(true).
-			BorderStyle(lipgloss.NormalBorder()).
-			BorderForeground(theme.TextTertiary).
-			Padding(0, 1).
-			Foreground(theme.TextTertiary).
-			Render("")
-	}
-
-	a := m.agents[m.selected]
-
-	// Status dot
-	var statusDot string
-	switch {
-	case a.Status == "dead":
-		statusDot = lipgloss.NewStyle().Foreground(theme.SyncError).Render("●")
-	case a.Activity == "working":
-		statusDot = lipgloss.NewStyle().Foreground(theme.SyncOK).Bold(true).Render("●")
-	case a.Activity == "waiting":
-		statusDot = lipgloss.NewStyle().Foreground(theme.ColReady).Render("●")
-	case a.Activity == "background":
-		statusDot = lipgloss.NewStyle().Foreground(theme.AgentBackground).Render("●")
-	case a.Activity == "error":
-		statusDot = lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).Render("●")
-	default:
-		if a.Status == "running" {
-			statusDot = lipgloss.NewStyle().Foreground(theme.SyncOK).Render("●")
-		} else {
-			statusDot = lipgloss.NewStyle().Foreground(theme.SyncError).Render("●")
-		}
-	}
-
-	durationStr := m.renderDurationSummary(a.TaskID)
-
-	ticketStyle := lipgloss.NewStyle().Foreground(theme.AccentPurple).Bold(true)
-	dimStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
-
-	// Build left side: status · ID [· title] · command [· durations]
-	var left string
-	if a.Title != "" {
-		fixedWidth := lipgloss.Width(statusDot) + lipgloss.Width(ticketStyle.Render(a.TaskID)) +
-			lipgloss.Width(a.Command) + lipgloss.Width(durationStr) + 12
-		maxTitleWidth := width - fixedWidth - 20
-		if maxTitleWidth < 5 {
-			maxTitleWidth = 5
-		}
-		titleStr := truncateID(a.Title, maxTitleWidth)
-		parts := []string{
-			statusDot,
-			ticketStyle.Render(a.TaskID),
-			dimStyle.Render("·"),
-			dimStyle.Render(titleStr),
-			dimStyle.Render("·"),
-			a.Command,
-		}
-		if durationStr != "" {
-			parts = append(parts, dimStyle.Render("·"), durationStr)
-		}
-		left = strings.Join(parts, " ")
-	} else {
-		parts := []string{
-			statusDot,
-			ticketStyle.Render(a.TaskID),
-			dimStyle.Render("·"),
-			a.Command,
-		}
-		if durationStr != "" {
-			parts = append(parts, dimStyle.Render("·"), durationStr)
-		}
-		left = strings.Join(parts, " ")
-	}
-
-	// Right: status indicator — matches board card indicators
-	var liveLabel string
-	switch {
-	case a.Status == "dead":
-		liveLabel = lipgloss.NewStyle().Foreground(theme.SyncError).Render(m.icons.Warning + " DEAD")
-	case a.Activity == "working":
-		liveLabel = lipgloss.NewStyle().Foreground(theme.SyncOK).Bold(true).Render(m.icons.AgentWorking + " RUNNING")
-	case a.Activity == "waiting":
-		liveLabel = lipgloss.NewStyle().Foreground(theme.ColReady).Bold(true).Render(m.icons.AgentWaiting + " WAITING")
-	case a.Activity == "background":
-		liveLabel = lipgloss.NewStyle().Foreground(theme.AgentBackground).Bold(true).Render(m.icons.Terminal + " BACKGROUND")
-	case a.Activity == "error":
-		liveLabel = lipgloss.NewStyle().Foreground(theme.SyncError).Bold(true).Render(m.icons.Warning + " ERROR")
-	default:
-		liveLabel = lipgloss.NewStyle().Foreground(theme.TextTertiary).Render(m.icons.Terminal + " IDLE")
-	}
-
-	gap := width - lipgloss.Width(left) - lipgloss.Width(liveLabel) - 2
-	if gap < 1 {
-		gap = 1
-	}
-	headerLine := left + strings.Repeat(" ", gap) + liveLabel
-
-	return lipgloss.NewStyle().
-		Width(width).
-		BorderBottom(true).
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(theme.TextTertiary).
-		Padding(0, 1).
-		Render(headerLine)
-}
-
 func (m Model) renderTerminal(width, height int) string {
 	if height < 1 {
 		return ""
@@ -1040,7 +529,7 @@ func (m Model) renderTerminal(width, height int) string {
 		return lipgloss.NewStyle().
 			Width(width).
 			Height(height).
-			Foreground(theme.TextTertiary).
+			Foreground(theme.TextSecondary).
 			Padding(1, 2).
 			Render("No agent selected")
 	}
@@ -1092,7 +581,7 @@ func (m Model) renderVoiceBar(width, height int) string {
 			Render("⏳ Transcribing...")
 	} else {
 		recLabel := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF5555")).
+			Foreground(theme.Red).
 			Bold(true).
 			Render("● REC")
 
@@ -1110,7 +599,7 @@ func (m Model) renderVoiceBar(width, height int) string {
 		Height(height).
 		BorderTop(true).
 		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(theme.TextTertiary).
+		BorderForeground(theme.Border).
 		Padding(0, 1).
 		Foreground(theme.TextPrimary).
 		Render(content)
@@ -1163,14 +652,13 @@ func (m Model) renderWaveform(width int) string {
 	return result
 }
 
+// truncateID cuts a string to maxWidth columns, ending it with an ellipsis
+// when something was cut.
 func truncateID(id string, maxWidth int) string {
-	if len(id) <= maxWidth {
-		return id
+	if maxWidth < 1 {
+		return ""
 	}
-	if maxWidth <= 3 {
-		return id[:maxWidth]
-	}
-	return id[:maxWidth-1] + "…"
+	return ansi.Truncate(id, maxWidth, "…")
 }
 
 func formatDuration(d time.Duration) string {
@@ -1192,45 +680,10 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh %dm", hours, minutes)
 }
 
-// renderDurationSummary builds a compact working/waiting duration string for the terminal header.
-func (m Model) renderDurationSummary(taskID string) string {
-	dur, ok := m.durations[taskID]
-	if !ok || (dur.Working <= 0 && dur.Waiting <= 0) {
-		return ""
-	}
-
-	workingColor := theme.SyncOK
-	waitingColor := theme.ColReady
-	dimStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
-
-	var parts []string
-	if d := formatDuration(dur.Working); d != "" {
-		wStyle := lipgloss.NewStyle().Foreground(workingColor)
-		parts = append(parts, wStyle.Render(m.icons.AgentWorking+" ")+dimStyle.Render(d))
-	}
-	if d := formatDuration(dur.Waiting); d != "" {
-		wStyle := lipgloss.NewStyle().Foreground(waitingColor)
-		parts = append(parts, wStyle.Render(m.icons.AgentWaiting+" ")+dimStyle.Render(d))
-	}
-
-	return strings.Join(parts, dimStyle.Render(" · "))
-}
-
 func (m Model) terminalWidth() int {
-	w := m.width - SidebarWidth
+	w := m.width - SidebarWidthFor(m.width)
 	if w < 1 {
 		w = 1
 	}
 	return w
-}
-
-func (m Model) terminalDims() (int, int) {
-	return m.terminalWidth(), m.height
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

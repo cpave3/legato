@@ -159,22 +159,27 @@ type taskWorkflowStartedMsg struct {
 
 // App is the root Bubbletea model.
 type App struct {
-	svc                      service.BoardService
-	syncSvc                  service.SyncService
-	providerSync             service.ProviderSyncService
-	agentSvc                 service.AgentService
-	board                    board.Model
-	detail                   detail.Model
-	agentView                agents.Model
-	reportView               report.Model
-	reviewView               review.Model
-	reviewSvc                review.Service
-	planView                 plan.Model
-	planSvc                  plan.Service
-	attentionView            attention.Model
-	attentionSvc             attention.Service
-	attentionSub             <-chan events.Event
-	agentUISvc               AgentUIService
+	svc           service.BoardService
+	syncSvc       service.SyncService
+	providerSync  service.ProviderSyncService
+	agentSvc      service.AgentService
+	board         board.Model
+	detail        detail.Model
+	agentView     agents.Model
+	reportView    report.Model
+	reviewView    review.Model
+	reviewSvc     review.Service
+	planView      plan.Model
+	planSvc       plan.Service
+	attentionView attention.Model
+	attentionSvc  attention.Service
+	attentionSub  <-chan events.Event
+	agentUISvc    AgentUIService
+	usageSvc      service.UsageService
+	// spinFrame is the frame of the mark of a running agent, and
+	// spinnerRunning whether a tick that will advance it is on its way.
+	spinFrame                int
+	spinnerRunning           bool
 	agentUIWebURL            string
 	agentUISub               <-chan events.Event
 	openURL                  func(string) error
@@ -406,6 +411,9 @@ func (a App) Init() tea.Cmd {
 	if a.reviewSvc != nil {
 		cmds = append(cmds, a.loadReviewBadges())
 	}
+	if cmd := a.loadUsage(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	// Clipboard availability check
 	if a.clip == nil || !a.clip.Available() {
 		a.statusBar, _ = a.statusBar.Update(statusbar.WarningMsg{
@@ -587,8 +595,20 @@ func (a App) listenPlanProposals() tea.Cmd {
 	}
 }
 
-// Update handles messages.
+// Update handles messages, and keeps the spinner turning for as long as the
+// view in front shows an agent at work.
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, tick := msg.(spinnerTickMsg); tick {
+		return a.handleSpinnerTick()
+	}
+	model, cmd := a.update(msg)
+	if app, ok := model.(App); ok {
+		return app.keepSpinning(cmd)
+	}
+	return model, cmd
+}
+
+func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
@@ -644,7 +664,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Propagate to detail if active
 		if a.active == viewDetail {
 			var detailModel tea.Model
-			detailModel, cmd = a.detail.Update(tea.WindowSizeMsg{Width: msg.Width, Height: msg.Height - 1})
+			detailModel, cmd = a.detail.Update(tea.WindowSizeMsg{Width: msg.Width, Height: msg.Height})
 			a.detail = detailModel.(detail.Model)
 			if cmd != nil {
 				cmds = append(cmds, cmd)
@@ -683,7 +703,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// Send window size
-		detailModel, cmd := a.detail.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height - 1})
+		detailModel, cmd := a.detail.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 		a.detail = detailModel.(detail.Model)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
@@ -726,7 +746,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agents.AttachSessionMsg:
 		return a.handleAttachSession(msg)
 
-	case agents.CaptureOutputMsg:
+	case agents.CaptureOutputMsg, agents.PreviewMsg, agents.ConversationMsg:
 		a.agentView, _ = a.agentView.Update(msg)
 		return a, nil
 
@@ -741,6 +761,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agentUIUpdateMsg:
 		return a.handleAgentUIUpdate(msg)
+
+	case usageLoadedMsg:
+		return a.handleUsageLoaded(msg)
+
+	case usageTickMsg:
+		return a, a.loadUsage()
 
 	case agents.OpenShownMsg:
 		return a.handleOpenShown(msg)
@@ -1462,6 +1488,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				a.board.SetActiveAgents(active)
 				a.board.SetAgentStates(states)
+				// The agents view keeps its list, and its record of what
+				// changed, current while the board is in front.
+				a.agentView, _ = a.agentView.Update(agents.AgentsRefreshedMsg{Agents: agentList})
 
 				// Populate duration data for agent view
 				agentTaskIDs := make([]string, 0, len(agentList))
@@ -2369,7 +2398,7 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 	}
 
 	svc := a.agentSvc
-	termW := a.width - agents.SidebarWidth
+	termW := a.width - agents.SidebarWidthFor(a.width)
 	if termW < 1 {
 		termW = 1
 	}
@@ -2409,7 +2438,7 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 
 func (a App) spawnTaskAgent(msg overlay.AgentSpawnSubmitMsg, chimeraPolicy, chimeraSessionID string) (tea.Model, tea.Cmd) {
 	svc := a.agentSvc
-	termW := a.width - agents.SidebarWidth
+	termW := a.width - agents.SidebarWidthFor(a.width)
 	if termW < 1 {
 		termW = 1
 	}
@@ -2596,12 +2625,27 @@ func (a App) handleAgentTick() (tea.Model, tea.Cmd) {
 	if a.agentSvc == nil {
 		return a, nil
 	}
+	svc := a.agentSvc
+	if a.agentView.Layout() == agents.LayoutGrid {
+		// The ensemble shows what every agent is at, read less often than
+		// the one terminal of the list.
+		cmds := []tea.Cmd{agentTickCmd()}
+		if now := time.Now(); a.agentView.PreviewsDue(now) {
+			a.agentView.PreviewsRequested(now)
+			for _, agent := range a.agentView.Agents() {
+				if agent.Status == "running" {
+					cmds = append(cmds, loadAgentPreview(svc, agent.TaskID))
+				}
+			}
+		}
+		return a, tea.Batch(cmds...)
+	}
+
 	selected := a.agentView.SelectedAgent()
 	if selected == nil || selected.Status != "running" {
 		return a, agentTickCmd()
 	}
 
-	svc := a.agentSvc
 	taskID := selected.TaskID
 	return a, tea.Batch(
 		func() tea.Msg {
@@ -2610,6 +2654,28 @@ func (a App) handleAgentTick() (tea.Model, tea.Cmd) {
 		},
 		agentTickCmd(),
 	)
+}
+
+// previewTimeout bounds one read of what an agent is at, so an endpoint that
+// has stopped answering does not hold a read open for every tick.
+const previewTimeout = 3 * time.Second
+
+// loadAgentPreview reads what one agent is at for its tile in the ensemble:
+// the end of its conversation when it has a native endpoint that answers,
+// and of its terminal otherwise.
+func loadAgentPreview(svc service.AgentService, taskID string) tea.Cmd {
+	reader, _ := svc.(service.AgentConversationReader)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), previewTimeout)
+		defer cancel()
+		if reader != nil {
+			if tail, err := reader.ConversationTail(ctx, taskID, agents.ConversationEntries); err == nil {
+				return agents.ConversationMsg{TaskID: taskID, Tail: *tail}
+			}
+		}
+		output, _ := svc.CaptureOutput(ctx, taskID)
+		return agents.PreviewMsg{TaskID: taskID, Output: output}
+	}
 }
 
 func (a App) handleSparklineTick() (tea.Model, tea.Cmd) {
@@ -2823,6 +2889,9 @@ func (a App) hotkeyContext() hotkey.Context {
 	if a.active == viewDetail {
 		ctx.Predicates = a.detail.HotkeyPredicates()
 	}
+	if a.active == viewAgents {
+		ctx.Mode = a.agentView.HotkeyMode()
+	}
 	if a.active == viewReview {
 		ctx.InputFocused = a.reviewView.InputFocused()
 		ctx.Mode = a.reviewView.HotkeyMode()
@@ -2989,63 +3058,52 @@ func (a App) delegateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, tea.Batch(cmds...)
 }
 
-// View renders the application.
+// View renders the application on the theme's background, at exactly the
+// size of the terminal.
 func (a App) View() string {
+	return theme.Canvas(a.render(), a.width, a.height, theme.Background)
+}
+
+func (a App) render() string {
 	if a.overlayType != overlayNone && a.activeOverlay != nil {
 		return a.activeOverlay.View()
 	}
-
-	switch a.active {
-	case viewDetail:
+	if a.active == viewDetail {
 		return a.detail.View()
-	case viewAgents:
-		a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
-		statusBar := a.statusBar.View()
-		statusBarHeight := lipgloss.Height(statusBar)
-		// Set agent view height to fill space above status bar
-		a.agentView.SetSize(a.width, a.height-statusBarHeight)
-		content := a.agentView.View()
-		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
-	case viewReport:
-		a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
-		statusBar := a.statusBar.View()
-		statusBarHeight := lipgloss.Height(statusBar)
-		a.reportView.SetSize(a.width, a.height-statusBarHeight)
-		content := a.reportView.View()
-		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
-	case viewReview:
-		a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
-		statusBar := a.statusBar.View()
-		statusBarHeight := lipgloss.Height(statusBar)
-		a.reviewView.SetSize(a.width, a.height-statusBarHeight)
-		content := a.reviewView.View()
-		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
-	case viewPlans:
-		a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
-		statusBar := a.statusBar.View()
-		statusBarHeight := lipgloss.Height(statusBar)
-		a.planView.SetSize(a.width, a.height-statusBarHeight)
-		content := a.planView.View()
-		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
-	case viewAttention:
-		a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
-		statusBar := a.statusBar.View()
-		statusBarHeight := lipgloss.Height(statusBar)
-		a.attentionView.SetSize(a.width, a.height-statusBarHeight)
-		content := a.attentionView.View()
-		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
-	default:
-		content := a.board.View()
-		a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
-		statusBar := a.statusBar.View()
-		statusBarHeight := lipgloss.Height(statusBar)
-
-		// Pad board content to fill available height
-		boardHeight := a.height - statusBarHeight
-		if boardHeight > 0 {
-			content = lipgloss.NewStyle().Height(boardHeight).Render(content)
-		}
-
-		return lipgloss.JoinVertical(lipgloss.Left, content, statusBar)
 	}
+
+	// The board and the agents view show the sync state themselves; in the
+	// other views the bar along the bottom does.
+	ownStatus := a.active == viewBoard || a.active == viewAgents
+	a.statusBar, _ = a.statusBar.Update(statusbar.StatusShownElsewhereMsg{Elsewhere: ownStatus})
+	a.statusBar, _ = a.statusBar.Update(statusbar.HotkeyContextMsg{Registry: a.hotkeys, Context: a.hotkeyContext()})
+	statusBar := a.statusBar.View()
+	contentHeight := a.height - lipgloss.Height(statusBar)
+
+	var content string
+	switch a.active {
+	case viewAgents:
+		a.agentView.SetSize(a.width, contentHeight)
+		a.agentView.SetStatus(a.statusBar.SyncLabel(), a.statusBar.WebLabel())
+		content = a.agentView.View()
+	case viewReport:
+		a.reportView.SetSize(a.width, contentHeight)
+		content = a.reportView.View()
+	case viewReview:
+		a.reviewView.SetSize(a.width, contentHeight)
+		content = a.reviewView.View()
+	case viewPlans:
+		a.planView.SetSize(a.width, contentHeight)
+		content = a.planView.View()
+	case viewAttention:
+		a.attentionView.SetSize(a.width, contentHeight)
+		content = a.attentionView.View()
+	default:
+		a.board.SetStatus(a.statusBar.SyncLabel(), a.statusBar.WebLabel())
+		content = a.board.View()
+	}
+	if contentHeight < 1 {
+		return statusBar
+	}
+	return theme.Canvas(content, a.width, contentHeight, theme.Background) + "\n" + statusBar
 }
