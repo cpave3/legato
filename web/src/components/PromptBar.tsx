@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, type KeyboardEvent } from "react"
 import type { PromptState } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
+import { usePastedImages } from "../hooks/usePastedImages"
+import { insertAtCursor } from "../lib/agentImage"
+import { PastedImageStrip } from "./PastedImageStrip"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
 import { apiFetch } from "../lib/api"
 import { cn } from "../lib/utils"
@@ -200,6 +203,12 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
       localStorage.removeItem(draftKey(agentId))
     }
   }
+
+  // An image pasted into the message box is stored by Legato, and its path
+  // goes into the message where the cursor is.
+  const pasted = usePastedImages(agentId, input, (path) => {
+    handleInputChange(insertAtCursor(inputRef.current, path, textareaRef.current?.selectionStart))
+  })
 
   // Something the agent showed in the side panel may put text in the input.
   // It is added to what is there, kept as a draft, and never sent from here.
@@ -457,6 +466,8 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
         )}
 
         {(type === "free_text" || type === null) && (
+          <>
+          <PastedImageStrip pasted={pasted} />
           <div className="flex items-end gap-2">
             <div className="relative flex-1">
               {isBashMode && (
@@ -470,6 +481,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
                 value={input}
                 onChange={(e) => handleInputChange(e.target.value)}
                 onKeyDown={handleKeyDown}
+                onPaste={pasted.onPaste}
                 placeholder={connected === false ? "Disconnected..." : "Type a message..."}
                 disabled={connected === false}
                 rows={1}
@@ -499,6 +511,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
               />
             )}
           </div>
+          </>
         )}
       </div>
     </div>

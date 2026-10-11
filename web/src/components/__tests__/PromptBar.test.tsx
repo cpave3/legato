@@ -398,3 +398,45 @@ it("offers a terminal session's artifacts from its toolbar", () => {
 
   expect(onToggle).toHaveBeenCalledTimes(1)
 })
+
+// A terminal session takes a message as typed text. An image the person
+// pastes is stored by Legato and the message names its path, as it does for
+// a native session.
+it("puts the path of a pasted image in the message it sends", async () => {
+  mockFetch.mockImplementation(async (input: string, init?: RequestInit) => {
+    if (init?.method === "POST" && input === "/api/agents/agent-1/image") {
+      return new Response(JSON.stringify({ path: "/tmp/legato-1000/pasted-images/agent-1/pasted-1.png" }), { status: 201 })
+    }
+    return new Response(JSON.stringify({ macros: [] }), { status: 200 })
+  })
+  URL.createObjectURL = vi.fn(() => "blob:image-1")
+  URL.revokeObjectURL = vi.fn()
+  const onSubmitMessage = vi.fn()
+  render(<PromptBar
+    promptState={null}
+    onSendKeys={vi.fn()}
+    onSubmitMessage={onSubmitMessage}
+    onDismissPrompt={vi.fn()}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="agent-1"
+  />)
+  const box = screen.getByPlaceholderText("Type a message...") as HTMLTextAreaElement
+  fireEvent.change(box, { target: { value: "Why is this red?" } })
+  const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "image.png", { type: "image/png" })
+
+  fireEvent.paste(box, { clipboardData: { files: [image], getData: () => "" } })
+
+  await waitFor(() => expect(box.value).toBe("Why is this red? /tmp/legato-1000/pasted-images/agent-1/pasted-1.png "))
+  expect(screen.getByRole("img", { name: "Pasted image pasted-1.png" })).toBeTruthy()
+  // The draft is kept with the path in it, like any other text.
+  expect(localStorage.getItem("legato:draft:agent-1")).toBe(box.value)
+
+  fireEvent.keyDown(box, { key: "Enter" })
+
+  await waitFor(() => expect(onSubmitMessage).toHaveBeenCalledWith("Why is this red? /tmp/legato-1000/pasted-images/agent-1/pasted-1.png"))
+})

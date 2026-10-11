@@ -15,8 +15,12 @@ import { AgentKindBadge } from "./AgentKindBadge"
 import { NativeQuestionCard } from "./NativeQuestionCard"
 import { NativeTerminalPrompt } from "./NativeTerminalPrompt"
 import { AgentUICallCard } from "./AgentUICallCard"
+import { ReadImageRow } from "./ReadImageRow"
+import { PastedImageStrip } from "./PastedImageStrip"
 import { ArtifactsButton, type ArtifactsButtonProps } from "./ArtifactsButton"
 import { appendProposal, legatoUICall, onComposerProposal } from "../lib/agentUi"
+import { insertAtCursor, isImagePath } from "../lib/agentImage"
+import { usePastedImages } from "../hooks/usePastedImages"
 import { nativeToolName } from "../lib/agentKind"
 import { parseLegatoMessage } from "../lib/legatoMessage"
 import { modelSettingsResponse, type ModelCapabilities, type ModelSettings, type ModelSettingsState } from "../lib/modelSettings"
@@ -242,6 +246,11 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
   const [slashOpen, setSlashOpen] = useState(false)
   const [slashIndex, setSlashIndex] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // An image pasted into the message box is stored by Legato, and its path
+  // goes into the message where the cursor is.
+  const pasted = usePastedImages(agentId, draft, useCallback((path: string) => {
+    setDraft((current) => insertAtCursor(current, path, textareaRef.current?.selectionStart))
+  }, []))
 
   const replaceSyncState = useCallback((next: NativeSyncState) => {
     syncStateRef.current = next
@@ -775,7 +784,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
           </div>
         )}
         {blocks.map((block) => {
-          if (block.kind === "tools") return <ToolCallGroup key={block.key} tools={block.tools} />
+          if (block.kind === "tools") return <ToolCallGroup key={block.key} agentId={agentId} tools={block.tools} />
           const item = block.item
           if (item.role === "user") {
             // Legato's own messages arrive as user turns; they are drawn
@@ -1180,6 +1189,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
             ))}
           </div>
         )}
+        <PastedImageStrip pasted={pasted} />
         <div data-testid="agent-composer" className="flex items-stretch gap-2">
           <div className="relative min-w-0 flex-1">
             {isBang && (
@@ -1193,6 +1203,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={handleKeyDown}
+              onPaste={pasted.onPaste}
               placeholder={busy ? "Queue a message..." : "Send a message..."}
               rows={2}
               className={`h-full min-h-24 w-full resize-none rounded-lg border bg-zinc-900 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none disabled:opacity-50 ${isBang ? "border-amber-500/60 pt-7 focus:border-amber-400" : "border-zinc-700 focus:border-zinc-500"}`}
@@ -1346,7 +1357,7 @@ function toolCounts(tools: ToolCallItem[]): string {
   return [...counts].sort((a, b) => b[1] - a[1]).map(([name, count]) => `${count} ${name}`).join(" · ")
 }
 
-const ToolCallGroup = memo(function ToolCallGroup({ tools }: { tools: ToolCallItem[] }) {
+const ToolCallGroup = memo(function ToolCallGroup({ agentId, tools }: { agentId: string; tools: ToolCallItem[] }) {
   const [showEarlier, setShowEarlier] = useState(false)
   const grouped = tools.length > 1
   // A lone read stays a bare line, as light as it was before grouping.
@@ -1372,13 +1383,13 @@ const ToolCallGroup = memo(function ToolCallGroup({ tools }: { tools: ToolCallIt
           <span className="ml-auto shrink-0">{showEarlier ? "▼" : "▶"}</span>
         </button>
       )}
-      {visible.map((tool) => <ToolCallCard key={tool.key} tool={tool} grouped={grouped} />)}
+      {visible.map((tool) => <ToolCallCard key={tool.key} agentId={agentId} tool={tool} grouped={grouped} />)}
     </div>
   )
-}, (prev, next) => prev.tools.length === next.tools.length && prev.tools.every((tool, index) => tool === next.tools[index]))
+}, (prev, next) => prev.agentId === next.agentId && prev.tools.length === next.tools.length && prev.tools.every((tool, index) => tool === next.tools[index]))
 
 // One row of a ToolCallGroup, which draws the border around it.
-const ToolCallCard = memo(function ToolCallCard({ tool, grouped }: { tool: ToolCallItem; grouped: boolean }) {
+const ToolCallCard = memo(function ToolCallCard({ agentId, tool, grouped }: { agentId: string; tool: ToolCallItem; grouped: boolean }) {
   // An edit opens its diff unasked only when it stands alone; in a group every
   // call starts as one line. A click overrides either default.
   const [override, setExpanded] = useState<boolean | null>(null)
@@ -1540,6 +1551,8 @@ const ToolCallCard = memo(function ToolCallCard({ tool, grouped }: { tool: ToolC
   if (name === "read") {
     const path = args.path as string || ""
     const filename = path.split("/").pop() || path
+    // The agent saw an image; the person can open it from the row.
+    if (isImagePath(path)) return <ReadImageRow agentId={agentId} path={path} grouped={grouped} />
     return (
       <div className={`text-xs text-zinc-400 ${grouped ? "px-3 py-1" : "px-1 py-0.5"}`}>
         <div className="flex items-center gap-2">
