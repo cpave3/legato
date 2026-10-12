@@ -4,7 +4,7 @@ Plans and review tours remain independent task artifacts. When both are used, Le
 
 ## Plan context in reviews
 
-A new review pass snapshots the most recently approved or completed plan for its task. The exact plan revision and Markdown are retained with the pass, so later plan revisions do not change the scope shown to the reviewer. Reviews still work when no approved plan exists.
+A new review pass snapshots the most recently approved or completed plan for its task. The exact plan revision and Markdown are retained with the pass, so later plan revisions do not change the scope shown to the reviewer. The image files that revision shows are drawn with it, while the plan exists (see [Collaborative plans](plans.md) § Image files). Reviews still work when no approved plan exists.
 
 Review chapters, annotations, messages, and findings belong to a numbered pass. The web review page groups older passes separately and authors new chapters only in the active pass.
 

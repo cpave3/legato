@@ -1,3 +1,4 @@
+import type { DocumentImage } from "./documentImages"
 import { apiFetch } from "./api"
 
 export type ReviewStatus = "capturing" | "ready" | "reviewed"
@@ -121,6 +122,11 @@ export interface ReviewTourView {
   steps: ReviewStep[]
   messages: ReviewMessage[]
   hunk_notes: ReviewHunkNote[]
+  // The image files the tour's Markdown shows: a step's narration by step
+  // ID, a message's body by message ID, a pass's captured plan by pass ID.
+  step_images?: Record<string, DocumentImage[]>
+  message_images?: Record<number, DocumentImage[]>
+  plan_images?: Record<string, DocumentImage[]>
 }
 
 export type DiffLineKind = "ctx" | "add" | "del"

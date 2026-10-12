@@ -490,19 +490,25 @@ type ReviewPassPlan struct {
 	Revision   int    `db:"revision" json:"revision"`
 	Title      string `db:"title" json:"title"`
 	Markdown   string `db:"markdown" json:"markdown"`
-	CreatedAt  string `db:"created_at" json:"created_at"`
+	// Images is the captured revision's image files, as the service encodes
+	// them.
+	Images    string `db:"images" json:"-"`
+	CreatedAt string `db:"created_at" json:"created_at"`
 }
 
 type ReviewStep struct {
-	ID               string  `db:"id" json:"id"`
-	PassID           string  `db:"pass_id" json:"pass_id"`
-	TaskID           string  `db:"task_id" json:"task_id"`
-	TourID           string  `db:"tour_id" json:"tour_id"`
-	Kind             string  `db:"kind" json:"kind"` // commit|dirty|note|chapter
-	CommitSHA        string  `db:"commit_sha" json:"commit_sha"`
-	Files            string  `db:"files" json:"files"` // JSON array of paths
-	Title            string  `db:"title" json:"title"`
-	Narration        string  `db:"narration" json:"narration"`
+	ID        string `db:"id" json:"id"`
+	PassID    string `db:"pass_id" json:"pass_id"`
+	TaskID    string `db:"task_id" json:"task_id"`
+	TourID    string `db:"tour_id" json:"tour_id"`
+	Kind      string `db:"kind" json:"kind"` // commit|dirty|note|chapter
+	CommitSHA string `db:"commit_sha" json:"commit_sha"`
+	Files     string `db:"files" json:"files"` // JSON array of paths
+	Title     string `db:"title" json:"title"`
+	Narration string `db:"narration" json:"narration"`
+	// Images is the image files the narration shows, as the service encodes
+	// them: the path the Markdown names and the stored copy's file name.
+	Images           string  `db:"images" json:"-"`
 	Risk             string  `db:"risk" json:"risk"` // ''|low|medium|high|unsure
 	OrderHint        *int    `db:"order_hint" json:"order_hint,omitempty"`
 	Seq              int     `db:"seq" json:"seq"`
@@ -551,14 +557,16 @@ type ReviewChapterHunk struct {
 
 // ReviewMessage is one Q&A transcript entry attached to a review step.
 type ReviewMessage struct {
-	ID          int     `db:"id" json:"id"`
-	PassID      string  `db:"pass_id" json:"pass_id"`
-	TaskID      string  `db:"task_id" json:"task_id"`
-	TourID      string  `db:"tour_id" json:"tour_id"`
-	StepID      string  `db:"step_id" json:"step_id"`
-	Kind        string  `db:"kind" json:"kind"`     // question|answer
-	Author      string  `db:"author" json:"author"` // user|agent
-	Body        string  `db:"body" json:"body"`
+	ID     int    `db:"id" json:"id"`
+	PassID string `db:"pass_id" json:"pass_id"`
+	TaskID string `db:"task_id" json:"task_id"`
+	TourID string `db:"tour_id" json:"tour_id"`
+	StepID string `db:"step_id" json:"step_id"`
+	Kind   string `db:"kind" json:"kind"`     // question|answer
+	Author string `db:"author" json:"author"` // user|agent
+	Body   string `db:"body" json:"body"`
+	// Images is the image files the body shows, as the service encodes them.
+	Images      string  `db:"images" json:"-"`
 	DeliveredAt *string `db:"delivered_at" json:"delivered_at,omitempty"`
 	CreatedAt   string  `db:"created_at" json:"created_at"`
 }
@@ -594,7 +602,10 @@ type PlanRevision struct {
 	Revision     int    `db:"revision" json:"revision"`
 	Markdown     string `db:"markdown" json:"markdown"`
 	ManifestJSON string `db:"manifest_json" json:"manifest_json"`
-	CreatedAt    string `db:"created_at" json:"created_at"`
+	// Images is the image files the Markdown shows, as the service encodes
+	// them: the path the Markdown names and the stored copy's file name.
+	Images    string `db:"images" json:"-"`
+	CreatedAt string `db:"created_at" json:"created_at"`
 }
 
 type PlanQuestion struct {
@@ -637,13 +648,15 @@ type PlanComment struct {
 }
 
 type PlanMessage struct {
-	ID          int     `db:"id" json:"id"`
-	PlanID      string  `db:"plan_id" json:"plan_id"`
-	RevisionID  string  `db:"revision_id" json:"revision_id"`
-	ThreadID    string  `db:"thread_id" json:"thread_id"`
-	Kind        string  `db:"kind" json:"kind"`
-	Author      string  `db:"author" json:"author"`
-	Body        string  `db:"body" json:"body"`
+	ID         int    `db:"id" json:"id"`
+	PlanID     string `db:"plan_id" json:"plan_id"`
+	RevisionID string `db:"revision_id" json:"revision_id"`
+	ThreadID   string `db:"thread_id" json:"thread_id"`
+	Kind       string `db:"kind" json:"kind"`
+	Author     string `db:"author" json:"author"`
+	Body       string `db:"body" json:"body"`
+	// Images is the image files the body shows, as the service encodes them.
+	Images      string  `db:"images" json:"-"`
 	DeliveredAt *string `db:"delivered_at" json:"delivered_at,omitempty"`
 	CreatedAt   string  `db:"created_at" json:"created_at"`
 }

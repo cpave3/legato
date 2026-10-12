@@ -26,8 +26,8 @@ func PlanShow(svc *service.PlanService, planID string, w io.Writer) error {
 	return writeJSON(w, view)
 }
 
-func PlanAnswer(svc *service.PlanService, planID, threadID, text string) error {
-	if err := svc.Answer(context.Background(), planID, threadID, text); err != nil {
+func PlanAnswer(svc *service.PlanService, planID, threadID, text, imageDir string) error {
+	if err := svc.AnswerFrom(context.Background(), planID, threadID, text, imageDir); err != nil {
 		return err
 	}
 	broadcastPlanChanged(planID, "", "", "answer")

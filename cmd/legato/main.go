@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -167,6 +168,9 @@ func runPlanCmd(args []string) int {
 			fmt.Fprintf(os.Stderr, "error: validate plan Markdown: %v\n", err)
 			return exitInternal
 		}
+		// The image files the plan names are files of its bundle, which is
+		// the folder the Markdown is in.
+		diagnostics = append(diagnostics, service.PlanImageProblems(markdown, filepath.Dir(args[1]))...)
 		if len(diagnostics) != 0 {
 			for _, diagnostic := range diagnostics {
 				fmt.Fprintf(os.Stderr, "error: %s\n", planvalidate.FormatDiagnostic(args[1], diagnostic))
@@ -187,7 +191,7 @@ func runPlanCmd(args []string) int {
 		return 1
 	}
 	defer db.Close()
-	svc := service.NewPlanService(db, nil, nil)
+	svc := newPlanService(cfg, db, nil, nil)
 	verb := args[0]
 	positional, flags, listFlags, parseErr := parseReviewArgs(args[1:])
 	if parseErr != nil {
@@ -284,15 +288,31 @@ func runPlanCmd(args []string) int {
 			return fail(err)
 		}
 	case "answer":
-		if len(positional) != 2 {
-			fmt.Fprintln(os.Stderr, `usage: legato plan answer <thread-id> "<markdown>" [--task <id>] [--name <name>]`)
-			return 1
+		answerUsage := `usage: legato plan answer <thread-id> ("<markdown>" | --file <path|->) [--task <id>] [--name <name>]`
+		files := listFlags["file"]
+		// The answer is an argument or a file, never both. A file keeps
+		// Markdown from the shell, and names the folder its images are in.
+		if len(positional) < 1 || len(positional)+len(files) != 2 {
+			fmt.Fprintln(os.Stderr, answerUsage)
+			return exitUsage
+		}
+		text, imageDir := "", ""
+		if len(files) == 1 {
+			var inputErr *commandError
+			text, inputErr = readNamedTextInput("answer", "", "--file", "", false, files[0], true, os.Stdin)
+			if inputErr != nil {
+				fmt.Fprintf(os.Stderr, "error: %s\n%s\n", inputErr.Message, answerUsage)
+				return inputErr.Exit
+			}
+			imageDir = markdownInputDir(files[0])
+		} else {
+			text = positional[1]
 		}
 		planID, err := resolve()
 		if err != nil {
 			return fail(err)
 		}
-		if err := cli.PlanAnswer(svc, planID, positional[0], positional[1]); err != nil {
+		if err := cli.PlanAnswer(svc, planID, positional[0], text, imageDir); err != nil {
 			return fail(err)
 		}
 		if jsonMode {
@@ -341,7 +361,7 @@ func runReviewCmd(args []string) int {
 		return 1
 	}
 	defer db.Close()
-	svc := service.NewReviewService(db, nil, nil)
+	svc := newReviewService(cfg, db, nil, nil)
 
 	verb := args[0]
 	positional, flags, listFlags, parseErr := parseReviewArgs(args[1:])
@@ -604,7 +624,7 @@ func runReviewCmd(args []string) int {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
-		if err := cli.ReviewAnswer(svc, tourID, positional[0], text); err != nil {
+		if err := cli.ReviewAnswer(svc, tourID, positional[0], text, markdownInputDir(listFlags["file"][0])); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			return 1
 		}
@@ -733,6 +753,16 @@ func parseReviewChapterArgs(positional []string, flags map[string]string, listFl
 	if len(positional) == 2 {
 		a.Narration = positional[1]
 	}
+	if file, ok := flags["narration-file"]; ok {
+		if len(positional) == 2 {
+			return a, fmt.Errorf("give the narration as an argument or with --narration-file, not both")
+		}
+		narration, inputErr := readNamedTextInput("narration", "", "--narration-file", "", false, file, true, os.Stdin)
+		if inputErr != nil {
+			return a, errors.New(inputErr.Message)
+		}
+		a.Narration, a.NarrationDir = narration, markdownInputDir(file)
+	}
 	if v, ok := flags["order"]; ok {
 		n, err := strconv.Atoi(v)
 		if err != nil {
@@ -770,6 +800,7 @@ func parseReviewArgs(args []string) (positional []string, flags map[string]strin
 	scalar := map[string]bool{
 		"task": true, "name": true, "review-pass": true, "risk": true,
 		"order": true, "hunk": true, "lines": true, "feedback": true,
+		"narration-file": true,
 	}
 	repeatable := map[string]bool{"file": true, "include": true, "finding": true}
 	for i := 0; i < len(args); i++ {
@@ -1480,8 +1511,8 @@ func runServeCmd(args []string) int {
 		swarmSvc = service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd, attachmentCache)
 	}
 
-	reviewSvc := service.NewReviewService(db, tmuxMgr, bus)
-	planSvc := service.NewPlanService(db, tmuxMgr, bus)
+	reviewSvc := newReviewService(cfg, db, tmuxMgr, bus)
+	planSvc := newPlanService(cfg, db, tmuxMgr, bus)
 	if agentSvc != nil {
 		planSvc.SetAgentService(agentSvc)
 		reviewSvc.SetAgentService(agentSvc)
@@ -1503,6 +1534,7 @@ func runServeCmd(args []string) int {
 	srv.SetProviderSyncService(providerSync)
 	srv.SetReviewService(reviewSvc)
 	srv.SetPlanService(planSvc)
+	sweepDocumentImages(planSvc, reviewSvc)
 	srv.SetArtifactService(artifactSvc)
 	var workflowSvc *service.WorkflowService
 	var triggerCoordinator *service.WorkflowTriggerCoordinator
@@ -1729,8 +1761,8 @@ func runTUI() int {
 	swarmStop := swarmSvc.StartEventLoop(context.Background())
 	defer swarmStop()
 
-	reviewSvc := service.NewReviewService(db, tmuxMgr, bus)
-	planSvc := service.NewPlanService(db, tmuxMgr, bus)
+	reviewSvc := newReviewService(cfg, db, tmuxMgr, bus)
+	planSvc := newPlanService(cfg, db, tmuxMgr, bus)
 	if agentSvc != nil {
 		planSvc.SetAgentService(agentSvc)
 		reviewSvc.SetAgentService(agentSvc)
@@ -1773,6 +1805,7 @@ func runTUI() int {
 			}
 			webSrv.SetReviewService(reviewSvc)
 			webSrv.SetPlanService(planSvc)
+			sweepDocumentImages(planSvc, reviewSvc)
 			webSrv.SetArtifactService(artifactSvc)
 			if tuiWorkflowSvc != nil {
 				globalWorkflows, projectWorkflows := workflowDirs()

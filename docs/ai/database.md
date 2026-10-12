@@ -54,6 +54,10 @@ Migration 063 adds `agent_ui_items` and `agent_ui_item_revisions`: what agents a
 
 Migration 064 adds `agent_ui_item_revisions.images`: the image files one revision uses, as the service encodes them (the name the content refers to an image by, and the stored copy's file name). The files themselves are not in the database: they are under `<data_dir>/agent-ui-images/<task-id>/`, kept and removed by `AgentUIService`. See [Agent tools](agent-mcp.md) § Image files.
 
+### Image files of plans and reviews
+
+Migration 065 adds an `images` column to `plan_revisions`, `plan_transcript`, `review_steps` and `review_transcript`: the image files that row's Markdown shows, as the service encodes them (the path the Markdown names, and the stored copy's file name). The column is empty for Markdown with no image files. The files are under `<data_dir>/plan-images/<plan-id>/` and `<data_dir>/review-images/<tour-id>/`, kept and removed by `PlanService` and `ReviewService`; `Store.ListPlanImageSets` and `ListReviewImageSets` list what is still named, for the sweep of what is not. A database from before plans or reviews has none of the four tables, and the migration then changes only those that exist. See [Collaborative plans](../plans.md) § Image files.
+
 ### Future PostgreSQL work
 
 This boundary prepares but does not claim PostgreSQL support. A later change must test against a real PostgreSQL server, add a PostgreSQL baseline and advisory migration locking, implement dialect-specific reporting/search/generated IDs, and provide a one-way SQLite importer. Safe shared multi-host operation also requires node ownership and coordination beyond the database driver.

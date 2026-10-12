@@ -360,9 +360,9 @@ func configurePlanCommands(plan *commandDef) {
 		"feedback": {flags: selectors, examples: []string{"legato plan feedback --json --name search"}},
 		"status":   {flags: selectors, examples: []string{"legato plan status --json --name search"}},
 		"answer": {
-			arguments: []argumentDef{arg("thread-id", "Question thread ID"), arg("markdown", "Markdown answer")},
-			flags:     selectors,
-			examples:  []string{`legato plan answer <thread-id> "Use SQLite FTS" --name search`},
+			arguments: []argumentDef{arg("thread-id", "Question thread ID"), optionalArg("markdown", "Markdown answer; or use --file")},
+			flags:     append(append([]commandFlag{}, selectors...), valueFlag("file", "path", "Markdown answer file, which can show image files beside it; use - for stdin")),
+			examples:  []string{`legato plan answer <thread-id> "Use SQLite FTS" --name search`, `legato plan answer <thread-id> --file answer.md --name search`},
 		},
 		"complete": {flags: selectors, examples: []string{"legato plan complete --name search"}},
 		"withdraw": {flags: selectors, examples: []string{"legato plan withdraw --name search"}},
@@ -373,7 +373,7 @@ func configurePlanCommands(plan *commandDef) {
 }
 
 func reviewCommandFlags() []commandFlag {
-	names := []string{"task", "name", "review-pass", "risk", "order", "hunk", "lines", "feedback", "file", "include", "finding"}
+	names := []string{"task", "name", "review-pass", "risk", "order", "hunk", "lines", "feedback", "narration-file", "file", "include", "finding"}
 	flags := make([]commandFlag, 0, len(names)+1)
 	for _, name := range names {
 		f := valueFlag(name, "value", humanizeCommand(name))
@@ -399,7 +399,7 @@ func configureReviewCommands(review *commandDef) {
 		},
 		"answer": {
 			arguments: []argumentDef{arg("step-id", "Review question step ID")},
-			flags:     append(append([]commandFlag{}, selectors...), valueFlag("file", "path", "Markdown answer file; use - for stdin")),
+			flags:     append(append([]commandFlag{}, selectors...), valueFlag("file", "path", "Markdown answer file, which can show image files beside it; use - for stdin")),
 			examples: []string{`legato review answer <step-id> --file answer.md`, `legato review answer <step-id> --file - <<'LEGATO_ANSWER'
 The handler preserves the ` + "`" + `existing contract` + "`" + `.
 LEGATO_ANSWER`},
@@ -425,10 +425,10 @@ LEGATO_ANSWER`},
 		switch child.Name {
 		case "chapter":
 			createFlags := append([]commandFlag{}, selectors...)
-			createFlags = append(createFlags, valueFlag("risk", "risk", "low, medium, high, or unsure"), valueFlag("order", "number", "Reading order"), commandFlag{Name: "include", Value: "path:hunk", Description: "Chapter hunk membership", Repeatable: true})
+			createFlags = append(createFlags, valueFlag("narration-file", "path", "Markdown narration file, which can show image files beside it; use - for stdin"), valueFlag("risk", "risk", "low, medium, high, or unsure"), valueFlag("order", "number", "Reading order"), commandFlag{Name: "include", Value: "path:hunk", Description: "Chapter hunk membership", Repeatable: true})
 			editFlags := append([]commandFlag{}, selectors...)
-			editFlags = append(editFlags, valueFlag("title", "text", "Replacement title"), valueFlag("narration", "text", "Replacement narration"), valueFlag("risk", "risk", "Replacement risk"), valueFlag("order", "number", "Replacement order"), commandFlag{Name: "include", Value: "path:hunk", Description: "Replace all memberships", Repeatable: true}, boolFlag("clear-narration", "Clear narration"), boolFlag("clear-risk", "Clear risk"), boolFlag("clear-order", "Clear order"))
-			review.Children[i] = commandGroup("chapter", "Create or manage authored review chapters", child.Run, []argumentDef{arg("title", "Chapter title"), optionalArg("narration", "Chapter narration")}, createFlags, []string{"legato review chapter 'Title' --include file.go:1"},
+			editFlags = append(editFlags, valueFlag("title", "text", "Replacement title"), valueFlag("narration", "text", "Replacement narration"), valueFlag("narration-file", "path", "Replacement Markdown narration file, which can show image files beside it; use - for stdin"), valueFlag("risk", "risk", "Replacement risk"), valueFlag("order", "number", "Replacement order"), commandFlag{Name: "include", Value: "path:hunk", Description: "Replace all memberships", Repeatable: true}, boolFlag("clear-narration", "Clear narration"), boolFlag("clear-risk", "Clear risk"), boolFlag("clear-order", "Clear order"))
+			review.Children[i] = commandGroup("chapter", "Create or manage authored review chapters", child.Run, []argumentDef{arg("title", "Chapter title"), optionalArg("narration", "Chapter narration, as Markdown; or use --narration-file")}, createFlags, []string{"legato review chapter 'Title' --include file.go:1", "legato review chapter 'Title' --narration-file narration.md --include file.go:1"},
 				leaf("show", "Show a chapter and selected diff", func(a []string) int { return runReviewCmd(append([]string{"chapter", "show"}, a...)) }, []argumentDef{arg("chapter-id", "Chapter ID or prefix")}, selectors, "legato review chapter show <chapter-id> --json"),
 				leaf("edit", "Patch chapter metadata or memberships", runReviewChapterEditContract, []argumentDef{arg("chapter-id", "Chapter ID or prefix"), optionalArg("title", "Compatibility replacement title"), optionalArg("narration", "Compatibility replacement narration")}, editFlags, "legato review chapter edit <chapter-id> --title 'Updated' --include file.go:1"),
 				leaf("remove", "Remove one chapter and its attached review metadata", runReviewChapterRemoveContract, []argumentDef{arg("chapter-id", "Chapter ID or prefix")}, selectors, "legato review chapter remove <chapter-id>"))

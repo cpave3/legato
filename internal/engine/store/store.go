@@ -300,6 +300,25 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 			return "", nil
 		}
 	}
+	if name == "065_document_images.sql" {
+		// One statement for each table, and a database from before plans or
+		// reviews has none of them to change.
+		var kept []string
+		for _, statement := range strings.Split(migrationSQL, "\n") {
+			fields := strings.Fields(statement)
+			if len(fields) < 3 {
+				continue
+			}
+			var tables int
+			if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, fields[2]); err != nil {
+				return "", err
+			}
+			if tables > 0 {
+				kept = append(kept, statement)
+			}
+		}
+		migrationSQL = strings.Join(kept, "\n")
+	}
 	if name == "059_attention_signal_kind.sql" {
 		var attentionTables int
 		if err := queryer.Get(&attentionTables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'attention_items'`); err != nil {

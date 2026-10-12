@@ -73,8 +73,8 @@ func ReviewAnnotationRemove(svc *service.ReviewService, tourID, prefix string) (
 }
 
 // ReviewAnswer records an agent's reply to a reviewer question.
-func ReviewAnswer(svc *service.ReviewService, tourID, stepPrefix, text string) error {
-	if err := svc.Answer(context.Background(), tourID, stepPrefix, text); err != nil {
+func ReviewAnswer(svc *service.ReviewService, tourID, stepPrefix, text, imageDir string) error {
+	if err := svc.AnswerFrom(context.Background(), tourID, stepPrefix, text, imageDir); err != nil {
 		return err
 	}
 	broadcastReviewChanged(tourID, stepPrefix, "answer")

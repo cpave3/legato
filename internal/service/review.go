@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -39,10 +40,77 @@ type ReviewService struct {
 	tmux         TmuxManager // nil-safe: questions are stored but undeliverable
 	bus          *events.Bus // nil-safe
 	interactions *ArtifactInteractionService
+	// images are the image files that narration and answers show; planImages
+	// those of the plans a pass captured, which the plan service keeps.
+	images     documentImages
+	planImages documentImages
 }
 
 func NewReviewService(s *store.Store, tmux TmuxManager, bus *events.Bus) *ReviewService {
-	return &ReviewService{store: s, tmux: tmux, bus: bus, interactions: NewArtifactInteractionService(s, tmux)}
+	return &ReviewService{store: s, tmux: tmux, bus: bus, interactions: NewArtifactInteractionService(s, tmux),
+		images: documentImages{route: ReviewImageRoute}, planImages: documentImages{route: PlanImageRoute}}
+}
+
+// SetImageDirs names the folder Legato keeps its copies of reviews' image
+// files in, and the one the plan service keeps plans' in. Without the first,
+// narration or an answer that names an image file is turned down.
+func (r *ReviewService) SetImageDirs(reviewDir, planDir string) {
+	r.images.root = reviewDir
+	r.planImages.root = planDir
+}
+
+// RemoveOrphanImages removes the kept image files that nothing names any
+// more: those of a tour that is gone, and those no step or answer of a tour
+// names (an edited chapter, a restarted pass). A server runs it when it
+// starts.
+func (r *ReviewService) RemoveOrphanImages(ctx context.Context) error {
+	if r.images.root == "" {
+		return nil
+	}
+	named, err := r.store.ListReviewImageSets(ctx)
+	if err != nil {
+		return err
+	}
+	return r.images.sweep(named)
+}
+
+// OpenImage opens Legato's copy of an image a review shows, by the folder
+// and file its address names. It answers store.ErrNotFound for anything that
+// is not such a copy.
+func (r *ReviewService) OpenImage(folder, file string) (*AgentUIImageFile, error) {
+	return r.images.open(folder, file)
+}
+
+// reviewImage resolves an image that review Markdown names to a file: an
+// absolute path, or one relative to dir. An empty dir is the working
+// directory, which is where an agent's command runs.
+func reviewImage(dir string) func(destination string) (string, error) {
+	return func(destination string) (string, error) {
+		file := filepath.FromSlash(destination)
+		if !filepath.IsAbs(file) {
+			file = filepath.Join(dir, file)
+		}
+		absolute, err := filepath.Abs(file)
+		if err != nil {
+			return "", fmt.Errorf("%s is not a path Legato can read", destination)
+		}
+		return absolute, nil
+	}
+}
+
+// keepMarkdownImages copies the image files that a tour's Markdown names
+// and returns them in the store's encoding, with the copies it made. what
+// names the text in an error: "narration", "answer".
+func (r *ReviewService) keepMarkdownImages(tourID, what, markdown, dir string) (encoded string, added []string, err error) {
+	found, problems := findMarkdownImages(markdown, reviewImage(dir))
+	if len(problems) != 0 {
+		return "", nil, imageProblemsError(what, problems)
+	}
+	encoded, added, err = r.images.keep(tourID, found)
+	if err != nil {
+		return "", nil, fmt.Errorf("%s: %w", what, err)
+	}
+	return encoded, added, nil
 }
 
 // SetAgentService wires the agent service for Chimera-aware delivery of
@@ -265,9 +333,12 @@ type ChapterInclude struct {
 type ChapterArgs struct {
 	Title     string
 	Narration string
-	Risk      string
-	OrderHint *int
-	Includes  []ChapterInclude
+	// NarrationDir is the folder a relative image path in the narration is
+	// taken from. Empty is the working directory.
+	NarrationDir string
+	Risk         string
+	OrderHint    *int
+	Includes     []ChapterInclude
 }
 
 // CreateChapter groups arbitrary base-to-HEAD hunks into one authored review step.
@@ -311,9 +382,15 @@ func (r *ReviewService) CreateChapter(ctx context.Context, tourID string, a Chap
 			chapterSeq = step.Seq + 1
 		}
 	}
-	err = r.store.InsertReviewChapter(ctx, store.ReviewStep{ID: stepID, TaskID: taskID, TourID: tourID, Kind: "chapter", Files: "[]",
-		Title: a.Title, Narration: a.Narration, Risk: a.Risk, OrderHint: a.OrderHint, Seq: chapterSeq}, members)
+	// Copied last: everything else about the chapter is known to be good.
+	images, added, err := r.keepMarkdownImages(tourID, "narration", a.Narration, a.NarrationDir)
 	if err != nil {
+		return "", err
+	}
+	err = r.store.InsertReviewChapter(ctx, store.ReviewStep{ID: stepID, TaskID: taskID, TourID: tourID, Kind: "chapter", Files: "[]",
+		Title: a.Title, Narration: a.Narration, Images: images, Risk: a.Risk, OrderHint: a.OrderHint, Seq: chapterSeq}, members)
+	if err != nil {
+		r.images.discard(tourID, added)
 		return "", err
 	}
 	r.publish(tourID, stepID, "chapter")
@@ -321,8 +398,11 @@ func (r *ReviewService) CreateChapter(ctx context.Context, tourID string, a Chap
 }
 
 type ChapterEditArgs struct {
-	Title           *string
-	Narration       *string
+	Title     *string
+	Narration *string
+	// NarrationDir is the folder a relative image path in the new narration
+	// is taken from. Empty is the working directory.
+	NarrationDir    string
 	Risk            *string
 	OrderHint       *int
 	ClearOrderHint  bool
@@ -407,7 +487,17 @@ func (r *ReviewService) EditChapter(ctx context.Context, tourID, stepPrefix stri
 			return "", err
 		}
 	}
+	var added []string
+	if a.Narration != nil {
+		// Copied last: everything else about the edit is known to be good.
+		// The copies the old narration named stay until nothing names them.
+		step.Images, added, err = r.keepMarkdownImages(tourID, "narration", *a.Narration, a.NarrationDir)
+		if err != nil {
+			return "", err
+		}
+	}
 	if err := r.store.UpdateReviewChapter(ctx, *step, members, a.ReplaceIncludes); err != nil {
+		r.images.discard(tourID, added)
 		return "", err
 	}
 	if err := r.markTourCapturing(ctx, tour); err != nil {
@@ -1034,6 +1124,7 @@ func (r *ReviewService) DeleteMany(ctx context.Context, tourIDs []string) (int, 
 		return 0, err
 	}
 	for _, tour := range tours {
+		r.images.remove(tour.ID)
 		r.publishDeleted(tour.ID, tour.TaskID)
 	}
 	return len(tours), nil
@@ -1387,6 +1478,33 @@ type ReviewTourView struct {
 	Steps     []store.ReviewStep     `json:"steps"`
 	Messages  []store.ReviewMessage  `json:"messages"`
 	HunkNotes []store.ReviewHunkNote `json:"hunk_notes"`
+	// The image files that the tour's Markdown shows: a step's narration by
+	// step ID, a message's body by message ID, and a pass's captured plan by
+	// pass ID. They cover every pass of the tour.
+	StepImages    map[string][]DocumentImage `json:"step_images,omitempty"`
+	MessageImages map[int][]DocumentImage    `json:"message_images,omitempty"`
+	PlanImages    map[string][]DocumentImage `json:"plan_images,omitempty"`
+}
+
+// addImages records, in a tour's view, where the images of its steps and
+// messages are served.
+func (r *ReviewService) addImages(view *ReviewTourView, steps []store.ReviewStep, messages []store.ReviewMessage) {
+	for _, step := range steps {
+		if images := r.images.list(view.Tour.ID, step.Images); len(images) > 0 {
+			if view.StepImages == nil {
+				view.StepImages = map[string][]DocumentImage{}
+			}
+			view.StepImages[step.ID] = images
+		}
+	}
+	for _, message := range messages {
+		if images := r.images.list(view.Tour.ID, message.Images); len(images) > 0 {
+			if view.MessageImages == nil {
+				view.MessageImages = map[int][]DocumentImage{}
+			}
+			view.MessageImages[message.ID] = images
+		}
+	}
 }
 
 // Tour returns the persisted tour projection: header, ordered steps, transcript.
@@ -1425,6 +1543,8 @@ func (r *ReviewService) Tour(ctx context.Context, tourID string) (*ReviewTourVie
 	if err != nil {
 		return nil, err
 	}
+	view := &ReviewTourView{Tour: *tour, Steps: steps, Messages: msgs, HunkNotes: hunkNotes}
+	r.addImages(view, steps, msgs)
 	passViews := make([]ReviewPassView, 0, len(passes))
 	for _, pass := range passes {
 		passSteps, err := r.store.ListReviewStepsByPass(ctx, pass.ID)
@@ -1463,14 +1583,22 @@ func (r *ReviewService) Tour(ctx context.Context, tourID string) (*ReviewTourVie
 			passRequests = []store.ReviewPlanRequest{}
 		}
 		passView := ReviewPassView{Pass: pass, Steps: passSteps, Messages: passMessages, HunkNotes: passNotes, Findings: passFindings, PlanRequests: passRequests}
+		r.addImages(view, passSteps, passMessages)
 		if plan, err := r.store.GetReviewPassPlan(ctx, pass.ID); err == nil {
 			passView.CapturedPlan = plan
+			if images := r.planImages.list(plan.PlanID, plan.Images); len(images) > 0 {
+				if view.PlanImages == nil {
+					view.PlanImages = map[string][]DocumentImage{}
+				}
+				view.PlanImages[pass.ID] = images
+			}
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return nil, err
 		}
 		passViews = append(passViews, passView)
 	}
-	return &ReviewTourView{Tour: *tour, Passes: passViews, Steps: steps, Messages: msgs, HunkNotes: hunkNotes}, nil
+	view.Passes = passViews
+	return view, nil
 }
 
 func projectHunkNotesToVisibleChapters(ctx context.Context, s *store.Store, steps []store.ReviewStep, notes []store.ReviewHunkNote) ([]store.ReviewHunkNote, error) {
@@ -1962,6 +2090,13 @@ func (r *ReviewService) reviewSelectionExcerpt(ctx context.Context, tourID, step
 // Answer records an agent's reply to a reviewer question. stepID may be an
 // ID prefix (as printed in the delivered question line).
 func (r *ReviewService) Answer(ctx context.Context, tourID, stepID, text string) error {
+	return r.AnswerFrom(ctx, tourID, stepID, text, "")
+}
+
+// AnswerFrom answers the latest question on a step. The answer is Markdown,
+// and an image file it names is shown with it: imageDir is the folder a
+// relative path is taken from, and empty is the working directory.
+func (r *ReviewService) AnswerFrom(ctx context.Context, tourID, stepID, text, imageDir string) error {
 	if !utf8.ValidString(text) {
 		return fmt.Errorf("review answer must be valid UTF-8 text")
 	}
@@ -1983,9 +2118,14 @@ func (r *ReviewService) Answer(ctx context.Context, tourID, stepID, text string)
 	if step.TourID != tourID {
 		return store.ErrNotFound
 	}
+	images, added, err := r.keepMarkdownImages(tourID, "answer", text, imageDir)
+	if err != nil {
+		return err
+	}
 	if _, err := r.store.ReplaceLatestReviewAnswer(ctx, store.ReviewMessage{
-		TaskID: taskID, TourID: tourID, StepID: step.ID, Kind: "answer", Author: "agent", Body: text,
+		TaskID: taskID, TourID: tourID, StepID: step.ID, Kind: "answer", Author: "agent", Body: text, Images: images,
 	}); err != nil {
+		r.images.discard(tourID, added)
 		if errors.Is(err, store.ErrNotFound) {
 			return fmt.Errorf("review step has no question to answer: %w", err)
 		}

@@ -140,17 +140,7 @@ func (s *Server) agentUIImageHandler() http.HandlerFunc {
 			return
 		}
 		defer image.Close()
-
-		header := w.Header()
-		header.Set("Content-Type", image.MediaType)
-		// The type is the one read from the content, and the browser must
-		// not guess another.
-		header.Set("X-Content-Type-Options", "nosniff")
-		// The address names the content, so what it answers never changes.
-		// private: an image an agent showed may be the person's own.
-		header.Set("Cache-Control", "private, max-age=31536000, immutable")
-		header.Set("Content-Security-Policy", "default-src 'none'; sandbox")
-		http.ServeContent(w, r, "", image.ModTime, image)
+		serveImageCopy(w, r, image)
 	}
 }
 

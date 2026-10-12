@@ -1,7 +1,9 @@
 import { memo } from "react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import type { ItemImage } from "../lib/agentUi"
 import { cn } from "../lib/utils"
+import { DocumentImage, DocumentImages } from "./DocumentImages"
 import { MermaidMarkdownPre } from "./MermaidDiagram"
 import { VisualMarkdownPre } from "./VisualMarkdownPre"
 
@@ -11,18 +13,26 @@ interface MarkdownBodyProps {
   skipHtml?: boolean
   renderMermaid?: boolean
   renderPlanVisuals?: boolean
+  // The image files the Markdown names, for a plan or a review: each is
+  // drawn from Legato's copy and opens full size. Without the list, images
+  // are left to the browser.
+  images?: ItemImage[]
 }
 
 const compactPreClassName = "my-2 max-w-full overflow-x-auto rounded border border-zinc-700 bg-black/40 p-2 font-mono text-xs leading-5 text-zinc-200"
 
-export const MarkdownBody = memo(function MarkdownBody({ body, disableImages = false, skipHtml = false, renderMermaid = false, renderPlanVisuals = false }: MarkdownBodyProps) {
-  return (
+export const MarkdownBody = memo(function MarkdownBody({ body, disableImages = false, skipHtml = false, renderMermaid = false, renderPlanVisuals = false, images }: MarkdownBodyProps) {
+  const drawn = (
     <div className="min-w-0 break-words text-sm leading-5">
       <ReactMarkdown
         skipHtml={skipHtml}
         remarkPlugins={[remarkGfm]}
         components={{
-          ...(disableImages ? { img: ({ alt }: { alt?: string }) => <>{alt}</> } : {}),
+          ...(disableImages
+            ? { img: ({ alt }: { alt?: string }) => <>{alt}</> }
+            : images
+              ? { img: ({ src, alt }: { src?: string; alt?: string }) => <DocumentImage src={src} alt={alt} /> }
+              : {}),
           p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
           h1: ({ children }) => <h1 className="mb-1 mt-3 text-base font-semibold text-zinc-100 first:mt-0">{children}</h1>,
           h2: ({ children }) => <h2 className="mb-1 mt-3 text-sm font-semibold text-zinc-100 first:mt-0">{children}</h2>,
@@ -48,4 +58,5 @@ export const MarkdownBody = memo(function MarkdownBody({ body, disableImages = f
       </ReactMarkdown>
     </div>
   )
+  return images && !disableImages ? <DocumentImages images={images}>{drawn}</DocumentImages> : drawn
 })

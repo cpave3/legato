@@ -169,6 +169,14 @@ another agent, run ` + "`legato plan claim --task <board-task-id>`" + ` or
 about pending interactions, drain them with ` + "`legato plan inbox`" + ` (the
 plan and review inbox commands read the same agent-scoped queue).
 
+A plan, a review chapter and an answer are Markdown, and can show image
+files such as a screenshot. In plan.md, name a file of the plan bundle:
+` + "`![The board today](assets/board.png)`" + `. For a chapter or an answer,
+write the Markdown to a file and name the image beside it, then pass
+` + "`legato review chapter <title> --narration-file <path> --include <path>:<hunk>`" + `,
+` + "`legato review answer <step-id> --file <path>`" + ` or
+` + "`legato plan answer <thread-id> --file <path>`" + `.
+
 ## Command families
 
 `)

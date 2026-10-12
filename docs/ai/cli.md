@@ -101,11 +101,11 @@ database is loaded.
 
 ### Collaborative plan verbs
 
-- `legato plan validate <markdown-file>` — validate Markdown plus `mermaid` and canonical `wireframe` fences without task or database context; prints `Plan is valid.` on success, exits `2` for content errors, and installs pinned Node parsers into the user cache when absent
+- `legato plan validate <markdown-file>` — validate Markdown plus `mermaid` and canonical `wireframe` fences, and the image files the Markdown names in its own folder, without task or database context; prints `Plan is valid.` on success, exits `2` for content errors, and installs pinned Node parsers into the user cache when absent
 - `legato plan submit <bundle-dir> [--task <id>] [--name <name>]` — validate `plan.md`/`plan.json`, including plan visuals, snapshot them, and propose a new immutable revision
 - `legato plan show|feedback --json [--task <id>] [--name <name>]` — print the current revision, choices, responses, comments, and Q&A transcript
 - `legato plan status --json [--task <id>] [--name <name>]` — print lifecycle status and revision
-- `legato plan answer <thread-id> "<markdown>" [--task <id>] [--name <name>]` — answer immediate plan Q&A
+- `legato plan answer <thread-id> ("<markdown>" | --file <path|->) [--task <id>] [--name <name>]` — answer immediate plan Q&A. With `--file` the Markdown is kept from the shell and can show image files beside the file
 - `legato plan claim --task <plan-task-id> [--name <name>]` — hand an existing plan to the current agent session; unacknowledged interactions follow the new claimant
 - `legato plan inbox [--json]` — print and acknowledge durable plan/review interactions assigned to the current `LEGATO_TASK_ID`
 - `legato plan complete [--task <id>] [--name <name>]` — mark successful implementation complete and safely remove the submitted source bundle when approval requested cleanup
@@ -131,7 +131,14 @@ LEGATO_ANSWER
 ```
 
 `--file <path>` reads the same Markdown from a named file. The answer must be
-non-blank UTF-8 text. A retry replaces the answer after the latest question on
+non-blank UTF-8 text. An image file the answer names (`![After](after.png)`,
+relative to the answer file's folder or absolute) is shown with it.
+
+Chapter narration is Markdown too. `legato review chapter <title>
+--narration-file <path|-> --include <path>:<hunk>` and `legato review chapter
+edit <id> --narration-file <path|->` read it from a file or standard input in
+place of the narration argument, and show the image files it names the same
+way. See [Collaborative plans](../plans.md) § Image files. A retry replaces the answer after the latest question on
 the step. A later question starts a new transcript turn.
 
 ### Swarm verbs

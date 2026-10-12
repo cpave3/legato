@@ -1,3 +1,4 @@
+import type { DocumentImage } from "./documentImages"
 import { apiFetch } from "./api"
 
 export type PlanStatus = "proposed" | "changes_requested" | "approved" | "rejected" | "completed"
@@ -9,7 +10,8 @@ export interface PlanQuestion { id:string; key:string; kind:"single_choice"|"mul
 export interface PlanResponse { id:string; question_id:string; values_json:string; text:string }
 export interface PlanComment { id:string; revision_id:string; body:string; selection_start?:number; selection_end?:number; selected_text:string; prefix:string; suffix:string; submitted_at?:string; created_at:string }
 export interface PlanMessage { id:number; thread_id:string; kind:"question"|"answer"; author:"user"|"agent"; body:string; delivered_at?:string; created_at:string }
-export interface PlanView { plan:Plan; revision:PlanRevision; questions:PlanQuestion[]; responses:PlanResponse[]; comments:PlanComment[]; messages:PlanMessage[] }
+// images are the image files the revision's Markdown shows; message_images those of each message, by message ID.
+export interface PlanView { plan:Plan; revision:PlanRevision; questions:PlanQuestion[]; responses:PlanResponse[]; comments:PlanComment[]; messages:PlanMessage[]; images?:DocumentImage[]; message_images?:Record<number, DocumentImage[]> }
 export interface PlanOption { id:string; label:string; description?:string }
 
 async function json<T>(response:Response):Promise<T> { if (!response.ok) throw new Error(await response.text() || response.statusText); return response.json() as Promise<T> }

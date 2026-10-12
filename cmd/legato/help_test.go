@@ -128,6 +128,8 @@ func TestReflectionSubmitHelpDocumentsJSONContract(t *testing.T) {
 func TestAgentPrimerCoversDiscoveryAndCoreWorkflow(t *testing.T) {
 	for _, want := range []string{
 		"# Legato CLI primer",
+		"--narration-file",
+		"assets/board.png",
 		"legato task create",
 		"legato task update",
 		"LEGATO_TASK_ID",

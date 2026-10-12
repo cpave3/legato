@@ -184,7 +184,7 @@ func (s *Store) ListReviewPlanRequestsByPass(ctx context.Context, passID string)
 func (s *Store) GetReviewPassPlan(ctx context.Context, passID string) (*ReviewPassPlan, error) {
 	var plan ReviewPassPlan
 	err := s.db.GetContext(ctx, &plan, `
-		SELECT pp.pass_id, pp.plan_id, pp.revision_id, r.revision, p.title, pp.markdown, pp.created_at
+		SELECT pp.pass_id, pp.plan_id, pp.revision_id, r.revision, p.title, pp.markdown, r.images, pp.created_at
 		FROM review_pass_plans pp
 		JOIN plans p ON p.id = pp.plan_id
 		JOIN plan_revisions r ON r.id = pp.revision_id
@@ -391,9 +391,9 @@ func (s *Store) InsertReviewChapter(ctx context.Context, step ReviewStep, hunks 
 	}
 	if _, err := tx.NamedExecContext(ctx, `
 		INSERT INTO review_steps (id, task_id, tour_id, pass_id, kind, commit_sha, files, title,
-			narration, risk, order_hint, seq, subtask_id, dirty_fingerprint)
+			narration, images, risk, order_hint, seq, subtask_id, dirty_fingerprint)
 		VALUES (:id, :task_id, :tour_id, :pass_id, :kind, :commit_sha, :files, :title,
-			:narration, :risk, :order_hint, :seq, :subtask_id, :dirty_fingerprint)`, step); err != nil {
+			:narration, :images, :risk, :order_hint, :seq, :subtask_id, :dirty_fingerprint)`, step); err != nil {
 		return err
 	}
 	for _, hunk := range hunks {
@@ -419,7 +419,7 @@ func (s *Store) UpdateReviewChapter(ctx context.Context, step ReviewStep, hunks 
 		return err
 	}
 	defer tx.Rollback()
-	result, err := tx.NamedExecContext(ctx, `UPDATE review_steps SET title = :title, narration = :narration,
+	result, err := tx.NamedExecContext(ctx, `UPDATE review_steps SET title = :title, narration = :narration, images = :images,
 		risk = :risk, order_hint = :order_hint, reviewed_at = :reviewed_at, updated_at = datetime('now')
 		WHERE id = :id AND kind = 'chapter'`, step)
 	if err != nil {
@@ -611,10 +611,10 @@ func (s *Store) ListReviewHunkNotes(ctx context.Context, tourID string) ([]Revie
 // the agent session is dead are stored with a NULL delivered_at).
 func (s *Store) InsertReviewMessage(ctx context.Context, m ReviewMessage, delivered bool) (*ReviewMessage, error) {
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO review_transcript (task_id, tour_id, pass_id, step_id, kind, author, body, delivered_at)
+		INSERT INTO review_transcript (task_id, tour_id, pass_id, step_id, kind, author, body, images, delivered_at)
 		VALUES (?, ?, COALESCE(NULLIF(?, ''), (SELECT id FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1), ''),
-			?, ?, ?, ?, CASE WHEN ? THEN datetime('now') ELSE NULL END)`,
-		m.TaskID, m.TourID, m.PassID, m.TourID, m.StepID, m.Kind, m.Author, m.Body, delivered)
+			?, ?, ?, ?, ?, CASE WHEN ? THEN datetime('now') ELSE NULL END)`,
+		m.TaskID, m.TourID, m.PassID, m.TourID, m.StepID, m.Kind, m.Author, m.Body, m.Images, delivered)
 	if err != nil {
 		return nil, err
 	}
@@ -659,9 +659,9 @@ func (s *Store) ReplaceLatestReviewAnswer(ctx context.Context, m ReviewMessage) 
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		res, insertErr := tx.ExecContext(ctx, `
-			INSERT INTO review_transcript (task_id, tour_id, pass_id, step_id, kind, author, body, delivered_at)
+			INSERT INTO review_transcript (task_id, tour_id, pass_id, step_id, kind, author, body, images, delivered_at)
 			VALUES (?, ?, COALESCE((SELECT id FROM review_passes WHERE tour_id = ? ORDER BY number DESC LIMIT 1), ''),
-				?, 'answer', ?, ?, datetime('now'))`, m.TaskID, m.TourID, m.TourID, m.StepID, m.Author, m.Body)
+				?, 'answer', ?, ?, ?, datetime('now'))`, m.TaskID, m.TourID, m.TourID, m.StepID, m.Author, m.Body, m.Images)
 		if insertErr != nil {
 			return nil, insertErr
 		}
@@ -673,7 +673,7 @@ func (s *Store) ReplaceLatestReviewAnswer(ctx context.Context, m ReviewMessage) 
 	case err != nil:
 		return nil, err
 	default:
-		if _, err := tx.ExecContext(ctx, "UPDATE review_transcript SET body = ?, author = ?, delivered_at = COALESCE(delivered_at, datetime('now')) WHERE id = ?", m.Body, m.Author, answerID); err != nil {
+		if _, err := tx.ExecContext(ctx, "UPDATE review_transcript SET body = ?, images = ?, author = ?, delivered_at = COALESCE(delivered_at, datetime('now')) WHERE id = ?", m.Body, m.Images, m.Author, answerID); err != nil {
 			return nil, err
 		}
 		if _, err := tx.ExecContext(ctx, `
@@ -873,4 +873,13 @@ func (s *Store) UpdateReviewTour(ctx context.Context, id string, mutate func(*Re
 		return nil, err
 	}
 	return s.GetReviewTour(ctx, id)
+}
+
+// ListReviewImageSets returns, for every review tour, the images column of
+// each of its steps and messages that has one, across all of its passes. A
+// tour with none is still listed.
+func (s *Store) ListReviewImageSets(ctx context.Context) (map[string][]string, error) {
+	return s.listImageSets(ctx, "SELECT id FROM review_tours", `
+		SELECT tour_id, images FROM review_steps WHERE images != ''
+		UNION ALL SELECT tour_id, images FROM review_transcript WHERE images != ''`)
 }

@@ -62,7 +62,7 @@ export default defineConfig({
         navigateFallback: 'index.html',
         // An image an agent showed, opened in a tab of its own, is the image
         // and not the app.
-        navigateFallbackDenylist: [/^\/agent-ui-images\//],
+        navigateFallbackDenylist: [/^\/agent-ui-images\//, /^\/plan-images\//, /^\/review-images\//],
         skipWaiting: true,
         clientsClaim: true,
         runtimeCaching: [
@@ -99,6 +99,8 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:3080',
       '/agent-ui-images': 'http://localhost:3080',
+      '/plan-images': 'http://localhost:3080',
+      '/review-images': 'http://localhost:3080',
       '/ws': {
         target: 'ws://localhost:3080',
         ws: true,

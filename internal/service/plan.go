@@ -22,10 +22,78 @@ type PlanService struct {
 	tmux         TmuxManager
 	bus          *events.Bus
 	interactions *ArtifactInteractionService
+	images       documentImages
 }
 
 func NewPlanService(s *store.Store, tmux TmuxManager, bus *events.Bus) *PlanService {
-	return &PlanService{store: s, tmux: tmux, bus: bus, interactions: NewArtifactInteractionService(s, tmux)}
+	return &PlanService{store: s, tmux: tmux, bus: bus, interactions: NewArtifactInteractionService(s, tmux),
+		images: documentImages{route: PlanImageRoute}}
+}
+
+// SetImageDir names the folder Legato keeps its copies of plans' image
+// files in. Without one, a plan that names an image file is turned down.
+func (p *PlanService) SetImageDir(dir string) {
+	p.images.root = dir
+}
+
+// RemoveOrphanImages removes the kept image files that nothing names any
+// more: those of a plan that is gone, and those no revision or answer of a
+// plan names. Nothing calls for it at the moment a task and its plans go, so
+// a server runs it when it starts.
+func (p *PlanService) RemoveOrphanImages(ctx context.Context) error {
+	if p.images.root == "" {
+		return nil
+	}
+	named, err := p.store.ListPlanImageSets(ctx)
+	if err != nil {
+		return err
+	}
+	return p.images.sweep(named)
+}
+
+// OpenImage opens Legato's copy of an image a plan shows, by the folder and
+// file its address names. It answers store.ErrNotFound for anything that is
+// not such a copy.
+func (p *PlanService) OpenImage(folder, file string) (*AgentUIImageFile, error) {
+	return p.images.open(folder, file)
+}
+
+// PlanImageProblems says what is wrong with the image files a plan's
+// Markdown names, for a bundle in bundleDir. It stores nothing, so a plan
+// can be checked before it is submitted.
+func PlanImageProblems(markdown []byte, bundleDir string) []planvalidate.Diagnostic {
+	_, problems := findMarkdownImages(string(markdown), planBundleImage(bundleDir))
+	return problems
+}
+
+// planBundleImage resolves an image a plan's Markdown names to a file of
+// its bundle. A plan shows only files of its own bundle, so that the bundle
+// is whole by itself.
+func planBundleImage(bundleDir string) func(destination string) (string, error) {
+	outside := errors.New("a plan's image must be a file inside the plan bundle, named by a relative path such as assets/board.png")
+	inside := func(root, file string) bool {
+		rel, err := filepath.Rel(root, file)
+		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	}
+	return func(destination string) (string, error) {
+		if filepath.IsAbs(destination) {
+			return "", outside
+		}
+		named := filepath.Join(bundleDir, filepath.FromSlash(destination))
+		if !inside(bundleDir, named) {
+			return "", outside
+		}
+		// Where links lead counts, not where they lie.
+		resolved, err := filepath.EvalSymlinks(named)
+		if err != nil {
+			return named, nil
+		}
+		root, err := filepath.EvalSymlinks(bundleDir)
+		if err != nil || !inside(root, resolved) {
+			return "", outside
+		}
+		return resolved, nil
+	}
 }
 
 // SetAgentService wires the agent service for Chimera-aware delivery of
@@ -58,13 +126,17 @@ type PlanManifest struct {
 }
 
 type PlanView struct {
-	Plan      store.Plan               `json:"plan"`
-	Revision  store.PlanRevision       `json:"revision"`
+	Plan     store.Plan         `json:"plan"`
+	Revision store.PlanRevision `json:"revision"`
+	// Images is the image files the revision's Markdown shows.
+	Images    []DocumentImage          `json:"images,omitempty"`
 	Questions []store.PlanQuestion     `json:"questions"`
 	Responses []store.PlanResponse     `json:"responses"`
 	Comments  []store.PlanComment      `json:"comments"`
 	Messages  []store.PlanMessage      `json:"messages"`
 	Origins   []store.PlanReviewOrigin `json:"origins"`
+	// MessageImages is the image files each message shows, by message ID.
+	MessageImages map[int][]DocumentImage `json:"message_images,omitempty"`
 }
 
 type PlanQueueItem struct {
@@ -127,6 +199,11 @@ func (p *PlanService) SubmitWithOrigin(ctx context.Context, taskID, name, bundle
 		return nil, fmt.Errorf("validate plan.md:\n%s", strings.Join(messages, "\n"))
 	}
 
+	found, imageProblems := findMarkdownImages(string(markdown), planBundleImage(bundleDir))
+	if len(imageProblems) != 0 {
+		return nil, fmt.Errorf("validate plan.md:\n%w", imageProblemsError("plan.md", imageProblems))
+	}
+
 	planID := "pl-" + taskID
 	if name != "" {
 		planID += "-" + name
@@ -137,6 +214,11 @@ func (p *PlanService) SubmitWithOrigin(ctx context.Context, taskID, name, bundle
 		revisionNumber = existing.LatestRevision + 1
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return nil, err
+	}
+	// Copied last: everything else about the submission is known to be good.
+	keptImages, addedImages, err := p.images.keep(planID, found)
+	if err != nil {
+		return nil, fmt.Errorf("plan.md: %w", err)
 	}
 	revisionID := randomPlanID("pr-")
 	questions := make([]store.PlanQuestion, 0, len(manifest.Questions))
@@ -152,8 +234,9 @@ func (p *PlanService) SubmitWithOrigin(ctx context.Context, taskID, name, bundle
 	plan := store.Plan{ID: planID, TaskID: taskID, Name: name, Title: manifest.Title,
 		Summary: manifest.Summary, Status: "proposed", LatestRevision: revisionNumber, SourceBundlePath: bundleDir}
 	revision := store.PlanRevision{ID: revisionID, PlanID: planID, Revision: revisionNumber,
-		Markdown: string(markdown), ManifestJSON: string(manifestBytes)}
+		Markdown: string(markdown), ManifestJSON: string(manifestBytes), Images: keptImages}
 	if err := p.store.InsertPlanRevisionWithOrigins(ctx, plan, revision, questions, origin.ReviewPassID, origin.FindingIDs); err != nil {
+		p.images.discard(planID, addedImages)
 		return nil, err
 	}
 	if origin.ClaimantTaskID != "" {
@@ -270,7 +353,17 @@ func (p *PlanService) Plan(ctx context.Context, planID string) (*PlanView, error
 	if origins == nil {
 		origins = []store.PlanReviewOrigin{}
 	}
-	return &PlanView{Plan: *plan, Revision: *revision, Questions: questions, Responses: responses, Comments: comments, Messages: messages, Origins: origins}, nil
+	view := &PlanView{Plan: *plan, Revision: *revision, Questions: questions, Responses: responses, Comments: comments, Messages: messages, Origins: origins,
+		Images: p.images.list(planID, revision.Images)}
+	for _, message := range messages {
+		if images := p.images.list(planID, message.Images); len(images) > 0 {
+			if view.MessageImages == nil {
+				view.MessageImages = map[int][]DocumentImage{}
+			}
+			view.MessageImages[message.ID] = images
+		}
+	}
+	return view, nil
 }
 
 func (p *PlanService) QueueCount(ctx context.Context) (int, error) {
@@ -590,6 +683,7 @@ func (p *PlanService) Withdraw(ctx context.Context, planID string) error {
 	if err := p.store.DeletePlan(ctx, planID); err != nil {
 		return err
 	}
+	p.images.remove(planID)
 	p.publish(view.Plan, view.Revision.ID, "withdrawn")
 	return nil
 }
@@ -603,7 +697,7 @@ func (p *PlanService) AskQuestion(ctx context.Context, planID, text string) (str
 		return "", fmt.Errorf("question text is required")
 	}
 	threadID := randomPlanID("pt-")
-	line := fmt.Sprintf("[legato plan] Question on plan %s: %s — reply by running: legato plan answer %s %q", planID, text, threadID, "<your answer>")
+	line := fmt.Sprintf("[legato plan] Question on plan %s: %s — reply by running: legato plan answer %s %q (or --file <path> for Markdown, which can show an image file beside it)", planID, text, threadID, "<your answer>")
 	message, err := p.store.InsertPlanMessage(ctx, store.PlanMessage{PlanID: planID, RevisionID: view.Revision.ID,
 		ThreadID: threadID, Kind: "question", Author: "user", Body: text}, false)
 	if err != nil {
@@ -626,6 +720,13 @@ func (p *PlanService) AskQuestion(ctx context.Context, planID, text string) (str
 }
 
 func (p *PlanService) Answer(ctx context.Context, planID, threadID, text string) error {
+	return p.AnswerFrom(ctx, planID, threadID, text, "")
+}
+
+// AnswerFrom answers a question about a plan. The answer is Markdown, and
+// an image file it names is shown with it: imageDir is the folder a relative
+// path is taken from, and empty is the working directory.
+func (p *PlanService) AnswerFrom(ctx context.Context, planID, threadID, text, imageDir string) error {
 	view, err := p.Plan(ctx, planID)
 	if err != nil {
 		return err
@@ -633,8 +734,17 @@ func (p *PlanService) Answer(ctx context.Context, planID, threadID, text string)
 	if strings.TrimSpace(text) == "" {
 		return fmt.Errorf("answer text is required")
 	}
+	found, problems := findMarkdownImages(text, reviewImage(imageDir))
+	if len(problems) != 0 {
+		return imageProblemsError("answer", problems)
+	}
+	images, added, err := p.images.keep(planID, found)
+	if err != nil {
+		return fmt.Errorf("answer: %w", err)
+	}
 	if _, err := p.store.InsertPlanMessage(ctx, store.PlanMessage{PlanID: planID, RevisionID: view.Revision.ID,
-		ThreadID: threadID, Kind: "answer", Author: "agent", Body: text}, true); err != nil {
+		ThreadID: threadID, Kind: "answer", Author: "agent", Body: text, Images: images}, true); err != nil {
+		p.images.discard(planID, added)
 		return err
 	}
 	p.publish(view.Plan, view.Revision.ID, "answer")

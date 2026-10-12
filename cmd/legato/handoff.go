@@ -64,12 +64,12 @@ func runHandoff(verb string, args []string) int {
 	if taskID == "" {
 		return renderCommandError(command, &commandError{Code: "agent_context_missing", Message: "pass --task or set LEGATO_TASK_ID", Exit: exitEnvironment}, asJSON)
 	}
-	db, code := openCommandStore(command, asJSON)
+	cfg, db, code := openCommandStoreWithConfig(command, asJSON)
 	if db == nil {
 		return code
 	}
 	defer db.Close()
-	svc := service.NewReviewService(db, nil, nil)
+	svc := newReviewService(cfg, db, nil, nil)
 	tour, err := svc.ResolveReviewTour(ctx(), taskID, name)
 	if err != nil {
 		return fail(err)

@@ -90,15 +90,22 @@ func runTaskListContract(args []string) int {
 }
 
 func openCommandStore(command string, jsonMode bool) (*store.Store, int) {
+	_, db, code := openCommandStoreWithConfig(command, jsonMode)
+	return db, code
+}
+
+// openCommandStoreWithConfig is openCommandStore for a command that also
+// needs what the configuration says, such as where files are kept.
+func openCommandStoreWithConfig(command string, jsonMode bool) (*config.Config, *store.Store, int) {
 	cfg, err := config.Load()
 	if err != nil {
-		return nil, renderCommandError(command, &commandError{Code: "config_invalid", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+		return nil, nil, renderCommandError(command, &commandError{Code: "config_invalid", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
 	}
 	db, err := openStore(cfg)
 	if err != nil {
-		return nil, renderCommandError(command, &commandError{Code: "database_unavailable", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+		return nil, nil, renderCommandError(command, &commandError{Code: "database_unavailable", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
 	}
-	return db, exitOK
+	return cfg, db, exitOK
 }
 
 func runTaskCreateContract(args []string) int {

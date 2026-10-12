@@ -1,4 +1,8 @@
 import { createContext, memo, useCallback, useContext, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
+import type { ItemImage } from "../lib/agentUi"
+import type { DocumentImage as NamedImage } from "../lib/documentImages"
+import { DocumentImage, DocumentImages } from "../components/DocumentImages"
+import { useDocumentImages } from "../hooks/useDocumentImages"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { ArrowLeft, MessageSquarePlus, PanelRight, Send, X } from "lucide-react"
@@ -48,7 +52,11 @@ function sourceBlock(markdown: string, node?: MarkdownNode, kind = "block"): Sel
   const fencedCode = kind === "code block" && /^(?:```|~~~)/.test(text)
   if (!outermost && !fencedCode) return null
   const excerpt = text.replace(/^#{1,6}\s+/, "").replace(/^[-*>+\d.)\s]+/, "").replace(/\s+/g, " ").trim().slice(0, 72)
-  return { start: byteOffset(markdown, start), end: byteOffset(markdown, end), characterStart: start, characterEnd: end, text, label: `Comment on ${kind} beginning ${excerpt}` }
+  // A block that is one image is named by what the image shows, not by the
+  // Markdown that places it.
+  const image = /^!\[([^\]]*)\]\([^)]*\)$/.exec(text.trim())
+  const label = image ? `Comment on image ${image[1] || "with no description"}` : `Comment on ${kind} beginning ${excerpt}`
+  return { start: byteOffset(markdown, start), end: byteOffset(markdown, end), characterStart: start, characterEnd: end, text, label }
 }
 
 function commentState(comments: PlanComment[]) {
@@ -164,10 +172,16 @@ const planMarkdownComponents: Components = {
   th: ({ children }) => <div role="columnheader" className="p-2 text-left">{children}</div>,
   td: ({ children }) => <div role="cell" className="p-2">{children}</div>,
   code: ({ children }) => <code className="rounded bg-black/40 px-1 font-mono text-sm">{children}</code>,
+  img: ({ src, alt }) => <DocumentImage src={src} alt={alt} />,
 }
 
-const PlanDocument = memo(function PlanDocument({ markdown, revisionID, comments, selectedBlock, onUpdateComment, onSelect, onDragStart, onDragEnter, onDragEnd }: {
+// A plan or a message with no image files: one list, so that what is drawn
+// from it keeps its identity.
+const NO_IMAGES: NamedImage[] = []
+
+const PlanDocument = memo(function PlanDocument({ markdown, images, revisionID, comments, selectedBlock, onUpdateComment, onSelect, onDragStart, onDragEnter, onDragEnd }: {
   markdown: string
+  images: ItemImage[]
   revisionID: string
   comments: PlanComment[]
   selectedBlock: SelectedBlock | null
@@ -184,7 +198,7 @@ const PlanDocument = memo(function PlanDocument({ markdown, revisionID, comments
 
   return <PlanRenderContext.Provider value={renderContext}><main data-plan-document className="overflow-y-auto p-3 md:p-6"><div className="mx-auto max-w-4xl">
     <article className="rounded border border-zinc-800 bg-zinc-950 p-5 leading-7">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkOutermostBlocks]} components={planMarkdownComponents}>{markdown}</ReactMarkdown>
+      <DocumentImages images={images}><ReactMarkdown remarkPlugins={[remarkGfm, remarkOutermostBlocks]} components={planMarkdownComponents}>{markdown}</ReactMarkdown></DocumentImages>
     </article>
     {generalComments.length > 0 && <section role="region" aria-label="General feedback" className="mt-6 rounded border border-zinc-800 bg-zinc-950 p-5"><h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">General feedback</h2><div className="space-y-2">{generalComments.map(item => <EditableComment key={item.id} comment={item} onSave={body => onUpdateComment(item, body)}/>)}</div></section>}
   </div></main></PlanRenderContext.Provider>
@@ -195,6 +209,7 @@ export function PlanPage() {
   const id = decodeURIComponent(planId)
   const { baseUrl } = useServer()
   const { data, loading, error, refresh } = usePlan(id)
+  const images = useDocumentImages(data?.images)
   const navigate = useNavigate()
   const commentInput = useRef<HTMLTextAreaElement>(null)
   const dragAnchor = useRef<SelectedBlock | null>(null)
@@ -325,7 +340,7 @@ export function PlanPage() {
     {actionError && <InlineNotice variant="error" className="rounded-none border-x-0 border-t-0 px-5 py-2 text-xs">{actionError}</InlineNotice>}
     {notice && <InlineNotice variant={notice.variant} className="rounded-none border-x-0 border-t-0 px-5 py-2 text-xs">{notice.message}</InlineNotice>}
     <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_25rem]">
-      <PlanDocument markdown={data.revision.markdown} revisionID={data.revision.id} comments={localComments} selectedBlock={selectedBlock} onUpdateComment={editComment} onSelect={selectBlock} onDragStart={startDrag} onDragEnter={extendDrag} onDragEnd={endDrag}/>
+      <PlanDocument markdown={data.revision.markdown} images={images} revisionID={data.revision.id} comments={localComments} selectedBlock={selectedBlock} onUpdateComment={editComment} onSelect={selectBlock} onDragStart={startDrag} onDragEnter={extendDrag} onDragEnd={endDrag}/>
       <aside className={`${feedbackOpen ? "fixed inset-2 z-50 flex shadow-2xl" : "hidden"} min-h-0 flex-col overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950 p-4 lg:static lg:flex lg:rounded-none lg:border-y-0 lg:border-r-0`}>
         <div className="-mx-4 -mt-4 mb-4 flex min-h-14 shrink-0 items-center justify-between border-b border-zinc-800 px-4 lg:hidden">
           <h2 className="text-sm font-semibold text-zinc-200">Plan feedback</h2>
@@ -338,7 +353,7 @@ export function PlanPage() {
           <Button size="sm" disabled={busy || !comment.trim()} onClick={() => void submitComment()} className="mt-2">{busy ? "Saving…" : "Add draft comment"}</Button>
           {priorRevisionComments.length > 0 && <details className="mt-4 text-sm text-zinc-400"><summary className="cursor-pointer text-xs font-semibold uppercase text-zinc-500">Prior revision feedback ({priorRevisionComments.length})</summary><div className="mt-2 space-y-2">{priorRevisionComments.map(item => <div key={item.id} className="rounded border border-zinc-800 p-2"><blockquote className="line-clamp-2 border-l border-zinc-700 pl-2 text-xs text-zinc-500">{item.selected_text}</blockquote><p className="mt-1">{item.body}</p></div>)}</div></details>}
         </div>
-        <div className="mt-6 border-t border-zinc-800 pt-4"><h2 className="text-xs font-semibold uppercase text-zinc-500">Questions & answers</h2><div className="my-3 space-y-2">{data.messages.map(message => <div key={message.id} className={`rounded p-2 ${message.author === "user" ? "bg-indigo-950/40" : "bg-zinc-900"}`}><ReviewMessageBody body={message.body}/></div>)}</div><div className="flex gap-2"><textarea aria-label="Question for plan agent" value={question} onChange={event => setQuestion(event.target.value)} onKeyDown={event => keyboardSubmit(event, () => void ask(), busy || !question.trim())} className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 p-2 text-sm" placeholder="Ask the agent…"/><Button variant="secondary" size="icon" aria-label="Ask plan agent" disabled={busy || !question.trim()} onClick={() => void ask()}><Send size={15}/></Button></div></div>
+        <div className="mt-6 border-t border-zinc-800 pt-4"><h2 className="text-xs font-semibold uppercase text-zinc-500">Questions & answers</h2><div className="my-3 space-y-2">{data.messages.map(message => <div key={message.id} className={`rounded p-2 ${message.author === "user" ? "bg-indigo-950/40" : "bg-zinc-900"}`}><ReviewMessageBody body={message.body} images={data.message_images?.[message.id] ?? NO_IMAGES}/></div>)}</div><div className="flex gap-2"><textarea aria-label="Question for plan agent" value={question} onChange={event => setQuestion(event.target.value)} onKeyDown={event => keyboardSubmit(event, () => void ask(), busy || !question.trim())} className="min-w-0 flex-1 rounded border border-zinc-700 bg-zinc-900 p-2 text-sm" placeholder="Ask the agent…"/><Button variant="secondary" size="icon" aria-label="Ask plan agent" disabled={busy || !question.trim()} onClick={() => void ask()}><Send size={15}/></Button></div></div>
       </aside>
     </div>
   </div>

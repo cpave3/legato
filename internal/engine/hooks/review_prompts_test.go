@@ -19,6 +19,10 @@ func TestChimeraGeneralPromptTeachesReviewCapture(t *testing.T) {
 		"do not implement until approved",
 		"legato plan complete",
 		"legato-plan skill",
+		// Image files in plans, narration and answers
+		"assets/board.png",
+		"--narration-file <path>",
+		"image file",
 		"granular reading order",
 		"legato review chapter",
 		"--include <path>:<1-based-hunk>",
@@ -88,6 +92,9 @@ func TestConductorPromptTeachesReviewPacket(t *testing.T) {
 	for _, want := range []string{
 		"Legato-Subtask:",
 		"reasonable semantic commit",
+		// Image files in narration and answers
+		"--narration-file <path>",
+		"image file",
 		"granular reading order",
 		"legato review chapter",
 		"--include <path>:<1-based-hunk>",

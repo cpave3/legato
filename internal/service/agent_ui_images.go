@@ -277,7 +277,14 @@ func (s *AgentUIService) OpenImage(taskID, file string) (*AgentUIImageFile, erro
 	if s.imageDir == "" || !ValidPastedImageTaskID(taskID) || !agentUIImageFile.MatchString(file) {
 		return nil, store.ErrNotFound
 	}
-	opened, err := os.Open(filepath.Join(s.imageDir, taskID, file))
+	return openImageCopy(filepath.Join(s.imageDir, taskID, file))
+}
+
+// openImageCopy opens a kept copy of an image for reading. It answers
+// store.ErrNotFound for anything that is not a regular file holding an image
+// Legato shows.
+func openImageCopy(path string) (*AgentUIImageFile, error) {
+	opened, err := os.Open(path)
 	if err != nil {
 		return nil, store.ErrNotFound
 	}

@@ -1,0 +1,4 @@
+ALTER TABLE plan_revisions ADD COLUMN images TEXT NOT NULL DEFAULT '';
+ALTER TABLE plan_transcript ADD COLUMN images TEXT NOT NULL DEFAULT '';
+ALTER TABLE review_steps ADD COLUMN images TEXT NOT NULL DEFAULT '';
+ALTER TABLE review_transcript ADD COLUMN images TEXT NOT NULL DEFAULT '';

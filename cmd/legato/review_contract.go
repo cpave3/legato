@@ -25,11 +25,11 @@ func selectedReviewService(command string, parsed parsedArgs, jsonMode bool) (*s
 	if name == "" {
 		name = os.Getenv("LEGATO_REVIEW_NAME")
 	}
-	db, code := openCommandStore(command, jsonMode)
+	cfg, db, code := openCommandStoreWithConfig(command, jsonMode)
 	if db == nil {
 		return nil, "", func() {}, code
 	}
-	svc := service.NewReviewService(db, nil, nil)
+	svc := newReviewService(cfg, db, nil, nil)
 	tour, err := svc.EnsureReviewTour(ctx(), taskID, name)
 	if err != nil {
 		db.Close()
@@ -106,6 +106,16 @@ func runReviewChapterEditContract(args []string) int {
 			return renderCommandError(command, usageError("conflicting_input", "--narration conflicts with positional narration or --clear-narration"), jsonMode)
 		}
 		a.Narration = stringPointer(parsed.Values["narration"])
+	}
+	if parsed.Present["narration-file"] {
+		if a.Narration != nil || parsed.Present["clear-narration"] {
+			return renderCommandError(command, usageError("conflicting_input", "--narration-file conflicts with other narration input and with --clear-narration"), jsonMode)
+		}
+		narration, inputErr := readNamedTextInput("narration", "", "--narration-file", "", false, parsed.Values["narration-file"], true, os.Stdin)
+		if inputErr != nil {
+			return renderCommandError(command, inputErr, jsonMode)
+		}
+		a.Narration, a.NarrationDir = stringPointer(narration), markdownInputDir(parsed.Values["narration-file"])
 	}
 	if parsed.Present["clear-narration"] {
 		a.Narration = stringPointer("")

@@ -55,8 +55,8 @@ func (s *Store) InsertPlanRevisionWithOrigins(ctx context.Context, plan Plan, re
 		return err
 	}
 	if _, err := tx.NamedExecContext(ctx, `
-		INSERT INTO plan_revisions (id, plan_id, revision, markdown, manifest_json)
-		VALUES (:id, :plan_id, :revision, :markdown, :manifest_json)`, revision); err != nil {
+		INSERT INTO plan_revisions (id, plan_id, revision, markdown, manifest_json, images)
+		VALUES (:id, :plan_id, :revision, :markdown, :manifest_json, :images)`, revision); err != nil {
 		return err
 	}
 	for _, question := range questions {
@@ -311,9 +311,9 @@ func (s *Store) ListPlanRevisions(ctx context.Context, planID string) ([]PlanRev
 
 func (s *Store) InsertPlanMessage(ctx context.Context, message PlanMessage, delivered bool) (*PlanMessage, error) {
 	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO plan_transcript (plan_id, revision_id, thread_id, kind, author, body, delivered_at)
-		VALUES (?, ?, ?, ?, ?, ?, CASE WHEN ? THEN datetime('now') ELSE NULL END)`,
-		message.PlanID, message.RevisionID, message.ThreadID, message.Kind, message.Author, message.Body, delivered)
+		INSERT INTO plan_transcript (plan_id, revision_id, thread_id, kind, author, body, images, delivered_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN datetime('now') ELSE NULL END)`,
+		message.PlanID, message.RevisionID, message.ThreadID, message.Kind, message.Author, message.Body, message.Images, delivered)
 	if err != nil {
 		return nil, err
 	}
@@ -352,4 +352,40 @@ func (s *Store) DeletePlan(ctx context.Context, planID string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// ListPlanImageSets returns, for every plan, the images column of each of
+// its revisions and messages that has one. A plan with none is still listed,
+// so that a caller can tell a plan with no images from a plan that is gone.
+func (s *Store) ListPlanImageSets(ctx context.Context) (map[string][]string, error) {
+	return s.listImageSets(ctx, "SELECT id FROM plans", `
+		SELECT plan_id, images FROM plan_revisions WHERE images != ''
+		UNION ALL SELECT plan_id, images FROM plan_transcript WHERE images != ''`)
+}
+
+func (s *Store) listImageSets(ctx context.Context, ownersQuery, imagesQuery string) (map[string][]string, error) {
+	var owners []string
+	if err := s.db.SelectContext(ctx, &owners, ownersQuery); err != nil {
+		return nil, err
+	}
+	sets := make(map[string][]string, len(owners))
+	for _, owner := range owners {
+		sets[owner] = nil
+	}
+	rows, err := s.db.QueryContext(ctx, imagesQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var owner, images string
+		if err := rows.Scan(&owner, &images); err != nil {
+			return nil, err
+		}
+		// What belongs to an owner that is gone is named by nothing.
+		if _, live := sets[owner]; live {
+			sets[owner] = append(sets[owner], images)
+		}
+	}
+	return sets, rows.Err()
 }
