@@ -62,7 +62,7 @@ type VoiceService interface {
 	IsRecording() bool
 	Stop() (string, error)
 	Transcribe(ctx context.Context) (string, error)
-	Deliver(ctx context.Context, tmuxSession, agentKind, text string, autoSend bool) error
+	Deliver(ctx context.Context, taskID, tmuxSession, agentKind, text string, autoSend bool) error
 	Levels() []float64
 	Cleanup()
 	AutoSend() bool
@@ -218,6 +218,7 @@ type App struct {
 	voiceAutoSend            bool
 	voiceMicDevice           string
 	voiceRecording           bool
+	voiceTargetTask          string
 	voiceTargetSession       string
 	voiceTargetKind          string
 	worktreeSvc              WorktreeService
@@ -2765,6 +2766,7 @@ func (a App) handleVoiceToggle(msg agents.VoiceToggleMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		a.voiceRecording = true
+		a.voiceTargetTask = msg.TaskID
 		a.voiceTargetSession = msg.TmuxSession
 		a.voiceTargetKind = msg.AgentKind
 		if a.voiceTargetSession == "" {
@@ -2782,6 +2784,7 @@ func (a App) handleVoiceToggle(msg agents.VoiceToggleMsg) (tea.Model, tea.Cmd) {
 	a.agentView, _ = a.agentView.Update(agents.VoiceTranscribingMsg{})
 
 	svc := a.voiceSvc
+	taskID := a.voiceTargetTask
 	session := a.voiceTargetSession
 	agentKind := a.voiceTargetKind
 	autoSend := a.voiceAutoSend
@@ -2791,7 +2794,7 @@ func (a App) handleVoiceToggle(msg agents.VoiceToggleMsg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			return agents.VoiceTranscriptionMsg{Err: err.Error()}
 		}
-		if err := svc.Deliver(context.Background(), session, agentKind, text, autoSend); err != nil {
+		if err := svc.Deliver(context.Background(), taskID, session, agentKind, text, autoSend); err != nil {
 			return agents.VoiceTranscriptionMsg{Err: err.Error()}
 		}
 		return agents.VoiceTranscriptionMsg{Text: text}

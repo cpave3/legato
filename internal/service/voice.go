@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -27,14 +28,22 @@ type Recorder interface {
 	Cleanup()
 }
 
-// VoiceService orchestrates the voice-to-tmux flow: record audio, transcribe
-// via a whisper-compatible endpoint, and deliver the text to an agent's tmux
-// pane with adapter-appropriate trailing Enters.
+// VoiceAgents is what voice delivery needs of the agent service: whether an
+// agent can be reached directly, sending to it that way, and its adapter.
+type VoiceAgents interface {
+	AdapterFor(kind string) AIToolAdapter
+	HasChimeraEndpoint(ctx context.Context, taskID string) bool
+	SendMessage(ctx context.Context, taskID, message string) error
+}
+
+// VoiceService orchestrates dictation: record audio, transcribe via a
+// whisper-compatible endpoint, and deliver the text to an agent, over its
+// native endpoint when it has one and through its tmux pane otherwise.
 type VoiceService struct {
 	whisper   WhisperClient
 	recorder  Recorder
 	tmux      TmuxManager
-	agents    AgentService
+	agents    VoiceAgents
 	autoSend  bool
 	micDevice string
 }
@@ -47,7 +56,7 @@ type VoiceServiceOptions struct {
 
 // NewVoiceService creates a voice service with a real whisper client and audio
 // recorder. The whisperURL should be the full transcription endpoint.
-func NewVoiceService(whisperURL string, tmux TmuxManager, agents AgentService, opts VoiceServiceOptions) *VoiceService {
+func NewVoiceService(whisperURL string, tmux TmuxManager, agents VoiceAgents, opts VoiceServiceOptions) *VoiceService {
 	return &VoiceService{
 		whisper:   whisper.NewClient(whisperURL),
 		recorder:  audio.New(),
@@ -111,13 +120,30 @@ func (v *VoiceService) TranscribePCM(ctx context.Context, pcmData []byte, sample
 	return text, nil
 }
 
-// Deliver sends transcribed text to the agent's tmux pane. When autoSend is
-// true, it resolves the adapter for the given agentKind and sends the
-// adapter-specified number of trailing Enter keys (default 1, codex uses 2).
-// When autoSend is false, only the text is sent without any Enter keys.
-func (v *VoiceService) Deliver(ctx context.Context, tmuxSession, agentKind, text string, autoSend bool) error {
+// Deliver gives transcribed text to the agent of taskID.
+//
+// With autoSend the text is a message. An agent with a native endpoint (a
+// Chimera session, or a Claude Code or Codex session through its bridge) gets
+// it over that endpoint: an idle agent starts a turn on it and a busy one
+// reads it at its next step, with no keystroke timing involved. An agent
+// without one, or whose endpoint does not take the message, has it typed into
+// its tmux pane, followed by the Enter keys its adapter asks for (1 by
+// default, 2 for Codex).
+//
+// Without autoSend the text is a draft the person finishes at the terminal.
+// It is always typed, with no Enter: an endpoint has no prompt box to leave
+// it in.
+func (v *VoiceService) Deliver(ctx context.Context, taskID, tmuxSession, agentKind, text string, autoSend bool) error {
 	if text == "" {
 		return nil
+	}
+
+	if autoSend && taskID != "" && v.agents != nil && v.agents.HasChimeraEndpoint(ctx, taskID) {
+		err := v.sendNative(ctx, taskID, text)
+		if err == nil {
+			return nil
+		}
+		log.Printf("voice: native delivery to %s failed, typing into its pane instead: %v", taskID, err)
 	}
 
 	if err := v.tmux.SendKeys(tmuxSession, text); err != nil {
@@ -145,6 +171,16 @@ func (v *VoiceService) Deliver(ctx context.Context, tmuxSession, agentKind, text
 	}
 
 	return nil
+}
+
+// sendNative sends over the agent's endpoint. Queued when the agent service
+// can, so a message spoken during a turn joins that turn instead of being
+// refused as a second prompt.
+func (v *VoiceService) sendNative(ctx context.Context, taskID, text string) error {
+	if queuer, ok := v.agents.(AgentMessageQueuer); ok {
+		return queuer.QueueMessage(ctx, taskID, text)
+	}
+	return v.agents.SendMessage(ctx, taskID, text)
 }
 
 // AutoSend returns the configured autoSend setting.

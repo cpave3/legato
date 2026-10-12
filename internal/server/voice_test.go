@@ -17,6 +17,7 @@ type stubVoiceService struct {
 	transcribeErr   error
 	delivered       bool
 	deliverSession  string
+	deliverTask     string
 	deliverKind     string
 	deliverText     string
 	deliverAutoSend bool
@@ -31,8 +32,9 @@ func (s *stubVoiceService) TranscribePCM(ctx context.Context, pcm []byte, sample
 	return s.transcribeText, nil
 }
 
-func (s *stubVoiceService) Deliver(ctx context.Context, tmuxSession, agentKind, text string, autoSend bool) error {
+func (s *stubVoiceService) Deliver(ctx context.Context, taskID, tmuxSession, agentKind, text string, autoSend bool) error {
 	s.delivered = true
+	s.deliverTask = taskID
 	s.deliverSession = tmuxSession
 	s.deliverKind = agentKind
 	s.deliverText = text
@@ -69,6 +71,10 @@ func TestVoiceTranscribe_Success(t *testing.T) {
 	}
 	if !vs.delivered {
 		t.Error("Deliver was not called")
+	}
+	// The task is named too: delivery goes over its native endpoint when it has one.
+	if vs.deliverTask != "REX-1" {
+		t.Errorf("deliverTask = %q, want %q", vs.deliverTask, "REX-1")
 	}
 	if vs.deliverSession != "legato-REX-1" {
 		t.Errorf("deliverSession = %q, want %q", vs.deliverSession, "legato-REX-1")
@@ -217,7 +223,7 @@ func (e *voiceTestError) Error() string { return e.msg }
 // newTestServerWithVoice creates a test server with an optional voice service.
 func newTestServerWithVoice(vs interface {
 	TranscribePCM(context.Context, []byte, int) (string, error)
-	Deliver(context.Context, string, string, string, bool) error
+	Deliver(context.Context, string, string, string, string, bool) error
 	AutoSend() bool
 }) *testServer {
 	s := NewWithSwarm(nil, nil, nil, "127.0.0.1:0", nil, nil, "")

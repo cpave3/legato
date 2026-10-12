@@ -2148,6 +2148,7 @@ type fakeVoiceService struct {
 	transcribed      bool
 	delivered        bool
 	deliverText      string
+	deliverTask      string
 	deliverSession   string
 	deliverAutoSend  bool
 	transcribeText   string
@@ -2168,9 +2169,10 @@ func (f *fakeVoiceService) Transcribe(ctx context.Context) (string, error) {
 	f.transcribed = true
 	return f.transcribeText, f.transcribeErr
 }
-func (f *fakeVoiceService) Deliver(ctx context.Context, tmuxSession, agentKind, text string, autoSend bool) error {
+func (f *fakeVoiceService) Deliver(ctx context.Context, taskID, tmuxSession, agentKind, text string, autoSend bool) error {
 	f.delivered = true
 	f.deliverText = text
+	f.deliverTask = taskID
 	f.deliverSession = tmuxSession
 	f.deliverAutoSend = autoSend
 	return nil
@@ -2256,5 +2258,8 @@ func TestVoiceTranscriptionDeliversText(t *testing.T) {
 	}
 	if vs.deliverText != "hello from voice" {
 		t.Errorf("deliverText = %q, want %q", vs.deliverText, "hello from voice")
+	}
+	if vs.deliverTask != "REX-1" {
+		t.Errorf("deliverTask = %q, want REX-1: delivery needs the task to reach its native endpoint", vs.deliverTask)
 	}
 }

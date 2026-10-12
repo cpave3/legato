@@ -61,7 +61,7 @@ func TestVoiceService_DeliverNoAutoSendSendsTextOnly(t *testing.T) {
 		autoSend: false,
 	}
 
-	err := vs.Deliver(context.Background(), "legato-TASK-1", "shell", "hello agent", false)
+	err := vs.Deliver(context.Background(), "TASK-1", "legato-TASK-1", "shell", "hello agent", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,11 +81,7 @@ func TestVoiceService_DeliverAutoSendDefaultOneEnter(t *testing.T) {
 	mt.sessions["legato-TASK-1"] = true
 
 	adpt := &fakeAdapter{name: "claude-code"}
-	agents := &agentService{
-		tmux:     mt,
-		adapter:  adpt,
-		adapters: map[string]AIToolAdapter{"claude-code": adpt},
-	}
+	agents := &fakeVoiceAgents{adapters: map[string]AIToolAdapter{"claude-code": adpt}}
 
 	vs := &VoiceService{
 		tmux:     mt,
@@ -93,7 +89,7 @@ func TestVoiceService_DeliverAutoSendDefaultOneEnter(t *testing.T) {
 		autoSend: true,
 	}
 
-	err := vs.Deliver(context.Background(), "legato-TASK-1", "claude-code", "hello agent", true)
+	err := vs.Deliver(context.Background(), "TASK-1", "legato-TASK-1", "claude-code", "hello agent", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,11 +109,7 @@ func TestVoiceService_DeliverAutoSendCodexTwoEnters(t *testing.T) {
 	mt.sessions["legato-TASK-1"] = true
 
 	adpt := &codexDoubleEnterAdapter{fakeAdapter{name: "codex"}}
-	agents := &agentService{
-		tmux:     mt,
-		adapter:  adpt,
-		adapters: map[string]AIToolAdapter{"codex": adpt},
-	}
+	agents := &fakeVoiceAgents{adapters: map[string]AIToolAdapter{"codex": adpt}}
 
 	vs := &VoiceService{
 		tmux:     mt,
@@ -125,7 +117,7 @@ func TestVoiceService_DeliverAutoSendCodexTwoEnters(t *testing.T) {
 		autoSend: true,
 	}
 
-	err := vs.Deliver(context.Background(), "legato-TASK-1", "codex", "hello agent", true)
+	err := vs.Deliver(context.Background(), "TASK-1", "legato-TASK-1", "codex", "hello agent", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +187,7 @@ func TestVoiceService_DeliverEmptyTextNoOp(t *testing.T) {
 	mt.sessions["legato-TASK-1"] = true
 
 	vs := &VoiceService{tmux: mt, autoSend: false}
-	err := vs.Deliver(context.Background(), "legato-TASK-1", "shell", "", false)
+	err := vs.Deliver(context.Background(), "TASK-1", "legato-TASK-1", "shell", "", false)
 	if err != nil {
 		t.Fatalf("empty text should not error: %v", err)
 	}
@@ -232,6 +224,107 @@ func TestVoiceService_TranscribePCMError(t *testing.T) {
 	_, err := vs.TranscribePCM(context.Background(), fakeWAVData(), 16000)
 	if err == nil {
 		t.Fatal("expected error from whisper client")
+	}
+}
+
+// fakeVoiceAgents stands for the agent service: which adapters exist, whether
+// the agent has a native endpoint, and what a message sent over it met.
+type fakeVoiceAgents struct {
+	adapters map[string]AIToolAdapter
+	native   bool
+	queueErr error
+	queued   []string
+}
+
+func (f *fakeVoiceAgents) AdapterFor(kind string) AIToolAdapter { return f.adapters[kind] }
+
+func (f *fakeVoiceAgents) HasChimeraEndpoint(ctx context.Context, taskID string) bool {
+	return f.native
+}
+
+func (f *fakeVoiceAgents) SendMessage(ctx context.Context, taskID, message string) error {
+	return f.QueueMessage(ctx, taskID, message)
+}
+
+func (f *fakeVoiceAgents) QueueMessage(ctx context.Context, taskID, message string) error {
+	if f.queueErr != nil {
+		return f.queueErr
+	}
+	f.queued = append(f.queued, taskID+": "+message)
+	return nil
+}
+
+func TestVoiceService_DeliverGoesOverTheNativeEndpointWhenTheAgentHasOne(t *testing.T) {
+	mt := newMockTmux()
+	mt.sessions["legato-TASK-1"] = true
+	agents := &fakeVoiceAgents{native: true}
+	vs := &VoiceService{tmux: mt, agents: agents, autoSend: true}
+
+	if err := vs.Deliver(context.Background(), "TASK-1", "legato-TASK-1", "claude-code", "hello agent", true); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(agents.queued) != 1 || agents.queued[0] != "TASK-1: hello agent" {
+		t.Errorf("sent over the endpoint = %v, want [TASK-1: hello agent]", agents.queued)
+	}
+	if raw, keys := mt.sentRawFor("legato-TASK-1"), mt.sentKeysFor("legato-TASK-1"); len(raw) != 0 || len(keys) != 0 {
+		t.Errorf("typed %v with keys %v, want nothing typed into the pane", raw, keys)
+	}
+}
+
+func TestVoiceService_DeliverTypesTheMessageWhenTheNativeEndpointFails(t *testing.T) {
+	mt := newMockTmux()
+	mt.sessions["legato-TASK-1"] = true
+	agents := &fakeVoiceAgents{native: true, queueErr: fmt.Errorf("connection refused")}
+	vs := &VoiceService{tmux: mt, agents: agents, autoSend: true}
+
+	if err := vs.Deliver(context.Background(), "TASK-1", "legato-TASK-1", "claude-code", "hello agent", true); err != nil {
+		t.Fatal(err)
+	}
+
+	if raw := mt.sentRawFor("legato-TASK-1"); len(raw) != 1 || raw[0] != "hello agent" {
+		t.Errorf("typed = %v, want [hello agent]", raw)
+	}
+	if keys := mt.sentKeysFor("legato-TASK-1"); len(keys) != 1 || keys[0] != "Enter" {
+		t.Errorf("keys = %v, want [Enter]", keys)
+	}
+}
+
+func TestVoiceService_DeliverTypesTheMessageForAnAgentWithNoNativeEndpoint(t *testing.T) {
+	mt := newMockTmux()
+	mt.sessions["legato-TASK-1"] = true
+	agents := &fakeVoiceAgents{native: false}
+	vs := &VoiceService{tmux: mt, agents: agents, autoSend: true}
+
+	if err := vs.Deliver(context.Background(), "TASK-1", "legato-TASK-1", "claude-code", "hello agent", true); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(agents.queued) != 0 {
+		t.Errorf("sent over an endpoint the agent does not have: %v", agents.queued)
+	}
+	if raw := mt.sentRawFor("legato-TASK-1"); len(raw) != 1 || raw[0] != "hello agent" {
+		t.Errorf("typed = %v, want [hello agent]", raw)
+	}
+}
+
+func TestVoiceService_DeliverLeavesAnUnsentDraftInThePane(t *testing.T) {
+	mt := newMockTmux()
+	mt.sessions["legato-TASK-1"] = true
+	// Without autosend the person finishes the message at the terminal, and
+	// a native endpoint has no prompt box to leave a draft in.
+	agents := &fakeVoiceAgents{native: true}
+	vs := &VoiceService{tmux: mt, agents: agents}
+
+	if err := vs.Deliver(context.Background(), "TASK-1", "legato-TASK-1", "claude-code", "hello agent", false); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(agents.queued) != 0 {
+		t.Errorf("sent a message the person had not finished: %v", agents.queued)
+	}
+	if raw, keys := mt.sentRawFor("legato-TASK-1"), mt.sentKeysFor("legato-TASK-1"); len(raw) != 1 || len(keys) != 0 {
+		t.Errorf("typed %v with keys %v, want the text and no Enter", raw, keys)
 	}
 }
 

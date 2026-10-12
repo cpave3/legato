@@ -10,7 +10,7 @@ import (
 // delivery. The concrete implementation is service.VoiceService.
 type VoiceService interface {
 	TranscribePCM(ctx context.Context, pcm []byte, sampleRate int) (string, error)
-	Deliver(ctx context.Context, tmuxSession, agentKind, text string, autoSend bool) error
+	Deliver(ctx context.Context, taskID, tmuxSession, agentKind, text string, autoSend bool) error
 	AutoSend() bool
 }
 
@@ -74,7 +74,7 @@ func (s *Server) voiceTranscribeHandler() http.HandlerFunc {
 		}
 
 		session := "legato-" + req.AgentID
-		if err := s.voiceSvc.Deliver(r.Context(), session, req.AgentKind, text, s.voiceAutoSend); err != nil {
+		if err := s.voiceSvc.Deliver(r.Context(), req.AgentID, session, req.AgentKind, text, s.voiceAutoSend); err != nil {
 			resp.Text = ""
 			resp.Error = err.Error()
 		}
