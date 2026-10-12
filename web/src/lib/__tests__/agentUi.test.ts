@@ -27,6 +27,13 @@ describe("legatoUICall", () => {
     })
   })
 
+  it("recognises a video", () => {
+    expect(legatoUICall(tool("mcp__plugin_legato-tools_legato__show_video", { output: "Shown in Legato's side panel as the video \"Tour\" [legato-ui:ui-bbbbbbbbbb:2]." }, { title: "Tour", manifest: "/tmp/tour.manifest.json" }))).toEqual({
+      tool: "show_video", state: "shown", itemId: "ui-bbbbbbbbbb", revision: 2, title: "Tour", fallbackText: "",
+    })
+    expect(legatoUICall(tool("mcp_legato_show_x00005f_video"))?.tool).toBe("show_video")
+  })
+
   it("is pending while the call has no result", () => {
     expect(legatoUICall(tool("legato.show_card", undefined, { fallback_text: "27 C" }))).toEqual({
       tool: "show_card", state: "pending", title: "", fallbackText: "27 C",

@@ -42,8 +42,10 @@ function clampWidth(value: number): number {
   return Math.min(MAX_WIDTH_REM, Math.max(MIN_WIDTH_REM, value))
 }
 
-const EXTENSION: Record<AgentUIItem["format"], string> = { html: "html", markdown: "md", components: "json" }
-const MEDIA_TYPE: Record<AgentUIItem["format"], string> = { html: "text/html", markdown: "text/markdown", components: "application/json" }
+// What an item is saved as. A video is saved as its manifest: the file that
+// says what the video shows, which is what the agent wrote.
+const EXTENSION: Record<AgentUIItem["format"], string> = { html: "html", markdown: "md", components: "json", video: "manifest.json" }
+const MEDIA_TYPE: Record<AgentUIItem["format"], string> = { html: "text/html", markdown: "text/markdown", components: "application/json", video: "application/json" }
 
 function fileName(item: AgentUIItem): string {
   const stem = (item.title || item.id).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || item.id

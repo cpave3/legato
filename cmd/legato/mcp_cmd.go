@@ -58,7 +58,7 @@ func runMCPServe(args []string, in io.ReadCloser, out io.WriteCloser) int {
 	opts := cli.MCPOptions{
 		Store: db, TaskID: taskID, ExecutionID: executionID,
 		Version: mcpServerVersion(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
-		ImageDir: agentUIImageRoot(cfg),
+		ImageDir: agentUIImageRoot(cfg), VideoDir: agentUIVideoRoot(cfg),
 	}
 	// The peer tools reach other agents through tmux. Without it the rest of
 	// the tools still work, so its absence costs those three and no more.

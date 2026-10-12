@@ -50,7 +50,7 @@ var agentUIKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // agentUIFormats lists what each placement can draw.
 var agentUIFormats = map[string][]string{
-	AgentUIPanel:  {AgentUIFormatHTML, AgentUIFormatMarkdown, AgentUIFormatComponents},
+	AgentUIPanel:  {AgentUIFormatHTML, AgentUIFormatMarkdown, AgentUIFormatComponents, AgentUIFormatVideo},
 	AgentUIInline: {AgentUIFormatHTML, AgentUIFormatComponents},
 }
 
@@ -72,9 +72,12 @@ type AgentUIItem struct {
 	ResourceDomains []string `json:"resource_domains,omitempty"`
 	// Images are the image files this revision uses, by the name its content
 	// refers to each by.
-	Images    []AgentUIImage `json:"images,omitempty"`
-	CreatedAt string         `json:"created_at"`
-	UpdatedAt string         `json:"updated_at"`
+	Images []AgentUIImage `json:"images,omitempty"`
+	// Video is the video file of a video item. It is missing from an item
+	// read with its content when Legato's copy of the file is gone.
+	Video     *AgentUIVideo `json:"video,omitempty"`
+	CreatedAt string        `json:"created_at"`
+	UpdatedAt string        `json:"updated_at"`
 }
 
 // AgentUIShowInput is one request from an agent to show something.
@@ -92,6 +95,9 @@ type AgentUIShowInput struct {
 	// Images are image files the HTML or Markdown uses. The content refers to
 	// one as legato-image:<name>.
 	Images []AgentUIImageInput
+	// Video is the path of the video file of a video item, whose Content is
+	// the manifest that describes it.
+	Video string
 }
 
 // AgentUIOptions configures an AgentUIService.
@@ -102,6 +108,8 @@ type AgentUIOptions struct {
 	// ImageDir is where copies of the image files agents show are kept, a
 	// folder for each task. Without it an agent cannot show image files.
 	ImageDir string
+	// VideoDir is the same for video files.
+	VideoDir string
 }
 
 // AgentUIService stores what agents ask Legato to show and tells running
@@ -111,12 +119,13 @@ type AgentUIService struct {
 	bus      *events.Bus
 	domains  []string
 	imageDir string
+	videoDir string
 }
 
 // NewAgentUIService returns a service over s. bus may be nil in a process
 // with nobody to tell, such as a CLI command.
 func NewAgentUIService(s *store.Store, bus *events.Bus, opts AgentUIOptions) *AgentUIService {
-	return &AgentUIService{store: s, bus: bus, domains: append([]string(nil), opts.ResourceDomains...), imageDir: opts.ImageDir}
+	return &AgentUIService{store: s, bus: bus, domains: append([]string(nil), opts.ResourceDomains...), imageDir: opts.ImageDir, videoDir: opts.VideoDir}
 }
 
 // ResourceDomains returns the hosts an agent's HTML may load from.
@@ -131,6 +140,7 @@ func (s *AgentUIService) Show(ctx context.Context, in AgentUIShowInput) (*AgentU
 	in.Title = strings.TrimSpace(in.Title)
 	in.Key = strings.TrimSpace(in.Key)
 	in.FallbackText = strings.TrimSpace(in.FallbackText)
+	in.Video = strings.TrimSpace(in.Video)
 	files := in.Images
 	if in.Format == AgentUIFormatComponents {
 		encoded, err := encodeUIComponents(in.Components)
@@ -150,7 +160,15 @@ func (s *AgentUIService) Show(ctx context.Context, in AgentUIShowInput) (*AgentU
 		return nil, err
 	}
 	// Last, so that a request turned down for another reason leaves no files.
-	images, err := s.keepImages(in.TaskID, files)
+	var images string
+	var err error
+	if in.Format == AgentUIFormatVideo {
+		// A video item has one file, the video, kept where an item's image
+		// files are named.
+		images, err = s.keepVideo(in.TaskID, in.Video)
+	} else {
+		images, err = s.keepImages(in.TaskID, files)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +192,11 @@ func (s *AgentUIService) Get(ctx context.Context, id string, revision int) (*Age
 		return nil, err
 	}
 	item := agentUIItemFromStore(stored)
-	item.Images = s.storedImages(stored)
+	if item.Format == AgentUIFormatVideo {
+		item.Video = s.storedVideo(stored)
+	} else {
+		item.Images = s.storedImages(stored)
+	}
 	if item.Format == AgentUIFormatHTML {
 		item.ResourceDomains = s.ResourceDomains()
 	}
@@ -283,6 +305,12 @@ func validateAgentUIShow(in AgentUIShowInput) error {
 	if utf8.RuneCountInString(in.FallbackText) > agentUIMaxFallbackRunes {
 		return invalid("fallback_text is longer than %d characters", agentUIMaxFallbackRunes)
 	}
+	if in.Format == AgentUIFormatVideo {
+		return validateAgentUIVideo(in)
+	}
+	if in.Video != "" {
+		return invalid("only a video item takes a video file")
+	}
 	return validateAgentUIImages(in.Content, in.Images)
 }
 
@@ -302,7 +330,12 @@ func agentUIItemFromStore(item *store.AgentUIItem) *AgentUIItem {
 		Content: item.Content, FallbackText: item.FallbackText,
 		CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
 	}
-	out.Images = agentUIImagesFromStore(item.TaskID, item.Images)
+	// A revision's files are its images, or for a video item its video.
+	if item.Format == AgentUIFormatVideo {
+		out.Video = agentUIVideoFromStore(item.TaskID, item.Images)
+	} else {
+		out.Images = agentUIImagesFromStore(item.TaskID, item.Images)
+	}
 	return out
 }
 

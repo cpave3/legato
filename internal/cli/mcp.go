@@ -2,8 +2,11 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/ipc"
@@ -31,6 +34,9 @@ type MCPOptions struct {
 	// ImageDir is where Legato keeps its copies of the image files an agent
 	// shows. Without it the tools turn image files down.
 	ImageDir string
+	// VideoDir is the same for video files. Without it show_video turns
+	// every video down.
+	VideoDir string
 }
 
 // MCPPeers is the part of the agent service the peer tools use.
@@ -54,6 +60,7 @@ Use these tools without being asked. They are how you give the person something 
 - When you have an image file to show (a screenshot you took, a chart you rendered, a photo, a design mock-up), show the image; do not describe it. The image and image_grid components take the file's path and need nothing else: show_components puts them in the conversation, and show_artifact takes the same components for a gallery in the side panel. In HTML or Markdown of your own, list the files in images and write legato-image:<name> where an image's address goes.
 - When your answer is long or has structure (an architecture, an explanation that needs a diagram, a design, a plan, a report, anything longer than about a screen), prefer an artifact to a long reply: call show_artifact and it opens beside the conversation, where the person can keep it open. Call it again with the same key to revise it.
 - Custom HTML is yours to use in full when it gives the person a better experience: your own layout and CSS, inline SVG, JavaScript for interaction, a diagram or chart library. An architecture or an explanation is a page the person explores, not a document they scroll: let a Mermaid diagram carry the structure, style it as your own, and show the detail of a part when they click it. Never draw boxes with arrows typed as text. Markdown is for plain prose.
+- When a walk-through is better watched than read (how a change works, a tour of code the person does not know, what you built and why) and the libretto command is installed, make a narrated video. libretto --help describes a storyboard and libretto schema gives every field; libretto voices lists the voices, of which the kokoro and piper ones are local and free. Check the storyboard with libretto validate, which also estimates its length, and fix what it warns about; render it with --no-captions (with a paid voice, check a free libretto render --silent first); look at the .contact.png beside the video, and at one moment full size with libretto frame; then call show_video with the manifest render wrote. The person can pause the video and ask you about what is on screen; such a question comes with the time and what the video showed then.
 - After you show something, say in one sentence what it is, and do not repeat its content.
 - A short, plain answer stays plain text.
 
@@ -76,7 +83,7 @@ func MCPServerOptions(opts MCPOptions) mcpserver.Options {
 	tools := &mcpTools{
 		opts: opts,
 		ui: service.NewAgentUIService(opts.Store, nil, service.AgentUIOptions{
-			ResourceDomains: opts.ResourceDomains, ImageDir: opts.ImageDir,
+			ResourceDomains: opts.ResourceDomains, ImageDir: opts.ImageDir, VideoDir: opts.VideoDir,
 		}),
 	}
 	server.Instructions = MCPGuidance
@@ -118,7 +125,7 @@ type mcpTools struct {
 
 func (m *mcpTools) all() []mcpserver.Tool {
 	tools := []mcpserver.Tool{
-		m.showArtifact(), m.showCard(), m.showComponents(),
+		m.showArtifact(), m.showCard(), m.showComponents(), m.showVideo(),
 		m.sessionInfo(), m.taskContext(), m.addTaskNote(),
 	}
 	if m.opts.Agents != nil {
@@ -207,6 +214,66 @@ func (m *mcpTools) showArtifact() mcpserver.Tool {
 			Placement: service.AgentUIPanel, Format: format, Title: in.Title, Key: in.Key,
 			Content: in.Content, Components: in.Components, Images: in.Images,
 		}, fmt.Sprintf("Shown in Legato's side panel as %q", strings.TrimSpace(in.Title)))
+	})
+}
+
+type showVideoInput struct {
+	Manifest string `json:"manifest" jsonschema:"the .manifest.json file libretto render wrote beside the video, as an absolute path"`
+	Video    string `json:"video,omitempty" jsonschema:"the video file, as an absolute path. Leave it out for the video the manifest names, in the manifest's own folder"`
+	Title    string `json:"title" jsonschema:"a short name for the video, shown on its tab"`
+	Key      string `json:"key,omitempty" jsonschema:"a name of your own for this video; showing a new render under the same key replaces it as a new revision instead of adding another"`
+}
+
+// mcpVideoManifest is the one field of a manifest the tool itself reads: the
+// name of the video file beside it.
+type mcpVideoManifest struct {
+	Video string `json:"video"`
+}
+
+func (m *mcpTools) showVideo() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name:  "show_video",
+		Title: "Show a narrated video",
+		Description: "Shows a narrated video you rendered with libretto in a panel beside the conversation in Legato, with its chapters and captions. " +
+			"The person can pause it and ask you about that moment: the question then arrives with the time, the sentence being said and what was on screen, such as the file and the highlighted lines. " +
+			"Use it without being asked when a walk-through is better watched than read: how a change works, a tour of code, what you built and why. " +
+			"To make one: write a storyboard (run libretto --help and libretto schema for the format), check it with libretto validate, " +
+			"then render with a voice and --no-captions, because Legato draws the captions itself. A local voice is free; with a paid one, check a libretto render --silent first. " +
+			"Look at the .contact.png it writes before you show the video. " +
+			"Pass the .manifest.json that render wrote beside the video. " +
+			"To change a video after a question, edit the storyboard, render again and call this tool with the same key: unchanged scenes come from the cache.",
+		ReadOnly: true,
+	}, func(ctx context.Context, in showVideoInput) (mcpserver.Result, error) {
+		manifestPath := strings.TrimSpace(in.Manifest)
+		if manifestPath == "" {
+			return mcpserver.Result{}, fmt.Errorf("show_video needs manifest: the .manifest.json file libretto render wrote beside the video")
+		}
+		info, err := os.Stat(manifestPath)
+		if err != nil || !info.Mode().IsRegular() {
+			return mcpserver.Result{}, fmt.Errorf("there is no manifest file at %s", manifestPath)
+		}
+		if info.Size() > service.AgentUIMaxContentBytes {
+			return mcpserver.Result{}, fmt.Errorf("%s is %d bytes; a manifest may be %d at most", manifestPath, info.Size(), service.AgentUIMaxContentBytes)
+		}
+		content, err := os.ReadFile(manifestPath)
+		if err != nil {
+			return mcpserver.Result{}, fmt.Errorf("%s cannot be read", manifestPath)
+		}
+		video := strings.TrimSpace(in.Video)
+		if video == "" {
+			var manifest mcpVideoManifest
+			if err := json.Unmarshal(content, &manifest); err != nil || strings.TrimSpace(manifest.Video) == "" {
+				return mcpserver.Result{}, fmt.Errorf("%s names no video file; pass video, or pass the .manifest.json that libretto render wrote", manifestPath)
+			}
+			video = manifest.Video
+			if !filepath.IsAbs(video) {
+				video = filepath.Join(filepath.Dir(manifestPath), video)
+			}
+		}
+		return m.show(ctx, service.AgentUIShowInput{
+			Placement: service.AgentUIPanel, Format: service.AgentUIFormatVideo, Title: in.Title, Key: in.Key,
+			Content: string(content), Video: video,
+		}, fmt.Sprintf("Shown in Legato's side panel as the video %q", strings.TrimSpace(in.Title)))
 	})
 }
 

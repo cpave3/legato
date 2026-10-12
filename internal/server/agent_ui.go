@@ -21,6 +21,8 @@ type AgentUIService interface {
 	Delete(ctx context.Context, id string) error
 	// OpenImage opens Legato's copy of an image file an agent showed.
 	OpenImage(taskID, file string) (*service.AgentUIImageFile, error)
+	// OpenVideo opens Legato's copy of a video file an agent showed.
+	OpenVideo(taskID, file string) (*service.AgentUIVideoFile, error)
 }
 
 // SetAgentUIService enables the authenticated agent UI API.
@@ -141,6 +143,40 @@ func (s *Server) agentUIImageHandler() http.HandlerFunc {
 		}
 		defer image.Close()
 		serveImageCopy(w, r, image)
+	}
+}
+
+// agentUIVideoHandler gives out Legato's copies of the video files agents
+// showed. Like an image, a video is asked for with no token: a video element
+// cannot send one. What stands in for it is the address, the SHA-256 of the
+// video's content. The service gives out nothing but its own copies of
+// videos, and a range of one when the player seeks.
+func (s *Server) agentUIVideoHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		taskID, file, found := strings.Cut(strings.TrimPrefix(r.URL.Path, service.AgentUIVideoRoute), "/")
+		if !found || s.agentUI == nil {
+			s.writeError(w, http.StatusNotFound, "no such video")
+			return
+		}
+		video, err := s.agentUI.OpenVideo(taskID, file)
+		if err != nil {
+			s.writeError(w, http.StatusNotFound, "no such video")
+			return
+		}
+		defer video.Close()
+
+		header := w.Header()
+		header.Set("Content-Type", video.MediaType)
+		header.Set("X-Content-Type-Options", "nosniff")
+		// The address names the content, so what it answers never changes.
+		// private: a video an agent showed may hold the person's own code.
+		header.Set("Cache-Control", "private, max-age=31536000, immutable")
+		header.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+		http.ServeContent(w, r, "", video.ModTime, video)
 	}
 }
 

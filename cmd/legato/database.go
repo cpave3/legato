@@ -28,3 +28,8 @@ func workflowArtifactRoot(cfg *config.Config) string {
 func agentUIImageRoot(cfg *config.Config) string {
 	return filepath.Join(config.ResolveDataDir(cfg), "agent-ui-images")
 }
+
+// agentUIVideoRoot is the same for the video files agents show.
+func agentUIVideoRoot(cfg *config.Config) string {
+	return filepath.Join(config.ResolveDataDir(cfg), "agent-ui-videos")
+}

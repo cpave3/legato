@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -203,32 +202,6 @@ func keepImageContent(dir string, content []byte) (name string, isNew bool, err 
 	return name, true, nil
 }
 
-// pruneAgentUIFiles removes the files of a task's folder used longest ago,
-// past the number it keeps. Only files whose names match are counted.
-func pruneAgentUIFiles(dir string, names *regexp.Regexp, keep int) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	type kept struct {
-		name string
-		used time.Time
-	}
-	var files []kept
-	for _, entry := range entries {
-		if !names.MatchString(entry.Name()) {
-			continue
-		}
-		if info, err := entry.Info(); err == nil && info.Mode().IsRegular() {
-			files = append(files, kept{entry.Name(), info.ModTime()})
-		}
-	}
-	sort.Slice(files, func(a, b int) bool { return files[a].used.Before(files[b].used) })
-	for index := 0; index < len(files)-keep; index++ {
-		_ = os.Remove(filepath.Join(dir, files[index].name))
-	}
-}
-
 // agentUIOrphanGrace is how long a task's folder of images is left alone
 // after it last changed. Images are copied before the item that uses them is
 // stored, and another process may be between the two.
@@ -240,6 +213,12 @@ const agentUIOrphanGrace = time.Hour
 // it starts.
 func (s *AgentUIService) RemoveOrphanImages(ctx context.Context) error {
 	return s.removeOrphanFiles(ctx, s.imageDir)
+}
+
+// RemoveOrphanVideos does for video files what RemoveOrphanImages does for
+// images.
+func (s *AgentUIService) RemoveOrphanVideos(ctx context.Context) error {
+	return s.removeOrphanFiles(ctx, s.videoDir)
 }
 
 // removeOrphanFiles removes each task's folder under root when that task has

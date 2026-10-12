@@ -35,6 +35,7 @@ Legato is not the MCP host. The agent tool is, and a terminal agent cannot draw 
 | `show_artifact` | `title`, `key`, and either `content` with `format` (`html` default, or `markdown`) and `images`, or `components` | Stores an artifact and opens it in the side panel. |
 | `show_card` | `html`, `fallback_text`, `title`, `images`, `key` | Stores an HTML card, drawn in the conversation at the call. |
 | `show_components` | `components`, `fallback_text`, `title`, `key` | Stores a card built from Legato's own components (see below). |
+| `show_video` | `manifest`, `title`, `video`, `key` | Stores a narrated video an agent rendered with libretto and opens it in the side panel (see Videos). |
 | `session_info` | none | Task ID and title, agent tool, swarm role, working directory. |
 | `task_context` | none | The task as Markdown: description, linked ticket, repository details, durable notes. |
 | `add_task_note` | `body` | Records a durable Markdown note (`task_notes`, source `agent`). |
@@ -107,14 +108,14 @@ Checked with a question that names no tool ("compare these three search backends
 `internal/engine/store/agent_ui.go`, migration `063_agent_ui_items.sql`.
 
 - `agent_ui_items`: `id` (`ui-<10 hex>`), `task_id`, `execution_id`, `placement` (`panel` or `inline`), `item_key`, `revision`, timestamps. `(task_id, placement, item_key)` is unique when the key is set.
-- `agent_ui_item_revisions`: `(item_id, revision)`, `format` (`html`, `markdown`, `components`), `title`, `content`, `fallback_text`, and `images` (migration `064_agent_ui_item_images.sql`): the revision's image files as JSON, `[{name, file}]`, empty when it has none.
+- `agent_ui_item_revisions`: `(item_id, revision)`, `format` (`html`, `markdown`, `components`, `video`), `title`, `content`, `fallback_text`, and `images` (migration `064_agent_ui_item_images.sql`): the revision's files as JSON, `[{name, file}]`, empty when it has none. They are its image files, or for a `video` item its one video file, under the name `video`.
 
 `task_id` is the agent's own identity, which is a sub-task ID for a swarm worker, so it has no foreign key: `Store.DeleteTask` removes a task's items and its workers', and `Store.DeleteSubtask` a worker's.
 
 `service.AgentUIService` owns the rules (`internal/service/agent_ui.go`):
 
 - Content is at most 1 MiB of valid UTF-8. An artifact needs a title; a card needs `fallback_text`, the same information as plain text.
-- An artifact is HTML, Markdown or components; a card is HTML or components.
+- An artifact is HTML, Markdown, components or a video; a card is HTML or components.
 - A task keeps 200 items. Past that, the items changed longest ago are removed, so a long session never reaches a point where nothing more can be shown. A card whose item is gone falls back to its text.
 - An item keeps its newest 20 revisions.
 
@@ -164,6 +165,48 @@ The item API names each image for the web UI: `images: [{name, url}]` on `GET /a
 - In HTML, see Images in a frame below.
 
 Checked in a browser at 1500 px and 390 px of width with an HTML artifact, a component artifact, a Markdown artifact and a component card: every image loaded, the lightbox opened from a click and from the keyboard, and Escape closed the lightbox without closing the artifact sheet behind it. A headless Claude Code session (Sonnet 5.5) told only "show me the screenshots in this folder" called `show_components` with one `image_grid` of the six files. That is one run.
+
+## Videos
+
+An agent can show a narrated video it rendered with [libretto](https://github.com/cpave3/libretto): `show_video` takes the `.manifest.json` that `libretto render` writes beside the MP4. The person watches it in the side panel, and can pause it and ask the agent about that moment.
+
+**How an agent learns to make one.** The guidance (`MCPGuidance`) names the commands an agent needs before it has looked the tool up: `libretto --help` and `libretto schema` for the format, `libretto voices` for a free local voice, `validate` (which also warns about what will not look as meant, and estimates the length), `render --no-captions`, the contact sheet and `libretto frame` for checking the result, then `show_video`. libretto's own skill file says the same at more length; an agent does not need it.
+
+This was tried three times, each with two agents that knew nothing of libretto and were asked to explain some code in a video of 60 to 90 seconds: one had only this guidance and the `show_video` description, the other only libretto's skill file. Every agent finished a video with no error from the tool. Between rounds, what they had stumbled on was fixed in libretto and in this guidance. The agent with only the guidance took 7:46 and six renders in the first round, and 5:44 and three renders in the third. That is one run of each per round, with a capable model; a smaller model, Codex and Chimera were not tried.
+
+**What is stored.** A video is an item of format `video`, in the panel only. Its content is the manifest, as libretto wrote it: JSON that says what is on screen and what is being said at every moment (scenes, chapters, captions, each action with its time, and the code a scene shows). Its one file is the video.
+
+- `show_video` reads the manifest (1 MiB at most, as any content) and takes the video the manifest names in its own folder, or the path given as `video`.
+- `AgentUIService` checks the manifest's `version` (1), that it has a duration and scenes, and nothing else: the web UI reads the rest. A manifest of another version is turned down with a message that says so.
+- Showing a new render under the same `key` is a revision, as for any item, and the revision stepper moves between cuts.
+
+**Keeping the file** (`internal/service/agent_ui_video.go`). The file is copied to `<data_dir>/agent-ui-videos/<task-id>/<sha256 of the content>.<ext>`, hashed while it is copied, since a video does not fit in memory as an image does. The folder is `0700` and a copy `0600`.
+
+- Only content that is MP4 or WebM is taken, up to 1 GiB; the file's name does not count.
+- A task keeps the 12 videos it showed most recently. An item whose copy is gone is read without `video`, and the player says the video is not stored any more.
+- `RemoveOrphanVideos` removes a task's folder when the task has nothing shown any more, as `RemoveOrphanImages` does.
+
+**The poster.** A video file can carry a cover picture, and libretto writes one into every video: a title card, or the first frame. A browser does not read it: a video element shows the page's `poster` or the video's first frame, never anything from the file. So Legato reads it when it stores the video (`mp4Cover` in `agent_ui_video_cover.go`: an MP4 is a tree of named boxes, and the picture is at `moov/udta/meta/ilst/covr/data`), keeps it with the task's images, and names it as the video's `poster`. The player passes it to the video element.
+
+- The picture is read from the boxes' headers; the video itself is never read. The search stops after 4096 boxes, and any length that does not fit its file ends it.
+- The poster is kept only when its content is one of the image kinds Legato shows. A video with no cover, with a cover of another kind, or in a Legato with no folder for images is stored with no poster and shown by its first frame: a poster is never a reason to turn a video down.
+- It is stored beside the video in the revision's files, under the name `poster`, and given out by the image route. It is not listed in the item's `images`.
+
+**Serving the file.** `GET /agent-ui-videos/{task_id}/{file}` gives out a copy, with byte ranges so the player can seek. It asks for no token, for a reason of its own: a `<video>` element cannot send one. As with an image, the address is the SHA-256 of the content, and the route gives out only its own copies, only content that is a video, with `nosniff` and a sandboxing content security policy.
+
+**The player** (`AgentVideoPlayer`, `web/src/lib/agentVideo.ts`). A video is drawn by Legato's own player, not in the sandboxed frame: that frame allows no media from a server (`media-src data: blob:`), and it could not put anything in the message box with the playback time. Nothing the agent wrote runs; the manifest is read as data.
+
+- The browser's own `<video controls>`, so full screen, speed and the keyboard work as people expect.
+- Before it is played the video shows its poster, when it carries one.
+- Captions are a text track built from the manifest's cues and shown by default. A manifest with `captionsBurned` gets none: the captions are in the picture. An agent should render with `--no-captions` for Legato.
+- The chapter list seeks on a click and marks the chapter that is playing.
+- A line under the video says what is on screen now: the file and the highlighted lines of a code scene.
+
+**Asking about a moment.** **Ask about this moment** pauses the video and puts a description of that moment in the agent's message box (`proposeComposerText`, as a card's `actions` button does): the time, the chapter and scene, the sentence being said, and what is on screen. For a code scene that is the file, the lines shown and the highlighted lines with their code, taken from the manifest's own copy, so it holds after the files change. The person writes the question after it and sends it, or does not. The answer arrives in the conversation as any reply does.
+
+`web/src/lib/agentVideo.ts` reads a manifest the way libretto's own `libretto at` does (`momentAt` and `describeMoment` there mirror `Manifest.At` and `Moment.Markdown` in libretto's `internal/service/manifest.go`). A change to one belongs in the other.
+
+Checked in a browser against a scratch Legato, with a 2:46 video shown through `legato mcp serve`: the video loaded and played, 49 captions were on a showing track, a click on a chapter seeked to it, and **Ask about this moment** at 1:16 put the scene's file and its two highlighted lines in the terminal session's message box and moved the focus there. No agent was asked a question in that check; what an agent does with one is not tested.
 
 ## Web UI
 
@@ -271,6 +314,7 @@ http://localhost:3080/agents?task=fekz3ove&artifact=ui-885e1b7a26
 - `GET /api/ui-items/{id}[?revision=N]` — one item with its content and, for HTML, `resource_domains`.
 - `DELETE /api/ui-items/{id}` — removes an item and its revisions.
 - `GET /agent-ui-images/{task_id}/{file}` — Legato's copy of an image file an agent showed. No token; see Image files.
+- `GET /agent-ui-videos/{task_id}/{file}` — Legato's copy of a video an agent showed, with byte ranges. No token; see Videos.
 
 The first three need the bearer token. Agents write through the MCP server, never through this API.
 
@@ -299,12 +343,12 @@ A session must be started again to gain or lose the server: agent tools read the
 - `internal/engine/mcpserver/` — a stdio MCP server from a list of tools, over the official Go SDK. It knows the protocol and nothing about Legato. `NewTool[In]` infers the input schema; `Serve` runs until the client goes away.
 - `internal/cli/mcp.go` — Legato's tools (`MCPServerOptions`), their names (`MCPToolNames`) and the guidance (`MCPGuidance`).
 - `cmd/legato/mcp_cmd.go` — the `legato mcp serve` command.
-- `internal/service/agent_ui.go`, `agent_ui_components.go` — `AgentUIService` and the component catalog. `agent_ui_images.go` — the copies of image files: keeping, pruning, opening one to serve. `task_note.go` — `AddTaskNote`, shared with the workflow `task.note` step.
+- `internal/service/agent_ui.go`, `agent_ui_components.go` — `AgentUIService` and the component catalog. `agent_ui_images.go` — the copies of image files: keeping, pruning, opening one to serve. `agent_ui_video.go` — the same for a video item's file, and the check of its manifest. `task_note.go` — `AddTaskNote`, shared with the workflow `task.note` step.
 - `internal/engine/store/agent_ui.go` — persistence.
-- `internal/server/agent_ui.go` — the HTTP API, the image route and the WebSocket forwarder.
+- `internal/server/agent_ui.go` — the HTTP API, the image and video routes and the WebSocket forwarder.
 - `internal/engine/hooks/` — `claudemod/tools/` and `InstallClaudeToolsMod`; `SetMCPTools` and `SetToolsPrompt` on the Codex and Chimera adapters; `mcp_tools.go` for what they share.
 - `internal/tui/agents/shown.go`, `internal/tui/app_agent_ui.go` — the TUI's line and link for what an agent showed.
-- `web/src/lib/agentUi.ts`, `hooks/useAgentUI.ts`, `hooks/useArtifactPanel.ts`, `components/AgentArtifactPanel.tsx`, `AgentUICallCard.tsx`, `AgentUIItemView.tsx`, `AgentUIComponents.tsx`, `SandboxedHtml.tsx`, `ImageLightbox.tsx`, `ArtifactsButton.tsx`.
+- `web/src/lib/agentUi.ts`, `hooks/useAgentUI.ts`, `hooks/useArtifactPanel.ts`, `components/AgentArtifactPanel.tsx`, `AgentUICallCard.tsx`, `AgentUIItemView.tsx`, `AgentUIComponents.tsx`, `SandboxedHtml.tsx`, `ImageLightbox.tsx`, `ArtifactsButton.tsx`. `lib/agentVideo.ts`, `components/AgentVideoPlayer.tsx` — a video's manifest and its player.
 
 ## Debugging
 
@@ -317,6 +361,10 @@ A session must be started again to gain or lose the server: agent tools read the
 
 - Only the web UI draws artifacts and cards. The TUI's agents view says what the selected agent has shown and links to it (see In the TUI); in an attached terminal the person sees the tool call and the one-sentence reply. `agents.mcp.enabled: false` turns the tools off.
 - A view can propose a message. It cannot send one, call a tool, or read anything from Legato.
+- A question about a video is a proposed message: it is not kept with the video, so the video shows no thread of what was asked at which time, and a question for an agent whose session has ended goes nowhere. Review tours have both (`ArtifactInteractionService`); a video does not yet.
+- `show_video` needs the agent to have rendered a video already, with libretto on its `PATH`. Legato does not render one itself.
+- The panel is narrow, and code in a 1920 by 1080 video is small in it. The player's full-screen button is the way to read it.
+- **Download** on a video saves its manifest, not the MP4.
 - An image in a Markdown artifact opens on a click only; the keyboard does not reach it. In HTML and in components it does.
 - A page saved with **Download** holds each image twice when a script may ask for it (in the HTML and in what `legato.image` answers), so a page with large images is a large file.
 - Image files are not shown again from their original path: Legato's copy is what every revision draws. A task's 101st image removes its oldest.

@@ -16,7 +16,7 @@ import (
 // server and the one the TUI starts call it, so neither can drift.
 func wireAgentUI(srv *server.Server, cfg *config.Config, db *store.Store, bus *events.Bus) {
 	ui := service.NewAgentUIService(db, bus, service.AgentUIOptions{
-		ResourceDomains: cfg.Agents.MCP.ResourceDomains, ImageDir: agentUIImageRoot(cfg),
+		ResourceDomains: cfg.Agents.MCP.ResourceDomains, ImageDir: agentUIImageRoot(cfg), VideoDir: agentUIVideoRoot(cfg),
 	})
 	srv.SetAgentUIService(ui)
 	srv.StartAgentUIEvents()
@@ -25,6 +25,7 @@ func wireAgentUI(srv *server.Server, cfg *config.Config, db *store.Store, bus *e
 	// space only.
 	go func() {
 		_ = ui.RemoveOrphanImages(context.Background())
+		_ = ui.RemoveOrphanVideos(context.Background())
 	}()
 }
 

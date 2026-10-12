@@ -101,6 +101,17 @@ describe("AgentUICallCard", () => {
     expect(screen.getByText(/revision 3/i)).toBeTruthy()
   })
 
+  it("draws a video call as a line that opens the video in the side panel", async () => {
+    mockItems({})
+    const onOpen = vi.fn()
+    render(<AgentUICallCard call={{ tool: "show_video", state: "shown", itemId: "ui-bbbbbbbbbb", revision: 2, title: "Tour of the change", fallbackText: "" }} agentId="task-1" onOpen={onOpen} />, { wrapper })
+
+    fireEvent.click(screen.getByRole("button", { name: /Tour of the change/ }))
+
+    expect(onOpen).toHaveBeenCalledWith("ui-bbbbbbbbbb", 2)
+    expect(screen.getByText(/Video · revision 2/)).toBeTruthy()
+  })
+
   it("offers to open a card in the side panel", async () => {
     mockItems({ "ui-0123456789?revision=1": item({}) })
     const onOpen = vi.fn()
