@@ -74,3 +74,59 @@ describe("AgentUIComponents", () => {
     expect(screen.queryByText("?")).toBeNull()
   })
 })
+
+describe("AgentUIComponents with image files", () => {
+  const hero = "/home/me/shots/board.png"
+  const before = "/home/me/shots/before.png"
+  const after = "/home/me/shots/after.png"
+  const images = [
+    { name: hero, address: "http://legato.test/agent-ui-images/t/aaa.png" },
+    { name: before, address: "http://legato.test/agent-ui-images/t/bbb.png" },
+    { name: after, address: "http://legato.test/agent-ui-images/t/ccc.png" },
+  ]
+  const components: UIComponent[] = [
+    { type: "image", path: hero, alt: "The board", caption: "After the restyle" },
+    { type: "image_grid", items: [{ path: before, alt: "Before", caption: "Monday" }, { path: after, alt: "After" }] },
+  ]
+
+  it("draws an image from Legato's copy of the file, with its caption", () => {
+    render(<AgentUIComponents components={components} images={images} />)
+
+    const image = screen.getByAltText("The board") as HTMLImageElement
+    expect(image.src).toBe("http://legato.test/agent-ui-images/t/aaa.png")
+    expect(screen.getByText("After the restyle").tagName).toBe("FIGCAPTION")
+  })
+
+  it("opens an image full size when it is clicked", () => {
+    render(<AgentUIComponents components={components} images={images} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Show The board full size" }))
+
+    const dialog = screen.getByRole("dialog", { name: "The board, full size" })
+    expect((within(dialog).getByAltText("The board") as HTMLImageElement).src).toBe("http://legato.test/agent-ui-images/t/aaa.png")
+    fireEvent.keyDown(dialog, { key: "Escape" })
+    expect(screen.queryByRole("dialog")).toBeNull()
+  })
+
+  it("draws a grid of thumbnails, and steps through every image of the card from the one that was clicked", () => {
+    render(<AgentUIComponents components={components} images={images} />)
+
+    const grid = screen.getByRole("list", { name: "Images" })
+    expect(within(grid).getAllByRole("listitem")).toHaveLength(2)
+    expect(within(grid).getByText("Monday")).toBeTruthy()
+
+    fireEvent.click(within(grid).getByRole("button", { name: "Show After full size" }))
+
+    const dialog = screen.getByRole("dialog", { name: "After, full size" })
+    expect(within(dialog).getByText("3 of 3")).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole("button", { name: "Previous image" }))
+    expect(screen.getByRole("dialog", { name: "Before, full size" })).toBeTruthy()
+  })
+
+  it("says so when the copy of an image is not there, in place of a broken picture", () => {
+    render(<AgentUIComponents components={[{ type: "image", path: "/home/me/gone.png", alt: "The old board" }]} images={images} />)
+
+    expect(screen.queryByRole("img")).toBeNull()
+    expect(screen.getByText(/The old board/).textContent).toContain("not stored")
+  })
+})

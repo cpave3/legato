@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { SandboxedHtml } from "../SandboxedHtml"
 
@@ -107,5 +107,52 @@ describe("SandboxedHtml", () => {
 
     expect(frame().style.height).toBe("")
     expect(frame().className).toContain("h-full")
+  })
+
+  describe("with image files", () => {
+    const board = "http://legato.test/agent-ui-images/task-1/" + "a".repeat(64) + ".png"
+    const chart = "http://legato.test/agent-ui-images/task-1/" + "b".repeat(64) + ".png"
+    const images = [{ name: "board", address: board }, { name: "chart", address: chart }]
+
+    it("draws the item's images from Legato's copies of the files", () => {
+      render(<SandboxedHtml html={`<img src="legato-image:board">`} title="Weather in Brisbane" resourceDomains={[]} images={images} />)
+
+      expect(frame().getAttribute("srcdoc")).toContain(`<img src="${board}">`)
+      expect(frame().getAttribute("srcdoc")).toContain("img-src data: blob: http://legato.test/agent-ui-images/;")
+    })
+
+    it("shows an image over the whole window when the frame asks, with the others to step through", () => {
+      render(<SandboxedHtml html={`<img src="legato-image:board"><img src="legato-image:chart">`} title="Weather in Brisbane" resourceDomains={[]} images={images} />)
+
+      fromFrame("legato/show-image", { index: 1, images: [{ url: board, alt: "The board", caption: "" }, { url: chart, alt: "Builds", caption: "Builds this week" }] })
+
+      const dialog = screen.getByRole("dialog", { name: "Builds, full size" })
+      expect((within(dialog).getByAltText("Builds") as HTMLImageElement).src).toBe(chart)
+      expect(within(dialog).getByText("Builds this week")).toBeTruthy()
+      fireEvent.click(within(dialog).getByRole("button", { name: "Previous image" }))
+      expect(screen.getByRole("dialog", { name: "The board, full size" })).toBeTruthy()
+    })
+
+    it("shows only the item's own images, whatever the frame asks for", () => {
+      render(<SandboxedHtml html={`<img src="legato-image:board">`} title="Weather in Brisbane" resourceDomains={[]} images={images} />)
+
+      // The frame's content is not trusted: an address of its own choosing
+      // is never loaded by the page around it.
+      fromFrame("legato/show-image", { index: 0, images: [{ url: "https://evil.example/track.png", alt: "x" }] })
+      expect(screen.queryByRole("dialog")).toBeNull()
+
+      fromFrame("legato/show-image", { index: 2, images: [{ url: "https://evil.example/track.png", alt: "x" }, { url: "javascript:alert(1)" }, { url: board, alt: "The board" }] })
+      const dialog = screen.getByRole("dialog", { name: "The board, full size" })
+      expect(within(dialog).queryByRole("button", { name: "Next image" })).toBeNull()
+      expect(document.querySelector(`img[src^="https://evil.example"]`)).toBeNull()
+    })
+
+    it("shows nothing for a frame that has no images", () => {
+      render(<SandboxedHtml html="<b>27 C</b>" title="Weather in Brisbane" resourceDomains={[]} />)
+
+      fromFrame("legato/show-image", { index: 0, images: [{ url: board, alt: "The board" }] })
+
+      expect(screen.queryByRole("dialog")).toBeNull()
+    })
   })
 })

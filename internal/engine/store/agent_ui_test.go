@@ -281,3 +281,47 @@ func TestSummarizeAgentUIItemsCountsByPlacementAndNamesTheOneShownLast(t *testin
 		t.Fatalf("summary after a revision = %#v", summary)
 	}
 }
+
+func TestSaveAgentUIItemKeepsEachRevisionsImages(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	first := saveTestUIItem(t, s, AgentUIItem{
+		ID: "ui-0000000001", TaskID: "task-a", Placement: "panel", Key: "shots",
+		Format: "html", Title: "Shots", Content: "one", Images: `[{"name":"before","file":"aa.png"}]`,
+	}, testUILimits)
+	if first.Images != `[{"name":"before","file":"aa.png"}]` {
+		t.Fatalf("saved images = %q", first.Images)
+	}
+	saveTestUIItem(t, s, AgentUIItem{
+		ID: "ui-0000000002", TaskID: "task-a", Placement: "panel", Key: "shots",
+		Format: "html", Title: "Shots", Content: "two", Images: `[{"name":"after","file":"bb.png"}]`,
+	}, testUILimits)
+
+	latest, err := s.GetAgentUIItem(ctx, first.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.Images != `[{"name":"after","file":"bb.png"}]` {
+		t.Fatalf("latest images = %q", latest.Images)
+	}
+	original, err := s.GetAgentUIItem(ctx, first.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if original.Images != `[{"name":"before","file":"aa.png"}]` {
+		t.Fatalf("first revision's images = %q", original.Images)
+	}
+	listed, err := s.ListAgentUIItems(ctx, "task-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Images != latest.Images {
+		t.Fatalf("listed = %#v", listed)
+	}
+
+	plain := saveTestUIItem(t, s, AgentUIItem{ID: "ui-0000000003", TaskID: "task-a", Placement: "panel", Format: "html", Title: "Plain", Content: "x"}, testUILimits)
+	if plain.Images != "" {
+		t.Fatalf("an item saved without images has %q", plain.Images)
+	}
+}

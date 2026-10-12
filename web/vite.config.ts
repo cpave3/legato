@@ -60,6 +60,9 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         navigateFallback: 'index.html',
+        // An image an agent showed, opened in a tab of its own, is the image
+        // and not the app.
+        navigateFallbackDenylist: [/^\/agent-ui-images\//],
         skipWaiting: true,
         clientsClaim: true,
         runtimeCaching: [
@@ -95,6 +98,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': 'http://localhost:3080',
+      '/agent-ui-images': 'http://localhost:3080',
       '/ws': {
         target: 'ws://localhost:3080',
         ws: true,

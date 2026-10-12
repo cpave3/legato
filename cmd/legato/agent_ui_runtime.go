@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 
 	"github.com/cpave3/legato/config"
@@ -14,8 +15,17 @@ import (
 // cards) and has it tell web clients when that changes. Both the standalone
 // server and the one the TUI starts call it, so neither can drift.
 func wireAgentUI(srv *server.Server, cfg *config.Config, db *store.Store, bus *events.Bus) {
-	srv.SetAgentUIService(service.NewAgentUIService(db, bus, service.AgentUIOptions{ResourceDomains: cfg.Agents.MCP.ResourceDomains}))
+	ui := service.NewAgentUIService(db, bus, service.AgentUIOptions{
+		ResourceDomains: cfg.Agents.MCP.ResourceDomains, ImageDir: agentUIImageRoot(cfg),
+	})
+	srv.SetAgentUIService(ui)
 	srv.StartAgentUIEvents()
+	// Images outlive what used them when a task is deleted or the person
+	// removes an artifact. Nothing waits for this, and a failure costs disk
+	// space only.
+	go func() {
+		_ = ui.RemoveOrphanImages(context.Background())
+	}()
 }
 
 // localWebURL is where this machine serves the web UI, for a link the TUI

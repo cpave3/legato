@@ -1,5 +1,6 @@
-import type { ReactNode } from "react"
-import type { UIComponent, UIComponentItem, UITone } from "../lib/agentUi"
+import { useMemo, useState, type ReactNode } from "react"
+import type { ItemImage, UIComponent, UIComponentItem, UITone } from "../lib/agentUi"
+import { ImageLightbox, type LightboxImage } from "./ImageLightbox"
 import { MarkdownBody } from "./MarkdownBody"
 
 interface AgentUIComponentsProps {
@@ -7,6 +8,18 @@ interface AgentUIComponentsProps {
   // An action button was pressed: its message is for the person's message
   // box. Without a handler, actions are not drawn.
   onProposeMessage?: (text: string) => void
+  // Where Legato's copy of each image file is, by the path the agent named.
+  images?: ItemImage[]
+}
+
+// What drawing a component needs from the card it is part of.
+interface CardContext {
+  onProposeMessage: AgentUIComponentsProps["onProposeMessage"]
+  // The place of an image among all the card's images, by where the image
+  // is in the card; undefined when Legato has no copy of its file.
+  picture: (slot: string) => number | undefined
+  gallery: LightboxImage[]
+  openPicture: (index: number) => void
 }
 
 const TONE_TEXT: Record<UITone, string> = {
@@ -47,7 +60,39 @@ const HEADING: Record<number, { Tag: "h2" | "h3" | "h4"; className: string }> = 
   3: { Tag: "h4", className: "text-xs font-semibold uppercase tracking-wide text-zinc-400" },
 }
 
-function renderComponent(component: UIComponent, onProposeMessage: AgentUIComponentsProps["onProposeMessage"]): ReactNode {
+// A picture the person can open full size. thumbnail crops it to fill its
+// cell of a grid; otherwise it is shown whole.
+function Picture({ entry, at, card, thumbnail }: { entry: { alt?: string; caption?: string }; at: number | undefined; card: CardContext; thumbnail: boolean }) {
+  const image = at === undefined ? undefined : card.gallery[at]
+  if (at === undefined || !image) {
+    return (
+      <div className="rounded-md border border-dashed border-zinc-700 px-3 py-2 text-xs text-zinc-500">
+        {entry.alt || "Image"}: this image is not stored any more.
+      </div>
+    )
+  }
+  return (
+    <figure className="m-0 min-w-0">
+      <button
+        type="button"
+        aria-label={`Show ${entry.alt || "image"} full size`}
+        onClick={() => card.openPicture(at)}
+        className="block max-w-full cursor-zoom-in overflow-hidden rounded-md border border-zinc-700 bg-black/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400"
+      >
+        <img
+          src={image.src}
+          alt={entry.alt ?? ""}
+          loading="lazy"
+          className={thumbnail ? "aspect-[4/3] w-full object-cover" : "max-h-96 max-w-full object-contain"}
+        />
+      </button>
+      {entry.caption && <figcaption className="mt-1 text-xs text-zinc-400">{entry.caption}</figcaption>}
+    </figure>
+  )
+}
+
+function renderComponent(component: UIComponent, at: number, card: CardContext): ReactNode {
+  const { onProposeMessage } = card
   const items = component.items ?? []
   switch (component.type) {
     case "heading": {
@@ -150,6 +195,18 @@ function renderComponent(component: UIComponent, onProposeMessage: AgentUICompon
           <code>{component.text}</code>
         </pre>
       )
+    case "image":
+      return <Picture entry={component} at={card.picture(`${at}`)} card={card} thumbnail={false} />
+    case "image_grid":
+      return (
+        <ul aria-label="Images" className="grid list-none gap-2 p-0" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(7rem, 1fr))" }}>
+          {items.map((item, index) => (
+            <li key={index} className="min-w-0">
+              <Picture entry={item} at={card.picture(`${at}:${index}`)} card={card} thumbnail />
+            </li>
+          ))}
+        </ul>
+      )
     case "divider":
       return <hr className="border-zinc-800" />
     case "actions":
@@ -175,16 +232,40 @@ function renderComponent(component: UIComponent, onProposeMessage: AgentUICompon
   }
 }
 
+// cardPictures lists every image of a card in the order it shows them, and
+// where in that list the image of each place in the card is. Stepping from
+// one image to the next goes through the whole card, not one grid.
+function cardPictures(components: UIComponent[], images: ItemImage[]) {
+  const addresses = new Map(images.map((image) => [image.name, image.address]))
+  const gallery: LightboxImage[] = []
+  const slots = new Map<string, number>()
+  const add = (slot: string, entry: { path?: string; alt?: string; caption?: string }) => {
+    const address = addresses.get(entry.path ?? "")
+    if (!address) return
+    slots.set(slot, gallery.length)
+    gallery.push({ src: address, alt: entry.alt ?? "", caption: entry.caption })
+  }
+  components.forEach((component, at) => {
+    if (component.type === "image") add(`${at}`, component)
+    if (component.type === "image_grid") (component.items ?? []).forEach((item, index) => add(`${at}:${index}`, item))
+  })
+  return { gallery, slots }
+}
+
 // AgentUIComponents draws a component card: what an agent named with
 // Legato's fixed component list, drawn with Legato's own elements. Nothing an
 // agent wrote runs here; every value is text.
-export function AgentUIComponents({ components, onProposeMessage }: AgentUIComponentsProps) {
+export function AgentUIComponents({ components, onProposeMessage, images }: AgentUIComponentsProps) {
+  const { gallery, slots } = useMemo(() => cardPictures(components, images ?? []), [components, images])
+  const [open, setOpen] = useState<number | null>(null)
+  const card: CardContext = { onProposeMessage, gallery, picture: (slot) => slots.get(slot), openPicture: setOpen }
   return (
     <div className="flex min-w-0 flex-col gap-3">
       {components.map((component, index) => {
-        const rendered = renderComponent(component, onProposeMessage)
+        const rendered = renderComponent(component, index, card)
         return rendered === null ? null : <div key={index} className="min-w-0">{rendered}</div>
       })}
+      {open !== null && <ImageLightbox images={gallery} index={open} onIndex={setOpen} onClose={() => setOpen(null)} />}
     </div>
   )
 }

@@ -4,7 +4,7 @@ import { useAgentUIItem, useAgentUIItems } from "../hooks/useAgentUI"
 import { useProposeMessage } from "../hooks/useProposeMessage"
 import { useServer } from "../hooks/useServer"
 import { useToast } from "../hooks/useToast"
-import { buildStandaloneDocument, deleteAgentUIItem, type AgentUIItem } from "../lib/agentUi"
+import { buildStandaloneDocument, deleteAgentUIItem, inlineImages, itemImages, type AgentUIItem } from "../lib/agentUi"
 import { AgentUIItemView } from "./AgentUIItemView"
 
 export interface ArtifactFocus {
@@ -123,20 +123,35 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
     }
   }
 
-  function download() {
-    if (!item?.content) return
-    // HTML is saved as a whole page with Legato's theme in it: the agent's
-    // styles depend on that theme, and outside Legato nothing supplies it.
-    // Markdown and component cards are saved as the agent wrote them.
-    const saved = item.format === "html"
-      ? buildStandaloneDocument({ html: item.content, title: itemLabel(item), resourceDomains: item.resource_domains ?? [] })
-      : item.content
+  function save(item: AgentUIItem, saved: string) {
     const url = URL.createObjectURL(new Blob([saved], { type: MEDIA_TYPE[item.format] }))
     const link = document.createElement("a")
     link.href = url
     link.download = fileName(item)
     link.click()
     URL.revokeObjectURL(url)
+  }
+
+  function download() {
+    if (!item?.content) return
+    // Markdown and component cards are saved as the agent wrote them.
+    if (item.format !== "html") {
+      save(item, item.content)
+      return
+    }
+    // HTML is saved as a whole page with Legato's theme in it: the agent's
+    // styles depend on that theme, and outside Legato nothing supplies it.
+    const page = (images: ReturnType<typeof itemImages>) => save(item, buildStandaloneDocument({
+      html: item.content ?? "", title: itemLabel(item), resourceDomains: item.resource_domains ?? [], images,
+    }))
+    const images = itemImages(baseUrl, item)
+    if (images.length === 0) {
+      page(images)
+      return
+    }
+    // Its image files go into the page too, so it opens where Legato is not.
+    setBusy(true)
+    void inlineImages(images).then(page).finally(() => setBusy(false))
   }
 
   async function remove() {
@@ -219,7 +234,7 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
             <button type="button" aria-label="Copy source" title="Copy source" disabled={!item?.content} onClick={() => { void copySource() }} className={toolButton}>
               <Copy size={13} /><span className="hidden sm:inline">Copy source</span>
             </button>
-            <button type="button" aria-label="Download" title="Download" disabled={!item?.content} onClick={download} className={toolButton}>
+            <button type="button" aria-label="Download" title="Download" disabled={!item?.content || busy} onClick={download} className={toolButton}>
               <Download size={13} /><span className="hidden sm:inline">Download</span>
             </button>
             <button type="button" aria-label="Remove" title="Remove" disabled={busy} onClick={() => { void remove() }} className={toolButton}>

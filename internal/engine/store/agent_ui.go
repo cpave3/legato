@@ -25,8 +25,11 @@ type AgentUIItem struct {
 	Title          string `db:"title"`
 	Content        string `db:"content"`
 	FallbackText   string `db:"fallback_text"`
-	CreatedAt      string `db:"created_at"`
-	UpdatedAt      string `db:"updated_at"`
+	// Images names the image files this revision uses, in the service's own
+	// encoding; empty when it uses none.
+	Images    string `db:"images"`
+	CreatedAt string `db:"created_at"`
+	UpdatedAt string `db:"updated_at"`
 }
 
 // AgentUILimits bounds what one task may keep.
@@ -41,7 +44,7 @@ type AgentUILimits struct {
 const agentUIItemColumns = `
 	i.id, i.task_id, i.execution_id, i.placement, COALESCE(i.item_key, '') AS item_key,
 	r.revision, (SELECT MIN(revision) FROM agent_ui_item_revisions WHERE item_id = i.id) AS oldest_revision,
-	r.format, r.title, r.fallback_text, i.created_at, i.updated_at`
+	r.format, r.title, r.fallback_text, r.images, i.created_at, i.updated_at`
 
 // SaveAgentUIItem stores an item's content. With a key the task already used
 // in that placement, the existing item gains a revision and item.ID is unused;
@@ -85,8 +88,8 @@ func (s *Store) SaveAgentUIItem(ctx context.Context, item AgentUIItem, limits Ag
 			}
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO agent_ui_item_revisions (item_id, revision, format, title, content, fallback_text)
-			VALUES (?, ?, ?, ?, ?, ?)`, id, revision, item.Format, item.Title, item.Content, item.FallbackText); err != nil {
+			INSERT INTO agent_ui_item_revisions (item_id, revision, format, title, content, fallback_text, images)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`, id, revision, item.Format, item.Title, item.Content, item.FallbackText, item.Images); err != nil {
 			return err
 		}
 		if limits.MaxRevisions > 0 {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -18,6 +19,8 @@ type AgentUIService interface {
 	List(ctx context.Context, taskID string) ([]service.AgentUIItem, error)
 	Get(ctx context.Context, id string, revision int) (*service.AgentUIItem, error)
 	Delete(ctx context.Context, id string) error
+	// OpenImage opens Legato's copy of an image file an agent showed.
+	OpenImage(taskID, file string) (*service.AgentUIImageFile, error)
 }
 
 // SetAgentUIService enables the authenticated agent UI API.
@@ -110,6 +113,44 @@ func (s *Server) agentUIItemHandler() http.HandlerFunc {
 		default:
 			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
+	}
+}
+
+// agentUIImageHandler gives out Legato's copies of the image files agents
+// showed. It is the one route under an agent's control that asks for no
+// token: an image is drawn by the sandboxed frame an agent's HTML runs in,
+// and that frame must never hold the person's token. What stands in for the
+// token is the address, which is the SHA-256 of the image's content: it can
+// be named only by someone who already has the image. The service gives out
+// nothing but its own copies of raster images.
+func (s *Server) agentUIImageHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		taskID, file, found := strings.Cut(strings.TrimPrefix(r.URL.Path, service.AgentUIImageRoute), "/")
+		if !found || s.agentUI == nil {
+			s.writeError(w, http.StatusNotFound, "no such image")
+			return
+		}
+		image, err := s.agentUI.OpenImage(taskID, file)
+		if err != nil {
+			s.writeError(w, http.StatusNotFound, "no such image")
+			return
+		}
+		defer image.Close()
+
+		header := w.Header()
+		header.Set("Content-Type", image.MediaType)
+		// The type is the one read from the content, and the browser must
+		// not guess another.
+		header.Set("X-Content-Type-Options", "nosniff")
+		// The address names the content, so what it answers never changes.
+		// private: an image an agent showed may be the person's own.
+		header.Set("Cache-Control", "private, max-age=31536000, immutable")
+		header.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+		http.ServeContent(w, r, "", image.ModTime, image)
 	}
 }
 

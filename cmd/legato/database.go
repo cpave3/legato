@@ -22,3 +22,9 @@ func attachmentRoot(cfg *config.Config) string {
 func workflowArtifactRoot(cfg *config.Config) string {
 	return filepath.Join(config.ResolveDataDir(cfg), "artifacts")
 }
+
+// agentUIImageRoot is where Legato keeps its copies of the image files
+// agents show: written by `legato mcp serve`, given out by the web server.
+func agentUIImageRoot(cfg *config.Config) string {
+	return filepath.Join(config.ResolveDataDir(cfg), "agent-ui-images")
+}

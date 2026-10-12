@@ -16,8 +16,83 @@ export interface AgentUIItem {
   fallback_text?: string
   // Hosts HTML content may load scripts, styles, fonts and images from.
   resource_domains?: string[]
+  // The image files this revision uses: the name its content refers to each
+  // by, and where the server gives out Legato's copy.
+  images?: AgentUIImage[]
   created_at: string
   updated_at: string
+}
+
+export interface AgentUIImage {
+  name: string
+  // An address on the server, without its origin.
+  url: string
+}
+
+// An image of an item as a page draws it: its name and its whole address.
+export interface ItemImage {
+  name: string
+  address: string
+}
+
+// Where the server gives out the image files agents showed
+// (service.AgentUIImageRoute). It asks for no token: the address of an image
+// is the hash of its content.
+const IMAGE_ROUTE = "/agent-ui-images/"
+
+// itemImages says where each of an item's images is, at the server the page
+// talks to (the page's own when baseUrl is empty). An address that is not
+// one of Legato's stored images is left out: these addresses go into a
+// frame's content security policy and into pages a person opens.
+export function itemImages(baseUrl: string, item: Pick<AgentUIItem, "images">): ItemImage[] {
+  const origin = baseUrl || window.location.origin
+  return (item.images ?? []).flatMap(({ name, url }) => {
+    if (typeof url !== "string" || !url.startsWith(IMAGE_ROUTE)) return []
+    try {
+      const address = new URL(url, origin)
+      return address.origin === new URL(origin).origin && address.pathname.startsWith(IMAGE_ROUTE) ? [{ name, address: address.href }] : []
+    } catch {
+      return []
+    }
+  })
+}
+
+// The kinds of image the server gives out (agentUIImageExtensions in
+// internal/service/agent_ui_images.go).
+const IMAGE_TYPE = /^image\/(png|jpeg|gif|webp|bmp)$/
+
+function base64(bytes: Uint8Array): string {
+  let binary = ""
+  // In pieces: a whole image is more arguments than a call may take.
+  for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000))
+  return btoa(binary)
+}
+
+// inlineImages reads each image and returns it with a data: address, for a
+// page that must carry its images with it. An image that cannot be read
+// keeps the address it had.
+export function inlineImages(images: ItemImage[]): Promise<ItemImage[]> {
+  return Promise.all(images.map(async (image) => {
+    try {
+      const response = await fetch(image.address)
+      const type = (response.headers.get("Content-Type") ?? "").split(";")[0].trim()
+      if (!response.ok || !IMAGE_TYPE.test(type)) return image
+      return { name: image.name, address: `data:${type};base64,${base64(new Uint8Array(await response.arrayBuffer()))}` }
+    } catch {
+      return image
+    }
+  }))
+}
+
+// How content refers to one of its images: legato-image:<name>.
+const IMAGE_REFERENCE = /legato-image:([A-Za-z0-9][A-Za-z0-9_-]*)/g
+
+// resolveImageReferences puts each image's address where the content names
+// the image. A name the item does not have is left as it was written.
+export function resolveImageReferences(content: string, images: ItemImage[]): string {
+  if (images.length === 0) return content
+  const addresses = new Map(images.map((image) => [image.name, image.address]))
+  return content.replace(IMAGE_REFERENCE, (reference, name: string) => addresses.get(name) ?? reference)
 }
 
 export type UITone = "neutral" | "positive" | "warning" | "negative" | "info"
@@ -30,6 +105,9 @@ export interface UIComponentItem {
   text?: string
   number?: number
   message?: string
+  path?: string
+  alt?: string
+  caption?: string
 }
 
 // One entry of a component card: `type` says which other fields apply. The
@@ -44,6 +122,11 @@ export interface UIComponent {
   level?: number
   ordered?: boolean
   language?: string
+  // image: the file the agent named. The item's images say where Legato's
+  // copy of it is.
+  path?: string
+  alt?: string
+  caption?: string
   fraction?: number
   columns?: string[]
   rows?: string[][]
@@ -443,18 +526,97 @@ function diagramsScript(resourceDomains: string[]): string {
 })()`
 }
 
+// imagesScript is the part of the frame's script about the image files an
+// agent showed: legato.image gives a script the address of one by its name,
+// and a click on one asks the host to show it full size. The frame is as
+// narrow as the panel, so the larger view is the host's to draw.
+function imagesScript(images: ItemImage[], zoom: boolean): string {
+  const addresses = Object.fromEntries(images.map((image) => [image.name, image.address]))
+  return `(function () {
+  var IMAGES = ${JSON.stringify(addresses).replace(/</g, "\\u003c")}
+  window.legato.image = function (name) { return IMAGES[String(name)] || "" }
+${zoom ? IMAGE_ZOOM : ""}})()`
+}
+
+// The part of imagesScript that opens an image full size. A page saved from
+// Legato is without it: nothing out there draws the larger view.
+const IMAGE_ZOOM = `  var known = {}
+  Object.keys(IMAGES).forEach(function (name) { known[IMAGES[name]] = true })
+  function post(method, params) { parent.postMessage({ jsonrpc: "2.0", method: method, params: params || {} }, "*") }
+  // An image opens unless the page said otherwise, or made it part of a
+  // control of its own.
+  function opens(node) {
+    if (!node || node.tagName !== "IMG" || !known[node.src] || !node.closest) return false
+    return !node.closest('[data-legato-zoom="off"], a[href], button')
+  }
+  function all() { return Array.prototype.filter.call(document.images, opens) }
+  function caption(image) {
+    var figure = image.closest("figure")
+    var text = figure ? figure.querySelector("figcaption") : null
+    return text ? text.textContent.trim() : ""
+  }
+  function show(image) {
+    var images = all()
+    post("legato/show-image", {
+      index: images.indexOf(image),
+      images: images.map(function (other) { return { url: other.src, alt: other.alt || "", caption: caption(other) } })
+    })
+  }
+  document.addEventListener("click", function (event) {
+    if (!opens(event.target)) return
+    event.preventDefault()
+    show(event.target)
+  })
+  document.addEventListener("keydown", function (event) {
+    if ((event.key !== "Enter" && event.key !== " ") || !opens(event.target)) return
+    event.preventDefault()
+    show(event.target)
+  })
+  // The person is shown which images open, and can reach them with the
+  // keyboard. A script may add images later.
+  function mark() {
+    // A frame that is being taken down has no document left to look at.
+    if (typeof document === "undefined") return
+    all().forEach(function (image) {
+      if (image.getAttribute("data-legato-zoom") !== "on") image.setAttribute("data-legato-zoom", "on")
+      if (!image.hasAttribute("tabindex")) image.setAttribute("tabindex", "0")
+    })
+  }
+  document.addEventListener("DOMContentLoaded", function () {
+    mark()
+    if (window.MutationObserver) new MutationObserver(mark).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["src"] })
+  })
+`
+
+// imageSources are what a frame's policy must allow for it to load an item's
+// images: the folder of stored images at each server they are on, and never
+// the API beside it. An image already inside the document needs nothing.
+function imageSources(images: ItemImage[]): string[] {
+  const sources = new Set<string>()
+  for (const { address } of images) {
+    try {
+      const url = new URL(address)
+      if ((url.protocol === "http:" || url.protocol === "https:") && url.pathname.startsWith(IMAGE_ROUTE)) sources.add(`${url.origin}${IMAGE_ROUTE}`)
+    } catch {
+      // Not an address: nothing to allow.
+    }
+  }
+  return [...sources]
+}
+
 // contentPolicy is the content security policy every page of agent HTML
 // starts with. It allows no network except loading scripts, styles, fonts and
 // images from the allowed hosts. Anything that is not a plain host name is
-// dropped, so a value can never rewrite the policy.
-function contentPolicy(resourceDomains: string[]): string {
+// dropped, so a value can never rewrite the policy. images are the item's own
+// image files, which are served by Legato.
+function contentPolicy(resourceDomains: string[], images: ItemImage[] = []): string {
   const hosts = resourceDomains.filter((domain) => HOST_NAME.test(domain)).map((domain) => `https://${domain}`).join(" ")
   const withHosts = (base: string) => (hosts ? `${base} ${hosts}` : base)
   return [
     "default-src 'none'",
     `script-src ${withHosts("'unsafe-inline'")}`,
     `style-src ${withHosts("'unsafe-inline'")}`,
-    `img-src ${withHosts("data: blob:")}`,
+    `img-src ${[withHosts("data: blob:"), ...imageSources(images)].join(" ")}`,
     `font-src ${withHosts("data:")}`,
     "media-src data: blob:",
     "connect-src 'none'",
@@ -479,6 +641,12 @@ a { color: #a5b4fc; }
 img, svg, video, canvas { max-width: 100%; }
 table { border-collapse: collapse; }
 pre, code { font-family: var(--font-mono); }
+img[data-legato-zoom="on"] { cursor: zoom-in; }
+img[data-legato-zoom="on"]:focus-visible { outline: 2px solid var(--color-ring-primary); outline-offset: 2px; }
+.legato-image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin: 12px 0; }
+.legato-image-grid figure { margin: 0; min-width: 0; }
+.legato-image-grid img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border: 1px solid var(--color-border-primary); border-radius: var(--border-radius-md); background: var(--color-background-secondary); }
+.legato-image-grid figcaption { margin-top: 4px; font-size: 12px; line-height: 1.3; color: var(--color-text-secondary); }
 .mermaid { overflow-x: auto; }
 .mermaid[data-processed] { margin: 0; text-align: center; }
 [data-diagrams="loading"] .mermaid:not([data-processed]) { visibility: hidden; }`
@@ -494,19 +662,24 @@ export interface SandboxDocumentInput {
   // fill: the frame is as tall as its container and the content scrolls
   // inside it (the side panel). Otherwise the frame grows to its content.
   fill: boolean
+  // The image files the HTML uses, by the names it refers to them by.
+  images?: ItemImage[]
 }
 
 // buildSandboxDocument wraps an agent's HTML in the document a sandboxed
 // frame draws: a content security policy ahead of everything the agent wrote,
 // Legato's theme, and the bootstrap script.
-export function buildSandboxDocument({ html, resourceDomains, fill }: SandboxDocumentInput): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${contentPolicy(resourceDomains)}"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${themeStyle(fill)}</style><script>${BOOTSTRAP}</script><script>${diagramsScript(resourceDomains)}</script></head><body>${html}</body></html>`
+export function buildSandboxDocument({ html, resourceDomains, fill, images = [] }: SandboxDocumentInput): string {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${contentPolicy(resourceDomains, images)}"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${themeStyle(fill)}</style><script>${BOOTSTRAP}</script><script>${diagramsScript(resourceDomains)}</script><script>${imagesScript(images, true)}</script></head><body>${resolveImageReferences(html, images)}</body></html>`
 }
 
 export interface StandaloneDocumentInput {
   html: string
   title: string
   resourceDomains: string[]
+  // The image files the HTML uses. An address here is best a data: one, so
+  // that the file carries its images and opens without Legato.
+  images?: ItemImage[]
 }
 
 // buildStandaloneDocument is an agent's HTML as a file to keep: a whole page
@@ -515,8 +688,9 @@ export interface StandaloneDocumentInput {
 // file would be without, so the theme goes into the file. The same content
 // security policy goes with it: outside Legato nothing else limits what the
 // agent's scripts may reach.
-export function buildStandaloneDocument({ html, title, resourceDomains }: StandaloneDocumentInput): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${contentPolicy(resourceDomains)}"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHTML(title)}</title><style>${themeStyle(true)}</style><script>${STANDALONE_STUB}</script><script>${diagramsScript(resourceDomains)}</script></head><body>${html}</body></html>`
+export function buildStandaloneDocument({ html, title, resourceDomains, images = [] }: StandaloneDocumentInput): string {
+  // Nothing out there draws an image full size, so the page offers none.
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${contentPolicy(resourceDomains, images)}"><meta name="referrer" content="no-referrer"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHTML(title)}</title><style>${themeStyle(true)}</style><script>${STANDALONE_STUB}</script><script>${diagramsScript(resourceDomains)}</script><script>${imagesScript(images, false)}</script></head><body>${resolveImageReferences(html, images)}</body></html>`
 }
 
 const MAX_PROPOSED_MESSAGE = 4000

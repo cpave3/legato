@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { buildSandboxDocument, proposedMessageText } from "../lib/agentUi"
+import { buildSandboxDocument, proposedMessageText, type ItemImage } from "../lib/agentUi"
 import { cn } from "../lib/utils"
+import { ImageLightbox, type LightboxImage } from "./ImageLightbox"
 
 interface SandboxedHtmlProps {
   // HTML an agent wrote. It is never trusted: see the sandbox below.
@@ -17,6 +18,8 @@ interface SandboxedHtmlProps {
   onOverflow?: (overflowing: boolean) => void
   // The content asked to put text in the person's message box.
   onProposeMessage?: (text: string) => void
+  // The image files the HTML uses, by the names it refers to them by.
+  images?: ItemImage[]
   className?: string
 }
 
@@ -33,17 +36,42 @@ function webLink(value: unknown): string | null {
   }
 }
 
+const NO_IMAGES: ItemImage[] = []
+const MAX_IMAGE_TEXT = 300
+
+// requestedImages reads a frame's request to show an image full size: which
+// of the images it lists are the item's own, and which of those was asked
+// for. The frame's content is not trusted, so an address it made up is
+// dropped; the page never loads anything but Legato's copies.
+function requestedImages(params: Record<string, unknown>, images: ItemImage[]): { shown: LightboxImage[]; index: number } | null {
+  if (!Array.isArray(params.images)) return null
+  const own = new Set(images.map((image) => image.address))
+  const text = (value: unknown) => (typeof value === "string" ? value.slice(0, MAX_IMAGE_TEXT) : "")
+  const shown: LightboxImage[] = []
+  let index = 0
+  params.images.forEach((entry: unknown, at: number) => {
+    const { url, alt, caption } = (entry ?? {}) as { url?: unknown; alt?: unknown; caption?: unknown }
+    if (typeof url !== "string" || !own.has(url)) return
+    if (at === params.index) index = shown.length
+    shown.push({ src: url, alt: text(alt), caption: text(caption) || undefined })
+  })
+  return shown.length > 0 ? { shown, index } : null
+}
+
 // SandboxedHtml draws HTML an agent wrote. The frame may run scripts and
 // nothing else: without allow-same-origin its content has an origin of its
 // own, so it cannot read Legato's storage or call Legato's API, and a content
 // security policy inside the document allows it no network beyond loading
-// from the allowed hosts. What it can do is ask, by posting a message; the
-// three requests answered here are its height, a link to open and text for
-// the person's message box. Only messages from this frame's own window count.
-export function SandboxedHtml({ html, title, resourceDomains, fill = false, maxHeight = DEFAULT_MAX_HEIGHT, onOverflow, onProposeMessage, className }: SandboxedHtmlProps) {
+// from the allowed hosts and the item's own image files. What it can do is
+// ask, by posting a message; the requests answered here are its height, a
+// link to open, text for the person's message box, and one of its images to
+// show over the whole window, which a frame as narrow as the panel cannot do
+// itself. Only messages from this frame's own window count.
+export function SandboxedHtml({ html, title, resourceDomains, fill = false, maxHeight = DEFAULT_MAX_HEIGHT, onOverflow, onProposeMessage, images = NO_IMAGES, className }: SandboxedHtmlProps) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const [height, setHeight] = useState<number | null>(null)
-  const frameDocument = useMemo(() => buildSandboxDocument({ html, resourceDomains, fill }), [html, resourceDomains, fill])
+  const [lightbox, setLightbox] = useState<{ shown: LightboxImage[]; index: number } | null>(null)
+  const frameDocument = useMemo(() => buildSandboxDocument({ html, resourceDomains, fill, images }), [html, resourceDomains, fill, images])
   const handlers = useRef({ onOverflow, onProposeMessage })
   useEffect(() => {
     handlers.current = { onOverflow, onProposeMessage }
@@ -78,11 +106,16 @@ export function SandboxedHtml({ html, title, resourceDomains, fill = false, maxH
           if (text) handlers.current.onProposeMessage?.(text)
           return
         }
+        case "legato/show-image": {
+          const requested = requestedImages(params, images)
+          if (requested) setLightbox(requested)
+          return
+        }
       }
     }
     window.addEventListener("message", onMessage)
     return () => window.removeEventListener("message", onMessage)
-  }, [fill, maxHeight])
+  }, [fill, maxHeight, images])
 
   return (
     <div className={cn("relative min-w-0", fill && "flex min-h-0 flex-1 flex-col", className)}>
@@ -98,6 +131,14 @@ export function SandboxedHtml({ html, title, resourceDomains, fill = false, maxH
       <span className="pointer-events-none absolute bottom-1 right-2 rounded bg-zinc-950/80 px-1.5 py-0.5 text-[10px] text-zinc-500">
         Made by the agent
       </span>
+      {lightbox && (
+        <ImageLightbox
+          images={lightbox.shown}
+          index={lightbox.index}
+          onIndex={(index) => setLightbox({ shown: lightbox.shown, index })}
+          onClose={() => setLightbox(null)}
+        />
+      )}
     </div>
   )
 }

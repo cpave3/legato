@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -30,14 +31,17 @@ const UIComponentGuide = `Each component is an object with a "type" and the fiel
 - progress: fraction 0-1; label; detail
 - bar_chart: label; items of {label, number} with number 0 or more (1-30 bars)
 - code: text; language
+- image: path (an image file on disk); alt (what it shows); caption. The person can click it to see it full size.
+- image_grid: items of {path, alt, caption} (1-24 images) as thumbnails. A click opens one full size, with the others to step through.
 - divider: no fields
 - actions: items of {label, message} (1-4 buttons). Pressing one puts its message in the person's message box for them to send; it sends nothing by itself.
-tone is one of: neutral, positive, warning, negative, info.`
+tone is one of: neutral, positive, warning, negative, info.
+An image path is an absolute path to a PNG, JPEG, GIF, WebP or BMP file of up to 25 MB. Legato keeps its own copy, so the file may change afterwards.`
 
 // UIComponent is one entry of a component card. It is a flat record: Type
 // says which of the other fields apply.
 type UIComponent struct {
-	Type     string            `json:"type" jsonschema:"heading, text, stat, stats, key_value, table, list, badges, progress, bar_chart, code, divider or actions"`
+	Type     string            `json:"type" jsonschema:"heading, text, stat, stats, key_value, table, list, badges, progress, bar_chart, code, image, image_grid, divider or actions"`
 	Text     string            `json:"text,omitempty" jsonschema:"heading, text (Markdown) and code: the text to show"`
 	Label    string            `json:"label,omitempty" jsonschema:"stat, progress and bar_chart: what the figure is"`
 	Value    string            `json:"value,omitempty" jsonschema:"stat: the figure, with its unit"`
@@ -46,10 +50,13 @@ type UIComponent struct {
 	Level    int               `json:"level,omitempty" jsonschema:"heading: 1, 2 or 3"`
 	Ordered  bool              `json:"ordered,omitempty" jsonschema:"list: number the items"`
 	Language string            `json:"language,omitempty" jsonschema:"code: the language, for example go"`
+	Path     string            `json:"path,omitempty" jsonschema:"image: the image file on disk, as an absolute path"`
+	Alt      string            `json:"alt,omitempty" jsonschema:"image: what the image shows, for someone who cannot see it"`
+	Caption  string            `json:"caption,omitempty" jsonschema:"image: a short line under the image"`
 	Fraction *float64          `json:"fraction,omitempty" jsonschema:"progress: how much is done, from 0 to 1"`
 	Columns  []string          `json:"columns,omitempty" jsonschema:"table: the column names"`
 	Rows     [][]string        `json:"rows,omitempty" jsonschema:"table: one array of cell texts per row, in column order"`
-	Items    []UIComponentItem `json:"items,omitempty" jsonschema:"stats, key_value, list, badges, bar_chart and actions: the entries"`
+	Items    []UIComponentItem `json:"items,omitempty" jsonschema:"stats, key_value, list, badges, bar_chart, image_grid and actions: the entries"`
 }
 
 // UIComponentItem is one entry of a component that holds several.
@@ -61,6 +68,9 @@ type UIComponentItem struct {
 	Text    string   `json:"text,omitempty" jsonschema:"list and badges: the entry's text"`
 	Number  *float64 `json:"number,omitempty" jsonschema:"bar_chart: the bar's value, 0 or more"`
 	Message string   `json:"message,omitempty" jsonschema:"actions: the text put in the person's message box when they press the button"`
+	Path    string   `json:"path,omitempty" jsonschema:"image_grid: the image file on disk, as an absolute path"`
+	Alt     string   `json:"alt,omitempty" jsonschema:"image_grid: what the image shows, for someone who cannot see it"`
+	Caption string   `json:"caption,omitempty" jsonschema:"image_grid: a short line under the image"`
 }
 
 var uiTones = map[string]bool{"": true, "neutral": true, "positive": true, "warning": true, "negative": true, "info": true}
@@ -68,16 +78,17 @@ var uiTones = map[string]bool{"": true, "neutral": true, "positive": true, "warn
 // uiItemRule says what one kind of component asks of its items.
 type uiItemRule struct {
 	max      int
-	required []string // of: label, value, text, number, message
+	required []string // of: label, value, text, number, message, path
 }
 
 var uiItemRules = map[string]uiItemRule{
-	"stats":     {max: 6, required: []string{"value"}},
-	"key_value": {max: 50, required: []string{"label", "value"}},
-	"list":      {max: 50, required: []string{"text"}},
-	"badges":    {max: 20, required: []string{"text"}},
-	"bar_chart": {max: 30, required: []string{"label", "number"}},
-	"actions":   {max: 4, required: []string{"label", "message"}},
+	"stats":      {max: 6, required: []string{"value"}},
+	"key_value":  {max: 50, required: []string{"label", "value"}},
+	"list":       {max: 50, required: []string{"text"}},
+	"badges":     {max: 20, required: []string{"text"}},
+	"bar_chart":  {max: 30, required: []string{"label", "number"}},
+	"actions":    {max: 4, required: []string{"label", "message"}},
+	"image_grid": {max: 24, required: []string{"path"}},
 }
 
 // encodeUIComponents checks a component card and returns it as the JSON that
@@ -113,12 +124,13 @@ func encodeUIComponents(components []UIComponent) (string, error) {
 // whether its type was one of the catalog's.
 func validateUIComponent(c UIComponent) (known bool, err error) {
 	switch c.Type {
-	case "heading", "text", "stat", "stats", "key_value", "table", "list", "badges", "progress", "bar_chart", "code", "divider", "actions":
+	case "heading", "text", "stat", "stats", "key_value", "table", "list", "badges", "progress", "bar_chart", "code", "image", "image_grid", "divider", "actions":
 	default:
 		return false, fmt.Errorf("unknown type %q", c.Type)
 	}
 	for _, field := range []struct{ name, value string }{
 		{"text", c.Text}, {"label", c.Label}, {"value", c.Value}, {"detail", c.Detail}, {"language", c.Language},
+		{"path", c.Path}, {"alt", c.Alt}, {"caption", c.Caption},
 	} {
 		if utf8.RuneCountInString(field.value) > uiMaxTextRunes {
 			return true, fmt.Errorf("%s is longer than %d characters", field.name, uiMaxTextRunes)
@@ -143,6 +155,10 @@ func validateUIComponent(c UIComponent) (known bool, err error) {
 	case "stat":
 		if c.Value == "" {
 			return true, fmt.Errorf("value is required")
+		}
+	case "image":
+		if strings.TrimSpace(c.Path) == "" {
+			return true, fmt.Errorf("path is required")
 		}
 	case "progress":
 		if c.Fraction == nil {
@@ -187,7 +203,10 @@ func validateUIComponent(c UIComponent) (known bool, err error) {
 }
 
 func validateUIComponentItem(item UIComponentItem, rule uiItemRule) error {
-	values := map[string]string{"label": item.Label, "value": item.Value, "text": item.Text, "message": item.Message, "detail": item.Detail}
+	values := map[string]string{
+		"label": item.Label, "value": item.Value, "text": item.Text, "message": item.Message, "detail": item.Detail,
+		"path": strings.TrimSpace(item.Path), "alt": item.Alt, "caption": item.Caption,
+	}
 	for _, name := range rule.required {
 		if name == "number" {
 			if item.Number == nil {
@@ -202,7 +221,7 @@ func validateUIComponentItem(item UIComponentItem, rule uiItemRule) error {
 			return fmt.Errorf("%s is required", name)
 		}
 	}
-	for _, name := range []string{"label", "value", "text", "message", "detail"} {
+	for _, name := range []string{"label", "value", "text", "message", "detail", "path", "alt", "caption"} {
 		if utf8.RuneCountInString(values[name]) > uiMaxTextRunes {
 			return fmt.Errorf("%s is longer than %d characters", name, uiMaxTextRunes)
 		}
@@ -211,4 +230,30 @@ func validateUIComponentItem(item UIComponentItem, rule uiItemRule) error {
 		return fmt.Errorf("unknown tone %q", item.Tone)
 	}
 	return nil
+}
+
+// uiComponentImages lists the image files a component card uses, each once
+// and in the order the card shows them. A component names its image by the
+// path the agent gave, which is also how the client finds the stored copy.
+func uiComponentImages(components []UIComponent) []AgentUIImageInput {
+	var images []AgentUIImageInput
+	seen := map[string]bool{}
+	add := func(path string) {
+		if path == "" || seen[path] {
+			return
+		}
+		seen[path] = true
+		images = append(images, AgentUIImageInput{Name: path, Path: path})
+	}
+	for _, component := range components {
+		switch component.Type {
+		case "image":
+			add(component.Path)
+		case "image_grid":
+			for _, item := range component.Items {
+				add(item.Path)
+			}
+		}
+	}
+	return images
 }

@@ -130,6 +130,37 @@ describe("AgentArtifactPanel", () => {
     expect(text).toContain(`<h1 style="color: var(--color-text-primary)">Autopilot</h1>`)
   })
 
+  // A page saved from Legato is opened where Legato may not be: its images
+  // go into the file.
+  it("downloads an HTML artifact with its image files inside the page", async () => {
+    const file = "a".repeat(64) + ".png"
+    const page: AgentUIItem = {
+      ...base, id: "ui-eeeeeeeeee", placement: "panel", format: "html", title: "Screenshots", revision: 1, oldest_revision: 1,
+      images: [{ name: "board", url: `/agent-ui-images/task-1/${file}` }],
+    }
+    contents["ui-eeeeeeeeee?revision=0"] = `<img src="legato-image:board" alt="The board">`
+    const api = mockAPI([page])
+    const answer = api.getMockImplementation()!
+    api.mockImplementation(async (input, init) => {
+      if (String(input).endsWith(`/agent-ui-images/task-1/${file}`)) return new Response(new TextEncoder().encode("PNG bytes"), { status: 200, headers: { "Content-Type": "image/png" } })
+      return answer(input, init)
+    })
+    let saved: Blob | undefined
+    Object.defineProperty(URL, "createObjectURL", { value: vi.fn((blob: Blob) => { saved = blob; return "blob:saved" }), configurable: true })
+    Object.defineProperty(URL, "revokeObjectURL", { value: vi.fn(), configurable: true })
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
+    render(<AgentArtifactPanel agentId="task-1" focus={null} onFocus={() => {}} onClose={() => {}} mobile={false} />, { wrapper })
+    await screen.findByTitle("Screenshots")
+
+    fireEvent.click(screen.getByRole("button", { name: "Download" }))
+
+    await waitFor(() => expect(saved).toBeDefined())
+    const text = await saved!.text()
+    expect(text).toContain(`<img src="data:image/png;base64,${btoa("PNG bytes")}" alt="The board">`)
+    expect(text).not.toContain("legato-image:board")
+    expect(text).not.toContain("/agent-ui-images/")
+  })
+
   it("downloads a Markdown artifact as the Markdown the agent wrote", async () => {
     mockAPI([design])
     let saved: Blob | undefined

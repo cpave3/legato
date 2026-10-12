@@ -28,6 +28,9 @@ type MCPOptions struct {
 	Version string
 	// ResourceDomains are the hosts an agent's HTML may load from.
 	ResourceDomains []string
+	// ImageDir is where Legato keeps its copies of the image files an agent
+	// shows. Without it the tools turn image files down.
+	ImageDir string
 }
 
 // MCPPeers is the part of the agent service the peer tools use.
@@ -48,6 +51,7 @@ const MCPGuidance = `You are running inside Legato, the app the person uses to w
 Use these tools without being asked. They are how you give the person something better than a wall of text:
 
 - When your answer is mainly data (figures, a status, a comparison of options, a ranking, progress, a small chart), prefer a card to a Markdown table or a list of numbers. show_components is the simplest way: you name ready-made parts and Legato draws them to match the app. When those parts cannot say it well, call show_card and design the card yourself.
+- When you have an image file to show (a screenshot you took, a chart you rendered, a photo, a design mock-up), show the image; do not describe it. The image and image_grid components take the file's path and need nothing else: show_components puts them in the conversation, and show_artifact takes the same components for a gallery in the side panel. In HTML or Markdown of your own, list the files in images and write legato-image:<name> where an image's address goes.
 - When your answer is long or has structure (an architecture, an explanation that needs a diagram, a design, a plan, a report, anything longer than about a screen), prefer an artifact to a long reply: call show_artifact and it opens beside the conversation, where the person can keep it open. Call it again with the same key to revise it.
 - Custom HTML is yours to use in full when it gives the person a better experience: your own layout and CSS, inline SVG, JavaScript for interaction, a diagram or chart library. An architecture or an explanation is a page the person explores, not a document they scroll: let a Mermaid diagram carry the structure, style it as your own, and show the detail of a part when they click it. Never draw boxes with arrows typed as text. Markdown is for plain prose.
 - After you show something, say in one sentence what it is, and do not repeat its content.
@@ -71,7 +75,9 @@ func MCPServerOptions(opts MCPOptions) mcpserver.Options {
 	}
 	tools := &mcpTools{
 		opts: opts,
-		ui:   service.NewAgentUIService(opts.Store, nil, service.AgentUIOptions{ResourceDomains: opts.ResourceDomains}),
+		ui: service.NewAgentUIService(opts.Store, nil, service.AgentUIOptions{
+			ResourceDomains: opts.ResourceDomains, ImageDir: opts.ImageDir,
+		}),
 	}
 	server.Instructions = MCPGuidance
 	server.Tools = tools.all()
@@ -161,10 +167,12 @@ func (m *mcpTools) show(ctx context.Context, in service.AgentUIShowInput, shownA
 }
 
 type showArtifactInput struct {
-	Title   string `json:"title" jsonschema:"a short name for the artifact, shown on its tab"`
-	Content string `json:"content" jsonschema:"the whole artifact: an HTML document or fragment, or Markdown"`
-	Format  string `json:"format,omitempty" jsonschema:"html (default) or markdown"`
-	Key     string `json:"key,omitempty" jsonschema:"a name of your own for this artifact; showing again under the same key replaces it as a new revision instead of adding another"`
+	Title      string                      `json:"title" jsonschema:"a short name for the artifact, shown on its tab"`
+	Content    string                      `json:"content,omitempty" jsonschema:"the whole artifact: an HTML document or fragment, or Markdown. Leave it out when you pass components"`
+	Format     string                      `json:"format,omitempty" jsonschema:"html (default) or markdown, for content"`
+	Components []service.UIComponent       `json:"components,omitempty" jsonschema:"in place of content: the artifact as Legato's own components, top to bottom, as show_components takes them"`
+	Images     []service.AgentUIImageInput `json:"images,omitempty" jsonschema:"image files the content uses; write legato-image:<name> in the content where an image's address goes"`
+	Key        string                      `json:"key,omitempty" jsonschema:"a name of your own for this artifact; showing again under the same key replaces it as a new revision instead of adding another"`
 }
 
 func (m *mcpTools) showArtifact() mcpserver.Tool {
@@ -172,29 +180,42 @@ func (m *mcpTools) showArtifact() mcpserver.Tool {
 		Name:  "show_artifact",
 		Title: "Show an artifact",
 		Description: "Shows a page of your own making in a panel beside the conversation in Legato, where the person can read it while you carry on. " +
-			"Use it without being asked for something worth more than a reply: an architecture, an explanation with diagrams, a design, a report, a comparison. " +
+			"Use it without being asked for something worth more than a reply: an architecture, an explanation with diagrams, a design, a report, a comparison, a set of screenshots. " +
 			"Make it a page the person explores, not a document: a short summary at the top, a diagram that carries the structure (Mermaid for the layout, or SVG), " +
 			"your own styling, and scripts for tabs, sections that open and the detail of a part shown when the person clicks it. " +
 			"The panel is narrow (about 500px, and a phone is narrower): use one column and short node labels, and keep the detail for what opens on a click. " +
-			"format markdown is for plain prose only; a ```mermaid fence in it is drawn as a diagram. " +
+			"format markdown is for plain prose only; a ```mermaid fence in it is drawn as a diagram, and ![what it shows](legato-image:<name>) is an image from images. " +
+			"When ready-made parts say it well (a gallery of image files, figures, a table), pass components in place of content: the same components show_components takes, and no HTML to write. " +
 			m.htmlGuide(),
 		ReadOnly: true,
 	}, func(ctx context.Context, in showArtifactInput) (mcpserver.Result, error) {
 		format := strings.TrimSpace(in.Format)
-		if format == "" {
+		hasContent := strings.TrimSpace(in.Content) != ""
+		switch {
+		case len(in.Components) > 0 && hasContent:
+			return mcpserver.Result{}, fmt.Errorf("show_artifact takes content or components, not both")
+		case len(in.Components) > 0 && format != "" && format != service.AgentUIFormatComponents:
+			return mcpserver.Result{}, fmt.Errorf("format %s is for content; leave format out when you pass components", format)
+		case len(in.Components) > 0:
+			format = service.AgentUIFormatComponents
+		case !hasContent:
+			return mcpserver.Result{}, fmt.Errorf("show_artifact needs content (HTML or Markdown) or components")
+		case format == "":
 			format = service.AgentUIFormatHTML
 		}
 		return m.show(ctx, service.AgentUIShowInput{
-			Placement: service.AgentUIPanel, Format: format, Title: in.Title, Key: in.Key, Content: in.Content,
+			Placement: service.AgentUIPanel, Format: format, Title: in.Title, Key: in.Key,
+			Content: in.Content, Components: in.Components, Images: in.Images,
 		}, fmt.Sprintf("Shown in Legato's side panel as %q", strings.TrimSpace(in.Title)))
 	})
 }
 
 type showCardInput struct {
-	HTML         string `json:"html" jsonschema:"the card: an HTML fragment with its own inline style, sized by its content"`
-	FallbackText string `json:"fallback_text" jsonschema:"the same information as plain text, for where the card cannot be drawn"`
-	Title        string `json:"title,omitempty" jsonschema:"a short name for the card"`
-	Key          string `json:"key,omitempty" jsonschema:"a name of your own for this card; showing again under the same key keeps one card and adds a revision"`
+	HTML         string                      `json:"html" jsonschema:"the card: an HTML fragment with its own inline style, sized by its content"`
+	FallbackText string                      `json:"fallback_text" jsonschema:"the same information as plain text, for where the card cannot be drawn"`
+	Title        string                      `json:"title,omitempty" jsonschema:"a short name for the card"`
+	Images       []service.AgentUIImageInput `json:"images,omitempty" jsonschema:"image files the card uses; write legato-image:<name> in the HTML where an image's address goes"`
+	Key          string                      `json:"key,omitempty" jsonschema:"a name of your own for this card; showing again under the same key keeps one card and adds a revision"`
 }
 
 func (m *mcpTools) showCard() mcpserver.Tool {
@@ -209,7 +230,7 @@ func (m *mcpTools) showCard() mcpserver.Tool {
 	}, func(ctx context.Context, in showCardInput) (mcpserver.Result, error) {
 		return m.show(ctx, service.AgentUIShowInput{
 			Placement: service.AgentUIInline, Format: service.AgentUIFormatHTML,
-			Title: in.Title, Key: in.Key, Content: in.HTML, FallbackText: in.FallbackText,
+			Title: in.Title, Key: in.Key, Content: in.HTML, FallbackText: in.FallbackText, Images: in.Images,
 		}, "Shown as a card in the conversation")
 	})
 }
@@ -473,6 +494,15 @@ const diagramGuide = "Legato draws Mermaid for you: write <pre class=\"mermaid\"
 	"<script>const about = { api: \"Checks the token and routes the call.\", db: \"One container for each domain.\" }; " +
 	"legato.diagrams({ onNode: (id) => { document.getElementById(\"about\").textContent = about[id] } })</script> "
 
+// imageGuide teaches how an image file from disk gets into a page. The frame
+// cannot read the disk or reach Legato's API, so Legato copies the file and
+// the page names it; what a click on an image does is Legato's, so an agent
+// need not write a lightbox to make a screenshot readable.
+const imageGuide = "To use an image file from disk (a screenshot, a chart you rendered), list it in images as {name, path} and write legato-image:<name> wherever its address goes: " +
+	"<img src=\"legato-image:board\" alt=\"The board\">, or a CSS url(). In a script, legato.image(name) returns the address. Legato keeps its own copy of the file. " +
+	"The person can click such an image to see it full size and step through the page's other images, so a small one is enough; put data-legato-zoom=\"off\" on an image that should not open. " +
+	"A container with class=\"legato-image-grid\" lays its images, or its <figure>s with a <figcaption>, out as a grid of thumbnails. "
+
 // htmlGuide tells an agent what the frame its HTML is drawn in allows. Each
 // statement was checked in a browser: scripts, inline SVG and libraries from
 // the allowed hosts work; storage, workers and the network do not. An agent
@@ -489,6 +519,7 @@ func (m *mcpTools) htmlGuide() string {
 	} else {
 		guide += "Nothing loads from the network, so keep every script, style and image inline. "
 	}
+	guide += imageGuide
 	guide += "The frame has no storage (localStorage and cookies throw), no workers, and cannot fetch, submit forms or open windows, so put the data in the page. " +
 		"Call legato.proposeMessage(text) from a script to put text in the person's message box for them to send, and legato.openLink(url) to offer a link."
 	return guide

@@ -217,6 +217,9 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/{task_id}/image", s.agentImageHandler())
 	mux.HandleFunc("/api/agents/{task_id}/ui-items", s.agentUIItemsHandler())
 	mux.HandleFunc("/api/ui-items/{id}", s.agentUIItemHandler())
+	// Outside /api/ on purpose: see agentUIImageHandler for why it asks for
+	// no token.
+	mux.HandleFunc(service.AgentUIImageRoute, s.agentUIImageHandler())
 	mux.HandleFunc("/api/agents/{task_id}/chimera/discover", s.chimeraDiscoverHandler())
 	mux.HandleFunc("/api/agents/{task_id}/chimera/downgrade", s.chimeraDowngradeHandler())
 	mux.HandleFunc("/api/agents/{task_id}/chimera/snapshot", s.chimeraSnapshotHandler())

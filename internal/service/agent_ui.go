@@ -50,7 +50,7 @@ var agentUIKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // agentUIFormats lists what each placement can draw.
 var agentUIFormats = map[string][]string{
-	AgentUIPanel:  {AgentUIFormatHTML, AgentUIFormatMarkdown},
+	AgentUIPanel:  {AgentUIFormatHTML, AgentUIFormatMarkdown, AgentUIFormatComponents},
 	AgentUIInline: {AgentUIFormatHTML, AgentUIFormatComponents},
 }
 
@@ -70,8 +70,11 @@ type AgentUIItem struct {
 	// ResourceDomains are the hosts HTML content may load scripts, styles,
 	// fonts and images from. Set only on an HTML item read with its content.
 	ResourceDomains []string `json:"resource_domains,omitempty"`
-	CreatedAt       string   `json:"created_at"`
-	UpdatedAt       string   `json:"updated_at"`
+	// Images are the image files this revision uses, by the name its content
+	// refers to each by.
+	Images    []AgentUIImage `json:"images,omitempty"`
+	CreatedAt string         `json:"created_at"`
+	UpdatedAt string         `json:"updated_at"`
 }
 
 // AgentUIShowInput is one request from an agent to show something.
@@ -82,10 +85,13 @@ type AgentUIShowInput struct {
 	Format      string
 	Title       string
 	Key         string
-	// Content is the HTML or Markdown; a component card has Components instead.
+	// Content is the HTML or Markdown; the components format has Components instead.
 	Content      string
 	Components   []UIComponent
 	FallbackText string
+	// Images are image files the HTML or Markdown uses. The content refers to
+	// one as legato-image:<name>.
+	Images []AgentUIImageInput
 }
 
 // AgentUIOptions configures an AgentUIService.
@@ -93,20 +99,24 @@ type AgentUIOptions struct {
 	// ResourceDomains are the hosts an agent's HTML may load scripts, styles,
 	// fonts and images from. Empty means none: everything must be inline.
 	ResourceDomains []string
+	// ImageDir is where copies of the image files agents show are kept, a
+	// folder for each task. Without it an agent cannot show image files.
+	ImageDir string
 }
 
 // AgentUIService stores what agents ask Legato to show and tells running
 // clients when it changes.
 type AgentUIService struct {
-	store   *store.Store
-	bus     *events.Bus
-	domains []string
+	store    *store.Store
+	bus      *events.Bus
+	domains  []string
+	imageDir string
 }
 
 // NewAgentUIService returns a service over s. bus may be nil in a process
 // with nobody to tell, such as a CLI command.
 func NewAgentUIService(s *store.Store, bus *events.Bus, opts AgentUIOptions) *AgentUIService {
-	return &AgentUIService{store: s, bus: bus, domains: append([]string(nil), opts.ResourceDomains...)}
+	return &AgentUIService{store: s, bus: bus, domains: append([]string(nil), opts.ResourceDomains...), imageDir: opts.ImageDir}
 }
 
 // ResourceDomains returns the hosts an agent's HTML may load from.
@@ -121,20 +131,33 @@ func (s *AgentUIService) Show(ctx context.Context, in AgentUIShowInput) (*AgentU
 	in.Title = strings.TrimSpace(in.Title)
 	in.Key = strings.TrimSpace(in.Key)
 	in.FallbackText = strings.TrimSpace(in.FallbackText)
-	if in.Format == AgentUIFormatComponents && in.Placement == AgentUIInline {
+	files := in.Images
+	if in.Format == AgentUIFormatComponents {
 		encoded, err := encodeUIComponents(in.Components)
 		if err != nil {
 			return nil, err
 		}
-		in.Content = encoded
+		if len(in.Images) > 0 {
+			return nil, fmt.Errorf("%w: components name their image files themselves, in image components; images is for HTML and Markdown", ErrAgentUIInvalid)
+		}
+		in.Content, in.Images = encoded, nil
+		files = uiComponentImages(in.Components)
+		if len(files) > agentUIMaxImages {
+			return nil, fmt.Errorf("%w: at most %d images fit in one item", ErrAgentUIInvalid, agentUIMaxImages)
+		}
 	}
 	if err := validateAgentUIShow(in); err != nil {
+		return nil, err
+	}
+	// Last, so that a request turned down for another reason leaves no files.
+	images, err := s.keepImages(in.TaskID, files)
+	if err != nil {
 		return nil, err
 	}
 	saved, err := s.store.SaveAgentUIItem(ctx, store.AgentUIItem{
 		ID: generateAgentUIItemID(), TaskID: in.TaskID, ExecutionID: in.ExecutionID,
 		Placement: in.Placement, Key: in.Key, Format: in.Format, Title: in.Title,
-		Content: in.Content, FallbackText: in.FallbackText,
+		Content: in.Content, FallbackText: in.FallbackText, Images: images,
 	}, store.AgentUILimits{MaxItems: agentUIMaxItems, MaxRevisions: agentUIMaxRevisions})
 	if err != nil {
 		return nil, err
@@ -151,6 +174,7 @@ func (s *AgentUIService) Get(ctx context.Context, id string, revision int) (*Age
 		return nil, err
 	}
 	item := agentUIItemFromStore(stored)
+	item.Images = s.storedImages(stored)
 	if item.Format == AgentUIFormatHTML {
 		item.ResourceDomains = s.ResourceDomains()
 	}
@@ -259,7 +283,7 @@ func validateAgentUIShow(in AgentUIShowInput) error {
 	if utf8.RuneCountInString(in.FallbackText) > agentUIMaxFallbackRunes {
 		return invalid("fallback_text is longer than %d characters", agentUIMaxFallbackRunes)
 	}
-	return nil
+	return validateAgentUIImages(in.Content, in.Images)
 }
 
 func (s *AgentUIService) publish(taskID, itemID, placement string, revision int, kind string) {
@@ -272,12 +296,14 @@ func (s *AgentUIService) publish(taskID, itemID, placement string, revision int,
 }
 
 func agentUIItemFromStore(item *store.AgentUIItem) *AgentUIItem {
-	return &AgentUIItem{
+	out := &AgentUIItem{
 		ID: item.ID, TaskID: item.TaskID, Placement: item.Placement, Format: item.Format,
 		Title: item.Title, Key: item.Key, Revision: item.Revision, OldestRevision: item.OldestRevision,
 		Content: item.Content, FallbackText: item.FallbackText,
 		CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt,
 	}
+	out.Images = agentUIImagesFromStore(item.TaskID, item.Images)
+	return out
 }
 
 func generateAgentUIItemID() string {

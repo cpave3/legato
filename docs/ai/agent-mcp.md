@@ -1,6 +1,6 @@
 # Agent tools (the Legato MCP server)
 
-Every agent Legato launches gets a set of Legato's own tools, through an MCP server that Legato adds to the session at launch: `legato mcp serve`. With them an agent can show something in the web UI (an **artifact** in a side panel, or a **card** in the conversation in place of text), read the task it is working on, record a note on it, and message the other agents in its worktree. Nothing is installed by hand and nothing is written to the agent tool's own configuration.
+Every agent Legato launches gets a set of Legato's own tools, through an MCP server that Legato adds to the session at launch: `legato mcp serve`. With them an agent can show something in the web UI (an **artifact** in a side panel, or a **card** in the conversation in place of text), put image files from disk in what it shows, read the task it is working on, record a note on it, and message the other agents in its worktree. Nothing is installed by hand and nothing is written to the agent tool's own configuration.
 
 The same server works for Claude Code, Codex and Chimera, and for any later agent tool that speaks MCP. It was built and verified against Claude Code 2.1.296, Codex 0.157.1 and a Chimera with `--mcp-config`.
 
@@ -32,8 +32,8 @@ Legato is not the MCP host. The agent tool is, and a terminal agent cannot draw 
 
 | Tool | Arguments | What it does |
 | --- | --- | --- |
-| `show_artifact` | `title`, `content`, `format` (`html` default, or `markdown`), `key` | Stores an artifact and opens it in the side panel. |
-| `show_card` | `html`, `fallback_text`, `title`, `key` | Stores an HTML card, drawn in the conversation at the call. |
+| `show_artifact` | `title`, `key`, and either `content` with `format` (`html` default, or `markdown`) and `images`, or `components` | Stores an artifact and opens it in the side panel. |
+| `show_card` | `html`, `fallback_text`, `title`, `images`, `key` | Stores an HTML card, drawn in the conversation at the call. |
 | `show_components` | `components`, `fallback_text`, `title`, `key` | Stores a card built from Legato's own components (see below). |
 | `session_info` | none | Task ID and title, agent tool, swarm role, working directory. |
 | `task_context` | none | The task as Markdown: description, linked ticket, repository details, durable notes. |
@@ -107,21 +107,63 @@ Checked with a question that names no tool ("compare these three search backends
 `internal/engine/store/agent_ui.go`, migration `063_agent_ui_items.sql`.
 
 - `agent_ui_items`: `id` (`ui-<10 hex>`), `task_id`, `execution_id`, `placement` (`panel` or `inline`), `item_key`, `revision`, timestamps. `(task_id, placement, item_key)` is unique when the key is set.
-- `agent_ui_item_revisions`: `(item_id, revision)`, `format` (`html`, `markdown`, `components`), `title`, `content`, `fallback_text`.
+- `agent_ui_item_revisions`: `(item_id, revision)`, `format` (`html`, `markdown`, `components`), `title`, `content`, `fallback_text`, and `images` (migration `064_agent_ui_item_images.sql`): the revision's image files as JSON, `[{name, file}]`, empty when it has none.
 
 `task_id` is the agent's own identity, which is a sub-task ID for a swarm worker, so it has no foreign key: `Store.DeleteTask` removes a task's items and its workers', and `Store.DeleteSubtask` a worker's.
 
 `service.AgentUIService` owns the rules (`internal/service/agent_ui.go`):
 
 - Content is at most 1 MiB of valid UTF-8. An artifact needs a title; a card needs `fallback_text`, the same information as plain text.
+- An artifact is HTML, Markdown or components; a card is HTML or components.
 - A task keeps 200 items. Past that, the items changed longest ago are removed, so a long session never reaches a point where nothing more can be shown. A card whose item is gone falls back to its text.
 - An item keeps its newest 20 revisions.
 
 ## Component cards
 
-`show_components` takes a list of components from a fixed catalog (`internal/service/agent_ui_components.go`, `UIComponentGuide`): `heading`, `text` (Markdown), `stat`, `stats`, `key_value`, `table`, `list`, `badges`, `progress`, `bar_chart`, `code`, `divider` and `actions`. Each is a flat object whose `type` says which fields apply; `tone` is `neutral`, `positive`, `warning`, `negative` or `info`. The service checks every component and names the one that is wrong (`components[1] (table): rows[0] has 1 cells; the table has 2 columns`), so the agent can correct the call.
+`show_components` takes a list of components from a fixed catalog (`internal/service/agent_ui_components.go`, `UIComponentGuide`): `heading`, `text` (Markdown), `stat`, `stats`, `key_value`, `table`, `list`, `badges`, `progress`, `bar_chart`, `code`, `image`, `image_grid`, `divider` and `actions`. `show_artifact` takes the same list as `components`, in place of `content`, and the artifact is then drawn the same way in the side panel. Each is a flat object whose `type` says which fields apply; `tone` is `neutral`, `positive`, `warning`, `negative` or `info`. The service checks every component and names the one that is wrong (`components[1] (table): rows[0] has 1 cells; the table has 2 columns`), so the agent can correct the call.
 
 The web UI draws them with its own elements (`AgentUIComponents`). Nothing the agent wrote runs; every value is text. A component card costs the agent far fewer tokens than HTML and always matches the app; HTML is for what the catalog cannot express.
+
+## Image files
+
+An agent can put an image file from disk in what it shows: a screenshot it took, a chart it rendered. There are two ways to name the file, and one way it is kept and served.
+
+**Naming the file.**
+
+| Where | How |
+| --- | --- |
+| Components | `{type: "image", path, alt, caption}` and `{type: "image_grid", items: [{path, alt, caption}]}` (1 to 24 images) take the file's path directly. This is the way that needs nothing else. |
+| HTML and Markdown | `images: [{name, path}]` on `show_artifact` and `show_card` lists the files, and the content writes `legato-image:<name>` where an image's address goes: `<img src="legato-image:board">`, a CSS `url()`, `![The board](legato-image:board)`. A name is 1 to 64 letters, digits, dashes and underscores. |
+
+- A path should be absolute. A relative one is taken from the working directory of the `legato mcp serve` process, which is usually the session's, and the error names the path that was tried.
+- Content that refers to a name `images` does not list is turned down, so the agent corrects the call instead of showing a broken picture.
+- What the agent wrote is stored as it wrote it. The names are resolved when the item is drawn.
+
+**Keeping the file** (`internal/service/agent_ui_images.go`). When the tool is called, Legato copies each file to `<data_dir>/agent-ui-images/<task-id>/<sha256 of the content>.<ext>`, so the file can change or go afterwards. The folder is `0700` and a copy `0600`.
+
+- Only content that is PNG, JPEG, GIF, WebP or BMP is taken, up to 25 MiB; the file's name does not count. SVG is refused, because it is a document: an agent writes SVG inline in its HTML.
+- An item has at most 60 image files.
+- The same content is kept once per task, so an artifact revised twenty times with the same screenshot has one copy.
+- A task keeps the 100 images it used most recently. Older copies are removed when a new one is stored. An item that still names one is read without it: a component then says the image is not stored any more, and HTML or Markdown draws a broken picture.
+- A request that is turned down for any reason leaves no item and no copy behind.
+- A task's folder is removed when the task has nothing shown any more (the task was deleted, or the person removed what it showed). `AgentUIService.RemoveOrphanImages` does it when a web server starts, and leaves a folder that changed in the last hour alone.
+
+**Serving the file.** `GET /agent-ui-images/{task_id}/{file}` gives out a copy. It is the one route of this feature that asks for no token, and it is outside `/api/` for that reason:
+
+- An image is drawn by the sandboxed frame an agent's HTML runs in, and that frame must never hold the person's token.
+- What stands in for the token is the address. It is the SHA-256 of the image's content, so it can be named only by someone who already has the image.
+- The route gives out only its own copies, and only content that is a raster image. It answers `404` to everything else: another task's folder, a name that is not a hash, a path that climbs out.
+- The response is `nosniff`, has a sandboxing content security policy, and is cached as `private, immutable`.
+
+The item API names each image for the web UI: `images: [{name, url}]` on `GET /api/ui-items/{id}`, where `url` is the route's path and `name` is the name in `legato-image:<name>` or, for a component, the path the agent gave.
+
+**Showing it full size** (`ImageLightbox`). A click on an image opens it over the whole window, fitted to it; a click on the image there switches to its own size. The arrow keys and two buttons step through the item's other images, around the ends, and Escape closes it.
+
+- In a component card or artifact, every `image` and `image_grid` entry is a button that opens it.
+- In Markdown, a click on an image from `images` opens it.
+- In HTML, see Images in a frame below.
+
+Checked in a browser at 1500 px and 390 px of width with an HTML artifact, a component artifact, a Markdown artifact and a component card: every image loaded, the lightbox opened from a click and from the keyboard, and Escape closed the lightbox without closing the artifact sheet behind it. A headless Claude Code session (Sonnet 5.5) told only "show me the screenshots in this folder" called `show_components` with one `image_grid` of the six files. That is one run.
 
 ## Web UI
 
@@ -129,7 +171,7 @@ The web UI draws them with its own elements (`AgentUIComponents`). Nothing the a
 
 **Artifact panel** (`AgentArtifactPanel`). It lists what the session showed as tabs, artifacts first, with a revision stepper, Copy source, Download and Remove.
 
-- **Download** saves an HTML item as a whole page that looks the same outside Legato (`buildStandaloneDocument`). The agent wrote its styles against Legato's theme, which the frame supplies and a raw file would be without, so the theme variables and base styles go into the file. So does the content security policy: outside Legato nothing else limits what the agent's scripts may reach. `legato.proposeMessage` does nothing there and `legato.openLink` opens the link, so scripts that call them do not fail. Markdown and component cards are saved as the agent wrote them (`.md`, `.json`). **Copy source** always gives what the agent wrote.
+- **Download** saves an HTML item as a whole page that looks the same outside Legato (`buildStandaloneDocument`). Its image files go into the page as `data:` addresses (`inlineImages`), so it opens where Legato is not; an image that cannot be read keeps its address at Legato. A saved page has no larger view of an image. The agent wrote its styles against Legato's theme, which the frame supplies and a raw file would be without, so the theme variables and base styles go into the file. So does the content security policy: outside Legato nothing else limits what the agent's scripts may reach. `legato.proposeMessage` does nothing there and `legato.openLink` opens the link, so scripts that call them do not fail. Markdown and component cards are saved as the agent wrote them (`.md`, `.json`). **Copy source** always gives what the agent wrote.
 - On a wide screen it is a resizable column beside the conversation (drag its left edge, or Left/Right on it; the width is remembered).
 - Below 1100 px of viewport (1500 px beside the swarm event log) it is a full-screen sheet, as on a phone, above the bottom navigation.
 - `useArtifactPanel` decides when it opens: a new artifact from the agent in view opens it, focused on that artifact; one from another agent is counted on that agent's sidebar entry and opens when the person goes there. A card never opens it. Where the panel is a sheet, a new artifact only marks the button, so it cannot land on top of what the person is typing.
@@ -155,8 +197,9 @@ What an agent's page can and cannot do there. Each entry was checked in a browse
 | Libraries from the allowed hosts as a classic script or an ES module: Mermaid and D3 were run | Web workers (`child-src 'none'`), which a few libraries need |
 | A `<pre class="mermaid">` block, drawn by the frame's own script (see Diagrams in a frame) | Forms that submit, pop-ups, navigating the top window, `eval` |
 | A `mermaid` fence in a Markdown artifact, drawn by Legato's own bundled Mermaid | |
+| An image file listed in `images`, in an `<img>`, a CSS `url()` or from a script | Any other address at Legato: the API, a page, an image that was not listed |
 
-A frame starts with a small script that gives the content `legato.proposeMessage(text)` and `legato.openLink(url)`, reports its height, and passes link clicks to the host (`legato.diagrams` and `legato.selectNode` are described below). The messages are JSON-RPC with MCP Apps' method names (`ui/notifications/size-changed`, `ui/open-link`, `ui/message`), and the theme is given as MCP Apps' CSS variables (`--color-background-primary`, `--color-text-primary`, `--font-sans`, …), so the frame is a start on drawing other MCP servers' UI. The host acts only on messages from the frame's own window, and opens only `http` and `https` links, after the person confirms.
+A frame starts with a small script that gives the content `legato.proposeMessage(text)` and `legato.openLink(url)`, reports its height, and passes link clicks to the host (`legato.diagrams` and `legato.selectNode`, and `legato.image`, are described below). The messages are JSON-RPC with MCP Apps' method names (`ui/notifications/size-changed`, `ui/open-link`, `ui/message`), and the theme is given as MCP Apps' CSS variables (`--color-background-primary`, `--color-text-primary`, `--font-sans`, …), so the frame is a start on drawing other MCP servers' UI. The host acts only on messages from the frame's own window, and opens only `http` and `https` links, after the person confirms.
 
 **Diagrams in a frame.** The frame's script also draws Mermaid, so an agent writes a diagram's source and no library code (`diagramsScript` in `web/src/lib/agentUi.ts`):
 
@@ -188,6 +231,21 @@ Each of these is something an agent got wrong, or would, when it ran Mermaid its
 
 The saved file (`buildStandaloneDocument`) carries the same script, so a downloaded page draws its diagrams when it is opened with a network connection.
 
+**Images in a frame** (`imagesScript`, `imageSources` in `web/src/lib/agentUi.ts`). The frame cannot read the disk or reach Legato's API, so the page that builds its document does three things with the item's images:
+
+- It writes each image's address where the HTML says `legato-image:<name>`. The address is at the server the page talks to, which the agent cannot know when it writes the HTML.
+- It adds one source to the frame's `img-src`: `<that server>/agent-ui-images/`. The folder of stored images, and not the API beside it. A frame with no images gets nothing added.
+- It gives scripts `legato.image(name)`, which returns the address (empty for a name the item does not have), for an image a script adds.
+
+The frame is as narrow as the panel, so the larger view is the host's to draw. A click on one of the item's images, or Enter or Space on it, posts `legato/show-image` with the image and the page's other images in document order; `SandboxedHtml` opens the lightbox with those that are the item's own addresses and drops any other, so the frame cannot make the page load an address of its choosing.
+
+- Every image of the item opens, including one a script adds later, and is marked `data-legato-zoom="on"` (a zoom cursor, and a place in the tab order).
+- An image does not open when it or something around it has `data-legato-zoom="off"`, or when it is inside a link or a button of the page's own.
+- A `<figcaption>` in the image's `<figure>` is its caption in the larger view.
+- `class="legato-image-grid"` on a container lays its images, or its figures, out as a grid of thumbnails.
+
+Checked in a browser, from inside a frame that had six images: `fetch` to Legato's API, the API's own image route as an `<img>`, another file at Legato's address and an image at another host were each refused by the policy, and the six images loaded.
+
 **Proposing a message.** A card or an artifact can put text in the person's message box: an `actions` component's button, or `legato.proposeMessage(text)` from HTML. The text is added to what is there, a notice says where it came from, and nothing is sent until the person sends it. It travels as a window event (`proposeComposerText` / `onComposerProposal`), so the native composer and the terminal `PromptBar` both take it without knowing of the panel.
 
 ## In the TUI
@@ -212,8 +270,9 @@ http://localhost:3080/agents?task=fekz3ove&artifact=ui-885e1b7a26
 - `GET /api/agents/{task_id}/ui-items` — a session's items at their latest revision, without content.
 - `GET /api/ui-items/{id}[?revision=N]` — one item with its content and, for HTML, `resource_domains`.
 - `DELETE /api/ui-items/{id}` — removes an item and its revisions.
+- `GET /agent-ui-images/{task_id}/{file}` — Legato's copy of an image file an agent showed. No token; see Image files.
 
-All three need the bearer token. Agents write through the MCP server, never through this API.
+The first three need the bearer token. Agents write through the MCP server, never through this API.
 
 `agent_ui_changed` carries `task_id`, `item_id`, `placement`, `revision` and `kind` (`shown`, `deleted`). The MCP server broadcasts it over IPC; both `handleIPCMessage` (TUI) and `handleServeIPCMessage` (`legato serve`, which acts on a shorter list of messages) publish `EventAgentUIChanged`; `Server.StartAgentUIEvents` forwards it to WebSocket clients, where `QuerySyncProvider` invalidates the session's list and the item.
 
@@ -240,12 +299,12 @@ A session must be started again to gain or lose the server: agent tools read the
 - `internal/engine/mcpserver/` — a stdio MCP server from a list of tools, over the official Go SDK. It knows the protocol and nothing about Legato. `NewTool[In]` infers the input schema; `Serve` runs until the client goes away.
 - `internal/cli/mcp.go` — Legato's tools (`MCPServerOptions`), their names (`MCPToolNames`) and the guidance (`MCPGuidance`).
 - `cmd/legato/mcp_cmd.go` — the `legato mcp serve` command.
-- `internal/service/agent_ui.go`, `agent_ui_components.go` — `AgentUIService` and the component catalog. `task_note.go` — `AddTaskNote`, shared with the workflow `task.note` step.
+- `internal/service/agent_ui.go`, `agent_ui_components.go` — `AgentUIService` and the component catalog. `agent_ui_images.go` — the copies of image files: keeping, pruning, opening one to serve. `task_note.go` — `AddTaskNote`, shared with the workflow `task.note` step.
 - `internal/engine/store/agent_ui.go` — persistence.
-- `internal/server/agent_ui.go` — the HTTP API and the WebSocket forwarder.
+- `internal/server/agent_ui.go` — the HTTP API, the image route and the WebSocket forwarder.
 - `internal/engine/hooks/` — `claudemod/tools/` and `InstallClaudeToolsMod`; `SetMCPTools` and `SetToolsPrompt` on the Codex and Chimera adapters; `mcp_tools.go` for what they share.
 - `internal/tui/agents/shown.go`, `internal/tui/app_agent_ui.go` — the TUI's line and link for what an agent showed.
-- `web/src/lib/agentUi.ts`, `hooks/useAgentUI.ts`, `hooks/useArtifactPanel.ts`, `components/AgentArtifactPanel.tsx`, `AgentUICallCard.tsx`, `AgentUIItemView.tsx`, `AgentUIComponents.tsx`, `SandboxedHtml.tsx`, `ArtifactsButton.tsx`.
+- `web/src/lib/agentUi.ts`, `hooks/useAgentUI.ts`, `hooks/useArtifactPanel.ts`, `components/AgentArtifactPanel.tsx`, `AgentUICallCard.tsx`, `AgentUIItemView.tsx`, `AgentUIComponents.tsx`, `SandboxedHtml.tsx`, `ImageLightbox.tsx`, `ArtifactsButton.tsx`.
 
 ## Debugging
 
@@ -258,6 +317,9 @@ A session must be started again to gain or lose the server: agent tools read the
 
 - Only the web UI draws artifacts and cards. The TUI's agents view says what the selected agent has shown and links to it (see In the TUI); in an attached terminal the person sees the tool call and the one-sentence reply. `agents.mcp.enabled: false` turns the tools off.
 - A view can propose a message. It cannot send one, call a tool, or read anything from Legato.
+- An image in a Markdown artifact opens on a click only; the keyboard does not reach it. In HTML and in components it does.
+- A page saved with **Download** holds each image twice when a script may ask for it (in the HTML and in what `legato.image` answers), so a page with large images is a large file.
+- Image files are not shown again from their original path: Legato's copy is what every revision draws. A task's 101st image removes its oldest.
 - Legato draws the UI of its own server only. It is not a general MCP Apps host for other servers' `ui://` resources.
 - Chimera subagents (`spawn_agent`) read the global Chimera config and do not get the server.
 - A sandboxed frame can navigate *itself* to another page. That page gets nothing from Legato and keeps the **Made by the agent** label, but it is no longer the agent's content.
