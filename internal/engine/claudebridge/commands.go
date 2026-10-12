@@ -17,9 +17,7 @@ func (b *Bridge) send(command map[string]any) error {
 	b.commandMu.Lock()
 	defer b.commandMu.Unlock()
 	if _, err := b.commands.Write(append(line, '\n')); err != nil {
-		if b.onDisconnect != nil {
-			b.disconnectOnce.Do(b.onDisconnect)
-		}
+		b.disconnect()
 		return fmt.Errorf("writing command for the Claude Code mod: %w", err)
 	}
 	return nil

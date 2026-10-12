@@ -32,8 +32,9 @@ type Options struct {
 	Commands io.Writer
 	// Models are the model IDs the panel offers beside the session's own.
 	Models []string
-	// OnDisconnect is called once when a command can no longer be written:
-	// the mod has stopped reading, so the session is gone.
+	// OnDisconnect is called once when the session is gone: a command can no
+	// longer be written because the mod stopped reading, or the mod said its
+	// session ended.
 	OnDisconnect func()
 	// Now overrides the clock in tests.
 	Now func() time.Time
@@ -129,13 +130,30 @@ func (b *Bridge) handleModEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid events JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	ended := false
 	b.mu.Lock()
 	for _, event := range batch.Events {
+		if event.Type == "ended" {
+			ended = true
+			continue
+		}
 		b.publish(b.session.apply(event, b.now()))
 	}
 	b.releaseSettledWaiters()
 	b.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
+	// The session ended in this Claude process. When it was sent to the
+	// background it goes on in another, whose bridge is waiting for this one
+	// to let go of the task.
+	if ended {
+		b.disconnect()
+	}
+}
+
+func (b *Bridge) disconnect() {
+	if b.onDisconnect != nil {
+		b.disconnectOnce.Do(b.onDisconnect)
+	}
 }
 
 func (b *Bridge) handleSnapshot(w http.ResponseWriter, r *http.Request) {

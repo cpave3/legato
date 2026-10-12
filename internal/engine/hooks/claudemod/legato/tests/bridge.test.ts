@@ -20,7 +20,17 @@ type Piece = { kind: 'text' | 'thinking'; index: number; text: string }
 
 const world = (
   on: On,
-  script: { lines?: string[]; permission?: object; startsAfter?: Promise<void>; reply?: Piece[] } = {},
+  script: {
+    lines?: string[]
+    permission?: object
+    startsAfter?: Promise<void>
+    reply?: Piece[]
+    // What the mod's own store holds when the session starts.
+    store?: Record<string, unknown>
+    // The process's variables, for a test that changes them as it goes; the
+    // others give theirs to `mock.env`.
+    env?: Record<string, string>
+  } = {},
 ) => {
   // The session the mod reads; a test swaps it to stand for a resume.
   const session: { id: string; messages: Transcript; tokens: number } = {
@@ -29,6 +39,10 @@ const world = (
     tokens: 10,
   }
   const spawned: string[][] = []
+  // The variables each bridge child was started with, over the process's own.
+  const spawnedWith: (Record<string, string> | undefined)[] = []
+  // Every variable the mod set for its process; undefined is one it unset.
+  const envSet: Record<string, string | undefined> = {}
   // What each model request reached the engine with, after the mod.
   const requested: { model: string; effort: unknown }[] = []
   const posted: Posted[] = []
@@ -40,6 +54,7 @@ const world = (
 
   on('process.spawn', async function* ($, e) {
     spawned.push([...e.argv])
+    spawnedWith.push(e.env)
     await script.startsAfter
 
     for (const line of script.lines ?? []) {
@@ -58,6 +73,31 @@ const world = (
       : ''
 
     return { value: { status: 200, ok: true, headers: {}, text } }
+  })
+  // The mod's own store, which every process running the mod shares.
+  const store = new Map<string, unknown>(Object.entries(script.store ?? {}))
+  on('store.get', ($, e) => ({ value: store.get(e.key) }))
+  on('store.set', ($, e) => {
+    store.set(e.key, JSON.parse(JSON.stringify(e.value)))
+
+    return { value: undefined }
+  })
+  on('store.delete', ($, e) => {
+    store.delete(e.key)
+
+    return { value: undefined }
+  })
+  on('store.keys', () => ({ value: [...store.keys()] }))
+
+  const env = script.env
+
+  if (env !== undefined) {
+    on('env.get', ($, e) => ({ value: env[e.name] }))
+  }
+  on('env.set', ($, e) => {
+    envSet[e.name] = e.value
+
+    return { value: undefined }
   })
   on('prompt.submit', ($, e) => {
     submitted.push(e.text)
@@ -97,7 +137,7 @@ const world = (
 
   const events = () => posted.flatMap(post => post.body.events ?? [])
 
-  return { session, spawned, requested, posted, submitted, events, exit }
+  return { session, spawned, spawnedWith, envSet, store, requested, posted, submitted, events, exit }
 }
 
 const READY = JSON.stringify({ type: 'ready', url: 'http://bridge.test/secret' })
@@ -678,6 +718,301 @@ test('a stored thinking block reaches the bridge with what can be read of it and
     [{ type: 'thinking', thinking: '' }],
   ])
   expect(JSON.stringify(events())).not.toContain('signed-by-the-model')
+
+  exit()
+  await clock.settle()
+})
+
+test('a session that ends for good tells its bridge to go', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { posted, events, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+
+  // `/background`: the conversation goes on in another Claude process, which
+  // starts a bridge of its own. This one must let go of the task first.
+  await $.session.end({
+    reason: 'prompt_input_exit',
+    sessionId: 'claude-session-1',
+    resume: { id: 'claude-session-1' },
+  })
+
+  expect(events().at(-1)).toEqual({ type: 'ended' })
+  expect(posted.at(-1)?.url).toBe('http://bridge.test/secret/mod/events')
+
+  exit()
+  await clock.settle()
+})
+
+test('a session that started again after ending gets a bridge of its own', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { spawned, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.session.end({
+    reason: 'other',
+    sessionId: 'claude-session-1',
+    resume: { id: 'claude-session-1' },
+  })
+
+  // The bridge that was told to go may not have exited yet.
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+
+  expect(spawned).toHaveLength(2)
+
+  exit()
+  await clock.settle()
+})
+
+test('a /clear keeps the bridge it has', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { events, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.session.end({
+    reason: 'clear',
+    sessionId: 'claude-session-1',
+    resume: { id: 'claude-session-1' },
+  })
+  await clock.settle()
+
+  expect(events().map(event => event.type)).not.toContain('ended')
+
+  exit()
+  await clock.settle()
+})
+
+// What a background worker inherits: the environment of the daemon that
+// started it, which is that of some other Legato session.
+const INHERITED = {
+  LEGATO_TASK_ID: 'someone-else',
+  LEGATO_EXECUTION_ID: 'ex-someone-else',
+  LEGATO_BIN: '/opt/other/legato',
+  CLAUDE_CODE_SESSION_KIND: 'bg',
+}
+
+const CONVERSATION: Transcript = [
+  { role: 'user', text: 'refactor the sync service', toolUses: [] },
+  { role: 'assistant', text: 'Done: three files changed.', toolUses: [] },
+]
+
+test('a session that ends leaves a note of which task it served', async ($, on) => {
+  const clock = mock.clock(on, { now: 5_000 })
+  mock.env(on, LEGATO_SESSION)
+  const { session, store, exit } = world(on, { lines: [READY] })
+  session.messages = CONVERSATION
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.session.end({
+    reason: 'prompt_input_exit',
+    sessionId: 'claude-session-1',
+    resume: { id: 'claude-session-1' },
+  })
+
+  expect(store.get('handover:claude-session-1')).toEqual(
+    expect.objectContaining({
+      at: 5_000,
+      cwd: '/work/repo',
+      count: 2,
+      env: { LEGATO_TASK_ID: 'task-1', LEGATO_EXECUTION_ID: 'ex-1', LEGATO_BIN: '/opt/legato' },
+    }),
+  )
+
+  exit()
+  await clock.settle()
+})
+
+test('a session sent to the background serves the task its note names, not the one it inherited', async ($, on) => {
+  const clock = mock.clock(on, { now: 5_000 })
+  const env: Record<string, string> = { ...LEGATO_SESSION }
+  const { session, spawned, spawnedWith, envSet, store, exit } = world(on, { lines: [READY], env })
+  session.messages = CONVERSATION
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.session.end({
+    reason: 'prompt_input_exit',
+    sessionId: 'claude-session-1',
+    resume: { id: 'claude-session-1' },
+  })
+
+  // The worker that goes on with the conversation: a process of the daemon,
+  // which has another session's environment.
+  for (const name of Object.keys(env)) {
+    delete env[name]
+  }
+
+  Object.assign(env, INHERITED)
+  session.id = 'claude-session-2'
+  session.messages = [...CONVERSATION, { role: 'user', text: 'and now the tests', toolUses: [] }]
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+
+  expect(spawned.at(-1)).toEqual(['/opt/legato', 'agent', 'bridge', 'task-1', '--execution-id', 'ex-1'])
+  expect(spawnedWith.at(-1)).toEqual(expect.objectContaining({ LEGATO_TASK_ID: 'task-1' }))
+  // Hooks and tools the session starts from here on act for its own task.
+  expect(envSet).toEqual(
+    expect.objectContaining({ LEGATO_TASK_ID: 'task-1', LEGATO_EXECUTION_ID: 'ex-1', LEGATO_BIN: '/opt/legato' }),
+  )
+  // The note is this session's from now on: a worker started again finds it.
+  expect(store.has('handover:claude-session-1')).toBe(false)
+  expect(store.get('session:claude-session-2')).toEqual(
+    expect.objectContaining({ env: expect.objectContaining({ LEGATO_TASK_ID: 'task-1' }) }),
+  )
+
+  exit()
+  await clock.settle()
+})
+
+test('a background session whose daemon was started outside Legato still finds its task', async ($, on) => {
+  const clock = mock.clock(on, { now: 5_000 })
+  const env: Record<string, string> = { ...LEGATO_SESSION }
+  const { session, spawned, exit } = world(on, { lines: [READY], env })
+  session.messages = CONVERSATION
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.session.end({
+    reason: 'prompt_input_exit',
+    sessionId: 'claude-session-1',
+    resume: { id: 'claude-session-1' },
+  })
+
+  for (const name of Object.keys(env)) {
+    delete env[name]
+  }
+
+  env.CLAUDE_CODE_SESSION_KIND = 'bg'
+  session.id = 'claude-session-2'
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+
+  expect(spawned.at(-1)).toEqual(['/opt/legato', 'agent', 'bridge', 'task-1', '--execution-id', 'ex-1'])
+
+  exit()
+  await clock.settle()
+})
+
+test('a background session with no note of its own serves no task', async ($, on) => {
+  const clock = mock.clock(on, { now: 5_000 })
+  mock.env(on, INHERITED)
+  const { session, spawned, envSet, store } = world(on, {
+    lines: [READY],
+    store: {
+      // Another conversation, ended in the same directory a moment ago.
+      'handover:claude-session-9': {
+        at: 4_000,
+        cwd: '/work/repo',
+        count: 1,
+        tail: ['user:zzzz'],
+        env: { LEGATO_TASK_ID: 'task-9' },
+      },
+    },
+  })
+  session.messages = CONVERSATION
+
+  const starting = $.session.start(INTERACTIVE)
+  await clock.advance(10_000)
+  await starting
+  await clock.settle()
+
+  expect(spawned).toEqual([])
+  expect('LEGATO_TASK_ID' in envSet && envSet.LEGATO_TASK_ID === undefined).toBe(true)
+  expect('LEGATO_EXECUTION_ID' in envSet && envSet.LEGATO_EXECUTION_ID === undefined).toBe(true)
+  expect(store.has('handover:claude-session-9')).toBe(true)
+})
+
+test('a background session started again finds the task it took over', async ($, on) => {
+  const clock = mock.clock(on, { now: 5_000 })
+  mock.env(on, INHERITED)
+  const { spawned, exit } = world(on, {
+    lines: [READY],
+    store: {
+      'session:claude-session-1': { at: 1_000, env: { LEGATO_TASK_ID: 'task-1', LEGATO_BIN: '/opt/legato' } },
+    },
+  })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+
+  expect(spawned).toEqual([['/opt/legato', 'agent', 'bridge', 'task-1']])
+
+  exit()
+  await clock.settle()
+})
+
+test('the process a session was sent to the background from does not take the task back', async ($, on) => {
+  const clock = mock.clock(on, { now: 5_000 })
+  mock.env(on, LEGATO_SESSION)
+  // The process can stay on as a viewer of the background session, with the
+  // task's own variables; a reload of the mod starts its session again.
+  const { spawned } = world(on, {
+    lines: [READY],
+    store: {
+      'session:claude-session-2': { at: 4_000, env: { LEGATO_TASK_ID: 'task-1', LEGATO_EXECUTION_ID: 'ex-1' } },
+    },
+  })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+
+  expect(spawned).toEqual([])
+})
+
+test('a later launch of the task is not held back by an earlier launch that went to the background', async ($, on) => {
+  const clock = mock.clock(on, { now: 5_000 })
+  mock.env(on, LEGATO_SESSION)
+  const { spawned, exit } = world(on, {
+    lines: [READY],
+    store: {
+      'session:claude-session-2': { at: 4_000, env: { LEGATO_TASK_ID: 'task-1', LEGATO_EXECUTION_ID: 'ex-0' } },
+    },
+  })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+
+  expect(spawned).toHaveLength(1)
+
+  exit()
+  await clock.settle()
+})
+
+test('a background session that ends hands its note on', async ($, on) => {
+  const clock = mock.clock(on, { now: 5_000 })
+  mock.env(on, INHERITED)
+  const { session, store, exit } = world(on, {
+    lines: [READY],
+    store: {
+      'session:claude-session-1': { at: 1_000, env: { LEGATO_TASK_ID: 'task-1', LEGATO_EXECUTION_ID: 'ex-1' } },
+    },
+  })
+  session.messages = CONVERSATION
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.session.end({
+    reason: 'other',
+    sessionId: 'claude-session-1',
+    resume: { id: 'claude-session-1' },
+  })
+
+  // Nothing holds the task any more; a worker started again for the same
+  // conversation takes the note as any session going on with it would.
+  expect(store.has('session:claude-session-1')).toBe(false)
+  expect(store.get('handover:claude-session-1')).toEqual(
+    expect.objectContaining({ count: 2, env: expect.objectContaining({ LEGATO_TASK_ID: 'task-1' }) }),
+  )
 
   exit()
   await clock.settle()

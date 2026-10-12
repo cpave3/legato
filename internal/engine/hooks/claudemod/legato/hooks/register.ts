@@ -130,6 +130,9 @@ const slimBlock = (block: Block): Block | undefined => {
 // announced itself, which is when the queue starts to drain.
 let isCollecting = false
 let isBridgeRunning = false
+// Counts the bridges this module has had. A bridge that was told to go is no
+// longer the module's: what it still prints, and its exit, change nothing.
+let bridgeRun = 0
 let endpoint: string | undefined
 let queue: BridgeEvent[] = []
 let wake: (() => void) | undefined
@@ -145,6 +148,29 @@ let unreadNotes: string[] = []
 // saved defaults, are never written.
 let modelOverride: string | undefined
 let effortOverride: Effort | undefined
+
+// What Legato put in the session's environment to say which task it serves.
+type Identity = Record<string, string>
+
+// What a session leaves when it ends, and what a background session keeps
+// once it has taken one over. `count` and `tail` say which conversation the
+// note belongs to: how many messages it had, and the last of them.
+type Note = { at: number; cwd?: string; count?: number; tail?: string[]; env: Identity }
+
+// The task this process serves, once a session of it started inside Legato.
+let identity: Identity | undefined
+let isBackground = false
+// The session whose note is in the store under its own name.
+let notedSessionId: string | undefined
+let notedAt = 0
+
+// A note left by a session that ended is for a session starting right then.
+const HANDOVER_WINDOW = 120_000
+// A background session's own note is good for this long after it was last
+// written, and is written again as the session works.
+const NOTE_LIFETIME = 7 * 24 * 3_600_000
+const NOTE_REFRESH = 3_600_000
+const TAIL_LENGTH = 5
 
 // What is held for a bridge that has not announced itself yet. One that is
 // slower than this many events is not coming.
@@ -301,6 +327,278 @@ const redescribe = async ($: EngineInterface, endedSessionId: string): Promise<v
   post(await describe($))
 }
 
+// The session ended in this process for good. `/background` is one way: the
+// conversation goes on in another Claude process, whose bridge can only bind
+// the task once this one has let go of it. The bridge is told directly, since
+// the engine gives an ending session little time and the pump may not get
+// another turn.
+const retire = async ($: EngineInterface): Promise<void> => {
+  const url = endpoint
+
+  if (url === undefined) {
+    return
+  }
+
+  bridgeRun += 1
+  isBridgeRunning = false
+  isCollecting = false
+  endpoint = undefined
+  queue = []
+  viewers = 0
+  wake?.()
+
+  try {
+    await $.http.fetch(`${url}/mod/events`, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ events: [{ type: 'ended' }] }),
+    })
+  } catch (error) {
+    $.ui.log(`legato: the bridge was not told the session ended: ${String(error)}`, { to: 'debug' })
+  }
+}
+
+// The variables Legato gives a session, as this process holds them.
+const readIdentity = async ($: EngineInterface): Promise<Identity> => {
+  const held: [string, string | undefined][] = [
+    ['LEGATO_TASK_ID', await $.env.get('LEGATO_TASK_ID')],
+    ['LEGATO_EXECUTION_ID', await $.env.get('LEGATO_EXECUTION_ID')],
+    ['LEGATO_BIN', await $.env.get('LEGATO_BIN')],
+    ['LEGATO_SOCKET', await $.env.get('LEGATO_SOCKET')],
+    ['LEGATO_CONFIG', await $.env.get('LEGATO_CONFIG')],
+    ['LEGATO_HOME', await $.env.get('LEGATO_HOME')],
+    ['LEGATO_TASK_EPHEMERAL', await $.env.get('LEGATO_TASK_EPHEMERAL')],
+    ['LEGATO_AGENT_ROLE', await $.env.get('LEGATO_AGENT_ROLE')],
+    ['LEGATO_PARENT_TASK_ID', await $.env.get('LEGATO_PARENT_TASK_ID')],
+    ['LEGATO_SUBTASK_ID', await $.env.get('LEGATO_SUBTASK_ID')],
+    ['LEGATO_ROLE_PROMPT_FILE', await $.env.get('LEGATO_ROLE_PROMPT_FILE')],
+    ['LEGATO_BRIEF_FILE', await $.env.get('LEGATO_BRIEF_FILE')],
+    ['LEGATO_WORKFLOW_RUN_ID', await $.env.get('LEGATO_WORKFLOW_RUN_ID')],
+    ['LEGATO_WORKFLOW_STEP_ID', await $.env.get('LEGATO_WORKFLOW_STEP_ID')],
+    ['LEGATO_WORKFLOW_ATTEMPT_ID', await $.env.get('LEGATO_WORKFLOW_ATTEMPT_ID')],
+    ['XDG_RUNTIME_DIR', await $.env.get('XDG_RUNTIME_DIR')],
+  ]
+
+  return Object.fromEntries(
+    held.filter((pair): pair is [string, string] => pair[1] !== undefined && pair[1] !== ''),
+  )
+}
+
+// Makes this process the session of `env`'s task: the hooks and tools it
+// starts from here on read these. A variable the task does not have is
+// unset, so nothing of another task's is left behind.
+const writeIdentity = async ($: EngineInterface, env: Identity): Promise<void> => {
+  await $.env.set('LEGATO_TASK_ID', env.LEGATO_TASK_ID)
+  await $.env.set('LEGATO_EXECUTION_ID', env.LEGATO_EXECUTION_ID)
+  await $.env.set('LEGATO_SOCKET', env.LEGATO_SOCKET)
+  await $.env.set('LEGATO_TASK_EPHEMERAL', env.LEGATO_TASK_EPHEMERAL)
+  await $.env.set('LEGATO_AGENT_ROLE', env.LEGATO_AGENT_ROLE)
+  await $.env.set('LEGATO_PARENT_TASK_ID', env.LEGATO_PARENT_TASK_ID)
+  await $.env.set('LEGATO_SUBTASK_ID', env.LEGATO_SUBTASK_ID)
+  await $.env.set('LEGATO_ROLE_PROMPT_FILE', env.LEGATO_ROLE_PROMPT_FILE)
+  await $.env.set('LEGATO_BRIEF_FILE', env.LEGATO_BRIEF_FILE)
+  await $.env.set('LEGATO_WORKFLOW_RUN_ID', env.LEGATO_WORKFLOW_RUN_ID)
+  await $.env.set('LEGATO_WORKFLOW_STEP_ID', env.LEGATO_WORKFLOW_STEP_ID)
+  await $.env.set('LEGATO_WORKFLOW_ATTEMPT_ID', env.LEGATO_WORKFLOW_ATTEMPT_ID)
+
+  // Which Legato it is: kept as inherited when the task's note has none.
+  if (env.LEGATO_BIN !== undefined) {
+    await $.env.set('LEGATO_BIN', env.LEGATO_BIN)
+  }
+
+  if (env.LEGATO_CONFIG !== undefined) {
+    await $.env.set('LEGATO_CONFIG', env.LEGATO_CONFIG)
+  }
+
+  if (env.LEGATO_HOME !== undefined) {
+    await $.env.set('LEGATO_HOME', env.LEGATO_HOME)
+  }
+
+  if (env.XDG_RUNTIME_DIR !== undefined) {
+    await $.env.set('XDG_RUNTIME_DIR', env.XDG_RUNTIME_DIR)
+  }
+}
+
+const mark = (text: string): string => {
+  let hash = 5381
+
+  for (let at = 0; at < text.length; at += 1) {
+    hash = ((hash * 33) ^ text.charCodeAt(at)) >>> 0
+  }
+
+  return hash.toString(36)
+}
+
+// The last messages of a conversation's first `count`, each as its role and
+// a mark of its text.
+const tailOf = (messages: readonly { role: string; text: string }[], count: number): string[] =>
+  messages
+    .slice(Math.max(0, count - TAIL_LENGTH), count)
+    .map(message => `${message.role}:${mark(message.text)}`)
+
+const isNote = (value: unknown): value is Note =>
+  typeof value === 'object' &&
+  value !== null &&
+  typeof (value as Note).at === 'number' &&
+  typeof (value as Note).env === 'object' &&
+  (value as Note).env !== null
+
+// Leaves a note of the task this session served, for the session that goes
+// on with its conversation. `/background` starts that session in a process
+// of Claude Code's daemon, which has the environment of whichever session
+// first started the daemon, so it cannot know its task any other way.
+const leaveNote = async ($: EngineInterface, endedSessionId: string): Promise<void> => {
+  if (identity?.LEGATO_TASK_ID === undefined) {
+    return
+  }
+
+  const [at, cwd, messages] = await Promise.all([
+    $.clock.now(),
+    $.session.cwd(),
+    $.session.messages(),
+  ])
+  const note: Note = {
+    at,
+    cwd,
+    count: messages.length,
+    tail: tailOf(messages, messages.length),
+    env: identity,
+  }
+
+  await $.store.set(`handover:${endedSessionId}`, note)
+
+  // A background session that ends no longer holds the task.
+  if (isBackground && notedSessionId !== undefined) {
+    await $.store.delete(`session:${notedSessionId}`)
+    notedSessionId = undefined
+  }
+}
+
+// Whether a background session holds this launch of the task. The process
+// it was sent from can stay on as a viewer of it, with the task's own
+// variables; it must not take the task back when its session starts again.
+const isHandedOver = async ($: EngineInterface, held: Identity): Promise<boolean> => {
+  const now = await $.clock.now()
+
+  for (const key of await $.store.keys()) {
+    if (!key.startsWith('session:')) {
+      continue
+    }
+
+    const note = await $.store.get(key)
+
+    if (
+      isNote(note) &&
+      now - note.at <= NOTE_LIFETIME &&
+      note.env.LEGATO_TASK_ID === held.LEGATO_TASK_ID &&
+      note.env.LEGATO_EXECUTION_ID === held.LEGATO_EXECUTION_ID
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+// The note of the conversation this session goes on with: left moments ago,
+// in this directory, by a session whose messages are this one's first.
+const claimNote = async ($: EngineInterface, sessionId: string): Promise<Note | undefined> => {
+  const [now, cwd, messages, keys] = await Promise.all([
+    $.clock.now(),
+    $.session.cwd(),
+    $.session.messages(),
+    $.store.keys(),
+  ])
+  let found: { key: string; note: Note } | undefined
+
+  for (const key of keys) {
+    const isHandover = key.startsWith('handover:')
+
+    if (!isHandover && !key.startsWith('session:')) {
+      continue
+    }
+
+    const note = await $.store.get(key)
+
+    // Notes nobody will read any more go as they are passed.
+    if (!isNote(note) || now - note.at > (isHandover ? HANDOVER_WINDOW : NOTE_LIFETIME)) {
+      await $.store.delete(key)
+      continue
+    }
+
+    const count = note.count ?? 0
+    const isThisConversation =
+      isHandover &&
+      note.cwd === cwd &&
+      count > 0 &&
+      messages.length >= count &&
+      tailOf(messages, count).join('|') === (note.tail ?? []).join('|')
+
+    if (isThisConversation && (found === undefined || note.at > found.note.at)) {
+      found = { key, note }
+    }
+  }
+
+  if (found === undefined) {
+    return undefined
+  }
+
+  await $.store.set(`session:${sessionId}`, { at: now, env: found.note.env })
+  await $.store.delete(found.key)
+
+  return found.note
+}
+
+// Which task a background session serves. Never the one in its environment,
+// which is another session's: the note it took over, or none.
+const adopt = async ($: EngineInterface): Promise<Identity | undefined> => {
+  const sessionId = await $.session.id()
+  const own = await $.store.get(`session:${sessionId}`)
+  let note = isNote(own) ? own : undefined
+
+  // The session that ended writes its note as this one starts.
+  for (let attempt = 0; note === undefined && attempt < 10; attempt += 1) {
+    if (attempt > 0) {
+      await $.clock.sleep(200)
+    }
+
+    note = await claimNote($, sessionId)
+  }
+
+  await writeIdentity($, note?.env ?? {})
+
+  if (note !== undefined) {
+    notedSessionId = sessionId
+    notedAt = await $.clock.now()
+  }
+
+  return note?.env
+}
+
+// A background session's note is under its session's name, and a `/clear`
+// or a resume gives the session another: the note follows it, so a worker
+// the daemon starts again still finds its task. A session that keeps working
+// keeps its note from running out.
+const keepNote = async ($: EngineInterface): Promise<void> => {
+  if (!isBackground || identity === undefined) {
+    return
+  }
+
+  const [sessionId, now] = await Promise.all([$.session.id(), $.clock.now()])
+
+  if (sessionId === notedSessionId && now - notedAt < NOTE_REFRESH) {
+    return
+  }
+
+  if (notedSessionId !== undefined && notedSessionId !== sessionId) {
+    await $.store.delete(`session:${notedSessionId}`)
+  }
+
+  notedSessionId = sessionId
+  notedAt = now
+  await $.store.set(`session:${sessionId}`, { at: now, env: identity })
+}
+
 const report =
   ($: EngineInterface, what: string) =>
   (error: unknown): void => {
@@ -406,19 +704,28 @@ const handle = ($: EngineInterface, line: string): void => {
 
 // The bridge lives exactly as long as this loop: the child is killed when
 // the module unloads, and the loop ends when the child exits.
-const runBridge = async ($: EngineInterface, taskId: string): Promise<void> => {
-  const bin = (await $.env.get('LEGATO_BIN')) ?? 'legato'
-  const executionId = await $.env.get('LEGATO_EXECUTION_ID')
+const runBridge = async ($: EngineInterface, taskId: string, env: Identity): Promise<void> => {
+  const bin = env.LEGATO_BIN ?? 'legato'
+  const executionId = env.LEGATO_EXECUTION_ID
   const argv = [bin, 'agent', 'bridge', taskId]
 
   if (executionId !== undefined && executionId !== '') {
     argv.push('--execution-id', executionId)
   }
 
+  bridgeRun += 1
+
+  const run = bridgeRun
   let buffered = ''
 
   try {
-    for await (const piece of $.process.spawn({ argv })) {
+    // The task's own variables go to the child by name: in a background
+    // session this process started with another task's.
+    for await (const piece of $.process.spawn({ argv, env })) {
+      if (run !== bridgeRun) {
+        continue
+      }
+
       if (piece.stream === 'stderr') {
         $.ui.log(`legato bridge: ${piece.text.trim()}`, { to: 'debug' })
         continue
@@ -440,6 +747,10 @@ const runBridge = async ($: EngineInterface, taskId: string): Promise<void> => {
     $.ui.log(`legato: the bridge did not run: ${String(error)}`, { to: 'debug' })
   }
 
+  if (run !== bridgeRun) {
+    return
+  }
+
   isBridgeRunning = false
   isCollecting = false
   endpoint = undefined
@@ -451,11 +762,29 @@ const runBridge = async ($: EngineInterface, taskId: string): Promise<void> => {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    const taskId = await $.env.get('LEGATO_TASK_ID')
 
-    if (taskId === undefined || taskId === '') {
+    isBackground = (await $.env.get('CLAUDE_CODE_SESSION_KIND')) === 'bg'
+
+    const held = await readIdentity($)
+
+    // Outside Legato. A background session is asked for its note whatever
+    // it holds: its variables are the daemon's, not its own.
+    if (!isBackground && held.LEGATO_TASK_ID === undefined) {
       return started
     }
+
+    if (!isBackground && (await isHandedOver($, held).catch(() => false))) {
+      return started
+    }
+
+    const env = isBackground ? await adopt($).catch(() => undefined) : held
+    const taskId = env?.LEGATO_TASK_ID
+
+    if (env === undefined || taskId === undefined) {
+      return started
+    }
+
+    identity = env
 
     // A headless run inside a Legato session (a script calling `claude -p`)
     // is not the session Legato launched and must not take its place.
@@ -475,13 +804,19 @@ export const register: Register = on => {
       queue = [described]
       isCollecting = true
       isBridgeRunning = true
-      void runBridge($, taskId)
+      void runBridge($, taskId, env)
     }
 
     return started
   })
 
   on('session.end', async ($, e, next) => {
+    // Every other reason ends the session in this process.
+    if (e.reason !== 'clear' && e.reason !== 'resume') {
+      await leaveNote($, e.sessionId).catch(report($, 'leaving a hand-over note'))
+      await retire($)
+    }
+
     const ended = await next(e)
 
     if (e.reason === 'clear' || e.reason === 'resume') {
@@ -556,6 +891,8 @@ export const register: Register = on => {
         .submit({ text: unread.join('\n\n'), asUser: true })
         .catch(report($, 'submitting a queued message'))
     }
+
+    void keepNote($).catch(report($, 'keeping the session\'s note'))
 
     if (isCollecting) {
       const [model, context] = await Promise.all([

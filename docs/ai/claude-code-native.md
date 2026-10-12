@@ -41,15 +41,15 @@ A mod cannot listen for connections: it can only call out and spawn a child. So 
 
 | Hook | What the mod does |
 | --- | --- |
-| `session.start` | Describes the session (`hello`) and spawns `legato agent bridge` once per process. A second session under the same process (`/clear`, `/resume`) is described to the bridge already running. |
-| `session.end` | On `clear` or `resume`, tells the bridge the conversation was replaced (`reset`); on `resume` it waits for the session ID to change and describes the session again. |
+| `session.start` | Describes the session (`hello`) and spawns `legato agent bridge` once per process. A second session under the same process (`/clear`, `/resume`) is described to the bridge already running. A background session (`CLAUDE_CODE_SESSION_KIND=bg`) first finds which task it serves from its note, never from its environment (see Sessions sent to the background). |
+| `session.end` | On `clear` or `resume`, tells the bridge the conversation was replaced (`reset`); on `resume` it waits for the session ID to change and describes the session again. For every other reason the session is over in this process: the mod leaves a hand-over note and tells its bridge to go (`ended`). |
 | `session.append` | Forwards each stored user or assistant row (`row`), with long text, arguments and results cut to bounded sizes. A thinking block goes with what can be read of it, without its signature. Rows the engine writes beside the conversation never leave the session. |
 | `turn.start`, `turn.complete` | Report the turn's start and end. At the end it also sends the model and context fill, and submits as a new prompt any message that was folded into the turn but never read. |
 | `turn.step` | Applies the model and effort chosen in Legato to the request, forwards the reply text and the thinking before it as they stream (`text_delta`, `thinking_delta`), reports messages the request carried (`user_note`) and the context fill after it (`usage`). Subagent requests pass through untouched. |
 | `agent.spawn` | Reports a subagent launched by the main loop (`agent_spawn`) so its activity is grouped under the call that spawned it. |
 | `classic.PermissionRequest` | Posts the request to `POST <endpoint>/mod/permissions` and waits inside that call for a decision. This one hook carries tool approvals, plan approval and the model's questions. |
 
-**What the mod posts** (`POST <endpoint>/mod/events`, batched, in order): `hello`, `reset`, `row`, `turn_start`, `turn_complete`, `text_delta`, `thinking_delta`, `user_note`, `usage`, `model`, `settings`, `agent_spawn`. Hooks only add to a queue; one pump per bridge sends it, so no hook waits on the bridge.
+**What the mod posts** (`POST <endpoint>/mod/events`, batched, in order): `hello`, `reset`, `row`, `turn_start`, `turn_complete`, `text_delta`, `thinking_delta`, `user_note`, `usage`, `model`, `settings`, `agent_spawn`. Hooks only add to a queue; one pump per bridge sends it, so no hook waits on the bridge. The one exception is `ended`, which an ending session posts itself, because the engine gives it little time.
 
 **What the bridge writes back** (one JSON object per line on its stdout):
 
@@ -111,6 +111,17 @@ The selector lists the session's own model (the default entry, which clears an o
 
 **Not supported from the panel.** Chimera-style modes: the bridge lists none and answers `409` to a change.
 
+**Sessions sent to the background.** `/background` ends the session in its process and continues the conversation, under a new session ID, in a worker process of Claude Code's daemon. Two things go wrong without help, and the mod handles both:
+
+- *The old bridge would keep the task.* The process the session was sent from can stay on as a viewer, so its bridge would stay bound and serve a conversation nobody adds to. On `session.end` the mod posts `{type: "ended"}`; the bridge exits and unbinds. A bridge that starts while another still answers for the task waits up to ten seconds for it to go before it is refused (`bridgeHandoverWait`).
+- *The worker does not know its task.* A worker has the environment of the daemon, which is that of whichever Claude session first started the daemon: `LEGATO_TASK_ID` there names some other task, or none. So the ending session leaves a note in the mod's own store (`$.store`, which every process running the mod shares): the Legato variables it held, its working directory, and a mark of its conversation (how many messages, and the last five as role and a hash of their text). A background session takes the note left in the last two minutes, in its directory, whose conversation its own begins with; it asks for up to two seconds, since the two processes start and end at the same moment. It then sets those variables for its own process (`$.env.set`), so the hooks and tools it starts afterwards act for the right task, and starts its bridge with them.
+
+A background session with no note serves no task: it unsets the inherited `LEGATO_TASK_ID` and `LEGATO_EXECUTION_ID` and starts no bridge. That is the case for `/fork`, whose original session goes on and keeps the task.
+
+The note a worker took is kept under its own session (`session:<id>`), follows a `/clear`, and is written again each hour the session works; it is good for seven days. It is what a worker the daemon starts again reads, and what stops the process the session was sent from taking the task back: a session that is not in the background starts no bridge while such a note names its task and execution. A worker that ends hands its note on as a hand-over note, as any ending session does.
+
+Checked against Claude Code 2.1.296: a session backgrounded while idle and one backgrounded during a tool call were each served by their worker's bridge within seconds, in a worker whose inherited environment named another task. The store is one JSON file for the plugin, `~/.claude/plugins/store/legato_inline-<hash>.json`, shared by every Legato on the machine.
+
 **Headless runs.** A `claude -p` run inside a Legato session does not start a bridge, so a script calling Claude cannot take over the task's binding. Set `LEGATO_CLAUDE_BRIDGE_HEADLESS=1` to allow it (used for testing).
 
 ## Requests the panel can answer
@@ -146,7 +157,7 @@ adapters:
 
 ## Lifecycle and recovery
 
-- A bridge refuses to start when the task is already bound to a live endpoint.
+- A bridge refuses to start when the task is already bound to a live endpoint, after giving that endpoint ten seconds to go: a session sent to the background starts its bridge while the old one is leaving.
 - On exit the bridge clears its own binding and removes its lockfile. If it is killed, the stale binding is cleared the next time the panel fails its initial snapshot, exactly as for Chimera, and the next bridge replaces a dead binding.
 - "Downgrade to tmux" clears the binding while the bridge keeps running. "Upgrade to native panel" (`POST /api/agents/{task_id}/chimera/discover`) re-binds from the lockfile at `<runtime dir>/claude-bridge/<task-id>.json` after verifying the endpoint is loopback, alive and serving that task.
 - When Legato starts, `AgentService.RecoverNativeEndpoints` runs once in the background over every running agent (Chimera, Claude Code and Codex alike). A binding whose endpoint answers is kept; an agent with no usable binding is bound to the live endpoint its session advertises (this bridge's lockfile); a binding to an endpoint that is gone is cleared. So a session stays native across a restart of the TUI or server without anyone pressing Upgrade. A session downgraded on purpose is bound again by this pass when its bridge is still running: the choice is not recorded.
@@ -189,7 +200,7 @@ export TMUX_TMPDIR=/tmp/lgt                   # a tmux server of its own; keep t
 env -u TMUX legato serve --port 3987
 ```
 
-Those overrides isolate Legato only. A Claude Code session started this way still uses the person's real `~/.claude`: commands that save a preference (`/model`, `/effort`, accepting a workspace trust prompt) change their actual defaults. Do not run them in a scratch session.
+Those overrides isolate Legato only. A Claude Code session started this way still uses the person's real `~/.claude`: commands that save a preference (`/model`, `/effort`, accepting a workspace trust prompt) change their actual defaults. Do not run them in a scratch session. `/background` and `/fork` hand a scratch session to the person's real Claude Code daemon: stop and remove it afterwards (`claude stop <id>`, `claude rm <id>`).
 
 A fresh database has no board columns, so nothing can be created in it yet: put `board.columns` in the throwaway config and run `legato columns sync` once, then `legato task create "<title>"`.
 
@@ -256,6 +267,10 @@ The `X-Session-Id` header is the Legato task ID, so a task's requests stay group
 **Testing.** `claude plugin test internal/engine/hooks/claudemod/manticore` runs the mod's tests; `claude plugin validate` on the same folder lists what it hooks and calls. To watch a real session, set the three variables and `CLAUDE_CODE_PLUGIN_DIRS` by hand and run `claude -p ... --debug-file <file>`: each report is a `$.http.fetch (legato-manticore)` line.
 
 ## Known limits
+
+- A background worker's MCP servers are started with the daemon's environment before the mod can correct it, so Legato's tools (`legato mcp serve`) in a backgrounded session may act for another task, or offer nothing. The shell hooks and the bridge do get the task's own variables.
+- The usage mod's variables (`LEGATO_MANTICORE_URL`, `LEGATO_MANTICORE_API_KEY`) are not in the hand-over note, which is a file on disk; a worker reports with the ones it inherited.
+- The process a session was sent to the background from was only seen to exit. That it also ends its session when it stays on as a viewer (the first `/background` on a machine with no daemon running) is assumed, not checked.
 
 - Thinking is shown as far as the model lets it be read, which for current Claude models is seldom (see Thinking above). A resumed session's earlier thinking is not shown: the transcript read back at start carries text and tool calls only.
 - The mod API is early access. A hook that fails is skipped by the engine, so a breaking change degrades the session to tmux-only behaviour rather than stopping it.

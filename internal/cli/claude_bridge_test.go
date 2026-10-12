@@ -193,7 +193,9 @@ func TestClaudeBridgeDoesNotTakeOverALiveBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := cli.RunClaudeBridge(context.Background(), s, cli.ClaudeBridgeOptions{TaskID: "task1", Stdout: io.Discard, RuntimeDir: t.TempDir()})
+	err := cli.RunClaudeBridge(context.Background(), s, cli.ClaudeBridgeOptions{
+		TaskID: "task1", Stdout: io.Discard, RuntimeDir: t.TempDir(), HandoverWait: 50 * time.Millisecond,
+	})
 
 	if err == nil || !strings.Contains(err.Error(), "already") {
 		t.Fatalf("err = %v, want a refusal because the task is already bridged", err)
@@ -201,6 +203,29 @@ func TestClaudeBridgeDoesNotTakeOverALiveBinding(t *testing.T) {
 	bound, _ := s.GetAgentSessionByTaskID(context.Background(), "task1")
 	if bound.ChimeraEndpoint == nil || *bound.ChimeraEndpoint != live.URL {
 		t.Fatalf("live binding was replaced: %v", bound.ChimeraEndpoint)
+	}
+}
+
+func TestClaudeBridgeTakesOverFromABridgeThatIsLeaving(t *testing.T) {
+	s := newTestStore(t)
+	session := seedRunningClaudeAgent(t, s, "task1")
+	// `/background`: the conversation moves to another Claude process, which
+	// starts its bridge a moment before the old session's bridge has gone.
+	leaving := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"pid":1}`))
+	}))
+	defer leaving.Close()
+	if err := s.UpdateChimeraDiscoveryForSession(context.Background(), session.ID, "task1", leaving.URL); err != nil {
+		t.Fatal(err)
+	}
+	time.AfterFunc(150*time.Millisecond, leaving.Close)
+
+	endpoint, _ := runningBridge(t, s, cli.ClaudeBridgeOptions{TaskID: "task1", RuntimeDir: t.TempDir(), HandoverWait: 5 * time.Second})
+
+	bound, _ := s.GetAgentSessionByTaskID(context.Background(), "task1")
+	if bound.ChimeraEndpoint == nil || *bound.ChimeraEndpoint != endpoint {
+		t.Fatalf("binding = %v, want the new bridge %q", bound.ChimeraEndpoint, endpoint)
 	}
 }
 

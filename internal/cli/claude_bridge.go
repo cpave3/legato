@@ -33,10 +33,20 @@ type ClaudeBridgeOptions struct {
 	// TracePath, when set, records every event batch the mod posts and every
 	// command the bridge writes, one JSON object per line. For debugging.
 	TracePath string
+	// HandoverWait is how long a bridge already serving the task is given to
+	// go away before this one is refused; zero means bridgeHandoverWait.
+	HandoverWait time.Duration
 }
 
 // bridgeLivenessTimeout bounds the probe of an endpoint already bound to the task.
 const bridgeLivenessTimeout = time.Second
+
+// bridgeHandoverWait is how long the bridge of a session that just ended is
+// given to unbind. A session sent to the background goes on in another Claude
+// process, which starts its bridge while the old one is still leaving.
+const bridgeHandoverWait = 10 * time.Second
+
+const bridgeHandoverPoll = 100 * time.Millisecond
 
 // RunClaudeBridge serves the native agent protocol for the Claude Code session
 // that spawned it until ctx ends or that session stops reading its commands.
@@ -59,7 +69,7 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 	if opts.ExecutionID != "" && session.ExecutionID != "" && session.ExecutionID != opts.ExecutionID {
 		return fmt.Errorf("execution %s does not own the running agent for task %s", opts.ExecutionID, opts.TaskID)
 	}
-	if session.ChimeraEndpoint != nil && endpointAlive(ctx, *session.ChimeraEndpoint) {
+	if session.ChimeraEndpoint != nil && !endpointGone(ctx, *session.ChimeraEndpoint, opts.HandoverWait) {
 		return fmt.Errorf("task %s is already bridged by a live session", opts.TaskID)
 	}
 
@@ -135,6 +145,26 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 		}
 		return fmt.Errorf("serving the bridge: %w", err)
 	}
+}
+
+// endpointGone reports whether nothing answers at endpoint, giving a bridge
+// that is leaving up to wait to finish.
+func endpointGone(ctx context.Context, endpoint string, wait time.Duration) bool {
+	if wait <= 0 {
+		wait = bridgeHandoverWait
+	}
+	deadline := time.Now().Add(wait)
+	for endpointAlive(ctx, endpoint) {
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(bridgeHandoverPoll):
+		}
+	}
+	return true
 }
 
 func endpointAlive(ctx context.Context, endpoint string) bool {
