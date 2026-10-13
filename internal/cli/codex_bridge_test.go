@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -22,12 +24,13 @@ import (
 // codexAppServer stands in for `codex app-server`: it answers every call with
 // an empty result and lets a test announce what the terminal UI does.
 type codexAppServer struct {
-	t      *testing.T
-	server *httptest.Server
-	mu     sync.Mutex
-	conn   *websocket.Conn
-	joined chan struct{}
-	stops  int
+	t       *testing.T
+	server  *httptest.Server
+	mu      sync.Mutex
+	conn    *websocket.Conn
+	joined  chan struct{}
+	stops   int
+	history map[string]any
 }
 
 const codexToken = "codex-token"
@@ -56,6 +59,9 @@ func newCodexAppServer(t *testing.T) *codexAppServer {
 			var call struct {
 				ID     json.RawMessage `json:"id"`
 				Method string          `json:"method"`
+				Params struct {
+					ThreadID string `json:"threadId"`
+				} `json:"params"`
 			}
 			if json.Unmarshal(data, &call) != nil || len(call.ID) == 0 {
 				continue
@@ -63,6 +69,9 @@ func newCodexAppServer(t *testing.T) *codexAppServer {
 			reply := map[string]any{"id": call.ID, "result": map[string]any{}}
 			if call.Method == "thread/resume" {
 				reply = map[string]any{"id": call.ID, "error": map[string]any{"code": -32600, "message": "no rollout found"}}
+				if thread := s.history[call.Params.ThreadID]; thread != nil {
+					reply = map[string]any{"id": call.ID, "result": map[string]any{"thread": thread}}
+				}
 			}
 			encoded, _ := json.Marshal(reply)
 			_ = conn.Write(context.Background(), websocket.MessageText, encoded)
@@ -85,16 +94,20 @@ func (s *codexAppServer) start(context.Context) (cli.CodexAppServer, error) {
 }
 
 // terminalOpensThread is the Codex terminal UI attaching and opening its thread.
-func (s *codexAppServer) terminalOpensThread() {
+func (s *codexAppServer) terminalOpensThread(extra ...map[string]any) {
 	s.t.Helper()
 	select {
 	case <-s.joined:
 	case <-time.After(5 * time.Second):
 		s.t.Fatal("the bridge never connected to the app server")
 	}
-	encoded, _ := json.Marshal(map[string]any{"method": "thread/started", "params": map[string]any{
-		"thread": map[string]any{"id": "thr-1", "ephemeral": false, "threadSource": "user", "cwd": "/work/repo", "model": "gpt-6-astra"},
-	}})
+	thread := map[string]any{"id": "thr-1", "ephemeral": false, "threadSource": "user", "cwd": "/work/repo", "model": "gpt-6-astra"}
+	if len(extra) > 0 {
+		for key, value := range extra[0] {
+			thread[key] = value
+		}
+	}
+	encoded, _ := json.Marshal(map[string]any{"method": "thread/started", "params": map[string]any{"thread": thread}})
 	s.mu.Lock()
 	conn := s.conn
 	s.mu.Unlock()
@@ -118,6 +131,11 @@ func seedRunningCodexAgent(t *testing.T, s *store.Store, taskID string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	session, err := s.GetAgentSessionByTaskID(context.Background(), taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkNativeTestExecution(t, s, session)
 }
 
 // runningCodexBridge starts the bridge and returns what it told the launcher
@@ -285,7 +303,6 @@ func TestCodexBridgeIsRefusedWhereItDoesNotBelong(t *testing.T) {
 		t.Fatal("bridged a task with no running agent")
 	}
 	seedRunningCodexAgent(t, s, "task1")
-	linkTestExecution(t, s, "task1")
 	if err := cli.RunCodexBridge(context.Background(), s, cli.CodexBridgeOptions{TaskID: "task1", ExecutionID: "exec-earlier", RuntimeDir: t.TempDir(), StartServer: start}); err == nil {
 		t.Fatal("bridged an agent for an execution that does not own it")
 	}
@@ -306,4 +323,112 @@ func TestTheAppServersAddressIsReadFromWhatItPrints(t *testing.T) {
 	if _, err := cli.CodexAppServerAddress(strings.NewReader("error: unrecognized subcommand 'app-server'\n")); err == nil {
 		t.Fatal("found an address in output that names none")
 	}
+}
+
+func TestCodexBridgeCapturesTopLevelIdentityAndHistoryWithoutChangingBinding(t *testing.T) {
+	for _, ephemeral := range []bool{false, true} {
+		t.Run(fmt.Sprintf("ephemeral=%v", ephemeral), func(t *testing.T) {
+			value := ""
+			if ephemeral {
+				value = "1"
+			}
+			t.Setenv("LEGATO_TASK_EPHEMERAL", value)
+			s := newTestStore(t)
+			seedRunningCodexAgent(t, s, "task1")
+			codex := newCodexAppServer(t)
+			codex.history = map[string]any{"thr-1": map[string]any{
+				"id": "thr-1", "cwd": "/work/repo", "turns": []any{
+					map[string]any{"id": "prior-turn", "status": "completed", "items": []any{
+						map[string]any{"id": "u0", "type": "userMessage", "content": []any{map[string]any{"type": "text", "text": "old question"}}},
+						map[string]any{"id": "a0", "type": "agentMessage", "text": "old answer"},
+					}},
+				},
+			}}
+			_, _, stop := runningCodexBridge(t, s, cli.CodexBridgeOptions{TaskID: "task1", RuntimeDir: t.TempDir(), StartServer: codex.start})
+			endpoint := boundEndpoint(t, s, "task1")
+			codex.terminalOpensThread()
+			waitFor(t, "resumed native panel history", func() bool {
+				resp, err := http.Get(endpoint + "/v1/sessions/task1")
+				if err != nil {
+					return false
+				}
+				defer resp.Body.Close()
+				body, _ := io.ReadAll(resp.Body)
+				return strings.Contains(string(body), "old answer")
+			})
+			id := "thr-1"
+			if ephemeral {
+				id = ""
+			}
+			assertNativeIdentity(t, s, "codex", id, "/work/repo")
+			codex.terminalOpensThread(map[string]any{"id": "child", "parentThreadId": "thr-1"})
+			codex.terminalOpensThread(map[string]any{"id": "ephemeral-thread", "ephemeral": true})
+			codex.terminalOpensThread(map[string]any{"id": "helper", "threadSource": "thread_title"})
+			codex.terminalOpensThread(map[string]any{"id": "replacement", "cwd": "/other"})
+			waitFor(t, "replacement thread", func() bool {
+				resp, err := http.Get(endpoint + "/v1/sessions/task1")
+				if err != nil {
+					return false
+				}
+				defer resp.Body.Close()
+				var snap struct {
+					CWD string `json:"cwd"`
+				}
+				if json.NewDecoder(resp.Body).Decode(&snap) != nil || snap.CWD != "/other" {
+					return false
+				}
+				if ephemeral {
+					return true
+				}
+				record, err := s.GetTaskNativeSession(context.Background(), "task1", "codex")
+				return err == nil && record != nil && record.ProviderSessionID == "replacement"
+			})
+			id = "replacement"
+			if ephemeral {
+				id = ""
+			}
+			assertNativeIdentity(t, s, "codex", id, "/other")
+			bound, err := s.GetAgentSessionByTaskID(context.Background(), "task1")
+			if err != nil || bound.ChimeraSessionID == nil || *bound.ChimeraSessionID != "task1" {
+				t.Fatalf("binding after switch = %+v, %v", bound, err)
+			}
+			if err := stop(); err != nil {
+				t.Fatal(err)
+			}
+			assertNativeIdentity(t, s, "codex", id, "/other")
+		})
+	}
+}
+
+func TestCodexBridgeReportsRejectedOwnershipRatherThanReplacingSavedIdentity(t *testing.T) {
+	t.Setenv("LEGATO_TASK_EPHEMERAL", "")
+	s := newTestStore(t)
+	seedRunningCodexAgent(t, s, "task1")
+	owner, err := s.GetAgentSessionByTaskID(context.Background(), "task1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	codex := newCodexAppServer(t)
+	_, done, stop := runningCodexBridge(t, s, cli.CodexBridgeOptions{TaskID: "task1", RuntimeDir: t.TempDir(), StartServer: codex.start})
+	codex.terminalOpensThread()
+	waitFor(t, "first capture", func() bool {
+		record, err := s.GetTaskNativeSession(context.Background(), "task1", "codex")
+		return err == nil && record != nil
+	})
+	if err := s.FinishAgentSession(context.Background(), owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertAgentSession(context.Background(), store.AgentSession{TaskID: "task1", AgentKind: "codex", TmuxSession: "replacement", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	codex.terminalOpensThread(map[string]any{"id": "stale"})
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("capture failure was discarded")
+	}
+	if err := stop(); err == nil || !strings.Contains(err.Error(), "resume identity was not recorded") {
+		t.Fatalf("bridge failure = %v", err)
+	}
+	assertNativeIdentity(t, s, "codex", "thr-1", "/work/repo")
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -34,6 +35,18 @@ func seedRunningClaudeAgent(t *testing.T, s *store.Store, taskID string) *store.
 		t.Fatal(err)
 	}
 	return session
+}
+
+func linkNativeTestExecution(t *testing.T, s *store.Store, session *store.AgentSession) {
+	t.Helper()
+	if err := s.CreateExecution(context.Background(), store.Execution{
+		ID: "native-" + session.TaskID, AgentKind: session.AgentKind,
+		Kind: store.ExecutionInteractive, Status: store.ExecutionRunning,
+		TaskID: session.TaskID, ExecutionTaskID: session.TaskID,
+		AgentSessionID: &session.ID, StartedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // runningBridge starts the bridge command and returns the endpoint it
@@ -300,4 +313,119 @@ func TestClaudeBridgeOffersTheConfiguredModels(t *testing.T) {
 	if strings.Join(refs, ",") != "anthropic/claude-sonnet-5-5,anthropic/claude-haiku-5-5" {
 		t.Fatalf("models = %v", refs)
 	}
+}
+
+func postClaudeIdentity(t *testing.T, endpoint, events string) (int, string) {
+	t.Helper()
+	resp, err := http.Post(endpoint+"/mod/events", "application/json", strings.NewReader(`{"events":`+events+`}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp.StatusCode, string(body)
+}
+
+func assertNativeIdentity(t *testing.T, s *store.Store, kind, id, cwd string) {
+	t.Helper()
+	record, err := s.GetTaskNativeSession(context.Background(), "task1", kind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id == "" {
+		if record != nil {
+			t.Fatalf("unexpected saved identity: %+v", record)
+		}
+		return
+	}
+	if record == nil || record.ProviderSessionID != id || record.CWD != cwd || record.ExecutionID != "native-task1" {
+		t.Fatalf("saved %s identity = %+v, want %s / %s", kind, record, id, cwd)
+	}
+}
+
+func TestClaudeBridgeCapturesIdentityAndResumedHistoryWithoutChangingBinding(t *testing.T) {
+	for _, ephemeral := range []bool{false, true} {
+		t.Run(fmt.Sprintf("ephemeral=%v", ephemeral), func(t *testing.T) {
+			value := ""
+			if ephemeral {
+				value = "1"
+			}
+			t.Setenv("LEGATO_TASK_EPHEMERAL", value)
+			s := newTestStore(t)
+			owner := seedRunningClaudeAgent(t, s, "task1")
+			linkNativeTestExecution(t, s, owner)
+			endpoint, stop := runningBridge(t, s, cli.ClaudeBridgeOptions{TaskID: "task1", RuntimeDir: t.TempDir()})
+			post := func(events, id, cwd string) {
+				t.Helper()
+				if code, body := postClaudeIdentity(t, endpoint, events); code != http.StatusNoContent {
+					t.Fatalf("identity event = %d %s", code, body)
+				}
+				if ephemeral {
+					id = ""
+				}
+				assertNativeIdentity(t, s, "claude-code", id, cwd)
+			}
+			post(`[{"type":"hello","sessionId":"claude-first","cwd":"/repo"}]`, "claude-first", "/repo")
+			post(`[{"type":"reset"}]`, "claude-first", "/repo")
+			post(`[{"type":"identity","sessionId":"claude-clear","cwd":"/repo"}]`, "claude-clear", "/repo")
+			post(`[{"type":"hello","sessionId":"claude-resume","cwd":"/other","messages":[{"role":"user","text":"old question"},{"role":"assistant","text":"old answer"}]}]`, "claude-resume", "/other")
+			resp, err := http.Get(endpoint + "/v1/sessions/task1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var snapshot struct {
+				ID       string `json:"id"`
+				Messages []struct {
+					Content any `json:"content"`
+				} `json:"messages"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&snapshot); err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+			if snapshot.ID != "task1" || len(snapshot.Messages) != 3 || !strings.Contains(fmt.Sprint(snapshot.Messages[2].Content), "old answer") {
+				t.Fatalf("resumed panel = %+v", snapshot)
+			}
+			bound, err := s.GetAgentSessionByTaskID(context.Background(), "task1")
+			if err != nil || bound.ID != owner.ID || bound.ChimeraSessionID == nil || *bound.ChimeraSessionID != "task1" {
+				t.Fatalf("binding after transitions = %+v, %v", bound, err)
+			}
+			if err := stop(); err != nil {
+				t.Fatal(err)
+			}
+			id := "claude-resume"
+			if ephemeral {
+				id = ""
+			}
+			assertNativeIdentity(t, s, "claude-code", id, "/other")
+		})
+	}
+}
+
+func TestClaudeBridgeReportsRejectedOwnershipRatherThanReplacingSavedIdentity(t *testing.T) {
+	t.Setenv("LEGATO_TASK_EPHEMERAL", "")
+	s := newTestStore(t)
+	owner := seedRunningClaudeAgent(t, s, "task1")
+	linkNativeTestExecution(t, s, owner)
+	endpoint, stop := runningBridge(t, s, cli.ClaudeBridgeOptions{TaskID: "task1", RuntimeDir: t.TempDir()})
+	if code, body := postClaudeIdentity(t, endpoint, `[{"type":"hello","sessionId":"owned","cwd":"/repo"}]`); code != http.StatusNoContent {
+		t.Fatalf("initial capture = %d %s", code, body)
+	}
+	if err := s.FinishAgentSession(context.Background(), owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertAgentSession(context.Background(), store.AgentSession{TaskID: "task1", AgentKind: "claude-code", TmuxSession: "replacement", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	code, body := postClaudeIdentity(t, endpoint, `[{"type":"hello","sessionId":"stale","cwd":"/repo"}]`)
+	if code != http.StatusInternalServerError || !strings.Contains(body, "resume") {
+		t.Fatalf("stale identity = %d %s", code, body)
+	}
+	if err := stop(); err == nil || !strings.Contains(err.Error(), "resume identity was not recorded") {
+		t.Fatalf("bridge failure = %v", err)
+	}
+	assertNativeIdentity(t, s, "claude-code", "owned", "/repo")
 }

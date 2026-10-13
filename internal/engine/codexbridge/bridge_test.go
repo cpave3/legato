@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -212,10 +213,15 @@ type harness struct {
 	server *httptest.Server
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T, identity ...func(string, string) error) *harness {
 	t.Helper()
 	codex := newAppServer(t)
+	var onIdentity func(string, string) error
+	if len(identity) > 0 {
+		onIdentity = identity[0]
+	}
 	bridge := New(Options{
+		OnIdentity:     onIdentity,
 		TaskID:         "task-1",
 		AppServerURL:   codex.url(),
 		AppServerToken: appServerToken,
@@ -518,5 +524,140 @@ func TestATurnTypedAtTheTerminalReachesSubscribersAndTheSnapshot(t *testing.T) {
 	// empty entry holds that slot.
 	if len(snap.Messages) != 3 || snap.Messages[1].Role != "user" || snap.Messages[1].Content != "list the Go files" || snap.Messages[2].Role != "assistant" {
 		t.Fatalf("messages = %+v", snap.Messages)
+	}
+}
+
+func TestIdentityCaptureOnlyFollowsTopLevelUserThreads(t *testing.T) {
+	captured := make(chan string, 8)
+	h := newHarness(t, func(id, cwd string) error {
+		captured <- id + ":" + cwd
+		return nil
+	})
+	h.codex.on("thread/resume", func(map[string]any) (any, *rpcError) {
+		return nil, &rpcError{Code: -32600, Message: "no rollout found"}
+	})
+	notify := func(extra map[string]any) {
+		h.codex.notify("thread/started", map[string]any{"thread": terminalThread(extra)})
+	}
+	notify(nil)
+	notify(nil)
+	notify(map[string]any{"id": "title", "ephemeral": true})
+	notify(map[string]any{"id": "child", "parentThreadId": threadID})
+	notify(map[string]any{"id": "helper", "threadSource": "thread_title"})
+	notify(map[string]any{"id": ""})
+	notify(map[string]any{"id": "replacement", "cwd": "/other"})
+	for _, want := range []string{"thr-1:/work/repo", "replacement:/other"} {
+		select {
+		case got := <-captured:
+			if got != want {
+				t.Fatalf("capture = %q, want %q", got, want)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("missing capture %q", want)
+		}
+	}
+	select {
+	case got := <-captured:
+		t.Fatalf("unexpected capture %q", got)
+	default:
+	}
+	snap := h.snapshot()
+	if snap.ID != "task-1" || snap.CWD != "/other" {
+		t.Fatalf("switched snapshot = %+v", snap)
+	}
+}
+
+func TestIdentityCaptureFailureReachesRun(t *testing.T) {
+	codex := newAppServer(t)
+	failure := errors.New("database is read-only")
+	bridge := New(Options{TaskID: "task-1", AppServerURL: codex.url(), AppServerToken: appServerToken,
+		OnIdentity: func(string, string) error { return failure },
+	})
+	t.Cleanup(bridge.Close)
+	if err := bridge.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	codex.notify("thread/started", map[string]any{"thread": terminalThread(nil)})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err := bridge.Run(ctx)
+	var identityErr *IdentityError
+	if !errors.Is(err, failure) || !errors.As(err, &identityErr) || !strings.Contains(err.Error(), threadID) {
+		t.Fatalf("Run error = %v", err)
+	}
+}
+
+func TestIdentityCaptureDoesNotBlockRPCAndPreservesQueuedTransitions(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	started := make(chan struct{})
+	captured := make(chan string, 3)
+	h := newHarness(t, func(id, cwd string) error {
+		if id == threadID {
+			close(started)
+			<-release
+		}
+		captured <- id
+		return nil
+	})
+	h.attach()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("capture did not start")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.server.URL+"/v1/sessions/task-1/messages", strings.NewReader(`{"content":"hello"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("RPC blocked behind identity save: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("message status = %d", resp.StatusCode)
+	}
+	h.codex.notify("thread/started", map[string]any{"thread": terminalThread(map[string]any{"id": "second"})})
+	h.codex.notify("thread/started", map[string]any{"thread": terminalThread(map[string]any{"id": "third"})})
+	// The first save is released while later identities remain in event order.
+	release <- struct{}{}
+	for _, want := range []string{threadID, "second", "third"} {
+		select {
+		case got := <-captured:
+			if got != want {
+				t.Fatalf("capture = %q, want %q", got, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("missing capture %q", want)
+		}
+	}
+}
+
+func TestIdentityFailureIsNotMaskedByProviderExit(t *testing.T) {
+	codex := newAppServer(t)
+	started, release := make(chan struct{}), make(chan struct{})
+	failure := errors.New("save failed during provider exit")
+	bridge := New(Options{TaskID: "task-1", AppServerURL: codex.url(), AppServerToken: appServerToken,
+		OnIdentity: func(string, string) error { close(started); <-release; return failure },
+	})
+	t.Cleanup(bridge.Close)
+	if err := bridge.Connect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	codex.notify("thread/started", map[string]any{"thread": terminalThread(nil)})
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("capture did not start")
+	}
+	codex.hangUp()
+	close(release)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := bridge.Run(ctx); !errors.Is(err, failure) {
+		t.Fatalf("Run masked capture failure: %v", err)
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -38,6 +39,9 @@ type Options struct {
 	// working directory until the terminal has opened a thread, which then
 	// says where it works.
 	CWD string
+	// OnIdentity records the selected top-level provider conversation in event
+	// order, off the RPC reader. A failure is returned by Run as IdentityError.
+	OnIdentity func(sessionID, cwd string) error
 	// RejoinEvery is how often joining a thread is retried while its first
 	// turn is starting. Zero means a sensible default.
 	RejoinEvery time.Duration
@@ -47,12 +51,20 @@ type Options struct {
 
 // Bridge holds one Codex session's conversation state and serves it.
 type Bridge struct {
-	taskID      string
-	token       string
-	appURL      string
-	appToken    string
-	rejoinEvery time.Duration
-	now         func() time.Time
+	taskID          string
+	token           string
+	appURL          string
+	appToken        string
+	rejoinEvery     time.Duration
+	now             func() time.Time
+	onIdentity      func(string, string) error
+	identityID      string
+	identityCWD     string
+	identityErr     chan error
+	identityWake    chan struct{}
+	identityDone    chan struct{}
+	identityQueue   []providerIdentity
+	identityFailure error
 	// instance scopes event IDs to this bridge, so a cursor from an earlier
 	// bridge for the same task is never mistaken for one of ours.
 	instance string
@@ -80,6 +92,15 @@ type Bridge struct {
 // errNoThread is a request made before the Codex terminal UI opened a thread.
 var errNoThread = errors.New("the Codex session has not opened a thread yet")
 
+// IdentityError means the host could not durably record a provider identity.
+// Unlike a provider disconnect, it must be reported as a bridge failure.
+type IdentityError struct{ Err error }
+
+func (e *IdentityError) Error() string { return e.Err.Error() }
+func (e *IdentityError) Unwrap() error { return e.Err }
+
+type providerIdentity struct{ id, cwd string }
+
 const (
 	defaultRejoinEvery = 150 * time.Millisecond
 	// rejoinAttempts bounds the retries of one join: about three seconds.
@@ -100,20 +121,25 @@ func New(opts Options) *Bridge {
 	}
 	session := newSession()
 	session.cwd = opts.CWD
-	return &Bridge{
-		taskID:      opts.TaskID,
-		token:       opts.Token,
-		appURL:      opts.AppServerURL,
-		appToken:    opts.AppServerToken,
-		rejoinEvery: rejoinEvery,
-		now:         now,
-		instance:    randomHex(4),
-		ended:       make(chan struct{}),
-		closed:      make(chan struct{}),
-		attached:    make(chan struct{}),
-		session:     session,
-		subscribers: map[chan envelope]struct{}{},
+	b := &Bridge{
+		taskID:       opts.TaskID,
+		token:        opts.Token,
+		appURL:       opts.AppServerURL,
+		appToken:     opts.AppServerToken,
+		rejoinEvery:  rejoinEvery,
+		now:          now,
+		onIdentity:   opts.OnIdentity,
+		identityErr:  make(chan error, 1),
+		identityWake: make(chan struct{}, 1),
+		identityDone: make(chan struct{}),
+		instance:     randomHex(4),
+		ended:        make(chan struct{}),
+		closed:       make(chan struct{}),
+		attached:     make(chan struct{}),
+		session:      session,
+		subscribers:  map[chan envelope]struct{}{},
 	}
+	return b
 }
 
 // Connect joins the app server as a client and introduces the bridge.
@@ -123,6 +149,7 @@ func (b *Bridge) Connect(ctx context.Context) error {
 		return err
 	}
 	b.client = client
+	go b.captureIdentities()
 	go b.pump()
 
 	callCtx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -149,14 +176,69 @@ func (b *Bridge) Connect(ctx context.Context) error {
 }
 
 // Run serves until ctx ends or the app server connection does.
-func (b *Bridge) Run(ctx context.Context) error {
+func (b *Bridge) Run(ctx context.Context) (runErr error) {
+	defer func() {
+		b.Close()
+		<-b.ended
+		<-b.identityDone
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if b.identityFailure != nil {
+			runErr = b.identityFailure
+		}
+	}()
 	select {
 	case <-ctx.Done():
-		b.Close()
 		return nil
 	case <-b.ended:
-		b.Close()
 		return b.endErr
+	case err := <-b.identityErr:
+		return err
+	case <-b.closed:
+		return nil
+	}
+}
+
+// Identity writes run in notification order without holding up RPC replies.
+// On disconnect, drain the identities already observed before reporting exit.
+func (b *Bridge) captureIdentities() {
+	defer close(b.identityDone)
+	for {
+		stopping := false
+		select {
+		case <-b.identityWake:
+		case <-b.ended:
+			stopping = true
+		case <-b.closed:
+			<-b.ended
+			stopping = true
+		}
+		for {
+			b.mu.Lock()
+			if len(b.identityQueue) == 0 {
+				b.mu.Unlock()
+				break
+			}
+			identity := b.identityQueue[0]
+			b.identityQueue[0] = providerIdentity{}
+			b.identityQueue = b.identityQueue[1:]
+			b.mu.Unlock()
+			if identity.id == b.identityID && identity.cwd == b.identityCWD {
+				continue
+			}
+			if err := b.onIdentity(identity.id, identity.cwd); err != nil {
+				failure := &IdentityError{Err: fmt.Errorf("saving Codex thread %s for resume: %w", identity.id, err)}
+				b.mu.Lock()
+				b.identityFailure = failure
+				b.mu.Unlock()
+				b.identityErr <- failure
+				return
+			}
+			b.identityID, b.identityCWD = identity.id, identity.cwd
+		}
+		if stopping {
+			return
+		}
 	}
 }
 
@@ -212,6 +294,13 @@ func (b *Bridge) handle(incoming frame) {
 		}
 		b.mu.Lock()
 		b.publish(b.session.follow(params.Thread))
+		if b.onIdentity != nil {
+			b.identityQueue = append(b.identityQueue, providerIdentity{params.Thread.ID, b.session.cwd})
+			select {
+			case b.identityWake <- struct{}{}:
+			default:
+			}
+		}
 		b.mu.Unlock()
 		b.attachOnce.Do(func() { close(b.attached) })
 		go func() {

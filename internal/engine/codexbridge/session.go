@@ -46,6 +46,7 @@ type contextUsage struct {
 type threadInfo struct {
 	ID              string  `json:"id"`
 	Ephemeral       bool    `json:"ephemeral"`
+	ThreadSource    string  `json:"threadSource"`
 	ParentThreadID  *string `json:"parentThreadId"`
 	CWD             string  `json:"cwd"`
 	Model           *string `json:"model"`
@@ -69,7 +70,7 @@ type turnInfo struct {
 // Codex also runs short-lived helper threads (naming a session) and
 // subagent threads on the same server; neither is the session's conversation.
 func (t threadInfo) isOwnConversation() bool {
-	return t.ID != "" && !t.Ephemeral && (t.ParentThreadID == nil || *t.ParentThreadID == "")
+	return t.ID != "" && !t.Ephemeral && (t.ThreadSource == "" || t.ThreadSource == "user") && (t.ParentThreadID == nil || *t.ParentThreadID == "")
 }
 
 // session is the conversation state of one Codex thread, kept in the shape

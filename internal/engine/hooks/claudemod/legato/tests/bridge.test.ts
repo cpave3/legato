@@ -33,8 +33,9 @@ const world = (
   } = {},
 ) => {
   // The session the mod reads; a test swaps it to stand for a resume.
-  const session: { id: string; messages: Transcript; tokens: number } = {
+  const session: { id: string; cwd: string; messages: Transcript; tokens: number } = {
     id: 'claude-session-1',
+    cwd: '/work/repo',
     messages: [],
     tokens: 10,
   }
@@ -46,6 +47,7 @@ const world = (
   // What each model request reached the engine with, after the mod.
   const requested: { model: string; effort: unknown }[] = []
   const posted: Posted[] = []
+  const logs: string[] = []
   const submitted: string[] = []
   let exit = (): void => {}
   const exited = new Promise<void>(resolve => {
@@ -107,7 +109,7 @@ const world = (
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('session.end', ($, e) => ({ sessionId: e.sessionId }))
   on('session.id', () => ({ value: session.id }))
-  on('session.cwd', () => ({ value: '/work/repo' }))
+  on('session.cwd', () => ({ value: session.cwd }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('session.messages', () => ({ value: session.messages }))
   on('session.usage', () => ({
@@ -130,14 +132,18 @@ const world = (
     }
   })
   on('command.list', () => ({ value: [] }))
-  on('ui.log', () => ({ value: undefined }))
+  on('ui.log', ($, e) => {
+    logs.push(JSON.stringify(e))
+
+    return { value: undefined }
+  })
   on('turn.start', ($, e) => ({ turnId: e.turnId }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('classic.PermissionRequest', () => ({}))
 
   const events = () => posted.flatMap(post => post.body.events ?? [])
 
-  return { session, spawned, spawnedWith, envSet, store, requested, posted, submitted, events, exit }
+  return { session, spawned, spawnedWith, envSet, store, requested, posted, logs, submitted, events, exit }
 }
 
 const READY = JSON.stringify({ type: 'ready', url: 'http://bridge.test/secret' })
@@ -354,17 +360,21 @@ test('resuming another session inside the process describes that session to the 
 
   // `/resume`: the process goes on under another session, whose transcript
   // was loaded rather than appended, so no row announces it.
-  session.id = 'claude-session-2'
-  session.messages = [
-    { role: 'user', text: 'earlier question', toolUses: [] },
-    { role: 'assistant', text: 'earlier answer', toolUses: [] },
-  ]
-  session.tokens = 88_000
   await $.session.end({
     reason: 'resume',
     sessionId: 'claude-session-1',
     resume: { id: 'claude-session-1' },
   })
+  await clock.settle()
+  expect(events().filter(event => event.type === 'hello')).toHaveLength(1)
+
+  session.id = 'claude-session-2'
+  session.cwd = '/work/resumed'
+  session.messages = [
+    { role: 'user', text: 'earlier question', toolUses: [] },
+    { role: 'assistant', text: 'earlier answer', toolUses: [] },
+  ]
+  session.tokens = 88_000
   await clock.advance(1_000)
 
   const described = events().filter(event => event.type === 'hello')
@@ -372,6 +382,7 @@ test('resuming another session inside the process describes that session to the 
   expect(described[1]).toEqual(
     expect.objectContaining({
       sessionId: 'claude-session-2',
+      cwd: '/work/resumed',
       context: { tokens: 88_000, window: 200_000 },
       messages: [
         expect.objectContaining({ role: 'user', text: 'earlier question' }),
@@ -789,6 +800,93 @@ test('a /clear keeps the bridge it has', async ($, on) => {
   await clock.settle()
 })
 
+test('a /clear reports the replacement identity once the engine switches sessions', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { session, spawned, events, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.session.end({
+    reason: 'clear',
+    sessionId: session.id,
+    resume: { id: session.id },
+  })
+  await clock.settle()
+  expect(events().filter(event => event.type === 'reset')).toEqual([{ type: 'reset' }])
+
+  session.id = 'claude-cleared-session'
+  session.cwd = '/work/cleared'
+  await clock.advance(100)
+
+  expect(events().filter(event => event.type === 'identity')).toEqual([
+    { type: 'identity', sessionId: 'claude-cleared-session', cwd: '/work/cleared' },
+  ])
+  expect(spawned).toHaveLength(1)
+
+  exit()
+  await clock.settle()
+})
+
+for (const reason of ['clear', 'resume'] as const) {
+  test(`a /${reason} that never switches identity reports failure instead of the old ID`, async ($, on) => {
+    const clock = mock.clock(on)
+    mock.env(on, LEGATO_SESSION)
+    const { session, events, logs, exit } = world(on, { lines: [READY] })
+
+    await $.session.start(INTERACTIVE)
+    await clock.settle()
+    await $.session.end({ reason, sessionId: session.id, resume: { id: session.id } })
+    await clock.advance(6_000)
+
+    expect(events().filter(event => event.type === 'hello')).toHaveLength(1)
+    expect(events().filter(event => event.type === 'reset' && event.sessionId !== undefined)).toEqual([])
+    expect(logs.join('\n')).toContain(`/${reason} did not expose a replacement session ID`)
+
+    exit()
+    await clock.settle()
+  })
+}
+
+test('identity transitions survive a full startup queue in order', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  let ready = (): void => {}
+  const startsAfter = new Promise<void>(resolve => {
+    ready = resolve
+  })
+  const { session, events, exit } = world(on, { lines: [READY], startsAfter })
+
+  await $.session.start(INTERACTIVE)
+  for (let index = 0; index < 5_000; index += 1) {
+    await $.turn.start({ text: 'hi', turnId: `turn-${index}` })
+  }
+  await $.session.end({ reason: 'clear', sessionId: session.id, resume: { id: session.id } })
+  session.id = 'claude-cleared-session'
+  session.cwd = '/work/cleared'
+  await clock.advance(100)
+
+  await $.session.end({ reason: 'resume', sessionId: session.id, resume: { id: session.id } })
+  session.id = 'claude-resumed-session'
+  session.cwd = '/work/resumed'
+  await clock.advance(100)
+  ready()
+  await clock.settle()
+
+  expect(events().filter(event => event.type === 'hello' || event.type === 'reset' || event.type === 'identity').map(
+    ({ type, sessionId, cwd }) => ({ type, sessionId, cwd }),
+  )).toEqual([
+    { type: 'hello', sessionId: 'claude-session-1', cwd: '/work/repo' },
+    { type: 'reset', sessionId: undefined, cwd: undefined },
+    { type: 'identity', sessionId: 'claude-cleared-session', cwd: '/work/cleared' },
+    { type: 'reset', sessionId: undefined, cwd: undefined },
+    { type: 'hello', sessionId: 'claude-resumed-session', cwd: '/work/resumed' },
+  ])
+
+  exit()
+  await clock.settle()
+})
+
 // What a background worker inherits: the environment of the daemon that
 // started it, which is that of some other Legato session.
 const INHERITED = {
@@ -1017,3 +1115,66 @@ test('a background session that ends hands its note on', async ($, on) => {
   exit()
   await clock.settle()
 })
+
+test('clear resets before new rows and reports its new identity non-destructively', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  mock.session(on)
+  const { session, events, exit } = world(on, { lines: [READY] })
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.session.end({ reason: 'clear', sessionId: session.id, resume: { id: session.id } })
+  session.id = 'cleared-session'
+  await $.session.append({
+    uuid: 'new-row', door: 'prompt', origin: { kind: 'user' },
+    message: { type: 'user', role: 'user', content: [{ type: 'text', text: 'fresh question' }] },
+  } as never)
+  await $.turn.start({ text: 'fresh question', turnId: 'new-turn' })
+  await clock.advance(100)
+  expect(events().map(event => event.type)).toEqual(['hello', 'reset', 'row', 'turn_start', 'identity'])
+  expect(events().at(-1)).toEqual({ type: 'identity', sessionId: 'cleared-session', cwd: '/work/repo' })
+  exit()
+  await clock.settle()
+})
+
+test('a later transition invalidates the earlier identity poll', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { session, events, exit } = world(on, { lines: [READY] })
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.session.end({ reason: 'clear', sessionId: session.id, resume: { id: session.id } })
+  session.id = 'cleared-session'
+  await $.session.end({ reason: 'resume', sessionId: session.id, resume: { id: session.id } })
+  session.id = 'resumed-session'
+  session.messages = [{ role: 'assistant', text: 'resumed answer', toolUses: [] }]
+  await clock.advance(100)
+  expect(events().map(event => event.type)).toEqual(['hello', 'reset', 'reset', 'hello'])
+  expect(events().at(-1)).toEqual(expect.objectContaining({ sessionId: 'resumed-session' }))
+  exit()
+  await clock.settle()
+})
+
+for (const reason of ['clear', 'resume'] as const) {
+  test(`a background /${reason} keeps its task when the successor starts before the poll`, async ($, on) => {
+    const clock = mock.clock(on, { now: 5_000 })
+    mock.env(on, INHERITED)
+    const { session, spawned, envSet, store, events, exit } = world(on, {
+      lines: [READY],
+      store: { 'session:claude-session-1': { at: 1_000, env: LEGATO_SESSION } },
+    })
+    await $.session.start(INTERACTIVE)
+    await clock.settle()
+    await $.session.end({ reason, sessionId: session.id, resume: { id: session.id } })
+    session.id = 'continued-background-session'
+    await $.session.start(INTERACTIVE)
+    await clock.advance(100)
+    expect(spawned).toHaveLength(1)
+    expect(envSet.LEGATO_TASK_ID).toBe('task-1')
+    expect(store.has('session:claude-session-1')).toBe(false)
+    expect(store.get('session:continued-background-session')).toEqual(expect.objectContaining({ env: LEGATO_SESSION }))
+    expect(events().at(-1)).toEqual(expect.objectContaining({ type: 'hello', sessionId: session.id }))
+    exit()
+    await clock.settle()
+  })
+}

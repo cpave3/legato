@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -48,13 +49,18 @@ func (c *commandLog) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T, identity ...func(string, string) error) *harness {
 	t.Helper()
 	commands := &commandLog{lines: make(chan map[string]any, 64)}
+	var onIdentity func(string, string) error
+	if len(identity) > 0 {
+		onIdentity = identity[0]
+	}
 	bridge := New(Options{
-		TaskID:   "task-1",
-		Commands: commands,
-		Now:      func() time.Time { return time.UnixMilli(1_700_000_000_000) },
+		OnIdentity: onIdentity,
+		TaskID:     "task-1",
+		Commands:   commands,
+		Now:        func() time.Time { return time.UnixMilli(1_700_000_000_000) },
 	})
 	server := httptest.NewServer(bridge.Handler())
 	t.Cleanup(func() {
@@ -1282,5 +1288,78 @@ func TestContextUsageIsReportedWhileATurnRuns(t *testing.T) {
 	}
 	if status := h.snapshot().Status; status != "running" {
 		t.Fatalf("status = %q, want the turn still running", status)
+	}
+}
+
+func TestIdentityCaptureFollowsHelloClearAndResume(t *testing.T) {
+	var captured []string
+	h := newHarness(t, func(id, cwd string) error {
+		captured = append(captured, id+":"+cwd)
+		return nil
+	})
+	h.mod(
+		map[string]any{"type": "hello", "sessionId": "original", "cwd": "/repo"},
+		map[string]any{"type": "hello", "sessionId": "original", "cwd": "/repo"},
+		map[string]any{"type": "identity", "sessionId": "original", "cwd": "/moved"},
+		map[string]any{"type": "reset"},
+		map[string]any{"type": "identity", "sessionId": "cleared", "cwd": "/repo"},
+		map[string]any{"type": "hello", "sessionId": "resumed", "cwd": "/other", "messages": []any{
+			map[string]any{"role": "user", "text": "previous question"},
+			map[string]any{"role": "assistant", "text": "previous answer"},
+		}},
+	)
+	if got := strings.Join(captured, ","); got != "original:/repo,original:/moved,cleared:/repo,resumed:/other" {
+		t.Fatalf("captured = %s", got)
+	}
+	snap := h.snapshot()
+	if snap.ID != "task-1" || snap.CWD != "/other" || len(snap.Messages) != 3 || !strings.Contains(fmt.Sprint(snap.Messages[2].Content), "previous answer") {
+		t.Fatalf("resumed snapshot = %+v", snap)
+	}
+}
+
+func TestIdentityCaptureFailureIsReturnedAndCanBeRetried(t *testing.T) {
+	attempts := 0
+	h := newHarness(t, func(id, cwd string) error {
+		attempts++
+		if attempts == 1 {
+			return fmt.Errorf("database is read-only")
+		}
+		return nil
+	})
+	body := map[string]any{"events": []any{
+		map[string]any{"type": "hello", "sessionId": "real-id", "cwd": "/repo"},
+		userRow("after-save", "only after persistence succeeds"),
+	}}
+	code, message := h.post("/mod/events", body)
+	if code != http.StatusInternalServerError || !strings.Contains(message, "real-id") || !strings.Contains(message, "database is read-only") {
+		t.Fatalf("capture failure = %d %s", code, message)
+	}
+	if snap := h.snapshot(); len(snap.Messages) != 1 {
+		t.Fatalf("events after failed identity were applied: %+v", snap.Messages)
+	}
+	code, message = h.post("/mod/events", body)
+	if code != http.StatusNoContent || attempts != 2 {
+		t.Fatalf("capture retry = %d %s, attempts %d", code, message, attempts)
+	}
+	if snap := h.snapshot(); len(snap.Messages) != 2 || snap.Messages[1].Content != "only after persistence succeeds" {
+		t.Fatalf("events after successful retry = %+v", snap.Messages)
+	}
+}
+
+func TestClearIdentityDoesNotEraseNewRowsOrTheRunningTurn(t *testing.T) {
+	captured := make(chan string, 2)
+	h := newHarness(t, func(id, cwd string) error { captured <- id; return nil })
+	h.mod(hello(nil), map[string]any{"type": "reset"},
+		userRow("new-user-row", "fresh question"), map[string]any{"type": "turn_start", "turnId": "new-turn"},
+		map[string]any{"type": "identity", "sessionId": "cleared", "cwd": "/other"})
+	if got := <-captured; got != "claude-session-1" {
+		t.Fatalf("initial identity = %q", got)
+	}
+	if got := <-captured; got != "cleared" {
+		t.Fatalf("clear identity = %q", got)
+	}
+	snap := h.snapshot()
+	if snap.Status != "running" || snap.CWD != "/other" || len(snap.Messages) != 2 || snap.Messages[1].Content != "fresh question" {
+		t.Fatalf("clear identity erased new conversation state: %+v", snap)
 	}
 }

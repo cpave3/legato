@@ -133,6 +133,7 @@ let isBridgeRunning = false
 // Counts the bridges this module has had. A bridge that was told to go is no
 // longer the module's: what it still prints, and its exit, change nothing.
 let bridgeRun = 0
+let transitionRun = 0
 let endpoint: string | undefined
 let queue: BridgeEvent[] = []
 let wake: (() => void) | undefined
@@ -177,7 +178,9 @@ const TAIL_LENGTH = 5
 const PENDING_LIMIT = 5_000
 
 const post = (event: BridgeEvent): void => {
-  if (!isCollecting || (endpoint === undefined && queue.length >= PENDING_LIMIT)) {
+  const isIdentity = event.type === 'hello' || event.type === 'reset' || event.type === 'identity'
+
+  if (!isCollecting || (endpoint === undefined && queue.length >= PENDING_LIMIT && !isIdentity)) {
     return
   }
 
@@ -312,19 +315,40 @@ const describe = async ($: EngineInterface): Promise<BridgeEvent> => {
   }
 }
 
-// `/resume`: the process goes on under another session, whose transcript was
-// loaded rather than appended, so no row announces it. Once the switch has
-// happened the session is described again.
-const redescribe = async ($: EngineInterface, endedSessionId: string): Promise<void> => {
+// The engine switches identity after `session.end` returns. Clear identifies
+// it without erasing rows already posted after the reset; resume seeds history.
+const reportTransition = async (
+  $: EngineInterface,
+  endedSessionId: string,
+  reason: 'clear' | 'resume',
+  transition: number,
+): Promise<void> => {
+  const run = bridgeRun
+
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    if ((await $.session.id()) !== endedSessionId) {
-      break
+    if (!isCollecting || run !== bridgeRun || transition !== transitionRun) {
+      return
+    }
+
+    const sessionId = await $.session.id()
+
+    if (sessionId !== endedSessionId) {
+      const event = reason === 'clear'
+        ? { type: 'identity', sessionId, cwd: await $.session.cwd() }
+        : await describe($)
+
+      if (transition === transitionRun) {
+        post(event)
+        await keepNote($)
+      }
+
+      return
     }
 
     await $.clock.sleep(100)
   }
 
-  post(await describe($))
+  throw new Error(`/${reason} did not expose a replacement session ID within 5 seconds`)
 }
 
 // The session ended in this process for good. `/background` is one way: the
@@ -555,6 +579,14 @@ const adopt = async ($: EngineInterface): Promise<Identity | undefined> => {
   const sessionId = await $.session.id()
   const own = await $.store.get(`session:${sessionId}`)
   let note = isNote(own) ? own : undefined
+
+  if (
+    note === undefined && isBridgeRunning && identity !== undefined && notedSessionId !== undefined
+  ) {
+    // This process kept its bridge across /clear or /resume; its task did not change.
+    await keepNote($)
+    note = { at: notedAt, env: identity }
+  }
 
   // The session that ended writes its note as this one starts.
   for (let attempt = 0; note === undefined && attempt < 10; attempt += 1) {
@@ -796,6 +828,7 @@ export const register: Register = on => {
     }
 
     const described = await describe($)
+    transitionRun += 1
 
     if (isBridgeRunning) {
       // The process started another session under the bridge it already has.
@@ -815,18 +848,20 @@ export const register: Register = on => {
     if (e.reason !== 'clear' && e.reason !== 'resume') {
       await leaveNote($, e.sessionId).catch(report($, 'leaving a hand-over note'))
       await retire($)
-    }
-
-    const ended = await next(e)
-
-    if (e.reason === 'clear' || e.reason === 'resume') {
+    } else {
+      transitionRun += 1
       turnId = undefined
       unreadNotes = []
       post({ type: 'reset' })
     }
 
-    if (e.reason === 'resume' && isCollecting) {
-      void redescribe($, e.sessionId).catch(report($, 'describing the resumed session'))
+    const transition = transitionRun
+    const ended = await next(e)
+
+    if (e.reason === 'clear' || e.reason === 'resume') {
+      if (isCollecting) {
+        void reportTransition($, e.sessionId, e.reason, transition).catch(report($, `reporting the /${e.reason} identity`))
+      }
     }
 
     return ended

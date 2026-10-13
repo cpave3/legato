@@ -13,6 +13,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -36,6 +37,9 @@ type Options struct {
 	// longer be written because the mod stopped reading, or the mod said its
 	// session ended.
 	OnDisconnect func()
+	// OnIdentity records the provider conversation, independently of TaskID.
+	// It is called in event order when a nonempty identity or its cwd changes.
+	OnIdentity func(sessionID, cwd string) error
 	// Now overrides the clock in tests.
 	Now func() time.Time
 }
@@ -54,6 +58,13 @@ type Bridge struct {
 	commands       io.Writer
 	onDisconnect   func()
 	disconnectOnce sync.Once
+
+	// eventMu orders whole mod batches and identity saves with Close. Panel
+	// reads use only mu, which is never held during an identity callback.
+	eventMu     sync.Mutex
+	onIdentity  func(string, string) error
+	identityID  string
+	identityCWD string
 
 	closeOnce sync.Once
 	closed    chan struct{}
@@ -85,6 +96,7 @@ func New(opts Options) *Bridge {
 		instance:     randomHex(4),
 		commands:     commands,
 		onDisconnect: opts.OnDisconnect,
+		onIdentity:   opts.OnIdentity,
 		closed:       make(chan struct{}),
 		session:      newSession(),
 		subscribers:  map[chan envelope]struct{}{},
@@ -92,8 +104,10 @@ func New(opts Options) *Bridge {
 	}
 }
 
-// Close ends every open event stream.
+// Close waits for an in-flight identity save and ends every open event stream.
 func (b *Bridge) Close() {
+	b.eventMu.Lock()
+	defer b.eventMu.Unlock()
 	b.closeOnce.Do(func() { close(b.closed) })
 }
 
@@ -131,16 +145,44 @@ func (b *Bridge) handleModEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ended := false
+	var identityErr error
+	b.eventMu.Lock()
 	b.mu.Lock()
+	select {
+	case <-b.closed:
+		b.mu.Unlock()
+		b.eventMu.Unlock()
+		http.Error(w, "the Claude bridge has closed", http.StatusServiceUnavailable)
+		return
+	default:
+	}
 	for _, event := range batch.Events {
 		if event.Type == "ended" {
 			ended = true
 			continue
 		}
 		b.publish(b.session.apply(event, b.now()))
+		if (event.Type == "hello" || event.Type == "reset" || event.Type == "identity") && event.SessionID != "" && b.onIdentity != nil {
+			cwd := b.session.cwd
+			if event.SessionID != b.identityID || cwd != b.identityCWD {
+				b.mu.Unlock()
+				err := b.onIdentity(event.SessionID, cwd)
+				b.mu.Lock()
+				if err != nil {
+					identityErr = fmt.Errorf("saving Claude session %s for resume: %w", event.SessionID, err)
+					break
+				}
+				b.identityID, b.identityCWD = event.SessionID, cwd
+			}
+		}
 	}
 	b.releaseSettledWaiters()
 	b.mu.Unlock()
+	b.eventMu.Unlock()
+	if identityErr != nil {
+		http.Error(w, identityErr.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 	// The session ended in this Claude process. When it was sent to the
 	// background it goes on in another, whose bridge is waiting for this one

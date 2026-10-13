@@ -54,7 +54,7 @@ const bridgeHandoverPoll = 100 * time.Millisecond
 // While it runs, the task's agent session is bound to the bridge exactly as a
 // Chimera agent is bound to its discovered endpoint, so Legato's messages,
 // interrupts, permission decisions and the web panel all go through it.
-func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptions) error {
+func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptions) (runErr error) {
 	if opts.TaskID == "" {
 		return fmt.Errorf("task ID is required")
 	}
@@ -92,6 +92,15 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 		return err
 	}
 	defer trace.Close()
+	identityErr := make(chan error, 1)
+	defer func() {
+		select {
+		case err := <-identityErr:
+			runErr = err
+		default:
+		}
+	}()
+	recordIdentity := nativeIdentityRecorder(runCtx, s, opts.TaskID, session, "claude-code")
 	bridge := claudebridge.New(claudebridge.Options{
 		TaskID:   opts.TaskID,
 		Token:    token,
@@ -99,6 +108,16 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 		Commands: trace.commands(opts.Stdout),
 		// The mod stopped reading: its Claude session is gone.
 		OnDisconnect: cancel,
+		OnIdentity: func(sessionID, cwd string) error {
+			err := recordIdentity(sessionID, cwd)
+			if err != nil {
+				select {
+				case identityErr <- err:
+				default:
+				}
+			}
+			return err
+		},
 	})
 	defer bridge.Close()
 	server := &http.Server{Handler: trace.handler(bridge.Handler())}
@@ -137,6 +156,8 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 	}
 
 	select {
+	case err := <-identityErr:
+		return err
 	case <-runCtx.Done():
 		return nil
 	case err := <-serveErr:
@@ -144,6 +165,37 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 			return nil
 		}
 		return fmt.Errorf("serving the bridge: %w", err)
+	}
+}
+
+func nativeIdentityRecorder(ctx context.Context, s *store.Store, taskID string, session *store.AgentSession, kind string) func(string, string) error {
+	excluded := os.Getenv("LEGATO_TASK_EPHEMERAL") == "1" || session.Role == "worker" || session.ExecutionKind == store.ExecutionSwarmWorker ||
+		(session.SubtaskID != nil && *session.SubtaskID != "") ||
+		(session.ParentTaskID != nil && *session.ParentTaskID != "" && !(session.Role == "conductor" && *session.ParentTaskID == taskID)) ||
+		(session.AttributionTaskID != "" && session.AttributionTaskID != taskID)
+	task, taskErr := s.GetTask(ctx, taskID)
+	storageDir, storageErr := nativeSessionStorageDir(kind)
+	return func(providerSessionID, cwd string) error {
+		if excluded || providerSessionID == "" || (taskErr == nil && task.Ephemeral) {
+			return nil
+		}
+		if taskErr != nil {
+			return fmt.Errorf("checking native session task: %w", taskErr)
+		}
+		if storageErr != nil {
+			return fmt.Errorf("resolving %s session storage: %w", kind, storageErr)
+		}
+		// Provider exit must not cancel a save for an identity already observed.
+		saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		changed, err := s.RecordTaskNativeSession(saveCtx, taskID, session.ID, session.ExecutionID, kind, providerSessionID, cwd, storageDir)
+		if err != nil {
+			return fmt.Errorf("could not save %s session %s for task %s; resume identity was not recorded: %w", kind, providerSessionID, taskID, err)
+		}
+		if changed {
+			ipc.Broadcast(ipc.Message{Type: "agents_changed", TaskID: taskID})
+		}
+		return nil
 	}
 }
 

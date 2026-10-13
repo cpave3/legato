@@ -265,11 +265,21 @@ func (s *session) apply(event modEvent, now time.Time) []nativeEvent {
 		}
 	case "usage":
 		return s.applyContext(event.Context)
+	case "identity":
+		if event.SessionID != "" {
+			s.claudeSessionID = event.SessionID
+		}
+		if event.CWD != "" {
+			s.cwd = event.CWD
+		}
 	case "reset":
 		// A /clear: the process goes on under a new Claude session with an
 		// empty conversation. The panel re-reads the snapshot on run_finished.
 		s.clearConversation()
 		s.claudeSessionID = event.SessionID
+		if event.CWD != "" {
+			s.cwd = event.CWD
+		}
 		s.busy = false
 		// The old conversation's fill says nothing about the new one.
 		s.context.Tokens = nil

@@ -59,7 +59,7 @@ type CodexBridgeOptions struct {
 // joins it as a second client, and binds the task's agent session to itself
 // exactly as a Chimera agent is bound to its discovered endpoint. Legato's
 // messages, interrupts, decisions and the web panel then go through it.
-func RunCodexBridge(ctx context.Context, s *store.Store, opts CodexBridgeOptions) error {
+func RunCodexBridge(ctx context.Context, s *store.Store, opts CodexBridgeOptions) (runErr error) {
 	if opts.TaskID == "" {
 		return fmt.Errorf("task ID is required")
 	}
@@ -109,13 +109,26 @@ func RunCodexBridge(ctx context.Context, s *store.Store, opts CodexBridgeOptions
 	cwd, _ := os.Getwd()
 	bridge := codexbridge.New(codexbridge.Options{
 		TaskID: opts.TaskID, Token: token, AppServerURL: appServer.URL, AppServerToken: appServer.Token, CWD: cwd,
+		OnIdentity: nativeIdentityRecorder(runCtx, s, opts.TaskID, session, "codex"),
 	})
 	if err := bridge.Connect(runCtx); err != nil {
 		return err
 	}
 	defer bridge.Close()
-	bridgeErr := make(chan error, 1)
-	go func() { bridgeErr <- bridge.Run(runCtx) }()
+	bridgeDone := make(chan struct{})
+	var bridgeErr error
+	go func() {
+		bridgeErr = bridge.Run(runCtx)
+		close(bridgeDone)
+	}()
+	defer func() {
+		bridge.Close()
+		<-bridgeDone
+		var identityErr *codexbridge.IdentityError
+		if errors.As(bridgeErr, &identityErr) {
+			runErr = bridgeErr
+		}
+	}()
 
 	server := &http.Server{Handler: bridge.Handler()}
 	serveErr := make(chan error, 1)
@@ -159,7 +172,11 @@ func RunCodexBridge(ctx context.Context, s *store.Store, opts CodexBridgeOptions
 		return nil
 	case <-appServer.Exited:
 		return nil
-	case <-bridgeErr:
+	case <-bridgeDone:
+		var identityErr *codexbridge.IdentityError
+		if errors.As(bridgeErr, &identityErr) {
+			return bridgeErr
+		}
 		// The app server going away is how a session ends, not a failure.
 		return nil
 	case err := <-serveErr:

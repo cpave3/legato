@@ -311,6 +311,13 @@ func TestStartingOverInTheTerminalReplacesTheConversation(t *testing.T) {
 	h.begin("turn-1")
 	h.item("completed", userMessage("item-u1", "first conversation"))
 	h.finish("turn-1", "completed")
+	deadline := time.Now().Add(2 * time.Second)
+	for h.snapshot().Status != "idle" {
+		if time.Now().After(deadline) {
+			t.Fatal("first conversation did not finish")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	events := h.subscribe("")
 
 	// /new in the terminal: the same process goes on under another thread.
