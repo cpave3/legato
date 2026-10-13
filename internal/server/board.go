@@ -398,6 +398,7 @@ func cardDetailToResponse(d *service.CardDetail) CardDetailResponse {
 		Metadata:            d.Metadata,
 		WorkspaceID:         d.WorkspaceID,
 		HasChimeraSession:   d.HasChimeraSession,
+		ResumableAgentKinds: append([]string{}, d.ResumableAgentKinds...),
 		SwarmActiveStep:     d.SwarmActiveStep,
 		SwarmStepNames:      d.SwarmStepNames,
 		CreatedAt:           d.CreatedAt.Format(time.RFC3339),

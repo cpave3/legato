@@ -150,6 +150,13 @@ func (b *boardService) GetCard(ctx context.Context, id string) (*CardDetail, err
 		return nil, err
 	}
 	detail := taskToCardDetail(t)
+	sessions, err := b.store.ListTaskNativeSessions(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, saved := range sessions {
+		detail.ResumableAgentKinds = append(detail.ResumableAgentKinds, saved.AgentKind)
+	}
 	notes, err := b.store.ListTaskNotes(ctx, id)
 	if err != nil {
 		return nil, err
@@ -674,10 +681,14 @@ func taskToCardDetail(t *store.Task) *CardDetail {
 		Priority:            t.Priority,
 		WorkspaceID:         t.WorkspaceID,
 		HasChimeraSession:   t.ChimeraSessionID != nil && *t.ChimeraSessionID != "",
+		ResumableAgentKinds: []string{},
 		CreatedAt:           createdAt,
 		UpdatedAt:           updatedAt,
 	}
 
+	if detail.HasChimeraSession {
+		detail.ResumableAgentKinds = append(detail.ResumableAgentKinds, "chimera")
+	}
 	detail.Provider = provider
 	if t.RemoteID != nil {
 		detail.RemoteID = *t.RemoteID

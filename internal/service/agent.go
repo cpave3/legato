@@ -105,26 +105,28 @@ type DurationData struct {
 // to inject role tags, scope-based conflict checks, a role system prompt, and
 // the per-worker initial brief that the launch command delivers.
 type AgentSpawnOptions struct {
-	Role                 string            // free-form role label (e.g. "conductor", "backend"); "" for non-swarm
-	ParentTaskID         string            // parent task ID when spawning a swarm sub-task
-	SubtaskID            string            // sub-task ID being assigned
-	Scope                []string          // scope globs for conflict checks
-	WorkingDir           string            // override for tmux session working directory; falls back to agent service workDir
-	AgentKind            string            // adapter name to use; "" → default adapter
-	Model                string            // direct model selector; "" → adapter default
-	Tier                 string            // adapter tier name (selects per-tier launch_args from cfg.Adapters.<kind>.tiers); "" → base launch_args only
-	Brief                string            // the per-worker initial brief; conductors leave this empty
-	StrictScope          bool              // when true, scope conflicts hard-block the spawn; otherwise advisory
-	ChimeraSessionExists string            // Chimera collision policy: new, resume, or error
-	ChimeraSessionID     string            // hook-captured real Chimera session ID; used for resume via --session
-	Ephemeral            bool              // internal: omit task-linked session identity
-	Assignment           string            // standalone workflow assignment; distinct from swarm role prompts
-	ExtraEnv             map[string]string // trusted Legato-owned workflow identity values
-	ExecutionKind        string            // reporting execution kind; defaults from workflow/swarm context
-	AttributionTaskID    string            // user-facing reporting task; defaults to taskID
-	WorkflowRunID        string            // owning workflow run, when applicable
-	WorkflowAttemptID    string            // owning workflow attempt, when applicable
-	SwarmID              string            // owning swarm parent ID, when applicable
+	Role              string            // free-form role label (e.g. "conductor", "backend"); "" for non-swarm
+	ParentTaskID      string            // parent task ID when spawning a swarm sub-task
+	SubtaskID         string            // sub-task ID being assigned
+	Scope             []string          // scope globs for conflict checks
+	WorkingDir        string            // override for tmux session working directory; falls back to agent service workDir
+	AgentKind         string            // adapter name to use; "" → default adapter
+	Model             string            // direct model selector; "" → adapter default
+	Tier              string            // adapter tier name (selects per-tier launch_args from cfg.Adapters.<kind>.tiers); "" → base launch_args only
+	Brief             string            // the per-worker initial brief; conductors leave this empty
+	StrictScope       bool              // when true, scope conflicts hard-block the spawn; otherwise advisory
+	SessionPolicy     string            // new or resume; Chimera also supports its internal error collision policy
+	ResumeSessionID   string            // saved provider conversation ID
+	ResumeWorkingDir  string            // saved native conversation directory
+	ResumeStorageDir  string            // provider's transcript storage directory
+	Ephemeral         bool              // internal: omit task-linked session identity
+	Assignment        string            // standalone workflow assignment; distinct from swarm role prompts
+	ExtraEnv          map[string]string // trusted Legato-owned workflow identity values
+	ExecutionKind     string            // reporting execution kind; defaults from workflow/swarm context
+	AttributionTaskID string            // user-facing reporting task; defaults to taskID
+	WorkflowRunID     string            // owning workflow run, when applicable
+	WorkflowAttemptID string            // owning workflow attempt, when applicable
+	SwarmID           string            // owning swarm parent ID, when applicable
 }
 
 // AgentSpawnConflict describes a scope-overlap warning encountered at spawn time.
@@ -163,7 +165,7 @@ type AgentService interface {
 	SetTaskNotifyEnabled(ctx context.Context, taskID string, enabled bool) error
 	// GetTaskNotifyEnabled returns whether push notifications are enabled for a task.
 	GetTaskNotifyEnabled(ctx context.Context, taskID string) (bool, error)
-	GetTaskChimeraSessionID(ctx context.Context, taskID string) (string, error)
+	GetTaskResumeSession(ctx context.Context, taskID, agentKind string) (*TaskResumeSession, error)
 	DiscoverChimera(ctx context.Context, taskID string) error
 	// ListPeers returns live agents sharing the caller's Git worktree. An
 	// explicit directory overrides lookup from taskID/executionID.
@@ -426,23 +428,15 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 	return svc
 }
 
-func (a *agentService) GetTaskChimeraSessionID(ctx context.Context, taskID string) (string, error) {
-	task, err := a.store.GetTask(ctx, taskID)
-	if err != nil {
-		return "", err
-	}
-	if task.ChimeraSessionID == nil {
-		return "", nil
-	}
-	return *task.ChimeraSessionID, nil
-}
-
 func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, height int, opts ...AgentSpawnOptions) error {
 	var opt AgentSpawnOptions
 	if len(opts) > 0 {
 		opt = opts[0]
 	}
 
+	if err := a.prepareTaskResume(ctx, taskID, &opt); err != nil {
+		return err
+	}
 	workDir := opt.WorkingDir
 	if workDir == "" {
 		workDir = a.workDir
@@ -497,6 +491,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if adapter != nil {
 		agentKind = adapter.Name()
 	}
+	nativeResume := opt.SessionPolicy == "resume" && (agentKind == "claude-code" || agentKind == "codex")
 
 	// Build env vars to inject into the initial shell. Track them as a map
 	// for the adapter LaunchCommand call, then flatten for tmux Spawn.
@@ -515,7 +510,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 	if adapter != nil && adapter.Name() == "chimera" && !opt.Ephemeral {
-		policy := opt.ChimeraSessionExists
+		policy := opt.SessionPolicy
 		if policy == "" {
 			policy = "new"
 		}
@@ -525,12 +520,25 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		// prior history (first creation), pass the task ID so Chimera creates
 		// a deterministic session. For new sessions with prior history, omit
 		// the ID entirely so Chimera generates a random one (collision-safe).
-		if policy == "resume" && opt.ChimeraSessionID != "" {
-			envMap["LEGATO_CHIMERA_SESSION_ID"] = opt.ChimeraSessionID
-		} else if policy == "new" && opt.ChimeraSessionID == "" {
+		if policy == "resume" && opt.ResumeSessionID != "" {
+			envMap["LEGATO_CHIMERA_SESSION_ID"] = opt.ResumeSessionID
+		} else if policy == "new" && opt.ResumeSessionID == "" {
 			envMap["LEGATO_CHIMERA_SESSION_ID"] = taskID
 		}
 		envMap["LEGATO_CHIMERA_SESSION_EXISTS"] = policy
+	}
+	if !opt.Ephemeral && (agentKind == "claude-code" || agentKind == "codex") {
+		envMap["LEGATO_SESSION_POLICY"] = opt.SessionPolicy
+		if opt.SessionPolicy == "resume" {
+			envMap["LEGATO_RESUME_SESSION_ID"] = opt.ResumeSessionID
+			if opt.ResumeStorageDir != "" {
+				key := "CODEX_HOME"
+				if agentKind == "claude-code" {
+					key = "CLAUDE_CONFIG_DIR"
+				}
+				envMap[key] = opt.ResumeStorageDir
+			}
+		}
 	}
 	// Swarm-specific env vars.
 	if opt.Role != "" {
@@ -566,8 +574,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if tp, ok := adapter.(ToolsPromptAdapter); ok {
 		rolePrompt = joinPromptSections(rolePrompt, tp.ToolsPrompt())
 	}
+	if nativeResume {
+		rolePrompt = ""
+	}
 	var promptManifestID string
-	if a.learning != nil && adapter != nil {
+	if a.learning != nil && adapter != nil && !nativeResume {
 		projectKey := ""
 		if task, taskErr := a.store.GetTask(ctx, taskID); taskErr == nil {
 			codeContext, parseErr := store.ParseCodeContext(task.CodeContext)
@@ -765,7 +776,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 				// Launch failure is best-effort: the session exists, the user
 				// can recover by attaching and running the AI tool manually.
 				log.Printf("auto-launch send-keys failed for %s: %v", sessionName, err)
-			} else if _, hasBrief := envMap["LEGATO_BRIEF_FILE"]; hasBrief {
+			} else if _, hasBrief := envMap["LEGATO_BRIEF_FILE"]; hasBrief && !nativeResume {
 				// Skip the kickoff for adapters whose launch command already
 				// constitutes the first user turn (e.g. Chimera's `--prompt`).
 				// The role prompt content already includes "read your brief"

@@ -404,7 +404,7 @@ func (s *Server) tasksHandler() http.HandlerFunc {
 type taskAgentService interface {
 	CaptureOutput(context.Context, string) (string, error)
 	DefaultAdapter() string
-	GetTaskChimeraSessionID(context.Context, string) (string, error)
+	GetTaskResumeSession(context.Context, string, string) (*service.TaskResumeSession, error)
 	SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error
 }
 
@@ -433,49 +433,59 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			return
 		}
 		var req struct {
-			AgentKind            string `json:"agent_kind"`
-			WorkingDir           string `json:"working_dir"`
-			ChimeraSessionPolicy string `json:"chimera_session_policy"`
+			AgentKind     string `json:"agent_kind"`
+			WorkingDir    string `json:"working_dir"`
+			SessionPolicy string `json:"session_policy"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil && err != io.EOF {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
-		}
-		if req.WorkingDir == "" {
-			req.WorkingDir = s.workDir
 		}
 		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir}
 		effectiveAdapter := req.AgentKind
 		if effectiveAdapter == "" {
 			effectiveAdapter = agents.DefaultAdapter()
 		}
-		if req.ChimeraSessionPolicy != "" && req.ChimeraSessionPolicy != "resume" && req.ChimeraSessionPolicy != "new" {
-			http.Error(w, "chimera_session_policy must be resume or new", http.StatusBadRequest)
+		if req.SessionPolicy != "" && req.SessionPolicy != "resume" && req.SessionPolicy != "new" {
+			http.Error(w, "session_policy must be resume or new", http.StatusBadRequest)
 			return
 		}
-		if req.ChimeraSessionPolicy != "" && effectiveAdapter != "chimera" {
-			http.Error(w, "chimera_session_policy requires the Chimera adapter", http.StatusBadRequest)
+		if req.SessionPolicy != "" && !service.SupportsTaskResume(effectiveAdapter) {
+			http.Error(w, "session_policy requires a resumable adapter", http.StatusBadRequest)
 			return
 		}
-		if effectiveAdapter == "chimera" {
-			sessionID, err := agents.GetTaskChimeraSessionID(r.Context(), taskID)
+		if service.SupportsTaskResume(effectiveAdapter) {
+			saved, err := agents.GetTaskResumeSession(r.Context(), taskID, effectiveAdapter)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			if req.ChimeraSessionPolicy != "" && sessionID == "" {
-				http.Error(w, "the task no longer has a Chimera session to "+req.ChimeraSessionPolicy, http.StatusConflict)
+			if saved == nil && (req.SessionPolicy == "resume" || (req.SessionPolicy == "new" && effectiveAdapter == "chimera")) {
+				http.Error(w, "the task no longer has a "+effectiveAdapter+" session to "+req.SessionPolicy, http.StatusConflict)
 				return
 			}
-			if sessionID != "" {
-				opts.ChimeraSessionExists = req.ChimeraSessionPolicy
-				if opts.ChimeraSessionExists == "" {
-					opts.ChimeraSessionExists = "resume"
+			opts.SessionPolicy = req.SessionPolicy
+			if saved != nil {
+				if opts.SessionPolicy == "" {
+					opts.SessionPolicy = "resume"
 				}
-				opts.ChimeraSessionID = sessionID
+				opts.ResumeSessionID = saved.ID
+				opts.ResumeWorkingDir = saved.CWD
+			}
+		}
+		if opts.WorkingDir == "" {
+			opts.WorkingDir = s.workDir
+			if opts.SessionPolicy == "resume" && opts.ResumeWorkingDir != "" {
+				opts.WorkingDir = opts.ResumeWorkingDir
 			}
 		}
 		if err := agents.SpawnAgent(r.Context(), taskID, 0, 0, opts); err != nil {
+			if errors.Is(err, service.ErrTaskResumeConflict) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

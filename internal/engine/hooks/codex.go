@@ -131,6 +131,9 @@ func (a *CodexAdapter) LaunchCommand(env map[string]string, brief, model, tier s
 		// configuration among them to the session's app server as well.
 		cmd = shellQuote(a.legatoBin) + " agent codex --"
 	}
+	if env["LEGATO_SESSION_POLICY"] == "resume" {
+		cmd += " resume " + shellQuote(env["LEGATO_RESUME_SESSION_ID"])
+	}
 	if a.mcpTools {
 		// Ahead of the person's own launch args, so an override of theirs for
 		// the same server wins. Codex starts an MCP server with a short list
@@ -144,7 +147,7 @@ func (a *CodexAdapter) LaunchCommand(env map[string]string, brief, model, tier s
 			cmd += " -c " + shellQuote(override)
 		}
 	}
-	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; ok {
+	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; ok && env["LEGATO_SESSION_POLICY"] != "resume" {
 		cmd += ` -c developer_instructions="$(cat $LEGATO_ROLE_PROMPT_FILE)"`
 	}
 	for _, arg := range a.launchArgs {

@@ -383,8 +383,8 @@ func (p *promptAgentService) GetTaskNotifyEnabled(context.Context, string) (bool
 	return false, nil
 }
 func (p *promptAgentService) DiscoverChimera(context.Context, string) error { return nil }
-func (p *promptAgentService) GetTaskChimeraSessionID(context.Context, string) (string, error) {
-	return "", nil
+func (p *promptAgentService) GetTaskResumeSession(context.Context, string, string) (*service.TaskResumeSession, error) {
+	return nil, nil
 }
 func (p *promptAgentService) GetAgentEnvironment(context.Context, string) ([]string, error) {
 	return p.agentEnvironment, nil

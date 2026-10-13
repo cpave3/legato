@@ -22,7 +22,7 @@ describe("Board card context menu", () => {
     mockFetch.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes("/api/settings")) return { ok: true, json: async () => ({ repositories: [] }) }
-      if (url.includes("/api/tasks/TASK-1")) return { ok: true, json: async () => ({ ...card, provider: "jira", description_md: "Provider details", local_description_md: "Legato details", remote_description_md: "Provider details" }) }
+      if (url.includes("/api/tasks/TASK-1")) return { ok: true, json: async () => ({ ...card, provider: "jira", description_md: "Provider details", local_description_md: "Legato details", remote_description_md: "Provider details", resumable_agent_kinds: [] }) }
       throw new Error(`unexpected fetch: ${url}`)
     })
   })

@@ -91,6 +91,7 @@ type CardDetail struct {
 	CodeContext         *CodeContextView
 	Worktree            *store.TaskWorktree
 	HasChimeraSession   bool
+	ResumableAgentKinds []string
 	SwarmActiveStep     int
 	SwarmStepNames      []string
 	CreatedAt           time.Time

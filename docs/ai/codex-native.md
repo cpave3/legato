@@ -56,6 +56,14 @@ The bridge does not create the thread; the terminal UI does, and the bridge lear
 - **After joining** it receives `turn/started`, `item/started`, `item/completed`, `item/agentMessage/delta`, `thread/tokenUsage/updated`, `turn/completed`. The history returned by the join is announced as events too, since nothing of it was known before.
 - **A new thread in the terminal** (`/new`) replaces the conversation: the bridge clears its state and emits `run_finished` with reason `reset`, on which the panel re-reads the snapshot. The binding is under the Legato task ID, not the thread's, so it survives this.
 
+## Task launch resumption
+
+Legato saves the selected top-level thread ID and working directory through the bridge. The task launch dialog and TUI offer Resume/New when that provider has a saved conversation. Resume launches `legato agent codex -- resume <saved-thread-id> ...`. The terminal selects that thread on its app server, and the bridge joins it through the existing `thread/resume` path.
+
+Resume restores the saved directory and `CODEX_HOME`. It does not inject fresh-session onboarding or replay the brief kickoff. A terminal thread change updates the saved record without changing the task-ID panel binding. Helper threads, child agents, and ephemeral tasks do not replace the record. Saved IDs survive bridge shutdown. A missing provider transcript produces a visible error rather than a fresh conversation. Legato does not import previously stopped sessions whose IDs it never recorded.
+
+The storage root is the captured `CODEX_HOME`, or the launching user's `~/.codex`. A deleted transcript leaves the saved ID intact and reports the provider's error in the terminal. Choose **Start new session** to replace it after the new thread reports its identity. Missing or mismatched workspaces and conflicting session/workspace launch flags are launch errors, not permission to start fresh.
+
 ## Behaviour
 
 **Messages.** To an idle thread a message is `turn/start`; during a turn it is `turn/steer` with the turn's ID, which folds it into the turn. A steer the server refuses (the turn ended meanwhile) becomes a `turn/start`. `turn/start` works on a thread the bridge has not joined, which is how a message can open a thread's first turn; the bridge joins right after. The bridge never answers "busy".

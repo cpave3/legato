@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1276,7 +1277,12 @@ type fakeAgentService struct {
 	durations      map[string]service.DurationData
 	captureErr     bool // when true, CaptureOutput returns an error (agent not running)
 	lastSpawnOpts  *service.AgentSpawnOptions
-	chimeraSession string
+	resumeSession  *service.TaskResumeSession
+	resumeErr      error
+	defaultAdapter string
+	lookupKind     string
+	lookupTask     string
+	lookupCalls    int
 	groupTaskID    string
 	group          *string
 }
@@ -1326,7 +1332,7 @@ func (f *fakeAgentService) SpawnEphemeralAgent(_ context.Context, _ string, _, _
 }
 func (f *fakeAgentService) LastSpawnConflicts() []service.AgentSpawnConflict { return nil }
 func (f *fakeAgentService) RegisteredAdapters() []string                     { return nil }
-func (f *fakeAgentService) DefaultAdapter() string                           { return "" }
+func (f *fakeAgentService) DefaultAdapter() string                           { return f.defaultAdapter }
 func (f *fakeAgentService) AdapterFor(kind string) service.AIToolAdapter     { return nil }
 func (f *fakeAgentService) GetStateTimeline(_ context.Context, _ string, _ time.Duration, _ int) ([]string, error) {
 	return nil, nil
@@ -1338,8 +1344,10 @@ func (f *fakeAgentService) GetTaskNotifyEnabled(_ context.Context, _ string) (bo
 	return false, nil
 }
 func (f *fakeAgentService) DiscoverChimera(context.Context, string) error { return nil }
-func (f *fakeAgentService) GetTaskChimeraSessionID(_ context.Context, _ string) (string, error) {
-	return f.chimeraSession, nil
+func (f *fakeAgentService) GetTaskResumeSession(_ context.Context, taskID, agentKind string) (*service.TaskResumeSession, error) {
+	f.lookupTask, f.lookupKind = taskID, agentKind
+	f.lookupCalls++
+	return f.resumeSession, f.resumeErr
 }
 func (f *fakeAgentService) ListPeers(context.Context, string, string, string) ([]service.AgentPeer, error) {
 	return nil, nil
@@ -1410,35 +1418,126 @@ func TestAgentGroupSelectionPersistsAndRefreshes(t *testing.T) {
 	}
 }
 
-func TestChimeraSpawnWithStoredSessionPromptsAndResumes(t *testing.T) {
-	agentSvc := &fakeAgentService{chimeraSession: "old-session"}
-	app := newTestApp()
-	app.agentSvc = agentSvc
-	app.width, app.height = 100, 40
-
-	model, _ := app.handleAgentSpawnSubmit(overlay.AgentSpawnSubmitMsg{TaskID: "TASK-1", AgentKind: "chimera"})
-	app = model.(App)
-	if app.overlayType != overlayChimeraSession {
-		t.Fatalf("overlayType = %v, want Chimera session prompt", app.overlayType)
-	}
-	model, cmd := app.Update(overlay.ChimeraSessionChoiceMsg{Spawn: overlay.AgentSpawnSubmitMsg{TaskID: "TASK-1", AgentKind: "chimera"}, SessionID: "old-session", Resume: true})
-	app = model.(App)
+func runSpawnCommand(t *testing.T, cmd tea.Cmd) tea.Msg {
+	t.Helper()
 	if cmd == nil {
 		t.Fatal("expected spawn command")
 	}
-	msg := cmd()
-	if batch, ok := msg.(tea.BatchMsg); ok {
-		for _, c := range batch {
-			if c != nil {
-				c()
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok || len(batch) == 0 {
+		t.Fatal("expected spawn batch")
+	}
+	return batch[0]()
+}
+
+func TestAgentSpawnWithStoredSessionPromptsAndResumes(t *testing.T) {
+	for _, kind := range []string{"chimera", "claude-code", "codex"} {
+		for _, selected := range []string{kind, ""} {
+			for _, dir := range []string{"", "/selected"} {
+				t.Run(kind+"/"+selected+"/"+dir, func(t *testing.T) {
+					agentSvc := &fakeAgentService{resumeSession: &service.TaskResumeSession{ID: "old-session", CWD: "/saved"}, defaultAdapter: kind}
+					app := newTestApp()
+					app.agentSvc = agentSvc
+					app.width, app.height = 100, 40
+					model, _ := app.Update(overlay.AgentSpawnSubmitMsg{TaskID: "TASK-1", AgentKind: selected, WorkingDir: dir})
+					app = model.(App)
+					if app.overlayType != overlayAgentSession || agentSvc.lookupKind != kind || agentSvc.lookupTask != "TASK-1" {
+						t.Fatalf("overlay/lookup = %v/%s/%s", app.overlayType, agentSvc.lookupKind, agentSvc.lookupTask)
+					}
+					label := map[string]string{"chimera": "Chimera", "claude-code": "Claude Code", "codex": "Codex"}[kind]
+					if !strings.Contains(app.activeOverlay.View(), label) {
+						t.Fatal("missing tool label")
+					}
+					_, choice := app.activeOverlay.Update(tea.KeyMsg{Type: tea.KeyEnter})
+					_, cmd := app.Update(choice())
+					runSpawnCommand(t, cmd)
+					want := service.AgentSpawnOptions{AgentKind: selected, WorkingDir: dir, SessionPolicy: "resume", ResumeSessionID: "old-session", ResumeWorkingDir: "/saved"}
+					if agentSvc.lastSpawnOpts == nil || !reflect.DeepEqual(*agentSvc.lastSpawnOpts, want) {
+						t.Fatalf("spawn options = %+v, want %+v", agentSvc.lastSpawnOpts, want)
+					}
+				})
 			}
 		}
 	}
-	if agentSvc.lastSpawnOpts == nil || agentSvc.lastSpawnOpts.ChimeraSessionExists != "resume" {
-		t.Fatalf("spawn options = %+v", agentSvc.lastSpawnOpts)
+}
+
+func TestAgentSessionNewAndCancel(t *testing.T) {
+	for _, key := range []string{"n", "esc"} {
+		t.Run(key, func(t *testing.T) {
+			svc := &fakeAgentService{resumeSession: &service.TaskResumeSession{ID: "old-session", CWD: "/saved"}}
+			app := newTestApp()
+			app.agentSvc = svc
+			model, _ := app.Update(overlay.AgentSpawnSubmitMsg{TaskID: "TASK-1", AgentKind: "codex", WorkingDir: "/selected"})
+			app = model.(App)
+			keyMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+			if key == "esc" {
+				keyMsg = tea.KeyMsg{Type: tea.KeyEsc}
+			}
+			_, choice := app.activeOverlay.Update(keyMsg)
+			model, cmd := app.Update(choice())
+			if model.(App).overlayType != overlayNone {
+				t.Fatal("overlay still open")
+			}
+			if key == "esc" {
+				if cmd != nil || svc.lastSpawnOpts != nil {
+					t.Fatal("cancel spawned an agent")
+				}
+				return
+			}
+			runSpawnCommand(t, cmd)
+			want := service.AgentSpawnOptions{AgentKind: "codex", WorkingDir: "/selected", SessionPolicy: "new", ResumeSessionID: "old-session"}
+			if svc.lastSpawnOpts == nil || !reflect.DeepEqual(*svc.lastSpawnOpts, want) {
+				t.Fatalf("new options = %+v", svc.lastSpawnOpts)
+			}
+		})
 	}
-	if agentSvc.lastSpawnOpts.ChimeraSessionID != "old-session" {
-		t.Fatalf("ChimeraSessionID = %q, want old-session", agentSvc.lastSpawnOpts.ChimeraSessionID)
+}
+
+func TestAgentSpawnWithoutSavedSessionAndEphemeral(t *testing.T) {
+	for _, taskID := range []string{"TASK-1", ""} {
+		t.Run(taskID, func(t *testing.T) {
+			svc := &fakeAgentService{}
+			if taskID == "" {
+				svc.resumeSession = &service.TaskResumeSession{ID: "ignored"}
+			}
+			app := newTestApp()
+			app.agentSvc = svc
+			model, cmd := app.Update(overlay.AgentSpawnSubmitMsg{TaskID: taskID, AgentKind: "codex", WorkingDir: "/selected"})
+			if model.(App).overlayType != overlayNone {
+				t.Fatal("unexpected session choice")
+			}
+			runSpawnCommand(t, cmd)
+			want := service.AgentSpawnOptions{AgentKind: "codex", WorkingDir: "/selected"}
+			if svc.lastSpawnOpts == nil || !reflect.DeepEqual(*svc.lastSpawnOpts, want) {
+				t.Fatalf("spawn options = %+v", svc.lastSpawnOpts)
+			}
+			if taskID == "" && svc.lookupCalls != 0 {
+				t.Fatal("ephemeral spawn queried task session")
+			}
+		})
+	}
+}
+
+func TestAgentSessionLookupErrorIsVisible(t *testing.T) {
+	svc := &fakeAgentService{resumeErr: errors.New("storage unavailable")}
+	app := newTestApp()
+	app.agentSvc = svc
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 40})
+	model, cmd := app.Update(overlay.AgentSpawnSubmitMsg{TaskID: "TASK-1", AgentKind: "codex"})
+	app = model.(App)
+	if cmd == nil {
+		t.Fatal("expected lookup error")
+	}
+	msg, ok := cmd().(statusbar.ErrorMsg)
+	if !ok || !strings.Contains(msg.Text, "storage unavailable") {
+		t.Fatalf("error = %+v", msg)
+	}
+	model, _ = app.Update(msg)
+	if !strings.Contains(model.(App).View(), "storage unavailable") {
+		t.Fatal("lookup error not rendered")
+	}
+	if svc.lastSpawnOpts != nil || app.overlayType != overlayNone {
+		t.Fatal("lookup failure continued launch")
 	}
 }
 

@@ -394,8 +394,8 @@ func TestSpawnAgent_TaskIDIsChimeraSessionIdentity(t *testing.T) {
 			createTask(t, s, "TASK-42")
 
 			err = svc.SpawnAgent(context.Background(), "TASK-42", 0, 0, AgentSpawnOptions{
-				ChimeraSessionExists: tt.policy,
-				ChimeraSessionID:     tt.chimeraSessionID,
+				SessionPolicy:   tt.policy,
+				ResumeSessionID: tt.chimeraSessionID,
 			})
 			if err != nil {
 				t.Fatal(err)

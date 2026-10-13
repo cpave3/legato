@@ -11,9 +11,10 @@ import { Button } from "../ui/Button"
 import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "../ui/Dialog"
 import { InlineNotice } from "../ui/InlineNotice"
 import { StartSwarmModal } from "../StartSwarmModal"
+import { agentKindLabel } from "../../lib/agentKind"
 import { resolveTaskWorkingDirectory } from "../../lib/taskLaunch"
 
-export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDir = "", hasChimeraSession = false }: { taskId: string; worktreePath?: string; rememberedWorkingDir?: string; hasChimeraSession?: boolean }) {
+export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDir = "", resumableAgentKinds = [] }: { taskId: string; worktreePath?: string; rememberedWorkingDir?: string; resumableAgentKinds?: string[] }) {
   const { baseUrl } = useServer()
   const settings = useSettings()
   const navigate = useNavigate()
@@ -27,7 +28,7 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
   const [repositoryPreset, setRepositoryPreset] = useState("")
   const [adapters, setAdapters] = useState<string[]>([])
   const [defaultAdapter, setDefaultAdapter] = useState("")
-  const [chimeraSessionPolicy, setChimeraSessionPolicy] = useState<"resume" | "new">("resume")
+  const [sessionPolicy, setSessionPolicy] = useState<"resume" | "new">("resume")
   const [busy, setBusy] = useState(false)
   const [initialized, setInitialized] = useState(false)
   const [error, setError] = useState("")
@@ -36,7 +37,7 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
     if (!open) return
     setRepositoryPreset("")
     setWorkingDir(resolveTaskWorkingDirectory(worktreePath, rememberedWorkingDir, settings.data?.working_dir || ""))
-    setChimeraSessionPolicy("resume")
+    setSessionPolicy("resume")
     setInitialized(false)
     setRepositories((settings.data?.repositories ?? []) as RepositoryPreset[])
     apiFetch(baseUrl, "/api/adapters").then(async (response) => {
@@ -47,7 +48,9 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
     }).finally(() => setInitialized(true))
   }, [open, baseUrl, worktreePath, rememberedWorkingDir, settings.data])
 
-  const offersChimeraSessionChoice = hasChimeraSession && (agentKind === "chimera" || (agentKind === "" && defaultAdapter === "chimera"))
+  const effectiveAdapter = agentKind || defaultAdapter
+  const offersSessionChoice = resumableAgentKinds.includes(effectiveAdapter)
+  const toolLabel = agentKindLabel(effectiveAdapter)
   const swarmConductor = agents.find((value) => value.role === "conductor" && value.parent_task_id === taskId)
   const initialWorkingDir = resolveTaskWorkingDirectory(worktreePath, rememberedWorkingDir, settings.data?.working_dir || "")
 
@@ -55,11 +58,11 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
     setBusy(true)
     setError("")
     try {
-      const body: { agent_kind: string; working_dir: string; chimera_session_policy?: "resume" | "new" } = {
+      const body: { agent_kind: string; working_dir: string; session_policy?: "resume" | "new" } = {
         agent_kind: agentKind,
         working_dir: workingDir,
       }
-      if (offersChimeraSessionChoice) body.chimera_session_policy = chimeraSessionPolicy
+      if (offersSessionChoice) body.session_policy = sessionPolicy
       const response = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(taskId)}/agent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -107,14 +110,14 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
               {adapters.map((value) => <option key={value}>{value}</option>)}
             </select>
           </label>
-          {offersChimeraSessionChoice && <fieldset className="space-y-2 rounded-md border border-zinc-800 p-3">
-            <legend className="px-1 text-xs font-medium text-zinc-300">Existing Chimera session</legend>
+          {offersSessionChoice && <fieldset className="space-y-2 rounded-md border border-zinc-800 p-3">
+            <legend className="px-1 text-xs font-medium text-zinc-300">Existing {toolLabel} session</legend>
             <label className="flex items-start gap-2 text-xs text-zinc-300">
-              <input type="radio" name="chimera-session-policy" value="resume" aria-label="Resume previous session" checked={chimeraSessionPolicy === "resume"} onChange={() => setChimeraSessionPolicy("resume")} className="mt-0.5" />
-              <span><span className="block font-medium">Resume previous session</span><span className="text-zinc-500">Continue with the previous Chimera context.</span></span>
+              <input type="radio" name="session-policy" value="resume" aria-label="Resume previous session" checked={sessionPolicy === "resume"} onChange={() => setSessionPolicy("resume")} className="mt-0.5" />
+              <span><span className="block font-medium">Resume previous session</span><span className="text-zinc-500">Continue with the previous {toolLabel} context.</span></span>
             </label>
             <label className="flex items-start gap-2 text-xs text-zinc-300">
-              <input type="radio" name="chimera-session-policy" value="new" aria-label="Start new session" checked={chimeraSessionPolicy === "new"} onChange={() => setChimeraSessionPolicy("new")} className="mt-0.5" />
+              <input type="radio" name="session-policy" value="new" aria-label="Start new session" checked={sessionPolicy === "new"} onChange={() => setSessionPolicy("new")} className="mt-0.5" />
               <span><span className="block font-medium">Start new session</span><span className="text-zinc-500">Start fresh for this Legato task.</span></span>
             </label>
           </fieldset>}

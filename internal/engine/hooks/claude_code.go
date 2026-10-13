@@ -120,7 +120,10 @@ func (a *ClaudeCodeAdapter) LaunchCommand(env map[string]string, brief, model, t
 		return ""
 	}
 	cmd := "claude"
-	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; ok {
+	if env["LEGATO_SESSION_POLICY"] == "resume" {
+		cmd += " --resume " + shellQuote(env["LEGATO_RESUME_SESSION_ID"])
+	}
+	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; ok && env["LEGATO_SESSION_POLICY"] != "resume" {
 		cmd += ` --append-system-prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)"`
 	}
 	for _, arg := range a.launchArgs {

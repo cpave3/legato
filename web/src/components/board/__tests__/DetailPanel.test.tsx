@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach, vi } from "vitest"
 import { render, screen, cleanup, fireEvent, within } from "@testing-library/react"
 import { DetailPanel } from "../DetailPanel"
 import type { CardDetail } from "../../../lib/board-types"
-vi.mock("../TaskAgentAction",()=>({TaskAgentAction:({ taskId, worktreePath, rememberedWorkingDir, hasChimeraSession }: { taskId: string; worktreePath?: string; rememberedWorkingDir?: string; hasChimeraSession?: boolean })=> <button data-task-primary-action data-task-id={taskId} data-worktree-path={worktreePath} data-remembered-working-dir={rememberedWorkingDir} data-has-chimera-session={hasChimeraSession ? "true" : "false"} className="min-h-9 w-full" type="button">Open agent</button>}))
+vi.mock("../TaskAgentAction",()=>({TaskAgentAction:({ taskId, worktreePath, rememberedWorkingDir, resumableAgentKinds }: { taskId: string; worktreePath?: string; rememberedWorkingDir?: string; resumableAgentKinds?: string[] })=> <button data-task-primary-action data-task-id={taskId} data-worktree-path={worktreePath} data-remembered-working-dir={rememberedWorkingDir} data-resumable-agent-kinds={JSON.stringify(resumableAgentKinds)} className="min-h-9 w-full" type="button">Open agent</button>}))
 vi.mock("../TaskActivityTabs",()=>({TaskActivityTabs:()=>null}))
 
 afterEach(() => {
@@ -25,6 +25,7 @@ function makeCard(overrides: Partial<CardDetail> = {}): CardDetail {
     pr_meta: null,
     code_context: null,
     has_chimera_session: false,
+    resumable_agent_kinds: [],
     swarm_active_step: 0,
     swarm_step_names: [],
     created_at: "2025-01-01",
@@ -46,7 +47,7 @@ describe("DetailPanel", () => {
   it("places the agent action before mobile content while preserving its desktop Work placement", () => {
     const worktree = { primary_dir: "/repo", path: "/trees/t-1", branch: "t-1", base_branch: "main" }
     const code_context = { repo: "acme/widget", branch: "", head_sha: "", working_dir: "/repos/remembered", base_branch: "", repo_source: "manual", branch_source: "" }
-    const { container } = renderPanel(makeCard({ worktree, code_context, has_chimera_session: true }), { worktreesEnabled: true })
+    const { container } = renderPanel(makeCard({ worktree, code_context, resumable_agent_kinds: ["claude-code", "codex"] }), { worktreesEnabled: true })
     const dialog = screen.getByRole("dialog", { name: "Test title" })
     const layout = container.querySelector("[data-task-detail-layout]")
     const mobileAction = container.querySelector("[data-task-agent-action='mobile']")
@@ -69,7 +70,7 @@ describe("DetailPanel", () => {
       expect(action?.getAttribute("data-task-id")).toBe("T-1")
       expect(action?.getAttribute("data-worktree-path")).toBe("/trees/t-1")
       expect(action?.getAttribute("data-remembered-working-dir")).toBe("/repos/remembered")
-      expect(action?.getAttribute("data-has-chimera-session")).toBe("true")
+      expect(action?.getAttribute("data-resumable-agent-kinds")).toBe(JSON.stringify(["claude-code", "codex"]))
     }
     const actions = container.querySelector("[data-task-actions]")
     for (const action of Array.from(actions?.querySelectorAll("button") ?? [])) {

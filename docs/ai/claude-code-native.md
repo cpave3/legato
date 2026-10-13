@@ -42,14 +42,14 @@ A mod cannot listen for connections: it can only call out and spawn a child. So 
 | Hook | What the mod does |
 | --- | --- |
 | `session.start` | Describes the session (`hello`) and spawns `legato agent bridge` once per process. A second session under the same process (`/clear`, `/resume`) is described to the bridge already running. A background session (`CLAUDE_CODE_SESSION_KIND=bg`) first finds which task it serves from its note, never from its environment (see Sessions sent to the background). |
-| `session.end` | On `clear` or `resume`, tells the bridge the conversation was replaced (`reset`); on `resume` it waits for the session ID to change and describes the session again. For every other reason the session is over in this process: the mod leaves a hand-over note and tells its bridge to go (`ended`). |
+| `session.end` | On `clear` or `resume`, resets the panel immediately and waits for the replacement ID. Clear reports the identity without erasing new rows; resume describes the replacement history. For every other reason the session is over in this process: the mod leaves a hand-over note and tells its bridge to go (`ended`). |
 | `session.append` | Forwards each stored user or assistant row (`row`), with long text, arguments and results cut to bounded sizes. A thinking block goes with what can be read of it, without its signature. Rows the engine writes beside the conversation never leave the session. |
 | `turn.start`, `turn.complete` | Report the turn's start and end. At the end it also sends the model and context fill, and submits as a new prompt any message that was folded into the turn but never read. |
 | `turn.step` | Applies the model and effort chosen in Legato to the request, forwards the reply text and the thinking before it as they stream (`text_delta`, `thinking_delta`), reports messages the request carried (`user_note`) and the context fill after it (`usage`). Subagent requests pass through untouched. |
 | `agent.spawn` | Reports a subagent launched by the main loop (`agent_spawn`) so its activity is grouped under the call that spawned it. |
 | `classic.PermissionRequest` | Posts the request to `POST <endpoint>/mod/permissions` and waits inside that call for a decision. This one hook carries tool approvals, plan approval and the model's questions. |
 
-**What the mod posts** (`POST <endpoint>/mod/events`, batched, in order): `hello`, `reset`, `row`, `turn_start`, `turn_complete`, `text_delta`, `thinking_delta`, `user_note`, `usage`, `model`, `settings`, `agent_spawn`. Hooks only add to a queue; one pump per bridge sends it, so no hook waits on the bridge. The one exception is `ended`, which an ending session posts itself, because the engine gives it little time.
+**What the mod posts** (`POST <endpoint>/mod/events`, batched, in order): `hello`, `reset`, `identity`, `row`, `turn_start`, `turn_complete`, `text_delta`, `thinking_delta`, `user_note`, `usage`, `model`, `settings`, `agent_spawn`. Hooks only add to a queue; one pump per bridge sends it, so no hook waits on the bridge. The one exception is `ended`, which an ending session posts itself, because the engine gives it little time.
 
 **What the bridge writes back** (one JSON object per line on its stdout):
 
@@ -85,6 +85,10 @@ All wording and all mapping from options to engine changes live in the bridge (`
 **Swarm delivery.** `SwarmService` messages, broadcasts, urgent interrupts, conductor event pointers and the adhoc-conductor kickoff use the native endpoint for any participant that has one (Chimera or bridged Claude Code) and send-keys otherwise.
 
 **Resumed sessions.** A session started with `claude --resume` or `-c` describes its transcript when it starts, so the panel shows the earlier conversation. `/resume` inside a running session swaps the conversation without appending rows; the mod sees `session.end` with reason `resume`, waits for the switch and describes the session again, and the bridge tells the panel to reload. The description carries the newest messages that fit a 2 MB budget (tool arguments and results cut to 4,000 characters), because a long transcript sent whole would exceed what the bridge accepts in one request.
+
+**Task launch resumption.** Legato saves the actual Claude session ID and working directory from the mod. The task launch dialog and TUI offer Resume/New for saved Claude sessions. Resume launches `claude --resume <saved-id>` and restores the provider storage directory. It does not inject fresh-session onboarding or replay the brief kickoff. `/resume` and `/clear` update the saved identity without changing the task-ID panel binding. Saved IDs survive bridge shutdown. Child agents and ephemeral tasks do not replace the task conversation. Sessions stopped before identity capture are not imported automatically.
+
+The storage root is the captured `CLAUDE_CONFIG_DIR`, or the launching user's `~/.claude`. If the transcript has been deleted, Claude reports the error in the terminal; Legato does not fall back to a fresh conversation or erase the saved ID. Choose **Start new session** to replace it after the new session reports its identity. A missing or different workspace, or conflicting session/workspace launch flags, returns a launch error before spawning.
 
 **Context usage.** The fill shown in the panel comes from `$.session.usage()`: at session start, after every model request of a turn, and when a turn ends. After `/clear` it is unknown until the new conversation's first reply.
 

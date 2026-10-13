@@ -266,6 +266,17 @@ func TestGetCardReportsPersistedChimeraSession(t *testing.T) {
 	if !card.HasChimeraSession {
 		t.Fatal("HasChimeraSession = false, want true")
 	}
+	if len(card.ResumableAgentKinds) != 1 || card.ResumableAgentKinds[0] != "chimera" {
+		t.Fatalf("resume kinds = %q", card.ResumableAgentKinds)
+	}
+	savedNativeConversation(t, s, "T-1", "codex", t.TempDir(), "")
+	card, err = svc.GetCard(ctx, "T-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(card.ResumableAgentKinds) != 2 || card.ResumableAgentKinds[0] != "chimera" || card.ResumableAgentKinds[1] != "codex" {
+		t.Fatalf("provider-separated resume kinds = %q", card.ResumableAgentKinds)
+	}
 }
 
 func TestGetCardIncludesTaskNotes(t *testing.T) {

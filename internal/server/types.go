@@ -94,6 +94,7 @@ type CardDetailResponse struct {
 	CodeContext         *CodeContextResponse  `json:"code_context,omitempty"`
 	Worktree            *TaskWorktreeResponse `json:"worktree,omitempty"`
 	HasChimeraSession   bool                  `json:"has_chimera_session"`
+	ResumableAgentKinds []string              `json:"resumable_agent_kinds"`
 	SwarmActiveStep     int                   `json:"swarm_active_step"`
 	SwarmStepNames      []string              `json:"swarm_step_names,omitempty"`
 	CreatedAt           string                `json:"created_at"`

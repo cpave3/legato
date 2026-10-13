@@ -87,7 +87,7 @@ const (
 	overlayLinkPR
 	overlayOpenURL
 	overlayAgentSpawn
-	overlayChimeraSession
+	overlayAgentSession
 	overlaySwarmInit
 	overlayPlanApproval
 	overlayAgentAction
@@ -1196,16 +1196,16 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return worktreeCreateDoneMsg{TaskID: taskID}
 		}
 
-	case overlay.ChimeraSessionChoiceMsg:
+	case overlay.AgentSessionChoiceMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
 		policy := "new"
 		if msg.Resume {
 			policy = "resume"
 		}
-		return a.spawnTaskAgent(msg.Spawn, policy, msg.SessionID)
+		return a.spawnTaskAgent(msg.Spawn, policy, msg.SessionID, msg.ResumeWorkingDir)
 
-	case overlay.ChimeraSessionCancelledMsg:
+	case overlay.AgentSessionCancelledMsg:
 		a.overlayType = overlayNone
 		a.activeOverlay = nil
 		return a, nil
@@ -2425,26 +2425,35 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 		)
 	}
 
-	if msg.AgentKind == "chimera" || (msg.AgentKind == "" && svc.DefaultAdapter() == "chimera") {
-		if sessionID, err := svc.GetTaskChimeraSessionID(context.Background(), msg.TaskID); err == nil && sessionID != "" {
-			model := overlay.NewChimeraSession(msg, sessionID)
-			sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
-			a.activeOverlay = sized
-			a.overlayType = overlayChimeraSession
-			return a, nil
+	agentKind := msg.AgentKind
+	if agentKind == "" {
+		agentKind = svc.DefaultAdapter()
+	}
+	session, err := svc.GetTaskResumeSession(context.Background(), msg.TaskID, agentKind)
+	if err != nil {
+		return a, func() tea.Msg {
+			return statusbar.ErrorMsg{Text: "session lookup failed: " + err.Error()}
 		}
 	}
-	return a.spawnTaskAgent(msg, "", "")
+	if session != nil {
+		model := overlay.NewAgentSession(msg, session.ID, agentKind)
+		model.ResumeWorkingDir = session.CWD
+		sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
+		a.activeOverlay = sized
+		a.overlayType = overlayAgentSession
+		return a, nil
+	}
+	return a.spawnTaskAgent(msg, "", "", "")
 }
 
-func (a App) spawnTaskAgent(msg overlay.AgentSpawnSubmitMsg, chimeraPolicy, chimeraSessionID string) (tea.Model, tea.Cmd) {
+func (a App) spawnTaskAgent(msg overlay.AgentSpawnSubmitMsg, sessionPolicy, resumeSessionID, resumeWorkingDir string) (tea.Model, tea.Cmd) {
 	svc := a.agentSvc
 	termW := a.width - agents.SidebarWidthFor(a.width)
 	if termW < 1 {
 		termW = 1
 	}
 	termH := a.height - 1
-	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, WorkingDir: msg.WorkingDir, ChimeraSessionExists: chimeraPolicy, ChimeraSessionID: chimeraSessionID}
+	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, WorkingDir: msg.WorkingDir, SessionPolicy: sessionPolicy, ResumeSessionID: resumeSessionID, ResumeWorkingDir: resumeWorkingDir}
 
 	// Task-bound agent: switch to agent view and spawn with options
 	a = a.setMode(viewAgents)

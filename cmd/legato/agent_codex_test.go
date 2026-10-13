@@ -58,6 +58,20 @@ func TestTheTerminalAttachesToTheSessionsAppServer(t *testing.T) {
 	}
 }
 
+func TestRemoteTerminalResumesTheExactSavedThread(t *testing.T) {
+	_, args := splitCodexLaunch([]string{"--", "resume", "saved-thread", "--model", "selected-model", "-c", "sandbox_mode=workspace-write"})
+	args = codexSessionArgs(args)
+	got := codexAttachArgs("ws://127.0.0.1:41875", args)
+	want := []string{"--remote", "ws://127.0.0.1:41875", "--remote-auth-token-env", "LEGATO_CODEX_REMOTE_TOKEN", "-c", "check_for_update_on_startup=false", "resume", "saved-thread", "--model", "selected-model", "-c", "sandbox_mode=workspace-write"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("resume terminal args = %q, want %q", got, want)
+	}
+	serverArgs := codexServerArgs(args)
+	if !reflect.DeepEqual(serverArgs, []string{"-c", "check_for_update_on_startup=false", "-c", "sandbox_mode=workspace-write"}) {
+		t.Fatalf("resume leaked terminal arguments to app-server: %q", serverArgs)
+	}
+}
+
 func TestAnAgentSessionIsNotHeldUpByCodexsUpdateNotice(t *testing.T) {
 	// The notice is a menu in the terminal that nothing gets past until a
 	// person answers it, which an agent started by Legato may never have.

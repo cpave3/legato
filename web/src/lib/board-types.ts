@@ -73,6 +73,7 @@ export interface CardDetail {
   code_context: CodeContextView | null
   worktree?: TaskWorktree
   has_chimera_session: boolean
+  resumable_agent_kinds: string[]
   swarm_active_step: number
   swarm_step_names: string[]
   swarm_stats?: SwarmStats

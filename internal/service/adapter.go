@@ -48,6 +48,12 @@ type LaunchCommandAdapter interface {
 	LaunchCommand(env map[string]string, brief, model, tier string) string
 }
 
+// SessionLaunchValidator rejects configured arguments that override an exact
+// conversation selector or the saved workspace before a terminal is started.
+type SessionLaunchValidator interface {
+	ValidateSessionLaunch(policy, tier string) error
+}
+
 // LaunchSelfKickoff is an optional adapter capability for tools whose launch
 // command itself constitutes the first user turn — e.g. Chimera's `--prompt`
 // flag treats its value as the initial user message rather than as system

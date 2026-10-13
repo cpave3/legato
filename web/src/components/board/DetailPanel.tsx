@@ -71,7 +71,7 @@ export function DetailPanel({
     taskId: card.id,
     worktreePath: card.worktree?.path,
     rememberedWorkingDir: card.code_context?.working_dir,
-    hasChimeraSession: card.has_chimera_session,
+    resumableAgentKinds: card.resumable_agent_kinds,
   }
 
   return (

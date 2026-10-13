@@ -39,7 +39,7 @@ describe("Board workspace movement", () => {
       const url = String(input)
       if (url.includes("/api/settings")) return { ok: true, json: async () => ({ repositories: [] }) }
       if (url === "/api/tasks/TASK-2" && init?.method === "PATCH") return { ok: true, json: async () => ({ status: "ok", triggers: [] }) }
-      if (url === "/api/tasks/TASK-2") return { ok: true, json: async () => ({ ...selectedCard, description_md: "Details", local_description_md: "Details", remote_description_md: "" }) }
+      if (url === "/api/tasks/TASK-2") return { ok: true, json: async () => ({ ...selectedCard, description_md: "Details", local_description_md: "Details", remote_description_md: "", resumable_agent_kinds: [] }) }
       throw new Error(`unexpected fetch: ${url}`)
     })
   })
