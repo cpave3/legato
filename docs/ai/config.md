@@ -19,7 +19,9 @@ Legacy `workflows.repositories` is loaded only when the shared top-level catalog
 - `primary_dir`: absolute path to the primary local checkout.
 - `base_branch`: optional default branch.
 
-For workflow launches, the preset control appears only when the definition declares `repo`, `primary_dir`, or `base_branch`. Selecting a preset prefills only declared matching inputs; undeclared values are not submitted. The ephemeral-agent and task-agent web dialogs use the same list and copy the selected preset's `primary_dir` into their editable working-directory field. Editing that field switches the selector to **Custom** and the manual value is submitted.
+A repository with a `primary_dir` is also a directory preset of the spawn dialogs (the TUI's overlay and the web UI's **Spawn agent**), listed there ahead of the directories the person saved from those dialogs. Saved directories are kept in the database, not in this file.
+
+For workflow launches, the preset control appears only when the definition declares `repo`, `primary_dir`, or `base_branch`. Selecting a preset prefills only declared matching inputs; undeclared values are not submitted. The ephemeral-agent and task-agent web dialogs offer each preset with a `primary_dir` as a tile, beside the directories the person saved, and put the picked one in their editable path field; a path typed by hand is submitted as typed (see [Web UI](web-ui.md) § Spawn dialog). The swarm and worktree dialogs use the same list as a selector that copies the preset's `primary_dir` into their working-directory field; editing that field switches the selector to **Custom** and the manual value is submitted.
 
 ## Config
 

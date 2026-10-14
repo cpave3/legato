@@ -35,6 +35,7 @@ type Server struct {
 	bus                      *events.Bus
 	addr                     string
 	workDir                  string // default CWD for agent spawn
+	directories              DirectoryService
 	server                   *http.Server
 	hub                      *Hub
 	streams                  *streamManager
@@ -58,6 +59,8 @@ type Server struct {
 	attention                *service.AttentionService
 	learning                 LearningService
 	agentUI                  AgentUIService
+	agentStudio              AgentStudioService
+	agentStudioNotifier      AgentStudioNotifier
 	report                   service.ReportService
 	reflectionWorkflows      ReflectionWorkflowService
 	workflowGlobalDir        string
@@ -138,6 +141,8 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/navigation-summary", s.navigationSummaryHandler())
 	mux.HandleFunc("/api/ca-cert", s.caCertHandler())
 	mux.HandleFunc("/api/adapters", s.adaptersHandler())
+	mux.HandleFunc("/api/directories", s.directoriesHandler())
+	mux.HandleFunc("/api/directories/presets", s.directoryPresetsHandler())
 	mux.HandleFunc("/api/macros", s.macrosHandler())
 	mux.HandleFunc("/api/voice/transcribe", s.voiceTranscribeHandler())
 	mux.HandleFunc("/api/remote/search", s.remoteSearchHandler())
@@ -217,6 +222,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/{task_id}/image", s.agentImageHandler())
 	mux.HandleFunc("/api/agents/{task_id}/ui-items", s.agentUIItemsHandler())
 	mux.HandleFunc("/api/ui-items/{id}", s.agentUIItemHandler())
+	mux.HandleFunc("/api/ui-items/{id}/studio/{rest...}", s.agentStudioHandler())
 	// Outside /api/ on purpose: see agentUIImageHandler for why it asks for
 	// no token.
 	mux.HandleFunc(service.AgentUIImageRoute, s.agentUIImageHandler())

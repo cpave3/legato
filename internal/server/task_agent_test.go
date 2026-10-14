@@ -194,3 +194,19 @@ func TestTaskAgentEndpointResumesLiveAgentWithoutSpawning(t *testing.T) {
 		t.Fatalf("spawned=%q", agents.spawned)
 	}
 }
+
+func TestTaskAgentEndpointExpandsAWorkingDirectoryThatStartsWithATilde(t *testing.T) {
+	agents := &taskAgentFake{}
+	board := &mockBoardService{cardDetail: &service.CardDetail{ID: "T-1"}}
+	server := New(board, agents, nil, ":0")
+	server.SetDirectoryService(service.NewDirectoryService(nil, nil, "/home/me"))
+	request := httptest.NewRequest(http.MethodPost, "/api/tasks/T-1/agent", strings.NewReader(`{"working_dir":"~/Projects/legato/"}`))
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if agents.opts.WorkingDir != "/home/me/Projects/legato" {
+		t.Fatalf("WorkingDir = %q", agents.opts.WorkingDir)
+	}
+}

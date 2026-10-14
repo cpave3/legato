@@ -24,7 +24,10 @@ const design: AgentUIItem = { ...base, id: "ui-aaaaaaaaaa", placement: "panel", 
 const table: AgentUIItem = { ...base, id: "ui-bbbbbbbbbb", placement: "panel", format: "markdown", title: "API table", revision: 1, oldest_revision: 1 }
 const weather: AgentUIItem = { ...base, id: "ui-cccccccccc", placement: "inline", format: "components", title: "Weather", revision: 1, oldest_revision: 1 }
 
+const studio: AgentUIItem = { ...base, id: "ui-dddddddddd", placement: "panel", format: "studio", title: "Restack demo", revision: 1, oldest_revision: 1 }
+
 const contents: Record<string, string> = {
+  "ui-dddddddddd?revision=0": JSON.stringify({ storyboard: "/talks/storyboard.json" }),
   "ui-aaaaaaaaaa?revision=0": "# Design, second draft",
   "ui-aaaaaaaaaa?revision=2": "# Design, second draft",
   "ui-aaaaaaaaaa?revision=1": "# Design, first draft",
@@ -191,6 +194,47 @@ describe("AgentArtifactPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove" }))
     await waitFor(() => expect(deletes()).toHaveLength(1))
     expect(String(deletes()[0][0])).toContain("/api/ui-items/ui-aaaaaaaaaa")
+  })
+
+  it("keeps a studio out of the artifacts: it is a tool, not something the agent made to be read", async () => {
+    mockAPI([design, studio])
+    const onFocus = vi.fn()
+    render(<AgentArtifactPanel agentId="task-1" focus={null} onFocus={onFocus} onClose={() => {}} mobile={false} />, { wrapper })
+
+    // With nothing in focus the panel opens on what the agent showed, and
+    // the studio is not among its tabs.
+    const tabs = await screen.findAllByRole("tab")
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Sync designr2"])
+    expect(await screen.findByRole("heading", { name: "Design, second draft" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Studio" }))
+    expect(onFocus).toHaveBeenCalledWith("ui-dddddddddd", 0)
+  })
+
+  it("draws a studio as a panel of its own, with none of an artifact's controls", async () => {
+    mockAPI([design, studio])
+    const onFocus = vi.fn()
+    render(<AgentArtifactPanel agentId="task-1" focus={{ itemId: "ui-dddddddddd", revision: 0 }} onFocus={onFocus} onClose={() => {}} mobile={false} />, { wrapper })
+
+    expect(await screen.findByRole("heading", { name: "Studio" })).toBeTruthy()
+    expect(screen.getByRole("complementary", { name: "Studio" })).toBeTruthy()
+    expect(screen.getByText("Restack demo")).toBeTruthy()
+    // It has no revisions to step through and nothing to copy, download or
+    // remove: it is the person's own workplace, over their own files.
+    expect(screen.queryByRole("tablist")).toBeNull()
+    for (const name of ["Previous revision", "Copy source", "Download", "Remove"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull()
+    }
+    expect(screen.getByRole("button", { name: "Close studio" })).toBeTruthy()
+    // What the agent made is one click away.
+    fireEvent.click(screen.getByRole("button", { name: "Artifacts (1)" }))
+    expect(onFocus).toHaveBeenCalledWith("ui-aaaaaaaaaa", 0)
+  })
+
+  it("opens on the studio when it is all the agent has opened", async () => {
+    mockAPI([studio])
+    render(<AgentArtifactPanel agentId="task-1" focus={null} onFocus={() => {}} onClose={() => {}} mobile={false} />, { wrapper })
+    expect(await screen.findByRole("heading", { name: "Studio" })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /Artifacts/ })).toBeNull()
   })
 
   it("says so when the session has shown nothing", async () => {

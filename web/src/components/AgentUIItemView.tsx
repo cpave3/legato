@@ -1,6 +1,7 @@
 import { useMemo, useState, type MouseEvent } from "react"
 import { useServer } from "../hooks/useServer"
 import { itemImages, parseUIComponents, resolveImageReferences, type AgentUIItem, type ItemImage } from "../lib/agentUi"
+import { AgentStudioPanel } from "./AgentStudioPanel"
 import { AgentUIComponents } from "./AgentUIComponents"
 import { AgentVideoPlayer } from "./AgentVideoPlayer"
 import { ImageLightbox, type LightboxImage } from "./ImageLightbox"
@@ -17,14 +18,15 @@ interface AgentUIItemViewProps {
 }
 
 // AgentUIItemView draws one item an agent showed, by its format: HTML in a
-// sandboxed frame; Markdown, component cards and videos with Legato's own
-// elements.
+// sandboxed frame; Markdown, component cards, videos and studios with
+// Legato's own elements.
 // The image files the item uses are drawn from Legato's copies of them.
 export function AgentUIItemView({ item, fill = false, onOverflow, onProposeMessage }: AgentUIItemViewProps) {
   const { baseUrl } = useServer()
   const images = useMemo(() => itemImages(baseUrl, item), [baseUrl, item])
   const title = item.title || (item.placement === "panel" ? "Artifact from the agent" : "Card from the agent")
   if (item.format === "video") return <AgentVideoPlayer item={item} fill={fill} />
+  if (item.format === "studio") return <AgentStudioPanel item={item} fill={fill} />
   if (item.format === "html") {
     return (
       <SandboxedHtml

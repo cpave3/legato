@@ -112,6 +112,17 @@ describe("AgentUICallCard", () => {
     expect(screen.getByText(/Video · revision 2/)).toBeTruthy()
   })
 
+  it("draws a studio call as a line that opens the studio in the side panel", async () => {
+    mockItems({})
+    const onOpen = vi.fn()
+    render(<AgentUICallCard call={{ tool: "show_studio", state: "shown", itemId: "ui-cccccccccc", revision: 1, title: "Restack demo", fallbackText: "" }} agentId="task-1" onOpen={onOpen} />, { wrapper })
+
+    fireEvent.click(screen.getByRole("button", { name: /Restack demo/ }))
+
+    expect(onOpen).toHaveBeenCalledWith("ui-cccccccccc", 1)
+    expect(screen.getByText(/Studio · record in the side panel/)).toBeTruthy()
+  })
+
   it("offers to open a card in the side panel", async () => {
     mockItems({ "ui-0123456789?revision=1": item({}) })
     const onOpen = vi.fn()

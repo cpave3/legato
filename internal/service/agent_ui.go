@@ -50,7 +50,7 @@ var agentUIKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // agentUIFormats lists what each placement can draw.
 var agentUIFormats = map[string][]string{
-	AgentUIPanel:  {AgentUIFormatHTML, AgentUIFormatMarkdown, AgentUIFormatComponents, AgentUIFormatVideo},
+	AgentUIPanel:  {AgentUIFormatHTML, AgentUIFormatMarkdown, AgentUIFormatComponents, AgentUIFormatVideo, AgentUIFormatStudio},
 	AgentUIInline: {AgentUIFormatHTML, AgentUIFormatComponents},
 }
 
@@ -307,6 +307,9 @@ func validateAgentUIShow(in AgentUIShowInput) error {
 	}
 	if in.Format == AgentUIFormatVideo {
 		return validateAgentUIVideo(in)
+	}
+	if in.Format == AgentUIFormatStudio {
+		return validateAgentUIStudio(in)
 	}
 	if in.Video != "" {
 		return invalid("only a video item takes a video file")

@@ -442,11 +442,19 @@ export function AgentsPage() {
   const { items: shownItems } = useAgentUIItems(selectedId)
   // A native session draws its cards in the conversation; a terminal session
   // has only the panel to show them in.
+  // A studio is a tool the person works in, not something the agent made to
+  // be read: it is not counted with the artifacts, and has its own way in.
+  const madeItems = shownItems.filter((item) => item.format !== "studio")
+  const studioItem = [...shownItems].reverse().find((item) => item.format === "studio")
   const artifactCount = selectedAgent?.has_chimera_endpoint
-    ? shownItems.filter((item) => item.placement === "panel").length
-    : shownItems.length
+    ? madeItems.filter((item) => item.placement === "panel").length
+    : madeItems.length
   const newArtifacts = selectedId ? artifacts.unseen[selectedId] ?? 0 : 0
-  const artifactsButton = { count: artifactCount, fresh: newArtifacts, onToggle: artifacts.toggle }
+  const openArtifact = artifacts.openItem
+  const artifactsButton = {
+    count: artifactCount, fresh: newArtifacts, onToggle: artifacts.toggle,
+    studio: studioItem ? { onOpen: () => openArtifact(studioItem.id, 0) } : undefined,
+  }
 
   // If the selected agent died, deselect it.
   useEffect(() => {

@@ -92,6 +92,21 @@ Agents are listed by what they are doing: **NEEDS YOU** (waiting, or stopped on 
 - Claude Code raises a permission request in Legato only while a native viewer (the web panel) is attached, so the snapshot of a waiting session often has no open request. Its unfinished call is then marked `◆` and shows the command itself, since that is what waits to be allowed.
 - A snapshot holds the whole conversation (1 to 4 MB for a long Claude Code session; about 10 to 35 ms to fetch from the bridge and 5 to 20 ms to read). Only the entries that are kept are decoded past their name; tool arguments and results stay raw. That cost is why the ensemble reads every two seconds and not faster.
 
+## Spawning an agent
+
+`internal/tui/overlay/agent_spawn.go`. `s` in the agents view opens it for an ephemeral agent, and `a` on a board card for that task's agent. It asks for three things: a title, the agent tool, and where the agent starts. `tab` and `shift+tab` move between them, `↵` spawns from any of them, and a line above the keys says what `↵` will do (`→ chimera in ~/Development/autopilot · titled legato complete`).
+
+- **Title.** Typed for an ephemeral agent; a task's title is shown and cannot be changed.
+- **Agent.** The default adapter first, then the other adapters, then `shell`. `h`/`l` or the arrow keys choose, also while "where" lists directories.
+- **Where, as a list.** The directory the agent would start in without a choice (the directory Legato runs in; for a task, its worktree or remembered directory), then the directory presets, then `custom path…`. `↑`/`↓` or `j`/`k` move, a number key picks the row with that number, and `/` or `↵` on the last row asks for a path. A default directory that is one of the presets is selected there and not listed twice.
+- **Where, as a path.** The typed path starts inside the selected directory. Under it are the directories that complete it: directories only, the one typed in full first, then presets, then Git repositories, then the rest; hidden ones once a dot is typed. Each says what it is (`git · preset 2`, `git`, `dir`), and a line says how many matched.
+  - `tab` completes the path to the picked suggestion, `↑`/`↓` pick, `ctrl+w` goes up a directory, `esc` returns to the list, and `shift+tab` leaves the field.
+  - `↵` spawns in the picked suggestion. A path that ends in `/` is the directory itself, and its suggestions are what is inside it; `↓` picks one of those.
+  - `ctrl+s` saves the directory as a preset, named after the directory. The line above the keys offers it only for a directory that is not a preset yet.
+- **Where the directories come from.** The overlay reads no disk. It sends `AgentSpawnPathChangedMsg` and `AgentSpawnSavePresetMsg`; the app asks `service.DirectoryService` (`app_spawn.go`) and answers with `AgentSpawnSuggestionsMsg` and `AgentSpawnPresetsMsg`. An answer for a path that has changed since is dropped. Without a directory service the overlay offers the default directory and a path typed in full.
+- **Presets** are the `repositories` of the configuration that name a `primary_dir`, then the directories saved here or in the web UI (`directory_presets`). There is no way to remove a saved one yet.
+- The panel is drawn on `theme.Inset`, darker than the page it covers, at most 92 columns wide. A terminal too short for its blank lines gets it without them.
+
 ## The mark of a running agent
 
 A running agent's mark is a spinner (`theme.Spinner(frame)`, ten frames). The app advances the frame every 100 ms (`app_spinner.go`) and passes it to the board and the agents view. It ticks only while the view in front shows a running agent and no overlay is open, and one tick at a time, so the app does not redraw between events when nothing moves. `Icons.AgentWorked` is the still mark for time an agent spent working.

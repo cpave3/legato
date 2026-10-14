@@ -7,8 +7,9 @@ export interface AgentUIItem {
   id: string
   task_id: string
   placement: "panel" | "inline"
-  // A video item's content is the manifest that describes the video.
-  format: "html" | "markdown" | "components" | "video"
+  // A video item's content is the manifest that describes the video. A
+  // studio item's content says where its storyboard file is.
+  format: "html" | "markdown" | "components" | "video" | "studio"
   title: string
   key?: string
   revision: number
@@ -179,7 +180,7 @@ export function parseUIComponents(content: string | undefined): UIComponent[] {
   }
 }
 
-export type LegatoUITool = "show_artifact" | "show_card" | "show_components" | "show_video"
+export type LegatoUITool = "show_artifact" | "show_card" | "show_components" | "show_video" | "show_studio"
 
 export interface LegatoUICall {
   tool: LegatoUITool
@@ -197,7 +198,7 @@ export interface LegatoUICall {
 // `legato.show_card` from the Codex bridge, and in Chimera
 // `mcp_legato_show_x00005f_card`, where each character outside [a-zA-Z0-9]
 // is written as `_x<six hex digits>_`.
-const LEGATO_UI_TOOL = /(?:^|[^a-zA-Z0-9])legato(?:__|[._])(show_artifact|show_card|show_components|show_video)$/
+const LEGATO_UI_TOOL = /(?:^|[^a-zA-Z0-9])legato(?:__|[._])(show_artifact|show_card|show_components|show_video|show_studio)$/
 const ITEM_MARKER = /\[legato-ui:(ui-[0-9a-f]{10}):(\d+)\]/
 
 function decodedToolName(name: string): string {

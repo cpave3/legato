@@ -176,6 +176,7 @@ type App struct {
 	attentionSub  <-chan events.Event
 	agentUISvc    AgentUIService
 	usageSvc      service.UsageService
+	dirSvc        DirectoryService
 	// spinFrame is the frame of the mark of a running agent, and
 	// spinnerRunning whether a tick that will advance it is on its way.
 	spinFrame                int
@@ -1163,6 +1164,20 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case overlay.AgentSpawnSubmitMsg:
 		return a.handleAgentSpawnSubmit(msg)
+
+	case overlay.AgentSpawnPathChangedMsg:
+		return a, a.suggestSpawnDirectories(msg.Query)
+
+	case overlay.AgentSpawnSavePresetMsg:
+		return a, a.saveSpawnPreset(msg.Path)
+
+	case overlay.AgentSpawnSuggestionsMsg, overlay.AgentSpawnPresetsMsg:
+		if a.overlayType != overlayAgentSpawn || a.activeOverlay == nil {
+			return a, nil
+		}
+		next, cmd := a.activeOverlay.Update(msg)
+		a.activeOverlay = next
+		return a, cmd
 
 	case overlay.GroupSelectedMsg:
 		a.overlayType, a.activeOverlay = overlayNone, nil
@@ -2383,7 +2398,7 @@ func (a App) openAgentSpawnOverlay(taskID, title string) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	spawnModel := overlay.NewAgentSpawn(filtered, defaultAdapter, defaultDir, taskID, title)
+	spawnModel := a.withSpawnLocations(overlay.NewAgentSpawn(filtered, defaultAdapter, defaultDir, taskID, title), defaultDir)
 	sized, _ := spawnModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
 	a.overlayType = overlayAgentSpawn
@@ -2405,6 +2420,10 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 	}
 	termH := a.height - 1
 
+	// A path that was typed may start with a tilde.
+	if a.dirSvc != nil {
+		msg.WorkingDir = a.dirSvc.Expand(msg.WorkingDir)
+	}
 	opts := service.AgentSpawnOptions{
 		AgentKind:  msg.AgentKind,
 		WorkingDir: msg.WorkingDir,

@@ -1,15 +1,9 @@
-import { useState, useEffect } from "react"
+import { useCallback } from "react"
 import { useServer } from "../hooks/useServer"
-import { useSettings } from "../hooks/useSettings"
 import { apiFetch } from "../lib/api"
-import { X, Plus } from "lucide-react"
-import { RepositoryPresetSelect, type RepositoryPreset } from "./RepositoryPresetSelect"
+import { SpawnAgentDialog, type SpawnAgentRequest } from "./SpawnAgentDialog"
 
-interface AdapterInfo {
-  adapters: string[]
-  default: string
-}
-
+// SpawnEphemeralModal starts an agent that belongs to no card.
 export function SpawnEphemeralModal({
   open,
   onClose,
@@ -20,159 +14,32 @@ export function SpawnEphemeralModal({
   onSpawned?: () => void
 }) {
   const { baseUrl } = useServer()
-  const settings = useSettings()
-  const [title, setTitle] = useState("Ephemeral session")
-  const [agentKind, setAgentKind] = useState("")
-  const [workingDir, setWorkingDir] = useState("")
-  const [repositories, setRepositories] = useState<RepositoryPreset[]>([])
-  const [repositoryPreset, setRepositoryPreset] = useState("")
-  const [adapters, setAdapters] = useState<AdapterInfo | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
 
-  useEffect(() => {
-    if (!open) return
-    setError("")
-    setLoading(false)
-    setTitle("Ephemeral session")
-    setAgentKind("")
-    setRepositoryPreset("")
-
-    setWorkingDir(settings.data?.working_dir ?? "")
-    setRepositories((settings.data?.repositories ?? []) as RepositoryPreset[])
-    apiFetch(baseUrl, "/api/adapters")
-      .then(async (response) => {
-        if (!response.ok) return
-        const data: AdapterInfo = await response.json()
-        setAdapters(data)
-        setAgentKind("")
-      })
-      .catch(() => {})
-  }, [open, baseUrl, settings.data])
-
-  const agentOptions = [
-    { label: adapters?.default ? `default (${adapters.default})` : "default", value: "" },
-    { label: "shell", value: "shell" },
-    ...(adapters?.adapters.filter((a) => a !== adapters.default) ?? []).map((a) => ({
-      label: a,
-      value: a,
-    })),
-  ]
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError("")
-    try {
-      const res = await apiFetch(baseUrl, "/api/agents/spawn", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: title || "Ephemeral session",
-          agent_kind: agentKind,
-          working_dir: workingDir,
-        }),
-      })
-      if (!res.ok) {
-        const text = await res.text()
-        setError("Failed to spawn agent: " + text)
-        return
-      }
-      onSpawned?.()
-      onClose()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to spawn agent")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  if (!open) return null
+  const spawn = useCallback(async (request: SpawnAgentRequest) => {
+    const response = await apiFetch(baseUrl, "/api/agents/spawn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: request.title || "Ephemeral session",
+        agent_kind: request.agentKind,
+        working_dir: request.workingDir,
+      }),
+    })
+    if (!response.ok) throw new Error("The agent was not spawned: " + await response.text())
+    onSpawned?.()
+    onClose()
+  }, [baseUrl, onSpawned, onClose])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
-          <h2 className="text-sm font-semibold text-zinc-200">Spawn Ephemeral Agent</h2>
-          <button
-            onClick={onClose}
-            className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4">
-          {error && (
-            <div className="rounded border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-300">
-              {error}
-            </div>
-          )}
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-zinc-400">Title</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Ephemeral session"
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-zinc-400">Agent</label>
-            <select
-              value={agentKind}
-              onChange={(e) => setAgentKind(e.target.value)}
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500"
-            >
-              {agentOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <RepositoryPresetSelect
-            repositories={repositories}
-            value={repositoryPreset}
-            onChange={(name, repository) => {
-              setRepositoryPreset(name)
-              if (repository) setWorkingDir(repository.primary_dir)
-            }}
-          />
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-zinc-400">
-              Working Directory
-              <input
-                aria-label="Working Directory"
-                type="text"
-                value={workingDir}
-                onChange={(e) => {
-                  setWorkingDir(e.target.value)
-                  setRepositoryPreset("")
-                }}
-                placeholder="/path/to/project"
-                className="mt-1.5 w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500 font-mono"
-              />
-            </label>
-          </div>
-
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex items-center gap-1.5 rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
-            >
-              <Plus size={14} />
-              {loading ? "Spawning..." : "Spawn"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    <SpawnAgentDialog
+      open={open}
+      onClose={onClose}
+      name="Spawn agent"
+      description="Ephemeral session, not linked to a card"
+      action="Spawn"
+      acting="Spawning…"
+      titled
+      onSubmit={spawn}
+    />
   )
 }

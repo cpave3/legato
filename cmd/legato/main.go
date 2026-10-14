@@ -1604,7 +1604,8 @@ func runServeCmd(args []string) int {
 	srv.StartPlanEvents()
 	srv.StartBoardEvents()
 	srv.StartLearningEvents()
-	wireAgentUI(srv, cfg, db, bus)
+	defer wireAgentUI(srv, cfg, db, bus)()
+	srv.SetDirectoryService(configuredDirectoryService(cfg, db))
 
 	scheme := "http"
 	if certFile != "" {
@@ -1666,6 +1667,9 @@ func runTUI() int {
 	// Start IPC server for CLI→TUI communication.
 	// webSrv is set later if web.enabled — the closure captures the pointer.
 	var webSrv *server.Server
+	// stopAgentUI stops what the web server's agent UI started; nothing
+	// until there is a web server.
+	stopAgentUI := func() {}
 	socketPath := ipc.SocketPath()
 	ipcServer, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
 		var wn webNotifier
@@ -1838,7 +1842,8 @@ func runTUI() int {
 			webSrv.StartPlanEvents()
 			webSrv.StartBoardEvents()
 			webSrv.StartLearningEvents()
-			wireAgentUI(webSrv, cfg, db, bus)
+			stopAgentUI = wireAgentUI(webSrv, cfg, db, bus)
+			webSrv.SetDirectoryService(configuredDirectoryService(cfg, db))
 			go func() {
 				if err := webSrv.Serve(ln); err != nil && err.Error() != "http: Server closed" {
 					log.Printf("web server: %v", err)
@@ -1851,6 +1856,7 @@ func runTUI() int {
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
+	app.SetDirectoryService(configuredDirectoryService(cfg, db))
 	app.SetProviderSyncService(providerSync)
 	app.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 	app.SetPlanService(planSvc)
@@ -1940,6 +1946,7 @@ func runTUI() int {
 	}
 
 	// Shut down the web server so the process can exit cleanly.
+	stopAgentUI()
 	if webSrv != nil {
 		if err := stopWithTimeout(applicationShutdownTimeout, webSrv.Stop); err != nil {
 			fmt.Fprintf(os.Stderr, "web server shutdown: %v\n", err)

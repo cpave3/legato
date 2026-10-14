@@ -6,6 +6,7 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/libretto"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
@@ -13,13 +14,20 @@ import (
 
 // wireAgentUI gives a web server the API over what agents show (artifacts and
 // cards) and has it tell web clients when that changes. Both the standalone
-// server and the one the TUI starts call it, so neither can drift.
-func wireAgentUI(srv *server.Server, cfg *config.Config, db *store.Store, bus *events.Bus) {
+// server and the one the TUI starts call it, so neither can drift. It also
+// gives the server the libretto studios behind studio items; the function it
+// returns stops the ones that were started, and is called as the server
+// stops.
+func wireAgentUI(srv *server.Server, cfg *config.Config, db *store.Store, bus *events.Bus) (stop func()) {
 	ui := service.NewAgentUIService(db, bus, service.AgentUIOptions{
 		ResourceDomains: cfg.Agents.MCP.ResourceDomains, ImageDir: agentUIImageRoot(cfg), VideoDir: agentUIVideoRoot(cfg),
 	})
 	srv.SetAgentUIService(ui)
 	srv.StartAgentUIEvents()
+	// Nothing is started here, and libretto need not be installed: a studio
+	// is a process started when its panel is first opened.
+	studios := service.NewAgentStudioService(ui, libretto.Runner{})
+	srv.SetAgentStudioService(studios)
 	// Images outlive what used them when a task is deleted or the person
 	// removes an artifact. Nothing waits for this, and a failure costs disk
 	// space only.
@@ -27,6 +35,7 @@ func wireAgentUI(srv *server.Server, cfg *config.Config, db *store.Store, bus *e
 		_ = ui.RemoveOrphanImages(context.Background())
 		_ = ui.RemoveOrphanVideos(context.Background())
 	}()
+	return studios.Close
 }
 
 // localWebURL is where this machine serves the web UI, for a link the TUI

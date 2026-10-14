@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react"
-import { ChevronLeft, ChevronRight, Copy, Download, LayoutGrid, PanelRight, Trash2, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, Copy, Download, LayoutGrid, Mic, PanelRight, Trash2, X } from "lucide-react"
 import { useAgentUIItem, useAgentUIItems } from "../hooks/useAgentUI"
 import { useProposeMessage } from "../hooks/useProposeMessage"
 import { useServer } from "../hooks/useServer"
@@ -44,8 +44,9 @@ function clampWidth(value: number): number {
 
 // What an item is saved as. A video is saved as its manifest: the file that
 // says what the video shows, which is what the agent wrote.
-const EXTENSION: Record<AgentUIItem["format"], string> = { html: "html", markdown: "md", components: "json", video: "manifest.json" }
-const MEDIA_TYPE: Record<AgentUIItem["format"], string> = { html: "text/html", markdown: "text/markdown", components: "application/json", video: "application/json" }
+// A studio is saved as what it holds: where its storyboard is.
+const EXTENSION: Record<AgentUIItem["format"], string> = { html: "html", markdown: "md", components: "json", video: "manifest.json", studio: "studio.json" }
+const MEDIA_TYPE: Record<AgentUIItem["format"], string> = { html: "text/html", markdown: "text/markdown", components: "application/json", video: "application/json", studio: "application/json" }
 
 function fileName(item: AgentUIItem): string {
   const stem = (item.title || item.id).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || item.id
@@ -63,13 +64,21 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
   const { baseUrl } = useServer()
   const toast = useToast()
   const { items, loading: listLoading, error: listError } = useAgentUIItems(agentId)
+  // A studio is a tool the person works in, beside what the agent made to be
+  // read. It shares this column and nothing else: it is not a tab, and has
+  // no revisions, source or download.
+  const studios = items.filter((item) => item.format === "studio")
+  const made = items.filter((item) => item.format !== "studio")
   // Artifacts first, each group oldest to newest, as the tabs read.
-  const ordered = [...items.filter((item) => item.placement === "panel"), ...items.filter((item) => item.placement !== "panel")]
+  const ordered = [...made.filter((item) => item.placement === "panel"), ...made.filter((item) => item.placement !== "panel")]
   const artifacts = ordered.filter((item) => item.placement === "panel")
-  const selected = ordered.find((item) => item.id === focus?.itemId)
+  const newestStudio = studios[studios.length - 1] ?? null
+  const selected = items.find((item) => item.id === focus?.itemId)
     ?? artifacts[artifacts.length - 1]
     ?? ordered[ordered.length - 1]
-    ?? null
+    ?? newestStudio
+  const studio = selected?.format === "studio"
+  const panelName = studio ? "Studio" : "Artifacts"
   const pinned = selected && focus?.itemId === selected.id ? focus.revision : 0
   const { item, loading: itemLoading, error: itemError } = useAgentUIItem(selected?.id, pinned)
   const proposeMessage = useProposeMessage(agentId)
@@ -176,7 +185,27 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
   const content = (
     <>
       <div className="flex shrink-0 items-center gap-2 border-b border-zinc-800 pl-3 pr-1">
-        <h2 className="shrink-0 text-sm font-semibold text-zinc-200">Artifacts</h2>
+        <h2 className="flex shrink-0 items-center gap-1.5 text-sm font-semibold text-zinc-200">
+          {studio && <Mic size={14} aria-hidden="true" className="text-indigo-300" />}
+          {panelName}
+        </h2>
+        {studio ? (
+          <>
+            <span className="min-w-0 flex-1 truncate py-3 text-xs text-zinc-400">{selected?.title}</span>
+            {ordered.length > 0 && (
+              <button
+                type="button"
+                aria-label={`Artifacts (${ordered.length})`}
+                title="What this agent has shown"
+                onClick={() => { const last = artifacts[artifacts.length - 1] ?? ordered[ordered.length - 1]; onFocus(last.id, 0) }}
+                className="flex min-h-9 shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+              >
+                <PanelRight size={13} aria-hidden="true" />
+                Artifacts <span className="tabular-nums">{ordered.length}</span>
+              </button>
+            )}
+          </>
+        ) : (
         <div role="tablist" aria-label="Shown by the agent" className="flex min-w-0 flex-1 gap-1 overflow-x-auto py-1.5">
           {ordered.map((entry) => {
             const active = entry.id === selected?.id
@@ -197,9 +226,22 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
             )
           })}
         </div>
+        )}
+        {!studio && newestStudio && (
+          <button
+            type="button"
+            aria-label="Studio"
+            title="The studio, where you record"
+            onClick={() => onFocus(newestStudio.id, 0)}
+            className="flex min-h-9 shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+          >
+            <Mic size={13} aria-hidden="true" />
+            Studio
+          </button>
+        )}
         <button
           type="button"
-          aria-label="Close artifacts"
+          aria-label={studio ? "Close studio" : "Close artifacts"}
           onClick={onClose}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
         >
@@ -218,11 +260,14 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
           <div role="status" aria-label="Loading" className="m-4 h-24 animate-pulse rounded-lg bg-zinc-800/60" />
         ) : (
           // Keyed so a different item or revision starts from a fresh frame.
-          <AgentUIItemView key={`${item.id}:${item.revision}`} item={item} fill onProposeMessage={proposeMessage} />
+          // A studio is kept through its revisions: one is only the agent
+          // turning it to another scene, and a fresh start would drop the
+          // microphone and the person's place.
+          <AgentUIItemView key={item.format === "studio" ? item.id : `${item.id}:${item.revision}`} item={item} fill onProposeMessage={proposeMessage} />
         )}
       </div>
 
-      {selected && (
+      {selected && !studio && (
         <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-zinc-800 px-2 py-1.5">
           <button type="button" aria-label="Previous revision" disabled={revision <= oldest} onClick={() => onFocus(selected.id, revision - 1)} className={stepButton}>
             <ChevronLeft size={16} />
@@ -254,7 +299,7 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
         ref={containerRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Artifacts"
+        aria-label={panelName}
         tabIndex={-1}
         onKeyDown={(event) => { if (event.key === "Escape") onClose() }}
         // Above the app's bottom navigation (z-40), which a sheet that is
@@ -271,7 +316,7 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
   return (
     <aside
       ref={containerRef}
-      aria-label="Artifacts"
+      aria-label={panelName}
       className="relative flex min-h-0 shrink-0 flex-col border-l border-zinc-800 bg-zinc-950"
       style={{ width: `${widthRem}rem`, maxWidth: "70%" }}
     >

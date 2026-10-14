@@ -1,4 +1,4 @@
-import { PanelRight } from "lucide-react"
+import { Mic, PanelRight } from "lucide-react"
 
 // What a session's toolbar needs to offer its artifacts.
 export interface ArtifactsButtonProps {
@@ -7,13 +7,37 @@ export interface ArtifactsButtonProps {
   // How many of them the person has not looked at yet.
   fresh: number
   onToggle: () => void
+  // A studio the agent opened for the person to record in. It is a tool,
+  // not something the agent made to be read, so it is offered by itself and
+  // is not one of the count.
+  studio?: { onOpen: () => void }
 }
 
 // ArtifactsButton opens and closes the side panel with what an agent showed.
 // It lives in the session's own toolbar, and is absent until there is
-// something to open.
-export function ArtifactsButton({ count, fresh, onToggle }: ArtifactsButtonProps) {
-  if (count <= 0) return null
+// something to open. Beside it, when the session has one, is the way into
+// the studio.
+export function ArtifactsButton({ count, fresh, onToggle, studio }: ArtifactsButtonProps) {
+  return (
+    <>
+      {studio && (
+        <button
+          type="button"
+          onClick={studio.onOpen}
+          aria-label="Studio"
+          title="The studio, where you record"
+          className="flex shrink-0 items-center gap-1 rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+        >
+          <Mic size={12} />
+          <span className="hidden sm:inline">Studio</span>
+        </button>
+      )}
+      {count > 0 && <ShownButton count={count} fresh={fresh} onToggle={onToggle} />}
+    </>
+  )
+}
+
+function ShownButton({ count, fresh, onToggle }: Pick<ArtifactsButtonProps, "count" | "fresh" | "onToggle">) {
   return (
     <button
       type="button"

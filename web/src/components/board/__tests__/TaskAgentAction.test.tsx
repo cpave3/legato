@@ -24,6 +24,27 @@ vi.mock("../../../hooks/useSettings", () => {
 vi.mock("../../../lib/api", () => ({ apiFetch }))
 vi.mock("../../StartSwarmModal", () => ({ StartSwarmModal: (props: Record<string, unknown>) => { startSwarmProps.current = props; return null } }))
 
+function pathField() {
+  return screen.getByRole("combobox", { name: "Path" }) as HTMLInputElement
+}
+
+// startsIn waits for the dialog to say where the agent starts: the path is
+// filled in once the dialog has asked the server for its presets.
+async function startsIn(directory: string) {
+  await vi.waitFor(() => expect(pathField().value).toBe(directory))
+}
+
+// confirm presses the dialog's button, which waits for the adapters.
+async function confirm() {
+  const button = await screen.findByRole("button", { name: /^Open agent in / }) as HTMLButtonElement
+  await vi.waitFor(() => expect(button.disabled).toBe(false))
+  fireEvent.click(button)
+}
+
+function pickAgent(name: string) {
+  fireEvent.click(screen.getByRole("radio", { name }))
+}
+
 function CurrentPath() {
   return <span data-testid="current-path">{useLocation().pathname}</span>
 }
@@ -143,8 +164,8 @@ describe("TaskAgentAction", () => {
     expect(trigger.className).toContain("min-h-9")
     fireEvent.click(trigger)
     expect(screen.getByRole("dialog", { name: "Open task agent" })).toBeTruthy()
-    expect((await screen.findByLabelText("Working directory") as HTMLInputElement).value).toBe("/trees/t-1")
-    fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
+    await startsIn("/trees/t-1")
+    await confirm()
     await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "", working_dir: "/trees/t-1" }),
     })))
@@ -159,8 +180,8 @@ describe("TaskAgentAction", () => {
 
     render(<MemoryRouter><TaskAgentAction taskId="T-1" rememberedWorkingDir="/repos/remembered" /></MemoryRouter>)
     fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
-    expect((await screen.findByLabelText("Working directory") as HTMLInputElement).value).toBe("/repos/remembered")
-    fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
+    await startsIn("/repos/remembered")
+    await confirm()
 
     await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "", working_dir: "/repos/remembered" }),
@@ -173,7 +194,7 @@ describe("TaskAgentAction", () => {
     render(<MemoryRouter><TaskAgentAction taskId="T-1" worktreePath="/trees/t-1" rememberedWorkingDir="/repos/remembered" /></MemoryRouter>)
     fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
 
-    expect((await screen.findByLabelText("Working directory") as HTMLInputElement).value).toBe("/trees/t-1")
+    await startsIn("/trees/t-1")
   })
 
   it("offers persisted Chimera sessions and resumes by default", async () => {
@@ -187,12 +208,12 @@ describe("TaskAgentAction", () => {
 
     render(<MemoryRouter><TaskAgentAction taskId="T-1" resumableAgentKinds={["chimera"]} /></MemoryRouter>)
     fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
-    await screen.findByRole("option", { name: "chimera" })
-    fireEvent.change(screen.getByLabelText("Agent"), { target: { value: "chimera" } })
+    await screen.findByRole("radio", { name: "Chimera" })
+    pickAgent("Chimera")
 
     expect((screen.getByRole("radio", { name: "Resume previous session" }) as HTMLInputElement).checked).toBe(true)
     expect(screen.getByRole("radio", { name: "Start new session" })).toBeTruthy()
-    fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
+    await confirm()
 
     await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "chimera", working_dir: "/default", session_policy: "resume" }),
@@ -215,14 +236,14 @@ describe("TaskAgentAction", () => {
     expect(resume.checked).toBe(true)
     expect(screen.getByRole("group", { name: `Existing ${label} session` })).toBeTruthy()
     expect(screen.getByText(`Continue with the previous ${label} context.`)).toBeTruthy()
-    fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
+    await confirm()
     expect(await screen.findByText("saved conversation is unavailable")).toBeTruthy()
     expect(apiFetch).toHaveBeenLastCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "", working_dir: "/default", session_policy: "resume" }),
     }))
 
     fireEvent.click(screen.getByRole("radio", { name: "Start new session" }))
-    fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
+    await confirm()
     await vi.waitFor(() => expect(apiFetch).toHaveBeenLastCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "", working_dir: "/default", session_policy: "new" }),
     })))
@@ -238,50 +259,53 @@ describe("TaskAgentAction", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
     await screen.findByRole("radio", { name: "Resume previous session" })
     fireEvent.click(screen.getByRole("radio", { name: "Start new session" }))
-    fireEvent.change(screen.getByLabelText("Agent"), { target: { value: "claude-code" } })
+    pickAgent("Claude Code")
     expect(screen.getByRole("group", { name: "Existing Claude Code session" })).toBeTruthy()
     expect((screen.getByRole("radio", { name: "Start new session" }) as HTMLInputElement).checked).toBe(true)
 
-    fireEvent.change(screen.getByLabelText("Repository preset"), { target: { value: "Legato" } })
-    expect((screen.getByLabelText("Agent") as HTMLSelectElement).value).toBe("claude-code")
+    const preset = await screen.findByRole("button", { name: /Legato/ })
+    fireEvent.click(preset)
+    expect(screen.getByRole("radio", { name: "Claude Code" }).getAttribute("aria-checked")).toBe("true")
     expect(screen.getByRole("group", { name: "Existing Claude Code session" })).toBeTruthy()
-    expect((screen.getByLabelText("Working directory") as HTMLInputElement).value).toBe("/projects/legato")
-    fireEvent.change(screen.getByLabelText("Working directory"), { target: { value: "/manual" } })
-    expect((screen.getByLabelText("Repository preset") as HTMLSelectElement).value).toBe("")
-    fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
+    expect(pathField().value).toBe("/projects/legato")
+    expect(preset.getAttribute("aria-pressed")).toBe("true")
+    fireEvent.change(pathField(), { target: { value: "/manual" } })
+    expect(preset.getAttribute("aria-pressed")).toBe("false")
+    await confirm()
     await screen.findByText("launch failed")
     expect(apiFetch).toHaveBeenLastCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "claude-code", working_dir: "/manual", session_policy: "new" }),
     }))
 
-    fireEvent.change(screen.getByLabelText("Agent"), { target: { value: "codex" } })
+    pickAgent("Codex")
     expect(screen.queryByRole("radio", { name: "Resume previous session" })).toBeNull()
-    fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
+    await confirm()
     await vi.waitFor(() => expect(apiFetch).toHaveBeenLastCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "codex", working_dir: "/manual" }),
     })))
 
-    fireEvent.change(screen.getByLabelText("Agent"), { target: { value: "" } })
+    pickAgent("Chimera default")
     expect(screen.getByRole("group", { name: "Existing Chimera session" })).toBeTruthy()
     expect((screen.getByRole("radio", { name: "Start new session" }) as HTMLInputElement).checked).toBe(true)
   })
 
   it("updates availability when board data changes and resets to Resume when reopened", async () => {
     apiFetch.mockImplementation(() => Promise.resolve(
-      new Response(JSON.stringify({ adapters: ["codex"], default: "codex" }), { status: 200 }),
+      new Response(JSON.stringify({ adapters: ["chimera", "codex"], default: "chimera" }), { status: 200 }),
     ))
     const view = render(<MemoryRouter><TaskAgentAction taskId="T-1" resumableAgentKinds={[]} /></MemoryRouter>)
     fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
-    await screen.findByRole("option", { name: "codex" })
+    await screen.findByRole("radio", { name: "Codex" })
+    pickAgent("Codex")
     expect(screen.queryByRole("radio", { name: "Resume previous session" })).toBeNull()
     view.rerender(<MemoryRouter><TaskAgentAction taskId="T-1" resumableAgentKinds={["codex"]} /></MemoryRouter>)
     expect((screen.getByRole("radio", { name: "Resume previous session" }) as HTMLInputElement).checked).toBe(true)
-    fireEvent.change(screen.getByLabelText("Agent"), { target: { value: "codex" } })
     fireEvent.click(screen.getByRole("radio", { name: "Start new session" }))
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
     fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
     expect((await screen.findByRole("radio", { name: "Resume previous session" }) as HTMLInputElement).checked).toBe(true)
-    expect((screen.getByLabelText("Agent") as HTMLSelectElement).value).toBe("codex")
+    // The agent tool that was picked is kept from one opening to the next.
+    expect(screen.getByRole("radio", { name: "Codex" }).getAttribute("aria-checked")).toBe("true")
   })
 
   it("starts a new persisted Chimera session when selected", async () => {
@@ -296,7 +320,7 @@ describe("TaskAgentAction", () => {
     render(<MemoryRouter><TaskAgentAction taskId="T-1" resumableAgentKinds={["chimera"]} /></MemoryRouter>)
     fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
     fireEvent.click(await screen.findByRole("radio", { name: "Start new session" }))
-    fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
+    await confirm()
 
     await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "", working_dir: "/default", session_policy: "new" }),
@@ -313,7 +337,7 @@ describe("TaskAgentAction", () => {
     render(<MemoryRouter><TaskAgentAction taskId="T-1" resumableAgentKinds={["chimera"]} /></MemoryRouter>)
     fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
     expect(await screen.findByRole("radio", { name: "Resume previous session" })).toBeTruthy()
-    fireEvent.change(screen.getByLabelText("Agent"), { target: { value: "claude" } })
+    pickAgent("claude")
     expect(screen.queryByRole("radio", { name: "Resume previous session" })).toBeNull()
   })
 
@@ -326,7 +350,7 @@ describe("TaskAgentAction", () => {
 
     render(<MemoryRouter><TaskAgentAction taskId="T-1" /></MemoryRouter>)
     fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
-    await screen.findByRole("option", { name: "chimera" })
+    await screen.findByRole("radio", { name: "Chimera default" })
     expect(screen.queryByRole("radio", { name: "Resume previous session" })).toBeNull()
   })
 
@@ -342,7 +366,7 @@ describe("TaskAgentAction", () => {
     render(<MemoryRouter><TaskAgentAction taskId="T-1" resumableAgentKinds={["chimera"]} /></MemoryRouter>)
     fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
     await screen.findByRole("radio", { name: "Resume previous session" })
-    fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
+    await confirm()
 
     expect(await screen.findByText("the task no longer has a Chimera session to resume")).toBeTruthy()
     expect(screen.getByRole("dialog", { name: "Open task agent" })).toBeTruthy()
@@ -363,13 +387,12 @@ describe("TaskAgentAction", () => {
     render(<MemoryRouter><TaskAgentAction taskId="T-1" /></MemoryRouter>)
     fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
 
-    await screen.findByRole("option", { name: "chimera" })
-    fireEvent.change(screen.getByLabelText("Agent"), { target: { value: "chimera" } })
-    fireEvent.change(screen.getByRole("combobox", { name: "Repository preset" }), { target: { value: "Legato" } })
-    const workingDir = screen.getByLabelText("Working directory") as HTMLInputElement
-    expect(workingDir.value).toBe("/projects/legato")
-    fireEvent.change(workingDir, { target: { value: "/projects/task-worktree" } })
-    fireEvent.click(screen.getAllByRole("button", { name: "Open agent" })[1])
+    await screen.findByRole("radio", { name: "Chimera" })
+    pickAgent("Chimera")
+    fireEvent.click(await screen.findByRole("button", { name: /Legato/ }))
+    expect(pathField().value).toBe("/projects/legato")
+    fireEvent.change(pathField(), { target: { value: "/projects/task-worktree" } })
+    await confirm()
 
     await vi.waitFor(() => expect(select).toHaveBeenCalledWith("T-1"))
     expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({

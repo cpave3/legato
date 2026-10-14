@@ -118,6 +118,10 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 		if req.WorkingDir == "" {
 			req.WorkingDir = s.workDir
 		}
+		// The spawn dialog writes paths under the home directory with a tilde.
+		if s.directories != nil {
+			req.WorkingDir = s.directories.Expand(req.WorkingDir)
+		}
 
 		opts := service.AgentSpawnOptions{
 			AgentKind:  req.AgentKind,
@@ -442,6 +446,10 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 		if err := decoder.Decode(&req); err != nil && err != io.EOF {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
+		}
+		// The spawn dialog writes paths under the home directory with a tilde.
+		if s.directories != nil {
+			req.WorkingDir = s.directories.Expand(req.WorkingDir)
 		}
 		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir}
 		effectiveAdapter := req.AgentKind

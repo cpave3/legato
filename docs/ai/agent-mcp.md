@@ -36,6 +36,7 @@ Legato is not the MCP host. The agent tool is, and a terminal agent cannot draw 
 | `show_card` | `html`, `fallback_text`, `title`, `images`, `key` | Stores an HTML card, drawn in the conversation at the call. |
 | `show_components` | `components`, `fallback_text`, `title`, `key` | Stores a card built from Legato's own components (see below). |
 | `show_video` | `manifest`, `title`, `video`, `key` | Stores a narrated video an agent rendered with libretto and opens it in the side panel (see Videos). |
+| `show_studio` | `storyboard`, `title`, `key`, `scene` | Opens a libretto studio on a storyboard beside the conversation: the plan of a video the person will present, and where they record it (see Studios). Called again with `scene`, it turns the studio to that scene. It fails with what to tell the person when libretto is missing or too old. |
 | `session_info` | none | Task ID and title, agent tool, swarm role, working directory. |
 | `task_context` | none | The task as Markdown: description, linked ticket, repository details, durable notes. |
 | `add_task_note` | `body` | Records a durable Markdown note (`task_notes`, source `agent`). |
@@ -108,14 +109,14 @@ Checked with a question that names no tool ("compare these three search backends
 `internal/engine/store/agent_ui.go`, migration `063_agent_ui_items.sql`.
 
 - `agent_ui_items`: `id` (`ui-<10 hex>`), `task_id`, `execution_id`, `placement` (`panel` or `inline`), `item_key`, `revision`, timestamps. `(task_id, placement, item_key)` is unique when the key is set.
-- `agent_ui_item_revisions`: `(item_id, revision)`, `format` (`html`, `markdown`, `components`, `video`), `title`, `content`, `fallback_text`, and `images` (migration `064_agent_ui_item_images.sql`): the revision's files as JSON, `[{name, file}]`, empty when it has none. They are its image files, or for a `video` item its one video file, under the name `video`.
+- `agent_ui_item_revisions`: `(item_id, revision)`, `format` (`html`, `markdown`, `components`, `video`, `studio`), `title`, `content`, `fallback_text`, and `images` (migration `064_agent_ui_item_images.sql`): the revision's files as JSON, `[{name, file}]`, empty when it has none. They are its image files, or for a `video` item its one video file, under the name `video`.
 
 `task_id` is the agent's own identity, which is a sub-task ID for a swarm worker, so it has no foreign key: `Store.DeleteTask` removes a task's items and its workers', and `Store.DeleteSubtask` a worker's.
 
 `service.AgentUIService` owns the rules (`internal/service/agent_ui.go`):
 
 - Content is at most 1 MiB of valid UTF-8. An artifact needs a title; a card needs `fallback_text`, the same information as plain text.
-- An artifact is HTML, Markdown, components or a video; a card is HTML or components.
+- An artifact is HTML, Markdown, components, a video or a studio; a card is HTML or components.
 - A task keeps 200 items. Past that, the items changed longest ago are removed, so a long session never reaches a point where nothing more can be shown. A card whose item is gone falls back to its text.
 - An item keeps its newest 20 revisions.
 
@@ -207,6 +208,58 @@ This was tried three times, each with two agents that knew nothing of libretto a
 `web/src/lib/agentVideo.ts` reads a manifest the way libretto's own `libretto at` does (`momentAt` and `describeMoment` there mirror `Manifest.At` and `Moment.Markdown` in libretto's `internal/service/manifest.go`). A change to one belongs in the other.
 
 Checked in a browser against a scratch Legato, with a 2:46 video shown through `legato mcp serve`: the video loaded and played, 49 captions were on a showing track, a click on a chapter seeked to it, and **Ask about this moment** at 1:16 put the scene's file and its two highlighted lines in the terminal session's message box and moved the focus there. No agent was asked a question in that check; what an agent does with one is not tested.
+
+## Studios
+
+A person can say a video's words themselves. `show_studio` opens a studio on a storyboard in the side panel: the person records each scene with their microphone, and their camera if they like, beside the conversation in which they and the agent agreed what the scenes are. The studio is [libretto](https://github.com/cpave3/libretto)'s: libretto keeps the takes, transcribes them and draws the scenes. Legato adds the conversation.
+
+**A tool, not an artifact.** An artifact is something the agent made for the person to read. A studio is a place the person works in. It shares the side column and nothing else: it is not among the artifact tabs and is not counted with them, it has its own button in the session's toolbar and its own heading, and it has no revisions to step through, no source to copy, no download and no remove. `AgentArtifactPanel` draws the column either way; an item of format `studio` puts it in that mode.
+
+**The flow the guidance asks for.**
+
+1. **Plan, with the studio open.** The person says what they want to show. The agent writes a first rough storyboard at once and calls `show_studio`, and the two of them shape the plan while the person looks at it. When the person says to add a part, drop one, or go deeper on something, the agent changes the storyboard file there and then, and the panel shows it within a couple of seconds. The agent calls `show_studio` again with `scene` to turn the panel to the part under discussion. **Ask about this scene** puts a scene in the message box, for the person to say what they think of it.
+2. **Record.** The person records each scene in the panel, in their own words.
+3. **Line up.** **Make the video from my takes** puts a request in the message box. The agent reads each take with `libretto transcribe` and edits the storyboard to follow what was said, then renders it and calls `show_video`.
+
+**Talking points, not a script.** A scene's `notes` are two to four short lines, each starting with `- `: the details to get across. The panel draws them as a list, large, under the scene's picture. The guidance and the tool's description tell the agent never to write the person sentences to read, to give such a scene no narration, and to plan each picture in full with no actions that wait for a marker: the markers come after the take, from what was said.
+
+**Leaving the plan is direction.** A person who records will say things that were not planned, skip things that were, and go into something they thought of while talking. Nothing in Legato or libretto treats that as an error. The panel marks such a scene "your own way" and says the agent will follow; the request the button writes says the same, and names the scenes; the guidance tells the agent to add a picture for what the person went into (a terminal for commands they named, a diagram, the code), to drop what they skipped, and not to ask for another take because they left the script.
+
+**What is stored.** A studio is an item of format `studio`, in the panel only. Its content is `{"storyboard": "<absolute path>"}` and nothing else. Legato keeps no copy of the storyboard or the takes: they are files in the person's own folder, which the agent goes on editing.
+
+**The libretto it needs** (`internal/engine/libretto`). Legato runs without libretto. Before it relies on it, it asks `libretto version --json` for the studio's level, and wants `libretto.StudioLevel`.
+
+- **No libretto, or one too old.** `Runner.Probe` returns `ErrNotInstalled` or a `*TooOldError` (a libretto from before the studio has no `version` command at all, and is told from a missing one). `Explain` turns either into what is wrong and what to do.
+- **The agent is told first.** `show_studio` probes before it stores anything, in the agent's own process, and fails with that explanation and "Tell the person this": a panel that can only say libretto is missing is no use to the person. No item is left behind.
+- **The panel is told too.** The server probes again each time it starts a studio, since its `PATH` is not the agent's, and since libretto may be installed while Legato runs. The route answers `503` with `{"error", "code"}`, where `code` is `libretto_missing` or `libretto_old`, and the panel says the studio cannot open on this machine, what to do, and that nothing is lost. It asks again every few seconds, so the studio opens once libretto is put right.
+- **A libretto newer than this Legato.** The studio's answers carry their level (`api`). A page that reads a level above its own (`STUDIO_API` in `web/src/lib/agentStudio.ts`) says Legato needs updating and shows nothing it might misread.
+
+**Running a studio** (`service.AgentStudioService`). A studio is a `libretto studio <storyboard> --port 0 --until-stdin-closes` process, started the first time its panel asks for it and kept until Legato stops. One storyboard has one studio, however many items name it; one that died is started again when next wanted. Legato holds the studio's input open, so a studio never outlives a Legato that ends without stopping it.
+
+**Reaching it** (`internal/server/agent_ui_studio.go`). The studio listens on the server's own machine alone, and the page may be on another. `ANY /api/ui-items/{id}/studio/{path}` passes a request on to the studio of that item: under the studio's own address, with the header libretto's own page sends (`X-Libretto-Studio`), and without Legato's token. It is under `/api/`, so it asks for the token, which an `<img>` or `<audio>` element cannot send: the panel fetches a still or a take and shows it from an address of the page's own (`fetchStudioFile`).
+
+**The panel** (`AgentStudioPanel`, `web/src/lib/agentStudio.ts`). Legato's own panel, drawn outside the sandboxed frame, which allows no microphone.
+
+- One scene is in front of the person at a time: its picture, its talking points and the record button. Under it is the plan, laid out by chapter, with what is recorded. Arrows step between scenes.
+- It reads the storyboard from the studio every two seconds, except while a take is being recorded or kept. What the agent changed since the person last looked is said in a line ("The plan changed: added sync; removed intro; changed steps.") and marked on each scene, `new` or `changed`, until the person goes to it (`planChanges` in `agentStudio.ts`). A scene's recording is not a change of plan.
+- An item shown again with a `scene` turns the panel to that scene, unless a take is being recorded. The panel is kept through an item's revisions, where an artifact is drawn afresh, so the microphone and the person's place are not lost.
+- A scene's picture shows everything the scene will show. The person's own camera is drawn over it where their face will be in the video. The picture before stays, dimmed, while a changed one is drawn.
+- The microphone and the camera are set once: they are behind a settings button, the choice is remembered in the browser, and nothing about them is on the panel otherwise. **Test** opens them without recording and names the ones in use. A camera that cannot be opened (a screen recorder has it) leaves a take of sound alone, with a note; only a microphone that cannot be opened stops a take.
+- **Two views.** **Plan** is where the person and the agent agree what the video covers; **Record** is where it is said. The panel opens on the plan while any scene is only planned or nothing is recorded, and does not change views by itself after that. The plan shows the brief (`writeBrief`: the agent is told, and drafts scenes from it), then the scenes by chapter with a length for each, a guess from its talking points until it is said (`lengthOf`). The scene in front of the person opens in place: its picture, its `shows` line and its talking points to rewrite (`rewriteScene`, saved when the field is left), up and down (`moveScene`), comments, and removal. A chapter's title is renamed where it stands, and a line at the foot adds a scene after the current one (`addScene`). A scene with a `shows` line and no picture is planned: libretto draws a placeholder. **Agree the plan** (`agreePlan`) tells the agent to draw the pictures; with none left to draw the button is **Start recording**.
+- **The loop.** When a take is kept, the panel's request carries `X-Legato-Studio-Notify`, and the studio route (`tellAgent` in `internal/server/agent_ui_studio.go`) queues a message for the item's task through `service.AgentMessageQueuer`: at once when the agent is idle, between steps when it is working. `service.StudioNote` words it: review this take with `libretto transcribe` and `libretto review`, bring the scene in line with what was said, and say nothing while the person presents. A comment, a scene removed and a decision to add a scene are told the same way. The person turns this off in the panel's settings (`legato:studio-notify`); the header is then left out, and "Ask for a review" and "Make the video from my takes" put the same requests in the message box.
+- **The review.** libretto's project carries each scene's words with their times (`transcript`) and what the agent made of its take (`review`). `transcriptRuns` in `agentStudio.ts` joins the words into runs: one that covers a talking point is underlined, one off the plan is marked, and each sentence shows when it was said. A stretch off the plan is a card with the agent's note and three answers (`decideOffPlan`): **Add scene** asks the agent in a comment, **Keep in this scene** dismisses it, **Cut it** has libretto skip the stretch. A take with no review yet says the agent is looking at it.
+- **The layout** follows the Studio board of the Legato design canvas, in the new look (`lw-` colours and the Geist typefaces, set in `web/src/index.css`; the studio is the first surface to use them). From the top: a timeline with a block for each scene, as wide as the scene is long; the scene, with its picture and a bar that plays the part of the take the scene uses; the takes, as chips, and the record control; what the agent asks; the transcript and the talking points; comments for the agent; the outline; and a footer that renders the video through libretto (`startRender`) and plays the result in place of the picture. Above the footer, once there is a video, a strip gives the file's whole path (`render.file`) with a button that copies it: the panel plays the video, and this is the only place that says where the file is. A libretto that does not report the path gets no strip.
+- The panel holds a microphone only while it records: it is opened for each take and let go after it, and **Test** lets it go again after twenty seconds. A browser gives every page the same feed from a microphone, and a feed open for hours runs late or comes in bursts. A whole afternoon of takes in this panel lost their last seconds, or held almost no sound, because libretto's own studio page was open in another tab with the microphone it had been given that morning; closing that tab ended it. Nothing in the panel can see another page, so when a take's sound is missing, the first thing to ask is what else has the microphone. A take runs on for a third of a second after **Stop**, for the last word.
+- The sound of a take is taken from the microphone as samples (`web/src/lib/takeSound.ts`, `samplesOf`): a small program on the browser's audio thread counts every sample from start to stop, and answers "done" only when the last is handed over, so a busy page makes a take slow to finish and nothing else. They are sent as a WAV file. The browser's own recorder was used before; fed a microphone that came and went, it wrote a file that was whole and simply ended early, which is why the fault above took so long to find. Samples of a microphone that stopped are exact silence, and take up their time. The recorder is still what records the camera, with no sound, and both are sent (`uploadTake`, as a form with `take` and `sound`); libretto joins them. A camera recording too small to be one is not sent, and the take is kept as sound alone. In a browser that cannot give samples the recorder takes the sound as before, and the panel says so after the take.
+- The samples say what the microphone did, and the panel passes it on. While a take is recorded, a red bar over the scene's picture says that the microphone has given exactly nothing for three seconds or more (a room is never that quiet, so it has stopped). After it, the panel says how much of the take was such silence and where the longest stretch was, or that less sound came than the take lasted. A take of nothing but such samples is not kept.
+- Under a scene the person can write the agent a comment (`commentOnScene`), take one back, and remove the scene after being asked once (`removeScene`). libretto writes both into the storyboard file as `comments`, on the scene or on the storyboard, which is where the agent reads them; `libretto validate` lists them as warnings, and the agent deletes each when it is done. A change the person made themselves is shown and is not announced as a change to the plan. The outline counts a scene's comments.
+- A take starts after a count from three, drawn over the scene's picture (`studioPace.countdownMs`). The panel listens while it counts: a microphone that gives exactly nothing for most of the count is one another page or program has, and the take is not started. **Cancel** calls the count off.
+- **Cancel**, beside **Stop** while a take is recorded, throws the take away: it is not sent to the studio, so nothing is kept or transcribed, and the scene is as it was.
+- A take under a second is not kept. libretto refuses a recording it cannot read, so a broken one never reaches the storyboard. A take in which nothing is heard is kept by libretto but not given to the scene, and the panel says why.
+- A scene is drawn though another scene of the storyboard has a problem: the agent is often half way through an edit.
+- A recorded scene shows what was heard. Its takes are folded away under it, played on request, and an earlier one can be chosen again.
+
+Not checked in a browser: the panel is covered by component tests with a pretend microphone, recorder and studio, and libretto's own page, which records the same way, was driven in a real browser there. The first run against a real Legato and a real microphone is still to do.
 
 ## Web UI
 
@@ -315,8 +368,9 @@ http://localhost:3080/agents?task=fekz3ove&artifact=ui-885e1b7a26
 - `DELETE /api/ui-items/{id}` — removes an item and its revisions.
 - `GET /agent-ui-images/{task_id}/{file}` — Legato's copy of an image file an agent showed. No token; see Image files.
 - `GET /agent-ui-videos/{task_id}/{file}` — Legato's copy of a video an agent showed, with byte ranges. No token; see Videos.
+- `ANY /api/ui-items/{id}/studio/{path}` — passed on to the libretto studio of a studio item, which is started if it is not running. `503` with a `code` when libretto is missing or too old; see Studios.
 
-The first three need the bearer token. Agents write through the MCP server, never through this API.
+The first three and the studio route need the bearer token. Agents write through the MCP server, never through this API.
 
 `agent_ui_changed` carries `task_id`, `item_id`, `placement`, `revision` and `kind` (`shown`, `deleted`). The MCP server broadcasts it over IPC; both `handleIPCMessage` (TUI) and `handleServeIPCMessage` (`legato serve`, which acts on a shorter list of messages) publish `EventAgentUIChanged`; `Server.StartAgentUIEvents` forwards it to WebSocket clients, where `QuerySyncProvider` invalidates the session's list and the item.
 
@@ -344,11 +398,13 @@ A session must be started again to gain or lose the server: agent tools read the
 - `internal/cli/mcp.go` — Legato's tools (`MCPServerOptions`), their names (`MCPToolNames`) and the guidance (`MCPGuidance`).
 - `cmd/legato/mcp_cmd.go` — the `legato mcp serve` command.
 - `internal/service/agent_ui.go`, `agent_ui_components.go` — `AgentUIService` and the component catalog. `agent_ui_images.go` — the copies of image files: keeping, pruning, opening one to serve. `agent_ui_video.go` — the same for a video item's file, and the check of its manifest. `task_note.go` — `AddTaskNote`, shared with the workflow `task.note` step.
+- `internal/engine/libretto/` — asks the installed libretto what it can do (`Probe`), says what is wrong when it cannot serve a studio (`Explain`), and starts one (`StartStudio`).
+- `internal/service/agent_ui_studio.go` — the `studio` format, and `AgentStudioService`, which runs the studios.
 - `internal/engine/store/agent_ui.go` — persistence.
-- `internal/server/agent_ui.go` — the HTTP API, the image and video routes and the WebSocket forwarder.
+- `internal/server/agent_ui.go` — the HTTP API, the image and video routes and the WebSocket forwarder. `agent_ui_studio.go` — the route to a studio.
 - `internal/engine/hooks/` — `claudemod/tools/` and `InstallClaudeToolsMod`; `SetMCPTools` and `SetToolsPrompt` on the Codex and Chimera adapters; `mcp_tools.go` for what they share.
 - `internal/tui/agents/shown.go`, `internal/tui/app_agent_ui.go` — the TUI's line and link for what an agent showed.
-- `web/src/lib/agentUi.ts`, `hooks/useAgentUI.ts`, `hooks/useArtifactPanel.ts`, `components/AgentArtifactPanel.tsx`, `AgentUICallCard.tsx`, `AgentUIItemView.tsx`, `AgentUIComponents.tsx`, `SandboxedHtml.tsx`, `ImageLightbox.tsx`, `ArtifactsButton.tsx`. `lib/agentVideo.ts`, `components/AgentVideoPlayer.tsx` — a video's manifest and its player.
+- `web/src/lib/agentUi.ts`, `hooks/useAgentUI.ts`, `hooks/useArtifactPanel.ts`, `components/AgentArtifactPanel.tsx`, `AgentUICallCard.tsx`, `AgentUIItemView.tsx`, `AgentUIComponents.tsx`, `SandboxedHtml.tsx`, `ImageLightbox.tsx`, `ArtifactsButton.tsx`. `lib/agentStudio.ts`, `components/AgentStudioPanel.tsx` — the studio panel and what it asks the studio. `lib/agentVideo.ts`, `components/AgentVideoPlayer.tsx` — a video's manifest and its player.
 
 ## Debugging
 
@@ -363,6 +419,11 @@ A session must be started again to gain or lose the server: agent tools read the
 - A view can propose a message. It cannot send one, call a tool, or read anything from Legato.
 - A question about a video is a proposed message: it is not kept with the video, so the video shows no thread of what was asked at which time, and a question for an agent whose session has ended goes nowhere. Review tours have both (`ArtifactInteractionService`); a video does not yet.
 - `show_video` needs the agent to have rendered a video already, with libretto on its `PATH`. Legato does not render one itself.
+- A studio needs libretto, with a studio of the level Legato is written for, on the `PATH` of the Legato server as well as the agent's. Without it `show_studio` fails and says so.
+- The studio records a voice and a camera. It does not record the screen.
+- Lining a video up with what was said happens when the person asks, not after each take.
+- A studio is not stopped when its panel is closed or its item removed, only when Legato stops.
+- The studio panel has not been run in a browser against a real Legato yet.
 - The panel is narrow, and code in a 1920 by 1080 video is small in it. The player's full-screen button is the way to read it.
 - **Download** on a video saves its manifest, not the MP4.
 - An image in a Markdown artifact opens on a click only; the keyboard does not reach it. In HTML and in components it does.

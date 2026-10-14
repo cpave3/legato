@@ -1,5 +1,45 @@
 @import "tailwindcss";
 
+/* The new look of Legato's web app: one ground, one accent, five states.
+   The studio panel is the first to use it; the rest follows. Colours are
+   named for what they are for, and nothing outside this block has one of
+   its own. */
+@theme {
+  --font-lw: "Geist Sans", "Geist", system-ui, -apple-system, sans-serif;
+  --font-lw-mono: "Geist Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  --color-lw-rail: #0c0c0f;
+  --color-lw-ground: #111114;
+  --color-lw-surface: #17171b;
+  --color-lw-raised: #1d1d22;
+  --color-lw-selected: #23222c;
+  --color-lw-line: #26262d;
+  --color-lw-line-strong: #31313a;
+
+  --color-lw-text: #e6e5eb;
+  --color-lw-text-2: #9a99a5;
+  --color-lw-faint: #66656f;
+
+  --color-lw-accent: #6d5ef6;
+  --color-lw-accent-ring: #4f46b8;
+  --color-lw-link: #a99cff;
+
+  /* running, needs you, done, error, idle */
+  --color-lw-live: #3ecf8e;
+  --color-lw-live-soft: #12291d;
+  --color-lw-needs: #f0b44c;
+  --color-lw-needs-soft: #3a2c0e;
+  --color-lw-done: #6aa5ff;
+  --color-lw-done-soft: #15213a;
+  --color-lw-error: #f0646b;
+  --color-lw-error-soft: #33181b;
+  --color-lw-idle-soft: #222228;
+
+  --color-lw-danger: #f0868c;
+  --color-lw-danger-line: #5a2a2e;
+  --color-lw-record: #e5484d;
+}
+
 :root {
   color-scheme: dark;
 }
