@@ -177,6 +177,7 @@ type App struct {
 	agentUISvc    AgentUIService
 	usageSvc      service.UsageService
 	dirSvc        DirectoryService
+	resourceSvc   ResourceService
 	// spinFrame is the frame of the mark of a running agent, and
 	// spinnerRunning whether a tick that will advance it is on its way.
 	spinFrame                int
@@ -2398,7 +2399,7 @@ func (a App) openAgentSpawnOverlay(taskID, title string) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	spawnModel := a.withSpawnLocations(overlay.NewAgentSpawn(filtered, defaultAdapter, defaultDir, taskID, title), defaultDir)
+	spawnModel := a.withSpawnResources(a.withSpawnLocations(overlay.NewAgentSpawn(filtered, defaultAdapter, defaultDir, taskID, title), defaultDir))
 	sized, _ := spawnModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
 	a.overlayType = overlayAgentSpawn
@@ -2424,9 +2425,14 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 	if a.dirSvc != nil {
 		msg.WorkingDir = a.dirSvc.Expand(msg.WorkingDir)
 	}
+	resources, err := a.spawnResources(msg.Resources)
+	if err != nil {
+		return a, func() tea.Msg { return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()} }
+	}
 	opts := service.AgentSpawnOptions{
 		AgentKind:  msg.AgentKind,
 		WorkingDir: msg.WorkingDir,
+		Resources:  resources,
 	}
 
 	if msg.TaskID == "" {
@@ -2472,7 +2478,11 @@ func (a App) spawnTaskAgent(msg overlay.AgentSpawnSubmitMsg, sessionPolicy, resu
 		termW = 1
 	}
 	termH := a.height - 1
-	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, WorkingDir: msg.WorkingDir, SessionPolicy: sessionPolicy, ResumeSessionID: resumeSessionID, ResumeWorkingDir: resumeWorkingDir}
+	resources, err := a.spawnResources(msg.Resources)
+	if err != nil {
+		return a, func() tea.Msg { return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()} }
+	}
+	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, WorkingDir: msg.WorkingDir, SessionPolicy: sessionPolicy, ResumeSessionID: resumeSessionID, ResumeWorkingDir: resumeWorkingDir, Resources: resources}
 
 	// Task-bound agent: switch to agent view and spawn with options
 	a = a.setMode(viewAgents)

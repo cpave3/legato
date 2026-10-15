@@ -149,6 +149,25 @@ describe("TaskAgentAction", () => {
     expect(screen.getByTestId("current-path").textContent).toBe("/agents")
   })
 
+  it("starts the task's agent with the resources that were picked", async () => {
+    apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
+      path === "/api/adapters"
+        ? new Response(JSON.stringify({ adapters: [] }), { status: 200 })
+        : path === "/api/resources"
+          ? new Response(JSON.stringify({ resources: [{ name: "Vault", configured: true, paths: [{ path: "/home/me/My Vault", access: "write" }] }] }), { status: 200 })
+          : new Response(JSON.stringify({ task_id: "T-1", created: true }), { status: 201 }),
+    ))
+
+    render(<MemoryRouter><TaskAgentAction taskId="T-1" worktreePath="/trees/t-1" /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+    await startsIn("/trees/t-1")
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Vault/ }))
+    await confirm()
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
+      body: JSON.stringify({ agent_kind: "", working_dir: "/trees/t-1", resources: ["Vault"] }),
+    })))
+  })
+
   it("defaults agent launch to the task worktree", async () => {
     apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
       path === "/api/adapters"

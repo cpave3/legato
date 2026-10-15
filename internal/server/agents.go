@@ -104,9 +104,10 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 		}
 
 		var req struct {
-			Title      string `json:"title"`
-			AgentKind  string `json:"agent_kind"`
-			WorkingDir string `json:"working_dir"`
+			Title      string   `json:"title"`
+			AgentKind  string   `json:"agent_kind"`
+			WorkingDir string   `json:"working_dir"`
+			Resources  []string `json:"resources"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -123,9 +124,15 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			req.WorkingDir = s.directories.Expand(req.WorkingDir)
 		}
 
+		resources, err := s.resolveResources(r.Context(), req.Resources)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		opts := service.AgentSpawnOptions{
 			AgentKind:  req.AgentKind,
 			WorkingDir: req.WorkingDir,
+			Resources:  resources,
 		}
 		if err := s.agents.SpawnEphemeralAgent(context.Background(), req.Title, 0, 0, opts); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -437,9 +444,10 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			return
 		}
 		var req struct {
-			AgentKind     string `json:"agent_kind"`
-			WorkingDir    string `json:"working_dir"`
-			SessionPolicy string `json:"session_policy"`
+			AgentKind     string   `json:"agent_kind"`
+			WorkingDir    string   `json:"working_dir"`
+			SessionPolicy string   `json:"session_policy"`
+			Resources     []string `json:"resources"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -451,7 +459,12 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 		if s.directories != nil {
 			req.WorkingDir = s.directories.Expand(req.WorkingDir)
 		}
-		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir}
+		resources, err := s.resolveResources(r.Context(), req.Resources)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, Resources: resources}
 		effectiveAdapter := req.AgentKind
 		if effectiveAdapter == "" {
 			effectiveAdapter = agents.DefaultAdapter()

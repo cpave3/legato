@@ -69,3 +69,4 @@ Post-v0: Attention dashboard (complete) — durable generic registry with centra
 @docs/ai/claude-code-native.md
 @docs/ai/codex-native.md
 @docs/ai/agent-mcp.md
+@docs/ai/resources.md

@@ -24,11 +24,12 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
   const initialWorkingDir = resolveTaskWorkingDirectory(worktreePath, rememberedWorkingDir, settings.data?.working_dir || "")
 
   const launch = useCallback(async (request: SpawnAgentRequest) => {
-    const body: { agent_kind: string; working_dir: string; session_policy?: "resume" | "new" } = {
+    const body: { agent_kind: string; working_dir: string; session_policy?: "resume" | "new"; resources?: string[] } = {
       agent_kind: request.agentKind,
       working_dir: request.workingDir,
     }
     if (request.sessionPolicy) body.session_policy = request.sessionPolicy
+    if (request.resources) body.resources = request.resources
     const response = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(taskId)}/agent`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

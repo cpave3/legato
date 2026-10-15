@@ -17,6 +17,7 @@ import { NativeTerminalPrompt } from "./NativeTerminalPrompt"
 import { AgentUICallCard } from "./AgentUICallCard"
 import { ReadImageRow } from "./ReadImageRow"
 import { PastedImageStrip } from "./PastedImageStrip"
+import { ResourcesButton } from "./ResourcesButton"
 import { ArtifactsButton, type ArtifactsButtonProps } from "./ArtifactsButton"
 import { appendProposal, legatoUICall, onComposerProposal } from "../lib/agentUi"
 import { insertAtCursor, isImagePath } from "../lib/agentImage"
@@ -1008,6 +1009,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
               )}
             </div>
           )}
+          <ResourcesButton agentId={agentId} baseUrl={baseUrl} />
           {/* Macros dropdown */}
           <div className="relative" ref={macrosRef}>
             <button

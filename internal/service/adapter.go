@@ -105,6 +105,15 @@ type ToolsPromptAdapter interface {
 	ToolsPrompt() string
 }
 
+// PathGrantingAdapter is an adapter whose tool can be granted files and
+// folders on its command line, as Chimera can with --add-read-path and
+// --add-write-path. PathGrantFlags returns what to append to the launch
+// command, shell-quoted, starting with a space; read and write are absolute
+// paths, and a path to write is not also in read.
+type PathGrantingAdapter interface {
+	PathGrantFlags(read, write []string) string
+}
+
 // NativeBindingAdapter is an optional capability for adapters whose sessions
 // bind a native endpoint on their own shortly after launch (Claude Code, once
 // the Legato mod has started its bridge). The agent service then holds the

@@ -1606,6 +1606,7 @@ func runServeCmd(args []string) int {
 	srv.StartLearningEvents()
 	defer wireAgentUI(srv, cfg, db, bus)()
 	srv.SetDirectoryService(configuredDirectoryService(cfg, db))
+	srv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 
 	scheme := "http"
 	if certFile != "" {
@@ -1844,6 +1845,7 @@ func runTUI() int {
 			webSrv.StartLearningEvents()
 			stopAgentUI = wireAgentUI(webSrv, cfg, db, bus)
 			webSrv.SetDirectoryService(configuredDirectoryService(cfg, db))
+			webSrv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 			go func() {
 				if err := webSrv.Serve(ln); err != nil && err.Error() != "http: Server closed" {
 					log.Printf("web server: %v", err)
@@ -1857,6 +1859,7 @@ func runTUI() int {
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
 	app.SetDirectoryService(configuredDirectoryService(cfg, db))
+	app.SetResourceService(configuredResourceService(cfg, db))
 	app.SetProviderSyncService(providerSync)
 	app.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 	app.SetPlanService(planSvc)

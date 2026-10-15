@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 import { X } from "lucide-react"
+import { accessLabel, listResources, type Resource } from "../lib/resources"
 import { useServer } from "../hooks/useServer"
 import { useSettings } from "../hooks/useSettings"
 import { apiFetch } from "../lib/api"
@@ -30,6 +31,8 @@ export interface SpawnAgentRequest {
   workingDir: string
   // Set only when the chosen agent tool has a saved session to resume.
   sessionPolicy?: SessionPolicy
+  // The names of the resources the agent is given; absent when none were picked.
+  resources?: string[]
 }
 
 interface AdapterInfo {
@@ -125,6 +128,9 @@ export function SpawnAgentDialog({
   const [listHeight, setListHeight] = useState(0)
   const [showAll, setShowAll] = useState(false)
   const [savePath, setSavePath] = useState(false)
+  // The files and folders the person keeps for agents, and the ones picked.
+  const [resources, setResources] = useState<Resource[]>([])
+  const [picked, setPicked] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
@@ -158,6 +164,11 @@ export function SpawnAgentDialog({
       })
       .catch(() => {})
       .finally(() => { if (current) setReady(true) })
+
+    setPicked([])
+    listResources(baseUrl)
+      .then((listed) => { if (current) setResources(listed) })
+      .catch(() => { if (current) setResources([]) })
 
     fetchDirectoryPresets(baseUrl)
       .catch(() => null)
@@ -295,13 +306,14 @@ export function SpawnAgentDialog({
         agentKind,
         workingDir,
         ...(offersSessionChoice ? { sessionPolicy } : {}),
+        ...(picked.length > 0 ? { resources: picked } : {}),
       })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setLoading(false)
     }
-  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy])
+  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy, picked])
 
   if (!open) return null
 
@@ -587,6 +599,35 @@ export function SpawnAgentDialog({
               )}
             </div>
           </div>
+          {resources.length > 0 && (
+            <fieldset className="flex flex-col gap-1.5">
+              <legend className={`${fieldLabel} mb-1.5`}>Resources</legend>
+              <div className="flex flex-wrap gap-1.5">
+                {resources.map((resource) => {
+                  const on = picked.includes(resource.name)
+                  const paths = resource.paths.map((p) => `${p.path} (${accessLabel(p.access)})`).join("\n")
+                  return (
+                    <label
+                      key={resource.name}
+                      title={paths}
+                      className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-[10px] border px-3 text-sm transition-colors sm:min-h-0 sm:rounded-md sm:px-2.5 sm:py-1.5 sm:text-xs ${
+                        on ? "border-lw-accent bg-lw-selected text-lw-text" : "border-lw-line-strong bg-lw-ground text-lw-text-2 hover:border-lw-faint"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => setPicked((current) => on ? current.filter((name) => name !== resource.name) : [...current, resource.name])}
+                        className="accent-lw-accent"
+                      />
+                      {resource.name}
+                      {resource.paths.some((p) => p.access === "write") && <span className="text-[11px] text-lw-faint">write</span>}
+                    </label>
+                  )
+                })}
+              </div>
+            </fieldset>
+          )}
         </div>
 
         <div className="flex flex-col gap-3 border-t border-lw-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:flex-row sm:items-center sm:gap-2 sm:px-5 sm:pb-3">

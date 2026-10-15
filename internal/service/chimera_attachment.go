@@ -17,7 +17,12 @@ type chimeraAttachToken struct {
 	Absolute string // resolved absolute path
 }
 
-var chimeraAttachPattern = regexp.MustCompile(`(^|\s)([@#])(\S+)`)
+// A path runs to the next whitespace, or is written in double quotes
+// (@"My Notes/a.md") or with its spaces escaped (@My\ Notes/a.md) when it has
+// spaces in it, as Chimera's TUI reads it.
+var chimeraAttachPattern = regexp.MustCompile(`(^|\s)([@#])(?:"([^"\n]+)"|((?:\\\s|\S)+))`)
+
+var chimeraEscapedSpace = regexp.MustCompile(`\\(\s)`)
 
 // parseChimeraAttachments detects @path (read) and #path (write) tokens in
 // user input, mirroring Chimera TUI semantics. Relative paths resolve against
@@ -27,9 +32,13 @@ func parseChimeraAttachments(input, cwd, homeDir string) []chimeraAttachToken {
 	var tokens []chimeraAttachToken
 	for _, match := range chimeraAttachPattern.FindAllStringSubmatchIndex(input, -1) {
 		prefixStart, prefixEnd := match[4], match[5]
-		rawStart, rawEnd := match[6], match[7]
 		prefix := input[prefixStart:prefixEnd]
-		rawPath := input[rawStart:rawEnd]
+		var rawPath string
+		if match[6] >= 0 {
+			rawPath = input[match[6]:match[7]]
+		} else {
+			rawPath = chimeraEscapedSpace.ReplaceAllString(input[match[8]:match[9]], "$1")
+		}
 
 		if !isChimeraAttachmentPath(rawPath) {
 			continue

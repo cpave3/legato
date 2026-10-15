@@ -38,6 +38,7 @@ type Config struct {
 	Groups                 GroupsConfig             `yaml:"groups"`
 	Workflows              WorkflowsConfig          `yaml:"workflows"`
 	Repositories           []RepositoryConfig       `yaml:"repositories"`
+	Resources              []ResourceConfig         `yaml:"resources"`
 	Learning               LearningConfig           `yaml:"learning"`
 	SSHAgentSocket         string                   `yaml:"ssh_agent_socket"`
 	Manticore              ManticoreConfig          `yaml:"manticore"`
@@ -404,6 +405,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if err := normalizeAgentMCPConfig(cfg); err != nil {
+		return nil, err
+	}
+	if err := normalizeResources(cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil

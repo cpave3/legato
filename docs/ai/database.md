@@ -62,6 +62,10 @@ Migration 065 adds an `images` column to `plan_revisions`, `plan_transcript`, `r
 
 Migration 067 adds `directory_presets`: the directories the person saved from a spawn dialog (`path`, the identity and absolute; `name`; `created_at`). Saving a path again renames it and keeps its place. The spawn dialogs list them after the `repositories` of the configuration, through `service.DirectoryService`; a saved directory that the configuration also names is listed once, as the configured one.
 
+### Resources
+
+Migration 068 adds `resources` (`id`, `name` unique ignoring case) and `resource_paths` (`resource_id`, `position`, `path`, `access` of `read` or `write`): the files and folders the person saved to give agents. Resources of the configuration are not stored. `execution_resources` (`execution_id`, `name`) records the resources an execution was given, at launch or later, by name. See [Resources](resources.md).
+
 ### Future PostgreSQL work
 
 This boundary prepares but does not claim PostgreSQL support. A later change must test against a real PostgreSQL server, add a PostgreSQL baseline and advisory migration locking, implement dialect-specific reporting/search/generated IDs, and provide a one-way SQLite importer. Safe shared multi-host operation also requires node ownership and coordination beyond the database driver.

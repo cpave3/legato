@@ -286,4 +286,32 @@ describe("SpawnEphemeralModal", () => {
     expect(screen.queryByRole("button", { name: "1 more · Custom path" })).toBeNull()
     expect(screen.getByRole("button", { name: /styles/ })).toBeTruthy()
   })
+
+  it("gives the agent the resources that were picked", async () => {
+    serve({
+      "GET /api/resources": () => json({ resources: [
+        { name: "Obsidian vault", configured: true, paths: [{ path: "/home/me/My Vault", access: "write" }] },
+        { id: 2, name: "Specs", configured: false, paths: [{ path: "/srv/specs", access: "read" }] },
+      ] }),
+    })
+    await openModal()
+
+    const vault = await screen.findByRole("checkbox", { name: /Obsidian vault/ })
+    fireEvent.click(vault)
+    expect((vault as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(screen.getByRole("button", { name: "Spawn in legato" }))
+
+    await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+    expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body)).toEqual({
+      title: "Ephemeral session",
+      agent_kind: "",
+      working_dir: "~/Projects/legato",
+      resources: ["Obsidian vault"],
+    })
+  })
+
+  it("asks nothing about resources when there are none", async () => {
+    await openModal()
+    expect(screen.queryByRole("group", { name: "Resources" })).toBeNull()
+  })
 })

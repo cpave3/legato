@@ -26,6 +26,19 @@ func TestParseChimeraAttachments(t *testing.T) {
 	}
 }
 
+func TestParseChimeraAttachmentsTakesPathsWithSpaces(t *testing.T) {
+	tokens := parseChimeraAttachments(`read @"My Vault/Daily Notes.md" and edit #/vault/Old\ Notes/today.md`, "/repo", t.TempDir())
+	if len(tokens) != 2 {
+		t.Fatalf("tokens = %+v", tokens)
+	}
+	if tokens[0].Kind != "read" || tokens[0].Raw != "My Vault/Daily Notes.md" || tokens[0].Absolute != "/repo/My Vault/Daily Notes.md" {
+		t.Fatalf("quoted token = %+v", tokens[0])
+	}
+	if tokens[1].Kind != "write" || tokens[1].Absolute != "/vault/Old Notes/today.md" {
+		t.Fatalf("escaped token = %+v", tokens[1])
+	}
+}
+
 func TestParseChimeraAttachmentsIgnoresMarkdownPunctuation(t *testing.T) {
 	tokens := parseChimeraAttachments("Selected lines (`@@ -1 +1 @@`):** and @`):**", "/repo", t.TempDir())
 	if len(tokens) != 0 {

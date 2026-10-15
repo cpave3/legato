@@ -127,6 +127,7 @@ type AgentSpawnOptions struct {
 	WorkflowRunID     string            // owning workflow run, when applicable
 	WorkflowAttemptID string            // owning workflow attempt, when applicable
 	SwarmID           string            // owning swarm parent ID, when applicable
+	Resources         []Resource        // files and folders the agent is given: granted to Chimera, listed in every launch prompt
 }
 
 // AgentSpawnConflict describes a scope-overlap warning encountered at spawn time.
@@ -574,6 +575,8 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if tp, ok := adapter.(ToolsPromptAdapter); ok {
 		rolePrompt = joinPromptSections(rolePrompt, tp.ToolsPrompt())
 	}
+	resources := usableResources(opt.Resources)
+	rolePrompt = joinPromptSections(rolePrompt, resourcesPrompt(resources))
 	if nativeResume {
 		rolePrompt = ""
 	}
@@ -739,6 +742,15 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		failExecution()
 		return fmt.Errorf("linking execution to agent session: %w", err)
 	}
+	if len(opt.Resources) > 0 {
+		names := make([]string, 0, len(opt.Resources))
+		for _, resource := range opt.Resources {
+			names = append(names, resource.Name)
+		}
+		if err := a.store.AddExecutionResources(ctx, executionID, names); err != nil {
+			log.Printf("recording the resources of %s: %v", executionID, err)
+		}
+	}
 	if promptManifestID != "" {
 		if err := a.store.BindLearningPromptManifestSession(ctx, promptManifestID, sessionID); err != nil {
 			a.tmux.Kill(sessionName)
@@ -767,6 +779,10 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// terminal/shell escaping pitfalls.
 	if launcher, ok := adapter.(LaunchCommandAdapter); ok {
 		if cmd := launcher.LaunchCommand(envMap, opt.Brief, opt.Model, opt.Tier); cmd != "" {
+			if granter, ok := adapter.(PathGrantingAdapter); ok && len(resources) > 0 {
+				read, write := resourceGrants(resources)
+				cmd += granter.PathGrantFlags(read, write)
+			}
 			// Use SendKeysShellCommand because the receiver here is the
 			// freshly-spawned bash shell, not the AI tool. Bash with
 			// bracketed-paste mode treats a single text+Enter send-keys as

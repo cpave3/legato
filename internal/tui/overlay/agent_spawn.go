@@ -20,6 +20,8 @@ type AgentSpawnSubmitMsg struct {
 	// WorkingDir is absolute when a listed directory or a suggestion was
 	// picked, and the path as it was typed otherwise.
 	WorkingDir string
+	// Resources names the resources the agent is given.
+	Resources []string
 }
 
 // AgentSpawnCancelledMsg is sent when the user cancels.
@@ -70,6 +72,13 @@ type SpawnSuggestion struct {
 	Git     bool
 }
 
+// SpawnResource is a resource the agent can be given: a named set of files
+// and folders. Write is true when it gives any path to write.
+type SpawnResource struct {
+	Name  string
+	Write bool
+}
+
 // spawnField tracks which input is active in the overlay.
 type spawnField int
 
@@ -77,8 +86,11 @@ const (
 	spawnFocusTitle spawnField = iota
 	spawnFocusAgent
 	spawnFocusWhere
-	spawnFieldCount = 3
+	spawnFocusResources
 )
+
+// spawnFieldOrder is the order tab moves through the fields in.
+var spawnFieldOrder = []spawnField{spawnFocusTitle, spawnFocusAgent, spawnFocusResources, spawnFocusWhere}
 
 type spawnAgent struct{ label, value string }
 
@@ -105,6 +117,11 @@ type AgentSpawnOverlay struct {
 	suggested AgentSpawnSuggestionsMsg
 	// pick is the selected suggestion, or -1 for the path as it is typed.
 	pick int
+
+	resources []SpawnResource
+	picked    map[string]bool
+	// resource is the resource under the cursor.
+	resource int
 
 	canSave bool
 	notice  string
@@ -150,6 +167,15 @@ func (m AgentSpawnOverlay) WithLocations(defaultDir SpawnDir, presets []SpawnDir
 	m.defaultDir = spawnDir(defaultDir)
 	m.setPresets(presets, m.defaultDir.Path)
 	m.pathMode = len(m.rows) == 0
+	return m
+}
+
+// WithResources offers resources to give the agent. Without any, the
+// overlay has no resources field.
+func (m AgentSpawnOverlay) WithResources(resources []SpawnResource) AgentSpawnOverlay {
+	m.resources = resources
+	m.picked = map[string]bool{}
+	m.resource = 0
 	return m
 }
 
@@ -265,7 +291,7 @@ func (m AgentSpawnOverlay) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focus = m.nextField(1)
 		return m, nil
 	case "shift+tab":
-		m.focus = m.nextField(spawnFieldCount - 1)
+		m.focus = m.nextField(-1)
 		return m, nil
 	case "ctrl+s":
 		if typing && m.offersSaving() {
@@ -282,6 +308,8 @@ func (m AgentSpawnOverlay) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case spawnFocusAgent:
 		m.moveAgent(msg.String())
+	case spawnFocusResources:
+		m.handleResourceKey(msg)
 	case spawnFocusWhere:
 		if m.pathMode {
 			return m.handlePathKey(msg)
@@ -292,15 +320,57 @@ func (m AgentSpawnOverlay) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // nextField moves the focus by step fields, around, past the title of a
-// task-bound agent, which cannot be edited.
-func (m AgentSpawnOverlay) nextField(step spawnField) spawnField {
-	focus := m.focus
-	for {
-		focus = (focus + step) % spawnFieldCount
-		if m.taskID == "" || focus != spawnFocusTitle {
-			return focus
+// task-bound agent, which cannot be edited, and past resources when there
+// are none to pick.
+func (m AgentSpawnOverlay) nextField(step int) spawnField {
+	at := 0
+	for i, field := range spawnFieldOrder {
+		if field == m.focus {
+			at = i
 		}
 	}
+	count := len(spawnFieldOrder)
+	for {
+		at = ((at+step)%count + count) % count
+		focus := spawnFieldOrder[at]
+		if focus == spawnFocusTitle && m.taskID != "" {
+			continue
+		}
+		if focus == spawnFocusResources && len(m.resources) == 0 {
+			continue
+		}
+		return focus
+	}
+}
+
+// handleResourceKey moves between the resources and picks them.
+func (m *AgentSpawnOverlay) handleResourceKey(msg tea.KeyMsg) {
+	switch msg.String() {
+	case "left", "h":
+		if m.resource > 0 {
+			m.resource--
+		}
+	case "right", "l":
+		if m.resource < len(m.resources)-1 {
+			m.resource++
+		}
+	case " ", "x":
+		if m.resource < len(m.resources) {
+			name := m.resources[m.resource].Name
+			m.picked[name] = !m.picked[name]
+		}
+	}
+}
+
+// pickedResources names the picked resources, in the order they are offered.
+func (m AgentSpawnOverlay) pickedResources() []string {
+	var names []string
+	for _, resource := range m.resources {
+		if m.picked[resource.Name] {
+			names = append(names, resource.Name)
+		}
+	}
+	return names
 }
 
 func (m *AgentSpawnOverlay) moveAgent(key string) {
@@ -436,6 +506,7 @@ func (m AgentSpawnOverlay) submit() (tea.Model, tea.Cmd) {
 		Title:      title,
 		AgentKind:  m.agents[m.agentIndex].value,
 		WorkingDir: m.target().path,
+		Resources:  m.pickedResources(),
 	}
 	return m, func() tea.Msg { return submit }
 }
@@ -501,12 +572,16 @@ const (
 func (m AgentSpawnOverlay) View() string {
 	sized := m.width > 0 && m.height > 0
 	boxWidth, whereLines, spaced := 80, 8, true
+	fixed, gaps := spawnFixedLines, spawnGapLines
+	if len(m.resources) > 0 {
+		fixed, gaps = fixed+1, gaps+1
+	}
 	if sized {
 		boxWidth = min(spawnPanelWidth, max(m.width-4, 24))
-		room := m.height - 2 - spawnFixedLines
-		spaced = room-spawnGapLines >= 3
+		room := m.height - 2 - fixed
+		spaced = room-gaps >= 3
 		if spaced {
-			room -= spawnGapLines
+			room -= gaps
 		}
 		whereLines = min(max(room, 1), 10)
 	}
@@ -552,6 +627,10 @@ func (m AgentSpawnOverlay) View() string {
 	gap()
 	lines = append(lines, field("agent", spawnFocusAgent, []string{m.agentValue()})...)
 	gap()
+	if len(m.resources) > 0 {
+		lines = append(lines, field("resources", spawnFocusResources, []string{m.resourcesValue(valueWidth)})...)
+		gap()
+	}
 	where := m.listLines(valueWidth, whereLines)
 	if m.pathMode {
 		where = m.pathLines(valueWidth, whereLines)
@@ -610,6 +689,35 @@ func (m AgentSpawnOverlay) agentValue() string {
 		chips[i] = style.Render(agent.label)
 	}
 	return strings.Join(chips, " ")
+}
+
+// resourcesValue draws the resources as boxes to tick, kept around the one
+// under the cursor when they do not all fit.
+func (m AgentSpawnOverlay) resourcesValue(width int) string {
+	chips := make([]string, len(m.resources))
+	for i, resource := range m.resources {
+		box := "[ ]"
+		if m.picked[resource.Name] {
+			box = "[x]"
+		}
+		text := box + " " + resource.Name
+		if resource.Write {
+			text += " ✎"
+		}
+		style := lipgloss.NewStyle().Foreground(theme.TextSecondary)
+		if m.picked[resource.Name] {
+			style = style.Foreground(theme.TextPrimary)
+		}
+		if i == m.resource && m.focus == spawnFocusResources {
+			style = style.Foreground(theme.Accent).Bold(true)
+		}
+		chips[i] = style.Render(text)
+	}
+	start := 0
+	for start < m.resource && lipgloss.Width(strings.Join(chips[start:m.resource+1], "  ")) > width {
+		start++
+	}
+	return ansi.Truncate(strings.Join(chips[start:], "  "), max(width, 1), "…")
 }
 
 // spawnWindow is the range of count rows that is shown when only room of
@@ -827,6 +935,8 @@ func (m AgentSpawnOverlay) hints(width int) string {
 		left = join("tab", "field", presets, "preset", "h/l", "agent", "/", "path")
 	case m.focus == spawnFocusAgent:
 		left = join("tab", "field", "h/l", "agent")
+	case m.focus == spawnFocusResources:
+		left = join("tab", "field", "h/l", "move", "space", "pick")
 	default:
 		left = join("tab", "field")
 	}

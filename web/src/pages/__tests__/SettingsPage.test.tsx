@@ -78,7 +78,8 @@ describe("SettingsPage hot reload build", () => {
     expect(mockedApiFetch).toHaveBeenCalledWith("https://remote.example", "/api/hot-reload/build", { method: "POST" })
     expect((button as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(button)
-    expect(mockedApiFetch).toHaveBeenCalledOnce()
+    // The page asks for other things too (its resources); only one build may start.
+    expect(mockedApiFetch.mock.calls.filter(([, path]) => path === "/api/hot-reload/build")).toHaveLength(1)
 
     resolveBuild({ ok: true, status: 202 } as Response)
     await waitFor(() => expect(addToast).toHaveBeenCalledWith("Full rebuild started", "success"))

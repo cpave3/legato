@@ -1,6 +1,7 @@
 package overlay
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -84,7 +85,7 @@ func TestAgentSpawnEphemeralStartsOnTheTitleAndSpawnsInTheDefaultDirectory(t *te
 		t.Fatalf("expected AgentSpawnSubmitMsg, got %T", msg)
 	}
 	want := AgentSpawnSubmitMsg{Title: "Ephemeral session", WorkingDir: "/tmp"}
-	if submit != want {
+	if !reflect.DeepEqual(submit, want) {
 		t.Fatalf("submit = %+v, want %+v", submit, want)
 	}
 }
@@ -121,7 +122,7 @@ func TestAgentSpawnForATaskKeepsItsTitleAndStartsOnTheAgent(t *testing.T) {
 	m, _ = spawnKey(t, m, runes("l"))
 	_, msg := spawnKey(t, m, keyEnter)
 	want := AgentSpawnSubmitMsg{TaskID: "REX-1", Title: "Fix login", AgentKind: "chimera", WorkingDir: "/workspace"}
-	if submit := msg.(AgentSpawnSubmitMsg); submit != want {
+	if submit := msg.(AgentSpawnSubmitMsg); !reflect.DeepEqual(submit, want) {
 		t.Fatalf("submit = %+v, want %+v", submit, want)
 	}
 }
@@ -446,6 +447,66 @@ func TestAgentSpawnViewIsExactlyTheSizeItWasGiven(t *testing.T) {
 					break
 				}
 			}
+		}
+	}
+}
+
+func TestAgentSpawnPicksResourcesBetweenTheAgentAndWhere(t *testing.T) {
+	m := NewAgentSpawn(nil, "chimera", "/srv/app", "REX-1", "Fix login").
+		WithResources([]SpawnResource{{Name: "Obsidian vault", Write: true}, {Name: "Specs"}})
+
+	m, _ = spawnKey(t, m, keyTab)
+	if m.focus != spawnFocusResources {
+		t.Fatalf("after tab: focus = %d, want resources", m.focus)
+	}
+	// Space picks the resource under the cursor, l moves to the next.
+	m, _ = spawnKey(t, m, tea.KeyMsg{Type: tea.KeySpace}, runes("l"), tea.KeyMsg{Type: tea.KeySpace}, runes("h"), tea.KeyMsg{Type: tea.KeySpace})
+	m, _ = spawnKey(t, m, keyTab)
+	if m.focus != spawnFocusWhere {
+		t.Fatalf("after second tab: focus = %d, want where", m.focus)
+	}
+
+	_, msg := spawnKey(t, m, keyEnter)
+	submit, ok := msg.(AgentSpawnSubmitMsg)
+	if !ok {
+		t.Fatalf("msg = %#v", msg)
+	}
+	if strings.Join(submit.Resources, ",") != "Specs" {
+		t.Fatalf("resources = %v", submit.Resources)
+	}
+}
+
+func TestAgentSpawnHasNoResourcesFieldWithoutResources(t *testing.T) {
+	m := NewAgentSpawn(nil, "chimera", "/srv/app", "REX-1", "Fix login")
+
+	m, _ = spawnKey(t, m, keyTab)
+	if m.focus != spawnFocusWhere {
+		t.Fatalf("focus = %d, want where", m.focus)
+	}
+	if next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 30}); strings.Contains(next.(AgentSpawnOverlay).View(), "resources") {
+		t.Fatal("a resources field was drawn with nothing to pick")
+	}
+}
+
+func TestAgentSpawnWithResourcesIsExactlyTheSizeItWasGiven(t *testing.T) {
+	for _, size := range []tea.WindowSizeMsg{{Width: 120, Height: 40}, {Width: 44, Height: 14}} {
+		m := NewAgentSpawn(nil, "chimera", "/srv/app", "", "").
+			WithLocations(SpawnDir{Path: "/srv/app"}, spawnPresets()).
+			WithResources([]SpawnResource{{Name: "Obsidian vault", Write: true}, {Name: "Specs"}, {Name: "A resource with a long name"}})
+		next, _ := m.Update(size)
+		view := next.(AgentSpawnOverlay).View()
+		lines := strings.Split(view, "\n")
+		if len(lines) != size.Height {
+			t.Errorf("at %dx%d: %d lines", size.Width, size.Height, len(lines))
+		}
+		for i, line := range lines {
+			if width := lipgloss.Width(line); width != size.Width {
+				t.Errorf("at %dx%d: line %d is %d wide", size.Width, size.Height, i, width)
+				break
+			}
+		}
+		if size.Width >= 100 && !strings.Contains(view, "Obsidian vault") {
+			t.Errorf("at %dx%d the resources are not drawn", size.Width, size.Height)
 		}
 	}
 }

@@ -36,6 +36,7 @@ type Server struct {
 	addr                     string
 	workDir                  string // default CWD for agent spawn
 	directories              DirectoryService
+	resources                ResourceService
 	server                   *http.Server
 	hub                      *Hub
 	streams                  *streamManager
@@ -143,6 +144,9 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/adapters", s.adaptersHandler())
 	mux.HandleFunc("/api/directories", s.directoriesHandler())
 	mux.HandleFunc("/api/directories/presets", s.directoryPresetsHandler())
+	mux.HandleFunc("/api/resources", s.resourcesHandler())
+	mux.HandleFunc("/api/resources/{id}", s.resourceHandler())
+	mux.HandleFunc("/api/agents/{task_id}/resources", s.agentResourcesHandler())
 	mux.HandleFunc("/api/macros", s.macrosHandler())
 	mux.HandleFunc("/api/voice/transcribe", s.voiceTranscribeHandler())
 	mux.HandleFunc("/api/remote/search", s.remoteSearchHandler())

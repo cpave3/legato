@@ -198,3 +198,43 @@ func TestSpawnOverlaySavesATypedPathAsAPreset(t *testing.T) {
 		t.Fatalf("view should say why the path was not saved:\n%s", view)
 	}
 }
+
+// fakeResourceService offers resources by name.
+type fakeResourceService struct{ resources []service.Resource }
+
+func (f *fakeResourceService) List(context.Context) ([]service.Resource, error) {
+	return f.resources, nil
+}
+
+func (f *fakeResourceService) Resolve(_ context.Context, names []string) ([]service.Resource, error) {
+	var found []service.Resource
+	for _, name := range names {
+		for _, resource := range f.resources {
+			if resource.Name == name {
+				found = append(found, resource)
+			}
+		}
+	}
+	return found, nil
+}
+
+func TestSpawnOverlayGivesTheAgentThePickedResources(t *testing.T) {
+	agentSvc := &fakeAgentService{captureErr: true, defaultAdapter: "chimera"}
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "/home/me/Projects/legato", nil, nil)
+	app.SetResourceService(&fakeResourceService{resources: []service.Resource{
+		{Name: "Obsidian vault", Paths: []service.ResourcePath{{Path: "/home/me/My Vault", Access: "write"}}},
+	}})
+	app, _ = updateApp(app, tea.WindowSizeMsg{Width: 110, Height: 32})
+	app, _ = updateApp(app, agents.OpenAgentSpawnMsg{})
+
+	if view := app.View(); !strings.Contains(view, "Obsidian vault") {
+		t.Fatalf("the overlay does not offer the resource:\n%s", view)
+	}
+	tab := tea.KeyMsg{Type: tea.KeyTab}
+	app = spawnOverlayKeys(t, app, tab, tab, tea.KeyMsg{Type: tea.KeySpace})
+	spawnWithEnter(t, app)
+
+	if agentSvc.lastSpawnOpts == nil || len(agentSvc.lastSpawnOpts.Resources) != 1 || agentSvc.lastSpawnOpts.Resources[0].Paths[0].Path != "/home/me/My Vault" {
+		t.Fatalf("spawn options = %+v", agentSvc.lastSpawnOpts)
+	}
+}

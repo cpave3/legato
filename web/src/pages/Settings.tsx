@@ -3,6 +3,7 @@ import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash
 import { setToken } from "../lib/auth"
 import { useServer } from "../hooks/useServer"
 import { QRScanner } from "../components/QRScanner"
+import { ResourcesSettings } from "../components/ResourcesSettings"
 import { useSettings } from "../hooks/useSettings"
 import { useToast } from "../hooks/useToast"
 import { apiFetch } from "../lib/api"
@@ -236,6 +237,8 @@ export function SettingsPage() {
           </div>
         </section>
       )}
+
+      <ResourcesSettings baseUrl={baseUrl} />
 
       <section className="max-w-lg mb-8">
         <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">

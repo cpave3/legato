@@ -86,3 +86,45 @@ func (a App) saveSpawnPreset(path string) tea.Cmd {
 		return overlay.AgentSpawnPresetsMsg{Presets: spawnDirs(presets), Saved: saved.Path}
 	}
 }
+
+// ResourceService lists the resources an agent can be given and finds them
+// by name.
+type ResourceService interface {
+	List(ctx context.Context) ([]service.Resource, error)
+	Resolve(ctx context.Context, names []string) ([]service.Resource, error)
+}
+
+// SetResourceService makes the spawn overlay offer resources to give the
+// agent. Without one, it has no resources field.
+func (a *App) SetResourceService(svc ResourceService) {
+	a.resourceSvc = svc
+}
+
+// withSpawnResources gives the spawn overlay the resources it can offer.
+func (a App) withSpawnResources(model overlay.AgentSpawnOverlay) overlay.AgentSpawnOverlay {
+	if a.resourceSvc == nil {
+		return model
+	}
+	resources, err := a.resourceSvc.List(context.Background())
+	if err != nil || len(resources) == 0 {
+		return model
+	}
+	offered := make([]overlay.SpawnResource, len(resources))
+	for i, resource := range resources {
+		offered[i] = overlay.SpawnResource{Name: resource.Name}
+		for _, path := range resource.Paths {
+			if path.Access == "write" {
+				offered[i].Write = true
+			}
+		}
+	}
+	return model.WithResources(offered)
+}
+
+// spawnResources finds the resources that were picked in the overlay.
+func (a App) spawnResources(names []string) ([]service.Resource, error) {
+	if len(names) == 0 || a.resourceSvc == nil {
+		return nil, nil
+	}
+	return a.resourceSvc.Resolve(context.Background(), names)
+}

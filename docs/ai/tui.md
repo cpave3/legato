@@ -94,10 +94,11 @@ Agents are listed by what they are doing: **NEEDS YOU** (waiting, or stopped on 
 
 ## Spawning an agent
 
-`internal/tui/overlay/agent_spawn.go`. `s` in the agents view opens it for an ephemeral agent, and `a` on a board card for that task's agent. It asks for three things: a title, the agent tool, and where the agent starts. `tab` and `shift+tab` move between them, `↵` spawns from any of them, and a line above the keys says what `↵` will do (`→ chimera in ~/Development/autopilot · titled legato complete`).
+`internal/tui/overlay/agent_spawn.go`. `s` in the agents view opens it for an ephemeral agent, and `a` on a board card for that task's agent. It asks for a title, the agent tool, the resources to give it (when there are any), and where the agent starts. `tab` and `shift+tab` move between them, `↵` spawns from any of them, and a line above the keys says what `↵` will do (`→ chimera in ~/Development/autopilot · titled legato complete`).
 
 - **Title.** Typed for an ephemeral agent; a task's title is shown and cannot be changed.
 - **Agent.** The default adapter first, then the other adapters, then `shell`. `h`/`l` or the arrow keys choose, also while "where" lists directories.
+- **Resources**, when there are any (see [Resources](resources.md)): a box for each, between **agent** and **where**. `h`/`l` move and `space` ticks; one that gives any path to write is marked `✎`.
 - **Where, as a list.** The directory the agent would start in without a choice (the directory Legato runs in; for a task, its worktree or remembered directory), then the directory presets, then `custom path…`. `↑`/`↓` or `j`/`k` move, a number key picks the row with that number, and `/` or `↵` on the last row asks for a path. A default directory that is one of the presets is selected there and not listed twice.
 - **Where, as a path.** The typed path starts inside the selected directory. Under it are the directories that complete it: directories only, the one typed in full first, then presets, then Git repositories, then the rest; hidden ones once a dot is typed. Each says what it is (`git · preset 2`, `git`, `dir`), and a line says how many matched.
   - `tab` completes the path to the picked suggestion, `↑`/`↓` pick, `ctrl+w` goes up a directory, `esc` returns to the list, and `shift+tab` leaves the field.
