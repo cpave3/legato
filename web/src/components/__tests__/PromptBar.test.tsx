@@ -160,10 +160,10 @@ it("offers native Chimera upgrade and surfaces failures without hiding the termi
   />)
 
   fireEvent.click(screen.getByTitle("More actions"))
-  const upgrade = screen.getByRole("button", { name: "Upgrade to native Chimera" })
-  fireEvent.click(upgrade)
+  fireEvent.click(screen.getByRole("menuitem", { name: "Upgrade to native Chimera" }))
   expect(onUpgradeChimera).toHaveBeenCalledOnce()
-  expect(upgrade.hasAttribute("disabled")).toBe(true)
+  fireEvent.click(screen.getByTitle("More actions"))
+  expect(screen.getByRole("menuitem", { name: "Upgrading…" }).hasAttribute("disabled")).toBe(true)
 
   rejectUpgrade(new Error("no live Chimera instance for this task was found"))
   expect((await screen.findByRole("alert")).textContent).toContain("no live Chimera instance for this task was found")
@@ -234,8 +234,8 @@ it("offers the native panel for Claude Code terminals", () => {
   />)
 
   fireEvent.click(screen.getByTitle("More actions"))
-  expect(screen.queryByRole("button", { name: "Upgrade to native Chimera" })).toBeNull()
-  fireEvent.click(screen.getByRole("button", { name: "Upgrade to native panel" }))
+  expect(screen.queryByRole("menuitem", { name: "Upgrade to native Chimera" })).toBeNull()
+  fireEvent.click(screen.getByRole("menuitem", { name: "Upgrade to native panel" }))
 
   expect(onUpgradeChimera).toHaveBeenCalledOnce()
 })
@@ -258,7 +258,7 @@ it("does not offer native upgrade for non-Chimera terminals", () => {
     onUpgradeChimera={vi.fn()}
   />)
   fireEvent.click(screen.getByTitle("More actions"))
-  expect(screen.queryByRole("button", { name: "Upgrade to native Chimera" })).toBeNull()
+  expect(screen.queryByRole("menuitem", { name: "Upgrade to native Chimera" })).toBeNull()
 })
 
 it("submits typed text as message content without a terminal newline", () => {
@@ -309,7 +309,7 @@ it("offers the native panel for Codex terminals", () => {
   />)
 
   fireEvent.click(screen.getByTitle("More actions"))
-  fireEvent.click(screen.getByRole("button", { name: "Upgrade to native panel" }))
+  fireEvent.click(screen.getByRole("menuitem", { name: "Upgrade to native panel" }))
 
   expect(onUpgradeChimera).toHaveBeenCalledOnce()
 })
@@ -439,4 +439,27 @@ it("puts the path of a pasted image in the message it sends", async () => {
   fireEvent.keyDown(box, { key: "Enter" })
 
   await waitFor(() => expect(onSubmitMessage).toHaveBeenCalledWith("Why is this red? /tmp/legato-1000/pasted-images/agent-1/pasted-1.png"))
+})
+
+it("says above the message box that the agent works, and interrupts it from there", () => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [] }) })
+  const onSendKeys = vi.fn()
+
+  render(<PromptBar
+    promptState={null}
+    onSendKeys={onSendKeys}
+    onSubmitMessage={vi.fn()}
+    onDismissPrompt={vi.fn()}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="agent-1"
+    agentActivity="working"
+  />)
+
+  fireEvent.click(within(screen.getByRole("status", { name: "Agent working" })).getByRole("button", { name: "Interrupt" }))
+  expect(onSendKeys).toHaveBeenCalledWith("Escape")
 })

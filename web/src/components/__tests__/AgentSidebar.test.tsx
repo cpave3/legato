@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { AgentSidebar } from "../AgentSidebar"
 import type { AgentInfo } from "../../hooks/useWebSocket"
 
+vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
+vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
+
 const longAgent: AgentInfo = {
   id: 1,
   task_id: "task-with-an-extremely-long-identifier-that-must-not-expand-the-sidebar",
@@ -37,17 +40,72 @@ describe("AgentSidebar", () => {
     expect(screen.getAllByLabelText(/new artifact/)).toHaveLength(1)
   })
 
-  it("renders error activity and timeline in red", () => {
+  it("lists agents under what they are doing, those that need the person first", () => {
     render(
       <AgentSidebar
-        agents={[{ ...longAgent, activity: "error", state_timeline: ["error"] }]}
+        agents={[
+          { ...longAgent, id: 1, task_id: "idle-one", activity: "" },
+          { ...longAgent, id: 2, task_id: "busy-one", activity: "working" },
+          { ...longAgent, id: 3, task_id: "asks-one", activity: "waiting", waiting_seconds: 300 },
+          { ...longAgent, id: 4, task_id: "failed-one", activity: "error" },
+        ]}
+        selectedId={null}
+        onSelect={() => {}}
+        onSpawn={() => {}}
+      />,
+    )
+    const headings = screen.getAllByRole("heading").map((heading) => heading.textContent)
+    expect(headings).toEqual(["Needs you · 2", "Running · 1", "Idle · 1"])
+    const order = screen.getAllByRole("button", { name: /-one/ }).map((button) => button.getAttribute("data-agent"))
+    expect(order).toEqual(["asks-one", "failed-one", "busy-one", "idle-one"])
+  })
+
+  it("keeps a swarm's agents together, the conductor first, inside a state", () => {
+    render(
+      <AgentSidebar
+        agents={[
+          { ...longAgent, id: 1, task_id: "solo", activity: "working" },
+          { ...longAgent, id: 2, task_id: "worker-a", activity: "working", parent_task_id: "P", role: "backend" },
+          { ...longAgent, id: 3, task_id: "conductor", activity: "working", parent_task_id: "P", role: "conductor" },
+        ]}
+        selectedId={null}
+        onSelect={() => {}}
+        onSpawn={() => {}}
+      />,
+    )
+    const order = screen.getAllByRole("button").map((button) => button.getAttribute("data-agent")).filter(Boolean)
+    expect(order).toEqual(["conductor", "worker-a", "solo"])
+    expect(screen.getByTitle("Swarm conductor")).toBeTruthy()
+    expect(screen.getByTitle("Worker role: backend")).toBeTruthy()
+  })
+
+  it("shows how long an agent has been in its state, its tool, and how full its context is", () => {
+    render(
+      <AgentSidebar
+        agents={[{ ...longAgent, task_id: "busy", activity: "working", working_seconds: 5 * 3600 + 44 * 60, agent_kind: "claude-code", has_chimera_endpoint: true }]}
+        contexts={{ busy: { used: 730, window: 1000, share: 73 } }}
+        selectedId={null}
+        onSelect={() => {}}
+        onSpawn={() => {}}
+      />,
+    )
+    const entry = screen.getByRole("button", { name: /busy/ })
+    expect(within(entry).getByText("5h 44m")).toBeTruthy()
+    expect(within(entry).getByLabelText("Context 73% full").textContent).toContain("73%")
+  })
+
+  it("draws its recent activity as a row of slanted cells, one for each stretch of time", () => {
+    render(
+      <AgentSidebar
+        agents={[{ ...longAgent, activity: "error", state_timeline: ["working", "waiting", "error", ""] }]}
         selectedId={longAgent.task_id}
         onSelect={() => {}}
         onSpawn={() => {}}
       />,
     )
-    expect(screen.getByTitle("Error").className).toContain("bg-red-500")
-    expect(document.querySelector('[data-state="error"]')?.getAttribute("style")).toContain("rgb(239, 68, 68)")
+    const bar = screen.getByLabelText("Recent activity")
+    expect([...bar.querySelectorAll("[data-state]")].map((cell) => cell.getAttribute("data-state"))).toEqual(["working", "waiting", "error", ""])
+    expect(bar.querySelector('[data-state="working"]')!.className).toContain("-skew-x")
   })
 
   it("constrains long agent metadata to the fixed sidebar width", () => {
@@ -137,7 +195,21 @@ describe("AgentSidebar", () => {
       />,
     )
     // Neither working nor idle: a shell it started is still running.
-    expect(screen.getByTitle("Background work running").className).toContain("bg-sky-400")
-    expect(screen.queryByTitle("Idle")).toBeNull()
+    expect(screen.getByRole("heading", { name: "Background · 1" })).toBeTruthy()
+    expect(screen.queryByRole("heading", { name: /Idle/ })).toBeNull()
+  })
+
+  it("numbers the agents for switching in the order it lists them", () => {
+    render(
+      <AgentSidebar
+        agents={[{ ...longAgent, id: 1, task_id: "idle-one", activity: "" }, { ...longAgent, id: 2, task_id: "busy-one", activity: "working" }]}
+        selectedId={null}
+        onSelect={() => {}}
+        onSpawn={() => {}}
+        modifierHeld
+      />,
+    )
+    expect(within(screen.getByRole("button", { name: /busy-one/ })).getByText("1")).toBeTruthy()
+    expect(within(screen.getByRole("button", { name: /idle-one/ })).getByText("2")).toBeTruthy()
   })
 })

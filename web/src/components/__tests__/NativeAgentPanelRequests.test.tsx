@@ -189,7 +189,7 @@ describe("NativeAgentPanel and prompts only the terminal shows", () => {
     expect(send).toHaveBeenCalledWith({ type: "detect_prompt", agent_id: "task-1" })
     terminalAsks(menu)
     const card = screen.getByRole("region", { name: "Codex is asking in its terminal" })
-    expect(screen.getByRole("button", { name: "Waiting for you" })).not.toBeNull()
+    expect(screen.getByRole("button", { name: "Needs you" })).not.toBeNull()
     send.mockClear()
     fireEvent.click(within(card).getByRole("button", { name: "Skip" }))
 
@@ -209,7 +209,7 @@ describe("NativeAgentPanel and prompts only the terminal shows", () => {
     terminalAsks({ type: "free_text" })
 
     expect(screen.queryByRole("region", { name: "Codex is asking in its terminal" })).toBeNull()
-    expect(screen.queryByRole("button", { name: "Waiting for you" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Needs you" })).toBeNull()
   })
 
   it("leaves a prompt to its own card when the agent raised one", async () => {
@@ -238,7 +238,7 @@ describe("NativeAgentPanel and prompts only the terminal shows", () => {
 })
 
 describe("NativeAgentPanel waiting on the person", () => {
-  it("says so in the status bar and brings the request into view", async () => {
+  it("says so in the header and brings the request into view", async () => {
     mockSnapshot({ status: "waiting_for_input", pendingQuestions: [{ requestId: "req-1", questions: [colorQuestion] }] })
     let scrollTop = 0
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(1200)
@@ -247,9 +247,10 @@ describe("NativeAgentPanel waiting on the person", () => {
     vi.spyOn(HTMLElement.prototype, "scrollTop", "set").mockImplementation((value) => { scrollTop = value })
 
     render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" />)
-    const waiting = await screen.findByRole("button", { name: "Waiting for you" })
-    expect(screen.queryByText("Idle")).toBeNull()
-    expect(screen.queryByText("Working")).toBeNull()
+    const waiting = await screen.findByRole("button", { name: "Needs you" })
+    // The chip says it needs the person, not idle or running.
+    expect(waiting.textContent).toContain("Needs you")
+    expect(screen.queryByText(/^○ Idle|^● Running/)).toBeNull()
 
     // The request may be far below what is on screen.
     scrollTop = 100
@@ -265,14 +266,14 @@ describe("NativeAgentPanel waiting on the person", () => {
     })
 
     render(<NativeAgentPanel agentId="task-1" />)
-    await screen.findByRole("button", { name: "Waiting for you" })
+    await screen.findByRole("button", { name: "Needs you" })
     act(() => websocketHandler?.({
       type: "chimera_event",
       agent_id: "task-1",
       content: JSON.stringify({ eventId: "resolved-1", type: "permission_resolved", requestId: "req-1", decision: "allow" }),
     }))
 
-    expect(screen.queryByRole("button", { name: "Waiting for you" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Needs you" })).toBeNull()
   })
 })
 

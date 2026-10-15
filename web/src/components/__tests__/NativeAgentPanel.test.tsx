@@ -79,7 +79,7 @@ describe("NativeAgentPanel", () => {
     expect(snapshotRequests[0]).toBe("/api/agents/task-1/chimera/snapshot?initial=true")
 
     fireEvent.click(within(view.container).getByTitle("More actions"))
-    fireEvent.click(within(view.container).getByRole("button", { name: "Refresh from snapshot" }))
+    fireEvent.click(within(view.container).getByRole("menuitem", { name: "Refresh from snapshot" }))
     await waitFor(() => expect(snapshotRequests).toHaveLength(2))
     expect(snapshotRequests[1]).toBe("/api/agents/task-1/chimera/snapshot")
   })
@@ -93,7 +93,7 @@ describe("NativeAgentPanel", () => {
     const view = render(<NativeAgentPanel agentId="task-1" onDowngradeChimera={onDowngradeChimera} />)
     await within(view.container).findByText("Session ready — send a message to start")
     fireEvent.click(within(view.container).getByTitle("More actions"))
-    fireEvent.click(within(view.container).getByRole("button", { name: "Downgrade to tmux" }))
+    fireEvent.click(within(view.container).getByRole("menuitem", { name: "Downgrade to tmux" }))
 
     expect(onDowngradeChimera).toHaveBeenCalledOnce()
     expect(await within(view.container).findByText("downgrade unavailable")).not.toBeNull()
@@ -269,10 +269,10 @@ describe("NativeAgentPanel", () => {
     // The tag becomes the label; the body is what is left.
     expect(within(notice).getByText("Legato · coordination")).not.toBeNull()
     expect(within(notice).getByText("Agents already working in this Git worktree: 4wzjxm22 (ex-cs7ntyx6).")).not.toBeNull()
-    expect(notice.className).not.toContain("bg-blue-600/20")
+    expect(notice.className).not.toContain("bg-lw-selected")
 
     const typed = screen.getByText("please rebase first")
-    expect(typed.className).toContain("bg-blue-600/20")
+    expect(typed.className).toContain("bg-lw-selected")
     expect(screen.getAllByLabelText(/^Message from Legato/)).toHaveLength(1)
 
     // One that arrives while the panel is open is told apart the same way.
@@ -312,8 +312,8 @@ describe("NativeAgentPanel", () => {
     const typed = screen.getByText("please rebase first")
     expect(screen.getAllByLabelText(/^Message from Legato/)).toHaveLength(1)
     expect(peer.className).not.toBe(notice.className)
-    expect(peer.className).not.toContain("bg-blue-600/20")
-    expect(typed.className).toContain("bg-blue-600/20")
+    expect(peer.className).not.toContain("bg-lw-selected")
+    expect(typed.className).toContain("bg-lw-selected")
 
     // A sender that did not name itself is still another agent.
     act(() => websocketHandler?.({
@@ -356,6 +356,41 @@ describe("NativeAgentPanel", () => {
       }),
     }))
     expect(within(screen.getByTitle("Change model")).getByText("low")).not.toBeNull()
+  })
+
+  it("sets the effort from the model menu, where the session's other settings also are", async () => {
+    const capabilities = {
+      schemaVersion: 1, modelId: "claude-opus-5-5", profile: "claude-code", source: "test", fingerprint: "f",
+      settings: { reasoningEffort: { status: "supported", type: "enum", values: ["low", "medium", "high"] } },
+    }
+    const settingsState = { model: "anthropic/claude-opus-5-5", overrides: {}, defaults: { reasoningEffort: "medium" }, effective: { reasoningEffort: "medium" }, capabilities }
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const path = String(input)
+      if (path.includes("/snapshot")) return new Response(JSON.stringify({
+        id: "task-1", status: "idle", messages: [], toolCalls: [],
+        model: { providerId: "anthropic", modelId: "claude-opus-5-5", settings: {}, settingsDefaults: { reasoningEffort: "medium" }, capabilities },
+      }), { status: 200 })
+      if (path.endsWith("/chimera/models")) return new Response(JSON.stringify([{ ref: "anthropic/claude-opus-5-5", isDefault: true }]), { status: 200 })
+      if (path.endsWith("/chimera/model") && init?.method === "POST") return new Response(JSON.stringify({ settingsState: { ...settingsState, overrides: { reasoningEffort: "high" }, effective: { reasoningEffort: "high" } } }), { status: 200 })
+      if (path.endsWith("/chimera/model")) return new Response(JSON.stringify(settingsState), { status: 200 })
+      return new Response("[]", { status: 200 })
+    })
+
+    const view = render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" />)
+    fireEvent.click(await screen.findByTitle("Change model"))
+    // The menu took the place of a settings button of its own.
+    expect(within(view.container).queryByRole("button", { name: "Model settings" })).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "high" }))
+    await waitFor(() => {
+      const post = fetchSpy.mock.calls.find(([url, init]) => String(url).endsWith("/chimera/model") && init?.method === "POST")
+      expect(JSON.parse(String(post?.[1]?.body))).toEqual({ expectedModel: "anthropic/claude-opus-5-5", settings: { reasoningEffort: "high" } })
+    })
+    await waitFor(() => expect(within(screen.getByTitle("Change model")).getByText("high")).not.toBeNull())
+
+    fireEvent.click(screen.getByTitle("Change model"))
+    fireEvent.click(screen.getByRole("button", { name: "More session settings…" }))
+    expect(await screen.findByRole("dialog", { name: "Model settings" })).not.toBeNull()
   })
 
   it("shows which agent tool the native session belongs to", async () => {
@@ -467,7 +502,7 @@ describe("NativeAgentPanel", () => {
     })
 
     render(<NativeAgentPanel agentId="task-1" />)
-    const composer = await screen.findByPlaceholderText("Send a message...")
+    const composer = await screen.findByPlaceholderText("Message task-1")
     await waitFor(() => expect(requests).toContain("/api/macros"))
     composer.focus()
     composer.blur()
@@ -497,7 +532,7 @@ describe("NativeAgentPanel", () => {
     })
 
     render(<NativeAgentPanel agentId="task-1" />)
-    const composer = await screen.findByPlaceholderText("Send a message...")
+    const composer = await screen.findByPlaceholderText("Message task-1")
     await waitFor(() => expect(screen.getByTitle("Macros (M)").getAttribute("aria-keyshortcuts")).toBe("m"))
 
     fireEvent.keyDown(composer, { key: "m" })
@@ -545,7 +580,7 @@ describe("NativeAgentPanel", () => {
     })
 
     render(<NativeAgentPanel agentId="task-1" />)
-    const composer = await screen.findByPlaceholderText("Send a message...")
+    const composer = await screen.findByPlaceholderText("Message task-1")
     composer.blur()
     fireEvent.keyDown(window, { key: "m" })
     expect(screen.getByText("(no macros configured)")).not.toBeNull()
@@ -553,24 +588,111 @@ describe("NativeAgentPanel", () => {
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent_message" }))
   })
 
-  it("keeps queue and interrupt controls in one bounded equal-width composer rail", async () => {
+  it("opens with the agent's task and state, and a way to its card", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+    const onOpenCard = vi.fn()
+
+    render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" title="Complete the Cover section" stateTime="5h 44m" onOpenCard={onOpenCard} />)
+    const header = await screen.findByRole("banner")
+
+    expect(within(header).getByRole("heading", { name: "Complete the Cover section" })).not.toBeNull()
+    await waitFor(() => expect(within(header).getByText("Running 5h 44m")).not.toBeNull())
+    fireEvent.click(within(header).getByRole("button", { name: "Open card" }))
+    expect(onOpenCard).toHaveBeenCalledOnce()
+  })
+
+  it("says above the message box what the working agent runs, with Interrupt, and Queue under it", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
       : new Response("[]", { status: 200 }))
 
     const view = render(<NativeAgentPanel agentId="task-1" />)
     const composer = await within(view.container).findByTestId("agent-composer")
-    const rail = within(composer).getByTestId("composer-actions")
-    fireEvent.change(within(composer).getByPlaceholderText("Queue a message..."), { target: { value: "Next" } })
-    const queue = within(rail).getByRole("button", { name: "Queue" })
-    const interrupt = within(rail).getByRole("button", { name: "Interrupt" })
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "bash-1", type: "tool_call_start", callId: "call-1", name: "bash", args: { command: "./dev check --fe=all" } }),
+    }))
 
-    expect(composer.className).toContain("items-stretch")
-    expect(within(composer).getByPlaceholderText("Queue a message...").className).toContain("min-h-24")
-    expect(rail.className).toContain("w-24")
-    expect(rail.className).toContain("grid-rows-2")
-    expect(queue.className).toContain("w-full")
-    expect(interrupt.className).toContain("w-full")
+    const status = within(view.container).getByRole("status", { name: "Agent working" })
+    expect(within(status).getByText(/Working/)).not.toBeNull()
+    expect(within(status).getByText("bash ./dev check --fe=all")).not.toBeNull()
+    fireEvent.click(within(status).getByRole("button", { name: "Interrupt" }))
+    expect(send).toHaveBeenCalledWith({ type: "agent_interrupt", agent_id: "task-1" })
+
+    fireEvent.change(within(composer).getByPlaceholderText("Queue a message. Sent after the current step."), { target: { value: "Next" } })
+    const actions = within(view.container).getByTestId("composer-actions")
+    expect(within(actions).getByRole("button", { name: "Queue" })).not.toBeNull()
+    expect(within(actions).queryByRole("button", { name: "Interrupt" })).toBeNull()
+  })
+
+  it("lists a queued message in the composer until the agent reads it", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" })
+    fireEvent.change(box, { target: { value: "then render it at mobile width" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+
+    const queue = screen.getByRole("list", { name: "Queued messages" })
+    expect(within(queue).getByText("then render it at mobile width")).not.toBeNull()
+    expect((box as HTMLTextAreaElement).placeholder).toBe("Queue another")
+
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "user-1", type: "user_message", content: "then render it at mobile width" }),
+    }))
+    expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull()
+  })
+
+  it("lets a queued shell command be edited or taken out before it runs", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" }) as HTMLTextAreaElement
+    for (const command of ["!git status", "!ls"]) {
+      fireEvent.change(box, { target: { value: command } })
+      fireEvent.keyDown(box, { key: "Enter" })
+    }
+    const queue = screen.getByRole("list", { name: "Queued messages" })
+    expect(within(queue).getAllByRole("listitem")).toHaveLength(2)
+
+    fireEvent.click(within(queue).getAllByRole("button", { name: "Remove queued message" })[1])
+    expect(within(queue).getAllByRole("listitem")).toHaveLength(1)
+
+    fireEvent.click(within(queue).getByRole("button", { name: "Edit" }))
+    expect(box.value).toBe("!git status")
+    expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull()
+  })
+
+  it("interrupts the working agent with Escape in the message box", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    fireEvent.keyDown(await screen.findByRole("textbox", { name: "Message" }), { key: "Escape" })
+
+    expect(send).toHaveBeenCalledWith({ type: "agent_interrupt", agent_id: "task-1" })
+  })
+
+  it("leaves Escape alone while the agent is idle", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    fireEvent.keyDown(await screen.findByRole("textbox", { name: "Message" }), { key: "Escape" })
+
+    expect(send).not.toHaveBeenCalledWith({ type: "agent_interrupt", agent_id: "task-1" })
+    expect(screen.queryByRole("status", { name: "Agent working" })).toBeNull()
   })
 
   it("expands a lone edit's diff by default without expanding other tool calls", async () => {
@@ -644,7 +766,7 @@ describe("NativeAgentPanel", () => {
     await within(view.container).findByText("Latest reply")
     await waitFor(() => expect(scrollTop).toBe(1200))
     scrollTop = 100
-    const composer = within(view.container).getByPlaceholderText("Send a message...")
+    const composer = within(view.container).getByPlaceholderText("Message task-1")
     fireEvent.change(composer, { target: { value: "Next message" } })
     fireEvent.click(within(view.container).getByRole("button", { name: "Send" }))
 
@@ -738,7 +860,7 @@ describe("NativeAgentPanel", () => {
 
     const view = render(<NativeAgentPanel agentId="task-1" />)
     await waitFor(() => expect(websocketHandler).toBeDefined())
-    const composer = within(view.container).getByPlaceholderText("Send a message...")
+    const composer = within(view.container).getByPlaceholderText("Message task-1")
     fireEvent.change(composer, { target: { value: "/model manticore/glm" } })
     fireEvent.click(within(view.container).getByRole("button", { name: "Send" }))
 
@@ -758,7 +880,7 @@ describe("NativeAgentPanel", () => {
 
     const view = render(<NativeAgentPanel agentId="task-1" />)
     await waitFor(() => expect(websocketHandler).toBeDefined())
-    const composer = within(view.container).getByPlaceholderText("Send a message...")
+    const composer = within(view.container).getByPlaceholderText("Message task-1")
     fireEvent.change(composer, { target: { value: "/mode plan" } })
     fireEvent.click(within(view.container).getByRole("button", { name: "Send" }))
 
@@ -787,7 +909,7 @@ describe("NativeAgentPanel", () => {
 
     const view = render(<NativeAgentPanel agentId="task-1" />)
     await waitFor(() => expect(websocketHandler).toBeDefined())
-    const composer = within(view.container).getByPlaceholderText("Send a message...")
+    const composer = within(view.container).getByPlaceholderText("Message task-1")
     fireEvent.change(composer, { target: { value: "!echo hello" } })
     fireEvent.click(within(view.container).getByRole("button", { name: "Run" }))
 
@@ -807,7 +929,7 @@ describe("NativeAgentPanel", () => {
 
     const view = render(<NativeAgentPanel agentId="task-1" />)
     await waitFor(() => expect(websocketHandler).toBeDefined())
-    const composer = within(view.container).getByPlaceholderText("Send a message...") as HTMLTextAreaElement
+    const composer = within(view.container).getByPlaceholderText("Message task-1") as HTMLTextAreaElement
 
     // No indicator when draft is empty or normal text
     expect(within(view.container).queryByText("bash")).toBeNull()
@@ -817,9 +939,6 @@ describe("NativeAgentPanel", () => {
     // Indicator appears when draft starts with !
     fireEvent.change(composer, { target: { value: "!ls" } })
     expect(within(view.container).getByText("bash")).not.toBeNull()
-
-    // Border changes to amber
-    expect(composer.className).toContain("border-amber-500/60")
 
     // Indicator disappears when ! is removed
     fireEvent.change(composer, { target: { value: "hello" } })
@@ -849,11 +968,11 @@ describe("NativeAgentPanel", () => {
 
     const view = render(<NativeAgentPanel agentId="task-1" />)
     await waitFor(() => expect(websocketHandler).toBeDefined())
-    const composer = within(view.container).getByPlaceholderText("Queue a message...")
+    const composer = within(view.container).getByPlaceholderText("Queue a message. Sent after the current step.")
     fireEvent.change(composer, { target: { value: "!echo done" } })
     fireEvent.click(within(view.container).getByRole("button", { name: "Run" }))
 
-    await waitFor(() => expect(within(view.container).getByText("Queued: !echo done")).not.toBeNull())
+    await waitFor(() => expect(within(view.container).getByText("!echo done")).not.toBeNull())
     expect(bangExecuted).toBe(false)
 
     act(() => websocketHandler?.({
@@ -901,7 +1020,7 @@ describe("NativeAgentPanel", () => {
       : new Response("[]", { status: 200 }))
 
     const view = render(<NativeAgentPanel agentId="task-1" />)
-    const composer = await within(view.container).findByPlaceholderText("Queue a message...")
+    const composer = await within(view.container).findByPlaceholderText("Queue a message. Sent after the current step.")
     expect((composer as HTMLTextAreaElement).disabled).toBe(false)
     fireEvent.change(composer, { target: { value: "Check the tests next" } })
     fireEvent.click(within(view.container).getByRole("button", { name: "Queue" }))
@@ -941,11 +1060,11 @@ describe("NativeAgentPanel", () => {
 
     render(<NativeAgentPanel agentId="task-1" />)
 
-    const initial = await screen.findByText("128k / 256k (50%)")
-    expect(initial).not.toBeNull()
+    expect((await screen.findByLabelText("Context 50% full")).getAttribute("title")).toBe("128k of 256k context")
+    expect(screen.getByText("128k")).not.toBeNull()
     expect(screen.queryByText(/3,800,000 tokens/)).toBeNull()
-    // 50% should be amber (Steam Deck pressure: <50% green, 50-75% amber, >=75% red)
-    expect(initial.closest("div")!.querySelector(".bg-amber-500")).not.toBeNull()
+    // Half full is still green: amber from 70%, red from 85%, as elsewhere.
+    expect(screen.getByLabelText("Context 50% full").querySelector(".bg-lw-live")).not.toBeNull()
 
     act(() => websocketHandler?.({
       type: "chimera_event",
@@ -960,10 +1079,25 @@ describe("NativeAgentPanel", () => {
       }),
     }))
 
-    const updated = screen.getByText("192k / 256k (75%)")
-    expect(updated).not.toBeNull()
-    // 75% should be red
-    expect(updated.closest("div")!.querySelector(".bg-red-500")).not.toBeNull()
+    expect(screen.getByText("192k")).not.toBeNull()
+    expect(screen.getByLabelText("Context 75% full").querySelector(".bg-lw-needs")).not.toBeNull()
+  })
+
+  it("says over the message box when the context is nearly full", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [], contextWindow: 1_000_000, usedContextTokens: 840_000 }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    await screen.findByLabelText("Context 84% full")
+    expect(screen.queryByRole("status", { name: "Context nearly full" })).toBeNull()
+
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "usage-1", type: "usage_updated", contextWindow: 1_000_000, usedContextTokens: 912_000 }),
+    }))
+    expect(screen.getByRole("status", { name: "Context nearly full" }).textContent).toContain("912k of 1M used")
   })
 
   it("does not lose a live reply when the initial snapshot resolves late", async () => {
@@ -1143,12 +1277,12 @@ describe("NativeAgentPanel", () => {
     expect(await within(view.container).findByText("Initial reply")).not.toBeNull()
     snapshotText = "Refreshed reply"
     fireEvent.click(within(view.container).getByTitle("More actions"))
-    fireEvent.click(within(view.container).getByRole("button", { name: "Refresh from snapshot" }))
+    fireEvent.click(within(view.container).getByRole("menuitem", { name: "Refresh from snapshot" }))
     expect(await within(view.container).findByText("Refreshed reply")).not.toBeNull()
 
     refreshFails = true
     fireEvent.click(within(view.container).getByTitle("More actions"))
-    fireEvent.click(within(view.container).getByRole("button", { name: "Refresh from snapshot" }))
+    fireEvent.click(within(view.container).getByRole("menuitem", { name: "Refresh from snapshot" }))
     act(() => websocketHandler?.({
       type: "chimera_event",
       agent_id: "task-1",
@@ -1569,7 +1703,7 @@ describe("NativeAgentPanel", () => {
 
     const modelButton = screen.getByTitle("Change model")
     expect(modelButton).not.toBeNull()
-    expect(within(modelButton as HTMLElement).getByText("manticore/glm")).not.toBeNull()
+    expect(within(modelButton as HTMLElement).getByText("glm")).not.toBeNull()
 
     fireEvent.click(modelButton)
     expect(await screen.findByText("manticore/gpt")).not.toBeNull()
@@ -1602,7 +1736,7 @@ describe("NativeAgentPanel", () => {
     await waitFor(() => {
       expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("/chimera/model"), expect.objectContaining({ method: "POST" }))
     })
-    await waitFor(() => expect(screen.getByTitle("Change model").textContent).toContain("manticore/gpt"))
+    await waitFor(() => expect(screen.getByTitle("Change model").textContent).toContain("gpt"))
   })
 
   it("does not POST when clicking the already-active model", async () => {
@@ -1628,7 +1762,7 @@ describe("NativeAgentPanel", () => {
     expect(modelCallsAfter.length).toBe(modelCallsBefore.length)
   })
 
-  it("hides the model ref text and mode button below the sm breakpoint", async () => {
+  it("keeps the short model name and gives the mode label way to its icon below the sm breakpoint", async () => {
     const modelsData = [{ ref: "manticore/glm", isDefault: true }]
     const modesData = [{ name: "build", description: "Build mode", cycle: false }]
     const macros = [{ name: "Show task", keys: "!legato task show $LEGATO_TASK_ID" }]
@@ -1644,16 +1778,15 @@ describe("NativeAgentPanel", () => {
     const view = render(<NativeAgentPanel agentId="task-1" />)
     await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
 
-    // Model ref span collapses below sm
+    // On a phone the chip keeps the model's short name; the provider is
+    // named in the menu only.
     const modelButton = screen.getByTitle("Change model")
-    const modelRefSpan = within(modelButton as HTMLElement).getByText("manticore/glm")
-    expect(modelRefSpan.className).toContain("hidden")
-    expect(modelRefSpan.className).toContain("sm:inline")
+    const modelRefSpan = within(modelButton as HTMLElement).getByText("glm")
+    expect(modelRefSpan.className).not.toContain("hidden")
 
-    // Mode selector wrapper is hidden below sm
+    // The mode selector stays on a phone, its label giving way to its icon
     const modeButton = screen.getByTitle("Change mode")
-    expect(modeButton.parentElement!.className).toContain("hidden")
-    expect(modeButton.parentElement!.className).toContain("sm:block")
+    expect(within(modeButton as HTMLElement).getByText("Mode").className).toContain("sm:inline")
 
     // Macros stays visible (not collapsed)
     const macrosButton = screen.getByTitle("Macros (M)")
@@ -1663,7 +1796,7 @@ describe("NativeAgentPanel", () => {
     expect(view.container.querySelector('[title="More actions"]')).not.toBeNull()
   })
 
-  it("exposes mode options inside the overflow menu on mobile", async () => {
+  it("offers the modes from the composer's mode button", async () => {
     const modelsData = [{ ref: "manticore/glm", isDefault: true }]
     const modesData = [
       { name: "build", description: "Build mode", cycle: false },
@@ -1680,15 +1813,14 @@ describe("NativeAgentPanel", () => {
     const view = render(<NativeAgentPanel agentId="task-1" />)
     await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
 
-    fireEvent.click(within(view.container).getByTitle("More actions"))
+    fireEvent.click(within(view.container).getByTitle("Change mode"))
 
-    // Mode options appear inline in the overflow menu
     const buildButtons = await within(view.container).findAllByRole("button", { name: /build/i })
     expect(buildButtons.length).toBeGreaterThanOrEqual(1)
     expect(within(view.container).getByText("plan")).not.toBeNull()
   })
 
-  it("switches mode from the overflow menu entry on mobile", async () => {
+  it("switches mode from the composer's mode list", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input)
       if (url.includes("/snapshot")) return new Response(JSON.stringify({ id: "session-1", status: "idle", model: { providerId: "manticore", modelId: "glm" }, mode: "build", messages: [], toolCalls: [] }), { status: 200 })
@@ -1704,8 +1836,7 @@ describe("NativeAgentPanel", () => {
     const view = render(<NativeAgentPanel agentId="task-1" />)
     await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
 
-    fireEvent.click(within(view.container).getByTitle("More actions"))
-    // Click "plan" from the overflow menu mode list
+    fireEvent.click(within(view.container).getByTitle("Change mode"))
     fireEvent.click(await within(view.container).findByRole("button", { name: /plan/i }))
 
     await waitFor(() => {

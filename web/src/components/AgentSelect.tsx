@@ -17,31 +17,31 @@ function formatDuration(seconds: number): string {
 function ActivityDot({ activity }: { activity: string }) {
   switch (activity) {
     case "working":
-      return <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500" title="Working" />
+      return <span className="inline-flex h-2 w-2 rounded-full bg-lw-live" title="Working" />
     case "waiting":
-      return <span className="inline-flex h-2 w-2 rounded-full bg-yellow-500" title="Waiting" />
+      return <span className="inline-flex h-2 w-2 rounded-full bg-lw-needs" title="Waiting" />
     case "background":
       // Its turn ended with a shell or subagent of its own still running.
-      return <span className="inline-flex h-2 w-2 rounded-full bg-sky-400" title="Background work running" />
+      return <span className="inline-flex h-2 w-2 rounded-full bg-lw-done" title="Background work running" />
     case "error":
-      return <span className="inline-flex h-2 w-2 rounded-full bg-red-500" title="Error" />
+      return <span className="inline-flex h-2 w-2 rounded-full bg-lw-error" title="Error" />
     default:
-      return <span className="inline-flex h-2 w-2 rounded-full bg-zinc-600" title="Idle" />
+      return <span className="inline-flex h-2 w-2 rounded-full bg-[#4a4955]" title="Idle" />
   }
 }
 
 function ActivityLabel({ activity }: { activity: string }) {
   switch (activity) {
     case "working":
-      return <span className="text-[10px] font-medium uppercase text-emerald-400">Working</span>
+      return <span className="text-[10px] font-medium uppercase text-lw-live">Working</span>
     case "waiting":
-      return <span className="text-[10px] font-medium uppercase text-yellow-400">Waiting</span>
+      return <span className="text-[10px] font-medium uppercase text-lw-needs">Waiting</span>
     case "background":
-      return <span className="text-[10px] font-medium uppercase text-sky-300">Background</span>
+      return <span className="text-[10px] font-medium uppercase text-lw-done">Background</span>
     case "error":
-      return <span className="text-[10px] font-medium uppercase text-red-400">Error</span>
+      return <span className="text-[10px] font-medium uppercase text-lw-error">Error</span>
     default:
-      return <span className="text-[10px] font-medium uppercase text-zinc-500">Idle</span>
+      return <span className="text-[10px] font-medium uppercase text-lw-text-2">Idle</span>
   }
 }
 
@@ -77,10 +77,10 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
       <button
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex w-full items-center gap-2 rounded border bg-zinc-900 px-3 py-2 text-left transition-colors",
+          "flex w-full items-center gap-2 rounded border bg-lw-surface px-3 py-2 text-left transition-colors",
           open
-            ? "border-zinc-500 text-zinc-100"
-            : "border-zinc-700 text-zinc-200 hover:border-zinc-600"
+            ? "border-zinc-500 text-lw-text"
+            : "border-lw-line-strong text-lw-text hover:border-[#4a4955]"
         )}
       >
         {selectedAgent ? (
@@ -90,22 +90,22 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
               <span className="truncate text-sm font-medium">
                 {selectedAgent.task_title || selectedAgent.command}
               </span>
-              <span className="truncate text-xs text-zinc-500 font-mono">
+              <span className="truncate text-xs text-lw-text-2 font-mono">
                 {selectedAgent.task_id}
               </span>
             </div>
             <AgentKindBadge kind={selectedAgent.agent_kind} isNative={!!selectedAgent.has_chimera_endpoint} />
           </>
         ) : (
-          <span className="flex-1 truncate text-sm text-zinc-500">Select agent…</span>
+          <span className="flex-1 truncate text-sm text-lw-text-2">Select agent…</span>
         )}
-        <ChevronDown size={14} className={cn("shrink-0 text-zinc-500 transition-transform", open && "rotate-180")} />
+        <ChevronDown size={14} className={cn("shrink-0 text-lw-text-2 transition-transform", open && "rotate-180")} />
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[60vh] overflow-y-auto rounded border border-zinc-700 bg-zinc-900 shadow-xl">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[60vh] overflow-y-auto rounded border border-lw-line-strong bg-lw-surface shadow-xl">
           {agents.length === 0 && (
-            <div className="px-3 py-4 text-center text-sm text-zinc-500">
+            <div className="px-3 py-4 text-center text-sm text-lw-text-2">
               No active agents
             </div>
           )}
@@ -118,19 +118,19 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
                 key={agent.task_id}
                 onClick={() => handleSelect(agent.task_id)}
                 className={cn(
-                  "flex w-full flex-col gap-1 border-b border-zinc-800 px-3 py-2.5 text-left transition-colors last:border-b-0",
-                  isSelected ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
+                  "flex w-full flex-col gap-1 border-b border-lw-line px-3 py-2.5 text-left transition-colors last:border-b-0",
+                  isSelected ? "bg-lw-raised text-lw-text" : "text-lw-text-2 hover:bg-zinc-800/60 hover:text-lw-text"
                 )}
               >
                 <div className="flex items-center gap-2">
                   <ActivityDot activity={agent.activity} />
                   {isConductor && (
-                    <span className="inline-flex items-center rounded bg-indigo-600/30 px-1.5 py-0.5 text-[10px] font-medium uppercase text-indigo-300">
+                    <span className="inline-flex items-center rounded bg-lw-accent/20 px-1.5 py-0.5 text-[10px] font-medium uppercase text-lw-link">
                       Conductor
                     </span>
                   )}
                   {isWorker && agent.role && (
-                    <span className="inline-flex items-center rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium uppercase text-zinc-400">
+                    <span className="inline-flex items-center rounded bg-lw-raised px-1.5 py-0.5 text-[10px] font-medium uppercase text-lw-text-2">
                       {agent.role}
                     </span>
                   )}
@@ -138,19 +138,19 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
                 </div>
 
                 {agent.task_title && (
-                  <span className="truncate pl-4 text-xs text-zinc-300">{agent.task_title}</span>
+                  <span className="truncate pl-4 text-xs text-[#c9c8d0]">{agent.task_title}</span>
                 )}
                 <span className="flex min-w-0 items-center gap-1.5 pl-4">
                   <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} />
                   {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
-                    <span className="min-w-0 truncate font-mono text-xs text-zinc-500">{agent.command}</span>
+                    <span className="min-w-0 truncate font-mono text-xs text-lw-text-2">{agent.command}</span>
                   )}
                 </span>
 
                 <div className="flex items-center gap-2 pl-4">
                   <ActivityLabel activity={agent.activity} />
                   {(agent.working_seconds >= 60 || agent.waiting_seconds >= 60 || agent.error_seconds >= 60) && (
-                    <span className="text-[10px] text-zinc-500">·</span>
+                    <span className="text-[10px] text-lw-text-2">·</span>
                   )}
                   {agent.working_seconds >= 60 && (
                     <span className="flex items-center gap-0.5 text-[10px] text-emerald-600">

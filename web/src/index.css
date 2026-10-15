@@ -23,6 +23,9 @@
   --color-lw-accent: #6d5ef6;
   --color-lw-accent-ring: #4f46b8;
   --color-lw-link: #a99cff;
+  /* the quieter accent of Queue: sends, but not now */
+  --color-lw-accent-soft: #221f3d;
+  --color-lw-accent-text: #c8c0ff;
 
   /* running, needs you, done, error, idle */
   --color-lw-live: #3ecf8e;

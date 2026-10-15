@@ -7,8 +7,11 @@ export interface WSMessage {
     | "subscribe_agent" | "unsubscribe_agent" | "send_keys" | "resize" | "detect_prompt" | "refresh_pane"
     | "agent_message" | "agent_interrupt" | "agent_permission" | "agent_question"
     | "plan_proposed" | "plan_verdict" | "plan_changed" | "swarm_changed" | "cards_changed" | "review_changed" | "workflow_changed" | "attention_changed"
-    | "agent_ui_changed"
+    | "agent_ui_changed" | "agent_context"
   agent_id?: string
+  // How full a native agent's context window is (agent_context).
+  context_used?: number
+  context_window?: number
   cursor?: string
   queue?: boolean
   content?: string
@@ -78,6 +81,10 @@ export interface AgentInfo {
   state_timeline?: string[]
   notify_enabled?: boolean
   has_chimera_endpoint?: boolean
+  // The last known fill of a native agent's context window; changes arrive
+  // as agent_context messages (useAgentContexts).
+  context_used?: number
+  context_window?: number
 }
 
 export interface PromptState {

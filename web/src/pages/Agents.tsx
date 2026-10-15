@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { LayoutGrid } from "lucide-react"
-import { Link, useSearchParams } from "react-router-dom"
+import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "../hooks/useWebSocket"
 import { AgentSidebar } from "../components/AgentSidebar"
 import { AgentContextMenu } from "../components/AgentContextMenu"
@@ -26,8 +26,28 @@ import { useAgentSelection } from "../hooks/useAgentSelection"
 import { isEditableTarget } from "../hooks/useMacroHotkeys"
 import { useSettings } from "../hooks/useSettings"
 import { useToast } from "../hooks/useToast"
+import { useAgentContexts } from "../hooks/useAgentContexts"
+import { agentListOrder, formatAgentTime, stateSeconds } from "../lib/agentList"
+import { AgentChatHeader, type AgentChatState } from "../components/AgentChatHeader"
+import { useTerminalMenu } from "../hooks/useTerminalMenu"
 
 const GLITCH_DURATION_MS = 500
+
+// The state the header of a terminal session shows: what its hooks report.
+function terminalHeaderState(activity: string): AgentChatState {
+  switch (activity) {
+    case "waiting":
+      return "needs-you"
+    case "working":
+      return "running"
+    case "background":
+      return "background"
+    case "error":
+      return "error"
+    default:
+      return "idle"
+  }
+}
 
 function getPromptDetectionDefault(): boolean {
   return localStorage.getItem("legato:prompt-detection") !== "false"
@@ -90,6 +110,8 @@ export function AgentsPage() {
     position: { x: number; y: number }
   } | null>(null)
   const { addToast } = useToast()
+  const contexts = useAgentContexts(agents)
+  const navigate = useNavigate()
   const settings = useSettings()
   const ntfyConfigured = Boolean(settings.data?.ntfy_configured)
   const voiceEnabled = Boolean(settings.data?.voice_enabled)
@@ -391,7 +413,7 @@ export function AgentsPage() {
         const digit = parseInt(e.key, 10)
         if (digit >= 1 && digit <= 9) {
           e.preventDefault()
-          const agent = runningAgents[digit - 1]
+          const agent = agentListOrder(runningAgents)[digit - 1]
           if (agent && agent.task_id !== selectedId) {
             handleSelect(agent.task_id)
             triggerGlitch()
@@ -456,6 +478,27 @@ export function AgentsPage() {
     studio: studioItem ? { onOpen: () => openArtifact(studioItem.id, 0) } : undefined,
   }
 
+  // The More actions menu of a session driven through its terminal, in the
+  // header above it.
+  const terminalMenu = useTerminalMenu({
+    agentKind: selectedAgent?.agent_kind,
+    onUpgradeChimera: canBeNative(selectedAgent?.agent_kind) ? handleUpgradeChimera : undefined,
+    onRefresh: handleRefresh,
+    onDetectPrompt: handleDetectPrompt,
+    onTogglePromptDetection: handleTogglePromptDetection,
+    promptDetectionEnabled: isPromptDetectionEnabled,
+    ntfyConfigured,
+    notifyEnabled: selectedAgent?.notify_enabled,
+    onToggleNotify: () => { void handleToggleNotify() },
+    onDisconnect: handleDisconnect,
+    onKill: handleKill,
+  })
+  // Shows the agent's task on the board: the task the agent works for.
+  const openCard = useCallback(() => {
+    if (!selectedAgent) return
+    navigate(`/board?highlight_task=${encodeURIComponent(selectedAgent.attribution_task_id || selectedAgent.task_id)}`)
+  }, [navigate, selectedAgent])
+
   // If the selected agent died, deselect it.
   useEffect(() => {
     if (selectedId && selectedAgent && selectedAgent.status !== "running" && !conductor) {
@@ -487,16 +530,16 @@ export function AgentsPage() {
   if (runningAgents.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4">
-        <p className="text-zinc-500">No active agents</p>
+        <p className="text-lw-text-2">No active agents</p>
         <button
           onClick={handleSpawn}
-          className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+          className="rounded bg-lw-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
         >
           Spawn Agent
         </button>
         <button
           onClick={handleOpenStartSwarm}
-          className="rounded border border-indigo-900 bg-indigo-950 px-4 py-2 text-sm font-medium text-indigo-300 transition-colors hover:bg-indigo-900"
+          className="rounded border border-indigo-900 bg-lw-selected px-4 py-2 text-sm font-medium text-lw-link transition-colors hover:bg-lw-selected"
         >
           Start Swarm
         </button>
@@ -525,6 +568,14 @@ export function AgentsPage() {
           }}
           onSpawn={handleSpawn}
           onShowList={() => showEnsemble(false)}
+          contexts={contexts}
+          onSend={(taskId, content) => {
+            // As the agent's own message box does: a native agent at work
+            // reads a queued message at its next step.
+            const agent = runningAgents.find((candidate) => candidate.task_id === taskId)
+            const queue = Boolean(agent?.has_chimera_endpoint) && agent?.activity === "working"
+            send({ type: "agent_message", agent_id: taskId, content, ...(queue ? { queue: true } : {}) })
+          }}
         />
         <SpawnEphemeralModal
           open={showSpawn}
@@ -537,9 +588,9 @@ export function AgentsPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden md:flex-row">
-      {workflowRun && <Link to={`/workflows/runs/${workflowRun}`} className="absolute right-3 top-3 z-30 rounded bg-zinc-900 px-3 py-2 text-xs text-indigo-300 shadow">Back to workflow</Link>}
+      {workflowRun && <Link to={`/workflows/runs/${workflowRun}`} className="absolute right-3 top-3 z-30 rounded bg-lw-surface px-3 py-2 text-xs text-lw-link shadow">Back to workflow</Link>}
       {isMobile ? (
-        <div className="flex shrink-0 gap-2 border-b border-zinc-800 bg-zinc-950 p-2">
+        <div className="flex shrink-0 gap-2 border-b border-lw-line bg-lw-ground p-2">
           <AgentSelect
             agents={runningAgents}
             selectedId={selectedId}
@@ -549,13 +600,13 @@ export function AgentsPage() {
             onClick={() => showEnsemble(true)}
             aria-label="Ensemble"
             title="Ensemble: every agent at once"
-            className="flex items-center rounded border border-zinc-700 px-3 py-2 text-zinc-300 transition-colors hover:bg-zinc-800"
+            className="flex items-center rounded border border-lw-line-strong px-3 py-2 text-[#c9c8d0] transition-colors hover:bg-lw-raised"
           >
             <LayoutGrid size={16} aria-hidden="true" />
           </button>
           <button
             onClick={handleSpawn}
-            className="rounded bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+            className="rounded bg-lw-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
           >
             +
           </button>
@@ -571,6 +622,7 @@ export function AgentsPage() {
           onAgentContextMenu={(agent, position) => setAgentContextMenu({ agent, position })}
           modifierHeld={modifierHeld}
           unseenArtifacts={artifacts.unseen}
+          contexts={contexts}
         />
       )}
 
@@ -578,6 +630,19 @@ export function AgentsPage() {
         <RelatedWorkStrip items={relatedWork} />
         {selectedId ? (
           <>
+            {!swarmMode && selectedAgent && !selectedAgent.has_chimera_endpoint && (
+              <AgentChatHeader
+                state={terminalHeaderState(selectedAgent.activity)}
+                time={formatAgentTime(stateSeconds(selectedAgent))}
+                title={selectedAgent.task_title || selectedAgent.task_id}
+                taskId={selectedAgent.task_id}
+                agentKind={selectedAgent.agent_kind}
+                artifacts={artifactsButton}
+                onOpenCard={openCard}
+                menu={terminalMenu.entries}
+                notes={terminalMenu.upgradeError && <span role="alert" className="text-lw-error">{terminalMenu.upgradeError}</span>}
+              />
+            )}
             <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
               {swarmMode && selectedParentId ? (
                 <SwarmCommandCenter
@@ -598,6 +663,9 @@ export function AgentsPage() {
                       agentId={agent.task_id}
                       agentKind={agent.agent_kind}
                       composerEnabled={agent.task_id === selectedId}
+                      title={agent.task_title}
+                      activity={agent.activity}
+                      stateTime={formatAgentTime(stateSeconds(agent))}
                       onOpenUIItem={agent.task_id === selectedId ? artifacts.openItem : undefined}
                       artifacts={agent.task_id === selectedId ? artifactsButton : undefined}
                     />
@@ -622,6 +690,10 @@ export function AgentsPage() {
                   agentKind={selectedAgent?.agent_kind}
                   onOpenUIItem={artifacts.openItem}
                   artifacts={artifactsButton}
+                  title={selectedAgent?.task_title}
+                  activity={selectedAgent?.activity}
+                  stateTime={selectedAgent ? formatAgentTime(stateSeconds(selectedAgent)) : undefined}
+                  onOpenCard={openCard}
                 />
               ) : (
                 <TerminalPanel agentId={selectedId} onGlitch={triggerGlitch} onClickTerminal={() => promptBarRef.current?.focus()} />
@@ -655,12 +727,13 @@ export function AgentsPage() {
                 voiceEnabled={voiceEnabled}
                 onUpgradeChimera={canBeNative(selectedAgent?.agent_kind) ? handleUpgradeChimera : undefined}
                 artifacts={artifactsButton}
+                menuInHeader={!swarmMode}
               />
             )}
           </>
         ) : (
           <div className="flex flex-1 items-center justify-center">
-            <p className="text-zinc-500">Select an agent to view output</p>
+            <p className="text-lw-text-2">Select an agent to view output</p>
           </div>
         )}
       </div>
@@ -690,14 +763,14 @@ export function AgentsPage() {
 
       {/* Right sidebar: swarm event log for swarm participants */}
       {selectedParentId && (isMobile ? (
-        <details className="fixed inset-x-2 bottom-2 z-30 max-h-[45vh] overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950 shadow-2xl">
-          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-zinc-300">Swarm events</summary>
-          <div className="max-h-[38vh] overflow-y-auto border-t border-zinc-800">
+        <details className="fixed inset-x-2 bottom-2 z-30 max-h-[45vh] overflow-y-auto rounded-lg border border-lw-line-strong bg-lw-ground shadow-2xl">
+          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-[#c9c8d0]">Swarm events</summary>
+          <div className="max-h-[38vh] overflow-y-auto border-t border-lw-line">
             <SwarmEventLog parentId={selectedParentId} />
           </div>
         </details>
       ) : (
-        <div className="hidden w-64 flex-col border-l border-zinc-800 md:flex">
+        <div className="hidden w-64 flex-col border-l border-lw-line md:flex">
           <SwarmEventLog parentId={selectedParentId} />
         </div>
       ))}

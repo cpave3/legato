@@ -1,18 +1,13 @@
 import type { AgentInfo } from "../hooks/useWebSocket";
+import type { AgentContext } from "../hooks/useAgentContexts";
 import { cn } from "../lib/utils";
-import { Plus, Play, Pause, Layers, Bell, AlertTriangle, LayoutGrid } from "lucide-react";
+import { Plus, Layers, Bell, LayoutGrid } from "lucide-react";
 import { AgentActionMenu } from "./AgentActionMenu";
 import { AgentKindBadge } from "./AgentKindBadge";
+import { ActivityBar, ContextMeter } from "./AgentMeters";
 import { isAgentToolInForeground } from "../lib/agentKind";
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return "<1m";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const remainingMinutes = minutes % 60;
-  return `${hours}h ${remainingMinutes}m`;
-}
+import { agentSections, formatAgentTime, sectionLabels, stateSeconds } from "../lib/agentList";
+import type { EnsembleSection } from "../lib/agentGlance";
 
 interface AgentSidebarProps {
   agents: AgentInfo[];
@@ -26,115 +21,16 @@ interface AgentSidebarProps {
   modifierHeld?: boolean;
   // Artifacts each agent showed while it was not in view, by task ID.
   unseenArtifacts?: Record<string, number>;
+  // How full each native agent's context window is, by task ID.
+  contexts?: Record<string, AgentContext>;
 }
 
-function activityBadge(activity: string) {
-  switch (activity) {
-    case "working":
-      return (
-        <span
-          className="inline-flex h-2 w-2 rounded-full bg-emerald-500"
-          title="Working"
-        />
-      );
-    case "waiting":
-      return (
-        <span
-          className="inline-flex h-2 w-2 rounded-full bg-yellow-500"
-          title="Waiting"
-        />
-      );
-    case "background":
-      // Its turn ended with a shell or subagent of its own still running.
-      return (
-        <span
-          className="inline-flex h-2 w-2 rounded-full bg-sky-400"
-          title="Background work running"
-        />
-      );
-    case "error":
-      return (
-        <span
-          className="inline-flex h-2 w-2 rounded-full bg-red-500"
-          title="Error"
-        />
-      );
-    default:
-      return (
-        <span
-          className="inline-flex h-2 w-2 rounded-full bg-zinc-600"
-          title="Idle"
-        />
-      );
-  }
-}
-
-// groupAndSortAgents groups agents by parent_task_id (conductor first within
-// each group), with solo (non-swarm) sessions appearing after all swarm groups.
-// Returns a flat list with index-stable ordering for keyboard switching, plus
-// a parallel array of grouping metadata for rendering.
-interface GroupedAgent {
-  agent: AgentInfo;
-  groupStart: boolean; // true if this entry begins a new swarm group
-  groupParentId: string; // parent_task_id, or "" for solo
-  isSoloDivider: boolean; // true for the first solo session after swarm groups
-}
-
-function groupAndSortAgents(agents: AgentInfo[]): GroupedAgent[] {
-  const swarmsOrder: string[] = [];
-  const swarms: Record<string, AgentInfo[]> = {};
-  const solo: AgentInfo[] = [];
-
-  for (const a of agents) {
-    if (!a.parent_task_id) {
-      solo.push(a);
-      continue;
-    }
-    if (!swarms[a.parent_task_id]) {
-      swarmsOrder.push(a.parent_task_id);
-      swarms[a.parent_task_id] = [];
-    }
-    swarms[a.parent_task_id].push(a);
-  }
-
-  const result: GroupedAgent[] = [];
-  let hadSwarms = false;
-  for (const parentId of swarmsOrder) {
-    hadSwarms = true;
-    const group = swarms[parentId];
-    // Conductor first.
-    const conductor = group.find((g) => g.role === "conductor");
-    const workers = group.filter((g) => g.role !== "conductor");
-    let first = true;
-    if (conductor) {
-      result.push({
-        agent: conductor,
-        groupStart: first,
-        groupParentId: parentId,
-        isSoloDivider: false,
-      });
-      first = false;
-    }
-    for (const w of workers) {
-      result.push({
-        agent: w,
-        groupStart: first,
-        groupParentId: parentId,
-        isSoloDivider: false,
-      });
-      first = false;
-    }
-  }
-  for (let i = 0; i < solo.length; i++) {
-    result.push({
-      agent: solo[i],
-      groupStart: false,
-      groupParentId: "",
-      isSoloDivider: i === 0 && hadSwarms,
-    });
-  }
-  return result;
-}
+const sectionTone: Record<EnsembleSection, string> = {
+  "needs-you": "text-lw-needs",
+  running: "text-lw-live",
+  background: "text-lw-done",
+  idle: "text-lw-text-2",
+};
 
 export function AgentSidebar({
   agents,
@@ -146,21 +42,23 @@ export function AgentSidebar({
   onAgentContextMenu,
   modifierHeld,
   unseenArtifacts,
+  contexts,
 }: AgentSidebarProps) {
-  const grouped = groupAndSortAgents(agents);
+  const sections = agentSections(agents);
+  let position = 0;
 
   return (
-    <div aria-label="Agent sessions" className="flex w-64 max-w-full flex-col overflow-x-hidden overflow-y-auto border-r border-zinc-800 bg-zinc-950">
-      <div className="flex items-center justify-between px-3 py-3">
-        <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-          Agents ({agents.length})
+    <div aria-label="Agent sessions" className="flex w-[264px] max-w-full shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-[#222228] bg-[#141417] font-lw text-[13px] leading-5 text-lw-text">
+      <div className="flex items-center justify-between px-3.5 pb-2.5 pt-3.5">
+        <span className="font-semibold">
+          Agents <span className="font-normal text-lw-faint">{agents.length}</span>
         </span>
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1">
           {onShowEnsemble && (
             <button
               onClick={onShowEnsemble}
               aria-label="Ensemble"
-              className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"
               title="Ensemble: every agent at once (e)"
             >
               <LayoutGrid size={14} />
@@ -169,7 +67,8 @@ export function AgentSidebar({
           {onStartSwarm && (
             <button
               onClick={onStartSwarm}
-              className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-indigo-300"
+              aria-label="Start swarm"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"
               title="Start swarm"
             >
               <Layers size={14} />
@@ -177,165 +76,128 @@ export function AgentSidebar({
           )}
           <button
             onClick={onSpawn}
-            className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+            aria-label="Spawn agent"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-lw-line-strong bg-lw-raised text-lw-text hover:border-[#4a4955]"
             title="Spawn new agent"
           >
             <Plus size={14} />
           </button>
         </div>
       </div>
-      {grouped.map(
-        ({ agent, groupStart, groupParentId, isSoloDivider }, index) => {
-          const isConductor = agent.role === "conductor";
-          const isWorker = agent.parent_task_id && !isConductor;
-          const isSwarm = !!agent.parent_task_id;
 
-          return (
-            <div key={agent.task_id}>
-              {groupStart && (
-                <div className="truncate px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-400">
-                  ◆ swarm:{" "}
-                  <span className="font-mono normal-case">{groupParentId}</span>
-                </div>
-              )}
-              {isSoloDivider && (
-                <div className="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wider text-zinc-600">
-                  ── solo ──
-                </div>
-              )}
-              <div
-                onContextMenu={onAgentContextMenu ? (event) => {
-                  event.preventDefault();
-                  onAgentContextMenu(agent, { x: event.clientX, y: event.clientY });
-                } : undefined}
-                className={cn(
-                  "group relative flex min-w-0 max-w-full items-center overflow-hidden border-l-2 transition-colors",
-                  isSwarm && !isConductor && "ml-2", // worker indent
-                  selectedId === agent.task_id
-                    ? isSwarm
-                      ? "border-l-indigo-500 bg-zinc-900 text-zinc-100"
-                      : "border-l-indigo-500 bg-zinc-900 text-zinc-100"
-                    : isSwarm
-                      ? "border-l-indigo-700/60 text-zinc-400 hover:bg-zinc-900/50 hover:text-zinc-200"
-                      : "border-l-transparent text-zinc-400 hover:bg-zinc-900/50 hover:text-zinc-200",
-                )}
-              >
-                <button
-                  onClick={() => onSelect(agent.task_id)}
-                  className="flex min-w-0 max-w-full flex-1 flex-col gap-0.5 overflow-hidden px-3 py-2 text-left"
-                >
-                  {modifierHeld && index < 9 && (
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 flex h-5 w-5 items-center justify-center rounded bg-indigo-600 text-[10px] font-bold text-white">
-                      {index + 1}
-                    </span>
-                  )}
-                  <div className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
-                    {activityBadge(agent.activity)}
-                    {agent.notify_enabled && (
-                      <Bell size={10} className="text-indigo-400" />
-                    )}
-                    {isConductor && (
-                      <span
-                        className="inline-flex items-center rounded bg-indigo-600/30 px-1.5 py-0.5 text-[10px] font-medium uppercase text-indigo-300"
-                        title="Swarm conductor"
-                      >
-                        ◆ conductor
-                      </span>
-                    )}
-                    {isWorker && agent.role && (
-                      <span
-                        className="inline-flex items-center rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-medium uppercase text-zinc-400"
-                        title={`Worker role: ${agent.role}`}
-                      >
-                        {agent.role}
-                      </span>
-                    )}
-                    <span className="min-w-0 truncate text-sm font-mono">
-                      {agent.task_id}
-                    </span>
-                    {(unseenArtifacts?.[agent.task_id] ?? 0) > 0 && (
-                      <span
-                        aria-label={`${unseenArtifacts![agent.task_id]} new artifact${unseenArtifacts![agent.task_id] === 1 ? "" : "s"}`}
-                        title="New artifacts from this agent"
-                        className="ml-auto flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-indigo-500 px-1 text-[10px] font-semibold text-white"
-                      >
-                        {unseenArtifacts![agent.task_id]}
-                      </span>
-                    )}
-                  </div>
-                  {agent.task_title && (
-                    <span className="text-xs text-zinc-500 truncate pl-4">
-                      {agent.task_title}
-                    </span>
-                  )}
-                  <span className="flex min-w-0 items-center gap-1.5 pl-4">
-                    <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} />
-                    {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
-                      <span className="min-w-0 truncate font-mono text-xs text-zinc-600">
-                        {agent.command}
-                      </span>
-                    )}
-                  </span>
-                  {(agent.working_seconds >= 60 ||
-                    agent.waiting_seconds >= 60 ||
-                    agent.error_seconds >= 60) && (
-                    <div className="flex items-center gap-2 pl-4 text-[10px]">
-                      {agent.working_seconds >= 60 && (
-                        <span className="flex items-center gap-0.5 text-emerald-800">
-                          <Play size={8} />
-                          {formatDuration(agent.working_seconds)}
-                        </span>
-                      )}
-                      {agent.waiting_seconds >= 60 && (
-                        <span className="flex items-center gap-0.5 text-yellow-800">
-                          <Pause size={8} />
-                          {formatDuration(agent.waiting_seconds)}
-                        </span>
-                      )}
-                      {agent.error_seconds >= 60 && (
-                        <span className="flex items-center gap-0.5 text-red-800">
-                          <AlertTriangle size={8} />
-                          {formatDuration(agent.error_seconds)}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {agent.state_timeline && agent.state_timeline.length > 0 && (
-                    <div className="flex items-center gap-0.5 pl-4">
-                      {agent.state_timeline.map((s, idx) => (
-                        <div
-                          key={idx}
-                          data-state={s}
-                          className="h-2 flex-1 rounded-sm"
-                          style={{
-                            backgroundColor:
-                              s === "working"
-                                ? "#10b981"
-                                : s === "waiting"
-                                  ? "#eab308"
-                                  : s === "error"
-                                    ? "#ef4444"
-                                    : "#71717a",
-                          }}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </button>
-                {isSwarm && (
-                  <div className="pr-2">
-                    <AgentActionMenu
-                      agentTaskId={agent.task_id}
-                      parentTaskId={agent.parent_task_id ?? ""}
-                      subtaskId={agent.subtask_id ?? agent.task_id}
-                      role={agent.role ?? "worker"}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        },
+      <div className="flex flex-col gap-0.5 px-2 pb-3">
+        {sections.map(({ section, agents: members }) => (
+          <section key={section} className="flex flex-col gap-0.5">
+            <h2 className={cn("m-0 px-2 pb-0.5 pt-2.5 text-[11px] font-semibold uppercase tracking-[1px]", sectionTone[section])}>
+              {sectionLabels[section]} · {members.length}
+            </h2>
+            {members.map((agent) => {
+              const index = position++;
+              return (
+                <AgentEntry
+                  key={agent.task_id}
+                  agent={agent}
+                  index={index}
+                  selected={selectedId === agent.task_id}
+                  modifierHeld={modifierHeld}
+                  unseen={unseenArtifacts?.[agent.task_id] ?? 0}
+                  context={contexts?.[agent.task_id]}
+                  onSelect={onSelect}
+                  onAgentContextMenu={onAgentContextMenu}
+                />
+              );
+            })}
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AgentEntry({
+  agent,
+  index,
+  selected,
+  modifierHeld,
+  unseen,
+  context,
+  onSelect,
+  onAgentContextMenu,
+}: {
+  agent: AgentInfo;
+  index: number;
+  selected: boolean;
+  modifierHeld?: boolean;
+  unseen: number;
+  context?: AgentContext;
+  onSelect: (taskId: string) => void;
+  onAgentContextMenu?: (agent: AgentInfo, position: { x: number; y: number }) => void;
+}) {
+  const isConductor = agent.role === "conductor";
+  const isSwarm = Boolean(agent.parent_task_id);
+  const isWorker = isSwarm && !isConductor;
+  const time = formatAgentTime(stateSeconds(agent));
+
+  return (
+    <div
+      onContextMenu={onAgentContextMenu ? (event) => {
+        event.preventDefault();
+        onAgentContextMenu(agent, { x: event.clientX, y: event.clientY });
+      } : undefined}
+      className={cn(
+        "group relative flex min-w-0 max-w-full items-start overflow-hidden rounded-md transition-colors",
+        isWorker && "ml-3",
+        selected ? "bg-lw-selected shadow-[inset_0_0_0_1px] shadow-lw-accent-ring" : "hover:bg-lw-surface",
+      )}
+    >
+      <button
+        data-agent={agent.task_id}
+        onClick={() => onSelect(agent.task_id)}
+        className={cn("flex min-w-0 max-w-full flex-1 flex-col gap-[3px] overflow-hidden px-2.5 py-2 text-left", selected ? "text-lw-text" : agent.activity ? "text-lw-text" : "text-[#b4b3bd]")}
+      >
+        <div className="flex min-w-0 items-center gap-1.5">
+          {agent.notify_enabled && <Bell size={10} aria-label="Notifications on" className="shrink-0 text-lw-link" />}
+          {isConductor && (
+            <span title="Swarm conductor" className="shrink-0 rounded bg-lw-accent/20 px-1.5 text-[10px] font-medium uppercase text-lw-link">◆ conductor</span>
+          )}
+          {isWorker && agent.role && (
+            <span title={`Worker role: ${agent.role}`} className="shrink-0 rounded bg-lw-raised px-1.5 text-[10px] font-medium uppercase text-lw-text-2">{agent.role}</span>
+          )}
+          <span className="min-w-0 truncate font-lw-mono text-xs font-medium">{agent.task_id}</span>
+          {unseen > 0 && (
+            <span
+              aria-label={`${unseen} new artifact${unseen === 1 ? "" : "s"}`}
+              title="New artifacts from this agent"
+              className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-lw-accent px-1 text-[10px] font-semibold text-white"
+            >
+              {unseen}
+            </span>
+          )}
+          {modifierHeld && index < 9
+            ? <span className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded bg-lw-accent text-[10px] font-bold text-white">{index + 1}</span>
+            : time && <span className="ml-auto shrink-0 text-xs text-lw-text-2">{time}</span>}
+        </div>
+        {agent.task_title && <span className="truncate">{agent.task_title}</span>}
+        <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-lw-text-2">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} />
+            {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
+              <span className="min-w-0 truncate font-lw-mono text-lw-faint">{agent.command}</span>
+            )}
+          </span>
+          {context && <ContextMeter share={context.share} />}
+        </div>
+        <ActivityBar states={agent.state_timeline} className="pt-0.5" />
+      </button>
+      {isSwarm && (
+        <div className="pr-1 pt-1.5">
+          <AgentActionMenu
+            agentTaskId={agent.task_id}
+            parentTaskId={agent.parent_task_id ?? ""}
+            subtaskId={agent.subtask_id ?? agent.task_id}
+            role={agent.role ?? "worker"}
+          />
+        </div>
       )}
     </div>
   );

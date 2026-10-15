@@ -26,7 +26,7 @@ export function ArtifactsButton({ count, fresh, onToggle, studio }: ArtifactsBut
           onClick={studio.onOpen}
           aria-label="Studio"
           title="The studio, where you record"
-          className="flex shrink-0 items-center gap-1 rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+          className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-md border border-lw-line-strong bg-lw-raised px-3 text-xs text-lw-text transition-colors hover:border-[#4a4955]"
         >
           <Mic size={12} />
           <span className="hidden sm:inline">Studio</span>
@@ -44,14 +44,14 @@ function ShownButton({ count, fresh, onToggle }: Pick<ArtifactsButtonProps, "cou
       onClick={onToggle}
       aria-label={`Artifacts (${count})${fresh > 0 ? `, ${fresh} new` : ""}`}
       title="What this agent has shown"
-      className={"relative flex shrink-0 items-center gap-1 rounded border px-2 py-1 text-xs transition-colors " + (fresh > 0
-        ? "border-indigo-500 bg-indigo-950 text-indigo-100 hover:bg-indigo-900"
-        : "border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200")}
+      className={"relative flex h-[30px] shrink-0 items-center gap-1.5 rounded-md border px-3 text-xs transition-colors " + (fresh > 0
+        ? "border-lw-accent bg-lw-selected text-lw-text hover:bg-lw-selected"
+        : "border-lw-line-strong bg-lw-raised text-lw-text hover:border-[#4a4955]")}
     >
       <PanelRight size={12} />
       <span className="hidden sm:inline">Artifacts</span>
       <span className="tabular-nums">{count}</span>
-      {fresh > 0 && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-indigo-400" />}
+      {fresh > 0 && <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-lw-link" />}
     </button>
   )
 }

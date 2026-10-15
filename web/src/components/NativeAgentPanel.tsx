@@ -1,24 +1,26 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react"
-import { ArrowDown, ArrowLeftRight, Check, Cpu, Zap, MoreHorizontal, RefreshCw, Unplug, Skull, Bell, BellOff, Terminal } from "lucide-react"
+import { ArrowDown, ArrowLeftRight, Check, Zap, RefreshCw, Unplug, Skull, Bell, BellOff, Terminal } from "lucide-react"
 import { useWebSocket, type PromptState, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
 import { useAgentReselected } from "../hooks/useAgentSelection"
 import { apiFetch } from "../lib/api"
 import { dispatchAgentInput } from "../lib/agentInput"
-import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
+import { useVoiceRecorder } from "../hooks/useVoiceRecorder"
 import { ReviewMessageBody } from "./ReviewMessageBody"
-import { Button } from "./ui/Button"
-import { Dropdown, DropdownItem } from "./ui/Dropdown"
-import { NativeModelSettings } from "./NativeModelSettings"
-import { AgentKindBadge } from "./AgentKindBadge"
+import { NativeModelSettingsForm } from "./NativeModelSettings"
+import { ComposerModelMenu } from "./ComposerModelMenu"
 import { NativeQuestionCard } from "./NativeQuestionCard"
 import { NativeTerminalPrompt } from "./NativeTerminalPrompt"
 import { AgentUICallCard } from "./AgentUICallCard"
 import { ReadImageRow } from "./ReadImageRow"
 import { PastedImageStrip } from "./PastedImageStrip"
+import { type ArtifactsButtonProps } from "./ArtifactsButton"
+import { AgentChatHeader, type AgentChatState, type AgentMenuEntry } from "./AgentChatHeader"
 import { ResourcesButton } from "./ResourcesButton"
-import { ArtifactsButton, type ArtifactsButtonProps } from "./ArtifactsButton"
+import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
+import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, formatElapsed, queueMessage, unreadQueued, type QueuedMessage } from "../lib/composer"
+import { useTurnClock } from "../hooks/useTurnClock"
 import { appendProposal, legatoUICall, onComposerProposal } from "../lib/agentUi"
 import { insertAtCursor, isImagePath } from "../lib/agentImage"
 import { usePastedImages } from "../hooks/usePastedImages"
@@ -198,9 +200,16 @@ interface NativeAgentPanelProps {
   onOpenUIItem?: (itemId: string, revision: number) => void
   // The session's artifacts, offered from the toolbar.
   artifacts?: ArtifactsButtonProps
+  // The task the agent works on, what it is doing as its hooks report it
+  // (error, background), and how long it has been doing it.
+  title?: string
+  activity?: string
+  stateTime?: string
+  // Shows the agent's task on the board.
+  onOpenCard?: () => void
 }
 
-export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, artifacts }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, artifacts, title, activity, stateTime, onOpenCard }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   const { baseUrl } = useServer()
   const [syncState, setSyncState] = useState<NativeSyncState>(() => createNativeSyncState())
@@ -219,6 +228,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
   const draftKey = `legato:chimera-draft:${agentId}`
   const { items, busy, error, contextUsage, model } = syncState
   const blocks = useMemo(() => conversationBlocks(items), [items])
+  const step = useMemo(() => busy ? currentStep(items) : null, [busy, items])
+  const turnSeconds = useTurnClock(busy, !loading)
   // The agent has stopped on a permission prompt or a question of its own.
   const awaitingRequest = items.some((item) => (item.permission ?? item.question)?.status === "pending")
   // What the agent's terminal is asking, as read off its screen. A request
@@ -234,15 +245,15 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
   const [modes, setModes] = useState<ModeInfo[]>([])
   const [modesOpen, setModesOpen] = useState(false)
   const [models, setModels] = useState<ModelInfo[]>([])
-  const [modelsOpen, setModelsOpen] = useState(false)
   const [macros, setMacros] = useState<{ name: string; keys: string }[]>([])
   const [macrosOpen, setMacrosOpen] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
   const modesRef = useRef<HTMLDivElement>(null)
   const macrosRef = useRef<HTMLDivElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const modelsRef = useRef<HTMLDivElement>(null)
-  const voiceRef = useRef<VoiceRecorderHandle>(null)
+  // Dictation, transcribed into the message.
+  const voice = useVoiceRecorder({
+    agentId, agentKind, baseUrl, transcriptionOnly: true,
+    onTranscription: (text) => setDraft((current) => current ? current + " " + text : text),
+  })
   const [commands, setCommands] = useState<CommandInfo[]>([])
   const [skills, setSkills] = useState<SkillInfo[]>([])
   const [slashOpen, setSlashOpen] = useState(false)
@@ -389,8 +400,6 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
     const handler = (e: MouseEvent) => {
       if (modesRef.current && !modesRef.current.contains(e.target as Node)) setModesOpen(false)
       if (macrosRef.current && !macrosRef.current.contains(e.target as Node)) setMacrosOpen(false)
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
-      if (modelsRef.current && !modelsRef.current.contains(e.target as Node)) setModelsOpen(false)
     }
     document.addEventListener("mousedown", handler)
     return () => document.removeEventListener("mousedown", handler)
@@ -462,6 +471,23 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
   const [bangQueue, setBangQueue] = useState<string[]>([])
   const [bangRunning, setBangRunning] = useState(false)
   const isBang = draft.trim().startsWith("!") && draft.trim().length > 1
+  // Messages sent while the agent worked, until it reads them. A turn that
+  // ends has read what it was going to.
+  const [queued, setQueued] = useState<QueuedMessage[]>([])
+  if (!busy && queued.length > 0) setQueued([])
+  const queuedEntries: QueuedEntry[] = [
+    ...unreadQueued(queued, items).map((entry, index) => ({ key: `message-${index}-${entry.text}`, text: entry.text })),
+    ...bangQueue.map((command, index) => ({
+      key: `bang-${index}-${command}`,
+      text: `!${command}`,
+      onEdit: () => {
+        setBangQueue((current) => current.filter((_, other) => other !== index))
+        setDraft(`!${command}`)
+        textareaRef.current?.focus()
+      },
+      onRemove: () => setBangQueue((current) => current.filter((_, other) => other !== index)),
+    })),
+  ]
 
   const executeBang = useCallback(async (command: string) => {
     setBangRunning(true)
@@ -590,6 +616,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
       return
     }
     send({ type: "agent_message", agent_id: agentId, content: trimmed, queue: busy })
+    if (busy) setQueued((current) => queueMessage(current, trimmed, syncStateRef.current.items))
     setDraft("")
     if (!busy) replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
     scrollToBottomAfterRender()
@@ -703,9 +730,14 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault()
         handleSend()
+        return
+      }
+      if (e.key === "Escape" && busy) {
+        e.preventDefault()
+        handleInterrupt()
       }
     },
-    [handleSend, slashOpen, slashIndex, slashSuggestions, handleSlashSelect],
+    [handleSend, handleInterrupt, busy, slashOpen, slashIndex, slashSuggestions, handleSlashSelect],
   )
 
   const handleModeChange = useCallback((mode: string) => {
@@ -718,7 +750,6 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
   }, [agentId, baseUrl])
 
   const handleModelChange = useCallback((ref: string) => {
-    setModelsOpen(false)
     if (ref === model) return
     const request = ++modelRequestRef.current
     apiFetch(baseUrl, `/api/agents/${agentId}/chimera/model`, {
@@ -732,6 +763,24 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
       replaceSyncState({ ...syncStateRef.current, model: result.settingsState?.model ?? result.to ?? ref, settingsState: result.settingsState })
     }).catch((reason) => {
       if (request !== modelRequestRef.current) return
+      replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
+    })
+  }, [agentId, baseUrl, model, replaceSyncState])
+
+  // The efforts the model takes, as the session reports them.
+  const effortSetting = syncState.settingsState?.capabilities.settings.reasoningEffort
+  const efforts = effortSetting?.status === "supported" && effortSetting.type === "enum" ? effortSetting.values ?? [] : []
+
+  const handleEffortChange = useCallback((value: string) => {
+    if (!model) return
+    apiFetch(baseUrl, `/api/agents/${agentId}/chimera/model`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expectedModel: model, settings: { reasoningEffort: value } }),
+    }).then(modelSettingsResponse).then((body) => {
+      const settingsState = (body as { settingsState?: ModelSettingsState } | null)?.settingsState
+      if (settingsState) replaceSyncState({ ...syncStateRef.current, model: settingsState.model, settingsState })
+    }).catch((reason) => {
       replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
     })
   }, [agentId, baseUrl, model, replaceSyncState])
@@ -773,18 +822,60 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
     )
   }
 
+  const headerState: AgentChatState = awaitingPerson ? "needs-you"
+    : activity === "error" ? "error"
+    : busy ? "running"
+    : activity === "background" ? "background"
+    : "idle"
+  const menu: AgentMenuEntry[] = [
+    { label: loading ? "Refreshing…" : "Refresh from snapshot", icon: <RefreshCw size={12} className={loading ? "animate-spin" : ""} />, onSelect: () => { void resync() }, disabled: loading },
+    ...(ntfyConfigured && onToggleNotify ? [{ label: notifyEnabled ? "Disable notify" : "Enable notify", icon: notifyEnabled ? <Bell size={12} /> : <BellOff size={12} />, onSelect: onToggleNotify }] : []),
+    ...(onDowngradeChimera ? [{
+      label: "Downgrade to tmux",
+      icon: <Terminal size={12} />,
+      onSelect: () => {
+        void onDowngradeChimera().catch((reason) => {
+          replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
+        })
+      },
+    }] : []),
+    ...(onDisconnect ? [{ label: "Disconnect", icon: <Unplug size={12} />, onSelect: onDisconnect }] : []),
+    ...(onKill ? [{ label: "Kill agent", icon: <Skull size={12} />, onSelect: onKill, danger: true }] : []),
+  ]
+  const modelWindow = models.find((m) => m.ref === model)?.contextWindow ?? contextUsage?.window
+  const contextShareOf = contextUsage ? Math.round((contextUsage.used / contextUsage.window) * 100) : null
+
   return (
-    <div className="relative flex h-full min-w-0 w-full flex-1 flex-col overflow-hidden bg-zinc-950">
+    <div className="relative flex h-full min-w-0 w-full flex-1 flex-col overflow-hidden bg-lw-ground font-lw text-[13px] leading-5 text-lw-text">
+      <AgentChatHeader
+        state={headerState}
+        time={stateTime}
+        title={title || agentId}
+        taskId={agentId}
+        agentKind={agentKind}
+        native
+        artifacts={artifacts}
+        onOpenCard={onOpenCard}
+        onShowRequest={scrollToBottom}
+        menu={menu}
+        notes={<>
+          {mode && <span className="rounded bg-lw-raised px-1.5 font-lw-mono">{mode}</span>}
+          {syncing && <span className="text-lw-link">Syncing…</span>}
+          {error && <span className="truncate text-lw-error">{error}</span>}
+        </>}
+      />
+
       {/* Conversation viewport owns both scrolling and its floating action. */}
       <div role="region" aria-label="Conversation" className="relative min-h-0 flex-1">
         <div data-conversation-scroll ref={scrollRef} className="h-full overflow-y-auto overflow-x-hidden" onScroll={(e) => { const el = e.currentTarget; const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40; isScrolledUpRef.current = !atBottom; setIsScrolledUp(!atBottom) }}>
           {items.length === 0 && (
           <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-zinc-500">
+            <p className="text-sm text-lw-text-2">
               Session ready — send a message to start
             </p>
           </div>
         )}
+        <div data-conversation-column className="mx-auto w-full max-w-[820px] py-3 md:px-2">
         {blocks.map((block) => {
           if (block.kind === "steps") return <StepGroup key={block.key} agentId={agentId} rows={block.rows} />
           const item = block.item
@@ -824,7 +915,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
             }
             return (
               <div key={item.key} className="flex justify-end px-4 py-2">
-                <div className="max-w-[75%] rounded-lg bg-blue-600/20 px-3 py-2 text-sm text-zinc-200 whitespace-pre-wrap break-words">
+                <div className="max-w-[min(520px,85%)] rounded-[10px_10px_2px_10px] border border-lw-line-strong bg-lw-selected px-3 py-2 text-[13px] text-lw-text whitespace-pre-wrap break-words">
                   {item.text}
                 </div>
               </div>
@@ -833,7 +924,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
           if (item.role === "assistant") {
             return (
               <div key={item.key} className="flex justify-start px-4 py-2">
-                <div className={`max-w-[75%] min-w-0 rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-200 ${item.isStreaming ? "opacity-80" : ""}`}>
+                <div className={`min-w-0 max-w-full text-[13px] leading-[21px] text-[#c9c8d0] ${item.isStreaming ? "opacity-80" : ""}`}>
                   <ReviewMessageBody body={item.text} />
                   {item.isStreaming && <span className="ml-0.5 animate-pulse">▋</span>}
                 </div>
@@ -891,12 +982,13 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
             />
           )}
         </div>
+        </div>
 
         {/* Scroll to bottom button */}
         {isScrolledUp && (
           <button
             onClick={scrollToBottom}
-            className="absolute bottom-3 right-3 z-10 rounded-full bg-zinc-800 border border-zinc-700 p-2 text-zinc-400 shadow-lg transition-colors hover:bg-zinc-700 hover:text-zinc-200 active:bg-zinc-600"
+            className="absolute bottom-3 right-3 z-10 rounded-full border border-lw-line-strong bg-lw-raised p-2 text-lw-text-2 shadow-lg transition-colors hover:text-lw-text"
             title="Scroll to bottom"
           >
             <ArrowDown size={18} />
@@ -904,342 +996,148 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
         )}
       </div>
 
-      {/* Status bar */}
-      <div className="flex items-center gap-3 border-t border-zinc-800 px-4 py-1.5 text-xs text-zinc-500">
-        {/* Below md the agent picker above the panel already names the tool. */}
-        <AgentKindBadge kind={agentKind} isNative className="hidden md:inline-flex" />
-        {awaitingPerson ? (
-          // The request is the newest thing in the conversation, which may
-          // be scrolled well away from it.
-          <button onClick={scrollToBottom} className="flex items-center gap-1.5 text-amber-300 hover:text-amber-200">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-300" />
-            Waiting for you
-          </button>
-        ) : busy ? (
-          <span className="flex items-center gap-1.5 text-green-400">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
-            Working
-          </span>
-        ) : (
-          <span className="text-zinc-500">Idle</span>
-        )}
-        {mode && (
-          <span className="rounded bg-zinc-800 px-1.5 py-0.5">{mode}</span>
-        )}
-        {syncing && <span className="text-indigo-400">Syncing…</span>}
-        {contextUsage && (() => {
-          const pct = contextUsage.used / contextUsage.window
-          const pctRounded = Math.round(pct * 100)
-          const color = pct < 0.5 ? "bg-green-500" : pct < 0.75 ? "bg-amber-500" : "bg-red-500"
-          return (
-            <div className="relative flex h-4 w-28 shrink-0 items-center overflow-hidden rounded bg-zinc-800">
-              <div className={`absolute inset-y-0 left-0 ${color} opacity-80`} style={{ width: `${pctRounded}%` }} />
-              <span className="relative z-10 w-full text-center text-[10px] text-zinc-200">
-                {formatTokens(contextUsage.used)} / {formatTokens(contextUsage.window)} ({pctRounded}%)
-              </span>
-            </div>
-          )
-        })()}
-        {error && <span className="text-red-400">{error}</span>}
-        {/* Action buttons */}
-        {/* The model's name is the one thing here that can give up room: it
-            shrinks, down to its icon, before any button is pushed out of a
-            narrow panel (a small window, or the artifact panel open beside). */}
-        <div className="ml-auto flex min-w-0 items-center gap-1.5">
-          {artifacts && <ArtifactsButton {...artifacts} />}
-          {/* Model selector */}
-          {models.length > 0 && (
-            <Dropdown
-              open={modelsOpen}
-              onOpenChange={setModelsOpen}
-              minWidth={220}
-              className="min-w-0"
-              trigger={
+      {/* Composer: the message box, and under it everything that sets how
+          the agent works (model, effort, mode, resources, macros) beside
+          how full its context is and the buttons that send and interrupt. */}
+      <div className="px-3 pb-3 md:px-6 md:pb-[18px]">
+        <div className={`relative mx-auto flex w-full max-w-[820px] flex-col rounded-[10px] border bg-lw-surface max-sm:rounded-xl ${dictating(voice) ? "border-lw-danger-line" : "border-lw-line-strong"}`}>
+          {slashOpen && (
+            <div className="absolute bottom-full left-3 right-3 z-20 mb-1 max-h-48 overflow-y-auto rounded-[10px] border border-lw-line-strong bg-lw-raised p-1 shadow-[0_12px_30px_rgba(0,0,0,.45)]">
+              {slashSuggestions.map((s, i) => (
                 <button
-                  onClick={() => setModelsOpen((v) => !v)}
-                  className={"flex max-w-full min-w-0 items-center gap-1 overflow-hidden rounded px-2 py-1 text-xs border transition-colors " + (modelsOpen ? "text-zinc-200 bg-zinc-800 border-zinc-600" : "text-zinc-400 border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200")}
-                  title="Change model"
+                  key={s.type + ":" + s.name}
+                  onMouseDown={(e) => { e.preventDefault(); handleSlashSelect(s) }}
+                  onMouseEnter={() => setSlashIndex(i)}
+                  className={"flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors " + (i === slashIndex ? "bg-lw-selected text-lw-text" : "text-[#b4b3bd] hover:bg-lw-selected")}
                 >
-                  <Cpu size={12} className="shrink-0" />
-                  {/* The name gives up its room first, then the effort. */}
-                  <span className="hidden min-w-0 shrink-[100] truncate font-mono sm:inline-block">{model || "model"}</span>
-                  {effort !== undefined && <span className="hidden min-w-0 truncate text-zinc-500 sm:inline-block">{String(effort)}</span>}
+                  <span className={"shrink-0 rounded px-1 font-lw-mono text-[10px] uppercase " + (s.type === "command" ? "bg-lw-accent-soft text-lw-accent-text" : "bg-lw-needs-soft text-lw-needs")}>
+                    {s.type === "command" ? "cmd" : "skill"}
+                  </span>
+                  <span className="font-lw-mono text-lw-text">{s.name}</span>
+                  {s.description && <span className="truncate text-lw-faint">{s.description}</span>}
                 </button>
-              }
-            >
-              {models.map((m) => (
-                <DropdownItem key={m.ref} onClick={() => handleModelChange(m.ref)} active={m.ref === model}>
-                  <span className="font-mono">{m.ref}</span>
-                  {m.isDefault && <span className="rounded bg-indigo-900/60 px-1 text-[10px] text-indigo-300">default</span>}
-                  {m.vision && <span className="text-indigo-400" title="vision">👁</span>}
-                  {m.contextWindow != null && <span className="ml-auto text-zinc-500">{formatTokens(m.contextWindow)}</span>}
-                </DropdownItem>
               ))}
-            </Dropdown>
+            </div>
           )}
-          {/* Mode selector */}
-          {model && <NativeModelSettings key={`${agentId}:${model}`} agentId={agentId} baseUrl={baseUrl} model={model} busy={busy}
-            onSaved={(settingsState) => replaceSyncState({ ...syncStateRef.current, model: settingsState.model, settingsState })} />}
-          {modes.length > 0 && (
-            <div className="relative hidden sm:block" ref={modesRef}>
-              <button
-                onClick={() => setModesOpen((v) => !v)}
-                className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-400 border border-zinc-700 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
-                title="Change mode"
-              >
-                <ArrowLeftRight size={12} />
-                <span>Mode</span>
-              </button>
-              {modesOpen && (
-                <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[160px] z-10">
-                  {modes.map((m) => (
-                    <button
-                      key={m.name}
-                      onClick={() => handleModeChange(m.name)}
-                      className={"flex w-full min-w-0 items-start gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
-                    >
-                      <Check size={12} className={m.name === mode ? "mt-0.5 shrink-0 text-zinc-400" : "mt-0.5 shrink-0 opacity-0"} />
-                      <div className="min-w-0 flex-1 text-left">
-                        <div className="font-mono">{m.name}</div>
-                        {m.description && <div className="text-zinc-500 truncate">{m.description}</div>}
-                      </div>
-                    </button>
-                  ))}
+          {contextUsage && contextShareOf !== null && contextShareOf >= CONTEXT_NEARLY_FULL && (
+            <ContextNotice used={formatTokens(contextUsage.used)} window={formatTokens(contextUsage.window)} />
+          )}
+          {busy && <WorkingStrip elapsed={turnSeconds === null ? undefined : formatElapsed(turnSeconds)} step={step} onInterrupt={handleInterrupt} />}
+          <QueuedList entries={queuedEntries} />
+          <PastedImageStrip pasted={pasted} />
+          {composerEnabled && (
+            <div data-testid="agent-composer" className="relative">
+              {isBang && (
+                <div className="pointer-events-none absolute left-3.5 top-2 flex items-center gap-1 text-lw-needs">
+                  <Terminal size={13} />
+                  <span className="text-[10px] font-semibold uppercase tracking-wide">bash</span>
                 </div>
               )}
+              <textarea
+                ref={textareaRef}
+                aria-label="Message"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onPaste={pasted.onPaste}
+                placeholder={queuedEntries.length > 0 ? "Queue another" : busy ? "Queue a message. Sent after the current step." : `Message ${agentId}`}
+                rows={2}
+                className={`block min-h-14 w-full resize-none border-0 bg-transparent px-3.5 pb-1 pt-3 text-sm text-lw-text placeholder:text-lw-faint focus:outline-none disabled:opacity-50 max-sm:text-base ${isBang ? "pt-8 shadow-[inset_0_0_0_1px] shadow-lw-needs/60" : ""}`}
+              />
             </div>
           )}
-          <ResourcesButton agentId={agentId} baseUrl={baseUrl} />
-          {/* Macros dropdown */}
-          <div className="relative" ref={macrosRef}>
-            <button
-              onClick={() => setMacrosOpen((v) => !v)}
-              className={"flex items-center gap-1 rounded px-2 py-1 text-xs border transition-colors " + (macrosOpen ? "text-zinc-200 bg-zinc-800 border-zinc-600" : "text-zinc-400 border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200")}
-              title="Macros (M)"
-              aria-keyshortcuts="m"
-            >
-              <Zap size={12} />
-              <span className="hidden sm:inline">Macros</span>
-            </button>
-            {macrosOpen && (
-              <div className="absolute bottom-full right-0 mb-1 max-w-[calc(100vw-2rem)] rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
-                {macros.length === 0 ? (
-                  <div className="px-3 py-1.5 text-xs text-zinc-500">(no macros configured)</div>
-                ) : (
-                  macros.map((macro, index) => {
-                    const shortcut = index < 9 ? String(index + 1) : undefined
-                    return (
-                      <button
-                        key={macro.name}
-                        onClick={() => handleMacro(macro.keys)}
-                        aria-keyshortcuts={shortcut}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
-                      >
-                        {shortcut && <kbd className="w-4 rounded border border-zinc-700 text-center font-mono text-[10px] text-zinc-500">{shortcut}</kbd>}
-                        <Zap size={12} />
-                        {macro.name}
-                      </button>
-                    )
-                  })
-                )}
-              </div>
+          {dictating(voice) ? <DictationBar recorder={voice} /> : (
+          <div data-testid="composer-actions" className="flex min-w-0 items-center gap-1 px-2 pb-2 pt-1.5 text-xs text-lw-text-2 max-sm:gap-0.5 max-sm:px-1.5">
+            <div className="flex min-w-0 flex-1 items-center gap-1 max-sm:gap-0.5">
+            {models.length > 0 && (
+              <ComposerModelMenu
+                models={models}
+                model={model ?? ""}
+                window={modelWindow != null ? formatTokens(modelWindow) : undefined}
+                effort={effort !== undefined ? String(effort) : undefined}
+                efforts={efforts}
+                onModel={handleModelChange}
+                onEffort={handleEffortChange}
+                effortLocked={busy ? "Wait for the current run to finish before changing the effort." : undefined}
+                settings={model ? (close) => (
+                  <NativeModelSettingsForm agentId={agentId} baseUrl={baseUrl} model={model} busy={busy} onClose={close}
+                    onSaved={(settingsState) => replaceSyncState({ ...syncStateRef.current, model: settingsState.model, settingsState })} />
+                ) : undefined}
+              />
             )}
-          </div>
-          {/* Overflow menu */}
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setMenuOpen((v) => !v)}
-              className={"flex items-center gap-1 rounded px-2 py-1 text-xs border transition-colors " + (menuOpen ? "text-zinc-200 bg-zinc-800 border-zinc-600" : "text-zinc-400 border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200")}
-              title="More actions"
-            >
-              <MoreHorizontal size={12} />
-            </button>
-            {menuOpen && (
-              <div className="absolute bottom-full right-0 mb-1 max-h-[60vh] max-w-[calc(100vw-2rem)] overflow-y-auto rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
-                {modes.length > 0 && (
-                  <div className="sm:hidden">
+            {modes.length > 0 && (
+              <div className="relative" ref={modesRef}>
+                <button type="button" onClick={() => setModesOpen((v) => !v)} className={composerToolButton(modesOpen)} title="Change mode">
+                  <ArrowLeftRight size={16} aria-hidden="true" className="sm:hidden" />
+                  <span className="hidden sm:inline">Mode</span>
+                  {mode && <span className="hidden font-lw-mono text-lw-faint sm:inline">{mode}</span>}
+                </button>
+                {modesOpen && (
+                  <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[160px] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
                     {modes.map((m) => (
                       <button
                         key={m.name}
-                        onClick={() => { handleModeChange(m.name); setMenuOpen(false) }}
-                        className={"flex w-full min-w-0 items-start gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "text-zinc-200 bg-zinc-800" : "text-zinc-300 hover:bg-zinc-800")}
+                        onClick={() => handleModeChange(m.name)}
+                        className={"flex w-full min-w-0 items-start gap-2 px-3 py-1.5 text-xs transition-colors " + (m.name === mode ? "bg-lw-raised text-lw-text" : "text-lw-text hover:bg-lw-raised")}
                       >
-                        <Check size={12} className={m.name === mode ? "mt-0.5 shrink-0 text-zinc-400" : "mt-0.5 shrink-0 opacity-0"} />
+                        <Check size={12} className={m.name === mode ? "mt-0.5 shrink-0 text-lw-text-2" : "mt-0.5 shrink-0 opacity-0"} />
                         <div className="min-w-0 flex-1 text-left">
                           <div className="font-mono">{m.name}</div>
-                          {m.description && <div className="text-zinc-500 truncate">{m.description}</div>}
+                          {m.description && <div className="truncate text-lw-text-2">{m.description}</div>}
                         </div>
                       </button>
                     ))}
-                    <div className="my-1 border-t border-zinc-800" />
                   </div>
                 )}
-                <div className="sm:hidden">
+              </div>
+            )}
+            <ResourcesButton agentId={agentId} baseUrl={baseUrl} />
+            <div className="relative" ref={macrosRef}>
+              <button type="button" onClick={() => setMacrosOpen((v) => !v)} className={composerToolButton(macrosOpen)} title="Macros (M)" aria-keyshortcuts="m">
+                <Zap size={16} aria-hidden="true" className="sm:hidden" />
+                <span className="hidden sm:inline">Macros</span>
+              </button>
+              {macrosOpen && (
+                <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
                   {macros.length === 0 ? (
-                    <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-500">
-                      <Zap size={12} />
-                      No macros
-                    </div>
+                    <div className="px-3 py-1.5 text-xs text-lw-text-2">(no macros configured)</div>
                   ) : (
                     macros.map((macro, index) => {
                       const shortcut = index < 9 ? String(index + 1) : undefined
                       return (
                         <button
                           key={macro.name}
-                          onClick={() => { handleMacro(macro.keys); setMenuOpen(false) }}
+                          onClick={() => handleMacro(macro.keys)}
                           aria-keyshortcuts={shortcut}
-                          className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-lw-text transition-colors hover:bg-lw-raised"
                         >
-                          {shortcut && <kbd className="w-4 rounded border border-zinc-700 text-center font-mono text-[10px] text-zinc-500">{shortcut}</kbd>}
+                          {shortcut && <kbd className="w-4 rounded border border-lw-line-strong text-center font-mono text-[10px] text-lw-text-2">{shortcut}</kbd>}
                           <Zap size={12} />
                           {macro.name}
                         </button>
                       )
                     })
                   )}
-                  <div className="my-1 border-t border-zinc-800" />
                 </div>
-                <button
-                  onClick={() => { setMenuOpen(false); void resync() }}
-                  disabled={loading}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-50"
-                >
-                  <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-                  {loading ? "Refreshing…" : "Refresh from snapshot"}
-                </button>
-                {ntfyConfigured && onToggleNotify && (
-                  <button
-                    onClick={() => { onToggleNotify(); setMenuOpen(false) }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
-                  >
-                    {notifyEnabled ? <Bell size={12} /> : <BellOff size={12} />}
-                    {notifyEnabled ? "Disable notify" : "Enable notify"}
-                  </button>
-                )}
-                {onDowngradeChimera && (
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false)
-                      void onDowngradeChimera().catch((reason) => {
-                        replaceSyncState({ ...syncStateRef.current, error: reason instanceof Error ? reason.message : String(reason) })
-                      })
-                    }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
-                  >
-                    <Terminal size={12} />
-                    Downgrade to tmux
-                  </button>
-                )}
-                {onDisconnect && (
-                  <button
-                    onClick={() => { onDisconnect(); setMenuOpen(false) }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
-                  >
-                    <Unplug size={12} />
-                    Disconnect
-                  </button>
-                )}
-                {onKill && (
-                  <>
-                    <div className="my-1 border-t border-zinc-800" />
-                    <button
-                      onClick={() => { onKill(); setMenuOpen(false) }}
-                      className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-400 hover:bg-red-950 transition-colors"
-                    >
-                      <Skull size={12} />
-                      Kill agent
-                    </button>
-                  </>
-                )}
-              </div>
+              )}
+            </div>
+            </div>
+            {contextUsage && contextShareOf !== null && (
+              <ContextGauge share={contextShareOf} used={formatTokens(contextUsage.used)} window={formatTokens(contextUsage.window)} />
+            )}
+            {composerEnabled && voiceEnabled && <DictateButton recorder={voice} />}
+            {composerEnabled && (
+              <SendButton
+                label={bangRunning ? "Running…" : isBang ? "Run" : busy ? "Queue" : "Send"}
+                queue={busy && !isBang}
+                disabled={!draft.trim() || bangRunning}
+                onClick={handleSend}
+              />
             )}
           </div>
+          )}
         </div>
       </div>
-
-      {/* Composer */}
-      {composerEnabled && <div className="relative border-t border-zinc-800 p-3">
-        {slashOpen && (
-          <div className="absolute bottom-full left-3 right-3 mb-1 max-h-48 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl z-20">
-            {slashSuggestions.map((s, i) => (
-              <button
-                key={s.type + ":" + s.name}
-                onMouseDown={(e) => { e.preventDefault(); handleSlashSelect(s) }}
-                onMouseEnter={() => setSlashIndex(i)}
-                className={"flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors " + (i === slashIndex ? "bg-zinc-800 text-zinc-100" : "text-zinc-300 hover:bg-zinc-800")}
-              >
-                <span className={"shrink-0 rounded px-1 text-[10px] font-mono uppercase " + (s.type === "command" ? "bg-indigo-900/60 text-indigo-300" : "bg-amber-900/60 text-amber-300")}>
-                  {s.type === "command" ? "cmd" : "skill"}
-                </span>
-                <span className="font-mono text-zinc-200">{s.name}</span>
-                {s.description && <span className="text-zinc-500 truncate">{s.description}</span>}
-              </button>
-            ))}
-          </div>
-        )}
-        {bangQueue.length > 0 && (
-          <div className="mb-2 space-y-1">
-            {bangQueue.map((cmd, i) => (
-              <div key={i} className="flex items-center gap-2 rounded bg-zinc-800/50 px-2 py-1 text-xs text-zinc-400">
-                <span>Queued: !{cmd}</span>
-                <button
-                  onClick={() => setBangQueue((prev) => prev.filter((_, j) => j !== i))}
-                  className="ml-auto text-zinc-600 hover:text-red-400"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <PastedImageStrip pasted={pasted} />
-        <div data-testid="agent-composer" className="flex items-stretch gap-2">
-          <div className="relative min-w-0 flex-1">
-            {isBang && (
-              <div className="absolute left-2.5 top-1.5 flex items-center gap-1 text-amber-400 pointer-events-none">
-                <Terminal size={13} />
-                <span className="text-[10px] font-semibold uppercase tracking-wide">bash</span>
-              </div>
-            )}
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={handleKeyDown}
-              onPaste={pasted.onPaste}
-              placeholder={busy ? "Queue a message..." : "Send a message..."}
-              rows={2}
-              className={`h-full min-h-24 w-full resize-none rounded-lg border bg-zinc-900 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none disabled:opacity-50 ${isBang ? "border-amber-500/60 pt-7 focus:border-amber-400" : "border-zinc-700 focus:border-zinc-500"}`}
-            />
-          </div>
-          <div data-testid="composer-actions" className="grid w-24 shrink-0 grid-rows-2 gap-2">
-            <Button
-              size="sm"
-              onClick={handleSend}
-              disabled={!draft.trim() || bangRunning}
-              className="h-full min-h-11 w-full"
-            >
-              {bangRunning ? "Running…" : isBang ? "Run" : busy ? "Queue" : "Send"}
-            </Button>
-            {busy ? (
-              <Button variant="destructive" size="sm" onClick={handleInterrupt} className="h-full min-h-11 w-full">
-                Interrupt
-              </Button>
-            ) : voiceEnabled ? (
-              <VoiceRecorder
-                ref={voiceRef}
-                agentId={agentId}
-                agentKind={agentKind}
-                baseUrl={baseUrl}
-                transcriptionOnly
-                onTranscription={(text) => {
-                  setDraft((prev) => prev ? prev + " " + text : text)
-                }}
-              />
-            ) : <div aria-hidden="true" />}
-          </div>
-        </div>
-      </div>}
     </div>
   )
 }

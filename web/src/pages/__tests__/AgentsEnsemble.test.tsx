@@ -156,3 +156,33 @@ it("spawns an agent from the ensemble", async () => {
 
   expect(await screen.findByRole("dialog")).toBeTruthy()
 })
+
+it("switches with a number key in the order the agent list shows", async () => {
+  open("/agents")
+  await screen.findByText("Terminal of TASK-1")
+  // TASK-2 waits on the person, so the list shows it first.
+  fireEvent.keyDown(window, { key: "Control", ctrlKey: true })
+  fireEvent.keyDown(window, { key: "1", ctrlKey: true })
+  await screen.findByText("Terminal of TASK-2")
+})
+
+it("sends a message typed into a tile to that agent", async () => {
+  open("/agents?view=ensemble")
+  const box = await screen.findByRole("textbox", { name: "Message TASK-2" })
+  fireEvent.change(box, { target: { value: "go ahead" } })
+  fireEvent.keyDown(box, { key: "Enter" })
+
+  expect(socket.send).toHaveBeenCalledWith({ type: "agent_message", agent_id: "TASK-2", content: "go ahead" })
+})
+
+it("heads a terminal session with its task, its actions, and a way to its card", async () => {
+  open("/agents")
+  await screen.findByText("Terminal of TASK-1")
+  const header = screen.getByRole("banner")
+
+  expect(header.textContent).toContain("TASK-1 title")
+  fireEvent.click(screen.getByTitle("More actions"))
+  expect(screen.getByRole("menuitem", { name: "Refresh terminal" })).toBeTruthy()
+  fireEvent.click(screen.getByRole("button", { name: "Open card" }))
+  await waitFor(() => expect(address()).toBe("/board?highlight_task=TASK-1"))
+})

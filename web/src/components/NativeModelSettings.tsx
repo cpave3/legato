@@ -4,35 +4,50 @@ import { apiFetch } from "../lib/api"
 import { modelSettingsResponse, settingLabels, type ModelSettings, type ModelSettingsPatch, type ModelSettingsState } from "../lib/modelSettings"
 import { Dropdown } from "./ui/Dropdown"
 
+// NativeModelSettings is a button that opens the settings of the session's
+// model beside it.
 export function NativeModelSettings({ agentId, baseUrl, model, busy, onSaved }: {
   agentId: string; baseUrl: string; model: string; busy: boolean; onSaved: (state: ModelSettingsState) => void
 }) {
   const [open, setOpen] = useState(false)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const close = () => { setOpen(false); trigger.current?.focus() }
+  return <Dropdown open={open} onOpenChange={(value) => { if (!value) setOpen(false) }} minWidth={0}
+    trigger={<button ref={trigger} type="button" title="Model settings" aria-label="Model settings" aria-expanded={open} aria-haspopup="dialog"
+      onClick={() => open ? close() : setOpen(true)} className="rounded border border-zinc-700 p-1.5 text-zinc-400 hover:bg-zinc-800"><Settings2 size={12} /></button>}>
+    {open && <NativeModelSettingsForm agentId={agentId} baseUrl={baseUrl} model={model} busy={busy} onSaved={onSaved} onClose={close} />}
+  </Dropdown>
+}
+
+// NativeModelSettingsForm is every setting of the session's model that it
+// takes, read when the form opens and applied together.
+export function NativeModelSettingsForm({ agentId, baseUrl, model, busy, onSaved, onClose }: {
+  agentId: string; baseUrl: string; model: string; busy: boolean; onSaved: (state: ModelSettingsState) => void; onClose: () => void
+}) {
   const [state, setState] = useState<ModelSettingsState | null>(null)
   const [draft, setDraft] = useState<ModelSettingsPatch>({})
   const [reset, setReset] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const trigger = useRef<HTMLButtonElement>(null)
   const form = useRef<HTMLFormElement>(null)
   const generation = useRef(0)
   useEffect(() => () => { generation.current++ }, [])
-  useEffect(() => { if (open && !loading) form.current?.querySelector<HTMLElement>("select, input, button")?.focus() }, [open, loading])
+  useEffect(() => { if (!loading) form.current?.querySelector<HTMLElement>("select, input, button")?.focus() }, [loading])
 
-  const close = () => { if (!saving) { generation.current++; setOpen(false); trigger.current?.focus() } }
-  const show = async () => {
-    if (open) { close(); return }
+  useEffect(() => {
     const request = ++generation.current
-    setOpen(true); setLoading(true); setError(null); setDraft({}); setReset(false); setState(null)
-    try {
-      const response = await apiFetch(baseUrl, `/api/agents/${agentId}/chimera/model`)
-      const value = await modelSettingsResponse(response) as ModelSettingsState | null
-      if (request !== generation.current) return
-      if (value?.capabilities?.schemaVersion === 1 && value.model === model) setState(value)
-    } catch (reason) { if (request === generation.current) setError(reason instanceof Error ? reason.message : String(reason)) }
-    finally { if (request === generation.current) setLoading(false) }
-  }
+    apiFetch(baseUrl, `/api/agents/${agentId}/chimera/model`)
+      .then((response) => modelSettingsResponse(response) as Promise<ModelSettingsState | null>)
+      .then((value) => {
+        if (request !== generation.current) return
+        if (value?.capabilities?.schemaVersion === 1 && value.model === model) setState(value)
+      })
+      .catch((reason) => { if (request === generation.current) setError(reason instanceof Error ? reason.message : String(reason)) })
+      .finally(() => { if (request === generation.current) setLoading(false) })
+  }, [agentId, baseUrl, model])
+
+  const close = () => { if (!saving) { generation.current++; onClose() } }
   const change = (key: keyof ModelSettings, value: string | number | boolean | null) => {
     setDraft((current) => {
       const next = { ...current, [key]: value }
@@ -52,7 +67,7 @@ export function NativeModelSettings({ agentId, baseUrl, model, busy, onSaved }: 
       const result = await modelSettingsResponse(response) as { settingsState?: ModelSettingsState }
       if (request !== generation.current) return
       if (!result?.settingsState || result.settingsState.model !== model) throw new Error("The model changed. Reopen its settings.")
-      onSaved(result.settingsState); setOpen(false); trigger.current?.focus()
+      onSaved(result.settingsState); onClose()
     } catch (reason) { if (request === generation.current) setError(reason instanceof Error ? reason.message : String(reason)) }
     finally { if (request === generation.current) setSaving(false) }
   }
@@ -80,30 +95,26 @@ export function NativeModelSettings({ agentId, baseUrl, model, busy, onSaved }: 
     </label>
   }
   const supported = state && Object.values(state.capabilities.settings).some((capability) => capability.status === "supported")
-  return <Dropdown open={open} onOpenChange={(value) => { if (!value) close() }} minWidth={0}
-    trigger={<button ref={trigger} type="button" title="Model settings" aria-label="Model settings" aria-expanded={open} aria-haspopup="dialog"
-      onClick={() => { void show() }} className="rounded border border-zinc-700 p-1.5 text-zinc-400 hover:bg-zinc-800"><Settings2 size={12} /></button>}>
-    <form ref={form} role="dialog" aria-label="Model settings" className="flex max-h-[65vh] w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-auto p-3"
-      onSubmit={(event) => { event.preventDefault(); void apply() }} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); close() } }}>
-      <h3 className="text-sm font-medium text-zinc-200">Model settings</h3>
-      <p className="break-all text-xs text-zinc-400">{model}</p>
-      {state && <p className="break-all text-xs text-zinc-500">Resolved model: {state.capabilities.modelId}</p>}
-      {loading ? <p className="text-xs text-zinc-400">Loading settings…</p> : !supported ? <p className="text-xs text-zinc-400">Settings information is unavailable for this model. Configure a capability source or model profile in Chimera.</p> : <>
-        {field("thinking")}{field("reasoningEffort")}
-        <details><summary className="cursor-pointer text-xs text-zinc-300">Advanced</summary><div className="mt-2 flex flex-col gap-3">
-          {(Object.keys(settingLabels) as (keyof ModelSettings)[]).filter((key) => key !== "thinking" && key !== "reasoningEffort").map(field)}
-        </div></details>
-        <p className="text-xs text-zinc-500">Applies to this session. Default uses the configured model value.</p>
-        {(Object.keys({ ...state?.defaults, ...state?.overrides }) as (keyof ModelSettings)[]).filter((key) => state?.capabilities.settings[key]?.status !== "supported").map((key) =>
-          <p key={key} className="text-xs text-amber-300">{settingLabels[key]}: {state?.capabilities.settings[key]?.reason ?? "Support is unknown for this model."}</p>)}
-        {busy && <p className="text-xs text-amber-300">Wait for the current run to finish before applying settings.</p>}
-        <button type="button" disabled={busy || saving} onClick={() => { setReset(true); setDraft({}) }} className="text-left text-xs text-indigo-300">Reset to defaults</button>
-      </>}
-      {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
-      <div className="flex justify-end gap-2 text-xs">
-        <button type="button" disabled={saving} onClick={close} className="rounded border border-zinc-700 px-2 py-1 text-zinc-300">Cancel</button>
-        <button type="submit" disabled={!supported || busy || saving || loading} className="rounded bg-indigo-600 px-2 py-1 text-white disabled:opacity-40">{saving ? "Saving…" : "Apply"}</button>
-      </div>
-    </form>
-  </Dropdown>
+  return <form ref={form} role="dialog" aria-label="Model settings" className="flex max-h-[65vh] w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-auto p-3"
+    onSubmit={(event) => { event.preventDefault(); void apply() }} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); close() } }}>
+    <h3 className="text-sm font-medium text-zinc-200">Model settings</h3>
+    <p className="break-all text-xs text-zinc-400">{model}</p>
+    {state && <p className="break-all text-xs text-zinc-500">Resolved model: {state.capabilities.modelId}</p>}
+    {loading ? <p className="text-xs text-zinc-400">Loading settings…</p> : !supported ? <p className="text-xs text-zinc-400">Settings information is unavailable for this model. Configure a capability source or model profile in Chimera.</p> : <>
+      {field("thinking")}{field("reasoningEffort")}
+      <details><summary className="cursor-pointer text-xs text-zinc-300">Advanced</summary><div className="mt-2 flex flex-col gap-3">
+        {(Object.keys(settingLabels) as (keyof ModelSettings)[]).filter((key) => key !== "thinking" && key !== "reasoningEffort").map(field)}
+      </div></details>
+      <p className="text-xs text-zinc-500">Applies to this session. Default uses the configured model value.</p>
+      {(Object.keys({ ...state?.defaults, ...state?.overrides }) as (keyof ModelSettings)[]).filter((key) => state?.capabilities.settings[key]?.status !== "supported").map((key) =>
+        <p key={key} className="text-xs text-amber-300">{settingLabels[key]}: {state?.capabilities.settings[key]?.reason ?? "Support is unknown for this model."}</p>)}
+      {busy && <p className="text-xs text-amber-300">Wait for the current run to finish before applying settings.</p>}
+      <button type="button" disabled={busy || saving} onClick={() => { setReset(true); setDraft({}) }} className="text-left text-xs text-indigo-300">Reset to defaults</button>
+    </>}
+    {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
+    <div className="flex justify-end gap-2 text-xs">
+      <button type="button" disabled={saving} onClick={close} className="rounded border border-zinc-700 px-2 py-1 text-zinc-300">Cancel</button>
+      <button type="submit" disabled={!supported || busy || saving || loading} className="rounded bg-indigo-600 px-2 py-1 text-white disabled:opacity-40">{saving ? "Saving…" : "Apply"}</button>
+    </div>
+  </form>
 }

@@ -124,7 +124,7 @@ it("rescans Chimera and replaces the terminal with the native panel", async () =
   expect(await screen.findByText("Terminal session")).not.toBeNull()
 
   fireEvent.click(screen.getByTitle("More actions"))
-  fireEvent.click(screen.getByRole("button", { name: "Upgrade to native Chimera" }))
+  fireEvent.click(screen.getByRole("menuitem", { name: "Upgrade to native Chimera" }))
 
   await waitFor(() => expect(screen.queryByText("Terminal session")).toBeNull())
   expect(screen.getByText("Native Chimera session")).not.toBeNull()
@@ -159,7 +159,7 @@ it("reconnects a Claude Code terminal to its native panel", async () => {
   expect(await screen.findByText("Terminal session")).not.toBeNull()
 
   fireEvent.click(screen.getByTitle("More actions"))
-  fireEvent.click(screen.getByRole("button", { name: "Upgrade to native panel" }))
+  fireEvent.click(screen.getByRole("menuitem", { name: "Upgrade to native panel" }))
 
   await waitFor(() => expect(screen.queryByText("Terminal session")).toBeNull())
   expect(mockFetch).toHaveBeenCalledWith(

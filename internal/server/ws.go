@@ -31,9 +31,11 @@ const (
 
 // WebSocket message types (server → client).
 const (
-	MsgAgentOutput         = "agent_output"
-	MsgAgentList           = "agent_list"
-	MsgAgentsChanged       = "agents_changed"
+	MsgAgentOutput   = "agent_output"
+	MsgAgentList     = "agent_list"
+	MsgAgentsChanged = "agents_changed"
+	// MsgAgentContext says how full a native agent's context window now is.
+	MsgAgentContext        = "agent_context"
 	MsgChimeraEvent        = "chimera_event"
 	MsgChimeraSyncRequired = "chimera_sync_required"
 	MsgPromptState         = "prompt_state"
@@ -92,6 +94,9 @@ type WSMessage struct {
 	// Answers and Dismissed answer a question the agent asked (agent_question).
 	Answers   map[string][]string `json:"answers,omitempty"`
 	Dismissed bool                `json:"dismissed,omitempty"`
+	// ContextUsed and ContextWindow are an agent's context fill (agent_context).
+	ContextUsed   int `json:"context_used,omitempty"`
+	ContextWindow int `json:"context_window,omitempty"`
 }
 
 // wsClient represents a connected WebSocket client.

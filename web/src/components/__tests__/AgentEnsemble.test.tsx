@@ -33,9 +33,9 @@ const conversation = (values: Partial<AgentConversation>): AgentConversation => 
 let conversations: Record<string, AgentConversation | number>
 let panes: Record<string, string>
 
-function show(agents: AgentInfo[]) {
-  const handlers = { onOpen: vi.fn(), onSpawn: vi.fn(), onShowList: vi.fn() }
-  render(<AgentEnsemble agents={agents} {...handlers} />)
+function show(agents: AgentInfo[], contexts: Record<string, { used: number; window: number; share: number }> = {}) {
+  const handlers = { onOpen: vi.fn(), onSpawn: vi.fn(), onShowList: vi.fn(), onSend: vi.fn() }
+  render(<AgentEnsemble agents={agents} contexts={contexts} {...handlers} />)
   return handlers
 }
 
@@ -79,7 +79,7 @@ describe("AgentEnsemble", () => {
     ])
 
     const counts = screen.getByRole("list", { name: "Agents by state" })
-    expect(within(counts).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["1 needs you", "1 running", "2 idle"])
+    expect(within(counts).getAllByRole("listitem").map((item) => item.textContent)).toEqual(["◆ 1 needs you", "● 1 running", "○ 2 idle"])
   })
 
   it("shows what a native agent said and did, read from its conversation", async () => {
@@ -136,11 +136,34 @@ describe("AgentEnsemble", () => {
     expect(ask.getByText("Red · Blue")).toBeTruthy()
   })
 
-  it("shows how full a native agent's context is", async () => {
-    conversations["busy-1"] = conversation({ context_used: 138_000, context_window: 200_000 })
-    show([agent({ task_id: "busy-1", activity: "working" })])
+  it("shows how full a native agent's context is, as the server last said", () => {
+    show([agent({ task_id: "busy-1", activity: "working" })], { "busy-1": { used: 138_000, window: 200_000, share: 69 } })
 
-    await waitFor(() => expect(within(tile("busy-1")).getByLabelText("Context 69% full")).toBeTruthy())
+    expect(within(tile("busy-1")).getByLabelText("Context 69% full")).toBeTruthy()
+  })
+
+  it("shows an idle agent's last reply, which opens the agent", async () => {
+    conversations["idle-1"] = conversation({ entries: [{ kind: "tool", tool: "bash", text: "Check it", state: "done" }, { kind: "assistant", text: "The heights are **correct**." }] })
+    const { onOpen } = show([agent({ task_id: "idle-1" })])
+
+    const idle = within(tile("idle-1"))
+    await waitFor(() => expect(idle.getByText("The heights are correct.")).toBeTruthy())
+    expect(idle.getByText("Last reply")).toBeTruthy()
+    expect(idle.queryByText("Check it")).toBeNull()
+    fireEvent.click(idle.getByRole("button", { name: "Read full reply" }))
+    expect(onOpen).toHaveBeenCalledWith("idle-1")
+  })
+
+  it("sends a message to an agent from its tile", () => {
+    const { onSend } = show([agent({ task_id: "busy-1", activity: "working" }), agent({ task_id: "idle-1" })])
+
+    const box = within(tile("busy-1")).getByRole("textbox", { name: "Message busy-1" })
+    fireEvent.change(box, { target: { value: "assume you have the latest" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+
+    expect(onSend).toHaveBeenCalledWith("busy-1", "assume you have the latest")
+    expect((box as HTMLInputElement).value).toBe("")
+    expect(within(tile("idle-1")).getByRole("textbox", { name: "Reply to idle-1" })).toBeTruthy()
   })
 
   it("says so when an agent has said nothing yet", async () => {
@@ -168,6 +191,7 @@ describe("AgentEnsemble", () => {
   it("offers to spawn an agent and to go back to the list", () => {
     const { onSpawn, onShowList } = show([agent({ task_id: "idle-1" })])
 
+    expect(screen.getByRole("button", { name: "Tiles" }).getAttribute("aria-pressed")).toBe("true")
     fireEvent.click(screen.getByRole("button", { name: "Spawn agent" }))
     fireEvent.click(screen.getByRole("button", { name: "List" }))
 

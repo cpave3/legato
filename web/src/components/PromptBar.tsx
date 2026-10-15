@@ -7,12 +7,15 @@ import { PastedImageStrip } from "./PastedImageStrip"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
 import { apiFetch } from "../lib/api"
 import { cn } from "../lib/utils"
-import { Send, Square, ArrowLeftRight, X, ScanSearch, Unplug, Skull, MoreHorizontal, RefreshCw, Eye, EyeOff, Terminal, Zap, Bell, BellOff, Sparkles } from "lucide-react"
-import { VoiceRecorder, type VoiceRecorderHandle } from "./VoiceRecorder"
+import { ArrowLeftRight, X, Terminal, Zap } from "lucide-react"
+import { useVoiceRecorder } from "../hooks/useVoiceRecorder"
+import { DictateButton, DictationBar, SendButton, WorkingStrip } from "./Composer"
+import { composerToolButton, dictating } from "../lib/composer"
 import { AgentKindBadge } from "./AgentKindBadge"
-import { canBeNative } from "../lib/agentKind"
 import { appendProposal, onComposerProposal } from "../lib/agentUi"
 import { ArtifactsButton, type ArtifactsButtonProps } from "./ArtifactsButton"
+import { AgentMoreMenu } from "./AgentChatHeader"
+import { useTerminalMenu } from "../hooks/useTerminalMenu"
 
 interface ActionListProps {
   actions: { label: string; keys: string }[]
@@ -122,6 +125,10 @@ interface PromptBarProps {
   onUpgradeChimera?: () => Promise<void>
   // The session's artifacts, offered from the toolbar.
   artifacts?: ArtifactsButtonProps
+  // The page's header above the terminal already names the agent and holds
+  // its artifacts and More actions menu (useTerminalMenu); the bar keeps
+  // only the message box and the controls under it.
+  menuInHeader?: boolean
 }
 
 function draftKey(id: string) { return `legato:draft:${id}` }
@@ -134,20 +141,19 @@ export interface PromptBarHandle {
   voiceIsRecording: () => boolean
 }
 
-export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera, artifacts }, ref) {
+export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera, artifacts, menuInHeader = false }, ref) {
   const { baseUrl } = useServer()
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [upgradePending, setUpgradePending] = useState(false)
-  const [upgradeError, setUpgradeError] = useState("")
-  const menuRef = useRef<HTMLDivElement>(null)
+  const terminalMenu = useTerminalMenu({ agentKind, onUpgradeChimera, onRefresh, onDetectPrompt, onTogglePromptDetection, promptDetectionEnabled, ntfyConfigured, notifyEnabled, onToggleNotify, onDisconnect, onKill })
   const [macrosOpen, setMacrosOpen] = useState(false)
   const [macros, setMacros] = useState<{ name: string; keys: string }[]>([])
   const macrosRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const inputRef = useRef(input)
   const prevAgentIdRef = useRef(agentId)
-  const voiceRef = useRef<VoiceRecorderHandle>(null)
+  // Dictation: the server sends what was said to the agent, or types it into
+  // the pane, as the voice settings say.
+  const voice = useVoiceRecorder({ agentId, agentKind, baseUrl })
 
   // Fetch macros eagerly so numbered shortcuts are ready when the menu opens.
   useEffect(() => {
@@ -161,10 +167,10 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
 
   useImperativeHandle(ref, () => ({
     focus: () => textareaRef.current?.focus(),
-    voiceStart: () => voiceRef.current?.start(),
-    voiceSend: () => voiceRef.current?.send(),
-    voiceCancel: () => voiceRef.current?.cancel(),
-    voiceIsRecording: () => voiceRef.current?.isRecording() ?? false,
+    voiceStart: () => { void voice.start() },
+    voiceSend: () => { void voice.stop() },
+    voiceCancel: voice.cancel,
+    voiceIsRecording: () => voice.state === "recording",
   }))
 
   // Sync textarea height whenever input changes (submit clear, agent switch, typing).
@@ -218,18 +224,6 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
     localStorage.setItem(draftKey(agentId), next)
     textareaRef.current?.focus()
   }), [agentId])
-
-  // Close menu on outside click.
-  useEffect(() => {
-    if (!menuOpen) return
-    const onClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-      }
-    }
-    document.addEventListener("click", onClick, true)
-    return () => document.removeEventListener("click", onClick, true)
-  }, [menuOpen])
 
   // Close macros dropdown on outside click.
   useEffect(() => {
@@ -295,189 +289,53 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   const commandKind = agentKind || agentCommand
   const isBashMode = ["claude-code", "claude", "codex"].includes(commandKind || "") && input.startsWith("! ")
 
+  const asking = (type === "tool_approval" || type === "plan_approval" || type === "question" || type === "menu") && promptState?.actions
+
   return (
-    <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-3">
-      <div className="flex items-center justify-between gap-2">
-        {/* Left: which agent tool this terminal runs, then its title */}
-        <div className="flex min-w-0 items-center gap-2">
-          {/* Below md the agent picker above the terminal already names the tool. */}
-          <AgentKindBadge kind={agentKind} isNative={false} className="hidden md:inline-flex" />
-          {agentTitle && (
-            <div className="text-xs text-zinc-500 truncate">{agentTitle}</div>
-          )}
-        </div>
-
-        {/* Right: action buttons */}
-        <div className="ml-auto flex items-center gap-1.5 shrink-0">
-          <button
-            onClick={() => onSendKeys("BTab")}
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-400 border border-zinc-700 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
-            title="Cycle Claude mode (Shift+Tab)"
-          >
-            <ArrowLeftRight size={12} />
-            <span>Mode</span>
-          </button>
-          {isWorking && (
-            <button
-              onClick={() => onSendKeys("Escape")}
-              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-red-400 border border-red-900 transition-colors hover:bg-red-950 hover:text-red-300"
-              title="Stop (Escape)"
-            >
-              <Square size={12} />
-              <span>Stop</span>
-            </button>
-          )}
-          {artifacts && <ArtifactsButton {...artifacts} />}
-          {/* Macros dropdown */}
-          <div className="relative" ref={macrosRef}>
-            <button
-              onClick={() => setMacrosOpen((v) => !v)}
-              className={cn(
-                "flex items-center gap-1 rounded px-2 py-1 text-xs border transition-colors",
-                macrosOpen
-                  ? "text-zinc-200 bg-zinc-800 border-zinc-600"
-                  : "text-zinc-400 border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200"
-              )}
-              title="Macros (M)"
-              aria-keyshortcuts="m"
-            >
-              <Zap size={12} />
-              <span>Macros</span>
-            </button>
-            {macrosOpen && (
-              <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
-                {macros.length === 0 ? (
-                  <div className="px-3 py-1.5 text-xs text-zinc-500">(no macros configured)</div>
-                ) : (
-                  macros.map((macro, index) => {
-                    const shortcut = index < 9 ? String(index + 1) : undefined
-                    return (
-                      <button
-                        key={macro.name}
-                        onClick={() => handleMacro(macro.keys)}
-                        aria-keyshortcuts={shortcut}
-                        className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
-                      >
-                        {shortcut && <kbd className="w-4 rounded border border-zinc-700 text-center font-mono text-[10px] text-zinc-500">{shortcut}</kbd>}
-                        <Zap size={12} />
-                        {macro.name}
-                      </button>
-                    )
-                  })
-                )}
-              </div>
-            )}
+    <div className="bg-lw-ground px-3 pb-3 font-lw text-[13px] text-lw-text md:px-6 md:pb-[18px]">
+      {!menuInHeader && (
+        // Without the page's header (in a swarm), the bar names the agent
+        // and holds its artifacts and menu itself.
+        <div className="flex items-center justify-between gap-2 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            {/* Below md the agent picker above the terminal already names the tool. */}
+            <AgentKindBadge kind={agentKind} isNative={false} className="hidden md:inline-flex" />
+            {agentTitle && <div className="truncate text-xs text-lw-text-2">{agentTitle}</div>}
           </div>
-          {/* Overflow menu */}
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setMenuOpen((v) => !v)}
-              className={cn(
-                "flex items-center gap-1 rounded px-2 py-1 text-xs border transition-colors",
-                menuOpen
-                  ? "text-zinc-200 bg-zinc-800 border-zinc-600"
-                  : "text-zinc-400 border-zinc-700 hover:bg-zinc-800 hover:text-zinc-200"
-              )}
-              title="More actions"
-            >
-              <MoreHorizontal size={12} />
-            </button>
-            {menuOpen && (
-              <div className="absolute bottom-full right-0 mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-10">
-                {canBeNative(agentKind) && onUpgradeChimera && (
-                  <button
-                    onClick={() => {
-                      setUpgradeError("")
-                      setUpgradePending(true)
-                      void onUpgradeChimera()
-                        .then(() => setMenuOpen(false))
-                        .catch((error: unknown) => setUpgradeError(error instanceof Error ? error.message : String(error)))
-                        .finally(() => setUpgradePending(false))
-                    }}
-                    disabled={upgradePending}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-indigo-300 hover:bg-zinc-800 transition-colors disabled:opacity-50"
-                  >
-                    <Sparkles size={12} />
-                    {upgradePending ? "Upgrading…" : agentKind === "chimera" ? "Upgrade to native Chimera" : "Upgrade to native panel"}
-                  </button>
-                )}
-                <button
-                  onClick={() => { onRefresh(); setMenuOpen(false) }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
-                >
-                  <RefreshCw size={12} />
-                  Refresh terminal
-                </button>
-                <button
-                  onClick={() => { onDetectPrompt(); setMenuOpen(false) }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
-                >
-                  <ScanSearch size={12} />
-                  Re-detect prompt
-                </button>
-                <button
-                  onClick={() => { onTogglePromptDetection(); setMenuOpen(false) }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
-                >
-                  {promptDetectionEnabled ? <EyeOff size={12} /> : <Eye size={12} />}
-                  {promptDetectionEnabled ? "Disable prompt detection" : "Enable prompt detection"}
-                </button>
-                {ntfyConfigured && onToggleNotify && (
-                  <button
-                    onClick={() => { onToggleNotify(); setMenuOpen(false) }}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
-                  >
-                    {notifyEnabled ? <Bell size={12} /> : <BellOff size={12} />}
-                    {notifyEnabled ? "Disable notify" : "Enable notify"}
-                  </button>
-                )}
-                <button
-                  onClick={() => { onDisconnect(); setMenuOpen(false) }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
-                >
-                  <Unplug size={12} />
-                  Disconnect
-                </button>
-                <div className="my-1 border-t border-zinc-800" />
-                <button
-                  onClick={() => { onKill(); setMenuOpen(false) }}
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-400 hover:bg-red-950 transition-colors"
-                >
-                  <Skull size={12} />
-                  Kill agent
-                </button>
-              </div>
-            )}
+          <div className="flex shrink-0 items-center gap-1.5">
+            {artifacts && <ArtifactsButton {...artifacts} />}
+            <AgentMoreMenu entries={terminalMenu.entries} />
           </div>
         </div>
-      </div>
+      )}
+      {!menuInHeader && terminalMenu.upgradeError && <div role="alert" className="mb-2 text-xs text-lw-error">{terminalMenu.upgradeError}</div>}
 
-      {upgradeError && <div role="alert" className="mt-2 text-xs text-red-400">{upgradeError}</div>}
-
-      {/* Prompt-specific controls */}
-      <div className="mt-2">
-        {(type === "tool_approval" || type === "plan_approval" || type === "question" || type === "menu") && promptState?.actions && (
-          <ActionList
-            actions={promptState.actions}
-            type={type}
-            onSelect={(keys) => { onSendKeys(keys); onDismissPrompt() }}
-            onDismiss={onDismissPrompt}
-          />
+      <div className={cn("mx-auto flex w-full max-w-[820px] flex-col rounded-[10px] border bg-lw-surface max-sm:rounded-xl", dictating(voice) ? "border-lw-danger-line" : "border-lw-line-strong", menuInHeader && "mt-3")}>
+        {isWorking && !asking && <WorkingStrip onInterrupt={() => onSendKeys("Escape")} />}
+        {asking && promptState?.actions && type && (
+          <div className="p-2.5">
+            <ActionList
+              actions={promptState.actions}
+              type={type}
+              onSelect={(keys) => { onSendKeys(keys); onDismissPrompt() }}
+              onDismiss={onDismissPrompt}
+            />
+          </div>
         )}
 
-        {(type === "free_text" || type === null) && (
+        {!asking && (
           <>
-          <PastedImageStrip pasted={pasted} />
-          <div className="flex items-end gap-2">
-            <div className="relative flex-1">
+            <PastedImageStrip pasted={pasted} />
+            <div className="relative">
               {isBashMode && (
-                <div className="absolute left-2.5 top-1.5 flex items-center gap-1 text-amber-400 pointer-events-none">
+                <div className="pointer-events-none absolute left-3.5 top-2 flex items-center gap-1 text-lw-needs">
                   <Terminal size={13} />
                   <span className="text-[10px] font-semibold uppercase tracking-wide">bash</span>
                 </div>
               )}
               <textarea
                 ref={textareaRef}
+                aria-label="Message"
                 value={input}
                 onChange={(e) => handleInputChange(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -486,32 +344,66 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
                 disabled={connected === false}
                 rows={1}
                 className={cn(
-                  "w-full rounded bg-zinc-900 border px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none disabled:opacity-50 resize-none leading-6 transition-colors",
-                  isBashMode
-                    ? "border-amber-500/60 focus:border-amber-400 pt-7"
-                    : "border-zinc-700 focus:border-indigo-500"
+                  "block w-full resize-none border-0 bg-transparent px-3.5 pb-1 pt-3 text-sm leading-6 text-lw-text outline-none placeholder:text-lw-faint disabled:opacity-50 max-sm:text-base",
+                  isBashMode && "pt-8 shadow-[inset_0_0_0_1px] shadow-lw-needs/60",
                 )}
                 autoFocus
               />
             </div>
-            <button
-              onClick={handleSubmit}
-              disabled={!input.trim() || connected === false}
-              title="Send"
-              className="rounded bg-indigo-600 p-1.5 text-white transition-colors hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 mb-0.5"
-            >
-              <Send size={16} />
-            </button>
-            {voiceEnabled && connected !== false && (
-              <VoiceRecorder
-                ref={voiceRef}
-                agentId={agentId}
-                agentKind={agentKind}
-                baseUrl={baseUrl}
-              />
-            )}
-          </div>
           </>
+        )}
+
+        {dictating(voice) ? <DictationBar recorder={voice} /> : (
+        <div className={cn("flex min-w-0 items-center gap-1 px-2 pb-2 pt-1.5 text-xs text-lw-text-2 max-sm:gap-0.5 max-sm:px-1.5", asking && "border-t border-lw-line")}>
+          <div className="flex min-w-0 flex-1 items-center gap-1 max-sm:gap-0.5">
+            <button type="button" onClick={() => onSendKeys("BTab")} className={composerToolButton()} title="Cycle Claude mode (Shift+Tab)" aria-label="Mode">
+              <ArrowLeftRight size={16} aria-hidden="true" className="sm:hidden" />
+              <span className="hidden sm:inline">Mode</span>
+              <span aria-hidden="true" className="hidden font-lw-mono text-lw-faint sm:inline">⇧Tab</span>
+            </button>
+        {/* Macros dropdown */}
+        <div className="relative" ref={macrosRef}>
+          <button
+            type="button"
+            onClick={() => setMacrosOpen((v) => !v)}
+            className={composerToolButton(macrosOpen)}
+            title="Macros (M)"
+            aria-label="Macros"
+            aria-keyshortcuts="m"
+          >
+            <Zap size={16} aria-hidden="true" className="sm:hidden" />
+            <span className="hidden sm:inline">Macros</span>
+          </button>
+          {macrosOpen && (
+            <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[180px] max-w-[calc(100vw-2rem)] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
+              {macros.length === 0 ? (
+                <div className="px-3 py-1.5 text-xs text-lw-text-2">(no macros configured)</div>
+              ) : (
+                macros.map((macro, index) => {
+                  const shortcut = index < 9 ? String(index + 1) : undefined
+                  return (
+                    <button
+                      key={macro.name}
+                      onClick={() => handleMacro(macro.keys)}
+                      aria-keyshortcuts={shortcut}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-lw-text transition-colors hover:bg-lw-raised"
+                    >
+                      {shortcut && <kbd className="w-4 rounded border border-lw-line-strong text-center font-mono text-[10px] text-lw-text-2">{shortcut}</kbd>}
+                      <Zap size={12} />
+                      {macro.name}
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          )}
+        </div>
+          </div>
+          {voiceEnabled && connected !== false && <DictateButton recorder={voice} />}
+          {!asking && (
+            <SendButton label="Send" queue={false} disabled={!input.trim() || connected === false} onClick={handleSubmit} />
+          )}
+        </div>
         )}
       </div>
     </div>

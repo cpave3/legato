@@ -15,16 +15,16 @@ const errorAgent = {
 describe("AgentSelect", () => {
   it("renders an error dot and label", () => {
     render(<AgentSelect agents={[errorAgent]} selectedId="task-error" onSelect={() => {}} />)
-    expect(screen.getByTitle("Error").className).toContain("bg-red-500")
+    expect(screen.getByTitle("Error").className).toContain("bg-lw-error")
     fireEvent.click(screen.getByRole("button"))
-    expect(screen.getByText("Error").className).toContain("text-red-400")
+    expect(screen.getByText("Error").className).toContain("text-lw-error")
   })
 
   it("tells an agent waiting on background work from an idle one", () => {
     // Scoped to this render: the file's tests share one document.
     const view = within(render(<AgentSelect agents={[{ ...errorAgent, activity: "background" }]} selectedId="task-error" onSelect={() => {}} />).container)
-    expect(view.getByTitle("Background work running").className).toContain("bg-sky-400")
+    expect(view.getByTitle("Background work running").className).toContain("bg-lw-done")
     fireEvent.click(view.getByRole("button"))
-    expect(view.getByText("Background").className).toContain("text-sky-300")
+    expect(view.getByText("Background").className).toContain("text-lw-done")
   })
 })

@@ -78,6 +78,10 @@ type AgentResponse struct {
 	StateTimeline      []string   `json:"state_timeline,omitempty"`
 	NotifyEnabled      bool       `json:"notify_enabled"`
 	HasChimeraEndpoint bool       `json:"has_chimera_endpoint"`
+	// ContextUsed and ContextWindow are the last known fill of a native
+	// agent's context window; later changes arrive as agent_context.
+	ContextUsed   int `json:"context_used,omitempty"`
+	ContextWindow int `json:"context_window,omitempty"`
 }
 
 func agentResponse(agent service.AgentSession) AgentResponse {
@@ -280,6 +284,7 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 		durations, _ := s.agents.GetTaskDurations(context.Background(), taskIDs)
 
 		resp := make([]AgentResponse, len(agents))
+		var native []string
 		for i, a := range agents {
 			r := agentResponse(a)
 			if d, ok := durations[a.TaskID]; ok {
@@ -296,8 +301,15 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 				r.NotifyEnabled, _ = s.agents.GetTaskNotifyEnabled(context.Background(), a.TaskID)
 				r.HasChimeraEndpoint = s.agents.HasChimeraEndpoint(context.Background(), a.TaskID)
 			}
+			if reading, ok := s.agentContexts.Context(a.TaskID); ok {
+				r.ContextUsed, r.ContextWindow = reading.Used, reading.Window
+			}
+			if r.HasChimeraEndpoint && a.Status == "running" {
+				native = append(native, a.TaskID)
+			}
 			resp[i] = r
 		}
+		s.agentContexts.Reconcile(native)
 
 		json.NewEncoder(w).Encode(resp)
 	}

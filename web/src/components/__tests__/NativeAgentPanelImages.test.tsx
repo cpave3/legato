@@ -160,7 +160,7 @@ const pasteOf = (files: File[], text = "") => ({ clipboardData: { files, getData
 const stored = (name: string) => `/tmp/legato-1000/pasted-images/task-1/${name}`
 
 async function messageBox(): Promise<HTMLTextAreaElement> {
-  return await screen.findByPlaceholderText("Send a message...") as HTMLTextAreaElement
+  return await screen.findByPlaceholderText("Message task-1") as HTMLTextAreaElement
 }
 
 describe("NativeAgentPanel and an image the person pastes", () => {

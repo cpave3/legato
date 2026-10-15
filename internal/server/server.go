@@ -41,6 +41,7 @@ type Server struct {
 	hub                      *Hub
 	streams                  *streamManager
 	chimeraStreams           *chimeraStreamManager
+	agentContexts            *contextWatcher
 	tlsCert                  string
 	tlsKey                   string
 	caCertPath               string
@@ -100,6 +101,10 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 		},
 	}
 	s.chimeraStreams.agents = agents
+	s.agentContexts = newContextWatcher(s.hub.Broadcast)
+	if agents != nil {
+		s.agentContexts.sessions = agents.GetAgentSession
+	}
 	// When a pipe-pane stream ends (shell exit), reconcile DB state
 	// and notify all web clients so dead agents update in the sidebar.
 	sm.onStreamEnd = func(agentID string) {
@@ -755,5 +760,6 @@ func (s *Server) StartBoardEvents() {
 
 // Stop gracefully shuts down the server.
 func (s *Server) Stop(ctx context.Context) error {
+	s.agentContexts.Stop()
 	return s.server.Shutdown(ctx)
 }

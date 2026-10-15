@@ -96,7 +96,7 @@ describe("NativeAgentPanel and what an agent shows", () => {
       { callId: "c2", name: "legato.show_components", args: { fallback_text: "27 C and sunny" }, result: { output: shown("ui-0123456789") } },
     ])
     render(<NativeAgentPanel agentId="task-1" />, { wrapper })
-    const composer = await screen.findByPlaceholderText("Send a message...") as HTMLTextAreaElement
+    const composer = await screen.findByPlaceholderText("Message task-1") as HTMLTextAreaElement
     fireEvent.change(composer, { target: { value: "Thanks." } })
 
     fireEvent.click(await screen.findByRole("button", { name: "Forecast" }))
@@ -108,7 +108,7 @@ describe("NativeAgentPanel and what an agent shows", () => {
   it("ignores a message proposed for another agent", async () => {
     mockSession([])
     render(<NativeAgentPanel agentId="task-1" />, { wrapper })
-    const composer = await screen.findByPlaceholderText("Send a message...") as HTMLTextAreaElement
+    const composer = await screen.findByPlaceholderText("Message task-1") as HTMLTextAreaElement
 
     act(() => proposeComposerText("task-2", "not for this agent"))
 
@@ -121,7 +121,7 @@ describe("NativeAgentPanel artifacts button", () => {
     mockSession([])
     const onToggle = vi.fn()
     render(<NativeAgentPanel agentId="task-1" artifacts={{ count: 2, fresh: 1, onToggle }} />, { wrapper })
-    await screen.findByPlaceholderText("Send a message...")
+    await screen.findByPlaceholderText("Message task-1")
 
     const button = screen.getByRole("button", { name: "Artifacts (2), 1 new" })
     expect(button.textContent).toContain("2")
@@ -133,7 +133,7 @@ describe("NativeAgentPanel artifacts button", () => {
   it("shows no artifacts button for a session that has shown none", async () => {
     mockSession([])
     render(<NativeAgentPanel agentId="task-1" artifacts={{ count: 0, fresh: 0, onToggle: vi.fn() }} />, { wrapper })
-    await screen.findByPlaceholderText("Send a message...")
+    await screen.findByPlaceholderText("Message task-1")
 
     expect(screen.queryByRole("button", { name: /Artifacts/ })).toBeNull()
   })
