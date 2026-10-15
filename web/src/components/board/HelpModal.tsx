@@ -14,12 +14,14 @@ const sections = [
       { key: "j/k", desc: "Move up/down within column" },
       { key: "g/G", desc: "Jump to first/last card" },
       { key: "1-5", desc: "Jump to column by number" },
+      { key: "z", desc: "Show or fold empty columns" },
     ],
   },
   {
     title: "Actions",
     items: [
       { key: "enter", desc: "Open task detail" },
+      { key: "s", desc: "Start or go to the task's agent (wide screens)" },
       { key: "m", desc: "Move task" },
       { key: "n", desc: "Create new task" },
       { key: "d", desc: "Delete task" },
@@ -32,7 +34,7 @@ const sections = [
       { key: "o", desc: "Open URL" },
       { key: "X", desc: "Archive done cards" },
       { key: "A", desc: "Browse archived tasks" },
-      { key: "/", desc: "Search/filter" },
+      { key: "/", desc: "Search all tasks, archived too" },
       { key: "w", desc: "Workspace filter" },
       { key: "esc", desc: "Back / close" },
     ],

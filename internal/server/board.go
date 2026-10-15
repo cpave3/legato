@@ -86,6 +86,7 @@ func (s *Server) boardHandler() http.HandlerFunc {
 				if r, ok := cardRefs[id]; ok {
 					resp.Columns[r.col].Cards[r.card].AgentActive = summary.Active
 					resp.Columns[r.col].Cards[r.card].AgentState = summary.State
+					resp.Columns[r.col].Cards[r.card].AgentKind = summary.Kind
 				}
 			}
 		}

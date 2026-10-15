@@ -58,7 +58,7 @@ body {
 }
 
 .board-column-scrollbar {
-  scrollbar-color: #52525b transparent;
+  scrollbar-color: #31313a transparent;
   scrollbar-width: thin;
 }
 
@@ -71,12 +71,12 @@ body {
 }
 
 .board-column-scrollbar::-webkit-scrollbar-thumb {
-  background: #52525b;
+  background: #31313a;
   border-radius: 9999px;
 }
 
 .board-column-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #71717a;
+  background: #4a4955;
 }
 
 @media (max-width: 767px) {
@@ -90,68 +90,51 @@ body {
   }
 }
 
-@property --agent-orbit-angle {
+/* The edge of a card whose task has a live agent: a short light that runs
+   round it, quicker while the agent works. */
+@property --lw-trace-angle {
   syntax: "<angle>";
   initial-value: 0deg;
   inherits: false;
 }
 
-.agent-activity-orbit::before {
+.lw-trace::before {
   content: "";
   position: absolute;
-  inset: -1px;
-  padding: 2px;
+  inset: 0;
+  padding: 1px;
   border-radius: inherit;
   pointer-events: none;
   background: conic-gradient(
-    from var(--agent-orbit-angle),
-    transparent 0deg 326deg,
-    rgba(167, 139, 250, 0.15) 332deg,
-    rgba(196, 181, 253, 0.9) 344deg,
-    rgba(139, 92, 246, 0.25) 354deg,
+    from var(--lw-trace-angle),
+    transparent 0deg 290deg,
+    rgba(124, 108, 247, 0.35) 320deg,
+    #b9afff 350deg,
+    #ffffff 356deg,
     transparent 360deg
   );
-  filter: drop-shadow(0 0 2px rgba(139, 92, 246, 0.45));
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  animation: agent-activity-orbit 14s linear infinite;
+  animation: lw-trace-spin 4s linear infinite;
 }
 
-.agent-activity-orbit-idle::before {
-  background: conic-gradient(
-    from var(--agent-orbit-angle),
-    transparent 0deg 338deg,
-    rgba(167, 139, 250, 0.08) 342deg,
-    rgba(196, 181, 253, 0.55) 350deg,
-    rgba(139, 92, 246, 0.12) 357deg,
-    transparent 360deg
-  );
-  filter: drop-shadow(0 0 1px rgba(139, 92, 246, 0.3));
-  animation-duration: 24s;
+.lw-trace-working {
+  box-shadow: 0 0 18px -6px rgba(124, 108, 247, 0.55);
 }
 
-.agent-activity-orbit-working::before {
-  background: conic-gradient(
-    from var(--agent-orbit-angle),
-    transparent 0deg 318deg,
-    rgba(167, 139, 250, 0.25) 326deg,
-    rgba(221, 214, 254, 1) 342deg,
-    rgba(139, 92, 246, 0.4) 356deg,
-    transparent 360deg
-  );
-  filter: drop-shadow(0 0 3px rgba(167, 139, 250, 0.8));
-  animation-duration: 6s;
+.lw-trace-idle::before {
+  animation-duration: 10s;
+  opacity: 0.4;
 }
 
-@keyframes agent-activity-orbit {
-  to { --agent-orbit-angle: 360deg; }
+@keyframes lw-trace-spin {
+  to { --lw-trace-angle: 360deg; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-activity-orbit::before {
-    display: none;
+  .lw-trace::before {
     animation: none;
   }
 }

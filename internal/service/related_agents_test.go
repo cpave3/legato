@@ -52,3 +52,20 @@ func TestSummarizeRelatedAgentsPreservesSharedAndIdleStates(t *testing.T) {
 		})
 	}
 }
+
+func TestSummarizeRelatedAgentsNamesTheAgentToolOnlyWhenTheAgentsShareOne(t *testing.T) {
+	same := SummarizeRelatedAgents([]AgentSession{
+		{TaskID: "a", AgentKind: "codex", Status: "running"},
+		{TaskID: "b", AttributionTaskID: "a", AgentKind: "codex", Status: "running"},
+	})["a"]
+	if same.Kind != "codex" {
+		t.Fatalf("shared kind = %q, want codex", same.Kind)
+	}
+	mixed := SummarizeRelatedAgents([]AgentSession{
+		{TaskID: "a", AgentKind: "codex", Status: "running"},
+		{TaskID: "b", AttributionTaskID: "a", AgentKind: "claude-code", Status: "running"},
+	})["a"]
+	if mixed.Kind != "" {
+		t.Fatalf("mixed kind = %q, want none", mixed.Kind)
+	}
+}

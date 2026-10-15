@@ -1,26 +1,10 @@
 import { cn } from "../../lib/utils"
-import { useEffect, useRef, type DragEvent, type MouseEvent } from "react"
+import { useEffect, useRef, type DragEvent, type MouseEvent, type ReactNode } from "react"
+import { Link } from "react-router-dom"
+import { MoreHorizontal } from "lucide-react"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
+import { agentStripLook, formatDuration, priorityTone } from "../../lib/boardCard"
 import { animatedAgentActivityEnabled } from "../../lib/appearancePreferences"
-import {
-  Globe,
-  FileText,
-  AlertTriangle,
-  CheckCircle2,
-  Code2,
-  XCircle,
-  Clock,
-  Check,
-  FileWarning,
-  MessageSquare,
-  Diamond,
-  Play,
-  Pause,
-  Hourglass,
-  ListChecks,
-  MoreHorizontal,
-  GitPullRequest,
-} from "lucide-react"
 
 interface BoardCardProps {
   card: BoardCardType
@@ -29,71 +13,89 @@ interface BoardCardProps {
   column: string
   showWorkspace: boolean
   onClick: () => void
+  onDoubleClick?: () => void
   onContextMenu?: (position: { x: number; y: number }) => void
   onActionMenu?: (position: { x: number; y: number }) => void
   onDragStart?: (event: DragEvent<HTMLDivElement>) => void
 }
 
-function formatDuration(seconds: number): string {
-  if (seconds <= 0) return ""
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 1) return "<1m"
-  const hours = Math.floor(minutes / 60)
-  const remaining = minutes % 60
-  if (hours === 0) return `${remaining}m`
-  if (remaining === 0) return `${hours}h`
-  return `${hours}h ${remaining}m`
+// The line at the foot of a card whose task has an agent: what the agent is
+// doing, on the tint of that state, and the time that goes with it.
+function AgentStrip({ card }: { card: BoardCardType }) {
+  const look = agentStripLook(card)
+  return (
+    <div data-testid="agent-strip" className={cn("flex items-center justify-between gap-2 px-3 py-[5px] text-xs", look.tint)}>
+      <span className={cn("flex min-w-0 items-center gap-1.5", look.tone)}><span aria-hidden="true">{look.glyph}</span><span className="truncate">{look.label}</span></span>
+      {look.time > 0 && <span className="shrink-0 font-lw-mono text-lw-text-2">{formatDuration(look.time)}</span>}
+    </div>
+  )
 }
 
-function priorityBorderClass(priority: string): string {
-  switch (priority) {
-    case "High":
-    case "Highest":
-      return "border-l-[#E06C75]"
-    case "Medium":
-      return "border-l-[#E5C07B]"
-    case "Low":
-    case "Lowest":
-      return "border-l-[#5DCAA5]"
-    default:
-      return "border-l-transparent"
+function MetaLine({ card, showWorkspace }: { card: BoardCardType; showWorkspace: boolean }) {
+  const swarm = card.swarm_stats && card.swarm_stats.total > 0 ? card.swarm_stats : null
+  const parts: ReactNode[] = []
+  if (card.priority) parts.push(<span key="priority" className={priorityTone(card.priority)}>{card.priority}</span>)
+  if (card.issue_type) parts.push(<span key="type">{card.issue_type}</span>)
+  if (showWorkspace && card.workspace_name) parts.push(<span key="workspace">{card.workspace_name}</span>)
+  if (swarm) parts.push(<span key="swarm" className="text-lw-link">{swarm.done}/{swarm.total} workers</span>)
+  if (parts.length === 0) return null
+  return (
+    <div data-testid="card-meta" className="flex flex-wrap items-center gap-x-1.5 text-xs text-lw-text-2">
+      {parts.map((part, index) => <span key={index} className="contents">{index > 0 && <span aria-hidden="true" className="text-lw-faint">·</span>}{part}</span>)}
+    </div>
+  )
+}
+
+function Mark({ glyph, tone, children }: { glyph: string; tone: string; children: ReactNode }) {
+  return <span className={cn("inline-flex items-center gap-1", tone)}><span aria-hidden="true">{glyph}</span><span>{children}</span></span>
+}
+
+function checksMark(status: string) {
+  switch (status) {
+    case "pass": return <Mark glyph="✓" tone="text-lw-live">CI passed</Mark>
+    case "fail": return <Mark glyph="✕" tone="text-lw-error">CI failed</Mark>
+    case "pending": return <Mark glyph="◌" tone="text-lw-needs">CI pending</Mark>
+    default: return <span className="text-lw-faint">no checks</span>
   }
 }
 
-function priorityTextClass(priority: string): string {
-  switch (priority) {
-    case "High":
-    case "Highest":
-      return "text-[#E06C75]"
-    case "Medium":
-      return "text-[#E5C07B]"
-    case "Low":
-    case "Lowest":
-      return "text-[#5DCAA5]"
-    default:
-      return "text-zinc-500"
+function reviewMark(decision: string) {
+  switch (decision) {
+    case "APPROVED": return <Mark glyph="✓" tone="text-lw-live">approved</Mark>
+    case "CHANGES_REQUESTED": return <Mark glyph="✕" tone="text-lw-error">changes requested</Mark>
+    default: return <span className="text-lw-faint">review pending</span>
   }
 }
 
-function providerIcon(provider: string) {
-  switch (provider) {
-    case "jira":
-      return <Globe size={12} className="text-[#85B7EB]" />
-    case "github":
-      return <Code2 size={12} className="text-zinc-300" />
-    default:
-      return <FileText size={12} className="text-zinc-600" />
-  }
+function PullRequestLine({ card }: { card: BoardCardType }) {
+  const ready = !card.pr_is_draft && card.pr_check_status === "pass" && card.pr_review_decision === "APPROVED"
+  return (
+    <div aria-label={`Pull request #${card.pr_number}`} className="flex flex-wrap items-center gap-x-2 pt-0.5 text-xs text-lw-text-2">
+      <span className="font-lw-mono">#{card.pr_number}</span>
+      {card.pr_is_draft && <span>draft</span>}
+      {checksMark(card.pr_check_status)}
+      {reviewMark(card.pr_review_decision)}
+      {card.pr_comment_count > 0 && <span>{card.pr_comment_count} {card.pr_comment_count === 1 ? "comment" : "comments"}</span>}
+      {ready && <span className="text-lw-done">ready to merge</span>}
+    </div>
+  )
 }
 
-export function BoardCard({ card, selected, highlighted = false, column, showWorkspace, onClick, onContextMenu, onActionMenu, onDragStart }: BoardCardProps) {
+function ReviewStrip({ card }: { card: BoardCardType }) {
+  const count = card.review_unreviewed ?? 0
+  return (
+    <div data-testid="review-strip" className="flex items-center justify-between gap-2 bg-lw-needs-soft px-3 py-[5px] text-xs">
+      <span className="flex min-w-0 items-center gap-1.5 text-lw-needs"><span aria-hidden="true">◆</span><span className="truncate">{count} {count === 1 ? "change" : "changes"} to review</span></span>
+      {card.review_tour_id && <Link to={`/review/${encodeURIComponent(card.review_tour_id)}`} onClick={event => event.stopPropagation()} className="shrink-0 text-[#c9b78f] hover:text-lw-needs">Review →</Link>}
+    </div>
+  )
+}
+
+export function BoardCard({ card, selected, highlighted = false, column, showWorkspace, onClick, onDoubleClick, onContextMenu, onActionMenu, onDragStart }: BoardCardProps) {
   const cardRef = useRef<HTMLDivElement>(null)
   const isDone = column === "Done"
-  const workingDur = formatDuration(card.working_seconds || 0)
-  const waitingDur = formatDuration(card.waiting_seconds || 0)
-  const errorDur = formatDuration(card.error_seconds || 0)
-  const hasSwarm = card.swarm_stats && card.swarm_stats.total > 0
-  const animateAgentActivity = card.agent_active && animatedAgentActivityEnabled()
+  const trace = card.agent_active && animatedAgentActivityEnabled()
+  const agentTime = card.agent_active ? "" : formatDuration(card.working_seconds + card.waiting_seconds + card.error_seconds)
 
   useEffect(() => {
     if (highlighted) cardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center", inline: "nearest" })
@@ -102,8 +104,11 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
   return (
     <div
       ref={cardRef}
+      data-card={card.id}
       data-highlighted-task={highlighted || undefined}
+      data-selected={selected || undefined}
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
       onContextMenu={(event: MouseEvent<HTMLDivElement>) => {
         if (!onContextMenu) return
         event.preventDefault()
@@ -112,154 +117,27 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
       draggable
       onDragStart={onDragStart}
       className={cn(
-        "relative cursor-pointer rounded border-y border-r border-l-2 border-y-zinc-800/80 border-r-zinc-800/80 px-2.5 py-2 text-sm text-zinc-300 shadow-sm shadow-black/20 transition-[background-color,border-color,box-shadow]",
-        priorityBorderClass(card.priority),
-        card.agent_active && "ring-1 ring-inset ring-indigo-500/60",
+        "group relative flex cursor-pointer flex-col overflow-hidden rounded-lg border font-lw text-lw-text transition-colors",
+        selected ? "border-lw-accent bg-lw-selected" : "border-lw-line bg-lw-surface hover:border-lw-line-strong",
+        trace && (card.agent_state === "working" ? "lw-trace lw-trace-working" : "lw-trace lw-trace-idle"),
         highlighted && "ring-2 ring-cyan-400 shadow-lg shadow-cyan-950/60",
-        animateAgentActivity && "agent-activity-orbit",
-        animateAgentActivity && !card.agent_state && "agent-activity-orbit-idle",
-        animateAgentActivity && card.agent_state === "working" && "agent-activity-orbit-working",
-        selected
-          ? "bg-[linear-gradient(135deg,#292342_0%,#211d35_52%,#171725_100%)] border-y-violet-400/45 border-r-violet-400/45 shadow-md shadow-violet-950/40"
-          : "bg-[#1E1E2E] hover:border-y-zinc-700 hover:border-r-zinc-700 hover:bg-zinc-900 hover:shadow-md hover:shadow-black/30",
-        isDone && !selected && "opacity-60"
+        isDone && !selected && "opacity-60",
       )}
     >
-      {onActionMenu && <button type="button" aria-label={`Open actions for ${card.title}`} onClick={event => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); onActionMenu({ x: rect.right, y: rect.bottom }) }} className="absolute right-1 top-1 z-10 flex h-7 w-7 items-center justify-center rounded text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"><MoreHorizontal size={15} /></button>}
-      {/* Key line */}
-      <div className="flex items-center gap-1.5">
-        {providerIcon(card.provider)}
-        {card.agent_state === "working" && (
-          <span className="flex items-center gap-0.5 text-[10px] font-bold text-[#1D9E75]">
-            <Play size={8} fill="currentColor" /> RUNNING
-          </span>
-        )}
-        {card.agent_state === "waiting" && (
-          <span className="flex items-center gap-0.5 text-[10px] font-bold text-[#E5C07B]">
-            <Pause size={8} /> WAITING
-          </span>
-        )}
-        {card.agent_state === "background" && (
-          <span className="flex items-center gap-0.5 text-[10px] font-bold text-sky-300">
-            <Hourglass size={8} /> BACKGROUND
-          </span>
-        )}
-        {card.agent_state === "error" && (
-          <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-400">
-            <AlertTriangle size={8} /> ERROR
-          </span>
-        )}
-        {card.agent_state === "mixed" && (
-          <span className="flex items-center gap-0.5 text-[10px] font-bold text-violet-400">
-            <ListChecks size={8} /> MIXED
-          </span>
-        )}
-        {card.agent_active && !card.agent_state && (
-          <span className="flex items-center gap-0.5 text-[10px] text-zinc-500">
-            IDLE
-          </span>
-        )}
-        {card.has_warning && <AlertTriangle size={10} className="text-red-400" />}
-        <span className="text-[10px] font-mono text-zinc-500">
-          {card.id}
-        </span>
-      </div>
-
-      {/* Title */}
-      <div className={cn("mt-1 font-semibold leading-snug", selected && "text-zinc-100", isDone && !selected && "line-through text-zinc-500")}>
-        {card.title}
-      </div>
-
-      {/* Meta line */}
-      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
-        {card.priority && (
-          <span className={cn("font-medium", priorityTextClass(card.priority))}>
-            {card.priority}
-          </span>
-        )}
-        {card.priority && card.issue_type && <span className="text-zinc-600">·</span>}
-        {card.issue_type && <span className="text-zinc-500">{card.issue_type}</span>}
-        {showWorkspace && card.workspace_name && (
-          <>
-            <span className="text-zinc-600">·</span>
-            <span className="flex items-center gap-1">
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: card.workspace_color || "#71717a" }}
-              />
-              <span className="text-zinc-500">{card.workspace_name}</span>
-            </span>
-          </>
-        )}
-        {hasSwarm && (
-          <>
-            <span className="text-zinc-600">·</span>
-            <span className="font-bold text-[#AFA9EC]">
-              {card.swarm_stats?.done}/{card.swarm_stats?.total} <Diamond size={8} className="inline" />
-            </span>
-          </>
-        )}
-      </div>
-
-      {/* Review line */}
-      {(card.review_ready || Boolean(card.review_unreviewed)) && (
-        <div className={cn("mt-1 flex items-center gap-1 text-[10px] font-medium", card.review_unreviewed ? "text-amber-300" : "text-emerald-400")}>
-          <ListChecks size={10} />
-          {card.review_unreviewed ? `Review ${card.review_unreviewed}` : "Reviewed"}
+      {onActionMenu && <button type="button" aria-label={`Open actions for ${card.title}`} onClick={event => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); onActionMenu({ x: rect.right, y: rect.bottom }) }} className="absolute right-1 top-1 z-10 flex h-9 w-9 items-center justify-center rounded-md text-lw-faint hover:bg-lw-raised hover:text-lw-text focus-visible:opacity-100 md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100"><MoreHorizontal size={15} /></button>}
+      <div className="flex flex-col gap-1 px-3 py-2.5">
+        <div className="flex justify-between gap-2 pr-8 font-lw-mono text-[11px] text-lw-faint md:pr-0">
+          <span className="truncate">{card.provider || "local"} · {card.id}</span>
+          {card.has_warning && <Mark glyph="⚠" tone="mr-auto shrink-0 font-lw text-lw-error">sync failed</Mark>}
+          {agentTime && <span title="Time agents spent on this task" className="shrink-0">{agentTime}</span>}
         </div>
-      )}
-
-      {/* GitHub line */}
-      {card.pr_number > 0 && (
-        <div aria-label={`GitHub PR #${card.pr_number}`} className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
-          <span className="flex items-center gap-0.5 font-medium text-zinc-400">
-            <GitPullRequest size={10} /> #{card.pr_number}
-          </span>
-          {card.pr_is_draft && <span className="rounded bg-zinc-800 px-1 py-0.5 text-zinc-500">Draft</span>}
-          {card.pr_check_status === "pass" ? (
-            <span className="flex items-center gap-0.5 text-[#1D9E75]"><CheckCircle2 size={9} /> CI passed</span>
-          ) : card.pr_check_status === "fail" ? (
-            <span className="flex items-center gap-0.5 text-red-400"><XCircle size={9} /> CI failed</span>
-          ) : card.pr_check_status === "pending" ? (
-            <span className="flex items-center gap-0.5 text-[#E5C07B]"><Clock size={9} /> CI pending</span>
-          ) : (
-            <span className="flex items-center gap-0.5 text-zinc-600"><Clock size={9} /> No checks</span>
-          )}
-          {card.pr_review_decision === "APPROVED" ? (
-            <span className="flex items-center gap-0.5 text-[#1D9E75]"><Check size={9} /> Approved</span>
-          ) : card.pr_review_decision === "CHANGES_REQUESTED" ? (
-            <span className="flex items-center gap-0.5 text-red-400"><FileWarning size={9} /> Changes requested</span>
-          ) : (
-            <span className="flex items-center gap-0.5 text-zinc-500"><Clock size={9} /> Pending review</span>
-          )}
-          {card.pr_comment_count > 0 && (
-            <span className="flex items-center gap-0.5 text-zinc-500">
-              <MessageSquare size={9} /> {card.pr_comment_count}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Duration line */}
-      {(workingDur || waitingDur || errorDur) && (
-        <div className="mt-1 flex items-center gap-2 text-[10px]">
-          {workingDur && (
-            <span className="flex items-center gap-0.5 text-[#1D9E75]">
-              <Play size={8} fill="currentColor" /> <span className="text-zinc-500">{workingDur}</span>
-            </span>
-          )}
-          {waitingDur && (
-            <span className="flex items-center gap-0.5 text-[#E5C07B]">
-              <Pause size={8} /> <span className="text-zinc-500">{waitingDur}</span>
-            </span>
-          )}
-          {errorDur && (
-            <span className="flex items-center gap-0.5 text-red-400">
-              <AlertTriangle size={8} /> <span className="text-zinc-500">{errorDur}</span>
-            </span>
-          )}
-        </div>
-      )}
+        <div className="text-sm font-semibold leading-[19px]">{card.title}</div>
+        <MetaLine card={card} showWorkspace={showWorkspace} />
+        {card.review_ready && !card.review_unreviewed && <Mark glyph="✓" tone="text-xs text-lw-done">Reviewed</Mark>}
+        {card.pr_number > 0 && <PullRequestLine card={card} />}
+      </div>
+      {card.agent_active && <AgentStrip card={card} />}
+      {Boolean(card.review_unreviewed) && <ReviewStrip card={card} />}
     </div>
   )
 }

@@ -30,7 +30,7 @@ describe("Board card context menu", () => {
   function renderBoard() {
     render(<MemoryRouter><AgentSelectionProvider><BoardPage /></AgentSelectionProvider></MemoryRouter>)
     const title = screen.getAllByText("Context task")[0]
-    return title.closest("div.relative") as HTMLElement
+    return title.closest("[data-card]") as HTMLElement
   }
 
   it.each([

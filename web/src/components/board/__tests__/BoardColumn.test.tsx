@@ -49,24 +49,30 @@ describe("BoardColumn", () => {
     expect(screen.getByText("2")).toBeTruthy()
   })
 
-  it("gives the active column a violet-tinted header and roomier card stack", () => {
-    render(
-      <BoardColumn
-        name="Doing"
-        cards={[makeCard()]}
-        selectedIndex={0}
-        isActive
-        showWorkspace={false}
-        onCardClick={() => {}}
-        colIndex={0}
-      />
-    )
+  it("marks the header of the column the cursor is in", () => {
+    const props = { name: "Doing", cards: [makeCard()], selectedIndex: 0, showWorkspace: false, onCardClick: () => {}, colIndex: 0 }
+    const { rerender } = render(<BoardColumn {...props} isActive={false} />)
+    expect(screen.getByText("Doing").closest("[data-column-header]")!.getAttribute("data-active")).toBeNull()
+    rerender(<BoardColumn {...props} isActive />)
+    expect(screen.getByText("Doing").closest("[data-column-header]")!.getAttribute("data-active")).toBe("true")
+  })
 
-    const header = screen.getByText("Doing").parentElement!
-    const cardList = screen.getByText("Test title").closest("[data-board-column-cards]")!
-    expect(header.className).toContain("bg-indigo-950/35")
-    expect(header.className).toContain("shadow-sm")
-    expect(cardList.className).toContain("gap-2")
+  it("draws a collapsed column as a rail that names it and opens the empty columns", () => {
+    const onExpand = vi.fn()
+    render(<BoardColumn name="Ready" cards={[]} collapsed onExpand={onExpand} selectedIndex={0} isActive={false} showWorkspace={false} onCardClick={() => {}} colIndex={1} />)
+    const rail = screen.getByRole("button", { name: "Ready, 0 cards" })
+    fireEvent.click(rail)
+    expect(onExpand).toHaveBeenCalledTimes(1)
+  })
+
+  it("still takes a dropped card when collapsed", () => {
+    const onCardDrop = vi.fn()
+    const dataTransfer = { dropEffect: "none", getData: () => "T-9" }
+    render(<BoardColumn name="Ready" cards={[]} collapsed onExpand={() => {}} onCardDrop={onCardDrop} selectedIndex={0} isActive={false} showWorkspace={false} onCardClick={() => {}} colIndex={1} />)
+    const rail = screen.getByRole("button", { name: "Ready, 0 cards" })
+    fireEvent.dragOver(rail, { dataTransfer })
+    fireEvent.drop(rail, { dataTransfer })
+    expect(onCardDrop).toHaveBeenCalledWith("T-9", "Ready")
   })
 
   it("keeps the header fixed while the card list owns vertical scrolling", () => {
@@ -83,7 +89,7 @@ describe("BoardColumn", () => {
     )
 
     const column = container.firstElementChild!
-    const header = screen.getByText("Doing").parentElement!
+    const header = screen.getByText("Doing").closest("[data-column-header]")!
     const cardList = screen.getByText("Test title").closest("[data-board-column-cards]")!
 
     expect(column.classList.contains("h-full")).toBe(true)

@@ -5,7 +5,10 @@ const AgentActivityMixed = "mixed"
 type RelatedAgentSummary struct {
 	Active bool
 	State  string
-	Count  int
+	// Kind is the agent tool the task's agents run, empty when they run
+	// different ones.
+	Kind  string
+	Count int
 }
 
 // SummarizeRelatedAgents groups running sessions by their user-facing task.
@@ -24,9 +27,14 @@ func SummarizeRelatedAgents(agents []AgentSession) map[string]RelatedAgentSummar
 		}
 		summary, exists := summaries[taskID]
 		if !exists {
-			summary = RelatedAgentSummary{Active: true, State: agent.Activity}
-		} else if summary.State != agent.Activity {
-			summary.State = AgentActivityMixed
+			summary = RelatedAgentSummary{Active: true, State: agent.Activity, Kind: agent.AgentKind}
+		} else {
+			if summary.State != agent.Activity {
+				summary.State = AgentActivityMixed
+			}
+			if summary.Kind != agent.AgentKind {
+				summary.Kind = ""
+			}
 		}
 		summary.Count++
 		summaries[taskID] = summary

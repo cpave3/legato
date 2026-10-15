@@ -61,8 +61,8 @@ describe("imported board task highlight", () => {
     expect(highlighted).toHaveLength(2)
     expect(document.querySelectorAll('[data-highlighted-task="true"]')).toHaveLength(2)
     expect(screen.getByTestId("location").textContent).toBe("/board?highlight_task=task-imported&source=jira")
-    const doingHeader = screen.getAllByText("Doing")[0].parentElement!
-    expect(doingHeader.className).toContain("bg-indigo-950/35")
+    const doingHeader = screen.getAllByText("Doing")[0].closest("[data-column-header]")!
+    expect(doingHeader.getAttribute("data-active")).toBe("true")
 
     await act(async () => { await vi.advanceTimersByTimeAsync(7_999) })
     expect(document.querySelectorAll('[data-highlighted-task="true"]')).toHaveLength(2)

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter } from "react-router-dom"
 import { AgentSelectionProvider } from "../../hooks/useAgentSelection"
@@ -47,13 +47,13 @@ describe("Board workspace movement", () => {
 
   it("moves the context-menu task using its own current state and only workspace_id", async () => {
     renderBoard()
-    const task = screen.getAllByText("Selected task")[0].closest("div.relative") as HTMLElement
+    const task = screen.getAllByText("Selected task")[0].closest("[data-card]") as HTMLElement
     fireEvent.contextMenu(task)
     fireEvent.click(screen.getByRole("menuitem", { name: "Move" }))
 
     expect((screen.getByRole("button", { name: /Doing.*current/ }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole("button", { name: /Platform.*current/ }) as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.click(screen.getByRole("button", { name: "Product" }))
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Move TASK-2" })).getByRole("button", { name: "Product" }))
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("/api/tasks/TASK-2", expect.objectContaining({ method: "PATCH", body: '{"workspace_id":2}' })))
     expect(refresh).toHaveBeenCalled()
@@ -63,10 +63,10 @@ describe("Board workspace movement", () => {
 
   it("sends explicit null when moving to Unassigned", async () => {
     renderBoard()
-    const task = screen.getAllByText("Selected task")[0].closest("div.relative") as HTMLElement
+    const task = screen.getAllByText("Selected task")[0].closest("[data-card]") as HTMLElement
     fireEvent.contextMenu(task)
     fireEvent.click(screen.getByRole("menuitem", { name: "Move" }))
-    fireEvent.click(screen.getByRole("button", { name: "Unassigned" }))
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Move TASK-2" })).getByRole("button", { name: "Unassigned" }))
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("/api/tasks/TASK-2", expect.objectContaining({ method: "PATCH", body: '{"workspace_id":null}' })))
     expect(addToast).toHaveBeenCalledWith("Moved task to Unassigned", "success")
@@ -80,14 +80,14 @@ describe("Board workspace movement", () => {
       throw new Error(`unexpected fetch: ${url}`)
     })
     renderBoard()
-    const task = screen.getAllByText("Selected task")[0].closest("div.relative") as HTMLElement
+    const task = screen.getAllByText("Selected task")[0].closest("[data-card]") as HTMLElement
     fireEvent.contextMenu(task)
     fireEvent.click(screen.getByRole("menuitem", { name: "Move" }))
-    fireEvent.click(screen.getByRole("button", { name: "Product" }))
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Move TASK-2" })).getByRole("button", { name: "Product" }))
 
     await waitFor(() => expect(addToast).toHaveBeenCalledWith("patchTask failed: 500", "error"))
     expect(screen.getByRole("heading", { name: "Move TASK-2" })).toBeTruthy()
-    expect((screen.getByRole("button", { name: "Product" }) as HTMLButtonElement).disabled).toBe(false)
+    expect((within(screen.getByRole("dialog", { name: "Move TASK-2" })).getByRole("button", { name: "Product" }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it("preserves detail status and workspace when opening Move task", async () => {

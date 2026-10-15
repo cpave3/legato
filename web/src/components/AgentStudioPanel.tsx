@@ -1,9 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Circle, MessageCircleQuestion, Pause, Play, Settings2, Sparkles, Square, Trash2, X } from "lucide-react"
-import "@fontsource/geist-sans/400.css"
-import "@fontsource/geist-sans/500.css"
-import "@fontsource/geist-sans/600.css"
-import "@fontsource/geist-mono/400.css"
 import { useServer } from "../hooks/useServer"
 import { proposeComposerText, type AgentUIItem } from "../lib/agentUi"
 import {

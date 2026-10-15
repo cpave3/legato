@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen, within } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import { MemoryRouter } from "react-router-dom"
 import { BoardCard } from "../BoardCard"
 import type { BoardCard as BoardCardType } from "../../../lib/board-types"
 
@@ -11,9 +12,10 @@ function makeCard(overrides: Partial<BoardCardType> = {}): BoardCardType {
     issue_type: "Bug",
     status: "Doing",
     provider: "jira",
-    has_warning: true,
+    has_warning: false,
     agent_active: true,
     agent_state: "working",
+    agent_kind: "claude-code",
     working_seconds: 3661,
     waiting_seconds: 125,
     error_seconds: 0,
@@ -24,219 +26,159 @@ function makeCard(overrides: Partial<BoardCardType> = {}): BoardCardType {
     pr_comment_count: 3,
     pr_is_draft: false,
     pr_number: 42,
-    swarm_stats: { total: 5, done: 2, in_review: 1, building: 1, queued: 1, rejected: 0 },
     ...overrides,
   }
 }
 
+function renderCard(card: BoardCardType, props: Partial<Parameters<typeof BoardCard>[0]> = {}) {
+  return render(<MemoryRouter><BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} {...props} /></MemoryRouter>)
+}
+
+function strip() {
+  return screen.getByTestId("agent-strip")
+}
+
 describe("BoardCard", () => {
   beforeEach(() => localStorage.clear())
+  afterEach(cleanup)
 
-  it("renders all indicators when given populated props", () => {
-    const card = makeCard()
-    render(<BoardCard card={card} selected={false} column="Doing" showWorkspace={true} onClick={() => {}} />)
-
-    expect(screen.getByText("Test title")).toBeTruthy()
-    expect(screen.getByText("T-1")).toBeTruthy()
-    expect(screen.getByText(/RUNNING/)).toBeTruthy()
-    expect(screen.getByText("High")).toBeTruthy()
-    expect(screen.getByText("Bug")).toBeTruthy()
-    expect(screen.getByText("2/5")).toBeTruthy()
+  it("names where the task comes from and its key", () => {
+    renderCard(makeCard())
+    expect(screen.getByText("jira · T-1")).toBeTruthy()
+    renderCard(makeCard({ id: "abc123", provider: "" }))
+    expect(screen.getByText("local · abc123")).toBeTruthy()
   })
 
-  it("gives an imported card a distinct cyan highlight and scrolls it into view", () => {
-    const scrollIntoView = vi.fn()
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView })
-    const { container } = render(
-      <BoardCard card={makeCard()} selected={false} highlighted column="Doing" showWorkspace={false} onClick={() => {}} />
-    )
-
-    const root = container.firstElementChild as HTMLElement
-    expect(root.dataset.highlightedTask).toBe("true")
-    expect(root.className).toContain("ring-cyan-400")
-    expect(root.className).toContain("shadow-cyan-950/60")
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center", inline: "nearest" })
+  it("shows a running agent's tool and how long it has worked", () => {
+    renderCard(makeCard())
+    expect(within(strip()).getByText("Running · Claude Code")).toBeTruthy()
+    expect(within(strip()).getByText("1h 1m")).toBeTruthy()
   })
 
-  it("outlines a card with an active agent without replacing its priority stripe", () => {
-    const { container } = render(
-      <BoardCard card={makeCard()} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
-    )
-
-    const root = container.firstElementChild as HTMLElement
-    expect(root.className).toContain("ring-1")
-    expect(root.className).toContain("ring-inset")
-    expect(root.className).toContain("ring-indigo-500/60")
-    expect(root.className).toContain("border-l-[#E06C75]")
+  it.each([
+    ["waiting", "Needs you", "2m"],
+    ["error", "Error", ""],
+    ["background", "Background", ""],
+    ["mixed", "Agents disagree", ""],
+    ["", "Idle", ""],
+  ])("says what an agent in state %j is doing", (state, label, time) => {
+    renderCard(makeCard({ agent_state: state }))
+    expect(within(strip()).getByText(label)).toBeTruthy()
+    expect(within(strip()).queryByText(/Running/)).toBeNull()
+    if (time) expect(within(strip()).getByText(time)).toBeTruthy()
   })
 
-  it("composes dark selection, agent activity, and the priority stripe", () => {
-    const { container } = render(
-      <BoardCard card={makeCard()} selected column="Doing" showWorkspace onClick={() => {}} />
-    )
-
-    const root = container.firstElementChild as HTMLElement
-    expect(root.className).toContain("bg-[linear-gradient")
-    expect(root.className).not.toContain("bg-[#EEEDFE]")
-    expect(root.className).toContain("ring-indigo-500/60")
-    expect(root.className).toContain("agent-activity-orbit-working")
-    expect(root.className).toContain("border-l-[#E06C75]")
-    expect(within(root).getByText(/RUNNING/).className).toContain("text-[#1D9E75]")
-    expect(within(root).getByText("Test title").className).toContain("text-zinc-100")
+  it("has no agent strip without a running agent, and shows the time agents spent instead", () => {
+    renderCard(makeCard({ agent_active: false, agent_state: "", working_seconds: 3600, waiting_seconds: 600 }))
+    expect(screen.queryByTestId("agent-strip")).toBeNull()
+    expect(screen.getByText("1h 10m")).toBeTruthy()
   })
 
-  it("animates active cards slowly when idle and faster while working", () => {
-    const idle = render(
-      <BoardCard card={makeCard({ agent_state: "" })} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
-    )
-    const idleRoot = idle.container.firstElementChild as HTMLElement
-    expect(idleRoot.className).toContain("agent-activity-orbit")
-    expect(idleRoot.className).toContain("agent-activity-orbit-idle")
-    expect(idleRoot.className).not.toContain("agent-activity-orbit-working")
-    idle.unmount()
-
-    const working = render(
-      <BoardCard card={makeCard({ agent_state: "working" })} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
-    )
-    const workingRoot = working.container.firstElementChild as HTMLElement
-    expect(workingRoot.className).toContain("agent-activity-orbit")
-    expect(workingRoot.className).toContain("agent-activity-orbit-working")
+  it("asks for a review when a ready tour has unreviewed changes, and links to it", () => {
+    renderCard(makeCard({ agent_active: false, review_ready: true, review_unreviewed: 5, review_tour_id: "tour-9" }))
+    const review = screen.getByTestId("review-strip")
+    expect(within(review).getByText("5 changes to review")).toBeTruthy()
+    expect(within(review).getByRole("link", { name: /Review/ }).getAttribute("href")).toBe("/review/tour-9")
   })
 
-  it("keeps the static ring without animation when the preference is disabled", () => {
-    localStorage.setItem("legato:animated-agent-activity", "false")
-    const { container } = render(
-      <BoardCard card={makeCard()} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
-    )
-
-    const root = container.firstElementChild as HTMLElement
-    expect(root.className).toContain("ring-indigo-500/60")
-    expect(root.className).not.toContain("agent-activity-orbit")
-    expect(root.className).not.toContain("agent-activity-orbit-working")
-  })
-
-  it("hides workspace tag when showWorkspace is false", () => {
-    const card = makeCard()
-    const { container } = render(
-      <BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
-    )
-    const dot = container.querySelector('[style*="background-color: rgb(255, 0, 0)"]')
-    expect(dot).toBeNull()
-  })
-
-  it("renders a stable GitHub row with PR, CI, review, and comments", () => {
-    const view = render(<BoardCard card={makeCard()} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
-    const card = within(view.container)
-    expect(card.getByLabelText("GitHub PR #42")).toBeTruthy()
-    expect(card.getByText("#42")).toBeTruthy()
-    expect(card.getByText("CI passed")).toBeTruthy()
-    expect(card.getByText("Approved")).toBeTruthy()
-    expect(card.getByText("3")).toBeTruthy()
-  })
-
-  it("keeps CI and review metadata visible for draft PRs", () => {
-    const card = makeCard({ pr_is_draft: true, pr_check_status: "fail", pr_review_decision: "CHANGES_REQUESTED" })
-    render(<BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
-    expect(screen.getByText("Draft")).toBeTruthy()
-    expect(screen.getByText("CI failed")).toBeTruthy()
-    expect(screen.getByText("Changes requested")).toBeTruthy()
-  })
-
-  it("shows explicit neutral CI and review states", () => {
-    render(<BoardCard card={makeCard({ pr_check_status: "", pr_review_decision: "", pr_comment_count: 0 })} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
-    expect(screen.getByText("No checks")).toBeTruthy()
-    expect(screen.getByText("Pending review")).toBeTruthy()
-  })
-
-  it("shows pending CI and omits the GitHub row for unlinked cards", () => {
-    const pending = render(<BoardCard card={makeCard({ pr_check_status: "pending" })} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
-    expect(screen.getByText("CI pending")).toBeTruthy()
-    pending.unmount()
-    const unlinked = render(<BoardCard card={makeCard({ pr_number: 0 })} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
-    expect(within(unlinked.container).queryByLabelText(/GitHub PR/)).toBeNull()
-  })
-
-  it("shows MIXED instead of idle when related agents disagree", () => {
-    render(<BoardCard card={makeCard({ agent_state: "mixed" })} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
-    expect(screen.getByText(/MIXED/)).toBeTruthy()
-    expect(screen.queryByText(/IDLE/)).toBeNull()
-  })
-
-  it("shows ERROR in red instead of idle for an errored agent", () => {
-    const card = makeCard({ agent_state: "error" })
-    render(<BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
-    const error = screen.getByText(/ERROR/)
-    expect(error.className).toContain("text-red-400")
-    expect(screen.queryByText(/IDLE/)).toBeNull()
-  })
-
-  it("shows IDLE and the outline when agent_active but no state", () => {
-    const card = makeCard({ agent_state: "" })
-    const { container } = render(
-      <BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
-    )
-
-    expect(screen.getByText(/IDLE/)).toBeTruthy()
-    expect((container.firstElementChild as HTMLElement).className).toContain("ring-indigo-500/60")
-  })
-
-  it("does not outline an inactive card with historical agent durations", () => {
-    const card = makeCard({ agent_active: false, agent_state: "", working_seconds: 3661, waiting_seconds: 125 })
-    const { container } = render(
-      <BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
-    )
-
-    const root = container.firstElementChild as HTMLElement
-    expect(root.className).not.toContain("ring-1")
-    expect(root.className).not.toContain("ring-indigo-500/60")
-    expect(root.className).not.toContain("agent-activity-orbit")
-  })
-
-  it("shows review state and unreviewed count", () => {
-    const card = makeCard({ review_ready: true, review_unreviewed: 3 })
-    render(<BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
-    expect(screen.getByText("Review 3")).toBeTruthy()
-  })
-
-  it("shows a reviewed badge when a ready tour has no remaining steps", () => {
-    const card = makeCard({ review_ready: true, review_unreviewed: 0 })
-    render(<BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
+  it("says a ready tour with nothing left is reviewed", () => {
+    renderCard(makeCard({ review_ready: true, review_unreviewed: 0 }))
+    expect(screen.queryByTestId("review-strip")).toBeNull()
     expect(screen.getByText("Reviewed")).toBeTruthy()
   })
 
-  it("applies muted style in Done column", () => {
-    const card = makeCard()
-    const { container } = render(
-      <BoardCard card={card} selected={false} column="Done" showWorkspace={false} onClick={() => {}} />
-    )
-    const root = container.querySelector(".opacity-60")
-    expect(root).not.toBeNull()
+  it("describes the pull request in one line", () => {
+    renderCard(makeCard({ pr_is_draft: true, pr_check_status: "fail", pr_review_decision: "CHANGES_REQUESTED", pr_comment_count: 12 }))
+    const pr = screen.getByLabelText("Pull request #42")
+    for (const text of ["#42", "draft", "CI failed", "changes requested", "12 comments"]) {
+      expect(within(pr).getByText(text)).toBeTruthy()
+    }
   })
 
-  it("opens the same action path from the accessible card button", () => {
+  it.each([
+    ["pass", "APPROVED", ["CI passed", "approved", "ready to merge"]],
+    ["pending", "", ["CI pending", "review pending"]],
+    ["", "REVIEW_REQUIRED", ["no checks", "review pending"]],
+  ])("words CI %j and review %j", (checks, review, texts) => {
+    renderCard(makeCard({ pr_check_status: checks, pr_review_decision: review, pr_comment_count: 0 }))
+    const pr = screen.getByLabelText("Pull request #42")
+    for (const text of texts) expect(within(pr).getByText(text)).toBeTruthy()
+    expect(within(pr).queryByText(/comment/)).toBeNull()
+  })
+
+  it("never calls a draft ready to merge, and omits the line without a pull request", () => {
+    renderCard(makeCard({ pr_is_draft: true }))
+    expect(screen.queryByText("ready to merge")).toBeNull()
+    cleanup()
+    renderCard(makeCard({ pr_number: 0 }))
+    expect(screen.queryByLabelText(/Pull request/)).toBeNull()
+  })
+
+  it("lists priority, type, workspace and swarm progress under the title", () => {
+    renderCard(makeCard({ swarm_stats: { total: 5, done: 2, in_review: 1, building: 1, queued: 1, rejected: 0 } }), { showWorkspace: true })
+    const meta = screen.getByTestId("card-meta")
+    for (const text of ["High", "Bug", "Default", "2/5 workers"]) expect(within(meta).getByText(text)).toBeTruthy()
+  })
+
+  it("leaves the workspace out when the board shows one workspace", () => {
+    renderCard(makeCard())
+    expect(screen.queryByText("Default")).toBeNull()
+  })
+
+  it("warns when the last push to the provider failed", () => {
+    renderCard(makeCard({ has_warning: true }))
+    expect(screen.getByText("sync failed")).toBeTruthy()
+  })
+
+  it("marks the selected card, and gives an imported card a cyan highlight it scrolls to", () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView })
+    renderCard(makeCard(), { selected: true, highlighted: true })
+    const root = screen.getByText("Test title").closest("[data-card]") as HTMLElement
+    expect(root.dataset.selected).toBe("true")
+    expect(root.dataset.highlightedTask).toBe("true")
+    expect(root.className).toContain("ring-cyan-400")
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center", inline: "nearest" })
+  })
+
+  it("dims a card in the Done column", () => {
+    renderCard(makeCard(), { column: "Done" })
+    expect((screen.getByText("Test title").closest("[data-card]") as HTMLElement).className).toContain("opacity-60")
+  })
+
+  it("traces the edge of a card with a live agent, faster while it works, unless animation is off", () => {
+    renderCard(makeCard({ agent_state: "working" }))
+    const working = screen.getByText("Test title").closest("[data-card]") as HTMLElement
+    expect(working.className).toContain("lw-trace-working")
+    cleanup()
+    renderCard(makeCard({ agent_state: "" }))
+    expect((screen.getByText("Test title").closest("[data-card]") as HTMLElement).className).toContain("lw-trace-idle")
+    cleanup()
+    renderCard(makeCard({ agent_active: false, agent_state: "" }))
+    expect((screen.getByText("Test title").closest("[data-card]") as HTMLElement).className).not.toContain("lw-trace")
+    cleanup()
+    localStorage.setItem("legato:animated-agent-activity", "false")
+    renderCard(makeCard())
+    expect((screen.getByText("Test title").closest("[data-card]") as HTMLElement).className).not.toContain("lw-trace")
+  })
+
+  it("opens the action menu from its button and from a right click", () => {
     const onActionMenu = vi.fn()
-    render(<BoardCard card={makeCard()} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} onActionMenu={onActionMenu} />)
+    const onContextMenu = vi.fn()
+    renderCard(makeCard(), { onActionMenu, onContextMenu })
     fireEvent.click(screen.getByRole("button", { name: "Open actions for Test title" }))
     expect(onActionMenu).toHaveBeenCalledTimes(1)
-  })
-
-  it("emits card context coordinates and prevents the browser menu", () => {
-    const onContextMenu = vi.fn()
-    const { container } = render(<BoardCard card={makeCard()} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} onContextMenu={onContextMenu} />)
-    const card = container.firstElementChild as HTMLElement
+    const card = screen.getByText("Test title").closest("[data-card]") as HTMLElement
     const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 80 })
-
     card.dispatchEvent(event)
-
     expect(event.defaultPrevented).toBe(true)
     expect(onContextMenu).toHaveBeenCalledWith({ x: 120, y: 80 })
   })
 
-  it("says when a card's agent is waiting on background work it started", () => {
-    const view = render(<BoardCard card={makeCard({ agent_state: "background" })} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
-    const card = within(view.container)
-
-    expect(card.getByText("BACKGROUND")).not.toBeNull()
-    expect(card.queryByText("RUNNING")).toBeNull()
+  it("opens on a double click", () => {
+    const onDoubleClick = vi.fn()
+    renderCard(makeCard(), { onDoubleClick })
+    fireEvent.doubleClick(screen.getByText("Test title"))
+    expect(onDoubleClick).toHaveBeenCalledTimes(1)
   })
 })

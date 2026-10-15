@@ -19,6 +19,7 @@ export interface BoardCard {
   has_worktree?: boolean
   agent_active: boolean
   agent_state: string
+  agent_kind?: string
   working_seconds: number
   waiting_seconds: number
   error_seconds: number
@@ -30,6 +31,7 @@ export interface BoardCard {
   pr_comment_count: number
   pr_is_draft: boolean
   pr_number: number
+  review_tour_id?: string
   review_ready?: boolean
   review_unreviewed?: number
   swarm_stats?: SwarmStats

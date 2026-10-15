@@ -35,6 +35,7 @@ type CardResponse struct {
 	WorkspaceColor   string              `json:"workspace_color"`
 	AgentActive      bool                `json:"agent_active"`
 	AgentState       string              `json:"agent_state"`
+	AgentKind        string              `json:"agent_kind,omitempty"`
 	WorkingSeconds   float64             `json:"working_seconds"`
 	WaitingSeconds   float64             `json:"waiting_seconds"`
 	ErrorSeconds     float64             `json:"error_seconds"`

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { useSearchParams } from "react-router-dom"
 import { useServer } from "../hooks/useServer"
 import { useBoard } from "../hooks/useBoard"
@@ -13,12 +13,15 @@ import {
   syncBoard,
   type ProviderSyncResult,
 } from "../lib/board"
-import type { BoardCard, CardDetail } from "../lib/board-types"
+import type { BoardCard, BoardColumn, CardDetail } from "../lib/board-types"
 import { BoardGrid } from "../components/board/BoardGrid"
+import { isColumnCollapsed } from "../lib/boardColumns"
 import { MobileBoardList } from "../components/board/MobileBoardList"
-import { RefreshCw } from "lucide-react"
+import { Plus, RefreshCw, Search } from "lucide-react"
 import { WorkspaceFilter } from "../components/board/WorkspaceFilter"
 import { DetailPanel } from "../components/board/DetailPanel"
+import { BoardTaskPanel } from "../components/board/BoardTaskPanel"
+import { useMediaQuery } from "../hooks/useMediaQuery"
 import { CreateTaskModal } from "../components/board/CreateTaskModal"
 import { MoveTaskModal } from "../components/board/MoveTaskModal"
 import { DeleteTaskModal } from "../components/board/DeleteTaskModal"
@@ -83,6 +86,75 @@ function providerSyncMessage(result: ProviderSyncResult): { message: string; typ
   return { message: `${completed.map(([name]) => name).join(" + ")} sync completed`, type: "success" }
 }
 
+const showEmptyKey = "legato:board-show-empty"
+
+function initialShowEmpty(): boolean {
+  try {
+    return localStorage.getItem(showEmptyKey) === "true"
+  } catch {
+    return false
+  }
+}
+
+// The next column the cursor can rest in, from one step in the given
+// direction: a folded column is passed over. Stays put at either end.
+function stepColumn(columns: BoardColumn[], from: number, step: -1 | 1, showEmpty: boolean): number {
+  for (let index = from + step; index >= 0 && index < columns.length; index += step) {
+    if (!isColumnCollapsed(columns, index, showEmpty)) return index
+  }
+  return from
+}
+
+function boardKeys(showEmpty: boolean, canStartAgent: boolean): [string, string][] {
+  return [
+    ["h/l", "column"],
+    ["j/k", "card"],
+    ["↵", "open"],
+    ...(canStartAgent ? [["s", "start agent"] as [string, string]] : []),
+    ["/", "search"],
+    ["z", showEmpty ? "fold empty columns" : "show empty columns"],
+    ["?", "keys"],
+  ]
+}
+
+function CardFilter({ value, onChange, className, autoFocus }: { value: string; onChange: (value: string) => void; className?: string; autoFocus?: boolean }) {
+  return (
+    <label className={`flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-lw-line bg-lw-surface px-2.5 text-lw-faint focus-within:border-lw-accent-ring ${className ?? ""}`}>
+      <Search size={13} aria-hidden="true" />
+      <input
+        aria-label="Filter cards"
+        placeholder="Filter cards"
+        value={value}
+        autoFocus={autoFocus}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return
+          event.preventDefault()
+          onChange("")
+          event.currentTarget.blur()
+        }}
+        className="w-full min-w-0 bg-transparent text-[13px] text-lw-text outline-none placeholder:text-lw-faint"
+      />
+    </label>
+  )
+}
+
+function filterColumns(columns: BoardColumn[], query: string): BoardColumn[] {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return columns
+  return columns.map((column) => ({
+    ...column,
+    cards: column.cards.filter((card) => card.title.toLowerCase().includes(needle) || card.id.toLowerCase().includes(needle)),
+  }))
+}
+
+function cardCountLabel(cards: BoardCard[], shown: BoardCard[]): string {
+  const live = cards.filter((card) => card.agent_active).length
+  const count = shown.length === cards.length ? `${cards.length}` : `${shown.length} of ${cards.length}`
+  const total = `${count} ${cards.length === 1 ? "card" : "cards"}`
+  return live > 0 ? `${total} · ${live} with live agents` : total
+}
+
 function detailMoveCard(card: CardDetail): MoveCard {
   return {
     id: card.id,
@@ -100,7 +172,13 @@ export function BoardPage() {
   const voiceEnabled = useVoiceEnabled(baseUrl)
   const { addToast } = useToast()
   const [workspaceFilter, setWorkspaceFilter] = useState<string>("all")
-  const { columns, workspaces, loading, error, refresh } = useBoard(workspaceFilter)
+  const { columns: boardColumns, workspaces, loading, error, refresh } = useBoard(workspaceFilter)
+  const [query, setQuery] = useState("")
+  const [showEmpty, setShowEmpty] = useState(initialShowEmpty)
+  const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
+  // The columns as the board shows them: every card, or those the filter
+  // matches. The cursor moves over these.
+  const columns = useMemo(() => filterColumns(boardColumns, query), [boardColumns, query])
   const workflowDiscovery = useWorkflows()
   const [cursorCol, setCursorCol] = useState(0)
   const [cursorRow, setCursorRow] = useState(0)
@@ -115,15 +193,46 @@ export function BoardPage() {
   const repositories = (settings.data?.repositories ?? []) as RepositoryPreset[]
   const defaultWorkingDir = settings.data?.working_dir ?? ""
   const worktreesEnabled = Boolean(settings.data?.worktrees_enabled)
+  // From this width the selected card is described beside the board; below
+  // it a click opens the card's details, as there is no room for both.
+  const wide = useMediaQuery("(min-width: 1280px)")
+  const [panelHidden, setPanelHidden] = useState(false)
+  const [panelDetail, setPanelDetail] = useState<CardDetail | null>(null)
   const boardRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const movedCardIdRef = useRef<string | null>(null)
 
   const columnNames = columns.map((c) => c.name)
-  const allCards = columns.flatMap((c) => c.cards)
+  const allCards = boardColumns.flatMap((c) => c.cards)
+  const shownCards = columns.flatMap((c) => c.cards)
   const currentCard = columns[cursorCol]?.cards?.[cursorRow] ?? null
   const activeColumn = columns[cursorCol]
-  const doneColumn = columns.find((c) => c.name.toLowerCase() === "done")
+  const panelCard = wide && !panelHidden ? currentCard : null
+  const panelCardId = panelCard?.id ?? null
+  const doneColumn = boardColumns.find((c) => c.name.toLowerCase() === "done")
   const doneCount = doneColumn?.cards.length ?? 0
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(showEmptyKey, String(showEmpty))
+    } catch {
+      // Remembering the choice is a convenience; the board works without it.
+    }
+  }, [showEmpty])
+
+  // A newly selected card shows the panel again, and the panel reads it.
+  useEffect(() => {
+    setPanelHidden(false)
+  }, [currentCard?.id])
+
+  useEffect(() => {
+    if (!panelCardId) return
+    let current = true
+    fetchCard(baseUrl, panelCardId)
+      .then((card) => { if (current) setPanelDetail(card) })
+      .catch(() => { if (current) setPanelDetail(null) })
+    return () => { current = false }
+  }, [baseUrl, panelCardId])
 
   // Focus board on mount
   useEffect(() => {
@@ -185,11 +294,17 @@ export function BoardPage() {
       setCursorRow(0)
       return
     }
+    if (isColumnCollapsed(columns, cursorCol, showEmpty)) {
+      const open = stepColumn(columns, cursorCol, 1, showEmpty)
+      setCursorCol(open !== cursorCol ? open : stepColumn(columns, cursorCol, -1, showEmpty))
+      setCursorRow(0)
+      return
+    }
     const maxRow = (columns[cursorCol]?.cards.length ?? 0) - 1
     if (cursorRow > maxRow && maxRow >= 0) {
       setCursorRow(maxRow)
     }
-  }, [columns, cursorCol, cursorRow])
+  }, [columns, cursorCol, cursorRow, showEmpty])
 
   // Keyboard navigation
   useEffect(() => {
@@ -287,6 +402,10 @@ export function BoardPage() {
         return
       }
 
+      // A dialog the board does not own (one the side panel opened, such as
+      // the spawn dialog) keeps the keys for itself.
+      if (document.querySelector('[role="dialog"]')) return
+
       // Search overlay (special — not a modal component)
       if (e.key === "?") {
         e.preventDefault()
@@ -375,22 +494,25 @@ export function BoardPage() {
       }
 
       // Navigation
-      if (e.key === "h" || e.key === "ArrowLeft") {
+      if (e.key === "h" || e.key === "ArrowLeft" || e.key === "l" || e.key === "ArrowRight") {
         e.preventDefault()
-        setCursorCol((c) => {
-          const n = Math.max(0, c - 1)
-          setCursorRow(0)
-          return n
-        })
+        const step = e.key === "h" || e.key === "ArrowLeft" ? -1 : 1
+        setCursorCol(stepColumn(columns, cursorCol, step, showEmpty))
+        setCursorRow(0)
         return
       }
-      if (e.key === "l" || e.key === "ArrowRight") {
+      if (e.key === "s") {
+        // The panel's own agent button: open, resume or go to the agent.
+        const start = panelRef.current?.querySelector<HTMLButtonElement>("[data-task-primary-action]")
+        if (start && !start.disabled) {
+          e.preventDefault()
+          start.click()
+        }
+        return
+      }
+      if (e.key === "z") {
         e.preventDefault()
-        setCursorCol((c) => {
-          const n = Math.min(columns.length - 1, c + 1)
-          setCursorRow(0)
-          return n
-        })
+        setShowEmpty((value) => !value)
         return
       }
       if (e.key === "j" || e.key === "ArrowDown") {
@@ -428,7 +550,7 @@ export function BoardPage() {
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [columns, cursorCol, cursorRow, currentCard, overlay, detailCard, detailId, workspaceFilter, workspaces, doneCount, baseUrl, addToast])
+  }, [columns, cursorCol, cursorRow, currentCard, overlay, detailCard, detailId, workspaceFilter, workspaces, doneCount, baseUrl, addToast, showEmpty])
 
   const openDetail = useCallback(
     async (id: string) => {
@@ -448,10 +570,19 @@ export function BoardPage() {
     (col: number, row: number) => {
       setCursorCol(col)
       setCursorRow(row)
+      setPanelHidden(false)
       const card = columns[col]?.cards[row]
-      if (card) {
+      if (card && !wide) {
         openDetail(card.id)
       }
+    },
+    [columns, openDetail, wide]
+  )
+
+  const handleCardDoubleClick = useCallback(
+    (col: number, row: number) => {
+      const card = columns[col]?.cards[row]
+      if (card) openDetail(card.id)
     },
     [columns, openDetail]
   )
@@ -684,23 +815,52 @@ export function BoardPage() {
     }
   }
 
-  const activeWorkspace = workspaces.find((w) => String(w.id) === workspaceFilter)
-  const filterLabel = activeWorkspace?.name || (workspaceFilter === "unassigned" ? "Unassigned" : "All")
 
   return (
     <div
       ref={boardRef}
-      className="flex h-full flex-col overflow-hidden outline-none"
+      className="flex h-full flex-col overflow-hidden bg-lw-ground font-lw text-[13px] leading-5 text-lw-text outline-none"
       tabIndex={0}
     >
-      {/* Toolbar */}
-      <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-3 py-2 md:px-4">
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-bold uppercase tracking-wider text-zinc-500">Board</span>
-          <span className="text-[10px] text-zinc-600">{allCards.length} cards</span>
+      <header data-testid="board-header-mobile" className="flex flex-col gap-3 px-4 pb-2.5 pt-4 md:hidden">
+        <div className="flex items-center justify-between">
+          <h1 className="m-0 text-2xl font-semibold leading-[30px]">Board</h1>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              aria-label="Filter"
+              aria-expanded={mobileFilterOpen}
+              onClick={() => setMobileFilterOpen((open) => !open)}
+              className={`flex h-11 w-11 items-center justify-center rounded-full border border-lw-line-strong ${mobileFilterOpen || query ? "bg-lw-selected text-lw-text" : "bg-lw-raised text-lw-text"}`}
+            >
+              <Search size={17} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              aria-label="New card"
+              onClick={() => setOverlay({ kind: "create" })}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-lw-accent text-white"
+            >
+              <Plus size={20} aria-hidden="true" />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        {mobileFilterOpen && (
+          <div className="flex flex-col gap-2">
+            <CardFilter className="h-10 w-full" autoFocus value={query} onChange={(value) => { setQuery(value); setCursorRow(0) }} />
+            <WorkspaceFilter workspaces={workspaces} active={workspaceFilter} onChange={(v) => { setWorkspaceFilter(v); setCursorCol(0); setCursorRow(0) }} />
+          </div>
+        )}
+      </header>
+
+      <header data-testid="board-header" className="hidden items-center justify-between gap-4 border-b border-[#222228] px-5 py-3.5 md:flex">
+        <div className="flex min-w-0 items-baseline gap-3">
+          <h1 className="m-0 text-lg font-semibold leading-6">Board</h1>
+          <span className="truncate text-[13px] text-lw-text-2">{cardCountLabel(allCards, shownCards)}</span>
+        </div>
+        <div className="flex min-w-0 items-center gap-2">
           <WorkspaceFilter
+            className="max-w-[40vw]"
             workspaces={workspaces}
             active={workspaceFilter}
             onChange={(v) => {
@@ -709,69 +869,85 @@ export function BoardPage() {
               setCursorRow(0)
             }}
           />
+          <CardFilter className="w-[220px]" value={query} onChange={(value) => { setQuery(value); setCursorRow(0) }} />
           <button
             aria-label="Sync providers"
             title="Sync providers"
             onClick={() => void handleProviderSync()}
             disabled={syncingProviders}
-            className="flex h-11 w-11 items-center justify-center rounded border border-zinc-700 text-zinc-400 disabled:cursor-wait disabled:opacity-60 md:h-auto md:w-auto md:border-0 md:p-2"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-raised hover:text-lw-text disabled:cursor-wait disabled:opacity-60"
           >
-            <RefreshCw size={16} className={syncingProviders ? "animate-spin" : ""} />
+            <RefreshCw size={15} className={syncingProviders ? "animate-spin" : ""} />
           </button>
           <button
             onClick={() => setOverlay({ kind: "create" })}
-            className="min-h-11 rounded border border-zinc-700 bg-zinc-900 px-3 text-xs text-zinc-300 transition-colors hover:bg-zinc-800 md:min-h-0 md:py-1.5"
+            className="h-8 rounded-md bg-lw-accent px-3.5 text-[13px] font-medium text-white hover:brightness-110"
           >
-            + New
+            + New card
           </button>
         </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        <div className="min-w-0 flex-1 overflow-hidden">
+          {loading && columns.length === 0 && (
+            <div className="flex h-full items-center justify-center">
+              <p className="text-sm text-lw-faint">Loading…</p>
+            </div>
+          )}
+          {error && columns.length === 0 && (
+            <div className="flex h-full items-center justify-center">
+              <p className="text-sm text-lw-error">{error}</p>
+            </div>
+          )}
+          {columns.length > 0 && (
+            <>
+              <div className="hidden h-full md:block">
+                <BoardGrid
+                  columns={columns}
+                  cursorCol={cursorCol}
+                  cursorRow={cursorRow}
+                  showWorkspace={showWorkspace}
+                  showEmpty={showEmpty}
+                  onToggleEmpty={() => setShowEmpty((value) => !value)}
+                  highlightedTaskId={highlightedTaskId}
+                  onCardClick={handleCardClick}
+                  onCardDoubleClick={handleCardDoubleClick}
+                  onCardContextMenu={handleCardContextMenu}
+                  onCardMove={handleDragMove}
+                />
+              </div>
+              <div className="h-full md:hidden">
+                <MobileBoardList columns={columns} showWorkspace={showWorkspace} highlightedTaskId={highlightedTaskId} onCardClick={handleCardClick} onCardContextMenu={handleCardContextMenu} />
+              </div>
+            </>
+          )}
+          {!loading && !error && columns.length === 0 && (
+            <div className="flex h-full items-center justify-center">
+              <p className="text-sm text-lw-faint">No columns available</p>
+            </div>
+          )}
+        </div>
+        {panelCard && (
+          <div ref={panelRef} className="contents">
+          <BoardTaskPanel
+            card={panelCard}
+            column={activeColumn?.name ?? panelCard.status}
+            detail={panelDetail}
+            onClose={() => setPanelHidden(true)}
+            onOpenDetails={() => void openDetail(panelCard.id)}
+            onMove={() => setOverlay({ kind: "move", card: panelCard })}
+            onOpenURL={(url) => window.open(url, "_blank")}
+          />
+          </div>
+        )}
       </div>
 
-      {/* Board */}
-      <div className="flex-1 overflow-hidden">
-        {loading && columns.length === 0 && (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-zinc-600">Loading...</p>
-          </div>
-        )}
-        {error && columns.length === 0 && (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-red-400">{error}</p>
-          </div>
-        )}
-        {columns.length > 0 && (
-          <>
-            <div className="hidden h-full md:block">
-              <BoardGrid
-                columns={columns}
-                cursorCol={cursorCol}
-                cursorRow={cursorRow}
-                showWorkspace={showWorkspace}
-                highlightedTaskId={highlightedTaskId}
-                onCardClick={handleCardClick}
-                onCardContextMenu={handleCardContextMenu}
-                onCardMove={handleDragMove}
-              />
-            </div>
-            <div className="h-full md:hidden">
-              <MobileBoardList columns={columns} showWorkspace={showWorkspace} highlightedTaskId={highlightedTaskId} onCardClick={handleCardClick} onCardContextMenu={handleCardContextMenu} />
-            </div>
-          </>
-        )}
-        {!loading && !error && columns.length === 0 && (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-zinc-600">No columns available</p>
-          </div>
-        )}
-      </div>
-
-      {/* Status bar */}
-      <div className="hidden items-center gap-3 border-t border-zinc-800 px-4 py-1.5 text-[10px] text-zinc-600 md:flex">
-        <span>h/l columns · j/k scroll · enter detail · ? help</span>
-        {workspaceFilter !== "all" && (
-          <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-500">{filterLabel}</span>
-        )}
-      </div>
+      <footer data-testid="board-keys" className="hidden gap-[18px] border-t border-[#222228] px-5 py-1.5 text-xs text-lw-faint md:flex">
+        {boardKeys(showEmpty, Boolean(panelCard)).map(([key, label]) => (
+          <span key={key}><span className="text-[#b4b3bd]">{key}</span> {label}</span>
+        ))}
+      </footer>
 
       {contextMenu && <CardContextMenu
         card={contextMenu.card}

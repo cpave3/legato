@@ -1105,7 +1105,7 @@ func TestBoardEndpointProjectsRelatedAgentSummaryOntoAttributedTask(t *testing.T
 		cards:   map[string][]service.Card{"Doing": {{ID: "task-a", Title: "Task A", Status: "Doing"}}},
 	}
 	agents := &promptAgentService{agent: service.AgentSession{
-		TaskID: "workflow-b", AttributionTaskID: "task-a", Status: "running", Activity: "working",
+		TaskID: "workflow-b", AttributionTaskID: "task-a", AgentKind: "claude-code", Status: "running", Activity: "working",
 	}}
 	srv := New(svc, agents, nil, ":0")
 
@@ -1121,7 +1121,7 @@ func TestBoardEndpointProjectsRelatedAgentSummaryOntoAttributedTask(t *testing.T
 		t.Fatal(err)
 	}
 	card := resp.Columns[0].Cards[0]
-	if !card.AgentActive || card.AgentState != "working" {
+	if !card.AgentActive || card.AgentState != "working" || card.AgentKind != "claude-code" {
 		t.Fatalf("related agent card = %#v", card)
 	}
 }

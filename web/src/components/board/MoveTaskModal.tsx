@@ -99,7 +99,7 @@ export function MoveTaskModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !loading && onClose()}>
-      <div className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+      <div role="dialog" aria-modal="true" aria-label={`Move ${taskId}`} className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
           <h2 className="text-sm font-semibold text-zinc-200">Move {taskId}</h2>
           <button aria-label="Close" disabled={loading} onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:cursor-not-allowed">
