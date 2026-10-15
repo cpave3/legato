@@ -30,6 +30,7 @@ import {
   type ReviewStep,
 } from "../lib/review"
 import { cn } from "../lib/utils"
+import { LoadingState } from "../components/ui/LoadingState"
 
 const riskColor: Record<string, string> = {
   low: "text-emerald-400",
@@ -217,7 +218,7 @@ export function ReviewTourPage() {
     }
   }
 
-  if (loading && !data) return <div className="p-6 text-sm text-zinc-500">Loading review…</div>
+  if (loading && !data) return <LoadingState label="Loading the review…" />
   if (error && !data) return <div role="alert" className="m-6 rounded border border-red-900 bg-red-950/40 p-3 text-red-300">{error}</div>
   if (!data) return null
 

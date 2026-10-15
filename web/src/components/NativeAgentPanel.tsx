@@ -41,6 +41,7 @@ import {
   type NativeSyncState,
   type NativeToolItem as ToolCallItem,
 } from "../lib/nativeAgentSync"
+import { LoadingState } from "./ui/LoadingState"
 
 function formatTokens(value: number): string {
   if (value < 1_000) return value.toLocaleString()
@@ -805,9 +806,7 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-zinc-500">Loading {agentToolName(agentKind)} session...</p>
-      </div>
+      <LoadingState label={`Loading ${agentToolName(agentKind)} session…`} detail={agentId} />
     )
   }
 

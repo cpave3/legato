@@ -4,6 +4,7 @@ import type { AgentInfo } from "../hooks/useWebSocket"
 import type { SwarmStatusData } from "../lib/swarm"
 import { cn } from "../lib/utils"
 import { useAgentPreview } from "../hooks/useAgentPreview"
+import { LoadingState } from "./ui/LoadingState"
 
 interface WorkerView {
   subtask: SwarmStatusData["subtasks"][number]
@@ -99,7 +100,7 @@ export function SwarmCommandCenter({
   const activeCount = workers.filter(({ subtask }) => ["dispatched", "in_progress", "reporting"].includes(subtask.status)).length
 
   if (!conductor) {
-    return <div className="flex h-full items-center justify-center text-sm text-zinc-500">Loading swarm conductor…</div>
+    return <LoadingState label="Loading the swarm conductor…" detail={parentId} />
   }
 
   if (mobile) {

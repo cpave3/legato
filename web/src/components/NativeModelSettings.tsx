@@ -3,6 +3,7 @@ import { Settings2 } from "lucide-react"
 import { apiFetch } from "../lib/api"
 import { modelSettingsResponse, settingLabels, type ModelSettings, type ModelSettingsPatch, type ModelSettingsState } from "../lib/modelSettings"
 import { Dropdown } from "./ui/Dropdown"
+import { LoadingState } from "./ui/LoadingState"
 
 // NativeModelSettings is a button that opens the settings of the session's
 // model beside it.
@@ -100,7 +101,7 @@ export function NativeModelSettingsForm({ agentId, baseUrl, model, busy, onSaved
     <h3 className="text-sm font-medium text-zinc-200">Model settings</h3>
     <p className="break-all text-xs text-zinc-400">{model}</p>
     {state && <p className="break-all text-xs text-zinc-500">Resolved model: {state.capabilities.modelId}</p>}
-    {loading ? <p className="text-xs text-zinc-400">Loading settings…</p> : !supported ? <p className="text-xs text-zinc-400">Settings information is unavailable for this model. Configure a capability source or model profile in Chimera.</p> : <>
+    {loading ? <LoadingState size="inline" label="Loading settings…" /> : !supported ? <p className="text-xs text-zinc-400">Settings information is unavailable for this model. Configure a capability source or model profile in Chimera.</p> : <>
       {field("thinking")}{field("reasoningEffort")}
       <details><summary className="cursor-pointer text-xs text-zinc-300">Advanced</summary><div className="mt-2 flex flex-col gap-3">
         {(Object.keys(settingLabels) as (keyof ModelSettings)[]).filter((key) => key !== "thinking" && key !== "reasoningEffort").map(field)}

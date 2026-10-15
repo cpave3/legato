@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Image as ImageIcon, X } from "lucide-react"
 import { useServer } from "../hooks/useServer"
 import { fetchAgentImage } from "../lib/agentImage"
+import { LoadingState } from "./ui/LoadingState"
 
 interface ReadImageRowProps {
   agentId: string
@@ -71,7 +72,7 @@ export function ReadImageRow({ agentId, path, grouped }: ReadImageRowProps) {
       {open && (
         <div className={grouped ? "px-3 pb-2" : "px-1 pb-1 pt-1"}>
           {path !== filename && <div className="mb-1 break-all text-zinc-500">{path}</div>}
-          {shown === null && <div className="text-zinc-500">Loading image…</div>}
+          {shown === null && <LoadingState size="inline" label="Loading image…" />}
           {shown && "error" in shown && <div role="alert" className="text-red-400">Cannot show this image: {shown.error}</div>}
           {shown && "address" in shown && (
             <button aria-label={`Show ${filename} full size`} className="block max-w-full cursor-zoom-in" onClick={() => setLarge(true)}>

@@ -61,7 +61,7 @@ describe("NativeAgentPanel", () => {
       return new Response("[]", { status: 200 })
     })
     render(<NativeAgentPanel agentId="agent-1" composerEnabled={false} />)
-    await waitFor(() => expect(screen.queryByText("Loading native Chimera session…")).toBeNull())
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session…")).toBeNull())
     expect(screen.queryByTestId("agent-composer")).toBeNull()
   })
 
@@ -424,7 +424,7 @@ describe("NativeAgentPanel", () => {
 
     render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" />)
 
-    expect(screen.getByText("Loading Claude Code session...")).not.toBeNull()
+    expect(screen.getByText("Loading Claude Code session…")).not.toBeNull()
   })
 
   it("shows a correlated permission failure and permits retry", async () => {
@@ -1212,7 +1212,7 @@ describe("NativeAgentPanel", () => {
     await waitFor(() => expect(snapshotCalls).toBe(2))
 
     // While repair is in flight, the feed stays mounted (no loading placeholder)
-    expect(within(view.container).queryByText("Loading Chimera session...")).toBeNull()
+    expect(within(view.container).queryByText("Loading Chimera session…")).toBeNull()
     expect(within(view.container).getByText("Existing history")).not.toBeNull()
     expect(within(view.container).getByText("Syncing…")).not.toBeNull()
 
@@ -1362,7 +1362,7 @@ describe("NativeAgentPanel", () => {
       : new Response("[]", { status: 200 }))
 
     const view = render(<NativeAgentPanel agentId="task-1" />)
-    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session…")).toBeNull())
 
     act(() => websocketHandler?.({
       type: "chimera_event",
@@ -1450,7 +1450,7 @@ describe("NativeAgentPanel", () => {
       : new Response("[]", { status: 200 }))
 
     const view = render(<NativeAgentPanel agentId="task-1" />)
-    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session…")).toBeNull())
 
     for (const [callId, purpose] of [["call-a", "Correctness"], ["call-b", "Tests and docs"]]) {
       act(() => websocketHandler?.({
@@ -1533,7 +1533,7 @@ describe("NativeAgentPanel", () => {
 
     render(<NativeAgentPanel agentId="task-1" />)
 
-    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session…")).toBeNull())
 
     expect(screen.getAllByText("write", { selector: "span" })).toHaveLength(1)
     expect(screen.getByText("result.txt")).not.toBeNull()
@@ -1699,7 +1699,7 @@ describe("NativeAgentPanel", () => {
     })
 
     render(<NativeAgentPanel agentId="task-1" />)
-    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session…")).toBeNull())
 
     const modelButton = screen.getByTitle("Change model")
     expect(modelButton).not.toBeNull()
@@ -1727,7 +1727,7 @@ describe("NativeAgentPanel", () => {
     })
 
     render(<NativeAgentPanel agentId="task-1" />)
-    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session…")).toBeNull())
 
     fireEvent.click(screen.getByTitle("Change model"))
     const dropdownItems = await screen.findAllByText("manticore/gpt")
@@ -1751,7 +1751,7 @@ describe("NativeAgentPanel", () => {
     })
 
     render(<NativeAgentPanel agentId="task-1" />)
-    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session…")).toBeNull())
 
     const modelCallsBefore = fetchSpy.mock.calls.filter((c) => String(c[0]).includes("/chimera/model"))
     fireEvent.click(screen.getByTitle("Change model"))
@@ -1776,7 +1776,7 @@ describe("NativeAgentPanel", () => {
     })
 
     const view = render(<NativeAgentPanel agentId="task-1" />)
-    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session…")).toBeNull())
 
     // On a phone the chip keeps the model's short name; the provider is
     // named in the menu only.
@@ -1811,7 +1811,7 @@ describe("NativeAgentPanel", () => {
     })
 
     const view = render(<NativeAgentPanel agentId="task-1" />)
-    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session…")).toBeNull())
 
     fireEvent.click(within(view.container).getByTitle("Change mode"))
 
@@ -1834,7 +1834,7 @@ describe("NativeAgentPanel", () => {
     })
 
     const view = render(<NativeAgentPanel agentId="task-1" />)
-    await waitFor(() => expect(screen.queryByText("Loading Chimera session...")).toBeNull())
+    await waitFor(() => expect(screen.queryByText("Loading Chimera session…")).toBeNull())
 
     fireEvent.click(within(view.container).getByTitle("Change mode"))
     fireEvent.click(await within(view.container).findByRole("button", { name: /plan/i }))

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import { Check, FolderLock, Plus } from "lucide-react"
 import { accessLabel, attachedResources, attachResources, listResources, type Resource } from "../lib/resources"
+import { LoadingState } from "./ui/LoadingState"
 
 export interface ResourcesButtonProps {
   agentId: string
@@ -115,7 +116,7 @@ export function ResourcesButton({ agentId, baseUrl }: ResourcesButtonProps) {
             </div>
             {error && <p role="alert" className="mx-4 mt-3 rounded border border-red-900 bg-red-950/60 px-2 py-1.5 text-xs text-red-300 sm:mx-3">{error}</p>}
             {resources === null ? (
-              <p className="px-4 py-4 text-xs text-zinc-500 sm:px-3">Loading…</p>
+              <LoadingState size="inline" label="Loading resources…" className="px-4 py-4 sm:px-3" />
             ) : resources.length === 0 ? (
               <p className="px-4 py-4 text-xs text-zinc-400 sm:px-3">
                 No resources yet. Add folders you give agents often, such as a notes vault, in <Link to="/settings#resources" onClick={() => setOpen(false)} className="text-indigo-300 underline">Settings</Link>.

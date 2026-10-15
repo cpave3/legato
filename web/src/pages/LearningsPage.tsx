@@ -4,6 +4,7 @@ import { Link } from "react-router-dom"
 import { BookOpen, Search } from "lucide-react"
 import { useServer } from "../hooks/useServer"
 import { fetchLearnings, fetchLearningPromptPreview, type Learning, type LearningPromptPreview } from "../lib/learning"
+import { LoadingState } from "../components/ui/LoadingState"
 
 const inputClass = "min-h-10 rounded-lg border border-zinc-700 bg-zinc-900 px-3 text-sm text-zinc-200 outline-none focus:border-indigo-500"
 
@@ -54,7 +55,7 @@ export function LearningsPage() {
       {error && <p role="alert" className="mt-2 text-sm text-red-400">{error}</p>}
     </header>
     <div className="flex-1 overflow-y-auto">
-      {loading ? <p className="p-6 text-zinc-500">Loading…</p> : items.length === 0 ? <p className="p-6 text-zinc-500">No learnings found.</p> :
+      {loading ? <LoadingState label="Loading learnings…" /> : items.length === 0 ? <p className="p-6 text-zinc-500">No learnings found.</p> :
         <ul className="divide-y divide-zinc-800">{items.map(item => <li key={item.id}>
           <Link to={`/learning/${encodeURIComponent(item.id)}`} className="block px-4 py-4 hover:bg-zinc-800/40 sm:px-6">
             <div className="flex flex-wrap gap-2 text-xs"><span className="rounded bg-indigo-500/15 px-2 py-0.5 text-indigo-300">{item.status}</span><span className="rounded bg-zinc-800 px-2 py-0.5 text-zinc-400">{item.scope}{item.project_key ? ` · ${item.project_key}` : ""}</span><span className="rounded bg-zinc-800 px-2 py-0.5 text-zinc-400">{item.kind}</span>{item.category && <span className="rounded bg-sky-500/15 px-2 py-0.5 text-sky-300">{item.category}</span>}{item.tags?.map(tag => <span key={tag} className="rounded bg-zinc-800 px-2 py-0.5 text-zinc-500">#{tag}</span>)}{(item.status === "validated" || item.status === "incorporated") && <span className={`rounded px-2 py-0.5 ${item.prompt_enabled ? "bg-emerald-500/15 text-emerald-300" : "bg-zinc-800 text-zinc-500"}`}>{item.prompt_enabled ? "prompt enabled" : "prompt disabled"}</span>}<span className="ml-auto text-zinc-600">rev {item.revision}</span></div>

@@ -4,6 +4,7 @@ import { Link } from "react-router-dom"
 import { useReviewQueue } from "../hooks/useReview"
 import { useServer } from "../hooks/useServer"
 import { bulkDeleteReviews, type ReviewQueueItem } from "../lib/review"
+import { LoadingState } from "../components/ui/LoadingState"
 
 function formatRelativeTime(iso: string): string {
   const date = new Date(iso)
@@ -117,7 +118,7 @@ export function ReviewQueuePage() {
       </header>
 
       <div className="flex-1 overflow-y-auto p-3 md:p-6">
-        {loading && !data && <p className="text-sm text-zinc-500">Loading review queue…</p>}
+        {loading && !data && <LoadingState label="Loading the review queue…" />}
         {error && <div role="alert" className="rounded border border-red-900 bg-red-950/40 p-3 text-sm text-red-300">{error}</div>}
         {removeError && <div role="alert" className="mx-auto mb-3 max-w-4xl rounded border border-red-900 bg-red-950/40 p-3 text-sm text-red-300">{removeError}</div>}
         {data?.length === 0 && (

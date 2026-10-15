@@ -15,6 +15,7 @@ import { GoToAgentButton } from "../components/GoToAgentButton"
 import { Button } from "../components/ui/Button"
 import { InlineNotice } from "../components/ui/InlineNotice"
 import { VisualMarkdownPre } from "../components/VisualMarkdownPre"
+import { LoadingState } from "../components/ui/LoadingState"
 
 type SourcePosition = { start?: { offset?: number }; end?: { offset?: number } }
 type SelectedBlock = { start: number; end: number; characterStart: number; characterEnd: number; text: string; label: string }
@@ -325,7 +326,7 @@ export function PlanPage() {
     })
   }
 
-  if (loading && !data) return <div className="p-6 text-zinc-500">Loading plan…</div>
+  if (loading && !data) return <LoadingState label="Loading the plan…" />
   if (error && !data) return <div className="p-6 text-red-300">{error}</div>
   if (!data) return null
 

@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom"
 import { ArrowLeft, BookOpen } from "lucide-react"
 import { useServer } from "../hooks/useServer"
 import { decideLearning, fetchLearning, setLearningPromptEnabled, type LearningView } from "../lib/learning"
+import { LoadingState } from "../components/ui/LoadingState"
 
 const inputClass = "w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-indigo-500"
 
@@ -54,7 +55,7 @@ export function LearningDetailPage() {
     finally { setPending(false) }
   }
 
-  if (loading) return <div className="p-8 text-zinc-500">Loading…</div>
+  if (loading) return <LoadingState label="Loading the learning…" />
   if (!view) return <div className="p-8"><Link to="/learning" className="text-indigo-300">Back to Learning</Link>{error && <p role="alert" className="mt-3 text-red-400">{error}</p>}</div>
   const { learning, evidence, incorporations = [] } = view
 

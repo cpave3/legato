@@ -144,7 +144,7 @@ describe("AttentionPage", () => {
     const { AttentionPage } = await import("../AttentionPage")
     mockLoading = true
     const loading = render(<MemoryRouter><AttentionPage /></MemoryRouter>)
-    expect(screen.getByText("Loading…")).toBeTruthy()
+    expect(screen.getByRole("status", { name: "Loading attention…" })).toBeTruthy()
     loading.unmount()
 
     mockLoading = false

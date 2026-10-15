@@ -11,6 +11,7 @@ import { HandoffExport } from "./HandoffExport"
 import { HandoffPractice } from "./HandoffPractice"
 import { HandoffChallenge } from "./HandoffChallenge"
 import { Button } from "../ui/Button"
+import { LoadingState } from "../ui/LoadingState"
 
 export interface HandoffProps { active: boolean; tourId: string; review: ReviewTourView; onChapter: (id: string) => void }
 const fieldClass = "block w-full rounded border border-zinc-700 bg-zinc-950 p-2 text-sm"
@@ -20,7 +21,7 @@ export function HandoffView(props: HandoffProps) {
   const { baseUrl } = useServer()
   const [selected, setSelected] = useState("")
   const query = useQuery({ queryKey: queryKeys.handoff(baseUrl, props.tourId), queryFn: () => fetchHandoff(baseUrl, props.tourId), enabled: props.active })
-  if (query.isPending) return <p role="status" className="p-5">Loading handoff…</p>
+  if (query.isPending) return <LoadingState label="Loading handoff…" />
   if (query.error && !query.data) return <div role="alert" className="p-5">{query.error.message}<Button onClick={() => void query.refetch()}>Retry handoff</Button></div>
   if (!query.data) return null
   const packet = query.data.packets.find((p) => p.id === selected) ?? query.data.packets[0]

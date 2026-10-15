@@ -6,6 +6,7 @@ import { useServer } from "../hooks/useServer"
 import { useToast } from "../hooks/useToast"
 import { buildStandaloneDocument, deleteAgentUIItem, inlineImages, itemImages, type AgentUIItem } from "../lib/agentUi"
 import { AgentUIItemView } from "./AgentUIItemView"
+import { LoadingState } from "./ui/LoadingState"
 
 export interface ArtifactFocus {
   itemId: string
@@ -253,7 +254,7 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
         {listError ? (
           <p role="alert" className="p-4 text-sm text-red-300">Could not load what the agent showed: {listError}</p>
         ) : !selected ? (
-          <p className="p-4 text-sm text-zinc-500">{listLoading ? "Loading…" : "This agent has not shown anything yet."}</p>
+          listLoading ? <LoadingState label="Loading what the agent showed…" /> : <p className="p-4 text-sm text-zinc-500">This agent has not shown anything yet.</p>
         ) : itemError ? (
           <p role="alert" className="p-4 text-sm text-zinc-400">This revision is no longer stored.</p>
         ) : itemLoading || !item ? (

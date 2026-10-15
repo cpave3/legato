@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { ChevronRight, ExternalLink, Move, Trash2, Workflow } from "lucide-react"
 import type { BoardCard } from "../../lib/board-types"
 import type { CardWorkflowOption } from "../../lib/card-workflows"
+import { LoadingState } from "../ui/LoadingState"
 
 export type CardContextAction = "open" | "move" | "delete"
 
@@ -136,7 +137,7 @@ export function CardContextMenu({
     </div>
     {flyoutOpen && <div ref={flyoutRef} role="menu" aria-label={`Workflows for ${card.title}`} onPointerDown={event => event.stopPropagation()} className="fixed w-70 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 p-1 shadow-2xl" style={{ left: flyoutLeft, top: flyoutTop, width: flyoutWidth, maxHeight: flyoutMaxHeight }}>
       <p className="border-b border-zinc-800 px-3 py-2 text-xs font-medium uppercase tracking-wide text-zinc-500">Workflows</p>
-      {workflowLoading && <p className="px-3 py-2 text-sm text-zinc-500">Loading workflows…</p>}
+      {workflowLoading && <LoadingState size="inline" label="Loading workflows…" className="px-3 py-2" />}
       {!workflowLoading && workflows.length === 0 && <p className="px-3 py-2 text-sm text-zinc-500">No eligible workflows</p>}
       {workflows.map(workflow => <button key={workflow.definition.name} type="button" role="menuitem" onClick={() => onWorkflow?.(workflow)} className="flex min-h-10 w-full items-center rounded px-3 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><span className="truncate">{workflow.definition.title}</span></button>)}
       {workflowWarning && <p className="border-t border-zinc-800 px-3 py-2 text-xs text-amber-300">{workflowWarning}</p>}

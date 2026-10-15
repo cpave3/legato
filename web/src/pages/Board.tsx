@@ -47,6 +47,7 @@ import { apiFetch } from "../lib/api"
 import { WorkflowTriggerInputModal } from "../components/WorkflowTriggerInputModal"
 import type { WorkflowTriggerRequest } from "../lib/board"
 import type { RepositoryPreset } from "../components/RepositoryPresetSelect"
+import { LoadingState } from "../components/ui/LoadingState"
 
 type MoveCard = Pick<BoardCard, "id" | "title" | "status" | "workspace_id">
 
@@ -891,9 +892,7 @@ export function BoardPage() {
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 overflow-hidden">
           {loading && columns.length === 0 && (
-            <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-lw-faint">Loading…</p>
-            </div>
+            <LoadingState label="Loading the board…" />
           )}
           {error && columns.length === 0 && (
             <div className="flex h-full items-center justify-center">

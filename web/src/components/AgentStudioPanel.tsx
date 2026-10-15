@@ -8,6 +8,7 @@ import {
   timeline, transcriptRuns, uploadTake, type StudioProject, type StudioScene,
 } from "../lib/agentStudio"
 import { recordingOf, samplesOf, type Heard, type TakePart, type TakeSound } from "../lib/takeSound"
+import { LoadingState } from "./ui/LoadingState"
 
 interface AgentStudioPanelProps {
   item: AgentUIItem
@@ -584,8 +585,8 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
 
   if (!project) {
     return (
-      <div className={`${root} p-4`}>
-        {failure ? <StudioUnavailable failure={failure} /> : <p role="status" className="text-lw-text-2">Opening the studio…</p>}
+      <div className={`${root} ${failure ? "p-4" : "flex min-h-0 flex-1 flex-col"}`}>
+        {failure ? <StudioUnavailable failure={failure} /> : <LoadingState label="Opening the studio…" />}
       </div>
     )
   }

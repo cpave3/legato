@@ -5,6 +5,7 @@ import { useAttention } from "../hooks/useAttention"
 import { useServer } from "../hooks/useServer"
 import { executeAttentionAction, dismissAttentionItem, type AttentionItem } from "../lib/attention"
 import { legatoHref } from "../lib/navigation"
+import { LoadingState } from "../components/ui/LoadingState"
 
 function formatRelativeTime(iso: string): string {
   const date = new Date(iso)
@@ -153,7 +154,7 @@ export function AttentionPage() {
     }
   }
 
-  if (loading) return <div className="p-8 text-zinc-500">Loading…</div>
+  if (loading) return <LoadingState label="Loading attention…" />
   if (error) return <div className="p-8 text-red-400" role="alert">{error}</div>
 
   const allItems = items ?? []
