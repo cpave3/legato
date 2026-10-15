@@ -45,6 +45,12 @@ func (s *LearningService) List(ctx context.Context, filter LearningFilter) ([]st
 	return s.store.ListLearnings(ctx, storeLearningQuery(filter))
 }
 
+// CandidateCount is how many learnings wait for the person to accept or
+// reject them.
+func (s *LearningService) CandidateCount(ctx context.Context) (int, error) {
+	return s.store.CountLearnings(ctx, "candidate")
+}
+
 func (s *LearningService) Search(ctx context.Context, text string, filter LearningFilter) ([]store.Learning, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, LearningValidationError("search text is required")

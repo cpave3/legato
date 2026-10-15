@@ -17,12 +17,27 @@ type attentionCounter interface {
 	Count(context.Context) (int, error)
 }
 
+type learningCandidateCounter interface {
+	CandidateCount(context.Context) (int, error)
+}
+
+// learningCandidates is how many learnings wait for a decision; none without
+// a learning service.
+func (s *Server) learningCandidates(ctx context.Context) (int, error) {
+	counter, ok := s.learning.(learningCandidateCounter)
+	if !ok {
+		return 0, nil
+	}
+	return counter.CandidateCount(ctx)
+}
+
 type navigationSummary struct {
 	Attention         int `json:"attention"`
 	Review            int `json:"review"`
 	Plans             int `json:"plans"`
 	WorkflowAttention int `json:"workflow_attention"`
 	Agents            int `json:"agents"`
+	Learning          int `json:"learning"`
 }
 
 func (s *Server) navigationSummaryHandler() http.HandlerFunc {
@@ -81,6 +96,10 @@ func (s *Server) navigationSummaryHandler() http.HandlerFunc {
 			return
 		}
 		summary.Agents = working + waiting + agentErrors
+		if summary.Learning, err = s.learningCandidates(r.Context()); err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		s.writeJSON(w, http.StatusOK, summary)
 	}
 }

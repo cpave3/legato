@@ -1,6 +1,6 @@
-import { render, screen, within } from "@testing-library/react"
+import { cleanup, render, screen, within } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Layout } from "../Layout"
 
 const { state } = vi.hoisted(() => ({ state: { agentCount: 0 } }))
@@ -32,41 +32,48 @@ beforeEach(() => {
   state.agentCount = 0
 })
 
+afterEach(cleanup)
+
+// On a wide screen the count is on Ensemble; on a phone, Agents is one tab
+// for both and has it.
+const counted = (name: string) => [
+  ...screen.getAllByRole("link", { name: name.replace("Agents", "Ensemble") }),
+  ...screen.getAllByRole("link", { name }),
+]
+
 describe("agent navigation", () => {
-  it("shows the non-idle count on desktop and mobile Agents links", () => {
+  it("shows the non-idle count on the desktop Ensemble link and the mobile Agents tab", () => {
     state.agentCount = 3
 
     renderLayout()
 
-    const links = screen.getAllByRole("link", { name: "Agents: 3 non-idle" })
+    const links = counted("Agents: 3 non-idle")
     expect(links).toHaveLength(2)
     for (const link of links) {
       expect(within(link).getByText("3")).toBeTruthy()
+      expect(link.getAttribute("title") ?? "Agents: 3 non-idle").toMatch(/: 3 non-idle$/)
     }
-    expect(links.some((link) => link.getAttribute("title") === "Agents: 3 non-idle")).toBe(true)
   })
 
-  it("omits both badges when every agent is idle", () => {
+  it("omits the badges when every agent is idle", () => {
     renderLayout()
 
-    const links = screen.getAllByRole("link", { name: "Agents" })
-    expect(links).toHaveLength(2)
+    const links = counted("Agents")
+    expect(links).toHaveLength(3)
     for (const link of links) {
       expect(within(link).queryByText("0")).toBeNull()
     }
-    expect(links.some((link) => link.getAttribute("title") === "Agents")).toBe(true)
   })
 
-  it("caps both visual badges while exposing the full count", () => {
+  it("caps the visual badges while exposing the full count", () => {
     state.agentCount = 125
 
     renderLayout()
 
-    const links = screen.getAllByRole("link", { name: "Agents: 125 non-idle" })
+    const links = counted("Agents: 125 non-idle")
     expect(links).toHaveLength(2)
     for (const link of links) {
       expect(within(link).getByText("99+")).toBeTruthy()
     }
-    expect(links.some((link) => link.getAttribute("title") === "Agents: 125 non-idle")).toBe(true)
   })
 })

@@ -600,6 +600,15 @@ func learningFilters(query LearningQuery, alias string) (string, []any) {
 	return " WHERE " + strings.Join(clauses, " AND "), args
 }
 
+// CountLearnings counts the ledger entries in one lifecycle status.
+func (s *Store) CountLearnings(ctx context.Context, status string) (int, error) {
+	var count int
+	if err := s.db.GetContext(ctx, &count, `SELECT COUNT(*) FROM learnings WHERE status = ?`, status); err != nil {
+		return 0, fmt.Errorf("count learnings: %w", err)
+	}
+	return count, nil
+}
+
 // ListLearnings lists ledger entries newest first, with ID as a stable tie-breaker.
 func (s *Store) ListLearnings(ctx context.Context, query LearningQuery) ([]Learning, error) {
 	where, args := learningFilters(query, "l.")

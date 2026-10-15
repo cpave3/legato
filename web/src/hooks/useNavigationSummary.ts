@@ -9,6 +9,8 @@ export interface NavigationSummary {
   plans: number
   workflow_attention: number
   agents: number
+  // Learnings waiting for a decision; absent from an older server.
+  learning?: number
 }
 
 export async function fetchNavigationSummary(baseUrl: string): Promise<NavigationSummary> {
