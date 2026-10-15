@@ -156,6 +156,8 @@ describe("images in the sandboxed frame", () => {
       resourceDomains: [], fill: true, images: IMAGES,
     }))
     frame.document.dispatchEvent(new Event("DOMContentLoaded"))
+    // The page's link is its own to follow; jsdom cannot follow one, and says so.
+    frame.document.querySelector("a")!.addEventListener("click", (event) => event.preventDefault())
 
     for (const id of ["off", "linked", "pressed", "inside"]) {
       frame.document.getElementById(id)!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))

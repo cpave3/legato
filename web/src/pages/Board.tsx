@@ -307,6 +307,20 @@ export function BoardPage() {
     }
   }, [columns, cursorCol, cursorRow, showEmpty])
 
+  const openDetail = useCallback(
+    async (id: string) => {
+      setDetailId(id)
+      try {
+        const card = await fetchCard(baseUrl, id)
+        setDetailCard(card)
+      } catch (error) {
+        setDetailId(null)
+        addToast(errorMessage(error, "Could not load task details"), "error")
+      }
+    },
+    [baseUrl, addToast]
+  )
+
   // Keyboard navigation
   useEffect(() => {
     const handler = async (e: KeyboardEvent) => {
@@ -551,21 +565,7 @@ export function BoardPage() {
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [columns, cursorCol, cursorRow, currentCard, overlay, detailCard, detailId, workspaceFilter, workspaces, doneCount, baseUrl, addToast, showEmpty])
-
-  const openDetail = useCallback(
-    async (id: string) => {
-      setDetailId(id)
-      try {
-        const card = await fetchCard(baseUrl, id)
-        setDetailCard(card)
-      } catch (error) {
-        setDetailId(null)
-        addToast(errorMessage(error, "Could not load task details"), "error")
-      }
-    },
-    [baseUrl, addToast]
-  )
+  }, [columns, cursorCol, cursorRow, currentCard, overlay, detailCard, detailId, workspaceFilter, workspaces, doneCount, baseUrl, addToast, showEmpty, openDetail])
 
   const handleCardClick = useCallback(
     (col: number, row: number) => {
