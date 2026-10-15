@@ -2,7 +2,9 @@ import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref
 import { AppState, Linking, StyleSheet } from "react-native"
 import { WebView } from "react-native-webview"
 import type { WebViewNavigation } from "react-native-webview"
+import * as Crypto from "expo-crypto"
 import { allowNavigation, bootstrapScript } from "./compat"
+import { useShellVoice, type ShellVoiceEvent } from "./shellVoice"
 
 // How long a page gets to answer after the app returns to the foreground.
 const ANSWER_TIMEOUT_MS = 4000
@@ -18,7 +20,7 @@ const returnScript = (id: string) =>
   `(function(){try{var root=document.getElementById("root");window.ReactNativeWebView.postMessage(JSON.stringify({legatoShell:"answer",id:${JSON.stringify(id)},rendered:!root||root.childElementCount>0||document.readyState!=="complete"}));window.dispatchEvent(new Event("legato:shell-return"))}catch(e){}})();true;`
 
 // Anything in the page can post a message, so nothing about one is assumed.
-function readMessage(data: string): { legatoShell?: unknown; id?: unknown; rendered?: unknown; url?: unknown } {
+function readMessage(data: string): { legatoShell?: unknown; id?: unknown; rendered?: unknown; url?: unknown; key?: unknown; action?: unknown } {
   try {
     const message: unknown = JSON.parse(data)
     return typeof message === "object" && message !== null ? message : {}
@@ -60,6 +62,12 @@ export function ServerWebView({ ref, baseUrl, token, onCanGoBackChange, onBlocke
   const awaitingAnswer = useRef<{ id: string; timeout: ReturnType<typeof setTimeout> } | undefined>(undefined)
   const backgrounded = useRef(false)
   const lostInBackground = useRef<string | undefined>(undefined)
+  // The key the page sends with a request to record; only its main frame has it.
+  const [shellKey] = useState(() => Crypto.randomUUID())
+  const tellPage = useCallback((event: ShellVoiceEvent) => {
+    webRef.current?.injectJavaScript(`(function(){try{window.dispatchEvent(new CustomEvent("legato:shell-voice",{detail:${JSON.stringify(event)}}))}catch(e){}})();true;`)
+  }, [])
+  const voice = useShellVoice(tellPage)
 
   const stopWaiting = () => {
     clearTimeout(awaitingAnswer.current?.timeout)
@@ -101,7 +109,7 @@ export function ServerWebView({ ref, baseUrl, token, onCanGoBackChange, onBlocke
 
   useImperativeHandle(ref, () => ({ reload: () => webRef.current?.reload(), goBack: () => webRef.current?.goBack() }), [])
 
-  return <WebView ref={webRef} key={page.generation} style={styles.webView} source={{ uri: page.uri }} injectedJavaScriptBeforeContentLoaded={bootstrapScript(baseUrl, token)}
+  return <WebView ref={webRef} key={page.generation} style={styles.webView} source={{ uri: page.uri }} injectedJavaScriptBeforeContentLoaded={bootstrapScript(baseUrl, token, shellKey)}
     mixedContentMode="never" overScrollMode="never" onNavigationStateChange={(state: WebViewNavigation) => { lastUrl.current = state.url; onCanGoBackChange(state.canGoBack) }}
     onShouldStartLoadWithRequest={({ url }) => { if (allowNavigation(baseUrl, url)) return true; Linking.openURL(url).catch(() => onBlockedLink(url)); return false }}
     // Android's event names the lost page, though its type does not say so.
@@ -110,6 +118,7 @@ export function ServerWebView({ ref, baseUrl, token, onCanGoBackChange, onBlocke
     onMessage={({ nativeEvent }) => {
       const message = readMessage(nativeEvent.data)
       if (message.legatoShell === "restore" && typeof message.url === "string") returnTo.current = message.url
+      if (message.legatoShell === "voice" && message.key === shellKey) { voice(message.action); return }
       if (message.legatoShell !== "answer" || message.id !== awaitingAnswer.current?.id) return
       stopWaiting()
       if (message.rendered === false) reopen(lastUrl.current)

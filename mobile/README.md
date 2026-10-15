@@ -76,3 +76,25 @@ open). Terminal-backed agents are not refreshed this way.
 
 `adb logcat -s RNCWebViewClient` shows "The WebView rendering process was killed
 by the system." each time Android reclaims the page.
+
+## Dictation
+
+A page has a microphone only over HTTPS or on localhost, and Legato serves
+plain HTTP by default, so the web UI has no microphone of its own in the app.
+The app records in its place (`src/shellVoice.ts`, with `expo-audio`):
+
+- Before the page loads, the app tells it so: `window.legatoShell = {voice: 1,
+  key}`. The key is new each time the page is opened.
+- The page asks to start, stop or cancel by posting `{legatoShell: "voice",
+  key, action}`. The app acts only on a request carrying the key. The frames
+  that agents' HTML runs in can post to the app too; they cannot read the key.
+- The app asks Android for the microphone the first time, records AAC at 16 kHz
+  mono, and answers with `legato:shell-voice` events in the page: `started`,
+  `level` (0 to 1, several times a second, for the level bars), `audio` (the
+  recording as base64), `cancelled` or `error`.
+- The page decodes the recording and has Legato's server transcribe it, as it
+  does with a browser's microphone. The server needs no change.
+
+Inside the app the app always records, over HTTPS too. Outside it, a browser
+with a microphone of its own (over HTTPS, or on the desktop) uses that.
+

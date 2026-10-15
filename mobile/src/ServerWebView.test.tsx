@@ -13,7 +13,34 @@ const mockPage = {
   rendered: true,
   // Events the shell dispatched in the page, for the web app to hear.
   events: [] as string[],
+  // What the shell told the page about dictation, in order.
+  voice: [] as Record<string, unknown>[],
+  // What the shell set up in the page before it loaded.
+  shell: undefined as { voice?: number; key?: string } | undefined,
 }
+
+const mockRecorder = {
+  prepareToRecordAsync: jest.fn(async () => {}),
+  record: jest.fn(),
+  stop: jest.fn(async () => {}),
+  uri: "file:///cache/recording.m4a" as string | null,
+  getStatus: () => ({ isRecording: true, metering: -20 }),
+}
+const mockMicrophone = { granted: true }
+
+jest.mock("expo-audio", () => ({
+  useAudioRecorder: () => mockRecorder,
+  requestRecordingPermissionsAsync: jest.fn(async () => ({ granted: mockMicrophone.granted })),
+  setAudioModeAsync: jest.fn(async () => {}),
+}))
+
+jest.mock("expo-file-system/legacy", () => ({
+  readAsStringAsync: jest.fn(async () => "QUJD"),
+  deleteAsync: jest.fn(async () => {}),
+  EncodingType: { Base64: "base64" },
+}))
+
+jest.mock("expo-crypto", () => ({ randomUUID: () => "page-key" }))
 
 jest.mock("react-native-webview", () => {
   const React = jest.requireActual("react")
@@ -24,14 +51,19 @@ jest.mock("react-native-webview", () => {
     const run = (script: string) => {
       if (!mockPage.alive) return
       const { onMessage } = latest.current
+      const window: Record<string, unknown> = {
+        ...(onMessage ? { ReactNativeWebView: { postMessage: (data: string) => onMessage({ nativeEvent: { data } }) } } : {}),
+        dispatchEvent: (event: { type: string; detail?: Record<string, unknown> }) => {
+          mockPage.events.push(event.type)
+          if (event.type === "legato:shell-voice" && event.detail) mockPage.voice.push(event.detail)
+        },
+      }
       new Function("localStorage", "window", "document", script)(
         { setItem: (key: string, value: string) => { mockPage.localStorage[key] = value } },
-        {
-          ...(onMessage ? { ReactNativeWebView: { postMessage: (data: string) => onMessage({ nativeEvent: { data } }) } } : {}),
-          dispatchEvent: (event: { type: string }) => { mockPage.events.push(event.type) },
-        },
+        window,
         { readyState: "complete", getElementById: (id: string) => id === "root" ? { childElementCount: mockPage.rendered ? 1 : 0 } : null },
       )
+      if (window.legatoShell) mockPage.shell = window.legatoShell as typeof mockPage.shell
     }
     React.useImperativeHandle(ref, () => ({ injectJavaScript: run }), [])
     React.useEffect(() => {
@@ -65,6 +97,10 @@ beforeEach(() => {
   mockPage.alive = true
   mockPage.rendered = true
   mockPage.events = []
+  mockPage.voice = []
+  mockPage.shell = undefined
+  mockRecorder.uri = "file:///cache/recording.m4a"
+  mockMicrophone.granted = true
   appListeners.clear()
   jest.spyOn(AppState, "addEventListener").mockImplementation((_type, listener) => {
     appListeners.add(listener)
@@ -267,4 +303,64 @@ test("says nothing to a page it is about to reopen", async () => {
 
   expect(mockPage.opened).toEqual([server, `${server}/agents`])
   expect(mockPage.events).toEqual([])
+})
+
+// What the Legato web app posts to the shell about dictation.
+const pageAsksToRecord = (action: "start" | "stop" | "cancel", key = "page-key") =>
+  act(async () => { fireEvent(webview(), "message", { nativeEvent: { data: JSON.stringify({ legatoShell: "voice", key, action }) } }) })
+
+test("tells the page it can record, with a key only the page has", async () => {
+  await render(<ServerWebView baseUrl={server} token="s3cret" {...callbacks} />)
+
+  expect(mockPage.shell).toEqual({ voice: 1, key: "page-key" })
+})
+
+test("records when the page asks, and hands it the recording", async () => {
+  await render(<ServerWebView baseUrl={server} token="s3cret" {...callbacks} />)
+
+  await pageAsksToRecord("start")
+  expect(mockRecorder.record).toHaveBeenCalled()
+  expect(mockPage.voice).toContainEqual({ type: "started" })
+
+  await pageAsksToRecord("stop")
+  expect(mockRecorder.stop).toHaveBeenCalled()
+  expect(mockPage.voice).toContainEqual({ type: "audio", data: "QUJD", mime: "audio/mp4" })
+})
+
+test("tells the page how loud the microphone is while it records", async () => {
+  await render(<ServerWebView baseUrl={server} token="s3cret" {...callbacks} />)
+
+  await pageAsksToRecord("start")
+  await act(async () => { jest.advanceTimersByTime(300) })
+
+  expect(mockPage.voice.some((event) => event.type === "level" && typeof event.level === "number" && event.level > 0)).toBe(true)
+})
+
+test("throws a recording away when the page cancels it", async () => {
+  await render(<ServerWebView baseUrl={server} token="s3cret" {...callbacks} />)
+
+  await pageAsksToRecord("start")
+  await pageAsksToRecord("cancel")
+
+  expect(mockRecorder.stop).toHaveBeenCalled()
+  expect(mockPage.voice.some((event) => event.type === "audio")).toBe(false)
+})
+
+test("does not record for a frame that lacks the page's key", async () => {
+  await render(<ServerWebView baseUrl={server} token="s3cret" {...callbacks} />)
+
+  await pageAsksToRecord("start", "guessed")
+
+  expect(mockRecorder.record).not.toHaveBeenCalled()
+  expect(mockPage.voice).toEqual([])
+})
+
+test("says so when the microphone is refused", async () => {
+  mockMicrophone.granted = false
+  await render(<ServerWebView baseUrl={server} token="s3cret" {...callbacks} />)
+
+  await pageAsksToRecord("start")
+
+  expect(mockRecorder.record).not.toHaveBeenCalled()
+  expect(mockPage.voice).toContainEqual({ type: "error", message: "Legato may not use the microphone. Allow it in the app's settings." })
 })

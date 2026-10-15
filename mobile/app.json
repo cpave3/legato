@@ -38,7 +38,8 @@
         "visibility": "visible",
         "position": "relative"
       }],
-      "./plugins/withUserCertificateTrust"
+      "./plugins/withUserCertificateTrust",
+      ["expo-audio", {"microphonePermission": "Dictate messages to your agents"}]
     ]
   }
 }

@@ -34,9 +34,15 @@ export async function probeServer(baseUrl: string): Promise<{ compatibility: Com
   } finally { clearTimeout(timeout) }
 }
 
-export function bootstrapScript(baseUrl: string, token: string): string {
+// bootstrapScript runs in the page before it loads, in its main frame only.
+// Besides signing the page in, it tells the page the app can record for it
+// (`window.legatoShell`), with a key the page must send back: the frames an
+// agent's HTML runs in can post to the app too, and must not start the
+// microphone.
+export function bootstrapScript(baseUrl: string, token: string, shellKey?: string): string {
   const value = JSON.stringify(token)
-  return `localStorage.setItem("legato:token:local",${value});localStorage.setItem(${JSON.stringify(`legato:token:${baseUrl}`)},${value});true;`
+  const shell = shellKey ? `window.legatoShell={voice:1,key:${JSON.stringify(shellKey)}};` : ""
+  return `localStorage.setItem("legato:token:local",${value});localStorage.setItem(${JSON.stringify(`legato:token:${baseUrl}`)},${value});${shell}true;`
 }
 
 export function allowNavigation(baseUrl: string, target: string): boolean {

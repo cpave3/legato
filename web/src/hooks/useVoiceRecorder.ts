@@ -26,6 +26,44 @@ export interface VoiceRecorder {
 
 const LEVELS = 24
 
+// The Legato app records for a page it shows: a page served over plain HTTP
+// has no microphone of its own. The app says so before the page loads, with
+// a key the page sends back with each request.
+interface ShellVoice { key: string; post: (action: "start" | "stop" | "cancel") => void }
+
+function shellVoice(): ShellVoice | null {
+  const shell = (window as { legatoShell?: { voice?: number; key?: string } }).legatoShell
+  const bridge = (window as { ReactNativeWebView?: { postMessage: (data: string) => void } }).ReactNativeWebView
+  if (!shell?.voice || typeof shell.key !== "string" || !bridge) return null
+  const key = shell.key
+  return { key, post: (action) => bridge.postMessage(JSON.stringify({ legatoShell: "voice", key, action })) }
+}
+
+// What the app tells the page about its recording.
+type ShellVoiceEvent =
+  | { type: "started" }
+  | { type: "level"; level: number }
+  | { type: "audio"; data: string; mime: string }
+  | { type: "cancelled" }
+  | { type: "error"; message: string }
+
+function toPcm16(samples: Float32Array): Int16Array {
+  const pcm = new Int16Array(samples.length)
+  for (let i = 0; i < samples.length; i++) {
+    const sample = Math.max(-1, Math.min(1, samples[i]))
+    pcm[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff
+  }
+  return pcm
+}
+
+// The app's recording is compressed; decoding it in a context at 16 kHz gives
+// the samples the transcriber takes.
+async function decodeRecording(base64: string): Promise<Int16Array> {
+  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+  const audio = await new OfflineAudioContext(1, 1, 16000).decodeAudioData(bytes.buffer)
+  return toPcm16(audio.getChannelData(0))
+}
+
 // useVoiceRecorder records the microphone as 16 kHz samples and has Legato's
 // server transcribe them. Whoever uses it draws the recording.
 export function useVoiceRecorder({ agentId, agentKind, baseUrl, transcriptionOnly = false, onTranscription }: VoiceRecorderOptions): VoiceRecorder {
@@ -40,6 +78,8 @@ export function useVoiceRecorder({ agentId, agentKind, baseUrl, transcriptionOnl
   const pcmBufferRef = useRef<Int16Array[]>([])
   const stateRef = useRef<RecordingState>("idle")
   const timersRef = useRef<number[]>([])
+  // Set while the Legato app records for the page.
+  const shellRef = useRef<ShellVoice | null>(null)
   stateRef.current = state
 
   const later = useCallback((action: () => void, ms: number) => {
@@ -82,6 +122,19 @@ export function useVoiceRecorder({ agentId, agentKind, baseUrl, transcriptionOnl
 
   const start = useCallback(async () => {
     if (stateRef.current !== "idle") return
+    const shell = shellVoice()
+    if (shell) {
+      // The app says when it has started; until then nothing is recorded.
+      shellRef.current = shell
+      shell.post("start")
+      return
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setState("error")
+      setError("This page has no microphone: browsers allow one only over HTTPS. Use the Legato app, or turn on web.tls.")
+      later(() => setState("idle"), 5000)
+      return
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true },
@@ -127,21 +180,10 @@ export function useVoiceRecorder({ agentId, agentKind, baseUrl, transcriptionOnl
       setError(reason instanceof Error ? reason.message : "Failed to access microphone")
       cleanup()
     }
-  }, [cleanup])
+  }, [cleanup, later])
 
-  const stop = useCallback(async () => {
-    if (stateRef.current !== "recording") return
-    setState("transcribing")
-
-    const chunks = pcmBufferRef.current
-    const merged = new Int16Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0))
-    let offset = 0
-    for (const chunk of chunks) {
-      merged.set(chunk, offset)
-      offset += chunk.length
-    }
-    cleanup()
-
+  // Sends the samples to Legato's server and hands back what it heard.
+  const transcribe = useCallback(async (merged: Int16Array) => {
     try {
       const response = await apiFetch(baseUrl, "/api/voice/transcribe", {
         method: "POST",
@@ -165,9 +207,69 @@ export function useVoiceRecorder({ agentId, agentKind, baseUrl, transcriptionOnl
       setError(reason instanceof Error ? reason.message : "Transcription failed")
       later(() => setState("idle"), 3000)
     }
-  }, [agentId, agentKind, baseUrl, cleanup, later, onTranscription, transcriptionOnly])
+  }, [agentId, agentKind, baseUrl, later, onTranscription, transcriptionOnly])
+
+  // What the app says about the recording it makes for this page.
+  useEffect(() => {
+    const hear = (event: Event) => {
+      if (!shellRef.current) return
+      const message = (event as CustomEvent<ShellVoiceEvent>).detail
+      switch (message?.type) {
+        case "started":
+          setSeconds(0)
+          setLevels([])
+          setError("")
+          setState("recording")
+          break
+        case "level":
+          setLevels((current) => [...current.slice(-(LEVELS - 1)), message.level])
+          break
+        case "audio":
+          shellRef.current = null
+          decodeRecording(message.data).then(transcribe, (reason) => {
+            setState("error")
+            setError(reason instanceof Error ? `Could not read the recording: ${reason.message}` : "Could not read the recording")
+            later(() => setState("idle"), 3000)
+          })
+          break
+        case "cancelled":
+          shellRef.current = null
+          setState("idle")
+          break
+        case "error":
+          shellRef.current = null
+          setState("error")
+          setError(message.message)
+          later(() => setState("idle"), 5000)
+          break
+      }
+    }
+    window.addEventListener("legato:shell-voice", hear)
+    return () => window.removeEventListener("legato:shell-voice", hear)
+  }, [later, transcribe])
+
+  const stop = useCallback(async () => {
+    if (stateRef.current !== "recording") return
+    setState("transcribing")
+    if (shellRef.current) {
+      shellRef.current.post("stop")
+      return
+    }
+
+    const chunks = pcmBufferRef.current
+    const merged = new Int16Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0))
+    let offset = 0
+    for (const chunk of chunks) {
+      merged.set(chunk, offset)
+      offset += chunk.length
+    }
+    cleanup()
+    await transcribe(merged)
+  }, [cleanup, transcribe])
 
   const cancel = useCallback(() => {
+    shellRef.current?.post("cancel")
+    shellRef.current = null
     cleanup()
     setState("idle")
     setError("")
