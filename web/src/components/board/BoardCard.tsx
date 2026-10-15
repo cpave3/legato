@@ -117,7 +117,9 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
       draggable
       onDragStart={onDragStart}
       className={cn(
-        "group relative flex cursor-pointer flex-col overflow-hidden rounded-lg border font-lw text-lw-text transition-colors",
+        // A column lays cards out as a flex column that scrolls; a card keeps
+        // its height there rather than being squeezed to fit.
+        "group relative flex shrink-0 cursor-pointer flex-col overflow-hidden rounded-lg border font-lw text-lw-text transition-colors",
         selected ? "border-lw-accent bg-lw-selected" : "border-lw-line bg-lw-surface hover:border-lw-line-strong",
         trace && (card.agent_state === "working" ? "lw-trace lw-trace-working" : "lw-trace lw-trace-idle"),
         highlighted && "ring-2 ring-cyan-400 shadow-lg shadow-cyan-950/60",

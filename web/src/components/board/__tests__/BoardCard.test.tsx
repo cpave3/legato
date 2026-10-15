@@ -182,3 +182,14 @@ describe("BoardCard", () => {
     expect(onDoubleClick).toHaveBeenCalledTimes(1)
   })
 })
+
+describe("BoardCard in a long column", () => {
+  afterEach(cleanup)
+
+  it("keeps its own height, so a column with many cards scrolls instead of squeezing them", () => {
+    const { container } = renderCard(makeCard())
+    // Columns lay their cards out as a flex column; a card that may shrink is
+    // squeezed to a sliver once they no longer fit.
+    expect((container.firstElementChild as HTMLElement).className).toMatch(/\bshrink-0\b/)
+  })
+})
