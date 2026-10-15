@@ -62,6 +62,7 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           break
         case "cards_changed":
           invalidate([baseUrl, "board"], false)
+          invalidate([baseUrl, "task"], false)
           break
         case "agents_changed":
           invalidate(queryKeys.navigationSummary(baseUrl))

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { useState } from "react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { MemoryRouter, useLocation } from "react-router-dom"
@@ -35,7 +35,12 @@ vi.mock("../../components/TerminalPanel", () => ({
   TerminalPanel: ({ agentId }: { agentId: string }) => <div>Terminal of {agentId}</div>,
 }))
 vi.mock("../../components/PromptBar", () => ({ PromptBar: () => <textarea aria-label="Message" /> }))
-vi.mock("../../components/RelatedWorkStrip", () => ({ RelatedWorkStrip: () => null }))
+vi.mock("../../hooks/useTaskCard", () => ({
+  useTaskCard: (id: string | null) => id ? {
+    id, title: `${id} title`, status: "Doing",
+    pr_meta: { repo: "acme/app", branch: "feature", pr_number: 12, pr_url: "https://github.com/acme/app/pull/12", state: "OPEN", is_draft: false, review_decision: "", check_status: "pass", comment_count: 0 },
+  } : null,
+}))
 vi.mock("../../components/StartSwarmModal", () => ({ StartSwarmModal: () => null }))
 vi.mock("../../components/SpawnEphemeralModal", () => ({
   SpawnEphemeralModal: ({ open }: { open: boolean }) => open ? <div role="dialog">Spawn an agent</div> : null,
@@ -175,14 +180,37 @@ it("sends a message typed into a tile to that agent", async () => {
   expect(socket.send).toHaveBeenCalledWith({ type: "agent_message", agent_id: "TASK-2", content: "go ahead" })
 })
 
-it("heads a terminal session with its task, its actions, and a way to its card", async () => {
+it("heads a terminal session with its task, its pull request and its actions", async () => {
   open("/agents")
   await screen.findByText("Terminal of TASK-1")
   const header = screen.getByRole("banner")
 
   expect(header.textContent).toContain("TASK-1 title")
+  expect(within(header).getByText("TASK-1 · PR #12")).toBeTruthy()
+  expect(within(header).queryByRole("button", { name: "Open card" })).toBeNull()
   fireEvent.click(screen.getByTitle("More actions"))
   expect(screen.getByRole("menuitem", { name: "Refresh terminal" })).toBeTruthy()
-  fireEvent.click(screen.getByRole("button", { name: "Open card" }))
+})
+
+it("opens the work related to the agent beside its chat, with a way to its card", async () => {
+  open("/agents")
+  await screen.findByText("Terminal of TASK-1")
+  const related = within(screen.getByRole("banner")).getByRole("button", { name: "Related work (2)" })
+
+  fireEvent.click(related)
+  expect(related.getAttribute("aria-pressed")).toBe("true")
+  const panel = screen.getByRole("complementary", { name: "Related work" })
+  expect(within(panel).getByRole("link", { name: /Pull request · #12/ })).toBeTruthy()
+  fireEvent.click(within(panel).getByRole("link", { name: /Card · TASK-1/ }))
   await waitFor(() => expect(address()).toBe("/board?highlight_task=TASK-1"))
+})
+
+it("closes the related work when Related is pressed again", async () => {
+  open("/agents")
+  await screen.findByText("Terminal of TASK-1")
+  const related = within(screen.getByRole("banner")).getByRole("button", { name: "Related work (2)" })
+
+  fireEvent.click(related)
+  fireEvent.click(related)
+  expect(screen.queryByRole("complementary", { name: "Related work" })).toBeNull()
 })

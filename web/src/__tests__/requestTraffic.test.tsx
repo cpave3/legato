@@ -8,6 +8,7 @@ import { PlanQueuePage } from "../pages/PlanQueuePage"
 import App from "../App"
 import { useWorkflowRun, useWorkflowRuns, useWorkflows } from "../hooks/useWorkflow"
 import { useNavigationSummary } from "../hooks/useNavigationSummary"
+import { useTaskCard } from "../hooks/useTaskCard"
 import { fetchHandoff } from "../lib/handoff"
 import { createQueryClient, queryKeys } from "../lib/query"
 import type { WSMessage } from "../hooks/useWebSocket"
@@ -240,4 +241,24 @@ it("refreshes only the server-scoped handoff named by review_changed", async () 
   act(() => { websocket.handler?.({ type: "review_changed", tour_id: "a" }) })
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
   expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/review/tours/a/handoff")
+})
+
+it("reads an agent's card again when the cards change", async () => {
+  let reads = 0
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+    const path = requestPath(input)
+    if (path !== "/api/tasks/AG-1") throw new Error(`unexpected request: ${path}`)
+    reads += 1
+    return response({ id: "AG-1", title: "Cover", status: reads === 1 ? "Column one" : "Column two", pr_meta: null })
+  }))
+  function CardStatus() {
+    const card = useTaskCard("AG-1")
+    return <span>{card?.status ?? "loading"}</span>
+  }
+
+  render(<QueryClientProvider client={createQueryClient()}><QuerySyncProvider><CardStatus /></QuerySyncProvider></QueryClientProvider>)
+  await screen.findByText("Column one")
+  act(() => { websocket.handler?.({ type: "cards_changed" }) })
+  await screen.findByText("Column two")
+  expect(reads).toBe(2)
 })

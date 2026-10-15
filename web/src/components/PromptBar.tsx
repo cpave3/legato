@@ -13,8 +13,7 @@ import { DictateButton, DictationBar, SendButton, WorkingStrip } from "./Compose
 import { composerToolButton, dictating } from "../lib/composer"
 import { AgentKindBadge } from "./AgentKindBadge"
 import { appendProposal, onComposerProposal } from "../lib/agentUi"
-import { ArtifactsButton, type ArtifactsButtonProps } from "./ArtifactsButton"
-import { AgentMoreMenu } from "./AgentChatHeader"
+import { AgentMoreMenu, SidePanelSwitch, type SidePanelsProps } from "./AgentChatHeader"
 import { useTerminalMenu } from "../hooks/useTerminalMenu"
 
 interface ActionListProps {
@@ -123,10 +122,11 @@ interface PromptBarProps {
   onToggleNotify?: () => void
   voiceEnabled?: boolean
   onUpgradeChimera?: () => Promise<void>
-  // The session's artifacts, offered from the toolbar.
-  artifacts?: ArtifactsButtonProps
+  // What the column beside the session can show, when the bar is its only
+  // toolbar.
+  panels?: SidePanelsProps
   // The page's header above the terminal already names the agent and holds
-  // its artifacts and More actions menu (useTerminalMenu); the bar keeps
+  // its side panels and More actions menu (useTerminalMenu); the bar keeps
   // only the message box and the controls under it.
   menuInHeader?: boolean
 }
@@ -141,7 +141,7 @@ export interface PromptBarHandle {
   voiceIsRecording: () => boolean
 }
 
-export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera, artifacts, menuInHeader = false }, ref) {
+export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera, panels, menuInHeader = false }, ref) {
   const { baseUrl } = useServer()
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
   const terminalMenu = useTerminalMenu({ agentKind, onUpgradeChimera, onRefresh, onDetectPrompt, onTogglePromptDetection, promptDetectionEnabled, ntfyConfigured, notifyEnabled, onToggleNotify, onDisconnect, onKill })
@@ -295,7 +295,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
     <div className="bg-lw-ground px-3 pb-3 font-lw text-[13px] text-lw-text md:px-6 md:pb-[18px]">
       {!menuInHeader && (
         // Without the page's header (in a swarm), the bar names the agent
-        // and holds its artifacts and menu itself.
+        // and holds its side panels and menu itself.
         <div className="flex items-center justify-between gap-2 py-2">
           <div className="flex min-w-0 items-center gap-2">
             {/* Below md the agent picker above the terminal already names the tool. */}
@@ -303,7 +303,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
             {agentTitle && <div className="truncate text-xs text-lw-text-2">{agentTitle}</div>}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            {artifacts && <ArtifactsButton {...artifacts} />}
+            {panels && <SidePanelSwitch {...panels} />}
             <AgentMoreMenu entries={terminalMenu.entries} />
           </div>
         </div>

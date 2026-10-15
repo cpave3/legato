@@ -271,7 +271,7 @@ Not checked in a browser: the panel is covered by component tests with a pretend
 - On a wide screen it is a resizable column beside the conversation (drag its left edge, or Left/Right on it; the width is remembered).
 - Below 1100 px of viewport (1500 px beside the swarm event log) it is a full-screen sheet, as on a phone, above the bottom navigation.
 - `useArtifactPanel` decides when it opens: a new artifact from the agent in view opens it, focused on that artifact; one from another agent is counted on that agent's sidebar entry and opens when the person goes there. A card never opens it. Where the panel is a sheet, a new artifact only marks the button, so it cannot land on top of what the person is typing.
-- The **Artifacts** button is in the session's own toolbar (the native panel's status bar, the terminal `PromptBar`), with a count and a mark for new ones. A native session counts its artifacts; a terminal session counts its cards too.
+- **Artifacts** is one side of the Related | Artifacts switch in the chat's header (the terminal `PromptBar` in a swarm), with a count and a mark for new ones; Related shows the task's linked work in the same column. A native session counts its artifacts; a terminal session counts its cards too.
 
 **Terminal sessions.** A session shown through its terminal has no conversation feed. Its cards are in the panel beside its artifacts.
 
@@ -404,7 +404,7 @@ A session must be started again to gain or lose the server: agent tools read the
 - `internal/server/agent_ui.go` — the HTTP API, the image and video routes and the WebSocket forwarder. `agent_ui_studio.go` — the route to a studio.
 - `internal/engine/hooks/` — `claudemod/tools/` and `InstallClaudeToolsMod`; `SetMCPTools` and `SetToolsPrompt` on the Codex and Chimera adapters; `mcp_tools.go` for what they share.
 - `internal/tui/agents/shown.go`, `internal/tui/app_agent_ui.go` — the TUI's line and link for what an agent showed.
-- `web/src/lib/agentUi.ts`, `hooks/useAgentUI.ts`, `hooks/useArtifactPanel.ts`, `components/AgentArtifactPanel.tsx`, `AgentUICallCard.tsx`, `AgentUIItemView.tsx`, `AgentUIComponents.tsx`, `SandboxedHtml.tsx`, `ImageLightbox.tsx`, `ArtifactsButton.tsx`. `lib/agentStudio.ts`, `components/AgentStudioPanel.tsx` — the studio panel and what it asks the studio. `lib/agentVideo.ts`, `components/AgentVideoPlayer.tsx` — a video's manifest and its player.
+- `web/src/lib/agentUi.ts`, `hooks/useAgentUI.ts`, `hooks/useArtifactPanel.ts`, `components/AgentArtifactPanel.tsx`, `AgentUICallCard.tsx`, `AgentUIItemView.tsx`, `AgentUIComponents.tsx`, `SandboxedHtml.tsx`, `ImageLightbox.tsx`, `AgentChatHeader.tsx` (`SidePanelSwitch`). `lib/agentStudio.ts`, `components/AgentStudioPanel.tsx` — the studio panel and what it asks the studio. `lib/agentVideo.ts`, `components/AgentVideoPlayer.tsx` — a video's manifest and its player.
 
 ## Debugging
 

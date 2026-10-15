@@ -34,7 +34,7 @@ vi.mock("../../hooks/useAgentUI", () => ({
 vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
 vi.mock("../../components/TerminalPanel", () => ({ TerminalPanel: () => <div>Terminal session</div> }))
 vi.mock("../../components/PromptBar", () => ({ PromptBar: () => null }))
-vi.mock("../../components/RelatedWorkStrip", () => ({ RelatedWorkStrip: () => null }))
+vi.mock("../../hooks/useTaskCard", () => ({ useTaskCard: () => null }))
 vi.mock("../../components/StartSwarmModal", () => ({ StartSwarmModal: () => null }))
 vi.mock("../../components/SpawnEphemeralModal", () => ({ SpawnEphemeralModal: () => null }))
 vi.mock("../../components/SwarmEventLog", () => ({ SwarmEventLog: () => null }))

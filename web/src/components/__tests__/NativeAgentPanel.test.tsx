@@ -588,19 +588,16 @@ describe("NativeAgentPanel", () => {
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "agent_message" }))
   })
 
-  it("opens with the agent's task and state, and a way to its card", async () => {
+  it("opens with the agent's task, its pull request and its state", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
       : new Response("[]", { status: 200 }))
-    const onOpenCard = vi.fn()
-
-    render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" title="Complete the Cover section" stateTime="5h 44m" onOpenCard={onOpenCard} />)
+    render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" title="Complete the Cover section" stateTime="5h 44m" pullRequest={1334} />)
     const header = await screen.findByRole("banner")
 
     expect(within(header).getByRole("heading", { name: "Complete the Cover section" })).not.toBeNull()
-    await waitFor(() => expect(within(header).getByText("Running 5h 44m")).not.toBeNull())
-    fireEvent.click(within(header).getByRole("button", { name: "Open card" }))
-    expect(onOpenCard).toHaveBeenCalledOnce()
+    await waitFor(() => expect(within(header).getByText(/Running/).textContent).toBe("● Running 5h 44m"))
+    expect(within(header).getByText("task-1 · PR #1334")).not.toBeNull()
   })
 
   it("says above the message box what the working agent runs, with Interrupt, and Queue under it", async () => {

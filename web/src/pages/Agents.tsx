@@ -1,25 +1,26 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
-import { LayoutGrid } from "lucide-react"
-import { Link, useNavigate, useSearchParams } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "../hooks/useWebSocket"
 import { AgentSidebar } from "../components/AgentSidebar"
 import { AgentContextMenu } from "../components/AgentContextMenu"
 import { TerminalPanel } from "../components/TerminalPanel"
 import { NativeAgentPanel } from "../components/NativeAgentPanel"
-import { RelatedWorkStrip } from "../components/RelatedWorkStrip"
+import { RelatedWorkPanel } from "../components/RelatedWorkPanel"
 import { PromptBar, type PromptBarHandle } from "../components/PromptBar"
 import { StartSwarmModal } from "../components/StartSwarmModal"
 import { SpawnEphemeralModal } from "../components/SpawnEphemeralModal"
 import { SwarmEventLog } from "../components/SwarmEventLog"
 import { SwarmCommandCenter } from "../components/SwarmCommandCenter"
 import { AgentEnsemble } from "../components/AgentEnsemble"
-import { AgentSelect } from "../components/AgentSelect"
+import { AgentPickerBar } from "../components/AgentSelect"
 import { AgentArtifactPanel } from "../components/AgentArtifactPanel"
 import { useAgentUIItems } from "../hooks/useAgentUI"
 import { useArtifactPanel } from "../hooks/useArtifactPanel"
 import { useServer } from "../hooks/useServer"
 import { useSwarmEvents } from "../hooks/useSwarmEvents"
 import { useTaskActivity } from "../hooks/useTaskActivity"
+import { useTaskCard } from "../hooks/useTaskCard"
+import { splitRelated } from "../lib/relatedWork"
 import { apiFetch, toggleAgentNotify } from "../lib/api"
 import { canBeNative } from "../lib/agentKind"
 import { useAgentSelection } from "../hooks/useAgentSelection"
@@ -28,7 +29,7 @@ import { useSettings } from "../hooks/useSettings"
 import { useToast } from "../hooks/useToast"
 import { useAgentContexts } from "../hooks/useAgentContexts"
 import { agentListOrder, formatAgentTime, stateSeconds } from "../lib/agentList"
-import { AgentChatHeader, type AgentChatState } from "../components/AgentChatHeader"
+import { AgentChatHeader, type AgentChatState, type SidePanel, type SidePanelsProps } from "../components/AgentChatHeader"
 import { useTerminalMenu } from "../hooks/useTerminalMenu"
 
 const GLITCH_DURATION_MS = 500
@@ -111,7 +112,6 @@ export function AgentsPage() {
   } | null>(null)
   const { addToast } = useToast()
   const contexts = useAgentContexts(agents)
-  const navigate = useNavigate()
   const settings = useSettings()
   const ntfyConfigured = Boolean(settings.data?.ntfy_configured)
   const voiceEnabled = Boolean(settings.data?.voice_enabled)
@@ -473,8 +473,35 @@ export function AgentsPage() {
     : madeItems.length
   const newArtifacts = selectedId ? artifacts.unseen[selectedId] ?? 0 : 0
   const openArtifact = artifacts.openItem
-  const artifactsButton = {
-    count: artifactCount, fresh: newArtifacts, onToggle: artifacts.toggle,
+  // The column beside the chat shows either the work related to the agent's
+  // task or what the agent has shown; the header switches between them.
+  const cardId = selectedAgent ? selectedAgent.attribution_task_id || selectedAgent.task_id : ""
+  const card = useTaskCard(cardId)
+  const pullRequest = card?.id === cardId && card.pr_meta?.pr_number ? card.pr_meta.pr_number : undefined
+  const [relatedOpen, setRelatedOpen] = useState(false)
+  const artifactsOpen = artifacts.open
+  useEffect(() => {
+    if (artifactsOpen) setRelatedOpen(false)
+  }, [artifactsOpen])
+  const closeArtifacts = artifacts.close
+  const toggleArtifacts = artifacts.toggle
+  const selectPanel = useCallback((panel: SidePanel) => {
+    if (panel === "artifacts") {
+      setRelatedOpen(false)
+      toggleArtifacts()
+    } else if (relatedOpen) {
+      setRelatedOpen(false)
+    } else {
+      closeArtifacts()
+      setRelatedOpen(true)
+    }
+  }, [closeArtifacts, relatedOpen, toggleArtifacts])
+  const sidePanels: SidePanelsProps = {
+    open: artifactsOpen ? "artifacts" : relatedOpen ? "related" : null,
+    // The card itself is always linked, and its pull request when it has one.
+    related: { count: relatedWork.length + 1 + (pullRequest ? 1 : 0), live: splitRelated(relatedWork).inProgress.length > 0 },
+    artifacts: { count: artifactCount, fresh: newArtifacts },
+    onSelect: selectPanel,
     studio: studioItem ? { onOpen: () => openArtifact(studioItem.id, 0) } : undefined,
   }
 
@@ -493,12 +520,6 @@ export function AgentsPage() {
     onDisconnect: handleDisconnect,
     onKill: handleKill,
   })
-  // Shows the agent's task on the board: the task the agent works for.
-  const openCard = useCallback(() => {
-    if (!selectedAgent) return
-    navigate(`/board?highlight_task=${encodeURIComponent(selectedAgent.attribution_task_id || selectedAgent.task_id)}`)
-  }, [navigate, selectedAgent])
-
   // If the selected agent died, deselect it.
   useEffect(() => {
     if (selectedId && selectedAgent && selectedAgent.status !== "running" && !conductor) {
@@ -590,27 +611,13 @@ export function AgentsPage() {
     <div className="flex h-full flex-col overflow-hidden md:flex-row">
       {workflowRun && <Link to={`/workflows/runs/${workflowRun}`} className="absolute right-3 top-3 z-30 rounded bg-lw-surface px-3 py-2 text-xs text-lw-link shadow">Back to workflow</Link>}
       {isMobile ? (
-        <div className="flex shrink-0 gap-2 border-b border-lw-line bg-lw-ground p-2">
-          <AgentSelect
-            agents={runningAgents}
-            selectedId={selectedId}
-            onSelect={handleSelect}
-          />
-          <button
-            onClick={() => showEnsemble(true)}
-            aria-label="Ensemble"
-            title="Ensemble: every agent at once"
-            className="flex items-center rounded border border-lw-line-strong px-3 py-2 text-[#c9c8d0] transition-colors hover:bg-lw-raised"
-          >
-            <LayoutGrid size={16} aria-hidden="true" />
-          </button>
-          <button
-            onClick={handleSpawn}
-            className="rounded bg-lw-accent px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-          >
-            +
-          </button>
-        </div>
+        <AgentPickerBar
+          agents={runningAgents}
+          selectedId={selectedId}
+          onSelect={handleSelect}
+          onEnsemble={() => showEnsemble(true)}
+          onSpawn={handleSpawn}
+        />
       ) : (
         <AgentSidebar
           agents={runningAgents}
@@ -627,7 +634,6 @@ export function AgentsPage() {
       )}
 
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        <RelatedWorkStrip items={relatedWork} />
         {selectedId ? (
           <>
             {!swarmMode && selectedAgent && !selectedAgent.has_chimera_endpoint && (
@@ -637,8 +643,8 @@ export function AgentsPage() {
                 title={selectedAgent.task_title || selectedAgent.task_id}
                 taskId={selectedAgent.task_id}
                 agentKind={selectedAgent.agent_kind}
-                artifacts={artifactsButton}
-                onOpenCard={openCard}
+                pullRequest={pullRequest}
+                panels={sidePanels}
                 menu={terminalMenu.entries}
                 notes={terminalMenu.upgradeError && <span role="alert" className="text-lw-error">{terminalMenu.upgradeError}</span>}
               />
@@ -667,7 +673,8 @@ export function AgentsPage() {
                       activity={agent.activity}
                       stateTime={formatAgentTime(stateSeconds(agent))}
                       onOpenUIItem={agent.task_id === selectedId ? artifacts.openItem : undefined}
-                      artifacts={agent.task_id === selectedId ? artifactsButton : undefined}
+                      panels={agent.task_id === selectedId ? sidePanels : undefined}
+                      pullRequest={agent.task_id === selectedId ? pullRequest : undefined}
                     />
                   ) : (
                     <TerminalPanel agentId={agent.task_id} onGlitch={triggerGlitch} onClickTerminal={() => {
@@ -689,11 +696,11 @@ export function AgentsPage() {
                   voiceEnabled={voiceEnabled}
                   agentKind={selectedAgent?.agent_kind}
                   onOpenUIItem={artifacts.openItem}
-                  artifacts={artifactsButton}
+                  panels={sidePanels}
+                  pullRequest={pullRequest}
                   title={selectedAgent?.task_title}
                   activity={selectedAgent?.activity}
                   stateTime={selectedAgent ? formatAgentTime(stateSeconds(selectedAgent)) : undefined}
-                  onOpenCard={openCard}
                 />
               ) : (
                 <TerminalPanel agentId={selectedId} onGlitch={triggerGlitch} onClickTerminal={() => promptBarRef.current?.focus()} />
@@ -726,7 +733,7 @@ export function AgentsPage() {
                 onToggleNotify={handleToggleNotify}
                 voiceEnabled={voiceEnabled}
                 onUpgradeChimera={canBeNative(selectedAgent?.agent_kind) ? handleUpgradeChimera : undefined}
-                artifacts={artifactsButton}
+                panels={sidePanels}
                 menuInHeader={!swarmMode}
               />
             )}
@@ -744,6 +751,15 @@ export function AgentsPage() {
           focus={artifacts.focus}
           onFocus={artifacts.openItem}
           onClose={artifacts.close}
+          mobile={artifactSheet}
+        />
+      )}
+      {selectedId && cardId && relatedOpen && !artifacts.open && (
+        <RelatedWorkPanel
+          items={relatedWork}
+          card={card?.id === cardId ? card : null}
+          cardId={cardId}
+          onClose={() => setRelatedOpen(false)}
           mobile={artifactSheet}
         />
       )}

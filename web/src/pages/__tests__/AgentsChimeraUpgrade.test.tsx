@@ -35,7 +35,7 @@ vi.mock("../../components/NativeAgentPanel", () => ({
 }))
 vi.mock("../../components/AgentSidebar", () => ({ AgentSidebar: () => <aside>Agents</aside> }))
 vi.mock("../../components/AgentSelect", () => ({ AgentSelect: () => null }))
-vi.mock("../../components/RelatedWorkStrip", () => ({ RelatedWorkStrip: () => null }))
+vi.mock("../../hooks/useTaskCard", () => ({ useTaskCard: () => null }))
 vi.mock("../../components/StartSwarmModal", () => ({ StartSwarmModal: () => null }))
 vi.mock("../../components/SpawnEphemeralModal", () => ({ SpawnEphemeralModal: () => null }))
 vi.mock("../../components/SwarmEventLog", () => ({ SwarmEventLog: () => null }))

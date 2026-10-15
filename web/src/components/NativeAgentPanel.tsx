@@ -15,8 +15,7 @@ import { NativeTerminalPrompt } from "./NativeTerminalPrompt"
 import { AgentUICallCard } from "./AgentUICallCard"
 import { ReadImageRow } from "./ReadImageRow"
 import { PastedImageStrip } from "./PastedImageStrip"
-import { type ArtifactsButtonProps } from "./ArtifactsButton"
-import { AgentChatHeader, type AgentChatState, type AgentMenuEntry } from "./AgentChatHeader"
+import { AgentChatHeader, type AgentChatState, type AgentMenuEntry, type SidePanelsProps } from "./AgentChatHeader"
 import { ResourcesButton } from "./ResourcesButton"
 import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
 import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, formatElapsed, queueMessage, unreadQueued, type QueuedMessage } from "../lib/composer"
@@ -199,18 +198,18 @@ interface NativeAgentPanelProps {
   // Open something the agent showed (an artifact, or a card at full size)
   // in the side panel.
   onOpenUIItem?: (itemId: string, revision: number) => void
-  // The session's artifacts, offered from the toolbar.
-  artifacts?: ArtifactsButtonProps
+  // What the column beside the chat can show, switched from the header.
+  panels?: SidePanelsProps
   // The task the agent works on, what it is doing as its hooks report it
   // (error, background), and how long it has been doing it.
   title?: string
   activity?: string
   stateTime?: string
-  // Shows the agent's task on the board.
-  onOpenCard?: () => void
+  // The pull request of the agent's task.
+  pullRequest?: number
 }
 
-export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, artifacts, title, activity, stateTime, onOpenCard }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   const { baseUrl } = useServer()
   const [syncState, setSyncState] = useState<NativeSyncState>(() => createNativeSyncState())
@@ -853,8 +852,8 @@ export function NativeAgentPanel({ agentId, onKill, onDisconnect, onDowngradeChi
         taskId={agentId}
         agentKind={agentKind}
         native
-        artifacts={artifacts}
-        onOpenCard={onOpenCard}
+        pullRequest={pullRequest}
+        panels={panels}
         onShowRequest={scrollToBottom}
         menu={menu}
         notes={<>

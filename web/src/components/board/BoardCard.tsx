@@ -5,6 +5,7 @@ import { MoreHorizontal } from "lucide-react"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
 import { agentStripLook, formatDuration, priorityTone } from "../../lib/boardCard"
 import { animatedAgentActivityEnabled } from "../../lib/appearancePreferences"
+import { ChecksMark, Mark, ReviewMark } from "../PullRequestMarks"
 
 interface BoardCardProps {
   card: BoardCardType
@@ -46,35 +47,14 @@ function MetaLine({ card, showWorkspace }: { card: BoardCardType; showWorkspace:
   )
 }
 
-function Mark({ glyph, tone, children }: { glyph: string; tone: string; children: ReactNode }) {
-  return <span className={cn("inline-flex items-center gap-1", tone)}><span aria-hidden="true">{glyph}</span><span>{children}</span></span>
-}
-
-function checksMark(status: string) {
-  switch (status) {
-    case "pass": return <Mark glyph="✓" tone="text-lw-live">CI passed</Mark>
-    case "fail": return <Mark glyph="✕" tone="text-lw-error">CI failed</Mark>
-    case "pending": return <Mark glyph="◌" tone="text-lw-needs">CI pending</Mark>
-    default: return <span className="text-lw-faint">no checks</span>
-  }
-}
-
-function reviewMark(decision: string) {
-  switch (decision) {
-    case "APPROVED": return <Mark glyph="✓" tone="text-lw-live">approved</Mark>
-    case "CHANGES_REQUESTED": return <Mark glyph="✕" tone="text-lw-error">changes requested</Mark>
-    default: return <span className="text-lw-faint">review pending</span>
-  }
-}
-
 function PullRequestLine({ card }: { card: BoardCardType }) {
   const ready = !card.pr_is_draft && card.pr_check_status === "pass" && card.pr_review_decision === "APPROVED"
   return (
     <div aria-label={`Pull request #${card.pr_number}`} className="flex flex-wrap items-center gap-x-2 pt-0.5 text-xs text-lw-text-2">
       <span className="font-lw-mono">#{card.pr_number}</span>
       {card.pr_is_draft && <span>draft</span>}
-      {checksMark(card.pr_check_status)}
-      {reviewMark(card.pr_review_decision)}
+      <ChecksMark status={card.pr_check_status} />
+      <ReviewMark decision={card.pr_review_decision} />
       {card.pr_comment_count > 0 && <span>{card.pr_comment_count} {card.pr_comment_count === 1 ? "comment" : "comments"}</span>}
       {ready && <span className="text-lw-done">ready to merge</span>}
     </div>

@@ -39,7 +39,10 @@ vi.mock("../../components/AgentSidebar", () => ({
   ),
 }))
 vi.mock("../../components/AgentSelect", () => ({ AgentSelect: () => null }))
-vi.mock("../../components/RelatedWorkStrip", () => ({ RelatedWorkStrip: () => null }))
+// The terminal draws on a canvas, which jsdom lacks; it shows only before the
+// agents load here.
+vi.mock("../../components/TerminalPanel", () => ({ TerminalPanel: () => null }))
+vi.mock("../../hooks/useTaskCard", () => ({ useTaskCard: () => null }))
 vi.mock("../../components/StartSwarmModal", () => ({ StartSwarmModal: () => null }))
 vi.mock("../../components/SpawnEphemeralModal", () => ({ SpawnEphemeralModal: () => null }))
 vi.mock("../../components/SwarmEventLog", () => ({ SwarmEventLog: () => null }))

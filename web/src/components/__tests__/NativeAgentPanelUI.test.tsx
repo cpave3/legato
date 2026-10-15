@@ -116,25 +116,16 @@ describe("NativeAgentPanel and what an agent shows", () => {
   })
 })
 
-describe("NativeAgentPanel artifacts button", () => {
-  it("offers the session's artifacts from the toolbar, marking new ones", async () => {
+describe("NativeAgentPanel side panels", () => {
+  it("switches the side column from its header, marking new artifacts", async () => {
     mockSession([])
-    const onToggle = vi.fn()
-    render(<NativeAgentPanel agentId="task-1" artifacts={{ count: 2, fresh: 1, onToggle }} />, { wrapper })
+    const onSelect = vi.fn()
+    render(<NativeAgentPanel agentId="task-1" panels={{ open: null, related: { count: 1, live: false }, artifacts: { count: 2, fresh: 1 }, onSelect }} />, { wrapper })
     await screen.findByPlaceholderText("Message task-1")
 
-    const button = screen.getByRole("button", { name: "Artifacts (2), 1 new" })
-    expect(button.textContent).toContain("2")
-    fireEvent.click(button)
-
-    expect(onToggle).toHaveBeenCalledTimes(1)
-  })
-
-  it("shows no artifacts button for a session that has shown none", async () => {
-    mockSession([])
-    render(<NativeAgentPanel agentId="task-1" artifacts={{ count: 0, fresh: 0, onToggle: vi.fn() }} />, { wrapper })
-    await screen.findByPlaceholderText("Message task-1")
-
-    expect(screen.queryByRole("button", { name: /Artifacts/ })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Artifacts (2), 1 new" }))
+    expect(onSelect).toHaveBeenCalledWith("artifacts")
+    fireEvent.click(screen.getByRole("button", { name: "Related work (1)" }))
+    expect(onSelect).toHaveBeenCalledWith("related")
   })
 })

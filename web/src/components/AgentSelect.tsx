@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from "react"
 import type { AgentInfo } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
-import { ChevronDown, Play, Pause, AlertTriangle } from "lucide-react"
+import { ChevronDown, Play, Pause, AlertTriangle, LayoutGrid, Plus } from "lucide-react"
 import { AgentKindBadge } from "./AgentKindBadge"
-import { isAgentToolInForeground } from "../lib/agentKind"
+import { agentKindLabel, isAgentToolInForeground } from "../lib/agentKind"
+import { ensembleSection } from "../lib/agentGlance"
+import { formatAgentTime, sectionLabels, stateSeconds } from "../lib/agentList"
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) return "<1m"
@@ -17,16 +19,16 @@ function formatDuration(seconds: number): string {
 function ActivityDot({ activity }: { activity: string }) {
   switch (activity) {
     case "working":
-      return <span className="inline-flex h-2 w-2 rounded-full bg-lw-live" title="Working" />
+      return <span className="inline-flex size-2 shrink-0 rounded-full bg-lw-live" title="Working" />
     case "waiting":
-      return <span className="inline-flex h-2 w-2 rounded-full bg-lw-needs" title="Waiting" />
+      return <span className="inline-flex size-2 shrink-0 rounded-full bg-lw-needs" title="Waiting" />
     case "background":
       // Its turn ended with a shell or subagent of its own still running.
-      return <span className="inline-flex h-2 w-2 rounded-full bg-lw-done" title="Background work running" />
+      return <span className="inline-flex size-2 shrink-0 rounded-full bg-lw-done" title="Background work running" />
     case "error":
-      return <span className="inline-flex h-2 w-2 rounded-full bg-lw-error" title="Error" />
+      return <span className="inline-flex size-2 shrink-0 rounded-full bg-lw-error" title="Error" />
     default:
-      return <span className="inline-flex h-2 w-2 rounded-full bg-[#4a4955]" title="Idle" />
+      return <span className="inline-flex size-2 shrink-0 rounded-full bg-[#4a4955]" title="Idle" />
   }
 }
 
@@ -45,6 +47,22 @@ function ActivityLabel({ activity }: { activity: string }) {
   }
 }
 
+const stateTone = {
+  "needs-you": "text-lw-needs",
+  running: "text-lw-live",
+  background: "text-lw-done",
+  idle: "text-lw-text-2",
+}
+
+// What an agent is doing, with its time, as the line under its title says it:
+// "Running 4h 4m".
+function pickerState(agent: AgentInfo): { text: string; tone: string } {
+  const time = formatAgentTime(stateSeconds(agent))
+  const section = ensembleSection(agent)
+  const [label, tone] = agent.activity === "error" ? ["Error", "text-lw-error"] : [sectionLabels[section], stateTone[section]]
+  return { text: time ? `${label} ${time}` : label, tone }
+}
+
 interface AgentSelectProps {
   agents: AgentInfo[]
   selectedId: string | null
@@ -55,6 +73,8 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const selectedAgent = agents.find((a) => a.task_id === selectedId)
+  const title = selectedAgent ? selectedAgent.task_title || selectedAgent.command || selectedAgent.task_id : ""
+  const state = selectedAgent ? pickerState(selectedAgent) : null
 
   useEffect(() => {
     if (!open) return
@@ -73,37 +93,46 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
   }
 
   return (
-    <div ref={containerRef} className="relative flex-1">
+    // min-w-0: a flex item is never narrower than its content otherwise, and
+    // a long title would push the buttons beside it off a phone's screen.
+    <div ref={containerRef} className="relative min-w-0 flex-1">
       <button
+        type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-label={selectedAgent ? `Agent: ${title}, ${state!.text.toLowerCase()}` : "Choose an agent"}
+        aria-expanded={open}
         className={cn(
-          "flex w-full items-center gap-2 rounded border bg-lw-surface px-3 py-2 text-left transition-colors",
-          open
-            ? "border-zinc-500 text-lw-text"
-            : "border-lw-line-strong text-lw-text hover:border-[#4a4955]"
+          "flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border bg-lw-surface py-1.5 pl-3 pr-2 text-left font-lw transition-colors",
+          open ? "border-lw-accent" : "border-lw-line hover:border-lw-line-strong",
         )}
       >
         {selectedAgent ? (
-          <>
-            <ActivityDot activity={selectedAgent.activity} />
-            <div className="flex flex-1 flex-col overflow-hidden">
-              <span className="truncate text-sm font-medium">
-                {selectedAgent.task_title || selectedAgent.command}
+          <span className="@container flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-sm font-semibold leading-5 text-lw-text">{title}</span>
+            {/* What the agent is doing always shows. Its ID and its tool
+                follow where there is room for them whole, the tool first to
+                go: a fragment of either says nothing. */}
+            <span className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-xs leading-4 text-lw-text-2">
+              <ActivityDot activity={selectedAgent.activity} />
+              <span className={cn("shrink-0", state!.tone)}>{state!.text}</span>
+              <span className="hidden shrink-0 @min-[12.5rem]:inline">
+                <span aria-hidden="true" className="text-lw-faint">· </span>
+                <span className="font-lw-mono">{selectedAgent.task_id}</span>
               </span>
-              <span className="truncate text-xs text-lw-text-2 font-mono">
-                {selectedAgent.task_id}
+              <span title={`${agentKindLabel(selectedAgent.agent_kind)}, ${selectedAgent.has_chimera_endpoint ? "native" : "terminal"} session`} className="hidden shrink-0 @min-[18rem]:inline">
+                <span aria-hidden="true" className="text-lw-faint">· </span>
+                <span>{agentKindLabel(selectedAgent.agent_kind)}</span>
               </span>
-            </div>
-            <AgentKindBadge kind={selectedAgent.agent_kind} isNative={!!selectedAgent.has_chimera_endpoint} />
-          </>
+            </span>
+          </span>
         ) : (
-          <span className="flex-1 truncate text-sm text-lw-text-2">Select agent…</span>
+          <span className="flex-1 truncate text-sm text-lw-text-2">Choose an agent</span>
         )}
-        <ChevronDown size={14} className={cn("shrink-0 text-lw-text-2 transition-transform", open && "rotate-180")} />
+        <ChevronDown size={16} aria-hidden="true" className={cn("shrink-0 text-lw-text-2 transition-transform", open && "rotate-180")} />
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[60vh] overflow-y-auto rounded border border-lw-line-strong bg-lw-surface shadow-xl">
+        <div role="group" aria-label="Running agents" className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[60vh] overflow-y-auto rounded-lg border border-lw-line-strong bg-lw-surface font-lw shadow-xl">
           {agents.length === 0 && (
             <div className="px-3 py-4 text-center text-sm text-lw-text-2">
               No active agents
@@ -116,6 +145,8 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
             return (
               <button
                 key={agent.task_id}
+                type="button"
+                aria-current={isSelected ? "true" : undefined}
                 onClick={() => handleSelect(agent.task_id)}
                 className={cn(
                   "flex w-full flex-col gap-1 border-b border-lw-line px-3 py-2.5 text-left transition-colors last:border-b-0",
@@ -176,6 +207,29 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+interface AgentPickerBarProps extends AgentSelectProps {
+  onEnsemble: () => void
+  onSpawn: () => void
+}
+
+// AgentPickerBar is the top of the agents page on a phone, where there is no
+// room for the list: the agent in view, which opens the others, then the
+// ensemble and a new agent.
+export function AgentPickerBar({ onEnsemble, onSpawn, ...picker }: AgentPickerBarProps) {
+  const square = "flex size-11 shrink-0 items-center justify-center rounded-lg transition-colors"
+  return (
+    <div className="flex shrink-0 items-center gap-1.5 border-b border-[#222228] bg-lw-ground p-2">
+      <AgentSelect {...picker} />
+      <button type="button" onClick={onEnsemble} aria-label="Ensemble" title="Ensemble: every agent at once" className={cn(square, "text-[#c9c8d0] hover:bg-lw-raised hover:text-lw-text")}>
+        <LayoutGrid size={18} aria-hidden="true" />
+      </button>
+      <button type="button" onClick={onSpawn} aria-label="Spawn agent" title="Spawn agent" className={cn(square, "bg-lw-accent text-white hover:brightness-110")}>
+        <Plus size={18} aria-hidden="true" />
+      </button>
     </div>
   )
 }

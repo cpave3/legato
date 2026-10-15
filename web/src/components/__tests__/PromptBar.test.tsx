@@ -375,9 +375,9 @@ it("puts a message proposed by the agent's content in the input and does not sub
   expect(onSendKeys).not.toHaveBeenCalled()
 })
 
-it("offers a terminal session's artifacts from its toolbar", () => {
+it("switches a swarm terminal's side column from its toolbar", () => {
   mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [] }) })
-  const onToggle = vi.fn()
+  const onSelect = vi.fn()
   render(<PromptBar
     promptState={null}
     onSendKeys={vi.fn()}
@@ -391,12 +391,12 @@ it("offers a terminal session's artifacts from its toolbar", () => {
     promptDetectionEnabled
     agentId="agent-1"
     connected
-    artifacts={{ count: 3, fresh: 0, onToggle }}
+    panels={{ open: null, related: { count: 1, live: false }, artifacts: { count: 3, fresh: 0 }, onSelect }}
   />)
 
   fireEvent.click(screen.getByRole("button", { name: "Artifacts (3)" }))
 
-  expect(onToggle).toHaveBeenCalledTimes(1)
+  expect(onSelect).toHaveBeenCalledWith("artifacts")
 })
 
 // A terminal session takes a message as typed text. An image the person
