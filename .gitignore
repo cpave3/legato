@@ -6,9 +6,6 @@ bin/
 internal/server/static/dist/*
 !internal/server/static/dist/.gitkeep
 web/node_modules/
-mobile/node_modules/
-mobile/android/
-mobile/.expo/
 mobile/*.apk
 browser-extension/node_modules/
 browser-extension/dist/

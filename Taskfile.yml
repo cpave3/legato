@@ -113,36 +113,19 @@ tasks:
       - pnpm run test
 
   mobile:apk:
-    desc: Build a standalone Android APK that runs without Metro
+    desc: Build the Android app's release APK
     cmds:
       - ./scripts/mobile-android.sh apk
 
   mobile:install:
-    desc: Build, install, and launch the standalone Android app
+    desc: Build the Android app, install it on the connected device, and start it
     cmds:
       - ./scripts/mobile-android.sh install
 
-  mobile:dev-apk:
-    desc: Build an Android development APK for Metro and Fast Refresh
+  mobile:test:
+    desc: Run the Android app's unit tests
     cmds:
-      - ./scripts/mobile-android.sh dev-apk
-
-  mobile:dev:
-    desc: Serve updates to an installed development APK over the LAN
-    dir: mobile
-    cmds:
-      - pnpm start --dev-client --lan
-
-  mobile:device:
-    desc: Build, install, and launch the development app on a connected device
-    cmds:
-      - ./scripts/mobile-android.sh device
-
-  mobile:eas:
-    desc: Build an internal-distribution Android APK with EAS
-    dir: mobile
-    cmds:
-      - pnpm exec eas build --platform android --profile preview
+      - ./scripts/mobile-android.sh test
 
   extension:test:
     desc: Run browser extension tests
