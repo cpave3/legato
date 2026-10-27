@@ -106,20 +106,31 @@ func TestTaskNativeSessionPersistence(t *testing.T) {
 	record(replacement, "codex-2", "codex", "thread-1", "/repo", false)
 }
 
+func TestTaskNativeSessionIsSavedForAnEphemeralAgent(t *testing.T) {
+	// So that reloading an ephemeral agent can resume its conversation.
+	ctx := context.Background()
+	s := newTestStore(t)
+	taskID, err := s.CreateEphemeralTask(ctx, "Temporary agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := nativeSessionOwner(t, s, taskID, "codex", "exec-1", nil)
+	if changed, err := s.RecordTaskNativeSession(ctx, taskID, id, "exec-1", "codex", "thread", "/repo", "/storage"); !changed || err != nil {
+		t.Fatalf("record = %v, %v; want it saved", changed, err)
+	}
+	record, err := s.GetTaskNativeSession(ctx, taskID, "codex")
+	if err != nil || record == nil || record.ProviderSessionID != "thread" {
+		t.Fatalf("saved = %+v, %v", record, err)
+	}
+}
+
 func TestTaskNativeSessionRejectsInvalidOwners(t *testing.T) {
 	ctx := context.Background()
-	for _, name := range []string{"stale-running", "newer-dead", "dead", "terminal-execution", "wrong-session", "wrong-execution", "wrong-task", "wrong-provider", "execution-provider", "execution-task", "attribution-task", "child-parent", "child-subtask", "worker-role", "worker-execution", "worker-execution-role", "worker-execution-subtask", "ephemeral"} {
+	for _, name := range []string{"stale-running", "newer-dead", "dead", "terminal-execution", "wrong-session", "wrong-execution", "wrong-task", "wrong-provider", "execution-provider", "execution-task", "attribution-task", "child-parent", "child-subtask", "worker-role", "worker-execution", "worker-execution-role", "worker-execution-subtask"} {
 		t.Run(name, func(t *testing.T) {
 			s := newTestStore(t)
 			taskID := "native-task"
 			createTestTask(t, s, taskID)
-			if name == "ephemeral" {
-				var err error
-				taskID, err = s.CreateEphemeralTask(ctx, "Temporary agent")
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
 			id := nativeSessionOwner(t, s, taskID, "codex", "exec-1", func(a *AgentSession, e *Execution) {
 				child := "child"
 				switch name {

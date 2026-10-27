@@ -363,9 +363,6 @@ func TestClaudeBridgeCapturesIdentityAndResumedHistoryWithoutChangingBinding(t *
 				if code, body := postClaudeIdentity(t, endpoint, events); code != http.StatusNoContent {
 					t.Fatalf("identity event = %d %s", code, body)
 				}
-				if ephemeral {
-					id = ""
-				}
 				assertNativeIdentity(t, s, "claude-code", id, cwd)
 			}
 			post(`[{"type":"hello","sessionId":"claude-first","cwd":"/repo"}]`, "claude-first", "/repo")
@@ -397,9 +394,6 @@ func TestClaudeBridgeCapturesIdentityAndResumedHistoryWithoutChangingBinding(t *
 				t.Fatal(err)
 			}
 			id := "claude-resume"
-			if ephemeral {
-				id = ""
-			}
 			assertNativeIdentity(t, s, "claude-code", id, "/other")
 		})
 	}

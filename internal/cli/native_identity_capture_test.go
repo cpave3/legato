@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -167,8 +168,9 @@ func TestNativeIdentityCaptureExcludedOwnersKeepPanelRunning(t *testing.T) {
 				for i := 1; i <= 2; i++ {
 					id, cwd := fmt.Sprintf("provider-%d", i), fmt.Sprintf("/repo/%d", i)
 					send(id, cwd)
-					if shape == "conductor" {
-						waitFor(t, "conductor identity", func() bool {
+					saved := shape == "conductor" || strings.HasPrefix(shape, "ephemeral")
+					if saved {
+						waitFor(t, shape+" identity", func() bool {
 							record, err := s.GetTaskNativeSession(ctx, taskID, kind)
 							return err == nil && record != nil && record.ProviderSessionID == id
 						})
@@ -177,7 +179,7 @@ func TestNativeIdentityCaptureExcludedOwnersKeepPanelRunning(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if shape != "conductor" && record != nil {
+					if !saved && record != nil {
 						t.Fatalf("excluded %s owner persisted identity: %+v", shape, record)
 					}
 					bound, err := s.GetAgentSessionByTaskID(ctx, taskID)
@@ -188,7 +190,7 @@ func TestNativeIdentityCaptureExcludedOwnersKeepPanelRunning(t *testing.T) {
 				if err := stop(); err != nil {
 					t.Fatalf("excluded owner stopped bridge with error: %v", err)
 				}
-				if shape != "conductor" {
+				if shape != "conductor" && !strings.HasPrefix(shape, "ephemeral") {
 					if record, err := s.GetTaskNativeSession(ctx, taskID, kind); err != nil || record != nil {
 						t.Fatalf("excluded identity after bridge shutdown = %+v, %v", record, err)
 					}

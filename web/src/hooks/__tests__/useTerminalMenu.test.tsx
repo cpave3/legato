@@ -37,3 +37,15 @@ it("says why an upgrade failed", async () => {
   await act(async () => { result.current.entries[0].onSelect() })
   expect(result.current.upgradeError).toBe("No bridge for this session")
 })
+
+it("offers to reload the agent, just before disconnecting, when it can be reloaded", () => {
+  const onReload = vi.fn()
+  const { result } = renderHook(() => useTerminalMenu(options({ onReload })))
+  const labels = result.current.entries.map((entry) => entry.label)
+  expect(labels.slice(-3)).toEqual(["Reload agent", "Disconnect", "Kill agent"])
+  result.current.entries.find((entry) => entry.label === "Reload agent")?.onSelect()
+  expect(onReload).toHaveBeenCalled()
+
+  const { result: without } = renderHook(() => useTerminalMenu(options()))
+  expect(without.current.entries.some((entry) => entry.label === "Reload agent")).toBe(false)
+})

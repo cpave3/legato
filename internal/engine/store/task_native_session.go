@@ -43,7 +43,8 @@ func (s *Store) ListTaskNativeSessions(ctx context.Context, taskID string) ([]Ta
 // RecordTaskNativeSession atomically checks ownership and records a conversation.
 // The owner must be the newest session row (started_at, then ID), still running
 // with its exact running execution. A newer stopped row also invalidates it.
-// ErrConflict identifies a stale, mismatched, child, or ephemeral owner. Invalid
+// ErrConflict identifies a stale, mismatched, or child owner. An ephemeral
+// task keeps its conversation too, so reloading its agent can resume it. Invalid
 // input returns a descriptive error. An identical record returns false, nil and
 // leaves UpdatedAt unchanged; ownership changes count as record changes.
 func (s *Store) RecordTaskNativeSession(ctx context.Context, taskID string, agentSessionID int, executionID, agentKind, providerSessionID, cwd, storageDir string) (bool, error) {
@@ -67,7 +68,7 @@ func (s *Store) RecordTaskNativeSession(ctx context.Context, taskID string, agen
 		SELECT 1 FROM agent_sessions a
 		JOIN tasks t ON t.id = a.task_id
 		JOIN executions e ON e.agent_session_id = a.id
-		WHERE t.id = ? AND t.ephemeral = 0
+		WHERE t.id = ?
 			AND a.id = ? AND a.status = 'running' AND a.agent_kind = ?
 			AND a.id = (SELECT id FROM agent_sessions WHERE task_id = t.id ORDER BY started_at DESC, id DESC LIMIT 1)
 			AND (COALESCE(a.parent_task_id, '') = '' OR (a.role = 'conductor' AND a.parent_task_id = t.id))

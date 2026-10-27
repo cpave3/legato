@@ -81,7 +81,7 @@ func TestSpawnAgentResumesNativeConversationWithoutFreshKickoff(t *testing.T) {
 }
 
 func TestSpawnAgentRejectsIncompatibleNativeResumeBeforeLaunch(t *testing.T) {
-	for _, failure := range []string{"missing-record", "wrong-id", "different-directory", "deleted-directory", "ephemeral", "wrong-adapter", "wrong-adapter-new"} {
+	for _, failure := range []string{"missing-record", "wrong-id", "different-directory", "deleted-directory", "wrong-adapter", "wrong-adapter-new"} {
 		t.Run(failure, func(t *testing.T) {
 			s, err := store.New(filepath.Join(t.TempDir(), "resume.db"))
 			if err != nil {
@@ -104,8 +104,6 @@ func TestSpawnAgentRejectsIncompatibleNativeResumeBeforeLaunch(t *testing.T) {
 				if err := os.Remove(cwd); err != nil {
 					t.Fatal(err)
 				}
-			case "ephemeral":
-				opt.Ephemeral = true
 			case "wrong-adapter":
 				adapter = hooks.NewClaudeCodeAdapter("legato")
 			case "wrong-adapter-new":

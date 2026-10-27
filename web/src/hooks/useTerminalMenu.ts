@@ -1,5 +1,5 @@
 import { createElement, useState } from "react"
-import { Bell, BellOff, Eye, EyeOff, RefreshCw, ScanSearch, Skull, Sparkles, Unplug } from "lucide-react"
+import { Bell, BellOff, Eye, EyeOff, RefreshCw, RotateCw, ScanSearch, Skull, Sparkles, Unplug } from "lucide-react"
 import { canBeNative } from "../lib/agentKind"
 import type { AgentMenuEntry } from "../components/AgentChatHeader"
 
@@ -13,6 +13,9 @@ interface TerminalMenuOptions {
   ntfyConfigured?: boolean
   notifyEnabled?: boolean
   onToggleNotify?: () => void
+  // Stops the agent and starts it again, resuming its conversation. Absent
+  // for an agent a swarm or a workflow runs.
+  onReload?: () => void
   onDisconnect: () => void
   onKill: () => void
 }
@@ -53,6 +56,9 @@ export function useTerminalMenu(options: TerminalMenuOptions): { entries: AgentM
   )
   if (options.ntfyConfigured && options.onToggleNotify) {
     entries.push({ label: options.notifyEnabled ? "Disable notify" : "Enable notify", icon: icon(options.notifyEnabled ? Bell : BellOff), onSelect: options.onToggleNotify })
+  }
+  if (options.onReload) {
+    entries.push({ label: "Reload agent", icon: icon(RotateCw), onSelect: options.onReload })
   }
   entries.push(
     { label: "Disconnect", icon: icon(Unplug), onSelect: options.onDisconnect },

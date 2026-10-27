@@ -108,6 +108,8 @@ interface PromptBarProps {
   onDetectPrompt: () => void
   onDisconnect: () => void
   onKill: () => void
+  // Stops the agent and starts it again, resuming its conversation.
+  onReload?: () => void
   onRefresh: () => void
   onTogglePromptDetection: () => void
   promptDetectionEnabled: boolean
@@ -141,10 +143,10 @@ export interface PromptBarHandle {
   voiceIsRecording: () => boolean
 }
 
-export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera, panels, menuInHeader = false }, ref) {
+export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onReload, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera, panels, menuInHeader = false }, ref) {
   const { baseUrl } = useServer()
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
-  const terminalMenu = useTerminalMenu({ agentKind, onUpgradeChimera, onRefresh, onDetectPrompt, onTogglePromptDetection, promptDetectionEnabled, ntfyConfigured, notifyEnabled, onToggleNotify, onDisconnect, onKill })
+  const terminalMenu = useTerminalMenu({ agentKind, onUpgradeChimera, onRefresh, onDetectPrompt, onTogglePromptDetection, promptDetectionEnabled, ntfyConfigured, notifyEnabled, onToggleNotify, onReload, onDisconnect, onKill })
   const [macrosOpen, setMacrosOpen] = useState(false)
   const [macros, setMacros] = useState<{ name: string; keys: string }[]>([])
   const macrosRef = useRef<HTMLDivElement>(null)

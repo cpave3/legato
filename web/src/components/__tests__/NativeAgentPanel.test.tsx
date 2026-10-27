@@ -99,6 +99,20 @@ describe("NativeAgentPanel", () => {
     expect(await within(view.container).findByText("downgrade unavailable")).not.toBeNull()
   })
 
+  it("offers to reload the agent when it can be reloaded", async () => {
+    const onReload = vi.fn()
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    const view = render(<NativeAgentPanel agentId="task-1" onReload={onReload} />)
+    await within(view.container).findByText("Session ready — send a message to start")
+    fireEvent.click(within(view.container).getByTitle("More actions"))
+    fireEvent.click(within(view.container).getByRole("menuitem", { name: "Reload agent" }))
+
+    expect(onReload).toHaveBeenCalledOnce()
+  })
+
   it("renders and resolves a permission request from snapshot hydration", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({

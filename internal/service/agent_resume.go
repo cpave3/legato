@@ -65,7 +65,7 @@ func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt
 	if opt.SessionPolicy == "new" {
 		return nil
 	}
-	if opt.SessionPolicy != "resume" || opt.Ephemeral || !SupportsTaskResume(kind) {
+	if opt.SessionPolicy != "resume" || !SupportsTaskResume(kind) {
 		return fmt.Errorf("%w: unsupported session policy for %s", ErrTaskResumeConflict, kind)
 	}
 	// Chimera's caller already supplies its hook-captured selector. Its

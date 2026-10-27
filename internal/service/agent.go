@@ -510,6 +510,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			envMap[k] = v
 		}
 	}
+	// An ephemeral agent names no session, but one restarted resumes its own.
+	if adapter != nil && adapter.Name() == "chimera" && opt.Ephemeral && opt.SessionPolicy == "resume" && opt.ResumeSessionID != "" {
+		envMap["LEGATO_CHIMERA_SESSION_ID"] = opt.ResumeSessionID
+		envMap["LEGATO_CHIMERA_SESSION_EXISTS"] = "resume"
+	}
 	if adapter != nil && adapter.Name() == "chimera" && !opt.Ephemeral {
 		policy := opt.SessionPolicy
 		if policy == "" {
@@ -528,7 +533,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 		envMap["LEGATO_CHIMERA_SESSION_EXISTS"] = policy
 	}
-	if !opt.Ephemeral && (agentKind == "claude-code" || agentKind == "codex") {
+	if (!opt.Ephemeral || opt.SessionPolicy == "resume") && (agentKind == "claude-code" || agentKind == "codex") {
 		envMap["LEGATO_SESSION_POLICY"] = opt.SessionPolicy
 		if opt.SessionPolicy == "resume" {
 			envMap["LEGATO_RESUME_SESSION_ID"] = opt.ResumeSessionID

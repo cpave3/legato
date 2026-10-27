@@ -31,6 +31,7 @@ import { useAgentContexts } from "../hooks/useAgentContexts"
 import { agentListOrder, formatAgentTime, stateSeconds } from "../lib/agentList"
 import { AgentChatHeader, type AgentChatState, type SidePanel, type SidePanelsProps } from "../components/AgentChatHeader"
 import { useTerminalMenu } from "../hooks/useTerminalMenu"
+import { canReloadAgent, reloadAgent } from "../lib/agentReload"
 
 const GLITCH_DURATION_MS = 500
 
@@ -320,6 +321,24 @@ export function AgentsPage() {
     if (selectedId) void killAgent(selectedId, agents.find((agent) => agent.task_id === selectedId)?.role)
   }, [selectedId, agents, killAgent])
 
+  // Stops the selected agent and starts it again, resuming its conversation,
+  // so it reads its MCP servers, plugins and hooks afresh. An agent at work is
+  // interrupted, so that is asked first.
+  const handleReload = useCallback(async () => {
+    const agent = agents.find((candidate) => candidate.task_id === selectedId)
+    if (!agent) return
+    if ((agent.activity === "working" || agent.activity === "background") &&
+      !window.confirm("This agent is at work. Reload it anyway? The current turn is stopped.")) return
+    try {
+      await reloadAgent(baseUrl, agent.task_id)
+      addToast(`Reloaded ${agent.task_id}`, "success")
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : "The agent could not be reloaded", "error")
+    }
+    await fetchAgents()
+  }, [agents, selectedId, baseUrl, addToast, fetchAgents])
+  const canReload = canReloadAgent(agents.find((agent) => agent.task_id === selectedId))
+
   const handleSpawn = useCallback(() => {
     setShowSpawn(true)
   }, [])
@@ -517,6 +536,7 @@ export function AgentsPage() {
     ntfyConfigured,
     notifyEnabled: selectedAgent?.notify_enabled,
     onToggleNotify: () => { void handleToggleNotify() },
+    onReload: canReload ? () => { void handleReload() } : undefined,
     onDisconnect: handleDisconnect,
     onKill: handleKill,
   })
@@ -688,6 +708,7 @@ export function AgentsPage() {
                   key={selectedId}
                   agentId={selectedId}
                   onKill={handleKill}
+                  onReload={canReload ? () => { void handleReload() } : undefined}
                   onDisconnect={handleDisconnect}
                   onDowngradeChimera={handleDowngradeChimera}
                   ntfyConfigured={ntfyConfigured}
@@ -719,6 +740,7 @@ export function AgentsPage() {
                 onDetectPrompt={handleDetectPrompt}
                 onDisconnect={handleDisconnect}
                 onKill={handleKill}
+                onReload={canReload ? () => { void handleReload() } : undefined}
                 onRefresh={handleRefresh}
                 onTogglePromptDetection={handleTogglePromptDetection}
                 promptDetectionEnabled={isPromptDetectionEnabled}

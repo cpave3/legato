@@ -169,14 +169,14 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 }
 
 func nativeIdentityRecorder(ctx context.Context, s *store.Store, taskID string, session *store.AgentSession, kind string) func(string, string) error {
-	excluded := os.Getenv("LEGATO_TASK_EPHEMERAL") == "1" || session.Role == "worker" || session.ExecutionKind == store.ExecutionSwarmWorker ||
+	excluded := session.Role == "worker" || session.ExecutionKind == store.ExecutionSwarmWorker ||
 		(session.SubtaskID != nil && *session.SubtaskID != "") ||
 		(session.ParentTaskID != nil && *session.ParentTaskID != "" && !(session.Role == "conductor" && *session.ParentTaskID == taskID)) ||
 		(session.AttributionTaskID != "" && session.AttributionTaskID != taskID)
-	task, taskErr := s.GetTask(ctx, taskID)
+	_, taskErr := s.GetTask(ctx, taskID)
 	storageDir, storageErr := nativeSessionStorageDir(kind)
 	return func(providerSessionID, cwd string) error {
-		if excluded || providerSessionID == "" || (taskErr == nil && task.Ephemeral) {
+		if excluded || providerSessionID == "" {
 			return nil
 		}
 		if taskErr != nil {

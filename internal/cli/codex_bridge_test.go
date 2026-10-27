@@ -357,9 +357,6 @@ func TestCodexBridgeCapturesTopLevelIdentityAndHistoryWithoutChangingBinding(t *
 				return strings.Contains(string(body), "old answer")
 			})
 			id := "thr-1"
-			if ephemeral {
-				id = ""
-			}
 			assertNativeIdentity(t, s, "codex", id, "/work/repo")
 			codex.terminalOpensThread(map[string]any{"id": "child", "parentThreadId": "thr-1"})
 			codex.terminalOpensThread(map[string]any{"id": "ephemeral-thread", "ephemeral": true})
@@ -377,16 +374,10 @@ func TestCodexBridgeCapturesTopLevelIdentityAndHistoryWithoutChangingBinding(t *
 				if json.NewDecoder(resp.Body).Decode(&snap) != nil || snap.CWD != "/other" {
 					return false
 				}
-				if ephemeral {
-					return true
-				}
 				record, err := s.GetTaskNativeSession(context.Background(), "task1", "codex")
 				return err == nil && record != nil && record.ProviderSessionID == "replacement"
 			})
 			id = "replacement"
-			if ephemeral {
-				id = ""
-			}
 			assertNativeIdentity(t, s, "codex", id, "/other")
 			bound, err := s.GetAgentSessionByTaskID(context.Background(), "task1")
 			if err != nil || bound.ChimeraSessionID == nil || *bound.ChimeraSessionID != "task1" {
