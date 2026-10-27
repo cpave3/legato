@@ -132,7 +132,7 @@ Checked against Claude Code 2.1.296: a session backgrounded while idle and one b
 
 ## Requests the panel can answer
 
-Questions and allow options are part of the native agent protocol, not of the Claude Code bridge: any agent endpoint that emits them gets the same cards. Nothing in the panel checks which agent is on the other end.
+Questions and allow options are part of the native agent protocol, not of the Claude Code bridge: any agent endpoint that emits them gets the same cards. Nothing in the panel checks which agent is on the other end. Chimera's `ask_question` speaks this shape too (its questions are `q1`, `q2`, …, each taking one answer, chosen or typed), so its questions are answered through the same card with no translation in Legato.
 
 | Direction | What | Shape |
 | --- | --- | --- |
