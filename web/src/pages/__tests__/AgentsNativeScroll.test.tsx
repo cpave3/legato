@@ -28,6 +28,11 @@ vi.mock("../../hooks/useAgentUI", () => ({
   useAgentUIItems: () => ({ items: [], loading: false, error: null }),
   useAgentUIItem: () => ({ item: null, loading: false, error: null }),
 }))
+vi.mock("../../hooks/useReviewBriefing", () => ({
+  useReviewBriefing: () => ({ pages: [] }),
+  useReviewBriefingPage: () => ({ page: null, loading: false, error: null }),
+  useUnseenBriefingPages: () => 0,
+}))
 vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
 vi.mock("../../components/AgentSidebar", () => ({
   AgentSidebar: ({ agents, onSelect }: { agents: AgentInfo[]; onSelect: (taskId: string) => void }) => (

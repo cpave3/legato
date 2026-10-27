@@ -30,6 +30,11 @@ vi.mock("../../hooks/useAgentUI", () => ({
   useAgentUIItems: () => ({ items: [], loading: false, error: null }),
   useAgentUIItem: () => ({ item: null, loading: false, error: null }),
 }))
+vi.mock("../../hooks/useReviewBriefing", () => ({
+  useReviewBriefing: () => ({ pages: [] }),
+  useReviewBriefingPage: () => ({ page: null, loading: false, error: null }),
+  useUnseenBriefingPages: () => 0,
+}))
 vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
 vi.mock("../../components/TerminalPanel", () => ({
   TerminalPanel: ({ agentId }: { agentId: string }) => <div>Terminal of {agentId}</div>,

@@ -20,6 +20,13 @@ interface SandboxedHtmlProps {
   onProposeMessage?: (text: string) => void
   // The image files the HTML uses, by the names it refers to them by.
   images?: ItemImage[]
+  // A whole document to draw in place of html, already given its content
+  // security policy (a page of a review briefing).
+  frameDocument?: string
+  // The content asked to open a relative link: another page of its own.
+  onOpenPage?: (href: string) => void
+  // What the corner label says of where the content came from.
+  origin?: string
   className?: string
 }
 
@@ -67,14 +74,14 @@ function requestedImages(params: Record<string, unknown>, images: ItemImage[]): 
 // link to open, text for the person's message box, and one of its images to
 // show over the whole window, which a frame as narrow as the panel cannot do
 // itself. Only messages from this frame's own window count.
-export function SandboxedHtml({ html, title, resourceDomains, fill = false, maxHeight = DEFAULT_MAX_HEIGHT, onOverflow, onProposeMessage, images = NO_IMAGES, className }: SandboxedHtmlProps) {
+export function SandboxedHtml({ html, title, resourceDomains, fill = false, maxHeight = DEFAULT_MAX_HEIGHT, onOverflow, onProposeMessage, images = NO_IMAGES, frameDocument: givenDocument, onOpenPage, origin = "Made by the agent", className }: SandboxedHtmlProps) {
   const frameRef = useRef<HTMLIFrameElement>(null)
   const [height, setHeight] = useState<number | null>(null)
   const [lightbox, setLightbox] = useState<{ shown: LightboxImage[]; index: number } | null>(null)
-  const frameDocument = useMemo(() => buildSandboxDocument({ html, resourceDomains, fill, images }), [html, resourceDomains, fill, images])
-  const handlers = useRef({ onOverflow, onProposeMessage })
+  const frameDocument = useMemo(() => givenDocument ?? buildSandboxDocument({ html, resourceDomains, fill, images }), [givenDocument, html, resourceDomains, fill, images])
+  const handlers = useRef({ onOverflow, onProposeMessage, onOpenPage })
   useEffect(() => {
-    handlers.current = { onOverflow, onProposeMessage }
+    handlers.current = { onOverflow, onProposeMessage, onOpenPage }
   })
 
   useEffect(() => {
@@ -106,6 +113,10 @@ export function SandboxedHtml({ html, title, resourceDomains, fill = false, maxH
           if (text) handlers.current.onProposeMessage?.(text)
           return
         }
+        case "legato/open-page": {
+          if (typeof params.href === "string") handlers.current.onOpenPage?.(params.href.slice(0, 2048))
+          return
+        }
         case "legato/show-image": {
           const requested = requestedImages(params, images)
           if (requested) setLightbox(requested)
@@ -129,7 +140,7 @@ export function SandboxedHtml({ html, title, resourceDomains, fill = false, maxH
         style={fill ? undefined : { height: height === null ? undefined : `${height}px` }}
       />
       <span className="pointer-events-none absolute bottom-1 right-2 rounded bg-zinc-950/80 px-1.5 py-0.5 text-[10px] text-zinc-500">
-        Made by the agent
+        {origin}
       </span>
       {lightbox && (
         <ImageLightbox

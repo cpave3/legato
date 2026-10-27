@@ -35,9 +35,24 @@ const contents: Record<string, string> = {
   "ui-cccccccccc?revision=0": JSON.stringify([{ type: "stat", label: "Now", value: "27 C" }]),
 }
 
-function mockAPI(items: AgentUIItem[]) {
+const briefing = {
+  branch: "feat/login",
+  base: "main",
+  pages: [
+    { path: ".review/feat-login/index.html", folder: "feat-login", label: "Overview", version: "v1" },
+    { path: ".review/feat-login/risks.html", folder: "feat-login", label: "Risks", version: "v1" },
+  ],
+}
+
+function mockAPI(items: AgentUIItem[], review: typeof briefing | null = null) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input)
+    if (url.endsWith("/api/agents/task-1/review-briefing")) return new Response(JSON.stringify(review ?? { pages: [] }), { status: 200 })
+    const page = /\/api\/agents\/task-1\/review-briefing\/page\?path=(.+)$/.exec(url)
+    if (page) {
+      const path = decodeURIComponent(page[1])
+      return new Response(JSON.stringify({ path, html: `<html><head></head><body><h1>Briefing ${path}</h1></body></html>`, resource_domains: [] }), { status: 200 })
+    }
     if (url.endsWith("/api/agents/task-1/ui-items")) return new Response(JSON.stringify({ items }), { status: 200 })
     const match = /\/api\/ui-items\/([^?]+)(?:\?revision=(\d+))?/.exec(url)
     if (match && init?.method === "DELETE") return new Response(JSON.stringify({ status: "ok" }), { status: 200 })
@@ -235,6 +250,34 @@ describe("AgentArtifactPanel", () => {
     render(<AgentArtifactPanel agentId="task-1" focus={null} onFocus={() => {}} onClose={() => {}} mobile={false} />, { wrapper })
     expect(await screen.findByRole("heading", { name: "Studio" })).toBeTruthy()
     expect(screen.queryByRole("button", { name: /Artifacts/ })).toBeNull()
+  })
+
+  it("lists the branch's review briefing beside the artifacts and draws a page of it", async () => {
+    mockAPI([design], briefing)
+    const onFocus = vi.fn()
+    render(<AgentArtifactPanel agentId="task-1" focus={{ itemId: "review:.review/feat-login/risks.html", revision: 0 }} onFocus={onFocus} onClose={() => {}} mobile={false} />, { wrapper })
+
+    await waitFor(() => expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Sync designr2", "Review", "Review · Risks"]))
+    expect(screen.getByRole("tab", { selected: true }).textContent).toBe("Review · Risks")
+    const frame = await screen.findByTitle("Review briefing: .review/feat-login/risks.html")
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts")
+    expect(frame.getAttribute("srcdoc")).toContain("<h1>Briefing .review/feat-login/risks.html</h1>")
+    expect(frame.getAttribute("srcdoc")).toContain("connect-src 'none'")
+    // It is on the branch, not something the agent showed: it has no
+    // revisions to step through and cannot be removed.
+    expect(screen.getByText(".review/feat-login/risks.html on feat/login")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull()
+    expect(screen.queryByText(/Revision/)).toBeNull()
+
+    fireEvent.click(screen.getByRole("tab", { name: "Review" }))
+    expect(onFocus).toHaveBeenCalledWith("review:.review/feat-login/index.html", 0)
+  })
+
+  it("opens on the briefing when the agent has shown nothing", async () => {
+    mockAPI([], briefing)
+    render(<AgentArtifactPanel agentId="task-1" focus={null} onFocus={() => {}} onClose={() => {}} mobile={false} />, { wrapper })
+
+    expect(await screen.findByTitle("Review briefing: .review/feat-login/index.html")).toBeTruthy()
   })
 
   it("says so when the session has shown nothing", async () => {

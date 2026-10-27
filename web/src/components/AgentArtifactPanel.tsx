@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react"
-import { ChevronLeft, ChevronRight, Copy, Download, LayoutGrid, Mic, PanelRight, Trash2, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, ClipboardCheck, Copy, Download, LayoutGrid, Mic, PanelRight, Trash2, X } from "lucide-react"
 import { useAgentUIItem, useAgentUIItems } from "../hooks/useAgentUI"
+import { useReviewBriefing } from "../hooks/useReviewBriefing"
 import { useProposeMessage } from "../hooks/useProposeMessage"
 import { useServer } from "../hooks/useServer"
 import { useToast } from "../hooks/useToast"
 import { buildStandaloneDocument, deleteAgentUIItem, inlineImages, itemImages, type AgentUIItem } from "../lib/agentUi"
+import { briefingPathOf, briefingTabId, briefingTabLabel } from "../lib/reviewBriefing"
 import { AgentUIItemView } from "./AgentUIItemView"
+import { ReviewBriefingView } from "./ReviewBriefingView"
 import { LoadingState } from "./ui/LoadingState"
 
 export interface ArtifactFocus {
@@ -73,8 +76,17 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
   // Artifacts first, each group oldest to newest, as the tabs read.
   const ordered = [...made.filter((item) => item.placement === "panel"), ...made.filter((item) => item.placement !== "panel")]
   const artifacts = ordered.filter((item) => item.placement === "panel")
+  const cards = ordered.filter((item) => item.placement !== "panel")
   const newestStudio = studios[studios.length - 1] ?? null
-  const selected = items.find((item) => item.id === focus?.itemId)
+  // The review briefing on the agent's branch, if it carries one: pages the
+  // pull request will show, listed after the artifacts and read from the
+  // checkout rather than shown by the agent.
+  const briefing = useReviewBriefing(agentId)
+  const focusedItem = items.find((item) => item.id === focus?.itemId)
+  const focusedPage = briefing.pages.find((page) => page.path === briefingPathOf(focus?.itemId))
+  const briefingPage = focusedPage
+    ?? (!focusedItem && artifacts.length === 0 ? briefing.pages[0] : undefined)
+  const selected = briefingPage ? undefined : focusedItem
     ?? artifacts[artifacts.length - 1]
     ?? ordered[ordered.length - 1]
     ?? newestStudio
@@ -208,7 +220,24 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
           </>
         ) : (
         <div role="tablist" aria-label="Shown by the agent" className="flex min-w-0 flex-1 gap-1 overflow-x-auto py-1.5">
-          {ordered.map((entry) => {
+          {[...artifacts, ...briefing.pages, ...cards].map((entry) => {
+            if ("path" in entry) {
+              const active = entry.path === briefingPage?.path
+              return (
+                <button
+                  key={entry.path}
+                  role="tab"
+                  type="button"
+                  aria-selected={active}
+                  title={entry.path}
+                  onClick={() => onFocus(briefingTabId(entry.path), 0)}
+                  className={`flex min-h-9 max-w-[14rem] shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors ${active ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"}`}
+                >
+                  <ClipboardCheck size={13} aria-hidden="true" className="shrink-0" />
+                  <span className="truncate">{briefingTabLabel(entry, briefing.pages)}</span>
+                </button>
+              )
+            }
             const active = entry.id === selected?.id
             const Icon = entry.placement === "panel" ? PanelRight : LayoutGrid
             return (
@@ -251,7 +280,9 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col bg-zinc-900">
-        {listError ? (
+        {briefingPage ? (
+          <ReviewBriefingView key={briefingPage.path} agentId={agentId} page={briefingPage} onOpenPage={(path) => onFocus(briefingTabId(path), 0)} />
+        ) : listError ? (
           <p role="alert" className="p-4 text-sm text-red-300">Could not load what the agent showed: {listError}</p>
         ) : !selected ? (
           listLoading ? <LoadingState label="Loading what the agent showed…" /> : <p className="p-4 text-sm text-zinc-500">This agent has not shown anything yet.</p>
@@ -268,6 +299,13 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
         )}
       </div>
 
+      {briefingPage && (
+        <div className="flex shrink-0 items-center gap-1.5 border-t border-zinc-800 px-3 py-2.5">
+          <span className="min-w-0 truncate text-xs text-zinc-400" title={briefingPage.path}>
+            {briefingPage.path}{briefing.branch ? ` on ${briefing.branch}` : ""}
+          </span>
+        </div>
+      )}
       {selected && !studio && (
         <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-t border-zinc-800 px-2 py-1.5">
           <button type="button" aria-label="Previous revision" disabled={revision <= oldest} onClick={() => onFocus(selected.id, revision - 1)} className={stepButton}>

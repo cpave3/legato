@@ -615,7 +615,7 @@ function imageSources(images: ItemImage[]): string[] {
 // images from the allowed hosts. Anything that is not a plain host name is
 // dropped, so a value can never rewrite the policy. images are the item's own
 // image files, which are served by Legato.
-function contentPolicy(resourceDomains: string[], images: ItemImage[] = []): string {
+export function contentPolicy(resourceDomains: string[], images: ItemImage[] = []): string {
   const hosts = resourceDomains.filter((domain) => HOST_NAME.test(domain)).map((domain) => `https://${domain}`).join(" ")
   const withHosts = (base: string) => (hosts ? `${base} ${hosts}` : base)
   return [

@@ -63,6 +63,8 @@ type Server struct {
 	agentUI                  AgentUIService
 	agentStudio              AgentStudioService
 	agentStudioNotifier      AgentStudioNotifier
+	reviewBriefings          ReviewBriefingService
+	reviewBriefingDomains    []string
 	report                   service.ReportService
 	reflectionWorkflows      ReflectionWorkflowService
 	workflowGlobalDir        string
@@ -238,6 +240,8 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/{task_id}/ui-items", s.agentUIItemsHandler())
 	mux.HandleFunc("/api/ui-items/{id}", s.agentUIItemHandler())
 	mux.HandleFunc("/api/ui-items/{id}/studio/{rest...}", s.agentStudioHandler())
+	mux.HandleFunc("/api/agents/{task_id}/review-briefing", s.reviewBriefingHandler())
+	mux.HandleFunc("/api/agents/{task_id}/review-briefing/page", s.reviewBriefingPageHandler())
 	// Outside /api/ on purpose: see agentUIImageHandler for why it asks for
 	// no token.
 	mux.HandleFunc(service.AgentUIImageRoute, s.agentUIImageHandler())

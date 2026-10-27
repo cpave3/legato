@@ -15,6 +15,7 @@ import { AgentEnsemble } from "../components/AgentEnsemble"
 import { AgentPickerBar } from "../components/AgentSelect"
 import { AgentArtifactPanel } from "../components/AgentArtifactPanel"
 import { useAgentUIItems } from "../hooks/useAgentUI"
+import { useReviewBriefing, useUnseenBriefingPages } from "../hooks/useReviewBriefing"
 import { useArtifactPanel } from "../hooks/useArtifactPanel"
 import { useServer } from "../hooks/useServer"
 import { useSwarmEvents } from "../hooks/useSwarmEvents"
@@ -490,7 +491,11 @@ export function AgentsPage() {
   const artifactCount = selectedAgent?.has_chimera_endpoint
     ? madeItems.filter((item) => item.placement === "panel").length
     : madeItems.length
-  const newArtifacts = selectedId ? artifacts.unseen[selectedId] ?? 0 : 0
+  // The review briefing on the agent's branch is listed with the artifacts,
+  // and marked new when a page appears or is rebuilt.
+  const briefing = useReviewBriefing(selectedId)
+  const unseenBriefing = useUnseenBriefingPages(selectedId, briefing.pages, artifacts.open)
+  const newArtifacts = (selectedId ? artifacts.unseen[selectedId] ?? 0 : 0) + unseenBriefing
   const openArtifact = artifacts.openItem
   // The column beside the chat shows either the work related to the agent's
   // task or what the agent has shown; the header switches between them.
@@ -519,7 +524,7 @@ export function AgentsPage() {
     open: artifactsOpen ? "artifacts" : relatedOpen ? "related" : null,
     // The card itself is always linked, and its pull request when it has one.
     related: { count: relatedWork.length + 1 + (pullRequest ? 1 : 0), live: splitRelated(relatedWork).inProgress.length > 0 },
-    artifacts: { count: artifactCount, fresh: newArtifacts },
+    artifacts: { count: artifactCount + briefing.pages.length, fresh: newArtifacts },
     onSelect: selectPanel,
     studio: studioItem ? { onOpen: () => openArtifact(studioItem.id, 0) } : undefined,
   }

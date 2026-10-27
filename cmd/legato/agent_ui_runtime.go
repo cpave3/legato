@@ -28,6 +28,9 @@ func wireAgentUI(srv *server.Server, cfg *config.Config, db *store.Store, bus *e
 	// is a process started when its panel is first opened.
 	studios := service.NewAgentStudioService(ui, libretto.Runner{})
 	srv.SetAgentStudioService(studios)
+	// The review briefing (.review/) on an agent's branch, read from its
+	// checkout and shown beside what the agent showed.
+	srv.SetReviewBriefingService(service.NewReviewBriefingService(db), cfg.Agents.MCP.ResourceDomains)
 	// Images outlive what used them when a task is deleted or the person
 	// removes an artifact. Nothing waits for this, and a failure costs disk
 	// space only.
