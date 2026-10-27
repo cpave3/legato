@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
     private val io = Executors.newCachedThreadPool()
     private lateinit var store: ConnectionStore
     val state = AppState()
+    private val discovery by lazy { AndroidDiscovery(this) { state.discovered.value = it } }
 
     // The open server's page, kept while the person looks at the server list.
     private var page: ServerPage? = null
@@ -81,11 +82,13 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         started = true
         pageVisibility()
+        if (state.screen.value == Screen.Pair) discovery.start()
     }
 
     override fun onStop() {
         started = false
         pageVisibility()
+        discovery.stop()
         super.onStop()
     }
 
@@ -105,7 +108,65 @@ class MainActivity : ComponentActivity() {
 
     fun showServers() {
         state.screen.value = Screen.Connections
+        discovery.stop()
         pageVisibility()
+    }
+
+    // Pairing by phrase: pick a server found on the network, or type its
+    // address, then the four words legato pair or the web UI shows.
+
+    fun startPairing() {
+        state.error.value = ""
+        state.pairDraft.value = PairDraft()
+        state.screen.value = Screen.Pair
+        pageVisibility()
+        discovery.start()
+    }
+
+    fun pickDiscovered(server: DiscoveredServer) {
+        state.error.value = ""
+        state.pairDraft.value = state.pairDraft.value.copy(name = server.name, address = server.baseUrl)
+    }
+
+    fun pairByPhrase() {
+        val draft = state.pairDraft.value
+        if (draft.busy) return
+        val reading = PhraseInput.read(draft.phrase)
+        val baseUrl = try {
+            normalizeServerUrl(draft.address)
+        } catch (cause: IllegalArgumentException) {
+            state.error.value = if (draft.address.isBlank()) "Choose a server, or type its address." else cause.message ?: cause.toString()
+            return
+        }
+        if (!reading.complete) {
+            state.error.value = "Type the ${PhraseInput.WORDS} words the server shows."
+            return
+        }
+        state.error.value = ""
+        state.pairDraft.value = draft.copy(busy = true)
+        val device = deviceName(this)
+        io.execute {
+            val outcome = runCatching {
+                PhrasePairing(HttpPairingTransport(baseUrl), device).pair(reading.words.filterNotNull())
+            }
+            runOnUiThread {
+                state.pairDraft.value = state.pairDraft.value.copy(busy = false)
+                outcome.onSuccess { paired ->
+                    val name = paired.name.ifBlank { draft.name }.ifBlank { baseUrl.substringAfter("://") }
+                    val saved = store.save(Connection(UUID.randomUUID().toString(), name, baseUrl, Instant.now().toString(), caCertificate = paired.caCertificate), paired.token)
+                    if (page?.connection?.id == saved.id) closePage()
+                    state.connections.value = store.load()
+                    showServers()
+                    open(saved)
+                }.onFailure { cause ->
+                    state.error.value = when (cause) {
+                        is PairingFailure -> cause.message.orEmpty()
+                        is IOException -> "Could not reach $baseUrl. Check that the phone is on the same network and Legato's web server is running."
+                        else -> cause.message ?: cause.toString()
+                    }
+                }
+            }
+        }
     }
 
     fun back() {
@@ -122,7 +183,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         io.execute {
-            val results = connections.map { connection -> connection to probeHealth(connection.baseUrl) }
+            val results = connections.map { connection -> connection to probeHealth(connection.baseUrl, connection.caCertificate) }
             runOnUiThread {
                 state.reachability.value = results.associate { (connection, health) -> connection.id to if (health.online) Reachability.ONLINE else Reachability.OFFLINE }
                 state.versions.value = state.versions.value + results.mapNotNull { (connection, health) -> health.version?.let { connection.id to it } }
@@ -143,7 +204,7 @@ class MainActivity : ComponentActivity() {
         io.execute {
             val outcome = runCatching {
                 val token = store.token(connection.id) ?: throw IllegalStateException("This connection has no saved token. Re-pair it.")
-                val meta = probeServer(connection.baseUrl)
+                val meta = probeServer(connection.baseUrl, connection.caCertificate)
                 if (meta.compatibility == Compatibility.UNSUPPORTED) throw IllegalStateException("This server requires a newer mobile app")
                 meta.version?.let { store.rememberVersion(connection.id, it) }
                 token
@@ -272,7 +333,7 @@ class MainActivity : ComponentActivity() {
         GmsBarcodeScanning.getClient(this, options).startScan()
             .addOnSuccessListener { barcode ->
                 try {
-                    startAdding(parsePairUri(barcode.rawValue.orEmpty()))
+                    followPairingLink(barcode.rawValue.orEmpty())
                 } catch (cause: IllegalArgumentException) {
                     state.error.value = "Not a Legato pairing QR code"
                 }
@@ -304,10 +365,22 @@ class MainActivity : ComponentActivity() {
         val link = intent?.data?.toString() ?: return
         if (!link.startsWith("legato://pair")) return
         try {
-            startAdding(parsePairUri(link))
+            followPairingLink(link)
         } catch (cause: IllegalArgumentException) {
             state.error.value = cause.message ?: cause.toString()
         }
+    }
+
+    // A code with a phrase pairs at once; one with a token fills in the form.
+    private fun followPairingLink(link: String) {
+        val phrase = parsePhraseUri(link)
+        if (phrase == null) {
+            startAdding(parsePairUri(link))
+            return
+        }
+        startPairing()
+        state.pairDraft.value = PairDraft(address = phrase.baseUrl, phrase = phrase.words.joinToString(" "))
+        pairByPhrase()
     }
 }
 
@@ -315,9 +388,12 @@ enum class Reachability { CHECKING, ONLINE, OFFLINE }
 
 sealed interface Screen {
     data object Connections : Screen
+    data object Pair : Screen
     data class Edit(val target: Connection?) : Screen
     data class Web(val connection: Connection) : Screen
 }
+
+data class PairDraft(val name: String = "", val address: String = "", val phrase: String = "", val busy: Boolean = false)
 
 data class Draft(val name: String = "", val url: String = "", val token: String = "", val caCertificate: String? = null)
 
@@ -330,4 +406,6 @@ class AppState {
     val draft = mutableStateOf(Draft())
     val canGoBack = mutableStateOf(false)
     val opening = mutableStateOf<String?>(null)
+    val pairDraft = mutableStateOf(PairDraft())
+    val discovered = mutableStateOf<List<DiscoveredServer>>(emptyList())
 }

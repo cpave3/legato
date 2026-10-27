@@ -30,10 +30,14 @@ func frontendMetaHandler() http.HandlerFunc {
 	}
 }
 
-func mobileMetaHandler() http.HandlerFunc {
+func (s *Server) mobileMetaHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
+		meta := MobileMetaResponse{Version: buildVersion(), MobileShellAPI: 1, AuthBootstrap: "local_storage_v1"}
+		if s.pairing != nil {
+			meta.PhrasePairing = 1
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(MobileMetaResponse{Version: buildVersion(), MobileShellAPI: 1, AuthBootstrap: "local_storage_v1"})
+		_ = json.NewEncoder(w).Encode(meta)
 	}
 }
 

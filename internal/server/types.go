@@ -12,6 +12,8 @@ type MobileMetaResponse struct {
 	Version        string `json:"version"`
 	MobileShellAPI int    `json:"mobile_shell_api"`
 	AuthBootstrap  string `json:"auth_bootstrap"`
+	// PhrasePairing is 1 when a phone can pair by phrase (/api/pair/...).
+	PhrasePairing int `json:"phrase_pairing,omitempty"`
 }
 
 // ColumnResponse represents a column with its cards in the board response.

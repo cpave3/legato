@@ -9,7 +9,9 @@ import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import android.net.http.SslError
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -99,6 +101,19 @@ class ServerPage(
 
     // PageKeeper.Host
 
+    // Only an unknown issuer is forgiven, and only when the pinned certificate
+    // is that issuer (or the certificate itself).
+    private fun trustedByPin(error: SslError): Boolean {
+        val pem = connection.caCertificate ?: return false
+        if (!allowNavigation(baseUrl, error.url)) return false
+        val others = listOf(SslError.SSL_NOTYETVALID, SslError.SSL_EXPIRED, SslError.SSL_IDMISMATCH, SslError.SSL_DATE_INVALID, SslError.SSL_INVALID)
+        if (others.any(error::hasError)) return false
+        val cert = error.certificate?.x509Certificate ?: return false
+        val trusted = CertificatePin.trusts(listOf(cert), CertificatePin.parse(pem))
+        if (!trusted) Log.w(TAG, "The server's certificate is not the one pinned at pairing")
+        return trusted
+    }
+
     override fun open(url: String) {
         webView?.let(::discard)
         val page = createWebView()
@@ -180,6 +195,12 @@ class ServerPage(
                 if (view !== webView) return
                 url?.let(keeper::navigated)
                 callbacks.canGoBackChanged(view.canGoBack())
+            }
+
+            // A server paired by phrase over HTTPS is trusted by the certificate
+            // it sent while pairing, not by one installed in Android's settings.
+            override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+                if (trustedByPin(error)) handler.proceed() else handler.cancel()
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {

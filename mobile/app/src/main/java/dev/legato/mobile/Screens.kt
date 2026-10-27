@@ -55,6 +55,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -115,6 +117,7 @@ fun LegatoApp(activity: MainActivity) {
                 BackHandler(enabled = screen != Screen.Connections) { activity.back() }
                 when (screen) {
                     Screen.Connections -> ConnectionsScreen(activity)
+                    Screen.Pair -> PairScreen(activity)
                     is Screen.Edit -> EditScreen(activity, screen.target)
                     is Screen.Web -> WebScreen(activity, screen.connection)
                 }
@@ -174,9 +177,11 @@ private fun ConnectionsScreen(activity: MainActivity) {
             }
             item {
                 Group("Pairing") {
+                    LinkRow("Pair with phrase", LucideIcons.KeyRound) { activity.startPairing() }
+                    Divider()
                     LinkRow("Pair with QR code", LucideIcons.ScanLine) { activity.scanPairingCode() }
                     Divider()
-                    LinkRow("Add by address", LucideIcons.Link) { activity.startAdding() }
+                    LinkRow("Add by address and token", LucideIcons.Link) { activity.startAdding() }
                     Divider()
                     LinkRow("Certificate settings", LucideIcons.Shield) { activity.openCertificateSettings() }
                 }
@@ -205,7 +210,7 @@ private fun ServersHeader(activity: MainActivity, connections: List<Connection>)
         }
         RoundButton(LucideIcons.ScanLine, "Pair with QR code") { activity.scanPairingCode() }
         Spacer(Modifier.width(8.dp))
-        RoundButton(LucideIcons.Plus, "Add server", filled = true) { activity.startAdding() }
+        RoundButton(LucideIcons.Plus, "Add server", filled = true) { activity.startPairing() }
     }
 }
 
@@ -216,9 +221,9 @@ private fun EmptyServers(activity: MainActivity) {
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text("No servers yet", fontWeight = FontWeight.SemiBold)
-        Text("Run legato pair on the machine Legato runs on, then scan the code it prints.", color = Lw.text2, fontSize = 14.sp, lineHeight = 20.sp)
+        Text("Run legato pair on the machine Legato runs on, or open Settings › Pair a device in its web UI. Then type the four words it shows.", color = Lw.text2, fontSize = 14.sp, lineHeight = 20.sp)
         Spacer(Modifier.height(8.dp))
-        PrimaryButton("Scan QR code") { activity.scanPairingCode() }
+        PrimaryButton("Add a server") { activity.startPairing() }
     }
 }
 
@@ -247,7 +252,13 @@ private fun ServerRow(activity: MainActivity, connection: Connection) {
         )
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(connection.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(connection.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (isHttps(connection)) {
+                    Spacer(Modifier.width(8.dp))
+                    HttpsBadge()
+                }
+            }
             val address = connection.baseUrl.removePrefix("http://").removePrefix("https://")
             val detail = when (status) {
                 Reachability.CHECKING -> "checking"
@@ -395,6 +406,130 @@ private fun EditScreen(activity: MainActivity, target: Connection?) {
     }
 }
 
+private fun isHttps(connection: Connection) = connection.baseUrl.startsWith("https://")
+
+// Says the connection to a server is encrypted (HTTPS).
+@Composable
+private fun HttpsBadge() {
+    Row(
+        Modifier.clip(RoundedCornerShape(6.dp)).background(Lw.live.copy(alpha = 0.12f))
+            .border(1.dp, Lw.live.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 5.dp, vertical = 1.dp)
+            .semantics(mergeDescendants = true) { contentDescription = "Encrypted connection (HTTPS)" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(LucideIcons.Lock, contentDescription = null, tint = Lw.live, modifier = Modifier.size(10.dp))
+        Spacer(Modifier.width(3.dp))
+        Text("HTTPS", style = mono.copy(color = Lw.live, fontSize = 10.sp, fontWeight = FontWeight.SemiBold))
+    }
+}
+
+@Composable
+private fun PairScreen(activity: MainActivity) {
+    val state = activity.state
+    val draft = state.pairDraft.value
+    val found = state.discovered.value
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconAction(LucideIcons.ChevronLeft, "Back to servers") { activity.showServers() }
+            Text("Add server", fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            if (state.error.value.isNotEmpty()) ErrorNote(state.error.value)
+            Group("On this network") {
+                if (found.isEmpty()) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(16.dp), color = Lw.link, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Looking for Legato servers…", color = Lw.text2, fontSize = 14.sp)
+                    }
+                } else {
+                    found.forEachIndexed { index, server ->
+                        if (index > 0) Divider()
+                        FoundServerRow(server, selected = draft.address == server.baseUrl) { activity.pickDiscovered(server) }
+                    }
+                }
+            }
+            Field("Server address", draft.address, "http://192.168.1.20:3080", monospace = true, keyboard = KeyboardType.Uri) {
+                state.pairDraft.value = state.pairDraft.value.copy(address = it)
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // The password keyboard type is what stops a keyboard's suggestions
+                // and autocomplete; the words stay readable.
+                Field("Pairing phrase", draft.phrase, "The four words the server shows", monospace = true, keyboard = KeyboardType.Password) {
+                    state.pairDraft.value = state.pairDraft.value.copy(phrase = it)
+                }
+                PhraseWords(draft.phrase)
+                if (PhraseInput.read(draft.phrase).tooMany) {
+                    Text("A phrase is ${PhraseInput.WORDS} words. Remove the extra ones.", color = Lw.danger, fontSize = 13.sp, modifier = Modifier.padding(start = 2.dp))
+                }
+                Text(
+                    "Run legato pair on the server, or open Settings › Pair a device in its web UI. Three letters of each word are enough.",
+                    color = Lw.text2,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(start = 2.dp),
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            PrimaryButton(if (draft.busy) "Pairing…" else "Pair") { activity.pairByPhrase() }
+            SecondaryButton("Scan QR code instead", LucideIcons.ScanLine) { activity.scanPairingCode() }
+            SecondaryButton("Enter a token instead", LucideIcons.Link) { activity.startAdding() }
+        }
+    }
+}
+
+@Composable
+private fun FoundServerRow(server: DiscoveredServer, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 60.dp)
+            .background(if (selected) Lw.raised else Color.Transparent)
+            .clickable(role = Role.Button, onClickLabel = "Pair with ${server.name}", onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(LucideIcons.Wifi, contentDescription = null, tint = Lw.text2, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(server.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(server.baseUrl.substringAfter("://"), style = mono, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (selected) Icon(LucideIcons.Check, contentDescription = "Chosen", tint = Lw.link, modifier = Modifier.size(18.dp))
+    }
+}
+
+// The four words as they are read: the list word each typed word names, or
+// what was typed in red when it names none.
+@Composable
+private fun PhraseWords(phrase: String) {
+    val reading = PhraseInput.read(phrase, typing = true)
+    val typed = phrase.split(Regex("[^A-Za-z]+")).filter { it.isNotEmpty() }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        for (i in 0 until PhraseInput.WORDS) {
+            val word = reading.words.getOrNull(i)
+            val raw = typed.getOrNull(i)
+            val stillTyping = i == typed.lastIndex && phrase.lastOrNull()?.isLetter() == true
+            val (text, color) = when {
+                word != null -> word to Lw.text
+                raw != null && stillTyping -> raw.lowercase() to Lw.text2
+                raw != null -> raw.lowercase() to Lw.danger
+                else -> "word ${i + 1}" to Lw.faint
+            }
+            Box(
+                Modifier.weight(1f).height(36.dp).clip(RoundedCornerShape(8.dp)).background(Lw.surface)
+                    .border(1.dp, if (raw != null && word == null && !stillTyping) Lw.dangerLine else Lw.line, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(text, style = mono.copy(color = color, fontSize = 12.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
 @Composable
 private fun Field(
     label: String,
@@ -472,7 +607,11 @@ private fun WebScreen(activity: MainActivity, connection: Connection) {
             IconAction(LucideIcons.ChevronLeft, "Back to servers") { activity.showServers() }
             Box(Modifier.size(8.dp).background(Lw.live, CircleShape))
             Spacer(Modifier.width(8.dp))
-            Text(connection.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(connection.name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            if (isHttps(connection)) {
+                Spacer(Modifier.width(8.dp))
+                HttpsBadge()
+            }
             Spacer(Modifier.width(8.dp))
             Text(
                 connection.baseUrl.removePrefix("http://").removePrefix("https://"),

@@ -1,8 +1,9 @@
 import { useState } from "react"
-import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw } from "lucide-react"
+import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone } from "lucide-react"
 import { setToken } from "../lib/auth"
 import { useServer } from "../hooks/useServer"
 import { QRScanner } from "../components/QRScanner"
+import { PairDeviceDialog } from "../components/PairDeviceDialog"
 import { ResourcesSettings } from "../components/ResourcesSettings"
 import { useSettings } from "../hooks/useSettings"
 import { useToast } from "../hooks/useToast"
@@ -16,6 +17,7 @@ export function SettingsPage() {
   const settings = useSettings()
   const { addToast } = useToast()
   const [buildStarting, setBuildStarting] = useState(false)
+  const [showPairDevice, setShowPairDevice] = useState(false)
   const [glitchEnabled, setGlitchEnabled] = useState(() => {
     return localStorage.getItem("legato:glitch-effect") !== "false"
   })
@@ -244,6 +246,23 @@ export function SettingsPage() {
         <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">
           Pairing
         </h2>
+        <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+          <div className="flex items-start gap-3">
+            <Smartphone size={20} className="text-indigo-400 mt-0.5 shrink-0" />
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-zinc-300">
+                Pair a phone with this server by typing four words in the Legato app.
+              </p>
+              <button
+                onClick={() => setShowPairDevice(true)}
+                className="mt-1 inline-flex w-fit items-center gap-2 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+              >
+                <Smartphone size={14} />
+                Pair a device
+              </button>
+            </div>
+          </div>
+        </div>
         <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
           <div className="flex items-start gap-3">
             <QrCode size={20} className="text-indigo-400 mt-0.5 shrink-0" />
@@ -268,6 +287,8 @@ export function SettingsPage() {
           </div>
         </div>
       </section>
+
+      {showPairDevice && <PairDeviceDialog baseUrl={baseUrl} onClose={() => setShowPairDevice(false)} />}
 
       {showScanner && (
         <QRScanner onScan={handleQRScan} onClose={() => { setShowScanner(false); setSearchParams({}, { replace: true }) }} />

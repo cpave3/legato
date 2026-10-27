@@ -39,18 +39,20 @@ fun readMeta(status: Int, body: String?): ServerMeta {
 }
 
 // Blocking; call off the main thread.
-fun probeHealth(baseUrl: String, timeoutMs: Int = 3_000): Health = try {
-    get("$baseUrl/health", timeoutMs).let { (status, body) -> readHealth(status, body) }
+// [pin] is the certificate pinned at pairing, trusted beside the system's.
+fun probeHealth(baseUrl: String, pin: String? = null, timeoutMs: Int = 3_000): Health = try {
+    get("$baseUrl/health", pin, timeoutMs).let { (status, body) -> readHealth(status, body) }
 } catch (cause: Exception) {
     Health(false, null)
 }
 
 // Blocking; call off the main thread.
-fun probeServer(baseUrl: String, timeoutMs: Int = 5_000): ServerMeta =
-    get("$baseUrl/api/meta", timeoutMs).let { (status, body) -> readMeta(status, body) }
+fun probeServer(baseUrl: String, pin: String? = null, timeoutMs: Int = 5_000): ServerMeta =
+    get("$baseUrl/api/meta", pin, timeoutMs).let { (status, body) -> readMeta(status, body) }
 
-private fun get(url: String, timeoutMs: Int): Pair<Int, String?> {
+private fun get(url: String, pin: String?, timeoutMs: Int): Pair<Int, String?> {
     val connection = URL(url).openConnection() as HttpURLConnection
+    PinnedTrust.apply(connection, pin)
     try {
         connection.connectTimeout = timeoutMs
         connection.readTimeout = timeoutMs

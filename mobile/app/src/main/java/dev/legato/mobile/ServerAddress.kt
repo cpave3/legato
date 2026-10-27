@@ -52,6 +52,29 @@ fun parsePairUri(value: String): PairingCode {
     return PairingCode(baseUrl, token, URI(baseUrl).host, ca)
 }
 
+/** A QR code of a pairing request: the server's address and its phrase. */
+data class PhraseCode(val baseUrl: String, val words: List<String>)
+
+/**
+ * Reads `legato://pair?url=…&phrase=word-word-word-word`, which the web UI's
+ * Pair a device and `legato pair` show. Null for any other link, such as a
+ * code that carries a token.
+ */
+fun parsePhraseUri(value: String): PhraseCode? {
+    val uri = try {
+        URI(value.trim())
+    } catch (cause: URISyntaxException) {
+        return null
+    }
+    if (uri.scheme != "legato" || uri.host != "pair") return null
+    val params = queryParameters(uri.rawQuery.orEmpty())
+    val phrase = params["phrase"]?.singleOrNull() ?: return null
+    val url = params["url"]?.singleOrNull() ?: throw IllegalArgumentException("Pairing code has no server address")
+    val reading = PhraseInput.read(phrase)
+    if (!reading.complete) throw IllegalArgumentException("Pairing code's phrase is not ${PhraseInput.WORDS} words")
+    return PhraseCode(normalizeServerUrl(url), reading.words.filterNotNull())
+}
+
 // Decodes a query the way a browser's URLSearchParams does, `+` as a space.
 private fun queryParameters(query: String): Map<String, List<String>> =
     query.split('&').filter { it.isNotEmpty() }.map { part ->

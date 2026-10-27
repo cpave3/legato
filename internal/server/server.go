@@ -73,6 +73,8 @@ type Server struct {
 	hotReloadBuildTrigger    func(<-chan struct{}) (bool, error)
 	defaultWorkspaceID       *int
 	defaultImportWorkspaceID *int
+	pairing                  *service.PairingService
+	pairingAddresses         func() []string
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -117,7 +119,10 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", healthHandler())
 	mux.HandleFunc("/frontend-meta", frontendMetaHandler())
-	mux.HandleFunc("/api/meta", mobileMetaHandler())
+	mux.HandleFunc("/api/meta", s.mobileMetaHandler())
+	mux.HandleFunc("/api/pairing", s.pairingHandler())
+	mux.HandleFunc("/api/pair/exchange", s.pairExchangeHandler())
+	mux.HandleFunc("/api/pair/confirm", s.pairConfirmHandler())
 	mux.HandleFunc("/api/agents", s.agentsHandler())
 	mux.HandleFunc("/api/agents/spawn", s.spawnAgentHandler())
 	mux.HandleFunc("/api/agents/kill", s.killAgentHandler())
@@ -278,6 +283,9 @@ func (s *Server) SetCACertPath(path string) {
 	s.caCertPath = path
 }
 
+// AuthToken is the token the server checks, empty when it checks none.
+func (s *Server) AuthToken() string { return s.authToken }
+
 // SetAuthToken sets the bearer token required for all API/WebSocket requests.
 // Call before Start/Serve. If empty, auth is disabled (open access).
 func (s *Server) SetAuthToken(token string) {
@@ -387,6 +395,11 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		if (r.URL.Path == "/health" || r.URL.Path == "/frontend-meta" || r.URL.Path == "/api/meta") && r.Method == http.MethodGet {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// A phone pairing by phrase has no token yet; the phrase is its check.
+		if isPairingStep(r) {
 			next.ServeHTTP(w, r)
 			return
 		}

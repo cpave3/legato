@@ -242,6 +242,9 @@ type WebConfig struct {
 	Enabled bool      `yaml:"enabled"` // auto-start web server alongside TUI
 	Port    string    `yaml:"port"`    // default "3080"
 	TLS     TLSConfig `yaml:"tls"`
+	// Discovery announces the web server on the local network (mDNS) so the
+	// Legato app can find it. Default true.
+	Discovery *bool `yaml:"discovery"`
 }
 
 type GitHubConfig struct {

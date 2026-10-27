@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/auth"
@@ -178,10 +182,39 @@ func runPairContract(args []string) int {
 		}
 	}
 	pairURI := "legato://pair?" + values.Encode()
+	phrase := localPhrasePairing(scheme, port, token, filepath.Join(resolveDataDir(cfg), "certs", "ca.pem"))
+	opened, phraseErr := phrase.open(context.Background())
 	if jsonMode {
-		return writeCommandSuccess(command, map[string]any{"url": serverURL, "token": token, "pair_uri": pairURI}, "", true)
+		data := map[string]any{"url": serverURL, "token": token, "pair_uri": pairURI}
+		if phraseErr == nil {
+			data["phrase"] = strings.Join(opened.Phrase, " ")
+			data["expires_at"] = opened.ExpiresAt
+		}
+		return writeCommandSuccess(command, data, "", true)
 	}
-	qrterminal.GenerateWithConfig(pairURI, qrterminal.Config{Level: qrterminal.L, Writer: os.Stdout, QuietZone: 1})
-	fmt.Fprintf(os.Stdout, "\nServer: %s\nToken:  %s\n", serverURL, token)
+	if phraseErr != nil {
+		// No web server to hold a pairing request: the code carries the token.
+		qrterminal.GenerateWithConfig(pairURI, qrterminal.Config{Level: qrterminal.L, Writer: os.Stdout, QuietZone: 1})
+		fmt.Fprintf(os.Stdout, "\nServer: %s\nToken:  %s\n", serverURL, token)
+		fmt.Fprintf(os.Stdout, "\nTo pair by phrase instead, start Legato's web server (legato serve, or web.enabled) and run legato pair again.\n")
+		return exitOK
+	}
+	// The code carries the request's phrase, which works once, not the token.
+	qrterminal.GenerateWithConfig(phraseQR(opened, parsed.Values["host"], serverURL), qrterminal.Config{Level: qrterminal.L, Writer: os.Stdout, QuietZone: 1})
+	fmt.Fprintf(os.Stdout, "\nScan this in the Legato app, or add a server there and type\n\n    %s\n\n", formatPhrase(opened.Phrase))
+	fmt.Fprintf(os.Stdout, "Valid for %d minutes. Waiting for a phone… (Ctrl-C to stop)\n", int(service.PairingLifetime/time.Minute))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ended, err := phrase.wait(ctx)
+	if err != nil {
+		phrase.cancel()
+		fmt.Fprintln(os.Stdout, "\nPairing cancelled.")
+		return exitOK
+	}
+	message, paired := pairingOutcome(ended.PairingStatus)
+	fmt.Fprintln(os.Stdout, message)
+	if !paired {
+		return exitForbidden
+	}
 	return exitOK
 }

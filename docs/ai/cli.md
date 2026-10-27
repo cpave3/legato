@@ -77,7 +77,7 @@ See `docs/workflows.md` for the schema and lifecycle. Workflow commands currentl
 - `legato hooks uninstall --tool <tool[,tool...]>` — remove hooks for one or more explicitly selected tools
 - `legato auth token` — print the web UI auth token to stdout
 - `legato auth regenerate` — generate a new auth token (invalidates all paired devices)
-- `legato pair [--port <port>]` — render a QR code in the terminal encoding `legato://pair?url=<serverUrl>&token=<token>` for one-step PWA pairing. Prints raw token below QR as fallback. Uses configured hostname or system hostname, auto-detects TLS scheme
+- `legato pair [--port <port>] [--host <host>]` — render a QR code in the terminal encoding `legato://pair?url=<serverUrl>&token=<token>` for one-step PWA pairing. Prints raw token below QR as fallback. Uses configured hostname or system hostname, auto-detects TLS scheme. When Legato's web server runs on this machine, it opens a pairing request there instead: the QR code carries the request's phrase (`legato://pair?url=…&phrase=…`, the server's LAN address unless `--host` names one) and not the token, and the phrase is printed to type in the Legato app. It then waits until a phone pairs (exit 0), the phrase expires or is used up (exit 4), or Ctrl-C cancels it. With `--json` it adds `phrase` and `expires_at` and does not wait. See [Web UI](web-ui.md) § Pairing by phrase
 
 ### Shared command contract
 

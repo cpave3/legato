@@ -12,7 +12,7 @@ android {
         // The same application ID as the Expo app it replaces, so an install
         // over it keeps the saved servers.
         applicationId = "dev.legato.mobile"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 36
         versionCode = 2
         versionName = "2.0.0"
@@ -46,6 +46,12 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+    packaging {
+        // BouncyCastle and JSpecify both carry this; the app needs neither.
+        resources.excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+        // BouncyCastle's data files for algorithms the app does not use.
+        resources.excludes += "org/bouncycastle/**"
+    }
     buildFeatures {
         compose = true
     }
@@ -66,6 +72,8 @@ dependencies {
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     // Play Services brings Fragment 1.0, which mishandles activity results.
     implementation("androidx.fragment:fragment:1.8.9")
+    // P-256 point arithmetic for pairing by phrase (SPAKE2).
+    implementation("org.bouncycastle:bcprov-jdk18on:1.79")
 
     testImplementation("junit:junit:4.13.2")
     // Android's org.json is a stub on the JVM; tests use the real library.

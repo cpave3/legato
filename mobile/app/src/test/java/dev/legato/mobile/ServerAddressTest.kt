@@ -41,3 +41,24 @@ class PairingCodeTest {
         }
     }
 }
+
+class PhraseCodeTest {
+    @Test
+    fun `reads the address and words of a phrase code`() {
+        assertEquals(
+            PhraseCode("https://192.168.1.200:3080", listOf("matchstick", "obnoxious", "eruption", "hybrid")),
+            parsePhraseUri("legato://pair?url=https%3A%2F%2F192.168.1.200%3A3080&phrase=matchstick-obnoxious-eruption-hybrid"),
+        )
+    }
+
+    @Test
+    fun `a code without a phrase is not a phrase code`() {
+        assertEquals(null, parsePhraseUri("legato://pair?url=http%3A%2F%2F10.0.0.2%3A3080&token=t"))
+        assertEquals(null, parsePhraseUri("https://example.com/?phrase=a-b-c-d"))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `a phrase that is not four list words is refused`() {
+        parsePhraseUri("legato://pair?url=http%3A%2F%2F10.0.0.2%3A3080&phrase=matchstick-qqqq-eruption-hybrid")
+    }
+}

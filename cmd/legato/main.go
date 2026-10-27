@@ -1571,6 +1571,7 @@ func runServeCmd(args []string) int {
 	} else {
 		srv.SetAuthToken(token)
 	}
+	wirePairing(srv, cfg, caCertFile, port)
 
 	// IPC server for receiving CLI→web updates.
 	socketPath := ipc.SocketPath()
@@ -1613,6 +1614,7 @@ func runServeCmd(args []string) int {
 		scheme = "https"
 	}
 	fmt.Printf("Legato web UI: %s://localhost:%s\n", scheme, port)
+	defer announceWebServer(cfg, port)()
 	if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
 		fmt.Fprintf(os.Stderr, "server: %v\n", err)
 		return 1
@@ -1794,6 +1796,7 @@ func runTUI() int {
 	}
 
 	// Auto-start web server if configured and port is free.
+	stopAnnouncing := func() {}
 	if cfg.Web.Enabled {
 		addr := ":" + cfg.Web.Port
 		ln, listenErr := net.Listen("tcp", addr)
@@ -1836,6 +1839,9 @@ func runTUI() int {
 			if token, err := auth.EnsureToken(config.ResolveDataDir(cfg)); err == nil {
 				webSrv.SetAuthToken(token)
 			}
+			if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
+				wirePairing(webSrv, cfg, caCertFile, strconv.Itoa(tcp.Port))
+			}
 			webSrv.StartSwarmEvents()
 			webSrv.StartAgentLifecycleEvents()
 			webSrv.StartChimeraDiscoveryEvents()
@@ -1851,6 +1857,9 @@ func runTUI() int {
 					log.Printf("web server: %v", err)
 				}
 			}()
+			if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
+				stopAnnouncing = announceWebServer(cfg, strconv.Itoa(tcp.Port))
+			}
 		}
 	}
 
@@ -1949,6 +1958,7 @@ func runTUI() int {
 	}
 
 	// Shut down the web server so the process can exit cleanly.
+	stopAnnouncing()
 	stopAgentUI()
 	if webSrv != nil {
 		if err := stopWithTimeout(applicationShutdownTimeout, webSrv.Stop); err != nil {
