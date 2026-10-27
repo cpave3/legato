@@ -14,8 +14,13 @@ browser-extension/coverage/
 # Swarm runtime artifacts (per-agent briefs, plan YAMLs)
 .legato/
 
+# Cerberus hook state: the root folder's config is tracked, its cache and
+# sessions are not; a .cerberus folder anywhere else is litter.
+.cerberus/
+!/.cerberus/
+/.cerberus/cache/
+/.cerberus/sessions/
+
 # Scratch plan files at repo root
-.cerberus/cache/
-.cerberus/sessions/
 /plan.yaml
 /fix-plan.yaml
