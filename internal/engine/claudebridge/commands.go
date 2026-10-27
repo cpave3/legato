@@ -64,7 +64,16 @@ func (b *Bridge) handleMessage(w http.ResponseWriter, r *http.Request) {
 		}
 		b.mu.Unlock()
 	}
-	b.sendOrFail(w, map[string]any{"type": kind, "text": body.Content}, http.StatusAccepted)
+	if err := b.send(map[string]any{"type": kind, "text": body.Content}); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if kind == "append" {
+		b.mu.Lock()
+		b.session.showAppended(body.Content)
+		b.mu.Unlock()
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func (b *Bridge) handleInterrupt(w http.ResponseWriter, r *http.Request) {

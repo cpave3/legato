@@ -3,6 +3,7 @@ package claudebridge
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -650,6 +651,25 @@ func (s *session) applyRow(event modEvent, now time.Time) []nativeEvent {
 		return []nativeEvent{{"type": "user_message", "content": text}}
 	}
 	return nil
+}
+
+// shellResultPattern matches the result of a `!command` Legato ran for the
+// session, as the server's formatBangResult writes it and the web panel's
+// parseBangResult reads it: "!<command> (exit <code>[, timed out])\n<output>".
+var shellResultPattern = regexp.MustCompile(`^!.+ \(exit -?\d+(?:, timed out)?\)\n`)
+
+// showAppended puts text Legato appended into the conversation when it is
+// the result of a shell command, so the panel can show it. Other appended
+// text (an attached file) stays context for the model alone. The mod never
+// sees its own append, so its row never reaches applyRow.
+//
+// It goes into the snapshot only, which the panel reads again after every
+// command, as it does for Chimera. A live user_message would be drawn as a
+// prompt and mark the session busy, though no turn started.
+func (s *session) showAppended(text string) {
+	if shellResultPattern.MatchString(text) {
+		s.items = append(s.items, item{kind: itemUser, text: text})
+	}
 }
 
 func (s *session) applyAssistantRow(event modEvent, now time.Time) []nativeEvent {

@@ -637,6 +637,53 @@ func TestAppendedContextNeverStartsATurn(t *testing.T) {
 	if command := h.nextCommand(); command["type"] != "append" || command["text"] != "[auto-attached @a.go]\npackage a" {
 		t.Fatalf("command = %v", command)
 	}
+	// An attached file is context for the model, not a message in the panel.
+	for _, message := range h.snapshot().Messages {
+		if message.Role == "user" {
+			t.Fatalf("unexpected user message %q", messageText(message.Content))
+		}
+	}
+}
+
+func TestShellCommandResultFromLegatoIsShownInTheConversation(t *testing.T) {
+	h := newHarness(t)
+	h.mod(hello(nil))
+	events := h.subscribe("")
+	if command := h.nextCommand(); command["type"] != "viewers" {
+		t.Fatalf("command = %v", command)
+	}
+
+	// A `!command` run from the panel is appended as its result. The mod never
+	// hears of its own append, so the bridge is the only one who can show it.
+	result := "!legato task show task-1 (exit 0)\n# Fix the flaky test\n"
+	code, _ := h.post("/v1/sessions/task-1/messages?append=true", map[string]any{"content": result})
+
+	if code != http.StatusAccepted {
+		t.Fatalf("status = %d", code)
+	}
+	if command := h.nextCommand(); command["type"] != "append" || command["text"] != result {
+		t.Fatalf("command = %v", command)
+	}
+	snap := h.snapshot()
+	var texts []string
+	for _, message := range snap.Messages {
+		if message.Role == "user" {
+			texts = append(texts, messageText(message.Content))
+		}
+	}
+	if len(texts) != 1 || texts[0] != result {
+		t.Fatalf("user messages = %q", texts)
+	}
+	// The panel reads the result from the snapshot it fetches after the
+	// command. A live user message would draw it as a prompt and mark the
+	// session busy, though no turn started.
+	if snap.Status != "idle" {
+		t.Fatalf("status = %q, want idle", snap.Status)
+	}
+	h.mod(map[string]any{"type": "turn_start", "turnId": "turn-1"})
+	if event := nextEvent(t, events); event["type"] != "session_started" {
+		t.Fatalf("first event after the append = %v, want session_started", event)
+	}
 }
 
 func TestEmptyMessageIsRejected(t *testing.T) {
