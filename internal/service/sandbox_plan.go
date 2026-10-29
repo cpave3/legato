@@ -104,6 +104,41 @@ type SandboxPlanInput struct {
 	FS        FSProbe
 }
 
+// linkDirs are the folders of commands where a tool is often a link to a
+// file elsewhere (st in ~/.local/bin, linked to its checkout). The targets of
+// their links are mounted read-only, when the folder is.
+var linkDirs = []string{".local/bin", "go/bin", ".cargo/bin", ".bun/bin", ".deno/bin", ".volta/bin"}
+
+// linkLister reads the links in a folder; HostFS is one.
+type linkLister interface {
+	// LinkTargets is the real path of each file a link directly in dir
+	// leads to.
+	LinkTargets(dir string) []string
+}
+
+// LinkTargets is the real path of each regular file a link directly in dir
+// leads to.
+func (HostFS) LinkTargets(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, entry := range entries {
+		if entry.Type()&os.ModeSymlink == 0 {
+			continue
+		}
+		real, err := filepath.EvalSymlinks(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		if info, err := os.Stat(real); err == nil && info.Mode().IsRegular() {
+			out = append(out, real)
+		}
+	}
+	return out
+}
+
 // systemPaths are the host's system, read-only. A path that is a symbolic
 // link on the host (/bin -> usr/bin) is the same link inside.
 var systemPaths = []string{"/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/etc", "/opt", "/home", "/run/systemd/resolve", "/var/lib/alternatives"}
@@ -340,6 +375,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		}
 		plan.Setenv["LEGATO_GH_REAL"] = gh.RealMount
 	}
+	mounts = append(mounts, linkTargetMounts(in, mounts, no)...)
 	// Hide each forbidden path that a mount above holds, after that mount.
 	var hides []sandbox.Mount
 	for _, f := range no {
@@ -390,4 +426,44 @@ func sshConfigMounts(in SandboxPlanInput) []sandbox.Mount {
 		mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: in.KnownHosts, Dest: filepath.Join(in.SSHConfigDir, "known_hosts")})
 	}
 	return mounts
+}
+
+// linkTargetMounts mounts, read-only, the files that links in the mounted
+// command folders lead to outside every mount, so a tool linked from its
+// checkout runs inside. A target in a forbidden path is left out.
+func linkTargetMounts(in SandboxPlanInput, mounts []sandbox.Mount, forbiddenPaths []string) []sandbox.Mount {
+	lister, ok := in.FS.(linkLister)
+	if !ok {
+		return nil
+	}
+	covered := func(path string) bool {
+		for _, m := range mounts {
+			if (m.Kind == sandbox.ReadOnly || m.Kind == sandbox.ReadWrite) && m.Dest == "" && within(path, m.Path) {
+				return true
+			}
+		}
+		return false
+	}
+	var out []sandbox.Mount
+	seen := map[string]bool{}
+	for _, rel := range linkDirs {
+		dir := filepath.Join(in.Home, rel)
+		if !covered(dir) {
+			continue
+		}
+		for _, target := range lister.LinkTargets(dir) {
+			if seen[target] || covered(target) {
+				continue
+			}
+			seen[target] = true
+			refused := false
+			for _, f := range forbiddenPaths {
+				refused = refused || within(target, f)
+			}
+			if !refused {
+				out = append(out, sandbox.Mount{Kind: sandbox.ReadOnly, Path: target})
+			}
+		}
+	}
+	return out
 }

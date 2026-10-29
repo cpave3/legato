@@ -55,6 +55,7 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 - [x] 3.22 Every real `gh` in the sandbox is Legato's wrapper (login shells reorder `PATH`, so the wrapper was skipped and `gh` sent the stand-in token); the wrapper prints Legato's reason when it has no token
 - [x] 3.23 An agent outside the sandbox keeps the person's `gh` login: no stand-in `GH_TOKEN`, no empty `GH_CONFIG_DIR`
 - [x] 3.24 TUI: `R` in the agents view reloads the selected agent, resuming its conversation
+- [x] 3.26 Mount, read-only, the file each link in a mounted command folder leads to, when no mount holds it (a tool linked from its checkout, such as `st`); a target in a forbidden path is left out
 - [x] 3.25 Test suites clear the variables of an agent session (`internal/testenv`), so a suite run inside one does not act as it or reach its Legato
 
 ## 4. Phase 4: repository tools, with pushes and pull requests through the credential broker
@@ -71,7 +72,7 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 
 ## Status (2026-10-30)
 
-**Done.** Phase 2 (host broker). Phase 3 for the local sandbox: 3.1–3.7, 3.13–3.25 (with 3.6a and 3.15a). Phase 1: 1.1–1.7 (`prompt` on both spawn endpoints and in the web spawn dialog; `repo.ensure` as a no-op without `repo`; the built-in `legato-job`; unknown agents refused at start; `docs/cloud-agents.md`).
+**Done.** Phase 2 (host broker). Phase 3 for the local sandbox: 3.1–3.7, 3.13–3.26 (with 3.6a and 3.15a). Phase 1: 1.1–1.7 (`prompt` on both spawn endpoints and in the web spawn dialog; `repo.ensure` as a no-op without `repo`; the built-in `legato-job`; unknown agents refused at start; `docs/cloud-agents.md`).
 
 **Interim behaviour.** `repo.ensure` with a non-empty `repo` fails the step ("cannot check out a repository for a job yet") until 3.8–3.11 replace it.
 

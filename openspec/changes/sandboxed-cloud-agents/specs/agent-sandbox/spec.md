@@ -83,6 +83,11 @@ A sandbox's mounts SHALL be fixed when it starts. Adding a resource to a running
 ### Requirement: Toolchains are visible
 A sandbox SHALL mount, read-only and at their host paths when they exist, the person's toolchain directories: `~/.local/bin`, `~/.local/share/mise`, `~/go/bin`, `/home/linuxbrew/.linuxbrew`, `~/.cargo/bin`, `~/.rustup` and `~/.bun`; and read-write the package and build caches `~/go/pkg/mod`, `~/.cache/go-build`, `~/.npm`, `~/.cache/pnpm`, `~/.local/share/pnpm` and `~/.cache/pip`. `agents.sandbox.default_mounts: false` SHALL turn these off. `agents.sandbox.mounts` SHALL add to them.
 
+#### Scenario: A tool linked from its checkout
+- **WHEN** `~/.local/bin/st` is a link to `~/Projects/staccato/st` and the sandbox mounts `~/.local/bin`
+- **THEN** the sandbox SHALL mount `~/Projects/staccato/st` read-only, and no other file of that folder
+- **AND** a link whose target is in a path a sandbox must not see SHALL stay broken
+
 #### Scenario: Running the project's tests
 - **WHEN** a sandboxed agent runs `go test ./...` or `pnpm test` in its working copy
 - **THEN** the tools SHALL be found on its `PATH` and the module and package caches SHALL be usable

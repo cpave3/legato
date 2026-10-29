@@ -205,3 +205,28 @@ func TestInsideTheSandboxEveryGHIsLegatosWrapper(t *testing.T) {
 		t.Fatalf("err=%v out=%s", err, out)
 	}
 }
+
+func TestALinkedToolInTheToolchainFoldersWorksInside(t *testing.T) {
+	in := bwrapFixture(t)
+	base := filepath.Dir(in.Home)
+	elsewhere := filepath.Join(base, "Projects", "staccato")
+	_ = os.MkdirAll(elsewhere, 0o755)
+	_ = os.WriteFile(filepath.Join(elsewhere, "st"), []byte("#!/bin/sh\necho stacked\n"), 0o755)
+	_ = os.WriteFile(filepath.Join(elsewhere, "notes.txt"), []byte("not the tool"), 0o644)
+	bin := filepath.Join(in.Home, ".local", "bin")
+	_ = os.MkdirAll(bin, 0o755)
+	_ = os.Symlink(filepath.Join(elsewhere, "st"), filepath.Join(bin, "st"))
+	// A link into a credential is not followed.
+	_ = os.Symlink(filepath.Join(in.Home, ".ssh", "id_ed25519"), filepath.Join(bin, "sneaky"))
+	in.Extra = append(in.Extra, SandboxPath{Path: bin})
+
+	out, err := runInSandbox(t, in, filepath.Join(bin, "st")+`; cat `+filepath.Join(bin, "sneaky")+` 2>/dev/null || echo key-closed; test -e `+filepath.Join(elsewhere, "notes.txt")+` || echo only-the-tool; echo x > `+filepath.Join(elsewhere, "st")+` 2>/dev/null || echo read-only`)
+	if err != nil {
+		t.Fatalf("err=%v out=%s", err, out)
+	}
+	for _, want := range []string{"stacked", "key-closed", "only-the-tool", "read-only"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %s", want, out)
+		}
+	}
+}
