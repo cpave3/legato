@@ -110,9 +110,15 @@ func forbidden(in SandboxPlanInput) []string {
 		"/var/run/docker.sock", "/run/docker.sock", "/run/podman",
 	}
 	if in.RuntimeDir != "" {
-		// The runtime folder holds every Legato's IPC socket; only the
-		// broker's folder and the session's own SSH socket are mounted.
-		paths = append(paths, filepath.Dir(in.RuntimeDir))
+		// The runtime folder holds every Legato's IPC socket, and the
+		// person's (the session bus, Podman); only the broker's folder and
+		// the session's own SSH socket are mounted. Without
+		// XDG_RUNTIME_DIR it is /tmp/legato-<uid>, and /tmp is not forbidden.
+		runtimeRoot := filepath.Dir(in.RuntimeDir)
+		if runtimeRoot == "/tmp" {
+			runtimeRoot = in.RuntimeDir
+		}
+		paths = append(paths, runtimeRoot)
 	}
 	out := paths[:0]
 	for _, p := range paths {
