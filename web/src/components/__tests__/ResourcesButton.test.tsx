@@ -83,4 +83,25 @@ describe("ResourcesButton", () => {
     expect(await screen.findByText(/No resources yet/)).toBeTruthy()
     expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe("/settings#resources")
   })
+
+  it("for an agent in the sandbox, asks before reloading it with the resource", async () => {
+    render(<MemoryRouter><ResourcesButton agentId="task-1" baseUrl="" sandboxed /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: /^Resources/ }))
+
+    fireEvent.click(await screen.findByRole("button", { name: "Attach Specs" }))
+    expect(posted).toEqual([])
+    expect(await screen.findByText(/reloads this agent/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "Reload with Specs" }))
+    await waitFor(() => expect(posted).toEqual([{ names: ["Specs"], reload: true }]))
+  })
+
+  it("for an agent in the sandbox, can be called off", async () => {
+    render(<MemoryRouter><ResourcesButton agentId="task-1" baseUrl="" sandboxed /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: /^Resources/ }))
+    fireEvent.click(await screen.findByRole("button", { name: "Attach Specs" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Not now" }))
+    expect(screen.queryByText(/reloads this agent/)).toBeNull()
+    expect(posted).toEqual([])
+  })
 })

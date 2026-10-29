@@ -7,6 +7,9 @@ import { LoadingState } from "./ui/LoadingState"
 export interface ResourcesButtonProps {
   agentId: string
   baseUrl: string
+  // The agent runs in Legato's sandbox, whose folders are fixed when it
+  // starts: giving it a resource reloads it, after the person agrees.
+  sandboxed?: boolean
 }
 
 // ResourcesButton gives a running agent more of the person's files and
@@ -15,11 +18,13 @@ export interface ResourcesButtonProps {
 // itself; on a phone, a sheet from the bottom with rows sized for a thumb.
 // Nothing can be taken away again once given: Chimera has no way to narrow
 // what a session may touch.
-export function ResourcesButton({ agentId, baseUrl }: ResourcesButtonProps) {
+export function ResourcesButton({ agentId, baseUrl, sandboxed = false }: ResourcesButtonProps) {
   const [open, setOpen] = useState(false)
   const [resources, setResources] = useState<Resource[] | null>(null)
   const [attached, setAttached] = useState<string[]>([])
   const [pending, setPending] = useState<string | null>(null)
+  // A resource waiting for the person to agree to reload the agent.
+  const [confirming, setConfirming] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
@@ -68,11 +73,16 @@ export function ResourcesButton({ agentId, baseUrl }: ResourcesButtonProps) {
     void load()
   }
 
-  const attach = async (name: string) => {
+  const attach = async (name: string, reload = false) => {
+    if (sandboxed && !reload) {
+      setConfirming(name)
+      return
+    }
+    setConfirming(null)
     setPending(name)
     setError(null)
     try {
-      setAttached(await attachResources(baseUrl, agentId, [name]))
+      setAttached(await attachResources(baseUrl, agentId, [name], reload))
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -115,6 +125,19 @@ export function ResourcesButton({ agentId, baseUrl }: ResourcesButtonProps) {
               </Link>
             </div>
             {error && <p role="alert" className="mx-4 mt-3 rounded border border-red-900 bg-red-950/60 px-2 py-1.5 text-xs text-red-300 sm:mx-3">{error}</p>}
+            {confirming && (
+              <div className="mx-4 mt-3 rounded border border-amber-800/70 bg-amber-950/40 px-3 py-2.5 text-xs text-amber-100 sm:mx-3">
+                <p>This agent runs in Legato's sandbox, which cannot see folders added while it runs. Adding {confirming} reloads this agent: it starts again with {confirming}, and its conversation resumes.</p>
+                <div className="mt-2 flex gap-2">
+                  <button type="button" onClick={() => void attach(confirming, true)} className="min-h-11 rounded bg-amber-600 px-3 font-medium text-white hover:bg-amber-500 sm:min-h-0 sm:py-1.5">
+                    Reload with {confirming}
+                  </button>
+                  <button type="button" onClick={() => setConfirming(null)} className="min-h-11 rounded px-3 text-amber-200 hover:bg-amber-900/40 sm:min-h-0 sm:py-1.5">
+                    Not now
+                  </button>
+                </div>
+              </div>
+            )}
             {resources === null ? (
               <LoadingState size="inline" label="Loading resources…" className="px-4 py-4 sm:px-3" />
             ) : resources.length === 0 ? (

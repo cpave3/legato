@@ -172,7 +172,7 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
                   <span className="truncate pl-4 text-xs text-[#c9c8d0]">{agent.task_title}</span>
                 )}
                 <span className="flex min-w-0 items-center gap-1.5 pl-4">
-                  <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} />
+                  <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} unsandboxed={agent.unsandboxed} />
                   {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
                     <span className="min-w-0 truncate font-mono text-xs text-lw-text-2">{agent.command}</span>
                   )}

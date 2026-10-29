@@ -81,6 +81,10 @@ export interface AgentInfo {
   state_timeline?: string[]
   notify_enabled?: boolean
   has_chimera_endpoint?: boolean
+  // The agent runs in Legato's sandbox.
+  sandboxed?: boolean
+  // The sandbox is on and this agent opted out of it.
+  unsandboxed?: boolean
   // The last known fill of a native agent's context window; changes arrive
   // as agent_context messages (useAgentContexts).
   context_used?: number

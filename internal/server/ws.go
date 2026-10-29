@@ -254,6 +254,7 @@ func (s *Server) sendAgentList(client *wsClient) {
 	resp := make([]AgentResponse, len(agents))
 	for i, a := range agents {
 		r := agentResponse(a)
+		r.Unsandboxed = s.sandboxEnabled && !a.Sandboxed
 		if d, ok := durations[a.TaskID]; ok {
 			r.WorkingSeconds = d.Working.Seconds()
 			r.WaitingSeconds = d.Waiting.Seconds()

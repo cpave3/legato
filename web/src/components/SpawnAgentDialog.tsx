@@ -33,6 +33,8 @@ export interface SpawnAgentRequest {
   sessionPolicy?: SessionPolicy
   // The names of the resources the agent is given; absent when none were picked.
   resources?: string[]
+  // False starts the agent outside Legato's sandbox; absent otherwise.
+  sandbox?: false
 }
 
 interface AdapterInfo {
@@ -128,6 +130,8 @@ export function SpawnAgentDialog({
   const [listHeight, setListHeight] = useState(0)
   const [showAll, setShowAll] = useState(false)
   const [savePath, setSavePath] = useState(false)
+  // Out of Legato's sandbox for this one agent: asked afresh each time.
+  const [unsandboxed, setUnsandboxed] = useState(false)
   // The files and folders the person keeps for agents, and the ones picked.
   const [resources, setResources] = useState<Resource[]>([])
   const [picked, setPicked] = useState<string[]>([])
@@ -153,6 +157,7 @@ export function SpawnAgentDialog({
     setFound(null)
     setListOpen(false)
     setSavePath(false)
+    setUnsandboxed(false)
     // Not the path field: its suggestions open with its focus.
     ;(titleRef.current ?? formRef.current)?.focus()
 
@@ -307,13 +312,14 @@ export function SpawnAgentDialog({
         workingDir,
         ...(offersSessionChoice ? { sessionPolicy } : {}),
         ...(picked.length > 0 ? { resources: picked } : {}),
+        ...(unsandboxed ? { sandbox: false as const } : {}),
       })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setLoading(false)
     }
-  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy, picked])
+  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy, picked, unsandboxed])
 
   if (!open) return null
 
@@ -627,6 +633,15 @@ export function SpawnAgentDialog({
                 })}
               </div>
             </fieldset>
+          )}
+          {settings.data?.sandbox_enabled && (
+            <label className={`flex min-h-11 cursor-pointer items-start gap-2.5 rounded-[10px] border px-3 py-2.5 text-sm sm:min-h-0 sm:rounded-md sm:text-xs ${unsandboxed ? "border-lw-needs/50 bg-lw-needs-soft text-lw-text" : "border-lw-line-strong bg-lw-ground text-lw-text-2"}`}>
+              <input type="checkbox" checked={unsandboxed} onChange={(event) => setUnsandboxed(event.target.checked)} className="mt-0.5 accent-lw-accent" />
+              <span>
+                <span className="font-medium text-lw-text">Run without sandbox</span>
+                <span className="block text-lw-faint">This agent sees your whole home folder and its credentials, so folders can be given to it while it runs.</span>
+              </span>
+            </label>
           )}
         </div>
 

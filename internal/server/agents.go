@@ -80,6 +80,9 @@ type AgentResponse struct {
 	HasChimeraEndpoint bool       `json:"has_chimera_endpoint"`
 	// Sandboxed is true when the agent runs in Legato's sandbox.
 	Sandboxed bool `json:"sandboxed"`
+	// Unsandboxed is true when the sandbox is on and this agent opted out:
+	// it sees the person's whole home folder.
+	Unsandboxed bool `json:"unsandboxed,omitempty"`
 	// ContextUsed and ContextWindow are the last known fill of a native
 	// agent's context window; later changes arrive as agent_context.
 	ContextUsed   int `json:"context_used,omitempty"`
@@ -293,6 +296,7 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 		var native []string
 		for i, a := range agents {
 			r := agentResponse(a)
+			r.Unsandboxed = s.sandboxEnabled && !a.Sandboxed
 			if d, ok := durations[a.TaskID]; ok {
 				r.WorkingSeconds = d.Working.Seconds()
 				r.WaitingSeconds = d.Waiting.Seconds()

@@ -58,11 +58,13 @@ export async function attachedResources(baseUrl: string, taskId: string): Promis
 
 // Gives the running agent of a task more resources, and returns the names of
 // all it now has.
-export async function attachResources(baseUrl: string, taskId: string, names: string[]): Promise<string[]> {
+// An agent in Legato's sandbox is given them by reloading it (reload), as its
+// mounts are fixed when it starts; its conversation resumes.
+export async function attachResources(baseUrl: string, taskId: string, names: string[], reload = false): Promise<string[]> {
   const response = await ok(await apiFetch(baseUrl, `/api/agents/${encodeURIComponent(taskId)}/resources`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ names }),
+    body: JSON.stringify(reload ? { names, reload: true } : { names }),
   }))
   const body = await response.json()
   return Array.isArray(body?.attached) ? body.attached : []

@@ -24,6 +24,7 @@ export function SpawnEphemeralModal({
         agent_kind: request.agentKind,
         working_dir: request.workingDir,
         ...(request.resources ? { resources: request.resources } : {}),
+        ...(request.sandbox === false ? { sandbox: false } : {}),
       }),
     })
     if (!response.ok) throw new Error("The agent was not spawned: " + await response.text())

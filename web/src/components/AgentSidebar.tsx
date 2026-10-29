@@ -180,7 +180,7 @@ function AgentEntry({
         {agent.task_title && <span className="truncate">{agent.task_title}</span>}
         <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-lw-text-2">
           <span className="flex min-w-0 items-center gap-1.5">
-            <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} />
+            <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} unsandboxed={agent.unsandboxed} />
             {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
               <span className="min-w-0 truncate font-lw-mono text-lw-faint">{agent.command}</span>
             )}

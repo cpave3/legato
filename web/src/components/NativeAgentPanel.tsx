@@ -185,6 +185,8 @@ function PermissionCard({
 
 interface NativeAgentPanelProps {
   agentId: string
+  // The agent runs in Legato's sandbox: giving it a resource reloads it.
+  sandboxed?: boolean
   onClickTerminal?: () => void
   onKill?: () => void
   // Stops the agent and starts it again, resuming its conversation.
@@ -211,7 +213,7 @@ interface NativeAgentPanelProps {
   pullRequest?: number
 }
 
-export function NativeAgentPanel({ agentId, onKill, onReload, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, sandboxed, onKill, onReload, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   const { baseUrl } = useServer()
   const [syncState, setSyncState] = useState<NativeSyncState>(() => createNativeSyncState())
@@ -1092,7 +1094,7 @@ export function NativeAgentPanel({ agentId, onKill, onReload, onDisconnect, onDo
                 )}
               </div>
             )}
-            <ResourcesButton agentId={agentId} baseUrl={baseUrl} />
+            <ResourcesButton agentId={agentId} baseUrl={baseUrl} sandboxed={sandboxed} />
             <div className="relative" ref={macrosRef}>
               <button type="button" onClick={() => setMacrosOpen((v) => !v)} className={composerToolButton(macrosOpen)} title="Macros (M)" aria-keyshortcuts="m">
                 <Zap size={16} aria-hidden="true" className="sm:hidden" />

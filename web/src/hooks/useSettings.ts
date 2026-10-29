@@ -16,6 +16,8 @@ export interface Settings {
   voice_enabled: boolean
   voice_auto_send: boolean
   worktrees_enabled: boolean
+  // Agents run in Legato's sandbox unless their spawn opts out.
+  sandbox_enabled?: boolean
   hot_reload_enabled: boolean
   working_dir: string
   default_workspace_id: number | null

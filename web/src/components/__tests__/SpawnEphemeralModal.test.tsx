@@ -5,10 +5,10 @@ import { SpawnEphemeralModal } from "../SpawnEphemeralModal"
 const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
-vi.mock("../../hooks/useSettings", () => {
-  const data = { working_dir: "/default", repositories: [{ name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato" }] }
-  return { useSettings: () => ({ data }) }
-})
+const { settingsData } = vi.hoisted(() => ({
+  settingsData: { working_dir: "/default", sandbox_enabled: false, repositories: [{ name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato" }] },
+}))
+vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ data: settingsData }) }))
 vi.mock("../../lib/api", () => ({ apiFetch }))
 
 const presets = {
@@ -313,5 +313,32 @@ describe("SpawnEphemeralModal", () => {
   it("asks nothing about resources when there are none", async () => {
     await openModal()
     expect(screen.queryByRole("group", { name: "Resources" })).toBeNull()
+  })
+
+  describe("with Legato's sandbox on", () => {
+    beforeEach(() => { settingsData.sandbox_enabled = true })
+    afterEach(() => { settingsData.sandbox_enabled = false })
+
+    it("spawns in the sandbox unless asked not to, and asks again each time", async () => {
+      await openModal()
+      const outside = screen.getByRole("checkbox", { name: /Run without sandbox/ }) as HTMLInputElement
+      expect(outside.checked).toBe(false)
+      fireEvent.click(outside)
+      fireEvent.click(screen.getByRole("button", { name: "Spawn in legato" }))
+      await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+      expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body).sandbox).toBe(false)
+    })
+
+    it("sends nothing about the sandbox when the box is left alone", async () => {
+      await openModal()
+      fireEvent.click(screen.getByRole("button", { name: "Spawn in legato" }))
+      await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+      expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body).sandbox).toBeUndefined()
+    })
+  })
+
+  it("offers no sandbox choice when the sandbox is off", async () => {
+    await openModal()
+    expect(screen.queryByRole("checkbox", { name: /Run without sandbox/ })).toBeNull()
   })
 })

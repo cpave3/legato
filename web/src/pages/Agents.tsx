@@ -692,6 +692,7 @@ export function AgentsPage() {
                     <NativeAgentPanel
                       key={agent.task_id}
                       agentId={agent.task_id}
+                      sandboxed={agent.sandboxed}
                       agentKind={agent.agent_kind}
                       composerEnabled={agent.task_id === selectedId}
                       title={agent.task_title}
@@ -712,6 +713,7 @@ export function AgentsPage() {
                 <NativeAgentPanel
                   key={selectedId}
                   agentId={selectedId}
+                  sandboxed={selectedAgent?.sandboxed}
                   onKill={handleKill}
                   onReload={canReload ? () => { void handleReload() } : undefined}
                   onDisconnect={handleDisconnect}
