@@ -18,7 +18,7 @@ When `agents.sandbox.enabled` is true, the agent service SHALL start every adapt
 - **AND** Legato SHALL NOT fall back to an unsandboxed launch
 
 ### Requirement: What a sandbox can see
-A sandbox SHALL mount: system directories read-only; a private `/tmp`; the job's working directory read-write; the repository cache read-only at its host path; the agent tool's own state directory read-write; the broker socket; the `legato` binary read-only; this task's pasted-image folder read-only; resources given to the agent with their configured access; and `agents.sandbox.mounts` with their configured access. It SHALL NOT mount the Legato configuration file, the data directory (except the repository cache and job clones), `~/.config/gh`, `~/.ssh`, `~/.gitconfig`, or the git credential store.
+A sandbox SHALL mount: system directories read-only; a private `/tmp`; the job's working directory read-write; the repository cache read-only at its host path; the agent tool's own state directory read-write; the broker socket; the execution's SSH agent socket when one is open; the `legato` binary read-only; this task's pasted-image folder read-only; resources given to the agent with their configured access; and `agents.sandbox.mounts` with their configured access. It SHALL NOT mount the Legato configuration file, the data directory (except the repository cache and job clones), `~/.config/gh`, `~/.ssh`, `~/.gitconfig`, or the git credential store.
 
 #### Scenario: Credentials are absent
 - **WHEN** a command inside the sandbox reads the Legato configuration path, the auth token path, `~/.config/gh/hosts.yml` or `~/.ssh`

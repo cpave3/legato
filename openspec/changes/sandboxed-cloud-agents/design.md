@@ -1,3 +1,5 @@
+> **Revised.** Decisions D5 to D9 were revised by the agent approvals and credentials plan (`.legato/plans/agent-approvals-credentials/plan.md`). Credentials now come from the credential broker (`credential-broker`), and pushes and pull requests go through its HTTP proxy with the `git` inspector under the `github` profile's rules (`credential-channels`, `github-credentials`). This change no longer adds `push_branch`, `open_pr`, a pull-request writer or `github.write`. Phase 3 of this change is phase 7 of that plan.
+
 ## Context
 
 `legato serve` (`runServeCmd` in `cmd/legato/main.go`) already builds every service the TUI builds: agents on tmux, native endpoint recovery, swarms, plans, reviews, workflows and their triggers, Attention, Jira sync, GitHub PR tracking and ntfy. The web app and the phone app can switch between servers. A VM running `legato serve` is therefore already a remote Legato. What it lacks is described below.
@@ -25,8 +27,8 @@ Stakeholders: one person running Legato for themselves, on a desktop and on a VM
 
 **Goals:**
 - Submit a job (prompt, agent tool, repository) to a headless Legato in one HTTP call, and follow it in the web UI.
-- Hold the GitHub credential only in the host Legato process. No agent process, file or environment visible to an agent contains it.
-- Let a sandboxed agent read sibling repositories, commit locally, and ask Legato to push and open a pull request under a policy.
+- Hold every GitHub credential that can write only in the host Legato process. An agent gets at most a read token for one repository and placeholders that work only through Legato.
+- Let a sandboxed agent read sibling repositories, commit locally, ask for access, and push and open a pull request within the person's rules.
 - Treat everything an agent writes as untrusted input to host code that holds credentials.
 - Deliver in four phases, each usable on its own, with a Legato that has the sandbox off behaving as today.
 
@@ -35,7 +37,7 @@ Stakeholders: one person running Legato for themselves, on a desktop and on a VM
 - Multi-user or multi-tenant isolation. The sandbox protects credentials from prompt injection, not one person from another.
 - Hiding the agent tool's own model credentials (Claude, Codex logins). They stay inside the sandbox. A model proxy is a later change.
 - Network egress filtering. Agents keep network access for model APIs and package registries. They can leak code they can read, but not credentials.
-- Merging pull requests, approving reviews, editing repository settings, or any GitHub write other than creating a pull request.
+- Merging pull requests, approving reviews, editing repository settings, or any GitHub write other than pushes and `pr.create` under the `github` profile.
 - Scheduled (time-based) workflow triggers. Separate change.
 - macOS sandboxing. Linux (bubblewrap) only in this change.
 
@@ -80,11 +82,12 @@ Image and video files that `show_*` tools name are read inside the sandbox and m
 | `<data_dir>/repos` (the cache) | read-only |
 | the agent tool's own state (`~/.claude`, `~/.codex`, `~/.chimera`, Manticore env) | read-write |
 | the broker socket | as is |
+| the execution's SSH agent socket (`credential-channels`) | as is |
 | the `legato` binary | read-only |
 | `agents.sandbox.mounts` from config, and resources given to the agent | read-only or read-write as configured |
 | `config.yaml`, `data_dir` (database, auth token, certs, artifacts), `~/.config/gh`, `~/.ssh`, `~/.gitconfig` | **not mounted** |
 
-The sandbox shares the host network namespace, so the bridges' loopback endpoints stay reachable from Legato. A fresh PID namespace with `--die-with-parent` ties the agent's lifetime to the pane process.
+The sandbox shares the host network namespace, so the bridges' loopback endpoints stay reachable from Legato, and the agent reaches Legato's credential proxy on loopback. A fresh PID namespace with `--die-with-parent` ties the agent's lifetime to the pane process.
 
 Pasted images go to `<tmp>/legato-<uid>/pasted-images/<task>`. That folder is mounted read-only at the same path so agents can read them.
 
@@ -94,49 +97,65 @@ Pasted images go to `<tmp>/legato-<uid>/pasted-images/<task>`. That folder is mo
 
 ### D5. Repository cache, with one clone per job by reference
 
-`RepositoryService.Ensure(owner/name)` clones into `<data_dir>/repos/<owner>/<name>.git` as a bare mirror on first use, and fetches when it is older than `repositories.cache.max_age` (default 5 minutes), serialized per repository. Git runs on the host with a credential helper that Legato supplies over a pipe for that one command (`GIT_ASKPASS` pointing at `legato` with the credential in an inherited file descriptor). Nothing is written to disk.
+*Revised by `github-credentials`.*
 
-A job gets `git clone --reference <cache> --no-checkout` into `<data_dir>/jobs/<execution_id>/<name>`, then a checkout of the requested ref. The job clone's `origin` is rewritten to a placeholder (`legato-broker:owner/name`) so `git push` from inside the sandbox fails clearly instead of prompting.
+`RepositoryService.Ensure(owner/name)` clones into `<data_dir>/repos/<owner>/<name>.git` as a bare mirror on first use, and fetches when it is older than `repositories.cache.max_age` (default 5 minutes), serialized per repository. Git runs on the host with a read token that the credential broker issues for that one repository (`git.read` under the `github` profile). Legato passes it to that one git process through a credential helper over an inherited file descriptor (`GIT_ASKPASS` pointing at `legato`). Nothing is written to disk.
+
+A job gets `git clone --reference <cache> --no-checkout` into `<data_dir>/jobs/<execution_id>/<name>`, then a checkout of the requested ref. The job clone's `origin` stays `https://github.com/<owner>/<name>`. Inside the sandbox the `helper` channel of `github-credentials` gives git read tokens for fetches, and its `pushInsteadOf` sends every push to Legato's proxy. With no `github` credential, the job environment sends pushes to an unusable placeholder URL, so `git push` fails without contacting GitHub.
 
 Inside the sandbox the cache is visible read-only. The `objects/info/alternates` path is the same inside and out because the cache is mounted at its host path, so the job clone reads shared objects and writes its own. Sibling repositories are readable as bare repositories (`git -C … log`, `git worktree` cannot be used against them). `ensure_repo` can add a checkout of a sibling into the job directory when an agent needs one.
 
 *Alternative:* `git worktree` from a shared checkout (what `github.pr.prepare` does today). Rejected for sandboxed jobs: a worktree writes refs and objects into the main repository's `.git`, which would have to be writable to every job. `github.pr.prepare` keeps its worktrees for unsandboxed use.
 
-### D6. The agent's working copy is untrusted: push from a repository only the host owns
+### D6. The agent's working copy is untrusted: no host process with a credential runs git in it
 
-A naive `git push` run by the host inside the job clone would read `.git/config` and `.git/hooks` that the agent controls (`core.hooksPath`, `core.sshCommand`, `credential.helper`, `pre-push`, `core.fsmonitor`) with the credential in reach. Instead, `push_branch`:
-1. Resolves the branch tip by reading `refs/heads/<branch>` and the packed refs as files, not by running git in the job clone.
-2. Runs, in a host-owned bare repository (`<data_dir>/push/<owner>/<name>.git`, with no hooks and fixed config), `git -c core.hooksPath=/dev/null -c protocol.file.allow=always fetch --no-tags <job clone path> <sha>`. Only the object transfer touches the job clone. Legato also sets `GIT_CONFIG_NOSYSTEM=1` and `GIT_CONFIG_GLOBAL=/dev/null`, runs it without the credential in its environment, and runs `git fsck --connectivity-only` on the received objects. A local-path fetch runs `upload-pack` against the job clone; which of that repository's configuration it reads is settled by tests before this ships (Open Questions).
-3. Checks the push policy (D8) against the target ref and the commit range.
-4. Pushes from the host-owned repository with the brokered credential.
+*Revised by `github-credentials`.*
 
-*Alternative:* have the agent produce a bundle (`git bundle create`) and import it. Viable and even narrower. Kept as the fallback if a local-path fetch turns out to read any configuration it should not (open question).
+A git process that runs in the job clone reads `.git/config` and `.git/hooks`, which the agent controls (`core.hooksPath`, `core.sshCommand`, `credential.helper`, `pre-push`, `core.fsmonitor`). Such a process must never hold a credential that can write.
 
-### D7. Git broker tools in `legato mcp serve`
+The agent pushes with its own `git push`. Its hooks and configuration run in its own processes, which hold no write credential. The push reaches Legato's HTTP proxy, where the `git` inspector reads only the ref update commands of the `git-receive-pack` request and passes the pack through unread. The write token is made for that one push inside the proxy and revoked after it (`github-credentials` D5 to D7). The host never runs git in the job clone to push.
 
-The tools forward to the broker, and the broker to `RepositoryService` and `GitBrokerService`:
+The host still touches job clones in two places: the cleanup check for unpushed commits (D5, `repo-cache`) and `ensure_repo` checkouts of siblings. Both run git with `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null`, `-c core.hooksPath=/dev/null`, `-c core.fsmonitor=false`, and no credential in their environment. The cleanup check reads ref tips as files where it can.
+
+*Alternative:* the earlier design: read the branch tip from ref files, fetch its objects into a host-owned bare repository, check a fixed push policy, and push from there. Rejected now: it needed a second repository per repository and an object import from untrusted input, and the proxy sees the same ref updates without reading the agent's files.
+
+### D7. Repository tools in `legato mcp serve`
+
+*Revised by `github-credentials`.*
+
+The tools forward to the broker, and the broker to `RepositoryService`:
 - `ensure_repo {repo, ref?}` → clones the repository into the cache if needed and makes a job checkout. Returns the path.
 - `refresh_repo {repo}` → fetches the cache.
-- `push_branch {repo, branch, force?}` → D6, under D8.
-- `open_pr {repo, branch, base?, title, body, draft?}` → D9.
 
-They are listed only when the host has a GitHub credential and `github.write.repositories` is not empty, and only in sandboxed sessions or when `github.write.unsandboxed: true`.
+There is no `push_branch` tool. An agent asks for `git.push` on its branch with `request_access` (from `credential-broker`) and then runs an ordinary `git push`. There is no `open_pr` tool. An agent opens a pull request with a REST request through the proxy (`pr.create`, D9).
 
-### D8. Push policy
+The tools are listed only when a `github` credential is configured.
 
-- The repository is on `github.write.repositories`.
-- The target branch starts with `github.write.branch_prefix` (default `legato/`). The tool adds the prefix when the name lacks it.
-- Never the repository's default branch or a branch matching `github.write.protected` (default `main`, `master`, `release/*`).
-- Force pushes only with `--force-with-lease` against the tip Legato pushed last for that branch. A branch Legato did not create cannot be force-pushed.
-- The pushed commit range contains no file larger than 50 MiB (a guard against pushing caches by mistake).
+### D8. Push policy is the `github` profile's rules
 
-Every push is recorded as a task note and an execution event, so the person can see what an agent pushed.
+*Revised by `github-credentials`.*
 
-### D9. A separate pull-request writer beside the read client
+The fixed policy of `github.write` is replaced by the rules of the `github` profile, which the person can change:
 
-`internal/engine/github` gains `PRWriter` with one method, `CreatePullRequest(repo, head, base, title, body, draft)`. It has its own transport guard: it allows only `POST /repos/{owner}/{repo}/pulls` where `{owner}/{repo}` is on the allowlist given at construction, and rejects every other method and path before dispatch. The read client and its GET-only guard are unchanged and keep their tests. The writer shares the in-memory credential source.
+| Earlier rule | Now |
+| --- | --- |
+| repository on `github.write.repositories` | repository in the credential's `settings.repositories`; others match no rule |
+| branch starts with `legato/`, added by the tool | agents name branches `legato/<task-id>-<slug>` (guidance); `git.push` on `legato/**` is `session` |
+| never the default branch or `main`, `master`, `release/*` | `git.push-default`, `git.push-tag` and `git.delete-ref` are `deny`; other branches are `request` and signed; a person adds `deny` rules for `release/*` |
+| force push only with a lease on Legato's last push | dropped: the inspector cannot see history; the optional GitHub ruleset blocks force pushes |
+| no file over 50 MiB | dropped: the pack passes through unread; GitHub's own file limit applies, and a `bytes` limit can cap a push |
 
-*Alternative:* lift the GET-only guard. Rejected: the read client's guarantee is easy to state and to test, and a second, narrow guard keeps it.
+Every push is recorded in the credential audit log, and as a task note naming the repository, branch, old and new tip.
+
+### D9. Pull requests through the proxy, not a separate writer
+
+*Revised by `github-credentials`.*
+
+`POST /repos/{owner}/{repo}/pulls` through the proxy is the operation `pr.create`, scoped to the head branch. The proxy sends it with a `pull_requests: write` token made for that request and revoked after it. When GitHub answers with a new pull request, Legato links it to the task's PR tracking as a pinned PR.
+
+The read client and its GET-only guard are unchanged and keep their tests. There is no `PRWriter`.
+
+*Alternative:* the earlier `PRWriter` with its own transport guard. Rejected now: the proxy already makes per-request tokens and checks each write against a grant, and one write path is easier to state than two.
 
 ### D10. Job submission
 
@@ -146,7 +165,8 @@ Every push is recorded as a task note and an execution event, so the person can 
 
 - [The broker becomes a single point of failure for sandboxed agents] → Hooks already tolerate a failed state report. The broker client times out in 2 seconds and the hook exits 0. MCP tools return a tool error that says Legato is unreachable.
 - [Agent tools' own sandboxes conflict with bubblewrap] → Verify each tool. Turn the tool's own sandbox off through its flags when Legato's is on, and document it.
-- [A local-path `git fetch` from the job clone reads agent-written config or runs agent-written code] → Fixed config environment, no hooks path, fsck. Prove it with tests that plant `core.fsmonitor`, `core.hooksPath`, `uploadpack.packObjectsHook` and a `pre-push` hook. Fall back to bundles (D6) if any of them fires.
+- [A host git process on a job clone runs agent-written config or hooks] → No such process holds a credential (D6), and each runs with system and global config disabled and hooks off. Tests plant `core.fsmonitor`, `core.hooksPath`, `core.sshCommand`, `credential.helper`, `uploadpack.packObjectsHook` and a `pre-push` hook and assert none runs.
+- [A bug in the `git` inspector lets a push outside the grant through] → All-or-nothing pushes and refusal of anything unparsed (`github-credentials`), and the optional GitHub ruleset backstop.
 - [The agent tool's model credential is inside the sandbox] → Accepted (non-goal). Recommend a separate account or key for the VM.
 - [Code in the sandbox can reach the web API on loopback] → It needs the web token, which is not mounted. The broker token allows only its own execution.
 - [Two migration paths (store-direct and broker) for every agent-side command] → One client interface with two implementations, and the same service calls behind both. Contract tests run each command against both.
@@ -155,14 +175,13 @@ Every push is recorded as a task note and an execution event, so the person can 
 
 ## Migration Plan
 
-- Every new behaviour is behind configuration: `agents.sandbox.enabled` (default false) and `github.write.repositories` (default empty). An upgraded Legato with neither set behaves exactly as today.
-- New migrations: an execution capability-token hash column, the job clone table (execution, repository, path, created, cleaned), and a push log table. All additive.
+- Every new behaviour is behind configuration: `agents.sandbox.enabled` (default false) and a `github` credential (none by default). An upgraded Legato with neither behaves exactly as today.
+- New migrations: an execution capability-token hash column and the job clone table (execution, repository, path, created, cleaned). All additive. Pushes are recorded in the credential audit log of `credential-broker`, not in a table of this change.
 - Rollback: turn the sandbox off. Running sandboxed agents keep their broker tokens until they end. Job clones stay on disk until swept.
 
 ## Open Questions
 
 - Does Claude Code's own sandbox run inside bubblewrap on a typical VM kernel, or must it always be turned off?
-- Exactly which repository configuration does `git fetch` from a local path read in the source repository? Settle with planted-config tests before choosing between fetch and bundle.
-- Should `open_pr` bodies be marked as written by an agent (a footer), like the review-publishing skill does?
+- Should pull requests opened through the proxy be marked as written by an agent (a footer), like the review-publishing skill does? The proxy would have to change the request body.
 - Should the broker socket also serve the TUI and `serve` on the desktop (no sandbox), so there is one agent-side path everywhere? This would retire the store-direct mode later.
 - Should jobs on the VM be visible from the desktop Legato (read-only remote agents list)? Out of scope here, but the broker protocol should not rule it out.

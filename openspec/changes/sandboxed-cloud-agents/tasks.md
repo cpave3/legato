@@ -1,4 +1,4 @@
-Every task is test-first (red, green, refactor). Each phase ends usable on its own; phase 1 needs none of the later ones.
+Every task is test-first (red, green, refactor). Each phase ends usable on its own; phase 1 needs none of the later ones. Phase 3 is phase 7 of the agent approvals and credentials plan. Phase 4 needs `credential-broker`, `credential-channels` and `github-credentials`.
 
 ## 1. Phase 1: job submission and a VM as the sandbox
 
@@ -31,29 +31,26 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 
 - [ ] 3.1 Config: `agents.sandbox` (`enabled`, `backend`, `mounts`), `repositories.cache.max_age`; validation and tests
 - [ ] 3.2 `internal/engine/sandbox`: backend interface and `bwrap` implementation that builds the argument list from a mount plan; table tests of the arguments for each mount kind
-- [ ] 3.3 Mount plan in the service: working directory, cache, agent tool state per adapter, broker socket, `legato` binary, pasted-image folder, resources, configured mounts; and the paths that must never be mounted; tests
+- [ ] 3.3 Mount plan in the service: working directory, cache, agent tool state per adapter, broker socket, the execution's SSH agent socket when one is open, `legato` binary, pasted-image folder, resources, configured mounts; and the paths that must never be mounted; tests
 - [ ] 3.4 Wrap each adapter's launch command when the sandbox is on; refuse the spawn before tmux when the backend binary is missing; tests per adapter
 - [ ] 3.5 Strip credential variables from the sandbox environment whatever the host process holds; test
 - [ ] 3.6 Integration test (skipped without bwrap): inside the sandbox the config, auth token, `~/.config/gh` and `~/.ssh` do not exist, the cache is read-only, the working copy is writable, and every process ends with the pane
 - [ ] 3.7 Verify each agent tool inside bubblewrap (Claude Code, Codex, Chimera): starts, its own sandbox setting, native bridge binds through the broker, MCP tools work; record results in the design's Open Questions
-- [ ] 3.8 `internal/engine/gitrepo`: bare clone and fetch with a credential passed through an inherited file descriptor and an askpass helper; tests against a local bare repository served over a file URL, and a test that the credential is in no argument, environment variable or file
+- [ ] 3.8 `internal/engine/gitrepo`: bare clone and fetch with a read token from the credential broker, passed through an inherited file descriptor and an askpass helper; tests against a local bare repository served over a file URL, and a test that the token is in no argument, environment variable or file
 - [ ] 3.9 `RepositoryService.Ensure`: cache path, `max_age`, per-repository serialization, clean failure with no partial directory; concurrency test
-- [ ] 3.10 Job clones: `git clone --reference`, checkout of ref or default branch, placeholder `origin`; migration for the job clone table; test that `git push` from the clone fails without network
+- [ ] 3.10 Job clones: `git clone --reference`, checkout of ref or default branch, `origin` left at the GitHub URL; migration for the job clone table; test that with no `github` credential `git push` from the clone goes to the placeholder push URL and fails without network
 - [ ] 3.11 Implement `repo.ensure` with the cache; let presets with `repo` and no `primary_dir` use a job clone; record code context
 - [ ] 3.12 Job clone cleanup on terminal executions (remove when nothing is unpushed, keep 7 days otherwise with a task note); tests
 - [ ] 3.13 Docs: `docs/ai/config.md` (new keys), sandbox section in `docs/cloud-agents.md`
 
-## 4. Phase 4: git broker tools and the pull-request writer
+## 4. Phase 4: repository tools, with pushes and pull requests through the credential broker
 
-- [ ] 4.1 Config: `github.write` (`repositories`, `branch_prefix`, `protected`, `unsandboxed`); validation and tests
-- [ ] 4.2 `github.PRWriter` with its own transport guard (only `POST /repos/{o}/{r}/pulls` for allowlisted repositories); tests that other methods, paths and repositories dispatch zero requests; the read client's GET-only tests stay unchanged
-- [ ] 4.3 Settle the untrusted-fetch question: tests that plant `pre-push`, `core.hooksPath`, `core.fsmonitor`, `core.sshCommand`, `credential.helper` and `uploadpack.packObjectsHook` in a job clone and assert none runs during import; switch to `git bundle` if any does
-- [ ] 4.4 Branch import: read the tip from ref files without running git in the job clone, fetch into the host-owned bare repository with no hooks and no system or global config, `fsck --connectivity-only`
-- [ ] 4.5 Push policy (allowlist, prefix, protected and default branches, lease for force pushes, 50 MiB file limit) as a pure function with table tests
-- [ ] 4.6 `GitBrokerService.Push`: import, policy, push with the credential; push log migration; task note on success
-- [ ] 4.7 `GitBrokerService.OpenPR`: only for branches pushed for this task; return an existing open PR; pin it to the task's PR tracking
-- [ ] 4.8 Broker operations `git.ensure_repo`, `git.refresh_repo`, `git.push_branch`, `git.open_pr`
-- [ ] 4.9 MCP tools `ensure_repo`, `refresh_repo`, `push_branch`, `open_pr` in `legato mcp serve`, listed only under the conditions in the spec; add them to `MCPToolNames` and to `MCPGuidance`
-- [ ] 4.10 End-to-end test against a local bare "remote" and a fake GitHub API: a sandboxed agent commits, calls `push_branch` and `open_pr`, and the task shows the PR
-- [ ] 4.11 Docs: `docs/ai/agent-mcp.md` (git tools), `docs/ai/pr-tracking.md` (the writer and the changed boundary), `docs/cloud-agents.md` (enabling writes)
-- [ ] 4.12 Update the `github-pr-client` main spec when the change is archived
+- [ ] 4.1 Broker operations `git.ensure_repo` and `git.refresh_repo`; MCP tools `ensure_repo` and `refresh_repo`, listed only when a `github` credential is configured; add them to `MCPToolNames` and `MCPGuidance`; tests per tool
+- [ ] 4.2 Host git on job clones (cleanup check, sibling checkouts) runs with `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null`, hooks and fsmonitor off and no credential; tests that plant `pre-push`, `core.hooksPath`, `core.fsmonitor`, `core.sshCommand`, `credential.helper` and `uploadpack.packObjectsHook` in a job clone and assert none runs
+- [ ] 4.3 Sandboxed sessions get the `helper` channel's variables and reach the credential proxy on loopback; test that the sandbox environment has the `pushInsteadOf` entries and no write token
+- [ ] 4.4 A push from a job clone reaches the proxy, and the `github` profile's rules decide it: `legato/<task-id>-<slug>` after `request_access` is pushed, `main` is refused with git's `remote:` message; integration test against a local smart-HTTP remote
+- [ ] 4.5 A push is recorded in the credential audit log and as a task note naming the repository, branch, old and new tip; service test
+- [ ] 4.6 `pr.create` through the proxy links the new pull request to the task's PR tracking as pinned; test against a fake GitHub API
+- [ ] 4.7 End-to-end test against a local bare "remote" and a fake GitHub API: a sandboxed agent commits, asks for access, pushes and opens a pull request, and the task shows the PR
+- [ ] 4.8 Docs: `docs/ai/agent-mcp.md` (repository tools), `docs/ai/pr-tracking.md` (the changed boundary), `docs/cloud-agents.md` (a GitHub App credential on the VM, replacing the fine-grained token for pushes)
+- [ ] 4.9 Update the `github-pr-client` main spec when the change is archived

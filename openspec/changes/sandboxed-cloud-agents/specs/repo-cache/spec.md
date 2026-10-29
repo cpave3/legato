@@ -20,25 +20,29 @@
 - **THEN** `Ensure` SHALL return an error naming the repository and SHALL leave no partial directory
 
 ### Requirement: Host credentials for git
-Clones, fetches and pushes SHALL authenticate with the credential of the GitHub runtime, supplied to the single git process for that command only. Legato SHALL NOT write the credential to any file, git configuration or remote URL.
+Host clones and fetches SHALL authenticate with a read token that the credential broker issues for that one repository (`git.read` under the `github` profile), supplied to the single git process for that command only. Legato SHALL NOT write the token to any file, git configuration or remote URL.
 
 #### Scenario: Credential not on disk
 - **WHEN** a clone has completed
 - **THEN** no file under the data directory and no git configuration SHALL contain the credential
 
 #### Scenario: No credential available
-- **WHEN** the GitHub runtime has no credential
-- **THEN** `Ensure` SHALL fail with an error that mentions `gh auth login` or `github.token`
+- **WHEN** no `github` credential is configured, or the repository is not in its `settings.repositories`
+- **THEN** `Ensure` SHALL fail with an error that names the credential setting to change
 
 ### Requirement: One clone per job
-For a job naming a repository, Legato SHALL create a clone at `<data_dir>/jobs/<execution_id>/<name>` that borrows the cache's objects (`git clone --reference`), check out the requested ref or the default branch, and replace its `origin` URL with a placeholder that cannot be pushed to directly. A repository preset that names `repo` but no `primary_dir` SHALL use this path.
+For a job naming a repository, Legato SHALL create a clone at `<data_dir>/jobs/<execution_id>/<name>` that borrows the cache's objects (`git clone --reference`), and check out the requested ref or the default branch. Its `origin` SHALL stay the GitHub URL. The job's environment SHALL send pushes to Legato's credential proxy (`github-credentials`), or, with no `github` credential, to a placeholder URL that cannot be pushed to. A repository preset that names `repo` but no `primary_dir` SHALL use this path.
 
 #### Scenario: Job checkout
 - **WHEN** a job for `acme/widget` at ref `feature/x` starts
 - **THEN** its working directory SHALL be a clone at that ref whose objects are borrowed from the cache
 
-#### Scenario: Direct push is refused
-- **WHEN** `git push` is run inside the job clone
+#### Scenario: Push goes to Legato
+- **WHEN** `git push` is run inside the job clone and a `github` credential is configured
+- **THEN** git SHALL send the push to Legato's credential proxy, not to GitHub
+
+#### Scenario: Push with no credential
+- **WHEN** `git push` is run inside the job clone and no `github` credential is configured
 - **THEN** it SHALL fail without contacting GitHub
 
 #### Scenario: Preset without a directory
