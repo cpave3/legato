@@ -92,7 +92,7 @@ function AttentionCard({ item, pending, onAction, onDismiss }: AttentionCardProp
           {item.detail && <p className="mt-1 break-words text-xs text-zinc-500">{item.detail}</p>}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
-          {item.actions.filter((action) => action.kind === "execute").map((action) => (
+          {(item.actions ?? []).filter((action) => action.kind === "execute").map((action) => (
             <button
               key={action.id}
               type="button"
@@ -111,7 +111,7 @@ function AttentionCard({ item, pending, onAction, onDismiss }: AttentionCardProp
           >
             Dismiss
           </button>
-          {navPath && item.actions.filter((action) => action.kind === "navigate").map((action) => (
+          {navPath && (item.actions ?? []).filter((action) => action.kind === "navigate").map((action) => (
             <Link key={action.id} to={navPath} className="flex min-h-11 items-center rounded-lg border border-zinc-700 px-3 text-sm text-zinc-200 hover:bg-zinc-800">
               {action.label} <ChevronRight size={16} className="ml-1" />
             </Link>

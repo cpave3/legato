@@ -88,6 +88,13 @@ describe("AttentionPage", () => {
     expect(within(intervention).getByText("Future work")).toBeTruthy()
   })
 
+  it("renders an item whose actions are missing", async () => {
+    mockData = [item({ id: "att-r", title: "Approval devices were reset", signal_kind: "devices_reset", actions: null })]
+    const { AttentionPage } = await import("../AttentionPage")
+    render(<MemoryRouter><AttentionPage /></MemoryRouter>)
+    expect(screen.getByText("Approval devices were reset")).toBeTruthy()
+  })
+
   it("renders every source-owned executable action", async () => {
     mockData = [item({ actions: [
       { id: "confirm", label: "Confirm", kind: "execute", requires_confirmation: true },

@@ -451,6 +451,11 @@ func decodeAttentionItem(item store.AttentionItem) (*AttentionItem, error) {
 	if err := json.Unmarshal([]byte(item.ActionsJSON), &out.Actions); err != nil {
 		return nil, fmt.Errorf("decoding attention actions: %w", err)
 	}
+	// An item with no actions has an empty list, never null: clients
+	// iterate it.
+	if out.Actions == nil {
+		out.Actions = []AttentionAction{}
+	}
 	return out, nil
 }
 

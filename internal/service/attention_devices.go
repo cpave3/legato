@@ -36,5 +36,6 @@ func (a *DeviceAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInput
 		Detail: fmt.Sprintf("It removed %s that sign approvals, so the next phone enrolls with the web token alone. If you did not do this, check Settings › Devices and the host.", devices),
 		Category: "security", Urgency: "high",
 		Navigation: AttentionNavigation{Kind: "settings", Target: "devices"},
+		Actions:    []AttentionAction{{ID: "open", Label: "Open devices", Kind: "navigate"}},
 	}}, nil
 }

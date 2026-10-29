@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -94,5 +95,34 @@ func TestADismissedResetStaysHiddenUntilTheNextReset(t *testing.T) {
 	_ = attention.Reconcile(ctx, "devices")
 	if items, _ := attention.List(ctx, AttentionFilter{}); len(items) != 1 {
 		t.Fatalf("a new reset is hidden: %+v", items)
+	}
+}
+
+func TestAnItemWithNoActionsListsAnEmptyListNotNull(t *testing.T) {
+	f := newDevicesFixture(t)
+	ctx := context.Background()
+	attention := NewAttentionService(f.db, nil)
+	if _, err := attention.Upsert(ctx, AttentionInput{
+		Producer: "test", SignalKind: AttentionSignalApproval, SourceKey: "k", SourceRevision: "1",
+		Title: "t", Reason: "r", Category: "c", Urgency: "normal", Navigation: AttentionNavigation{Kind: "task", Target: "x"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := attention.List(ctx, AttentionFilter{})
+	encoded, _ := json.Marshal(items)
+	if len(items) != 1 || !strings.Contains(string(encoded), `"actions":[]`) {
+		t.Fatalf("items = %s", encoded)
+	}
+}
+
+func TestTheResetItemOpensSettings(t *testing.T) {
+	f := newDevicesFixture(t)
+	ctx := context.Background()
+	if _, err := f.devices.Reset(ctx); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := NewDeviceAttentionAdapter(f.devices).Snapshot(ctx)
+	if len(items) != 1 || len(items[0].Actions) != 1 || items[0].Actions[0].Kind != "navigate" {
+		t.Fatalf("actions = %+v", items)
 	}
 }

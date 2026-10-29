@@ -15,7 +15,7 @@ export type AttentionItem = {
   category: string
   urgency: string
   navigation: AttentionNavigation
-  actions: AttentionAction[]
+  actions: AttentionAction[] | null
   status: string
   created_at: string
   updated_at: string
