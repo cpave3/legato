@@ -13,7 +13,7 @@ import (
 )
 
 func WorkflowDefinitions(globalDir, projectDir string) workflowengine.DiscoveryResult {
-	return workflowengine.Discover(globalDir, projectDir)
+	return workflowengine.WithBuiltIns(workflowengine.Discover(globalDir, projectDir), service.BuiltInJobWorkflow())
 }
 func WorkflowValidate(path string, data []byte) (*workflowengine.Definition, error) {
 	return workflowengine.Parse(path, data)

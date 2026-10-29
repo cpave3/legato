@@ -107,6 +107,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	}
 	workflows := service.NewWorkflowServiceWithOutputs(db, executors, workflowArtifactRoot(cfg))
 	workflows.SetRepositoryPresets(workflowRepositoryPresets(cfg))
+	workflows.SetAgentKinds(agentSvc.RegisteredAdapters())
 	return workflows, nil
 }
 

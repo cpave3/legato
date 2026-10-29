@@ -5,8 +5,8 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 - [x] 1.1 Add `prompt` to the `POST /api/agents/spawn` request; test that a prompt reaches the agent service and that a blank prompt is ignored
 - [x] 1.2 Add `prompt` to `AgentSpawnOptions` and deliver it after launch through the kickoff path (native endpoint when bound, typed otherwise); service tests with `mockTmux` for both paths
 - [x] 1.3 Add `prompt` to `POST /api/tasks/{id}/agent`: message the live agent when one is selected, deliver as first message on resume without the fresh-session kickoff
-- [ ] 1.4 Add the `repo.ensure` workflow executor as a no-op when `repo` is empty (the cache arrives in phase 3)
-- [ ] 1.5 Ship the built-in `legato-job` workflow definition (inputs `prompt`, `repo`, `ref`, `agent`); validate it in tests and check an unknown `agent` is rejected at start
+- [x] 1.4 Add the `repo.ensure` workflow executor as a no-op when `repo` is empty (the cache arrives in phase 3)
+- [x] 1.5 Ship the built-in `legato-job` workflow definition (inputs `prompt`, `repo`, `ref`, `agent`); validate it in tests and check an unknown `agent` is rejected at start
 - [ ] 1.6 Show `prompt` in the web spawn dialog as an optional first message (`SpawnAgentDialog`); component test
 - [ ] 1.7 Write `docs/cloud-agents.md`: VM setup (systemd unit for `legato serve`, tmux, agent tool logins without a browser, Tailscale, fine-grained token, branch protection), adding the VM as a second server in the web and phone apps, starting a job with `curl`
 - [ ] 1.8 Run the spike on a scratch VM or scratch instance: start `legato-job` by API, watch it in the native panel, get an ntfy notification; record what hurt in the change's design Open Questions
@@ -47,6 +47,7 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 - [x] 3.15 Refuse adding a resource to a running sandboxed agent, with a message that points to an unsandboxed agent; service and web tests
 - [x] 3.15a Agent-facing `legato` commands in the sandbox (`task show|notes|note|update|description|list`, `plan *`, `review *`, `swarm` worker and conductor verbs, `credential request|get|exec`, `agent peers|message|broadcast`, `learn reflection submit`, `workflow step complete|fail`) are forwarded to the host through the broker (`cli.run`), which runs them as the session from a fixed allowlist, with stdin, the working directory and file arguments read on the agent's side; host-only commands (`device`, `secret`, `audit`, `hooks`, `auth`, `serve`, …) are refused; contract tests
 - [x] 3.16 Docs: `docs/ai/config.md` (new keys), sandbox section in `docs/cloud-agents.md`
+- [ ] 3.17 ssh and git fetches inside the sandbox: bwrap's user namespace shows root-owned files as `nfsnobody`, so ssh refuses `/etc/ssh/ssh_config.d/*`; give each sandbox a copy of the system ssh config the user owns, mount `credential_channels.ssh_agent.known_hosts` read-only, and with a `github` credential send fetches from `git@github.com:` and `ssh://git@github.com/` to `https://github.com/` (read tokens), as pushes already are
 
 ## 4. Phase 4: repository tools, with pushes and pull requests through the credential broker
 
@@ -63,4 +64,4 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 ## Status (2026-10-30)
 
 Done: phase 2 (host broker), phase 3 tasks for the local sandbox (3.1–3.7, 3.13–3.16, with 3.6a and 3.15a), and 1.2 (`AgentSpawnOptions.Prompt`, delivered after the brief kickoff; a multi-line prompt reaches a terminal agent as `~/.legato/agents/<task>/prompt.md`, `LEGATO_PROMPT_FILE`).
-Done since: 1.1, 1.3 (`prompt` on both spawn endpoints; to a task whose agent runs, it is queued as a message). Next, in order: 1.4–1.5 (`repo.ensure` no-op and the `legato-job` workflow), 1.6 (web field), 1.7 (VM guide); then 3.8–3.12 (repository cache, job clones); then phase 4. 1.8 needs a VM and waits for the person's server.
+Done since: 1.1, 1.3 (`prompt` on both spawn endpoints; to a task whose agent runs, it is queued as a message). Done since: 1.4, 1.5 (`repo.ensure`, a no-op without `repo` and a refusal with one; built-in `legato-job` from `service.BuiltInJobWorkflow`, merged into every discovery by `workflowengine.WithBuiltIns`; `WorkflowService.SetAgentKinds` refuses an unknown agent at start). Next, in order: ssh and git fetches in the sandbox (see 3.17), 1.6 (web field), 1.7 (VM guide); then 3.8–3.12 (repository cache, job clones); then phase 4. 1.8 needs a VM and waits for the person's server.

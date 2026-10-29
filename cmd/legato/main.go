@@ -1551,6 +1551,7 @@ func runServeCmd(args []string) int {
 		workflowSvc = built
 		globalWorkflows, projectWorkflows := workflowDirs()
 		srv.SetWorkflowService(workflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
+		srv.SetBuiltInWorkflows(service.BuiltInJobWorkflow())
 		srv.SetReflectionWorkflowService(workflowSvc)
 		triggerCoordinator = buildWorkflowTriggerCoordinator(db, workflowSvc, cfg, bus)
 		srv.SetWorkflowTriggerCoordinator(triggerCoordinator)
@@ -1840,6 +1841,7 @@ func runTUI() int {
 			if tuiWorkflowSvc != nil {
 				globalWorkflows, projectWorkflows := workflowDirs()
 				webSrv.SetWorkflowService(tuiWorkflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
+				webSrv.SetBuiltInWorkflows(service.BuiltInJobWorkflow())
 				webSrv.SetReflectionWorkflowService(tuiWorkflowSvc)
 				webSrv.SetWorkflowTriggerCoordinator(triggerCoordinator)
 			}

@@ -33,13 +33,23 @@ type WorkflowService interface {
 	Artifact(context.Context, string) (*store.WorkflowArtifact, error)
 }
 
+// SetBuiltInWorkflows adds Legato's own workflows to those found on disk. A
+// file with the same workflow name replaces a built-in one.
+func (s *Server) SetBuiltInWorkflows(definitions ...*workflowengine.Definition) {
+	s.builtInWorkflows = append([]*workflowengine.Definition(nil), definitions...)
+}
+
+func (s *Server) discoverWorkflows() workflowengine.DiscoveryResult {
+	return workflowengine.WithBuiltIns(workflowengine.DiscoverPaths(legacyWorkflowDirPath(), s.workflowGlobalDir, s.workflowProjectDir), s.builtInWorkflows...)
+}
+
 func (s *Server) workflowsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		result := workflowengine.DiscoverPaths(legacyWorkflowDirPath(), s.workflowGlobalDir, s.workflowProjectDir)
+		result := s.discoverWorkflows()
 		result.Repositories = append([]workflowengine.RepositoryPreset(nil), s.workflowRepositories...)
 		s.writeJSON(w, http.StatusOK, result)
 	}
@@ -55,7 +65,7 @@ func (s *Server) workflowStartHandler() http.HandlerFunc {
 			return
 		}
 		name := r.PathValue("name")
-		result := workflowengine.DiscoverPaths(legacyWorkflowDirPath(), s.workflowGlobalDir, s.workflowProjectDir)
+		result := s.discoverWorkflows()
 		var definition *workflowengine.Definition
 		for _, item := range result.Definitions {
 			if item.Name == name {

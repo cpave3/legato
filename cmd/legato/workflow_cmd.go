@@ -174,7 +174,7 @@ func resolveWorkflowDefinition(name, global, project string) (*workflowengine.De
 	if data, err := os.ReadFile(name); err == nil {
 		return workflowengine.Parse(name, data)
 	}
-	result := workflowengine.DiscoverPaths(legacyWorkflowDir(), global, project)
+	result := workflowengine.WithBuiltIns(workflowengine.DiscoverPaths(legacyWorkflowDir(), global, project), service.BuiltInJobWorkflow())
 	for _, definition := range result.Definitions {
 		if definition.Name == name {
 			return definition, nil

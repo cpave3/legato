@@ -73,6 +73,7 @@ type Server struct {
 	workflowGlobalDir        string
 	workflowProjectDir       string
 	workflowRepositories     []workflowengine.RepositoryPreset
+	builtInWorkflows         []*workflowengine.Definition
 	worktrees                WorktreeService
 	notifyTaskChanged        func(string)
 	hotReloadBuildTrigger    func(<-chan struct{}) (bool, error)

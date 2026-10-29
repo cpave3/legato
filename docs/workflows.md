@@ -44,6 +44,7 @@ Version 1 executes steps in declaration order and supports these executors:
 - `task.note`: add Markdown to a selected task. Pass a resolved `task` input plus either inline `body` or a managed/file `body_path`. Notes are stored locally in Legato and shown in task detail, including for provider-backed tasks; they are not published to Jira.
 - `task.metadata.set`: atomically set one or more dotted local metadata paths on a task. Provider sync preserves this metadata.
 - `task.move`: move the required structured `with.task` to the required non-empty, exact case-sensitive configured column named by `with.column`. A real move appends the task to the end of that column and uses normal transitions, events, and column-entry triggers; use trigger conditions to avoid authoring loops. Moving to the current column is an idempotent local no-op with no new transition or event. In a configured provider runtime, `PushMove` may still queue the mapped Jira transition so a previously failed remote push can recover; workflow success confirms local persistence and queueing, not remote completion.
+- `repo.ensure`: prepare the checkout a job works in. With an empty `with.repo` it does nothing and outputs `working_dir` as given in `with.working_dir`. Checking out a named repository is not built yet, so a non-empty `repo` fails the step.
 - Built-in Learn definitions additionally own `agent.interview`, `learning.packet.prepare`, and `learning.proposals.submit`. They are internal orchestration contracts rather than general-purpose user workflow examples; see [Legato Learn](ai/learning.md).
 
 Task inputs expose `${{ workflow.inputs.task.metadata.<path> }}`. Metadata is arbitrary JSON, local to Legato, and separate from provider-owned `remote_meta`. `${{ workflow.inputs.task.description }}` is effective Markdown: local tasks receive their description unchanged, while provider-backed tasks receive provider Markdown followed by editable local content under `## Legato details`.
@@ -268,6 +269,26 @@ steps:
     type: worktree.remove
     with: {expected_path: ${{ steps.prepare.outputs.worktree_path }}}
 ```
+
+## The agent job workflow
+
+Legato ships one workflow of its own, `legato-job`: one agent on one prompt, with a durable run record. It is listed with the workflows on disk; a definition of yours named `legato-job` replaces it.
+
+| Input | Required | Meaning |
+| --- | --- | --- |
+| `prompt` | yes | What the agent is asked to do |
+| `agent` | no | The agent tool (`claude-code`, `codex`, `chimera`); the default adapter when empty. A name that is not a configured adapter is refused when the run starts, and no run is created |
+| `working_dir` | no | The directory the agent works in; the agent service's default when empty |
+| `repo`, `ref` | no | A GitHub repository and ref to check out. Not built yet: a non-empty `repo` fails the first step |
+
+It runs `repo.ensure`, then `agent.run` with `keep_agent: true`: the agent completes the step with a `summary` output and stays running, so the person can read its answer in the native panel and go on talking to it. Start it like any workflow:
+
+```bash
+legato workflow run legato-job --input prompt="Find why the sync test is flaky" --input working_dir=/srv/legato --json
+curl -X POST -H "Authorization: Bearer $TOKEN" -d '{"inputs":{"prompt":"Find why the sync test is flaky"}}' https://server:3080/api/workflows/legato-job/runs
+```
+
+The check on `agent` applies to every workflow: an `agent.run` step whose `agent` is known from the inputs alone and names no configured adapter is refused at start (`WorkflowService.SetAgentKinds`).
 
 ## Running and inspecting
 

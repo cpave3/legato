@@ -13,7 +13,7 @@ import (
 func workflowDiscoveryProvider(cfg *config.Config) func() workflowengine.DiscoveryResult {
 	global, project := workflowDirs()
 	return func() workflowengine.DiscoveryResult {
-		result := injectBuiltInLearningTriggers(workflowengine.DiscoverPaths(legacyWorkflowDir(), global, project), cfg)
+		result := workflowengine.WithBuiltIns(injectBuiltInLearningTriggers(workflowengine.DiscoverPaths(legacyWorkflowDir(), global, project), cfg), service.BuiltInJobWorkflow())
 		result.Repositories = workflowRepositoryPresets(cfg)
 		return result
 	}

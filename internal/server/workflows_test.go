@@ -146,3 +146,32 @@ func TestWorkflowsEndpointReturnsDefinitionsAndValidationErrors(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+type startRecordingWorkflowService struct {
+	forceWorkflowService
+	started *workflowengine.Definition
+	inputs  map[string]string
+}
+
+func (f *startRecordingWorkflowService) Start(_ context.Context, definition *workflowengine.Definition, inputs map[string]string) (*store.WorkflowRunView, error) {
+	f.started, f.inputs = definition, inputs
+	return &store.WorkflowRunView{Run: store.WorkflowRun{ID: "wr-1", CurrentStepID: "checkout"}}, nil
+}
+
+func TestBuiltInWorkflowIsListedAndStartable(t *testing.T) {
+	workflows := &startRecordingWorkflowService{}
+	s := New(nil, nil, nil, "")
+	s.SetWorkflowService(workflows, t.TempDir(), "")
+	s.SetBuiltInWorkflows(&workflowengine.Definition{SchemaVersion: 1, Name: "legato-job", Title: "Agent job", Source: "builtin:legato-job"})
+
+	rec := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workflows", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"legato-job"`) {
+		t.Fatalf("list: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/workflows/legato-job/runs", strings.NewReader(`{"inputs":{"prompt":"Fix it"}}`)))
+	if rec.Code != http.StatusCreated || workflows.started == nil || workflows.started.Source != "builtin:legato-job" || workflows.inputs["prompt"] != "Fix it" {
+		t.Fatalf("start: status=%d body=%s started=%+v", rec.Code, rec.Body.String(), workflows.started)
+	}
+}

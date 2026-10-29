@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -46,6 +47,7 @@ type WorkflowService struct {
 	executors    map[string]WorkflowExecutor
 	collector    *WorkflowOutputCollector
 	repositories []workflowengine.RepositoryPreset
+	agentKinds   []string
 }
 
 func NewWorkflowService(s *store.Store, executors []WorkflowExecutor) *WorkflowService {
@@ -62,6 +64,13 @@ func NewWorkflowServiceWithOutputs(s *store.Store, executors []WorkflowExecutor,
 
 func (s *WorkflowService) SetRepositoryPresets(presets []workflowengine.RepositoryPreset) {
 	s.repositories = append([]workflowengine.RepositoryPreset(nil), presets...)
+}
+
+// SetAgentKinds names the agent tools agent.run steps may ask for. A run
+// whose agent step names another one is refused when it starts, instead of
+// running on the default agent.
+func (s *WorkflowService) SetAgentKinds(kinds []string) {
+	s.agentKinds = append([]string(nil), kinds...)
 }
 
 func (s *WorkflowService) Start(ctx context.Context, definition *workflowengine.Definition, rawInputs map[string]string) (*store.WorkflowRunView, error) {
@@ -115,6 +124,9 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 	for _, step := range definition.Steps {
 		if _, ok := s.executors[step.Type]; !ok {
 			return nil, fmt.Errorf("workflow executor %q is not registered", step.Type)
+		}
+		if err := s.checkAgentKind(step, inputs); err != nil {
+			return nil, err
 		}
 	}
 	color := "#6366f1"
@@ -566,4 +578,22 @@ func workflowID(prefix string) string {
 func digestBytes(data []byte) string {
 	digest := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(digest[:])
+}
+
+// checkAgentKind refuses an agent.run step whose agent, known from the inputs
+// alone, is not one of the configured agent tools.
+func (s *WorkflowService) checkAgentKind(step workflowengine.Step, inputs map[string]any) error {
+	raw, ok := step.With["agent"]
+	if step.Type != "agent.run" || !ok || s.agentKinds == nil {
+		return nil
+	}
+	resolved, err := workflowengine.ResolveFromInputs(raw, inputs)
+	if err != nil {
+		return nil
+	}
+	kind, _ := resolved.(string)
+	if strings.TrimSpace(kind) == "" || slices.Contains(s.agentKinds, kind) {
+		return nil
+	}
+	return fmt.Errorf("step %q: unknown agent %q; configured agents: %s", step.ID, kind, strings.Join(s.agentKinds, ", "))
 }

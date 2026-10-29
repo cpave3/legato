@@ -136,7 +136,7 @@ func (d *Definition) Validate() error {
 		if step.Trigger != "automatic" && step.Trigger != "manual" && step.Trigger != TriggerAgentEnded {
 			return fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger)
 		}
-		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.dispatch" && step.Type != "agent.interview" && step.Type != "agent.stop" && step.Type != "worktree.remove" && step.Type != "file.remove" && step.Type != "task.context" && step.Type != "task.working_dir.resolve" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "task.move" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" && step.Type != "chimera.session.remove" {
+		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.dispatch" && step.Type != "agent.interview" && step.Type != "agent.stop" && step.Type != "worktree.remove" && step.Type != "file.remove" && step.Type != "task.context" && step.Type != "task.working_dir.resolve" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "task.move" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" && step.Type != "chimera.session.remove" && step.Type != "repo.ensure" {
 			return fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type)
 		}
 		if err := validateStepContract(*step, d.Inputs); err != nil {
@@ -400,6 +400,13 @@ func parseValue(valueType, value string) (any, error) {
 	default:
 		return nil, fmt.Errorf("unsupported type %q", valueType)
 	}
+}
+
+// ResolveFromInputs resolves a value that refers only to workflow inputs. A
+// value that refers to anything else (a step's outputs, the workflow task)
+// returns an error.
+func ResolveFromInputs(value any, inputs map[string]any) (any, error) {
+	return resolveValue(value, nil, inputs, nil, nil)
 }
 
 func (d *Definition) ResolveRunTitle(inputs map[string]any) (string, error) {

@@ -18,7 +18,7 @@ func promptService(t *testing.T) (AgentService, *store.Store, *mockTmux) {
 	t.Cleanup(func() { s.Close() })
 	mt := newMockTmux()
 	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
-		Adapter: &fakeAdapter{name: "fake", launchFn: func(map[string]string, string, string, string) string { return "fake-tool" }},
+		Adapter:           &fakeAdapter{name: "fake", launchFn: func(map[string]string, string, string, string) string { return "fake-tool" }},
 		BriefKickoffDelay: time.Millisecond,
 	})
 	return svc, s, mt
