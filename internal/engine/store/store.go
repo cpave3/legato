@@ -300,6 +300,15 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 			return "", nil
 		}
 	}
+	if name == "075_agent_session_sandboxed.sql" {
+		var tables int
+		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'agent_sessions'`); err != nil {
+			return "", err
+		}
+		if tables == 0 {
+			return "", nil
+		}
+	}
 	if name == "065_document_images.sql" {
 		// One statement for each table, and a database from before plans or
 		// reviews has none of them to change.

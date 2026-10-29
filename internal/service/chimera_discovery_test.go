@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -340,5 +342,41 @@ func writeChimeraLockfile(t *testing.T, dir, name, sessionID, endpoint string) {
 	body := fmt.Sprintf(`{"pid":123,"sessionId":%q,"url":%q}`, sessionID, endpoint)
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTheLaunchDiscoveryLoopStopsWhenItsAgentIsGone(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	instancesDir := filepath.Join(home, ".chimera", "instances")
+	if err := os.MkdirAll(instancesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var asked atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked.Add(1)
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(server.Close)
+	writeChimeraLockfile(t, instancesDir, "other.json", "SOMEONE-ELSE", server.URL)
+
+	svc, s, _ := newDiscoveryTestService(t)
+	createTask(t, s, "TASK-7")
+	if err := s.InsertAgentSession(context.Background(), store.AgentSession{TaskID: "TASK-7", TmuxSession: "legato-TASK-7", AgentKind: "chimera", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		svc.(*agentService).discoverChimeraLockfile(context.Background(), "TASK-7", "TASK-7", nil)
+		close(done)
+	}()
+	time.Sleep(700 * time.Millisecond)
+	if err := s.UpdateAgentSessionStatus(context.Background(), "TASK-7", "dead"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the discovery loop kept polling for an agent that is gone")
 	}
 }

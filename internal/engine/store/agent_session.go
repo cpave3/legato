@@ -16,8 +16,8 @@ const agentSessionSelect = `SELECT a.*,
 
 func (s *Store) InsertAgentSession(ctx context.Context, a AgentSession) error {
 	result, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO agent_sessions (task_id, tmux_session, command, agent_kind, status, role, parent_task_id, subtask_id)
-		SELECT :task_id, :tmux_session, :command, :agent_kind, :status, :role, :parent_task_id, :subtask_id
+		INSERT INTO agent_sessions (task_id, tmux_session, command, agent_kind, status, role, parent_task_id, subtask_id, sandboxed)
+		SELECT :task_id, :tmux_session, :command, :agent_kind, :status, :role, :parent_task_id, :subtask_id, :sandboxed
 		WHERE :status != 'running' OR NOT EXISTS (SELECT 1 FROM chimera_cleanup_reservations WHERE task_id = :task_id)`, a)
 	if err != nil {
 		return err
@@ -40,8 +40,8 @@ func (s *Store) InsertAgentSession(ctx context.Context, a AgentSession) error {
 // InsertAgentSessionReturningID inserts a session and returns the new row's ID.
 func (s *Store) InsertAgentSessionReturningID(ctx context.Context, a AgentSession) (int, error) {
 	result, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO agent_sessions (task_id, tmux_session, command, agent_kind, status, role, parent_task_id, subtask_id)
-		SELECT :task_id, :tmux_session, :command, :agent_kind, :status, :role, :parent_task_id, :subtask_id
+		INSERT INTO agent_sessions (task_id, tmux_session, command, agent_kind, status, role, parent_task_id, subtask_id, sandboxed)
+		SELECT :task_id, :tmux_session, :command, :agent_kind, :status, :role, :parent_task_id, :subtask_id, :sandboxed
 		WHERE :status != 'running' OR NOT EXISTS (SELECT 1 FROM chimera_cleanup_reservations WHERE task_id = :task_id)`, a)
 	if err != nil {
 		return 0, err

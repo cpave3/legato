@@ -397,6 +397,8 @@ type AgentSession struct {
 	ChimeraSessionID  *string `db:"chimera_session_id"`
 	ChimeraEndpoint   *string `db:"chimera_endpoint"`
 	LastEventID       *string `db:"last_event_id"`
+	// Sandboxed is true when the agent runs in Legato's sandbox.
+	Sandboxed bool `db:"sandboxed"`
 }
 
 // SwarmEvent is a single conductor-bound event written to the swarm_events

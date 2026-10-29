@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -125,9 +126,12 @@ type AgentSpawnOptions struct {
 	ExecutionKind     string            // reporting execution kind; defaults from workflow/swarm context
 	AttributionTaskID string            // user-facing reporting task; defaults to taskID
 	WorkflowRunID     string            // owning workflow run, when applicable
-	WorkflowAttemptID string            // owning workflow attempt, when applicable
-	SwarmID           string            // owning swarm parent ID, when applicable
-	Resources         []Resource        // files and folders the agent is given: granted to Chimera, listed in every launch prompt
+	// Unsandboxed starts this agent outside Legato's sandbox when it is on.
+	// Swarm and workflow agents ignore it: they are always sandboxed.
+	Unsandboxed       bool
+	WorkflowAttemptID string     // owning workflow attempt, when applicable
+	SwarmID           string     // owning swarm parent ID, when applicable
+	Resources         []Resource // files and folders the agent is given: granted to Chimera, listed in every launch prompt
 }
 
 // AgentSpawnConflict describes a scope-overlap warning encountered at spawn time.
@@ -211,6 +215,7 @@ type agentService struct {
 	sessionEnvMu      sync.Mutex
 	sessionEnv        SessionEnvProvider // credential channels; nil without any
 	brokerEnv         SessionEnvProvider // the host broker's socket and a token; nil without one
+	sandbox           *SandboxSettings   // nil: agents run unsandboxed
 	store             *store.Store
 	tmux              TmuxManager
 	workDir           string
@@ -400,6 +405,8 @@ type AgentServiceOptions struct {
 	// DisablePeerAwareness suppresses automatic startup notices. Explicit peer
 	// discovery and messaging remain available.
 	DisablePeerAwareness bool
+	// Sandbox runs agents in Legato's sandbox. Nil: no sandbox.
+	Sandbox *SandboxSettings
 }
 
 // SetSessionEnv gives every session spawned from now on the environment of
@@ -451,6 +458,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.learningMaxItems = opts[0].LearningPromptMaxItems
 		svc.learningMaxBytes = opts[0].LearningPromptMaxBytes
 		svc.peerAwareness = !opts[0].DisablePeerAwareness
+		svc.sandbox = opts[0].Sandbox
 	}
 	// Wire the interaction adapters. The send-keys adapter is always
 	// available (it wraps the tmux manager). The Chimera adapter is only
@@ -721,6 +729,19 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 
+	// Legato's sandbox: decided and checked before any tmux session exists,
+	// so a sandbox that cannot be built never leaves an unsandboxed agent.
+	sandboxPrefix := ""
+	sandboxed := a.sandbox != nil && (!opt.Unsandboxed || opt.ParentTaskID != "" || opt.SubtaskID != "" || opt.WorkflowRunID != "")
+	if sandboxed {
+		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, resources)
+		if err != nil {
+			failExecution()
+			return fmt.Errorf("Legato's sandbox: %w", err)
+		}
+		sandboxPrefix = prefix
+	}
+
 	envVars := make([]string, 0, len(envMap))
 	for k, v := range envMap {
 		envVars = append(envVars, k+"="+v)
@@ -778,6 +799,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		AgentKind:   agentKind,
 		Status:      "running",
 		Role:        opt.Role,
+		Sandboxed:   sandboxed,
 	}
 	if opt.ParentTaskID != "" {
 		p := opt.ParentTaskID
@@ -834,11 +856,27 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// is more robust than streaming the brief content through send-keys
 	// because the brief is in the agent's filesystem and survives any
 	// terminal/shell escaping pitfalls.
+	launchEnv := envMap
+	if sandboxed {
+		// The adapter is told its tool runs in the sandbox (Chimera then
+		// drops its own Docker sandbox); the pane's shell is not.
+		launchEnv = maps.Clone(envMap)
+		launchEnv["LEGATO_SANDBOXED"] = "1"
+	}
+	if _, ok := adapter.(LaunchCommandAdapter); !ok && sandboxed {
+		// A shell agent: the person's shell, in the sandbox.
+		if err := a.tmux.SendKeysShellCommand(sessionName, sandboxPrefix+" ${SHELL:-/bin/bash}"); err != nil {
+			log.Printf("sandboxed shell send-keys failed for %s: %v", sessionName, err)
+		}
+	}
 	if launcher, ok := adapter.(LaunchCommandAdapter); ok {
-		if cmd := launcher.LaunchCommand(envMap, opt.Brief, opt.Model, opt.Tier); cmd != "" {
+		if cmd := launcher.LaunchCommand(launchEnv, opt.Brief, opt.Model, opt.Tier); cmd != "" {
 			if granter, ok := adapter.(PathGrantingAdapter); ok && len(resources) > 0 {
 				read, write := resourceGrants(resources)
 				cmd += granter.PathGrantFlags(read, write)
+			}
+			if sandboxed {
+				cmd = sandboxPrefix + " " + cmd
 			}
 			// Use SendKeysShellCommand because the receiver here is the
 			// freshly-spawned bash shell, not the AI tool. Bash with
@@ -1833,6 +1871,11 @@ func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, expe
 	}
 	// Poll for up to 30 seconds — Chimera may take a few seconds to boot.
 	for i := 0; i < 60; i++ {
+		// Stop once the agent is gone or replaced: its endpoint is no one's
+		// to find now, and every poll asks each instance on the machine.
+		if current, err := a.store.GetAgentSessionByTaskID(ctx, taskID); err != nil || current.ID != activeSession.ID || current.Status != "running" {
+			return
+		}
 		if err := a.discoverChimeraFromLockfiles(ctx, taskID, activeSession.ID, expectedSessionName, preExisting); err == nil {
 			log.Printf("chimera lockfile discovered for %s", taskID)
 			return
