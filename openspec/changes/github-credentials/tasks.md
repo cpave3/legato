@@ -7,11 +7,11 @@ Every task is test-first (red, green, refactor). This change needs `credential-b
 - [x] 1.3 `jwt-exchange` lookup and exchange against an `httptest` fake of GitHub: installation lookup cached per repository, token and expiry read by path; test the request body names one repository and the operation's permissions
 - [x] 1.4 Token cache: reuse while more than 5 minutes remain and scope matches; test with an injected clock
 - [x] 1.5 Revocation with `DELETE /installation/token` using the issued token; test that a failed revocation is logged and retried once
-- [ ] 1.6 `oauth2` client credentials and refresh token with rotation written through `Putter`; config test that a rotating credential on a store without `Putter` is rejected
-- [ ] 1.7 `oauth2` RFC 8693 token exchange with a subject token from another credential; RFC 7009 revocation; tests against a fake token endpoint
-- [ ] 1.8 `ssh-cert`: fresh Ed25519 key, certificate with key ID = execution ID, principals from the grant, 30-second back-dating and 5-minute validity, `permit-pty` only; parse the result with `golang.org/x/crypto/ssh` in the test
-- [ ] 1.9 `ssh-agent` channel serves an issued certificate and re-issues after expiry; integration test (skipped without `sshd`) against an `sshd` with `TrustedUserCAKeys`
-- [ ] 1.10 Embed the `ssh-ca` profile; validation test
+- [ ] 1.6 (deferred) `oauth2` client credentials and refresh token with rotation written through `Putter`; config test that a rotating credential on a store without `Putter` is rejected
+- [ ] 1.7 (deferred) `oauth2` RFC 8693 token exchange with a subject token from another credential; RFC 7009 revocation; tests against a fake token endpoint
+- [ ] 1.8 (deferred) `ssh-cert`: fresh Ed25519 key, certificate with key ID = execution ID, principals from the grant, 30-second back-dating and 5-minute validity, `permit-pty` only; parse the result with `golang.org/x/crypto/ssh` in the test
+- [ ] 1.9 (deferred) `ssh-agent` channel serves an issued certificate and re-issues after expiry; integration test (skipped without `sshd`) against an `sshd` with `TrustedUserCAKeys`
+- [ ] 1.10 (deferred) Embed the `ssh-ca` profile; validation test
 
 ## 2. Reads
 
@@ -34,7 +34,7 @@ Every task is test-first (red, green, refactor). This change needs `credential-b
 ## 4. REST and GraphQL writes
 
 - [x] 4.1 `github` REST routes: `api.read` for repository GETs, `pr.create` with the head branch from the body, every other route refused; table tests
-- [ ] 4.2 `graphql` inspector with `gqlparser`: queries are reads, mutations classified by the profile table (`createPullRequest` only), subscriptions, batches and unknown mutations refused; table tests
+- [ ] 4.2 (deferred) `graphql` inspector with `gqlparser`: queries are reads, mutations classified by the profile table (`createPullRequest` only), subscriptions, batches and unknown mutations refused; table tests
 - [x] 4.3 Per-request write token with only the needed permission, revoked after; test against the fake GitHub
 
 ## 5. Profile and guidance
@@ -43,3 +43,12 @@ Every task is test-first (red, green, refactor). This change needs `credential-b
 - [x] 5.2 Default rules as in the design; service tests for each row, including a pattern request marked broader on the approval card
 - [x] 5.3 Guidance section in `cli.MCPGuidance` and the `conductor.md` and `worker.md` prompts, present only when a `github` credential is configured; tests on the generated text (in the credential guidance every agent gets, MCP instructions or launch prompt; the swarm role prompts are not changed, since swarm agents get the same guidance)
 - [x] 5.4 Docs: `docs/ai/credentials.md` (GitHub App setup, the branch convention, the ruleset backstop, and the limits outside the sandbox), `docs/ai/pr-tracking.md` (PR tracking keeps its own read client)
+
+## Deferred
+
+Deferred on 2026-10-29: not needed yet, to be picked up when a use for them appears.
+
+- The `oauth2` issuer (1.6, 1.7): no configured service uses OAuth tokens yet.
+- The `ssh-cert` issuer and `ssh-ca` profile (1.8–1.10): stored SSH keys from the vault cover today's hosts; certificates are worth building when servers trust a Legato CA.
+- GraphQL writes (4.2): pull requests are opened through the REST route, and `gh` cannot use either route.
+- Signing the App's JWT through a store's `Signer` (part of 1.2): the key is read into Legato's process to sign.
