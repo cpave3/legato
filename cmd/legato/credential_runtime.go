@@ -8,6 +8,7 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/credential"
+	"github.com/cpave3/legato/internal/engine/discovery"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -16,7 +17,8 @@ import (
 
 // newApprovalService is the approval service of any Legato process: changes
 // reach other processes over IPC, and the process that creates an approval
-// sends its phone notification. serverURL gives the address for the link.
+// sends its phone notification. serverURL gives the address for the link;
+// nil works it out from the configuration (a CLI process has no server).
 func newApprovalService(cfg *config.Config, db *store.Store, bus *events.Bus, serverURL func() string) *service.ApprovalService {
 	opts := service.ApprovalServiceOptions{
 		Bus: bus,
@@ -27,9 +29,11 @@ func newApprovalService(cfg *config.Config, db *store.Store, bus *events.Bus, se
 	if cfg.Notifications.ApprovalsEnabled() && cfg.Notifications.Ntfy.Topic != "" {
 		notifier := service.NewNtfyNotifier(cfg.Notifications.Ntfy.URL, cfg.Notifications.Ntfy.Topic, cfg.Notifications.Ntfy.Token)
 		opts.Created = func(approval service.Approval) {
-			url := cfg.Web.PublicURL
+			var url string
 			if serverURL != nil {
 				url = serverURL()
+			} else {
+				url = approvalServerURL(cfg, "", discovery.ReachableIPv4)
 			}
 			go service.ApprovalNotifications(notifier, url)(approval)
 		}
