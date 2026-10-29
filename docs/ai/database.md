@@ -62,6 +62,10 @@ Migration 065 adds an `images` column to `plan_revisions`, `plan_transcript`, `r
 
 Migration 069 adds `approval_requests`: each request that waits for the person (an agent's permission or question), unique on `(source, source_key)`, with its details, options, status and decision. Rows are kept after they close. See [Approvals](approvals.md).
 
+### Credentials
+
+Migration 070 adds `secrets` (Legato's own store: values sealed under a master key kept outside the database), `credential_grants` (what an execution may do with a credential, until an expiry, a number of uses or its end) and `credential_audit` (append-only and hash-chained; the time is TEXT because it is part of the hash). See [Credentials](credentials.md).
+
 ### Directory presets
 
 Migration 067 adds `directory_presets`: the directories the person saved from a spawn dialog (`path`, the identity and absolute; `name`; `created_at`). Saving a path again renames it and keeps its place. The spawn dialogs list them after the `repositories` of the configuration, through `service.DirectoryService`; a saved directory that the configuration also names is listed once, as the configured one.

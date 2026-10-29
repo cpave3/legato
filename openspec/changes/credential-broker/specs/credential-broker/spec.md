@@ -69,8 +69,8 @@ The MCP tool `request_access` and the command `legato credential request` SHALL 
 - **THEN** the command SHALL print nothing on stdout and SHALL exit with code 4
 
 ### Requirement: Limits
-A rule MAY set `limit` as a count per period (`requests: 100/day`). Past the limit, a use SHALL become a request even inside a grant.
+A rule MAY set `limit` as a count per period (`requests: 100/day`). A rule whose limit is spent SHALL be passed over, so the next matching rule decides the use.
 
 #### Scenario: Over the limit
-- **WHEN** an agent's uses under an `auto` rule reach its limit for the day
-- **THEN** the next use SHALL need an approval
+- **WHEN** an agent's uses under an `auto` rule reach its limit for the day, and a `window` rule also matches
+- **THEN** the next use SHALL follow the `window` rule and need an approval

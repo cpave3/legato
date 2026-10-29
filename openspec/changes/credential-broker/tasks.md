@@ -11,13 +11,13 @@ Every task is test-first (red, green, refactor).
 ## 2. Store
 
 - [ ] 2.1 Migration 070 `secrets`; store CRUD tests
-- [ ] 2.2 Migration 071 `credential_grants`; tests for live grants of an execution, ending by expiry, by use and by execution end
-- [ ] 2.3 Migration 072 `credential_audit` with the hash chain appended in an immediate transaction; tests for the chain, verify, an edited row, and concurrent appends
+- [ ] 2.2 `credential_grants` in migration 070; tests for live grants of an execution, ending by expiry, by use and by execution end
+- [ ] 2.3 `credential_audit` in migration 070 with the hash chain appended in an immediate transaction; tests for the chain, verify, an edited row, and concurrent appends
 
 ## 3. Config and profiles
 
 - [ ] 3.1 `credentials` and `secrets` config blocks with validation; tests for unknown profile, scheme, duplicate name and rule fields
-- [ ] 3.2 Profiles: embedded `secret`, user and project profile folders, replace by name; tests
+- [ ] 3.2 Profiles: embedded `secret`, the user profile folder, replace by name; tests
 
 ## 4. Broker service
 

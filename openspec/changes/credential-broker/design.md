@@ -67,7 +67,7 @@ credentials:
       - { operation: read, approve: session }
 ```
 
-A profile sets `issuer`, `channels`, `accepts` (secret types) and default `policy`. Shipped profiles are embedded YAML; profiles in `<config dir>/legato/profiles/` and `<project>/.legato/profiles/` replace them by name. Phase 2 ships `secret`: issuer `static`, channel `helper` (`legato credential get`), default rule `read` with `session`.
+A profile sets `issuer`, `channels`, `accepts` (secret types) and default `policy`. Shipped profiles are embedded YAML; profiles in `<config dir>/profiles/` add to or replace them by name. Project profiles, which an agent could write, wait for the approval of profile changes (phase 5). Phase 2 ships `secret`: issuer `static`, channel `helper` (`legato credential get`), default rule `read` with `session`.
 
 ### D5. Rules and approval modes
 
@@ -90,7 +90,7 @@ The approval card offers the rule's mode and every stricter one (`session` → s
 - `Request(ctx, AccessRequest)` checks the rules. `auto` grants at once. `deny` refuses. Otherwise it submits an approval (source `credential`) and waits up to 60 seconds for a decision by reading the approval, then returns `granted`, `denied` or `pending`.
 - `Authorize(ctx, Use)` looks for a live grant of the execution that covers the use. A use with no grant is a request for exactly that use.
 - A grant has an execution, a credential, operations, resources, a mode, an expiry and uses left. It ends at its expiry, at its last use, or when its execution is terminal.
-- Limits count the uses recorded in the audit log for the rule's window (`requests: 100/day`). Past a limit the use is a request.
+- Limits count the uses recorded in the audit log for the rule's period (`requests: 100/day`). A rule whose limit is spent is passed over, so the next matching rule decides.
 
 The decision is made in the host process, which runs the `credential` resolver: it writes the grant and sends `[legato approvals] <id> approved: <scope> for <grant>`, or the denial with the person's note, with `QueueMessage`. An agent-side process that waited reads the grant from the database.
 
@@ -120,7 +120,7 @@ The decision is made in the host process, which runs the `credential` resolver: 
 
 ## Migration Plan
 
-Migrations 070 (`secrets`), 071 (`credential_grants`) and 072 (`credential_audit`). No data moves. Without `credentials` in config, nothing runs.
+Migration 070 adds `secrets`, `credential_grants` and `credential_audit`. No data moves. Without `credentials` in config, nothing runs.
 
 ## Open Questions
 

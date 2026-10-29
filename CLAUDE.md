@@ -66,6 +66,7 @@ Post-v0: Attention dashboard (complete) — durable generic registry with centra
 @docs/ai/swarm.md
 @docs/ai/attention.md
 @docs/ai/approvals.md
+@docs/ai/credentials.md
 @docs/ai/learning.md
 @docs/ai/claude-code-native.md
 @docs/ai/codex-native.md

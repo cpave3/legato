@@ -43,6 +43,7 @@ Legato is not the MCP host. The agent tool is, and a terminal agent cannot draw 
 | `list_peers` | none | Other agents in the same Git worktree. |
 | `message_peer` | `to`, `text` | Queues a message to one peer. |
 | `broadcast_peers` | `text` | Messages every peer; the result names who was and was not reached. |
+| `request_access` | `credential`, `operations`, `resources`, `reason`, `blocking` | Asks for a scope of a credential Legato holds, waiting up to a minute for the person; says what to do when granted, pending or denied. Offered only when credentials are configured, and its description names them. See [Credentials](credentials.md). |
 
 A swarm worker's own identity is its sub-task, which has no description or notes, so `task_context` and `add_task_note` act on the swarm's parent task. The peer tools need tmux; without it the other tools still work and those three are not offered.
 
