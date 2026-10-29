@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
+	"github.com/cpave3/legato/internal/engine/broker"
 	"github.com/cpave3/legato/internal/engine/mcpserver"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -45,6 +47,22 @@ func runMCPServe(args []string, in io.ReadCloser, out io.WriteCloser) int {
 		executionID = strings.TrimSpace(os.Getenv("LEGATO_EXECUTION_ID"))
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
+	// A session with a broker gets the host's tools relayed through it, and
+	// reads neither configuration nor store.
+	if socket, token, ok := brokerSession(); ok && taskID != "" {
+		relay, err := cli.MCPRelay(ctx, socket, token, mcpServerVersion())
+		switch {
+		case err == nil:
+			return serveMCP(ctx, relay, in, out)
+		case !errors.Is(err, broker.ErrUnreachable) || sandboxed():
+			// Nothing else can be reached: offer no tools, and say why.
+			fmt.Fprintf(os.Stderr, "legato mcp serve: %v\n", err)
+			return serveMCP(ctx, mcpserver.Options{Name: "legato", Title: "Legato", Version: mcpServerVersion(),
+				Instructions: "Legato's tools are unavailable in this session: " + err.Error()}, in, out)
+		}
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return renderCommandError(command, &commandError{Code: "config_invalid", Message: err.Error(), Exit: exitEnvironment}, false)
@@ -79,11 +97,14 @@ func runMCPServe(args []string, in io.ReadCloser, out io.WriteCloser) int {
 		fmt.Fprintf(os.Stderr, "legato mcp serve: peer tools are unavailable: %v\n", tmuxErr)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	defer stop()
-	// A client that goes away closes stdin, which ends Serve without an
-	// error worth reporting; ctx ends it when the process is told to stop.
-	if err := mcpserver.Serve(ctx, cli.MCPServerOptions(opts), in, out); err != nil && ctx.Err() == nil {
+	return serveMCP(ctx, cli.MCPServerOptions(opts), in, out)
+}
+
+// serveMCP serves opts until the client goes away. A client that goes away
+// closes stdin, which ends Serve without an error worth reporting; ctx ends
+// it when the process is told to stop.
+func serveMCP(ctx context.Context, opts mcpserver.Options, in io.ReadCloser, out io.WriteCloser) int {
+	if err := mcpserver.Serve(ctx, opts, in, out); err != nil && ctx.Err() == nil {
 		fmt.Fprintf(os.Stderr, "legato mcp serve: %v\n", err)
 	}
 	return exitOK

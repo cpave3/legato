@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/broker"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -120,4 +121,12 @@ func brokerSessionCreated(db *store.Store) BrokerOp {
 		}
 		return map[string]bool{"ok": true}, nil
 	}
+}
+
+// callBroker is a call from an agent-side process. A tool call may run for
+// a while (show_video copies a large file), so it waits longer than a hook.
+func callBroker(ctx context.Context, socket, token, op string, args, out any) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	return broker.Call(ctx, socket, token, op, args, out)
 }

@@ -4,7 +4,9 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
@@ -37,6 +39,27 @@ type Tool struct {
 	// Name is the name a client calls the tool by.
 	Name string
 	add  func(*mcp.Server)
+	spec Spec
+	call func(context.Context, json.RawMessage) (Result, error)
+}
+
+// Spec is a tool's definition with its input schema, as JSON: enough to
+// offer the same tool elsewhere (NewRelayTool).
+type Spec struct {
+	Definition
+	InputSchema json.RawMessage `json:"input_schema"`
+}
+
+// Spec describes the tool.
+func (t Tool) Spec() Spec { return t.spec }
+
+// Call runs the tool on raw arguments, checked against its schema as a
+// client's call would be.
+func (t Tool) Call(ctx context.Context, args json.RawMessage) (Result, error) {
+	if t.call == nil {
+		return Result{}, fmt.Errorf("tool %q cannot be called directly", t.Name)
+	}
+	return t.call(ctx, args)
 }
 
 // NewTool returns a tool whose arguments are decoded into In. The tool's
@@ -68,7 +91,32 @@ func NewTool[In any](def Definition, handler func(context.Context, In) (Result, 
 			OpenWorldHint:   &closedWorld,
 		},
 	}
-	return Tool{Name: def.Name, add: func(server *mcp.Server) {
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		panic(fmt.Sprintf("mcpserver: tool %q: %v", def.Name, err))
+	}
+	rawSchema, err := json.Marshal(schema)
+	if err != nil {
+		panic(fmt.Sprintf("mcpserver: tool %q: %v", def.Name, err))
+	}
+	call := func(ctx context.Context, raw json.RawMessage) (Result, error) {
+		if len(bytes.TrimSpace(raw)) == 0 {
+			raw = json.RawMessage(`{}`)
+		}
+		var value map[string]any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return Result{}, fmt.Errorf("the arguments are not a JSON object: %w", err)
+		}
+		if err := resolved.Validate(value); err != nil {
+			return Result{}, fmt.Errorf("the arguments do not fit the tool's schema: %w", err)
+		}
+		var in In
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return Result{}, err
+		}
+		return handler(ctx, in)
+	}
+	return Tool{Name: def.Name, spec: Spec{Definition: def, InputSchema: rawSchema}, call: call, add: func(server *mcp.Server) {
 		mcp.AddTool(server, tool, func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
 			result, err := handler(ctx, in)
 			if err != nil {
@@ -78,6 +126,26 @@ func NewTool[In any](def Definition, handler func(context.Context, In) (Result, 
 				Content:           []mcp.Content{&mcp.TextContent{Text: result.Text}},
 				StructuredContent: result.Data,
 			}, nil, nil
+		})
+	}}
+}
+
+// NewRelayTool offers a tool described by spec, whose calls handler
+// forwards with their raw arguments: a server that relays another's tools.
+func NewRelayTool(spec Spec, handler func(context.Context, json.RawMessage) (Result, error)) Tool {
+	closedWorld := false
+	tool := &mcp.Tool{
+		Name: spec.Name, Title: spec.Title, Description: spec.Description,
+		InputSchema: json.RawMessage(spec.InputSchema),
+		Annotations: &mcp.ToolAnnotations{Title: spec.Title, ReadOnlyHint: spec.ReadOnly, DestructiveHint: &closedWorld, OpenWorldHint: &closedWorld},
+	}
+	return Tool{Name: spec.Name, spec: spec, call: handler, add: func(server *mcp.Server) {
+		server.AddTool(tool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := handler(ctx, req.Params.Arguments)
+			if err != nil {
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, nil
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: result.Text}}, StructuredContent: result.Data}, nil
 		})
 	}}
 }
