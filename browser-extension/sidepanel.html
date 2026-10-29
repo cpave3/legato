@@ -3,17 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Legato review</title>
+    <title>Legato</title>
     <link rel="stylesheet" href="/src/sidepanel.css" />
   </head>
   <body>
     <header>
-      <div class="brand"><span class="mark">L</span><span>LEGATO</span></div>
-      <h1>Pull request review</h1>
+      <div class="brand"><span class="mark" aria-hidden="true">♩</span><span>legato</span></div>
+      <h1>Pull request</h1>
       <p id="context"></p>
+      <div class="tabs" role="tablist" aria-label="Side panel">
+        <button id="tab-review" type="button" role="tab" aria-controls="review-view">Review</button>
+        <button id="tab-discussion" type="button" role="tab" aria-controls="discussion-view">Discussion</button>
+      </div>
     </header>
-    <main>
-      <div class="panel-actions"><button id="refresh" type="button">Refresh review</button></div>
+
+    <main id="review-view" role="tabpanel" aria-labelledby="tab-review">
+      <div class="panel-actions"><button id="refresh" type="button" class="quiet">Refresh review</button></div>
       <div id="state" role="status" aria-live="polite">Loading review…</div>
       <label id="run-label" hidden>Review run <select id="run-select"></select></label>
       <section id="details" hidden>
@@ -25,6 +30,26 @@
         </div>
       </section>
     </main>
+
+    <main id="discussion-view" class="discussion" role="tabpanel" aria-labelledby="tab-discussion" hidden>
+      <div id="discussion-state" class="notice" role="status" aria-live="polite">Looking for a discussion…</div>
+      <section id="discussion" hidden>
+        <div class="discussion-head">
+          <span id="discussion-status" class="chip"></span>
+          <a id="discussion-open" target="_blank" rel="noopener noreferrer">Open in Legato</a>
+        </div>
+        <div id="discussion-error" role="alert" hidden></div>
+        <div id="discussion-feed" aria-live="polite"></div>
+        <form id="composer">
+          <textarea id="composer-input" rows="3" placeholder="Ask about this pull request…" aria-label="Message to the agent"></textarea>
+          <div class="composer-foot">
+            <span class="hint">Enter sends · Shift+Enter for a new line</span>
+            <button id="composer-send" type="submit" class="accent">Send</button>
+          </div>
+        </form>
+      </section>
+    </main>
+    <div id="jump-notice" role="status" aria-live="polite" hidden></div>
     <script type="module" src="/src/sidepanel.ts"></script>
   </body>
 </html>

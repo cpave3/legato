@@ -1,15 +1,19 @@
-import { prepareGitHubWorkflow, type GitHubPullRequestContext, type PreparedWorkflow } from "./actions"
+import { prepareGitHubWorkflow, type GitHubPullRequestContext, type PreparedWorkflow, type PullRequestPurpose } from "./actions"
 import type { ExtensionConfig } from "./config"
-import { LegatoClient, type WorkflowDiscovery, type WorkflowRunView } from "./legato"
+import { LegatoClient, type WorkflowDiscovery, type WorkflowRun, type WorkflowRunView } from "./legato"
 import { hasOriginPermission } from "./permissions"
-import { cacheReviewContext, clearReviewContext, loadReviewContext, parseGitHubPullRequestUrl, saveReviewContext } from "./review-context"
+import { cacheReviewContext, clearReviewContext, loadReviewContext, parseGitHubPullRequestUrl, saveDiscussionDraft, savePanelView, saveReviewContext, type PanelView } from "./review-context"
+import type { DiscussionRef } from "./discussion-panel"
 import { loadReviewModel, type ReviewPanelModel } from "./review-model"
 import { loadConfig } from "./storage"
 import { consumeTabCreated, loadWindowHistory, predecessorFor, queueActivation, recordTabCreated } from "./tab-history"
 import { handleMarkedTab, stripStreamDeckMarker } from "./tab-reuse"
 
 type MessageSender = { tab?: { id?: number } }
-type MessageResponse = { ok: true; prepared?: PreparedWorkflow; runUrl?: string; taskUrl?: string; navigationWarning?: string; review?: ReviewPanelModel } | { ok: false; error: string }
+type MessageResponse = {
+  ok: true; prepared?: PreparedWorkflow; runUrl?: string; agentUrl?: string; taskUrl?: string
+  navigationWarning?: string; review?: ReviewPanelModel; discussion?: DiscussionRef | null
+} | { ok: false; error: string }
 
 type Dependencies = {
   loadConfig: () => Promise<ExtensionConfig>
@@ -22,6 +26,7 @@ type Dependencies = {
   loadReviewModel: (tabId: number, selectedRunId?: string) => Promise<ReviewPanelModel>
   getTabUrl: (tabId: number) => Promise<string | undefined>
   saveReviewContext: (tabId: number, context: GitHubPullRequestContext) => Promise<void>
+  listRuns: (config: ExtensionConfig, workflow: string, inputs: Record<string, string>) => Promise<WorkflowRun[]>
 }
 
 const defaultDependencies: Dependencies = {
@@ -35,6 +40,7 @@ const defaultDependencies: Dependencies = {
   loadReviewModel,
   getTabUrl: async (tabId) => (await chrome.tabs.get(tabId)).url,
   saveReviewContext,
+  listRuns: (config, workflow, inputs) => new LegatoClient(config.baseUrl, config.token).listWorkflowRuns(workflow, inputs),
 }
 
 async function openLegatoUrl(url: string): Promise<void> {
@@ -63,12 +69,59 @@ function validJiraContext(value: unknown): value is { ticketId: string } {
     && /^[A-Z][A-Z0-9_]*-\d+$/.test((value as { ticketId: string }).ticketId)
 }
 
+const pullRequestMessages = new Set([
+  "prepareGitHubWorkflow", "startPreparedWorkflow", "detectGitHubReview", "detectGitHubDiscussion",
+])
+
+function purposeOf(value: unknown): PullRequestPurpose {
+  if (value === undefined || value === "review") return "review"
+  if (value === "discuss") return "discuss"
+  throw new Error("Unsupported pull request action")
+}
+
+function agentUrlFor(config: ExtensionConfig, taskId: string): string {
+  return `${config.baseUrl}/agents?task=${encodeURIComponent(taskId)}`
+}
+
+// The newest discussion of this pull request whose run has not ended. Its
+// agent lives as long as the run waits on it.
+// A finished review whose agent is still running comes first: that agent has
+// read the change set closely already.
+async function findDiscussion(deps: Dependencies, config: ExtensionConfig, context: GitHubPullRequestContext): Promise<DiscussionRef | null> {
+  const discovery = await deps.discover(config)
+  if (discovery.definitions?.some((definition) => definition.name === config.workflowName)) {
+    const review = prepareGitHubWorkflow(config, context, discovery, "review")
+    const reviewed = (await deps.listRuns(config, review.workflowName, review.inputs)).find(waitsOnItsAgent)
+    if (reviewed) return discussionRef(config, reviewed)
+  }
+  const prepared = prepareGitHubWorkflow(config, context, discovery, "discuss")
+  const runs = await deps.listRuns(config, prepared.workflowName, prepared.inputs)
+  const live = runs.find((run) => (run.status === "running" || run.status === "waiting") && run.task_id)
+  return live ? discussionRef(config, live) : null
+}
+
+function discussionRef(config: ExtensionConfig, run: WorkflowRun): DiscussionRef {
+  return { runId: run.id, taskId: run.task_id!, agentUrl: agentUrlFor(config, run.task_id!) }
+}
+
+// Whether a run is paused on a step that waits for its agent to end, which
+// means the agent is still running.
+function waitsOnItsAgent(run: WorkflowRun): boolean {
+  if (run.status !== "waiting" || !run.task_id || !run.definition_json) return false
+  try {
+    const definition = JSON.parse(run.definition_json) as { steps?: Array<{ id?: string; trigger?: string }> }
+    return definition.steps?.find((step) => step.id === run.current_step_id)?.trigger === "agent_ended"
+  } catch {
+    return false
+  }
+}
+
 export function createMessageHandler(deps: Dependencies = defaultDependencies) {
   const active = new Set<string>()
   return async (message: unknown, sender: MessageSender): Promise<MessageResponse> => {
     try {
       if (!message || typeof message !== "object") throw new Error("Unsupported extension message")
-      const request = message as { type?: string; context?: unknown; tabId?: unknown; selectedRunId?: unknown }
+      const request = message as { type?: string; context?: unknown; tabId?: unknown; selectedRunId?: unknown; purpose?: unknown }
       if (request.type === "getReviewModel") {
         if (!Number.isSafeInteger(request.tabId)) throw new Error("A valid GitHub tab is required")
         if (request.selectedRunId !== undefined && typeof request.selectedRunId !== "string") throw new Error("Invalid selected review run")
@@ -78,11 +131,20 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
         await deps.saveReviewContext(tabId, context)
         return { ok: true, review: await deps.loadReviewModel(tabId, request.selectedRunId as string | undefined) }
       }
+      if (request.type === "getDiscussion") {
+        if (!Number.isSafeInteger(request.tabId)) throw new Error("A valid GitHub tab is required")
+        const context = parseGitHubPullRequestUrl((await deps.getTabUrl(request.tabId as number)) ?? "")
+        if (!context) throw new Error("No GitHub pull request context is available for this tab")
+        const config = await deps.loadConfig()
+        if (!(await deps.hasPermission(config.baseUrl))) throw new Error("Open extension options and grant access to the configured Legato origin")
+        return { ok: true, discussion: await findDiscussion(deps, config, context) }
+      }
       const jira = request.type === "importJiraTicket"
-      const github = request.type === "prepareGitHubWorkflow" || request.type === "startPreparedWorkflow" || request.type === "detectGitHubReview"
+      const github = pullRequestMessages.has(request.type ?? "")
       if (jira && !validJiraContext(request.context)) throw new Error("Invalid Jira ticket context")
       if (github && !validGitHubContext(request.context)) throw new Error("Invalid GitHub pull request context")
       if (!jira && !github) throw new Error("Unsupported extension message")
+      const purpose = purposeOf(request.purpose)
 
       const tabId = sender.tab?.id
       if (tabId === undefined) throw new Error("The action must originate from a browser tab")
@@ -113,9 +175,13 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
         }
 
         const context = request.context as GitHubPullRequestContext
-        const prepared = prepareGitHubWorkflow(config, context, await deps.discover(config))
+        if (request.type === "detectGitHubDiscussion") return { ok: true, discussion: await findDiscussion(deps, config, context) }
+        const prepared = prepareGitHubWorkflow(config, context, await deps.discover(config), purpose)
         if (request.type === "prepareGitHubWorkflow") return { ok: true, prepared }
         const view = await deps.start(config, prepared)
+        // A discussion is followed in the side panel, which the widget opened
+        // when the person confirmed; the PR stays in front.
+        if (purpose === "discuss" && view.run.task_id) return { ok: true, agentUrl: agentUrlFor(config, view.run.task_id) }
         const runUrl = `${config.baseUrl}/workflows/runs/${encodeURIComponent(view.run.id)}`
         try {
           await deps.openRun(runUrl)
@@ -141,20 +207,53 @@ export function openReviewPanelFromGesture(
     open: (tabId: number) => Promise<void>
     notify: (tabId: number) => void
   },
+  // Opening a panel that is already open closes it in Chrome, so an open
+  // panel is only told what changed.
+  options: { alreadyOpen?: boolean } = {},
 ): Promise<void> {
   effects.cache(tabId, context)
-  const opening = effects.open(tabId)
+  const opening = options.alreadyOpen ? Promise.resolve() : effects.open(tabId)
   return effects.persist(tabId, context).then(() => {
     effects.notify(tabId)
     return opening
   })
 }
 
+// Which windows have the side panel open: each open panel holds a port named
+// for its window. A count, since a window may briefly have two while one
+// reloads.
+export function createPanelTracker() {
+  const open = new Map<number, number>()
+  return {
+    opened: (windowId: number): (() => void) => {
+      open.set(windowId, (open.get(windowId) ?? 0) + 1)
+      let closed = false
+      return () => {
+        if (closed) return
+        closed = true
+        const left = (open.get(windowId) ?? 1) - 1
+        if (left > 0) open.set(windowId, left)
+        else open.delete(windowId)
+      }
+    },
+    isOpen: (windowId: number | undefined): boolean => windowId !== undefined && open.has(windowId),
+  }
+}
+
+const panels = createPanelTracker()
 const handleMessage = createMessageHandler()
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+  chrome.runtime.onConnect.addListener((port) => {
+    const match = port.name.match(/^sidepanel:(\d+)$/)
+    if (!match) return
+    port.onDisconnect.addListener(panels.opened(Number(match[1])))
+  })
+
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
-    const request = message as { type?: string; context?: unknown }
+    const request = message as { type?: string; context?: unknown; view?: unknown; draft?: unknown }
     if (request.type !== "openReviewPanel") return false
+    const view: PanelView = request.view === "discussion" ? "discussion" : "review"
+    const draft = typeof request.draft === "string" && request.draft.length <= 2_000 ? request.draft : undefined
     const tabId = sender.tab?.id
     if (tabId === undefined || !validGitHubContext(request.context)) {
       sendResponse({ ok: false, error: "A valid GitHub pull request tab is required" })
@@ -163,10 +262,12 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     const context = request.context
     void openReviewPanelFromGesture(tabId, context, {
       cache: cacheReviewContext,
-      persist: saveReviewContext,
+      persist: (id, saved) => Promise.all([
+        saveReviewContext(id, saved), savePanelView(id, view), draft ? saveDiscussionDraft(id, draft) : undefined,
+      ]).then(() => undefined),
       open: (id) => chrome.sidePanel.open({ tabId: id }),
       notify: (id) => { void chrome.runtime.sendMessage({ type: "reviewContextUpdated", tabId: id }).catch(() => undefined) },
-    }).then(() => sendResponse({ ok: true })).catch((error: unknown) => {
+    }, { alreadyOpen: panels.isOpen(sender.tab?.windowId) }).then(() => sendResponse({ ok: true })).catch((error: unknown) => {
       sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) })
     })
     return true

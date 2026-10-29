@@ -1,7 +1,10 @@
+import { linkFileReferences, type FileReference } from "./file-references"
 import { renderSafeMarkdown } from "./markdown"
 import type { ReviewPanelModel } from "./review-model"
 
-export function renderReviewPanelView(doc: Document, model: ReviewPanelModel): void {
+type Handlers = { onOpenFile?: (reference: FileReference) => void }
+
+export function renderReviewPanelView(doc: Document, model: ReviewPanelModel, handlers: Handlers = {}): void {
   const contextElement = doc.querySelector<HTMLElement>("#context")!
   const stateElement = doc.querySelector<HTMLElement>("#state")!
   const runLabel = doc.querySelector<HTMLElement>("#run-label")!
@@ -36,6 +39,7 @@ export function renderReviewPanelView(doc: Document, model: ReviewPanelModel): v
   openRun.href = model.runUrl ?? "#"
   if (model.state === "ready" && model.markdown !== undefined) {
     renderSafeMarkdown(content, model.markdown)
+    if (handlers.onOpenFile) linkFileReferences(content, handlers.onOpenFile)
   } else if (model.state === "failed") {
     error.textContent = model.error || "The review workflow failed."
     error.style.display = "block"

@@ -86,4 +86,25 @@ describe("LegatoClient", () => {
     await expect(client.discover()).rejects.toThrow("workflow not found")
     await expect(client.discover()).rejects.not.toThrow("top-secret")
   })
+
+  it("explains how to trust Legato's certificate when an HTTPS address cannot be reached", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError("Failed to fetch"))
+    const client = new LegatoClient("https://localhost:3080", "top-secret", fetcher)
+
+    const error = await client.discover().then(() => new Error("expected a failure"), (caught: unknown) => caught as Error)
+    expect(error.message).toContain("Could not reach Legato at https://localhost:3080")
+    expect(error.message).toContain("https://localhost:3080/health")
+    expect(error.message).toContain("ca.pem")
+    expect(error.message).toContain("chrome://certificate-manager")
+    expect(error.message).not.toContain("top-secret")
+  })
+
+  it("says only that Legato is unreachable when a plain HTTP address cannot be reached", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new TypeError("Failed to fetch"))
+    const client = new LegatoClient("http://localhost:3080", "top-secret", fetcher)
+
+    const error = await client.discover().then(() => new Error("expected a failure"), (caught: unknown) => caught as Error)
+    expect(error.message).toContain("Could not reach Legato at http://localhost:3080")
+    expect(error.message).not.toContain("certificate")
+  })
 })

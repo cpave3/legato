@@ -37,6 +37,18 @@ describe("renderReviewPanelView", () => {
     expect(document.querySelector("#review-content script")).toBeNull()
   })
 
+  it("lets the person open a file and line the review cites", () => {
+    const run = { id: "run-1", workflow_name: "review-pr", workflow_title: "Review", inputs_json: "{}", status: "waiting", current_step_id: "end", created_at: "2026-08-19T01:00:00Z" }
+    const opened: unknown[] = []
+    renderReviewPanelView(document, {
+      ...base, state: "ready", status: "waiting", selectedRunId: "run-1", artifactId: "a", run, runs: [run],
+      markdown: "Stale API in `CampaignDocumentIsolationTests.cs:34`.",
+    }, { onOpenFile: (reference) => opened.push(reference) })
+
+    document.querySelector<HTMLButtonElement>("#review-content button.file-ref")!.click()
+    expect(opened).toEqual([{ path: "CampaignDocumentIsolationTests.cs", line: 34 }])
+  })
+
   it("renders active and failed states without Markdown", () => {
     const run = { id: "run-1", workflow_name: "review-pr", workflow_title: "Review", inputs_json: "{}", status: "running", current_step_id: "review", created_at: "2026-08-19T01:00:00Z" }
     renderReviewPanelView(document, { ...base, state: "active", status: "running", selectedRunId: "run-1", runs: [run], run, poll: true })

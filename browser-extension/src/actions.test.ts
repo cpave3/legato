@@ -3,15 +3,13 @@ import { DEFAULT_CONFIG } from "./config"
 import { prepareGitHubWorkflow } from "./actions"
 import type { WorkflowDiscovery } from "./legato"
 
+const prInputs = {
+  repo: { type: "string", required: true },
+  pr_number: { type: "integer", required: true },
+  primary_dir: { type: "string", required: true },
+}
 const discovery: WorkflowDiscovery = {
-  definitions: [{
-    name: "review-pr",
-    inputs: {
-      repo: { type: "string", required: true },
-      pr_number: { type: "integer", required: true },
-      primary_dir: { type: "string", required: true },
-    },
-  }],
+  definitions: [{ name: "review-pr", inputs: prInputs }, { name: "discuss-pr", inputs: prInputs }],
   errors: [],
   repositories: [{ name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato" }],
 }
@@ -26,6 +24,15 @@ describe("prepareGitHubWorkflow", () => {
       primaryDir: "/projects/legato",
       inputs: { repo: "cpave3/legato", pr_number: "42", primary_dir: "/projects/legato" },
     })
+  })
+
+  it("resolves the discussion workflow when asked for it", () => {
+    expect(prepareGitHubWorkflow(DEFAULT_CONFIG, { repository: "cpave3/legato", pullRequestNumber: 42 }, discovery, "discuss")).toMatchObject({
+      workflowName: "discuss-pr",
+      inputs: { repo: "cpave3/legato", pr_number: "42", primary_dir: "/projects/legato" },
+    })
+    expect(() => prepareGitHubWorkflow({ ...DEFAULT_CONFIG, discussWorkflowName: "missing" }, { repository: "cpave3/legato", pullRequestNumber: 1 }, discovery, "discuss"))
+      .toThrow('Workflow "missing" was not found')
   })
 
   it("rejects an absent or ambiguous repository preset rather than guessing", () => {

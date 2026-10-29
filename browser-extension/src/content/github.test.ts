@@ -27,8 +27,8 @@ describe("reconcileGitHubAction", () => {
     expect(action.style.position).toBe("fixed")
     expect(action.style.right).toBe("24px")
     expect(action.style.bottom).toBe("24px")
-    expect(action.textContent).toContain("LEGATO")
-    expect(action.textContent).toContain("Pull request review")
+    expect(action.textContent).toContain("legato")
+    expect(action.textContent).toContain("Pull request")
     expect(action.textContent).toContain("cpave3/legato · #12")
   })
 
@@ -54,7 +54,7 @@ describe("reconcileGitHubAction", () => {
     reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
 
     await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>("button")?.style.display).toBe("none"))
-    expect(Array.from(document.querySelectorAll<HTMLButtonElement>("button")).filter((item) => item.style.display !== "none").map((item) => item.textContent)).toEqual(["View review"])
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>("button")).filter((item) => item.style.display !== "none").map((item) => item.textContent)).toEqual(["View review", "Discuss PR"])
   })
 
   it("requests review opening from the explicit user gesture", async () => {
@@ -66,6 +66,7 @@ describe("reconcileGitHubAction", () => {
     view.click()
     await vi.waitFor(() => expect(send).toHaveBeenCalledWith({
       type: "openReviewPanel",
+      view: "review",
       context: { repository: "cpave3/legato", pullRequestNumber: 12 },
     }))
   })
@@ -96,4 +97,58 @@ describe("reconcileGitHubAction", () => {
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2))
     expect(send.mock.calls[1][0]).toMatchObject({ type: "startPreparedWorkflow" })
   })
+
+  it("offers to discuss the pull request, with the same confirmation as a review", async () => {
+    const send = vi.fn().mockImplementation((message: { type: string }) => {
+      if (message.type === "detectGitHubReview") return Promise.resolve({ ok: true, review: { runs: [] } })
+      if (message.type === "detectGitHubDiscussion") return Promise.resolve({ ok: true, discussion: null })
+      if (message.type === "prepareGitHubWorkflow") return Promise.resolve({ ok: true, prepared: {
+        workflowName: "discuss-pr", repositoryPresetName: "Legato", repository: "cpave3/legato",
+        pullRequestNumber: 12, primaryDir: "/projects/legato", inputs: {},
+      } })
+      return Promise.resolve({ ok: true, agentUrl: "http://localhost:3080/agents?task=t1" })
+    })
+    reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
+    const discuss = buttonLabelled("Discuss PR")
+
+    discuss.click()
+    await vi.waitFor(() => expect(discuss.textContent).toBe("Confirm and start"))
+    expect(send).toHaveBeenCalledWith({ type: "prepareGitHubWorkflow", purpose: "discuss", context: { repository: "cpave3/legato", pullRequestNumber: 12 } })
+    expect(document.querySelector("[role=status]")?.textContent).toContain("Workflow: discuss-pr")
+    expect(discuss.style.backgroundColor).toBe("rgb(109, 94, 246)")
+
+    send.mockClear()
+    discuss.click()
+    await vi.waitFor(() => expect(discuss.textContent).toBe("Open discussion"))
+    // The panel opens on the click itself, which Chrome requires, and the
+    // run starts after it.
+    expect(send.mock.calls.map(([message]) => message)).toEqual([
+      { type: "openReviewPanel", view: "discussion", context: { repository: "cpave3/legato", pullRequestNumber: 12 } },
+      { type: "startPreparedWorkflow", purpose: "discuss", context: { repository: "cpave3/legato", pullRequestNumber: 12 } },
+    ])
+
+    send.mockClear()
+    discuss.click()
+    await vi.waitFor(() => expect(send).toHaveBeenCalledWith({ type: "openReviewPanel", view: "discussion", context: { repository: "cpave3/legato", pullRequestNumber: 12 } }))
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "prepareGitHubWorkflow" }))
+  })
+
+  it("opens the discussion that is already going instead of starting another", async () => {
+    const send = vi.fn().mockImplementation((message: { type: string }) => Promise.resolve(message.type === "detectGitHubDiscussion"
+      ? { ok: true, discussion: { runId: "run-1", agentUrl: "http://localhost:3080/agents?task=t1" } }
+      : { ok: true, review: { runs: [] } }))
+    reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
+
+    const open = await vi.waitFor(() => buttonLabelled("Open discussion"))
+    open.click()
+
+    await vi.waitFor(() => expect(send).toHaveBeenCalledWith({ type: "openReviewPanel", view: "discussion", context: { repository: "cpave3/legato", pullRequestNumber: 12 } }))
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "prepareGitHubWorkflow" }))
+  })
 })
+
+function buttonLabelled(label: string): HTMLButtonElement {
+  const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((item) => item.textContent === label)
+  if (!button) throw new Error(`no button labelled ${label}`)
+  return button
+}

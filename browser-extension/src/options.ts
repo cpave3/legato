@@ -9,6 +9,7 @@ const fields = {
   baseUrl: document.querySelector<HTMLInputElement>("#base-url")!,
   token: document.querySelector<HTMLInputElement>("#token")!,
   workflowName: document.querySelector<HTMLInputElement>("#workflow-name")!,
+  discussWorkflowName: document.querySelector<HTMLInputElement>("#discuss-workflow-name")!,
   repoInput: document.querySelector<HTMLInputElement>("#repo-input")!,
   pullRequestInput: document.querySelector<HTMLInputElement>("#pr-input")!,
   primaryDirInput: document.querySelector<HTMLInputElement>("#primary-dir-input")!,

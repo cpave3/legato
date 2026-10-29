@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
 import { DEFAULT_CONFIG } from "./config"
-import { createMessageHandler, openReviewPanelFromGesture } from "./background"
+import { createMessageHandler, createPanelTracker, openReviewPanelFromGesture } from "./background"
 import type { WorkflowDiscovery } from "./legato"
 
+const prInputs = { repo: { type: "string" }, pr_number: { type: "integer" }, primary_dir: { type: "string" } }
 const discovery: WorkflowDiscovery = {
-  definitions: [{ name: "review-pr", inputs: {
-    repo: { type: "string" }, pr_number: { type: "integer" }, primary_dir: { type: "string" },
-  } }],
+  definitions: [{ name: "review-pr", inputs: prInputs }, { name: "discuss-pr", inputs: prInputs }],
   errors: [],
   repositories: [{ name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato" }],
 }
@@ -23,8 +22,30 @@ function dependencies() {
     loadReviewModel: vi.fn().mockResolvedValue({ state: "empty", status: "", context: { repository: "cpave3/legato", pullRequestNumber: 7 }, runs: [], poll: false }),
     getTabUrl: vi.fn().mockResolvedValue("https://github.com/cpave3/legato/pull/7"),
     saveReviewContext: vi.fn().mockResolvedValue(undefined),
+    listRuns: vi.fn().mockResolvedValue([]),
   }
 }
+
+const pr = { repository: "cpave3/legato", pullRequestNumber: 7 }
+const discussionRun = (id: string, status: string) => ({
+  id, workflow_name: "discuss-pr", workflow_title: "Discuss", status, current_step_id: "end",
+  task_id: `task-${id}`, created_at: "2026-10-28T00:00:00Z",
+  inputs_json: JSON.stringify({ repo: "cpave3/legato", pr_number: 7, primary_dir: "/projects/legato" }),
+})
+
+// A review run paused at currentStep: "end" waits for its agent to end, as
+// review-pr does once the review is written; "cleanup" is a manual step.
+const reviewDefinition = JSON.stringify({
+  name: "review-pr",
+  steps: [
+    { id: "review", type: "agent.run", trigger: "automatic" },
+    { id: "end", type: "agent.stop", trigger: "agent_ended" },
+    { id: "cleanup", type: "worktree.remove", trigger: "manual" },
+  ],
+})
+const reviewRun = (id: string, status: string, currentStep: string) => ({
+  ...discussionRun(id, status), workflow_name: "review-pr", current_step_id: currentStep, definition_json: reviewDefinition,
+})
 
 describe("openReviewPanelFromGesture", () => {
   it("invokes Side Panel open before context persistence settles", async () => {
@@ -42,6 +63,32 @@ describe("openReviewPanelFromGesture", () => {
     resolvePersist()
     await result
     expect(calls).toEqual(["cache", "open", "persist", "notify"])
+  })
+})
+
+describe("openReviewPanelFromGesture with the panel already open", () => {
+  it("does not open it again, which would close it, and still hands the panel its update", async () => {
+    const effects = { cache: vi.fn(), persist: vi.fn().mockResolvedValue(undefined), open: vi.fn().mockResolvedValue(undefined), notify: vi.fn() }
+
+    await openReviewPanelFromGesture(4, { repository: "cpave3/legato", pullRequestNumber: 7 }, effects, { alreadyOpen: true })
+
+    expect(effects.open).not.toHaveBeenCalled()
+    expect(effects.persist).toHaveBeenCalled()
+    expect(effects.notify).toHaveBeenCalledWith(4)
+  })
+})
+
+describe("createPanelTracker", () => {
+  it("knows which windows have the side panel open", () => {
+    const panels = createPanelTracker()
+    expect(panels.isOpen(1)).toBe(false)
+
+    const closeFirst = panels.opened(1)
+    panels.opened(1)
+    closeFirst()
+
+    expect(panels.isOpen(1)).toBe(true)
+    expect(panels.isOpen(2)).toBe(false)
   })
 })
 
@@ -165,5 +212,85 @@ describe("GitHub workflow messages", () => {
       { tab: { id: 4 } },
     )
     expect(response).toEqual({ ok: false, error: "Open extension options and grant access to the configured Legato origin" })
+  })
+})
+
+describe("discussing a pull request", () => {
+  it("prepares the discussion workflow for confirmation", async () => {
+    const deps = dependencies()
+    const response = await createMessageHandler(deps)({ type: "prepareGitHubWorkflow", purpose: "discuss", context: pr }, { tab: { id: 4 } })
+
+    expect(response).toMatchObject({ ok: true, prepared: { workflowName: "discuss-pr", pullRequestNumber: 7 } })
+    expect(deps.start).not.toHaveBeenCalled()
+  })
+
+  it("starts the discussion without leaving the pull request", async () => {
+    const deps = dependencies()
+    deps.start.mockResolvedValue({ run: { id: "run-9", task_id: "task-9" } })
+
+    const response = await createMessageHandler(deps)({ type: "startPreparedWorkflow", purpose: "discuss", context: pr }, { tab: { id: 4 } })
+
+    expect(deps.start).toHaveBeenCalledWith(DEFAULT_CONFIG, expect.objectContaining({ workflowName: "discuss-pr" }))
+    expect(response).toEqual({ ok: true, agentUrl: "http://localhost:3080/agents?task=task-9" })
+    expect(deps.openRun).not.toHaveBeenCalled()
+  })
+
+  it("finds a discussion of this pull request that is still going", async () => {
+    const deps = dependencies()
+    deps.listRuns.mockResolvedValue([discussionRun("old", "succeeded"), discussionRun("live", "waiting")])
+
+    const response = await createMessageHandler(deps)({ type: "detectGitHubDiscussion", context: pr }, { tab: { id: 4 } })
+
+    expect(response).toEqual({ ok: true, discussion: { runId: "live", taskId: "task-live", agentUrl: "http://localhost:3080/agents?task=task-live" } })
+    expect(deps.listRuns).toHaveBeenCalledWith(DEFAULT_CONFIG, "discuss-pr", { repo: "cpave3/legato", pr_number: "7", primary_dir: "/projects/legato" })
+  })
+
+  it("reports no discussion when every earlier one has ended", async () => {
+    const deps = dependencies()
+    deps.listRuns.mockResolvedValue([discussionRun("old", "succeeded"), discussionRun("gone", "cancelled")])
+
+    const response = await createMessageHandler(deps)({ type: "detectGitHubDiscussion", context: pr }, { tab: { id: 4 } })
+
+    expect(response).toEqual({ ok: true, discussion: null })
+  })
+
+  it("tells the side panel which discussion belongs to its tab", async () => {
+    const deps = dependencies()
+    deps.listRuns.mockResolvedValue([discussionRun("live", "waiting")])
+
+    const response = await createMessageHandler(deps)({ type: "getDiscussion", tabId: 4 }, {})
+
+    expect(response).toEqual({ ok: true, discussion: { runId: "live", taskId: "task-live", agentUrl: "http://localhost:3080/agents?task=task-live" } })
+    expect(deps.getTabUrl).toHaveBeenCalledWith(4)
+  })
+
+  it("discusses the pull request with a finished review's agent while it is still running", async () => {
+    const deps = dependencies()
+    deps.listRuns.mockImplementation(async (_config: unknown, workflow: string) => workflow === "review-pr"
+      ? [reviewRun("reviewing", "running", "review"), reviewRun("reviewed", "waiting", "end")]
+      : [discussionRun("live", "waiting")])
+
+    const response = await createMessageHandler(deps)({ type: "detectGitHubDiscussion", context: pr }, { tab: { id: 4 } })
+
+    expect(response).toEqual({ ok: true, discussion: { runId: "reviewed", taskId: "task-reviewed", agentUrl: "http://localhost:3080/agents?task=task-reviewed" } })
+    expect(deps.listRuns).toHaveBeenCalledWith(DEFAULT_CONFIG, "review-pr", { repo: "cpave3/legato", pr_number: "7", primary_dir: "/projects/legato" })
+  })
+
+  it("starts its own discussion when no review run is waiting on its agent", async () => {
+    const deps = dependencies()
+    deps.listRuns.mockImplementation(async (_config: unknown, workflow: string) => workflow === "review-pr"
+      ? [reviewRun("reviewing", "running", "review"), reviewRun("old", "waiting", "cleanup")]
+      : [])
+
+    const response = await createMessageHandler(deps)({ type: "detectGitHubDiscussion", context: pr }, { tab: { id: 4 } })
+
+    expect(response).toEqual({ ok: true, discussion: null })
+  })
+
+  it("rejects an unknown purpose", async () => {
+    const deps = dependencies()
+    const response = await createMessageHandler(deps)({ type: "prepareGitHubWorkflow", purpose: "deploy", context: pr }, { tab: { id: 4 } })
+
+    expect(response).toEqual({ ok: false, error: "Unsupported pull request action" })
   })
 })

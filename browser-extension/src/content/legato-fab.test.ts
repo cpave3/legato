@@ -16,16 +16,29 @@ describe("createLegatoFab", () => {
 
     expect(fab.root.dataset.legatoFab).toBe("true")
     expect(fab.root.style.position).toBe("fixed")
-    expect(fab.root.style.width).toBe("56px")
+    expect(fab.root.style.width).toBe("48px")
     expect(fab.root.style.borderRadius).toBe("50%")
     expect(fab.root.getAttribute("aria-expanded")).toBe("false")
-    expect(fab.root.style.background).toContain("linear-gradient")
-    expect(fab.root.textContent).toContain("LEGATO")
-    expect(fab.root.querySelector("[aria-hidden='true']")?.textContent).toBe("L")
+    // The web app's new look: a solid surface, its line colour, Geist.
+    expect(fab.root.style.background).toBe("rgb(23, 23, 27)")
+    expect(fab.root.style.border).toBe("1px solid rgb(49, 49, 58)")
+    expect(fab.root.style.fontFamily).toContain("Legato Geist")
+    expect(fab.root.textContent).toContain("legato")
+    expect(fab.root.querySelector("[aria-hidden='true']")?.textContent).toBe("♩")
     expect(fab.title.textContent).toBe("Pull request review")
     expect(fab.subtitle.textContent).toBe("owner/repo · #42")
     expect(fab.button.textContent).toBe("Prepare review")
     expect(fab.button.className).toBe("")
+    expect(fab.button.style.backgroundColor).toBe("rgb(109, 94, 246)")
+  })
+
+  it("draws secondary actions as quiet outlined buttons beside the accent one", () => {
+    const fab = createLegatoFab(document, { id: "test-legato-fab", title: "PR", subtitle: "#42", actionLabel: "Start" })
+    const secondary = fab.addSecondaryAction("View review")
+
+    expect(secondary.style.backgroundColor).toBe("transparent")
+    expect(secondary.style.border).toBe("1px solid rgb(49, 49, 58)")
+    expect(secondary.style.color).toBe("rgb(230, 229, 235)")
   })
 
   it("expands on hover or keyboard focus and collapses after leaving", () => {
@@ -47,7 +60,7 @@ describe("createLegatoFab", () => {
     secondary.blur()
     fab.root.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: document.body }))
     expect(fab.root.dataset.expanded).toBe("false")
-    expect(fab.root.style.width).toBe("56px")
+    expect(fab.root.style.width).toBe("48px")
   })
 
   it("stays expanded when an action click releases focus", () => {
@@ -95,15 +108,30 @@ describe("createLegatoFab", () => {
     fab.setState("loading", "Importing ticket…")
     expect(fab.button.disabled).toBe(true)
     expect(fab.status.dataset.state).toBe("loading")
-    expect(fab.status.style.color).toBe("rgb(196, 181, 253)")
+    expect(fab.status.style.color).toBe("rgb(200, 192, 255)")
 
     fab.setState("success", "Ticket imported.")
     expect(fab.button.disabled).toBe(false)
     expect(fab.status.dataset.state).toBe("success")
-    expect(fab.status.style.color).toBe("rgb(103, 232, 249)")
+    expect(fab.status.style.color).toBe("rgb(62, 207, 142)")
 
     fab.setState("error", "Import failed.")
     expect(fab.status.dataset.state).toBe("error")
-    expect(fab.status.style.color).toBe("rgb(252, 165, 165)")
+    expect(fab.status.style.color).toBe("rgb(240, 100, 107)")
+  })
+
+  it("moves the accent to the action that waits for confirmation", () => {
+    const fab = createLegatoFab(document, { id: "test-legato-fab", title: "PR", subtitle: "#42", actionLabel: "Prepare review" })
+    const discuss = fab.addSecondaryAction("Discuss PR")
+
+    fab.setEmphasis(discuss)
+
+    expect(discuss.style.backgroundColor).toBe("rgb(109, 94, 246)")
+    expect(fab.button.style.backgroundColor).toBe("transparent")
+
+    fab.setEmphasis(fab.button)
+
+    expect(fab.button.style.backgroundColor).toBe("rgb(109, 94, 246)")
+    expect(discuss.style.backgroundColor).toBe("transparent")
   })
 })

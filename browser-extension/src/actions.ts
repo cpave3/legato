@@ -2,6 +2,8 @@ import type { ExtensionConfig } from "./config"
 import type { WorkflowDiscovery } from "./legato"
 
 export type GitHubPullRequestContext = { repository: string; pullRequestNumber: number }
+/** What a pull request action is for: a review run, or a conversation about the change. */
+export type PullRequestPurpose = "review" | "discuss"
 export type PreparedWorkflow = {
   workflowName: string
   repositoryPresetName: string
@@ -15,12 +17,14 @@ export function prepareGitHubWorkflow(
   config: ExtensionConfig,
   context: GitHubPullRequestContext,
   discovery: WorkflowDiscovery,
+  purpose: PullRequestPurpose = "review",
 ): PreparedWorkflow {
+  const workflowName = purpose === "discuss" ? config.discussWorkflowName : config.workflowName
   const inputNames = [config.repoInput, config.pullRequestInput, config.primaryDirInput]
   if (new Set(inputNames).size !== inputNames.length) throw new Error("Configured workflow input names must be distinct")
 
-  const workflow = discovery.definitions?.find((item) => item.name === config.workflowName)
-  if (!workflow) throw new Error(`Workflow "${config.workflowName}" was not found`)
+  const workflow = discovery.definitions?.find((item) => item.name === workflowName)
+  if (!workflow) throw new Error(`Workflow "${workflowName}" was not found`)
   const expected: Array<[string, string]> = [
     [config.repoInput, "string"],
     [config.pullRequestInput, "integer"],

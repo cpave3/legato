@@ -21,7 +21,8 @@ describe("normalizeConfig", () => {
 
   it("rejects URL paths and missing mapping names", () => {
     expect(() => normalizeConfig({ ...DEFAULT_CONFIG, baseUrl: "https://legato.test/app" })).toThrow("origin")
-    expect(() => normalizeConfig({ ...DEFAULT_CONFIG, workflowName: " " })).toThrow("Workflow name")
+    expect(() => normalizeConfig({ ...DEFAULT_CONFIG, workflowName: " " })).toThrow("Review workflow name")
+    expect(() => normalizeConfig({ ...DEFAULT_CONFIG, discussWorkflowName: " " })).toThrow("Discussion workflow name")
   })
 })
 

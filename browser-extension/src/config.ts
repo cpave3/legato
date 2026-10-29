@@ -2,6 +2,7 @@ export type ExtensionConfig = {
   baseUrl: string
   token: string
   workflowName: string
+  discussWorkflowName: string
   repoInput: string
   pullRequestInput: string
   primaryDirInput: string
@@ -12,6 +13,7 @@ export const DEFAULT_CONFIG: ExtensionConfig = {
   baseUrl: "http://localhost:3080",
   token: "",
   workflowName: "review-pr",
+  discussWorkflowName: "discuss-pr",
   repoInput: "repo",
   pullRequestInput: "pr_number",
   primaryDirInput: "primary_dir",
@@ -32,7 +34,8 @@ export function normalizeConfig(config: ExtensionConfig): ExtensionConfig {
     throw new Error("Legato URL must contain only an origin")
   }
   const names: Array<[keyof ExtensionConfig, string]> = [
-    ["workflowName", "Workflow name"],
+    ["workflowName", "Review workflow name"],
+    ["discussWorkflowName", "Discussion workflow name"],
     ["repoInput", "Repository input name"],
     ["pullRequestInput", "Pull request input name"],
     ["primaryDirInput", "Primary directory input name"],
