@@ -313,3 +313,23 @@ func TestChimeraPermissionResolvedScriptForwardsPayloadAndExitStatus(t *testing.
 		t.Fatalf("stdin = %q", payload)
 	}
 }
+
+func TestASandboxedChimeraDropsItsOwnDockerSandbox(t *testing.T) {
+	a := hooks.NewChimeraAdapter("legato")
+	a.SetLaunchArgs([]string{"--sandbox", "--sandbox-mode", "overlay", "--sandbox-strict", "--sandbox-network=none", "--auto-approve", "sandbox"})
+	a.SetTiers(map[string][]string{"big": {"--sandbox", "--model", "opus"}})
+	env := map[string]string{"LEGATO_TASK_ID": "t1", "LEGATO_SANDBOXED": "1"}
+	cmd := a.LaunchCommand(env, "", "", "big")
+	if strings.Contains(cmd, "--sandbox") {
+		t.Fatalf("command keeps a sandbox flag: %s", cmd)
+	}
+	// Other flags stay, the value of --auto-approve included.
+	if !strings.Contains(cmd, "--auto-approve sandbox") || !strings.Contains(cmd, "--model opus") {
+		t.Fatalf("command = %s", cmd)
+	}
+	// Outside Legato's sandbox, the person's flags are kept.
+	delete(env, "LEGATO_SANDBOXED")
+	if cmd := a.LaunchCommand(env, "", "", ""); !strings.Contains(cmd, "--sandbox-mode overlay") {
+		t.Fatalf("unsandboxed command = %s", cmd)
+	}
+}

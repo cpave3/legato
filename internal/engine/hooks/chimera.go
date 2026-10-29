@@ -388,7 +388,10 @@ func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief, model, tier
 
 	cmd += a.mcpConfigFlag()
 
-	for _, arg := range a.launchArgs {
+	// In Legato's sandbox Chimera cannot run its own: that is a Docker
+	// container, and the Docker socket would undo Legato's sandbox.
+	sandboxed := env["LEGATO_SANDBOXED"] == "1"
+	for _, arg := range withoutDockerSandbox(a.launchArgs, sandboxed) {
 		cmd += " " + shellQuote(arg)
 	}
 	if model != "" {
@@ -402,11 +405,39 @@ func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief, model, tier
 			// referencing tiers that no longer exist.
 			log.Printf("warn: adapter %q has no tier %q configured; spawning with base launch_args only", a.Name(), tier)
 		}
-		for _, arg := range args {
+		for _, arg := range withoutDockerSandbox(args, sandboxed) {
 			cmd += " " + shellQuote(arg)
 		}
 	}
 	return cmd
+}
+
+// chimeraSandboxValued are Chimera's sandbox flags that take a value.
+var chimeraSandboxValued = map[string]bool{"--sandbox-mode": true, "--sandbox-image": true, "--sandbox-network": true, "--sandbox-memory": true, "--sandbox-cpus": true}
+
+// withoutDockerSandbox drops Chimera's --sandbox and --sandbox-* flags (with
+// their values) when drop is set, and logs that it did.
+func withoutDockerSandbox(args []string, drop bool) []string {
+	if !drop {
+		return args
+	}
+	out := make([]string, 0, len(args))
+	dropped := false
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--sandbox" || strings.HasPrefix(arg, "--sandbox-") || arg == "--apply-on-success" {
+			dropped = true
+			if chimeraSandboxValued[arg] && i+1 < len(args) {
+				i++
+			}
+			continue
+		}
+		out = append(out, arg)
+	}
+	if dropped {
+		log.Printf("chimera: its own Docker sandbox is off inside Legato's sandbox")
+	}
+	return out
 }
 
 // launchArgsContainsMode reports whether the user-supplied launch args
