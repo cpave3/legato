@@ -148,3 +148,52 @@ func TestReloadingAnAgentKeepsItsSandboxChoice(t *testing.T) {
 		t.Fatalf("relaunched as %q", lines[len(lines)-1])
 	}
 }
+
+func mountOf(plan sandbox.Plan, path string) (sandbox.Mount, bool) {
+	for _, m := range plan.Mounts {
+		if m.Path == path && m.Dest == "" {
+			return m, true
+		}
+	}
+	return sandbox.Mount{}, false
+}
+
+func TestAToolsStateFolderSetInTheEnvironmentIsMounted(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "claude-elsewhere")
+	t.Setenv("CLAUDE_CONFIG_DIR", state)
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend)
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	// The folder is made when it is missing, so what the tool writes there
+	// lands on the host, not in the sandbox's empty home.
+	if info, err := os.Stat(state); err != nil || !info.IsDir() {
+		t.Fatalf("state folder: %v", err)
+	}
+	if m, ok := mountOf(backend.plans[0], state); !ok || m.Kind != sandbox.ReadWrite {
+		t.Fatalf("mount of %s = %+v, %v", state, m, ok)
+	}
+}
+
+func TestAResumedSessionsStorageFolderIsMounted(t *testing.T) {
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend)
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	running, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
+	execution, _ := s.GetExecution(context.Background(), running.ExecutionID)
+	storage := t.TempDir()
+	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, storage); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.(AgentRestarter).RestartAgent(context.Background(), "task-1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if m, ok := mountOf(backend.plans[len(backend.plans)-1], storage); !ok || m.Kind != sandbox.ReadWrite {
+		t.Fatalf("mount of %s = %+v, %v", storage, m, ok)
+	}
+}

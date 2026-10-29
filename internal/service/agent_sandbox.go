@@ -41,6 +41,14 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 		}
 	}
 	in.PastedImagesDir = PastedImageDir(taskID)
+	in.ToolState = toolStateDirs(agentKind, env, in.Home)
+	for _, dir := range in.ToolState {
+		// Made when missing, so what the tool writes there lands on the host
+		// and not in the sandbox's empty home.
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return "", err
+		}
+	}
 	in.GitCommonDir = gitCommonDir(ctx, workDir)
 	in.Extra = append([]SandboxPath{}, in.Extra...)
 	for _, resource := range resources {
@@ -137,4 +145,29 @@ func shellWord(s string) string {
 		return s
 	}
 	return shellQuote(s)
+}
+
+// toolStateVars name the variables that move an agent tool's state, and so
+// its sessions, out of the folders the sandbox mounts for it.
+var toolStateVars = map[string]string{"claude-code": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
+
+// toolStateDirs is where the agent's tool keeps its state when a variable
+// moves it: the session's own value (a resumed session's storage folder),
+// else the one this process inherited, which the pane inherits too.
+func toolStateDirs(agentKind string, env map[string]string, home string) []string {
+	name, ok := toolStateVars[agentKind]
+	if !ok {
+		return nil
+	}
+	dir := env[name]
+	if dir == "" {
+		dir = os.Getenv(name)
+	}
+	if strings.HasPrefix(dir, "~/") && home != "" {
+		dir = filepath.Join(home, dir[2:])
+	}
+	if !filepath.IsAbs(dir) {
+		return nil
+	}
+	return []string{filepath.Clean(dir)}
 }

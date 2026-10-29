@@ -88,7 +88,10 @@ type SandboxPlanInput struct {
 	// ToolInstalls are each agent tool's installation, by agent kind; a
 	// sandbox sees only its own tool's, read-only.
 	ToolInstalls map[string][]string
-	FS           FSProbe
+	// ToolState are state folders of the agent's tool beyond the usual ones
+	// (CLAUDE_CONFIG_DIR, CODEX_HOME, a resumed session's), read-write.
+	ToolState []string
+	FS        FSProbe
 }
 
 // systemPaths are the host's system, read-only. A path that is a symbolic
@@ -197,6 +200,11 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			}
 		}
 		in.ToolInstalls = installs
+		state := make([]string, len(in.ToolState))
+		for i, p := range in.ToolState {
+			state[i] = real(p)
+		}
+		in.ToolState = state
 		extra := make([]SandboxPath, len(in.Extra))
 		for i, e := range in.Extra {
 			extra[i] = SandboxPath{Path: real(e.Path), Access: e.Access}
@@ -248,6 +256,20 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	}
 	for _, rel := range agentState[in.AgentKind] {
 		add(filepath.Join(in.Home, rel), sandbox.ReadWrite)
+	}
+	for _, path := range in.ToolState {
+		path = filepath.Clean(path)
+		usual := false
+		for _, rel := range agentState[in.AgentKind] {
+			usual = usual || path == filepath.Join(in.Home, rel)
+		}
+		if usual {
+			continue
+		}
+		if err := check(path); err != nil {
+			return sandbox.Plan{}, err
+		}
+		add(path, sandbox.ReadWrite)
 	}
 	for _, path := range in.ToolInstalls[in.AgentKind] {
 		path = filepath.Clean(path)
