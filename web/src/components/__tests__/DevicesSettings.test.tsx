@@ -15,7 +15,14 @@ vi.mock("../../lib/passkeys", () => ({
   enrollPasskey: (...a: unknown[]) => mockEnrollPasskey(...a),
 }))
 
-import { DevicesSettings } from "../DevicesSettings"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { createQueryClient } from "../../lib/query"
+import { DevicesSettings as Devices } from "../DevicesSettings"
+
+// Each test gets a cache of its own, as a page load does.
+function DevicesSettings(props: { baseUrl: string }) {
+  return <QueryClientProvider client={createQueryClient()}><Devices {...props} /></QueryClientProvider>
+}
 
 describe("DevicesSettings", () => {
   afterEach(() => {

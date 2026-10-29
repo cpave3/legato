@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react"
 import { SettingsCard } from "./settings/SettingsUI"
 import { Fingerprint } from "lucide-react"
-import { listDevices, removeDevice, type DeviceList } from "../lib/devices"
+import { removeDevice, type DeviceList } from "../lib/devices"
+import { useDevices } from "../hooks/useDevices"
 import { onShellEnroll, shellApprovals } from "../lib/mobileShell"
 import { enrollPasskey, passkeysSupported } from "../lib/passkeys"
 
@@ -11,20 +12,16 @@ const levelLabel: Record<string, string> = { strongbox: "StrongBox", tee: "secur
 // decisions. Removing one is itself an approval to sign. Inside the Legato
 // app it offers to enroll this phone; in a browser, a passkey for this page.
 export function DevicesSettings({ baseUrl }: { baseUrl: string }) {
-  const [list, setList] = useState<DeviceList | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  // Shared with the tray; approvals_changed reads it again, so a device
+  // allowed or removed on a phone shows here without a reload.
+  const devicesQuery = useDevices({ baseUrl })
+  const list: DeviceList | null = devicesQuery.data ?? null
+  const [actionError, setError] = useState<string | null>(null)
+  const error = actionError ?? devicesQuery.error?.message ?? null
   const [notice, setNotice] = useState<string | null>(null)
   const app = shellApprovals()
-
-  const load = useCallback(async () => {
-    try {
-      setList(await listDevices(baseUrl))
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    }
-  }, [baseUrl])
-
-  useEffect(() => { void load() }, [load])
+  const { refetch } = devicesQuery
+  const load = useCallback(async () => { await refetch() }, [refetch])
   // Attention links here after a device reset; come into view once listed.
   useEffect(() => {
     if (list !== null && window.location.hash === "#devices") {

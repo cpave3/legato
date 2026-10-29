@@ -9,6 +9,7 @@ import App from "../App"
 import { useWorkflowRun, useWorkflowRuns, useWorkflows } from "../hooks/useWorkflow"
 import { useNavigationSummary } from "../hooks/useNavigationSummary"
 import { useTaskCard } from "../hooks/useTaskCard"
+import { useDevices } from "../hooks/useDevices"
 import { fetchHandoff } from "../lib/handoff"
 import { createQueryClient, queryKeys } from "../lib/query"
 import type { WSMessage } from "../hooks/useWebSocket"
@@ -260,5 +261,25 @@ it("reads an agent's card again when the cards change", async () => {
   await screen.findByText("Column one")
   act(() => { websocket.handler?.({ type: "cards_changed" }) })
   await screen.findByText("Column two")
+  expect(reads).toBe(2)
+})
+
+it("reads the devices again when an approval changes, as one is enrolled", async () => {
+  let reads = 0
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+    const path = requestPath(input)
+    if (path !== "/api/devices") throw new Error(`unexpected request: ${path}`)
+    reads += 1
+    return response({ devices: [{ id: "dev-p", kind: "passkey", name: "Desktop", status: reads === 1 ? "pending" : "active", created_at: "" }], enrolled: true, server_id: "srv-1" })
+  }))
+  function DeviceStatus() {
+    const devices = useDevices()
+    return <span>{devices.data?.devices[0]?.status ?? "loading"}</span>
+  }
+
+  render(<QueryClientProvider client={createQueryClient()}><QuerySyncProvider><DeviceStatus /></QuerySyncProvider></QueryClientProvider>)
+  await screen.findByText("pending")
+  act(() => { websocket.handler?.({ type: "approvals_changed" }) })
+  await screen.findByText("active")
   expect(reads).toBe(2)
 })

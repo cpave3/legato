@@ -52,6 +52,8 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           break
         case "approvals_changed":
           invalidate(queryKeys.approvals(baseUrl))
+          // A decided approval may enroll or remove a device.
+          invalidate(queryKeys.devices(baseUrl))
           invalidate(queryKeys.navigationSummary(baseUrl))
           break
         case "workflow_changed":
