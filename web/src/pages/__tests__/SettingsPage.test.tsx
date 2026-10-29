@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { apiFetch } from "../../lib/api"
@@ -108,3 +108,58 @@ describe("SettingsPage hot reload build", () => {
     expect((screen.getByRole("button", { name: /rebuild and hot reload/i }) as HTMLButtonElement).disabled).toBe(false)
   })
 })
+
+describe("SettingsPage layout", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    useSettings.mockReturnValue(settings(false))
+    mockedApiFetch.mockResolvedValue(new Response("{}", { status: 404 }))
+  })
+
+  afterEach(() => cleanup())
+
+  it("groups settings by what they are about, in order", () => {
+    renderPage()
+    const groups = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)
+    expect(groups).toEqual(["Agents", "Security", "Connection", "Appearance"])
+  })
+
+  it("puts each setting in its group", () => {
+    renderPage()
+    const group = (name: string) => screen.getByRole("region", { name })
+    expect(within(group("Agents")).getByText("Prompt detection")).toBeTruthy()
+    expect(within(group("Agents")).getByText("Agent switch key")).toBeTruthy()
+    expect(group("Agents").querySelector("#resources")).toBeTruthy()
+    expect(group("Security").querySelector("#devices")).toBeTruthy()
+    expect(group("Security").querySelector("#credentials")).toBeTruthy()
+    expect(within(group("Connection")).getByText("Servers")).toBeTruthy()
+    expect(within(group("Connection")).getByText("Pair a phone")).toBeTruthy()
+    expect(within(group("Connection")).getByText("TLS certificate")).toBeTruthy()
+    expect(within(group("Appearance")).getByText("Glitch effect")).toBeTruthy()
+  })
+
+  it("adds Development under hot reload", () => {
+    useSettings.mockReturnValue(settings(true))
+    renderPage()
+    expect(screen.getByRole("region", { name: "Development" })).toBeTruthy()
+  })
+
+  it("lists the groups and goes to one", () => {
+    const scroll = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll })
+    renderPage()
+    const nav = screen.getAllByRole("navigation", { name: "Settings sections" })[0]
+    const links = within(nav).getAllByRole("button").map((b) => b.textContent)
+    expect(links).toEqual(["Agents", "Security", "Connection", "Appearance"])
+    fireEvent.click(within(nav).getByRole("button", { name: "Security" }))
+    expect(scroll).toHaveBeenCalled()
+  })
+
+  it("marks what is kept in this browser only", () => {
+    renderPage()
+    const appearance = screen.getByRole("region", { name: "Appearance" })
+    expect(within(appearance).getAllByText(/this browser/i).length).toBeGreaterThan(0)
+  })
+})
+

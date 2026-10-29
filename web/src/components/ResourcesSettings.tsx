@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useState } from "react"
+import { SettingsCard } from "./settings/SettingsUI"
 import { FolderLock, Pencil, Plus, Trash2, X } from "lucide-react"
 import { accessLabel, deleteResource, listResources, saveResource, type Resource, type ResourcePath } from "../lib/resources"
 
@@ -65,70 +66,61 @@ export function ResourcesSettings({ baseUrl }: { baseUrl: string }) {
   }
 
   return (
-    <section id="resources" className="max-w-lg mb-8 scroll-mt-4">
-      <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">Resources</h2>
-      <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-        <div className="flex items-start gap-3">
-          <FolderLock size={20} className="mt-0.5 shrink-0 text-indigo-400" />
-          <div className="flex min-w-0 flex-1 flex-col gap-3">
-            <p className="text-sm text-zinc-300">
-              Files and folders you give agents often. Pick them when you start an agent, or add them to one that is running from its status bar.
-            </p>
-            <p className="text-xs text-zinc-500">
-              Chimera is granted each path, to read or to write. Claude Code and Codex are told about them.
-            </p>
-            {error && <p role="alert" className="rounded border border-red-900 bg-red-950/60 px-2 py-1.5 text-xs text-red-300">{error}</p>}
+    <SettingsCard id="resources" icon={FolderLock} title="Resources" description="Files and folders you give agents often. Pick them when you start an agent, or add them to one that is running from its status bar.">
+      <div className="flex flex-col gap-3">
+        <p className="text-xs text-zinc-500">
+          Chimera is granted each path, to read or to write. Claude Code and Codex are told about them.
+        </p>
+        {error && <p role="alert" className="rounded border border-red-900 bg-red-950/60 px-2 py-1.5 text-xs text-red-300">{error}</p>}
 
-            {resources && resources.length > 0 && (
-              <ul className="divide-y divide-zinc-800 rounded border border-zinc-800">
-                {resources.map((resource) => (
-                  <li key={resource.name} aria-label={resource.name} className="flex flex-col gap-1 px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-zinc-200">{resource.name}</span>
-                      {resource.configured && <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400" title="Defined in the configuration file">config.yaml</span>}
-                      {!resource.configured && resource.id ? (
-                        <span className="ml-auto flex items-center gap-1">
-                          <button type="button" aria-label={`Edit ${resource.name}`} onClick={() => setDraft({ id: resource.id, name: resource.name, paths: resource.paths.map((p) => ({ ...p })) })}
-                            className="flex size-9 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 sm:size-7">
-                            <Pencil size={14} />
-                          </button>
-                          {confirming === resource.id ? (
-                            <>
-                              <button type="button" onClick={() => void remove(resource.id!)} className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-500">Remove</button>
-                              <button type="button" onClick={() => setConfirming(null)} className="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800">Keep</button>
-                            </>
-                          ) : (
-                            <button type="button" aria-label={`Remove ${resource.name}`} onClick={() => setConfirming(resource.id!)}
-                              className="flex size-9 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-red-300 sm:size-7">
-                              <Trash2 size={14} />
-                            </button>
-                          )}
-                        </span>
-                      ) : null}
-                    </div>
-                    {resource.paths.map((path) => (
-                      <div key={path.path} className="flex min-w-0 items-baseline gap-2 text-xs text-zinc-500">
-                        <span className="truncate font-mono" title={path.path}>{path.path}</span>
-                        <span className="shrink-0 text-[10px] text-zinc-600">{accessLabel(path.access)}</span>
-                      </div>
-                    ))}
-                  </li>
+        {resources && resources.length > 0 && (
+          <ul className="divide-y divide-zinc-800 rounded border border-zinc-800">
+            {resources.map((resource) => (
+              <li key={resource.name} aria-label={resource.name} className="flex flex-col gap-1 px-3 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-zinc-200">{resource.name}</span>
+                  {resource.configured && <span className="rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400" title="Defined in the configuration file">config.yaml</span>}
+                  {!resource.configured && resource.id ? (
+                    <span className="ml-auto flex items-center gap-1">
+                      <button type="button" aria-label={`Edit ${resource.name}`} onClick={() => setDraft({ id: resource.id, name: resource.name, paths: resource.paths.map((p) => ({ ...p })) })}
+                        className="flex size-9 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 sm:size-7">
+                        <Pencil size={14} />
+                      </button>
+                      {confirming === resource.id ? (
+                        <>
+                          <button type="button" onClick={() => void remove(resource.id!)} className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-500">Remove</button>
+                          <button type="button" onClick={() => setConfirming(null)} className="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800">Keep</button>
+                        </>
+                      ) : (
+                        <button type="button" aria-label={`Remove ${resource.name}`} onClick={() => setConfirming(resource.id!)}
+                          className="flex size-9 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-red-300 sm:size-7">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </span>
+                  ) : null}
+                </div>
+                {resource.paths.map((path) => (
+                  <div key={path.path} className="flex min-w-0 items-baseline gap-2 text-xs text-zinc-500">
+                    <span className="truncate font-mono" title={path.path}>{path.path}</span>
+                    <span className="shrink-0 text-[10px] text-zinc-600">{accessLabel(path.access)}</span>
+                  </div>
                 ))}
-              </ul>
-            )}
+              </li>
+            ))}
+          </ul>
+        )}
 
-            {draft ? (
-              <ResourceForm draft={draft} onChange={setDraft} onSave={() => void save()} onCancel={() => { setDraft(null); setError(null) }} saving={saving} />
-            ) : (
-              <button type="button" onClick={() => { setDraft(emptyDraft()); setError(null) }}
-                className="inline-flex w-fit items-center gap-2 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500">
-                <Plus size={14} /> New resource
-              </button>
-            )}
-          </div>
-        </div>
+        {draft ? (
+          <ResourceForm draft={draft} onChange={setDraft} onSave={() => void save()} onCancel={() => { setDraft(null); setError(null) }} saving={saving} />
+        ) : (
+          <button type="button" onClick={() => { setDraft(emptyDraft()); setError(null) }}
+            className="inline-flex w-fit items-center gap-2 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500">
+            <Plus size={14} /> New resource
+          </button>
+        )}
       </div>
-    </section>
+    </SettingsCard>
   )
 }
 

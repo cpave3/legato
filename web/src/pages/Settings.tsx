@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone, Sparkles } from "lucide-react"
 import { setToken } from "../lib/auth"
 import { useServer } from "../hooks/useServer"
 import { QRScanner } from "../components/QRScanner"
@@ -7,11 +7,14 @@ import { PairDeviceDialog } from "../components/PairDeviceDialog"
 import { ResourcesSettings } from "../components/ResourcesSettings"
 import { CredentialsSettings } from "../components/CredentialsSettings"
 import { DevicesSettings } from "../components/DevicesSettings"
+import { SettingsCard, SettingsGroup, SettingsRow, SettingsRows, Toggle, BrowserTag, primaryButton, quietButton } from "../components/settings/SettingsUI"
 import { useSettings } from "../hooks/useSettings"
 import { useToast } from "../hooks/useToast"
 import { apiFetch } from "../lib/api"
 import { useSearchParams } from "react-router-dom"
 import { animatedAgentActivityEnabled, setAnimatedAgentActivityEnabled } from "../lib/appearancePreferences"
+
+type Group = { id: string; title: string }
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -20,19 +23,14 @@ export function SettingsPage() {
   const { addToast } = useToast()
   const [buildStarting, setBuildStarting] = useState(false)
   const [showPairDevice, setShowPairDevice] = useState(false)
-  const [glitchEnabled, setGlitchEnabled] = useState(() => {
-    return localStorage.getItem("legato:glitch-effect") !== "false"
-  })
+  const [glitchEnabled, setGlitchEnabled] = useState(() => localStorage.getItem("legato:glitch-effect") !== "false")
   const [animatedActivityEnabled, setAnimatedActivityEnabled] = useState(animatedAgentActivityEnabled)
-  const [promptDetectionEnabled, setPromptDetectionEnabled] = useState(() => {
-    return localStorage.getItem("legato:prompt-detection") !== "false"
-  })
+  const [promptDetectionEnabled, setPromptDetectionEnabled] = useState(() => localStorage.getItem("legato:prompt-detection") !== "false")
   const [switchModifier, setSwitchModifier] = useState(() => {
     const stored = localStorage.getItem("legato:switch-modifier")
     if (stored) return stored
     return /Mac|iPhone|iPad/.test(navigator.platform) ? "Alt" : "Control"
   })
-
 
   const toggleGlitch = () => {
     const next = !glitchEnabled
@@ -117,290 +115,240 @@ export function SettingsPage() {
     setTimeout(() => setScanSuccess(""), 3000)
   }
 
+  const groups: Group[] = [
+    { id: "agents", title: "Agents" },
+    { id: "security", title: "Security" },
+    { id: "connection", title: "Connection" },
+    { id: "appearance", title: "Appearance" },
+    ...(settings.data?.hot_reload_enabled ? [{ id: "development", title: "Development" }] : []),
+  ]
+
+  const groupIds = groups.map((g) => g.id).join(" ")
+  const scroller = useRef<HTMLDivElement>(null)
+  const [current, setCurrent] = useState("agents")
+  // Mark the group in view in the section list.
+  useEffect(() => {
+    const root = scroller.current
+    if (!root || typeof IntersectionObserver === "undefined") return
+    const observer = new IntersectionObserver((entries) => {
+      const shown = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0]
+      if (shown) setCurrent(shown.target.id)
+    }, { root, rootMargin: "0px 0px -65% 0px" })
+    for (const id of groupIds.split(" ")) {
+      const el = document.getElementById(id)
+      if (el) observer.observe(el)
+    }
+    return () => observer.disconnect()
+  }, [groupIds])
+
+  const goTo = (id: string) => {
+    document.getElementById(id)?.scrollIntoView?.({ behavior: "smooth", block: "start" })
+    window.history.replaceState(window.history.state, "", `#${id}`)
+    setCurrent(id)
+  }
+
+  const isActive = (url: string) => (url ? baseUrl === url : !baseUrl)
+
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-6">
-      <h1 className="text-lg font-semibold text-zinc-100 mb-6">Settings</h1>
+    <div ref={scroller} className="flex-1 overflow-y-auto bg-lw-ground font-lw text-lw-text">
+      {/* On a phone: the groups as a row of chips that stays at the top. */}
+      <nav aria-label="Settings sections" className="sticky top-0 z-10 flex gap-2 overflow-x-auto border-b border-lw-line bg-lw-ground/95 px-4 py-2.5 backdrop-blur lg:hidden">
+        {groups.map((g) => (
+          <button
+            key={g.id}
+            onClick={() => goTo(g.id)}
+            aria-current={current === g.id ? "true" : undefined}
+            className={`shrink-0 rounded-full border px-3 py-1.5 text-xs transition-colors ${current === g.id ? "border-lw-accent-ring bg-lw-accent-soft text-lw-accent-text" : "border-lw-line text-lw-text-2"}`}
+          >
+            {g.title}
+          </button>
+        ))}
+      </nav>
 
-      <section className="max-w-lg mb-8">
-        <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">
-          Appearance
-        </h2>
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Zap size={20} className="text-indigo-400 shrink-0" />
-              <div>
-                <p className="text-sm text-zinc-300">Glitch effect</p>
-                <p className="text-xs text-zinc-500">
-                  Sci-fi glitch animation on terminal sync events
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={toggleGlitch}
-              className={`relative h-6 w-11 rounded-full transition-colors ${glitchEnabled ? "bg-indigo-600" : "bg-zinc-700"}`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${glitchEnabled ? "translate-x-5" : "translate-x-0"}`}
-              />
-            </button>
-          </div>
-        </div>
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4 mt-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Zap size={20} className="text-purple-400 shrink-0" />
-              <div>
-                <p className="text-sm text-zinc-300">Animated agent activity</p>
-                <p className="text-xs text-zinc-500">
-                  Moving card highlight that responds to agent activity
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              aria-label="Animated agent activity"
-              aria-pressed={animatedActivityEnabled}
-              onClick={toggleAnimatedActivity}
-              className={`relative h-6 w-11 rounded-full transition-colors ${animatedActivityEnabled ? "bg-indigo-600" : "bg-zinc-700"}`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${animatedActivityEnabled ? "translate-x-5" : "translate-x-0"}`}
-              />
-            </button>
-          </div>
-        </div>
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4 mt-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <ScanSearch size={20} className="text-indigo-400 shrink-0" />
-              <div>
-                <p className="text-sm text-zinc-300">Prompt detection</p>
-                <p className="text-xs text-zinc-500">
-                  Auto-detect tool approval and plan prompts in agent output
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={togglePromptDetection}
-              className={`relative h-6 w-11 rounded-full transition-colors ${promptDetectionEnabled ? "bg-indigo-600" : "bg-zinc-700"}`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${promptDetectionEnabled ? "translate-x-5" : "translate-x-0"}`}
-              />
-            </button>
-          </div>
-        </div>
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4 mt-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Keyboard size={20} className="text-indigo-400 shrink-0" />
-              <div>
-                <p className="text-sm text-zinc-300">Agent switch key</p>
-                <p className="text-xs text-zinc-500">
-                  Hold this key + number to switch agents
-                </p>
-              </div>
-            </div>
-            <select
-              value={switchModifier}
-              onChange={(e) => handleSwitchModifier(e.target.value)}
-              className="rounded bg-zinc-800 border border-zinc-700 px-2 py-1 text-sm text-zinc-200 outline-none"
-            >
-              <option value="Control">Ctrl</option>
-              <option value="Alt">Alt / Option</option>
-              <option value="Meta">Meta / Cmd</option>
-            </select>
-          </div>
-        </div>
-      </section>
-
-      {settings.data?.hot_reload_enabled && (
-        <section className="max-w-lg mb-8">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">
-            Development
-          </h2>
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-            <div className="flex items-start gap-3">
-              <RefreshCw size={20} className="text-indigo-400 mt-0.5 shrink-0" />
-              <div className="flex flex-1 flex-col gap-2">
-                <p className="text-sm text-zinc-300">Rebuild web application</p>
-                <p className="text-xs text-zinc-500">
-                  Build and embed the latest web UI, then hot reload Legato. This connection will briefly disconnect and reconnect.
-                </p>
+      <div className="mx-auto grid w-full max-w-5xl gap-10 px-4 py-6 md:px-8 md:py-8 lg:grid-cols-[180px_minmax(0,1fr)]">
+        <aside className="hidden lg:block">
+          <div className="sticky top-8">
+            <h1 className="mb-4 text-xl font-semibold">Settings</h1>
+            <nav aria-label="Settings sections" className="flex flex-col gap-0.5">
+              {groups.map((g) => (
                 <button
-                  onClick={handleFullBuild}
-                  disabled={buildStarting}
-                  className="mt-1 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900 disabled:cursor-wait disabled:opacity-60 sm:w-fit"
+                  key={g.id}
+                  onClick={() => goTo(g.id)}
+                  aria-current={current === g.id ? "true" : undefined}
+                  className={`rounded-lg px-3 py-2 text-left text-sm transition-colors ${current === g.id ? "bg-lw-selected text-lw-text" : "text-lw-text-2 hover:bg-lw-surface hover:text-lw-text"}`}
                 >
+                  {g.title}
+                </button>
+              ))}
+            </nav>
+          </div>
+        </aside>
+
+        <main className="flex min-w-0 max-w-3xl flex-col gap-10">
+          <h1 className="text-xl font-semibold lg:hidden">Settings</h1>
+
+          <SettingsGroup id="agents" title="Agents" description="What agents are given, and how this browser works with them.">
+            <ResourcesSettings baseUrl={baseUrl} />
+            <SettingsRows>
+              <SettingsRow
+                icon={ScanSearch}
+                title="Prompt detection"
+                description="Find tool approval and plan prompts in a terminal agent's output and offer them as buttons."
+                browser
+                control={<Toggle label="Prompt detection" on={promptDetectionEnabled} onChange={togglePromptDetection} />}
+              />
+              <SettingsRow
+                icon={Keyboard}
+                title="Agent switch key"
+                description="Hold this key and press a number to switch agents."
+                browser
+                control={(
+                  <select
+                    aria-label="Agent switch key"
+                    value={switchModifier}
+                    onChange={(e) => handleSwitchModifier(e.target.value)}
+                    className="min-h-9 rounded-lg border border-lw-line-strong bg-lw-raised px-2 text-sm text-lw-text outline-none focus:border-lw-accent"
+                  >
+                    <option value="Control">Ctrl</option>
+                    <option value="Alt">Alt / Option</option>
+                    <option value="Meta">Meta / Cmd</option>
+                  </select>
+                )}
+              />
+            </SettingsRows>
+          </SettingsGroup>
+
+          <SettingsGroup id="security" title="Security" description="Who can allow approvals, and the secrets agents use without seeing them.">
+            <DevicesSettings baseUrl={baseUrl} />
+            <CredentialsSettings baseUrl={baseUrl} />
+          </SettingsGroup>
+
+          <SettingsGroup id="connection" title="Connection" description="The servers this browser talks to, pairing, and trusting this server's certificate.">
+            <SettingsCard icon={Server} title="Servers" browser description="The Legato server this browser shows. Switch to another, or add one by its address.">
+              <div className="overflow-hidden rounded-lg border border-lw-line divide-y divide-lw-line">
+                {[{ name: "Local", url: "" }, ...servers].map((s) => (
+                  <div key={s.url || "local"} className={`flex items-center gap-3 px-3 ${isActive(s.url) ? "bg-lw-selected" : ""}`}>
+                    <button onClick={() => setActiveServer(s.url)} className="flex min-h-12 min-w-0 flex-1 items-center gap-3 text-left">
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${isActive(s.url) ? "bg-lw-live" : "bg-lw-line-strong"}`} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-lw-text">{s.name}</p>
+                        <p className="truncate font-lw-mono text-xs text-lw-faint">{s.url || window.location.origin}</p>
+                      </div>
+                      {isActive(s.url) && <span className="font-lw-mono text-[10px] uppercase tracking-wide text-lw-live">in use</span>}
+                    </button>
+                    {s.url && (
+                      <button
+                        onClick={() => removeServer(s.url)}
+                        className="flex h-10 w-10 items-center justify-center rounded-lg text-lw-faint transition-colors hover:bg-lw-raised hover:text-lw-danger"
+                        title="Remove server"
+                        aria-label={`Remove ${s.name}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[8rem_minmax(0,1fr)_auto]">
+                <input
+                  type="text"
+                  value={newServerName}
+                  onChange={(e) => setNewServerName(e.target.value)}
+                  placeholder="Name"
+                  aria-label="Server name"
+                  className="min-h-10 rounded-lg border border-lw-line-strong bg-lw-raised px-3 text-sm text-lw-text outline-none placeholder:text-lw-faint focus:border-lw-accent"
+                />
+                <input
+                  type="text"
+                  value={newServerUrl}
+                  onChange={(e) => setNewServerUrl(e.target.value)}
+                  placeholder="https://hostname:3080"
+                  aria-label="Server address"
+                  className="min-h-10 rounded-lg border border-lw-line-strong bg-lw-raised px-3 font-lw-mono text-sm text-lw-text outline-none placeholder:text-lw-faint focus:border-lw-accent"
+                />
+                <button onClick={handleAddServer} disabled={!newServerName.trim() || !newServerUrl.trim()} className={quietButton}>
+                  <Plus size={14} />
+                  Add
+                </button>
+              </div>
+            </SettingsCard>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <SettingsCard icon={Smartphone} title="Pair a phone" description="Pair the Legato app with this server by typing four words, or scanning a code.">
+                <button onClick={() => setShowPairDevice(true)} className={primaryButton}>
+                  <Smartphone size={14} />
+                  Pair a device
+                </button>
+              </SettingsCard>
+              <SettingsCard
+                icon={QrCode}
+                title="Pair this browser"
+                description={<>Scan the QR code another server shows with <code className="rounded bg-lw-raised px-1 font-lw-mono text-lw-text-2">legato pair</code>, and add it to this browser's servers.</>}
+              >
+                <button onClick={() => setShowScanner(true)} className={quietButton}>
+                  <QrCode size={14} />
+                  Scan QR code
+                </button>
+                {scanSuccess && <p role="status" className="mt-2 text-sm text-lw-live">{scanSuccess}</p>}
+              </SettingsCard>
+            </div>
+
+            <SettingsCard icon={ShieldCheck} title="TLS certificate" description="Install this server's CA certificate on a device to trust its HTTPS address and install the web app.">
+              <ul className="mb-3 flex flex-col gap-1 text-xs text-lw-text-2">
+                <li><span className="text-lw-text">Android:</span> Settings → Security → Install a certificate → CA certificate.</li>
+                <li><span className="text-lw-text">iOS:</span> install the profile, then turn on full trust in Settings → General → About → Certificate Trust Settings.</li>
+              </ul>
+              {settings.data?.ca_cert_available ? (
+                <a href={baseUrl ? `${baseUrl}/api/ca-cert` : "/api/ca-cert"} download="legato-ca.pem" className={quietButton + " w-fit"}>
+                  <Download size={14} />
+                  Download CA certificate
+                </a>
+              ) : (
+                <p className="text-xs text-lw-faint">This server uses a certificate of its own (web.tls.cert), so there is no CA to download.</p>
+              )}
+            </SettingsCard>
+          </SettingsGroup>
+
+          <SettingsGroup id="appearance" title="Appearance" description="Motion and effects. These are saved in this browser only.">
+            <SettingsRows>
+              <SettingsRow
+                icon={Zap}
+                title="Glitch effect"
+                description="A short glitch animation when a terminal syncs or you switch agents."
+                browser
+                control={<Toggle label="Glitch effect" on={glitchEnabled} onChange={toggleGlitch} />}
+              />
+              <SettingsRow
+                icon={Sparkles}
+                title="Animated agent activity"
+                description="A light that runs around a card while its agent works."
+                browser
+                control={<Toggle label="Animated agent activity" on={animatedActivityEnabled} onChange={toggleAnimatedActivity} />}
+              />
+            </SettingsRows>
+          </SettingsGroup>
+
+          {settings.data?.hot_reload_enabled && (
+            <SettingsGroup id="development" title="Development" description="This Legato runs from a checkout under hot reload.">
+              <SettingsCard icon={RefreshCw} title="Rebuild web application" description="Build and embed the latest web UI, then hot reload Legato. This connection drops for a moment.">
+                <button onClick={handleFullBuild} disabled={buildStarting} className={primaryButton + " disabled:cursor-wait"}>
                   <RefreshCw size={14} className={buildStarting ? "animate-spin" : ""} />
                   {buildStarting ? "Starting rebuild…" : "Rebuild and hot reload"}
                 </button>
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
+              </SettingsCard>
+            </SettingsGroup>
+          )}
 
-      <ResourcesSettings baseUrl={baseUrl} />
-      <CredentialsSettings baseUrl={baseUrl} />
-      <DevicesSettings baseUrl={baseUrl} />
-
-      <section className="max-w-lg mb-8">
-        <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">
-          Pairing
-        </h2>
-        <div className="mb-3 rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-          <div className="flex items-start gap-3">
-            <Smartphone size={20} className="text-indigo-400 mt-0.5 shrink-0" />
-            <div className="flex flex-col gap-2">
-              <p className="text-sm text-zinc-300">
-                Pair a phone with this server by typing four words in the Legato app.
-              </p>
-              <button
-                onClick={() => setShowPairDevice(true)}
-                className="mt-1 inline-flex w-fit items-center gap-2 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-              >
-                <Smartphone size={14} />
-                Pair a device
-              </button>
-            </div>
-          </div>
-        </div>
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-          <div className="flex items-start gap-3">
-            <QrCode size={20} className="text-indigo-400 mt-0.5 shrink-0" />
-            <div className="flex flex-col gap-2">
-              <p className="text-sm text-zinc-300">
-                Scan a QR code from another Legato instance to pair with it.
-              </p>
-              <p className="text-xs text-zinc-500">
-                Run <code className="text-zinc-400 bg-zinc-800 px-1 rounded">legato pair</code> on the server to display the QR code.
-              </p>
-              <button
-                onClick={() => setShowScanner(true)}
-                className="mt-1 inline-flex w-fit items-center gap-2 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-              >
-                <QrCode size={14} />
-                Scan QR Code
-              </button>
-              {scanSuccess && (
-                <p className="text-sm text-emerald-400">{scanSuccess}</p>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
+          <p className="pb-6 text-xs text-lw-faint">
+            Settings marked <BrowserTag /> are kept in this browser. Everything else is on the server, in config.yaml or its database.
+          </p>
+        </main>
+      </div>
 
       {showPairDevice && <PairDeviceDialog baseUrl={baseUrl} onClose={() => setShowPairDevice(false)} />}
-
       {showScanner && (
         <QRScanner onScan={handleQRScan} onClose={() => { setShowScanner(false); setSearchParams({}, { replace: true }) }} />
       )}
-
-      <section className="max-w-lg mb-8">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">
-            Servers
-          </h2>
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900 divide-y divide-zinc-800">
-            <button
-              onClick={() => setActiveServer("")}
-              className={`flex min-h-11 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-800 ${!baseUrl ? "bg-zinc-800/50" : ""}`}
-            >
-              <Server size={16} className={!baseUrl ? "text-indigo-400" : "text-zinc-600"} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-zinc-200">Local</p>
-                <p className="text-xs text-zinc-500 truncate">{window.location.origin}</p>
-              </div>
-              {!baseUrl && <span className="text-[10px] text-indigo-400 font-medium">ACTIVE</span>}
-            </button>
-            {servers.map((s) => (
-              <div key={s.url} className={`flex items-center gap-3 px-4 py-3 transition-colors hover:bg-zinc-800 ${baseUrl === s.url ? "bg-zinc-800/50" : ""}`}>
-                <button
-                  onClick={() => setActiveServer(s.url)}
-                  className="flex min-h-11 flex-1 items-center gap-3 text-left min-w-0"
-                >
-                  <Server size={16} className={baseUrl === s.url ? "text-indigo-400" : "text-zinc-600"} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-zinc-200">{s.name}</p>
-                    <p className="text-xs text-zinc-500 truncate">{s.url}</p>
-                  </div>
-                  {baseUrl === s.url && <span className="text-[10px] text-indigo-400 font-medium">ACTIVE</span>}
-                </button>
-                <button
-                  onClick={() => removeServer(s.url)}
-                  className="flex h-11 w-11 items-center justify-center rounded text-zinc-600 hover:text-red-400 hover:bg-zinc-800 transition-colors"
-                  title="Remove server"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:flex">
-            <input
-              type="text"
-              value={newServerName}
-              onChange={(e) => setNewServerName(e.target.value)}
-              placeholder="Name"
-              className="min-h-11 w-full rounded bg-zinc-800 border border-zinc-700 px-3 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500 sm:w-28"
-            />
-            <input
-              type="text"
-              value={newServerUrl}
-              onChange={(e) => setNewServerUrl(e.target.value)}
-              placeholder="https://hostname:3080"
-              className="min-h-11 flex-1 rounded bg-zinc-800 border border-zinc-700 px-3 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500"
-            />
-            <button
-              onClick={handleAddServer}
-              disabled={!newServerName.trim() || !newServerUrl.trim()}
-              className="flex min-h-11 items-center justify-center rounded bg-indigo-600 px-3 text-sm text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
-            >
-              <Plus size={14} />
-            </button>
-          </div>
-        </section>
-
-      <section className="max-w-lg">
-        <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">
-          TLS Certificate
-        </h2>
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-          <div className="flex items-start gap-3">
-            <ShieldCheck size={20} className="text-indigo-400 mt-0.5 shrink-0" />
-            <div className="flex flex-col gap-2">
-              <p className="text-sm text-zinc-300">
-                Install the CA certificate on your device to trust this server
-                and enable PWA installation.
-              </p>
-              <p className="text-xs text-zinc-500">
-                On iOS: install the profile, then enable full trust in Settings
-                &rarr; General &rarr; About &rarr; Certificate Trust Settings.
-              </p>
-              <p className="text-xs text-zinc-500">
-                On Android: Settings &rarr; Security &rarr; Install a
-                certificate &rarr; CA certificate.
-              </p>
-              {settings.data?.ca_cert_available ? (
-                <a
-                  href={baseUrl ? `${baseUrl}/api/ca-cert` : "/api/ca-cert"}
-                  download="legato-ca.pem"
-                  className="mt-2 inline-flex w-fit items-center gap-2 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-                >
-                  <Download size={14} />
-                  Download CA Certificate
-                </a>
-              ) : (
-                <p className="mt-1 text-xs text-zinc-600">
-                  No auto-generated CA certificate available. Using custom TLS
-                  config.
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
     </div>
   )
 }
