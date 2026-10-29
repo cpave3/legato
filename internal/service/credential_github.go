@@ -304,15 +304,19 @@ func writeGHWrapper(dir, legato string) error {
 	if real == "" {
 		return errors.New("no gh on PATH")
 	}
+	// In a sandbox the real gh's own path is this wrapper (see
+	// sandboxGHMounts), and the real one is at LEGATO_GH_REAL.
 	script := "#!/bin/sh\n" +
 		"# Legato: gh with a read token for one repository. Writes go through\n" +
 		"# Legato's proxy ($LEGATO_GITHUB_API_URL), not through gh.\n" +
-		"token=$(" + shellQuote(legato) + " credential gh-token -- \"$@\" 2>/dev/null)\n" +
-		"if [ -n \"$token\" ]; then GH_TOKEN=$token; export GH_TOKEN\n" +
+		"real=${LEGATO_GH_REAL:-" + shellQuote(real) + "}\n" +
+		"if out=$(" + shellQuote(legato) + " credential gh-token -- \"$@\" 2>&1); then GH_TOKEN=$out; export GH_TOKEN\n" +
 		"elif [ \"$GH_TOKEN\" = " + GHSignedOut + " ]; then\n" +
-		"  echo \"legato: gh has no GitHub token for this command: name a listed repository with -R owner/name, or run it inside a clone. Agents' gh never uses the person's own login (credential_channels.gh.isolate_login).\" >&2\n" +
+		"  echo \"legato: gh has no GitHub token for this command, so GitHub will refuse it.\" >&2\n" +
+		"  [ -n \"$out\" ] && echo \"$out\" >&2\n" +
+		"  echo \"legato: name a listed repository with -R owner/name, or run gh inside a clone. In Legato's sandbox gh never uses the person's own login.\" >&2\n" +
 		"fi\n" +
-		"exec " + shellQuote(real) + " \"$@\"\n"
+		"exec \"$real\" \"$@\"\n"
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}

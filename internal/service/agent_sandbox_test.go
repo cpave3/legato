@@ -31,7 +31,7 @@ func (f *fakeBackend) Wrap(plan sandbox.Plan, command []string) ([]string, error
 	return append([]string{"SANDBOX", "--ro-bind", "/a path", "/a path", "--"}, command...), nil
 }
 
-func sandboxedService(t *testing.T, backend *fakeBackend) (AgentService, *store.Store, *mockTmux) {
+func sandboxedService(t *testing.T, backend *fakeBackend, adjust ...func(*SandboxSettings)) (AgentService, *store.Store, *mockTmux) {
 	t.Helper()
 	s, err := store.New(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -40,6 +40,10 @@ func sandboxedService(t *testing.T, backend *fakeBackend) (AgentService, *store.
 	t.Cleanup(func() { s.Close() })
 	mt := newMockTmux()
 	home := t.TempDir()
+	settings := &SandboxSettings{Backend: backend, Base: SandboxPlanInput{Home: home, RuntimeDir: filepath.Join(t.TempDir(), "legato"), DefaultMounts: true}}
+	for _, f := range adjust {
+		f(settings)
+	}
 	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
 		Adapter: &fakeAdapter{name: "claude-code", launchFn: func(env map[string]string, _, _, _ string) string {
 			if env["LEGATO_SANDBOXED"] == "1" {
@@ -47,7 +51,7 @@ func sandboxedService(t *testing.T, backend *fakeBackend) (AgentService, *store.
 			}
 			return "fake-tool"
 		}},
-		Sandbox: &SandboxSettings{Backend: backend, Base: SandboxPlanInput{Home: home, RuntimeDir: filepath.Join(t.TempDir(), "legato"), DefaultMounts: true}},
+		Sandbox: settings,
 	})
 	return svc, s, mt
 }
@@ -195,5 +199,69 @@ func TestAResumedSessionsStorageFolderIsMounted(t *testing.T) {
 	}
 	if m, ok := mountOf(backend.plans[len(backend.plans)-1], storage); !ok || m.Kind != sandbox.ReadWrite {
 		t.Fatalf("mount of %s = %+v, %v", storage, m, ok)
+	}
+}
+
+type fixedSessionEnv map[string]string
+
+func (f fixedSessionEnv) SessionEnv(context.Context, string, string) (map[string]string, error) {
+	return f, nil
+}
+
+func TestASandboxWithLegatosGHWrapperCoversEveryRealGH(t *testing.T) {
+	cellar, bin := t.TempDir(), t.TempDir()
+	realGH := filepath.Join(cellar, "gh")
+	_ = os.WriteFile(realGH, []byte("#!/bin/sh\n"), 0o755)
+	_ = os.Symlink(realGH, filepath.Join(bin, "gh"))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	wrapperDir := filepath.Join(t.TempDir(), "legato-bin")
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) { settings.Base.CredentialWrapperDir = wrapperDir })
+	_ = os.MkdirAll(wrapperDir, 0o700)
+	_ = os.WriteFile(filepath.Join(wrapperDir, "gh"), []byte("#!/bin/sh\n"), 0o700)
+	svc.(interface{ SetSessionEnv(SessionEnvProvider) }).SetSessionEnv(fixedSessionEnv{"PATH": wrapperDir + string(os.PathListSeparator) + os.Getenv("PATH"), "GH_TOKEN": GHSignedOut})
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	plan := backend.plans[0]
+	realMount := plan.Setenv["LEGATO_GH_REAL"]
+	if realMount == "" {
+		t.Fatal("LEGATO_GH_REAL is not set")
+	}
+	var covered, kept bool
+	for _, m := range plan.Mounts {
+		covered = covered || (m.Dest == realGH && m.Path == filepath.Join(wrapperDir, "gh"))
+		kept = kept || (m.Dest == realMount && m.Path == realGH)
+	}
+	if !covered || !kept {
+		t.Fatalf("covered=%v kept=%v mounts=%+v", covered, kept, plan.Mounts)
+	}
+}
+
+func TestAnAgentOutsideTheSandboxKeepsThePersonsGHLogin(t *testing.T) {
+	backend := &fakeBackend{}
+	svc, s, mt := sandboxedService(t, backend)
+	isolation := fixedSessionEnv{"GH_TOKEN": GHSignedOut, "GH_CONFIG_DIR": filepath.Join(t.TempDir(), "gh-config")}
+	svc.(interface{ SetSessionEnv(SessionEnvProvider) }).SetSessionEnv(isolation)
+	createTask(t, s, "task-1")
+	createTask(t, s, "task-2")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Unsandboxed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SpawnAgent(context.Background(), "task-2", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	outside := mt.envVarsFor("legato-task-1")
+	if _, ok := outside["GH_TOKEN"]; ok {
+		t.Errorf("outside the sandbox GH_TOKEN = %q, want the person's own", outside["GH_TOKEN"])
+	}
+	if _, ok := outside["GH_CONFIG_DIR"]; ok {
+		t.Errorf("outside the sandbox GH_CONFIG_DIR = %q, want the person's own", outside["GH_CONFIG_DIR"])
+	}
+	inside := mt.envVarsFor("legato-task-2")
+	if inside["GH_TOKEN"] != GHSignedOut || inside["GH_CONFIG_DIR"] == "" {
+		t.Errorf("inside the sandbox: %v", inside)
 	}
 }

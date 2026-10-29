@@ -112,6 +112,21 @@ Because the sandbox's user namespace shows files root owns as owned by nobody, w
 - **AND** SHALL use the mounted known hosts file
 - **AND** the person's private keys SHALL not be readable
 
+### Requirement: gh in the sandbox is Legato's wrapper
+With a `github` credential, a sandbox SHALL mount Legato's `gh` wrapper over every real `gh` on the host's `PATH` (links resolved), and the real `gh` at a path of the execution's named by `LEGATO_GH_REAL`, which the wrapper runs. Whatever order a login shell puts `PATH` in, `gh` SHALL be the wrapper. When the wrapper gets no token it SHALL print Legato's reason. An agent outside the sandbox SHALL keep the person's own `gh` login: no stand-in `GH_TOKEN` and no empty `GH_CONFIG_DIR`.
+
+#### Scenario: A login shell puts Homebrew first
+- **WHEN** a sandboxed agent's login shell puts Homebrew's `bin` ahead of the wrapper's folder and runs `gh pr view 1 -R acme/widget`
+- **THEN** the wrapper SHALL run, give the real `gh` a read token, and run the real `gh`
+
+#### Scenario: No token
+- **WHEN** Legato gives the wrapper no token
+- **THEN** the wrapper SHALL print Legato's reason before the real `gh` runs
+
+#### Scenario: Outside the sandbox
+- **WHEN** an agent is spawned without the sandbox
+- **THEN** its environment SHALL have neither the stand-in `GH_TOKEN` nor Legato's empty `GH_CONFIG_DIR`
+
 ### Requirement: GitHub fetches over ssh URLs in the sandbox
 With a `github` credential, a sandboxed session's git settings SHALL send fetches from `git@github.com:` and `ssh://git@github.com/` to `https://github.com/`, where Legato's credential helper gives read tokens. Pushes from those forms SHALL still go to the credential proxy. An unsandboxed session SHALL keep fetching over ssh.
 

@@ -337,6 +337,7 @@ func TestGHRunsWithAReadTokenThroughLegatosWrapper(t *testing.T) {
 	if !strings.HasPrefix(env["PATH"], wrappers+string(os.PathListSeparator)) {
 		t.Fatalf("PATH = %q", env["PATH"])
 	}
+	before := os.Getenv("GH_TOKEN")
 	// As the agent's shell runs it: gh found on the session's PATH.
 	cmd := exec.Command("/bin/sh", "-c", "gh pr list -R cpave3/legato")
 	cmd.Env = append(os.Environ(), "PATH="+env["PATH"])
@@ -344,7 +345,7 @@ func TestGHRunsWithAReadTokenThroughLegatosWrapper(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(out)) != "gh pr list -R cpave3/legato token=ghs_read_for_gh" {
 		t.Fatalf("gh through the wrapper: %v %q", err, out)
 	}
-	if os.Getenv("GH_TOKEN") != "" {
+	if os.Getenv("GH_TOKEN") != before {
 		t.Fatal("GH_TOKEN leaked into this process")
 	}
 }
@@ -438,7 +439,7 @@ func TestTheWrapperSaysWhyGHHasNoToken(t *testing.T) {
 	bin := t.TempDir()
 	_ = os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\necho \"token=$GH_TOKEN\"\n"), 0o755)
 	legato := filepath.Join(t.TempDir(), "legato")
-	_ = os.WriteFile(legato, []byte("#!/bin/sh\nexit 2\n"), 0o755) // no repository found
+	_ = os.WriteFile(legato, []byte("#!/bin/sh\necho 'legato: no installation of the App for autopilot-dev/autopilot' >&2\nexit 6\n"), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	wrappers := filepath.Join(t.TempDir(), "bin")
 	if err := writeGHWrapper(wrappers, legato); err != nil {
@@ -449,8 +450,31 @@ func TestTheWrapperSaysWhyGHHasNoToken(t *testing.T) {
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, _ := cmd.Output()
-	if strings.TrimSpace(string(out)) != "token="+GHSignedOut || !strings.Contains(stderr.String(), "isolate_login") {
+	// Legato's own reason is passed on, not thrown away.
+	if strings.TrimSpace(string(out)) != "token="+GHSignedOut || !strings.Contains(stderr.String(), "no installation of the App for autopilot-dev/autopilot") {
 		t.Fatalf("out %q stderr %q", out, stderr.String())
+	}
+}
+
+func TestTheWrapperRunsTheRealGHItIsGiven(t *testing.T) {
+	bin := t.TempDir()
+	_ = os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\necho first-on-path\n"), 0o755)
+	moved := filepath.Join(t.TempDir(), "gh-real")
+	_ = os.WriteFile(moved, []byte("#!/bin/sh\necho \"moved $* token=$GH_TOKEN\"\n"), 0o755)
+	legato := filepath.Join(t.TempDir(), "legato")
+	_ = os.WriteFile(legato, []byte("#!/bin/sh\necho ghs_read\n"), 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	wrappers := filepath.Join(t.TempDir(), "bin")
+	if err := writeGHWrapper(wrappers, legato); err != nil {
+		t.Fatal(err)
+	}
+	// In a sandbox the real gh's own path is the wrapper, so the real one is
+	// reached through LEGATO_GH_REAL.
+	cmd := exec.Command(filepath.Join(wrappers, "gh"), "pr", "list")
+	cmd.Env = append(os.Environ(), "LEGATO_GH_REAL="+moved)
+	out, err := cmd.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "moved pr list token=ghs_read" {
+		t.Fatalf("%v %q", err, out)
 	}
 }
 

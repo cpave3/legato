@@ -33,6 +33,7 @@ Built by `service.BuildSandboxPlan` from the host's real paths (links resolved f
 | `agents.sandbox.mounts`, and the resources the agent is given | as configured |
 | The system ssh configuration (`/etc/ssh/ssh_config` and every file it includes) | read-only, as copies the person owns in `<runtime>/legato/sandbox/<execution>/ssh/`, each mounted over the real path of its original (see SSH below) |
 | `credential_channels.ssh_agent.known_hosts` | read-only, where the copied `ssh_config` names it as `UserKnownHostsFile` |
+| With a `github` credential: Legato's `gh` wrapper over every real `gh` on the host's `PATH`, and the real `gh` at `<runtime>/legato/sandbox/<execution>/gh-real` (`LEGATO_GH_REAL`) | read-only; whatever order a login shell puts `PATH` in, `gh` is the wrapper (see [Credentials](credentials.md) § GitHub) |
 
 Never seen: Legato's configuration file and data folder, `~/.config/legato` (the 1Password token file), `~/.ssh`, `~/.config/gh`, `~/.gitconfig`, git credential stores, `~/.netrc`, `~/.1password`, `~/.config/op`, `~/.docker`, `~/.aws`, `~/.kube`, `~/.gnupg`, password stores and keyrings, `~/.npmrc`, `~/.pypirc`, the Docker and Podman sockets, and the person's runtime folder (`/run/user/<uid>`: the session bus, every Legato's IPC socket). A mount that is inside one of these is refused; one that holds one has it covered with an empty file or folder.
 

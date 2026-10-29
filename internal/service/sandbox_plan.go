@@ -64,6 +64,15 @@ type SandboxPath struct {
 	Access string
 }
 
+// SandboxGH puts Legato's gh wrapper in the place of every real gh: a login
+// shell reorders PATH, so the wrapper cannot rely on coming first in it.
+type SandboxGH struct {
+	Wrapper   string   // the wrapper script
+	Real      string   // the real gh, which the wrapper runs
+	RealMount string   // where the real gh is mounted inside; LEGATO_GH_REAL
+	Overlays  []string // the real paths of every gh on the host's PATH
+}
+
 // SandboxPlanInput is everything a sandbox's plan is made from.
 type SandboxPlanInput struct {
 	Home, WorkDir        string
@@ -91,6 +100,7 @@ type SandboxPlanInput struct {
 	// ToolState are state folders of the agent's tool beyond the usual ones
 	// (CLAUDE_CONFIG_DIR, CODEX_HOME, a resumed session's), read-write.
 	ToolState []string
+	GH        SandboxGH
 	FS        FSProbe
 }
 
@@ -205,6 +215,12 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			state[i] = real(p)
 		}
 		in.ToolState = state
+		in.GH.Wrapper, in.GH.Real, in.GH.RealMount = real(in.GH.Wrapper), real(in.GH.Real), real(in.GH.RealMount)
+		overlays := make([]string, len(in.GH.Overlays))
+		for i, p := range in.GH.Overlays {
+			overlays[i] = real(p)
+		}
+		in.GH.Overlays = overlays
 		extra := make([]SandboxPath, len(in.Extra))
 		for i, e := range in.Extra {
 			extra[i] = SandboxPath{Path: real(e.Path), Access: e.Access}
@@ -313,6 +329,16 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	}
 	if in.SSHSocket != "" {
 		mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: in.SSHSocket})
+	}
+	if gh := in.GH; gh.Wrapper != "" && gh.Real != "" && gh.RealMount != "" && in.FS.Probe(gh.Wrapper).Exists && in.FS.Probe(gh.Real).Exists {
+		// The real gh first, before its own path is covered by the wrapper.
+		mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: gh.Real, Dest: gh.RealMount})
+		for _, path := range gh.Overlays {
+			if in.FS.Probe(path).Exists {
+				mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: gh.Wrapper, Dest: path})
+			}
+		}
+		plan.Setenv["LEGATO_GH_REAL"] = gh.RealMount
 	}
 	// Hide each forbidden path that a mount above holds, after that mount.
 	var hides []sandbox.Mount

@@ -36,6 +36,19 @@ func Run(run func() int) int {
 		}
 	}
 	os.Unsetenv("LEGATO_CONFIG")
+	// A suite run from inside an agent session must not act as that session
+	// or reach the Legato that runs it.
+	for _, key := range sessionVars {
+		os.Unsetenv(key)
+	}
 
 	return run()
+}
+
+// sessionVars are what Legato gives an agent session that ties a process to
+// that session and to the running Legato.
+var sessionVars = []string{
+	"LEGATO_TASK_ID", "LEGATO_EXECUTION_ID", "LEGATO_SOCKET", "LEGATO_BIN",
+	"LEGATO_BROKER_SOCKET", "LEGATO_BROKER_TOKEN", "LEGATO_SANDBOXED",
+	"LEGATO_GITHUB_API_URL", "LEGATO_GITHUB_TOKEN", "LEGATO_GH_REAL", "GH_TOKEN", "GH_CONFIG_DIR",
 }

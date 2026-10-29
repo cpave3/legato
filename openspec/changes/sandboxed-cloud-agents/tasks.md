@@ -52,6 +52,10 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 - [x] 3.19 Mount only the installation of the agent's own tool (`ToolInstalls` by agent kind), not every tool's
 - [x] 3.20 Mount a tool state folder moved by `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, or a resumed session's storage folder, so sessions resume inside and outside the sandbox
 - [x] 3.21 Web: `unsandboxed` is a badge of its own, after the activity bar
+- [x] 3.22 Every real `gh` in the sandbox is Legato's wrapper (login shells reorder `PATH`, so the wrapper was skipped and `gh` sent the stand-in token); the wrapper prints Legato's reason when it has no token
+- [x] 3.23 An agent outside the sandbox keeps the person's `gh` login: no stand-in `GH_TOKEN`, no empty `GH_CONFIG_DIR`
+- [x] 3.24 TUI: `R` in the agents view reloads the selected agent, resuming its conversation
+- [x] 3.25 Test suites clear the variables of an agent session (`internal/testenv`), so a suite run inside one does not act as it or reach its Legato
 
 ## 4. Phase 4: repository tools, with pushes and pull requests through the credential broker
 
@@ -67,11 +71,11 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 
 ## Status (2026-10-30)
 
-**Done.** Phase 2 (host broker). Phase 3 for the local sandbox: 3.1–3.7, 3.13–3.21 (with 3.6a and 3.15a). Phase 1: 1.1–1.7 (`prompt` on both spawn endpoints and in the web spawn dialog; `repo.ensure` as a no-op without `repo`; the built-in `legato-job`; unknown agents refused at start; `docs/cloud-agents.md`).
+**Done.** Phase 2 (host broker). Phase 3 for the local sandbox: 3.1–3.7, 3.13–3.25 (with 3.6a and 3.15a). Phase 1: 1.1–1.7 (`prompt` on both spawn endpoints and in the web spawn dialog; `repo.ensure` as a no-op without `repo`; the built-in `legato-job`; unknown agents refused at start; `docs/cloud-agents.md`).
 
 **Interim behaviour.** `repo.ensure` with a non-empty `repo` fails the step ("cannot check out a repository for a job yet") until 3.8–3.11 replace it.
 
-**Not yet seen live.** 3.18 (the options file) and 3.20 passed tests with real bwrap but no agent has been spawned with them yet. `docs/cloud-agents.md` has not been tried on a VM.
+**Not yet seen live.** 3.18 (the options file), 3.20 and 3.22 (`gh` in the sandbox) passed tests with real bwrap but no agent has been spawned with them yet. A read token for `autopilot-dev/autopilot` was issued from inside a bwrap sandbox and GitHub accepted it, so the App and the rules are right. `docs/cloud-agents.md` has not been tried on a VM.
 
 **Next, in order.**
 1. 3.8–3.12: the repository cache and job clones; then `legato-job` with `repo`.

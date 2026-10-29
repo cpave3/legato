@@ -761,6 +761,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			return fmt.Errorf("Legato's sandbox: %w", err)
 		}
 		sandboxPrefix = prefix
+	} else if envMap["GH_TOKEN"] == GHSignedOut {
+		// Outside the sandbox the agent can reach the person's gh login
+		// anyway, so its gh keeps it; the wrapper still adds read tokens.
+		delete(envMap, "GH_TOKEN")
+		delete(envMap, "GH_CONFIG_DIR")
 	}
 
 	envVars := make([]string, 0, len(envMap))

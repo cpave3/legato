@@ -64,6 +64,12 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 		}
 		in.SSHConfig = copies
 	}
+	if gh, ok := sandboxGH(in.CredentialWrapperDir, env["PATH"], filepath.Join(in.RuntimeDir, "sandbox", executionID, "gh-real")); ok {
+		if err := os.WriteFile(gh.RealMount, nil, 0o600); err != nil {
+			return "", err
+		}
+		in.GH = gh
+	}
 	plan, err := BuildSandboxPlan(in)
 	if err != nil {
 		return "", err
@@ -170,4 +176,42 @@ func toolStateDirs(agentKind string, env map[string]string, home string) []strin
 		return nil
 	}
 	return []string{filepath.Clean(dir)}
+}
+
+// sandboxGH is how a sandbox puts Legato's gh wrapper in place of every real
+// gh, for a session whose PATH starts with the wrapper's folder (a session
+// with a GitHub credential). The agent tools run commands in login shells,
+// which reorder PATH, so the wrapper cannot rely on coming first.
+func sandboxGH(wrapperDir, sessionPath, realMount string) (SandboxGH, bool) {
+	if wrapperDir == "" {
+		return SandboxGH{}, false
+	}
+	first, _, _ := strings.Cut(sessionPath, string(os.PathListSeparator))
+	wrapper := filepath.Join(wrapperDir, "gh")
+	if filepath.Clean(first) != filepath.Clean(wrapperDir) {
+		return SandboxGH{}, false
+	}
+	if _, err := os.Stat(wrapper); err != nil {
+		return SandboxGH{}, false
+	}
+	gh := SandboxGH{Wrapper: wrapper, RealMount: realMount}
+	seen := map[string]bool{}
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" || filepath.Clean(dir) == filepath.Clean(wrapperDir) {
+			continue
+		}
+		real, err := filepath.EvalSymlinks(filepath.Join(dir, "gh"))
+		if err != nil || seen[real] {
+			continue
+		}
+		if info, err := os.Stat(real); err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+			continue
+		}
+		seen[real] = true
+		if gh.Real == "" {
+			gh.Real = real
+		}
+		gh.Overlays = append(gh.Overlays, real)
+	}
+	return gh, gh.Real != ""
 }
