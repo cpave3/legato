@@ -1,6 +1,6 @@
 # Credentials
 
-Legato holds credentials for agents, so no agent needs a secret pasted into its prompt, its environment or a file. An agent asks for a scope of a credential; the person's rules decide whether that happens at once, after one approval, or never; each use is checked against what was granted; and every request, decision and use is recorded. Approvals go through the approval service (see [Approvals](approvals.md)). The design is in `openspec/changes/credential-broker`; later phases (channels that keep the secret from the agent, short-lived issuers, signed decisions, external plug-ins) are in `credential-channels`, `github-credentials`, `signed-approvals` and `credential-plugins`.
+Legato holds credentials for agents, so no agent needs a secret pasted into its prompt, its environment or a file. An agent asks for a scope of a credential; the person's rules decide whether that happens at once, after one approval, or never; each use is checked against what was granted; and every request, decision and use is recorded. Approvals go through the approval service (see [Approvals](approvals.md)). The design is in `openspec/changes/archive/2026-10-29-credential-broker`; later phases (channels that keep the secret from the agent, short-lived issuers, signed decisions, external plug-ins) are in `credential-channels`, `github-credentials`, `signed-approvals` and `credential-plugins`.
 
 Setting a new host up (the `op` command, a service account, the token file, `~/.ssh/config`) is in [Setting up credentials on a host](../credentials.md).
 
@@ -157,7 +157,7 @@ The `github` profile reaches GitHub through a GitHub App the person creates (set
 - **REST.** `/c/<credential>/api/` serves `https://api.github.com`: `GET /repos/{owner}/{repo}/**` is `api.read`; `POST /repos/{owner}/{repo}/pulls` is `pr.create` on `github:<owner>/<repo>@refs/heads/<head>` (the head read from the body: a route's resource may name `{$.field}`). Every other route is refused. The agent gets `LEGATO_GITHUB_API_URL` and `LEGATO_GITHUB_TOKEN` (the placeholder).
 - **Rules.** `{repositories}` in a rule's resource expands to one rule per listed repository. Defaults: `git.read`, `api.read` `auto`; `git.push`, `pr.create` on `…@refs/heads/legato/**` `session`; on `…@refs/heads/**` `request` (signed); `git.push-default`, `git.push-tag`, `git.delete-ref` `deny`. A repository not listed is refused with a reason that names `settings.repositories`.
 - **Guidance.** Agents are told to work on `legato/$LEGATO_TASK_ID-…`, ask for that one branch with `request_access` before the first push, push as usual, and open pull requests with `curl` to `$LEGATO_GITHUB_API_URL` (`gh` reads only).
-- Not built yet: GraphQL writes, the `oauth2` and `ssh-cert` issuers (`openspec/changes/github-credentials`).
+- Not built yet: GraphQL writes, the `oauth2` and `ssh-cert` issuers (`openspec/changes/archive/2026-10-29-github-credentials`).
 
 ## Who serves the channels
 

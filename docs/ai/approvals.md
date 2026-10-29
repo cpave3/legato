@@ -1,6 +1,6 @@
 # Approvals
 
-An **approval** is a request that waits for the person: an agent's permission request ("run this command"), an agent's question, and later a credential request (see [Credentials](credentials.md)). Legato keeps each one durably, shows it everywhere the person might be (the web tray, Attention, the TUI and the phone), and applies the first decision to the request's source. The design is in `openspec/changes/agent-approvals`.
+An **approval** is a request that waits for the person: an agent's permission request ("run this command"), an agent's question, and later a credential request (see [Credentials](credentials.md)). Legato keeps each one durably, shows it everywhere the person might be (the web tray, Attention, the TUI and the phone), and applies the first decision to the request's source. The design is in `openspec/changes/archive/2026-10-29-agent-approvals`.
 
 ## What an approval is
 
@@ -49,7 +49,7 @@ An **approval** is a request that waits for the person: an agent's permission re
 
 ## Signed approvals
 
-Some decisions can be made only by a person at an enrolled phone, with a key the phone keeps in its secure hardware and unlocks with their fingerprint or PIN for each signature. An agent with the web token can call every API, but cannot touch the phone. The design is in `openspec/changes/signed-approvals`.
+Some decisions can be made only by a person at an enrolled phone, with a key the phone keeps in its secure hardware and unlocks with their fingerprint or PIN for each signature. An agent with the web token can call every API, but cannot touch the phone. The design is in `openspec/changes/archive/2026-10-29-signed-approvals`.
 
 - **Which approvals.** An approval is `signed` when its source says so. A credential rule decides with its `signed`: `true` or `false` when written, and otherwise `true` for a rule with `approve: request` once any device is enrolled (`needsSignature`). Adding and removing devices is always signed. An allow without a valid signature is refused with `ErrApprovalNeedsSignature` (`403`); a deny never needs one. The TUI and Attention cannot allow a signed approval, and say to use the phone.
 - **Devices** (`internal/service/approval_devices.go`, migration 072: `approval_devices`, `approval_challenges`, `instance_values`). A phone asks `POST /api/devices/challenge`, makes a key with that challenge and sends `POST /api/devices {name, kind: "android", chain, challenge}`. `internal/engine/attest` checks the chain: Google's roots, the revocation list (kept a day; a chain is refused while none was ever read), the challenge, a hardware security level, EC P-256 signing, authentication for each use, and the app (`dev.legato.mobile`, signed with one of `approval_devices.android_app_digests`; the default is the public debug key's, so set the digest of a private release key, see `mobile/README.md` § Building). The first device is enrolled at once. A later one is `pending` and raises an approval of source `devices`, which an enrolled device signs. `DELETE /api/devices/{id}` raises one too. `GET /api/devices` lists them; Settings › Devices in the web UI shows them.
