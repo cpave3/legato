@@ -153,3 +153,28 @@ func TestSSHRunsInsideTheSandboxWithTheConfiguredKnownHosts(t *testing.T) {
 		t.Fatalf("err=%v out=%s", err, out)
 	}
 }
+
+func TestTheSandboxStartsFromItsArgumentsFile(t *testing.T) {
+	in := bwrapFixture(t)
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := sandbox.Bwrap{}.Wrap(plan, []string{"true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args = args[:len(args)-1]
+	line, err := argsFileCommand(args[0], args[1:len(args)-1], filepath.Join(in.RuntimeDir, "sandbox", "ex-1", "bwrap.args"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(line) > 300 {
+		t.Fatalf("typed line is %d bytes: %s", len(line), line)
+	}
+	out, err := exec.Command("sh", "-c", line+` sh -c 'test ! -e "$HOME/.ssh/id_ed25519" && test -d "$PWD" && echo inside; ls /proc/self/fd'`).CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "inside") {
+		t.Fatalf("err=%v out=%s", err, out)
+	}
+	t.Logf("open fds inside: %q", strings.Fields(strings.SplitN(string(out), "\n", 2)[1]))
+}

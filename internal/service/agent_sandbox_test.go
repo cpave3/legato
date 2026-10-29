@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,7 +28,7 @@ func (f *fakeBackend) Available() error {
 }
 func (f *fakeBackend) Wrap(plan sandbox.Plan, command []string) ([]string, error) {
 	f.plans = append(f.plans, plan)
-	return append([]string{"SANDBOX", "--"}, command...), nil
+	return append([]string{"SANDBOX", "--ro-bind", "/a path", "/a path", "--"}, command...), nil
 }
 
 func sandboxedService(t *testing.T, backend *fakeBackend) (AgentService, *store.Store, *mockTmux) {
@@ -58,9 +59,16 @@ func TestASandboxedSpawnWrapsTheLaunchCommand(t *testing.T) {
 	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
 		t.Fatal(err)
 	}
+	// The sandbox's arguments are read from a file, so the typed line stays
+	// short however many mounts there are.
 	lines := mt.sentLinesFor("legato-task-1")
-	if len(lines) == 0 || !strings.HasPrefix(lines[0], "SANDBOX -- fake-tool --in-sandbox") {
+	if len(lines) == 0 || !strings.HasPrefix(lines[0], "SANDBOX --args 3 3<") || !strings.Contains(lines[0], "bwrap.args") || !strings.Contains(lines[0], " -- fake-tool --in-sandbox") {
 		t.Fatalf("launch = %v", lines)
+	}
+	file := strings.TrimPrefix(strings.Split(lines[0], " -- ")[0], "SANDBOX --args 3 3<")
+	args, err := os.ReadFile(strings.Trim(file, "'"))
+	if err != nil || string(args) != "--ro-bind\x00/a path\x00/a path\x00" {
+		t.Fatalf("args file %s = %q, %v", file, args, err)
 	}
 	// The pane's own shell is the person's: it is not told it is sandboxed.
 	if mt.envVarsFor("legato-task-1")["LEGATO_SANDBOXED"] != "" {

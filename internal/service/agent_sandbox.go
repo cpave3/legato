@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -85,12 +86,37 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 	if err != nil {
 		return "", err
 	}
-	args = args[:len(args)-1]
+	args = args[:len(args)-1] // the backend's command, then its options, then "--"
+	if in.RuntimeDir != "" && len(args) >= 2 && args[len(args)-1] == "--" {
+		file := filepath.Join(in.RuntimeDir, "sandbox", executionID, "bwrap.args")
+		return argsFileCommand(args[0], args[1:len(args)-1], file)
+	}
 	quoted := make([]string, len(args))
 	for i, arg := range args {
 		quoted[i] = shellWord(arg)
 	}
 	return strings.Join(quoted, " "), nil
+}
+
+// argsFileCommand writes a backend's options to file, NUL-separated, and
+// returns the short command line that reads them from it: a launch command
+// is typed into a terminal, which cuts a line at 4096 bytes before the shell
+// reads it.
+func argsFileCommand(backend string, options []string, file string) (string, error) {
+	var data []byte
+	for _, option := range options {
+		if strings.ContainsRune(option, 0) {
+			return "", fmt.Errorf("sandbox option %q holds a NUL byte", option)
+		}
+		data = append(append(data, option...), 0)
+	}
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(file, data, 0o600); err != nil {
+		return "", err
+	}
+	return shellWord(backend) + " --args 3 3<" + shellWord(file) + " --", nil
 }
 
 // gitCommonDir is the .git a worktree's commits are written to, when it is

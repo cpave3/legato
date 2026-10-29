@@ -7,7 +7,8 @@ The sandbox keeps secrets from agents. It does not filter the network, and it do
 ## How a spawn is wrapped
 
 - `SpawnAgent` decides before any tmux session exists: a sandbox that cannot be built (no `bwrap`, a forbidden path) fails the spawn and never leaves an unsandboxed agent.
-- The pane runs the person's shell, on the host, with the session's environment. The launch command typed into it is prefixed with `bwrap <args> --`, so `$(cat $LEGATO_ROLE_PROMPT_FILE)` is still expanded by the host shell. A shell agent gets `bwrap <args> -- ${SHELL:-/bin/bash}`.
+- The pane runs the person's shell, on the host, with the session's environment. The launch command typed into it is prefixed with `bwrap --args 3 3<<runtime>/legato/sandbox/<execution>/bwrap.args --`, so `$(cat $LEGATO_ROLE_PROMPT_FILE)` is still expanded by the host shell. A shell agent gets the same prefix before `${SHELL:-/bin/bash}`.
+- The sandbox's options are in that file (NUL-separated, mode `0600`), not on the typed line: a terminal cuts a typed line at 4096 bytes before the shell reads it, and a sandbox's mounts easily pass that. bwrap closes the file before it starts the agent.
 - The adapter is told its tool runs in the sandbox (`LEGATO_SANDBOXED=1` in the environment it builds the launch command from, not in the pane's). Chimera then drops its own `--sandbox` and `--sandbox-*` flags: its sandbox is a Docker container, and the Docker or Podman socket would undo Legato's.
 - `bwrap` runs with the host's network and user, fresh PID, IPC, UTS and cgroup namespaces, and `--die-with-parent`: everything inside ends with the pane.
 - `agent_sessions.sandboxed` (migration 075) records which sessions run inside.
