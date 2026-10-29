@@ -59,6 +59,13 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 			return "", err
 		}
 	}
+	// The broker's folder is mounted whether or not a host serves it yet:
+	// one that starts later is then reachable from inside.
+	if in.BrokerSocket != "" {
+		if err := os.MkdirAll(filepath.Dir(in.BrokerSocket), 0o700); err != nil {
+			return "", err
+		}
+	}
 	args, err := backend.Wrap(plan, []string{"true"})
 	if err != nil {
 		return "", err

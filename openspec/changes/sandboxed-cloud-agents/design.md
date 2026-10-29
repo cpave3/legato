@@ -187,6 +187,16 @@ The read client and its GET-only guard are unchanged and keep their tests. There
 - New migrations: an execution capability-token hash column and the job clone table (execution, repository, path, created, cleaned). All additive. Pushes are recorded in the credential audit log of `credential-broker`, not in a table of this change.
 - Rollback: turn the sandbox off. Running sandboxed agents keep their broker tokens until they end. Job clones stay on disk until swept.
 
+## Verified on the person's machine (2026-10-30)
+
+Fedora Silverblue, bubblewrap 0.11, unprivileged user namespaces:
+- Inside, none of `~/.ssh`, `~/.config/gh`, `~/.gitconfig`, Legato's configuration, op token file and database, `~/.1password`, the session bus, Podman or Docker sockets exists; of Legato's runtime folder only `broker/` is seen. `OP_SERVICE_ACCOUNT_TOKEN` is unset.
+- Go, Node (mise), git (commits carry the person's identity from the environment), the network and the `legato` binary work.
+- Claude Code 2.1.312 starts, its login works (a headless request answered), and its own state is read-write. A global hook of the person's pointing into `~/.var/app/…` (GitKraken, a Flatpak) fails harmlessly: that folder is not mounted.
+- Codex 0.157.1 starts and is logged in.
+- Chimera, linked from its checkout with `pnpm link`, needs that checkout: Legato finds each agent tool's installation at start (the folder a link leads to, or the git checkout a launcher script runs) and mounts it read-only.
+- `/home` is a link to `var/home` there: every path is resolved before it is checked or mounted, so a path through the link can neither hide a credential nor clash with the system's own links.
+
 ## Open Questions
 
 - Does Claude Code's own sandbox run inside bubblewrap on a typical VM kernel, or must it always be turned off?

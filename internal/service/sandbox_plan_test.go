@@ -178,3 +178,33 @@ func TestTheSessionsOwnSocketsAndGitIdentityReachIn(t *testing.T) {
 		t.Fatalf("env = %v", plan.Setenv)
 	}
 }
+
+// linkedFS is a host whose /home is a link to var/home, as on Fedora
+// Silverblue: every path is checked and mounted where it really is.
+type linkedFS struct{ fakeFS }
+
+func (l linkedFS) Real(path string) string {
+	if path == "/home" || strings.HasPrefix(path, "/home/") {
+		return "/var" + path
+	}
+	return path
+}
+
+func TestPathsThroughALinkAreCheckedAndMountedWhereTheyReallyAre(t *testing.T) {
+	in := baseInput()
+	in.FS = linkedFS{hostFS()}
+	in.Home = "/home/me"
+	in.WorkDir = "/home/me/Projects/app"
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mounted(plan)
+	if plan.Home != "/var/home/me" || m["/var/home/me/Projects/app"].Kind != sandbox.ReadWrite || m["/home"].Kind != sandbox.Symlink {
+		t.Fatalf("home %q, mounts %+v", plan.Home, plan.Mounts)
+	}
+	in.Extra = []SandboxPath{{Path: "/home/me/.ssh"}}
+	if _, err := BuildSandboxPlan(in); err == nil {
+		t.Fatal("~/.ssh through the link was mounted")
+	}
+}

@@ -29,6 +29,23 @@ type FSProbe interface{ Probe(path string) PathInfo }
 // HostFS probes the real filesystem.
 type HostFS struct{}
 
+// Real resolves symbolic links in a path that exists: /home/me is
+// /var/home/me on a host whose /home is a link.
+func (HostFS) Real(path string) string {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		return real
+	}
+	// A path that does not exist yet: resolve the part that does.
+	dir, base := filepath.Split(filepath.Clean(path))
+	if dir == "" || dir == path {
+		return path
+	}
+	if real, err := filepath.EvalSymlinks(filepath.Clean(dir)); err == nil {
+		return filepath.Join(real, base)
+	}
+	return path
+}
+
 func (HostFS) Probe(path string) PathInfo {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -75,7 +92,7 @@ var systemPaths = []string{"/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", 
 // toolchains are the person's tools, read-only, and their package and build
 // caches, read-write. None holds a credential.
 var toolchainsRO = []string{".local/bin", ".local/share/mise", ".config/mise", "go/bin", ".cargo/bin", ".rustup", ".bun", ".deno", ".volta", ".nvm", ".pyenv"}
-var toolchainsRW = []string{"go/pkg/mod", ".cache/go-build", ".npm", ".cache/pnpm", ".local/share/pnpm", ".cache/pip", ".cache/uv", ".cargo/registry", ".cache/ms-playwright"}
+var toolchainsRW = []string{"go/pkg/mod", ".cache/go-build", ".npm", ".cache/pnpm", ".local/share/pnpm", ".cache/pip", ".cache/uv", ".cargo/registry", ".cache/ms-playwright", ".cache/node"}
 var systemToolchains = []string{"/home/linuxbrew/.linuxbrew"}
 
 // agentState is each agent tool's own state, read-write: its login and its
@@ -151,6 +168,25 @@ func allowedInside(in SandboxPlanInput, path string) bool {
 func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	if in.FS == nil {
 		in.FS = HostFS{}
+	}
+	// Every path is checked and mounted where it really is, so a link (a
+	// /home that is var/home) can neither hide a credential from the check
+	// nor clash with the system's own links.
+	if resolver, ok := in.FS.(interface{ Real(string) string }); ok {
+		real := func(p string) string {
+			if p == "" {
+				return p
+			}
+			return resolver.Real(p)
+		}
+		in.Home, in.WorkDir, in.DataDir, in.ConfigPath = real(in.Home), real(in.WorkDir), real(in.DataDir), real(in.ConfigPath)
+		in.BinaryPath, in.GitCommonDir, in.AgentFilesDir, in.PastedImagesDir = real(in.BinaryPath), real(in.GitCommonDir), real(in.AgentFilesDir), real(in.PastedImagesDir)
+		in.CredentialWrapperDir, in.GHConfigDir = real(in.CredentialWrapperDir), real(in.GHConfigDir)
+		extra := make([]SandboxPath, len(in.Extra))
+		for i, e := range in.Extra {
+			extra[i] = SandboxPath{Path: real(e.Path), Access: e.Access}
+		}
+		in.Extra = extra
 	}
 	no := forbidden(in)
 	check := func(path string) error {
