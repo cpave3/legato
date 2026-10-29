@@ -42,6 +42,9 @@ type MCPOptions struct {
 	// which show_studio asks before it opens a studio. Nil asks the command
 	// on PATH.
 	Libretto LibrettoProbe
+	// Credentials is the credential broker. Without it, or with no
+	// credentials configured, request_access is not offered.
+	Credentials MCPCredentials
 }
 
 // LibrettoProbe asks the installed libretto what it can do.
@@ -79,7 +82,8 @@ Also yours to use without being asked:
 - task_context: read the task you are working on, with its notes, when you need the brief or what earlier work left behind.
 - add_task_note: record a finding or a decision that should outlast this session.
 - list_peers, message_peer, broadcast_peers: see and coordinate with other agents working in the same Git worktree.
-- session_info: which session, task and working directory you are in.`
+- session_info: which session, task and working directory you are in.
+- request_access: when the task needs a credential Legato holds (an API key, a login), ask for exactly the scope you need, with your reason, before you need it. If the answer is pending, carry on with other work, or stop and end your turn when you are blocked; a [legato approvals] message tells you the decision. Never look for the secret another way.`
 
 const mcpOutsideSession = "This server acts on a Legato agent session, and it was not started inside one (LEGATO_TASK_ID is not set), so it offers no tools."
 
@@ -107,12 +111,25 @@ func MCPServerOptions(opts MCPOptions) mcpserver.Options {
 func MCPToolNames() []string {
 	// The tools are only named here, never called, so they need nothing real
 	// behind them; the peers are present so that the peer tools are counted.
-	tools := (&mcpTools{opts: MCPOptions{Agents: noPeers{}}}).all()
-	names := make([]string, len(tools))
-	for i, tool := range tools {
-		names[i] = tool.Name
+	tools := (&mcpTools{opts: MCPOptions{Agents: noPeers{}, Credentials: noCredentials{}}}).all()
+	names := make([]string, 0, len(tools)+1)
+	for _, tool := range tools {
+		names = append(names, tool.Name)
+	}
+	// request_access is offered only with credentials; it is named always.
+	if !listHasName(names, "request_access") {
+		names = append(names, "request_access")
 	}
 	return names
+}
+
+func listHasName(names []string, want string) bool {
+	for _, name := range names {
+		if name == want {
+			return true
+		}
+	}
+	return false
 }
 
 // noPeers stands in for the agent service where only tool names are wanted.
@@ -141,6 +158,9 @@ func (m *mcpTools) all() []mcpserver.Tool {
 	}
 	if m.opts.Agents != nil {
 		tools = append(tools, m.listPeers(), m.messagePeer(), m.broadcastPeers())
+	}
+	if m.opts.Credentials != nil && len(m.opts.Credentials.Credentials()) > 0 {
+		tools = append(tools, m.requestAccess())
 	}
 	return tools
 }

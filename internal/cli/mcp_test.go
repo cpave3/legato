@@ -481,7 +481,7 @@ func TestMCPPeerToolsAreNotOfferedWithoutAWayToReachAgents(t *testing.T) {
 func TestMCPToolNamesListsEveryToolTheServerOffers(t *testing.T) {
 	s := newTestStore(t)
 	executionID := seedMCPAgent(t, s, "task1")
-	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: "task1", ExecutionID: executionID, Agents: &fakePeers{}})
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: "task1", ExecutionID: executionID, Agents: &fakePeers{}, Credentials: &fakeCredentials{}})
 	listed, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)

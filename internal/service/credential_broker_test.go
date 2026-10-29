@@ -300,3 +300,28 @@ func waitForPending(t *testing.T, approvals *ApprovalService) Approval {
 }
 
 var _ credential.Store = credential.EnvStore{}
+
+func TestLiveGrantsAreListedAndCanBeEndedEarly(t *testing.T) {
+	f := newBrokerFixture(t, eleven(rule("auto", "read")))
+	ctx := context.Background()
+	if result, _ := f.broker.Request(ctx, request([]string{"read"})); result.Status != AccessGranted {
+		t.Fatal("not granted")
+	}
+	grants, err := f.broker.Grants(ctx)
+	if err != nil || len(grants) != 1 || grants[0].Credential != "eleven" || grants[0].TaskID != "task-1" || grants[0].Operations[0] != "read" {
+		t.Fatalf("grants = %+v, %v", grants, err)
+	}
+	if err := f.broker.EndGrant(ctx, grants[0].ID, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if grants, _ := f.broker.Grants(ctx); len(grants) != 0 {
+		t.Fatalf("an ended grant is still listed: %+v", grants)
+	}
+	if events := auditEvents(t, f.store); events[len(events)-1] != "revoke" {
+		t.Fatalf("audit = %v", events)
+	}
+	entries, err := f.broker.Audit(ctx, store.CredentialAuditFilter{Credential: "eleven"})
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("audit = %d, %v", len(entries), err)
+	}
+}

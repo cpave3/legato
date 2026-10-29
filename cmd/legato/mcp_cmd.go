@@ -60,6 +60,16 @@ func runMCPServe(args []string, in io.ReadCloser, out io.WriteCloser) int {
 		Version: mcpServerVersion(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
 		ImageDir: agentUIImageRoot(cfg), VideoDir: agentUIVideoRoot(cfg),
 	}
+	// request_access asks the credential broker, which records approvals
+	// that a host Legato decides.
+	if len(cfg.Credentials) > 0 {
+		broker, err := configuredCredentialBroker(cfg, db, newApprovalService(cfg, db, nil, nil), nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "legato mcp serve: request_access is unavailable: %v\n", err)
+		} else {
+			opts.Credentials = broker
+		}
+	}
 	// The peer tools reach other agents through tmux. Without it the rest of
 	// the tools still work, so its absence costs those three and no more.
 	if manager, tmuxErr := newAgentContractTmux(); tmuxErr == nil {

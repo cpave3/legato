@@ -730,3 +730,60 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
+
+// GrantInfo is a live grant, as the person sees it.
+type GrantInfo struct {
+	ID          string   `json:"id"`
+	Credential  string   `json:"credential"`
+	TaskID      string   `json:"task_id"`
+	ExecutionID string   `json:"execution_id"`
+	Operations  []string `json:"operations"`
+	Resources   []string `json:"resources"`
+	Mode        string   `json:"mode"`
+	UsesLeft    *int     `json:"uses_left,omitempty"`
+	ExpiresAt   *string  `json:"expires_at,omitempty"`
+	ApprovalID  string   `json:"approval_id,omitempty"`
+	CreatedAt   string   `json:"created_at"`
+}
+
+// Grants lists every live grant.
+func (b *CredentialBroker) Grants(ctx context.Context) ([]GrantInfo, error) {
+	b.endGrantsOfEndedAgents(ctx)
+	rows, err := b.db.ListLiveCredentialGrants(ctx, b.now())
+	if err != nil {
+		return nil, err
+	}
+	out := make([]GrantInfo, 0, len(rows))
+	for _, g := range rows {
+		info := GrantInfo{ID: g.ID, Credential: g.Credential, TaskID: g.TaskID, ExecutionID: g.ExecutionID, Mode: g.Mode,
+			UsesLeft: g.UsesLeft, ExpiresAt: g.ExpiresAt, ApprovalID: g.ApprovalID, CreatedAt: g.CreatedAt, Operations: []string{}, Resources: []string{}}
+		_ = json.Unmarshal([]byte(g.OperationsJSON), &info.Operations)
+		_ = json.Unmarshal([]byte(g.ResourcesJSON), &info.Resources)
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+// EndGrant ends a grant before its time.
+func (b *CredentialBroker) EndGrant(ctx context.Context, id, by string) error {
+	grants, err := b.Grants(ctx)
+	if err != nil {
+		return err
+	}
+	for _, g := range grants {
+		if g.ID != id {
+			continue
+		}
+		if err := b.db.EndCredentialGrant(ctx, id); err != nil {
+			return err
+		}
+		b.audit(ctx, g.TaskID, g.ExecutionID, store.CredentialAuditEntry{Event: "revoke", Credential: g.Credential, Operation: strings.Join(g.Operations, ","), Resource: strings.Join(g.Resources, " "), ApprovalID: g.ApprovalID, DecidedBy: by})
+		return nil
+	}
+	return store.ErrNotFound
+}
+
+// Audit returns audit rows, newest first.
+func (b *CredentialBroker) Audit(ctx context.Context, filter store.CredentialAuditFilter) ([]store.CredentialAuditEntry, error) {
+	return b.db.ListCredentialAudit(ctx, filter)
+}

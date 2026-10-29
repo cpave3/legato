@@ -25,6 +25,12 @@ export type ApprovalDetails = {
   cwd?: string
   plan?: string
   questions?: ApprovalQuestion[]
+  // A credential request (source "credential").
+  credential?: string
+  operations?: string[]
+  resources?: string[]
+  broader?: boolean
+  signed?: boolean
   [key: string]: unknown
 }
 

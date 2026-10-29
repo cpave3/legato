@@ -60,14 +60,14 @@ func TestSecretsDefaultToAnAutomaticMasterKey(t *testing.T) {
 
 func TestBadCredentialsFailToLoad(t *testing.T) {
 	for name, body := range map[string]string{
-		"no name":         "credentials:\n  - secret: legato://x\n",
-		"duplicate name":  "credentials:\n  - {name: a, secret: legato://x}\n  - {name: A, secret: legato://y}\n",
-		"no secret":       "credentials:\n  - {name: a}\n",
-		"unknown store":   "credentials:\n  - {name: a, secret: vault://kv/a}\n",
-		"unknown approve": "credentials:\n  - {name: a, secret: legato://x, policy: [{approve: sometimes}]}\n",
+		"no name":                   "credentials:\n  - secret: legato://x\n",
+		"duplicate name":            "credentials:\n  - {name: a, secret: legato://x}\n  - {name: A, secret: legato://y}\n",
+		"no secret":                 "credentials:\n  - {name: a}\n",
+		"unknown store":             "credentials:\n  - {name: a, secret: vault://kv/a}\n",
+		"unknown approve":           "credentials:\n  - {name: a, secret: legato://x, policy: [{approve: sometimes}]}\n",
 		"window without a duration": "credentials:\n  - {name: a, secret: legato://x, policy: [{approve: window}]}\n",
-		"bad limit":       "credentials:\n  - {name: a, secret: legato://x, policy: [{approve: auto, limit: {requests: lots}}]}\n",
-		"bad master key":  "secrets:\n  master_key: usb-stick\n",
+		"bad limit":                 "credentials:\n  - {name: a, secret: legato://x, policy: [{approve: auto, limit: {requests: lots}}]}\n",
+		"bad master key":            "secrets:\n  master_key: usb-stick\n",
 	} {
 		writeTestConfig(t, body)
 		if _, err := Load(); err == nil {

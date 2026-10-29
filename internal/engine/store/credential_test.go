@@ -155,4 +155,3 @@ func TestAuditCountsAndFilters(t *testing.T) {
 		t.Fatalf("t1 entries = %d", len(entries))
 	}
 }
-

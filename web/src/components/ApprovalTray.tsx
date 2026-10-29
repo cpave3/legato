@@ -116,6 +116,8 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
       <h3 className="mt-1 break-words text-sm font-semibold">{approval.title}</h3>
       {asker && <p className="text-xs text-lw-text-2">{asker}</p>}
 
+      {approval.source === "credential" && <CredentialScope approval={approval} />}
+
       {questions.length > 0 ? (
         <div className="-mx-4 mt-1">
           <NativeQuestionCard
@@ -127,7 +129,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
         </div>
       ) : (
         <>
-          {(details.command || approval.summary) && !details.plan && (
+          {approval.source !== "credential" && (details.command || approval.summary) && !details.plan && (
             <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-lw-ground p-2 font-lw-mono text-xs">{details.command || approval.summary}</pre>
           )}
           {details.plan && (
@@ -136,7 +138,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
               <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-lw-ground p-2 font-lw-mono">{details.plan}</pre>
             </details>
           )}
-          {details.reason && <p className="mt-1 break-words text-xs text-lw-text-2">{details.reason}</p>}
+          {details.reason && approval.source !== "credential" && <p className="mt-1 break-words text-xs text-lw-text-2">{details.reason}</p>}
           {details.cwd && <p className="mt-1 truncate font-lw-mono text-[11px] text-lw-faint">{details.cwd}</p>}
 
           {error && <p role="alert" className="mt-2 text-xs text-lw-error">{error}</p>}
@@ -180,5 +182,38 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
         </>
       )}
     </article>
+  )
+}
+
+// What a credential request asks for: the operations, each resource (a
+// pattern marked broader), and the agent's reason in its own words.
+function CredentialScope({ approval }: { approval: Approval }) {
+  const details = approval.details
+  const resources = details.resources ?? []
+  return (
+    <div className="mt-2 space-y-1.5 text-xs">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {(details.operations ?? []).map((operation) => (
+          <span key={operation} className="rounded bg-lw-accent-soft px-1.5 py-0.5 font-lw-mono text-lw-accent-text">{operation}</span>
+        ))}
+        {details.broader && <span className="rounded bg-lw-needs-soft px-1.5 py-0.5 font-medium text-lw-needs">Broader scope</span>}
+        {details.signed && <span className="text-lw-faint">needs a signed decision (not enforced yet)</span>}
+      </div>
+      {resources.length > 0 ? (
+        <ul className="space-y-0.5">
+          {resources.map((resource) => (
+            <li key={resource} className="break-all rounded bg-lw-ground px-2 py-1 font-lw-mono">{resource}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-lw-text-2">All of {details.credential}</p>
+      )}
+      {details.reason && (
+        <figure>
+          <figcaption className="text-[11px] text-lw-faint">The agent's reason</figcaption>
+          <blockquote className="break-words text-lw-text-2">“{details.reason}”</blockquote>
+        </figure>
+      )}
+    </div>
   )
 }

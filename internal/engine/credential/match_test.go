@@ -4,12 +4,12 @@ import "testing"
 
 func TestParseRefPicksTheStoreByScheme(t *testing.T) {
 	for in, want := range map[string]Ref{
-		"legato://elevenlabs-key":             {Scheme: "legato", Path: "elevenlabs-key"},
-		"op://Legato/eleven labs/credential":  {Scheme: "op", Path: "Legato/eleven labs/credential"},
-		"systemd-creds://github-app":          {Scheme: "systemd-creds", Path: "github-app"},
-		"keychain://legato/eleven":            {Scheme: "keychain", Path: "legato/eleven"},
-		"env://ELEVEN_KEY":                    {Scheme: "env", Path: "ELEVEN_KEY"},
-		"file:///home/me/.config/eleven.key":  {Scheme: "file", Path: "/home/me/.config/eleven.key"},
+		"legato://elevenlabs-key":            {Scheme: "legato", Path: "elevenlabs-key"},
+		"op://Legato/eleven labs/credential": {Scheme: "op", Path: "Legato/eleven labs/credential"},
+		"systemd-creds://github-app":         {Scheme: "systemd-creds", Path: "github-app"},
+		"keychain://legato/eleven":           {Scheme: "keychain", Path: "legato/eleven"},
+		"env://ELEVEN_KEY":                   {Scheme: "env", Path: "ELEVEN_KEY"},
+		"file:///home/me/.config/eleven.key": {Scheme: "file", Path: "/home/me/.config/eleven.key"},
 	} {
 		got, err := ParseRef(in)
 		if err != nil || got != want {

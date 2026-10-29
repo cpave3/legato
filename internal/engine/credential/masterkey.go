@@ -43,6 +43,20 @@ type MasterKeyOptions struct {
 	GOOS string
 }
 
+// RecordedSource names the source that made the master key of the store in
+// dataDir, or "" when no key was made yet. It makes no key.
+func RecordedSource(dataDir string) string {
+	data, err := os.ReadFile(filepath.Join(dataDir, "secrets.source"))
+	if err != nil {
+		return ""
+	}
+	var state keyState
+	if json.Unmarshal(data, &state) != nil {
+		return ""
+	}
+	return state.Source
+}
+
 // passphraseRounds stretches a passphrase into the master key.
 const passphraseRounds = 600_000
 

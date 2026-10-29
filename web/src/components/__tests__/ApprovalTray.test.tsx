@@ -65,6 +65,23 @@ describe("ApprovalTray", () => {
     mockDismiss.mockResolvedValue({})
   })
 
+  it("shows a credential request's scope, the agent's reason and a broader mark", async () => {
+    mockData = [permission({
+      id: "ap-33333333", source: "credential", title: "Use github", summary: "push on github://acme/app/refs/heads/legato/attention-*",
+      details: { credential: "github", operations: ["push"], resources: ["github://acme/app/refs/heads/legato/attention-*"], reason: "Split the refactor into three PRs", broader: true, task_title: "Refactor", agent_kind: "codex" },
+      options: [{ id: "session", label: "For this session", kind: "allow" }, { id: "once", label: "Once", kind: "allow" }, { id: "deny", label: "Deny", kind: "deny" }],
+    })]
+    renderTray()
+
+    const tray = screen.getByRole("region", { name: "Approvals" })
+    expect(within(tray).getByText("Broader scope")).toBeTruthy()
+    expect(within(tray).getByText("github://acme/app/refs/heads/legato/attention-*")).toBeTruthy()
+    expect(within(tray).getByText("“Split the refactor into three PRs”")).toBeTruthy()
+    expect(within(tray).getByText("The agent's reason")).toBeTruthy()
+    fireEvent.click(within(tray).getByRole("button", { name: "For this session" }))
+    await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-33333333", { decision: "allow", option: "session" }))
+  })
+
   it("shows nothing while no approval is pending", () => {
     const { container } = renderTray()
     expect(container.querySelector("[aria-label='Approvals']")).toBeNull()

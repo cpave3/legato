@@ -8,7 +8,6 @@ import (
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/discovery"
 	"github.com/cpave3/legato/internal/engine/events"
-	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
@@ -17,32 +16,31 @@ import (
 // approvalRuntime is the approval service of one Legato process, with the
 // watcher that turns native agents' requests into approvals.
 type approvalRuntime struct {
-	approvals *service.ApprovalService
-	watcher   *service.ApprovalWatcher
-	stop      func()
+	approvals   *service.ApprovalService
+	watcher     *service.ApprovalWatcher
+	credentials *service.CredentialBroker
+	stop        func()
 
 	mu        sync.Mutex
 	serverURL string
 }
 
-// startApprovals builds the approval service both runtimes share. agents may
-// be nil (no tmux); then agent requests are not watched. The notification
-// link uses SetServerURL's address, or web.public_url.
+// startApprovals builds the approval service both runtimes share, with the
+// credential broker that applies decisions on credential requests. agents
+// may be nil (no tmux); then agent requests are not watched. The
+// notification link uses SetServerURL's address, or web.public_url.
 func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bus *events.Bus, agents service.AgentService) *approvalRuntime {
 	rt := &approvalRuntime{serverURL: cfg.Web.PublicURL, stop: func() {}}
-	opts := service.ApprovalServiceOptions{
-		Bus: bus,
-		Broadcast: func(approvalID, taskID, kind string) {
-			ipc.Broadcast(ipc.Message{Type: "approval_changed", TaskID: taskID, ItemID: approvalID, Kind: kind})
-		},
-	}
-	if cfg.Notifications.ApprovalsEnabled() && cfg.Notifications.Ntfy.Topic != "" {
-		notifier := service.NewNtfyNotifier(cfg.Notifications.Ntfy.URL, cfg.Notifications.Ntfy.Topic, cfg.Notifications.Ntfy.Token)
-		opts.Created = func(approval service.Approval) {
-			go service.ApprovalNotifications(notifier, rt.url())(approval)
+	rt.approvals = newApprovalService(cfg, db, bus, rt.url)
+	stops := []func(){}
+	var stopCredentials func()
+	rt.credentials, stopCredentials = startCredentials(ctx, cfg, db, bus, rt.approvals, agents)
+	stops = append(stops, stopCredentials)
+	rt.stop = func() {
+		for _, stop := range stops {
+			stop()
 		}
 	}
-	rt.approvals = service.NewApprovalService(db, opts)
 	if agents == nil {
 		return rt
 	}
@@ -55,7 +53,7 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 			return ""
 		},
 	})
-	rt.stop = rt.watcher.Start(ctx, bus)
+	stops = append(stops, rt.watcher.Start(ctx, bus))
 	return rt
 }
 
@@ -82,6 +80,9 @@ func (rt *approvalRuntime) url() string {
 func (rt *approvalRuntime) attach(srv *server.Server) {
 	srv.SetApprovalService(rt.approvals)
 	srv.StartApprovalEvents()
+	if rt.credentials != nil {
+		srv.SetCredentialBroker(rt.credentials)
+	}
 	if rt.watcher != nil {
 		srv.UseAgentEvents(rt.watcher)
 	}

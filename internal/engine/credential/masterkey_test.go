@@ -13,9 +13,9 @@ import (
 // scriptedRunner answers commands by their name and first argument, and
 // remembers what was stored through it.
 type scriptedRunner struct {
-	stored  map[string][]byte // what each tool keeps
-	fail    map[string]bool   // tools that do not work here
-	calls   []string
+	stored map[string][]byte // what each tool keeps
+	fail   map[string]bool   // tools that do not work here
+	calls  []string
 }
 
 func newScriptedRunner() *scriptedRunner {

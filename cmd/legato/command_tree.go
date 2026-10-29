@@ -165,6 +165,39 @@ func commandTree() *commandDef {
 		leaf("remove", "Remove a saved resource", func(a []string) int { return runResourceContract("remove", a) },
 			[]argumentDef{arg("name", "Resource name")}, []commandFlag{jsonFlag}, `legato resource remove "Obsidian vault"`),
 	)
+	secret := group("secret", "Keep secrets in Legato's own encrypted store, for credentials to name as legato://name", []string{"legato secret add elevenlabs-key < key.txt", "legato secret list"},
+		leaf("add", "Store a secret, or replace one of the same name; reads the value from stdin", func(a []string) int { return runSecretContract("add", a) },
+			[]argumentDef{arg("name", "Secret name")},
+			[]commandFlag{valueFlag("type", "type", "value (default), userpass, keypair, oauth-client or oauth-refresh"), valueFlag("from", "path", "Read the value from a file instead of stdin"), jsonFlag},
+			"legato secret add elevenlabs-key < key.txt", "legato secret add homelab-ssh --type keypair --from ~/.ssh/homelab"),
+		leaf("list", "List the stored secrets, never their values", func(a []string) int { return runSecretContract("list", a) },
+			nil, []commandFlag{jsonFlag}, "legato secret list", "legato secret list --json"),
+		leaf("remove", "Remove a stored secret", func(a []string) int { return runSecretContract("remove", a) },
+			[]argumentDef{arg("name", "Secret name")}, []commandFlag{jsonFlag}, "legato secret remove elevenlabs-key"),
+	)
+	credentialResource := commandFlag{Name: "resource", Value: "resource", Description: "What the use is for, as narrowly as the task allows", Repeatable: true}
+	credentialGroup := group("credential", "Ask for and use the credentials Legato holds for agents", []string{"legato credential list", "legato credential exec elevenlabs --env ELEVENLABS_API_KEY -- libretto render story.yaml"},
+		leaf("list", "List the configured credentials and their rules, never their values", func(a []string) int { return runCredentialContract("list", a) },
+			nil, []commandFlag{jsonFlag}, "legato credential list", "legato credential list --json"),
+		leaf("request", "Ask for a scope of a credential for this agent session, waiting up to a minute for the person", func(a []string) int { return runCredentialContract("request", a) },
+			[]argumentDef{arg("name", "Credential name")},
+			[]commandFlag{{Name: "operation", Value: "operation", Description: "What you will do with it", Repeatable: true}, credentialResource, valueFlag("reason", "text", "What you need it for, for the person"), boolFlag("blocking", "You cannot go on without it"), jsonFlag},
+			`legato credential request elevenlabs --operation read --reason "Narrate the release video"`),
+		leaf("get", "Print a credential's value, when this session may use it", func(a []string) int { return runCredentialContract("get", a) },
+			[]argumentDef{arg("name", "Credential name")},
+			[]commandFlag{valueFlag("operation", "operation", "What the use does (default read)"), credentialResource, jsonFlag},
+			"legato credential get elevenlabs"),
+		leaf("exec", "Run one command with a credential's value in one environment variable", func(a []string) int { return runCredentialContract("exec", a) },
+			[]argumentDef{arg("name", "Credential name"), {Name: "-- command", Optional: false, Repeatable: true, Description: "The command to run, after --"}},
+			[]commandFlag{valueFlag("env", "variable", "The variable that holds the value"), valueFlag("operation", "operation", "What the use does (default read)"), credentialResource, jsonFlag},
+			"legato credential exec elevenlabs --env ELEVENLABS_API_KEY -- libretto render story.yaml"),
+	)
+	audit := commandGroup("audit", "Read the credential audit log, newest first", func(a []string) int { return runAuditContract("list", a) },
+		nil, []commandFlag{valueFlag("credential", "name", "Only this credential"), valueFlag("task", "task-id", "Only this task"), valueFlag("execution", "execution-id", "Only this agent session"), valueFlag("limit", "count", "How many rows (default 50)"), jsonFlag},
+		[]string{"legato audit --credential elevenlabs", "legato audit --task f41p6uf0 --json"},
+		leaf("verify", "Check that no row of the audit log was changed or removed", func(a []string) int { return runAuditContract("verify", a) },
+			nil, []commandFlag{jsonFlag}, "legato audit verify"),
+	)
 	columns := group("columns", "Manage config-driven board columns", []string{"legato columns sync"},
 		leaf("sync", "Sync board columns from config", runColumnsSyncContract,
 			nil, []commandFlag{jsonFlag}, "legato columns sync", "legato columns sync --json"),
@@ -295,7 +328,7 @@ func commandTree() *commandDef {
 		"It speaks MCP on stdin and stdout and acts on the session it was started in: showing artifacts and cards in the web UI, reading the task, recording notes and messaging peer agents."
 
 	root := group("", "Legato task management and AI-agent orchestration", []string{"legato task list", "legato workflow list --json"},
-		task, workspace, resource, columns, agent, plan, review, workflow, swarm, attention, learn, hooks, mcp,
+		task, workspace, resource, secret, credentialGroup, audit, columns, agent, plan, review, workflow, swarm, attention, learn, hooks, mcp,
 		leaf("serve", "Run the Legato web server", runServeCmd, nil, []commandFlag{valueFlag("port", "port", "Listening port"), boolFlag("hot-reload", "Supervise this foreground server and restart after binary replacement")}, "legato serve --port 3080", "legato --hot-reload serve --port 3080"),
 		authGroup,
 		leaf("pair", "Pair a device with the Legato web UI", runPairContract, nil, []commandFlag{valueFlag("host", "host|ip", "Address this device uses to reach this specific Legato instance"), valueFlag("port", "port", "Server port"), jsonFlag}, "legato pair --host 192.168.1.20"),
