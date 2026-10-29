@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react"
 import type { AgentInfo } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
 import { ChevronDown, Play, Pause, AlertTriangle, LayoutGrid, Plus } from "lucide-react"
-import { AgentKindBadge } from "./AgentKindBadge"
+import { AgentKindBadge, UnsandboxedBadge } from "./AgentKindBadge"
 import { agentKindLabel, isAgentToolInForeground } from "../lib/agentKind"
 import { ensembleSection } from "../lib/agentGlance"
 import { formatAgentTime, sectionLabels, stateSeconds } from "../lib/agentList"
@@ -172,7 +172,8 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
                   <span className="truncate pl-4 text-xs text-[#c9c8d0]">{agent.task_title}</span>
                 )}
                 <span className="flex min-w-0 items-center gap-1.5 pl-4">
-                  <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} unsandboxed={agent.unsandboxed} />
+                  <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} />
+                  {agent.unsandboxed && <UnsandboxedBadge />}
                   {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
                     <span className="min-w-0 truncate font-mono text-xs text-lw-text-2">{agent.command}</span>
                   )}

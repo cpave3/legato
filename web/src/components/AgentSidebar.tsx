@@ -3,7 +3,7 @@ import type { AgentContext } from "../hooks/useAgentContexts";
 import { cn } from "../lib/utils";
 import { Plus, Layers, Bell, LayoutGrid } from "lucide-react";
 import { AgentActionMenu } from "./AgentActionMenu";
-import { AgentKindBadge } from "./AgentKindBadge";
+import { AgentKindBadge, UnsandboxedBadge } from "./AgentKindBadge";
 import { ActivityBar, ContextMeter } from "./AgentMeters";
 import { isAgentToolInForeground } from "../lib/agentKind";
 import { agentSections, formatAgentTime, sectionLabels, stateSeconds } from "../lib/agentList";
@@ -180,14 +180,17 @@ function AgentEntry({
         {agent.task_title && <span className="truncate">{agent.task_title}</span>}
         <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-lw-text-2">
           <span className="flex min-w-0 items-center gap-1.5">
-            <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} unsandboxed={agent.unsandboxed} />
+            <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} />
             {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
               <span className="min-w-0 truncate font-lw-mono text-lw-faint">{agent.command}</span>
             )}
           </span>
           {context && <ContextMeter share={context.share} />}
         </div>
-        <ActivityBar states={agent.state_timeline} className="pt-0.5" />
+        <div className="flex items-center gap-2 pt-0.5">
+          <ActivityBar states={agent.state_timeline} />
+          {agent.unsandboxed && <UnsandboxedBadge />}
+        </div>
       </button>
       {isSwarm && (
         <div className="pr-1 pt-1.5">

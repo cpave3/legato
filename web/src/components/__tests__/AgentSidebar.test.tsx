@@ -108,6 +108,25 @@ describe("AgentSidebar", () => {
     expect(bar.querySelector('[data-state="working"]')!.className).toContain("-skew-x")
   })
 
+  it("marks an agent outside the sandbox after its recent activity, apart from its tool", () => {
+    render(
+      <AgentSidebar
+        agents={[{ ...longAgent, agent_kind: "claude-code", has_chimera_endpoint: true, unsandboxed: true, state_timeline: ["working", ""] }]}
+        selectedId={longAgent.task_id}
+        onSelect={() => {}}
+        onSpawn={() => {}}
+      />,
+    )
+    const mark = screen.getByText("unsandboxed")
+    expect(screen.getByLabelText("Claude Code, native session").contains(mark)).toBe(false)
+    expect(screen.getByLabelText("Recent activity").nextElementSibling).toBe(mark)
+  })
+
+  it("shows no sandbox mark for an agent inside the sandbox", () => {
+    render(<AgentSidebar agents={[{ ...longAgent, state_timeline: ["working"] }]} selectedId={longAgent.task_id} onSelect={() => {}} onSpawn={() => {}} />)
+    expect(screen.queryByText("unsandboxed")).toBeNull()
+  })
+
   it("constrains long agent metadata to the fixed sidebar width", () => {
     render(
       <AgentSidebar
