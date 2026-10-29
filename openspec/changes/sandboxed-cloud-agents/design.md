@@ -95,6 +95,12 @@ Pasted images go to `<tmp>/legato-<uid>/pasted-images/<task>`. That folder is mo
 
 *Nested sandboxes:* Codex (Landlock and seccomp) should nest. Claude Code's own bubblewrap sandbox nested in ours may fail where user namespaces cannot nest. Default to telling the tool not to sandbox itself when Legato's sandbox is on, and verify each tool (open question).
 
+### D4a. The person can opt out per spawn; toolchains are mounted
+
+The sandbox is the default once enabled, but the person can start one agent without it (**Run without sandbox** in the spawn dialogs, `sandbox: false` on the spawn endpoints). Mounts are fixed when bubblewrap starts, so an agent cannot be given a directory after it starts; an unsandboxed agent is how the person works across arbitrary directories. An agent cannot use the opt-out itself: spawning needs the web token, which the sandbox does not mount. Swarm and workflow agents are always sandboxed.
+
+The person's toolchains are mounted read-only by default (`~/.local/bin`, mise, Go, linuxbrew, Rust, Bun), with package and build caches read-write, so agents can build and test. None of these hold credentials. `agents.sandbox.default_mounts: false` turns them off.
+
 ### D5. Repository cache, with one clone per job by reference
 
 *Revised by `github-credentials`.*

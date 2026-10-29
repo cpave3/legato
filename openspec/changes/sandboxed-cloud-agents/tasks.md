@@ -41,7 +41,10 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 - [ ] 3.10 Job clones: `git clone --reference`, checkout of ref or default branch, `origin` left at the GitHub URL; migration for the job clone table; test that with no `github` credential `git push` from the clone goes to the placeholder push URL and fails without network
 - [ ] 3.11 Implement `repo.ensure` with the cache; let presets with `repo` and no `primary_dir` use a job clone; record code context
 - [ ] 3.12 Job clone cleanup on terminal executions (remove when nothing is unpushed, keep 7 days otherwise with a task note); tests
-- [ ] 3.13 Docs: `docs/ai/config.md` (new keys), sandbox section in `docs/cloud-agents.md`
+- [ ] 3.13 Default toolchain mounts (read-only tools, read-write package and build caches) and `agents.sandbox.default_mounts`; tests of the mount plan with and without them
+- [ ] 3.14 Opting out per spawn: `sandbox: false` on both spawn endpoints, **Run without sandbox** in the web and TUI spawn dialogs (unticked each time), `unsandboxed` marked on the agent's kind badge and in the TUI; swarm and workflow agents always sandboxed; tests
+- [ ] 3.15 Refuse adding a resource to a running sandboxed agent, with a message that points to an unsandboxed agent; service and web tests
+- [ ] 3.16 Docs: `docs/ai/config.md` (new keys), sandbox section in `docs/cloud-agents.md`
 
 ## 4. Phase 4: repository tools, with pushes and pull requests through the credential broker
 

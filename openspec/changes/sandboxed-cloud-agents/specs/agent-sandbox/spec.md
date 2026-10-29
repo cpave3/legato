@@ -51,3 +51,30 @@ The sandbox SHALL end when the pane's process ends, and every process inside it 
 #### Scenario: Agent killed
 - **WHEN** the agent's tmux session is killed
 - **THEN** no process started inside its sandbox SHALL remain running
+
+### Requirement: An agent can be spawned without the sandbox
+With the sandbox on, the person SHALL be able to start one agent without it, from the spawn dialogs of the web UI and the TUI (**Run without sandbox**) and with `sandbox: false` on `POST /api/agents/spawn` and `POST /api/tasks/{id}/agent`. Such an agent SHALL launch as it would with the sandbox off, and SHALL be marked `unsandboxed` wherever its agent tool is named. The choice SHALL NOT be remembered from one spawn to the next. Swarm workers and workflow agents SHALL always be sandboxed while the sandbox is on.
+
+#### Scenario: Opting out
+- **WHEN** the person ticks **Run without sandbox** and spawns an agent
+- **THEN** the launch command SHALL not go through the sandbox backend
+- **AND** the agent list SHALL mark the agent `unsandboxed`
+
+#### Scenario: Next spawn
+- **WHEN** the dialog opens again
+- **THEN** **Run without sandbox** SHALL be unticked
+
+### Requirement: Resources added to a running sandboxed agent
+A sandbox's mounts SHALL be fixed when it starts. Adding a resource to a running sandboxed agent SHALL be refused with a message saying that the agent cannot see paths added after it started and that an agent without the sandbox can.
+
+#### Scenario: Attach to a sandboxed agent
+- **WHEN** the person adds a resource to a running sandboxed agent
+- **THEN** Legato SHALL refuse it and say why, and SHALL NOT tell the agent it has the paths
+
+### Requirement: Toolchains are visible
+A sandbox SHALL mount, read-only and at their host paths when they exist, the person's toolchain directories: `~/.local/bin`, `~/.local/share/mise`, `~/go/bin`, `/home/linuxbrew/.linuxbrew`, `~/.cargo/bin`, `~/.rustup` and `~/.bun`; and read-write the package and build caches `~/go/pkg/mod`, `~/.cache/go-build`, `~/.npm`, `~/.cache/pnpm`, `~/.local/share/pnpm` and `~/.cache/pip`. `agents.sandbox.default_mounts: false` SHALL turn these off. `agents.sandbox.mounts` SHALL add to them.
+
+#### Scenario: Running the project's tests
+- **WHEN** a sandboxed agent runs `go test ./...` or `pnpm test` in its working copy
+- **THEN** the tools SHALL be found on its `PATH` and the module and package caches SHALL be usable
+
