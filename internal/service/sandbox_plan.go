@@ -116,7 +116,8 @@ var secretVars = []string{
 func forbidden(in SandboxPlanInput) []string {
 	home := in.Home
 	paths := []string{
-		in.DataDir, filepath.Dir(in.ConfigPath), in.ConfigPath,
+		// The configuration file itself: its folder may be the person's home.
+		in.DataDir, in.ConfigPath,
 		filepath.Join(home, ".ssh"), filepath.Join(home, ".config/gh"), filepath.Join(home, ".gitconfig"),
 		filepath.Join(home, ".git-credentials"), filepath.Join(home, ".config/git/credentials"), filepath.Join(home, ".netrc"),
 		filepath.Join(home, ".1password"), filepath.Join(home, ".config/op"), filepath.Join(home, ".config/legato"),

@@ -208,3 +208,19 @@ func TestPathsThroughALinkAreCheckedAndMountedWhereTheyReallyAre(t *testing.T) {
 		t.Fatal("~/.ssh through the link was mounted")
 	}
 }
+
+func TestAConfigFileBesideTheWorkIsHiddenNotItsFolder(t *testing.T) {
+	in := baseInput()
+	fs := hostFS()
+	fs["/var/home/me/legato.yaml"] = "file"
+	in.FS = fs
+	in.ConfigPath = "/var/home/me/legato.yaml"
+	in.Extra = []SandboxPath{{Path: "/var/home/me", Access: "read"}}
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatalf("a config file in home refused the whole home: %v", err)
+	}
+	if mounted(plan)["/var/home/me/legato.yaml"].Kind != sandbox.Hide {
+		t.Fatal("the config file is not hidden")
+	}
+}
