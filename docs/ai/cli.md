@@ -6,6 +6,19 @@ Legato creates a durable execution before spawning every hook-bearing agent and 
 
 Terminal outcomes are explicit: user/workflow cancellation → `cancelled`, launch/runtime failure → `failed`, missing session reconciliation → `lost`, and successful workflow callback → `succeeded`.
 
+## The host broker
+
+Agent-side processes of a session (the hooks, `legato mcp serve`, the Claude Code and Codex bridges) can reach the host Legato through a broker instead of opening its database. This is what lets them work in Legato's sandbox, which shows neither the database nor the configuration.
+
+- **Where.** One host Legato (TUI or `legato serve`) takes `<runtime dir>/legato/broker.lock` and listens on `<runtime dir>/legato/broker.sock` (mode `0600`); another takes it over within 5 seconds of it ending, so agents keep their broker across restarts (`cmd/legato/broker_runtime.go`).
+- **Who.** Every spawned session gets `LEGATO_BROKER_SOCKET` and `LEGATO_BROKER_TOKEN`: 32 random bytes, of which the database keeps only the SHA-256 (`executions.broker_token_hash`, migration 074). The host resolves a token to its running execution; a terminal execution's token resolves to nothing. A request that names another task or execution is refused (`forbidden`), an unknown token `unauthorized`, an unknown operation `unknown_op`. A failure that is not a refusal reaches the caller as `internal`, its text left in the host's log.
+- **Protocol.** `internal/engine/broker`: one newline-delimited JSON request (`{id, token, op, args}`) and one reply (`{id, result | error {code, message}}`) per connection. A hook's call gives up after 2 seconds (`broker.ErrUnreachable`).
+- **Operations** (`internal/cli/broker.go`, `bridge_host.go`, `mcp_broker.go`), each running the code the CLI command runs:
+  - `agent.state`, `agent.session_created`. `agent stopped` and `agent permission-resolved` read their payload on the agent's side and send `agent.state`.
+  - `endpoint.session`, `endpoint.bind`, `endpoint.unbind`, `resume.save` for the bridges (`cli.BridgeHost`: the store or the broker). `endpoint.session` also passes `adapters.claude-code.models`.
+  - `mcp.list`, `mcp.call`: the host runs Legato's MCP tools for the caller's session, with its own store, agent service and credential broker; `legato mcp serve` relays them with the same names and schemas (`mcpserver.NewRelayTool`).
+- **Choosing.** A command uses the broker when both variables are set and reads neither configuration nor store. When no broker answers, an unsandboxed session falls back to the store as before; a sandboxed one (`LEGATO_SANDBOXED=1`) cannot: a hook exits 0 with a note on stderr, a bridge fails, and `mcp serve` offers no tools and says why. In the sandbox `openStore` refuses outright.
+
 ## Workflows
 
 `legato workflow` manages reusable hybrid workflows:

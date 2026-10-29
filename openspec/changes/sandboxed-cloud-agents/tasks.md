@@ -13,19 +13,19 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 
 ## 2. Phase 2: host broker
 
-- [ ] 2.1 Migration: `executions.broker_token_hash`; store methods to set it and to resolve a hash to a running execution; tests for terminal executions resolving to nothing
-- [ ] 2.2 `internal/engine/broker`: socket server (request/reply, newline-delimited JSON, stale-socket removal, mode 0600) and client (2-second timeout); tests with a real socket in `t.TempDir()`
-- [ ] 2.3 Mint a token at spawn, store its hash, put `LEGATO_BROKER_SOCKET` and `LEGATO_BROKER_TOKEN` in the agent environment; test the database never holds the token
-- [ ] 2.4 `service.Broker`: dispatcher that resolves the token, rejects other identities (`forbidden`), unknown ops (`unknown_op`) and terminal executions (`unauthorized`)
-- [ ] 2.5 Broker operations for activity: `agent.state`, `agent.stopped`, `agent.session_created`, `agent.permission_resolved`, calling the same service code as the CLI commands
-- [ ] 2.6 Broker operations for bridges: `endpoint.bind`, `endpoint.unbind`, `resume.save`
-- [ ] 2.7 Broker operations for MCP tools: `ui.show` (images inline up to 25 MiB; videos by host-visible path), `task.context`, `task.note`, `peers.list`, `peers.message`, `peers.broadcast`
-- [ ] 2.8 Start the broker in both `legato serve` and the TUI runtime; shut it down cleanly
-- [ ] 2.9 A `brokerclient` mode for the hook commands: use the broker when both variables are set and then open neither store nor config; exit 0 with a stderr note when unreachable; contract tests run each command against store mode and broker mode
-- [ ] 2.10 Broker mode for `legato mcp serve`; tool errors when unreachable; contract tests per tool
-- [ ] 2.11 Broker mode for `legato agent bridge` and `legato agent codex-bridge` (bind, unbind, resume identity)
-- [ ] 2.12 Architecture test: in broker mode none of these commands imports a path that opens the store (or a runtime check that the database file is never opened)
-- [ ] 2.13 Docs: broker section in `docs/ai/cli.md` and `docs/ai/packages.md`
+- [x] 2.1 Migration: `executions.broker_token_hash`; store methods to set it and to resolve a hash to a running execution; tests for terminal executions resolving to nothing
+- [x] 2.2 `internal/engine/broker`: socket server (request/reply, newline-delimited JSON, stale-socket removal, mode 0600) and client (2-second timeout); tests with a real socket in `t.TempDir()`
+- [x] 2.3 Mint a token at spawn, store its hash, put `LEGATO_BROKER_SOCKET` and `LEGATO_BROKER_TOKEN` in the agent environment; test the database never holds the token
+- [x] 2.4 `service.Broker`: dispatcher that resolves the token, rejects other identities (`forbidden`), unknown ops (`unknown_op`) and terminal executions (`unauthorized`)
+- [x] 2.5 (`agent.state` and `agent.session_created`; `agent stopped` and `agent permission-resolved` read their payload on the agent side and send `agent.state`) Broker operations for activity: `agent.state`, `agent.stopped`, `agent.session_created`, `agent.permission_resolved`, calling the same service code as the CLI commands
+- [x] 2.6 Broker operations for bridges: `endpoint.bind`, `endpoint.unbind`, `resume.save`
+- [x] 2.7 (as `mcp.list` and `mcp.call`: the host runs the MCP tools themselves for the caller, so there is one implementation of each) Broker operations for MCP tools: `ui.show` (images inline up to 25 MiB; videos by host-visible path), `task.context`, `task.note`, `peers.list`, `peers.message`, `peers.broadcast`
+- [x] 2.8 Start the broker in both `legato serve` and the TUI runtime; shut it down cleanly
+- [x] 2.9 A `brokerclient` mode for the hook commands: use the broker when both variables are set and then open neither store nor config; exit 0 with a stderr note when unreachable; contract tests run each command against store mode and broker mode
+- [x] 2.10 (`legato mcp serve` relays the host's tools) Broker mode for `legato mcp serve`; tool errors when unreachable; contract tests per tool
+- [x] 2.11 Broker mode for `legato agent bridge` and `legato agent codex-bridge` (bind, unbind, resume identity)
+- [x] 2.12 Architecture test: in broker mode none of these commands imports a path that opens the store (or a runtime check that the database file is never opened)
+- [x] 2.13 Docs: broker section in `docs/ai/cli.md` and `docs/ai/packages.md`
 
 ## 3. Phase 3: sandbox launcher and repository cache
 

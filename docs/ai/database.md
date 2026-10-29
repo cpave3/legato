@@ -68,6 +68,10 @@ Migration 070 adds `secrets` (Legato's own store: values sealed under a master k
 
 Migration 071 adds `credential_placeholders` (the SHA-256 of each placeholder key the `http-proxy` channel gave an execution, with its credential; a placeholder resolves only while its execution runs) and `credential_meter_totals` (each amount a channel measured, by credential and meter, for the limits of rules; the time is TEXT like the audit log's).
 
+### Broker tokens
+
+Migration 074 adds `executions.broker_token_hash`: the SHA-256 of the token an execution's agent-side processes present to the host broker. The token itself is only in the session's environment. `Store.ExecutionByBrokerToken` resolves a hash to its execution while it runs. See [CLI](cli.md) § The host broker.
+
 ### Directory presets
 
 Migration 067 adds `directory_presets`: the directories the person saved from a spawn dialog (`path`, the identity and absolute; `name`; `created_at`). Saving a path again renames it and keeps its place. The spawn dialogs list them after the `repositories` of the configuration, through `service.DirectoryService`; a saved directory that the configuration also names is listed once, as the configured one.
