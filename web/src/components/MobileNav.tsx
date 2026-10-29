@@ -34,7 +34,7 @@ export function MobileTabBar({ sections, connected, moreOpen, onMore }: {
   const tabs = [sections.attention, sections.board, agents, sections.review]
   const rest = [sections.plans, sections.learning, sections.workflows]
   const restCount = rest.reduce((sum, section) => sum + (section.count ?? 0), 0)
-  const restActive = moreOpen || [...rest, sections.reports, sections.settings].some((section) => sectionActive(section, pathname, search))
+  const restActive = moreOpen || [...rest, sections.reports, sections.audit, sections.settings].some((section) => sectionActive(section, pathname, search))
 
   return (
     <nav aria-label="Primary navigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[#222228] bg-lw-rail px-1 pb-[env(safe-area-inset-bottom)] pt-1.5 font-lw md:hidden">
@@ -171,6 +171,7 @@ export function MoreSheet({ sections, connected, servers, activeServerName, base
           <Group label="Tools">
             <SectionRow section={sections.workflows} label="Workflows" />
             <SectionRow section={sections.reports} />
+            <SectionRow section={sections.audit} label="Audit log" />
           </Group>
           <Group label="Settings">
             <Toggle label="Prompt detection" on={promptDetection} onChange={(on) => { setPromptDetection(on); localStorage.setItem(PROMPT_DETECTION_KEY, on ? "true" : "false") }} />

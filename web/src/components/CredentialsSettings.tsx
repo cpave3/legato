@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom"
 import { useCallback, useEffect, useState } from "react"
 import { SettingsCard } from "./settings/SettingsUI"
 import { KeyRound } from "lucide-react"
@@ -91,6 +92,7 @@ export function CredentialsSettings({ baseUrl }: { baseUrl: string }) {
             </ul>
           </details>
         )}
+        <Link to="/audit" className="text-xs text-lw-link hover:underline">Open the audit log →</Link>
       </div>
     </SettingsCard>
   )

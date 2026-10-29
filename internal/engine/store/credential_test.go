@@ -155,3 +155,21 @@ func TestAuditCountsAndFilters(t *testing.T) {
 		t.Fatalf("t1 entries = %d", len(entries))
 	}
 }
+
+func TestAuditPagesGoBackFromAGivenRow(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	for i := 0; i < 5; i++ {
+		if _, err := s.AppendCredentialAudit(ctx, CredentialAuditEntry{Event: "use", Credential: "github"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, _ := s.ListCredentialAudit(ctx, CredentialAuditFilter{Limit: 2})
+	if len(first) != 2 || first[0].Seq != 5 || first[1].Seq != 4 {
+		t.Fatalf("first page = %+v", first)
+	}
+	next, _ := s.ListCredentialAudit(ctx, CredentialAuditFilter{Limit: 2, BeforeSeq: first[1].Seq})
+	if len(next) != 2 || next[0].Seq != 3 || next[1].Seq != 2 {
+		t.Fatalf("next page = %+v", next)
+	}
+}

@@ -28,6 +28,7 @@ export const navIcons = {
   workflows: "M6 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM18 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6 9v3a3 3 0 0 0 3 3h6",
   learning: "M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2zM22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z",
   reports: "M3 3v18h18M7 15l4-4 4 3 5-6",
+  audit: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4",
   settings: "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6",
   more: "M5 12h.01M12 12h.01M19 12h.01",
 }
@@ -46,12 +47,13 @@ export function navSections(summary: Partial<NavigationSummary> = {}): Record<st
     workflows: { key: "workflows", label: "Flows", to: "/workflows", icon: navIcons.workflows, count: summary.workflow_attention, tone: "error", noun: "need attention", separated: true },
     learning: { key: "learning", label: "Learning", to: "/learning", icon: navIcons.learning, count: summary.learning, tone: "neutral", noun: "to decide" },
     reports: { key: "reports", label: "Reports", to: "/reports", icon: navIcons.reports },
+    audit: { key: "audit", label: "Audit", to: "/audit", icon: navIcons.audit },
     settings: { key: "settings", label: "Settings", to: "/settings", icon: navIcons.settings },
   }
 }
 
 // The rail's sections, top to bottom; Settings stands apart at the foot.
-export const railOrder = ["attention", "ensemble", "agents", "board", "review", "plans", "workflows", "learning", "reports"]
+export const railOrder = ["attention", "ensemble", "agents", "board", "review", "plans", "workflows", "learning", "reports", "audit"]
 
 // sectionName is a section's accessible name, with its count when it has one.
 export function sectionName(section: Pick<NavSection, "label" | "count" | "noun">): string {

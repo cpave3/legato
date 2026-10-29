@@ -210,7 +210,9 @@ type CredentialAuditFilter struct {
 	TaskID      string
 	ExecutionID string
 	Since       time.Time
-	Limit       int
+	// BeforeSeq keeps rows older than this one, for the next page.
+	BeforeSeq int64
+	Limit     int
 }
 
 func (f CredentialAuditFilter) where() (string, []any) {
@@ -225,6 +227,10 @@ func (f CredentialAuditFilter) where() (string, []any) {
 	if !f.Since.IsZero() {
 		clauses = append(clauses, "at >= ?")
 		args = append(args, f.Since.UTC().Format("2006-01-02T15:04:05.000Z"))
+	}
+	if f.BeforeSeq > 0 {
+		clauses = append(clauses, "seq < ?")
+		args = append(args, f.BeforeSeq)
 	}
 	if len(clauses) == 0 {
 		return "", nil

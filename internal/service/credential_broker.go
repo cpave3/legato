@@ -1304,3 +1304,37 @@ func (b *CredentialBroker) EndGrant(ctx context.Context, id, by string) error {
 func (b *CredentialBroker) Audit(ctx context.Context, filter store.CredentialAuditFilter) ([]store.CredentialAuditEntry, error) {
 	return b.db.ListCredentialAudit(ctx, filter)
 }
+
+// AuditRow is an audit row with the title of the task whose agent it was,
+// when the task still exists.
+type AuditRow struct {
+	store.CredentialAuditEntry
+	TaskTitle string `json:"task_title,omitempty"`
+}
+
+// AuditRows returns audit rows, newest first, each with its task's title.
+func (b *CredentialBroker) AuditRows(ctx context.Context, filter store.CredentialAuditFilter) ([]AuditRow, error) {
+	entries, err := b.db.ListCredentialAudit(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	titles := map[string]string{}
+	rows := make([]AuditRow, len(entries))
+	for i, e := range entries {
+		title, known := titles[e.TaskID]
+		if !known && e.TaskID != "" {
+			if task, err := b.db.GetTask(ctx, e.TaskID); err == nil {
+				title = task.Title
+			}
+			titles[e.TaskID] = title
+		}
+		rows[i] = AuditRow{CredentialAuditEntry: e, TaskTitle: title}
+	}
+	return rows, nil
+}
+
+// VerifyAudit walks the audit log's hash chain and returns the sequence
+// number of the first row that does not match, or 0 when it holds.
+func (b *CredentialBroker) VerifyAudit(ctx context.Context) (int64, error) {
+	return b.db.VerifyCredentialAudit(ctx)
+}

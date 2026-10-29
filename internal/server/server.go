@@ -212,6 +212,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/credentials/grants", s.credentialGrantsHandler())
 	mux.HandleFunc("/api/credentials/grants/{id}", s.credentialGrantHandler())
 	mux.HandleFunc("/api/credentials/audit", s.credentialAuditHandler())
+	mux.HandleFunc("/api/credentials/audit/verify", s.credentialAuditVerifyHandler())
 	mux.HandleFunc("/api/learnings", s.learningsHandler())
 	mux.HandleFunc("/api/learnings/search", s.learningSearchHandler())
 	mux.HandleFunc("/api/learnings/context", s.learningContextHandler())

@@ -206,7 +206,7 @@ A profile is YAML: `name`, `description`, `issuer` (`static` in this phase), `ch
 
 `credential_audit` (migration 070) is append-only. Events: `request`, `pending`, `grant`, `deny`, `use`, `refuse`, `revoke`. Each row records the time, execution, task, agent tool, workspace, credential, operation, resource, amount, approval and who decided; never a value. Each row holds the previous row's hash and its own, the SHA-256 of the previous hash and the row's canonical JSON, appended inside a transaction that takes SQLite's write lock first, so processes appending together keep one chain. The time is stored as text so it reads back exactly as it was hashed.
 
-`legato audit [--credential] [--task] [--execution] [--limit]` prints rows newest first; `legato audit verify` names the first row whose hashes do not match. The web UI reads `GET /api/credentials/audit`.
+`legato audit [--credential] [--task] [--execution] [--limit]` prints rows newest first; `legato audit verify` names the first row whose hashes do not match. The web UI's **Audit** page (`/audit`; see [Web UI](web-ui.md) § Audit) reads `GET /api/credentials/audit?credential=&event=&task=&execution=&before=<seq>&limit=` (newest first, at most 500; each row with its task's `task_title`, from `CredentialBroker.AuditRows`) and `GET /api/credentials/audit/verify` (`{intact}`, or `{intact: false, broken_at}`).
 
 ## Code
 

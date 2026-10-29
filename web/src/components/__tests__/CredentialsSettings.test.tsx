@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { CredentialsSettings } from "../CredentialsSettings"
+import { MemoryRouter } from "react-router-dom"
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
@@ -32,7 +33,7 @@ afterEach(() => {
 
 describe("CredentialsSettings", () => {
   it("lists the credentials, the live grants and what was done with them", async () => {
-    render(<CredentialsSettings baseUrl="http://legato" />)
+    render(<MemoryRouter><CredentialsSettings baseUrl="http://legato" /></MemoryRouter>)
 
     const section = await screen.findByRole("region", { name: "Credentials" })
     await waitFor(() => expect(within(section).getByText("legato://eleven-key")).toBeTruthy())
@@ -41,7 +42,7 @@ describe("CredentialsSettings", () => {
   })
 
   it("ends a grant early", async () => {
-    render(<CredentialsSettings baseUrl="http://legato" />)
+    render(<MemoryRouter><CredentialsSettings baseUrl="http://legato" /></MemoryRouter>)
 
     fireEvent.click(await screen.findByRole("button", { name: "End grant of elevenlabs for t1" }))
 

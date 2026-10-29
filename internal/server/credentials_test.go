@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -76,5 +77,38 @@ func TestCredentialsAPIWithoutABroker(t *testing.T) {
 	rec := serve(srv, http.MethodGet, "/api/credentials", "")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"credentials":[]`) {
 		t.Fatalf("credentials = %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestTheAuditNamesTheAgentsTaskPagesBackAndChecksItsChain(t *testing.T) {
+	t.Setenv("SERVER_TEST_KEY", "sk-server")
+	srv, broker := newCredentialsServer(t)
+	for i := 0; i < 3; i++ {
+		if result, _ := broker.Request(context.Background(), service.AccessRequest{TaskID: "task-1", ExecutionID: "ex-1", Credential: "eleven", Operations: []string{"read"}}); result.Status != service.AccessGranted {
+			t.Fatal("not granted")
+		}
+	}
+	var page struct {
+		Entries []struct {
+			Seq       int64  `json:"seq"`
+			Event     string `json:"event"`
+			TaskID    string `json:"task_id"`
+			TaskTitle string `json:"task_title"`
+		} `json:"entries"`
+	}
+	rec := serve(srv, http.MethodGet, "/api/credentials/audit?event=request&limit=2", "")
+	_ = json.Unmarshal(rec.Body.Bytes(), &page)
+	if rec.Code != http.StatusOK || len(page.Entries) != 2 || page.Entries[0].Event != "request" || page.Entries[0].TaskTitle != "Narrate" {
+		t.Fatalf("first page = %d %s", rec.Code, rec.Body)
+	}
+	last := page.Entries[1].Seq
+	rec = serve(srv, http.MethodGet, "/api/credentials/audit?event=request&limit=2&before="+strconv.FormatInt(last, 10), "")
+	_ = json.Unmarshal(rec.Body.Bytes(), &page)
+	if len(page.Entries) != 1 || page.Entries[0].Seq >= last {
+		t.Fatalf("next page = %s", rec.Body)
+	}
+	rec = serve(srv, http.MethodGet, "/api/credentials/audit/verify", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"intact":true`) {
+		t.Fatalf("verify = %d %s", rec.Code, rec.Body)
 	}
 }

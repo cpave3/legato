@@ -80,15 +80,18 @@ func (s *Server) credentialAuditHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		entries := []store.CredentialAuditEntry{}
+		entries := []service.AuditRow{}
 		if s.credentials != nil {
-			limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+			query := r.URL.Query()
+			limit, _ := strconv.Atoi(query.Get("limit"))
 			if limit <= 0 || limit > 500 {
 				limit = 100
 			}
+			before, _ := strconv.ParseInt(query.Get("before"), 10, 64)
 			var err error
-			entries, err = s.credentials.Audit(r.Context(), store.CredentialAuditFilter{
-				Credential: r.URL.Query().Get("credential"), TaskID: r.URL.Query().Get("task"), ExecutionID: r.URL.Query().Get("execution"), Limit: limit,
+			entries, err = s.credentials.AuditRows(r.Context(), store.CredentialAuditFilter{
+				Event: query.Get("event"), Credential: query.Get("credential"), TaskID: query.Get("task"),
+				ExecutionID: query.Get("execution"), BeforeSeq: before, Limit: limit,
 			})
 			if err != nil {
 				s.writeError(w, http.StatusInternalServerError, err.Error())
@@ -96,5 +99,30 @@ func (s *Server) credentialAuditHandler() http.HandlerFunc {
 			}
 		}
 		s.writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+	}
+}
+
+// credentialAuditVerifyHandler serves GET /api/credentials/audit/verify: whether
+// the audit log's hash chain holds, and where it breaks when it does not.
+func (s *Server) credentialAuditVerifyHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.credentials == nil {
+			s.writeJSON(w, http.StatusOK, map[string]any{"intact": true})
+			return
+		}
+		broken, err := s.credentials.VerifyAudit(r.Context())
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if broken != 0 {
+			s.writeJSON(w, http.StatusOK, map[string]any{"intact": false, "broken_at": broken})
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"intact": true})
 	}
 }

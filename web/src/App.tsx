@@ -15,6 +15,7 @@ import { AttentionPage } from "./pages/AttentionPage"
 import { LearningsPage } from "./pages/LearningsPage"
 import { LearningDetailPage } from "./pages/LearningDetailPage"
 import { ReportsPage } from "./pages/ReportsPage"
+import { AuditPage } from "./pages/AuditPage"
 import { clearToken } from "./lib/auth"
 import { SettingsRequestError, useSettings } from "./hooks/useSettings"
 
@@ -72,6 +73,7 @@ export default function App() {
           <Route path="/learning" element={<LearningsPage />} />
           <Route path="/learning/:learningId" element={<LearningDetailPage />} />
           <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/audit" element={<AuditPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/agents" replace />} />
         </Route>
