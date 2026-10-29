@@ -102,6 +102,8 @@ Approve the request, and the login goes through. `legato audit` shows each reque
 
 Agents are told about each credential and how to use it, in their Legato guidance: run `ssh` as usual, wait for an approval, and never get in another way.
 
+In a sandboxed Chimera session (`--sandbox`), `ssh` fails before it connects with `Bad owner or permissions on /etc/ssh/ssh_config.d/…`: in the sandbox, root's files appear to belong to `nobody` (`ls -ln` shows `65534`), and `ssh` refuses a configuration file it cannot trust. Run `ssh` there in host mode, as with Legato's own commands.
+
 ## What this does not stop
 
 Outside the agent sandbox (not built yet), an agent runs as you. It can read `~/.config/legato/op-token`, the configuration, `~/.ssh`, and `~/.1password/agent.sock`. These steps make the approved way the one agents use and are told to use, and they record every use; they do not make the other ways impossible.
