@@ -286,11 +286,12 @@ type WorkspaceConfig struct {
 }
 
 type AgentsConfig struct {
-	EscapeKey       string            `yaml:"escape_key"`
-	TmuxOptions     map[string]string `yaml:"tmux_options"`
-	SparklineWindow string            `yaml:"sparkline_window"` // Go duration string, default "10m"
-	PeerAwareness   bool              `yaml:"peer_awareness"`   // automatic peer context and join notices; default true
-	MCP             AgentMCPConfig    `yaml:"mcp"`
+	EscapeKey       string             `yaml:"escape_key"`
+	TmuxOptions     map[string]string  `yaml:"tmux_options"`
+	SparklineWindow string             `yaml:"sparkline_window"` // Go duration string, default "10m"
+	PeerAwareness   bool               `yaml:"peer_awareness"`   // automatic peer context and join notices; default true
+	MCP             AgentMCPConfig     `yaml:"mcp"`
+	Sandbox         AgentSandboxConfig `yaml:"sandbox"`
 }
 
 // AgentMCPConfig configures the tools Legato gives the agents it launches,
@@ -433,6 +434,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if err := normalizeResources(cfg); err != nil {
+		return nil, err
+	}
+	if err := normalizeAgentSandbox(cfg); err != nil {
 		return nil, err
 	}
 	if err := normalizeCredentials(cfg); err != nil {
