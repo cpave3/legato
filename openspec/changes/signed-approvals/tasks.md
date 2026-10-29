@@ -2,7 +2,7 @@ Every task is test-first (red, green, refactor). This change needs `agent-approv
 
 ## 1. Attestation
 
-- [ ] 1.1 (parsing done and tested with built chains; a chain captured from a real phone is still to add) `internal/engine/attest`: parse the key description extension (security levels, challenge, hardware-enforced authorization list, application ID); tests against attestation chains captured from real devices and checked into `testdata/`
+- [x] 1.1 `internal/engine/attest`: parse the key description extension (security levels, challenge, hardware-enforced authorization list, application ID); tests against attestation chains captured from real devices and checked into `testdata/`
 - [x] 1.2 Chain verification to shipped Google roots; test with a test root injected, and that a chain to an unknown root is refused
 - [x] 1.3 Revocation list fetch and cache; test that a revoked serial is refused and that a failed fetch refuses a chain the cache has not seen
 - [x] 1.4 Policy checks of D2 as a pure function; table tests for software-only keys, `noAuthRequired`, an `authTimeout`, a wrong curve, a wrong application ID and a stale challenge
