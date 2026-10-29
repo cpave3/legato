@@ -230,3 +230,30 @@ func TestALinkedToolInTheToolchainFoldersWorksInside(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillsLinkedThroughAChainOfLinksAreReadableInside(t *testing.T) {
+	in := bwrapFixture(t)
+	base := filepath.Dir(in.Home)
+	registry := filepath.Join(base, "registry", "skills")
+	_ = os.MkdirAll(filepath.Join(registry, "diagnose"), 0o755)
+	_ = os.WriteFile(filepath.Join(registry, "diagnose", "SKILL.md"), []byte("# Diagnose"), 0o644)
+	_ = os.MkdirAll(filepath.Join(registry, "other"), 0o755)
+	// ~/.claude/skills/diagnose -> ../../.agents/skills/diagnose -> registry/diagnose
+	agents := filepath.Join(in.Home, ".agents", "skills")
+	_ = os.MkdirAll(agents, 0o755)
+	_ = os.Symlink(filepath.Join(registry, "diagnose"), filepath.Join(agents, "diagnose"))
+	skills := filepath.Join(in.Home, ".claude", "skills")
+	_ = os.MkdirAll(skills, 0o755)
+	_ = os.Symlink("../../.agents/skills/diagnose", filepath.Join(skills, "diagnose"))
+	_ = os.Symlink("../../.ssh", filepath.Join(skills, "keys"))
+
+	out, err := runInSandbox(t, in, `cat `+filepath.Join(skills, "diagnose", "SKILL.md")+`; echo; cat `+filepath.Join(skills, "keys", "id_ed25519")+` 2>/dev/null || echo keys-closed; test -e `+filepath.Join(registry, "other")+` || echo only-linked; touch `+filepath.Join(registry, "diagnose", "x")+` 2>/dev/null || echo read-only`)
+	if err != nil {
+		t.Fatalf("err=%v out=%s", err, out)
+	}
+	for _, want := range []string{"# Diagnose", "keys-closed", "only-linked", "read-only"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %s", want, out)
+		}
+	}
+}

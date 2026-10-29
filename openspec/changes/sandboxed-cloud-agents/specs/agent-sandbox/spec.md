@@ -88,6 +88,11 @@ A sandbox SHALL mount, read-only and at their host paths when they exist, the pe
 - **THEN** the sandbox SHALL mount `~/Projects/staccato/st` read-only, and no other file of that folder
 - **AND** a link whose target is in a path a sandbox must not see SHALL stay broken
 
+#### Scenario: Skills linked through a chain of links
+- **WHEN** `~/.claude/skills/diagnose` links to `~/.agents/skills/diagnose`, which links to a registry's checkout, and a Claude Code agent is spawned
+- **THEN** the sandbox SHALL make `~/.agents/skills/diagnose` again as a link and mount the registry's `diagnose` folder read-only, so the skill is readable
+- **AND** SHALL do this only for the folders of the agent's own tool
+
 #### Scenario: Running the project's tests
 - **WHEN** a sandboxed agent runs `go test ./...` or `pnpm test` in its working copy
 - **THEN** the tools SHALL be found on its `PATH` and the module and package caches SHALL be usable

@@ -109,34 +109,77 @@ type SandboxPlanInput struct {
 // their links are mounted read-only, when the folder is.
 var linkDirs = []string{".local/bin", "go/bin", ".cargo/bin", ".bun/bin", ".deno/bin", ".volta/bin"}
 
-// linkLister reads the links in a folder; HostFS is one.
-type linkLister interface {
-	// LinkTargets is the real path of each file a link directly in dir
-	// leads to.
-	LinkTargets(dir string) []string
+// skillDirs are an agent tool's folders of skills, commands and agents,
+// whose entries are often links to a shared folder (~/.agents/skills) that
+// links on again (a registry's checkout). Only the agent's own tool's.
+var skillDirs = map[string][]string{
+	"claude-code": {".claude/skills", ".claude/commands", ".claude/agents"},
+	"codex":       {".codex/skills", ".codex/prompts"},
+	"chimera":     {".chimera/skills", ".chimera/commands", ".chimera/agents"},
 }
 
-// LinkTargets is the real path of each regular file a link directly in dir
-// leads to.
-func (HostFS) LinkTargets(dir string) []string {
+// linkStep is one link of a chain: the link at Path (its folder resolved)
+// and its target as written.
+type linkStep struct{ Path, Target string }
+
+// linkChain is where a link leads: each link on the way, and the real file
+// or folder at its end.
+type linkChain struct {
+	Steps []linkStep
+	Real  string
+	Dir   bool
+}
+
+// linkLister reads links; HostFS is one.
+type linkLister interface {
+	// Links lists the links directly in dir.
+	Links(dir string) []string
+	// Chain follows a link to the file or folder it ends at.
+	Chain(link string) (linkChain, bool)
+}
+
+func (HostFS) Links(dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
 	var out []string
 	for _, entry := range entries {
-		if entry.Type()&os.ModeSymlink == 0 {
-			continue
-		}
-		real, err := filepath.EvalSymlinks(filepath.Join(dir, entry.Name()))
-		if err != nil {
-			continue
-		}
-		if info, err := os.Stat(real); err == nil && info.Mode().IsRegular() {
-			out = append(out, real)
+		if entry.Type()&os.ModeSymlink != 0 {
+			out = append(out, filepath.Join(dir, entry.Name()))
 		}
 	}
 	return out
+}
+
+func (HostFS) Chain(link string) (linkChain, bool) {
+	var chain linkChain
+	path := link
+	for range 40 {
+		parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+		if err != nil {
+			return linkChain{}, false
+		}
+		at := filepath.Join(parent, filepath.Base(path))
+		info, err := os.Lstat(at)
+		if err != nil {
+			return linkChain{}, false
+		}
+		if info.Mode()&os.ModeSymlink == 0 {
+			chain.Real, chain.Dir = at, info.IsDir()
+			return chain, info.IsDir() || info.Mode().IsRegular()
+		}
+		target, err := os.Readlink(at)
+		if err != nil {
+			return linkChain{}, false
+		}
+		chain.Steps = append(chain.Steps, linkStep{Path: at, Target: target})
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(parent, target)
+		}
+		path = filepath.Clean(target)
+	}
+	return linkChain{}, false
 }
 
 // systemPaths are the host's system, read-only. A path that is a symbolic
@@ -428,42 +471,67 @@ func sshConfigMounts(in SandboxPlanInput) []sandbox.Mount {
 	return mounts
 }
 
-// linkTargetMounts mounts, read-only, the files that links in the mounted
-// command folders lead to outside every mount, so a tool linked from its
-// checkout runs inside. A target in a forbidden path is left out.
+// linkTargetMounts makes the links in the mounted command folders, and in the
+// agent tool's folders of skills, work inside: each link on the way that no
+// mount holds is made again, and the file or folder at the end is mounted
+// read-only (a command folder's links count only when they end at a file).
+// A chain that passes through a forbidden path is left out.
 func linkTargetMounts(in SandboxPlanInput, mounts []sandbox.Mount, forbiddenPaths []string) []sandbox.Mount {
 	lister, ok := in.FS.(linkLister)
 	if !ok {
 		return nil
 	}
+	var out []sandbox.Mount
 	covered := func(path string) bool {
-		for _, m := range mounts {
+		for _, m := range append(mounts, out...) {
 			if (m.Kind == sandbox.ReadOnly || m.Kind == sandbox.ReadWrite) && m.Dest == "" && within(path, m.Path) {
+				return true
+			}
+			if m.Kind == sandbox.Symlink && m.Path == path {
 				return true
 			}
 		}
 		return false
 	}
-	var out []sandbox.Mount
-	seen := map[string]bool{}
-	for _, rel := range linkDirs {
-		dir := filepath.Join(in.Home, rel)
-		if !covered(dir) {
-			continue
+	refused := func(path string) bool {
+		for _, f := range forbiddenPaths {
+			if within(path, f) {
+				return true
+			}
 		}
-		for _, target := range lister.LinkTargets(dir) {
-			if seen[target] || covered(target) {
+		return false
+	}
+	follow := func(dir string, folders bool) {
+		if !covered(dir) {
+			return
+		}
+		for _, link := range lister.Links(dir) {
+			chain, ok := lister.Chain(link)
+			if !ok || (chain.Dir && !folders) || refused(chain.Real) {
 				continue
 			}
-			seen[target] = true
-			refused := false
-			for _, f := range forbiddenPaths {
-				refused = refused || within(target, f)
+			bad := false
+			for _, step := range chain.Steps {
+				bad = bad || refused(step.Path)
 			}
-			if !refused {
-				out = append(out, sandbox.Mount{Kind: sandbox.ReadOnly, Path: target})
+			if bad {
+				continue
+			}
+			for _, step := range chain.Steps {
+				if !covered(step.Path) {
+					out = append(out, sandbox.Mount{Kind: sandbox.Symlink, Path: step.Path, Target: step.Target})
+				}
+			}
+			if !covered(chain.Real) {
+				out = append(out, sandbox.Mount{Kind: sandbox.ReadOnly, Path: chain.Real})
 			}
 		}
+	}
+	for _, rel := range linkDirs {
+		follow(filepath.Join(in.Home, rel), false)
+	}
+	for _, rel := range skillDirs[in.AgentKind] {
+		follow(filepath.Join(in.Home, rel), true)
 	}
 	return out
 }
