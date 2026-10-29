@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"path/filepath"
 
 	"github.com/cpave3/legato/config"
@@ -8,6 +9,11 @@ import (
 )
 
 func openStore(cfg *config.Config) (*store.Store, error) {
+	// In Legato's sandbox the store is out of reach by design: everything
+	// goes through the broker. Refuse before touching any path.
+	if sandboxed() {
+		return nil, errSandboxedStore
+	}
 	database, err := config.ResolveDatabase(cfg)
 	if err != nil {
 		return nil, err
@@ -33,3 +39,5 @@ func agentUIImageRoot(cfg *config.Config) string {
 func agentUIVideoRoot(cfg *config.Config) string {
 	return filepath.Join(config.ResolveDataDir(cfg), "agent-ui-videos")
 }
+
+var errSandboxedStore = errors.New("this command reads Legato's database, which agents in Legato's sandbox cannot reach")

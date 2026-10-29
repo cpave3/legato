@@ -137,3 +137,17 @@ func stdin(t *testing.T, text string) {
 	os.Stdin = r
 	t.Cleanup(func() { os.Stdin = old })
 }
+
+func TestASandboxedProcessNeverOpensTheStore(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legato.db")
+	cfg := filepath.Join(t.TempDir(), "config.yaml")
+	_ = os.WriteFile(cfg, []byte("db:\n  path: "+dbPath+"\n"), 0o600)
+	t.Setenv("LEGATO_CONFIG", cfg)
+	t.Setenv("LEGATO_SANDBOXED", "1")
+	if code := runCLI([]string{"task", "list"}); code == 0 {
+		t.Fatal("a sandboxed task list ran")
+	}
+	if _, err := os.Stat(dbPath); !os.IsNotExist(err) {
+		t.Fatalf("the database was opened: %v", err)
+	}
+}
