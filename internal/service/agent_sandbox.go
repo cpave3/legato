@@ -97,4 +97,3 @@ func shellWord(s string) string {
 	}
 	return shellQuote(s)
 }
-

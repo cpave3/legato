@@ -17,20 +17,20 @@ const (
 
 // ApprovalDevice is a device that can sign approval decisions.
 type ApprovalDevice struct {
-	ID            string  `db:"id" json:"id"`
-	Kind          string  `db:"kind" json:"kind"`
-	Name          string  `db:"name" json:"name"`
-	PublicKey     []byte  `db:"public_key" json:"-"`
-	SecurityLevel string  `db:"security_level" json:"security_level,omitempty"`
-	Status        string  `db:"status" json:"status"`
-	ApprovalID    string  `db:"approval_id" json:"approval_id,omitempty"`
+	ID            string `db:"id" json:"id"`
+	Kind          string `db:"kind" json:"kind"`
+	Name          string `db:"name" json:"name"`
+	PublicKey     []byte `db:"public_key" json:"-"`
+	SecurityLevel string `db:"security_level" json:"security_level,omitempty"`
+	Status        string `db:"status" json:"status"`
+	ApprovalID    string `db:"approval_id" json:"approval_id,omitempty"`
 	// Origin is the page a passkey was made on; empty for a phone.
 	Origin string `db:"origin" json:"origin,omitempty"`
 	// Attestation is a phone's attestation chain, as JSON.
-	Attestation string `db:"attestation" json:"-"`
-	CreatedAt     string  `db:"created_at" json:"created_at"`
-	LastUsedAt    *string `db:"last_used_at" json:"last_used_at,omitempty"`
-	RemovedAt     *string `db:"removed_at" json:"removed_at,omitempty"`
+	Attestation string  `db:"attestation" json:"-"`
+	CreatedAt   string  `db:"created_at" json:"created_at"`
+	LastUsedAt  *string `db:"last_used_at" json:"last_used_at,omitempty"`
+	RemovedAt   *string `db:"removed_at" json:"removed_at,omitempty"`
 }
 
 func (s *Store) InsertApprovalDevice(ctx context.Context, d ApprovalDevice) error {

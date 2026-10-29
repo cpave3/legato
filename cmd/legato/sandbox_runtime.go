@@ -120,4 +120,3 @@ func gitRoot(dir string) string {
 	}
 	return dir
 }
-
