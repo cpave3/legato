@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import type { ItemImage } from "../lib/agentUi"
 import { cn } from "../lib/utils"
+import { CopyablePre } from "./CopyablePre"
 import { DocumentImage, DocumentImages } from "./DocumentImages"
 import { MermaidMarkdownPre } from "./MermaidDiagram"
 import { VisualMarkdownPre } from "./VisualMarkdownPre"
@@ -45,7 +46,7 @@ export const MarkdownBody = memo(function MarkdownBody({ body, disableImages = f
             ? <VisualMarkdownPre fallbackClassName={compactPreClassName}>{children}</VisualMarkdownPre>
             : renderMermaid
               ? <MermaidMarkdownPre fallbackClassName={compactPreClassName}>{children}</MermaidMarkdownPre>
-              : <pre className={compactPreClassName}>{children}</pre>,
+              : <CopyablePre className={compactPreClassName}>{children}</CopyablePre>,
           code: ({ children, className, ...props }) => (
             <code {...props} className={cn(className, !className && "rounded bg-black/30 px-1 py-0.5 font-mono text-[0.9em] text-zinc-100")}>{children}</code>
           ),

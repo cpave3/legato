@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { MarkdownBody } from "../MarkdownBody"
 import { documentImages } from "../../lib/documentImages"
 
@@ -79,5 +79,19 @@ describe("MarkdownBody with a document's image files", () => {
     render(<MarkdownBody body={"![A logo](https://example.com/logo.png)"} />)
 
     expect((screen.getByAltText("A logo") as HTMLImageElement).src).toBe("https://example.com/logo.png")
+  })
+})
+
+describe("code blocks", () => {
+  it("copies a code block's text with the button in its corner", async () => {
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+    render(<MarkdownBody body={"Run this:\n\n```sh\ngo test ./...\ntask build\n```\n\nand `inline` stays as it is."} />)
+
+    const copy = screen.getAllByRole("button", { name: "Copy code" })
+    expect(copy).toHaveLength(1)
+    fireEvent.click(copy[0])
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith("go test ./...\ntask build"))
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeTruthy()
   })
 })
