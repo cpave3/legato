@@ -1,5 +1,81 @@
-# Agent instructions
+# Legato
 
+## Agent instructions
+
+- For all work in this project, use the tdd skill, if present: tests first.
 - Never stop, kill, restart, or replace a running Legato process unless the user explicitly asks for that process action. A request to change, build, validate, or deploy Legato does not imply permission to disrupt a running process.
-- Do not perform browser or end-to-end testing in this project unless the user explicitly asks for it.
-- How Legato is built, and how to work on it, is in `CLAUDE.md` and the documents it lists under "Detailed Documentation" (`docs/ai/*.md`): read the ones for the area you change, and keep them current.
+- Do not perform browser or end-to-end testing against a running Legato unless the user explicitly asks for it. Such tests are fine against scratch instances (their own config, database, data and runtime folders, tmux server and port) that do not disrupt running ones; stop them and remove their folders afterwards.
+
+AI Agent Orchestration TUI — a keyboard-driven kanban board for tracking tasks, built for developers who work with AI coding agents. Supports local tasks and pluggable ticket providers (Jira first, others planned).
+
+## Tech Stack
+
+- **Language**: Go 1.25+
+- **TUI**: Bubbletea, Lipgloss (styling), Glamour (markdown rendering)
+- **Database**: SQLite via `modernc.org/sqlite` (pure Go, no CGO), `sqlx` for queries
+- **Config**: YAML via `gopkg.in/yaml.v3`, XDG-compliant paths
+- **Module path**: `github.com/cpave3/legato`
+
+## Architecture
+
+3-layer architecture with strict import rules:
+
+```
+cmd/legato/     → wires everything (imports all layers)
+internal/tui/   → presentation (imports service/ via interfaces, never engine/)
+internal/service/ → business logic (imports engine/, never tui/)
+internal/engine/  → infrastructure (imports only stdlib + 3rd-party)
+config/           → configuration (standalone, no internal imports)
+```
+
+Import rules are enforced by architecture tests. Engine packages must not import sibling engine packages, service, or TUI; service must never import TUI. Production database callers use store behavior rather than `Store.DB()`/`sqlx`, command entry points open databases through `openStore`, and filesystem state resolves from `config.ResolveDataDir` rather than the database path.
+
+## Commands
+
+```bash
+task test                  # run all tests
+task test:race             # run with race detector (use for event bus changes)
+task test:cover            # run tests with coverage
+task build                 # build the legato binary
+task run                   # run the app
+task vet                   # static analysis
+task lint                  # golangci-lint
+task check                 # build + test + vet + lint
+```
+
+## Build Plan
+
+6-phase v0 plan in `openspec/changes/`:
+
+1. ~~Engine Layer~~ (complete)
+2. ~~Service Layer~~ (complete)
+3. ~~TUI Shell~~ (complete)
+4. ~~Jira Integration~~ (complete)
+5. ~~Detail View & Clipboard~~ (complete)
+6. ~~Polish~~ (complete) — overlays (search/move/help), error handling, server stub
+
+Post-v0: Attention dashboard (complete) — durable generic registry with centrally allowed plan, review, PR, standalone-agent, workflow, and trigger projections; shared live reconciliation; grouped web dashboard; generic TUI/CLI/Stream Deck consumers. See `docs/ai/attention.md`.
+
+## Detailed Documentation
+
+Read the ones for the area you change, and keep them current. (`@path` lines are loaded automatically by agent tools that support imports.)
+
+@docs/ai/packages.md
+@docs/ai/database.md
+@docs/ai/config.md
+@docs/ai/sync.md
+@docs/ai/dev-notes.md
+@docs/ai/pr-tracking.md
+@docs/ai/cli.md
+@docs/ai/web-ui.md
+@docs/ai/tui.md
+@docs/ai/swarm.md
+@docs/ai/attention.md
+@docs/ai/approvals.md
+@docs/ai/credentials.md
+@docs/ai/learning.md
+@docs/ai/claude-code-native.md
+@docs/ai/codex-native.md
+@docs/ai/agent-mcp.md
+@docs/ai/resources.md
+@docs/ai/sandbox.md
