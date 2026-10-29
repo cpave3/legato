@@ -67,4 +67,4 @@ On Fedora Silverblue with bubblewrap 0.11: Claude Code 2.1.312, Codex 0.157.1 an
 
 - A global hook of the person's agent tool that runs something outside the mounts (a Flatpak's data folder, as GitKraken's `gk` hooks for Claude Code are) fails inside, on every tool call; the tool reports it as a hook error. Mount the folder with `agents.sandbox.mounts`, or remove the hook.
 - An SSH socket or a socket file reopened by a new channel host while an agent runs is not seen by that agent until it is reloaded.
-- Not built yet: the repository cache and job clones (phase 3 tasks 3.8–3.12), repository tools (phase 4), and most of job submission by API (phase 1; the service's `AgentSpawnOptions.Prompt` exists). Progress is kept in `openspec/changes/sandboxed-cloud-agents/tasks.md` § Status.
+- Not built yet: the repository cache and job clones (phase 3 tasks 3.8–3.12), so `legato-job` cannot check a repository out yet, and repository tools (phase 4). Running Legato on a server of its own, with or without the sandbox: [Agents on a server of their own](../cloud-agents.md). Progress is kept in `openspec/changes/sandboxed-cloud-agents/tasks.md` § Status.
