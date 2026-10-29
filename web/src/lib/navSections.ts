@@ -39,8 +39,8 @@ export const ENSEMBLE_PATH = "/agents?view=ensemble"
 export function navSections(summary: Partial<NavigationSummary> = {}): Record<string, NavSection> {
   return {
     attention: { key: "attention", label: "Attention", to: "/attention", icon: navIcons.attention, count: summary.attention, tone: "needs", noun: "items" },
-    ensemble: { key: "ensemble", label: "Ensemble", to: ENSEMBLE_PATH, icon: navIcons.ensemble, count: summary.agents, tone: "live", noun: "non-idle", separated: true },
-    agents: { key: "agents", label: "Agents", to: "/agents", icon: navIcons.agents },
+    ensemble: { key: "ensemble", label: "Ensemble", to: ENSEMBLE_PATH, icon: navIcons.ensemble, count: summary.agents, tone: "live", noun: "non-idle" },
+    agents: { key: "agents", label: "Agents", to: "/agents", icon: navIcons.agents, separated: true },
     board: { key: "board", label: "Board", to: "/board", icon: navIcons.board },
     review: { key: "review", label: "Review", to: "/review", icon: navIcons.review, count: summary.review, tone: "needs", noun: "to review", separated: true },
     plans: { key: "plans", label: "Plans", to: "/plans", icon: navIcons.plans, count: summary.plans, tone: "needs", noun: "to decide" },
@@ -53,7 +53,7 @@ export function navSections(summary: Partial<NavigationSummary> = {}): Record<st
 }
 
 // The rail's sections, top to bottom; Settings stands apart at the foot.
-export const railOrder = ["attention", "ensemble", "agents", "board", "review", "plans", "workflows", "learning", "reports", "audit"]
+export const railOrder = ["attention", "agents", "ensemble", "board", "review", "plans", "workflows", "learning", "reports", "audit"]
 
 // sectionName is a section's accessible name, with its count when it has one.
 export function sectionName(section: Pick<NavSection, "label" | "count" | "noun">): string {

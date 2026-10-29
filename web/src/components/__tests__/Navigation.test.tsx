@@ -51,7 +51,7 @@ describe("the rail", () => {
     renderAt("/board")
 
     const names = within(rail()).getAllByRole("link").map((link) => link.textContent)
-    expect(names).toEqual(["Attention", "Ensemble", "Agents", "Board", "Review", "Plans", "Flows", "Learning", "Reports", "Audit", "Settings"])
+    expect(names).toEqual(["Attention", "Agents", "Ensemble", "Board", "Review", "Plans", "Flows", "Learning", "Reports", "Audit", "Settings"])
     expect(within(rail()).getAllByRole("separator")).toHaveLength(3)
     expect(within(rail()).getByRole("link", { name: "Board" }).getAttribute("aria-current")).toBe("page")
   })
