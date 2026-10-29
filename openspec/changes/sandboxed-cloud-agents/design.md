@@ -99,7 +99,7 @@ Pasted images go to `<tmp>/legato-<uid>/pasted-images/<task>`. That folder is mo
 
 ### D4a. The person can opt out per spawn; toolchains are mounted
 
-The sandbox is the default once enabled, but the person can start one agent without it (**Run without sandbox** in the spawn dialogs, `sandbox: false` on the spawn endpoints). Mounts are fixed when bubblewrap starts, so an agent cannot be given a directory after it starts; an unsandboxed agent is how the person works across arbitrary directories. An agent cannot use the opt-out itself: spawning needs the web token, which the sandbox does not mount. Swarm and workflow agents are always sandboxed.
+The sandbox is the default once enabled, but the person can start one agent without it (**Run without sandbox** in the spawn dialogs, `sandbox: false` on the spawn endpoints). Mounts are fixed when bubblewrap starts, so an agent cannot be given a directory after it starts without a restart: adding a resource to a sandboxed agent restarts it, resuming its conversation, when the person agrees (`reload: true`), and is refused otherwise. An unsandboxed agent is how the person works across arbitrary directories without restarts. An agent cannot use the opt-out itself: spawning needs the web token, which the sandbox does not mount. Swarm and workflow agents are always sandboxed.
 
 The person's toolchains are mounted read-only by default (`~/.local/bin`, mise, Go, linuxbrew, Rust, Bun), with package and build caches read-write, so agents can build and test. None of these hold credentials. `agents.sandbox.default_mounts: false` turns them off.
 
@@ -167,7 +167,7 @@ The read client and its GET-only guard are unchanged and keep their tests. There
 
 ### D10. Job submission
 
-`prompt` on `POST /api/agents/spawn` and `POST /api/tasks/{id}/agent` is sent after the session binds, through the same path the launch kickoff uses (native endpoint when the adapter binds one, typed otherwise). The built-in `legato-job` workflow has inputs `prompt` (required), `repo` (optional, `owner/name`), `ref` (optional), `agent` (optional). It runs `repo.ensure` (a new executor, a no-op without `repo`) then `agent.run` in the job checkout, so a job has a run record, an execution and a place in Attention.
+`prompt` on `POST /api/agents/spawn` and `POST /api/tasks/{id}/agent` is sent after the session binds, through the same path the launch kickoff uses (native endpoint when the adapter binds one, typed otherwise). The built-in `legato-job` workflow has inputs `prompt` (required), `repo` (optional, `owner/name`), `ref` (optional), `agent` (optional) and `working_dir` (optional). It runs `repo.ensure` (a new executor, a no-op without `repo`) then `agent.run` in the job checkout, so a job has a run record, an execution and a place in Attention. The agent step has `keep_agent: true` and a `summary` output: the job's answer is in the run record, and the agent stays for the person to read it and go on. Built-in definitions are merged into every discovery (`workflowengine.WithBuiltIns`), and a file of the same name replaces one. An `agent.run` step whose agent, known from the inputs, is not a configured adapter is refused when the run starts: the agent service would otherwise run it on the default adapter without a word.
 
 ## Risks / Trade-offs
 
@@ -196,6 +196,14 @@ Fedora Silverblue, bubblewrap 0.11, unprivileged user namespaces:
 - Codex 0.157.1 starts and is logged in.
 - Chimera, linked from its checkout with `pnpm link`, needs that checkout: Legato finds each agent tool's installation at start (the folder a link leads to, or the git checkout a launcher script runs) and mounts it read-only.
 - `/home` is a link to `var/home` there: every path is resolved before it is checked or mounted, so a path through the link can neither hide a credential nor clash with the system's own links.
+
+### Found while building (2026-10-30)
+
+- **ssh refuses root's files as nobody's.** bwrap is not setuid, so it always makes a user namespace in which root's files are owned by the overflow user; ssh refuses such a system configuration and did not start. Each sandbox gets copies of the system ssh configuration, owned by the person and mounted over the originals (following `Include`, which on Fedora reaches `/usr/share/crypto-policies`), with the SSH agent's `known_hosts` mounted where the copy names it.
+- **ssh origins fetch with read tokens.** A clone whose `origin` is `git@github.com:…` fetched over ssh, which a sandbox has no key for, while the proxy serves pushes only. With a `github` credential a sandboxed session also rewrites the ssh forms to `https://github.com/` for fetches.
+- **A typed line is cut at 4096 bytes.** The bwrap prefix grew past what a terminal takes in one line before the shell reads it, and the agent did not start. The options now go to a file of the execution's, read with `--args`.
+- **One tool's installation is not another's business.** Mounting every tool's installation showed a Chimera checkout to Claude Code agents; installations are now mounted by agent kind.
+- **Sessions must resume across the sandbox.** State folders are mounted at their host paths, including one moved by `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, so a conversation started on either side resumes on the other. Agents of one tool share that state (all Claude Code transcripts are in `~/.claude`); the sandbox keeps secrets from agents, not agents from each other.
 
 ## Open Questions
 

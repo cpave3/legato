@@ -48,6 +48,10 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 - [x] 3.15a Agent-facing `legato` commands in the sandbox (`task show|notes|note|update|description|list`, `plan *`, `review *`, `swarm` worker and conductor verbs, `credential request|get|exec`, `agent peers|message|broadcast`, `learn reflection submit`, `workflow step complete|fail`) are forwarded to the host through the broker (`cli.run`), which runs them as the session from a fixed allowlist, with stdin, the working directory and file arguments read on the agent's side; host-only commands (`device`, `secret`, `audit`, `hooks`, `auth`, `serve`, …) are refused; contract tests
 - [x] 3.16 Docs: `docs/ai/config.md` (new keys), sandbox section in `docs/cloud-agents.md`
 - [x] 3.17 ssh and git fetches inside the sandbox: bwrap's user namespace shows root-owned files as `nfsnobody`, so ssh refuses `/etc/ssh/ssh_config.d/*`; give each sandbox a copy of the system ssh config the user owns, mount `credential_channels.ssh_agent.known_hosts` read-only, and with a `github` credential send fetches from `git@github.com:` and `ssh://git@github.com/` to `https://github.com/` (read tokens), as pushes already are
+- [x] 3.18 Read the sandbox's options from a file (`bwrap --args 3 3<…/bwrap.args`): a terminal cut the typed launch line at 4096 bytes and the agent did not start
+- [x] 3.19 Mount only the installation of the agent's own tool (`ToolInstalls` by agent kind), not every tool's
+- [x] 3.20 Mount a tool state folder moved by `CLAUDE_CONFIG_DIR` or `CODEX_HOME`, or a resumed session's storage folder, so sessions resume inside and outside the sandbox
+- [x] 3.21 Web: `unsandboxed` is a badge of its own, after the activity bar
 
 ## 4. Phase 4: repository tools, with pushes and pull requests through the credential broker
 
@@ -63,5 +67,16 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 
 ## Status (2026-10-30)
 
-Done: phase 2 (host broker), phase 3 tasks for the local sandbox (3.1–3.7, 3.13–3.16, with 3.6a and 3.15a), and 1.2 (`AgentSpawnOptions.Prompt`, delivered after the brief kickoff; a multi-line prompt reaches a terminal agent as `~/.legato/agents/<task>/prompt.md`, `LEGATO_PROMPT_FILE`).
-Done since: 1.1, 1.3 (`prompt` on both spawn endpoints; to a task whose agent runs, it is queued as a message). Done since: 1.4, 1.5 (`repo.ensure`, a no-op without `repo` and a refusal with one; built-in `legato-job` from `service.BuiltInJobWorkflow`, merged into every discovery by `workflowengine.WithBuiltIns`; `WorkflowService.SetAgentKinds` refuses an unknown agent at start). 3.17 (ssh config copies and known_hosts in the sandbox, GitHub fetches over https). 1.6 (**First message** in `SpawnAgentDialog`, sent as `prompt` by both callers). 1.7 (`docs/cloud-agents.md`, not yet tried on a VM). Next, in order: 3.8–3.12 (repository cache, job clones); then phase 4. 1.8 needs a VM and waits for the person's server.
+**Done.** Phase 2 (host broker). Phase 3 for the local sandbox: 3.1–3.7, 3.13–3.21 (with 3.6a and 3.15a). Phase 1: 1.1–1.7 (`prompt` on both spawn endpoints and in the web spawn dialog; `repo.ensure` as a no-op without `repo`; the built-in `legato-job`; unknown agents refused at start; `docs/cloud-agents.md`).
+
+**Interim behaviour.** `repo.ensure` with a non-empty `repo` fails the step ("cannot check out a repository for a job yet") until 3.8–3.11 replace it.
+
+**Not yet seen live.** 3.18 (the options file) and 3.20 passed tests with real bwrap but no agent has been spawned with them yet. `docs/cloud-agents.md` has not been tried on a VM.
+
+**Next, in order.**
+1. 3.8–3.12: the repository cache and job clones; then `legato-job` with `repo`.
+2. Phase 4 (4.1–4.9): repository tools, pushes and pull requests from the sandbox through the proxy, PR linking, docs.
+3. 1.8: the trial on the person's always-on server, when it exists; record what hurt in design.md Open Questions.
+4. Archive the change (sync the six delta specs; 4.9 updates `github-pr-client`).
+
+The same list is the Legato task "Finish sandboxed cloud agents" in the Personal workspace.

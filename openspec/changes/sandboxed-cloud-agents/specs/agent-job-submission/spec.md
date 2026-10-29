@@ -25,8 +25,13 @@
 - **WHEN** `prompt` is present but contains only whitespace
 - **THEN** Legato SHALL treat the request as if no prompt were given
 
+#### Scenario: First message in the web spawn dialog
+- **WHEN** the person writes a **First message** in the web spawn dialog (an ephemeral agent or a task's agent) and spawns
+- **THEN** the dialog SHALL send it, trimmed, as `prompt`
+- **AND** SHALL send no `prompt` when the field is empty or blank
+
 ### Requirement: Built-in job workflow
-Legato SHALL ship a built-in workflow named `legato-job` with inputs `prompt` (required text), `repo` (optional `owner/name`), `ref` (optional), and `agent` (optional adapter name). It SHALL run a `repo.ensure` step and then an `agent.run` step whose prompt is the `prompt` input and whose working directory is the job checkout when `repo` is given, or the default directory otherwise.
+Legato SHALL ship a built-in workflow named `legato-job` with inputs `prompt` (required text), `repo` (optional `owner/name`), `ref` (optional), `agent` (optional adapter name) and `working_dir` (optional). It SHALL run a `repo.ensure` step and then an `agent.run` step whose prompt is the `prompt` input and whose working directory is the job checkout when `repo` is given, or `working_dir` (the agent service's default when empty) otherwise. The agent SHALL report a `summary` output and stay running after it completes the step, so the person can read its answer and go on talking to it. The workflow SHALL be listed by the CLI, the TUI and the web server beside the workflows on disk; a definition on disk with the same name SHALL replace it.
 
 #### Scenario: Job with a repository
 - **WHEN** `legato-job` is started with `prompt` and `repo: acme/widget`
@@ -34,9 +39,13 @@ Legato SHALL ship a built-in workflow named `legato-job` with inputs `prompt` (r
 - **AND** `agent.run` SHALL start the agent in that checkout with the prompt
 
 #### Scenario: Job without a repository
-- **WHEN** `legato-job` is started with only `prompt`
+- **WHEN** `legato-job` is started with only `prompt`, or with `prompt` and `working_dir`
 - **THEN** `repo.ensure` SHALL complete without producing a checkout
-- **AND** `agent.run` SHALL start in the configured default directory
+- **AND** `agent.run` SHALL start in `working_dir`, or the configured default directory when it is empty
+
+#### Scenario: A definition of the same name on disk
+- **WHEN** the person's workflow folder holds a definition named `legato-job`
+- **THEN** that definition SHALL be listed and started in place of the built-in one
 
 #### Scenario: Job started through the API
 - **WHEN** a client starts `legato-job` through the workflow run endpoint
@@ -45,4 +54,6 @@ Legato SHALL ship a built-in workflow named `legato-job` with inputs `prompt` (r
 
 #### Scenario: Unknown agent input
 - **WHEN** `agent` names an adapter that is not configured
-- **THEN** the run SHALL be rejected at start with an error naming the adapter
+- **THEN** the run SHALL be rejected at start with an error naming the adapter and the configured ones
+- **AND** no run or workflow task SHALL be created
+- **AND** this check SHALL apply to any workflow's `agent.run` step whose `agent` is known from the inputs alone

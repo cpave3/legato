@@ -8,6 +8,11 @@ When `agents.sandbox.enabled` is true, the agent service SHALL start every adapt
 - **THEN** the command typed into the pane SHALL start the adapter's launch command through the sandbox backend
 - **AND** the agent's environment SHALL include `LEGATO_BROKER_SOCKET` and `LEGATO_BROKER_TOKEN`
 
+#### Scenario: A sandbox with many mounts
+- **WHEN** the sandbox's options would make the typed launch command longer than a terminal line (4096 bytes)
+- **THEN** Legato SHALL write the options to a file of the execution's (`<runtime>/legato/sandbox/<execution>/bwrap.args`, mode `0600`) and type only the backend, the file to read them from, and the launch command
+- **AND** the file SHALL not stay open in the agent's processes
+
 #### Scenario: Sandbox off
 - **WHEN** `agents.sandbox.enabled` is false or absent
 - **THEN** the launch command SHALL be exactly what it is without this change
@@ -65,11 +70,15 @@ With the sandbox on, the person SHALL be able to start one agent without it, fro
 - **THEN** **Run without sandbox** SHALL be unticked
 
 ### Requirement: Resources added to a running sandboxed agent
-A sandbox's mounts SHALL be fixed when it starts. Adding a resource to a running sandboxed agent SHALL be refused with a message saying that the agent cannot see paths added after it started and that an agent without the sandbox can.
+A sandbox's mounts SHALL be fixed when it starts. Adding a resource to a running sandboxed agent SHALL be refused (`409`) with a message saying why, unless the request asks to reload the agent; the agent SHALL then be restarted with its resources and the new ones, resuming its conversation.
 
 #### Scenario: Attach to a sandboxed agent
-- **WHEN** the person adds a resource to a running sandboxed agent
+- **WHEN** the person adds a resource to a running sandboxed agent without asking to reload
 - **THEN** Legato SHALL refuse it and say why, and SHALL NOT tell the agent it has the paths
+
+#### Scenario: Attach with a reload
+- **WHEN** the request asks to reload (`{names, reload: true}`)
+- **THEN** Legato SHALL restart the agent in a sandbox that mounts the new resources, resuming its conversation
 
 ### Requirement: Toolchains are visible
 A sandbox SHALL mount, read-only and at their host paths when they exist, the person's toolchain directories: `~/.local/bin`, `~/.local/share/mise`, `~/go/bin`, `/home/linuxbrew/.linuxbrew`, `~/.cargo/bin`, `~/.rustup` and `~/.bun`; and read-write the package and build caches `~/go/pkg/mod`, `~/.cache/go-build`, `~/.npm`, `~/.cache/pnpm`, `~/.local/share/pnpm` and `~/.cache/pip`. `agents.sandbox.default_mounts: false` SHALL turn these off. `agents.sandbox.mounts` SHALL add to them.
@@ -78,3 +87,35 @@ A sandbox SHALL mount, read-only and at their host paths when they exist, the pe
 - **WHEN** a sandboxed agent runs `go test ./...` or `pnpm test` in its working copy
 - **THEN** the tools SHALL be found on its `PATH` and the module and package caches SHALL be usable
 
+
+### Requirement: Each agent sees only its own tool
+A sandbox SHALL mount, read-only, the installation of the agent tool the agent runs (where its command's link leads, or the checkout a launcher script runs), and SHALL NOT mount another tool's installation. It SHALL mount, read-write, the tool's state folders (for Claude Code `~/.claude`, `~/.claude.json` and its cache, data and state folders; for Codex `~/.codex`; for Chimera `~/.chimera` and its configuration and data folders), and also a state folder that `CLAUDE_CONFIG_DIR` or `CODEX_HOME` moves elsewhere: the session's value, such as a resumed session's storage folder, else the one Legato inherited. A missing moved folder SHALL be made on the host first. A moved folder inside a path a sandbox must not see SHALL fail the spawn.
+
+#### Scenario: A Chimera checkout and a Claude Code agent
+- **WHEN** Chimera is installed from a checkout and a Claude Code agent is spawned in another project
+- **THEN** the Claude Code agent's sandbox SHALL NOT contain the Chimera checkout
+
+#### Scenario: Resume across the sandbox
+- **WHEN** a session started outside the sandbox is resumed inside it, or the other way round
+- **THEN** the agent tool SHALL find the conversation, because both read and write the same state folders on the host
+
+#### Scenario: A moved state folder
+- **WHEN** `CLAUDE_CONFIG_DIR` names a folder outside `~/.claude`
+- **THEN** a sandboxed Claude Code agent SHALL see that folder read-write at its host path
+
+### Requirement: ssh runs inside the sandbox
+Because the sandbox's user namespace shows files root owns as owned by nobody, which ssh refuses as configuration, a sandbox SHALL be given copies of the system ssh configuration (`/etc/ssh/ssh_config` and every file it includes, followed as ssh follows `Include`) owned by the person, each mounted over the real path of its original. The copy of `ssh_config` SHALL name, as `UserKnownHostsFile`, the file `credential_channels.ssh_agent.known_hosts` names, mounted read-only. `~/.ssh` SHALL stay hidden.
+
+#### Scenario: ssh in a sandbox
+- **WHEN** a sandboxed agent runs `ssh -G host`
+- **THEN** ssh SHALL read its configuration without an ownership error
+- **AND** SHALL use the mounted known hosts file
+- **AND** the person's private keys SHALL not be readable
+
+### Requirement: GitHub fetches over ssh URLs in the sandbox
+With a `github` credential, a sandboxed session's git settings SHALL send fetches from `git@github.com:` and `ssh://git@github.com/` to `https://github.com/`, where Legato's credential helper gives read tokens. Pushes from those forms SHALL still go to the credential proxy. An unsandboxed session SHALL keep fetching over ssh.
+
+#### Scenario: A clone with an ssh origin
+- **WHEN** a sandboxed agent runs `git fetch` in a clone whose `origin` is `git@github.com:acme/widget.git`
+- **THEN** git SHALL fetch from `https://github.com/acme/widget.git` with a read token
+- **AND** `git push` SHALL still go to the proxy
