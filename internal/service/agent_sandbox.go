@@ -32,8 +32,12 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 	if sock := env["SSH_AUTH_SOCK"]; sock != "" && in.RuntimeDir != "" && strings.HasPrefix(sock, filepath.Join(in.RuntimeDir, "ssh")+"/") {
 		in.SSHSocket = sock
 	}
-	if prompt := env["LEGATO_ROLE_PROMPT_FILE"]; prompt != "" {
-		in.AgentFilesDir = filepath.Dir(prompt)
+	// The folder of the role prompt, brief and first message.
+	for _, name := range []string{"LEGATO_ROLE_PROMPT_FILE", "LEGATO_BRIEF_FILE", "LEGATO_PROMPT_FILE"} {
+		if file := env[name]; file != "" {
+			in.AgentFilesDir = filepath.Dir(file)
+			break
+		}
 	}
 	in.PastedImagesDir = PastedImageDir(taskID)
 	in.GitCommonDir = gitCommonDir(ctx, workDir)

@@ -3,7 +3,7 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 ## 1. Phase 1: job submission and a VM as the sandbox
 
 - [ ] 1.1 Add `prompt` to the `POST /api/agents/spawn` request; test that a prompt reaches the agent service and that a blank prompt is ignored
-- [ ] 1.2 Add `prompt` to `AgentSpawnOptions` and deliver it after launch through the kickoff path (native endpoint when bound, typed otherwise); service tests with `mockTmux` for both paths
+- [x] 1.2 Add `prompt` to `AgentSpawnOptions` and deliver it after launch through the kickoff path (native endpoint when bound, typed otherwise); service tests with `mockTmux` for both paths
 - [ ] 1.3 Add `prompt` to `POST /api/tasks/{id}/agent`: message the live agent when one is selected, deliver as first message on resume without the fresh-session kickoff
 - [ ] 1.4 Add the `repo.ensure` workflow executor as a no-op when `repo` is empty (the cache arrives in phase 3)
 - [ ] 1.5 Ship the built-in `legato-job` workflow definition (inputs `prompt`, `repo`, `ref`, `agent`); validate it in tests and check an unknown `agent` is rejected at start
@@ -59,3 +59,8 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 - [ ] 4.7 End-to-end test against a local bare "remote" and a fake GitHub API: a sandboxed agent commits, asks for access, pushes and opens a pull request, and the task shows the PR
 - [ ] 4.8 Docs: `docs/ai/agent-mcp.md` (repository tools), `docs/ai/pr-tracking.md` (the changed boundary), `docs/cloud-agents.md` (a GitHub App credential on the VM, replacing the fine-grained token for pushes)
 - [ ] 4.9 Update the `github-pr-client` main spec when the change is archived
+
+## Status (2026-10-30)
+
+Done: phase 2 (host broker), phase 3 tasks for the local sandbox (3.1–3.7, 3.13–3.16, with 3.6a and 3.15a), and 1.2 (`AgentSpawnOptions.Prompt`, delivered after the brief kickoff; a multi-line prompt reaches a terminal agent as `~/.legato/agents/<task>/prompt.md`, `LEGATO_PROMPT_FILE`).
+Next, in order: 1.1, 1.3 (API `prompt` fields), 1.4–1.5 (`repo.ensure` no-op and the `legato-job` workflow), 1.6 (web field), 1.7 (VM guide); then 3.8–3.12 (repository cache, job clones); then phase 4. 1.8 needs a VM and waits for the person's server.
