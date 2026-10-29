@@ -14,7 +14,7 @@ Every task is test-first (red, green, refactor). This change needs `agent-approv
 - [x] 2.3 `POST /api/devices/challenge` and `POST /api/devices`: first device enrolled with the token alone; server tests with a test attestation chain
 - [x] 2.4 A later device is an approval request with source `devices`, completed only by a signed approval from an enrolled device; service test
 - [x] 2.5 `GET /api/devices` and `DELETE /api/devices/{id}` (an approval request that needs a signature); server tests
-- [ ] 2.6 (reset and its audit row done; the Attention item and the ntfy notice are not) `legato device reset` at the host: removes every device and passkey, writes the audit log, raises an Attention item and an ntfy notice; CLI test
+- [x] 2.6 `legato device reset` at the host: removes every device and passkey, writes the audit log, raises an Attention item and an ntfy notice; CLI test
 
 ## 3. Signed decisions
 

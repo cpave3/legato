@@ -23,6 +23,12 @@ export function DevicesSettings({ baseUrl }: { baseUrl: string }) {
   }, [baseUrl])
 
   useEffect(() => { void load() }, [load])
+  // Attention links here after a device reset; come into view once listed.
+  useEffect(() => {
+    if (list !== null && window.location.hash === "#devices") {
+      document.getElementById("devices")?.scrollIntoView?.({ block: "start" })
+    }
+  }, [list])
   useEffect(() => onShellEnroll((result) => {
     if (result.status === "enrolled") setNotice("This phone now signs approvals.")
     else if (result.status === "pending") setNotice("Approve this phone on a phone that is already enrolled.")

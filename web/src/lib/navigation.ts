@@ -26,6 +26,8 @@ export function legatoHref(navigation: { kind: string; target: string }): string
       return "/board"
     case "approval":
       return `/attention?approval=${encodeURIComponent(navigation.target)}`
+    case "settings":
+      return `/settings#${encodeURIComponent(navigation.target)}`
     default:
       return null
   }

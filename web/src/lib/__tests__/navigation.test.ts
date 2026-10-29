@@ -22,6 +22,10 @@ describe("legatoHref", () => {
     expect(legatoHref({ kind: "task", target: "T-1" })).toBe("/board")
   })
 
+  it("maps settings navigation to that section of Settings", () => {
+    expect(legatoHref({ kind: "settings", target: "devices" })).toBe("/settings#devices")
+  })
+
   it("returns null for unknown navigation kinds", () => {
     expect(legatoHref({ kind: "unknown", target: "x" })).toBeNull()
   })

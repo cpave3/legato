@@ -127,11 +127,15 @@ func (rt *approvalRuntime) attach(srv *server.Server) {
 }
 
 // registerApprovalAttention shows pending approvals in Attention.
-func registerApprovalAttention(attention *service.AttentionService, approvals *service.ApprovalService) {
-	if approvals == nil {
+func registerApprovalAttention(attention *service.AttentionService, rt *approvalRuntime) {
+	if rt == nil || rt.approvals == nil {
 		return
 	}
-	adapter := service.NewApprovalAttentionAdapter(approvals)
+	adapter := service.NewApprovalAttentionAdapter(rt.approvals)
 	mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventApprovalChanged))
 	mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
+	// A device reset at the host; `legato device reset` sends approval_changed.
+	if rt.devices != nil {
+		mustRegister(attention.RegisterProducerWithEvents(service.NewDeviceAttentionAdapter(rt.devices), events.EventApprovalChanged))
+	}
 }

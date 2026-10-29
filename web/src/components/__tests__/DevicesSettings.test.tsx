@@ -25,6 +25,16 @@ describe("DevicesSettings", () => {
     expect(screen.queryByRole("button", { name: /Sign approvals with this phone/ })).toBeNull()
   })
 
+  it("comes into view when the address names it, as Attention's link to it does", async () => {
+    mockList.mockResolvedValue({ devices: [], enrolled: false, server_id: "srv-1" })
+    const scroll = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll })
+    window.history.replaceState(null, "", "/settings#devices")
+    render(<DevicesSettings baseUrl="http://legato" />)
+    await waitFor(() => expect(scroll).toHaveBeenCalledWith({ block: "start" }))
+    window.history.replaceState(null, "", "/")
+  })
+
   it("lists devices, and removing one asks the phone", async () => {
     mockList.mockResolvedValue({ devices: [{ id: "dev-1", kind: "android", name: "Pixel 9 Pro", security_level: "strongbox", status: "active", created_at: "2026-10-29T10:00:00Z" }], enrolled: true, server_id: "srv-1" })
     mockRemove.mockResolvedValue({ approval_id: "ap-9" })

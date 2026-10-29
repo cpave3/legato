@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -79,11 +80,60 @@ func (s *Store) TouchApprovalDevice(ctx context.Context, id string) error {
 // RemoveAllApprovalDevices removes every device that is not removed yet,
 // and returns how many.
 func (s *Store) RemoveAllApprovalDevices(ctx context.Context) (int64, error) {
-	result, err := s.db.ExecContext(ctx, `UPDATE approval_devices SET status = 'removed', removed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE status != 'removed'`)
+	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `UPDATE approval_devices SET status = 'removed', removed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE status != 'removed'`)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	// Each reset is recorded, so it can be shown until the person has seen it.
+	var last string
+	if err := tx.GetContext(ctx, &last, "SELECT value FROM instance_values WHERE key = ?", deviceResetKey); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
+	}
+	var reset DeviceReset
+	if last != "" {
+		_ = json.Unmarshal([]byte(last), &reset)
+	}
+	reset = DeviceReset{Seq: reset.Seq + 1, Removed: n, At: time.Now().UTC().Format("2006-01-02T15:04:05.000Z")}
+	value, _ := json.Marshal(reset)
+	if _, err := tx.ExecContext(ctx, `INSERT INTO instance_values (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, deviceResetKey, string(value)); err != nil {
+		return 0, err
+	}
+	return n, tx.Commit()
+}
+
+const deviceResetKey = "devices_reset"
+
+// DeviceReset is the last time every device was removed at the host.
+type DeviceReset struct {
+	Seq     int    `json:"seq"`
+	Removed int64  `json:"removed"`
+	At      string `json:"at"`
+}
+
+// LastDeviceReset returns the last reset, and false when there was none.
+func (s *Store) LastDeviceReset(ctx context.Context) (DeviceReset, bool, error) {
+	var value string
+	err := s.db.GetContext(ctx, &value, "SELECT value FROM instance_values WHERE key = ?", deviceResetKey)
+	if errors.Is(err, sql.ErrNoRows) {
+		return DeviceReset{}, false, nil
+	}
+	if err != nil {
+		return DeviceReset{}, false, err
+	}
+	var reset DeviceReset
+	if err := json.Unmarshal([]byte(value), &reset); err != nil {
+		return DeviceReset{}, false, err
+	}
+	return reset, true, nil
 }
 
 // ApprovalChallenge is a one-time challenge, by its hash.

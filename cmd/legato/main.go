@@ -1556,7 +1556,7 @@ func runServeCmd(args []string) int {
 	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
 	defer approvalsRT.stop()
 	approvalsRT.attach(srv)
-	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT.approvals, triggerCoordinator)
+	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, triggerCoordinator)
 	srv.SetMacros(cfg.Macros)
 	srv.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
@@ -1836,7 +1836,7 @@ func runTUI() int {
 				webSrv.SetWorkflowTriggerCoordinator(triggerCoordinator)
 			}
 			approvalsRT.attach(webSrv)
-			wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT.approvals, triggerCoordinator)
+			wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, triggerCoordinator)
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)
@@ -1922,7 +1922,7 @@ func runTUI() int {
 		_ = attentionSvc.RegisterHandler(triggerAdapter.Producer(), triggerAdapter)
 		app.SetWorkflowTriggerCoordinator(triggerCoordinator, workflowRepositoryPresets(cfg))
 	}
-	registerApprovalAttention(attentionSvc, approvalsRT.approvals)
+	registerApprovalAttention(attentionSvc, approvalsRT)
 	attentionSvc.StartEventReconciliation(context.Background())
 	if err := attentionSvc.ReconcileAll(context.Background()); err != nil {
 		log.Printf("attention: startup reconciliation: %v", err)

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -55,6 +56,8 @@ func runDeviceContract(verb string, args []string) int {
 		if _, err := db.AppendCredentialAudit(ctx, store.CredentialAuditEntry{Event: "revoke", DecidedBy: "host", Detail: detail}); err != nil {
 			return renderCommandError(command, &commandError{Code: "audit_failed", Message: err.Error(), Exit: exitInternal}, jsonMode)
 		}
+		// The running Legato shows the reset in Attention.
+		ipc.Broadcast(ipc.Message{Type: "approval_changed", Kind: "devices_reset"})
 		if cfg.Notifications.Ntfy.Topic != "" {
 			notifier := service.NewNtfyNotifier(cfg.Notifications.Ntfy.URL, cfg.Notifications.Ntfy.Topic, cfg.Notifications.Ntfy.Token)
 			_ = notifier.Notify("Legato: devices reset", fmt.Sprintf("Every device that signs approvals was removed at the host (%d). If you did not do this, look at the host.", n))
