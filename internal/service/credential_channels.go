@@ -87,6 +87,9 @@ var envName = regexp.MustCompile(`[^A-Z0-9]+`)
 // nothing, and keeps the SSH_AUTH_SOCK it inherits.
 func (c *CredentialChannels) SessionEnv(ctx context.Context, taskID, executionID string) (map[string]string, error) {
 	env := map[string]string{}
+	for _, name := range c.HiddenEnv() {
+		env[name] = ""
+	}
 	base := ""
 	if c.opts.ProxyURL != nil {
 		base = strings.TrimRight(c.opts.ProxyURL(), "/")
@@ -117,6 +120,29 @@ func (c *CredentialChannels) SessionEnv(ctx context.Context, taskID, executionID
 		}
 	}
 	return env, nil
+}
+
+// alwaysHidden are the variables that unlock Legato's secrets: the
+// 1Password service account token and the passphrase of Legato's store.
+var alwaysHidden = []string{"OP_SERVICE_ACCOUNT_TOKEN", "LEGATO_SECRETS_PASSPHRASE"}
+
+// HiddenEnv names the variables an agent session gets set empty, whatever
+// Legato or the tmux server inherited: those that unlock Legato's secrets,
+// and those env:// credentials of the proxy and SSH channels are read from.
+// A helper credential's variable is kept, since legato credential get reads
+// it in the agent's own session.
+func (c *CredentialChannels) HiddenEnv() []string {
+	names := append([]string{}, alwaysHidden...)
+	for _, name := range c.broker.names {
+		bc := c.broker.credentials[name]
+		if bc.ref.Scheme != "env" {
+			continue
+		}
+		if listHas(bc.profile.Channels, ChannelHTTPProxy) || listHas(bc.profile.Channels, ChannelSSHAgent) {
+			names = append(names, bc.ref.Path)
+		}
+	}
+	return names
 }
 
 // EndSession ends an execution's placeholders.

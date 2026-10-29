@@ -60,11 +60,12 @@ func credentialProfileDirs() []string {
 // credentials. messenger is set only in a host process.
 func configuredCredentialBroker(cfg *config.Config, db *store.Store, approvals *service.ApprovalService, messenger service.AgentMessenger) (*service.CredentialBroker, error) {
 	return service.NewCredentialBroker(db, approvals, service.CredentialBrokerOptions{
-		Credentials:      cfg.Credentials,
-		ProfileDirs:      credentialProfileDirs(),
-		Stores:           map[string]credential.Store{"legato": configuredSecretStore(cfg, db)},
-		OnePasswordToken: cfg.Secrets.OnePassword.Token,
-		Messenger:        messenger,
+		Credentials:          cfg.Credentials,
+		ProfileDirs:          credentialProfileDirs(),
+		Stores:               map[string]credential.Store{"legato": configuredSecretStore(cfg, db)},
+		OnePasswordToken:     cfg.Secrets.OnePassword.Token,
+		OnePasswordTokenFile: cfg.Secrets.OnePassword.TokenFile,
+		Messenger:            messenger,
 	})
 }
 

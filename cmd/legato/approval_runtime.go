@@ -38,6 +38,7 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 	var stopCredentials func()
 	rt.credentials, stopCredentials = startCredentials(ctx, cfg, db, bus, rt.approvals, agents)
 	stops = append(stops, stopCredentials)
+	dropSecretEnv()
 	if rt.credentials != nil {
 		var reconcile func(context.Context) error
 		if agents != nil {

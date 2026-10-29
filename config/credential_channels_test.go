@@ -82,3 +82,23 @@ func TestCredentialChannelsHaveLoopbackDefaults(t *testing.T) {
 		}
 	}
 }
+
+func TestTheOnePasswordTokenCanComeFromAFile(t *testing.T) {
+	writeTestConfig(t, "secrets:\n  onepassword:\n    token_file: ~/.config/legato/op-token\n")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(cfg.Secrets.OnePassword.TokenFile, "/.config/legato/op-token") || strings.HasPrefix(cfg.Secrets.OnePassword.TokenFile, "~") {
+		t.Fatalf("token_file = %q", cfg.Secrets.OnePassword.TokenFile)
+	}
+	for name, body := range map[string]string{
+		"both":     "secrets:\n  onepassword:\n    token: ops_x\n    token_file: /run/op-token\n",
+		"relative": "secrets:\n  onepassword:\n    token_file: op-token\n",
+	} {
+		writeTestConfig(t, body)
+		if _, err := Load(); err == nil {
+			t.Errorf("%s: loaded", name)
+		}
+	}
+}

@@ -183,3 +183,46 @@ func contains(list []string, want string) bool {
 	}
 	return false
 }
+
+func TestOnePasswordStoreReadsTheTokenFromAFileForEachRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "op-token")
+	if err := os.WriteFile(path, []byte("ops_from_file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{out: []byte("sk-op")}
+	store := OnePasswordStore{TokenFile: path, Runner: runner}
+	if _, err := store.Get(context.Background(), mustRef(t, "op://Legato/k/credential")); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.env) != 1 || runner.env[0] != "OP_SERVICE_ACCOUNT_TOKEN=ops_from_file" {
+		t.Fatalf("env = %v", runner.env)
+	}
+	// A new token in the file is used by the next read.
+	_ = os.WriteFile(path, []byte("ops_rotated"), 0o600)
+	_, _ = store.Get(context.Background(), mustRef(t, "op://Legato/k/credential"))
+	if runner.env[0] != "OP_SERVICE_ACCOUNT_TOKEN=ops_rotated" {
+		t.Fatalf("env = %v", runner.env)
+	}
+}
+
+func TestOnePasswordStoreRefusesATokenFileOthersCanRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "op-token")
+	_ = os.WriteFile(path, []byte("ops_secret_token"), 0o644)
+	runner := &fakeRunner{out: []byte("sk-op")}
+	_, err := OnePasswordStore{TokenFile: path, Runner: runner}.Get(context.Background(), mustRef(t, "op://Legato/k/credential"))
+	if err == nil || !strings.Contains(err.Error(), "chmod 600") || strings.Contains(err.Error(), "ops_secret_token") {
+		t.Fatalf("err = %v", err)
+	}
+	if runner.name != "" {
+		t.Fatal("op ran with a token others can read")
+	}
+}
+
+func TestOnePasswordStoreNeverPassesItsOwnEnvironmentsToken(t *testing.T) {
+	t.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "ops_inherited")
+	runner := &fakeRunner{out: []byte("sk-op")}
+	_, _ = OnePasswordStore{Token: "ops_configured", Runner: runner}.Get(context.Background(), mustRef(t, "op://Legato/k/credential"))
+	if len(runner.env) != 1 || runner.env[0] != "OP_SERVICE_ACCOUNT_TOKEN=ops_configured" {
+		t.Fatalf("env = %v", runner.env)
+	}
+}

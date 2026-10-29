@@ -68,8 +68,13 @@ func TestNoProxyMeansNoProxyVariables(t *testing.T) {
 	f := newBrokerFixture(t, elevenProxied())
 	channels := NewCredentialChannels(f.broker, CredentialChannelsOptions{ProxyURL: func() string { return "" }})
 	env, err := channels.SessionEnv(context.Background(), "task-1", "ex-1")
-	if err != nil || len(env) != 0 {
-		t.Fatalf("env = %v, %v", env, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range env {
+		if strings.HasPrefix(name, "ELEVENLABS_") || value != "" {
+			t.Fatalf("env = %v; want only emptied variables", env)
+		}
 	}
 }
 
@@ -351,5 +356,36 @@ func TestWithoutChannelsASessionKeepsItsInheritedAgent(t *testing.T) {
 	}
 	if _, ok := tmux.envVars["legato-task-1"]["SSH_AUTH_SOCK"]; ok {
 		t.Fatal("SSH_AUTH_SOCK set without channels")
+	}
+}
+
+func TestAgentSessionsDoNotInheritTheVariablesSecretsComeFrom(t *testing.T) {
+	t.Setenv("PROXIED_KEY", "sk-proxied")
+	t.Setenv("HELPER_KEY", "sk-helper")
+	_, channels := channelsFixture(t,
+		config.CredentialConfig{Name: "eleven", Secret: "env://PROXIED_KEY", Profile: "elevenlabs"},
+		config.CredentialConfig{Name: "plain", Secret: "env://HELPER_KEY", Profile: "secret"},
+	)
+	env, err := channels.SessionEnv(context.Background(), "task-1", "ex-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"OP_SERVICE_ACCOUNT_TOKEN", "LEGATO_SECRETS_PASSPHRASE", "PROXIED_KEY"} {
+		if value, ok := env[name]; !ok || value != "" {
+			t.Errorf("%s = %q, %v; want it set empty", name, value, ok)
+		}
+	}
+	// A helper credential's value is read in the agent's session, by
+	// legato credential get; the agent holds it anyway.
+	if _, ok := env["HELPER_KEY"]; ok {
+		t.Errorf("HELPER_KEY was emptied: legato credential get could not read it")
+	}
+}
+
+func TestAgentSessionsHideTheTokenWithNoCredentials(t *testing.T) {
+	_, channels := channelsFixture(t)
+	env, _ := channels.SessionEnv(context.Background(), "task-1", "ex-1")
+	if value, ok := env["OP_SERVICE_ACCOUNT_TOKEN"]; !ok || value != "" {
+		t.Fatalf("OP_SERVICE_ACCOUNT_TOKEN = %q, %v", value, ok)
 	}
 }

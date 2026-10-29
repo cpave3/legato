@@ -99,10 +99,24 @@ func (SystemdCredsStore) Get(_ context.Context, ref Ref) (Secret, error) {
 }
 
 // OnePasswordStore reads op://vault/item/field with the op command, as a
-// 1Password service account, which never asks a person to approve.
+// 1Password service account, which never asks a person to approve. The
+// token is Token, or the content of TokenFile read for each read, so it
+// never has to be in an environment that agents inherit.
 type OnePasswordStore struct {
-	Token  string
-	Runner Runner
+	Token     string
+	TokenFile string
+	Runner    Runner
+}
+
+func (s OnePasswordStore) token() (string, error) {
+	if s.TokenFile == "" {
+		return s.Token, nil
+	}
+	secret, err := FileStore{}.Get(context.Background(), Ref{Scheme: "file", Path: s.TokenFile})
+	if err != nil {
+		return "", fmt.Errorf("secrets.onepassword.token_file: %w", err)
+	}
+	return strings.TrimSpace(string(secret.Value)), nil
 }
 
 func (s OnePasswordStore) Get(ctx context.Context, ref Ref) (Secret, error) {
@@ -110,13 +124,17 @@ func (s OnePasswordStore) Get(ctx context.Context, ref Ref) (Secret, error) {
 	if runner == nil {
 		runner = ExecRunner{}
 	}
+	token, err := s.token()
+	if err != nil {
+		return Secret{}, err
+	}
 	var env []string
-	if s.Token != "" {
-		env = append(env, "OP_SERVICE_ACCOUNT_TOKEN="+s.Token)
+	if token != "" {
+		env = append(env, "OP_SERVICE_ACCOUNT_TOKEN="+token)
 	}
 	out, err := runner.Run(ctx, "op", []string{"read", "--no-newline", ref.String()}, env, nil)
 	if err != nil {
-		return Secret{}, fmt.Errorf("1Password could not read %s (is op installed, and secrets.onepassword.token a service account token that can see that vault?)", ref)
+		return Secret{}, fmt.Errorf("1Password could not read %s (is op installed, and secrets.onepassword.token or token_file a service account token that can see that vault?)", ref)
 	}
 	return Secret{Type: TypeValue, Value: trimNewline(out)}, nil
 }

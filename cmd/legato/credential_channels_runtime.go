@@ -309,9 +309,11 @@ func (h *channelHost) Stop() {
 }
 
 // giveSessionsChannels makes an agent service give its sessions the
-// channels' environment, when there is any channel to give.
+// channels' environment.
+// It does so with no channel credential too: every session gets the
+// variables that unlock Legato's secrets set empty.
 func giveSessionsChannels(agents service.AgentService, channels *service.CredentialChannels) {
-	if agents == nil || channels == nil || (!channels.HasProxy() && !channels.HasSSH()) {
+	if agents == nil || channels == nil {
 		return
 	}
 	if setter, ok := agents.(interface {
@@ -325,9 +327,6 @@ func giveSessionsChannels(agents service.AgentService, channels *service.Credent
 // agents (a swarm or workflow command) their channels. The command serves
 // none: the host Legato's proxy and sockets serve its agents.
 func attachCredentialChannels(cfg *config.Config, db *store.Store, agents service.AgentService) {
-	if len(cfg.Credentials) == 0 {
-		return
-	}
 	broker, err := configuredCredentialBroker(cfg, db, newApprovalService(cfg, db, nil, nil), nil)
 	if err != nil {
 		log.Printf("credentials: %v", err)
@@ -339,4 +338,15 @@ func attachCredentialChannels(cfg *config.Config, db *store.Store, agents servic
 		SSHSocketDir: filepath.Join(dir, sshSocketDirName),
 		KnownHosts:   cfg.CredentialChannels.SSHAgent.KnownHosts,
 	}))
+}
+
+// dropSecretEnv removes from this process's environment the variables that
+// unlock Legato's secrets, once the configuration and the stores have read
+// them, so the processes it starts (the tmux server, and through it every
+// agent) do not inherit them. Agents can still read what Legato reads
+// outside the sandbox; this keeps the token out of their environment.
+func dropSecretEnv() {
+	for _, name := range []string{"OP_SERVICE_ACCOUNT_TOKEN", "LEGATO_SECRETS_PASSPHRASE"} {
+		_ = os.Unsetenv(name)
+	}
 }

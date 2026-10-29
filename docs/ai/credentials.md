@@ -20,7 +20,7 @@ The two last ones are described under [HTTP proxy](#http-proxy) and [SSH agent](
 secrets:
   master_key: auto                 # or systemd-creds, secret-service, keychain, passphrase, file
   onepassword:
-    token: ${OP_SERVICE_ACCOUNT_TOKEN}
+    token_file: ~/.config/legato/op-token   # mode 0600; or token: ops_…
 
 credentials:
   - name: elevenlabs
@@ -129,13 +129,25 @@ The first host Legato to take `<runtime dir>/legato/credential-channels.lock` se
 | Reference | Store |
 | --- | --- |
 | `legato://name` | Legato's own store: `secrets` table, sealed |
-| `op://vault/item/field` | 1Password, through `op read` as the service account in `secrets.onepassword.token` |
+| `op://vault/item/field` | 1Password, through `op read` as the service account of `secrets.onepassword` (below) |
 | `systemd-creds://name` | `$CREDENTIALS_DIRECTORY/name`, a systemd unit's `LoadCredentialEncrypted=` |
 | `keychain://service/account` | the macOS Keychain, through `security` |
 | `env://NAME` | the Legato process's environment |
 | `file:///path` | a file, refused when other users can read it |
 
 Values are read when used, never cached, logged or put in an error. What `op` or `security` print is never repeated.
+
+### The 1Password service account
+
+`op://` references are read with `op read` as a 1Password service account, so 1Password never asks the person: the rules are the only check. Make one with read access to a vault of its own (`op service-account create Legato --vault Legato:read_items`, or Developer › Service Accounts on 1password.com; it cannot read Personal or Private vaults). Any `op` works for this, a Homebrew one too: the setgid install that 1Password's app integration needs is not required.
+
+Give Legato the token as `secrets.onepassword.token_file`: a file of mode `0600`, read for each `op read` (a file other users can read is refused), so a new token takes effect without a restart. `token` takes the token itself. Do not use `token: ${OP_SERVICE_ACCOUNT_TOKEN}` with the token exported in a shell profile: an agent with that variable can run `op read` on the whole vault, past the rules and the audit log.
+
+### What agent sessions do not inherit
+
+Every agent session gets these variables set empty, whatever Legato or the tmux server inherited: `OP_SERVICE_ACCOUNT_TOKEN`, `LEGATO_SECRETS_PASSPHRASE`, and the variable each `env://` credential of the `http-proxy` or `ssh-agent` channel is read from. A host Legato also removes the first two from its own environment once it has read them, so a tmux server it starts does not hold them. A `helper` credential's `env://` variable is left alone, because `legato credential get` reads it in the agent's own session.
+
+Commands in an agent's session (`legato credential get`, `legato mcp serve`) read `op://` secrets only through `token_file` or `token`, and `legato://` secrets only with a master key source other than `passphrase`. Outside the sandbox an agent can still read the token file, the configuration and Legato's process environment: this keeps the token out of its environment, not out of its reach.
 
 ## Legato's own store
 

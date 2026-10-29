@@ -22,9 +22,12 @@ type SecretsConfig struct {
 	OnePassword OnePasswordConfig `yaml:"onepassword"`
 }
 
-// OnePasswordConfig reads op:// references as a service account.
+// OnePasswordConfig reads op:// references as a service account. The token
+// is given as itself or, better, as a file (mode 0600) read for each read,
+// so it never has to be in the environment agents inherit.
 type OnePasswordConfig struct {
-	Token string `yaml:"token"`
+	Token     string `yaml:"token"`
+	TokenFile string `yaml:"token_file"`
 }
 
 // CredentialConfig is one credential agents can ask for.
@@ -129,6 +132,20 @@ func normalizeCredentials(cfg *Config) error {
 	}
 	if !oneOf(cfg.Secrets.MasterKey, masterKeys) {
 		return fmt.Errorf("secrets.master_key %q: want one of %s", cfg.Secrets.MasterKey, strings.Join(masterKeys, ", "))
+	}
+	op := &cfg.Secrets.OnePassword
+	op.Token = strings.TrimSpace(op.Token)
+	op.TokenFile = strings.TrimSpace(op.TokenFile)
+	if strings.HasPrefix(op.TokenFile, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			op.TokenFile = filepath.Join(home, op.TokenFile[2:])
+		}
+	}
+	if op.Token != "" && op.TokenFile != "" {
+		return fmt.Errorf("secrets.onepassword: set token or token_file, not both")
+	}
+	if op.TokenFile != "" && !filepath.IsAbs(op.TokenFile) {
+		return fmt.Errorf("secrets.onepassword.token_file %q: want an absolute path or one starting with ~/", op.TokenFile)
 	}
 	seen := map[string]bool{}
 	for i := range cfg.Credentials {

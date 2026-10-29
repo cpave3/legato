@@ -189,3 +189,30 @@ func TestTheHostAsksForEndedSessionsWhileItServes(t *testing.T) {
 		t.Fatalf("the socket of a lost session is still there: %v", err)
 	}
 }
+
+type envSetter struct {
+	service.AgentService
+	provider service.SessionEnvProvider
+}
+
+func (e *envSetter) SetSessionEnv(p service.SessionEnvProvider) { e.provider = p }
+
+func TestSessionsAreGivenTheChannelsEvenWithNoChannelCredentials(t *testing.T) {
+	db := channelsTestDB(t)
+	agents := &envSetter{}
+	giveSessionsChannels(agents, service.NewCredentialChannels(channelsTestBroker(t, db), service.CredentialChannelsOptions{}))
+	if agents.provider == nil {
+		t.Fatal("no session environment: OP_SERVICE_ACCOUNT_TOKEN would reach agents")
+	}
+}
+
+func TestAHostProcessDropsTheTokenFromItsOwnEnvironment(t *testing.T) {
+	t.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "ops_inherited")
+	t.Setenv("LEGATO_SECRETS_PASSPHRASE", "words")
+	dropSecretEnv()
+	for _, name := range []string{"OP_SERVICE_ACCOUNT_TOKEN", "LEGATO_SECRETS_PASSPHRASE"} {
+		if _, ok := os.LookupEnv(name); ok {
+			t.Errorf("%s still set: a tmux server Legato starts would inherit it", name)
+		}
+	}
+}

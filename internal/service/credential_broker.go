@@ -98,8 +98,10 @@ type CredentialBrokerOptions struct {
 	ProfileDirs []string
 	// Stores read secrets by scheme. Missing schemes get the built-in stores.
 	Stores map[string]credential.Store
-	// OnePasswordToken is the service account token for op:// references.
-	OnePasswordToken string
+	// OnePasswordToken is the service account token for op:// references,
+	// or OnePasswordTokenFile the file that holds it.
+	OnePasswordToken     string
+	OnePasswordTokenFile string
 	// Messenger tells an agent of a decision it no longer waits for. Only a
 	// host process (TUI, legato serve) sets it.
 	Messenger AgentMessenger
@@ -149,7 +151,7 @@ func NewCredentialBroker(db *store.Store, approvals *ApprovalService, opts Crede
 	}
 	b.stores = map[string]credential.Store{
 		"env": credential.EnvStore{}, "file": credential.FileStore{}, "systemd-creds": credential.SystemdCredsStore{},
-		"op": credential.OnePasswordStore{Token: opts.OnePasswordToken}, "keychain": credential.KeychainStore{},
+		"op": credential.OnePasswordStore{Token: opts.OnePasswordToken, TokenFile: opts.OnePasswordTokenFile}, "keychain": credential.KeychainStore{},
 	}
 	for scheme, s := range opts.Stores {
 		b.stores[scheme] = s
