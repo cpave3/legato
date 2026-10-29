@@ -24,7 +24,9 @@ type Command =
 type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 type PermissionAnswer = {
-  decision: 'allow' | 'deny' | 'ask'
+  // wait: still open; the bridge answers before the host ends the call,
+  // and the mod asks again with the same request ID.
+  decision: 'allow' | 'deny' | 'ask' | 'wait'
   feedback?: string
   // What the model reads for a deny, when the bridge worded it.
   message?: string
@@ -1029,21 +1031,27 @@ export const register: Register = on => {
 
       const requestId = `permission-${permissionCount}-${await $.clock.now()}`
 
-      // The wait is spent inside this call, where a hook's own time is not
-      // counted, so a person may take as long as they need.
-      const response = await $.http.fetch(`${url}/mod/permissions`, {
-        method: 'POST',
-        headers: JSON_HEADERS,
-        body: JSON.stringify({
-          requestId,
-          tool: e.tool_name,
-          input: capArguments(e.tool_input),
-          // What the engine's own "don't ask again" would change.
-          suggestions: e.permission_suggestions,
-        }),
+      const body = JSON.stringify({
+        requestId,
+        tool: e.tool_name,
+        input: capArguments(e.tool_input),
+        // What the engine's own "don't ask again" would change.
+        suggestions: e.permission_suggestions,
       })
 
-      answer = JSON.parse(response.text) as PermissionAnswer
+      // The wait is spent inside these calls, where a hook's own time is not
+      // counted, so a person may take as long as they need. The host ends a
+      // call after 30 seconds, so the bridge answers "wait" before then and
+      // the request is asked again under the same ID.
+      do {
+        const response = await $.http.fetch(`${url}/mod/permissions`, {
+          method: 'POST',
+          headers: JSON_HEADERS,
+          body,
+        })
+
+        answer = JSON.parse(response.text) as PermissionAnswer
+      } while (answer.decision === 'wait')
     } catch {
       return beneath
     }

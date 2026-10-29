@@ -23,6 +23,8 @@ const world = (
   script: {
     lines?: string[]
     permission?: object
+    // Answers to successive permission calls, before permission.
+    permissions?: object[]
     startsAfter?: Promise<void>
     reply?: Piece[]
     // What the mod's own store holds when the session starts.
@@ -71,7 +73,7 @@ const world = (
     posted.push({ url: e.url, body: JSON.parse(e.init?.body ?? '{}') })
 
     const text = e.url.endsWith('/mod/permissions')
-      ? JSON.stringify(script.permission ?? { decision: 'ask' })
+      ? JSON.stringify(script.permissions?.shift() ?? script.permission ?? { decision: 'ask' })
       : ''
 
     return { value: { status: 200, ok: true, headers: {}, text } }
@@ -244,6 +246,30 @@ test('a permission prompt is answered by the decision Legato returns', async ($,
   expect(asked?.body).toEqual(
     expect.objectContaining({ tool: 'Bash', input: { command: 'git push' } }),
   )
+
+  exit()
+  await clock.settle()
+})
+
+test('a held permission answered wait is asked again with the same request', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { posted, exit } = world(on, {
+    lines: [READY],
+    permissions: [{ decision: 'wait' }, { decision: 'wait' }, { decision: 'allow' }],
+  })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  const answered = await $.classic.PermissionRequest({
+    tool_name: 'Bash',
+    tool_input: { command: 'git push' },
+  })
+
+  expect(answered.decision).toEqual({ behavior: 'allow' })
+  const asked = posted.filter(post => post.url.endsWith('/mod/permissions'))
+  expect(asked).toHaveLength(3)
+  expect(new Set(asked.map(post => (post.body as { requestId: string }).requestId)).size).toBe(1)
 
   exit()
   await clock.settle()

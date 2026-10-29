@@ -76,7 +76,25 @@ type Bridge struct {
 	subscribers map[chan envelope]struct{}
 	// waiters are the mod's held permission requests, by request ID.
 	waiters map[string]chan permissionAnswer
+	// detached are held requests whose call ended without a decision: Claude
+	// Code ends a mod's HTTP call after 30 seconds, and the mod then asks
+	// again with the same ID. Each expires unless asked again within grace.
+	detached map[string]*time.Timer
+	// parked are decisions made while their request was detached, kept for
+	// the mod's next call.
+	parked map[string]permissionAnswer
+	grace  time.Duration
+	// holdFor is how long one call is held before it is answered "wait",
+	// inside the 30 seconds Claude Code gives a mod's HTTP call.
+	holdFor time.Duration
 }
+
+// permissionHold is how long the bridge holds one call of the mod.
+const permissionHold = 25 * time.Second
+
+// permissionGrace is how long a held request waits for the mod to ask again
+// after its call ended.
+const permissionGrace = 10 * time.Second
 
 // New creates a Bridge with an empty session.
 func New(opts Options) *Bridge {
@@ -101,6 +119,10 @@ func New(opts Options) *Bridge {
 		session:      newSession(),
 		subscribers:  map[chan envelope]struct{}{},
 		waiters:      map[string]chan permissionAnswer{},
+		detached:     map[string]*time.Timer{},
+		parked:       map[string]permissionAnswer{},
+		grace:        permissionGrace,
+		holdFor:      permissionHold,
 	}
 }
 

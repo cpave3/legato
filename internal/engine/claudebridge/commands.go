@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 // send writes one command for the mod as a JSON line. The mod reads the
@@ -121,6 +122,22 @@ func (b *Bridge) handleModPermission(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b.mu.Lock()
+	// The mod asks again for a request whose call timed out: wait on as before.
+	if answer, ok := b.parked[body.RequestID]; ok {
+		delete(b.parked, body.RequestID)
+		b.mu.Unlock()
+		writeJSON(w, http.StatusOK, answer)
+		return
+	}
+	if waiter := b.waiters[body.RequestID]; waiter != nil {
+		if timer := b.detached[body.RequestID]; timer != nil {
+			timer.Stop()
+			delete(b.detached, body.RequestID)
+		}
+		b.mu.Unlock()
+		b.awaitPermission(w, r, body.RequestID, waiter)
+		return
+	}
 	if len(b.subscribers) == 0 {
 		b.mu.Unlock()
 		writeJSON(w, http.StatusOK, askInTerminal)
@@ -136,19 +153,68 @@ func (b *Bridge) handleModPermission(w http.ResponseWriter, r *http.Request) {
 	b.waiters[body.RequestID] = waiter
 	b.publish(events)
 	b.mu.Unlock()
+	b.awaitPermission(w, r, body.RequestID, waiter)
+}
 
+// awaitPermission holds the mod's call until a decision comes. When the call
+// ends first, the request stays open for b.grace, for the mod to ask again.
+func (b *Bridge) awaitPermission(w http.ResponseWriter, r *http.Request, requestID string, waiter chan permissionAnswer) {
+	hold := time.NewTimer(b.holdFor)
+	defer hold.Stop()
 	select {
 	case answer := <-waiter:
 		writeJSON(w, http.StatusOK, answer)
 	case <-b.closed:
 		writeJSON(w, http.StatusOK, askInTerminal)
-	case <-r.Context().Done():
-		// The mod gave up: the turn was interrupted and the call dropped.
+	case <-hold.C:
+		// Answer before Claude Code ends the call; the mod asks again.
 		b.mu.Lock()
-		delete(b.waiters, body.RequestID)
-		b.publish(b.session.expirePermission(body.RequestID))
+		b.detach(requestID, waiter)
 		b.mu.Unlock()
+		writeJSON(w, http.StatusOK, permissionAnswer{Decision: "wait"})
+	case <-r.Context().Done():
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.detach(requestID, waiter)
 	}
+}
+
+// detach keeps a held request open for b.grace after its call ended, for the
+// mod to ask again. The caller holds b.mu.
+func (b *Bridge) detach(requestID string, waiter chan permissionAnswer) {
+	if b.waiters[requestID] != waiter {
+		return
+	}
+	b.detached[requestID] = time.AfterFunc(b.grace, func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		if b.waiters[requestID] != waiter || b.detached[requestID] == nil {
+			return
+		}
+		// The mod did not come back: the turn was interrupted and the
+		// tool call dropped.
+		delete(b.detached, requestID)
+		delete(b.waiters, requestID)
+		b.publish(b.session.expirePermission(requestID))
+	})
+}
+
+// deliver sends a decision to the mod's held call, or keeps it for the mod's
+// next call when the held one has ended. The caller holds b.mu.
+func (b *Bridge) deliver(requestID string, waiter chan permissionAnswer, answer permissionAnswer) {
+	delete(b.waiters, requestID)
+	if timer := b.detached[requestID]; timer != nil {
+		timer.Stop()
+		delete(b.detached, requestID)
+		b.parked[requestID] = answer
+		time.AfterFunc(b.grace, func() {
+			b.mu.Lock()
+			defer b.mu.Unlock()
+			delete(b.parked, requestID)
+		})
+		return
+	}
+	waiter <- answer
 }
 
 // handlePermission applies Legato's decision and releases the waiting mod.
@@ -188,8 +254,7 @@ func (b *Bridge) handlePermission(w http.ResponseWriter, r *http.Request) {
 			answer.ReturnInput = request.plan != ""
 			answer.UpdatedPermissions = option.updates
 		}
-		waiter <- answer
-		delete(b.waiters, requestID)
+		b.deliver(requestID, waiter, answer)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -233,8 +298,7 @@ func (b *Bridge) handleQuestion(w http.ResponseWriter, r *http.Request) {
 	}
 	b.publish(events)
 	if waiter := b.waiters[requestID]; waiter != nil {
-		waiter <- answer
-		delete(b.waiters, requestID)
+		b.deliver(requestID, waiter, answer)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -245,8 +309,7 @@ func (b *Bridge) handleQuestion(w http.ResponseWriter, r *http.Request) {
 func (b *Bridge) releaseSettledWaiters() {
 	for requestID, waiter := range b.waiters {
 		if b.session.pendingIndex(requestID) < 0 {
-			waiter <- askInTerminal
-			delete(b.waiters, requestID)
+			b.deliver(requestID, waiter, askInTerminal)
 		}
 	}
 }

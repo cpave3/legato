@@ -48,7 +48,7 @@ func TestCredentialsAPIListsCredentialsGrantsAndTheAudit(t *testing.T) {
 	}
 
 	rec := serve(srv, http.MethodGet, "/api/credentials", "")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"eleven"`) || strings.Contains(rec.Body.String(), "sk-server") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"eleven"`) || !strings.Contains(rec.Body.String(), `"approve":"auto"`) || strings.Contains(rec.Body.String(), "sk-server") {
 		t.Fatalf("credentials = %d %s", rec.Code, rec.Body)
 	}
 	var grants struct {

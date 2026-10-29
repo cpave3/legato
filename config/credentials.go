@@ -35,16 +35,16 @@ type CredentialConfig struct {
 
 // CredentialRule says how often the person is asked for some uses.
 type CredentialRule struct {
-	Operation StringList        `yaml:"operation"`
-	Resource  string            `yaml:"resource"`
-	Approve   string            `yaml:"approve"`
-	Window    string            `yaml:"window"`
-	Limit     map[string]string `yaml:"limit"`
-	Signed    bool              `yaml:"signed"`
+	Operation StringList        `yaml:"operation" json:"operation,omitempty"`
+	Resource  string            `yaml:"resource" json:"resource,omitempty"`
+	Approve   string            `yaml:"approve" json:"approve"`
+	Window    string            `yaml:"window" json:"window,omitempty"`
+	Limit     map[string]string `yaml:"limit" json:"limit,omitempty"`
+	Signed    bool              `yaml:"signed" json:"signed,omitempty"`
 
 	// Read from the fields above when the configuration loads.
-	WindowDuration time.Duration `yaml:"-"`
-	Limits         []RuleLimit   `yaml:"-"`
+	WindowDuration time.Duration `yaml:"-" json:"-"`
+	Limits         []RuleLimit   `yaml:"-" json:"-"`
 }
 
 // RuleLimit is "count per period" of one meter: requests: 200/day.

@@ -904,6 +904,8 @@ func TestPermissionsLeftOpenWhenTheTurnEndsGoBackToTheTerminal(t *testing.T) {
 
 func TestPermissionTheModGivesUpOnExpiresInThePanel(t *testing.T) {
 	h := newHarness(t)
+	// A call that ends is given the grace to be asked again; this one never is.
+	h.bridge.grace = 50 * time.Millisecond
 	h.mod(hello(nil))
 	events := h.subscribe("")
 	ctx, abandon := context.WithCancel(context.Background())
@@ -1408,5 +1410,92 @@ func TestClearIdentityDoesNotEraseNewRowsOrTheRunningTurn(t *testing.T) {
 	snap := h.snapshot()
 	if snap.Status != "running" || snap.CWD != "/other" || len(snap.Messages) != 2 || snap.Messages[1].Content != "fresh question" {
 		t.Fatalf("clear identity erased new conversation state: %+v", snap)
+	}
+}
+
+// Claude Code ends a mod's HTTP call after 30 seconds, so a request held
+// longer is asked again with the same ID. The second call waits on as the
+// first did, and gets the decision whenever it comes.
+func TestAPermissionAskedAgainAfterTheCallTimedOutKeepsWaiting(t *testing.T) {
+	h := newHarness(t)
+	h.bridge.grace = 200 * time.Millisecond
+	h.mod(hello(nil))
+	events := h.subscribe("")
+	ctx, timedOut := context.WithCancel(context.Background())
+	body, _ := json.Marshal(map[string]any{"requestId": "toolu_1", "tool": "Bash", "input": map[string]any{"command": "ls"}})
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.server.URL+"/mod/permissions", bytes.NewReader(body))
+	go func() {
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			resp.Body.Close()
+		}
+	}()
+	if event := nextEvent(t, events); event["type"] != "permission_request" {
+		t.Fatalf("event = %v", event)
+	}
+
+	timedOut()
+	time.Sleep(50 * time.Millisecond)
+	again := h.askPermission("toolu_1", "Bash", map[string]any{"command": "ls"})
+	time.Sleep(300 * time.Millisecond) // past the grace the first call had
+
+	if pending := h.snapshot().PendingPermissions; len(pending) != 1 {
+		t.Fatalf("pending = %+v, want the request still open", pending)
+	}
+	if code, _ := h.post("/v1/sessions/task-1/permissions/toolu_1", map[string]any{"decision": "allow"}); code != http.StatusNoContent {
+		t.Fatalf("resolve status = %d", code)
+	}
+	if decided := nextAnswer(t, again); decided["decision"] != "allow" {
+		t.Fatalf("answer to the second call = %v", decided)
+	}
+}
+
+// A decision made while the mod is between two calls is kept for the next.
+func TestADecisionMadeBetweenTwoCallsReachesTheNext(t *testing.T) {
+	h := newHarness(t)
+	h.bridge.grace = time.Second
+	h.mod(hello(nil))
+	events := h.subscribe("")
+	ctx, timedOut := context.WithCancel(context.Background())
+	body, _ := json.Marshal(map[string]any{"requestId": "toolu_1", "tool": "Bash", "input": map[string]any{"command": "ls"}})
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, h.server.URL+"/mod/permissions", bytes.NewReader(body))
+	go func() {
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			resp.Body.Close()
+		}
+	}()
+	nextEvent(t, events)
+	timedOut()
+	time.Sleep(50 * time.Millisecond)
+
+	if code, _ := h.post("/v1/sessions/task-1/permissions/toolu_1", map[string]any{"decision": "deny", "feedback": "no"}); code != http.StatusNoContent {
+		t.Fatalf("resolve status = %d", code)
+	}
+	if decided := nextAnswer(t, h.askPermission("toolu_1", "Bash", map[string]any{"command": "ls"})); decided["decision"] != "deny" {
+		t.Fatalf("answer to the next call = %v", decided)
+	}
+}
+
+// The bridge answers a held call with "wait" before Claude Code would end
+// it, and the mod asks again; the request stays open throughout.
+func TestALongHeldPermissionIsAnsweredWaitAndAskedAgain(t *testing.T) {
+	h := newHarness(t)
+	h.bridge.holdFor = 100 * time.Millisecond
+	h.mod(hello(nil))
+	h.subscribe("")
+
+	first := nextAnswer(t, h.askPermission("toolu_1", "Bash", map[string]any{"command": "ls"}))
+	if first["decision"] != "wait" {
+		t.Fatalf("first answer = %v, want wait", first)
+	}
+	if pending := h.snapshot().PendingPermissions; len(pending) != 1 {
+		t.Fatalf("pending = %+v", pending)
+	}
+	again := h.askPermission("toolu_1", "Bash", map[string]any{"command": "ls"})
+	time.Sleep(20 * time.Millisecond)
+	if code, _ := h.post("/v1/sessions/task-1/permissions/toolu_1", map[string]any{"decision": "allow"}); code != http.StatusNoContent {
+		t.Fatalf("resolve status = %d", code)
+	}
+	if decided := nextAnswer(t, again); decided["decision"] != "allow" {
+		t.Fatalf("second answer = %v", decided)
 	}
 }

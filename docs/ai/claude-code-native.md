@@ -68,11 +68,14 @@ A mod cannot listen for connections: it can only call out and spawn a child. So 
 | Bridge answers | The mod returns to Claude Code |
 | --- | --- |
 | `{decision: "ask"}` | Nothing: the terminal dialog decides. Also the answer when the bridge cannot be reached. |
+| `{decision: "wait"}` | Nothing yet: the mod posts the same request again and waits on |
 | `{decision: "allow"}` | `{behavior: "allow"}` |
 | `… answers: {<question text>: <answer>}` | `allow` with `updatedInput` = the tool's input plus `answers` |
 | `… returnInput: true` | `allow` with `updatedInput` = the tool's input unchanged (a plan) |
 | `… updatedPermissions: […]` | `allow` with those `updatedPermissions`, in the engine's own form |
 | `{decision: "deny", message, feedback}` | `{behavior: "deny", message}`: the bridge's wording, else the bare feedback |
+
+**Holding a request for longer than 30 seconds.** Claude Code ends a mod's HTTP call after 30 seconds (measured: a held call ended at 30.0 s). So the bridge holds one call for 25 seconds (`permissionHold`) and then answers `{decision: "wait"}`; the mod asks again with the same request ID, and the request stays open in Legato as long as the person takes. A call that ends any other way leaves the request open for 10 seconds (`permissionGrace`) for the mod to ask again; a decision made in between is kept for that next call. When the mod does not come back (the turn was interrupted), the request expires as before.
 
 All wording and all mapping from options to engine changes live in the bridge (`permission_options.go`, `questions.go`), where they are tested in Go; the mod only passes them through.
 
