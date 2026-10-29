@@ -1,3 +1,14 @@
+import java.util.Properties
+
+// The release key, kept outside the repository: a properties file with
+// storeFile, storePassword, keyAlias and keyPassword. Its path is
+// $LEGATO_ANDROID_SIGNING, else ~/.config/legato/android/signing.properties.
+// Without it, release builds are signed with the public debug key below.
+val releaseSigning: Properties? = (System.getenv("LEGATO_ANDROID_SIGNING")
+    ?: "${System.getProperty("user.home")}/.config/legato/android/signing.properties")
+    .let(::File).takeIf { it.isFile }
+    ?.let { file -> Properties().apply { file.inputStream().use(::load) } }
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -28,6 +39,14 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        if (releaseSigning != null) {
+            create("release") {
+                storeFile = file(releaseSigning.getProperty("storeFile"))
+                storePassword = releaseSigning.getProperty("storePassword")
+                keyAlias = releaseSigning.getProperty("keyAlias")
+                keyPassword = releaseSigning.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -35,7 +54,10 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            // The private key when present: only builds signed with it can
+            // update the app, and Legato can trust only its keys for approvals.
+            signingConfig = signingConfigs.getByName(if (releaseSigning != null) "release" else "debug")
+            if (releaseSigning == null) logger.warn("Release build signed with the public debug key: no ~/.config/legato/android/signing.properties")
         }
     }
 

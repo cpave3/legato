@@ -22,9 +22,24 @@ task mobile:install   # build, install over the app on the connected device, sta
 default `java` is passed over). With several devices attached, pick one with
 `ANDROID_SERIAL`.
 
-The APK is signed with the React Native template's public debug key, which also
-signed every local build of the earlier Expo app. That is what lets it install
-over that app in place, and over itself, keeping the saved servers.
+**Signing.** A release build is signed with a private key when
+`~/.config/legato/android/signing.properties` exists (or the file
+`$LEGATO_ANDROID_SIGNING` names): `storeFile`, `storePassword`, `keyAlias`
+and `keyPassword`. Keep the key out of the repository and keep a copy of it:
+Android installs an update only when it is signed with the same key as the
+installed app, so a lost key means uninstalling, and pairing and enrolling
+again. Legato trusts approval keys only from the app signed with the keys
+listed in `approval_devices.android_app_digests` (the certificate's SHA-256,
+from `keytool -list -v` or `apksigner verify --print-certs`); see
+`docs/ai/approvals.md` § Signed approvals.
+
+Without that file, the build is signed with the React Native template's public
+debug key (`app/debug.keystore`), and Gradle warns. Anyone can sign with it,
+so a phone with such a build should not sign approvals: Legato's default
+`android_app_digests` trusts it only until a private key is configured.
+
+Changing the key of an installed app needs an uninstall (`adb uninstall
+dev.legato.mobile`), which removes its saved servers and approval keys.
 
 ## The code
 
