@@ -16,6 +16,10 @@ import (
 )
 
 const (
+	// The socket is alone in a folder of its own, which the sandbox mounts:
+	// a mounted socket file would go stale when another host replaces it,
+	// and the runtime folder also holds every Legato's IPC socket.
+	brokerSocketDir  = "broker"
 	brokerSocketName = "broker.sock"
 	brokerLockFile   = "broker.lock"
 )
@@ -66,7 +70,7 @@ func startBrokerHost(ctx context.Context, db *store.Store, dir string, opts brok
 }
 
 // SocketPath is where agents reach the broker, whichever process serves it.
-func (h *brokerHost) SocketPath() string { return filepath.Join(h.dir, brokerSocketName) }
+func (h *brokerHost) SocketPath() string { return filepath.Join(h.dir, brokerSocketDir, brokerSocketName) }
 
 // Owner reports whether this process serves the broker.
 func (h *brokerHost) Owner() bool {

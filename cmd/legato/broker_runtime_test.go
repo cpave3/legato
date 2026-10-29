@@ -26,7 +26,7 @@ func TestOneHostServesTheBrokerAndAnotherTakesOver(t *testing.T) {
 	if !first.Owner() || second.Owner() {
 		t.Fatalf("owners: first %v, second %v", first.Owner(), second.Owner())
 	}
-	if first.SocketPath() != filepath.Join(dir, "broker.sock") || second.SocketPath() != first.SocketPath() {
+	if first.SocketPath() != filepath.Join(dir, "broker", "broker.sock") || second.SocketPath() != first.SocketPath() {
 		t.Fatalf("paths: %q %q", first.SocketPath(), second.SocketPath())
 	}
 	// It answers: a token that names nothing is refused by the host's rules.
