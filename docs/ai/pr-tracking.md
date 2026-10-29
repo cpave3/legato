@@ -33,6 +33,8 @@ repositories:
 
 The underlying OAuth/PAT may have broader scopes, including write access. Legato independently enforces read-only behavior: the GitHub client exposes read operations only and a shared transport rejects POST, PUT, PATCH, DELETE, or any other non-GET request before network dispatch. Legato uses no `gh api`, `gh pr`, or mutation command. Future write support requires a separate explicit design change.
 
+Agents' own GitHub access (reads, pushes and pull requests through a GitHub App, the `github` credential profile) is separate and does not use this client or its credential; see [Credentials](credentials.md) § GitHub.
+
 `repositories` is the shared catalog for workflow inputs, task context discovery, and workspace/Jira mappings. Legacy `workflows.repositories` is loaded when no shared catalog exists, but new configuration should use the top-level key.
 
 ### Durable code context

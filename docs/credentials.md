@@ -38,7 +38,7 @@ Never export `OP_SERVICE_ACCOUNT_TOKEN` in a shell profile, and do not write `to
 
 ## 3. SSH keys
 
-1. **The keys.** In 1Password: New Item › SSH Key in the `Legato` vault (generate one, or import one without a passphrase). With the vault as a source (step 5), every SSH Key item in it is a credential, named after its title, and a key you add or delete is seen within about two minutes, with no restart. Or keep a key in Legato's own store, `legato secret add homelab-key --type keypair --from <private key file>`, and add it to `credentials:` by itself.
+1. **The keys.** In 1Password: New Item › SSH Key in the `Legato` vault (generate one, or import one without a passphrase). With the vault as a source (step 6), every SSH Key item in it is a credential, named after its title, and a key you add or delete is seen within about two minutes, with no restart. Or keep a key in Legato's own store, `legato secret add homelab-key --type keypair --from <private key file>`, and add it to `credentials:` by itself.
 2. **Let it in.** Add its public key to `~/.ssh/authorized_keys` on each machine agents may log in to. From 1Password: `op item get <item> --vault Legato --fields "public key"`.
 3. **Know the hosts.** Legato names a host by the key the server proves it holds, looked up in `~/.ssh/known_hosts` (`credential_channels.ssh_agent.known_hosts`). Connect to each host once yourself, so it is listed. A host that is not listed is named `key:SHA256:…` in approvals and rules.
 4. **Make ssh use Legato's agent in agent sessions.** `IdentityAgent` in `~/.ssh/config` wins over `SSH_AUTH_SOCK`, so a line such as `Host *` / `IdentityAgent ~/.1password/agent.sock` sends every agent's login past Legato. Keep it for your own shells only:
@@ -58,7 +58,50 @@ Store a key in Legato's own store (`legato secret add elevenlabs-key`, the value
 
 A proxied key works only with a tool that takes a base address. The `elevenlabs` profile gives agents `ELEVENLABS_API_KEY` (a placeholder) and `ELEVENLABS_BASE_URL`. libretto reads only the first today, so keep its key on the `secret` profile until libretto reads `ELEVENLABS_BASE_URL`.
 
-## 5. The configuration
+## 5. GitHub
+
+Agents read your repositories, push to `legato/…` branches and open pull requests through a GitHub App of your own, never with your login. Legato makes a token for each use, narrowed to one repository: read tokens last an hour, and a write token is made for one push or one pull request and revoked after it. The agent never holds a write token: its pushes go through Legato's proxy, which reads which branches each push changes.
+
+| Use | Default rule |
+| --- | --- |
+| Fetch, pull, `gh` reads, API reads, of a listed repository | no prompt |
+| Push to `legato/**`, or a pull request from such a branch | asked once a session, per branch |
+| Push to any other branch, or a pull request from it | asked each time |
+| Push to the default branch, push a tag, delete a branch | refused |
+
+1. **Create the App.** On GitHub: Settings › Developer settings › GitHub Apps › New GitHub App.
+   - Name: anything (`Legato for <you>`). Homepage URL: anything. Webhook: untick **Active**.
+   - Repository permissions: **Contents** read and write, **Pull requests** read and write, **Metadata** read.
+   - Where can this GitHub App be installed: **Only on this account**. Create it.
+2. **Note its client ID** (`Iv23…`, on the App's page).
+3. **Generate a private key** (the App's page, Private keys). Store it in Legato and delete the download:
+
+   ```sh
+   legato secret add github-app --type keypair --from ~/Downloads/<app>.private-key.pem
+   ```
+
+   Or keep it in 1Password and name it as `op://Legato/<item>/<field>`. A vault source gives SSH keys only, so the App key is listed in `credentials:` by itself.
+4. **Install the App** (its page, Install App): your account, **Only select repositories**, and pick the ones agents may use.
+5. **The configuration** (step 6 below), with the same repositories:
+
+   ```yaml
+   credentials:
+     - name: github
+       secret: legato://github-app
+       profile: github
+       settings:
+         client_id: Iv23liAbCdEf
+         repositories: [cpave3/legato, cpave3/chimera]
+   ```
+
+   A repository that is not listed is refused, whatever the App is installed on.
+6. **A backstop (optional).** In each repository, Settings › Rules › Rulesets › New branch ruleset: target every branch except `legato/**`, restrict creations, updates and deletions, and add your own role to the bypass list. GitHub then refuses the App outside `legato/**` even if Legato had a bug. Rulesets on private repositories need a paid plan.
+
+In an agent session, `git fetch` and `git pull` get read tokens from Legato's credential helper, and `git push` (to `https://github.com/…` or `git@github.com:…`) goes to Legato's proxy. Agents are told to work on `legato/<task ID>-<a few words>`, to ask for that one branch before the first push, and to open pull requests with the API address Legato gives them (`$LEGATO_GITHUB_API_URL`), not with `gh`, which only reads.
+
+PR tracking keeps its own read access (`github.auth`); this changes nothing there.
+
+## 6. The configuration
 
 In `~/.config/legato/config.yaml`:
 
@@ -87,7 +130,7 @@ credentials:
 
 `ssh` offers an agent's keys one after another, and a server allows only a few tries (`MaxAuthTries`, 6 by default). With more than about five keys in the vault, a login can fail with "Too many authentication failures" before the right key is offered. For such a host, name its key in `~/.ssh/config` (`IdentityFile` of the public key file, and `IdentitiesOnly yes`).
 
-## 6. Check it
+## 7. Check it
 
 ```sh
 legato credential list        # every credential, its profile and store
@@ -101,7 +144,14 @@ ssh-add -l                    # lists only the credentials' keys
 ssh -v <host> true            # the approval appears; "Will attempt key: legato_default … agent"
 ```
 
-Approve the request, and the login goes through. `legato audit` shows each request, grant and use; `legato audit verify` checks the log's chain.
+Approve the request, and the login goes through. For GitHub, in the same terminal:
+
+```sh
+git ls-remote https://github.com/<owner>/<repo>    # a read, no prompt
+git push origin HEAD:refs/heads/legato/check-1     # an approval appears; push again after it
+```
+
+`legato audit` shows each request, grant and use; `legato audit verify` checks the log's chain.
 
 Agents are told about each credential and how to use it, in their Legato guidance: run `ssh` as usual, wait for an approval, and never get in another way.
 
@@ -109,4 +159,4 @@ In a sandboxed Chimera session (`--sandbox`), `ssh` fails before it connects wit
 
 ## What this does not stop
 
-Outside the agent sandbox (not built yet), an agent runs as you. It can read `~/.config/legato/op-token`, the configuration, `~/.ssh`, and `~/.1password/agent.sock`. These steps make the approved way the one agents use and are told to use, and they record every use; they do not make the other ways impossible.
+Outside the agent sandbox (not built yet), an agent runs as you. It can read `~/.config/legato/op-token`, the configuration, `~/.ssh`, and `~/.1password/agent.sock`, and it can push with your own `gh` login or SSH key by undoing the session's git settings. These steps make the approved way the one agents use and are told to use, and they record every use; they do not make the other ways impossible.

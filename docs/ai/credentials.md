@@ -13,6 +13,7 @@ There are three ways an agent gets a credential, set by its profile's channel:
 | `helper` | The value itself, from `legato credential get` or `exec` | `secret` |
 | `http-proxy` | A placeholder key and Legato's proxy address; Legato puts the real key in each request it allows | `elevenlabs`, `api-key` |
 | `ssh-agent` | An SSH agent socket of its own; Legato signs each login it allows | `ssh` |
+| `http-proxy` with `git` | Read tokens from git's credential helper; pushes and pull requests through the proxy | `github` |
 
 The two last ones are described under [HTTP proxy](#http-proxy) and [SSH agent](#ssh-agent).
 
@@ -145,6 +146,19 @@ credential_sources:
 - Only `ssh` for now; API keys from a vault (by a tag naming the profile) come later.
 - `CredentialSummary.source` names the vault of such a credential; `CredentialBroker.Sources` lists the vaults, and the guidance names a vault once ("every SSH key in the 1Password vault Legato") instead of each key.
 
+## GitHub
+
+The `github` profile reaches GitHub through a GitHub App the person creates (setup: [Setting up credentials on a host](../credentials.md) § GitHub). Its secret is the App's private key (`keypair`); its `settings` are `client_id` and `repositories` (owner/name, required). GitHub cannot narrow a token to a branch, so reads use narrow tokens the agent holds, and writes never leave the proxy.
+
+- **Tokens: the `jwt-exchange` issuer.** A template in the profile (`jwt_exchange`): sign an RS256 JWT with the App key (`iss` the client ID, 10 minutes, back-dated a minute), look up the repository's installation (cached an hour), exchange it for a token narrowed to that one repository and the operation's permissions (the profile's `permissions` map), and revoke with `DELETE /installation/token`. Templates fill placeholders (`{settings.*}`, `{owner}`, `{repo}`, `{permissions}`, `{now±n}`, looked-up values) with plain values; every URL is `https` with a written-out host. Read tokens are cached while they have more than 5 minutes left and the scope matches (`JWTExchange.Cached`); a token that can write is made for one use and revoked after it, retried once on failure.
+- **Reads.** The session's `GIT_CONFIG_*` set, for `https://github.com`, an empty `credential.helper` (dropping every helper of the person's, global ones too) then `!<legato> credential git <credential>`, and `useHttpPath`. The helper asks the host's proxy (`POST /c/<credential>/token` with the placeholder) for a read token for the repository git names, after the broker allows `git.read` on `github:<owner>/<repo>`. A `gh` wrapper first on the session's `PATH` (`<runtime dir>/legato/bin/gh`) runs the real `gh` with `GH_TOKEN` from `legato credential gh-token` (the repository from `-R`, `GH_REPO` or `origin`). Tokens come from the host, so the App key is read in one process only.
+- **Pushes.** `url.<proxy>/c/<credential>/git/.pushInsteadOf` sends pushes to `https://github.com/`, `git@github.com:` and `ssh://git@github.com/` to the proxy, and the same helper answers the proxy with the placeholder (Basic auth). At the advertisement (`info/refs?service=git-receive-pack`) the proxy makes a `contents: write` token; it pushes with it and revokes it when the push ends, or after 2 minutes. The push body's commands are read (`ReadReceivePack`: pkt-lines, gzip, SHA-1 and SHA-256, push options; signed pushes and anything malformed refused) and each ref update classified: `git.push`, `git.push-default` (the default branch, read with a read token and cached 10 minutes), `git.push-tag`, `git.delete-ref`; other refs are refused. Resource: `github:<owner>/<repo>@<ref>`.
+- **All or nothing.** `CredentialBroker.CheckUse` decides each ref without spending a grant; only when every one is allowed are they used (`Authorize`). A ref that needs the person is asked for at once (no wait: git cannot) and the push refused. A refusal is a receive-pack answer git prints: messages on side band 2 (`remote: Legato: …`, with how to ask, or `pending ap-…`), and `ng <ref> <reason>` for every ref.
+- **REST.** `/c/<credential>/api/` serves `https://api.github.com`: `GET /repos/{owner}/{repo}/**` is `api.read`; `POST /repos/{owner}/{repo}/pulls` is `pr.create` on `github:<owner>/<repo>@refs/heads/<head>` (the head read from the body: a route's resource may name `{$.field}`). Every other route is refused. The agent gets `LEGATO_GITHUB_API_URL` and `LEGATO_GITHUB_TOKEN` (the placeholder).
+- **Rules.** `{repositories}` in a rule's resource expands to one rule per listed repository. Defaults: `git.read`, `api.read` `auto`; `git.push`, `pr.create` on `…@refs/heads/legato/**` `session`; on `…@refs/heads/**` `request` (signed); `git.push-default`, `git.push-tag`, `git.delete-ref` `deny`. A repository not listed is refused with a reason that names `settings.repositories`.
+- **Guidance.** Agents are told to work on `legato/$LEGATO_TASK_ID-…`, ask for that one branch with `request_access` before the first push, push as usual, and open pull requests with `curl` to `$LEGATO_GITHUB_API_URL` (`gh` reads only).
+- Not built yet: GraphQL writes, the `oauth2` and `ssh-cert` issuers (`openspec/changes/github-credentials`).
+
 ## Who serves the channels
 
 The first host Legato to take `<runtime dir>/legato/credential-channels.lock` serves the proxy and the sockets for every Legato on the machine; another takes over within 5 seconds of it ending. It opens a socket for each running execution (at once for the sessions it spawns, within 5 seconds for others) and closes it, and ends its placeholders, when the execution ends. Commands that spawn agents (`legato swarm dispatch`, `legato workflow run`) give their sessions the same variables and serve nothing.
@@ -195,7 +209,9 @@ A profile is YAML: `name`, `description`, `issuer` (`static` in this phase), `ch
 ## Code
 
 - `internal/engine/credential`: secret types and references, the stores, sealing, master key sources (`LoadMasterKey`, `RecordedSource`), resource matching (`Covers`, `Specificity`, `IsPattern`), the plug-in interfaces (`Store`, `Issuer`, `Inspector`, `Channel`, with `Putter`, `Deleter`, `Signer`, `Revoker`) and `StaticIssuer`. The channels: `HTTPProxy` (`httpproxy.go`) with `RestInspector` (`rest.go`), and `SSHAgentServer` (`sshagent.go`) with `KnownHosts` (`knownhosts.go`). They ask Legato through `ProxyBackend` and `SSHBackend`.
+- `internal/engine/credential`: GitHub's parts: `JWTExchange` and `ExchangeTemplate` (`issuer_jwt.go`), `ReadReceivePack`, `ClassifyRefUpdate` and `RefusePush` (`inspect_git.go`), the proxy's `/git/` and `/token` routes and `GitBackend` (`httpproxy_git.go`).
 - `internal/engine/store/credential_channels.go`: placeholders, meter totals, running executions.
+- `internal/service/credential_github.go`: tokens per use, the default branch, `AuthorizePush`, the session's git settings and the `gh` wrapper. `internal/cli/credential_git.go`: the git helper and `gh-token`.
 - `internal/service/credential_channels.go`: `CredentialChannels`, the session environment and the backend of both channels; `SessionEnvProvider`, which `agentService.SetSessionEnv` takes.
 - `cmd/legato/credential_channels_runtime.go`: the channel host (lock, proxy listener, address file, socket reconcile) and `attachCredentialChannels` for commands that spawn agents.
 - `internal/engine/store/credential.go`: `secrets`, `credential_grants`, `credential_audit`.
