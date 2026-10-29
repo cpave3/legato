@@ -36,6 +36,9 @@ type ClaudeBridgeOptions struct {
 	// HandoverWait is how long a bridge already serving the task is given to
 	// go away before this one is refused; zero means bridgeHandoverWait.
 	HandoverWait time.Duration
+	// Host is how the bridge reaches Legato: the broker in Legato's sandbox.
+	// Nil means the store given to RunClaudeBridge.
+	Host BridgeHost
 }
 
 // bridgeLivenessTimeout bounds the probe of an endpoint already bound to the task.
@@ -62,15 +65,19 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 	if runtimeDir == "" {
 		runtimeDir = ipc.SocketDir()
 	}
-	session, err := s.GetAgentSessionByTaskID(ctx, opts.TaskID)
+	host := opts.Host
+	if host == nil {
+		host = StoreBridgeHost(s)
+	}
+	session, err := host.Session(ctx, opts.TaskID, opts.ExecutionID)
 	if err != nil {
-		return fmt.Errorf("no running agent to bridge for task %s: %w", opts.TaskID, err)
+		return err
 	}
-	if opts.ExecutionID != "" && session.ExecutionID != "" && session.ExecutionID != opts.ExecutionID {
-		return fmt.Errorf("execution %s does not own the running agent for task %s", opts.ExecutionID, opts.TaskID)
-	}
-	if session.ChimeraEndpoint != nil && !endpointGone(ctx, *session.ChimeraEndpoint, opts.HandoverWait) {
+	if session.Endpoint != "" && !endpointGone(ctx, session.Endpoint, opts.HandoverWait) {
 		return fmt.Errorf("task %s is already bridged by a live session", opts.TaskID)
+	}
+	if len(opts.Models) == 0 {
+		opts.Models = session.Models
 	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -100,7 +107,7 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 		default:
 		}
 	}()
-	recordIdentity := nativeIdentityRecorder(runCtx, s, opts.TaskID, session, "claude-code")
+	recordIdentity := nativeIdentityRecorder(runCtx, host, opts.TaskID, session, "claude-code")
 	bridge := claudebridge.New(claudebridge.Options{
 		TaskID:   opts.TaskID,
 		Token:    token,
@@ -141,15 +148,10 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 
 	// The session ID Legato binds is the task ID, not Claude's own: a /clear
 	// continues under a new Claude session, and the binding must survive it.
-	if err := s.UpdateChimeraDiscoveryForSession(ctx, session.ID, opts.TaskID, endpoint); err != nil {
-		return fmt.Errorf("binding the bridge to task %s: %w", opts.TaskID, err)
+	if err := host.Bind(ctx, endpoint); err != nil {
+		return err
 	}
-	defer func() {
-		if cleared, err := s.ClearChimeraDiscoveryForSession(context.Background(), session.ID, opts.TaskID, endpoint); err == nil && cleared {
-			ipc.Broadcast(ipc.Message{Type: "agents_changed", TaskID: opts.TaskID})
-		}
-	}()
-	ipc.Broadcast(ipc.Message{Type: "agents_changed", TaskID: opts.TaskID})
+	defer func() { _ = host.Unbind(context.Background(), endpoint) }()
 
 	if err := bridge.Ready(endpoint); err != nil {
 		return err
@@ -168,32 +170,20 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 	}
 }
 
-func nativeIdentityRecorder(ctx context.Context, s *store.Store, taskID string, session *store.AgentSession, kind string) func(string, string) error {
-	excluded := session.Role == "worker" || session.ExecutionKind == store.ExecutionSwarmWorker ||
-		(session.SubtaskID != nil && *session.SubtaskID != "") ||
-		(session.ParentTaskID != nil && *session.ParentTaskID != "" && !(session.Role == "conductor" && *session.ParentTaskID == taskID)) ||
-		(session.AttributionTaskID != "" && session.AttributionTaskID != taskID)
-	_, taskErr := s.GetTask(ctx, taskID)
+func nativeIdentityRecorder(ctx context.Context, host BridgeHost, taskID string, session BridgeSession, kind string) func(string, string) error {
 	storageDir, storageErr := nativeSessionStorageDir(kind)
 	return func(providerSessionID, cwd string) error {
-		if excluded || providerSessionID == "" {
+		if !session.RecordsIdentity || providerSessionID == "" {
 			return nil
-		}
-		if taskErr != nil {
-			return fmt.Errorf("checking native session task: %w", taskErr)
 		}
 		if storageErr != nil {
 			return fmt.Errorf("resolving %s session storage: %w", kind, storageErr)
 		}
 		// Provider exit must not cancel a save for an identity already observed.
-		saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		changed, err := s.RecordTaskNativeSession(saveCtx, taskID, session.ID, session.ExecutionID, kind, providerSessionID, cwd, storageDir)
-		if err != nil {
+		if err := host.SaveIdentity(saveCtx, kind, providerSessionID, cwd, storageDir); err != nil {
 			return fmt.Errorf("could not save %s session %s for task %s; resume identity was not recorded: %w", kind, providerSessionID, taskID, err)
-		}
-		if changed {
-			ipc.Broadcast(ipc.Message{Type: "agents_changed", TaskID: taskID})
 		}
 		return nil
 	}

@@ -26,6 +26,9 @@ type BrokerOp func(ctx context.Context, caller BrokerCaller, args json.RawMessag
 // BrokerDeps is what the operations need of the host.
 type BrokerDeps struct {
 	Push, OS service.Notifier
+	// ClaudeModels are adapters.claude-code.models, which a bridge in the
+	// sandbox cannot read from the configuration.
+	ClaudeModels []string
 	// Ops adds operations served by other parts of the host (tools, bridges).
 	Ops map[string]BrokerOp
 }
@@ -39,6 +42,9 @@ func NewBrokerHandler(db *store.Store, deps BrokerDeps) broker.Handler {
 	ops := map[string]BrokerOp{
 		"agent.state":           brokerAgentState(db, deps),
 		"agent.session_created": brokerSessionCreated(db),
+	}
+	for name, op := range bridgeOps(db, deps) {
+		ops[name] = op
 	}
 	for name, op := range deps.Ops {
 		ops[name] = op

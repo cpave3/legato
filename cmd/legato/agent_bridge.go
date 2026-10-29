@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"strings"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
+	"github.com/cpave3/legato/internal/engine/broker"
+	"github.com/cpave3/legato/internal/engine/store"
 )
 
 // runAgentBridgeContract hosts the Claude Code bridge. The Legato mod inside a
@@ -32,15 +35,13 @@ func runAgentBridgeContract(args []string) int {
 	if executionID == "" {
 		executionID = strings.TrimSpace(os.Getenv("LEGATO_EXECUTION_ID"))
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		return renderCommandError(command, &commandError{Code: "config_invalid", Message: err.Error(), Exit: exitEnvironment}, false)
+	host, db, models, failed := bridgeHost(command, taskID, executionID, func(cfg *config.Config) []string { return cfg.Adapters["claude-code"].Models })
+	if failed != 0 {
+		return failed
 	}
-	db, err := openStore(cfg)
-	if err != nil {
-		return renderCommandError(command, &commandError{Code: "database_unavailable", Message: err.Error(), Exit: exitEnvironment}, false)
+	if db != nil {
+		defer db.Close()
 	}
-	defer db.Close()
 
 	// SIGPIPE is taken so a write to a mod that has gone returns an error and
 	// the bridge unbinds itself, instead of the process dying mid-cleanup.
@@ -51,9 +52,9 @@ func runAgentBridgeContract(args []string) int {
 	defer cancel()
 	go cancelWhenOrphaned(ctx, cancel, os.Getppid(), os.Getppid, time.Second)
 
-	err = cli.RunClaudeBridge(ctx, db, cli.ClaudeBridgeOptions{
+	err := cli.RunClaudeBridge(ctx, db, cli.ClaudeBridgeOptions{
 		TaskID: taskID, ExecutionID: executionID, Stdout: os.Stdout,
-		Models: cfg.Adapters["claude-code"].Models,
+		Models: models, Host: host,
 		// Set in a session's environment to see what the mod and the bridge
 		// said to each other.
 		TracePath: os.Getenv("LEGATO_CLAUDE_BRIDGE_TRACE"),
@@ -81,4 +82,31 @@ func cancelWhenOrphaned(ctx context.Context, cancel context.CancelFunc, parent i
 			}
 		}
 	}
+}
+
+// bridgeHost is how a bridge reaches Legato. A session with a broker that
+// answers uses it and reads neither configuration nor store; a session in
+// the sandbox has nothing else. An unsandboxed session with no broker
+// answering opens the store as before. models reads what the bridge needs
+// of the configuration in that case. failed is an exit code, or 0.
+func bridgeHost(command, taskID, executionID string, models func(*config.Config) []string) (host cli.BridgeHost, db *store.Store, chosen []string, failed int) {
+	if socket, token, ok := brokerSession(); ok {
+		host = cli.BrokerBridgeHost(socket, token)
+		_, err := host.Session(context.Background(), taskID, executionID)
+		switch {
+		case err == nil:
+			return host, nil, nil, 0
+		case !errors.Is(err, broker.ErrUnreachable) || sandboxed():
+			return nil, nil, nil, renderCommandError(command, commandDomainError(err), false)
+		}
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, nil, nil, renderCommandError(command, &commandError{Code: "config_invalid", Message: err.Error(), Exit: exitEnvironment}, false)
+	}
+	db, err = openStore(cfg)
+	if err != nil {
+		return nil, nil, nil, renderCommandError(command, &commandError{Code: "database_unavailable", Message: err.Error(), Exit: exitEnvironment}, false)
+	}
+	return cli.StoreBridgeHost(db), db, models(cfg), 0
 }

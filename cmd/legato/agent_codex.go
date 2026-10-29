@@ -207,15 +207,13 @@ func runAgentCodexBridgeContract(args []string) int {
 	if executionID == "" {
 		executionID = strings.TrimSpace(os.Getenv("LEGATO_EXECUTION_ID"))
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		return renderCommandError(command, &commandError{Code: "config_invalid", Message: err.Error(), Exit: exitEnvironment}, false)
+	host, db, _, failed := bridgeHost(command, taskID, executionID, func(*config.Config) []string { return nil })
+	if failed != 0 {
+		return failed
 	}
-	db, err := openStore(cfg)
-	if err != nil {
-		return renderCommandError(command, &commandError{Code: "database_unavailable", Message: err.Error(), Exit: exitEnvironment}, false)
+	if db != nil {
+		defer db.Close()
 	}
-	defer db.Close()
 
 	// The launcher stops reading once Codex has replaced it; a later write
 	// to that pipe must be an error, not the end of the bridge.
@@ -228,8 +226,8 @@ func runAgentCodexBridgeContract(args []string) int {
 	// bridge's parent is the session: when it is gone, so is the bridge.
 	go cancelWhenOrphaned(ctx, cancel, os.Getppid(), os.Getppid, time.Second)
 
-	err = cli.RunCodexBridge(ctx, db, cli.CodexBridgeOptions{
-		TaskID: taskID, ExecutionID: executionID, ServerArgs: serverArgs,
+	err := cli.RunCodexBridge(ctx, db, cli.CodexBridgeOptions{
+		TaskID: taskID, ExecutionID: executionID, ServerArgs: serverArgs, Host: host,
 		Ready: func(server cli.CodexAppServer) {
 			line, _ := json.Marshal(map[string]string{"type": "ready", "url": server.URL, "token": server.Token})
 			fmt.Fprintln(os.Stdout, string(line))

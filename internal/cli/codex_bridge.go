@@ -50,6 +50,9 @@ type CodexBridgeOptions struct {
 	Ready func(CodexAppServer)
 	// StartServer starts the app server. Nil runs `codex app-server`.
 	StartServer func(ctx context.Context) (CodexAppServer, error)
+	// Host is how the bridge reaches Legato: the broker in Legato's sandbox.
+	// Nil means the store given to RunCodexBridge.
+	Host BridgeHost
 }
 
 // RunCodexBridge serves the native agent protocol for one Codex session
@@ -67,14 +70,15 @@ func RunCodexBridge(ctx context.Context, s *store.Store, opts CodexBridgeOptions
 	if runtimeDir == "" {
 		runtimeDir = ipc.SocketDir()
 	}
-	session, err := s.GetAgentSessionByTaskID(ctx, opts.TaskID)
+	host := opts.Host
+	if host == nil {
+		host = StoreBridgeHost(s)
+	}
+	session, err := host.Session(ctx, opts.TaskID, opts.ExecutionID)
 	if err != nil {
-		return fmt.Errorf("no running agent to bridge for task %s: %w", opts.TaskID, err)
+		return err
 	}
-	if opts.ExecutionID != "" && session.ExecutionID != "" && session.ExecutionID != opts.ExecutionID {
-		return fmt.Errorf("execution %s does not own the running agent for task %s", opts.ExecutionID, opts.TaskID)
-	}
-	if session.ChimeraEndpoint != nil && endpointAlive(ctx, *session.ChimeraEndpoint) {
+	if session.Endpoint != "" && endpointAlive(ctx, session.Endpoint) {
 		return fmt.Errorf("task %s is already bridged by a live session", opts.TaskID)
 	}
 
@@ -109,7 +113,7 @@ func RunCodexBridge(ctx context.Context, s *store.Store, opts CodexBridgeOptions
 	cwd, _ := os.Getwd()
 	bridge := codexbridge.New(codexbridge.Options{
 		TaskID: opts.TaskID, Token: token, AppServerURL: appServer.URL, AppServerToken: appServer.Token, CWD: cwd,
-		OnIdentity: nativeIdentityRecorder(runCtx, s, opts.TaskID, session, "codex"),
+		OnIdentity: nativeIdentityRecorder(runCtx, host, opts.TaskID, session, "codex"),
 	})
 	if err := bridge.Connect(runCtx); err != nil {
 		return err
@@ -150,15 +154,10 @@ func RunCodexBridge(ctx context.Context, s *store.Store, opts CodexBridgeOptions
 
 	// The session ID Legato binds is the task ID, not the Codex thread's: a
 	// new thread started in the terminal continues under the same binding.
-	if err := s.UpdateChimeraDiscoveryForSession(ctx, session.ID, opts.TaskID, endpoint); err != nil {
-		return fmt.Errorf("binding the bridge to task %s: %w", opts.TaskID, err)
+	if err := host.Bind(ctx, endpoint); err != nil {
+		return err
 	}
-	defer func() {
-		if cleared, err := s.ClearChimeraDiscoveryForSession(context.Background(), session.ID, opts.TaskID, endpoint); err == nil && cleared {
-			ipc.Broadcast(ipc.Message{Type: "agents_changed", TaskID: opts.TaskID})
-		}
-	}()
-	ipc.Broadcast(ipc.Message{Type: "agents_changed", TaskID: opts.TaskID})
+	defer func() { _ = host.Unbind(context.Background(), endpoint) }()
 
 	// The agent is bound before its terminal exists: the panel can show what
 	// the terminal asks on its way up, and the bridge holds any message sent

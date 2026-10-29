@@ -53,7 +53,7 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 		giveSessionsChannels(agents, host.Channels())
 	}
 	// The broker agent-side processes ask instead of the store.
-	broker := startBrokerHost(ctx, db, ipc.SocketDir(), brokerHostOptions{Deps: cli.BrokerDeps{Push: agentPushNotifier(cfg), OS: agentOSNotifier(cfg)}})
+	broker := startBrokerHost(ctx, db, ipc.SocketDir(), brokerHostOptions{Deps: cli.BrokerDeps{Push: agentPushNotifier(cfg), OS: agentOSNotifier(cfg), ClaudeModels: cfg.Adapters["claude-code"].Models}})
 	stops = append(stops, broker.Stop)
 	if agents != nil {
 		giveSessionsBroker(agents, db, broker.SocketPath())
