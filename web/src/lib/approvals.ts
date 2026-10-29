@@ -50,6 +50,8 @@ export type Approval = {
   error?: string
   revision: number
   created_at: string
+  /** Allowed only with a decision signed on an enrolled phone. */
+  signed?: boolean
 }
 
 export type ApprovalDecision =

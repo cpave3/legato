@@ -164,4 +164,37 @@ describe("ApprovalTray", () => {
     expect(card?.getAttribute("data-focused")).toBe("true")
     await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/board?x=1"))
   })
+
+  describe("an approval that needs a signature", () => {
+    function signed(): Approval {
+      return permission({ id: "ap-33333333", source: "credential", title: "Use github", signed: true,
+        details: { credential: "github", operations: ["git.push"], resources: ["github:cpave3/legato@refs/heads/main"], reason: "push the fix" },
+        options: [{ id: "once", label: "Once", kind: "allow" }, { id: "deny", label: "Deny", kind: "deny" }] })
+    }
+    afterEach(() => {
+      delete (window as { legatoShell?: unknown }).legatoShell
+      delete (window as { ReactNativeWebView?: unknown }).ReactNativeWebView
+    })
+
+    it("says it needs the phone in a browser, and offers no allow", () => {
+      mockData = [signed()]
+      renderTray()
+      expect(screen.getByText(/Needs your phone/)).toBeTruthy()
+      expect(screen.queryByRole("button", { name: "Once" })).toBeNull()
+      expect(screen.getByRole("button", { name: "Deny…" })).toBeTruthy()
+    })
+
+    it("opens the app's sheet inside the app, and refreshes when it is decided", async () => {
+      const posted: string[] = []
+      ;(window as { legatoShell?: unknown }).legatoShell = { approval: 1, key: "k1" }
+      ;(window as { ReactNativeWebView?: unknown }).ReactNativeWebView = { postMessage: (m: string) => posted.push(m) }
+      mockData = [signed()]
+      mockRefresh.mockClear()
+      renderTray()
+      fireEvent.click(screen.getByRole("button", { name: /Approve on this phone/ }))
+      expect(JSON.parse(posted[0])).toEqual({ legatoShell: "approval", key: "k1", id: "ap-33333333" })
+      window.dispatchEvent(new CustomEvent("legato:shell-approval", { detail: { id: "ap-33333333", status: "decided", option: "once" } }))
+      await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+    })
+  })
 })

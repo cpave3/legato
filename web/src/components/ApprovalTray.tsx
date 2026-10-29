@@ -4,6 +4,7 @@ import { useApprovals } from "../hooks/useApprovals"
 import { useServer } from "../hooks/useServer"
 import { approvalAsker, approvalKind, decideApproval, dismissApproval, type Approval, type ApprovalDecision } from "../lib/approvals"
 import { NativeQuestionCard } from "./NativeQuestionCard"
+import { onShellApproval, shellApprovals } from "../lib/mobileShell"
 import type { NativeQuestion } from "../lib/nativeAgentSync"
 
 // The approvals waiting for the person, on every page: a column of cards at
@@ -83,6 +84,16 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
   useEffect(() => {
     if (focused) ref.current?.scrollIntoView?.({ block: "nearest" })
   }, [focused])
+
+  // A signed approval is decided in the Legato app's own sheet; it says how
+  // that went when the sheet closes.
+  useEffect(() => onShellApproval((result) => {
+    if (result.id !== approval.id) return
+    setBusy(false)
+    if (result.status === "decided") void onDone()
+    if (result.status === "error") setError(result.error || "The phone could not sign this decision.")
+  }), [approval.id, onDone])
+  const phone = approval.signed ? shellApprovals() : null
 
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true)
@@ -166,7 +177,21 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
             </div>
           ) : (
             <div className="mt-4 flex flex-col gap-2 md:mt-2 md:flex-row md:flex-wrap">
-              {allows.map((option, index) => (
+              {approval.signed && phone && (
+                <button
+                  disabled={busy}
+                  onClick={() => { setError(null); setBusy(true); phone.open(approval.id) }}
+                  className={`${choiceSize} gap-2 bg-lw-accent font-semibold text-white hover:brightness-110 disabled:opacity-50`}
+                >
+                  <span aria-hidden>◈</span> Approve on this phone
+                </button>
+              )}
+              {approval.signed && !phone && (
+                <p className="rounded-lg border border-lw-accent/40 bg-lw-accent-soft px-3 py-2 text-sm text-lw-accent-text md:text-xs">
+                  <span aria-hidden>◈ </span>Needs your phone: open this approval in the Legato app and sign it with your fingerprint or PIN.
+                </p>
+              )}
+              {!approval.signed && allows.map((option, index) => (
                 <button
                   key={option.id}
                   disabled={busy}

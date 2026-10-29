@@ -6,6 +6,7 @@ import { QRScanner } from "../components/QRScanner"
 import { PairDeviceDialog } from "../components/PairDeviceDialog"
 import { ResourcesSettings } from "../components/ResourcesSettings"
 import { CredentialsSettings } from "../components/CredentialsSettings"
+import { DevicesSettings } from "../components/DevicesSettings"
 import { useSettings } from "../hooks/useSettings"
 import { useToast } from "../hooks/useToast"
 import { apiFetch } from "../lib/api"
@@ -243,6 +244,7 @@ export function SettingsPage() {
 
       <ResourcesSettings baseUrl={baseUrl} />
       <CredentialsSettings baseUrl={baseUrl} />
+      <DevicesSettings baseUrl={baseUrl} />
 
       <section className="max-w-lg mb-8">
         <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-3">
