@@ -11,7 +11,6 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
-
 func TestOneHostServesTheBrokerAndAnotherTakesOver(t *testing.T) {
 	dir := shortDir(t)
 	db, err := store.New(filepath.Join(t.TempDir(), "legato.db"))

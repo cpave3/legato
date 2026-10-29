@@ -65,6 +65,8 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 		}
 		return opts
 	})
+	// Agents in the sandbox run their own `legato` commands here.
+	deps.Ops["cli.run"] = cliRunOp(legatoBinary(), ipc.SocketDir())
 	broker := startBrokerHost(ctx, db, ipc.SocketDir(), brokerHostOptions{Deps: deps})
 	stops = append(stops, broker.Stop)
 	if agents != nil {

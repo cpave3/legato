@@ -170,6 +170,11 @@ func runCredentialContract(verb string, args []string) int {
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
 	}
+	if verb == "exec" && sandboxed() {
+		// The command runs here, in the sandbox; only the value comes from
+		// the host, through the forwarded `credential get`.
+		return sandboxedCredentialExec(command, args, parsed.Values["env"], commandLine, jsonMode)
+	}
 	cfg, db, code := openCommandStoreWithConfig(command, jsonMode)
 	if db == nil {
 		return code

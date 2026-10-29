@@ -70,7 +70,9 @@ func startBrokerHost(ctx context.Context, db *store.Store, dir string, opts brok
 }
 
 // SocketPath is where agents reach the broker, whichever process serves it.
-func (h *brokerHost) SocketPath() string { return filepath.Join(h.dir, brokerSocketDir, brokerSocketName) }
+func (h *brokerHost) SocketPath() string {
+	return filepath.Join(h.dir, brokerSocketDir, brokerSocketName)
+}
 
 // Owner reports whether this process serves the broker.
 func (h *brokerHost) Owner() bool {
@@ -128,7 +130,9 @@ func (h *brokerHost) Stop() {
 // giveSessionsBroker makes an agent service give its sessions the broker's
 // socket and a token each.
 func giveSessionsBroker(agents service.AgentService, db *store.Store, socket string) {
-	if setter, ok := agents.(interface{ SetBrokerEnv(service.SessionEnvProvider) }); ok && agents != nil {
+	if setter, ok := agents.(interface {
+		SetBrokerEnv(service.SessionEnvProvider)
+	}); ok && agents != nil {
 		setter.SetBrokerEnv(service.NewBrokerSessionEnv(db, socket))
 	}
 }
