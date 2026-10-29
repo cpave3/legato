@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/attest"
@@ -98,5 +100,36 @@ func TestADeviceEnrollsAndSignsADecisionOverTheAPI(t *testing.T) {
 	decode(t, rec.Body.Bytes(), &removal)
 	if rec.Code != http.StatusAccepted || removal.ApprovalID == "" {
 		t.Fatalf("remove: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestPasskeyOptionsAreForThePageThatAsks(t *testing.T) {
+	srv, approvals, _ := newApprovalsServer(t)
+	srv.SetDeviceService(service.NewDeviceService(approvals.Store(), approvals, service.DeviceServiceOptions{Attest: plainKeyAttest, Name: "erebus"}))
+	ask := func(origin string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/api/devices/passkey/options", strings.NewReader(`{}`))
+		req.Header.Set("Origin", origin)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+	rec := ask("https://erebus.example:3080")
+	var options struct {
+		PublicKey struct {
+			Challenge string `json:"challenge"`
+			RP        struct {
+				ID string `json:"id"`
+			} `json:"rp"`
+			User struct {
+				Name string `json:"name"`
+			} `json:"user"`
+		} `json:"publicKey"`
+	}
+	decode(t, rec.Body.Bytes(), &options)
+	if rec.Code != 200 || options.PublicKey.RP.ID != "erebus.example" || options.PublicKey.Challenge == "" || options.PublicKey.User.Name != "Legato on erebus" {
+		t.Fatalf("options: %d %s", rec.Code, rec.Body)
+	}
+	if rec := ask("https://192.168.1.10:3080"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("an IP address: %d %s", rec.Code, rec.Body)
 	}
 }

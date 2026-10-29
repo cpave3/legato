@@ -203,6 +203,8 @@ func commandTree() *commandDef {
 			nil, []commandFlag{jsonFlag}, "legato device list"),
 		leaf("reset", "Remove every device, when the only one is lost; run it at the host", func(a []string) int { return runDeviceContract("reset", a) },
 			nil, []commandFlag{jsonFlag}, "legato device reset"),
+		leaf("attestation", "Print the attestation chain a phone enrolled with, as PEM, leaf first", func(a []string) int { return runDeviceContract("attestation", a) },
+			[]argumentDef{arg("device-id", "The phone's device ID, from legato device list")}, []commandFlag{jsonFlag}, "legato device attestation dev-35ccf04c1c"),
 	)
 	audit := commandGroup("audit", "Read the credential audit log, newest first", func(a []string) int { return runAuditContract("list", a) },
 		nil, []commandFlag{valueFlag("credential", "name", "Only this credential"), valueFlag("task", "task-id", "Only this task"), valueFlag("execution", "execution-id", "Only this agent session"), valueFlag("limit", "count", "How many rows (default 50)"), jsonFlag},

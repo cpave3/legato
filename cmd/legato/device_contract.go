@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"strings"
 	"text/tabwriter"
@@ -64,6 +66,21 @@ func runDeviceContract(verb string, args []string) int {
 		}
 		return writeCommandSuccess(command, map[string]any{"removed": n},
 			fmt.Sprintf("Removed %d device(s). The next phone to enroll is enrolled with the web token alone.\n", n), jsonMode)
+	case "attestation":
+		if len(parsed.Positionals) != 1 {
+			return renderCommandError(command, usageError("missing_device", "name the device: legato device attestation <device-id>"), jsonMode)
+		}
+		chain, err := devices.AttestationChain(ctx, parsed.Positionals[0])
+		if err != nil {
+			return renderCommandError(command, &commandError{Code: "not_found", Message: err.Error(), Exit: exitNotFound}, jsonMode)
+		}
+		var b strings.Builder
+		encoded := make([]string, 0, len(chain))
+		for _, der := range chain {
+			_ = pem.Encode(&b, &pem.Block{Type: "CERTIFICATE", Bytes: der})
+			encoded = append(encoded, base64.StdEncoding.EncodeToString(der))
+		}
+		return writeCommandSuccess(command, map[string]any{"chain": encoded}, b.String(), jsonMode)
 	}
 	return renderCommandError(command, usageError("unknown_verb", "device "+verb), jsonMode)
 }

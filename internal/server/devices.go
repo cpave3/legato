@@ -43,13 +43,24 @@ func (s *Server) devicesHandler() http.HandlerFunc {
 			s.writeJSON(w, http.StatusOK, map[string]any{"devices": devices, "enrolled": enrolled, "server_id": serverID})
 		case http.MethodPost:
 			var in struct {
-				Name      string   `json:"name"`
-				Kind      string   `json:"kind"`
-				Chain     []string `json:"chain"`
-				Challenge string   `json:"challenge"`
+				Name       string          `json:"name"`
+				Kind       string          `json:"kind"`
+				Chain      []string        `json:"chain"`
+				Challenge  string          `json:"challenge"`
+				Credential json.RawMessage `json:"credential"`
+				Origin     string          `json:"origin"`
 			}
 			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in); err != nil {
 				s.writeError(w, http.StatusBadRequest, "invalid enrollment")
+				return
+			}
+			if in.Kind == "passkey" {
+				device, err := s.devices.Enroll(ctx, service.EnrollRequest{Name: in.Name, Kind: in.Kind, Credential: in.Credential, Origin: pageOrigin(r, in.Origin)})
+				if err != nil {
+					s.writeError(w, http.StatusForbidden, err.Error())
+					return
+				}
+				s.writeJSON(w, http.StatusCreated, device)
 				return
 			}
 			challenge, err := base64.RawURLEncoding.DecodeString(in.Challenge)
@@ -96,6 +107,41 @@ func (s *Server) deviceChallengeHandler() http.HandlerFunc {
 		}
 		serverID, _ := s.devices.ServerID(r.Context())
 		s.writeJSON(w, http.StatusOK, map[string]string{"challenge": base64.RawURLEncoding.EncodeToString(challenge), "expires_at": expires.UTC().Format(time.RFC3339), "server_id": serverID})
+	}
+}
+
+// pageOrigin is the origin of the page that sent a request: the browser's
+// Origin header, else what the page says.
+func pageOrigin(r *http.Request, said string) string {
+	if origin := r.Header.Get("Origin"); origin != "" && origin != "null" {
+		return origin
+	}
+	return said
+}
+
+// passkeyOptionsHandler serves POST /api/devices/passkey/options: the
+// options for navigator.credentials.create on the page that asks, whose
+// host name the passkey will belong to.
+func (s *Server) passkeyOptionsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !s.requireDeviceService(w) {
+			return
+		}
+		var in struct {
+			Origin string `json:"origin"`
+		}
+		_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in)
+		options, err := s.devices.PasskeyOptions(r.Context(), pageOrigin(r, in.Origin))
+		if err != nil {
+			s.writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(options)
 	}
 }
 
@@ -147,8 +193,12 @@ func (s *Server) approvalChallengeHandler() http.HandlerFunc {
 			s.writeApprovalError(w, err)
 			return
 		}
-		s.writeJSON(w, http.StatusOK, map[string]string{
+		out := map[string]any{
 			"canonical": base64.StdEncoding.EncodeToString(c.Canonical), "challenge": c.Challenge, "expires_at": c.ExpiresAt.UTC().Format(time.RFC3339),
-		})
+		}
+		if c.Passkey != nil {
+			out["passkey"] = c.Passkey
+		}
+		s.writeJSON(w, http.StatusOK, out)
 	}
 }

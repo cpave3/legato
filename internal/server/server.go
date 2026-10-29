@@ -204,6 +204,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/approvals/{id}/challenge", s.approvalChallengeHandler())
 	mux.HandleFunc("/api/devices", s.devicesHandler())
 	mux.HandleFunc("/api/devices/challenge", s.deviceChallengeHandler())
+	mux.HandleFunc("/api/devices/passkey/options", s.passkeyOptionsHandler())
 	mux.HandleFunc("/api/devices/{id}", s.deviceHandler())
 	mux.HandleFunc("/api/credentials", s.credentialsHandler())
 	mux.HandleFunc("/api/credentials/grants", s.credentialGrantsHandler())

@@ -43,7 +43,10 @@ type DeviceServiceOptions struct {
 	// AndroidDigests are the SHA-256 digests of the certificates the app
 	// may be signed with.
 	AndroidDigests [][]byte
-	Now            func() time.Time
+	// Name is this Legato's name in a passkey manager ("Legato on <Name>");
+	// the host name when empty.
+	Name string
+	Now  func() time.Time
 }
 
 // DeviceService enrolls the devices that sign approval decisions, gives
@@ -110,53 +113,63 @@ func (d *DeviceService) EnrollChallenge(ctx context.Context) ([]byte, time.Time,
 	return raw, expires, err
 }
 
-// EnrollRequest is a phone asking to sign decisions.
+// EnrollRequest is a phone or a passkey asking to sign decisions.
 type EnrollRequest struct {
-	Name      string
+	Name string
+	// Kind is "android" (Chain, Challenge) or "passkey" (Credential, Origin).
 	Kind      string
 	Chain     [][]byte
 	Challenge []byte
+	// Credential is the page's answer to PasskeyOptions, as JSON.
+	Credential json.RawMessage
+	// Origin is the origin of the page that sent it.
+	Origin string
 }
 
 var deviceName = regexp.MustCompile(`[^\p{L}\p{N} ._'()-]+`)
 
-// Enroll checks the key's attestation and keeps the device. The first
-// device is enrolled at once; a later one waits for an enrolled device to
-// allow it with a signed decision.
+// Enroll checks a phone's key attestation, or a passkey, and keeps the
+// device. The first device is enrolled at once; a later one waits for an
+// enrolled device to allow it with a signed decision.
 func (d *DeviceService) Enroll(ctx context.Context, req EnrollRequest) (Device, error) {
-	if req.Kind != "android" {
+	var device Device
+	var err error
+	switch req.Kind {
+	case "android":
+		device, err = d.androidDevice(ctx, req)
+	case "passkey":
+		device, err = d.passkeyDevice(ctx, req)
+	default:
 		return Device{}, fmt.Errorf("devices of kind %q cannot enroll", req.Kind)
+	}
+	if err != nil {
+		return Device{}, err
 	}
 	name := strings.TrimSpace(deviceName.ReplaceAllString(req.Name, ""))
 	if name == "" {
-		name = "Phone"
+		name = map[string]string{"android": "Phone", "passkey": "Passkey"}[req.Kind]
 	}
 	if len(name) > 64 {
 		name = name[:64]
 	}
-	if _, err := d.db.SpendApprovalChallenge(ctx, challengeHash(req.Challenge), d.opts.Now()); err != nil {
-		return Device{}, errors.New("the enrollment challenge is unknown, used or expired; ask for a new one")
-	}
-	attested, err := d.opts.Attest(req.Chain, req.Challenge)
-	if err != nil {
-		return Device{}, fmt.Errorf("the device's key is not accepted: %w", err)
-	}
-	public, err := x509.MarshalPKIXPublicKey(attested.PublicKey)
-	if err != nil {
-		return Device{}, err
-	}
-	device := Device{ID: "dev-" + randomHex(5), Kind: req.Kind, Name: name, PublicKey: public, SecurityLevel: attested.SecurityLevel.String(), Status: store.DeviceActive}
+	device.ID, device.Name, device.Status = "dev-"+randomHex(5), name, store.DeviceActive
 	enrolled, err := d.Enrolled(ctx)
 	if err != nil {
 		return Device{}, err
 	}
 	if enrolled {
 		device.Status = store.DevicePending
+		summary := "A new " + device.Kind + " device (" + device.SecurityLevel + ") asks to sign approval decisions for this Legato."
+		if device.Kind == "passkey" {
+			summary = "A " + device.SecurityLevel + " made at " + device.Origin + " asks to sign approval decisions for this Legato."
+		}
+		details := map[string]string{"action": "enroll", "device_id": device.ID, "device_name": name, "kind": device.Kind, "security_level": device.SecurityLevel}
+		if device.Origin != "" {
+			details["origin"] = device.Origin
+		}
 		approval, _, err := d.approvals.Submit(ctx, ApprovalInput{
 			Source: ApprovalSourceDevices, SourceKey: "enroll/" + device.ID,
-			Title:   "Let " + name + " sign approvals",
-			Summary: "A new " + device.Kind + " device (" + device.SecurityLevel + ") asks to sign approval decisions for this Legato.",
-			Details: map[string]string{"action": "enroll", "device_id": device.ID, "device_name": name, "kind": device.Kind, "security_level": device.SecurityLevel},
+			Title: "Let " + name + " sign approvals", Summary: summary, Details: details,
 			Options: []ApprovalOption{{ID: "allow", Label: "Allow this device", Kind: ApprovalAllow}, {ID: "deny", Label: "Deny", Kind: ApprovalDeny}},
 			Signed:  true,
 		})
@@ -173,6 +186,52 @@ func (d *DeviceService) Enroll(ctx context.Context, req EnrollRequest) (Device, 
 		return Device{}, err
 	}
 	return *stored, nil
+}
+
+// androidDevice checks a phone's key: the enrollment challenge is unused,
+// and the chain attests a hardware key of the Legato app made with it.
+func (d *DeviceService) androidDevice(ctx context.Context, req EnrollRequest) (Device, error) {
+	if _, err := d.db.SpendApprovalChallenge(ctx, challengeHash(req.Challenge), d.opts.Now()); err != nil {
+		return Device{}, errors.New("the enrollment challenge is unknown, used or expired; ask for a new one")
+	}
+	attested, err := d.opts.Attest(req.Chain, req.Challenge)
+	if err != nil {
+		return Device{}, fmt.Errorf("the device's key is not accepted: %w", err)
+	}
+	public, err := x509.MarshalPKIXPublicKey(attested.PublicKey)
+	if err != nil {
+		return Device{}, err
+	}
+	chain := make([]string, 0, len(req.Chain))
+	for _, der := range req.Chain {
+		chain = append(chain, base64.StdEncoding.EncodeToString(der))
+	}
+	record, _ := json.Marshal(chain)
+	return Device{Kind: req.Kind, PublicKey: public, SecurityLevel: attested.SecurityLevel.String(), Attestation: string(record)}, nil
+}
+
+// AttestationChain returns the chain a phone enrolled with, leaf first.
+func (d *DeviceService) AttestationChain(ctx context.Context, id string) ([][]byte, error) {
+	device, err := d.db.GetApprovalDevice(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if device.Attestation == "" {
+		return nil, errors.New("this device kept no attestation chain")
+	}
+	var encoded []string
+	if err := json.Unmarshal([]byte(device.Attestation), &encoded); err != nil {
+		return nil, err
+	}
+	chain := make([][]byte, 0, len(encoded))
+	for _, e := range encoded {
+		der, err := base64.StdEncoding.DecodeString(e)
+		if err != nil {
+			return nil, err
+		}
+		chain = append(chain, der)
+	}
+	return chain, nil
 }
 
 // Enrolled reports whether any device can sign decisions.
@@ -240,6 +299,8 @@ type DecisionChallengeResult struct {
 	// Challenge is used once, for this approval and device (base64url).
 	Challenge string
 	ExpiresAt time.Time
+	// Passkey is set when the device is a passkey: what the page asks it.
+	Passkey *PasskeyRequest
 }
 
 // DecisionChallenge gives an enrolled device the canonical request and a
@@ -268,7 +329,13 @@ func (d *DeviceService) DecisionChallenge(ctx context.Context, approvalID, devic
 	if err := d.db.CreateApprovalChallenge(ctx, store.ApprovalChallenge{Hash: challengeHash(raw), Purpose: "decide", ApprovalID: approvalID, DeviceID: deviceID, ExpiresAt: expires}); err != nil {
 		return DecisionChallengeResult{}, err
 	}
-	return DecisionChallengeResult{Canonical: canonical, Challenge: base64.RawURLEncoding.EncodeToString(raw), ExpiresAt: expires}, nil
+	result := DecisionChallengeResult{Canonical: canonical, Challenge: base64.RawURLEncoding.EncodeToString(raw), ExpiresAt: expires}
+	if device.Kind == "passkey" {
+		if result.Passkey, err = passkeyRequest(device); err != nil {
+			return DecisionChallengeResult{}, err
+		}
+	}
+	return result, nil
 }
 
 // canonical is the request a device signs: what Legato knows of it, never
@@ -340,6 +407,13 @@ func (d *DeviceService) VerifyDecision(ctx context.Context, approval Approval, d
 	msg, err := signedMessage(sig.Challenge, sig.Device, option, canonical)
 	if err != nil {
 		return "", err
+	}
+	if device.Kind == "passkey" {
+		if err := d.verifyPasskey(ctx, device, msg, sig.Value); err != nil {
+			return "", err
+		}
+		_ = d.db.TouchApprovalDevice(ctx, sig.Device)
+		return sig.Device, nil
 	}
 	value, err := base64.StdEncoding.DecodeString(sig.Value)
 	if err != nil {
