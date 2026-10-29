@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 )
 
 // KeyPlace is where an HTTP API takes its key: a header, written with
@@ -48,6 +49,15 @@ type ProxyCredential struct {
 	Upstream  *url.URL
 	Key       KeyPlace
 	Inspector RestInspector
+	// APIPrefix is where the REST routes are served under /c/<Name>
+	// ("/api" for GitHub); "" serves them at the root.
+	APIPrefix string
+	// Git is the git host pushes go to (https://github.com), served under
+	// /c/<Name>/git/. Nil: no pushes.
+	Git *url.URL
+	// Tokens serves /c/<Name>/token, where the git and gh helpers get read
+	// tokens.
+	Tokens bool
 }
 
 // ProxyUse is one proxied request, classified.
@@ -73,7 +83,9 @@ type Decision struct {
 type ProxyBackend interface {
 	ResolvePlaceholder(ctx context.Context, placeholder string) (credential string, execution Execution, ok bool, err error)
 	Authorize(ctx context.Context, use ProxyUse) (Decision, error)
-	Key(ctx context.Context, credential string) ([]byte, error)
+	// Key is what goes in the key's place for a use, and what to do when
+	// the request has ended (revoke a token made for it).
+	Key(ctx context.Context, use ProxyUse) ([]byte, func(), error)
 	Measured(ctx context.Context, use ProxyUse, amounts map[string]int64)
 }
 
@@ -87,6 +99,9 @@ type HTTPProxy struct {
 	// Transport reaches the upstreams. Nil: http.DefaultTransport, which
 	// checks certificates against the system's roots.
 	Transport http.RoundTripper
+
+	mu     sync.Mutex
+	pushes map[string]*pushToken
 }
 
 var hopHeaders = []string{"Connection", "Keep-Alive", "Proxy-Connection", "Te", "Trailer", "Transfer-Encoding", "Upgrade"}
@@ -111,6 +126,20 @@ func (p *HTTPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := "/" + rest
+	switch {
+	case c.Tokens && path == "/token":
+		p.serveToken(w, r, c)
+		return
+	case c.Git != nil && strings.HasPrefix(path, "/git/"):
+		p.serveGit(w, r, c, strings.TrimPrefix(path, "/git/"))
+		return
+	case c.APIPrefix != "":
+		if !strings.HasPrefix(path, c.APIPrefix+"/") {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "no route of " + name + " is served at " + r.URL.Path})
+			return
+		}
+		path = strings.TrimPrefix(path, c.APIPrefix)
+	}
 
 	placeholder := c.placeholderIn(r)
 	owner, execution, found, err := p.Backend.ResolvePlaceholder(ctx, placeholder)
@@ -129,7 +158,7 @@ func (p *HTTPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body []byte
-	if _, metered := route.Meter["characters"]; metered {
+	if route.needsBody() {
 		body, err = io.ReadAll(io.LimitReader(r.Body, MaxMeteredBody+1))
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "reading the request body: " + err.Error()})
@@ -175,11 +204,14 @@ func (p *HTTPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := p.Backend.Key(ctx, name)
+	key, release, err := p.Backend.Key(ctx, use)
 	if err != nil {
 		log.Printf("credentials: proxy %s: reading the key: %v", name, err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "Legato could not read the key of " + name})
 		return
+	}
+	if release != nil {
+		defer release()
 	}
 	out, err := c.outgoing(ctx, r, path, body, placeholder, key)
 	if err != nil {

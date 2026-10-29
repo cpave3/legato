@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
@@ -58,6 +59,9 @@ type AccessRequest struct {
 	// amounts are those of the use a request is made for, so a rule whose
 	// limit the use would pass gives way as it does for the use.
 	amounts map[string]int64
+	// noWait asks the person and returns pending at once, for a channel
+	// that cannot hold its caller (a git push).
+	noWait bool
 }
 
 // AccessResult is what a request came to.
@@ -111,7 +115,9 @@ type CredentialBrokerOptions struct {
 	Messenger AgentMessenger
 	// WaitTimeout is how long a request waits for the person. Default 60s.
 	WaitTimeout time.Duration
-	Now         func() time.Time
+	// HTTPClient reaches token endpoints and APIs (nil: a default one).
+	HTTPClient *http.Client
+	Now        func() time.Time
 }
 
 // CredentialBroker decides what an agent may do with a credential, keeps the
@@ -133,6 +139,7 @@ type CredentialBroker struct {
 	messenger   AgentMessenger
 	wait        time.Duration
 	now         func() time.Time
+	httpClient  *http.Client
 }
 
 type brokerCredential struct {
@@ -146,6 +153,10 @@ type brokerCredential struct {
 	// source is the vault a credential came from; item is its item there.
 	source string
 	item   *credential.OnePasswordItem
+	// issuer makes what the agent's tools use from the secret; jwt is it
+	// when it makes tokens (jwt-exchange), with their cache.
+	issuer credential.Issuer
+	jwt    *credential.JWTExchange
 }
 
 // brokerSource is a vault whose items are credentials.
@@ -164,7 +175,7 @@ func NewCredentialBroker(db *store.Store, approvals *ApprovalService, opts Crede
 	if err != nil {
 		return nil, err
 	}
-	b := &CredentialBroker{db: db, approvals: approvals, credentials: map[string]brokerCredential{}, messenger: opts.Messenger, wait: opts.WaitTimeout, now: opts.Now}
+	b := &CredentialBroker{db: db, approvals: approvals, credentials: map[string]brokerCredential{}, messenger: opts.Messenger, wait: opts.WaitTimeout, now: opts.Now, httpClient: opts.HTTPClient}
 	if b.wait <= 0 {
 		b.wait = 60 * time.Second
 	}
@@ -194,7 +205,11 @@ func NewCredentialBroker(db *store.Store, approvals *ApprovalService, opts Crede
 		if len(rules) == 0 {
 			rules = profile.Policy
 		}
-		bc := brokerCredential{config: c, ref: ref, profile: profile, rules: rules}
+		bc := brokerCredential{config: c, ref: ref, profile: profile, rules: expandRepositories(rules, c.Settings.Repositories), issuer: credential.StaticIssuer{}}
+		if profile.Issuer == "jwt-exchange" {
+			bc.jwt = &credential.JWTExchange{Template: *profile.JWTExchange, Settings: map[string]string{"client_id": c.Settings.ClientID}, Client: opts.HTTPClient, Now: b.now}
+			bc.issuer = bc.jwt
+		}
 		if listHas(profile.Channels, ChannelHTTPProxy) {
 			if err := bc.proxySettings(); err != nil {
 				return nil, fmt.Errorf("credentials %q: %w", c.Name, err)
@@ -226,6 +241,25 @@ func NewCredentialBroker(db *store.Store, approvals *ApprovalService, opts Crede
 		b.sources = append(b.sources, brokerSource{config: src, vault: vault, profile: profile, rules: rules})
 	}
 	return b, nil
+}
+
+// expandRepositories turns a rule naming {repositories} into one rule for
+// each repository a credential lists. With none listed the rule is dropped:
+// nothing matches it, so nothing is allowed by it.
+func expandRepositories(rules []config.CredentialRule, repositories []string) []config.CredentialRule {
+	var out []config.CredentialRule
+	for _, r := range rules {
+		if !strings.Contains(r.Resource, "{repositories}") {
+			out = append(out, r)
+			continue
+		}
+		for _, repo := range repositories {
+			each := r
+			each.Resource = strings.ReplaceAll(r.Resource, "{repositories}", repo)
+			out = append(out, each)
+		}
+	}
+	return out
 }
 
 // sourceStaleAfter is how long a vault's list of keys is used before it is
@@ -683,6 +717,9 @@ func (b *CredentialBroker) Request(ctx context.Context, req AccessRequest) (Acce
 		return AccessResult{}, err
 	}
 	b.audit(ctx, req.TaskID, req.ExecutionID, store.CredentialAuditEntry{Event: "pending", Credential: req.Credential, Operation: strings.Join(req.Operations, ","), Resource: strings.Join(req.Resources, " "), ApprovalID: approval.ID})
+	if req.noWait {
+		return AccessResult{Status: AccessPending, ApprovalID: approval.ID}, nil
+	}
 	decided, err := b.approvals.Wait(ctx, approval.ID, b.wait)
 	if err != nil {
 		return AccessResult{}, err
@@ -856,7 +893,7 @@ func (b *CredentialBroker) Authorize(ctx context.Context, use CredentialUse) (Us
 	p := pair{use.Operation, use.Resource}
 	r := b.selectRule(ctx, c, p, use.Amounts)
 	if r == nil || r.Approve == "deny" {
-		reason := fmt.Sprintf("no rule of %s allows %s on %s", use.Credential, use.Operation, orAll(use.Resource))
+		reason := noRuleReason(c, use.Operation, use.Resource)
 		if r != nil {
 			reason = fmt.Sprintf("%s does not allow %s on %s", use.Credential, use.Operation, orAll(use.Resource))
 		}
@@ -882,6 +919,52 @@ func (b *CredentialBroker) Authorize(ctx context.Context, use CredentialUse) (Us
 		if ok, err := b.useGrant(ctx, use, entry); ok || err != nil {
 			return UseDecision{Allowed: ok, ApprovalID: result.ApprovalID}, err
 		}
+	}
+	return UseDecision{ApprovalID: result.ApprovalID, Reason: firstNonEmpty(result.Reason, "waiting for the person")}, nil
+}
+
+// CheckUse decides a use as Authorize would, without spending a grant or
+// recording a use: for a channel that must decide several uses together
+// (the refs of a push) before it spends any. A use no grant covers asks the
+// person without waiting. A refusal is recorded, as it is final.
+func (b *CredentialBroker) CheckUse(ctx context.Context, use CredentialUse) (UseDecision, error) {
+	c, ok := b.lookup(ctx, use.Credential)
+	if !ok {
+		return UseDecision{}, fmt.Errorf("no credential named %q", use.Credential)
+	}
+	entry := store.CredentialAuditEntry{Event: "refuse", Credential: use.Credential, Operation: use.Operation, Resource: use.Resource, Amount: amounts(use.Amounts)}
+	if !b.executionRunning(ctx, use.ExecutionID, use.TaskID) {
+		entry.Detail = withCall("the agent is not running", use.Call)
+		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
+		return UseDecision{Reason: "the agent is not running"}, nil
+	}
+	r := b.selectRule(ctx, c, pair{use.Operation, use.Resource}, use.Amounts)
+	if r == nil || r.Approve == "deny" {
+		reason := noRuleReason(c, use.Operation, use.Resource)
+		if r != nil {
+			reason = fmt.Sprintf("%s does not allow %s on %s", use.Credential, use.Operation, orAll(use.Resource))
+		}
+		entry.Detail = withCall(reason, use.Call)
+		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
+		return UseDecision{Reason: reason}, nil
+	}
+	if r.Approve == "auto" {
+		return UseDecision{Allowed: true}, nil
+	}
+	grants, err := b.db.LiveCredentialGrants(ctx, use.ExecutionID, use.Credential, b.now())
+	if err != nil {
+		return UseDecision{}, err
+	}
+	if findGrant(personGrants(grants), pair{use.Operation, use.Resource}) != nil {
+		return UseDecision{Allowed: true}, nil
+	}
+	result, err := b.Request(ctx, AccessRequest{TaskID: use.TaskID, ExecutionID: use.ExecutionID, Credential: use.Credential,
+		Operations: []string{use.Operation}, Resources: nonEmpty(use.Resource), Reason: "used without asking first", Blocking: true, amounts: use.Amounts, noWait: true})
+	if err != nil {
+		return UseDecision{}, err
+	}
+	if result.Status == AccessGranted {
+		return UseDecision{Allowed: true, ApprovalID: result.ApprovalID}, nil
 	}
 	return UseDecision{ApprovalID: result.ApprovalID, Reason: firstNonEmpty(result.Reason, "waiting for the person")}, nil
 }
@@ -918,6 +1001,17 @@ func personGrants(grants []store.CredentialGrant) []store.CredentialGrant {
 		}
 	}
 	return out
+}
+
+// noRuleReason says why no rule allows a use: for a credential that lists
+// its repositories, that the repository is not one of them.
+func noRuleReason(c brokerCredential, operation, resource string) string {
+	if repos := c.config.Settings.Repositories; len(repos) > 0 {
+		if repo, err := repoOf(resource); err == nil && !listHas(repos, repo) {
+			return fmt.Sprintf("%s is not one of the repositories of %s (settings.repositories in config.yaml)", repo, c.config.Name)
+		}
+	}
+	return fmt.Sprintf("no rule of %s allows %s on %s", c.config.Name, operation, orAll(resource))
 }
 
 // withCall adds what the channel saw to an audit detail.

@@ -38,8 +38,8 @@ func (f *fakeBackend) Authorize(_ context.Context, use ProxyUse) (Decision, erro
 	return Decision{Allowed: true}, nil
 }
 
-func (f *fakeBackend) Key(_ context.Context, credential string) ([]byte, error) {
-	return []byte(realKey), nil
+func (f *fakeBackend) Key(_ context.Context, use ProxyUse) ([]byte, func(), error) {
+	return []byte(realKey), nil, nil
 }
 
 func (f *fakeBackend) Measured(_ context.Context, use ProxyUse, amounts map[string]int64) {

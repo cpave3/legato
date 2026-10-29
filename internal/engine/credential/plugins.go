@@ -9,6 +9,9 @@ import (
 type Scope struct {
 	Operations []string
 	Resources  []string
+	// Values are what an issuer's template fills in for this grant: for
+	// GitHub, owner, repo and permissions.
+	Values map[string]any
 }
 
 // Issued is a credential an issuer made for one grant.

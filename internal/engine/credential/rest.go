@@ -61,7 +61,7 @@ func ValidateRoutes(routes []Route) error {
 			}
 		}
 		for _, name := range templateNames(r.Resource) {
-			if !names[name] {
+			if !names[name] && !strings.HasPrefix(name, "$.") {
 				return fmt.Errorf("routes[%d]: resource names {%s}, which the path does not", i, name)
 			}
 		}
@@ -91,6 +91,21 @@ func templateNames(template string) []string {
 		names = append(names, template[start+1:start+end])
 		template = template[start+end+1:]
 	}
+}
+
+// needsBody reports whether classifying the route reads the request body:
+// to meter characters, or to take part of its resource from a JSON field.
+func (r *Route) needsBody() bool {
+	_, metered := r.Meter["characters"]
+	return metered || strings.Contains(r.Resource, "{$.")
+}
+
+// absoluteResource reports whether a resource template names its own
+// scheme (github:{owner}/{repo}) instead of a path under the upstream host.
+func absoluteResource(template string) bool {
+	colon := strings.Index(template, ":")
+	slash := strings.Index(template, "/")
+	return colon > 0 && (slash < 0 || colon < slash) && !strings.HasPrefix(template, "{")
 }
 
 // Match returns the first route for a request and the names it read.
@@ -142,23 +157,42 @@ func (r RestInspector) Classify(_ context.Context, call Call) (Classified, error
 	if !ok {
 		return Classified{}, &NoRouteError{Method: method, Path: path}
 	}
+	var body any
+	if route.needsBody() {
+		if len(call.Body) > MaxMeteredBody {
+			return Classified{}, ErrBodyTooLarge
+		}
+		if err := json.Unmarshal(call.Body, &body); err != nil {
+			return Classified{}, fmt.Errorf("the request body is not JSON this route can read: %w", err)
+		}
+	}
 	resource := r.Host + path
 	if route.Resource != "" {
 		resource = route.Resource
 		for name, value := range names {
 			resource = strings.ReplaceAll(resource, "{"+name+"}", value)
 		}
-		resource = r.Host + "/" + strings.TrimPrefix(resource, "/")
+		var missing string
+		resource = placeholder.ReplaceAllStringFunc(resource, func(s string) string {
+			field := s[1 : len(s)-1]
+			if !strings.HasPrefix(field, "$.") {
+				return s
+			}
+			value, ok := jsonAt(body, field).(string)
+			if !ok || value == "" || strings.ContainsAny(value, " \n") {
+				missing = field
+			}
+			return value
+		})
+		if missing != "" {
+			return Classified{}, fmt.Errorf("the request body has no %s", missing)
+		}
+		if !absoluteResource(route.Resource) {
+			resource = r.Host + "/" + strings.TrimPrefix(resource, "/")
+		}
 	}
 	out := Classified{Operation: route.Operation, Resource: resource, Amounts: map[string]int64{}}
 	if field, ok := route.Meter["characters"]; ok {
-		if len(call.Body) > MaxMeteredBody {
-			return Classified{}, ErrBodyTooLarge
-		}
-		var body any
-		if err := json.Unmarshal(call.Body, &body); err != nil {
-			return Classified{}, fmt.Errorf("the request body is not JSON this route can meter: %w", err)
-		}
 		if text, ok := jsonAt(body, field).(string); ok {
 			out.Amounts["characters"] = int64(utf8.RuneCountInString(text))
 		} else {

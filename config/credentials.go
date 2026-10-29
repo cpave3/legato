@@ -48,6 +48,11 @@ type CredentialSettings struct {
 	// Upstream is the https base URL every proxied request goes to.
 	Upstream string             `yaml:"upstream"`
 	Key      CredentialKeyPlace `yaml:"key"`
+	// ClientID and Repositories are what the github profile needs: the
+	// GitHub App's client ID (or App ID), and the owner/name repositories
+	// agents may use.
+	ClientID     string   `yaml:"client_id"`
+	Repositories []string `yaml:"repositories"`
 }
 
 // CredentialKeyPlace is where an HTTP API takes its key: a header, written
@@ -128,6 +133,7 @@ var (
 	secretSchemes  = []string{"legato", "op", "systemd-creds", "keychain", "env", "file"}
 	masterKeys     = []string{"auto", "systemd-creds", "secret-service", "keychain", "passphrase", "file"}
 	credentialName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	githubRepo     = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 	limitPattern   = regexp.MustCompile(`^\s*(\d+)\s*/\s*(minute|hour|day|week)\s*$`)
 )
 
@@ -230,6 +236,21 @@ func normalizeCredentialSettings(c *CredentialConfig) error {
 		}
 		if s.Key == (CredentialKeyPlace{}) {
 			return fmt.Errorf("the api-key profile needs settings.key: {header: <name>} or {query: <name>}")
+		}
+	}
+	if c.Profile == "github" {
+		s.ClientID = strings.TrimSpace(s.ClientID)
+		if s.ClientID == "" {
+			return fmt.Errorf("the github profile needs settings.client_id, the GitHub App's client ID")
+		}
+		if len(s.Repositories) == 0 {
+			return fmt.Errorf("the github profile needs settings.repositories, the owner/name repositories agents may use")
+		}
+		for i, repo := range s.Repositories {
+			s.Repositories[i] = strings.TrimSpace(repo)
+			if !githubRepo.MatchString(s.Repositories[i]) {
+				return fmt.Errorf("settings.repositories: %q: want owner/name", repo)
+			}
 		}
 	}
 	if s.Upstream != "" {

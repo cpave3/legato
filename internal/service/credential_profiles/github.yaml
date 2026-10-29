@@ -1,0 +1,54 @@
+# GitHub through a GitHub App. The person creates the App (contents read and
+# write, pull requests read and write, metadata read), installs it on the
+# repositories, and gives Legato its private key. Agents read the listed
+# repositories with short-lived read tokens from Legato's git credential
+# helper; pushes go through Legato's proxy, which reads each ref a push
+# updates and pushes with a write token made for that push alone.
+name: github
+description: GitHub through a GitHub App; pushes checked branch by branch
+issuer: jwt-exchange
+channels: [http-proxy]
+accepts: [keypair]
+inspector: rest
+upstream: https://api.github.com
+api_prefix: /api
+git: https://github.com
+key: { header: Authorization, format: "Bearer {secret}" }
+env:
+  LEGATO_GITHUB_API_URL: "{base_url}/api"
+  LEGATO_GITHUB_TOKEN: "{placeholder}"
+jwt_exchange:
+  headers:
+    Accept: application/vnd.github+json
+    X-GitHub-Api-Version: "2022-11-28"
+  jwt:
+    alg: RS256
+    claims: { iss: "{settings.client_id}", iat: "{now-60}", exp: "{now+540}" }
+  lookup:
+    url: "https://api.github.com/repos/{owner}/{repo}/installation"
+    set: { installation: "$.id" }
+  exchange:
+    method: POST
+    url: "https://api.github.com/app/installations/{installation}/access_tokens"
+    body: { repositories: ["{repo}"], permissions: "{permissions}" }
+    token: "$.token"
+    expires_at: "$.expires_at"
+  revoke:
+    method: DELETE
+    url: "https://api.github.com/installation/token"
+    auth: issued
+# What each operation's token may do.
+permissions:
+  git.read: { contents: read, metadata: read }
+  api.read: { contents: read, metadata: read, pull_requests: read }
+  git.push: { contents: write }
+  pr.create: { pull_requests: write }
+routes:
+  - { method: GET, path: "/repos/{owner}/{repo}/**", operation: api.read, resource: "github:{owner}/{repo}" }
+  - { method: POST, path: "/repos/{owner}/{repo}/pulls", operation: pr.create, resource: "github:{owner}/{repo}@refs/heads/{$.head}" }
+# {repositories} is each of settings.repositories; one rule each.
+policy:
+  - { operation: [git.read, api.read], resource: "github:{repositories}", approve: auto }
+  - { operation: [git.push, pr.create], resource: "github:{repositories}@refs/heads/legato/**", approve: session }
+  - { operation: [git.push, pr.create], resource: "github:{repositories}@refs/heads/**", approve: request, signed: true }
+  - { operation: [git.push-default, git.push-tag, git.delete-ref], approve: deny }

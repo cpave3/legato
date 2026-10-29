@@ -32,6 +32,14 @@ type CredentialProfile struct {
 	Upstream string              `yaml:"upstream"`
 	Key      credential.KeyPlace `yaml:"key"`
 	Routes   []credential.Route  `yaml:"routes"`
+	// APIPrefix serves the REST routes under /c/<credential><prefix>; Git
+	// is the git host pushes go to, under /c/<credential>/git/.
+	APIPrefix string `yaml:"api_prefix"`
+	Git       string `yaml:"git"`
+	// JWTExchange is the program of the jwt-exchange issuer; Permissions
+	// say what a token for each operation may do.
+	JWTExchange *credential.ExchangeTemplate `yaml:"jwt_exchange"`
+	Permissions map[string]map[string]string `yaml:"permissions"`
 	// Env is what an agent session gets for each credential of the profile.
 	// {placeholder}, {base_url} and {NAME} (the credential's name in
 	// capitals) are filled in.
@@ -91,8 +99,23 @@ func parseCredentialProfile(data []byte, source string) (CredentialProfile, erro
 	if profile.Issuer == "" {
 		profile.Issuer = "static"
 	}
-	if profile.Issuer != "static" {
-		return CredentialProfile{}, fmt.Errorf("issuer %q is not available in this Legato (only static)", profile.Issuer)
+	switch profile.Issuer {
+	case "static":
+	case "jwt-exchange":
+		if profile.JWTExchange == nil {
+			return CredentialProfile{}, fmt.Errorf("issuer jwt-exchange needs jwt_exchange")
+		}
+		if err := profile.JWTExchange.Validate(); err != nil {
+			return CredentialProfile{}, fmt.Errorf("jwt_exchange: %w", err)
+		}
+		if len(profile.Accepts) != 1 || profile.Accepts[0] != credential.TypeKeyPair {
+			return CredentialProfile{}, fmt.Errorf("issuer jwt-exchange signs with a keypair secret only")
+		}
+	default:
+		return CredentialProfile{}, fmt.Errorf("issuer %q is not available in this Legato (static, jwt-exchange)", profile.Issuer)
+	}
+	if profile.Git != "" && !strings.HasPrefix(profile.Git, "https://") {
+		return CredentialProfile{}, fmt.Errorf("git %q: want an https address", profile.Git)
 	}
 	for i := range profile.Policy {
 		if err := config.NormalizeCredentialRule(&profile.Policy[i]); err != nil {

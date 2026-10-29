@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -39,6 +40,9 @@ type CredentialChannelsOptions struct {
 	// OnSession is called for each session that was given an SSH socket,
 	// so a host process can open it before the agent starts.
 	OnSession func(taskID, executionID string)
+	// LegatoBin is the legato binary sessions run as git's credential
+	// helper (a GitHub credential).
+	LegatoBin string
 }
 
 // CredentialChannels are the channels that give agents credentials without
@@ -51,6 +55,7 @@ type CredentialChannels struct {
 
 	mu      sync.Mutex
 	publics map[string]ssh.PublicKey // public keys only; private keys are read for each signature
+	github  githubState
 }
 
 // NewCredentialChannels builds the channels of the broker's credentials.
@@ -119,6 +124,13 @@ func (c *CredentialChannels) SessionEnv(ctx context.Context, taskID, executionID
 			value = strings.ReplaceAll(value, "{base_url}", base+"/c/"+bc.config.Name)
 			env[key] = value
 		}
+		if bc.profile.Git != "" {
+			legato := c.opts.LegatoBin
+			if legato == "" {
+				legato = "legato"
+			}
+			githubEnv(env, legato, bc.config.Name, base, strings.TrimSuffix(bc.profile.Git, "/"))
+		}
 	}
 	if c.HasSSH() && c.opts.SSHSocketDir != "" {
 		env["SSH_AUTH_SOCK"] = c.SSHSocketPath(executionID)
@@ -178,10 +190,16 @@ func (c *CredentialChannels) Proxy() *credential.HTTPProxy {
 	p := &credential.HTTPProxy{Credentials: map[string]credential.ProxyCredential{}, Backend: c}
 	for _, bc := range proxied {
 		upstream := *bc.upstream
-		p.Credentials[bc.config.Name] = credential.ProxyCredential{
-			Name: bc.config.Name, Upstream: &upstream, Key: bc.key,
+		pc := credential.ProxyCredential{
+			Name: bc.config.Name, Upstream: &upstream, Key: bc.key, APIPrefix: bc.profile.APIPrefix,
 			Inspector: credential.RestInspector{Host: bc.upstream.Host, Routes: bc.profile.Routes},
 		}
+		if bc.profile.Git != "" {
+			if git, err := url.Parse(bc.profile.Git); err == nil {
+				pc.Git, pc.Tokens = git, true
+			}
+		}
+		p.Credentials[bc.config.Name] = pc
 	}
 	return p
 }
@@ -220,15 +238,6 @@ func (c *CredentialChannels) authorize(ctx context.Context, use CredentialUse) (
 		}
 	}
 	return out, nil
-}
-
-// Key reads a proxied credential's key.
-func (c *CredentialChannels) Key(ctx context.Context, name string) ([]byte, error) {
-	secret, err := c.broker.readSecret(ctx, name)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(strings.TrimSpace(string(secret.Value))), nil
 }
 
 // Measured adds what a proxied request measured after it ended.
