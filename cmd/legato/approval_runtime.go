@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/discovery"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
@@ -50,6 +51,12 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 		host := startChannelHost(ctx, cfg, db, rt.credentials, bus, ipc.SocketDir(), reconcile)
 		stops = append(stops, host.Stop)
 		giveSessionsChannels(agents, host.Channels())
+	}
+	// The broker agent-side processes ask instead of the store.
+	broker := startBrokerHost(ctx, db, ipc.SocketDir(), brokerHostOptions{Deps: cli.BrokerDeps{Push: agentPushNotifier(cfg), OS: agentOSNotifier(cfg)}})
+	stops = append(stops, broker.Stop)
+	if agents != nil {
+		giveSessionsBroker(agents, db, broker.SocketPath())
 	}
 	rt.stop = func() {
 		for _, stop := range stops {

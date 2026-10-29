@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
+	"github.com/cpave3/legato/internal/engine/broker"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/tmux"
 	"github.com/cpave3/legato/internal/service"
@@ -185,6 +187,12 @@ func runAgentStateContract(args []string) int {
 	if len(rest) != 0 || !parsed.Present["activity"] {
 		return renderCommandError(command, usageError("missing_argument", "agent state requires --activity"), jsonMode)
 	}
+	if code, done := viaBroker(command, jsonMode, "agent.state", map[string]string{
+		"task_id": taskID, "execution_id": parsed.Values["execution-id"], "activity": parsed.Values["activity"],
+		"working_dir": parsed.Values["working-dir"], "session_id": parsed.Values["session-id"], "event": parsed.Values["event"],
+	}, map[string]any{"task_id": taskID, "activity": parsed.Values["activity"]}); done {
+		return code
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return renderCommandError(command, &commandError{Code: "config_invalid", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
@@ -194,14 +202,7 @@ func runAgentStateContract(args []string) int {
 		return code
 	}
 	defer db.Close()
-	var pushNotifier service.Notifier
-	if cfg.Notifications.Ntfy.Topic != "" {
-		pushNotifier = service.NewNtfyNotifier(cfg.Notifications.Ntfy.URL, cfg.Notifications.Ntfy.Topic, cfg.Notifications.Ntfy.Token)
-	}
-	var osNotifier service.Notifier
-	if cfg.Notifications.OS.Enabled {
-		osNotifier = service.NewOSNotifier()
-	}
+	pushNotifier, osNotifier := agentPushNotifier(cfg), agentOSNotifier(cfg)
 	report := cli.AgentStateReport{TaskID: taskID, ExecutionID: parsed.Values["execution-id"], Activity: parsed.Values["activity"], WorkingDir: parsed.Values["working-dir"], SessionID: parsed.Values["session-id"], Event: parsed.Values["event"]}
 	if err := cli.AgentState(db, report, pushNotifier, osNotifier); err != nil {
 		return renderCommandError(command, commandDomainError(err), jsonMode)
@@ -335,6 +336,35 @@ func runAgentSessionCreatedContract(args []string) int {
 	if len(parsed.Positionals) != 2 {
 		return renderCommandError(command, usageError("missing_argument", "agent session-created requires task ID and session ID"), jsonMode)
 	}
+	if _, _, ok := brokerSession(); ok {
+		taskID, sessionID := parsed.Positionals[0], parsed.Positionals[1]
+		data := map[string]any{"task_id": taskID, "session_id": sessionID}
+		register := true
+		if parsed.Present["hook-payload"] {
+			var err error
+			if register, err = cli.SessionCreatedPayloadNamesTask(taskID, sessionID, os.Stdin); err != nil {
+				return renderCommandError(command, commandDomainError(err), jsonMode)
+			}
+			data["registered"] = register
+		}
+		if !register {
+			return writeCommandSuccess(command, data, "", jsonMode)
+		}
+		if code, done := viaBroker(command, jsonMode, "agent.session_created", map[string]string{"task_id": taskID, "session_id": sessionID}, data); done {
+			return code
+		}
+		// No broker answered and the session can reach the store: the payload
+		// was read, so link the session directly.
+		db, code := openCommandStore(command, jsonMode)
+		if db == nil {
+			return code
+		}
+		defer db.Close()
+		if err := cli.AgentSessionCreated(db, taskID, sessionID); err != nil {
+			return renderCommandError(command, commandDomainError(err), jsonMode)
+		}
+		return writeCommandSuccess(command, data, "", jsonMode)
+	}
 	db, code := openCommandStore(command, jsonMode)
 	if db == nil {
 		return code
@@ -399,4 +429,58 @@ func runAgentStatusContract(args []string) int {
 		return renderCommandError(command, commandDomainError(err), jsonMode)
 	}
 	return writeCommandSuccess(command, map[string]any{"task_id": taskID, "status": out, "format": parsed.Values["format"]}, out, jsonMode)
+}
+
+// agentPushNotifier is the ntfy notifier agent state changes use, or nil.
+func agentPushNotifier(cfg *config.Config) service.Notifier {
+	if cfg.Notifications.Ntfy.Topic == "" {
+		return nil
+	}
+	return service.NewNtfyNotifier(cfg.Notifications.Ntfy.URL, cfg.Notifications.Ntfy.Topic, cfg.Notifications.Ntfy.Token)
+}
+
+// agentOSNotifier is the desktop notifier agent state changes use, or nil.
+func agentOSNotifier(cfg *config.Config) service.Notifier {
+	if !cfg.Notifications.OS.Enabled {
+		return nil
+	}
+	return service.NewOSNotifier()
+}
+
+// brokerSession is the host broker's socket and this session's token, when
+// the session was given them.
+func brokerSession() (socket, token string, ok bool) {
+	socket, token = os.Getenv("LEGATO_BROKER_SOCKET"), os.Getenv("LEGATO_BROKER_TOKEN")
+	return socket, token, socket != "" && token != ""
+}
+
+// sandboxed reports whether this process runs in Legato's sandbox, where the
+// store cannot be reached and the broker is the only way to the host.
+func sandboxed() bool { return os.Getenv("LEGATO_SANDBOXED") == "1" }
+
+// viaBroker asks the host broker to do op for this session. done is true
+// when the command is finished: the broker answered, or none answered and
+// the session cannot reach the store (a hook then exits 0: a failed state
+// report must not fail the agent's turn). When none answered and the store
+// can be reached, done is false and the command carries on with the store.
+func viaBroker(command string, jsonMode bool, op string, args, data any) (int, bool) {
+	socket, token, ok := brokerSession()
+	if !ok {
+		return 0, false
+	}
+	err := broker.Call(context.Background(), socket, token, op, args, nil)
+	switch {
+	case err == nil:
+		return writeCommandSuccess(command, data, "", jsonMode), true
+	case errors.Is(err, broker.ErrUnreachable) && sandboxed():
+		fmt.Fprintf(os.Stderr, "legato: %s not reported: %v\n", command, err)
+		return 0, true
+	case errors.Is(err, broker.ErrUnreachable):
+		return 0, false
+	}
+	var refusal *broker.Error
+	if errors.As(err, &refusal) && (refusal.Code == "forbidden" || refusal.Code == "unauthorized") {
+		return renderCommandError(command, &commandError{Code: refusal.Code, Message: refusal.Message, Exit: exitForbidden}, jsonMode), true
+	}
+	return renderCommandError(command, commandDomainError(err), jsonMode), true
 }

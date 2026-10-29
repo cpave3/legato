@@ -19,6 +19,20 @@ type chimeraSessionCreatedPayload struct {
 // AgentSessionCreatedFromHook links a newly-created task parent session while
 // ignoring unnamed or differently named child sessions.
 func AgentSessionCreatedFromHook(s *store.Store, taskID, sessionID string, reader io.Reader) (bool, error) {
+	register, err := SessionCreatedPayloadNamesTask(taskID, sessionID, reader)
+	if err != nil || !register {
+		return false, err
+	}
+	if err := AgentSessionCreated(s, taskID, sessionID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// SessionCreatedPayloadNamesTask checks a Chimera SessionCreated payload and
+// reports whether it is the task's own parent session, which is the one to
+// link (a child or differently named session is not).
+func SessionCreatedPayloadNamesTask(taskID, sessionID string, reader io.Reader) (bool, error) {
 	if taskID == "" {
 		return false, fmt.Errorf("task ID is required")
 	}
@@ -40,13 +54,7 @@ func AgentSessionCreatedFromHook(s *store.Store, taskID, sessionID string, reade
 	if payload.SessionID != sessionID {
 		return false, fmt.Errorf("Chimera payload session ID %q does not match environment session ID %q", payload.SessionID, sessionID)
 	}
-	if payload.SessionName != taskID {
-		return false, nil
-	}
-	if err := AgentSessionCreated(s, taskID, sessionID); err != nil {
-		return false, err
-	}
-	return true, nil
+	return payload.SessionName == taskID, nil
 }
 
 // AgentSessionCreated links a newly-created Chimera session to its task.
