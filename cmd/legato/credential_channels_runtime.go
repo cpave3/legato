@@ -30,7 +30,17 @@ const (
 	channelLockFile  = "credential-channels.lock"
 	proxyAddressFile = "credential-proxy.json"
 	sshSocketDirName = "ssh"
+	wrapperDirName   = "bin"
 )
+
+// legatoBinary is this binary's path, which sessions run as git's
+// credential helper.
+func legatoBinary() string {
+	if path, err := os.Executable(); err == nil {
+		return path
+	}
+	return "legato"
+}
 
 // channelHost runs the credential channels for every Legato on the machine:
 // the loopback proxy and an SSH agent socket for each running execution.
@@ -80,6 +90,8 @@ func startChannelHost(ctx context.Context, cfg *config.Config, db *store.Store, 
 		SSHSocketDir: filepath.Join(dir, sshSocketDirName),
 		KnownHosts:   cfg.CredentialChannels.SSHAgent.KnownHosts,
 		OnSession:    h.sessionStarting,
+		LegatoBin:    legatoBinary(),
+		WrapperDir:   filepath.Join(dir, wrapperDirName),
 	})
 	if !h.channels.HasProxy() && !h.channels.HasSSH() {
 		return h
@@ -345,6 +357,8 @@ func attachCredentialChannels(cfg *config.Config, db *store.Store, agents servic
 		ProxyURL:     func() string { return readProxyURL(dir) },
 		SSHSocketDir: filepath.Join(dir, sshSocketDirName),
 		KnownHosts:   cfg.CredentialChannels.SSHAgent.KnownHosts,
+		LegatoBin:    legatoBinary(),
+		WrapperDir:   filepath.Join(dir, wrapperDirName),
 	}))
 }
 

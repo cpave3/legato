@@ -98,6 +98,61 @@ func secretCommandError(err error) *commandError {
 	return &commandError{Code: "secret_store_failed", Message: err.Error(), Exit: exitEnvironment}
 }
 
+// runCredentialGit is git's credential helper in an agent session with a
+// GitHub credential: `legato credential git <credential> get|store|erase`.
+// It reads neither the configuration nor the database; git runs it on
+// every fetch and push.
+func runCredentialGit(args []string) int {
+	if len(args) != 2 {
+		fmt.Fprintln(os.Stderr, "usage: legato credential git <credential> get|store|erase (git runs this as its credential helper)")
+		return exitUsage
+	}
+	session, ok := cli.GitHubSessionFromEnv(os.Getenv)
+	if !ok {
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		return exitOK
+	}
+	if err := cli.GitCredentialHelper(context.Background(), args[1], os.Stdin, os.Stdout, os.Stderr, session); err != nil {
+		fmt.Fprintln(os.Stderr, "legato:", err)
+		return exitInternal
+	}
+	return exitOK
+}
+
+// runCredentialGHToken prints a read token for the repository a gh command
+// acts on, for Legato's gh wrapper: `legato credential gh-token -- <gh args>`.
+// It prints nothing, and fails, when there is no token to give.
+func runCredentialGHToken(args []string) int {
+	for i, a := range args {
+		if a == "--" {
+			args = args[i+1:]
+			break
+		}
+	}
+	session, ok := cli.GitHubSessionFromEnv(os.Getenv)
+	if !ok {
+		return exitEnvironment
+	}
+	repo, err := cli.GHRepo(args, os.Getenv, func() string {
+		out, err := exec.Command("git", "remote", "get-url", "origin").Output()
+		if err != nil {
+			return ""
+		}
+		return string(out)
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "legato:", err)
+		return exitUsage
+	}
+	token, err := session.ReadToken(context.Background(), repo, "api.read")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "legato:", err)
+		return exitForbidden
+	}
+	fmt.Println(token)
+	return exitOK
+}
+
 func runCredentialContract(verb string, args []string) int {
 	command := "credential." + verb
 	// exec passes everything after -- to the command it runs.

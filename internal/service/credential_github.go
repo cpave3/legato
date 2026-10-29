@@ -5,10 +5,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -240,4 +243,42 @@ func githubEnv(env map[string]string, legato, name, base, gitHost string) {
 
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// writeGHWrapper writes dir/gh: the real gh, run with a read token for the
+// repository the command acts on when Legato gives one. Without a real gh
+// there is no wrapper.
+func writeGHWrapper(dir, legato string) error {
+	real := ""
+	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
+		if d == "" || filepath.Clean(d) == filepath.Clean(dir) {
+			continue
+		}
+		candidate := filepath.Join(d, "gh")
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			real = candidate
+			break
+		}
+	}
+	if real == "" {
+		return errors.New("no gh on PATH")
+	}
+	script := "#!/bin/sh\n" +
+		"# Legato: gh with a read token for one repository. Writes go through\n" +
+		"# Legato's proxy ($LEGATO_GITHUB_API_URL), not through gh.\n" +
+		"token=$(" + shellQuote(legato) + " credential gh-token -- \"$@\" 2>/dev/null)\n" +
+		"if [ -n \"$token\" ]; then GH_TOKEN=$token; export GH_TOKEN; fi\n" +
+		"exec " + shellQuote(real) + " \"$@\"\n"
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "gh")
+	if current, err := os.ReadFile(path); err == nil && string(current) == script {
+		return nil
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(script), 0o700); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }

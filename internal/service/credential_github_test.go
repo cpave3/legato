@@ -317,3 +317,58 @@ func TestASessionsGitSendsPushesToTheProxyAndAsksLegatoForCredentials(t *testing
 	}
 	_ = base64.StdEncoding
 }
+
+func TestGHRunsWithAReadTokenThroughLegatosWrapper(t *testing.T) {
+	bin := t.TempDir()
+	// The real gh prints the token it was given; legato prints a token.
+	_ = os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\necho \"gh $* token=$GH_TOKEN\"\n"), 0o755)
+	legato := filepath.Join(t.TempDir(), "legato")
+	_ = os.WriteFile(legato, []byte("#!/bin/sh\n[ \"$1 $2 $3\" = \"credential gh-token --\" ] && echo ghs_read_for_gh\n"), 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	f := newGitHubFixture(t)
+	wrappers := filepath.Join(t.TempDir(), "bin")
+	f.channels.opts.WrapperDir = wrappers
+	f.channels.opts.LegatoBin = legato
+	env, err := f.channels.SessionEnv(context.Background(), "task-1", "ex-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(env["PATH"], wrappers+string(os.PathListSeparator)) {
+		t.Fatalf("PATH = %q", env["PATH"])
+	}
+	// As the agent's shell runs it: gh found on the session's PATH.
+	cmd := exec.Command("/bin/sh", "-c", "gh pr list -R cpave3/legato")
+	cmd.Env = append(os.Environ(), "PATH="+env["PATH"])
+	out, err := cmd.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "gh pr list -R cpave3/legato token=ghs_read_for_gh" {
+		t.Fatalf("gh through the wrapper: %v %q", err, out)
+	}
+	if os.Getenv("GH_TOKEN") != "" {
+		t.Fatal("GH_TOKEN leaked into this process")
+	}
+}
+
+func TestOnlyLegatosHelperAnswersForGitHub(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	home := t.TempDir()
+	// The person's own helper for github.com, which must not be asked.
+	_ = os.WriteFile(filepath.Join(home, ".gitconfig"), []byte("[credential \"https://github.com\"]\n\thelper = \"!f() { echo password=PERSONS_TOKEN; }; f\"\n[credential]\n\thelper = \"!f() { echo password=GLOBAL_TOKEN; }; f\"\n"), 0o600)
+	legato := filepath.Join(t.TempDir(), "legato")
+	_ = os.WriteFile(legato, []byte("#!/bin/sh\ncat >/dev/null\necho username=x-access-token\necho password=LEGATOS_TOKEN\n"), 0o755)
+	env := map[string]string{}
+	githubEnv(env, legato, "gh", "http://127.0.0.1:7788", "https://github.com")
+
+	cmd := exec.Command("git", "credential", "fill")
+	cmd.Stdin = strings.NewReader("protocol=https\nhost=github.com\npath=cpave3/legato.git\n\n")
+	cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH"), "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1"}
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "password=LEGATOS_TOKEN") {
+		t.Fatalf("git credential fill: %v\n%s", err, out)
+	}
+}

@@ -37,6 +37,8 @@ func CredentialGuidance(credentials []service.CredentialSummary, sources ...serv
 		switch {
 		case has(c.Channels, service.ChannelSSHAgent):
 			continue
+		case c.Git != "":
+			b.WriteString(githubGuidance(c))
 		case has(c.Channels, service.ChannelHTTPProxy):
 			key, base := "its key variable", "its base URL variable"
 			if len(c.Env) > 0 {
@@ -60,4 +62,16 @@ func has(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// githubGuidance says how to work with GitHub through Legato: reads as
+// usual, a legato/ branch asked for by name, pushes as usual, and pull
+// requests through Legato's API address.
+func githubGuidance(c service.CredentialSummary) string {
+	repo := "<owner>/<repo>"
+	if len(c.Repositories) > 0 {
+		repo = c.Repositories[0]
+	}
+	return fmt.Sprintf(`- %s (GitHub, for %s): fetch and pull as usual; Legato's git credential helper gives you a read token for each of these repositories, and gh reads with one too. Work on a branch named legato/$LEGATO_TASK_ID-<a few words>. Before your first push, ask for that one branch with request_access: credential %s, operation git.push, resource github:%s@refs/heads/legato/<the rest of your branch name>; ask for one branch, not a pattern. Then git push as usual: pushes go through Legato, which checks each branch. Pushing to the default branch, pushing tags and deleting branches are refused. A refused push says why in git's output; one that says pending ap-… waits for the person: carry on or end your turn, and push again after the [legato approvals] message. Open a pull request through Legato, not gh: curl -sS -X POST "$LEGATO_GITHUB_API_URL/repos/%s/pulls" -H "Authorization: Bearer $LEGATO_GITHUB_TOKEN" -d '{"head":"<your branch>","base":"<the default branch>","title":"…","body":"…"}' (it is asked for the same way, with operation pr.create). Never push with your own key, another remote or another token.
+`, c.Name, strings.Join(c.Repositories, ", "), c.Name, repo, repo)
 }

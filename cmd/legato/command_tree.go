@@ -191,6 +191,12 @@ func commandTree() *commandDef {
 			[]argumentDef{arg("name", "Credential name"), {Name: "-- command", Optional: false, Repeatable: true, Description: "The command to run, after --"}},
 			[]commandFlag{valueFlag("env", "variable", "The variable that holds the value"), valueFlag("operation", "operation", "What the use does (default read)"), credentialResource, jsonFlag},
 			"legato credential exec elevenlabs --env ELEVENLABS_API_KEY -- libretto render story.yaml"),
+		leaf("git", "git's credential helper in an agent session with a GitHub credential (git runs it)", runCredentialGit,
+			[]argumentDef{arg("credential", "Credential name"), arg("action", "get, store or erase")}, nil,
+			"git -c credential.helper='!legato credential git github' fetch"),
+		leaf("gh-token", "Print a read token for the repository a gh command acts on (Legato's gh wrapper runs it)", runCredentialGHToken,
+			[]argumentDef{{Name: "-- gh arguments", Optional: true, Repeatable: true, Description: "The gh command's arguments, after --"}}, nil,
+			"legato credential gh-token -- pr list -R cpave3/legato"),
 	)
 	audit := commandGroup("audit", "Read the credential audit log, newest first", func(a []string) int { return runAuditContract("list", a) },
 		nil, []commandFlag{valueFlag("credential", "name", "Only this credential"), valueFlag("task", "task-id", "Only this task"), valueFlag("execution", "execution-id", "Only this agent session"), valueFlag("limit", "count", "How many rows (default 50)"), jsonFlag},

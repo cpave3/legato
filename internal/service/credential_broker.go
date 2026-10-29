@@ -531,6 +531,10 @@ type CredentialSummary struct {
 	Env      []string `json:"env,omitempty"`
 	// Source is the vault a credential came from, "" for a configured one.
 	Source string `json:"source,omitempty"`
+	// Git is the git host pushes of the credential go to (GitHub), and
+	// Repositories the ones it may be used for.
+	Git          string   `json:"git,omitempty"`
+	Repositories []string `json:"repositories,omitempty"`
 }
 
 // Credentials lists the configured credentials.
@@ -539,7 +543,7 @@ func (b *CredentialBroker) Credentials() []CredentialSummary {
 	out := make([]CredentialSummary, 0, len(all))
 	for _, c := range all {
 		out = append(out, CredentialSummary{Name: c.config.Name, Profile: c.profile.Name, Store: c.ref.Scheme, Secret: c.ref.String(), Rules: c.rules,
-			Channels: c.profile.Channels, Env: c.envNames(), Source: c.source})
+			Channels: c.profile.Channels, Env: c.envNames(), Source: c.source, Git: c.profile.Git, Repositories: c.config.Settings.Repositories})
 	}
 	return out
 }

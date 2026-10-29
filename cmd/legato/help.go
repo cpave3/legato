@@ -7,6 +7,9 @@ import (
 
 func helpRequest(args []string) ([]string, bool) {
 	for i, arg := range args {
+		if arg == "--" {
+			break // what follows is another command's arguments
+		}
 		if arg == "--help" || arg == "-h" || (arg == "help" && i > 0) {
 			return args[:i], true
 		}

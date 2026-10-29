@@ -139,3 +139,19 @@ func TestTheGuidanceNamesAVaultOfSSHKeysOnce(t *testing.T) {
 		t.Error("no guidance for a vault before it is listed")
 	}
 }
+
+func TestTheGuidanceSaysHowToWorkWithGitHub(t *testing.T) {
+	text := cli.CredentialGuidance([]service.CredentialSummary{{Name: "github", Profile: "github", Channels: []string{"http-proxy"},
+		Env: []string{"LEGATO_GITHUB_TOKEN", "LEGATO_GITHUB_API_URL"}, Git: "https://github.com", Repositories: []string{"cpave3/legato"}}})
+	for _, want := range []string{
+		"cpave3/legato", "legato/$LEGATO_TASK_ID-", "request_access", "operation git.push", "github:cpave3/legato@refs/heads/legato/",
+		"git push", "pending ap-", "[legato approvals]", "$LEGATO_GITHUB_API_URL/repos/", "Bearer $LEGATO_GITHUB_TOKEN", "not gh",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the GitHub guidance does not say %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "through Legato's proxy): send its requests") {
+		t.Errorf("GitHub got the plain proxy paragraph too:\n%s", text)
+	}
+}

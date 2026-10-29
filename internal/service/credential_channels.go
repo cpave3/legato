@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -43,6 +44,9 @@ type CredentialChannelsOptions struct {
 	// LegatoBin is the legato binary sessions run as git's credential
 	// helper (a GitHub credential).
 	LegatoBin string
+	// WrapperDir holds the gh wrapper a session with a GitHub credential
+	// finds first on its PATH.
+	WrapperDir string
 }
 
 // CredentialChannels are the channels that give agents credentials without
@@ -130,6 +134,13 @@ func (c *CredentialChannels) SessionEnv(ctx context.Context, taskID, executionID
 				legato = "legato"
 			}
 			githubEnv(env, legato, bc.config.Name, base, strings.TrimSuffix(bc.profile.Git, "/"))
+			if c.opts.WrapperDir != "" {
+				if err := writeGHWrapper(c.opts.WrapperDir, legato); err != nil {
+					log.Printf("credentials: the gh wrapper: %v", err)
+				} else {
+					env["PATH"] = c.opts.WrapperDir + string(os.PathListSeparator) + os.Getenv("PATH")
+				}
+			}
 		}
 	}
 	if c.HasSSH() && c.opts.SSHSocketDir != "" {
