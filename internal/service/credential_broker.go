@@ -1,0 +1,732 @@
+package service
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/credential"
+	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/store"
+)
+
+// ApprovalSourceCredential is the source of approvals for credential access.
+const ApprovalSourceCredential = "credential"
+
+// What a request for access came to.
+const (
+	AccessGranted = "granted"
+	AccessPending = "pending"
+	AccessDenied  = "denied"
+)
+
+// The grants an approval can leave, from the loosest.
+const (
+	grantSession = "session"
+	grantWindow  = "window"
+	grantOnce    = "once"
+)
+
+// defaultWindow is the window a session rule offers as a stricter choice.
+const defaultWindow = 30 * time.Minute
+
+// AccessRequest is an agent asking for a scope of a credential.
+type AccessRequest struct {
+	TaskID      string
+	ExecutionID string
+	Credential  string
+	Operations  []string
+	Resources   []string
+	Reason      string
+	Blocking    bool
+}
+
+// AccessResult is what a request came to.
+type AccessResult struct {
+	Status     string `json:"status"`
+	ApprovalID string `json:"approval_id,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	// Grant says for how long, when granted: "this session", "30m", "once".
+	Grant string `json:"grant,omitempty"`
+}
+
+// CredentialUse is one use of a credential.
+type CredentialUse struct {
+	TaskID      string
+	ExecutionID string
+	Credential  string
+	Operation   string
+	Resource    string
+	Amounts     map[string]int64
+}
+
+// UseDecision says whether a use may go ahead.
+type UseDecision struct {
+	Allowed    bool   `json:"allowed"`
+	ApprovalID string `json:"approval_id,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// AgentMessenger tells an agent something, queued if it is at work.
+type AgentMessenger interface {
+	QueueMessage(ctx context.Context, taskID, message string) error
+}
+
+// CredentialBrokerOptions configures a CredentialBroker.
+type CredentialBrokerOptions struct {
+	Credentials []config.CredentialConfig
+	// ProfileDirs hold profiles that add to or replace the shipped ones.
+	ProfileDirs []string
+	// Stores read secrets by scheme. Missing schemes get the built-in stores.
+	Stores map[string]credential.Store
+	// OnePasswordToken is the service account token for op:// references.
+	OnePasswordToken string
+	// Messenger tells an agent of a decision it no longer waits for. Only a
+	// host process (TUI, legato serve) sets it.
+	Messenger AgentMessenger
+	// WaitTimeout is how long a request waits for the person. Default 60s.
+	WaitTimeout time.Duration
+	Now         func() time.Time
+}
+
+// CredentialBroker decides what an agent may do with a credential, keeps the
+// grants it holds, and records every request and use. Every Legato process
+// that acts for an agent builds one over the same database.
+type CredentialBroker struct {
+	db          *store.Store
+	approvals   *ApprovalService
+	credentials map[string]brokerCredential
+	names       []string
+	stores      map[string]credential.Store
+	messenger   AgentMessenger
+	wait        time.Duration
+	now         func() time.Time
+}
+
+type brokerCredential struct {
+	config  config.CredentialConfig
+	ref     credential.Ref
+	profile CredentialProfile
+	rules   []config.CredentialRule
+}
+
+// NewCredentialBroker checks the configured credentials against the
+// profiles and builds the broker. A credential with an unknown profile, or a
+// secret type its profile does not take, is an error.
+func NewCredentialBroker(db *store.Store, approvals *ApprovalService, opts CredentialBrokerOptions) (*CredentialBroker, error) {
+	profiles, err := LoadCredentialProfiles(opts.ProfileDirs...)
+	if err != nil {
+		return nil, err
+	}
+	b := &CredentialBroker{db: db, approvals: approvals, credentials: map[string]brokerCredential{}, messenger: opts.Messenger, wait: opts.WaitTimeout, now: opts.Now}
+	if b.wait <= 0 {
+		b.wait = 60 * time.Second
+	}
+	if b.now == nil {
+		b.now = time.Now
+	}
+	b.stores = map[string]credential.Store{
+		"env": credential.EnvStore{}, "file": credential.FileStore{}, "systemd-creds": credential.SystemdCredsStore{},
+		"op": credential.OnePasswordStore{Token: opts.OnePasswordToken}, "keychain": credential.KeychainStore{},
+	}
+	for scheme, s := range opts.Stores {
+		b.stores[scheme] = s
+	}
+	for _, c := range opts.Credentials {
+		profile, ok := profiles[c.Profile]
+		if !ok {
+			return nil, fmt.Errorf("credentials %q: no profile %q", c.Name, c.Profile)
+		}
+		ref, err := credential.ParseRef(c.Secret)
+		if err != nil {
+			return nil, fmt.Errorf("credentials %q: %w", c.Name, err)
+		}
+		if c.Type != "" && !listHas(profile.Accepts, c.Type) {
+			return nil, fmt.Errorf("credentials %q: profile %s does not take secrets of type %s", c.Name, profile.Name, c.Type)
+		}
+		rules := c.Policy
+		if len(rules) == 0 {
+			rules = profile.Policy
+		}
+		b.credentials[c.Name] = brokerCredential{config: c, ref: ref, profile: profile, rules: rules}
+		b.names = append(b.names, c.Name)
+	}
+	sort.Strings(b.names)
+	return b, nil
+}
+
+// RegisterResolver makes this process apply decisions on credential
+// approvals. Only a host process (TUI, legato serve) calls it.
+func (b *CredentialBroker) RegisterResolver() {
+	b.approvals.RegisterResolver(ApprovalSourceCredential, credentialResolver{b: b})
+}
+
+// StartEventLoop ends the grants of agents that end, until stop is called.
+func (b *CredentialBroker) StartEventLoop(ctx context.Context, bus *events.Bus) (stop func()) {
+	if bus == nil {
+		return func() {}
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	died := bus.Subscribe(events.EventAgentDied)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-died:
+				if !ok {
+					return
+				}
+				b.endGrantsOfEndedAgents(ctx)
+			}
+		}
+	}()
+	return func() { cancel(); bus.Unsubscribe(died) }
+}
+
+func (b *CredentialBroker) endGrantsOfEndedAgents(ctx context.Context) {
+	grants, err := b.db.ListLiveCredentialGrants(ctx, b.now())
+	if err != nil {
+		return
+	}
+	ended := map[string]bool{}
+	for _, g := range grants {
+		if ended[g.ExecutionID] {
+			continue
+		}
+		if !b.executionRunning(ctx, g.ExecutionID, "") {
+			ended[g.ExecutionID] = true
+			_ = b.db.EndCredentialGrants(ctx, g.ExecutionID)
+		}
+	}
+}
+
+// CredentialSummary describes a configured credential, never its value.
+type CredentialSummary struct {
+	Name    string                  `json:"name"`
+	Profile string                  `json:"profile"`
+	Store   string                  `json:"store"`
+	Secret  string                  `json:"secret"`
+	Rules   []config.CredentialRule `json:"rules"`
+}
+
+// Credentials lists the configured credentials.
+func (b *CredentialBroker) Credentials() []CredentialSummary {
+	out := make([]CredentialSummary, 0, len(b.names))
+	for _, name := range b.names {
+		c := b.credentials[name]
+		out = append(out, CredentialSummary{Name: name, Profile: c.profile.Name, Store: c.ref.Scheme, Secret: c.ref.String(), Rules: c.rules})
+	}
+	return out
+}
+
+// pair is one operation on one resource.
+type pair struct{ operation, resource string }
+
+func pairs(operations, resources []string) []pair {
+	if len(resources) == 0 {
+		resources = []string{""}
+	}
+	var out []pair
+	for _, op := range operations {
+		for _, r := range resources {
+			out = append(out, pair{op, r})
+		}
+	}
+	return out
+}
+
+// strictness orders modes from loosest to strictest.
+var strictness = map[string]int{"auto": 0, "session": 1, "window": 2, "request": 3, "deny": 4}
+
+// selectRule returns the most specific rule that matches a use, passing over
+// rules whose limits are spent. nil when none matches.
+func (b *CredentialBroker) selectRule(ctx context.Context, c brokerCredential, p pair) *config.CredentialRule {
+	best, bestScore := -1, -1
+	for i, r := range c.rules {
+		if len(r.Operation) > 0 && !listHas(r.Operation, p.operation) {
+			continue
+		}
+		if !credential.Covers(r.Resource, p.resource) {
+			continue
+		}
+		if b.limitSpent(ctx, c.config.Name, r) {
+			continue
+		}
+		score := credential.Specificity(r.Resource)
+		if len(r.Operation) > 0 {
+			score++
+		}
+		if score > bestScore {
+			best, bestScore = i, score
+		}
+	}
+	if best < 0 {
+		return nil
+	}
+	return &c.rules[best]
+}
+
+func (b *CredentialBroker) limitSpent(ctx context.Context, name string, r config.CredentialRule) bool {
+	for _, limit := range r.Limits {
+		if limit.Meter != "requests" {
+			continue // other meters come with the channels that measure them
+		}
+		n, err := b.db.CountCredentialAudit(ctx, store.CredentialAuditFilter{Event: "use", Credential: name, Since: b.now().Add(-limit.Period)})
+		if err == nil && int64(n) >= limit.Count {
+			return true
+		}
+	}
+	return false
+}
+
+// executionRunning reports whether an execution runs, for taskID when set.
+func (b *CredentialBroker) executionRunning(ctx context.Context, executionID, taskID string) bool {
+	if executionID == "" {
+		return false
+	}
+	execution, err := b.db.GetExecution(ctx, executionID)
+	if err != nil || execution.Status != store.ExecutionRunning {
+		return false
+	}
+	return taskID == "" || taskID == execution.TaskID || taskID == execution.ExecutionTaskID || taskID == execution.SwarmSubtaskID
+}
+
+// Request asks for a scope. Rules that say auto grant at once and rules that
+// say deny refuse; otherwise the person is asked, and Request waits up to the
+// wait timeout for the decision before it returns pending.
+func (b *CredentialBroker) Request(ctx context.Context, req AccessRequest) (AccessResult, error) {
+	c, ok := b.credentials[req.Credential]
+	if !ok {
+		return AccessResult{}, fmt.Errorf("no credential named %q (legato credential list names them)", req.Credential)
+	}
+	if len(req.Operations) == 0 {
+		return AccessResult{}, errors.New("a request names at least one operation")
+	}
+	b.audit(ctx, req.TaskID, req.ExecutionID, store.CredentialAuditEntry{Event: "request", Credential: req.Credential, Operation: strings.Join(req.Operations, ","), Resource: strings.Join(req.Resources, " "), Detail: clip(req.Reason, 500)})
+	if !b.executionRunning(ctx, req.ExecutionID, req.TaskID) {
+		return b.refuse(ctx, req, "the agent is not running"), nil
+	}
+	ps := pairs(req.Operations, req.Resources)
+	var strictest *config.CredentialRule
+	for _, p := range ps {
+		r := b.selectRule(ctx, c, p)
+		if r == nil {
+			return b.refuse(ctx, req, fmt.Sprintf("no rule of %s allows %s on %s", req.Credential, p.operation, orAll(p.resource))), nil
+		}
+		if r.Approve == "deny" {
+			return b.refuse(ctx, req, fmt.Sprintf("%s does not allow %s on %s", req.Credential, p.operation, orAll(p.resource))), nil
+		}
+		if strictest == nil || strictness[r.Approve] > strictness[strictest.Approve] {
+			strictest = r
+		}
+	}
+	if b.covered(ctx, req.ExecutionID, req.Credential, ps) {
+		return AccessResult{Status: AccessGranted, Grant: "already granted"}, nil
+	}
+	if strictest.Approve == "auto" {
+		if err := b.grant(ctx, req, grantSession, 0, "", "rule"); err != nil {
+			return AccessResult{}, err
+		}
+		return AccessResult{Status: AccessGranted, Grant: "this session"}, nil
+	}
+	approval, err := b.submit(ctx, req, c, *strictest)
+	if err != nil {
+		return AccessResult{}, err
+	}
+	b.audit(ctx, req.TaskID, req.ExecutionID, store.CredentialAuditEntry{Event: "pending", Credential: req.Credential, Operation: strings.Join(req.Operations, ","), Resource: strings.Join(req.Resources, " "), ApprovalID: approval.ID})
+	decided, err := b.approvals.Wait(ctx, approval.ID, b.wait)
+	if err != nil {
+		return AccessResult{}, err
+	}
+	switch decided.Status {
+	case store.ApprovalApproved:
+		return AccessResult{Status: AccessGranted, ApprovalID: approval.ID, Grant: grantPhrase(decided)}, nil
+	case store.ApprovalPending:
+		return AccessResult{Status: AccessPending, ApprovalID: approval.ID}, nil
+	default:
+		note := ""
+		if decided.Decision != nil {
+			note = decided.Decision.Feedback
+		}
+		return AccessResult{Status: AccessDenied, ApprovalID: approval.ID, Reason: firstNonEmpty(note, "the person did not allow it")}, nil
+	}
+}
+
+func (b *CredentialBroker) refuse(ctx context.Context, req AccessRequest, reason string) AccessResult {
+	b.audit(ctx, req.TaskID, req.ExecutionID, store.CredentialAuditEntry{Event: "refuse", Credential: req.Credential, Operation: strings.Join(req.Operations, ","), Resource: strings.Join(req.Resources, " "), Detail: reason})
+	return AccessResult{Status: AccessDenied, Reason: reason}
+}
+
+// covered reports whether live grants of the execution cover every pair.
+func (b *CredentialBroker) covered(ctx context.Context, executionID, name string, ps []pair) bool {
+	grants, err := b.db.LiveCredentialGrants(ctx, executionID, name, b.now())
+	if err != nil {
+		return false
+	}
+	for _, p := range ps {
+		if findGrant(grants, p) == nil {
+			return false
+		}
+	}
+	return true
+}
+
+func findGrant(grants []store.CredentialGrant, p pair) *store.CredentialGrant {
+	for i := range grants {
+		var ops, resources []string
+		_ = json.Unmarshal([]byte(grants[i].OperationsJSON), &ops)
+		_ = json.Unmarshal([]byte(grants[i].ResourcesJSON), &resources)
+		if !listHas(ops, p.operation) {
+			continue
+		}
+		if len(resources) == 0 {
+			resources = []string{""}
+		}
+		for _, r := range resources {
+			if r == p.resource || (r != "" && credential.Covers(r, p.resource)) || (r == "" && p.resource == "") {
+				return &grants[i]
+			}
+		}
+	}
+	return nil
+}
+
+func (b *CredentialBroker) grant(ctx context.Context, req AccessRequest, kind string, window time.Duration, approvalID, decidedBy string) error {
+	ops, _ := json.Marshal(req.Operations)
+	resources := req.Resources
+	if resources == nil {
+		resources = []string{}
+	}
+	res, _ := json.Marshal(resources)
+	g := store.CredentialGrant{ID: newGrantID(), ExecutionID: req.ExecutionID, TaskID: req.TaskID, Credential: req.Credential,
+		OperationsJSON: string(ops), ResourcesJSON: string(res), Mode: kind, ApprovalID: approvalID}
+	switch kind {
+	case grantWindow:
+		expires := b.now().Add(window).UTC().Format(time.RFC3339Nano)
+		g.ExpiresAt = &expires
+	case grantOnce:
+		one := 1
+		g.UsesLeft = &one
+	}
+	if err := b.db.InsertCredentialGrant(ctx, g); err != nil {
+		return err
+	}
+	detail := kind
+	if kind == grantWindow {
+		detail += " " + window.String()
+	}
+	b.audit(ctx, req.TaskID, req.ExecutionID, store.CredentialAuditEntry{Event: "grant", Credential: req.Credential, Operation: strings.Join(req.Operations, ","), Resource: strings.Join(req.Resources, " "), ApprovalID: approvalID, DecidedBy: decidedBy, Detail: detail})
+	return nil
+}
+
+// credentialRequestDetails is what a credential approval's details hold.
+type credentialRequestDetails struct {
+	Credential    string   `json:"credential"`
+	Profile       string   `json:"profile"`
+	Operations    []string `json:"operations"`
+	Resources     []string `json:"resources"`
+	Reason        string   `json:"reason,omitempty"`
+	Broader       bool     `json:"broader,omitempty"`
+	Mode          string   `json:"mode"`
+	WindowSeconds int      `json:"window_seconds,omitempty"`
+	Signed        bool     `json:"signed,omitempty"`
+	ScopeHash     string   `json:"scope_hash"`
+	TaskTitle     string   `json:"task_title,omitempty"`
+	AgentKind     string   `json:"agent_kind,omitempty"`
+}
+
+// submit asks the person, reusing a pending approval of the same scope.
+func (b *CredentialBroker) submit(ctx context.Context, req AccessRequest, c brokerCredential, r config.CredentialRule) (*Approval, error) {
+	scope := scopeHash(req)
+	pending, err := b.approvals.List(ctx, store.ApprovalFilter{Status: store.ApprovalPending, ExecutionID: req.ExecutionID, Source: ApprovalSourceCredential})
+	if err == nil {
+		for i := range pending {
+			var d credentialRequestDetails
+			if json.Unmarshal(pending[i].Details, &d) == nil && d.ScopeHash == scope {
+				return &pending[i], nil
+			}
+		}
+	}
+	window := r.WindowDuration
+	if window <= 0 {
+		window = defaultWindow
+	}
+	broader := false
+	for _, resource := range req.Resources {
+		broader = broader || credential.IsPattern(resource)
+	}
+	details := credentialRequestDetails{
+		Credential: req.Credential, Profile: c.profile.Name, Operations: req.Operations, Resources: req.Resources,
+		Reason: clip(req.Reason, 500), Broader: broader, Mode: r.Approve, WindowSeconds: int(window.Seconds()), Signed: r.Signed, ScopeHash: scope,
+	}
+	if task, err := b.db.GetTask(ctx, req.TaskID); err == nil {
+		details.TaskTitle = task.Title
+	}
+	if execution, err := b.db.GetExecution(ctx, req.ExecutionID); err == nil {
+		details.AgentKind = execution.AgentKind
+	}
+	approval, _, err := b.approvals.Submit(ctx, ApprovalInput{
+		Source: ApprovalSourceCredential, SourceKey: req.ExecutionID + "/" + scope + "/" + strconv.FormatInt(b.now().UnixNano(), 36),
+		TaskID: req.TaskID, ExecutionID: req.ExecutionID,
+		Title:   "Use " + req.Credential,
+		Summary: strings.Join(req.Operations, ", ") + " on " + orAll(strings.Join(req.Resources, ", ")),
+		Details: details, Options: grantOptions(r.Approve, window), Blocking: req.Blocking,
+	})
+	return approval, err
+}
+
+// grantOptions are the rule's mode and every stricter one, then deny.
+func grantOptions(mode string, window time.Duration) []ApprovalOption {
+	var options []ApprovalOption
+	switch mode {
+	case "session":
+		options = append(options, ApprovalOption{ID: grantSession, Label: "For this session", Kind: ApprovalAllow})
+		fallthrough
+	case "window":
+		options = append(options, ApprovalOption{ID: grantWindow, Label: "For " + humanDuration(window), Kind: ApprovalAllow})
+		fallthrough
+	case "request":
+		options = append(options, ApprovalOption{ID: grantOnce, Label: "Once", Kind: ApprovalAllow})
+	}
+	return append(options, ApprovalOption{ID: "deny", Label: "Deny", Kind: ApprovalDeny})
+}
+
+// Authorize checks one use against the rules and the execution's grants. A
+// use no grant covers becomes a request for exactly that use.
+func (b *CredentialBroker) Authorize(ctx context.Context, use CredentialUse) (UseDecision, error) {
+	c, ok := b.credentials[use.Credential]
+	if !ok {
+		return UseDecision{}, fmt.Errorf("no credential named %q", use.Credential)
+	}
+	entry := store.CredentialAuditEntry{Credential: use.Credential, Operation: use.Operation, Resource: use.Resource, Amount: amounts(use.Amounts)}
+	if !b.executionRunning(ctx, use.ExecutionID, use.TaskID) {
+		entry.Event, entry.Detail = "refuse", "the agent is not running"
+		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
+		return UseDecision{Reason: entry.Detail}, nil
+	}
+	p := pair{use.Operation, use.Resource}
+	r := b.selectRule(ctx, c, p)
+	if r == nil || r.Approve == "deny" {
+		entry.Event, entry.Detail = "refuse", fmt.Sprintf("no rule of %s allows %s on %s", use.Credential, use.Operation, orAll(use.Resource))
+		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
+		return UseDecision{Reason: entry.Detail}, nil
+	}
+	if r.Approve == "auto" {
+		entry.Event, entry.Detail = "use", "auto"
+		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
+		return UseDecision{Allowed: true}, nil
+	}
+	if ok, err := b.useGrant(ctx, use, entry); ok || err != nil {
+		return UseDecision{Allowed: ok}, err
+	}
+	result, err := b.Request(ctx, AccessRequest{TaskID: use.TaskID, ExecutionID: use.ExecutionID, Credential: use.Credential,
+		Operations: []string{use.Operation}, Resources: nonEmpty(use.Resource), Reason: "used without asking first", Blocking: true})
+	if err != nil {
+		return UseDecision{}, err
+	}
+	if result.Status == AccessGranted {
+		if ok, err := b.useGrant(ctx, use, entry); ok || err != nil {
+			return UseDecision{Allowed: ok, ApprovalID: result.ApprovalID}, err
+		}
+	}
+	return UseDecision{ApprovalID: result.ApprovalID, Reason: firstNonEmpty(result.Reason, "waiting for the person")}, nil
+}
+
+// useGrant spends a live grant that covers the use, if there is one.
+func (b *CredentialBroker) useGrant(ctx context.Context, use CredentialUse, entry store.CredentialAuditEntry) (bool, error) {
+	grants, err := b.db.LiveCredentialGrants(ctx, use.ExecutionID, use.Credential, b.now())
+	if err != nil {
+		return false, err
+	}
+	g := findGrant(grants, pair{use.Operation, use.Resource})
+	if g == nil {
+		return false, nil
+	}
+	if g.UsesLeft != nil {
+		if err := b.db.UseCredentialGrant(ctx, g.ID); errors.Is(err, store.ErrConflict) {
+			return false, nil
+		} else if err != nil {
+			return false, err
+		}
+	}
+	entry.Event, entry.ApprovalID, entry.Detail = "use", g.ApprovalID, g.Mode
+	b.audit(ctx, use.TaskID, use.ExecutionID, entry)
+	return true, nil
+}
+
+// Value is a use that also reads the credential, through its issuer.
+func (b *CredentialBroker) Value(ctx context.Context, use CredentialUse) (credential.Secret, UseDecision, error) {
+	decision, err := b.Authorize(ctx, use)
+	if err != nil || !decision.Allowed {
+		return credential.Secret{}, decision, err
+	}
+	c := b.credentials[use.Credential]
+	s, ok := b.stores[c.ref.Scheme]
+	if !ok {
+		return credential.Secret{}, decision, fmt.Errorf("no store for %s:// references in this Legato", c.ref.Scheme)
+	}
+	secret, err := s.Get(ctx, c.ref)
+	if err != nil {
+		return credential.Secret{}, decision, err
+	}
+	if secret.Type == "" || c.config.Type != "" {
+		secret.Type = firstNonEmpty(c.config.Type, credential.TypeValue)
+	}
+	issued, err := credential.StaticIssuer{}.Issue(ctx, secret, credential.Scope{Operations: []string{use.Operation}, Resources: nonEmpty(use.Resource)})
+	if err != nil {
+		return credential.Secret{}, decision, err
+	}
+	return credential.Secret{Type: secret.Type, Value: issued.Value}, decision, nil
+}
+
+func (b *CredentialBroker) audit(ctx context.Context, taskID, executionID string, e store.CredentialAuditEntry) {
+	e.TaskID, e.ExecutionID = taskID, executionID
+	if execution, err := b.db.GetExecution(ctx, executionID); err == nil {
+		e.AgentKind = execution.AgentKind
+	}
+	if task, err := b.db.GetTask(ctx, taskID); err == nil && task.WorkspaceID != nil {
+		e.WorkspaceID = strconv.Itoa(*task.WorkspaceID)
+	}
+	if _, err := b.db.AppendCredentialAudit(ctx, e); err != nil {
+		log.Printf("credentials: audit: %v", err)
+	}
+}
+
+// credentialResolver turns decisions on credential approvals into grants,
+// and tells the agent when it no longer waits for the answer.
+type credentialResolver struct{ b *CredentialBroker }
+
+func (r credentialResolver) Resolve(ctx context.Context, approval Approval, decision ApprovalDecision) error {
+	var d credentialRequestDetails
+	if err := json.Unmarshal(approval.Details, &d); err != nil {
+		return err
+	}
+	req := AccessRequest{TaskID: approval.TaskID, ExecutionID: approval.ExecutionID, Credential: d.Credential, Operations: d.Operations, Resources: d.Resources}
+	scope := strings.Join(d.Operations, ", ") + " on " + orAll(strings.Join(d.Resources, ", "))
+	var message string
+	switch decision.Decision {
+	case ApprovalAllow:
+		window := time.Duration(d.WindowSeconds) * time.Second
+		if err := r.b.grant(ctx, req, decision.Option, window, approval.ID, decision.By); err != nil {
+			return err
+		}
+		phrase := map[string]string{grantSession: "for this session", grantWindow: "for " + humanDuration(window), grantOnce: "once"}[decision.Option]
+		message = fmt.Sprintf("[legato approvals] %s approved: %s with %s %s. Carry on with what needed it.", approval.ID, scope, d.Credential, phrase)
+	default:
+		r.b.audit(ctx, approval.TaskID, approval.ExecutionID, store.CredentialAuditEntry{Event: "deny", Credential: d.Credential, Operation: strings.Join(d.Operations, ","), Resource: strings.Join(d.Resources, " "), ApprovalID: approval.ID, DecidedBy: decision.By, Detail: clip(decision.Feedback, 500)})
+		note := firstNonEmpty(decision.Feedback, "no reason given")
+		message = fmt.Sprintf("[legato approvals] %s denied: %s with %s. The person said: %s. Do not look for another way to get this credential.", approval.ID, scope, d.Credential, note)
+	}
+	// A decision made while the requester still waited reached it directly.
+	if r.b.messenger != nil && r.b.now().Sub(parseApprovalTime(approval.CreatedAt)) >= r.b.wait {
+		if err := r.b.messenger.QueueMessage(ctx, approval.TaskID, message); err != nil {
+			log.Printf("credentials: telling %s of %s: %v", approval.TaskID, approval.ID, err)
+		}
+	}
+	return nil
+}
+
+func parseApprovalTime(s string) time.Time {
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05.000Z", "2006-01-02 15:04:05"} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+func grantPhrase(approval *Approval) string {
+	if approval.Decision == nil {
+		return ""
+	}
+	switch approval.Decision.Option {
+	case grantSession:
+		return "this session"
+	case grantWindow:
+		var d credentialRequestDetails
+		_ = json.Unmarshal(approval.Details, &d)
+		return humanDuration(time.Duration(d.WindowSeconds) * time.Second)
+	case grantOnce:
+		return "once"
+	}
+	return approval.Decision.Option
+}
+
+func scopeHash(req AccessRequest) string {
+	ops := append([]string{}, req.Operations...)
+	resources := append([]string{}, req.Resources...)
+	sort.Strings(ops)
+	sort.Strings(resources)
+	sum := sha256.Sum256([]byte(req.Credential + "\x00" + strings.Join(ops, "\x00") + "\x00\x00" + strings.Join(resources, "\x00")))
+	return hex.EncodeToString(sum[:8])
+}
+
+func newGrantID() string {
+	b := make([]byte, 5)
+	_, _ = rand.Read(b)
+	return "cg-" + hex.EncodeToString(b)
+}
+
+func humanDuration(d time.Duration) string {
+	switch {
+	case d >= time.Hour && d%time.Hour == 0:
+		if d == time.Hour {
+			return "1 hour"
+		}
+		return fmt.Sprintf("%d hours", d/time.Hour)
+	case d >= time.Minute && d%time.Minute == 0:
+		return fmt.Sprintf("%d minutes", d/time.Minute)
+	}
+	return d.String()
+}
+
+func amounts(m map[string]int64) string {
+	if len(m) == 0 {
+		return ""
+	}
+	data, _ := json.Marshal(m)
+	return string(data)
+}
+
+func orAll(resource string) string {
+	if resource == "" {
+		return "all of it"
+	}
+	return resource
+}
+
+func nonEmpty(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return []string{s}
+}
+
+func listHas(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}

@@ -39,9 +39,12 @@ type Config struct {
 	Workflows              WorkflowsConfig          `yaml:"workflows"`
 	Repositories           []RepositoryConfig       `yaml:"repositories"`
 	Resources              []ResourceConfig         `yaml:"resources"`
-	Learning               LearningConfig           `yaml:"learning"`
-	SSHAgentSocket         string                   `yaml:"ssh_agent_socket"`
-	Manticore              ManticoreConfig          `yaml:"manticore"`
+	// Credentials agents can ask for, and where Legato keeps its own secrets.
+	Credentials    []CredentialConfig `yaml:"credentials"`
+	Secrets        SecretsConfig      `yaml:"secrets"`
+	Learning       LearningConfig     `yaml:"learning"`
+	SSHAgentSocket string             `yaml:"ssh_agent_socket"`
+	Manticore      ManticoreConfig    `yaml:"manticore"`
 }
 
 // ManticoreConfig names the Manticore instance that Claude Code sessions
@@ -423,6 +426,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if err := normalizeResources(cfg); err != nil {
+		return nil, err
+	}
+	if err := normalizeCredentials(cfg); err != nil {
 		return nil, err
 	}
 	if cfg.Web.PublicURL != "" {
