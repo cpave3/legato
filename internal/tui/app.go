@@ -178,7 +178,9 @@ type App struct {
 	agentUISvc    AgentUIService
 	usageSvc      service.UsageService
 	dirSvc        DirectoryService
-	resourceSvc   ResourceService
+	// sandbox: agents run in Legato's sandbox unless their spawn opts out.
+	sandbox     bool
+	resourceSvc ResourceService
 	// spinFrame is the frame of the mark of a running agent, and
 	// spinnerRunning whether a tick that will advance it is on its way.
 	spinFrame                int
@@ -2414,6 +2416,9 @@ func (a App) openAgentSpawnOverlay(taskID, title string) (tea.Model, tea.Cmd) {
 		}
 	}
 	spawnModel := a.withSpawnResources(a.withSpawnLocations(overlay.NewAgentSpawn(filtered, defaultAdapter, defaultDir, taskID, title), defaultDir))
+	if a.sandbox {
+		spawnModel = spawnModel.WithSandbox()
+	}
 	sized, _ := spawnModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
 	a.overlayType = overlayAgentSpawn
@@ -2444,9 +2449,10 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 		return a, func() tea.Msg { return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()} }
 	}
 	opts := service.AgentSpawnOptions{
-		AgentKind:  msg.AgentKind,
-		WorkingDir: msg.WorkingDir,
-		Resources:  resources,
+		AgentKind:   msg.AgentKind,
+		WorkingDir:  msg.WorkingDir,
+		Resources:   resources,
+		Unsandboxed: msg.Unsandboxed,
 	}
 
 	if msg.TaskID == "" {
@@ -2496,7 +2502,7 @@ func (a App) spawnTaskAgent(msg overlay.AgentSpawnSubmitMsg, sessionPolicy, resu
 	if err != nil {
 		return a, func() tea.Msg { return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()} }
 	}
-	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, WorkingDir: msg.WorkingDir, SessionPolicy: sessionPolicy, ResumeSessionID: resumeSessionID, ResumeWorkingDir: resumeWorkingDir, Resources: resources}
+	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, WorkingDir: msg.WorkingDir, SessionPolicy: sessionPolicy, ResumeSessionID: resumeSessionID, ResumeWorkingDir: resumeWorkingDir, Resources: resources, Unsandboxed: msg.Unsandboxed}
 
 	// Task-bound agent: switch to agent view and spawn with options
 	a = a.setMode(viewAgents)

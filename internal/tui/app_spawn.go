@@ -25,6 +25,10 @@ type DirectoryService interface {
 // SetDirectoryService makes the spawn overlay list the directory presets,
 // complete a typed path and save one as a preset. Without one, the overlay
 // offers the default directory and a path typed in full.
+// SetSandboxEnabled says that agents run in Legato's sandbox: the spawn
+// overlay then offers ctrl+u to start one outside it.
+func (a *App) SetSandboxEnabled(enabled bool) { a.sandbox = enabled }
+
 func (a *App) SetDirectoryService(svc DirectoryService) {
 	a.dirSvc = svc
 }

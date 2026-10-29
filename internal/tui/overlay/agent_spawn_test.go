@@ -510,3 +510,36 @@ func TestAgentSpawnWithResourcesIsExactlyTheSizeItWasGiven(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentSpawnCanRunWithoutTheSandboxWhenItIsOn(t *testing.T) {
+	ctrlU := tea.KeyMsg{Type: tea.KeyCtrlU}
+	m := NewAgentSpawn(nil, "claude-code", "/tmp", "", "").WithSandbox()
+	if !strings.Contains(m.View(), "ctrl+u") {
+		t.Fatalf("the view does not say how to leave the sandbox:\n%s", m.View())
+	}
+	m, _ = spawnKey(t, m, ctrlU)
+	if !strings.Contains(m.View(), "without sandbox") {
+		t.Fatalf("the view does not say the agent runs outside the sandbox:\n%s", m.View())
+	}
+	_, msg := spawnKey(t, m, keyEnter)
+	if submit := msg.(AgentSpawnSubmitMsg); !submit.Unsandboxed {
+		t.Fatalf("submit = %+v", submit)
+	}
+	// Pressed twice, it is back in the sandbox.
+	m = NewAgentSpawn(nil, "claude-code", "/tmp", "", "").WithSandbox()
+	_, msg = spawnKey(t, m, ctrlU, ctrlU, keyEnter)
+	if msg.(AgentSpawnSubmitMsg).Unsandboxed {
+		t.Fatal("ctrl+u twice left the agent outside the sandbox")
+	}
+}
+
+func TestAgentSpawnHasNoSandboxChoiceWhenTheSandboxIsOff(t *testing.T) {
+	m := NewAgentSpawn(nil, "claude-code", "/tmp", "", "")
+	if strings.Contains(m.View(), "ctrl+u") {
+		t.Fatal("offers a sandbox choice with the sandbox off")
+	}
+	_, msg := spawnKey(t, m, tea.KeyMsg{Type: tea.KeyCtrlU}, keyEnter)
+	if msg.(AgentSpawnSubmitMsg).Unsandboxed {
+		t.Fatal("ctrl+u took effect with the sandbox off")
+	}
+}

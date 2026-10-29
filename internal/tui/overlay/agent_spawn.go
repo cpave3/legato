@@ -22,6 +22,8 @@ type AgentSpawnSubmitMsg struct {
 	WorkingDir string
 	// Resources names the resources the agent is given.
 	Resources []string
+	// Unsandboxed starts the agent outside Legato's sandbox.
+	Unsandboxed bool
 }
 
 // AgentSpawnCancelledMsg is sent when the user cancels.
@@ -124,8 +126,11 @@ type AgentSpawnOverlay struct {
 	resource int
 
 	canSave bool
-	notice  string
-	failed  bool
+	// sandbox is on (ctrl+u can start this agent outside it), and
+	// unsandboxed is the person's choice for this agent.
+	sandbox, unsandboxed bool
+	notice               string
+	failed               bool
 
 	width  int
 	height int
@@ -176,6 +181,13 @@ func (m AgentSpawnOverlay) WithResources(resources []SpawnResource) AgentSpawnOv
 	m.resources = resources
 	m.picked = map[string]bool{}
 	m.resource = 0
+	return m
+}
+
+// WithSandbox says agents run in Legato's sandbox: ctrl+u starts this one
+// outside it.
+func (m AgentSpawnOverlay) WithSandbox() AgentSpawnOverlay {
+	m.sandbox = true
 	return m
 }
 
@@ -292,6 +304,11 @@ func (m AgentSpawnOverlay) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "shift+tab":
 		m.focus = m.nextField(-1)
+		return m, nil
+	case "ctrl+u":
+		if m.sandbox {
+			m.unsandboxed = !m.unsandboxed
+		}
 		return m, nil
 	case "ctrl+s":
 		if typing && m.offersSaving() {
@@ -507,6 +524,8 @@ func (m AgentSpawnOverlay) submit() (tea.Model, tea.Cmd) {
 		AgentKind:  m.agents[m.agentIndex].value,
 		WorkingDir: m.target().path,
 		Resources:  m.pickedResources(),
+		// The choice is the person's own and only while the sandbox is on.
+		Unsandboxed: m.sandbox && m.unsandboxed,
 	}
 	return m, func() tea.Msg { return submit }
 }
@@ -901,6 +920,9 @@ func (m AgentSpawnOverlay) summary(primary, secondary lipgloss.Style) string {
 		}
 		text += separator + secondary.Render("titled ") + primary.Render(title)
 	}
+	if m.unsandboxed {
+		text += separator + lipgloss.NewStyle().Foreground(theme.Amber).Render("without sandbox")
+	}
 	return text
 }
 
@@ -917,6 +939,13 @@ func (m AgentSpawnOverlay) hints(width int) string {
 		return strings.Join(parts, word.Render(" · "))
 	}
 	spawn := lipgloss.NewStyle().Foreground(theme.Accent).Bold(true).Render("↵ spawn")
+	if m.sandbox {
+		label := "no sandbox"
+		if m.unsandboxed {
+			label = "sandbox"
+		}
+		spawn = key.Render("ctrl+u") + word.Render(" "+label) + word.Render(" · ") + spawn
+	}
 	end := spawn + word.Render(" · ") + key.Render("esc")
 
 	var left string

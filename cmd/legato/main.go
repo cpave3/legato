@@ -1897,6 +1897,7 @@ func runTUI() int {
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
 	app.SetDirectoryService(configuredDirectoryService(cfg, db))
+	app.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
 	app.SetResourceService(configuredResourceService(cfg, db))
 	app.SetProviderSyncService(providerSync)
 	app.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
