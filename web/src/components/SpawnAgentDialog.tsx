@@ -35,6 +35,8 @@ export interface SpawnAgentRequest {
   resources?: string[]
   // False starts the agent outside Legato's sandbox; absent otherwise.
   sandbox?: false
+  // The agent's first message; absent when nothing was written.
+  prompt?: string
 }
 
 interface AdapterInfo {
@@ -132,6 +134,7 @@ export function SpawnAgentDialog({
   const [savePath, setSavePath] = useState(false)
   // Out of Legato's sandbox for this one agent: asked afresh each time.
   const [unsandboxed, setUnsandboxed] = useState(false)
+  const [prompt, setPrompt] = useState("")
   // The files and folders the person keeps for agents, and the ones picked.
   const [resources, setResources] = useState<Resource[]>([])
   const [picked, setPicked] = useState<string[]>([])
@@ -158,6 +161,7 @@ export function SpawnAgentDialog({
     setListOpen(false)
     setSavePath(false)
     setUnsandboxed(false)
+    setPrompt("")
     // Not the path field: its suggestions open with its focus.
     ;(titleRef.current ?? formRef.current)?.focus()
 
@@ -313,13 +317,14 @@ export function SpawnAgentDialog({
         ...(offersSessionChoice ? { sessionPolicy } : {}),
         ...(picked.length > 0 ? { resources: picked } : {}),
         ...(unsandboxed ? { sandbox: false as const } : {}),
+        ...(prompt.trim() ? { prompt: prompt.trim() } : {}),
       })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setLoading(false)
     }
-  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy, picked, unsandboxed])
+  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy, picked, unsandboxed, prompt])
 
   if (!open) return null
 
@@ -634,6 +639,19 @@ export function SpawnAgentDialog({
               </div>
             </fieldset>
           )}
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>
+              First message <span className="text-lw-faint">· optional</span>
+            </span>
+            <textarea
+              aria-label="First message"
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              rows={3}
+              placeholder="What the agent should start on. Sent once it is ready."
+              className={`min-h-[92px] resize-y rounded-[10px] border border-lw-line-strong bg-lw-ground px-3.5 py-2.5 text-base text-lw-text outline-none placeholder:text-lw-faint sm:min-h-[72px] sm:rounded-md sm:px-3 sm:py-2 sm:text-sm ${focusRing}`}
+            />
+          </label>
           {settings.data?.sandbox_enabled && (
             <label className={`flex min-h-11 cursor-pointer items-start gap-2.5 rounded-[10px] border px-3 py-2.5 text-sm sm:min-h-0 sm:rounded-md sm:text-xs ${unsandboxed ? "border-lw-needs/50 bg-lw-needs-soft text-lw-text" : "border-lw-line-strong bg-lw-ground text-lw-text-2"}`}>
               <input type="checkbox" checked={unsandboxed} onChange={(event) => setUnsandboxed(event.target.checked)} className="mt-0.5 accent-lw-accent" />

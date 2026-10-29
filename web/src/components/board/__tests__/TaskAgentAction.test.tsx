@@ -168,6 +168,23 @@ describe("TaskAgentAction", () => {
     })))
   })
 
+  it("starts the task's agent with the first message that was written", async () => {
+    apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
+      path === "/api/adapters" || path === "/api/resources"
+        ? new Response(JSON.stringify({ adapters: [], resources: [] }), { status: 200 })
+        : new Response(JSON.stringify({ task_id: "T-1", created: true }), { status: 201 }),
+    ))
+
+    render(<MemoryRouter><TaskAgentAction taskId="T-1" worktreePath="/trees/t-1" /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+    await startsIn("/trees/t-1")
+    fireEvent.change(screen.getByRole("textbox", { name: /First message/ }), { target: { value: "Review the open PR" } })
+    await confirm()
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
+      body: JSON.stringify({ agent_kind: "", working_dir: "/trees/t-1", prompt: "Review the open PR" }),
+    })))
+  })
+
   it("defaults agent launch to the task worktree", async () => {
     apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
       path === "/api/adapters"

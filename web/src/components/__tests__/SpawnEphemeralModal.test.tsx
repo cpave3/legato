@@ -310,6 +310,28 @@ describe("SpawnEphemeralModal", () => {
     })
   })
 
+  it("sends a first message when one is written, as it was written", async () => {
+    await openModal()
+
+    const message = screen.getByRole("textbox", { name: /First message/ })
+    fireEvent.change(message, { target: { value: "  Find why the sync test is flaky.\nStart with the logs.  " } })
+    fireEvent.keyDown(message, { key: "Enter" })
+    expect(requests("POST", "/api/agents/spawn")).toHaveLength(0)
+    fireEvent.keyDown(message, { key: "Enter", ctrlKey: true })
+
+    await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+    expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body).prompt).toBe("Find why the sync test is flaky.\nStart with the logs.")
+  })
+
+  it("sends no first message when none is written", async () => {
+    await openModal()
+    fireEvent.change(screen.getByRole("textbox", { name: /First message/ }), { target: { value: "   " } })
+    fireEvent.click(screen.getByRole("button", { name: "Spawn in legato" }))
+
+    await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+    expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body)).not.toHaveProperty("prompt")
+  })
+
   it("asks nothing about resources when there are none", async () => {
     await openModal()
     expect(screen.queryByRole("group", { name: "Resources" })).toBeNull()
