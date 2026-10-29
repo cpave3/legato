@@ -28,7 +28,7 @@ Every task is test-first (red, green, refactor). This change needs `agent-approv
 
 - [x] 4.1 Settings › Devices: list (name, kind, security level, last use), Remove raising a signed approval, the notice while none is enrolled; component tests
 - [x] 4.2 Tray cards for signed requests: "Needs your phone" outside the app, "Approve on this phone" inside it posting the bridge message, and the `legato:shell-approval` result; component tests
-- [ ] 4.3 Passkey enrollment and assertion with `go-webauthn`, the challenge being the hash of the signed message; server tests with a virtual authenticator; web test that the option is hidden without a secure context
+- [x] 4.3 Passkey enrollment and assertion with `go-webauthn`, the challenge being the hash of the signed message; server tests with a virtual authenticator; web test that the option is hidden without a secure context
 
 ## 5. Android app
 

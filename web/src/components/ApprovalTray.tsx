@@ -5,6 +5,8 @@ import { useServer } from "../hooks/useServer"
 import { approvalAsker, approvalKind, decideApproval, dismissApproval, type Approval, type ApprovalDecision } from "../lib/approvals"
 import { NativeQuestionCard } from "./NativeQuestionCard"
 import { onShellApproval, shellApprovals } from "../lib/mobileShell"
+import { usePasskeyDevice } from "../hooks/usePasskeyDevice"
+import { signWithPasskey } from "../lib/passkeys"
 import type { NativeQuestion } from "../lib/nativeAgentSync"
 
 // The approvals waiting for the person, on every page: a column of cards at
@@ -94,6 +96,8 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
     if (result.status === "error") setError(result.error || "The phone could not sign this decision.")
   }), [approval.id, onDone])
   const phone = approval.signed ? shellApprovals() : null
+  // Outside the app, a passkey made on this page can sign.
+  const passkey = usePasskeyDevice()
 
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true)
@@ -186,9 +190,22 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
                   <span aria-hidden>◈</span> Approve on this phone
                 </button>
               )}
-              {approval.signed && !phone && (
+              {approval.signed && !phone && passkey && allows.map((option, index) => (
+                <button
+                  key={option.id}
+                  disabled={busy}
+                  aria-label={`Sign with passkey: ${option.label}`}
+                  onClick={() => run(() => signWithPasskey(baseUrl, approval.id, passkey, option.id))}
+                  className={index === 0
+                    ? `${choiceSize} gap-2 bg-lw-accent font-semibold text-white hover:brightness-110 disabled:opacity-50`
+                    : `${choiceSize} gap-2 border border-lw-line-strong font-medium text-lw-text hover:bg-lw-selected disabled:opacity-50`}
+                >
+                  <span aria-hidden>◈</span> {option.label}
+                </button>
+              ))}
+              {approval.signed && !phone && !passkey && (
                 <p className="rounded-lg border border-lw-accent/40 bg-lw-accent-soft px-3 py-2 text-sm text-lw-accent-text md:text-xs">
-                  <span aria-hidden>◈ </span>Needs your phone: open this approval in the Legato app and sign it with your fingerprint or PIN.
+                  <span aria-hidden>◈ </span>Needs your phone: open this approval in the Legato app and sign it with your fingerprint or PIN, or add a passkey for this computer in Settings › Devices.
                 </p>
               )}
               {!approval.signed && allows.map((option, index) => (

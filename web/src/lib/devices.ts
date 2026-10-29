@@ -8,6 +8,8 @@ export type Device = {
   security_level?: string
   status: "active" | "pending" | string
   approval_id?: string
+  /** The page a passkey was made on; empty for a phone. */
+  origin?: string
   created_at: string
   last_used_at?: string
 }

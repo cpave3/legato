@@ -9,6 +9,10 @@ const mockRefresh = vi.fn().mockResolvedValue(undefined)
 let mockData: Approval[] = []
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "http://legato" }) }))
+let mockPasskey: unknown = undefined
+const mockSignWithPasskey = vi.fn()
+vi.mock("../../hooks/usePasskeyDevice", () => ({ usePasskeyDevice: () => mockPasskey }))
+vi.mock("../../lib/passkeys", () => ({ signWithPasskey: (...args: unknown[]) => mockSignWithPasskey(...args) }))
 vi.mock("../../hooks/useApprovals", () => ({
   useApprovals: () => ({ data: mockData, error: null, refresh: mockRefresh }),
 }))
@@ -182,6 +186,30 @@ describe("ApprovalTray", () => {
       expect(screen.getByText(/Needs your phone/)).toBeTruthy()
       expect(screen.queryByRole("button", { name: "Once" })).toBeNull()
       expect(screen.getByRole("button", { name: "Deny…" })).toBeTruthy()
+    })
+
+    it("signs with this page's passkey in a browser that has one", async () => {
+      const device = { id: "dev-p", kind: "passkey", name: "Desktop", status: "active", origin: window.location.origin, created_at: "" }
+      mockPasskey = device
+      mockSignWithPasskey.mockResolvedValue(undefined)
+      mockData = [signed()]
+      mockRefresh.mockClear()
+      renderTray()
+      expect(screen.queryByText(/Needs your phone/)).toBeNull()
+      fireEvent.click(screen.getByRole("button", { name: /Sign with passkey: Once/ }))
+      await waitFor(() => expect(mockSignWithPasskey).toHaveBeenCalledWith("http://legato", "ap-33333333", device, "once"))
+      await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+      mockPasskey = undefined
+    })
+
+    it("says why when the passkey does not sign", async () => {
+      mockPasskey = { id: "dev-p", kind: "passkey", name: "Desktop", status: "active", origin: window.location.origin, created_at: "" }
+      mockSignWithPasskey.mockRejectedValue(new Error("The operation either timed out or was not allowed."))
+      mockData = [signed()]
+      renderTray()
+      fireEvent.click(screen.getByRole("button", { name: /Sign with passkey: Once/ }))
+      expect(await screen.findByRole("alert")).toBeTruthy()
+      mockPasskey = undefined
     })
 
     it("opens the app's sheet inside the app, and refreshes when it is decided", async () => {

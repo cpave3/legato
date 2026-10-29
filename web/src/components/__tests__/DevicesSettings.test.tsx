@@ -8,6 +8,13 @@ vi.mock("../../lib/devices", () => ({
   removeDevice: (...a: unknown[]) => mockRemove(...a),
 }))
 
+const mockEnrollPasskey = vi.fn()
+let mockSupported = false
+vi.mock("../../lib/passkeys", () => ({
+  passkeysSupported: () => mockSupported,
+  enrollPasskey: (...a: unknown[]) => mockEnrollPasskey(...a),
+}))
+
 import { DevicesSettings } from "../DevicesSettings"
 
 describe("DevicesSettings", () => {
@@ -33,6 +40,25 @@ describe("DevicesSettings", () => {
     render(<DevicesSettings baseUrl="http://legato" />)
     await waitFor(() => expect(scroll).toHaveBeenCalledWith({ block: "start" }))
     window.history.replaceState(null, "", "/")
+  })
+
+  it("adds a passkey on this computer where the page can make one", async () => {
+    mockSupported = true
+    mockList.mockResolvedValue({ devices: [{ id: "dev-1", kind: "android", name: "Pixel 9 Pro", security_level: "strongbox", status: "active", created_at: "2026-10-29T10:00:00Z" }], enrolled: true, server_id: "srv-1" })
+    mockEnrollPasskey.mockResolvedValue({ id: "dev-2", kind: "passkey", name: "Desktop", status: "pending", approval_id: "ap-5", origin: "https://erebus.example", created_at: "" })
+    render(<DevicesSettings baseUrl="http://legato" />)
+    fireEvent.click(await screen.findByRole("button", { name: /Add a passkey/ }))
+    await waitFor(() => expect(mockEnrollPasskey).toHaveBeenCalledWith("http://legato", expect.any(String)))
+    expect(await screen.findByText(/Approve adding it on your phone/)).toBeTruthy()
+    mockSupported = false
+  })
+
+  it("shows a passkey with the page it belongs to", async () => {
+    mockList.mockResolvedValue({ devices: [{ id: "dev-2", kind: "passkey", name: "Desktop", security_level: "synced passkey", status: "active", origin: "https://erebus.example:3080", created_at: "" }], enrolled: true, server_id: "srv-1" })
+    render(<DevicesSettings baseUrl="http://legato" />)
+    expect(await screen.findByText("Desktop")).toBeTruthy()
+    expect(screen.getByText(/erebus.example:3080/)).toBeTruthy()
+    expect(screen.getByText("Synced passkey")).toBeTruthy()
   })
 
   it("lists devices, and removing one asks the phone", async () => {

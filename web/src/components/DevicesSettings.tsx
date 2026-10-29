@@ -3,12 +3,13 @@ import { SettingsCard } from "./settings/SettingsUI"
 import { Fingerprint } from "lucide-react"
 import { listDevices, removeDevice, type DeviceList } from "../lib/devices"
 import { onShellEnroll, shellApprovals } from "../lib/mobileShell"
+import { enrollPasskey, passkeysSupported } from "../lib/passkeys"
 
-const levelLabel: Record<string, string> = { strongbox: "StrongBox", tee: "secure hardware" }
+const levelLabel: Record<string, string> = { strongbox: "StrongBox", tee: "secure hardware", "synced passkey": "Synced passkey", passkey: "Passkey" }
 
-// DevicesSettings lists the phones that sign approval decisions. Removing
-// one is itself an approval to sign on a phone. Inside the Legato app it
-// offers to enroll this phone.
+// DevicesSettings lists the phones and passkeys that sign approval
+// decisions. Removing one is itself an approval to sign. Inside the Legato
+// app it offers to enroll this phone; in a browser, a passkey for this page.
 export function DevicesSettings({ baseUrl }: { baseUrl: string }) {
   const [list, setList] = useState<DeviceList | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -37,6 +38,26 @@ export function DevicesSettings({ baseUrl }: { baseUrl: string }) {
     void load()
   }), [load])
 
+  // A passkey for this computer, in the browser's or a password manager's
+  // store; it belongs to this page's host name.
+  const [addingPasskey, setAddingPasskey] = useState(false)
+  const addPasskey = async () => {
+    setError(null)
+    setNotice(null)
+    setAddingPasskey(true)
+    try {
+      const device = await enrollPasskey(baseUrl, `Passkey on ${window.location.hostname}`)
+      setNotice(device.status === "pending"
+        ? "Approve adding it on your phone: the approval names this page."
+        : "This computer's passkey now signs approvals.")
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setAddingPasskey(false)
+    }
+  }
+
   const remove = async (id: string, name: string) => {
     setError(null)
     setNotice(null)
@@ -51,7 +72,7 @@ export function DevicesSettings({ baseUrl }: { baseUrl: string }) {
 
   const devices = list?.devices ?? []
   return (
-    <SettingsCard id="devices" label="Devices" icon={Fingerprint} title="Approval devices" description="Phones that sign approval decisions with your fingerprint or PIN. Approvals that need a signature can be allowed only from them, so an agent with this server's token cannot allow them.">
+    <SettingsCard id="devices" label="Devices" icon={Fingerprint} title="Approval devices" description="Phones and passkeys that sign approval decisions after your fingerprint, PIN or password manager. Approvals that need a signature can be allowed only from them, so an agent with this server's token cannot allow them. A passkey belongs to the page it was made on.">
       <div className="flex flex-col gap-3">
         {error && <p role="alert" className="rounded border border-red-900 bg-red-950/60 px-2 py-1.5 text-xs text-red-300">{error}</p>}
         {notice && <p role="status" className="rounded border border-indigo-900 bg-indigo-950/50 px-2 py-1.5 text-xs text-indigo-200">{notice}</p>}
@@ -71,6 +92,7 @@ export function DevicesSettings({ baseUrl }: { baseUrl: string }) {
                     {d.security_level && <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-400">{levelLabel[d.security_level] ?? d.security_level}</span>}
                     {d.status === "pending" && <span className="rounded bg-amber-950 px-1.5 py-0.5 text-[10px] text-amber-300">waiting for approval</span>}
                   </div>
+                  {d.origin && <span className="truncate font-mono text-[11px] text-zinc-500">{d.origin}</span>}
                   <span className="text-xs text-zinc-500">{d.last_used_at ? `Last signed ${new Date(d.last_used_at).toLocaleString()}` : "Not used yet"}</span>
                 </div>
                 <button onClick={() => void remove(d.id, d.name)} className="min-h-11 shrink-0 rounded px-3 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200">
@@ -79,6 +101,11 @@ export function DevicesSettings({ baseUrl }: { baseUrl: string }) {
               </li>
             ))}
           </ul>
+        )}
+        {!app && passkeysSupported() && (
+          <button disabled={addingPasskey} onClick={() => void addPasskey()} className="min-h-11 w-fit rounded-lg border border-zinc-700 px-4 text-sm font-medium text-zinc-200 hover:bg-zinc-800 disabled:opacity-50">
+            {addingPasskey ? "Waiting for your passkey…" : "Add a passkey for this computer"}
+          </button>
         )}
         {app && (
           <button onClick={() => { setError(null); setNotice(null); app.enroll() }} className="min-h-11 rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-500">

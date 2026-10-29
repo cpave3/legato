@@ -12,6 +12,7 @@ export const queryKeys = {
   plan: (baseUrl: string, planId: string) => [baseUrl, "plan", planId] as const,
   attention: (baseUrl: string) => [baseUrl, "attention"] as const,
   approvals: (baseUrl: string) => [baseUrl, "approvals"] as const,
+  devices: (baseUrl: string) => [baseUrl, "devices"] as const,
   workflowDefinitions: (baseUrl: string) => [baseUrl, "workflow-definitions"] as const,
   workflowRuns: (baseUrl: string) => [baseUrl, "workflow-runs"] as const,
   workflowRun: (baseUrl: string, runId: string) => [baseUrl, "workflow-run", runId] as const,
