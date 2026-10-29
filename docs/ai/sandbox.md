@@ -29,10 +29,21 @@ Built by `service.BuildSandboxPlan` from the host's real paths (links resolved f
 | `<data_dir>/claude-mod`, `<data_dir>/repos` | read-only |
 | The broker's folder (`<runtime>/legato/broker/`), the execution's SSH agent socket, the `gh` wrapper folder and its empty configuration, the `legato` binary, the role prompt and brief folder, the task's pasted images | read-only |
 | `agents.sandbox.mounts`, and the resources the agent is given | as configured |
+| The system ssh configuration (`/etc/ssh/ssh_config` and every file it includes) | read-only, as copies the person owns in `<runtime>/legato/sandbox/<execution>/ssh/`, each mounted over the real path of its original (see SSH below) |
+| `credential_channels.ssh_agent.known_hosts` | read-only, where the copied `ssh_config` names it as `UserKnownHostsFile` |
 
 Never seen: Legato's configuration file and data folder, `~/.config/legato` (the 1Password token file), `~/.ssh`, `~/.config/gh`, `~/.gitconfig`, git credential stores, `~/.netrc`, `~/.1password`, `~/.config/op`, `~/.docker`, `~/.aws`, `~/.kube`, `~/.gnupg`, password stores and keyrings, `~/.npmrc`, `~/.pypirc`, the Docker and Podman sockets, and the person's runtime folder (`/run/user/<uid>`: the session bus, every Legato's IPC socket). A mount that is inside one of these is refused; one that holds one has it covered with an empty file or folder.
 
 The environment loses the variables secrets come from (`OP_SERVICE_ACCOUNT_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN` unless it is Legato's stand-in, the session bus, `TMUX`, `DOCKER_HOST`, cloud and registry tokens, …) and `SSH_AUTH_SOCK` unless it is the execution's own socket. It gains `LEGATO_SANDBOXED=1`, `TMPDIR=/tmp`, and the person's git name and address (read from `git config --global` at start), since `~/.gitconfig` is not there.
+
+## SSH and git
+
+bwrap is not setuid on most systems, so it always makes a user namespace, and there every file root owns shows as owned by `nobody`. ssh refuses a system configuration file that belongs to neither root nor the person (`Bad owner or permissions on /etc/ssh/ssh_config.d/…`), so without help ssh does not start at all.
+
+- **The configuration.** Before each sandboxed spawn, `writeSandboxSSHConfig` (`internal/service/sandbox_ssh.go`) copies `/etc/ssh/ssh_config` and every file it includes, following `Include` lines (relative to `/etc/ssh`, globs expanded, links followed, `~` skipped, 16 deep) as ssh would. The copies are the person's, mode `0600`, and each is mounted over the real path of its original (on Fedora: `ssh_config.d/50-redhat.conf`, the systemd proxy file, `/usr/share/crypto-policies/…/openssh.txt`).
+- **Known hosts.** The copy of `ssh_config` starts with `UserKnownHostsFile <that folder>/known_hosts`, and `credential_channels.ssh_agent.known_hosts` is mounted there read-only: the file Legato's SSH agent names hosts by. It holds host keys, not secrets. A host it does not list cannot be verified, and the agent's `ssh` stops there.
+- **Keys.** None: `~/.ssh` stays hidden. A login is signed by Legato's SSH agent socket for the execution, when an `ssh` credential covers the host (see [Credentials](credentials.md) § SSH agent); otherwise ssh starts and finds no key.
+- **Git fetches from GitHub.** With a `github` credential, a sandboxed session also sends fetches from `git@github.com:` and `ssh://git@github.com/` to `https://github.com/` (`sandboxGitFetches`, added after the session's `GIT_CONFIG_*`), where Legato's credential helper gives read tokens; pushes from those forms already go to the proxy through `pushInsteadOf`. So a clone whose `origin` is an ssh URL fetches and pushes with no ssh key. The repository must be in the credential's `settings.repositories`. The proxy's `/git/` route serves pushes only and answers fetches `403`.
 
 ## Commands an agent runs
 
@@ -49,6 +60,6 @@ On Fedora Silverblue with bubblewrap 0.11: Claude Code 2.1.312, Codex 0.157.1 an
 
 ## Known limits
 
-- A global hook of the person's agent tool that runs something outside the mounts (a Flatpak's data folder) fails inside; it is reported by the tool as a hook error.
+- A global hook of the person's agent tool that runs something outside the mounts (a Flatpak's data folder, as GitKraken's `gk` hooks for Claude Code are) fails inside, on every tool call; the tool reports it as a hook error. Mount the folder with `agents.sandbox.mounts`, or remove the hook.
 - An SSH socket or a socket file reopened by a new channel host while an agent runs is not seen by that agent until it is reloaded.
 - Not built yet: the repository cache and job clones (phase 3 tasks 3.8–3.12), repository tools (phase 4), and most of job submission by API (phase 1; the service's `AgentSpawnOptions.Prompt` exists). Progress is kept in `openspec/changes/sandboxed-cloud-agents/tasks.md` § Status.

@@ -241,6 +241,42 @@ func githubEnv(env map[string]string, legato, name, base, gitHost string) {
 	}
 }
 
+// sandboxGitFetches is what a sandboxed session adds to its GitHub git
+// settings: fetches from the ssh forms of the host go to its https address,
+// where Legato's credential helper gives read tokens. The sandbox has no ssh
+// key for them. Pushes from those forms already go to the proxy.
+func sandboxGitFetches(env map[string]string) map[string]string {
+	count, err := strconv.Atoi(env["GIT_CONFIG_COUNT"])
+	if err != nil {
+		return nil
+	}
+	extra := map[string]string{}
+	next := count
+	for i := 0; i < count; i++ {
+		key, value := env["GIT_CONFIG_KEY_"+strconv.Itoa(i)], env["GIT_CONFIG_VALUE_"+strconv.Itoa(i)]
+		if !strings.HasPrefix(key, "url.") || !strings.HasSuffix(key, ".pushInsteadOf") {
+			continue
+		}
+		var host string
+		switch {
+		case strings.HasPrefix(value, "ssh://git@"):
+			host = strings.TrimSuffix(strings.TrimPrefix(value, "ssh://git@"), "/")
+		case strings.HasPrefix(value, "git@"):
+			host = strings.TrimSuffix(strings.TrimPrefix(value, "git@"), ":")
+		default:
+			continue
+		}
+		extra["GIT_CONFIG_KEY_"+strconv.Itoa(next)] = "url.https://" + host + "/.insteadOf"
+		extra["GIT_CONFIG_VALUE_"+strconv.Itoa(next)] = value
+		next++
+	}
+	if next == count {
+		return nil
+	}
+	extra["GIT_CONFIG_COUNT"] = strconv.Itoa(next)
+	return extra
+}
+
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

@@ -127,3 +127,29 @@ func quoteAll(args []string) []string {
 	}
 	return out
 }
+
+func TestSSHRunsInsideTheSandboxWithTheConfiguredKnownHosts(t *testing.T) {
+	in := bwrapFixture(t)
+	if _, err := exec.LookPath("ssh"); err != nil {
+		t.Skip("ssh is not installed")
+	}
+	if _, err := os.Stat("/etc/ssh/ssh_config"); err != nil {
+		t.Skip("no /etc/ssh/ssh_config")
+	}
+	knownHosts := filepath.Join(in.Home, ".ssh", "known_hosts")
+	if err := os.WriteFile(knownHosts, []byte("psi.example ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in.SSHConfigDir = filepath.Join(in.RuntimeDir, "sandbox", "ex-1", "ssh")
+	in.KnownHosts = knownHosts
+	copies, err := writeSandboxSSHConfig("/etc/ssh", in.SSHConfigDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.SSHConfig = copies
+
+	out, err := runInSandbox(t, in, `ssh -G psi.example | grep -i '^userknownhostsfile' | cut -d' ' -f2 | xargs cat; test ! -e ~/.ssh/id_ed25519 && echo key-hidden`)
+	if err != nil || !strings.Contains(out, "psi.example ssh-ed25519") || !strings.Contains(out, "key-hidden") {
+		t.Fatalf("err=%v out=%s", err, out)
+	}
+}

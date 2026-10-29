@@ -82,6 +82,9 @@ type SandboxPlanInput struct {
 	Extra                []SandboxPath // agents.sandbox.mounts and resources
 	CredentialWrapperDir string        // the gh wrapper
 	GHConfigDir          string        // the empty gh configuration
+	SSHConfigDir         string        // where the copies of the system ssh configuration are
+	SSHConfig            []SSHConfigCopy
+	KnownHosts           string // the known_hosts file the SSH agent names hosts by
 	FS                   FSProbe
 }
 
@@ -183,6 +186,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		in.Home, in.WorkDir, in.DataDir, in.ConfigPath = real(in.Home), real(in.WorkDir), real(in.DataDir), real(in.ConfigPath)
 		in.BinaryPath, in.GitCommonDir, in.AgentFilesDir, in.PastedImagesDir = real(in.BinaryPath), real(in.GitCommonDir), real(in.AgentFilesDir), real(in.PastedImagesDir)
 		in.CredentialWrapperDir, in.GHConfigDir = real(in.CredentialWrapperDir), real(in.GHConfigDir)
+		in.SSHConfigDir, in.KnownHosts = real(in.SSHConfigDir), real(in.KnownHosts)
 		extra := make([]SandboxPath, len(in.Extra))
 		for i, e := range in.Extra {
 			extra[i] = SandboxPath{Path: real(e.Path), Access: e.Access}
@@ -217,6 +221,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	for _, p := range systemPaths {
 		add(p, sandbox.ReadOnly)
 	}
+	mounts = append(mounts, sshConfigMounts(in)...)
 	// /tmp is the execution's own, on the host, so the host can read what an
 	// agent writes there (a screenshot it shows).
 	mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadWrite, Path: filepath.Join(in.RuntimeDir, "sandbox", in.ExecutionID, "tmp"), Dest: "/tmp"})
@@ -300,4 +305,24 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	}
 	plan.Unsetenv = append([]string{}, secretVars...)
 	return plan, nil
+}
+
+// sshConfigMounts put the copies of the system ssh configuration over the
+// originals, which the sandbox's user namespace shows as owned by nobody, so
+// ssh would refuse them. The known_hosts file is mounted where the copies
+// name it.
+func sshConfigMounts(in SandboxPlanInput) []sandbox.Mount {
+	if in.SSHConfigDir == "" || len(in.SSHConfig) == 0 {
+		return nil
+	}
+	mounts := []sandbox.Mount{{Kind: sandbox.ReadOnly, Path: in.SSHConfigDir}}
+	for _, c := range in.SSHConfig {
+		if in.FS.Probe(c.Original).Exists {
+			mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: c.Copy, Dest: c.Original})
+		}
+	}
+	if in.KnownHosts != "" && in.FS.Probe(in.KnownHosts).Exists {
+		mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: in.KnownHosts, Dest: filepath.Join(in.SSHConfigDir, "known_hosts")})
+	}
+	return mounts
 }

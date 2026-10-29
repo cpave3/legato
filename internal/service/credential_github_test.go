@@ -453,3 +453,42 @@ func TestTheWrapperSaysWhyGHHasNoToken(t *testing.T) {
 		t.Fatalf("out %q stderr %q", out, stderr.String())
 	}
 }
+
+func TestInTheSandboxGitHubFetchesOverSSHUseHTTPS(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	env := map[string]string{}
+	githubEnv(env, "/bin/legato", "gh", "http://127.0.0.1:7788", "https://github.com")
+	for k, v := range sandboxGitFetches(env) {
+		env[k] = v
+	}
+	repo := t.TempDir()
+	git := func(args ...string) string {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = []string{"HOME=" + t.TempDir(), "PATH=" + os.Getenv("PATH"), "GIT_CONFIG_NOSYSTEM=1"}
+		for k, v := range env {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-q")
+	git("remote", "add", "origin", "placeholder")
+	for _, remote := range []string{"git@github.com:cpave3/chimera.git", "ssh://git@github.com/cpave3/chimera.git"} {
+		git("remote", "set-url", "origin", remote)
+		if got := git("remote", "get-url", "origin"); got != "https://github.com/cpave3/chimera.git" {
+			t.Errorf("%s: fetch url = %q", remote, got)
+		}
+		if got := git("remote", "get-url", "--push", "origin"); got != "http://127.0.0.1:7788/c/gh/git/cpave3/chimera.git" {
+			t.Errorf("%s: push url = %q", remote, got)
+		}
+	}
+	if extra := sandboxGitFetches(map[string]string{}); len(extra) != 0 {
+		t.Fatalf("without a GitHub credential: %v", extra)
+	}
+}

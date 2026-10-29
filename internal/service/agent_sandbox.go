@@ -47,9 +47,20 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 			in.Extra = append(in.Extra, SandboxPath{Path: p.Path, Access: p.Access})
 		}
 	}
+	if in.RuntimeDir != "" {
+		in.SSHConfigDir = filepath.Join(in.RuntimeDir, "sandbox", executionID, "ssh")
+		copies, err := writeSandboxSSHConfig("/etc/ssh", in.SSHConfigDir)
+		if err != nil {
+			return "", err
+		}
+		in.SSHConfig = copies
+	}
 	plan, err := BuildSandboxPlan(in)
 	if err != nil {
 		return "", err
+	}
+	for k, v := range sandboxGitFetches(env) {
+		plan.Setenv[k] = v
 	}
 	if in.SSHSocket == "" {
 		// The person's own agent (1Password's) is not this session's.
