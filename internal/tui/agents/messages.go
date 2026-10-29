@@ -7,6 +7,12 @@ type KillAgentMsg struct {
 	TaskID string
 }
 
+// ReloadAgentMsg requests restarting the selected agent, resuming its
+// conversation, so it reads its configuration afresh.
+type ReloadAgentMsg struct {
+	TaskID string
+}
+
 // AttachSessionMsg requests attaching to a tmux session.
 type AttachSessionMsg struct {
 	TmuxSession string

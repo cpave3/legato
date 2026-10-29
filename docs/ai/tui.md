@@ -63,6 +63,7 @@ Agents are listed by what they are doing: **NEEDS YOU** (waiting, or stopped on 
 - **Header.** `<id> › <tool> › <task>`, and at the far end the state and its time.
 - **Banner.** When an agent other than the selected one needs the person, a line above the foot names it. `w` selects the next such agent, around.
 - **Foot.** How to talk to the selected agent (`↵ attaches`, `m` sends a macro, `v` dictates).
+- **Reload.** `R` (in the key reference, not the bar) stops the selected agent and starts it again with its tool, directory, resources and sandbox choice, resuming its conversation, as **Reload agent** does in the web UI (`AgentRestarter`, `app.go` `handleReloadAgent`). The status bar says the outcome; an agent a swarm or a workflow runs is refused with the reason.
 
 ### Ensemble
 

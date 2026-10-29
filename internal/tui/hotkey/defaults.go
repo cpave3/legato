@@ -70,6 +70,7 @@ const (
 	ActionAgentsUp      ActionID = "agents.up"
 	ActionAgentsSpawn   ActionID = "agents.spawn"
 	ActionAgentsKill    ActionID = "agents.kill"
+	ActionAgentsReload  ActionID = "agents.reload"
 	ActionAgentsAttach  ActionID = "agents.attach"
 	ActionAgentsMacro   ActionID = "agents.macro"
 	ActionAgentsGroup   ActionID = "agents.group"
@@ -263,6 +264,7 @@ func addPageBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Ke
 	add(ActionAgentsNextWaiting, agents, TargetPage, []Key{Rune('w')}, "next waiting", "Select the next agent that needs you", "Agents", 50, 12, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsSpawn, agents, TargetPage, []Key{Rune('s')}, "spawn", "Spawn agent", "Agents", 50, 20, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsKill, agents, TargetPage, []Key{Rune('X')}, "kill", "Kill agent", "Agents", 50, 21, FullHelp|Shortlist|ShortcutBar)
+	add(ActionAgentsReload, agents, TargetPage, []Key{Rune('R')}, "reload", "Reload agent, resuming its conversation", "Agents", 50, 21, FullHelp)
 	add(ActionAgentsAttach, agents, TargetPage, []Key{Special(tea.KeyEnter, "enter"), Special(tea.KeyTab, "tab")}, "attach", "Attach to agent session", "Agents", 50, 22, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsMacro, agents, TargetPage, []Key{Rune('m')}, "macro", "Send macro", "Agents", 50, 23, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsGroup, agents, TargetPage, []Key{Rune('g')}, "group", "Set task group", "Agents", 50, 24, FullHelp)

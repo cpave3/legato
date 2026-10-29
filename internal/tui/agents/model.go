@@ -455,6 +455,11 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 			return m, func() tea.Msg { return KillAgentMsg{TaskID: a.TaskID} }
 		}
 		return m, nil
+	case hotkey.ActionAgentsReload:
+		if a := m.SelectedAgent(); a != nil {
+			return m, func() tea.Msg { return ReloadAgentMsg{TaskID: a.TaskID} }
+		}
+		return m, nil
 	case hotkey.ActionAgentsAttach:
 		if a := m.SelectedAgent(); a != nil {
 			session := a.TmuxSession

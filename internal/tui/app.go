@@ -759,6 +759,8 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.reviewView, cmd = a.reviewView.Update(msg)
 		return a, cmd
 
+	case agents.ReloadAgentMsg:
+		return a.handleReloadAgent(msg)
 	case agents.KillAgentMsg:
 		return a.handleKillAgent(msg)
 
@@ -2777,6 +2779,33 @@ func (a App) handleKillAgent(msg agents.KillAgentMsg) (tea.Model, tea.Cmd) {
 		agentList, _ := svc.ListAgents(context.Background())
 		return agents.AgentsRefreshedMsg{Agents: agentList}
 	}
+}
+
+// handleReloadAgent stops the selected agent and starts it again with its
+// tool, directory and resources, resuming its conversation, as Reload agent
+// does in the web UI.
+func (a App) handleReloadAgent(msg agents.ReloadAgentMsg) (tea.Model, tea.Cmd) {
+	restarter, ok := a.agentSvc.(service.AgentRestarter)
+	if !ok {
+		return a, func() tea.Msg { return statusbar.ErrorMsg{Text: "This Legato cannot reload agents"} }
+	}
+	svc := a.agentSvc
+	taskID := msg.TaskID
+	return a, tea.Batch(
+		func() tea.Msg { return statusbar.ProgressMsg{Text: "Reloading " + taskID + "…"} },
+		func() tea.Msg {
+			// The list is read after the restart, so it shows the new agent.
+			var outcome tea.Msg = statusbar.InfoMsg{Text: "Reloaded " + taskID + ", resuming its conversation"}
+			if err := restarter.RestartAgent(context.Background(), taskID, nil); err != nil {
+				outcome = statusbar.ErrorMsg{Text: "Could not reload " + taskID + ": " + err.Error()}
+			}
+			agentList, _ := svc.ListAgents(context.Background())
+			return tea.BatchMsg{
+				func() tea.Msg { return outcome },
+				func() tea.Msg { return agents.AgentsRefreshedMsg{Agents: agentList} },
+			}
+		},
+	)
 }
 
 func (a App) handleAttachSession(msg agents.AttachSessionMsg) (tea.Model, tea.Cmd) {

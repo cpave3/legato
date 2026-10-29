@@ -122,6 +122,18 @@ func TestKillKeybinding(t *testing.T) {
 	}
 }
 
+func TestReloadKeybinding(t *testing.T) {
+	m := newTestModel()
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	if cmd == nil {
+		t.Fatal("expected command from 'R' key")
+	}
+	reload, ok := cmd().(ReloadAgentMsg)
+	if !ok || reload.TaskID != "REX-1238" {
+		t.Fatalf("got %#v, want ReloadAgentMsg for REX-1238", reload)
+	}
+}
+
 func TestKillNoAgentNoCmd(t *testing.T) {
 	m := New(theme.NewIcons("unicode"))
 	m.SetSize(120, 40)
