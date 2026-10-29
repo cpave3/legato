@@ -114,3 +114,29 @@ func TestASandboxedSpawnWithoutBwrapStopsBeforeTmux(t *testing.T) {
 		t.Fatal("a tmux session was made")
 	}
 }
+
+func TestReloadingAnAgentKeepsItsSandboxChoice(t *testing.T) {
+	backend := &fakeBackend{}
+	svc, s, mt := sandboxedService(t, backend)
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Unsandboxed: true}); err != nil {
+		t.Fatal(err)
+	}
+	// A conversation to resume, as a Claude Code session reports.
+	running, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
+	execution, _ := s.GetExecution(context.Background(), running.ExecutionID)
+	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.(AgentRestarter).RestartAgent(context.Background(), "task-1", nil); err != nil {
+		t.Fatal(err)
+	}
+	session, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
+	if session.Sandboxed {
+		t.Fatal("reloading moved an unsandboxed agent into the sandbox")
+	}
+	lines := mt.sentLinesFor("legato-task-1")
+	if strings.HasPrefix(lines[len(lines)-1], "SANDBOX") {
+		t.Fatalf("relaunched as %q", lines[len(lines)-1])
+	}
+}

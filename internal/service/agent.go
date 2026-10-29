@@ -70,6 +70,8 @@ type AgentSession struct {
 	Description string
 	Prompt      string   // per-worker instructions (initial brief)
 	Scope       []string // file globs
+	// Sandboxed is true when the agent runs in Legato's sandbox.
+	Sandboxed bool
 }
 
 // AgentPeer describes one live, routable agent sharing a Git worktree.
@@ -1268,6 +1270,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			StartedAt:         startedAt,
 			EndedAt:           endedAt,
 			NotifyEnabled:     notifyEnabled,
+			Sandboxed:         s.Sandboxed,
 		}
 
 		// Hydrate subtask metadata for swarm workers.

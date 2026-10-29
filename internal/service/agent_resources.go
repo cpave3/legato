@@ -22,7 +22,7 @@ type ResourceAttacher interface {
 // takes it as a message and answers it. An agent with no native endpoint has
 // no way to take them while it runs.
 // ErrSandboxFixed: a sandboxed agent's mounts were fixed when it started.
-var ErrSandboxFixed = errors.New("this agent runs in Legato's sandbox, which cannot see paths added after it started; start an agent without the sandbox to work across other folders")
+var ErrSandboxFixed = errors.New("this agent runs in Legato's sandbox, which cannot see paths added after it started: reload it with the resource added (its conversation resumes), or start an agent without the sandbox")
 
 func (a *agentService) AttachResources(ctx context.Context, taskID string, resources []Resource) error {
 	if session, err := a.store.GetAgentSessionByTaskID(ctx, taskID); err == nil && session.Sandboxed {

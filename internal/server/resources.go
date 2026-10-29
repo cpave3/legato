@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
@@ -135,12 +136,19 @@ func (s *Server) agentResourcesHandler() http.HandlerFunc {
 		case http.MethodPost:
 			var req struct {
 				Names []string `json:"names"`
+				// Reload restarts a sandboxed agent with the resources added,
+				// resuming its conversation: its mounts are fixed at launch.
+				Reload bool `json:"reload"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				s.writeError(w, http.StatusBadRequest, "invalid JSON")
 				return
 			}
 			if err := s.resources.Attach(r.Context(), taskID, req.Names); err != nil {
+				if errors.Is(err, service.ErrSandboxFixed) && req.Reload {
+					s.reloadWithResources(w, r, taskID, req.Names)
+					return
+				}
 				s.writeResourceError(w, err)
 				return
 			}
@@ -171,4 +179,37 @@ func (s *Server) resolveResources(ctx context.Context, names []string) ([]servic
 		return nil, errors.New("resources are not available on this server")
 	}
 	return s.resources.Resolve(ctx, names)
+}
+
+// reloadWithResources restarts a sandboxed agent with the resources it has
+// and the ones named, so its new sandbox mounts them.
+func (s *Server) reloadWithResources(w http.ResponseWriter, r *http.Request, taskID string, names []string) {
+	agents, ok := s.agents.(agentRestartService)
+	if !ok {
+		s.writeError(w, http.StatusServiceUnavailable, "agent service not available")
+		return
+	}
+	have, err := agents.AttachedResources(r.Context(), taskID)
+	if err != nil {
+		s.writeResourceError(w, err)
+		return
+	}
+	seen := map[string]bool{}
+	all := make([]string, 0, len(have)+len(names))
+	for _, name := range append(have, names...) {
+		if key := strings.ToLower(strings.TrimSpace(name)); key != "" && !seen[key] {
+			seen[key] = true
+			all = append(all, name)
+		}
+	}
+	if err := agents.RestartAgent(r.Context(), taskID, s.restartResources(r, all)); err != nil {
+		if errors.Is(err, service.ErrAgentNotRestartable) || errors.Is(err, service.ErrTaskResumeConflict) {
+			s.writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		s.writeResourceError(w, err)
+		return
+	}
+	s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
+	s.writeJSON(w, http.StatusOK, map[string]any{"attached": all, "reloaded": true})
 }

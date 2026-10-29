@@ -78,6 +78,8 @@ type AgentResponse struct {
 	StateTimeline      []string   `json:"state_timeline,omitempty"`
 	NotifyEnabled      bool       `json:"notify_enabled"`
 	HasChimeraEndpoint bool       `json:"has_chimera_endpoint"`
+	// Sandboxed is true when the agent runs in Legato's sandbox.
+	Sandboxed bool `json:"sandboxed"`
 	// ContextUsed and ContextWindow are the last known fill of a native
 	// agent's context window; later changes arrive as agent_context.
 	ContextUsed   int `json:"context_used,omitempty"`
@@ -92,6 +94,7 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 		Command: agent.Command, AgentKind: agent.AgentKind, Status: agent.Status,
 		Activity: agent.Activity, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,
+		Sandboxed: agent.Sandboxed,
 	}
 }
 
@@ -112,6 +115,8 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			AgentKind  string   `json:"agent_kind"`
 			WorkingDir string   `json:"working_dir"`
 			Resources  []string `json:"resources"`
+			// Sandbox false starts this agent outside Legato's sandbox.
+			Sandbox *bool `json:"sandbox"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -134,9 +139,10 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			return
 		}
 		opts := service.AgentSpawnOptions{
-			AgentKind:  req.AgentKind,
-			WorkingDir: req.WorkingDir,
-			Resources:  resources,
+			AgentKind:   req.AgentKind,
+			WorkingDir:  req.WorkingDir,
+			Resources:   resources,
+			Unsandboxed: req.Sandbox != nil && !*req.Sandbox,
 		}
 		if err := s.agents.SpawnEphemeralAgent(context.Background(), req.Title, 0, 0, opts); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -460,6 +466,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			WorkingDir    string   `json:"working_dir"`
 			SessionPolicy string   `json:"session_policy"`
 			Resources     []string `json:"resources"`
+			Sandbox       *bool    `json:"sandbox"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -476,7 +483,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, Resources: resources}
+		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox}
 		effectiveAdapter := req.AgentKind
 		if effectiveAdapter == "" {
 			effectiveAdapter = agents.DefaultAdapter()

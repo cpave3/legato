@@ -35,7 +35,8 @@ func (a *agentService) RestartAgent(ctx context.Context, taskID string, resource
 	if err != nil {
 		return err
 	}
-	opt := AgentSpawnOptions{AgentKind: session.AgentKind, Resources: resources, Ephemeral: task.Ephemeral}
+	// It comes back as it was, in the sandbox or out of it.
+	opt := AgentSpawnOptions{AgentKind: session.AgentKind, Resources: resources, Ephemeral: task.Ephemeral, Unsandboxed: !session.Sandboxed}
 	if session.ExecutionID != "" {
 		if execution, err := a.store.GetExecution(ctx, session.ExecutionID); err == nil {
 			opt.WorkingDir = execution.WorkingDir

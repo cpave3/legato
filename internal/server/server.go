@@ -80,6 +80,7 @@ type Server struct {
 	defaultImportWorkspaceID *int
 	pairing                  *service.PairingService
 	pairingAddresses         func() []string
+	sandboxEnabled           bool
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -345,6 +346,10 @@ func (s *Server) SetReflectionWorkflowService(workflows ReflectionWorkflowServic
 	s.reflectionWorkflows = workflows
 }
 
+// SetSandboxEnabled says that agents run in Legato's sandbox unless their
+// spawn opts out, for the spawn dialog and the agent list.
+func (s *Server) SetSandboxEnabled(enabled bool) { s.sandboxEnabled = enabled }
+
 func (s *Server) SetWorktreeService(worktrees WorktreeService) {
 	s.worktrees = worktrees
 }
@@ -474,6 +479,7 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			NtfyConfigured           bool                              `json:"ntfy_configured"`
 			VoiceEnabled             bool                              `json:"voice_enabled"`
 			WorktreesEnabled         bool                              `json:"worktrees_enabled"`
+			SandboxEnabled           bool                              `json:"sandbox_enabled"`
 			HotReloadEnabled         bool                              `json:"hot_reload_enabled"`
 			DefaultWorkspaceID       *int                              `json:"default_workspace_id"`
 			DefaultImportWorkspaceID *int                              `json:"default_import_workspace_id"`
@@ -484,6 +490,7 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			NtfyConfigured:           s.ntfyConfigured,
 			VoiceEnabled:             s.voiceSvc != nil,
 			WorktreesEnabled:         s.worktrees != nil,
+			SandboxEnabled:           s.sandboxEnabled,
 			HotReloadEnabled:         s.hotReloadBuildTrigger != nil,
 			DefaultWorkspaceID:       s.defaultWorkspaceID,
 			DefaultImportWorkspaceID: s.defaultImportWorkspaceID,
