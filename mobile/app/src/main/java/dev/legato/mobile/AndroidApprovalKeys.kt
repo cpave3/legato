@@ -91,6 +91,24 @@ fun askToSign(
         builder.setNegativeButton("Cancel", executor) { _, _ -> failed(null) }
     }
     val cancel = CancellationSignal()
+    // The prompt can be refused outright (no permission, no fingerprint or
+    // PIN set up): say why on the sheet rather than crash.
+    try {
+        authenticate(builder, signature, cancel, executor, signed, failed)
+    } catch (cause: RuntimeException) {
+        failed(cause.message ?: "The fingerprint prompt could not open.")
+    }
+    return cancel
+}
+
+private fun authenticate(
+    builder: BiometricPrompt.Builder,
+    signature: Signature,
+    cancel: CancellationSignal,
+    executor: Executor,
+    signed: (Signature) -> Unit,
+    failed: (String?) -> Unit,
+) {
     builder.build().authenticate(BiometricPrompt.CryptoObject(signature), cancel, executor, object : BiometricPrompt.AuthenticationCallback() {
         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
             val unlocked = result.cryptoObject?.signature
@@ -102,7 +120,6 @@ fun askToSign(
             failed(if (cancelled) null else errString?.toString())
         }
     })
-    return cancel
 }
 
 // AndroidServerHttp calls a saved server's API with its token, trusting
