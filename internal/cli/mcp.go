@@ -102,6 +102,9 @@ func MCPServerOptions(opts MCPOptions) mcpserver.Options {
 		}),
 	}
 	server.Instructions = MCPGuidance
+	if opts.Credentials != nil {
+		server.Instructions += CredentialGuidance(opts.Credentials.Credentials())
+	}
 	server.Tools = tools.all()
 	return server
 }

@@ -263,6 +263,10 @@ type CredentialSummary struct {
 	Store   string                  `json:"store"`
 	Secret  string                  `json:"secret"`
 	Rules   []config.CredentialRule `json:"rules"`
+	// Channels say how an agent gets it; Env names the variables a session
+	// gets for it (a placeholder key and the proxy's address).
+	Channels []string `json:"channels"`
+	Env      []string `json:"env,omitempty"`
 }
 
 // Credentials lists the configured credentials.
@@ -270,9 +274,41 @@ func (b *CredentialBroker) Credentials() []CredentialSummary {
 	out := make([]CredentialSummary, 0, len(b.names))
 	for _, name := range b.names {
 		c := b.credentials[name]
-		out = append(out, CredentialSummary{Name: name, Profile: c.profile.Name, Store: c.ref.Scheme, Secret: c.ref.String(), Rules: c.rules})
+		out = append(out, CredentialSummary{Name: name, Profile: c.profile.Name, Store: c.ref.Scheme, Secret: c.ref.String(), Rules: c.rules,
+			Channels: c.profile.Channels, Env: c.envNames()})
 	}
 	return out
+}
+
+// DescribeCredentials summarizes configured credentials without a store,
+// for text that tells agents about them.
+func DescribeCredentials(credentials []config.CredentialConfig, profileDirs []string) ([]CredentialSummary, error) {
+	b, err := NewCredentialBroker(nil, nil, CredentialBrokerOptions{Credentials: credentials, ProfileDirs: profileDirs})
+	if err != nil {
+		return nil, err
+	}
+	return b.Credentials(), nil
+}
+
+// envNames are the variables a session gets for a proxied credential, with
+// the key's variable first.
+func (bc brokerCredential) envNames() []string {
+	if !listHas(bc.profile.Channels, ChannelHTTPProxy) {
+		return nil
+	}
+	var names []string
+	for key, value := range bc.profile.Env {
+		name := strings.ReplaceAll(key, "{NAME}", credentialEnvName(bc.config.Name))
+		if strings.Contains(value, "{placeholder}") {
+			names = append([]string{name}, names...)
+		} else {
+			names = append(names, name)
+		}
+	}
+	if len(names) > 1 {
+		sort.Strings(names[1:])
+	}
+	return names
 }
 
 // pair is one operation on one resource.

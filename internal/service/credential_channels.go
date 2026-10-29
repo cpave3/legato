@@ -82,6 +82,11 @@ func (c *CredentialChannels) SSHSocketPath(executionID string) string {
 
 var envName = regexp.MustCompile(`[^A-Z0-9]+`)
 
+// credentialEnvName is a credential's name as it starts a variable name.
+func credentialEnvName(name string) string {
+	return strings.Trim(envName.ReplaceAllString(strings.ToUpper(name), "_"), "_")
+}
+
 // SessionEnv makes a placeholder for each proxied credential and names the
 // session's SSH socket. An agent of a Legato with no such credential gets
 // nothing, and keeps the SSH_AUTH_SOCK it inherits.
@@ -105,7 +110,7 @@ func (c *CredentialChannels) SessionEnv(ctx context.Context, taskID, executionID
 		if err := c.broker.db.CreateCredentialPlaceholder(ctx, hashPlaceholder(placeholder), executionID, taskID, bc.config.Name); err != nil {
 			return nil, err
 		}
-		upper := strings.Trim(envName.ReplaceAllString(strings.ToUpper(bc.config.Name), "_"), "_")
+		upper := credentialEnvName(bc.config.Name)
 		for key, value := range bc.profile.Env {
 			key = strings.ReplaceAll(key, "{NAME}", upper)
 			value = strings.ReplaceAll(value, "{placeholder}", placeholder)

@@ -192,6 +192,10 @@ Legato looks for config in this order:
 2. `$XDG_CONFIG_HOME/legato/config.yaml`
 3. `~/.config/legato/config.yaml`
 
+### Credentials for agents
+
+To give agents an SSH key or API keys that they use without holding them (from 1Password or Legato's own store, with each use approved by you), follow [Setting up credentials on a host](docs/credentials.md): the `op` command and a 1Password service account, a token file, a change to `~/.ssh/config`, and the configuration.
+
 ## Macros
 
 Macros are named snippets you can fire into an agent from the TUI or web UI. In the TUI, a trailing `\n` in the `keys` field sends Enter to the tmux pane.

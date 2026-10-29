@@ -77,3 +77,41 @@ func TestRequestAccessSaysWhatToDoForEachOutcome(t *testing.T) {
 		}
 	}
 }
+
+type namedCredentials struct {
+	fakeCredentials
+	list []service.CredentialSummary
+}
+
+func (n *namedCredentials) Credentials() []service.CredentialSummary { return n.list }
+
+func TestTheGuidanceSaysHowToUseEachCredential(t *testing.T) {
+	text := cli.CredentialGuidance([]service.CredentialSummary{
+		{Name: "legato_default", Profile: "ssh", Channels: []string{"ssh-agent"}},
+		{Name: "eleven", Profile: "elevenlabs", Channels: []string{"http-proxy"}, Env: []string{"ELEVENLABS_API_KEY", "ELEVENLABS_BASE_URL"}},
+		{Name: "grafana", Profile: "secret", Channels: []string{"helper"}},
+	})
+	for _, want := range []string{
+		"legato_default", "run ssh", "up to a minute", "agent refused operation", "IdentityAgent", "IdentityFile",
+		"eleven", "$ELEVENLABS_BASE_URL", "$ELEVENLABS_API_KEY", `"status": "pending"`,
+		"grafana", "legato credential exec grafana",
+		"[legato approvals]",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the guidance does not say %q:\n%s", want, text)
+		}
+	}
+	if cli.CredentialGuidance(nil) != "" {
+		t.Error("guidance with no credentials")
+	}
+}
+
+func TestTheServersInstructionsIncludeTheCredentials(t *testing.T) {
+	s := newTestStore(t)
+	executionID := seedMCPAgent(t, s, "task1")
+	creds := &namedCredentials{list: []service.CredentialSummary{{Name: "legato_default", Profile: "ssh", Channels: []string{"ssh-agent"}}}}
+	opts := cli.MCPServerOptions(cli.MCPOptions{Store: s, TaskID: "task1", ExecutionID: executionID, Credentials: creds})
+	if !strings.HasPrefix(opts.Instructions, cli.MCPGuidance) || !strings.Contains(opts.Instructions, "legato_default") {
+		t.Fatalf("instructions = %s", opts.Instructions[len(opts.Instructions)-300:])
+	}
+}

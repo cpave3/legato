@@ -85,6 +85,8 @@ An agent should reach for the tools by itself. One text says so, `cli.MCPGuidanc
 
 Adapters whose tool needs the launch prompt implement `service.ToolsPromptAdapter`. `AgentService.SpawnAgent` adds `ToolsPrompt()` to the prompt every launch injects, after the role or general prompt, so a plain Codex session that had no launch prompt now gets one. An adapter returns the text only when its session really gets the server: not when the setting is off, Chimera is too old, or the person's own `--mcp-config` replaced Legato's.
 
+When credentials are configured, `cli.CredentialGuidance` follows the guidance, by both routes: each credential and how to use it (see [Credentials](credentials.md) § What agents are told).
+
 The guidance names tools by their own names, since each agent tool adds a prefix of its own, and it gives concrete triggers: prefer a card to a Markdown table or a list of numbers; prefer an artifact to a reply longer than about a screen; after showing something, say in one sentence what it is.
 
 **Which form, and how far to go.** The guidance and the tool descriptions say two things together:

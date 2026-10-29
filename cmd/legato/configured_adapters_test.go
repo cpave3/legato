@@ -239,3 +239,28 @@ func TestConfiguredAdaptersAddNoMCPServerWhenTheSettingIsOff(t *testing.T) {
 		}
 	}
 }
+
+func TestTheLaunchPromptNamesTheCredentialsAndHowToUseThem(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_PLUGIN_DIRS", "")
+	cfg := &config.Config{
+		DataDir: t.TempDir(),
+		Agents:  config.AgentsConfig{MCP: config.AgentMCPConfig{Enabled: true}},
+		Credentials: []config.CredentialConfig{
+			{Name: "legato_default", Secret: "op://Legato/legato_default/private key", Profile: "ssh"},
+			{Name: "eleven", Secret: "legato://eleven-key", Profile: "elevenlabs"},
+		},
+	}
+	oldProbe := chimeraMCPConfigProbe
+	chimeraMCPConfigProbe = func() bool { return true }
+	t.Cleanup(func() { chimeraMCPConfigProbe = oldProbe })
+
+	_, adapters := configuredAdapters(cfg, "/opt/legato")
+	for _, name := range []string{"codex", "chimera"} {
+		prompt := adapters[name].(service.ToolsPromptAdapter).ToolsPrompt()
+		for _, want := range []string{"legato_default (an SSH key)", "eleven (an API key", "$ELEVENLABS_BASE_URL"} {
+			if !strings.Contains(prompt, want) {
+				t.Errorf("%s launch prompt does not say %q", name, want)
+			}
+		}
+	}
+}

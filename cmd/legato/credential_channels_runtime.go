@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -80,6 +83,11 @@ func startChannelHost(ctx context.Context, cfg *config.Config, db *store.Store, 
 	})
 	if !h.channels.HasProxy() && !h.channels.HasSSH() {
 		return h
+	}
+	if h.channels.HasSSH() {
+		if warning := sshAgentOverride(runSSHG); warning != "" {
+			log.Printf("credentials: %s", warning)
+		}
 	}
 	ctx, h.cancel = context.WithCancel(ctx)
 	h.tryOwn(ctx)
@@ -349,4 +357,35 @@ func dropSecretEnv() {
 	for _, name := range []string{"OP_SERVICE_ACCOUNT_TOKEN", "LEGATO_SECRETS_PASSPHRASE"} {
 		_ = os.Unsetenv(name)
 	}
+}
+
+// sshAgentOverride says what is wrong when ssh's own configuration names an
+// agent of its own (IdentityAgent), which wins over the SSH_AUTH_SOCK agent
+// sessions get: their logins would then never reach Legato. "" when ssh
+// would use SSH_AUTH_SOCK. ssh -G does not run Match exec blocks, so one
+// that sets IdentityAgent outside Legato's sessions is not seen.
+func sshAgentOverride(sshG func(env []string) ([]byte, error)) string {
+	out, err := sshG([]string{"LEGATO_EXECUTION_ID=ex-legato-check", "SSH_AUTH_SOCK=" + filepath.Join(os.TempDir(), "legato-check.sock")})
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok || !strings.EqualFold(key, "identityagent") {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if value == "SSH_AUTH_SOCK" || value == "$SSH_AUTH_SOCK" || value == "${SSH_AUTH_SOCK}" {
+			return ""
+		}
+		return fmt.Sprintf("ssh is configured to use the agent %s for every host (IdentityAgent), so agents' ssh logins skip Legato's SSH agent. In ~/.ssh/config, set it only outside agent sessions: Match exec \"test -z \\\"$LEGATO_EXECUTION_ID\\\"\" then IdentityAgent %s (see docs/credentials.md)", value, value)
+	}
+	return ""
+}
+
+// runSSHG runs ssh -G for a host no configuration names specially.
+func runSSHG(env []string) ([]byte, error) {
+	cmd := exec.Command("ssh", "-G", "legato-agent-check.invalid")
+	cmd.Env = append(os.Environ(), env...)
+	return cmd.Output()
 }

@@ -2,6 +2,8 @@
 
 Legato holds credentials for agents, so no agent needs a secret pasted into its prompt, its environment or a file. An agent asks for a scope of a credential; the person's rules decide whether that happens at once, after one approval, or never; each use is checked against what was granted; and every request, decision and use is recorded. Approvals go through the approval service (see [Approvals](approvals.md)). The design is in `openspec/changes/credential-broker`; later phases (channels that keep the secret from the agent, short-lived issuers, signed decisions, external plug-ins) are in `credential-channels`, `github-credentials`, `signed-approvals` and `credential-plugins`.
 
+Setting a new host up (the `op` command, a service account, the token file, `~/.ssh/config`) is in [Setting up credentials on a host](../credentials.md).
+
 Until the agent sandbox of `sandboxed-cloud-agents` is on, an agent runs as the person's user and can read what Legato reads, the store's master key included. The broker gives least-privilege defaults and a record, not containment.
 
 There are three ways an agent gets a credential, set by its profile's channel:
@@ -118,7 +120,13 @@ The `ssh-agent` channel keeps an SSH key in Legato. With at least one credential
 - **`ssh` profile.** A `keypair` secret: an OpenSSH or PEM private key without a passphrase (from 1Password, `op://…/private key?ssh-format=openssh`). Default rules: `ssh.login` `window` of 1 hour, for each host; `ssh.forwarded-login` `deny`.
 - **Legato's own processes.** `ssh_agent_socket`, the inherited `SSH_AUTH_SOCK` and 1Password's socket still apply to Legato and the git it runs. Only agent sessions get the execution's socket, which wins over what they inherit. With no `ssh` credential they keep the inherited one.
 
+- **`~/.ssh/config`.** `IdentityAgent` there wins over `SSH_AUTH_SOCK`: a `Host *` block naming 1Password's agent sends every agent's login past Legato. Set it only outside agent sessions, with `Match exec "test -z \"$LEGATO_EXECUTION_ID\""`. A host Legato with an `ssh` credential runs `ssh -G` at start, as an agent session would, and logs a warning when it names another agent (`sshAgentOverride`). `ssh -G` does not run `Match exec`, so such a block is not seen either way.
+
 An agent can still use `~/.1password/agent.sock` or `~/.ssh` directly: outside the sandbox nothing stops it. 1Password then asks the person as before.
+
+## What agents are told
+
+`cli.CredentialGuidance` adds a paragraph to Legato's guidance for each configured credential, by its channel: for an SSH key, run `ssh` as usual, let a login wait up to a minute for the person, and after a refusal tell them and wait for the `[legato approvals]` message, never using another key, `IdentityFile`, `IdentityAgent` or `ssh -A`; for a proxied key, send requests to the base URL variable with the key variable, and treat a `403` with `"status": "pending"` as waiting for the person; for a secret, `request_access` and `legato credential exec`. Claude Code reads it in the MCP server's instructions (`legato mcp serve`); Codex and Chimera get it in their launch prompt, from the configuration (`describeCredentials`). `CredentialSummary` carries each credential's `channels` and `env` (the variables a session gets) for it.
 
 ## Who serves the channels
 

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -214,5 +215,38 @@ func TestAHostProcessDropsTheTokenFromItsOwnEnvironment(t *testing.T) {
 		if _, ok := os.LookupEnv(name); ok {
 			t.Errorf("%s still set: a tmux server Legato starts would inherit it", name)
 		}
+	}
+}
+
+func TestAnIdentityAgentInSSHConfigIsWarnedAbout(t *testing.T) {
+	for name, tc := range map[string]struct {
+		out  string
+		warn bool
+	}{
+		"1Password for every host": {"user cameron\nidentityagent /home/cameron/.1password/agent.sock\nport 22\n", true},
+		"none":                     {"identityagent none\n", true},
+		"SSH_AUTH_SOCK":            {"identityagent SSH_AUTH_SOCK\n", false},
+		"the session's own":        {"identityagent $SSH_AUTH_SOCK\n", false},
+		"not set":                  {"user cameron\nport 22\n", false},
+	} {
+		got := sshAgentOverride(func(env []string) ([]byte, error) {
+			found := false
+			for _, e := range env {
+				found = found || strings.HasPrefix(e, "LEGATO_EXECUTION_ID=")
+			}
+			if !found {
+				t.Errorf("%s: ssh -G ran without LEGATO_EXECUTION_ID, as no agent session would", name)
+			}
+			return []byte(tc.out), nil
+		})
+		if (got != "") != tc.warn {
+			t.Errorf("%s: warning %q, want one %v", name, got, tc.warn)
+		}
+		if tc.warn && !strings.Contains(got, "~/.ssh/config") {
+			t.Errorf("%s: %q does not say what to change", name, got)
+		}
+	}
+	if got := sshAgentOverride(func([]string) ([]byte, error) { return nil, errors.New("no ssh") }); got != "" {
+		t.Errorf("no ssh: %q", got)
 	}
 }
