@@ -22,6 +22,8 @@ type ApprovalItem struct {
 	Allows []ApprovalChoice
 	// Question: answered in the web UI; here it can only be dismissed.
 	Question bool
+	// Signed: allowed only with a decision signed on an enrolled phone.
+	Signed bool
 }
 
 // ApprovalChoice is one way to allow an approval.
@@ -107,6 +109,10 @@ func (m ApprovalOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.note = "Answer a question in the web UI, or press n to dismiss it."
 				return m, nil
 			}
+			if item.Signed {
+				m.note = "This one is allowed on your phone, with your fingerprint or PIN. Press n to deny it here."
+				return m, nil
+			}
 			option := ""
 			if k := msg.String(); k != "y" {
 				n := int(k[0] - '1')
@@ -162,6 +168,8 @@ func (m ApprovalOverlay) View() string {
 		switch {
 		case item.Question:
 			keys = "n dismiss · answer in the web UI · j/k choose · esc close"
+		case item.Signed:
+			keys = "allowed when signed on your phone · n deny · j/k choose · esc close"
 		case len(item.Allows) > 1:
 			var ways []string
 			for i, a := range item.Allows {

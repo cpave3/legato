@@ -45,6 +45,8 @@ type Config struct {
 	// CredentialSources are vaults whose items are credentials, each with
 	// the source's rules, read again while Legato runs.
 	CredentialSources []CredentialSourceConfig `yaml:"credential_sources"`
+	// ApprovalDevices are the devices that sign approval decisions.
+	ApprovalDevices ApprovalDevicesConfig `yaml:"approval_devices"`
 	// CredentialChannels are where agents reach credentials without holding them.
 	CredentialChannels CredentialChannelsConfig `yaml:"credential_channels"`
 	Learning           LearningConfig           `yaml:"learning"`

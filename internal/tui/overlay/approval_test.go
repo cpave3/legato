@@ -104,3 +104,24 @@ func TestApprovalOverlayListsTheWaysToAllow(t *testing.T) {
 		}
 	}
 }
+
+func TestASignedApprovalIsAllowedOnThePhone(t *testing.T) {
+	items := credentialItem()
+	items[0].Signed = true
+	model := NewApprovalOverlay(items)
+	for _, k := range []string{"y", "1"} {
+		next, cmd := model.Update(key(k))
+		if cmd != nil {
+			t.Fatalf("%s sent %#v", k, cmd())
+		}
+		if !strings.Contains(next.View(), "phone") {
+			t.Fatalf("%s: the overlay does not say to use the phone", k)
+		}
+	}
+	if _, cmd := model.Update(key("n")); cmd == nil {
+		t.Fatal("a signed approval cannot be denied here")
+	}
+	if !strings.Contains(model.View(), "signed on your phone") {
+		t.Fatalf("view does not say it needs the phone:\n%s", model.View())
+	}
+}

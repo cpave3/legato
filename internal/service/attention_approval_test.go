@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -73,5 +74,18 @@ func TestAQuestionWithOneChoiceGetsAnActionPerOption(t *testing.T) {
 	}
 	if resolver.calls[0].Decision != ApprovalAnswer || resolver.calls[0].Answers["q1"][0] != "Postgres" {
 		t.Fatalf("calls = %+v", resolver.calls)
+	}
+}
+
+func TestASignedApprovalOffersNoAllowInAttention(t *testing.T) {
+	actions := approvalActions(Approval{Approval: store.Approval{Signed: true}, Options: []ApprovalOption{
+		{ID: "once", Label: "Once", Kind: ApprovalAllow}, {ID: "deny", Label: "Deny", Kind: ApprovalDeny}}})
+	for _, a := range actions {
+		if strings.HasPrefix(a.ID, "allow:") {
+			t.Fatalf("actions = %+v; a signed approval is allowed on the phone", actions)
+		}
+	}
+	if len(actions) != 1 || actions[0].ID != "deny" {
+		t.Fatalf("actions = %+v", actions)
 	}
 }

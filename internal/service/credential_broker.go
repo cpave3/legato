@@ -847,7 +847,7 @@ func (b *CredentialBroker) submit(ctx context.Context, req AccessRequest, c brok
 	}
 	details := credentialRequestDetails{
 		Credential: req.Credential, Profile: c.profile.Name, Operations: req.Operations, Resources: req.Resources,
-		Reason: clip(req.Reason, 500), Broader: broader, Mode: r.Approve, WindowSeconds: int(window.Seconds()), Signed: r.Signed, ScopeHash: scope,
+		Reason: clip(req.Reason, 500), Broader: broader, Mode: r.Approve, WindowSeconds: int(window.Seconds()), Signed: needsSignature(r, b.devicesEnrolled(ctx)), ScopeHash: scope,
 	}
 	if task, err := b.db.GetTask(ctx, req.TaskID); err == nil {
 		details.TaskTitle = task.Title
@@ -860,9 +860,33 @@ func (b *CredentialBroker) submit(ctx context.Context, req AccessRequest, c brok
 		TaskID: req.TaskID, ExecutionID: req.ExecutionID,
 		Title:   "Use " + req.Credential,
 		Summary: strings.Join(req.Operations, ", ") + " on " + orAll(strings.Join(req.Resources, ", ")),
-		Details: details, Options: grantOptions(r.Approve, window), Blocking: req.Blocking,
+		Details: details, Options: grantOptions(r.Approve, window), Blocking: req.Blocking, Signed: details.Signed,
 	})
 	return approval, err
+}
+
+// decidedBy names where a decision was made, with the device that signed it.
+func decidedBy(decision ApprovalDecision) string {
+	if decision.Device == "" {
+		return decision.By
+	}
+	return strings.TrimSpace(decision.By + " " + decision.Device)
+}
+
+// needsSignature says whether a rule's approvals may be allowed only by a
+// signed decision: what the rule says, else request rules once a device is
+// enrolled (so nothing changes before the first enrollment).
+func needsSignature(r config.CredentialRule, enrolled bool) bool {
+	if r.Signed != nil {
+		return *r.Signed
+	}
+	return enrolled && r.Approve == "request"
+}
+
+// devicesEnrolled reports whether any device can sign decisions.
+func (b *CredentialBroker) devicesEnrolled(ctx context.Context) bool {
+	devices, err := b.db.ListApprovalDevices(ctx, store.DeviceActive)
+	return err == nil && len(devices) > 0
 }
 
 // grantOptions are the rule's mode and every stricter one, then deny.
@@ -1111,13 +1135,13 @@ func (r credentialResolver) Resolve(ctx context.Context, approval Approval, deci
 	switch decision.Decision {
 	case ApprovalAllow:
 		window := time.Duration(d.WindowSeconds) * time.Second
-		if err := r.b.grant(ctx, req, decision.Option, window, approval.ID, decision.By); err != nil {
+		if err := r.b.grant(ctx, req, decision.Option, window, approval.ID, decidedBy(decision)); err != nil {
 			return err
 		}
 		phrase := map[string]string{grantSession: "for this session", grantWindow: "for " + humanDuration(window), grantOnce: "once"}[decision.Option]
 		message = fmt.Sprintf("[legato approvals] %s approved: %s with %s %s. Carry on with what needed it.", approval.ID, scope, d.Credential, phrase)
 	default:
-		r.b.audit(ctx, approval.TaskID, approval.ExecutionID, store.CredentialAuditEntry{Event: "deny", Credential: d.Credential, Operation: strings.Join(d.Operations, ","), Resource: strings.Join(d.Resources, " "), ApprovalID: approval.ID, DecidedBy: decision.By, Detail: clip(decision.Feedback, 500)})
+		r.b.audit(ctx, approval.TaskID, approval.ExecutionID, store.CredentialAuditEntry{Event: "deny", Credential: d.Credential, Operation: strings.Join(d.Operations, ","), Resource: strings.Join(d.Resources, " "), ApprovalID: approval.ID, DecidedBy: decidedBy(decision), Detail: clip(decision.Feedback, 500)})
 		note := firstNonEmpty(decision.Feedback, "no reason given")
 		message = fmt.Sprintf("[legato approvals] %s denied: %s with %s. The person said: %s. Do not look for another way to get this credential.", approval.ID, scope, d.Credential, note)
 	}

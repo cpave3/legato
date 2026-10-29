@@ -150,6 +150,8 @@ func (s *Server) writeApprovalError(w http.ResponseWriter, err error) {
 		s.writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, service.ErrApprovalInvalid):
 		s.writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, service.ErrApprovalNeedsSignature), errors.Is(err, service.ErrApprovalBadSignature):
+		s.writeError(w, http.StatusForbidden, err.Error())
 	default:
 		s.writeError(w, http.StatusBadGateway, err.Error())
 	}

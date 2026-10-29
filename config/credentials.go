@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/url"
@@ -72,6 +73,42 @@ type CredentialSourceConfig struct {
 	Policy  []CredentialRule `yaml:"policy"`
 }
 
+// ApprovalDevicesConfig says which app's keys may sign approval decisions.
+type ApprovalDevicesConfig struct {
+	// AndroidAppDigests are SHA-256 digests (hex, colons allowed) of the
+	// certificates the Legato Android app may be signed with. Default: the
+	// public debug key the app in this repository is built with.
+	AndroidAppDigests []string `yaml:"android_app_digests"`
+}
+
+// debugAppDigest is the digest of mobile/app/debug.keystore's certificate.
+const debugAppDigest = "fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c"
+
+// AndroidAppDigestBytes are the digests as bytes.
+func (a ApprovalDevicesConfig) AndroidAppDigestBytes() [][]byte {
+	var out [][]byte
+	for _, d := range a.AndroidAppDigests {
+		if b, err := hex.DecodeString(d); err == nil {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+func normalizeApprovalDevices(a *ApprovalDevicesConfig) error {
+	if len(a.AndroidAppDigests) == 0 {
+		a.AndroidAppDigests = []string{debugAppDigest}
+	}
+	for i, d := range a.AndroidAppDigests {
+		clean := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(d), ":", ""))
+		if b, err := hex.DecodeString(clean); err != nil || len(b) != 32 {
+			return fmt.Errorf("approval_devices.android_app_digests: %q is not a SHA-256 digest in hex", d)
+		}
+		a.AndroidAppDigests[i] = clean
+	}
+	return nil
+}
+
 // CredentialChannelsConfig configures the channels that keep secrets from agents.
 type CredentialChannelsConfig struct {
 	HTTPProxy HTTPProxyChannelConfig `yaml:"http_proxy"`
@@ -113,7 +150,9 @@ type CredentialRule struct {
 	Approve   string            `yaml:"approve" json:"approve"`
 	Window    string            `yaml:"window" json:"window,omitempty"`
 	Limit     map[string]string `yaml:"limit" json:"limit,omitempty"`
-	Signed    bool              `yaml:"signed" json:"signed,omitempty"`
+	// Signed: only a decision signed by an enrolled device allows a use.
+	// Unset: request rules need one once a device is enrolled.
+	Signed *bool `yaml:"signed" json:"signed,omitempty"`
 
 	// Read from the fields above when the configuration loads.
 	WindowDuration time.Duration `yaml:"-" json:"-"`
@@ -208,6 +247,9 @@ func normalizeCredentials(cfg *Config) error {
 		}
 	}
 	if err := normalizeCredentialSources(cfg); err != nil {
+		return err
+	}
+	if err := normalizeApprovalDevices(&cfg.ApprovalDevices); err != nil {
 		return err
 	}
 	return normalizeCredentialChannels(&cfg.CredentialChannels)

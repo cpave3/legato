@@ -18,6 +18,7 @@ import (
 // watcher that turns native agents' requests into approvals.
 type approvalRuntime struct {
 	approvals   *service.ApprovalService
+	devices     *service.DeviceService
 	watcher     *service.ApprovalWatcher
 	credentials *service.CredentialBroker
 	stop        func()
@@ -34,6 +35,8 @@ type approvalRuntime struct {
 func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bus *events.Bus, agents service.AgentService) *approvalRuntime {
 	rt := &approvalRuntime{cfg: cfg, stop: func() {}}
 	rt.approvals = newApprovalService(cfg, db, bus, rt.url)
+	// Devices that sign decisions; only this host process checks them.
+	rt.devices = service.NewDeviceService(db, rt.approvals, service.DeviceServiceOptions{AndroidDigests: cfg.ApprovalDevices.AndroidAppDigestBytes()})
 	stops := []func(){}
 	var stopCredentials func()
 	rt.credentials, stopCredentials = startCredentials(ctx, cfg, db, bus, rt.approvals, agents)
@@ -113,6 +116,7 @@ func approvalServerURL(cfg *config.Config, port string, ips func() []string) str
 // attach gives a web server the approvals API and the agents' events.
 func (rt *approvalRuntime) attach(srv *server.Server) {
 	srv.SetApprovalService(rt.approvals)
+	srv.SetDeviceService(rt.devices)
 	srv.StartApprovalEvents()
 	if rt.credentials != nil {
 		srv.SetCredentialBroker(rt.credentials)

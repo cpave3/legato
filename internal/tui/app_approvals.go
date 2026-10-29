@@ -151,7 +151,7 @@ func approvalItems(approvals []service.Approval) []overlay.ApprovalItem {
 			who = approval.TaskID
 		}
 		asker := strings.Trim(strings.Join([]string{who, details.AgentKind}, " · "), " ·")
-		item := overlay.ApprovalItem{ID: approval.ID, Title: approval.Title, Asker: asker, Detail: approval.Summary}
+		item := overlay.ApprovalItem{ID: approval.ID, Title: approval.Title, Asker: asker, Detail: approval.Summary, Signed: approval.Signed}
 		switch approval.Source {
 		case service.ApprovalSourceAgentQuestion:
 			item.Kind, item.Question = "Question", true

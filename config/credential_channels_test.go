@@ -184,3 +184,24 @@ func TestAgentsGHIsKeptFromThePersonsLoginUnlessTurnedOff(t *testing.T) {
 		t.Fatalf("isolate = %v, %v; want off", cfg.CredentialChannels.GH.IsolateLogin(), err)
 	}
 }
+
+func TestApprovalDevicesExpectTheAppsSigningDigest(t *testing.T) {
+	writeTestConfig(t, "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	digests := cfg.ApprovalDevices.AndroidAppDigestBytes()
+	if len(digests) != 1 || len(digests[0]) != 32 || digests[0][0] != 0xfa {
+		t.Fatalf("default digests = %x", digests)
+	}
+	writeTestConfig(t, "approval_devices:\n  android_app_digests: ['AB:CD:"+strings.Repeat("00:", 29)+"EF']\n")
+	cfg, err = Load()
+	if err != nil || len(cfg.ApprovalDevices.AndroidAppDigestBytes()) != 1 || cfg.ApprovalDevices.AndroidAppDigestBytes()[0][0] != 0xab {
+		t.Fatalf("digests = %x, %v", cfg.ApprovalDevices.AndroidAppDigestBytes(), err)
+	}
+	writeTestConfig(t, "approval_devices:\n  android_app_digests: [nothex]\n")
+	if _, err := Load(); err == nil {
+		t.Fatal("a digest that is not SHA-256 hex loaded")
+	}
+}

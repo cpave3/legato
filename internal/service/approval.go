@@ -52,6 +52,8 @@ type ApprovalInput struct {
 	Options     []ApprovalOption
 	// Blocking says the requester waits for the decision.
 	Blocking bool
+	// Signed: only a decision signed by an enrolled device may allow it.
+	Signed bool
 }
 
 // ApprovalDecision is what the person decided, and where.
@@ -61,7 +63,33 @@ type ApprovalDecision struct {
 	Feedback string              `json:"feedback,omitempty"`
 	Answers  map[string][]string `json:"answers,omitempty"`
 	By       string              `json:"by,omitempty"`
+	// Signature is an enrolled device's signature over the request, the
+	// option and a one-time challenge.
+	Signature *ApprovalSignature `json:"signature,omitempty"`
+	// Device is the device whose signature was checked; set by Decide.
+	Device string `json:"device,omitempty"`
 }
+
+// ApprovalSignature is a device's signed decision.
+type ApprovalSignature struct {
+	Device    string `json:"device"`
+	Challenge string `json:"challenge"`
+	Value     string `json:"value"`
+}
+
+// SignatureVerifier checks a signed decision and returns the device that
+// signed it. The device service is one.
+type SignatureVerifier interface {
+	VerifyDecision(ctx context.Context, approval Approval, decision ApprovalDecision) (string, error)
+}
+
+var (
+	// ErrApprovalNeedsSignature: the approval may be allowed only with a
+	// decision signed by an enrolled device.
+	ErrApprovalNeedsSignature = errors.New("this approval needs a decision signed on an enrolled device (your phone)")
+	// ErrApprovalBadSignature: the signature does not hold.
+	ErrApprovalBadSignature = errors.New("the decision's signature does not hold")
+)
 
 // Approval is an approval request as callers see it.
 type Approval struct {
@@ -100,6 +128,7 @@ type ApprovalService struct {
 
 	mu        sync.RWMutex
 	resolvers map[string]ApprovalResolver
+	verifier  SignatureVerifier
 }
 
 func NewApprovalService(db *store.Store, opts ApprovalServiceOptions) *ApprovalService {
@@ -144,7 +173,7 @@ func (s *ApprovalService) Submit(ctx context.Context, in ApprovalInput) (*Approv
 		ID: newApprovalID(), Source: in.Source, SourceKey: in.SourceKey,
 		TaskID: in.TaskID, ExecutionID: in.ExecutionID,
 		Title: in.Title, Summary: in.Summary,
-		DetailsJSON: string(details), OptionsJSON: string(optionsJSON), Blocking: in.Blocking,
+		DetailsJSON: string(details), OptionsJSON: string(optionsJSON), Blocking: in.Blocking, Signed: in.Signed,
 	})
 	if err != nil {
 		return nil, false, err
@@ -215,6 +244,22 @@ func (s *ApprovalService) Decide(ctx context.Context, id string, decision Approv
 	if err != nil {
 		return nil, err
 	}
+	decision.Device = ""
+	allows := decision.Decision == ApprovalAllow || decision.Decision == ApprovalAnswer
+	if current.Signed && allows && decision.Signature == nil {
+		return nil, ErrApprovalNeedsSignature
+	}
+	if decision.Signature != nil {
+		verifier := s.verifier
+		if verifier == nil {
+			return nil, ErrApprovalBadSignature
+		}
+		device, err := verifier.VerifyDecision(ctx, *current, decision)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrApprovalBadSignature, err)
+		}
+		decision.Device = device
+	}
 	resolver := s.resolver(current.Source)
 	if resolver == nil {
 		return nil, fmt.Errorf("no resolver for approvals from %q", current.Source)
@@ -225,7 +270,7 @@ func (s *ApprovalService) Decide(ctx context.Context, id string, decision Approv
 		}
 	}
 	decisionJSON, _ := json.Marshal(decision)
-	row, err := s.store.CloseApproval(ctx, id, store.ApprovalClose{Status: status, DecisionJSON: string(decisionJSON), DecidedBy: decision.By})
+	row, err := s.store.CloseApproval(ctx, id, store.ApprovalClose{Status: status, DecisionJSON: string(decisionJSON), DecidedBy: decision.By, DecidedDevice: decision.Device})
 	if errors.Is(err, store.ErrConflict) {
 		return nil, ErrApprovalDecided
 	}
@@ -241,6 +286,15 @@ func (s *ApprovalService) Decide(ctx context.Context, id string, decision Approv
 	}
 	s.changed(decided, decided.Status)
 	return &decided, nil
+}
+
+// Store is the store the service keeps approvals in.
+func (s *ApprovalService) Store() *store.Store { return s.store }
+
+// SetSignatureVerifier makes this service accept signed decisions, and
+// check them.
+func (s *ApprovalService) SetSignatureVerifier(v SignatureVerifier) {
+	s.verifier = v
 }
 
 // Dismiss closes a request without allowing or denying it in the person's

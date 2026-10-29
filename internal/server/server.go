@@ -60,6 +60,7 @@ type Server struct {
 	workflowTriggers         *service.WorkflowTriggerCoordinator
 	attention                *service.AttentionService
 	approvals                *service.ApprovalService
+	devices                  *service.DeviceService
 	credentials              *service.CredentialBroker
 	learning                 LearningService
 	agentUI                  AgentUIService
@@ -200,6 +201,10 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/approvals/{id}", s.approvalHandler())
 	mux.HandleFunc("/api/approvals/{id}/decision", s.approvalDecisionHandler())
 	mux.HandleFunc("/api/approvals/{id}/dismiss", s.approvalDismissHandler())
+	mux.HandleFunc("/api/approvals/{id}/challenge", s.approvalChallengeHandler())
+	mux.HandleFunc("/api/devices", s.devicesHandler())
+	mux.HandleFunc("/api/devices/challenge", s.deviceChallengeHandler())
+	mux.HandleFunc("/api/devices/{id}", s.deviceHandler())
 	mux.HandleFunc("/api/credentials", s.credentialsHandler())
 	mux.HandleFunc("/api/credentials/grants", s.credentialGrantsHandler())
 	mux.HandleFunc("/api/credentials/grants/{id}", s.credentialGrantHandler())

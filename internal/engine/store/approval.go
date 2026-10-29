@@ -39,14 +39,19 @@ type Approval struct {
 	CreatedAt    string  `db:"created_at" json:"created_at"`
 	UpdatedAt    string  `db:"updated_at" json:"updated_at"`
 	DecidedAt    *string `db:"decided_at" json:"decided_at,omitempty"`
+	// Signed: only a decision signed by an enrolled device may allow it.
+	Signed bool `db:"signed" json:"signed,omitempty"`
+	// DecidedDevice is the device that signed the decision.
+	DecidedDevice string `db:"decided_device" json:"decided_device,omitempty"`
 }
 
 // ApprovalClose is how a pending approval ends.
 type ApprovalClose struct {
-	Status       string
-	DecisionJSON string
-	DecidedBy    string
-	Error        string
+	Status        string
+	DecisionJSON  string
+	DecidedBy     string
+	DecidedDevice string
+	Error         string
 }
 
 // ApprovalFilter selects approvals. Empty fields match everything.
@@ -69,9 +74,9 @@ func (s *Store) InsertApproval(ctx context.Context, a Approval) (*Approval, bool
 	}
 	result, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO approval_requests
-			(id, source, source_key, task_id, execution_id, title, summary, details_json, options_json, blocking)
+			(id, source, source_key, task_id, execution_id, title, summary, details_json, options_json, blocking, signed)
 		VALUES
-			(:id, :source, :source_key, :task_id, :execution_id, :title, :summary, :details_json, :options_json, :blocking)
+			(:id, :source, :source_key, :task_id, :execution_id, :title, :summary, :details_json, :options_json, :blocking, :signed)
 		ON CONFLICT(source, source_key) DO NOTHING`, a)
 	if err != nil {
 		return nil, false, err
@@ -108,12 +113,12 @@ func (s *Store) getApproval(ctx context.Context, query string, args ...any) (*Ap
 func (s *Store) CloseApproval(ctx context.Context, id string, close ApprovalClose) (*Approval, error) {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE approval_requests SET
-			status = ?, decision_json = ?, decided_by = ?, error = ?,
+			status = ?, decision_json = ?, decided_by = ?, decided_device = ?, error = ?,
 			revision = revision + 1,
 			updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
 			decided_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 		WHERE id = ? AND status = 'pending'`,
-		close.Status, close.DecisionJSON, close.DecidedBy, close.Error, id)
+		close.Status, close.DecisionJSON, close.DecidedBy, close.DecidedDevice, close.Error, id)
 	if err != nil {
 		return nil, err
 	}

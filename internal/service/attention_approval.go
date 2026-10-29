@@ -101,6 +101,9 @@ func approvalActions(approval Approval) []AttentionAction {
 	for _, option := range approval.Options {
 		switch option.Kind {
 		case ApprovalAllow:
+			if approval.Signed {
+				continue // allowed only with a signature, on an enrolled device
+			}
 			actions = append(actions, AttentionAction{ID: "allow:" + option.ID, Label: option.Label, Kind: "execute"})
 		case ApprovalDeny:
 			actions = append(actions, AttentionAction{ID: "deny", Label: option.Label, Kind: "execute"})
