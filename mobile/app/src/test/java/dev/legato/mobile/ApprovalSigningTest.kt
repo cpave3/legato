@@ -35,13 +35,17 @@ class ApprovalSigningTest {
         val p30 = keyParams(sdk = 34, alias = "approval-s1", challenge = byteArrayOf(9), strongBox = true)
         assertTrue(p30.perUseAuthentication)
         assertTrue(p30.allowDeviceCredential)
-        assertTrue(p30.invalidatedByBiometricEnrollment)
+        // The PIN unlocks it too, so Android keeps it when a fingerprint is
+        // added (checked on a Pixel 9 Pro): it is not asked to retire it.
+        assertFalse(p30.invalidatedByBiometricEnrollment)
         assertTrue(p30.strongBox)
         assertEquals("approval-s1", p30.alias)
-        // Android 10 has no per-use PIN: a fingerprint, each time.
+        // Android 10 has no per-use PIN: a fingerprint, each time, and a new
+        // fingerprint retires the key.
         val p29 = keyParams(sdk = 29, alias = "approval-s1", challenge = byteArrayOf(9), strongBox = false)
         assertTrue(p29.perUseAuthentication)
         assertFalse(p29.allowDeviceCredential)
+        assertTrue(p29.invalidatedByBiometricEnrollment)
         assertFalse(p29.strongBox)
     }
 

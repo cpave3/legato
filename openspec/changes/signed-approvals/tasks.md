@@ -39,7 +39,7 @@ Every task is test-first (red, green, refactor). This change needs `agent-approv
 - [x] 5.5 `PageContract.kt`: `approval: 1` in `window.legatoShell`, parse `{legatoShell: "approval", key, id}`, and `approvalEventScript`; unit tests for the key and top-frame rule
 - [x] 5.6 Deep link `legato://approval?url=…&id=…`: sheet for an enrolled saved server, the page for a saved server without a key, a notice for an unknown server; tests
 - [x] 5.7 `ApprovalList.kt`: open approvals of all saved servers, reloads on open, on return to the foreground and on a notification, unreachable servers marked; JVM tests with fake servers
-- [ ] 5.8 Check on the phone: enroll, approve a signed request from a notification and from the tray, refuse with a new fingerprint enrolled
+- [x] 5.8 Check on the phone: enroll, approve a signed request from a notification and from the tray; with a new fingerprint enrolled the key kept signing, which is Android's rule for a key the PIN also unlocks (see D1)
 
 ## 6. Docs
 

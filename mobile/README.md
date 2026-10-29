@@ -232,8 +232,7 @@ signature.
 
 - **The key.** One for each saved server, alias `approval-<connection id>`:
   EC P-256, for signing only, in StrongBox when the phone has one, unlocked for
-  each use (fingerprint or PIN from Android 11, fingerprint on Android 10), and
-  void once a fingerprint is added or removed. It is made with the server's
+  each use (fingerprint or PIN from Android 11, fingerprint on Android 10). It is made with the server's
   enrollment challenge, so its attestation chain proves it is new and in secure
   hardware. Removing the server deletes it.
 - **Enrolling.** The app asks `POST /api/devices/challenge`, makes the key,
@@ -266,9 +265,13 @@ signature.
 - **The list.** Approvals on the server list shows the open approvals of every
   saved server, reread every 10 seconds; a signed one opens the sheet, another
   opens its server's page on it. A server that does not answer says why.
-- **A new fingerprint.** The key no longer opens. The app deletes it, forgets
-  the device, and offers to enroll again, which an enrolled phone or
-  `legato device reset` at the host then allows.
+- **A new fingerprint.** From Android 11 the key keeps working: Android
+  retires a key on a new fingerprint only when a fingerprint alone unlocks
+  it, and this one takes the PIN too. That costs no protection, since adding
+  a fingerprint needs the PIN, which unlocks the key anyway (checked on a
+  Pixel 9 Pro). On Android 10 the key is fingerprint-only and is retired: the
+  app deletes it, forgets the device, and offers to enroll again, which an
+  enrolled phone or passkey, or `legato device reset` at the host, allows.
 
 ## File uploads and links
 

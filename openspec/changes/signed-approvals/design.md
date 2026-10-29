@@ -35,7 +35,7 @@ The app makes one key per saved server, alias `approval-<server id>`:
 - `setUserAuthenticationRequired(true)`;
 - API 30 and later: `setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG | AUTH_DEVICE_CREDENTIAL)`; the person decided the device PIN is an allowed fallback;
 - API 29: `setUserAuthenticationValidityDurationSeconds(-1)`, the older form of authentication for each use;
-- `setInvalidatedByBiometricEnrollment(true)`;
+- `setInvalidatedByBiometricEnrollment(true)` on API 29 only. Android honours it only for a key that biometrics alone unlock, so on API 30 and later, where the PIN unlocks the key too, it has no effect (found on a Pixel 9 Pro). It would add nothing there: enrolling a fingerprint needs the PIN, which already unlocks the key;
 - `setAttestationChallenge(<enrollment challenge>)`.
 
 A key per server keeps servers apart: one server cannot ask for a signature that another would accept.
@@ -119,7 +119,7 @@ A desktop can be enrolled as a WebAuthn platform authenticator (a passkey), afte
 ## Risks / Trade-offs
 
 - [Android 10 cannot unlock a key for each use with the PIN] → On API 29 the key needs a strong biometric; the sheet says so when the phone has none enrolled. See Open Questions.
-- [A new fingerprint invalidates the key] → The app detects `KeyPermanentlyInvalidatedException` and offers to enroll again, which needs another enrolled device or `legato device reset`.
+- [A new fingerprint invalidates the key, on API 29] → The app detects `KeyPermanentlyInvalidatedException` and offers to enroll again, which needs another enrolled device or `legato device reset`. From API 30 the key survives a new fingerprint (see D1).
 - [`legato device reset` is reachable by an unsandboxed agent] → Recorded in the audit log and announced through Attention and ntfy. The sandbox removes the agent's access to the host command.
 - [Google rotates or revokes attestation roots] → Roots are shipped in the binary and updated with releases; the revocation list is fetched at runtime.
 - [The person approves without reading] → The sheet puts the operation and resources first and the option on the button; a broader pattern is marked, as in phase 1.

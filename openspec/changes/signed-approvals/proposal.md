@@ -6,7 +6,7 @@ A decision that needs the person must be made by something an agent cannot use: 
 
 ## What Changes
 
-- **Device enrollment per server, with key attestation.** The Legato Android app makes an EC P-256 key in the Android Keystore (in StrongBox when the phone has it) that needs a strong biometric or the device PIN for each use and is invalidated when a new fingerprint is enrolled. It sends the key's attestation chain. The server accepts the key only when the chain shows hardware-backed storage and authentication for each use.
+- **Device enrollment per server, with key attestation.** The Legato Android app makes an EC P-256 key in the Android Keystore (in StrongBox when the phone has it) that needs a strong biometric or the device PIN for each use (on Android 10, a biometric, and then a new fingerprint invalidates it). It sends the key's attestation chain. The server accepts the key only when the chain shows hardware-backed storage and authentication for each use.
 - **Signed decisions.** The server builds a canonical JSON form of an approval request and gives a one-time challenge. The device signs the canonical request, the chosen option and the challenge. The server checks the signature before it applies the decision.
 - **`signed` rules.** A rule with `signed: true` accepts only a signed decision. Once a device is enrolled, `request` rules and changes to credential rules, profiles and devices need a signature by default.
 - **More devices.** A second Android device or a desktop passkey (WebAuthn) is enrolled only with a signed approval from a device already enrolled.

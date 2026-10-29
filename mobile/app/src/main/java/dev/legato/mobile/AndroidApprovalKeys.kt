@@ -20,7 +20,8 @@ import java.util.concurrent.Executor
 
 // AndroidDeviceKeys keeps the approval keys in the Android Keystore: EC
 // P-256, for signing only, in StrongBox when the phone has one, unlocked by
-// the person for each signature, and gone when a new fingerprint is added.
+// the person's fingerprint or PIN for each signature (on Android 10, the
+// fingerprint only, and then a new fingerprint retires the key).
 class AndroidDeviceKeys : DeviceKeys {
     private val keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 

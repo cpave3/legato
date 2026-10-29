@@ -1,14 +1,14 @@
 ## ADDED Requirements
 
 ### Requirement: A Keystore key for each server
-The Android app SHALL make one EC P-256 signing key for each server it enrolls with, in StrongBox when the phone has it and in the TEE otherwise. The key SHALL need user authentication for each use: on API 30 and later through `setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG | AUTH_DEVICE_CREDENTIAL)`, and on API 29 through `setUserAuthenticationValidityDurationSeconds(-1)`. The key SHALL be invalidated when a new biometric is enrolled, and SHALL carry the server's enrollment challenge in its attestation.
+The Android app SHALL make one EC P-256 signing key for each server it enrolls with, in StrongBox when the phone has it and in the TEE otherwise. The key SHALL need user authentication for each use: on API 30 and later through `setUserAuthenticationParameters(0, AUTH_BIOMETRIC_STRONG | AUTH_DEVICE_CREDENTIAL)`, and on API 29 through `setUserAuthenticationValidityDurationSeconds(-1)`. On API 29, where biometrics alone unlock it, the key SHALL be invalidated when a new biometric is enrolled. It SHALL carry the server's enrollment challenge in its attestation.
 
 #### Scenario: StrongBox missing
 - **WHEN** the phone has no StrongBox
 - **THEN** the app SHALL make the key in the TEE and enroll it
 
 #### Scenario: New fingerprint
-- **WHEN** a new fingerprint has been enrolled since the key was made
+- **WHEN** a new fingerprint has been enrolled since a key made on API 29
 - **THEN** signing SHALL fail with an invalidated key, and the app SHALL offer to enroll again
 
 ### Requirement: The approval sheet shows what the app fetched

@@ -74,12 +74,15 @@ data class KeyParams(
     val perUseAuthentication: Boolean,
     // The device PIN unlocks it too (Android 11 and later).
     val allowDeviceCredential: Boolean,
+    // A new fingerprint retires the key. Android does this only for a key
+    // that a fingerprint alone unlocks; one the PIN also unlocks is kept,
+    // which costs nothing, since adding a fingerprint needs the PIN.
     val invalidatedByBiometricEnrollment: Boolean,
 )
 
 fun keyParams(sdk: Int, alias: String, challenge: ByteArray, strongBox: Boolean) = KeyParams(
     alias = alias, challenge = challenge, strongBox = strongBox,
-    perUseAuthentication = true, allowDeviceCredential = sdk >= 30, invalidatedByBiometricEnrollment = true,
+    perUseAuthentication = true, allowDeviceCredential = sdk >= 30, invalidatedByBiometricEnrollment = sdk < 30,
 )
 
 // The phone's keys, one per server.
