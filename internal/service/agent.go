@@ -210,6 +210,7 @@ type LearningPromptProvider interface {
 type agentService struct {
 	sessionEnvMu      sync.Mutex
 	sessionEnv        SessionEnvProvider // credential channels; nil without any
+	brokerEnv         SessionEnvProvider // the host broker's socket and a token; nil without one
 	store             *store.Store
 	tmux              TmuxManager
 	workDir           string
@@ -407,6 +408,20 @@ func (a *agentService) SetSessionEnv(provider SessionEnvProvider) {
 	a.sessionEnvMu.Lock()
 	defer a.sessionEnvMu.Unlock()
 	a.sessionEnv = provider
+}
+
+// SetBrokerEnv gives every session spawned from now on the host broker's
+// socket and a token of its own.
+func (a *agentService) SetBrokerEnv(provider SessionEnvProvider) {
+	a.sessionEnvMu.Lock()
+	defer a.sessionEnvMu.Unlock()
+	a.brokerEnv = provider
+}
+
+func (a *agentService) brokerSessionEnv() SessionEnvProvider {
+	a.sessionEnvMu.Lock()
+	defer a.sessionEnvMu.Unlock()
+	return a.brokerEnv
 }
 
 func (a *agentService) credentialEnv() SessionEnvProvider {
@@ -692,6 +707,16 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			log.Printf("credentials: session environment for %s: %v", taskID, err)
 		}
 		for k, v := range channelEnv {
+			envMap[k] = v
+		}
+	}
+	// The host broker, which agent-side processes ask instead of the store.
+	if provider := a.brokerSessionEnv(); provider != nil {
+		brokerEnv, err := provider.SessionEnv(ctx, taskID, executionID)
+		if err != nil {
+			log.Printf("broker: session environment for %s: %v", taskID, err)
+		}
+		for k, v := range brokerEnv {
 			envMap[k] = v
 		}
 	}
