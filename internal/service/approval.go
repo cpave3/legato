@@ -191,6 +191,11 @@ func (s *ApprovalService) List(ctx context.Context, filter store.ApprovalFilter)
 	return out, nil
 }
 
+// Pending returns the approvals waiting for the person, oldest first.
+func (s *ApprovalService) Pending(ctx context.Context) ([]Approval, error) {
+	return s.List(ctx, store.ApprovalFilter{Status: store.ApprovalPending})
+}
+
 // CountPending is how many approvals wait for the person.
 func (s *ApprovalService) CountPending(ctx context.Context) (int, error) {
 	return s.store.CountApprovals(ctx, store.ApprovalPending)

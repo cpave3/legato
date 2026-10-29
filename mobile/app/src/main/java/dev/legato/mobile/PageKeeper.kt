@@ -46,7 +46,10 @@ class PageKeeper(
     private var backgrounded = false
     private var lostInBackground: String? = null
 
-    fun start() = host.open(baseUrl)
+    fun start(url: String = baseUrl) {
+        lastUrl = url
+        host.open(url)
+    }
 
     fun navigated(url: String) {
         lastUrl = url

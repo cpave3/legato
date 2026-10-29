@@ -84,3 +84,41 @@ private fun queryParameters(query: String): Map<String, List<String>> =
     }.groupBy({ it.first }, { it.second })
 
 private fun decode(value: String): String = java.net.URLDecoder.decode(value, "UTF-8")
+
+/** What a notification of a new approval opens: a server, and the approval. */
+data class ApprovalLink(val baseUrl: String, val id: String) {
+    /** Where on the server's page the approval is shown. */
+    val path: String get() = "/?approval=$id"
+}
+
+private val approvalId = Regex("^ap-[0-9a-f]{8}$|^[A-Za-z0-9-]{1,64}$")
+
+/**
+ * Reads `legato://approval?url=…&id=…`, the link of an approval notification.
+ * Null for anything else.
+ */
+fun parseApprovalUri(value: String): ApprovalLink? {
+    val uri = try {
+        URI(value.trim())
+    } catch (cause: URISyntaxException) {
+        return null
+    }
+    if (uri.scheme != "legato" || uri.host != "approval") return null
+    val params = queryParameters(uri.rawQuery.orEmpty())
+    val url = params["url"]?.singleOrNull() ?: return null
+    val id = params["id"]?.singleOrNull() ?: return null
+    if (!approvalId.matches(id)) return null
+    val baseUrl = try {
+        normalizeServerUrl(url)
+    } catch (cause: IllegalArgumentException) {
+        return null
+    }
+    return ApprovalLink(baseUrl, id)
+}
+
+/**
+ * The saved server an approval link is for: the one at its address, or the
+ * only server saved. Null when it cannot be told.
+ */
+fun serverForApproval(connections: List<Connection>, link: ApprovalLink): Connection? =
+    connections.firstOrNull { it.baseUrl == link.baseUrl } ?: connections.singleOrNull()

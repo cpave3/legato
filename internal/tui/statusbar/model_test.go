@@ -396,3 +396,26 @@ func TestStatusBarDoesNotOverflow(t *testing.T) {
 		}
 	}
 }
+
+// Pending approvals are named on every view, with the key that answers them,
+// even when the view shows the sync state itself.
+func TestBarCountsPendingApprovals(t *testing.T) {
+	m := New()
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	m.statusElsewhere = true
+	if strings.Contains(m.View(), "need") {
+		t.Fatalf("bar mentions approvals with none pending: %q", m.View())
+	}
+
+	m = m.SetApprovals(2)
+	if view := m.View(); !strings.Contains(view, "◆ 2 approvals need you · ! answer") {
+		t.Fatalf("bar = %q", view)
+	}
+	m = m.SetApprovals(1)
+	if view := m.View(); !strings.Contains(view, "◆ 1 approval needs you · ! answer") {
+		t.Fatalf("bar = %q", view)
+	}
+	if lipgloss.Width(m.View()) != 140 {
+		t.Fatalf("bar width = %d, want 140", lipgloss.Width(m.View()))
+	}
+}

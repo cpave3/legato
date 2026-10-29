@@ -192,10 +192,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun open(connection: Connection) {
+    // Opens a server's page, at path when one is given (an approval).
+    fun open(connection: Connection, path: String = "") {
         state.error.value = ""
         val cached = page
         if (cached != null && cached.connection == connection) {
+            if (path.isNotEmpty()) cached.show(path)
             state.screen.value = Screen.Web(connection)
             pageVisibility()
             return
@@ -213,7 +215,7 @@ class MainActivity : ComponentActivity() {
                 state.opening.value = null
                 outcome.onSuccess { token ->
                     state.reachability.value = state.reachability.value + (connection.id to Reachability.ONLINE)
-                    showPage(connection, token)
+                    showPage(connection, token, path)
                 }.onFailure { cause ->
                     state.error.value = if (cause is IOException) {
                         "Could not reach this Legato server. Check that the phone is on the same network, the server is running, and the connection URL uses this machine's current IP address."
@@ -225,9 +227,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun showPage(connection: Connection, token: String) {
+    private fun showPage(connection: Connection, token: String, path: String = "") {
         closePage()
-        page = ServerPage(this, connection, token, AndroidMicrophone(this, ::askForMicrophone), pageCallbacks)
+        page = ServerPage(this, connection, token, AndroidMicrophone(this, ::askForMicrophone), pageCallbacks, path)
         state.screen.value = Screen.Web(connection)
         pageVisibility()
     }
@@ -363,12 +365,31 @@ class MainActivity : ComponentActivity() {
 
     private fun handlePairingLink(intent: Intent?) {
         val link = intent?.data?.toString() ?: return
+        if (link.startsWith("legato://approval")) {
+            openApproval(link)
+            return
+        }
         if (!link.startsWith("legato://pair")) return
         try {
             followPairingLink(link)
         } catch (cause: IllegalArgumentException) {
             state.error.value = cause.message ?: cause.toString()
         }
+    }
+
+    // A notification of an approval opens its server's page on it.
+    private fun openApproval(link: String) {
+        val approval = parseApprovalUri(link)
+        if (approval == null) {
+            state.error.value = "That approval link could not be read."
+            return
+        }
+        val connection = serverForApproval(state.connections.value, approval)
+        if (connection == null) {
+            state.error.value = "No saved server is at ${approval.baseUrl}. Open the approval from that server's page."
+            return
+        }
+        open(connection, approval.path)
     }
 
     // A code with a phrase pairs at once; one with a token fills in the form.

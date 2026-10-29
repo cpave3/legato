@@ -1932,6 +1932,7 @@ func runTUI() int {
 		log.Printf("attention: startup signal counts: %v", counts)
 	}
 	app.SetAttentionService(attentionSvc)
+	app.SetApprovalService(approvalsRT.approvals)
 	// The TUI cannot draw what agents show through their Legato tools; it
 	// counts it and links to the web UI.
 	app.SetAgentUIService(service.NewAgentUIService(db, bus, service.AgentUIOptions{}), localWebURL(cfg))

@@ -58,6 +58,10 @@ Migration 064 adds `agent_ui_item_revisions.images`: the image files one revisio
 
 Migration 065 adds an `images` column to `plan_revisions`, `plan_transcript`, `review_steps` and `review_transcript`: the image files that row's Markdown shows, as the service encodes them (the path the Markdown names, and the stored copy's file name). The column is empty for Markdown with no image files. The files are under `<data_dir>/plan-images/<plan-id>/` and `<data_dir>/review-images/<tour-id>/`, kept and removed by `PlanService` and `ReviewService`; `Store.ListPlanImageSets` and `ListReviewImageSets` list what is still named, for the sweep of what is not. A database from before plans or reviews has none of the four tables, and the migration then changes only those that exist. See [Collaborative plans](../plans.md) § Image files.
 
+### Approval requests
+
+Migration 069 adds `approval_requests`: each request that waits for the person (an agent's permission or question), unique on `(source, source_key)`, with its details, options, status and decision. Rows are kept after they close. See [Approvals](approvals.md).
+
 ### Directory presets
 
 Migration 067 adds `directory_presets`: the directories the person saved from a spawn dialog (`path`, the identity and absolute; `name`; `created_at`). Saving a path again renames it and keeps its place. The spawn dialogs list them after the `repositories` of the configuration, through `service.DirectoryService`; a saved directory that the configuration also names is listed once, as the configured one.

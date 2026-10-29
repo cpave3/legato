@@ -200,6 +200,10 @@ The app records in its place (`ShellVoice.kt`, `AndroidMicrophone.kt`):
 Inside the app the app always records, over HTTPS too. Outside it, a browser
 with a microphone of its own (over HTTPS, or on the desktop) uses that.
 
+## Approval links
+
+A notification of a new approval opens `legato://approval?url=<server>&id=<approval>` (see `docs/ai/approvals.md`). The app opens the saved server at that address, or the only server saved, at `/?approval=<id>`, where the web UI's tray shows the request; an open page of that server goes there without reloading. A link the app cannot read, or for a server it does not know, says so on the server list (`parseApprovalUri`, `serverForApproval` in `ServerAddress.kt`).
+
 ## File uploads and links
 
 A file input in the page opens Android's file picker. A link to another site

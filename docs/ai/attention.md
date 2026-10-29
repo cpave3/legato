@@ -34,6 +34,7 @@ Executable source actions additionally implement `AttentionActionHandler`. Navig
 | `agents` | Running standalone interactive agents explicitly reporting waiting or error | `EventAgentActivityChanged`, start/death/completion lifecycle |
 | `workflows` | Manual gates, workflow agents waiting for input, failed steps | Workflow and agent lifecycle events |
 | `workflow_triggers` | Missing input, confirmation, and failed automatic triggers | `EventWorkflowTriggerChanged` |
+| `approvals` | Pending approval requests (agents' permissions and questions), with their options as actions; see [Approvals](approvals.md) | `EventApprovalChanged` |
 
 Startup reconciliation remains the safety net. Source events reconcile the relevant projections without requiring an Attention request to query GitHub or mutate source state.
 
@@ -47,7 +48,7 @@ Each producer builds a revision from meaningful source state. Dismiss suppresses
 
 Attention deliberately includes only states the local durable data can support reliably:
 
-- **Needs intervention:** plan decisions, workflow gates/failures/input, and standalone agent waiting/error.
+- **Needs intervention:** plan decisions, workflow gates/failures/input, standalone agent waiting/error, and pending approvals.
 - **Ready for review:** tours explicitly marked ready through `legato review ready` and still containing visible unreviewed work.
 - **Merge blockers:** open, non-draft tracked PRs whose persisted review decision is `REVIEW_REQUIRED` or `CHANGES_REQUESTED`, whose persisted check status is `fail`, or a combination.
 

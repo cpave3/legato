@@ -5,7 +5,9 @@ import tea "github.com/charmbracelet/bubbletea"
 const (
 	ActionHelp ActionID = "global.help"
 	ActionQuit ActionID = "global.quit"
-	ActionBack ActionID = "global.back"
+	// ActionApprovals opens the pending approvals.
+	ActionApprovals ActionID = "global.approvals"
+	ActionBack      ActionID = "global.back"
 
 	ActionBoardLeft          ActionID = "board.left"
 	ActionBoardRight         ActionID = "board.right"
@@ -173,6 +175,8 @@ func DefaultBindings() []Binding {
 	add(ActionHelp, global, TargetRoot, []Key{Rune('?')}, "keys", "Toggle keyboard reference", "General", 90, 10, FullHelp|ShortcutBar|BarEnd)
 	bindings[len(bindings)-1].Precedence = YieldToSpecific
 	add(ActionQuit, global, TargetRoot, []Key{Rune('q'), Special(tea.KeyCtrlC, "ctrl+c")}, "quit", "Quit Legato", "General", 90, 20, FullHelp)
+	bindings[len(bindings)-1].Precedence = YieldToSpecific
+	add(ActionApprovals, global, TargetRoot, []Key{Rune('!')}, "answer", "Answer pending approvals", "General", 90, 15, FullHelp, CapabilityApprovals)
 	bindings[len(bindings)-1].Precedence = YieldToSpecific
 
 	board := PageScope(PageBoard)

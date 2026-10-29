@@ -35,7 +35,7 @@ Captured terminal output is filled the same way: `Fill` also resumes after a seq
 ### Chrome
 
 - `theme.TitleBar(width, view, facts, trailing)` is the line a view opens with and the rule under it: `♩ legato`, the view's name, facts about what it shows, and at the far end what it is set to. Trailing pieces are dropped from the last when the line is too narrow.
-- The key bar (`internal/tui/statusbar`) is one line along the bottom. A message comes first, then the page's keys; bindings marked `BarEnd` (leave the page, change how it is shown, the key reference) sit at the far end. Neighbours with the same label are one hint (`j/k select`), and `enter` is written `↵`.
+- The key bar (`internal/tui/statusbar`) is one line along the bottom. While approvals are pending it starts with `◆ 2 approvals need you · ! answer`, on every view; `!` opens the approval overlay (`y` allow, `n` deny, `j`/`k`, `esc`; see [Approvals](approvals.md)). A message comes first, then the page's keys; bindings marked `BarEnd` (leave the page, change how it is shown, the key reference) sit at the far end. Neighbours with the same label are one hint (`j/k select`), and `enter` is written `↵`.
 - The board and the agents view show the sync state and the web server themselves (`SetStatus`, fed from `statusbar.Model.SyncLabel` and `WebLabel`). The app tells the bar so with `StatusShownElsewhereMsg`; in the other views the bar shows them.
 
 ## Board

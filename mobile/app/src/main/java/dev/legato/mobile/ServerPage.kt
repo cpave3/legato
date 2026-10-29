@@ -37,6 +37,8 @@ class ServerPage(
     private val token: String,
     microphone: ShellVoice.Microphone,
     private val callbacks: Callbacks,
+    // Where on the server to open first, such as an approval: "/?approval=…".
+    startPath: String = "",
 ) : PageKeeper.Host {
     interface Callbacks {
         fun canGoBackChanged(canGoBack: Boolean)
@@ -70,7 +72,14 @@ class ServerPage(
     private var inFront = true
 
     init {
-        keeper.start()
+        keeper.start(baseUrl + startPath)
+    }
+
+    // Shows a place on the server, such as an approval a notification opened.
+    fun show(path: String) {
+        val url = baseUrl + path
+        keeper.navigated(url)
+        webView?.loadUrl(url)
     }
 
     // Whether the person can see the page: the app is in front and the page is

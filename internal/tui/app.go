@@ -97,6 +97,7 @@ const (
 	overlayGroup
 	overlayWorkflowTrigger
 	overlayCardContext
+	overlayApproval
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -184,6 +185,9 @@ type App struct {
 	spinnerRunning           bool
 	agentUIWebURL            string
 	agentUISub               <-chan events.Event
+	approvalSub              <-chan events.Event
+	approvalSvc              ApprovalService
+	approvals                []service.Approval
 	openURL                  func(string) error
 	statusBar                statusbar.Model
 	clip                     *clipboard.Clipboard
@@ -374,6 +378,7 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 		app.reviewSub = bus.Subscribe(events.EventReviewChanged)
 		app.attentionSub = bus.Subscribe(events.EventAttentionChanged)
 		app.agentUISub = bus.Subscribe(events.EventAgentUIChanged)
+		app.approvalSub = bus.Subscribe(events.EventApprovalChanged)
 	}
 	return app
 }
@@ -410,6 +415,12 @@ func (a App) Init() tea.Cmd {
 	}
 	if a.agentUISub != nil {
 		cmds = append(cmds, a.listenAgentUIUpdates())
+	}
+	if a.approvalSvc != nil {
+		cmds = append(cmds, a.loadApprovals())
+		if a.approvalSub != nil {
+			cmds = append(cmds, a.listenApprovalUpdates())
+		}
 	}
 	if a.reviewSvc != nil {
 		cmds = append(cmds, a.loadReviewBadges())
@@ -612,6 +623,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if next, cmd, ok := a.updateApprovals(msg); ok {
+		return next, cmd
+	}
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
@@ -2918,6 +2932,9 @@ func (a App) hotkeyContext() hotkey.Context {
 	if a.attentionSvc != nil {
 		ctx.Capabilities[hotkey.CapabilityAttention] = true
 	}
+	if a.approvalSvc != nil {
+		ctx.Capabilities[hotkey.CapabilityApprovals] = true
+	}
 	if a.agentUISvc != nil {
 		ctx.Capabilities[hotkey.CapabilityAgentUI] = true
 	}
@@ -3024,6 +3041,8 @@ func (a App) dispatchHotkey(binding hotkey.Binding, msg tea.KeyMsg) (tea.Model, 
 	case hotkey.ActionViewAttention:
 		a = a.setMode(viewAttention)
 		return a, a.attentionView.Init()
+	case hotkey.ActionApprovals:
+		return a.openApprovalOverlay()
 	case hotkey.ActionViewAgents:
 		return a.switchToAgentView()
 	case hotkey.ActionBoardArchive:

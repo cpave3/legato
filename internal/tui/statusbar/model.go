@@ -67,6 +67,7 @@ type Model struct {
 	workspaceColor  string
 	webServerPort   string
 	statusElsewhere bool
+	approvals       int
 	hotkeys         *hotkey.Registry
 	hotkeyContext   hotkey.Context
 	width           int
@@ -153,6 +154,12 @@ func clearTransientAfter(kind string, seq uint64) tea.Cmd {
 }
 
 // SetWebServer updates the status bar to show the web server port.
+// SetApprovals sets how many approvals wait for the person.
+func (m Model) SetApprovals(n int) Model {
+	m.approvals = n
+	return m
+}
+
 func (m Model) SetWebServer(port string) Model {
 	m.webServerPort = port
 	return m
@@ -183,6 +190,13 @@ func (m Model) View() string {
 	}
 
 	var lead []string
+	if m.approvals > 0 {
+		noun := "approvals need"
+		if m.approvals == 1 {
+			noun = "approval needs"
+		}
+		lead = append(lead, lipgloss.NewStyle().Foreground(theme.Amber).Render(fmt.Sprintf("◆ %d %s you · ! answer", m.approvals, noun)))
+	}
 	if !m.statusElsewhere {
 		lead = append(lead, m.SyncLabel())
 		if name, color := m.Workspace(); name != "" {
