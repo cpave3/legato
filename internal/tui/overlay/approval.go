@@ -17,22 +17,34 @@ type ApprovalItem struct {
 	Asker      string
 	Detail     string
 	AllowLabel string // the label of the option y takes
+	// Allows are the ways to allow, in order: 1 takes the first, 2 the
+	// second; y takes the first too.
+	Allows []ApprovalChoice
 	// Question: answered in the web UI; here it can only be dismissed.
 	Question bool
 }
 
-// ApprovalDecideMsg asks the app to allow (y) or deny (n) an approval. For a
-// question, Allow is never set and a deny dismisses it.
-type ApprovalDecideMsg struct {
+// ApprovalChoice is one way to allow an approval.
+type ApprovalChoice struct {
 	ID    string
-	Allow bool
+	Label string
+}
+
+// ApprovalDecideMsg asks the app to allow (y, or a number) or deny (n) an
+// approval. Option is the way to allow, "" for the first. For a question,
+// Allow is never set and a deny dismisses it.
+type ApprovalDecideMsg struct {
+	ID     string
+	Allow  bool
+	Option string
 }
 
 // ApprovalOverlayClosedMsg says the person closed the overlay.
 type ApprovalOverlayClosedMsg struct{}
 
 // ApprovalOverlay answers pending approvals one at a time: y allows with the
-// first way to allow, n denies, j/k choose, esc closes.
+// first way to allow, a number with that way, n denies, j/k choose, esc
+// closes.
 type ApprovalOverlay struct {
 	items         []ApprovalItem
 	cursor        int
@@ -86,7 +98,7 @@ func (m ApprovalOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor--
 			}
 			m.note = ""
-		case "y":
+		case "y", "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			if m.cursor >= len(m.items) {
 				return m, nil
 			}
@@ -95,7 +107,17 @@ func (m ApprovalOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.note = "Answer a question in the web UI, or press n to dismiss it."
 				return m, nil
 			}
-			return m, func() tea.Msg { return ApprovalDecideMsg{ID: item.ID, Allow: true} }
+			option := ""
+			if k := msg.String(); k != "y" {
+				n := int(k[0] - '1')
+				if n >= len(item.Allows) {
+					return m, nil
+				}
+				option = item.Allows[n].ID
+			} else if len(item.Allows) > 0 {
+				option = item.Allows[0].ID
+			}
+			return m, func() tea.Msg { return ApprovalDecideMsg{ID: item.ID, Allow: true, Option: option} }
 		case "n":
 			if m.cursor >= len(m.items) {
 				return m, nil
@@ -140,6 +162,16 @@ func (m ApprovalOverlay) View() string {
 		switch {
 		case item.Question:
 			keys = "n dismiss · answer in the web UI · j/k choose · esc close"
+		case len(item.Allows) > 1:
+			var ways []string
+			for i, a := range item.Allows {
+				if i < 9 {
+					ways = append(ways, fmt.Sprintf("%d %s", i+1, strings.ToLower(a.Label)))
+				}
+			}
+			keys = strings.Join(ways, " · ") + " · n deny · j/k choose · esc close"
+		case len(item.Allows) == 1:
+			keys = "y " + strings.ToLower(item.Allows[0].Label) + " · n deny · j/k choose · esc close"
 		case item.AllowLabel != "":
 			keys = "y " + strings.ToLower(item.AllowLabel) + " · n deny · j/k choose · esc close"
 		}

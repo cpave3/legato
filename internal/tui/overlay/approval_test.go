@@ -76,3 +76,31 @@ func TestApprovalOverlayKeepsTheSelectionWhenTheListChanges(t *testing.T) {
 		t.Fatalf("view = %s", view)
 	}
 }
+
+func credentialItem() []ApprovalItem {
+	return []ApprovalItem{{ID: "ap-9", Kind: "Approval", Title: "Use legato_default", Detail: "ssh.login on ssh://cameron@psi.pavey.network",
+		Allows: []ApprovalChoice{{ID: "window", Label: "For 30 minutes"}, {ID: "once", Label: "Once"}}}}
+}
+
+func TestApprovalOverlayAllowsWithTheOptionOfANumber(t *testing.T) {
+	model := NewApprovalOverlay(credentialItem())
+	for keyName, want := range map[string]string{"1": "window", "2": "once", "y": "window"} {
+		_, cmd := model.Update(key(keyName))
+		msg, ok := cmd().(ApprovalDecideMsg)
+		if !ok || msg.ID != "ap-9" || !msg.Allow || msg.Option != want {
+			t.Errorf("%s: message = %#v, want option %s", keyName, cmd(), want)
+		}
+	}
+	if _, cmd := model.Update(key("3")); cmd != nil {
+		t.Errorf("3 with two options sent %#v", cmd())
+	}
+}
+
+func TestApprovalOverlayListsTheWaysToAllow(t *testing.T) {
+	view := NewApprovalOverlay(credentialItem()).View()
+	for _, want := range []string{"1 for 30 minutes", "2 once", "n deny"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the view does not say %q:\n%s", want, view)
+		}
+	}
+}

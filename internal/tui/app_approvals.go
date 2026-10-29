@@ -26,7 +26,7 @@ type approvalsLoadedMsg struct {
 type approvalUpdateMsg struct{}
 
 // SetApprovalService lets the TUI count pending approvals on every view and
-// answer them with ! (an overlay of y, n, j/k).
+// answer them with ! (an overlay of y, 1-9, n, j/k).
 func (a *App) SetApprovalService(svc ApprovalService) {
 	a.approvalSvc = svc
 }
@@ -98,7 +98,8 @@ func (a App) openApprovalOverlay() (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// decideApproval allows with the first way to allow, denies a permission, or
+// decideApproval allows with the chosen way to allow (the first when none
+// is named), denies a permission, or
 // dismisses a question, then reads the list again.
 func (a App) decideApproval(msg overlay.ApprovalDecideMsg) tea.Cmd {
 	svc := a.approvalSvc
@@ -117,7 +118,7 @@ func (a App) decideApproval(msg overlay.ApprovalDecideMsg) tea.Cmd {
 		var err error
 		switch {
 		case msg.Allow:
-			_, err = svc.Decide(ctx, msg.ID, service.ApprovalDecision{Decision: service.ApprovalAllow, By: "tui"})
+			_, err = svc.Decide(ctx, msg.ID, service.ApprovalDecision{Decision: service.ApprovalAllow, Option: msg.Option, By: "tui"})
 		case question:
 			_, err = svc.Dismiss(ctx, msg.ID, "", "tui")
 		default:
@@ -164,8 +165,10 @@ func approvalItems(approvals []service.Approval) []overlay.ApprovalItem {
 		}
 		for _, option := range approval.Options {
 			if option.Kind == service.ApprovalAllow {
-				item.AllowLabel = option.Label
-				break
+				if item.AllowLabel == "" {
+					item.AllowLabel = option.Label
+				}
+				item.Allows = append(item.Allows, overlay.ApprovalChoice{ID: option.ID, Label: option.Label})
 			}
 		}
 		items = append(items, item)

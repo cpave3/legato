@@ -130,3 +130,27 @@ func TestNDeniesAPermissionAndDismissesAQuestion(t *testing.T) {
 		t.Fatalf("dismissed = %v", approvals.dismissed)
 	}
 }
+
+func TestANumberAllowsACredentialWithThatOption(t *testing.T) {
+	credential := service.Approval{
+		Approval: store.Approval{ID: "ap-9", Source: service.ApprovalSourceCredential, TaskID: "t1", Title: "Use legato_default", Summary: "ssh.login on ssh://cameron@psi.pavey.network"},
+		Details:  json.RawMessage(`{}`),
+		Options: []service.ApprovalOption{
+			{ID: "window", Label: "For 30 minutes", Kind: service.ApprovalAllow},
+			{ID: "once", Label: "Once", Kind: service.ApprovalAllow},
+			{ID: "deny", Label: "Deny", Kind: service.ApprovalDeny},
+		},
+	}
+	approvals := &fakeApprovals{pending: []service.Approval{credential}}
+	app := newApprovalsApp(t, approvals)
+	app = run(t, app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("!")})
+	if !strings.Contains(app.View(), "2 once") {
+		t.Fatalf("the overlay does not offer once:\n%s", app.View())
+	}
+
+	app = run(t, app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("2")})
+
+	if len(approvals.decisions) != 1 || approvals.decisions[0].Option != "once" || approvals.decisions[0].Decision != service.ApprovalAllow {
+		t.Fatalf("decisions = %+v", approvals.decisions)
+	}
+}
