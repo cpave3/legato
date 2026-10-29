@@ -38,7 +38,7 @@ func (s *Server) writeResourceError(w http.ResponseWriter, err error) {
 		s.writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, store.ErrNotFound):
 		s.writeError(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, service.ErrNoNativeEndpoint):
+	case errors.Is(err, service.ErrNoNativeEndpoint), errors.Is(err, service.ErrSandboxFixed):
 		s.writeError(w, http.StatusConflict, err.Error())
 	default:
 		s.writeError(w, http.StatusInternalServerError, err.Error())

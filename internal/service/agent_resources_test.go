@@ -170,3 +170,16 @@ func TestAttachingResourcesNeedsANativeSession(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestResourcesCannotBeAddedToARunningSandboxedAgent(t *testing.T) {
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend)
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	err := svc.(ResourceAttacher).AttachResources(context.Background(), "task-1", []Resource{{Name: "Vault", Paths: []ResourcePath{{Path: t.TempDir(), Access: "read"}}}})
+	if !errors.Is(err, ErrSandboxFixed) || !strings.Contains(err.Error(), "without the sandbox") {
+		t.Fatalf("err = %v", err)
+	}
+}
