@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
@@ -126,17 +127,32 @@ func runCredentialContract(verb string, args []string) int {
 	ctx := context.Background()
 
 	if verb == "list" {
+		// A vault's keys are listed with the configured credentials.
+		refreshCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		refreshErr := broker.RefreshSources(refreshCtx)
+		cancel()
 		list := broker.Credentials()
+		sources := broker.Sources()
 		var b strings.Builder
-		if len(list) == 0 {
-			b.WriteString("No credentials are configured (credentials: in config.yaml).\n")
+		if len(list) == 0 && len(sources) == 0 {
+			b.WriteString("No credentials are configured (credentials: or credential_sources: in config.yaml).\n")
 		}
 		w := tabwriter.NewWriter(&b, 0, 4, 2, ' ', 0)
 		for _, c := range list {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%d rules\n", c.Name, c.Profile, c.Secret, len(c.Rules))
+			where := c.Secret
+			if c.Source != "" {
+				where = "from " + c.Source
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%d rules\n", c.Name, c.Profile, where, len(c.Rules))
 		}
 		_ = w.Flush()
-		return writeCommandSuccess(command, map[string]any{"credentials": list}, b.String(), jsonMode)
+		for _, src := range sources {
+			fmt.Fprintf(&b, "Vault %s gives every SSH key in it (profile %s).\n", src.Vault, src.Profile)
+		}
+		if refreshErr != nil {
+			fmt.Fprintf(&b, "Could not list a vault: %v\n", refreshErr)
+		}
+		return writeCommandSuccess(command, map[string]any{"credentials": list, "sources": sources}, b.String(), jsonMode)
 	}
 
 	if len(parsed.Positionals) != 1 {

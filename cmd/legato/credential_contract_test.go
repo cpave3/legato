@@ -131,3 +131,30 @@ func TestCredentialListAndTheAuditLog(t *testing.T) {
 		t.Fatalf("verify exited %d", code)
 	}
 }
+
+func TestCredentialListAsksTheVaultForItsKeys(t *testing.T) {
+	root := t.TempDir()
+	bin := filepath.Join(root, "bin")
+	_ = os.MkdirAll(bin, 0o755)
+	fakeOp := "#!/bin/sh\n" +
+		"if [ \"$1 $2\" = \"item list\" ]; then echo '[{\"id\":\"id-1\",\"title\":\"legato_default\",\"version\":1,\"vault\":{\"id\":\"v1\",\"name\":\"Legato\"}}]'; exit 0; fi\n" +
+		"exit 1\n"
+	if err := os.WriteFile(filepath.Join(bin, "op"), []byte(fakeOp), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	configYAML := "db:\n  path: " + filepath.Join(root, "legato.db") + "\n" +
+		"data_dir: " + filepath.Join(root, "data") + "\n" +
+		"credential_sources:\n  - vault: op://Legato\n"
+	configPath := filepath.Join(root, "config.yaml")
+	_ = os.WriteFile(configPath, []byte(configYAML), 0o600)
+	t.Setenv("LEGATO_CONFIG", configPath)
+
+	out := captureStdout(t, func() int { return runCLI([]string{"credential", "list"}) })
+	if !strings.Contains(out, "legato_default") || !strings.Contains(out, "op://Legato") {
+		t.Fatalf("list = %q", out)
+	}
+	if strings.Contains(out, "No credentials") {
+		t.Fatalf("list = %q", out)
+	}
+}
