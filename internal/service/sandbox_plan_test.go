@@ -224,3 +224,34 @@ func TestAConfigFileBesideTheWorkIsHiddenNotItsFolder(t *testing.T) {
 		t.Fatal("the config file is not hidden")
 	}
 }
+
+func TestAnAgentSeesOnlyItsOwnToolsInstallation(t *testing.T) {
+	in := baseInput()
+	fs := hostFS()
+	fs["/var/home/me/Projects/chimera"] = "dir"
+	fs["/var/home/me/.local/share/claude/versions"] = "dir"
+	in.FS = fs
+	in.ToolInstalls = map[string][]string{
+		"chimera":     {"/var/home/me/Projects/chimera"},
+		"claude-code": {"/var/home/me/.local/share/claude/versions"},
+	}
+	for kind, want := range map[string]string{"claude-code": "/var/home/me/.local/share/claude/versions", "chimera": "/var/home/me/Projects/chimera"} {
+		in.AgentKind = kind
+		plan, err := BuildSandboxPlan(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := mounted(plan)
+		if got, ok := m[want]; !ok || got.Kind != sandbox.ReadOnly {
+			t.Errorf("%s: its installation %s = %+v", kind, want, got)
+		}
+		for other, paths := range in.ToolInstalls {
+			if other == kind {
+				continue
+			}
+			if _, ok := m[paths[0]]; ok {
+				t.Errorf("%s sees %s's installation %s", kind, other, paths[0])
+			}
+		}
+	}
+}

@@ -24,7 +24,7 @@ Built by `service.BuildSandboxPlan` from the host's real paths (links resolved f
 | `/tmp` | the execution's own folder on the host, `<runtime>/legato/sandbox/<execution>/tmp`, so the host can read what an agent writes there |
 | The working directory, and a worktree's main `.git` | read-write |
 | The agent tool's own state (`~/.claude`, `~/.claude.json`, `~/.codex`, `~/.chimera`, …) | read-write |
-| The agent tool's installation (where its command's link leads, or the git checkout a launcher script runs, as for Chimera linked with `pnpm link`) | read-only, found when Legato starts |
+| The agent tool's installation (where its command's link leads, or the git checkout a launcher script runs, as for Chimera linked with `pnpm link`) | read-only, found when Legato starts; only the installation of the tool the agent runs (`ToolInstalls`, by agent kind), so a Claude Code agent does not see a Chimera checkout |
 | Toolchains (`~/.local/bin`, mise, `~/go/bin`, linuxbrew, Rust, Bun, …) | read-only, with `default_mounts` |
 | Package and build caches (`~/go/pkg/mod`, `~/.cache/go-build`, npm, pnpm, Corepack, pip, uv, cargo registry, Playwright) | read-write, with `default_mounts` |
 | `<data_dir>/claude-mod`, `<data_dir>/repos` | read-only |
@@ -45,6 +45,10 @@ bwrap is not setuid on most systems, so it always makes a user namespace, and th
 - **Known hosts.** The copy of `ssh_config` starts with `UserKnownHostsFile <that folder>/known_hosts`, and `credential_channels.ssh_agent.known_hosts` is mounted there read-only: the file Legato's SSH agent names hosts by. It holds host keys, not secrets. A host it does not list cannot be verified, and the agent's `ssh` stops there.
 - **Keys.** None: `~/.ssh` stays hidden. A login is signed by Legato's SSH agent socket for the execution, when an `ssh` credential covers the host (see [Credentials](credentials.md) § SSH agent); otherwise ssh starts and finds no key.
 - **Git fetches from GitHub.** With a `github` credential, a sandboxed session also sends fetches from `git@github.com:` and `ssh://git@github.com/` to `https://github.com/` (`sandboxGitFetches`, added after the session's `GIT_CONFIG_*`), where Legato's credential helper gives read tokens; pushes from those forms already go to the proxy through `pushInsteadOf`. So a clone whose `origin` is an ssh URL fetches and pushes with no ssh key. The repository must be in the credential's `settings.repositories`. The proxy's `/git/` route serves pushes only and answers fetches `403`.
+
+## What sandboxes share
+
+Each sandbox has its own namespaces, `/tmp`, ssh copies and mounts; nothing is kept from one to the next. What two sandboxes see in common is what both are given from the host: the person's toolchains and caches, the system, and each tool's own state. All Claude Code agents share `~/.claude` read-write (their login, and every project's transcripts), as all Codex agents share `~/.codex`. The sandbox keeps secrets from agents; it does not keep agents of one tool from each other's state.
 
 ## Commands an agent runs
 

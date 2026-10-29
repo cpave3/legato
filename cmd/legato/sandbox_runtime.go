@@ -25,10 +25,12 @@ func sandboxSettings(cfg *config.Config) *service.SandboxSettings {
 	for _, m := range cfg.Agents.Sandbox.Mounts {
 		extra = append(extra, service.SandboxPath{Path: m.Path, Access: m.Access})
 	}
-	// The agent tools' own installations, read-only: a tool linked from a
-	// checkout (pnpm link) lives outside every default mount.
-	for _, path := range toolInstallPaths([]string{"claude", "codex", "chimera"}) {
-		extra = append(extra, service.SandboxPath{Path: path, Access: "read"})
+	// Each agent tool's own installation, read-only, for its own agents: a
+	// tool linked from a checkout (pnpm link) lives outside every default
+	// mount, and other agents have no business in that checkout.
+	installs := map[string][]string{}
+	for kind, command := range map[string]string{"claude-code": "claude", "codex": "codex", "chimera": "chimera"} {
+		installs[kind] = toolInstallPaths([]string{command})
 	}
 	return &service.SandboxSettings{
 		Backend: sandbox.Bwrap{},
@@ -37,7 +39,7 @@ func sandboxSettings(cfg *config.Config) *service.SandboxSettings {
 			DataDir: config.ResolveDataDir(cfg), ConfigPath: config.ResolveConfigPath(),
 			BinaryPath: legatoBinary(), DefaultMounts: cfg.Agents.Sandbox.DefaultMountsOn(), Extra: extra,
 			CredentialWrapperDir: filepath.Join(runtimeDir, wrapperDirName), GHConfigDir: ghConfigDir(cfg, runtimeDir),
-			GitIdentity: gitIdentity(), KnownHosts: cfg.CredentialChannels.SSHAgent.KnownHosts,
+			GitIdentity: gitIdentity(), KnownHosts: cfg.CredentialChannels.SSHAgent.KnownHosts, ToolInstalls: installs,
 		},
 	}
 }

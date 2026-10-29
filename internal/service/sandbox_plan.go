@@ -85,7 +85,10 @@ type SandboxPlanInput struct {
 	SSHConfigDir         string        // where the copies of the system ssh configuration are
 	SSHConfig            []SSHConfigCopy
 	KnownHosts           string // the known_hosts file the SSH agent names hosts by
-	FS                   FSProbe
+	// ToolInstalls are each agent tool's installation, by agent kind; a
+	// sandbox sees only its own tool's, read-only.
+	ToolInstalls map[string][]string
+	FS           FSProbe
 }
 
 // systemPaths are the host's system, read-only. A path that is a symbolic
@@ -187,6 +190,13 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		in.BinaryPath, in.GitCommonDir, in.AgentFilesDir, in.PastedImagesDir = real(in.BinaryPath), real(in.GitCommonDir), real(in.AgentFilesDir), real(in.PastedImagesDir)
 		in.CredentialWrapperDir, in.GHConfigDir = real(in.CredentialWrapperDir), real(in.GHConfigDir)
 		in.SSHConfigDir, in.KnownHosts = real(in.SSHConfigDir), real(in.KnownHosts)
+		installs := make(map[string][]string, len(in.ToolInstalls))
+		for kind, paths := range in.ToolInstalls {
+			for _, p := range paths {
+				installs[kind] = append(installs[kind], real(p))
+			}
+		}
+		in.ToolInstalls = installs
 		extra := make([]SandboxPath, len(in.Extra))
 		for i, e := range in.Extra {
 			extra[i] = SandboxPath{Path: real(e.Path), Access: e.Access}
@@ -238,6 +248,13 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	}
 	for _, rel := range agentState[in.AgentKind] {
 		add(filepath.Join(in.Home, rel), sandbox.ReadWrite)
+	}
+	for _, path := range in.ToolInstalls[in.AgentKind] {
+		path = filepath.Clean(path)
+		if err := check(path); err != nil {
+			return sandbox.Plan{}, err
+		}
+		add(path, sandbox.ReadOnly)
 	}
 	if in.DataDir != "" {
 		add(filepath.Join(in.DataDir, "claude-mod"), sandbox.ReadOnly)
