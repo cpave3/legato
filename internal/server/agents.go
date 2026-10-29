@@ -120,6 +120,8 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			Resources  []string `json:"resources"`
 			// Sandbox false starts this agent outside Legato's sandbox.
 			Sandbox *bool `json:"sandbox"`
+			// Prompt is the agent's first message.
+			Prompt string `json:"prompt"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -146,6 +148,7 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			WorkingDir:  req.WorkingDir,
 			Resources:   resources,
 			Unsandboxed: req.Sandbox != nil && !*req.Sandbox,
+			Prompt:      req.Prompt,
 		}
 		if err := s.agents.SpawnEphemeralAgent(context.Background(), req.Title, 0, 0, opts); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -441,6 +444,11 @@ type taskAgentService interface {
 	SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error
 }
 
+// messageQueuer sends a message to a running agent.
+type messageQueuer interface {
+	QueueMessage(ctx context.Context, taskID, message string) error
+}
+
 func (s *Server) taskAgentHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -461,21 +469,35 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if _, err := agents.CaptureOutput(r.Context(), taskID); err == nil {
-			s.writeJSON(w, http.StatusOK, map[string]any{"task_id": taskID, "created": false})
-			return
-		}
 		var req struct {
 			AgentKind     string   `json:"agent_kind"`
 			WorkingDir    string   `json:"working_dir"`
 			SessionPolicy string   `json:"session_policy"`
 			Resources     []string `json:"resources"`
 			Sandbox       *bool    `json:"sandbox"`
+			// Prompt is the agent's first message, or a message to the
+			// agent already running.
+			Prompt string `json:"prompt"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&req); err != nil && err != io.EOF {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if _, err := agents.CaptureOutput(r.Context(), taskID); err == nil {
+			if prompt := strings.TrimSpace(req.Prompt); prompt != "" {
+				queuer, ok := s.agents.(messageQueuer)
+				if !ok {
+					http.Error(w, "this server cannot message a running agent", http.StatusServiceUnavailable)
+					return
+				}
+				if err := queuer.QueueMessage(r.Context(), taskID, prompt); err != nil {
+					http.Error(w, err.Error(), http.StatusBadGateway)
+					return
+				}
+			}
+			s.writeJSON(w, http.StatusOK, map[string]any{"task_id": taskID, "created": false})
 			return
 		}
 		// The spawn dialog writes paths under the home directory with a tilde.
@@ -487,7 +509,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox}
+		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt}
 		effectiveAdapter := req.AgentKind
 		if effectiveAdapter == "" {
 			effectiveAdapter = agents.DefaultAdapter()
