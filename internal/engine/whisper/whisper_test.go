@@ -161,7 +161,7 @@ func buildWAV(channels int, sampleRate int, pcm []byte) []byte {
 	copy(header[8:12], "WAVE")
 	copy(header[12:16], "fmt ")
 	binary.LittleEndian.PutUint32(header[16:20], 16) // fmt chunk size
-	binary.LittleEndian.PutUint16(header[20:22], 1)   // PCM format
+	binary.LittleEndian.PutUint16(header[20:22], 1)  // PCM format
 	binary.LittleEndian.PutUint16(header[22:24], uint16(channels))
 	binary.LittleEndian.PutUint32(header[24:28], uint32(sampleRate))
 	binary.LittleEndian.PutUint32(header[28:32], uint32(byteRate))
@@ -175,11 +175,11 @@ func buildWAV(channels int, sampleRate int, pcm []byte) []byte {
 
 // wyomingTestServer is a TCP server that mimics wyoming-faster-whisper.
 type wyomingTestServer struct {
-	ln      net.Listener
+	ln         net.Listener
 	transcript string
-	inspect  func(eventType string, payload []byte)
-	sendError bool
-	errorMsg  string
+	inspect    func(eventType string, payload []byte)
+	sendError  bool
+	errorMsg   string
 }
 
 func newWyomingTestServer(t *testing.T, transcript string) *wyomingTestServer {
@@ -214,7 +214,7 @@ func newWyomingServerWithOpts(t *testing.T, transcript string, inspect func(stri
 	return srv
 }
 
-func (s *wyomingTestServer) Close() { s.ln.Close() }
+func (s *wyomingTestServer) Close()       { s.ln.Close() }
 func (s *wyomingTestServer) Addr() string { return s.ln.Addr().String() }
 
 func (s *wyomingTestServer) serve() {

@@ -372,3 +372,33 @@ func TestOnlyLegatosHelperAnswersForGitHub(t *testing.T) {
 		t.Fatalf("git credential fill: %v\n%s", err, out)
 	}
 }
+
+func TestEveryRepositoryOfAnOwnerCanBeListedAtOnce(t *testing.T) {
+	approvals, db, _ := newApprovalFixture(t)
+	createTask(t, db, "task-1")
+	_ = db.CreateExecution(context.Background(), store.Execution{ID: "ex-1", Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: "task-1", ExecutionTaskID: "task-1", StartedAt: time.Now().UTC()})
+	broker, err := NewCredentialBroker(db, approvals, CredentialBrokerOptions{
+		Credentials: []config.CredentialConfig{{Name: "gh", Secret: "env://GH_APP_KEY", Profile: "github", Type: "keypair",
+			Settings: config.CredentialSettings{ClientID: "Iv1", Repositories: []string{"cpave3/*", "autopilot-dev/autopilot"}}}},
+		WaitTimeout: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for repo, allowed := range map[string]bool{"cpave3/legato": true, "cpave3/new-thing": true, "autopilot-dev/autopilot": true, "autopilot-dev/other": false} {
+		d, _ := broker.Authorize(ctx, CredentialUse{TaskID: "task-1", ExecutionID: "ex-1", Credential: "gh", Operation: "git.read", Resource: "github:" + repo})
+		if d.Allowed != allowed {
+			t.Errorf("%s: %+v, want allowed %v", repo, d, allowed)
+		}
+		if !allowed && !strings.Contains(d.Reason, "settings.repositories") {
+			t.Errorf("%s: reason %q", repo, d.Reason)
+		}
+	}
+	// A push to a legato/ branch of any cpave3 repository is asked for once.
+	d, _ := broker.CheckUse(ctx, CredentialUse{TaskID: "task-1", ExecutionID: "ex-1", Credential: "gh", Operation: "git.push", Resource: "github:cpave3/new-thing@refs/heads/legato/x"})
+	approval, _ := approvals.Get(ctx, d.ApprovalID)
+	if approval == nil || approval.Options[0].ID != "session" {
+		t.Fatalf("approval = %+v", approval)
+	}
+}

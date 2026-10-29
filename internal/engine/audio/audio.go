@@ -43,8 +43,8 @@ type Recorder struct {
 	lookPath func(name string) (string, error)
 	started  bool
 	cmd      *exec.Cmd
-	pcmBuf   []byte   // accumulated raw PCM from the pipe
-	pcmPath  string   // temp file path written by Stop, cleaned by Cleanup
+	pcmBuf   []byte // accumulated raw PCM from the pipe
+	pcmPath  string // temp file path written by Stop, cleaned by Cleanup
 	levels   []float64
 	stopChan chan struct{}
 }

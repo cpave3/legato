@@ -69,9 +69,12 @@ func has(list []string, want string) bool {
 // requests through Legato's API address.
 func githubGuidance(c service.CredentialSummary) string {
 	repo := "<owner>/<repo>"
-	if len(c.Repositories) > 0 {
-		repo = c.Repositories[0]
+	for _, r := range c.Repositories {
+		if !strings.Contains(r, "*") {
+			repo = r
+			break
+		}
 	}
-	return fmt.Sprintf(`- %s (GitHub, for %s): fetch and pull as usual; Legato's git credential helper gives you a read token for each of these repositories, and gh reads with one too. Work on a branch named legato/$LEGATO_TASK_ID-<a few words>. Before your first push, ask for that one branch with request_access: credential %s, operation git.push, resource github:%s@refs/heads/legato/<the rest of your branch name>; ask for one branch, not a pattern. Then git push as usual: pushes go through Legato, which checks each branch. Pushing to the default branch, pushing tags and deleting branches are refused. A refused push says why in git's output; one that says pending ap-… waits for the person: carry on or end your turn, and push again after the [legato approvals] message. Open a pull request through Legato, not gh: curl -sS -X POST "$LEGATO_GITHUB_API_URL/repos/%s/pulls" -H "Authorization: Bearer $LEGATO_GITHUB_TOKEN" -d '{"head":"<your branch>","base":"<the default branch>","title":"…","body":"…"}' (it is asked for the same way, with operation pr.create). Never push with your own key, another remote or another token.
+	return fmt.Sprintf(`- %s (GitHub, for %s; owner/* is every repository of that owner): fetch and pull as usual; Legato's git credential helper gives you a read token for each of these repositories, and gh reads with one too. Work on a branch named legato/$LEGATO_TASK_ID-<a few words>. Before your first push, ask for that one branch with request_access: credential %s, operation git.push, resource github:%s@refs/heads/legato/<the rest of your branch name>; ask for one branch, not a pattern. Then git push as usual: pushes go through Legato, which checks each branch. Pushing to the default branch, pushing tags and deleting branches are refused. A refused push says why in git's output; one that says pending ap-… waits for the person: carry on or end your turn, and push again after the [legato approvals] message. Open a pull request through Legato, not gh: curl -sS -X POST "$LEGATO_GITHUB_API_URL/repos/%s/pulls" -H "Authorization: Bearer $LEGATO_GITHUB_TOKEN" -d '{"head":"<your branch>","base":"<the default branch>","title":"…","body":"…"}' (it is asked for the same way, with operation pr.create). Never push with your own key, another remote or another token.
 `, c.Name, strings.Join(c.Repositories, ", "), c.Name, repo, repo)
 }

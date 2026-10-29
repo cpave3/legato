@@ -50,7 +50,8 @@ type CredentialSettings struct {
 	Key      CredentialKeyPlace `yaml:"key"`
 	// ClientID and Repositories are what the github profile needs: the
 	// GitHub App's client ID (or App ID), and the owner/name repositories
-	// agents may use.
+	// agents may use; owner/* is every repository of an owner the App is
+	// installed on.
 	ClientID     string   `yaml:"client_id"`
 	Repositories []string `yaml:"repositories"`
 }
@@ -133,7 +134,7 @@ var (
 	secretSchemes  = []string{"legato", "op", "systemd-creds", "keychain", "env", "file"}
 	masterKeys     = []string{"auto", "systemd-creds", "secret-service", "keychain", "passphrase", "file"}
 	credentialName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-	githubRepo     = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+	githubRepo     = regexp.MustCompile(`^[A-Za-z0-9_.-]+/([A-Za-z0-9_.-]+|\*)$`)
 	limitPattern   = regexp.MustCompile(`^\s*(\d+)\s*/\s*(minute|hour|day|week)\s*$`)
 )
 
@@ -249,7 +250,7 @@ func normalizeCredentialSettings(c *CredentialConfig) error {
 		for i, repo := range s.Repositories {
 			s.Repositories[i] = strings.TrimSpace(repo)
 			if !githubRepo.MatchString(s.Repositories[i]) {
-				return fmt.Errorf("settings.repositories: %q: want owner/name", repo)
+				return fmt.Errorf("settings.repositories: %q: want owner/name, or owner/* for every repository of an owner", repo)
 			}
 		}
 	}

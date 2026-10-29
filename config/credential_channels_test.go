@@ -148,21 +148,22 @@ credentials:
     profile: github
     settings:
       client_id: Iv23liAbC
-      repositories: [cpave3/legato, cpave3/chimera]
+      repositories: [cpave3/legato, cpave3/chimera, my-org/*]
 `)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := cfg.Credentials[0].Settings
-	if s.ClientID != "Iv23liAbC" || len(s.Repositories) != 2 || s.Repositories[1] != "cpave3/chimera" {
+	if s.ClientID != "Iv23liAbC" || len(s.Repositories) != 3 || s.Repositories[1] != "cpave3/chimera" || s.Repositories[2] != "my-org/*" {
 		t.Fatalf("settings = %+v", s)
 	}
 	for name, settings := range map[string]string{
-		"no client id":    "{repositories: [cpave3/legato]}",
-		"no repositories": "{client_id: Iv1}",
-		"not owner/name":  "{client_id: Iv1, repositories: [legato]}",
-		"a pattern":       "{client_id: Iv1, repositories: ['cpave3/*']}",
+		"no client id":     "{repositories: [cpave3/legato]}",
+		"no repositories":  "{client_id: Iv1}",
+		"not owner/name":   "{client_id: Iv1, repositories: [legato]}",
+		"a name pattern":   "{client_id: Iv1, repositories: ['cpave3/leg*']}",
+		"an owner pattern": "{client_id: Iv1, repositories: ['*/legato']}",
 	} {
 		writeTestConfig(t, "credentials:\n  - name: gh-broken\n    secret: legato://k\n    profile: github\n    settings: "+settings+"\n")
 		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "gh-broken") {

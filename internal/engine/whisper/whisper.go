@@ -51,10 +51,10 @@ func NewClient(rawURL string) *Client {
 
 // wyomingEvent is the JSON header sent over the TCP connection.
 type wyomingEvent struct {
-	Type           string                 `json:"type"`
-	Data           map[string]interface{} `json:"data,omitempty"`
-	DataLength     int                    `json:"data_length,omitempty"`
-	PayloadLength  int                    `json:"payload_length,omitempty"`
+	Type          string                 `json:"type"`
+	Data          map[string]interface{} `json:"data,omitempty"`
+	DataLength    int                    `json:"data_length,omitempty"`
+	PayloadLength int                    `json:"payload_length,omitempty"`
 }
 
 // Transcribe sends raw 16-bit little-endian PCM audio (mono) to the Wyoming

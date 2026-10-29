@@ -1011,11 +1011,22 @@ func personGrants(grants []store.CredentialGrant) []store.CredentialGrant {
 // its repositories, that the repository is not one of them.
 func noRuleReason(c brokerCredential, operation, resource string) string {
 	if repos := c.config.Settings.Repositories; len(repos) > 0 {
-		if repo, err := repoOf(resource); err == nil && !listHas(repos, repo) {
+		if repo, err := repoOf(resource); err == nil && !repoListed(repos, repo) {
 			return fmt.Sprintf("%s is not one of the repositories of %s (settings.repositories in config.yaml)", repo, c.config.Name)
 		}
 	}
 	return fmt.Sprintf("no rule of %s allows %s on %s", c.config.Name, operation, orAll(resource))
+}
+
+// repoListed reports whether owner/name is in a list of repositories, where
+// owner/* stands for every repository of that owner.
+func repoListed(list []string, repo string) bool {
+	for _, entry := range list {
+		if entry == repo || credential.Covers("github:"+entry, "github:"+repo) {
+			return true
+		}
+	}
+	return false
 }
 
 // withCall adds what the channel saw to an audit detail.
