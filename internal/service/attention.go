@@ -40,6 +40,7 @@ const (
 	AttentionSignalWorkflowTriggerFailed       = "workflow_trigger_failed"
 	AttentionSignalWorkflowCompletion          = "workflow_completion"
 	AttentionSignalLearningCuratorWork         = "learning_curator_work"
+	AttentionSignalApproval                    = "approval"
 )
 
 var defaultAttentionSignals = []string{
@@ -54,6 +55,7 @@ var defaultAttentionSignals = []string{
 	AttentionSignalWorkflowTriggerInput,
 	AttentionSignalWorkflowTriggerConfirmation,
 	AttentionSignalWorkflowTriggerFailed,
+	AttentionSignalApproval,
 }
 
 var knownAttentionSignals = map[string]bool{
@@ -70,6 +72,7 @@ var knownAttentionSignals = map[string]bool{
 	AttentionSignalWorkflowTriggerFailed:       true,
 	AttentionSignalWorkflowCompletion:          true,
 	AttentionSignalLearningCuratorWork:         true,
+	AttentionSignalApproval:                    true,
 }
 
 type AttentionInput struct {

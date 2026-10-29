@@ -34,6 +34,7 @@ const (
 	EventAttentionChanged
 	EventLearningChanged
 	EventAgentUIChanged
+	EventApprovalChanged
 )
 
 // ErrorPayload carries structured error information for error events.
@@ -118,6 +119,15 @@ type AgentUIChangedPayload struct {
 	Placement string
 	Revision  int
 	Kind      string // "shown", "deleted"
+}
+
+// ApprovalChangedPayload is published when an approval request is created or
+// closed: decided, dismissed, withdrawn, expired or failed.
+type ApprovalChangedPayload struct {
+	ApprovalID string
+	TaskID     string
+	Source     string
+	Kind       string // "created", or the approval's new status
 }
 
 type WorkflowChangedPayload struct {

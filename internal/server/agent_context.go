@@ -34,6 +34,9 @@ type contextWatcher struct {
 	read            func(ctx context.Context, endpoint, sessionID string) (*chimera.SessionContext, error)
 	subscribeEvents chimeraSubscribeFunc
 	retryDelay      time.Duration
+	// external: the agents' events arrive through Observe, from a watcher
+	// that already holds each agent's stream, so none is opened here.
+	external bool
 
 	mu       sync.Mutex
 	watches  map[string]*contextWatch
@@ -108,9 +111,37 @@ func (w *contextWatcher) ensure(taskID, endpoint, sessionID string) {
 	go w.follow(ctx, taskID, watch)
 }
 
+// UseExternalEvents stops the watcher opening event streams of its own: the
+// events are passed to Observe instead.
+func (w *contextWatcher) UseExternalEvents() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.external = true
+}
+
+// Observe takes one event of a watched agent's stream.
+func (w *contextWatcher) Observe(taskID string, event chimera.EventEnvelope) {
+	reading, ok := contextFromEvent(event)
+	if !ok {
+		return
+	}
+	w.mu.Lock()
+	watch := w.watches[taskID]
+	w.mu.Unlock()
+	if watch != nil {
+		w.record(taskID, watch, reading)
+	}
+}
+
 func (w *contextWatcher) follow(ctx context.Context, taskID string, watch *contextWatch) {
 	if reading, err := w.read(ctx, watch.endpoint, watch.sessionID); err == nil && reading.LastPromptTokens != nil && reading.ContextWindow > 0 {
 		w.record(taskID, watch, agentContextReading{Used: *reading.LastPromptTokens, Window: reading.ContextWindow})
+	}
+	w.mu.Lock()
+	external := w.external
+	w.mu.Unlock()
+	if external {
+		return
 	}
 
 	failures := 0

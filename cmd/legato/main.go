@@ -1553,7 +1553,10 @@ func runServeCmd(args []string) int {
 	} else {
 		log.Printf("workflows: %v", workflowErr)
 	}
-	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, triggerCoordinator)
+	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
+	defer approvalsRT.stop()
+	approvalsRT.attach(srv)
+	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT.approvals, triggerCoordinator)
 	srv.SetMacros(cfg.Macros)
 	srv.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
@@ -1617,6 +1620,7 @@ func runServeCmd(args []string) int {
 	if certFile != "" {
 		scheme = "https"
 	}
+	approvalsRT.SetServerURL(scheme, port)
 	fmt.Printf("Legato web UI: %s://localhost:%s\n", scheme, port)
 	defer announceWebServer(cfg, port)()
 	if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
@@ -1800,6 +1804,11 @@ func runTUI() int {
 		worktreeSvc = service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector())
 	}
 
+	// Approval requests, and the watcher that turns native agents' own
+	// requests into them, whether or not the web server runs.
+	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
+	defer approvalsRT.stop()
+
 	// Auto-start web server if configured and port is free.
 	stopAnnouncing := func() {}
 	if cfg.Web.Enabled {
@@ -1826,7 +1835,8 @@ func runTUI() int {
 				webSrv.SetReflectionWorkflowService(tuiWorkflowSvc)
 				webSrv.SetWorkflowTriggerCoordinator(triggerCoordinator)
 			}
-			wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, triggerCoordinator)
+			approvalsRT.attach(webSrv)
+			wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT.approvals, triggerCoordinator)
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)
@@ -1846,6 +1856,11 @@ func runTUI() int {
 			}
 			if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
 				wirePairing(webSrv, cfg, caCertFile, strconv.Itoa(tcp.Port))
+				scheme := "http"
+				if certFile != "" {
+					scheme = "https"
+				}
+				approvalsRT.SetServerURL(scheme, strconv.Itoa(tcp.Port))
 			}
 			webSrv.StartSwarmEvents()
 			webSrv.StartAgentLifecycleEvents()
@@ -1907,6 +1922,7 @@ func runTUI() int {
 		_ = attentionSvc.RegisterHandler(triggerAdapter.Producer(), triggerAdapter)
 		app.SetWorkflowTriggerCoordinator(triggerCoordinator, workflowRepositoryPresets(cfg))
 	}
+	registerApprovalAttention(attentionSvc, approvalsRT.approvals)
 	attentionSvc.StartEventReconciliation(context.Background())
 	if err := attentionSvc.ReconcileAll(context.Background()); err != nil {
 		log.Printf("attention: startup reconciliation: %v", err)

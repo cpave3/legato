@@ -947,3 +947,31 @@ func TestAgentsMCPConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestApprovalNotificationsAreOnByDefaultAndCanBeTurnedOff(t *testing.T) {
+	writeTestConfig(t, "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Notifications.ApprovalsEnabled() {
+		t.Fatal("approval notifications are off by default")
+	}
+
+	writeTestConfig(t, "notifications:\n  approvals: false\nweb:\n  public_url: https://legato.example.net:3080/\n")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Notifications.ApprovalsEnabled() {
+		t.Fatal("notifications.approvals: false left them on")
+	}
+	if cfg.Web.PublicURL != "https://legato.example.net:3080" {
+		t.Fatalf("public_url = %q, want it without the trailing slash", cfg.Web.PublicURL)
+	}
+
+	writeTestConfig(t, "web:\n  public_url: legato.lan\n")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "web.public_url") {
+		t.Fatalf("error = %v, want one about web.public_url", err)
+	}
+}

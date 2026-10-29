@@ -58,11 +58,17 @@ func (n *ntfyNotifier) Configured() bool { return true }
 // Notify sends the notification synchronously.
 // Callers that need fire-and-forget should wrap the call in a goroutine.
 func (n *ntfyNotifier) Notify(title, message string) error {
-	n.doNotify(title, message)
+	n.doNotify(title, message, "")
 	return nil
 }
 
-func (n *ntfyNotifier) doNotify(title, message string) {
+// NotifyLink sends a notification that opens link when clicked.
+func (n *ntfyNotifier) NotifyLink(title, message, link string) error {
+	n.doNotify(title, message, link)
+	return nil
+}
+
+func (n *ntfyNotifier) doNotify(title, message, link string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -73,6 +79,9 @@ func (n *ntfyNotifier) doNotify(title, message string) {
 	}
 	req.Header.Set("Title", title)
 	req.Header.Set("Priority", "default")
+	if link != "" {
+		req.Header.Set("Click", link)
+	}
 	if n.token != "" {
 		req.Header.Set("Authorization", "Bearer "+n.token)
 	}

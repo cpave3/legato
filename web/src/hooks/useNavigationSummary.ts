@@ -11,6 +11,8 @@ export interface NavigationSummary {
   agents: number
   // Learnings waiting for a decision; absent from an older server.
   learning?: number
+  // Approvals waiting for the person; absent from an older server.
+  approvals?: number
 }
 
 export async function fetchNavigationSummary(baseUrl: string): Promise<NavigationSummary> {

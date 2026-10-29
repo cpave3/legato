@@ -50,6 +50,10 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           invalidate(queryKeys.attention(baseUrl))
           invalidate(queryKeys.navigationSummary(baseUrl))
           break
+        case "approvals_changed":
+          invalidate(queryKeys.approvals(baseUrl))
+          invalidate(queryKeys.navigationSummary(baseUrl))
+          break
         case "workflow_changed":
           invalidate(queryKeys.workflowRuns(baseUrl))
           if (message.workflow_run_id) invalidate(queryKeys.workflowRun(baseUrl, message.workflow_run_id))

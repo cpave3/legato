@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -159,10 +160,13 @@ func TestDiscoverChimeraDoesNotAttachToReplacementAgent(t *testing.T) {
 
 	verificationStarted := make(chan struct{})
 	continueVerification := make(chan struct{})
+	// A discovery loop left running by an earlier test can find this
+	// lockfile too, so the instance may be asked more than once.
+	var started sync.Once
 	chimeraServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/instance":
-			close(verificationStarted)
+			started.Do(func() { close(verificationStarted) })
 			<-continueVerification
 			fmt.Fprint(w, `{"pid":123}`)
 		case "/v1/sessions/TASK-42":

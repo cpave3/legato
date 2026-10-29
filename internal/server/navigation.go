@@ -31,6 +31,15 @@ func (s *Server) learningCandidates(ctx context.Context) (int, error) {
 	return counter.CandidateCount(ctx)
 }
 
+// pendingApprovals is how many approvals wait for the person; none without
+// an approval service.
+func (s *Server) pendingApprovals(ctx context.Context) (int, error) {
+	if s.approvals == nil {
+		return 0, nil
+	}
+	return s.approvals.CountPending(ctx)
+}
+
 type navigationSummary struct {
 	Attention         int `json:"attention"`
 	Review            int `json:"review"`
@@ -38,6 +47,7 @@ type navigationSummary struct {
 	WorkflowAttention int `json:"workflow_attention"`
 	Agents            int `json:"agents"`
 	Learning          int `json:"learning"`
+	Approvals         int `json:"approvals"`
 }
 
 func (s *Server) navigationSummaryHandler() http.HandlerFunc {
@@ -97,6 +107,10 @@ func (s *Server) navigationSummaryHandler() http.HandlerFunc {
 		}
 		summary.Agents = working + waiting + agentErrors
 		if summary.Learning, err = s.learningCandidates(r.Context()); err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if summary.Approvals, err = s.pendingApprovals(r.Context()); err != nil {
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

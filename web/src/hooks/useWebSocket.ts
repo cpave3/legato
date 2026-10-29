@@ -6,7 +6,7 @@ export interface WSMessage {
   type: "agent_output" | "agent_list" | "agents_changed" | "prompt_state" | "error" | "chimera_event" | "chimera_sync_required"
     | "subscribe_agent" | "unsubscribe_agent" | "send_keys" | "resize" | "detect_prompt" | "refresh_pane"
     | "agent_message" | "agent_interrupt" | "agent_permission" | "agent_question"
-    | "plan_proposed" | "plan_verdict" | "plan_changed" | "swarm_changed" | "cards_changed" | "review_changed" | "workflow_changed" | "attention_changed"
+    | "plan_proposed" | "plan_verdict" | "plan_changed" | "swarm_changed" | "cards_changed" | "review_changed" | "workflow_changed" | "attention_changed" | "approvals_changed"
     | "agent_ui_changed" | "agent_context" | "pairing_changed"
   agent_id?: string
   // How full a native agent's context window is (agent_context).

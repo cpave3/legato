@@ -275,3 +275,25 @@ func TestServeIPCMessage_KeepsItsExistingRoutes(t *testing.T) {
 		t.Fatalf("workflow change was not passed on: %+v", notifier)
 	}
 }
+
+// An approval created or closed in another Legato process (a CLI command, an
+// agent's `legato mcp serve`, a second runtime) reaches this one's tray and
+// Attention, in the TUI and in `legato serve`.
+func TestApprovalChangedReachesTheBusInBothRuntimes(t *testing.T) {
+	for name, handle := range map[string]func(ipc.Message, *events.Bus){
+		"tui":   func(m ipc.Message, b *events.Bus) { handleIPCMessage(m, b, nil) },
+		"serve": func(m ipc.Message, b *events.Bus) { handleServeIPCMessage(m, b, &recordingServeNotifier{}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bus := events.New()
+			ch := bus.Subscribe(events.EventApprovalChanged)
+
+			handle(ipc.Message{Type: "approval_changed", TaskID: "task1", ItemID: "ap-1234abcd", Kind: "created"}, bus)
+
+			payload, ok := drainEvent(t, ch).Payload.(events.ApprovalChangedPayload)
+			if !ok || payload.ApprovalID != "ap-1234abcd" || payload.TaskID != "task1" || payload.Kind != "created" {
+				t.Fatalf("payload = %+v", payload)
+			}
+		})
+	}
+}

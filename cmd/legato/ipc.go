@@ -31,7 +31,7 @@ func handleServeIPCMessage(msg ipc.Message, bus *events.Bus, srv serveNotifier) 
 	switch msg.Type {
 	case "task_update", "task_note", "agent_state", "pr_linked":
 		srv.NotifyAgentChanged(msg.TaskID)
-	case "review_changed", "plan_changed", "agent_ui_changed":
+	case "review_changed", "plan_changed", "agent_ui_changed", "approval_changed":
 		handleIPCMessage(msg, bus, nil)
 	case "workflow_changed":
 		srv.NotifyWorkflowChanged(msg.WorkflowRunID, msg.WorkflowStepID)
@@ -87,6 +87,12 @@ func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 				StepID: msg.StepID,
 				Kind:   msg.Kind,
 			},
+		})
+	case "approval_changed":
+		// An approval was created or closed in another Legato process.
+		bus.Publish(events.Event{
+			Type: events.EventApprovalChanged, At: time.Now(),
+			Payload: events.ApprovalChangedPayload{ApprovalID: msg.ItemID, TaskID: msg.TaskID, Kind: msg.Kind},
 		})
 	case "agent_ui_changed":
 		// An agent showed something through its own `legato mcp serve`.

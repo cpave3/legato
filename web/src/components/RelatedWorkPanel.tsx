@@ -13,6 +13,7 @@ const KIND_LABEL: Record<LegatoNavigationKind, string> = {
   review: "Review",
   workflow_run: "Workflow",
   task: "Task",
+  approval: "Approval",
 }
 
 interface RelatedWorkPanelProps {

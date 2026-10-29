@@ -1,5 +1,5 @@
 /** Navigation kinds shared with the attention registry and task-activity. */
-export type LegatoNavigationKind = "plan" | "review" | "workflow_run" | "task"
+export type LegatoNavigationKind = "plan" | "review" | "workflow_run" | "task" | "approval"
 
 export interface LegatoNavigation {
   kind: LegatoNavigationKind
@@ -24,6 +24,8 @@ export function legatoHref(navigation: { kind: string; target: string }): string
       return `/workflows/runs/${encodeURIComponent(navigation.target)}`
     case "task":
       return "/board"
+    case "approval":
+      return `/attention?approval=${encodeURIComponent(navigation.target)}`
     default:
       return null
   }

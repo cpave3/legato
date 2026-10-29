@@ -231,6 +231,14 @@ type NtfyConfig struct {
 type NotificationsConfig struct {
 	Ntfy NtfyConfig            `yaml:"ntfy"`
 	OS   OSNotificationsConfig `yaml:"os"`
+	// Approvals sends an ntfy notification for each new approval request.
+	// Default true.
+	Approvals *bool `yaml:"approvals"`
+}
+
+// ApprovalsEnabled reports whether new approvals send a notification.
+func (n NotificationsConfig) ApprovalsEnabled() bool {
+	return n.Approvals == nil || *n.Approvals
 }
 
 // OSNotificationsConfig holds OS-native desktop notification settings.
@@ -245,6 +253,10 @@ type WebConfig struct {
 	// Discovery announces the web server on the local network (mDNS) so the
 	// Legato app can find it. Default true.
 	Discovery *bool `yaml:"discovery"`
+	// PublicURL is the address a phone uses for this server, in the links of
+	// approval notifications. Optional: without it Legato uses the first
+	// local network address it announces.
+	PublicURL string `yaml:"public_url"`
 }
 
 type GitHubConfig struct {
@@ -412,6 +424,11 @@ func Load() (*Config, error) {
 	}
 	if err := normalizeResources(cfg); err != nil {
 		return nil, err
+	}
+	if cfg.Web.PublicURL != "" {
+		if u, err := url.Parse(cfg.Web.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return nil, fmt.Errorf("web.public_url %q: want an http or https address", cfg.Web.PublicURL)
+		}
 	}
 	return cfg, nil
 }
@@ -754,6 +771,7 @@ func applyDefaults(cfg *Config) {
 		cfg.Notifications.Ntfy.URL = "https://ntfy.sh"
 	}
 	applySSHAgent(cfg)
+	cfg.Web.PublicURL = strings.TrimRight(strings.TrimSpace(cfg.Web.PublicURL), "/")
 	// VimMode defaults to true — yaml unmarshals missing bool as false,
 	// so we only set it if the entire keybindings section was absent.
 	// Since yaml zero-value for bool is false, we handle this in defaults().

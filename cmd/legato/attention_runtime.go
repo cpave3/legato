@@ -12,7 +12,7 @@ import (
 
 // wireAttention builds an AttentionService with all runtime producers
 // registered and reconciled, then attaches it to the server.
-func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *server.Server, planSvc *service.PlanService, reviewSvc *service.ReviewService, agentSvc service.AgentService, workflowSvc *service.WorkflowService, triggerCoordinator ...*service.WorkflowTriggerCoordinator) *service.AttentionService {
+func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *server.Server, planSvc *service.PlanService, reviewSvc *service.ReviewService, agentSvc service.AgentService, workflowSvc *service.WorkflowService, approvals *service.ApprovalService, triggerCoordinator ...*service.WorkflowTriggerCoordinator) *service.AttentionService {
 	attention := service.NewAttentionService(db, bus)
 	if planSvc != nil {
 		adapter := service.NewPlanAttentionAdapter(planSvc)
@@ -39,6 +39,8 @@ func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *s
 		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventWorkflowTriggerChanged))
 		mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
 	}
+
+	registerApprovalAttention(attention, approvals)
 
 	attention.StartEventReconciliation(ctx)
 

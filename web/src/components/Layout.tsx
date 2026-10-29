@@ -4,6 +4,7 @@ import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
 import { OfflineDialog } from "./OfflineDialog"
+import { ApprovalTray } from "./ApprovalTray"
 import { AgentSelectionProvider } from "../hooks/useAgentSelection"
 import { useNavigationSummary } from "../hooks/useNavigationSummary"
 import { navSections } from "../lib/navSections"
@@ -41,6 +42,7 @@ export function Layout() {
           <button className="shrink-0 rounded bg-amber-400 px-3 py-1.5 font-medium text-zinc-950" onClick={retryUpdate}>Reload update</button>
         </div>
       )}
+      {(summary?.approvals ?? 0) > 0 && <ApprovalTray />}
       <OfflineDialog />
       <PlanApprovalModal />
       </div>

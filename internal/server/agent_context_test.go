@@ -220,3 +220,33 @@ func TestAgentsEndpointCarriesTheLastContextReading(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+// With the service layer's approval watcher holding each agent's stream, the
+// context watcher opens none of its own and reads the events it is given.
+func TestContextWatcherReadsTheEventsItIsGivenInsteadOfItsOwnStream(t *testing.T) {
+	h := newContextHarness(t)
+	subscribed := false
+	h.watcher.subscribeEvents = func(context.Context, string, string, string, func(chimera.EventEnvelope)) error {
+		subscribed = true
+		return nil
+	}
+	h.watcher.UseExternalEvents()
+	h.watcher.Reconcile([]string{"task-a"})
+	h.waitFor(func() bool { return h.watcher.watching("task-a") })
+
+	data, _ := json.Marshal(map[string]any{"type": "usage_updated", "usedContextTokens": 1200, "contextWindow": 200_000})
+	h.watcher.Observe("task-a", chimera.EventEnvelope{Type: "usage_updated", Data: data})
+	h.watcher.Observe("task-b", chimera.EventEnvelope{Type: "usage_updated", Data: data})
+
+	h.waitFor(func() bool { return len(h.contextMessages()) == 1 })
+	if got := h.contextMessages()[0]; got.AgentID != "task-a" || got.ContextUsed != 1200 {
+		t.Fatalf("message = %+v", got)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if subscribed {
+		t.Fatal("the context watcher opened its own stream")
+	}
+	if !h.watcher.watching("task-a") {
+		t.Fatal("the agent is no longer watched")
+	}
+}
