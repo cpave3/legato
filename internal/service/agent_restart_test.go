@@ -18,6 +18,7 @@ type restartFixture struct {
 	svc   AgentService
 	store *store.Store
 	tmux  *mockTmux
+	bus   *recordingPublisher
 }
 
 func newRestartFixture(t *testing.T) restartFixture {
@@ -29,11 +30,12 @@ func newRestartFixture(t *testing.T) restartFixture {
 	}
 	t.Cleanup(func() { s.Close() })
 	mt := newMockTmux()
+	bus := &recordingPublisher{}
 	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
-		Adapter: hooks.NewClaudeCodeAdapter("legato"), DisablePeerAwareness: true, BriefKickoffDelay: time.Millisecond,
+		Adapter: hooks.NewClaudeCodeAdapter("legato"), DisablePeerAwareness: true, BriefKickoffDelay: time.Millisecond, EventBus: bus,
 	})
 	svc.(*agentService).nativeBindTimeout = time.Millisecond
-	return restartFixture{svc: svc, store: s, tmux: mt}
+	return restartFixture{svc: svc, store: s, tmux: mt, bus: bus}
 }
 
 // reportConversation records the conversation the running agent of taskID
@@ -88,6 +90,30 @@ func TestRestartAgentStartsItAgainResumingItsConversation(t *testing.T) {
 	old, err := f.store.GetExecution(ctx, before.ExecutionID)
 	if err != nil || old.Status != store.ExecutionCancelled {
 		t.Fatalf("old execution = %#v, %v; want it cancelled", old, err)
+	}
+}
+
+// A restarted agent has not ended, so nothing that acts on an agent ending
+// (a workflow waiting for it, a swarm conductor) hears that it died.
+func TestRestartAgentDoesNotAnnounceThatTheAgentDied(t *testing.T) {
+	f := newRestartFixture(t)
+	ctx := context.Background()
+	createTask(t, f.store, "task-r")
+	cwd := t.TempDir()
+	if err := f.svc.SpawnAgent(ctx, "task-r", 0, 0, AgentSpawnOptions{AgentKind: "claude-code", WorkingDir: cwd}); err != nil {
+		t.Fatal(err)
+	}
+	f.reportConversation(t, "task-r", cwd)
+
+	if err := f.svc.(AgentRestarter).RestartAgent(ctx, "task-r", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(f.bus.calls) != 0 {
+		t.Fatalf("died events = %v, want none for a restart", f.bus.calls)
+	}
+	if len(f.bus.starts) != 2 {
+		t.Fatalf("started events = %v, want one for the start and one for the restart", f.bus.starts)
 	}
 }
 

@@ -1060,6 +1060,12 @@ func (a *agentService) DefaultAdapter() string {
 }
 
 func (a *agentService) KillAgent(ctx context.Context, taskID string) error {
+	return a.stopAgent(ctx, taskID, true)
+}
+
+// stopAgent ends the agent of taskID. announce says whether the agent has
+// ended for good: a restart stops it without announcing that it died.
+func (a *agentService) stopAgent(ctx context.Context, taskID string, announce bool) error {
 	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
 	if err != nil {
 		// No running session — delete dead records
@@ -1080,7 +1086,7 @@ func (a *agentService) KillAgent(ctx context.Context, taskID string) error {
 	// Publish AgentDied so the swarm conductor (and any other subscribers)
 	// receive the same notification regardless of whether the kill came from
 	// an explicit user/conductor action or external session termination.
-	if a.bus != nil {
+	if a.bus != nil && announce {
 		parent := ""
 		if session.ParentTaskID != nil {
 			parent = *session.ParentTaskID

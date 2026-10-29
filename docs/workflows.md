@@ -33,7 +33,7 @@ The web dialogs for spawning an ephemeral agent or opening an agent for an exist
 Version 1 executes steps in declaration order and supports these executors:
 
 - `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
-- `agent.run`: launch a workflow-owned Legato agent with an explicit assignment and completion contract. Set `with.name` to customize the agent's visible name; workflow input references are supported. The agent is removed after completing its step.
+- `agent.run`: launch a workflow-owned Legato agent with an explicit assignment and completion contract. Set `with.name` to customize the agent's visible name; workflow input references are supported. The agent is removed after completing its step, unless `with.keep_agent: true`: then its outputs are collected and the run moves on as usual, but the agent keeps running on the workflow task, for the person to go on talking to. Follow it with a step with `trigger: agent_ended` to end the run (and remove a worktree) when that agent ends.
 - `agent.dispatch`: send a prompt to the selected task's ordinary durable agent, or spawn that task-linked agent in `with.working_dir` when none is active. The workflow does not own or tear down this session. Outputs include `agent_session_id`, `created`, and `working_dir`.
 - `agent.stop`: idempotently stop the active agent for the resolved `with.task`. Built-in Learn does not use it because interviews borrow the original task session; curator and critic agents run under the separate generated workflow task.
 - `worktree.remove`: validate and remove the shared task's worktree through Yggdrasil, then clear task metadata.
@@ -174,7 +174,7 @@ steps:
         type: json
 ```
 
-Inputs support `string`, `integer`, `boolean`, `json`, `task`, and `repository`. A task input is supplied as an existing Legato task ID and resolves to structured `id`, `title`, `description`, `status`, `priority`, `provider`, `remote_id`, `working_dir`, and local `metadata` fields. A repository input accepts a configured preset name or Custom JSON and resolves to `name`, `repo`, `primary_dir`, and `base_branch`. The web form groups selectable tasks by workspace and hides Done and archived tasks by default; enable **Show done and archived tasks** in the selector to include them. Outputs support scalar/JSON types plus `file`. File output paths support declared workflow input references and resolve separately for each run; for example, `path: "task-triage-${{ workflow.inputs.task.id }}.md"` prevents concurrent task runs from sharing a source file. File outputs infer a media type from known filename extensions when `media_type` is omitted, including `text/markdown` for `.md` and `.markdown`; unknown or extensionless files use `application/octet-stream`. Declare `media_type` when the format is known—an explicit value always overrides inference. Steps default to `trigger: automatic`; set `trigger: manual` to pause the run before that executor starts. A manual step creates no attempt until explicitly triggered with `legato workflow trigger <run-id> <step-id>`. While waiting, the run is non-terminal and contributes to the Workflows attention badge. Unknown fields, unsupported executors, unsafe paths, forward references, and undeclared references fail validation before a run starts.
+Inputs support `string`, `integer`, `boolean`, `json`, `task`, and `repository`. A task input is supplied as an existing Legato task ID and resolves to structured `id`, `title`, `description`, `status`, `priority`, `provider`, `remote_id`, `working_dir`, and local `metadata` fields. A repository input accepts a configured preset name or Custom JSON and resolves to `name`, `repo`, `primary_dir`, and `base_branch`. The web form groups selectable tasks by workspace and hides Done and archived tasks by default; enable **Show done and archived tasks** in the selector to include them. Outputs support scalar/JSON types plus `file`. File output paths support declared workflow input references and resolve separately for each run; for example, `path: "task-triage-${{ workflow.inputs.task.id }}.md"` prevents concurrent task runs from sharing a source file. File outputs infer a media type from known filename extensions when `media_type` is omitted, including `text/markdown` for `.md` and `.markdown`; unknown or extensionless files use `application/octet-stream`. Declare `media_type` when the format is known—an explicit value always overrides inference. Steps default to `trigger: automatic`; set `trigger: manual` to pause the run before that executor starts. A manual step creates no attempt until explicitly triggered with `legato workflow trigger <run-id> <step-id>`. While waiting, the run is non-terminal and contributes to the Workflows attention badge. Set `trigger: agent_ended` to wait the same way for the agent of the workflow task (`${{ workflow.task }}`, such as one started by `agent.dispatch`) to end: when that agent is killed or exits, the step starts by itself, and it can still be triggered by hand. A restart (**Reload agent**) is not an end. A run that reaches such a step with no agent running goes straight on, a Legato that starts finds and starts steps whose agent ended while it was not running, and a run waiting on a running agent does not count toward the Workflows attention badge. Unknown fields, unsupported executors, unsafe paths, forward references, and undeclared references fail validation before a run starts.
 
 Templates support only:
 
@@ -240,6 +240,34 @@ steps:
 ```
 
 Keep the move last: if investigation, note publication, metadata, or cleanup fails, the subject remains in its original column.
+
+A workflow can hold a conversation: `agent.dispatch` on the workflow task starts an agent the workflow does not wait on, and an `agent_ended` step cleans up after it. The person ends the conversation by ending the agent, or with the step's trigger on the run page, which stops the agent first:
+
+```yaml
+steps:
+  - id: prepare
+    title: Prepare pull request
+    type: github.pr.prepare
+    with: {repo: ${{ workflow.inputs.repo }}, number: ${{ workflow.inputs.pr_number }}, primary_dir: ${{ workflow.inputs.primary_dir }}}
+    outputs:
+      worktree_path: {type: string}
+  - id: discuss
+    title: Start the discussion agent
+    type: agent.dispatch
+    with:
+      task: ${{ workflow.task }}
+      working_dir: ${{ steps.prepare.outputs.worktree_path }}
+      prompt: Get across this pull request's change set, then answer questions about it.
+  - id: end
+    title: End discussion
+    type: agent.stop
+    trigger: agent_ended
+    with: {task: ${{ workflow.task }}}
+  - id: cleanup
+    title: Remove worktree
+    type: worktree.remove
+    with: {expected_path: ${{ steps.prepare.outputs.worktree_path }}}
+```
 
 ## Running and inspecting
 

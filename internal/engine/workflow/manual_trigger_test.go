@@ -39,3 +39,47 @@ func TestInvalidStepTriggerRejected(t *testing.T) {
 		t.Fatal("invalid trigger was accepted")
 	}
 }
+
+// A step can wait for the workflow task's agent to end, so a person ends a
+// conversation by closing the agent.
+func TestAgentEndedTriggerIsAccepted(t *testing.T) {
+	definition, err := workflow.Parse("discuss.yaml", []byte(`
+schema_version: 1
+name: discuss
+title: Discuss
+steps:
+  - id: discuss
+    title: Discuss
+    type: agent.dispatch
+    with:
+      task: ${{ workflow.task }}
+      working_dir: /repo
+      prompt: Read the diff.
+  - id: end
+    title: End discussion
+    type: agent.stop
+    trigger: agent_ended
+    with:
+      task: ${{ workflow.task }}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := definition.Steps[1].Trigger; got != "agent_ended" {
+		t.Fatalf("trigger = %q, want agent_ended", got)
+	}
+	if !definition.Steps[1].WaitsForPerson() || definition.Steps[0].WaitsForPerson() {
+		t.Fatal("an agent_ended step waits like a manual one; an automatic step does not")
+	}
+}
+
+func TestAgentRunKeepAgentMustBeTrueOrFalse(t *testing.T) {
+	for _, value := range []string{"true", "false"} {
+		if _, err := workflow.Parse("keep.yaml", []byte("schema_version: 1\nname: keep\ntitle: Keep\nsteps:\n  - id: run\n    title: Run\n    type: agent.run\n    with: {prompt: run, keep_agent: "+value+"}\n")); err != nil {
+			t.Fatalf("keep_agent: %s rejected: %v", value, err)
+		}
+	}
+	if _, err := workflow.Parse("keep.yaml", []byte("schema_version: 1\nname: keep\ntitle: Keep\nsteps:\n  - id: run\n    title: Run\n    type: agent.run\n    with: {prompt: run, keep_agent: \"yes\"}\n")); err == nil {
+		t.Fatal(`keep_agent: "yes" was accepted`)
+	}
+}

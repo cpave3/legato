@@ -201,6 +201,9 @@ func (s *WorkflowService) Show(ctx context.Context, runID string) (*store.Workfl
 
 func (s *WorkflowService) enrichWorkflowAttention(ctx context.Context, view *store.WorkflowRunView) {
 	for _, step := range view.Steps {
+		if step.Status == "waiting_manual" && waitsForAgentToEnd(view.Run) && s.taskHasRunningAgent(ctx, view.Run.TaskID) {
+			break
+		}
 		if step.Status == "waiting_manual" {
 			view.Run.NeedsAttention = true
 			view.Run.AttentionReason = "manual action required: " + step.Title
@@ -285,7 +288,7 @@ func (s *WorkflowService) TriggerStep(ctx context.Context, runID, stepID string,
 	if err != nil {
 		return nil, err
 	}
-	if view.Run.Status != "waiting" || view.Run.CurrentStepID != stepID || definition.Steps[index].Trigger != "manual" || view.Steps[index].Status != "waiting_manual" {
+	if view.Run.Status != "waiting" || view.Run.CurrentStepID != stepID || !definition.Steps[index].WaitsForPerson() || view.Steps[index].Status != "waiting_manual" {
 		return nil, store.ErrWorkflowStateConflict
 	}
 	if force && definition.Steps[index].Type != "worktree.remove" {
@@ -435,6 +438,11 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 	if err != nil {
 		return nil, err
 	}
+	// keep_agent leaves the step's agent running once its outputs are in, for
+	// a later step (such as one triggered by agent_ended) to end.
+	if keep, _ := resolved.With["keep_agent"].(bool); keep {
+		return completed, nil
+	}
 	if executor, ok := s.executors[attempt.ExecutorType].(interface {
 		Finish(context.Context, store.WorkflowStepAttempt) error
 	}); ok {
@@ -498,7 +506,10 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		if isTriggered && step.Type == "worktree.remove" {
 			resolved.With["force"] = force
 		}
-		if step.Trigger == "manual" && !isTriggered {
+		// A step that waits for the task's agent to end has nothing to wait
+		// for when no agent is running.
+		agentGone := step.Trigger == workflowengine.TriggerAgentEnded && !s.taskHasRunningAgent(ctx, taskID)
+		if step.WaitsForPerson() && !isTriggered && !agentGone {
 			resolvedJSON, _ := json.Marshal(resolved.With)
 			if err := s.store.WaitWorkflowStepManual(ctx, runID, step.ID, string(resolvedJSON)); err != nil {
 				return err

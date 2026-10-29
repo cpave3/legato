@@ -1487,6 +1487,9 @@ func runServeCmd(args []string) int {
 		agentSvc = service.NewAgentService(db, mgr, wd, service.AgentServiceOptions{
 			Adapter: defaultAdapter, Adapters: adapters,
 			Notifier: notifier, OSNotifier: osNotifier,
+			// Agents starting and ending reach the swarm, attention and
+			// workflow loops of this process, as they do in the TUI's.
+			EventBus:               service.AgentDiedPublisher{Bus: bus},
 			LearningPromptProvider: learningPromptProvider(cfg, db, bus),
 			LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
@@ -1546,6 +1549,7 @@ func runServeCmd(args []string) int {
 		triggerCoordinator = buildWorkflowTriggerCoordinator(db, workflowSvc, cfg, bus)
 		srv.SetWorkflowTriggerCoordinator(triggerCoordinator)
 		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()
+		defer workflowSvc.StartAgentEndedLoop(context.Background(), bus)()
 	} else {
 		log.Printf("workflows: %v", workflowErr)
 	}
@@ -1785,6 +1789,7 @@ func runTUI() int {
 		tuiWorkflowSvc = built
 		triggerCoordinator = buildWorkflowTriggerCoordinator(db, tuiWorkflowSvc, cfg, bus)
 		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()
+		defer tuiWorkflowSvc.StartAgentEndedLoop(context.Background(), bus)()
 	} else {
 		log.Printf("workflows: %v", workflowErr)
 	}

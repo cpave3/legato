@@ -54,7 +54,7 @@ func (a *agentService) RestartAgent(ctx context.Context, taskID string, resource
 			return err
 		}
 	}
-	if err := a.KillAgent(ctx, taskID); err != nil {
+	if err := a.stopAgent(ctx, taskID, false); err != nil {
 		return err
 	}
 	return a.SpawnAgent(ctx, taskID, 0, 0, opt)

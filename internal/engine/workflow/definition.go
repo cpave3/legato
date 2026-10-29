@@ -133,7 +133,7 @@ func (d *Definition) Validate() error {
 		if step.Trigger == "" {
 			step.Trigger = "automatic"
 		}
-		if step.Trigger != "automatic" && step.Trigger != "manual" {
+		if step.Trigger != "automatic" && step.Trigger != "manual" && step.Trigger != TriggerAgentEnded {
 			return fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger)
 		}
 		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.dispatch" && step.Type != "agent.interview" && step.Type != "agent.stop" && step.Type != "worktree.remove" && step.Type != "file.remove" && step.Type != "task.context" && step.Type != "task.working_dir.resolve" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "task.move" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" && step.Type != "chimera.session.remove" {
@@ -193,6 +193,12 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 		if column, ok := step.With["column"]; ok {
 			if text, literal := column.(string); !literal || (len(expressionPattern.FindAllStringSubmatch(text, -1)) == 0 && strings.TrimSpace(text) == "") {
 				return fmt.Errorf("with column must be a non-empty string")
+			}
+		}
+	case "agent.run":
+		if keep, ok := step.With["keep_agent"]; ok {
+			if _, boolean := keep.(bool); !boolean {
+				return fmt.Errorf("with keep_agent must be true or false")
 			}
 		}
 	case "agent.stop":
@@ -582,4 +588,14 @@ func resolveExpression(expr string, current map[string]Output, inputs, workflowT
 		return output.Path, nil
 	}
 	return nil, fmt.Errorf("unsupported expression %q", expr)
+}
+
+// TriggerAgentEnded makes a step wait as a manual one does, and start by
+// itself when the agent of the workflow task ends.
+const TriggerAgentEnded = "agent_ended"
+
+// WaitsForPerson reports whether the run pauses before this step until it is
+// triggered: by hand, or for an agent_ended step also by its agent ending.
+func (s Step) WaitsForPerson() bool {
+	return s.Trigger == "manual" || s.Trigger == TriggerAgentEnded
 }
