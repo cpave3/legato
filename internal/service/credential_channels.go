@@ -47,6 +47,10 @@ type CredentialChannelsOptions struct {
 	// WrapperDir holds the gh wrapper a session with a GitHub credential
 	// finds first on its PATH.
 	WrapperDir string
+	// GHConfigDir, when set, is the empty gh configuration a session with
+	// a GitHub credential gets (GH_CONFIG_DIR), so its gh never finds the
+	// person's own login.
+	GHConfigDir string
 }
 
 // CredentialChannels are the channels that give agents credentials without
@@ -134,6 +138,17 @@ func (c *CredentialChannels) SessionEnv(ctx context.Context, taskID, executionID
 				legato = "legato"
 			}
 			githubEnv(env, legato, bc.config.Name, base, strings.TrimSuffix(bc.profile.Git, "/"))
+			if c.opts.GHConfigDir != "" {
+				if err := os.MkdirAll(c.opts.GHConfigDir, 0o700); err != nil {
+					log.Printf("credentials: the agents' gh configuration: %v", err)
+				} else {
+					_ = os.Chmod(c.opts.GHConfigDir, 0o700)
+					env["GH_CONFIG_DIR"] = c.opts.GHConfigDir
+					// gh takes GH_TOKEN before its keyring, where the
+					// person's login is; the wrapper puts a read token here.
+					env["GH_TOKEN"] = GHSignedOut
+				}
+			}
 			if c.opts.WrapperDir != "" {
 				if err := writeGHWrapper(c.opts.WrapperDir, legato); err != nil {
 					log.Printf("credentials: the gh wrapper: %v", err)

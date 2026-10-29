@@ -76,6 +76,22 @@ type CredentialSourceConfig struct {
 type CredentialChannelsConfig struct {
 	HTTPProxy HTTPProxyChannelConfig `yaml:"http_proxy"`
 	SSHAgent  SSHAgentChannelConfig  `yaml:"ssh_agent"`
+	GH        GHChannelConfig        `yaml:"gh"`
+}
+
+// GHChannelConfig is how agents' gh runs when a GitHub credential is
+// configured.
+type GHChannelConfig struct {
+	// IsolateLogin gives each agent session an empty gh configuration, so
+	// gh never finds the person's own login: it reads with Legato's read
+	// token, or is signed out. Default true; false lets agents' gh fall
+	// back to the person's login when Legato gives no token.
+	IsolateLoginSetting *bool `yaml:"isolate_login"`
+}
+
+// IsolateLogin reports whether agents' gh is kept from the person's login.
+func (g GHChannelConfig) IsolateLogin() bool {
+	return g.IsolateLoginSetting == nil || *g.IsolateLoginSetting
 }
 
 // HTTPProxyChannelConfig is the loopback proxy for API keys.

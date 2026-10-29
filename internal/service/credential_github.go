@@ -245,6 +245,11 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// GHSignedOut is the GH_TOKEN an agent session's gh starts with when the
+// person's login is kept from agents: gh takes GH_TOKEN before its keyring,
+// so it never reaches the login. GitHub refuses it as bad credentials.
+const GHSignedOut = "legato-signed-out"
+
 // writeGHWrapper writes dir/gh: the real gh, run with a read token for the
 // repository the command acts on when Legato gives one. Without a real gh
 // there is no wrapper.
@@ -267,7 +272,10 @@ func writeGHWrapper(dir, legato string) error {
 		"# Legato: gh with a read token for one repository. Writes go through\n" +
 		"# Legato's proxy ($LEGATO_GITHUB_API_URL), not through gh.\n" +
 		"token=$(" + shellQuote(legato) + " credential gh-token -- \"$@\" 2>/dev/null)\n" +
-		"if [ -n \"$token\" ]; then GH_TOKEN=$token; export GH_TOKEN; fi\n" +
+		"if [ -n \"$token\" ]; then GH_TOKEN=$token; export GH_TOKEN\n" +
+		"elif [ \"$GH_TOKEN\" = " + GHSignedOut + " ]; then\n" +
+		"  echo \"legato: gh has no GitHub token for this command: name a listed repository with -R owner/name, or run it inside a clone. Agents' gh never uses the person's own login (credential_channels.gh.isolate_login).\" >&2\n" +
+		"fi\n" +
 		"exec " + shellQuote(real) + " \"$@\"\n"
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err

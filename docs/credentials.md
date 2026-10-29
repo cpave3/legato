@@ -97,6 +97,14 @@ Agents read your repositories, push to `legato/…` branches and open pull reque
    A repository that is not listed is refused, whatever the App is installed on.
 6. **A backstop (optional).** In each repository, Settings › Rules › Rulesets › New branch ruleset: target every branch except `legato/**`, restrict creations, updates and deletions, and add your own role to the bypass list. GitHub then refuses the App outside `legato/**` even if Legato had a bug. Rulesets on private repositories need a paid plan.
 
+Agents' `gh` reads with Legato's read tokens and never with your own `gh` login. If you want agents to use your login for queries (`gh api`, searches across repositories), turn that off:
+
+```yaml
+credential_channels:
+  gh:
+    isolate_login: false
+```
+
 In an agent session, `git fetch` and `git pull` get read tokens from Legato's credential helper, and `git push` (to `https://github.com/…` or `git@github.com:…`) goes to Legato's proxy. Agents are told to work on `legato/<task ID>-<a few words>`, to ask for that one branch before the first push, and to open pull requests with the API address Legato gives them (`$LEGATO_GITHUB_API_URL`), not with `gh`, which only reads.
 
 PR tracking keeps its own read access (`github.auth`); this changes nothing there.

@@ -33,6 +33,15 @@ const (
 	wrapperDirName   = "bin"
 )
 
+// ghConfigDir is the empty gh configuration agent sessions get, or "" when
+// the person lets agents' gh use their login.
+func ghConfigDir(cfg *config.Config, dir string) string {
+	if !cfg.CredentialChannels.GH.IsolateLogin() {
+		return ""
+	}
+	return filepath.Join(dir, "gh-config")
+}
+
 // legatoBinary is this binary's path, which sessions run as git's
 // credential helper.
 func legatoBinary() string {
@@ -92,6 +101,7 @@ func startChannelHost(ctx context.Context, cfg *config.Config, db *store.Store, 
 		OnSession:    h.sessionStarting,
 		LegatoBin:    legatoBinary(),
 		WrapperDir:   filepath.Join(dir, wrapperDirName),
+		GHConfigDir:  ghConfigDir(cfg, dir),
 	})
 	if !h.channels.HasProxy() && !h.channels.HasSSH() {
 		return h
@@ -359,6 +369,7 @@ func attachCredentialChannels(cfg *config.Config, db *store.Store, agents servic
 		KnownHosts:   cfg.CredentialChannels.SSHAgent.KnownHosts,
 		LegatoBin:    legatoBinary(),
 		WrapperDir:   filepath.Join(dir, wrapperDirName),
+		GHConfigDir:  ghConfigDir(cfg, dir),
 	}))
 }
 

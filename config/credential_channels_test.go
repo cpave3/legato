@@ -171,3 +171,16 @@ credentials:
 		}
 	}
 }
+
+func TestAgentsGHIsKeptFromThePersonsLoginUnlessTurnedOff(t *testing.T) {
+	writeTestConfig(t, "")
+	cfg, err := Load()
+	if err != nil || !cfg.CredentialChannels.GH.IsolateLogin() {
+		t.Fatalf("default isolate = %v, %v; want on", cfg.CredentialChannels.GH.IsolateLogin(), err)
+	}
+	writeTestConfig(t, "credential_channels:\n  gh:\n    isolate_login: false\n")
+	cfg, err = Load()
+	if err != nil || cfg.CredentialChannels.GH.IsolateLogin() {
+		t.Fatalf("isolate = %v, %v; want off", cfg.CredentialChannels.GH.IsolateLogin(), err)
+	}
+}

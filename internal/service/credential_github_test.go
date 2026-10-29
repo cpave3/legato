@@ -402,3 +402,54 @@ func TestEveryRepositoryOfAnOwnerCanBeListedAtOnce(t *testing.T) {
 		t.Fatalf("approval = %+v", approval)
 	}
 }
+
+func TestASessionsGHHasAnEmptyConfigurationOfItsOwn(t *testing.T) {
+	f := newGitHubFixture(t)
+	if _, ok := f.env["GH_CONFIG_DIR"]; ok {
+		t.Fatal("GH_CONFIG_DIR set with isolation off")
+	}
+	if _, ok := f.env["GH_TOKEN"]; ok {
+		t.Fatal("GH_TOKEN set with isolation off")
+	}
+	dir := filepath.Join(t.TempDir(), "gh-config")
+	f.channels.opts.GHConfigDir = dir
+	env, err := f.channels.SessionEnv(context.Background(), "task-1", "ex-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env["GH_CONFIG_DIR"] != dir {
+		t.Fatalf("GH_CONFIG_DIR = %q", env["GH_CONFIG_DIR"])
+	}
+	// gh takes GH_TOKEN before the keyring, where the person's login is.
+	if env["GH_TOKEN"] != GHSignedOut {
+		t.Fatalf("GH_TOKEN = %q, want the stand-in", env["GH_TOKEN"])
+	}
+	info, err := os.Stat(dir)
+	if err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("the directory: %v %v", info, err)
+	}
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 0 {
+		t.Fatalf("the directory is not empty: %v", entries)
+	}
+}
+
+func TestTheWrapperSaysWhyGHHasNoToken(t *testing.T) {
+	bin := t.TempDir()
+	_ = os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\necho \"token=$GH_TOKEN\"\n"), 0o755)
+	legato := filepath.Join(t.TempDir(), "legato")
+	_ = os.WriteFile(legato, []byte("#!/bin/sh\nexit 2\n"), 0o755) // no repository found
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	wrappers := filepath.Join(t.TempDir(), "bin")
+	if err := writeGHWrapper(wrappers, legato); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/bin/sh", "-c", "gh api /user")
+	cmd.Env = append(os.Environ(), "PATH="+wrappers+string(os.PathListSeparator)+os.Getenv("PATH"), "GH_TOKEN="+GHSignedOut)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, _ := cmd.Output()
+	if strings.TrimSpace(string(out)) != "token="+GHSignedOut || !strings.Contains(stderr.String(), "isolate_login") {
+		t.Fatalf("out %q stderr %q", out, stderr.String())
+	}
+}
