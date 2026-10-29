@@ -93,7 +93,9 @@ Pasted images go to `<tmp>/legato-<uid>/pasted-images/<task>`. That folder is mo
 
 *Alternatives:* podman (heavier, but would also give a separate root filesystem); a separate Unix user (needs privilege escalation to spawn, and tmux ownership becomes awkward). bubblewrap is small, unprivileged with user namespaces, and already what some agent tools use. The backend is an interface, so podman can follow.
 
-*Nested sandboxes:* Codex (Landlock and seccomp) should nest. Claude Code's own bubblewrap sandbox nested in ours may fail where user namespaces cannot nest. Default to telling the tool not to sandbox itself when Legato's sandbox is on, and verify each tool (open question).
+*Nested sandboxes:* the agent tools' own sandboxes limit the commands the model runs; Legato's hides credentials from the whole tool, its MCP servers and hooks. Where a tool's sandbox nests, both stay on.
+- **Chimera** (`--sandbox`) runs tools in a Docker container. That needs the Docker or Podman socket, and whoever holds it can mount the whole home into a container, so Legato never mounts either socket into its sandbox and drops `--sandbox` (and `--sandbox-*`) from a sandboxed Chimera launch, with a log line. Legato's sandbox gives the same protection for credentials; Chimera's adds file isolation inside the working copy, which is lost.
+- **Codex** (Landlock and seccomp, or bubblewrap in newer releases) should nest; verify. Claude Code's own bubblewrap sandbox nested in ours may fail where user namespaces cannot nest. Default to telling the tool not to sandbox itself when Legato's sandbox is on, and verify each tool (open question).
 
 ### D4a. The person can opt out per spawn; toolchains are mounted
 

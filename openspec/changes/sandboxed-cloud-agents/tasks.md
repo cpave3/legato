@@ -35,6 +35,7 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 - [ ] 3.4 Wrap each adapter's launch command when the sandbox is on; refuse the spawn before tmux when the backend binary is missing; tests per adapter
 - [ ] 3.5 Strip credential variables from the sandbox environment whatever the host process holds; test
 - [ ] 3.6 Integration test (skipped without bwrap): inside the sandbox the config, auth token, `~/.config/gh` and `~/.ssh` do not exist, the cache is read-only, the working copy is writable, and every process ends with the pane
+- [ ] 3.6a Never mount the Docker or Podman socket; drop Chimera's `--sandbox` and `--sandbox-*` flags from a sandboxed launch, with a log line; tests
 - [ ] 3.7 Verify each agent tool inside bubblewrap (Claude Code, Codex, Chimera): starts, its own sandbox setting, native bridge binds through the broker, MCP tools work; record results in the design's Open Questions
 - [ ] 3.8 `internal/engine/gitrepo`: bare clone and fetch with a read token from the credential broker, passed through an inherited file descriptor and an askpass helper; tests against a local bare repository served over a file URL, and a test that the token is in no argument, environment variable or file
 - [ ] 3.9 `RepositoryService.Ensure`: cache path, `max_age`, per-repository serialization, clean failure with no partial directory; concurrency test
