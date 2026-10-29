@@ -29,23 +29,24 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 
 ## 3. Phase 3: sandbox launcher and repository cache
 
-- [ ] 3.1 Config: `agents.sandbox` (`enabled`, `backend`, `mounts`), `repositories.cache.max_age`; validation and tests
-- [ ] 3.2 `internal/engine/sandbox`: backend interface and `bwrap` implementation that builds the argument list from a mount plan; table tests of the arguments for each mount kind
-- [ ] 3.3 Mount plan in the service: working directory, cache, agent tool state per adapter, broker socket, the execution's SSH agent socket when one is open, `legato` binary, pasted-image folder, resources, configured mounts; and the paths that must never be mounted; tests
-- [ ] 3.4 Wrap each adapter's launch command when the sandbox is on; refuse the spawn before tmux when the backend binary is missing; tests per adapter
-- [ ] 3.5 Strip credential variables from the sandbox environment whatever the host process holds; test
-- [ ] 3.6 Integration test (skipped without bwrap): inside the sandbox the config, auth token, `~/.config/gh` and `~/.ssh` do not exist, the cache is read-only, the working copy is writable, and every process ends with the pane
-- [ ] 3.6a Never mount the Docker or Podman socket; drop Chimera's `--sandbox` and `--sandbox-*` flags from a sandboxed launch, with a log line; tests
-- [ ] 3.7 Verify each agent tool inside bubblewrap (Claude Code, Codex, Chimera): starts, its own sandbox setting, native bridge binds through the broker, MCP tools work; record results in the design's Open Questions
+- [x] 3.1 Config: `agents.sandbox` (`enabled`, `backend`, `mounts`), `repositories.cache.max_age`; validation and tests
+- [x] 3.2 `internal/engine/sandbox`: backend interface and `bwrap` implementation that builds the argument list from a mount plan; table tests of the arguments for each mount kind
+- [x] 3.3 Mount plan in the service: working directory, cache, agent tool state per adapter, broker socket, the execution's SSH agent socket when one is open, `legato` binary, pasted-image folder, resources, configured mounts; and the paths that must never be mounted; tests
+- [x] 3.4 Wrap each adapter's launch command when the sandbox is on; refuse the spawn before tmux when the backend binary is missing; tests per adapter
+- [x] 3.5 Strip credential variables from the sandbox environment whatever the host process holds; test
+- [x] 3.6 Integration test (skipped without bwrap): inside the sandbox the config, auth token, `~/.config/gh` and `~/.ssh` do not exist, the cache is read-only, the working copy is writable, and every process ends with the pane
+- [x] 3.6a Never mount the Docker or Podman socket; drop Chimera's `--sandbox` and `--sandbox-*` flags from a sandboxed launch, with a log line; tests
+- [x] 3.7 Verify each agent tool inside bubblewrap (Claude Code, Codex, Chimera): starts, its own sandbox setting, native bridge binds through the broker, MCP tools work; record results in the design's Open Questions
 - [ ] 3.8 `internal/engine/gitrepo`: bare clone and fetch with a read token from the credential broker, passed through an inherited file descriptor and an askpass helper; tests against a local bare repository served over a file URL, and a test that the token is in no argument, environment variable or file
 - [ ] 3.9 `RepositoryService.Ensure`: cache path, `max_age`, per-repository serialization, clean failure with no partial directory; concurrency test
 - [ ] 3.10 Job clones: `git clone --reference`, checkout of ref or default branch, `origin` left at the GitHub URL; migration for the job clone table; test that with no `github` credential `git push` from the clone goes to the placeholder push URL and fails without network
 - [ ] 3.11 Implement `repo.ensure` with the cache; let presets with `repo` and no `primary_dir` use a job clone; record code context
 - [ ] 3.12 Job clone cleanup on terminal executions (remove when nothing is unpushed, keep 7 days otherwise with a task note); tests
-- [ ] 3.13 Default toolchain mounts (read-only tools, read-write package and build caches) and `agents.sandbox.default_mounts`; tests of the mount plan with and without them
-- [ ] 3.14 Opting out per spawn: `sandbox: false` on both spawn endpoints, **Run without sandbox** in the web and TUI spawn dialogs (unticked each time), `unsandboxed` marked on the agent's kind badge and in the TUI; swarm and workflow agents always sandboxed; tests
-- [ ] 3.15 Refuse adding a resource to a running sandboxed agent, with a message that points to an unsandboxed agent; service and web tests
-- [ ] 3.16 Docs: `docs/ai/config.md` (new keys), sandbox section in `docs/cloud-agents.md`
+- [x] 3.13 Default toolchain mounts (read-only tools, read-write package and build caches) and `agents.sandbox.default_mounts`; tests of the mount plan with and without them
+- [x] 3.14 Opting out per spawn: `sandbox: false` on both spawn endpoints, **Run without sandbox** in the web and TUI spawn dialogs (unticked each time), `unsandboxed` marked on the agent's kind badge and in the TUI; swarm and workflow agents always sandboxed; tests
+- [x] 3.15 Refuse adding a resource to a running sandboxed agent, with a message that points to an unsandboxed agent; service and web tests
+- [x] 3.15a Agent-facing `legato` commands in the sandbox (`task show|notes|note|update|description|list`, `plan *`, `review *`, `swarm` worker and conductor verbs, `credential request|get|exec`, `agent peers|message|broadcast`, `learn reflection submit`, `workflow step complete|fail`) are forwarded to the host through the broker (`cli.run`), which runs them as the session from a fixed allowlist, with stdin, the working directory and file arguments read on the agent's side; host-only commands (`device`, `secret`, `audit`, `hooks`, `auth`, `serve`, …) are refused; contract tests
+- [x] 3.16 Docs: `docs/ai/config.md` (new keys), sandbox section in `docs/cloud-agents.md`
 
 ## 4. Phase 4: repository tools, with pushes and pull requests through the credential broker
 

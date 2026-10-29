@@ -72,6 +72,10 @@ Migration 071 adds `credential_placeholders` (the SHA-256 of each placeholder ke
 
 Migration 074 adds `executions.broker_token_hash`: the SHA-256 of the token an execution's agent-side processes present to the host broker. The token itself is only in the session's environment. `Store.ExecutionByBrokerToken` resolves a hash to its execution while it runs. See [CLI](cli.md) § The host broker.
 
+### Sandboxed sessions
+
+Migration 075 adds `agent_sessions.sandboxed`: whether the session's agent runs in Legato's sandbox. A database from before agent sessions has no table to change. See [Sandbox](sandbox.md).
+
 ### Directory presets
 
 Migration 067 adds `directory_presets`: the directories the person saved from a spawn dialog (`path`, the identity and absolute; `name`; `created_at`). Saving a path again renames it and keeps its place. The spawn dialogs list them after the `repositories` of the configuration, through `service.DirectoryService`; a saved directory that the configuration also names is listed once, as the configured one.
