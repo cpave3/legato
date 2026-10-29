@@ -36,9 +36,9 @@ Skip this part for keys you keep in Legato's own store (step 4).
 
 Never export `OP_SERVICE_ACCOUNT_TOKEN` in a shell profile, and do not write `token: ${OP_SERVICE_ACCOUNT_TOKEN}` in the configuration. Legato empties that variable in agent sessions, but `token_file` keeps it out of every environment in the first place.
 
-## 3. An SSH key
+## 3. SSH keys
 
-1. **The key.** In 1Password: New Item › SSH Key in the `Legato` vault (generate one, or import one without a passphrase). Or keep it in Legato's own store: `legato secret add homelab-key --type keypair --from <private key file>`.
+1. **The keys.** In 1Password: New Item › SSH Key in the `Legato` vault (generate one, or import one without a passphrase). With the vault as a source (step 5), every SSH Key item in it is a credential, named after its title, and a key you add or delete is seen within about two minutes, with no restart. Or keep a key in Legato's own store, `legato secret add homelab-key --type keypair --from <private key file>`, and add it to `credentials:` by itself.
 2. **Let it in.** Add its public key to `~/.ssh/authorized_keys` on each machine agents may log in to. From 1Password: `op item get <item> --vault Legato --fields "public key"`.
 3. **Know the hosts.** Legato names a host by the key the server proves it holds, looked up in `~/.ssh/known_hosts` (`credential_channels.ssh_agent.known_hosts`). Connect to each host once yourself, so it is listed. A host that is not listed is named `key:SHA256:…` in approvals and rules.
 4. **Make ssh use Legato's agent in agent sessions.** `IdentityAgent` in `~/.ssh/config` wins over `SSH_AUTH_SOCK`, so a line such as `Host *` / `IdentityAgent ~/.1password/agent.sock` sends every agent's login past Legato. Keep it for your own shells only:
@@ -67,13 +67,14 @@ secrets:
   onepassword:
     token_file: ~/.config/legato/op-token
 
-credentials:
-  - name: legato_default
-    secret: op://Legato/legato_default/private key?ssh-format=openssh
-    profile: ssh
+# Every SSH Key item of the vault, with these rules.
+credential_sources:
+  - vault: op://Legato
     policy:
       - { operation: ssh.login, approve: window, window: 30m }   # offers: for 30 minutes, once, deny
       - { operation: ssh.forwarded-login, approve: deny }
+
+credentials:
   - name: elevenlabs
     secret: legato://elevenlabs-key
     profile: secret
@@ -82,7 +83,9 @@ credentials:
       - { operation: read, approve: window, window: 30m }
 ```
 
-`policy` replaces the profile's rules; leave it out to use them (the `ssh` profile asks once an hour for each host). Restart Legato after a change: it reads credentials at start.
+`policy` replaces the profile's rules; leave it out to use them (the `ssh` profile asks once an hour for each host). A key that needs rules of its own can still be listed in `credentials:`: an entry there wins over a vault item of the same name. Restart Legato after a change to the configuration: it reads it at start. Changes in the vault need no restart.
+
+`ssh` offers an agent's keys one after another, and a server allows only a few tries (`MaxAuthTries`, 6 by default). With more than about five keys in the vault, a login can fail with "Too many authentication failures" before the right key is offered. For such a host, name its key in `~/.ssh/config` (`IdentityFile` of the public key file, and `IdentitiesOnly yes`).
 
 ## 6. Check it
 

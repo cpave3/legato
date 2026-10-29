@@ -8,6 +8,7 @@ import (
 	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -254,4 +255,75 @@ func additionalData(name, secretType string) []byte {
 
 func trimNewline(data []byte) []byte {
 	return bytes.TrimRight(data, "\r\n")
+}
+
+// OnePasswordItem is an item of a vault, as op item list gives it.
+type OnePasswordItem struct {
+	ID        string
+	Title     string
+	VaultID   string
+	Version   int
+	UpdatedAt string
+}
+
+// ListItems lists a vault's items of one category ("SSH Key"), names and
+// identifiers only.
+func (s OnePasswordStore) ListItems(ctx context.Context, vault, category string) ([]OnePasswordItem, error) {
+	out, err := s.op(ctx, "item", "list", "--vault", vault, "--categories", category, "--format", "json")
+	if err != nil {
+		return nil, fmt.Errorf("1Password could not list vault %s (does the service account have read access to it?)", vault)
+	}
+	var rows []struct {
+		ID        string `json:"id"`
+		Title     string `json:"title"`
+		Version   int    `json:"version"`
+		UpdatedAt string `json:"updated_at"`
+		Vault     struct {
+			ID string `json:"id"`
+		} `json:"vault"`
+	}
+	if err := json.Unmarshal(out, &rows); err != nil {
+		return nil, fmt.Errorf("1Password's list of vault %s does not read: %w", vault, err)
+	}
+	items := make([]OnePasswordItem, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, OnePasswordItem{ID: r.ID, Title: r.Title, VaultID: r.Vault.ID, Version: r.Version, UpdatedAt: r.UpdatedAt})
+	}
+	return items, nil
+}
+
+// Field reads one field of an item. Use it only for fields that are not
+// secret (an SSH key's public key); secrets are read with Get.
+func (s OnePasswordStore) Field(ctx context.Context, vault, item, label string) (string, error) {
+	out, err := s.op(ctx, "item", "get", item, "--vault", vault, "--fields", "label="+label)
+	if err != nil {
+		return "", fmt.Errorf("1Password could not read the %s of item %s", label, item)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func (s OnePasswordStore) op(ctx context.Context, args ...string) ([]byte, error) {
+	runner := s.Runner
+	if runner == nil {
+		runner = ExecRunner{}
+	}
+	token, err := s.token()
+	if err != nil {
+		return nil, err
+	}
+	var env []string
+	if token != "" {
+		env = append(env, "OP_SERVICE_ACCOUNT_TOKEN="+token)
+	}
+	return runner.Run(ctx, "op", args, env, nil)
+}
+
+// ParseVaultRef reads op://<vault>, the vault a source of credentials lists.
+func ParseVaultRef(s string) (string, error) {
+	scheme, path, ok := strings.Cut(strings.TrimSpace(s), "://")
+	vault := strings.TrimSuffix(path, "/")
+	if !ok || scheme != "op" || vault == "" || strings.Contains(vault, "/") {
+		return "", fmt.Errorf("vault %q: want op://<vault>, such as op://Legato", s)
+	}
+	return vault, nil
 }

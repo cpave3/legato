@@ -115,3 +115,27 @@ func TestTheServersInstructionsIncludeTheCredentials(t *testing.T) {
 		t.Fatalf("instructions = %s", opts.Instructions[len(opts.Instructions)-300:])
 	}
 }
+
+func TestTheGuidanceNamesAVaultOfSSHKeysOnce(t *testing.T) {
+	text := cli.CredentialGuidance(
+		[]service.CredentialSummary{
+			{Name: "legato_default", Profile: "ssh", Channels: []string{"ssh-agent"}, Source: "op://Legato"},
+			{Name: "proxmox_vms", Profile: "ssh", Channels: []string{"ssh-agent"}, Source: "op://Legato"},
+		},
+		service.CredentialSourceSummary{Vault: "op://Legato", Profile: "ssh", Channels: []string{"ssh-agent"}},
+	)
+	if strings.Count(text, "run ssh") != 1 {
+		t.Errorf("the SSH paragraph is repeated:\n%s", text)
+	}
+	for _, want := range []string{"every SSH key in the 1Password vault Legato", "IdentityAgent"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the guidance does not say %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "proxmox_vms") {
+		t.Errorf("keys of a vault are named one by one:\n%s", text)
+	}
+	if cli.CredentialGuidance(nil, service.CredentialSourceSummary{Vault: "op://Legato", Channels: []string{"ssh-agent"}}) == "" {
+		t.Error("no guidance for a vault before it is listed")
+	}
+}

@@ -80,7 +80,7 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 		// Claude Code gives its model the server's own instructions. Codex
 		// and Chimera do not, so the same guidance goes in their launch
 		// prompt, where it tells the agent to use the tools unasked.
-		toolsPrompt := "## Legato tools\n\n" + cli.MCPGuidance + cli.CredentialGuidance(describeCredentials(cfg))
+		toolsPrompt := "## Legato tools\n\n" + cli.MCPGuidance + credentialPromptGuidance(cfg)
 		codex.SetToolsPrompt(toolsPrompt)
 		chimera.SetToolsPrompt(toolsPrompt)
 		if chimeraMCPConfigProbe != nil {
@@ -114,16 +114,16 @@ func nativeBridgeEnabled(cfg *config.Config, adapter string) bool {
 	return !ok || configured.NativeBridge == nil || *configured.NativeBridge
 }
 
-// describeCredentials names the configured credentials and how agents get
-// them, for the launch prompt. Credentials the broker refuses are left out;
-// a host Legato logs why.
-func describeCredentials(cfg *config.Config) []service.CredentialSummary {
-	if len(cfg.Credentials) == 0 {
-		return nil
+// credentialPromptGuidance names the configured credentials and vaults and
+// how agents use them, for the launch prompt. Credentials the broker refuses
+// are left out; a host Legato logs why.
+func credentialPromptGuidance(cfg *config.Config) string {
+	if len(cfg.Credentials) == 0 && len(cfg.CredentialSources) == 0 {
+		return ""
 	}
-	summaries, err := service.DescribeCredentials(cfg.Credentials, credentialProfileDirs())
+	summaries, sources, err := service.DescribeCredentials(cfg.Credentials, cfg.CredentialSources, credentialProfileDirs())
 	if err != nil {
-		return nil
+		return ""
 	}
-	return summaries
+	return cli.CredentialGuidance(summaries, sources...)
 }

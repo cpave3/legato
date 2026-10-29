@@ -58,6 +58,14 @@ type CredentialKeyPlace struct {
 	Query  string `yaml:"query"`
 }
 
+// CredentialSourceConfig is a vault whose items are credentials: for the
+// ssh profile, every SSH Key item of a 1Password vault.
+type CredentialSourceConfig struct {
+	Vault   string           `yaml:"vault"`
+	Profile string           `yaml:"profile"`
+	Policy  []CredentialRule `yaml:"policy"`
+}
+
 // CredentialChannelsConfig configures the channels that keep secrets from agents.
 type CredentialChannelsConfig struct {
 	HTTPProxy HTTPProxyChannelConfig `yaml:"http_proxy"`
@@ -176,7 +184,39 @@ func normalizeCredentials(cfg *Config) error {
 			return fmt.Errorf("credentials %q: settings: %w", c.Name, err)
 		}
 	}
+	if err := normalizeCredentialSources(cfg); err != nil {
+		return err
+	}
 	return normalizeCredentialChannels(&cfg.CredentialChannels)
+}
+
+func normalizeCredentialSources(cfg *Config) error {
+	seen := map[string]bool{}
+	for i := range cfg.CredentialSources {
+		src := &cfg.CredentialSources[i]
+		scheme, vault, ok := strings.Cut(strings.TrimSpace(src.Vault), "://")
+		vault = strings.TrimSuffix(vault, "/")
+		if !ok || scheme != "op" || vault == "" || strings.Contains(vault, "/") {
+			return fmt.Errorf("credential_sources[%d]: vault %q: want a 1Password vault, op://<vault>", i, src.Vault)
+		}
+		src.Vault = "op://" + vault
+		if seen[strings.ToLower(src.Vault)] {
+			return fmt.Errorf("credential_sources: %s is listed twice", src.Vault)
+		}
+		seen[strings.ToLower(src.Vault)] = true
+		if src.Profile = strings.TrimSpace(src.Profile); src.Profile == "" {
+			src.Profile = "ssh"
+		}
+		if src.Profile != "ssh" {
+			return fmt.Errorf("credential_sources %s: profile %q: a vault gives SSH keys only for now (profile ssh)", src.Vault, src.Profile)
+		}
+		for j := range src.Policy {
+			if err := NormalizeCredentialRule(&src.Policy[j]); err != nil {
+				return fmt.Errorf("credential_sources %s: policy[%d]: %w", src.Vault, j, err)
+			}
+		}
+	}
+	return nil
 }
 
 // normalizeCredentialSettings checks the settings a credential gives. The

@@ -102,3 +102,40 @@ func TestTheOnePasswordTokenCanComeFromAFile(t *testing.T) {
 		}
 	}
 }
+
+func TestAVaultIsASourceOfSSHKeys(t *testing.T) {
+	writeTestConfig(t, `
+credential_sources:
+  - vault: op://Legato
+    profile: ssh
+    policy:
+      - { operation: ssh.login, approve: window, window: 30m }
+  - vault: op://Servers
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.CredentialSources) != 2 {
+		t.Fatalf("sources = %+v", cfg.CredentialSources)
+	}
+	s := cfg.CredentialSources[0]
+	if s.Vault != "op://Legato" || s.Profile != "ssh" || len(s.Policy) != 1 || s.Policy[0].WindowDuration.Minutes() != 30 {
+		t.Fatalf("source = %+v", s)
+	}
+	if cfg.CredentialSources[1].Profile != "ssh" {
+		t.Fatalf("the default profile is %q, want ssh", cfg.CredentialSources[1].Profile)
+	}
+	for name, body := range map[string]string{
+		"not a vault":     "credential_sources:\n  - vault: op://Legato/item\n",
+		"not 1Password":   "credential_sources:\n  - vault: legato://keys\n",
+		"another profile": "credential_sources:\n  - {vault: op://Legato, profile: elevenlabs}\n",
+		"bad rule":        "credential_sources:\n  - {vault: op://Legato, policy: [{approve: sometimes}]}\n",
+		"the same twice":  "credential_sources:\n  - {vault: op://Legato}\n  - {vault: op://Legato/}\n",
+	} {
+		writeTestConfig(t, body)
+		if _, err := Load(); err == nil {
+			t.Errorf("%s: loaded", name)
+		}
+	}
+}

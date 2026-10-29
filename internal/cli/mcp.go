@@ -103,7 +103,13 @@ func MCPServerOptions(opts MCPOptions) mcpserver.Options {
 	}
 	server.Instructions = MCPGuidance
 	if opts.Credentials != nil {
-		server.Instructions += CredentialGuidance(opts.Credentials.Credentials())
+		var sources []service.CredentialSourceSummary
+		if s, ok := opts.Credentials.(interface {
+			Sources() []service.CredentialSourceSummary
+		}); ok {
+			sources = s.Sources()
+		}
+		server.Instructions += CredentialGuidance(opts.Credentials.Credentials(), sources...)
 	}
 	server.Tools = tools.all()
 	return server

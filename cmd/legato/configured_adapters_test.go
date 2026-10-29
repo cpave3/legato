@@ -257,10 +257,26 @@ func TestTheLaunchPromptNamesTheCredentialsAndHowToUseThem(t *testing.T) {
 	_, adapters := configuredAdapters(cfg, "/opt/legato")
 	for _, name := range []string{"codex", "chimera"} {
 		prompt := adapters[name].(service.ToolsPromptAdapter).ToolsPrompt()
-		for _, want := range []string{"legato_default (an SSH key)", "eleven (an API key", "$ELEVENLABS_BASE_URL"} {
+		for _, want := range []string{"SSH keys (legato_default)", "eleven (an API key", "$ELEVENLABS_BASE_URL"} {
 			if !strings.Contains(prompt, want) {
 				t.Errorf("%s launch prompt does not say %q", name, want)
 			}
 		}
+	}
+}
+
+func TestTheLaunchPromptNamesAVaultOfSSHKeys(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_PLUGIN_DIRS", "")
+	cfg := &config.Config{
+		DataDir:           t.TempDir(),
+		Agents:            config.AgentsConfig{MCP: config.AgentMCPConfig{Enabled: true}},
+		CredentialSources: []config.CredentialSourceConfig{{Vault: "op://Legato", Profile: "ssh"}},
+	}
+	oldProbe := chimeraMCPConfigProbe
+	chimeraMCPConfigProbe = func() bool { return true }
+	t.Cleanup(func() { chimeraMCPConfigProbe = oldProbe })
+	_, adapters := configuredAdapters(cfg, "/opt/legato")
+	if prompt := adapters["codex"].(service.ToolsPromptAdapter).ToolsPrompt(); !strings.Contains(prompt, "every SSH key in the 1Password vault Legato") {
+		t.Fatalf("codex launch prompt names no vault")
 	}
 }

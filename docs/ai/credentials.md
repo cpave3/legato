@@ -128,6 +128,23 @@ An agent can still use `~/.1password/agent.sock` or `~/.ssh` directly: outside t
 
 `cli.CredentialGuidance` adds a paragraph to Legato's guidance for each configured credential, by its channel: for an SSH key, run `ssh` as usual, let a login wait up to a minute for the person, and after a refusal tell them and wait for the `[legato approvals]` message, never using another key, `IdentityFile`, `IdentityAgent` or `ssh -A`; for a proxied key, send requests to the base URL variable with the key variable, and treat a `403` with `"status": "pending"` as waiting for the person; for a secret, `request_access` and `legato credential exec`. Claude Code reads it in the MCP server's instructions (`legato mcp serve`); Codex and Chimera get it in their launch prompt, from the configuration (`describeCredentials`). `CredentialSummary` carries each credential's `channels` and `env` (the variables a session gets) for it.
 
+## Vaults as sources
+
+`credential_sources` makes every SSH Key item of a 1Password vault a credential of the `ssh` profile, with the source's `policy` (else the profile's):
+
+```yaml
+credential_sources:
+  - vault: op://Legato
+    policy:
+      - { operation: ssh.login, approve: window, window: 30m }
+```
+
+- The vault is listed with `op item list --vault <vault> --categories "SSH Key"`. Each item is a credential named after its title (characters other than letters, digits, `.`, `_` and `-` become `-`; an empty title gives the item's ID), read by ID as `op://<vault id>/<item id>/private key?ssh-format=openssh`, so a renamed item keeps working. A `credentials:` entry of the same name wins; of two items with one name, the first is used.
+- **No restart.** A host Legato lists the vault at start and every two minutes. A use, and the SSH agent's list of keys, list it again when the last list is older than 30 seconds (`sourceStaleAfter`), so a new key is offered at the next `ssh`. A vault that cannot be listed keeps the keys it gave last.
+- **No private key to list keys.** The socket lists a vault key from the item's `public key` field (`op item get … --fields "label=public key"`), cached by item version. The private key is read only to sign a login.
+- Only `ssh` for now; API keys from a vault (by a tag naming the profile) come later.
+- `CredentialSummary.source` names the vault of such a credential; `CredentialBroker.Sources` lists the vaults, and the guidance names a vault once ("every SSH key in the 1Password vault Legato") instead of each key.
+
 ## Who serves the channels
 
 The first host Legato to take `<runtime dir>/legato/credential-channels.lock` serves the proxy and the sockets for every Legato on the machine; another takes over within 5 seconds of it ending. It opens a socket for each running execution (at once for the sessions it spawns, within 5 seconds for others) and closes it, and ends its placeholders, when the execution ends. Commands that spawn agents (`legato swarm dispatch`, `legato workflow run`) give their sessions the same variables and serve nothing.

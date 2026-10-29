@@ -61,6 +61,7 @@ func credentialProfileDirs() []string {
 func configuredCredentialBroker(cfg *config.Config, db *store.Store, approvals *service.ApprovalService, messenger service.AgentMessenger) (*service.CredentialBroker, error) {
 	return service.NewCredentialBroker(db, approvals, service.CredentialBrokerOptions{
 		Credentials:          cfg.Credentials,
+		Sources:              cfg.CredentialSources,
 		ProfileDirs:          credentialProfileDirs(),
 		Stores:               map[string]credential.Store{"legato": configuredSecretStore(cfg, db)},
 		OnePasswordToken:     cfg.Secrets.OnePassword.Token,

@@ -42,6 +42,9 @@ type Config struct {
 	// Credentials agents can ask for, and where Legato keeps its own secrets.
 	Credentials []CredentialConfig `yaml:"credentials"`
 	Secrets     SecretsConfig      `yaml:"secrets"`
+	// CredentialSources are vaults whose items are credentials, each with
+	// the source's rules, read again while Legato runs.
+	CredentialSources []CredentialSourceConfig `yaml:"credential_sources"`
 	// CredentialChannels are where agents reach credentials without holding them.
 	CredentialChannels CredentialChannelsConfig `yaml:"credential_channels"`
 	Learning           LearningConfig           `yaml:"learning"`

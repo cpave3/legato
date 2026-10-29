@@ -60,8 +60,7 @@ func NewCredentialChannels(broker *CredentialBroker, opts CredentialChannelsOpti
 
 func (c *CredentialChannels) withChannel(channel string) []brokerCredential {
 	var out []brokerCredential
-	for _, name := range c.broker.names {
-		bc := c.broker.credentials[name]
+	for _, bc := range c.broker.all() {
 		if listHas(bc.profile.Channels, channel) {
 			out = append(out, bc)
 		}
@@ -72,8 +71,11 @@ func (c *CredentialChannels) withChannel(channel string) []brokerCredential {
 // HasProxy reports whether a credential uses the http-proxy channel.
 func (c *CredentialChannels) HasProxy() bool { return len(c.withChannel(ChannelHTTPProxy)) > 0 }
 
-// HasSSH reports whether a credential uses the ssh-agent channel.
-func (c *CredentialChannels) HasSSH() bool { return len(c.withChannel(ChannelSSHAgent)) > 0 }
+// HasSSH reports whether a credential uses the ssh-agent channel, or a vault
+// gives them.
+func (c *CredentialChannels) HasSSH() bool {
+	return len(c.withChannel(ChannelSSHAgent)) > 0 || c.broker.hasSourceChannel(ChannelSSHAgent)
+}
 
 // SSHSocketPath is the agent socket of an execution.
 func (c *CredentialChannels) SSHSocketPath(executionID string) string {
@@ -138,8 +140,7 @@ var alwaysHidden = []string{"OP_SERVICE_ACCOUNT_TOKEN", "LEGATO_SECRETS_PASSPHRA
 // it in the agent's own session.
 func (c *CredentialChannels) HiddenEnv() []string {
 	names := append([]string{}, alwaysHidden...)
-	for _, name := range c.broker.names {
-		bc := c.broker.credentials[name]
+	for _, bc := range c.broker.all() {
 		if bc.ref.Scheme != "env" {
 			continue
 		}
@@ -263,27 +264,53 @@ func (c *CredentialChannels) sshHosts() []string {
 }
 
 // Keys are the public keys of the ssh credentials.
+// A vault's keys are listed again when the list is stale, so a key added
+// to the vault is offered without a restart.
 func (c *CredentialChannels) Keys(ctx context.Context) ([]credential.SSHKey, error) {
+	c.broker.refreshIfStale(ctx)
 	var keys []credential.SSHKey
 	for _, bc := range c.withChannel(ChannelSSHAgent) {
 		name := bc.config.Name
+		cacheKey := name
+		if bc.item != nil {
+			cacheKey = fmt.Sprintf("%s@%s/%d", name, bc.item.ID, bc.item.Version)
+		}
 		c.mu.Lock()
-		public := c.publics[name]
+		public := c.publics[cacheKey]
 		c.mu.Unlock()
 		if public == nil {
-			signer, err := c.Signer(ctx, name)
+			var err error
+			public, err = c.publicKey(ctx, bc)
 			if err != nil {
 				log.Printf("credentials: %s: %v", name, err)
 				continue
 			}
-			public = signer.PublicKey()
 			c.mu.Lock()
-			c.publics[name] = public
+			c.publics[cacheKey] = public
 			c.mu.Unlock()
 		}
 		keys = append(keys, credential.SSHKey{Credential: name, Public: public})
 	}
 	return keys, nil
+}
+
+// publicKey reads a key's public half: from its vault item's public key
+// field when it has one, so listing keys reads no private key.
+func (c *CredentialChannels) publicKey(ctx context.Context, bc brokerCredential) (ssh.PublicKey, error) {
+	if bc.item != nil {
+		if lister, ok := c.broker.stores["op"].(vaultLister); ok {
+			if line, err := lister.Field(ctx, bc.item.VaultID, bc.item.ID, "public key"); err == nil {
+				if public, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line)); err == nil {
+					return public, nil
+				}
+			}
+		}
+	}
+	signer, err := c.Signer(ctx, bc.config.Name)
+	if err != nil {
+		return nil, err
+	}
+	return signer.PublicKey(), nil
 }
 
 // Signer reads an ssh credential's private key.

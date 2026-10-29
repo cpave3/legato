@@ -226,3 +226,58 @@ func TestOnePasswordStoreNeverPassesItsOwnEnvironmentsToken(t *testing.T) {
 		t.Fatalf("env = %v", runner.env)
 	}
 }
+
+// opRunner answers op commands by what they ask.
+type opRunner struct {
+	calls [][]string
+	list  string
+	field string
+}
+
+func (o *opRunner) Run(_ context.Context, name string, args, env []string, _ []byte) ([]byte, error) {
+	o.calls = append(o.calls, args)
+	switch {
+	case len(args) > 1 && args[0] == "item" && args[1] == "list":
+		return []byte(o.list), nil
+	case len(args) > 1 && args[0] == "item" && args[1] == "get":
+		return []byte(o.field), nil
+	}
+	return nil, errors.New("unexpected op command")
+}
+
+func TestOnePasswordStoreListsAVaultsItemsOfACategory(t *testing.T) {
+	runner := &opRunner{list: `[
+		{"id":"en2x","title":"proxmox_vms","version":2,"category":"SSH_KEY","updated_at":"2026-10-29T07:13:48Z","vault":{"id":"agif","name":"Legato"}},
+		{"id":"5xv7","title":"legato_default","version":3,"category":"SSH_KEY","updated_at":"2026-10-29T06:56:31Z","vault":{"id":"agif","name":"Legato"}}
+	]`}
+	items, err := OnePasswordStore{Token: "ops_x", Runner: runner}.ListItems(context.Background(), "Legato", "SSH Key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].ID != "en2x" || items[0].Title != "proxmox_vms" || items[0].VaultID != "agif" || items[1].Version != 3 {
+		t.Fatalf("items = %+v", items)
+	}
+	if got := strings.Join(runner.calls[0], " "); got != "item list --vault Legato --categories SSH Key --format json" {
+		t.Fatalf("op %s", got)
+	}
+}
+
+func TestOnePasswordStoreReadsAnItemsPublicField(t *testing.T) {
+	runner := &opRunner{field: "ssh-ed25519 AAAA public\n"}
+	got, err := OnePasswordStore{Runner: runner}.Field(context.Background(), "agif", "5xv7", "public key")
+	if err != nil || got != "ssh-ed25519 AAAA public" {
+		t.Fatalf("field = %q, %v", got, err)
+	}
+	if strings.Join(runner.calls[0], " ") != "item get 5xv7 --vault agif --fields label=public key" {
+		t.Fatalf("op %v", runner.calls[0])
+	}
+}
+
+func TestAVaultReferenceNamesOneVault(t *testing.T) {
+	for ref, ok := range map[string]bool{"op://Legato": true, "op://Legato/": true, "op://Legato/item": false, "op://": false, "legato://x": false} {
+		vault, err := ParseVaultRef(ref)
+		if (err == nil) != ok || (ok && vault != "Legato") {
+			t.Errorf("%s: %q, %v", ref, vault, err)
+		}
+	}
+}

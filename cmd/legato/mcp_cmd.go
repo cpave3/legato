@@ -62,7 +62,7 @@ func runMCPServe(args []string, in io.ReadCloser, out io.WriteCloser) int {
 	}
 	// request_access asks the credential broker, which records approvals
 	// that a host Legato decides.
-	if len(cfg.Credentials) > 0 {
+	if len(cfg.Credentials) > 0 || len(cfg.CredentialSources) > 0 {
 		broker, err := configuredCredentialBroker(cfg, db, newApprovalService(cfg, db, nil, nil), nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "legato mcp serve: request_access is unavailable: %v\n", err)

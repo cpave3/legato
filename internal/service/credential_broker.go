@@ -10,9 +10,11 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cpave3/legato/config"
@@ -94,6 +96,8 @@ type AgentMessenger interface {
 // CredentialBrokerOptions configures a CredentialBroker.
 type CredentialBrokerOptions struct {
 	Credentials []config.CredentialConfig
+	// Sources are vaults whose SSH Key items are credentials too.
+	Sources []config.CredentialSourceConfig
 	// ProfileDirs hold profiles that add to or replace the shipped ones.
 	ProfileDirs []string
 	// Stores read secrets by scheme. Missing schemes get the built-in stores.
@@ -116,9 +120,16 @@ type CredentialBrokerOptions struct {
 type CredentialBroker struct {
 	db          *store.Store
 	approvals   *ApprovalService
-	credentials map[string]brokerCredential
+	credentials map[string]brokerCredential // configured; fixed after start
 	names       []string
 	stores      map[string]credential.Store
+
+	// Credentials from vaults change while Legato runs.
+	sources     []brokerSource
+	mu          sync.RWMutex
+	fromSources map[string]brokerCredential
+	refreshMu   sync.Mutex
+	refreshedAt time.Time
 	messenger   AgentMessenger
 	wait        time.Duration
 	now         func() time.Time
@@ -132,6 +143,17 @@ type brokerCredential struct {
 	// upstream and key, for a credential the http-proxy channel serves.
 	upstream *url.URL
 	key      credential.KeyPlace
+	// source is the vault a credential came from; item is its item there.
+	source string
+	item   *credential.OnePasswordItem
+}
+
+// brokerSource is a vault whose items are credentials.
+type brokerSource struct {
+	config  config.CredentialSourceConfig
+	vault   string
+	profile CredentialProfile
+	rules   []config.CredentialRule
 }
 
 // NewCredentialBroker checks the configured credentials against the
@@ -185,7 +207,197 @@ func NewCredentialBroker(db *store.Store, approvals *ApprovalService, opts Crede
 		b.names = append(b.names, c.Name)
 	}
 	sort.Strings(b.names)
+	for _, src := range opts.Sources {
+		profile, ok := profiles[src.Profile]
+		if !ok {
+			return nil, fmt.Errorf("credential_sources %s: no profile %q", src.Vault, src.Profile)
+		}
+		if !listHas(profile.Channels, ChannelSSHAgent) {
+			return nil, fmt.Errorf("credential_sources %s: a vault gives SSH keys only for now (profile ssh)", src.Vault)
+		}
+		vault, err := credential.ParseVaultRef(src.Vault)
+		if err != nil {
+			return nil, fmt.Errorf("credential_sources: %w", err)
+		}
+		rules := src.Policy
+		if len(rules) == 0 {
+			rules = profile.Policy
+		}
+		b.sources = append(b.sources, brokerSource{config: src, vault: vault, profile: profile, rules: rules})
+	}
 	return b, nil
+}
+
+// sourceStaleAfter is how long a vault's list of keys is used before it is
+// listed again, when a use needs it.
+const sourceStaleAfter = 30 * time.Second
+
+// sourceSSHCategory is the 1Password category of SSH keys.
+const sourceSSHCategory = "SSH Key"
+
+// vaultLister is a store that can list a vault's items (1Password).
+type vaultLister interface {
+	ListItems(ctx context.Context, vault, category string) ([]credential.OnePasswordItem, error)
+	Field(ctx context.Context, vault, item, label string) (string, error)
+}
+
+// CredentialSourceSummary describes a vault credentials come from.
+type CredentialSourceSummary struct {
+	Vault    string   `json:"vault"`
+	Profile  string   `json:"profile"`
+	Channels []string `json:"channels"`
+}
+
+// Sources lists the vaults credentials come from.
+func (b *CredentialBroker) Sources() []CredentialSourceSummary {
+	out := make([]CredentialSourceSummary, 0, len(b.sources))
+	for _, src := range b.sources {
+		out = append(out, CredentialSourceSummary{Vault: src.config.Vault, Profile: src.profile.Name, Channels: src.profile.Channels})
+	}
+	return out
+}
+
+// hasSourceChannel reports whether a source gives credentials of a channel.
+func (b *CredentialBroker) hasSourceChannel(channel string) bool {
+	for _, src := range b.sources {
+		if listHas(src.profile.Channels, channel) {
+			return true
+		}
+	}
+	return false
+}
+
+// RefreshSources lists every vault again. A vault that cannot be listed
+// keeps the credentials it gave last.
+func (b *CredentialBroker) RefreshSources(ctx context.Context) error {
+	if len(b.sources) == 0 {
+		return nil
+	}
+	b.refreshMu.Lock()
+	defer b.refreshMu.Unlock()
+	return b.refreshLocked(ctx)
+}
+
+// refreshIfStale lists the vaults again when the last list is older than
+// sourceStaleAfter. Callers that race wait for one list.
+func (b *CredentialBroker) refreshIfStale(ctx context.Context) {
+	if len(b.sources) == 0 {
+		return
+	}
+	b.refreshMu.Lock()
+	defer b.refreshMu.Unlock()
+	if !b.refreshedAt.IsZero() && b.now().Sub(b.refreshedAt) < sourceStaleAfter {
+		return
+	}
+	if err := b.refreshLocked(ctx); err != nil {
+		log.Printf("credentials: %v", err)
+	}
+}
+
+func (b *CredentialBroker) refreshLocked(ctx context.Context) error {
+	b.mu.RLock()
+	previous := b.fromSources
+	b.mu.RUnlock()
+	next := map[string]brokerCredential{}
+	var errs []string
+	for _, src := range b.sources {
+		lister, ok := b.stores["op"].(vaultLister)
+		if !ok {
+			errs = append(errs, "no 1Password store in this Legato")
+			continue
+		}
+		items, err := lister.ListItems(ctx, src.vault, sourceSSHCategory)
+		if err != nil {
+			errs = append(errs, err.Error())
+			for name, bc := range previous {
+				if bc.source == src.config.Vault {
+					next[name] = bc
+				}
+			}
+			continue
+		}
+		for i := range items {
+			item := items[i]
+			name := itemCredentialName(item)
+			if _, configured := b.credentials[name]; configured {
+				continue
+			}
+			if _, taken := next[name]; taken {
+				log.Printf("credentials: %s: two items are named %s; the first is used", src.config.Vault, name)
+				continue
+			}
+			ref, err := credential.ParseRef("op://" + item.VaultID + "/" + item.ID + "/private key?ssh-format=openssh")
+			if err != nil {
+				continue
+			}
+			next[name] = brokerCredential{
+				config: config.CredentialConfig{Name: name, Secret: ref.String(), Profile: src.profile.Name, Type: credential.TypeKeyPair, Policy: src.config.Policy},
+				ref:    ref, profile: src.profile, rules: src.rules, source: src.config.Vault, item: &item,
+			}
+		}
+	}
+	b.mu.Lock()
+	b.fromSources = next
+	b.mu.Unlock()
+	b.refreshedAt = b.now()
+	if len(errs) > 0 {
+		return errors.New(strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+var credentialNameUnsafe = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+
+// itemCredentialName makes an item's title a credential name, or uses its
+// identifier when nothing of the title is left.
+func itemCredentialName(item credential.OnePasswordItem) string {
+	name := strings.Trim(credentialNameUnsafe.ReplaceAllString(strings.TrimSpace(item.Title), "-"), "-._")
+	if len(name) > 64 {
+		name = name[:64]
+	}
+	if name == "" {
+		return item.ID
+	}
+	return name
+}
+
+// lookup finds a credential by name: a configured one, else one from a
+// vault, listing the vaults again once when it is not known.
+func (b *CredentialBroker) lookup(ctx context.Context, name string) (brokerCredential, bool) {
+	if c, ok := b.credentials[name]; ok {
+		return c, true
+	}
+	b.mu.RLock()
+	c, ok := b.fromSources[name]
+	b.mu.RUnlock()
+	if ok || len(b.sources) == 0 {
+		return c, ok
+	}
+	b.refreshIfStale(ctx)
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	c, ok = b.fromSources[name]
+	return c, ok
+}
+
+// all lists every credential known now, by name.
+func (b *CredentialBroker) all() []brokerCredential {
+	out := make([]brokerCredential, 0, len(b.names))
+	for _, name := range b.names {
+		out = append(out, b.credentials[name])
+	}
+	b.mu.RLock()
+	var extra []string
+	for name := range b.fromSources {
+		extra = append(extra, name)
+	}
+	sort.Strings(extra)
+	for _, name := range extra {
+		out = append(out, b.fromSources[name])
+	}
+	b.mu.RUnlock()
+	sort.SliceStable(out, func(i, j int) bool { return out[i].config.Name < out[j].config.Name })
+	return out
 }
 
 // proxySettings works out where the proxy sends a credential's requests and
@@ -224,8 +436,24 @@ func (b *CredentialBroker) StartEventLoop(ctx context.Context, bus *events.Bus) 
 	ctx, cancel := context.WithCancel(ctx)
 	died := bus.Subscribe(events.EventAgentDied)
 	go func() {
+		// A vault is listed at start and every two minutes, so the person
+		// sees its keys; a use lists it again when the list is stale.
+		var refresh <-chan time.Time
+		if len(b.sources) > 0 {
+			if err := b.RefreshSources(ctx); err != nil {
+				log.Printf("credentials: %v", err)
+			}
+			tick := time.NewTicker(2 * time.Minute)
+			defer tick.Stop()
+			refresh = tick.C
+		}
 		for {
 			select {
+			case <-refresh:
+				if err := b.RefreshSources(ctx); err != nil {
+					log.Printf("credentials: %v", err)
+				}
+				continue
 			case <-ctx.Done():
 				return
 			case _, ok := <-died:
@@ -267,27 +495,29 @@ type CredentialSummary struct {
 	// gets for it (a placeholder key and the proxy's address).
 	Channels []string `json:"channels"`
 	Env      []string `json:"env,omitempty"`
+	// Source is the vault a credential came from, "" for a configured one.
+	Source string `json:"source,omitempty"`
 }
 
 // Credentials lists the configured credentials.
 func (b *CredentialBroker) Credentials() []CredentialSummary {
-	out := make([]CredentialSummary, 0, len(b.names))
-	for _, name := range b.names {
-		c := b.credentials[name]
-		out = append(out, CredentialSummary{Name: name, Profile: c.profile.Name, Store: c.ref.Scheme, Secret: c.ref.String(), Rules: c.rules,
-			Channels: c.profile.Channels, Env: c.envNames()})
+	all := b.all()
+	out := make([]CredentialSummary, 0, len(all))
+	for _, c := range all {
+		out = append(out, CredentialSummary{Name: c.config.Name, Profile: c.profile.Name, Store: c.ref.Scheme, Secret: c.ref.String(), Rules: c.rules,
+			Channels: c.profile.Channels, Env: c.envNames(), Source: c.source})
 	}
 	return out
 }
 
 // DescribeCredentials summarizes configured credentials without a store,
 // for text that tells agents about them.
-func DescribeCredentials(credentials []config.CredentialConfig, profileDirs []string) ([]CredentialSummary, error) {
-	b, err := NewCredentialBroker(nil, nil, CredentialBrokerOptions{Credentials: credentials, ProfileDirs: profileDirs})
+func DescribeCredentials(credentials []config.CredentialConfig, sources []config.CredentialSourceConfig, profileDirs []string) ([]CredentialSummary, []CredentialSourceSummary, error) {
+	b, err := NewCredentialBroker(nil, nil, CredentialBrokerOptions{Credentials: credentials, Sources: sources, ProfileDirs: profileDirs})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return b.Credentials(), nil
+	return b.Credentials(), b.Sources(), nil
 }
 
 // envNames are the variables a session gets for a proxied credential, with
@@ -414,7 +644,7 @@ func (b *CredentialBroker) executionRunning(ctx context.Context, executionID, ta
 // say deny refuse; otherwise the person is asked, and Request waits up to the
 // wait timeout for the decision before it returns pending.
 func (b *CredentialBroker) Request(ctx context.Context, req AccessRequest) (AccessResult, error) {
-	c, ok := b.credentials[req.Credential]
+	c, ok := b.lookup(ctx, req.Credential)
 	if !ok {
 		return AccessResult{}, fmt.Errorf("no credential named %q (legato credential list names them)", req.Credential)
 	}
@@ -613,7 +843,7 @@ func grantOptions(mode string, window time.Duration) []ApprovalOption {
 // Authorize checks one use against the rules and the execution's grants. A
 // use no grant covers becomes a request for exactly that use.
 func (b *CredentialBroker) Authorize(ctx context.Context, use CredentialUse) (UseDecision, error) {
-	c, ok := b.credentials[use.Credential]
+	c, ok := b.lookup(ctx, use.Credential)
 	if !ok {
 		return UseDecision{}, fmt.Errorf("no credential named %q", use.Credential)
 	}
@@ -701,7 +931,7 @@ func withCall(detail, call string) string {
 // readSecret reads a credential's secret from its store, with no use: for a
 // channel that has authorized the use itself, or needs a public key.
 func (b *CredentialBroker) readSecret(ctx context.Context, name string) (credential.Secret, error) {
-	c, ok := b.credentials[name]
+	c, ok := b.lookup(ctx, name)
 	if !ok {
 		return credential.Secret{}, fmt.Errorf("no credential named %q", name)
 	}
@@ -725,7 +955,7 @@ func (b *CredentialBroker) Value(ctx context.Context, use CredentialUse) (creden
 	if err != nil || !decision.Allowed {
 		return credential.Secret{}, decision, err
 	}
-	c := b.credentials[use.Credential]
+	c, _ := b.lookup(ctx, use.Credential)
 	s, ok := b.stores[c.ref.Scheme]
 	if !ok {
 		return credential.Secret{}, decision, fmt.Errorf("no store for %s:// references in this Legato", c.ref.Scheme)
