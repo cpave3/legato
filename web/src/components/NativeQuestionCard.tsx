@@ -7,6 +7,9 @@ interface NativeQuestionCardProps {
   askedBy: string
   onAnswer: (requestId: string, answers: Record<string, string[]>) => void
   onDismiss: (requestId: string) => void
+  // touch makes the card's choices large on a phone (below the md
+  // breakpoint), as the approval tray shows it. The chat keeps it compact.
+  touch?: boolean
 }
 
 // What the person has entered for one question so far.
@@ -33,7 +36,10 @@ const settledLabel: Partial<Record<NativeQuestionItem["status"], string>> = {
 // A question an agent put to the person: options to pick from, an answer of
 // their own where the agent takes one, and what was answered once settled.
 // It knows nothing of the agent that asked beyond its name.
-export function NativeQuestionCard({ question, askedBy, onAnswer, onDismiss }: NativeQuestionCardProps) {
+export function NativeQuestionCard({ question, askedBy, onAnswer, onDismiss, touch = false }: NativeQuestionCardProps) {
+  // On a phone in the tray: larger text and targets a thumb hits easily.
+  // Every class is written out whole, as Tailwind finds them in the source.
+  const t = (inTray: string, compact: string) => (touch ? inTray : compact)
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const submitting = question.status === "submitting"
   const open = question.status === "pending" || submitting
@@ -57,16 +63,16 @@ export function NativeQuestionCard({ question, askedBy, onAnswer, onDismiss }: N
             const preview = one.options.find((option) => option.preview && draft.chosen.includes(option.label))?.preview
             return (
               <fieldset key={one.id} aria-label={one.question} className="min-w-0 space-y-1.5">
-                <legend className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-zinc-100">
+                <legend className={`flex min-w-0 flex-wrap items-center gap-2 text-zinc-100 ${t("mb-1 text-base md:mb-0 md:text-sm", "mb-0 text-sm")}`}>
                   {one.header && <span className="rounded bg-sky-950/70 px-1.5 py-0.5 text-[11px] text-sky-300">{one.header}</span>}
                   <span className="min-w-0 break-words">{one.question}</span>
                 </legend>
                 {one.options.map((option) => (
-                  <label key={option.label} className="flex min-w-0 cursor-pointer items-start gap-2 rounded border border-zinc-700/70 bg-zinc-900/50 px-2 py-1.5 text-sm text-zinc-200 has-[:checked]:border-sky-500/70 has-[:checked]:bg-sky-950/40">
+                  <label key={option.label} className={`flex min-w-0 cursor-pointer items-start border border-zinc-700/70 bg-zinc-900/50 text-zinc-200 has-[:checked]:border-sky-500/70 has-[:checked]:bg-sky-950/40 ${t("min-h-12 gap-3 rounded-xl px-3 py-3 text-base md:min-h-0 md:gap-2 md:rounded md:px-2 md:py-1.5 md:text-sm", "min-h-0 gap-2 rounded px-2 py-1.5 text-sm")}`}>
                     <input
                       type={one.multiSelect ? "checkbox" : "radio"}
                       name={`${question.requestId}-${one.id}`}
-                      className="mt-0.5 shrink-0 accent-sky-500"
+                      className={`shrink-0 accent-sky-500 ${t("mt-1 h-5 w-5 md:mt-0.5 md:h-auto md:w-auto", "mt-0.5 h-auto w-auto")}`}
                       disabled={submitting}
                       checked={draft.chosen.includes(option.label)}
                       onChange={(event) => setDraft(one.id, (current) => ({
@@ -78,7 +84,7 @@ export function NativeQuestionCard({ question, askedBy, onAnswer, onDismiss }: N
                     />
                     <span className="min-w-0">
                       <span className="break-words">{option.label}</span>
-                      {option.description && <span className="block break-words text-xs text-zinc-400">{option.description}</span>}
+                      {option.description && <span className={`block break-words text-zinc-400 ${t("text-sm md:text-xs", "text-xs")}`}>{option.description}</span>}
                     </span>
                   </label>
                 ))}
@@ -91,24 +97,24 @@ export function NativeQuestionCard({ question, askedBy, onAnswer, onDismiss }: N
                     value={draft.other}
                     disabled={submitting}
                     onChange={(event) => setDraft(one.id, (current) => ({ ...current, other: event.target.value }))}
-                    className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-sky-500 focus:outline-none"
+                    className={`w-full border border-zinc-700 bg-zinc-950 text-zinc-200 placeholder:text-zinc-600 focus:border-sky-500 focus:outline-none ${t("min-h-12 rounded-xl px-3 text-base md:min-h-0 md:rounded md:px-2 md:py-1.5 md:text-sm", "min-h-0 rounded px-2 py-1.5 text-sm")}`}
                   />
                 )}
               </fieldset>
             )
           })}
           {question.error && <p role="alert" className="text-xs text-red-400">{question.error}</p>}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className={`flex gap-2 ${t("flex-col md:flex-row md:flex-wrap md:items-center", "flex-row flex-wrap items-center")}`}>
             <button
               disabled={submitting || !complete}
-              className="rounded bg-sky-700/70 px-2 py-1 text-xs text-white hover:bg-sky-600/70 disabled:cursor-not-allowed disabled:opacity-40"
+              className={`bg-sky-700/70 text-white hover:bg-sky-600/70 disabled:cursor-not-allowed disabled:opacity-40 ${t("min-h-12 w-full rounded-xl px-4 text-base font-semibold md:min-h-0 md:w-auto md:rounded md:px-2 md:py-1 md:text-xs md:font-normal", "min-h-0 w-auto rounded px-2 py-1 text-xs font-normal")}`}
               onClick={() => onAnswer(question.requestId, answers)}
             >
               {question.questions.length === 1 ? "Send answer" : "Send answers"}
             </button>
             <button
               disabled={submitting}
-              className="rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800 disabled:cursor-wait disabled:opacity-50"
+              className={`text-zinc-300 hover:bg-zinc-800 disabled:cursor-wait disabled:opacity-50 ${t("min-h-12 w-full rounded-xl border border-zinc-700 px-4 text-base md:min-h-0 md:w-auto md:rounded md:border-transparent md:px-2 md:py-1 md:text-xs", "min-h-0 w-auto rounded border-transparent px-2 py-1 text-xs")}`}
               onClick={() => onDismiss(question.requestId)}
             >
               Dismiss
