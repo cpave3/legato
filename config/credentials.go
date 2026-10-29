@@ -2,6 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -31,6 +35,42 @@ type CredentialConfig struct {
 	// Type of the secret, when the profile does not say.
 	Type   string           `yaml:"type"`
 	Policy []CredentialRule `yaml:"policy"`
+	// Settings a profile needs from the credential (api-key: the upstream
+	// and the key's place).
+	Settings CredentialSettings `yaml:"settings"`
+}
+
+// CredentialSettings are what the api-key profile needs of a credential.
+type CredentialSettings struct {
+	// Upstream is the https base URL every proxied request goes to.
+	Upstream string             `yaml:"upstream"`
+	Key      CredentialKeyPlace `yaml:"key"`
+}
+
+// CredentialKeyPlace is where an HTTP API takes its key: a header, written
+// with Format ("Bearer {secret}"), or a query parameter.
+type CredentialKeyPlace struct {
+	Header string `yaml:"header"`
+	Format string `yaml:"format"`
+	Query  string `yaml:"query"`
+}
+
+// CredentialChannelsConfig configures the channels that keep secrets from agents.
+type CredentialChannelsConfig struct {
+	HTTPProxy HTTPProxyChannelConfig `yaml:"http_proxy"`
+	SSHAgent  SSHAgentChannelConfig  `yaml:"ssh_agent"`
+}
+
+// HTTPProxyChannelConfig is the loopback proxy for API keys.
+type HTTPProxyChannelConfig struct {
+	// Listen is a loopback host:port; port 0 (the default) picks one.
+	Listen string `yaml:"listen"`
+}
+
+// SSHAgentChannelConfig is the SSH agent of agent sessions.
+type SSHAgentChannelConfig struct {
+	// KnownHosts names hosts by their keys (default ~/.ssh/known_hosts).
+	KnownHosts string `yaml:"known_hosts"`
 }
 
 // CredentialRule says how often the person is asked for some uses.
@@ -114,6 +154,65 @@ func normalizeCredentials(cfg *Config) error {
 			if err := NormalizeCredentialRule(&c.Policy[j]); err != nil {
 				return fmt.Errorf("credentials %q: policy[%d]: %w", c.Name, j, err)
 			}
+		}
+		if err := normalizeCredentialSettings(c); err != nil {
+			return fmt.Errorf("credentials %q: settings: %w", c.Name, err)
+		}
+	}
+	return normalizeCredentialChannels(&cfg.CredentialChannels)
+}
+
+// normalizeCredentialSettings checks the settings a credential gives. The
+// api-key profile needs both; any credential may set them.
+func normalizeCredentialSettings(c *CredentialConfig) error {
+	s := &c.Settings
+	s.Upstream = strings.TrimRight(strings.TrimSpace(s.Upstream), "/")
+	if c.Profile == "api-key" {
+		if s.Upstream == "" {
+			return fmt.Errorf("the api-key profile needs settings.upstream, the https address of the API")
+		}
+		if s.Key == (CredentialKeyPlace{}) {
+			return fmt.Errorf("the api-key profile needs settings.key: {header: <name>} or {query: <name>}")
+		}
+	}
+	if s.Upstream != "" {
+		u, err := url.Parse(s.Upstream)
+		if err != nil || u.Scheme != "https" || u.Host == "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+			return fmt.Errorf("upstream %q: want an https address with no query, such as https://api.example.com/v1", s.Upstream)
+		}
+	}
+	k := s.Key
+	switch {
+	case k == (CredentialKeyPlace{}):
+	case k.Header != "" && k.Query != "":
+		return fmt.Errorf("key: a header or a query parameter, not both")
+	case k.Header == "" && k.Query == "":
+		return fmt.Errorf("key: name a header or a query parameter")
+	case k.Format != "" && k.Query != "":
+		return fmt.Errorf("key: a query parameter takes no format")
+	case k.Format != "" && !strings.Contains(k.Format, "{secret}"):
+		return fmt.Errorf("key: format %q must contain {secret}", k.Format)
+	}
+	return nil
+}
+
+func normalizeCredentialChannels(c *CredentialChannelsConfig) error {
+	c.HTTPProxy.Listen = strings.TrimSpace(c.HTTPProxy.Listen)
+	if c.HTTPProxy.Listen == "" {
+		c.HTTPProxy.Listen = "127.0.0.1:0"
+	}
+	host, port, err := net.SplitHostPort(c.HTTPProxy.Listen)
+	if ip := net.ParseIP(host); err != nil || port == "" || ((ip == nil || !ip.IsLoopback()) && host != "localhost") {
+		return fmt.Errorf("credential_channels.http_proxy.listen %q: want a loopback address and port, such as 127.0.0.1:0", c.HTTPProxy.Listen)
+	}
+	c.SSHAgent.KnownHosts = strings.TrimSpace(c.SSHAgent.KnownHosts)
+	if c.SSHAgent.KnownHosts == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			c.SSHAgent.KnownHosts = filepath.Join(home, ".ssh", "known_hosts")
+		}
+	} else if strings.HasPrefix(c.SSHAgent.KnownHosts, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			c.SSHAgent.KnownHosts = filepath.Join(home, c.SSHAgent.KnownHosts[2:])
 		}
 	}
 	return nil

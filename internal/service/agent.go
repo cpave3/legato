@@ -208,6 +208,8 @@ type LearningPromptProvider interface {
 }
 
 type agentService struct {
+	sessionEnvMu      sync.Mutex
+	sessionEnv        SessionEnvProvider // credential channels; nil without any
 	store             *store.Store
 	tmux              TmuxManager
 	workDir           string
@@ -397,6 +399,20 @@ type AgentServiceOptions struct {
 	// DisablePeerAwareness suppresses automatic startup notices. Explicit peer
 	// discovery and messaging remain available.
 	DisablePeerAwareness bool
+}
+
+// SetSessionEnv gives every session spawned from now on the environment of
+// the credential channels.
+func (a *agentService) SetSessionEnv(provider SessionEnvProvider) {
+	a.sessionEnvMu.Lock()
+	defer a.sessionEnvMu.Unlock()
+	a.sessionEnv = provider
+}
+
+func (a *agentService) credentialEnv() SessionEnvProvider {
+	a.sessionEnvMu.Lock()
+	defer a.sessionEnvMu.Unlock()
+	return a.sessionEnv
 }
 
 // NewAgentService creates an AgentService.
@@ -668,6 +684,17 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 	envMap["LEGATO_EXECUTION_ID"] = executionID
 	failExecution := func() { _ = a.store.TerminalizeExecution(ctx, executionID, store.ExecutionFailed) }
+	// Credential channels: placeholder keys, the proxy's address and the
+	// session's own SSH agent, which win over what the session inherits.
+	if provider := a.credentialEnv(); provider != nil {
+		channelEnv, err := provider.SessionEnv(ctx, taskID, executionID)
+		if err != nil {
+			log.Printf("credentials: session environment for %s: %v", taskID, err)
+		}
+		for k, v := range channelEnv {
+			envMap[k] = v
+		}
+	}
 
 	envVars := make([]string, 0, len(envMap))
 	for k, v := range envMap {

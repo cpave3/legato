@@ -1,0 +1,13 @@
+# An SSH key an agent logs in with through Legato's SSH agent. The agent
+# never holds the key: each login is signed by Legato after the rules allow
+# it, for the host the server proved it is. A login to a host is asked once
+# an hour; a login through a forwarded agent (ssh -A) is refused.
+name: ssh
+description: An SSH key, through Legato's SSH agent
+issuer: static
+channels: [ssh-agent]
+accepts: [keypair]
+inspector: ssh
+policy:
+  - { operation: ssh.login, approve: window, window: 1h }
+  - { operation: ssh.forwarded-login, approve: deny }

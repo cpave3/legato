@@ -40,11 +40,13 @@ type Config struct {
 	Repositories           []RepositoryConfig       `yaml:"repositories"`
 	Resources              []ResourceConfig         `yaml:"resources"`
 	// Credentials agents can ask for, and where Legato keeps its own secrets.
-	Credentials    []CredentialConfig `yaml:"credentials"`
-	Secrets        SecretsConfig      `yaml:"secrets"`
-	Learning       LearningConfig     `yaml:"learning"`
-	SSHAgentSocket string             `yaml:"ssh_agent_socket"`
-	Manticore      ManticoreConfig    `yaml:"manticore"`
+	Credentials []CredentialConfig `yaml:"credentials"`
+	Secrets     SecretsConfig      `yaml:"secrets"`
+	// CredentialChannels are where agents reach credentials without holding them.
+	CredentialChannels CredentialChannelsConfig `yaml:"credential_channels"`
+	Learning           LearningConfig           `yaml:"learning"`
+	SSHAgentSocket     string                   `yaml:"ssh_agent_socket"`
+	Manticore          ManticoreConfig          `yaml:"manticore"`
 }
 
 // ManticoreConfig names the Manticore instance that Claude Code sessions

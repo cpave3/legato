@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,6 +36,9 @@ const (
 	grantSession = "session"
 	grantWindow  = "window"
 	grantOnce    = "once"
+	// grantAuto records what an auto rule allowed. It answers a request but
+	// never allows a use: the rule decides each use, within its limits.
+	grantAuto = "auto"
 )
 
 // defaultWindow is the window a session rule offers as a stricter choice.
@@ -49,6 +53,9 @@ type AccessRequest struct {
 	Resources   []string
 	Reason      string
 	Blocking    bool
+	// amounts are those of the use a request is made for, so a rule whose
+	// limit the use would pass gives way as it does for the use.
+	amounts map[string]int64
 }
 
 // AccessResult is what a request came to.
@@ -68,6 +75,8 @@ type CredentialUse struct {
 	Operation   string
 	Resource    string
 	Amounts     map[string]int64
+	// Call is what the channel saw, for the audit log: "POST /v1/voices".
+	Call string
 }
 
 // UseDecision says whether a use may go ahead.
@@ -118,6 +127,9 @@ type brokerCredential struct {
 	ref     credential.Ref
 	profile CredentialProfile
 	rules   []config.CredentialRule
+	// upstream and key, for a credential the http-proxy channel serves.
+	upstream *url.URL
+	key      credential.KeyPlace
 }
 
 // NewCredentialBroker checks the configured credentials against the
@@ -158,11 +170,42 @@ func NewCredentialBroker(db *store.Store, approvals *ApprovalService, opts Crede
 		if len(rules) == 0 {
 			rules = profile.Policy
 		}
-		b.credentials[c.Name] = brokerCredential{config: c, ref: ref, profile: profile, rules: rules}
+		bc := brokerCredential{config: c, ref: ref, profile: profile, rules: rules}
+		if listHas(profile.Channels, ChannelHTTPProxy) {
+			if err := bc.proxySettings(); err != nil {
+				return nil, fmt.Errorf("credentials %q: %w", c.Name, err)
+			}
+		}
+		if listHas(profile.Channels, ChannelSSHAgent) && c.Type != "" && c.Type != credential.TypeKeyPair {
+			return nil, fmt.Errorf("credentials %q: profile ssh takes a keypair secret", c.Name)
+		}
+		b.credentials[c.Name] = bc
 		b.names = append(b.names, c.Name)
 	}
 	sort.Strings(b.names)
 	return b, nil
+}
+
+// proxySettings works out where the proxy sends a credential's requests and
+// where the key goes: the credential's settings, else its profile's.
+func (bc *brokerCredential) proxySettings() error {
+	upstream := firstNonEmpty(bc.config.Settings.Upstream, bc.profile.Upstream)
+	if upstream == "" {
+		return fmt.Errorf("profile %s needs settings.upstream", bc.profile.Name)
+	}
+	u, err := url.Parse(upstream)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf("upstream %q: want an https address", upstream)
+	}
+	bc.upstream = u
+	bc.key = bc.profile.Key
+	if k := bc.config.Settings.Key; k != (config.CredentialKeyPlace{}) {
+		bc.key = credential.KeyPlace{Header: k.Header, Format: k.Format, Query: k.Query}
+	}
+	if err := bc.key.Validate(); err != nil {
+		return fmt.Errorf("profile %s: %w (settings.key)", bc.profile.Name, err)
+	}
+	return nil
 }
 
 // RegisterResolver makes this process apply decisions on credential
@@ -251,7 +294,7 @@ var strictness = map[string]int{"auto": 0, "session": 1, "window": 2, "request":
 
 // selectRule returns the most specific rule that matches a use, passing over
 // rules whose limits are spent. nil when none matches.
-func (b *CredentialBroker) selectRule(ctx context.Context, c brokerCredential, p pair) *config.CredentialRule {
+func (b *CredentialBroker) selectRule(ctx context.Context, c brokerCredential, p pair, amounts map[string]int64) *config.CredentialRule {
 	best, bestScore := -1, -1
 	for i, r := range c.rules {
 		if len(r.Operation) > 0 && !listHas(r.Operation, p.operation) {
@@ -260,7 +303,7 @@ func (b *CredentialBroker) selectRule(ctx context.Context, c brokerCredential, p
 		if !credential.Covers(r.Resource, p.resource) {
 			continue
 		}
-		if b.limitSpent(ctx, c.config.Name, r) {
+		if b.limitSpent(ctx, c.config.Name, r, amounts) {
 			continue
 		}
 		score := credential.Specificity(r.Resource)
@@ -277,17 +320,44 @@ func (b *CredentialBroker) selectRule(ctx context.Context, c brokerCredential, p
 	return &c.rules[best]
 }
 
-func (b *CredentialBroker) limitSpent(ctx context.Context, name string, r config.CredentialRule) bool {
+// limitSpent reports whether a use of these amounts would take a rule's
+// meters past a limit. A use counts one request whatever it says.
+func (b *CredentialBroker) limitSpent(ctx context.Context, name string, r config.CredentialRule, amounts map[string]int64) bool {
 	for _, limit := range r.Limits {
-		if limit.Meter != "requests" {
-			continue // other meters come with the channels that measure them
+		total, err := b.db.CredentialMeterTotal(ctx, name, limit.Meter, b.now().Add(-limit.Period))
+		if err != nil {
+			continue
 		}
-		n, err := b.db.CountCredentialAudit(ctx, store.CredentialAuditFilter{Event: "use", Credential: name, Since: b.now().Add(-limit.Period)})
-		if err == nil && int64(n) >= limit.Count {
+		add := amounts[limit.Meter]
+		if limit.Meter == "requests" {
+			add = 1
+		}
+		if total+add > limit.Count || (add == 0 && total >= limit.Count) {
 			return true
 		}
 	}
 	return false
+}
+
+// meter records what an allowed use measured: one request and its amounts.
+func (b *CredentialBroker) meter(ctx context.Context, name string, amounts map[string]int64) {
+	if err := b.db.AddCredentialMeter(ctx, name, "requests", 1, b.now()); err != nil {
+		log.Printf("credentials: meter: %v", err)
+	}
+	b.RecordMeasured(ctx, name, amounts)
+}
+
+// RecordMeasured adds what a channel measured after a use ended (response
+// bytes) to the credential's totals. Requests are counted by the use.
+func (b *CredentialBroker) RecordMeasured(ctx context.Context, name string, amounts map[string]int64) {
+	for meter, amount := range amounts {
+		if meter == "requests" || amount <= 0 {
+			continue
+		}
+		if err := b.db.AddCredentialMeter(ctx, name, meter, amount, b.now()); err != nil {
+			log.Printf("credentials: meter: %v", err)
+		}
+	}
 }
 
 // executionRunning reports whether an execution runs, for taskID when set.
@@ -320,7 +390,7 @@ func (b *CredentialBroker) Request(ctx context.Context, req AccessRequest) (Acce
 	ps := pairs(req.Operations, req.Resources)
 	var strictest *config.CredentialRule
 	for _, p := range ps {
-		r := b.selectRule(ctx, c, p)
+		r := b.selectRule(ctx, c, p, req.amounts)
 		if r == nil {
 			return b.refuse(ctx, req, fmt.Sprintf("no rule of %s allows %s on %s", req.Credential, p.operation, orAll(p.resource))), nil
 		}
@@ -335,7 +405,7 @@ func (b *CredentialBroker) Request(ctx context.Context, req AccessRequest) (Acce
 		return AccessResult{Status: AccessGranted, Grant: "already granted"}, nil
 	}
 	if strictest.Approve == "auto" {
-		if err := b.grant(ctx, req, grantSession, 0, "", "rule"); err != nil {
+		if err := b.grant(ctx, req, grantAuto, 0, "", "rule"); err != nil {
 			return AccessResult{}, err
 		}
 		return AccessResult{Status: AccessGranted, Grant: "this session"}, nil
@@ -511,27 +581,32 @@ func (b *CredentialBroker) Authorize(ctx context.Context, use CredentialUse) (Us
 	}
 	entry := store.CredentialAuditEntry{Credential: use.Credential, Operation: use.Operation, Resource: use.Resource, Amount: amounts(use.Amounts)}
 	if !b.executionRunning(ctx, use.ExecutionID, use.TaskID) {
-		entry.Event, entry.Detail = "refuse", "the agent is not running"
+		entry.Event, entry.Detail = "refuse", withCall("the agent is not running", use.Call)
 		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
 		return UseDecision{Reason: entry.Detail}, nil
 	}
 	p := pair{use.Operation, use.Resource}
-	r := b.selectRule(ctx, c, p)
+	r := b.selectRule(ctx, c, p, use.Amounts)
 	if r == nil || r.Approve == "deny" {
-		entry.Event, entry.Detail = "refuse", fmt.Sprintf("no rule of %s allows %s on %s", use.Credential, use.Operation, orAll(use.Resource))
+		reason := fmt.Sprintf("no rule of %s allows %s on %s", use.Credential, use.Operation, orAll(use.Resource))
+		if r != nil {
+			reason = fmt.Sprintf("%s does not allow %s on %s", use.Credential, use.Operation, orAll(use.Resource))
+		}
+		entry.Event, entry.Detail = "refuse", withCall(reason, use.Call)
 		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
-		return UseDecision{Reason: entry.Detail}, nil
+		return UseDecision{Reason: reason}, nil
 	}
 	if r.Approve == "auto" {
-		entry.Event, entry.Detail = "use", "auto"
+		entry.Event, entry.Detail = "use", withCall("auto", use.Call)
 		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
+		b.meter(ctx, use.Credential, use.Amounts)
 		return UseDecision{Allowed: true}, nil
 	}
 	if ok, err := b.useGrant(ctx, use, entry); ok || err != nil {
 		return UseDecision{Allowed: ok}, err
 	}
 	result, err := b.Request(ctx, AccessRequest{TaskID: use.TaskID, ExecutionID: use.ExecutionID, Credential: use.Credential,
-		Operations: []string{use.Operation}, Resources: nonEmpty(use.Resource), Reason: "used without asking first", Blocking: true})
+		Operations: []string{use.Operation}, Resources: nonEmpty(use.Resource), Reason: "used without asking first", Blocking: true, amounts: use.Amounts})
 	if err != nil {
 		return UseDecision{}, err
 	}
@@ -549,7 +624,7 @@ func (b *CredentialBroker) useGrant(ctx context.Context, use CredentialUse, entr
 	if err != nil {
 		return false, err
 	}
-	g := findGrant(grants, pair{use.Operation, use.Resource})
+	g := findGrant(personGrants(grants), pair{use.Operation, use.Resource})
 	if g == nil {
 		return false, nil
 	}
@@ -560,9 +635,50 @@ func (b *CredentialBroker) useGrant(ctx context.Context, use CredentialUse, entr
 			return false, err
 		}
 	}
-	entry.Event, entry.ApprovalID, entry.Detail = "use", g.ApprovalID, g.Mode
+	entry.Event, entry.ApprovalID, entry.Detail = "use", g.ApprovalID, withCall(g.Mode, use.Call)
 	b.audit(ctx, use.TaskID, use.ExecutionID, entry)
+	b.meter(ctx, use.Credential, use.Amounts)
 	return true, nil
+}
+
+// personGrants are the grants a person made, not those an auto rule left.
+func personGrants(grants []store.CredentialGrant) []store.CredentialGrant {
+	out := grants[:0:0]
+	for _, g := range grants {
+		if g.Mode != grantAuto {
+			out = append(out, g)
+		}
+	}
+	return out
+}
+
+// withCall adds what the channel saw to an audit detail.
+func withCall(detail, call string) string {
+	if call == "" {
+		return detail
+	}
+	return detail + " · " + clip(call, 300)
+}
+
+// readSecret reads a credential's secret from its store, with no use: for a
+// channel that has authorized the use itself, or needs a public key.
+func (b *CredentialBroker) readSecret(ctx context.Context, name string) (credential.Secret, error) {
+	c, ok := b.credentials[name]
+	if !ok {
+		return credential.Secret{}, fmt.Errorf("no credential named %q", name)
+	}
+	s, ok := b.stores[c.ref.Scheme]
+	if !ok {
+		return credential.Secret{}, fmt.Errorf("no store for %s:// references in this Legato", c.ref.Scheme)
+	}
+	secret, err := s.Get(ctx, c.ref)
+	if err != nil {
+		return credential.Secret{}, err
+	}
+	if secret.Type == "" || c.config.Type != "" {
+		secret.Type = firstNonEmpty(c.config.Type, c.profile.defaultType(), credential.TypeValue)
+	}
+	return secret, nil
 }
 
 // Value is a use that also reads the credential, through its issuer.

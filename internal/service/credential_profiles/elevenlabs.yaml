@@ -1,0 +1,29 @@
+# ElevenLabs text to speech through Legato's proxy. The agent gets a
+# placeholder key and the proxy's address; Legato puts the real key in each
+# request it allows. Speech is free of asking up to 20,000 characters a day,
+# then asked once an hour. Account and key management are refused.
+name: elevenlabs
+description: ElevenLabs text to speech, through Legato's proxy
+issuer: static
+channels: [http-proxy]
+accepts: [value]
+inspector: rest
+upstream: https://api.elevenlabs.io
+key: { header: xi-api-key }
+env:
+  ELEVENLABS_API_KEY: "{placeholder}"
+  ELEVENLABS_BASE_URL: "{base_url}"
+routes:
+  - { method: POST, path: "/v1/text-to-speech/{voice}/**", operation: tts.speak, resource: "voice/{voice}", meter: { characters: "$.text" } }
+  - { method: GET, path: "/v1/voices/**", operation: voices.read }
+  - { method: GET, path: "/v2/voices/**", operation: voices.read }
+  - { method: GET, path: "/v1/models", operation: models.read }
+  - { method: "*", path: "/v1/user/**", operation: account.manage }
+  - { method: "*", path: "/v1/workspace/**", operation: account.manage }
+  - { method: "*", path: "/v1/service-accounts/**", operation: keys.manage }
+  - { method: "*", path: "/v1/api-keys/**", operation: keys.manage }
+policy:
+  - { operation: tts.speak, approve: auto, limit: { characters: 20000/day } }
+  - { operation: tts.speak, approve: window, window: 1h }
+  - { operation: [voices.read, models.read], approve: auto }
+  - { operation: [account.manage, keys.manage], approve: deny }

@@ -8,6 +8,7 @@ import (
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/discovery"
 	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
@@ -37,6 +38,15 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 	var stopCredentials func()
 	rt.credentials, stopCredentials = startCredentials(ctx, cfg, db, bus, rt.approvals, agents)
 	stops = append(stops, stopCredentials)
+	if rt.credentials != nil {
+		var reconcile func(context.Context) error
+		if agents != nil {
+			reconcile = agents.ReconcileSessions
+		}
+		host := startChannelHost(ctx, cfg, db, rt.credentials, bus, ipc.SocketDir(), reconcile)
+		stops = append(stops, host.Stop)
+		giveSessionsChannels(agents, host.Channels())
+	}
 	rt.stop = func() {
 		for _, stop := range stops {
 			stop()

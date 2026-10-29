@@ -1,0 +1,20 @@
+# Any HTTP API that takes a key, through Legato's proxy. The credential's
+# settings name the API (settings.upstream, an https address) and where the
+# key goes (settings.key: {header: Authorization, format: "Bearer {secret}"}
+# or {query: key}). Reads are asked once a session, writes each time.
+name: api-key
+description: An HTTP API key, through Legato's proxy
+issuer: static
+channels: [http-proxy]
+accepts: [value]
+inspector: rest
+env:
+  "{NAME}_API_KEY": "{placeholder}"
+  "{NAME}_BASE_URL": "{base_url}"
+routes:
+  - { method: GET, path: "/**", operation: http.read }
+  - { method: HEAD, path: "/**", operation: http.read }
+  - { method: "*", path: "/**", operation: http.write }
+policy:
+  - { operation: http.read, approve: session }
+  - { operation: http.write, approve: request }

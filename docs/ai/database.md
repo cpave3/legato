@@ -66,6 +66,8 @@ Migration 069 adds `approval_requests`: each request that waits for the person (
 
 Migration 070 adds `secrets` (Legato's own store: values sealed under a master key kept outside the database), `credential_grants` (what an execution may do with a credential, until an expiry, a number of uses or its end) and `credential_audit` (append-only and hash-chained; the time is TEXT because it is part of the hash). See [Credentials](credentials.md).
 
+Migration 071 adds `credential_placeholders` (the SHA-256 of each placeholder key the `http-proxy` channel gave an execution, with its credential; a placeholder resolves only while its execution runs) and `credential_meter_totals` (each amount a channel measured, by credential and meter, for the limits of rules; the time is TEXT like the audit log's).
+
 ### Directory presets
 
 Migration 067 adds `directory_presets`: the directories the person saved from a spawn dialog (`path`, the identity and absolute; `name`; `created_at`). Saving a path again renames it and keeps its place. The spawn dialogs list them after the `repositories` of the configuration, through `service.DirectoryService`; a saved directory that the configuration also names is listed once, as the configured one.

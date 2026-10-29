@@ -2402,6 +2402,7 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
 		DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 	})
+	attachCredentialChannels(cfg, db, agents)
 
 	swCfg := service.SwarmConfig{
 		MaxConcurrentAgents: cfg.Swarm.MaxConcurrentAgents,
