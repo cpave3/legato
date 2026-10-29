@@ -128,6 +128,9 @@ type AgentSpawnOptions struct {
 	ExecutionKind     string            // reporting execution kind; defaults from workflow/swarm context
 	AttributionTaskID string            // user-facing reporting task; defaults to taskID
 	WorkflowRunID     string            // owning workflow run, when applicable
+	// Prompt is the agent's first message, sent once it can take one (after
+	// the brief kickoff when there is one). Blank sends nothing.
+	Prompt string
 	// Unsandboxed starts this agent outside Legato's sandbox when it is on.
 	// Swarm and workflow agents ignore it: they are always sandboxed.
 	Unsandboxed       bool
@@ -677,6 +680,22 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 
+	// A prompt of more than one line reaches a terminal agent as a file it
+	// is told to read; the pane takes one line.
+	prompt := strings.TrimSpace(opt.Prompt)
+	if strings.ContainsAny(prompt, "\n\r\"") {
+		if dir, err := swarm.AgentDir(taskID); err != nil {
+			log.Printf("writing the prompt of %s: %v", taskID, err)
+		} else {
+			path := filepath.Join(dir, "prompt.md")
+			if err := os.WriteFile(path, []byte(prompt+"\n"), 0o600); err != nil {
+				log.Printf("writing the prompt of %s: %v", taskID, err)
+			} else {
+				envMap["LEGATO_PROMPT_FILE"] = path
+			}
+		}
+	}
+
 	executionID := "ex-" + store.GenerateTaskID()
 	executionKind := opt.ExecutionKind
 	if executionKind == "" {
@@ -889,31 +908,22 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 				// Launch failure is best-effort: the session exists, the user
 				// can recover by attaching and running the AI tool manually.
 				log.Printf("auto-launch send-keys failed for %s: %v", sessionName, err)
-			} else if _, hasBrief := envMap["LEGATO_BRIEF_FILE"]; hasBrief && !nativeResume {
-				// Skip the kickoff for adapters whose launch command already
-				// constitutes the first user turn (e.g. Chimera's `--prompt`).
-				// The role prompt content already includes "read your brief"
-				// instructions, so a separate kickoff would be a redundant
-				// second user turn.
-				skip := false
-				if k, ok := adapter.(LaunchSelfKickoff); ok && k.LaunchIsSelfKickoff() {
-					skip = true
+			} else {
+				// The brief kickoff, then the prompt, once the AI tool can
+				// take a message: over its native endpoint, else typed.
+				var messages []string
+				if _, hasBrief := envMap["LEGATO_BRIEF_FILE"]; hasBrief && !nativeResume {
+					// Skip the kickoff for adapters whose launch command already
+					// constitutes the first user turn (e.g. Chimera's `--prompt`).
+					if k, ok := adapter.(LaunchSelfKickoff); !ok || !k.LaunchIsSelfKickoff() {
+						messages = append(messages, briefKickoffMessage)
+					}
 				}
-				if !skip {
-					// Deliver the brief pointer once the AI tool can take it. The
-					// brief itself is on disk; we only need the agent to notice it.
-					go func(session string) {
-						if a.awaitNativeEndpoint(taskID, adapter) {
-							err := a.QueueMessage(context.Background(), taskID, briefKickoffMessage)
-							if err == nil {
-								return
-							}
-							log.Printf("auto-launch brief kickoff over the native endpoint failed for %s: %v", session, err)
-						}
-						if err := a.tmux.SendKeysLine(session, briefKickoffMessage); err != nil {
-							log.Printf("auto-launch brief kickoff failed for %s: %v", session, err)
-						}
-					}(sessionName)
+				if prompt != "" {
+					messages = append(messages, prompt)
+				}
+				if len(messages) > 0 {
+					go a.deliverLaunchMessages(taskID, sessionName, adapter, messages, envMap["LEGATO_PROMPT_FILE"])
 				}
 			}
 		}
@@ -991,6 +1001,30 @@ func (a *agentService) notifyPeerJoin(taskID, executionID, workDir string, adapt
 // box with the Enter lost. False means the message has to be typed: the
 // adapter binds nothing, the agent is gone, or nothing was bound in time. An
 // adapter that binds nothing gets the fixed kickoff delay instead.
+// deliverLaunchMessages sends the messages a launch starts an agent with,
+// in order, once it can take them: over its native endpoint, else typed into
+// the pane. A message of more than one line is typed as a pointer to its
+// file, since the pane takes one line.
+func (a *agentService) deliverLaunchMessages(taskID, session string, adapter AIToolAdapter, messages []string, promptFile string) {
+	native := a.awaitNativeEndpoint(taskID, adapter)
+	for _, message := range messages {
+		if native {
+			err := a.QueueMessage(context.Background(), taskID, message)
+			if err == nil {
+				continue
+			}
+			log.Printf("launch message over the native endpoint failed for %s: %v", session, err)
+		}
+		typed := message
+		if promptFile != "" && strings.ContainsAny(message, "\n\r\"") {
+			typed = "Read " + promptFile + " in full: it is your task from the person. Then do it."
+		}
+		if err := a.tmux.SendKeysLine(session, typed); err != nil {
+			log.Printf("launch message failed for %s: %v", session, err)
+		}
+	}
+}
+
 func (a *agentService) awaitNativeEndpoint(taskID string, adapter AIToolAdapter) bool {
 	binder, ok := adapter.(NativeBindingAdapter)
 	if !ok || !binder.BindsNativeEndpoint() {
