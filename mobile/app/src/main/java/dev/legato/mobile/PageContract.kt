@@ -20,7 +20,7 @@ fun bootstrapScript(baseUrl: String, token: String, shellKey: String): String {
     return "if(window===window.top){" +
         "localStorage.setItem(\"legato:token:local\",$value);" +
         "localStorage.setItem(${JSONObject.quote("legato:token:$baseUrl")},$value);" +
-        "window.legatoShell={voice:1,key:${JSONObject.quote(shellKey)}};" +
+        "window.legatoShell={voice:1,approval:1,enroll:1,key:${JSONObject.quote(shellKey)}};" +
         "}"
 }
 
@@ -68,6 +68,13 @@ sealed interface PageMessage {
     // A request to start, stop or cancel a recording.
     data class Voice(val key: String, val action: String) : PageMessage
 
+    // A request to open the approval sheet on one approval. Only the ID is
+    // read: the app fetches the request itself.
+    data class Approval(val key: String, val id: String) : PageMessage
+
+    // A request to enroll this phone to sign approvals for the server.
+    data class Enroll(val key: String) : PageMessage
+
     data object Unknown : PageMessage
 
     companion object {
@@ -84,8 +91,31 @@ sealed interface PageMessage {
                     val action = message.opt("action") as? String
                     if (key != null && action != null) Voice(key, action) else Unknown
                 }
+                "approval" -> {
+                    val key = message.opt("key") as? String
+                    val id = message.opt("id") as? String
+                    if (key != null && id != null && APPROVAL_ID.matches(id)) Approval(key, id) else Unknown
+                }
+                "enroll" -> (message.opt("key") as? String)?.let(::Enroll) ?: Unknown
                 else -> Unknown
             }
         }
     }
+}
+
+private val APPROVAL_ID = Regex("^ap-[0-9a-f]{8}$")
+
+// approvalEventScript tells the page how the approval sheet closed.
+fun approvalEventScript(id: String, status: String, option: String?, error: String?): String {
+    val detail = JSONObject().put("id", id).put("status", status)
+    option?.let { detail.put("option", it) }
+    error?.let { detail.put("error", it) }
+    return "(function(){try{window.dispatchEvent(new CustomEvent(\"legato:shell-approval\",{detail:$detail}))}catch(e){}})()"
+}
+
+// enrollEventScript tells the page how enrolling this phone went.
+fun enrollEventScript(status: String, error: String?): String {
+    val detail = JSONObject().put("status", status)
+    error?.let { detail.put("error", it) }
+    return "(function(){try{window.dispatchEvent(new CustomEvent(\"legato:shell-enroll\",{detail:$detail}))}catch(e){}})()"
 }

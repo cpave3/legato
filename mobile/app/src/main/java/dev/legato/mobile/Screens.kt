@@ -73,7 +73,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
 
 // The colours of the web interface's new look (web/src/index.css, `--color-lw-*`).
-private object Lw {
+internal object Lw {
     val rail = Color(0xFF0C0C0F)
     val ground = Color(0xFF111114)
     val surface = Color(0xFF17171B)
@@ -101,8 +101,8 @@ private object Lw {
 private fun geist(resource: Int, weight: Int) =
     Font(resource, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
 
-private val GeistSans = FontFamily(geist(R.font.geist, 400), geist(R.font.geist, 500), geist(R.font.geist, 600))
-private val GeistMono = FontFamily(geist(R.font.geist_mono, 400))
+internal val GeistSans = FontFamily(geist(R.font.geist, 400), geist(R.font.geist, 500), geist(R.font.geist, 600))
+internal val GeistMono = FontFamily(geist(R.font.geist_mono, 400))
 
 private val mono = TextStyle(fontFamily = GeistMono, fontSize = 12.sp, color = Lw.text2)
 
@@ -120,6 +120,11 @@ fun LegatoApp(activity: MainActivity) {
                     Screen.Pair -> PairScreen(activity)
                     is Screen.Edit -> EditScreen(activity, screen.target)
                     is Screen.Web -> WebScreen(activity, screen.connection)
+                    Screen.Approvals -> ApprovalsScreen(activity)
+                }
+                state.sheet.value?.let { sheet ->
+                    BackHandler { if (!(sheet is SheetState.Ready && sheet.busy)) activity.closeSheet() }
+                    ApprovalSheet(activity, sheet)
                 }
             }
         }
@@ -173,6 +178,11 @@ private fun ConnectionsScreen(activity: MainActivity) {
                             ServerRow(activity, connection)
                         }
                     }
+                }
+            }
+            if (connections.isNotEmpty()) item {
+                Group(null) {
+                    LinkRow("Approvals", LucideIcons.ShieldCheck) { activity.showApprovals() }
                 }
             }
             item {
@@ -311,7 +321,7 @@ private fun MenuItem(label: String, icon: ImageVector, danger: Boolean = false, 
 private fun compactVersion(version: String) = if (version.length > 16) version.take(15) + "…" else version
 
 @Composable
-private fun Group(label: String?, content: @Composable () -> Unit) {
+internal fun Group(label: String?, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (label != null) {
             Text(label.uppercase(), color = Lw.text2, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp, modifier = Modifier.padding(start = 4.dp))
@@ -323,7 +333,7 @@ private fun Group(label: String?, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Divider() = HorizontalDivider(color = Lw.divider, thickness = 1.dp)
+internal fun Divider() = HorizontalDivider(color = Lw.divider, thickness = 1.dp)
 
 @Composable
 private fun LinkRow(label: String, icon: ImageVector, onClick: () -> Unit) {
@@ -339,7 +349,7 @@ private fun LinkRow(label: String, icon: ImageVector, onClick: () -> Unit) {
 }
 
 @Composable
-private fun RoundButton(icon: ImageVector, description: String, filled: Boolean = false, onClick: () -> Unit) {
+internal fun RoundButton(icon: ImageVector, description: String, filled: Boolean = false, onClick: () -> Unit) {
     Box(
         Modifier.size(44.dp).clip(CircleShape)
             .background(if (filled) Lw.accent else Lw.raised)
@@ -362,7 +372,7 @@ private fun IconAction(icon: ImageVector, description: String, size: Dp = 44.dp,
 }
 
 @Composable
-private fun ErrorNote(message: String) {
+internal fun ErrorNote(message: String) {
     Text(
         message,
         color = Lw.danger,

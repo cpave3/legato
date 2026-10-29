@@ -121,4 +121,13 @@ class ConnectionStoreTest {
 
         assertEquals(listOf("a1"), store.load().map { it.id })
     }
+
+    @Test
+    fun `remembers the device this phone enrolled as, and forgets it`() {
+        store.save(desk, "t")
+        store.rememberApprovalDevice("1", "dev-abc")
+        assertEquals("dev-abc", store.load().single().approvalDevice)
+        store.rememberApprovalDevice("1", null)
+        assertNull(store.load().single().approvalDevice)
+    }
 }

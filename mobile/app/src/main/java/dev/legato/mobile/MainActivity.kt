@@ -227,6 +227,167 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Signed approvals: the sheet, enrolling this phone, and signing.
+
+    private val keys by lazy { AndroidDeviceKeys() }
+    private val main = java.util.concurrent.Executor { runOnUiThread(it) }
+    private var sheetDone: ((String, String?, String?) -> Unit)? = null
+
+    private fun client(connection: Connection): ApprovalClient {
+        val token = store.token(connection.id) ?: throw IllegalStateException("This server has no saved token. Pair it again.")
+        return ApprovalClient(AndroidServerHttp(connection.baseUrl, token, connection.caCertificate))
+    }
+
+    // openApprovalSheet shows one approval to sign. done tells whoever asked
+    // (a page, or nobody) how it closed.
+    fun openApprovalSheet(connection: Connection, id: String, done: (String, String?, String?) -> Unit) {
+        sheetDone?.invoke("cancelled", null, null)
+        sheetDone = done
+        val device = connection.approvalDevice
+        if (device == null || !keys.has(approvalKeyAlias(connection.id))) {
+            state.sheet.value = SheetState.NotEnrolled(connection, id)
+            return
+        }
+        state.sheet.value = SheetState.Loading(connection, id)
+        io.execute {
+            val outcome = runCatching {
+                val challenge = client(connection).challenge(id, device)
+                SheetState.Ready(connection, id, parseSheet(challenge.canonical), device, challenge)
+            }
+            runOnUiThread {
+                if (state.sheet.value?.approvalId != id) return@runOnUiThread
+                state.sheet.value = outcome.getOrElse { SheetState.Failed(connection, id, it.message ?: it.toString()) }
+            }
+        }
+    }
+
+    fun closeSheet() {
+        val current = state.sheet.value
+        state.sheet.value = null
+        val done = sheetDone
+        sheetDone = null
+        val status = when (current) {
+            is SheetState.Signed, is SheetState.Denied -> "decided"
+            is SheetState.Failed -> "error"
+            else -> "cancelled"
+        }
+        done?.invoke(status, (current as? SheetState.Signed)?.optionLabel, (current as? SheetState.Failed)?.message)
+        refreshApprovals()
+    }
+
+    // enrollPhone makes this phone's key for a server and has the server
+    // accept it.
+    fun enrollPhone(connection: Connection, done: (String, String?) -> Unit) {
+        io.execute {
+            val outcome = runCatching {
+                Enrollment(client(connection), keys, android.os.Build.MODEL ?: "Phone").enroll(approvalKeyAlias(connection.id))
+            }
+            runOnUiThread {
+                outcome.onSuccess { result ->
+                    store.rememberApprovalDevice(connection.id, result.deviceId)
+                    state.connections.value = store.load()
+                    done(if (result.status == "active") "enrolled" else "pending", null)
+                }.onFailure { done("error", it.message ?: it.toString()) }
+            }
+        }
+    }
+
+    // enrollThenOpen enrolls from the sheet, then shows the approval.
+    fun enrollThenOpen(connection: Connection, id: String) {
+        state.sheet.value = SheetState.NotEnrolled(connection, id, busy = true)
+        enrollPhone(connection) { status, error ->
+            val fresh = store.load().firstOrNull { it.id == connection.id } ?: connection
+            when (status) {
+                "enrolled" -> openApprovalSheet(fresh, id, sheetDone ?: { _, _, _ -> })
+                "pending" -> state.sheet.value = SheetState.Failed(fresh, id, "This phone waits to be allowed: approve it on a phone that already signs for ${fresh.name}, then try again.")
+                else -> state.sheet.value = SheetState.NotEnrolled(fresh, id, error = error)
+            }
+        }
+    }
+
+    // signDecision unlocks the key with the person's fingerprint or PIN for
+    // this one signature, signs the request, the option and the challenge,
+    // and sends the decision.
+    fun signDecision(ready: SheetState.Ready, option: SheetOption) {
+        val alias = approvalKeyAlias(ready.connection.id)
+        val signature = try {
+            keys.signature(alias)
+        } catch (cause: android.security.keystore.KeyPermanentlyInvalidatedException) {
+            keys.delete(alias)
+            store.rememberApprovalDevice(ready.connection.id, null)
+            state.sheet.value = SheetState.NotEnrolled(ready.connection, ready.approvalId, error = "A fingerprint was added or removed, so this phone's key was retired. Enroll again; another enrolled phone, or legato device reset at the host, allows it.")
+            return
+        }
+        val message = signedMessage(ready.challenge.challenge, ready.device, option.id, ready.challenge.canonical)
+        state.sheet.value = ready.copy(busy = true, error = null)
+        val scope = (ready.model.operations.firstOrNull() ?: ready.model.title) + (ready.model.resources.firstOrNull()?.let { " · $it" } ?: "")
+        askToSign(this, signature, "Sign: ${option.label}", "$scope\n${ready.connection.name}", main, signed = { unlocked ->
+            val value = runCatching { unlocked.update(message); unlocked.sign() }
+            value.onFailure { state.sheet.value = ready.copy(busy = false, error = it.message ?: it.toString()) }
+            value.onSuccess { sig ->
+                io.execute {
+                    val sent = runCatching { client(ready.connection).decide(ready.approvalId, "allow", option.id, ready.device, ready.challenge.challenge, sig) }
+                    runOnUiThread {
+                        sent.onSuccess {
+                            val hash = java.security.MessageDigest.getInstance("SHA-256").digest(message)
+                            state.sheet.value = SheetState.Signed(ready.connection, ready.approvalId, ready.model, option.label, ready.device, sig, hash, keys.strongBox || isStrongBox(alias))
+                        }.onFailure { state.sheet.value = ready.copy(busy = false, error = it.message ?: it.toString()) }
+                    }
+                }
+            }
+        }, failed = { why ->
+            state.sheet.value = ready.copy(busy = false, error = why)
+        })
+    }
+
+    private fun isStrongBox(alias: String): Boolean = runCatching {
+        val key = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.getKey(alias, null) as java.security.PrivateKey
+        val info = java.security.KeyFactory.getInstance(key.algorithm, "AndroidKeyStore").getKeySpec(key, android.security.keystore.KeyInfo::class.java)
+        android.os.Build.VERSION.SDK_INT >= 31 && info.securityLevel == android.security.keystore.KeyProperties.SECURITY_LEVEL_STRONGBOX
+    }.getOrDefault(false)
+
+    // denyFromSheet denies without a signature: saying no is always safe.
+    fun denyFromSheet(ready: SheetState.Ready) {
+        state.sheet.value = ready.copy(busy = true, error = null)
+        io.execute {
+            val sent = runCatching {
+                val token = store.token(ready.connection.id) ?: throw IllegalStateException("No saved token.")
+                val answer = AndroidServerHttp(ready.connection.baseUrl, token, ready.connection.caCertificate)
+                    .call("POST", "/api/approvals/${ready.approvalId}/decision", org.json.JSONObject().put("decision", "deny").put("by", "phone"))
+                if (answer.first !in 200..299) throw IllegalStateException(runCatching { org.json.JSONObject(answer.second).optString("error") }.getOrNull() ?: "The server answered ${answer.first}.")
+            }
+            runOnUiThread {
+                sent.onSuccess { state.sheet.value = SheetState.Denied(ready.connection, ready.approvalId, ready.model.title) }
+                    .onFailure { state.sheet.value = ready.copy(busy = false, error = it.message ?: it.toString()) }
+            }
+        }
+    }
+
+    // refreshApprovals reads the open approvals of every saved server.
+    fun refreshApprovals(done: () -> Unit = {}) {
+        val connections = state.connections.value
+        io.execute {
+            val lists = listOpenApprovals(connections.map { it.id to it.name }) { id -> client(connections.first { it.id == id }) }
+            runOnUiThread {
+                state.approvals.value = lists
+                done()
+            }
+        }
+    }
+
+    fun showApprovals() {
+        state.screen.value = Screen.Approvals
+        pageVisibility()
+        refreshApprovals()
+    }
+
+    // openListedApproval opens one approval of the list: the sheet when it
+    // needs a signature, else its server's page on it.
+    fun openListedApproval(serverId: String, approval: OpenApproval) {
+        val connection = state.connections.value.firstOrNull { it.id == serverId } ?: return
+        if (approval.signed) openApprovalSheet(connection, approval.id) { _, _, _ -> } else open(connection, "/?approval=${approval.id}")
+    }
+
     private fun showPage(connection: Connection, token: String, path: String = "") {
         closePage()
         page = ServerPage(this, connection, token, AndroidMicrophone(this, ::askForMicrophone), pageCallbacks, path)
@@ -241,6 +402,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private val pageCallbacks = object : ServerPage.Callbacks {
+        override fun openApproval(connection: Connection, id: String, done: (String, String?, String?) -> Unit) {
+            runOnUiThread { openApprovalSheet(store.load().firstOrNull { it.id == connection.id } ?: connection, id, done) }
+        }
+
+        override fun enroll(connection: Connection, done: (String, String?) -> Unit) {
+            runOnUiThread { enrollPhone(store.load().firstOrNull { it.id == connection.id } ?: connection, done) }
+        }
+
         override fun canGoBackChanged(canGoBack: Boolean) {
             state.canGoBack.value = canGoBack
         }
@@ -325,6 +494,7 @@ class MainActivity : ComponentActivity() {
     }
 
     fun remove(connection: Connection) {
+        runCatching { keys.delete(approvalKeyAlias(connection.id)) }
         store.remove(connection.id)
         if (page?.connection?.id == connection.id) closePage()
         state.connections.value = store.load()
@@ -389,7 +559,7 @@ class MainActivity : ComponentActivity() {
             state.error.value = "No saved server is at ${approval.baseUrl}. Open the approval from that server's page."
             return
         }
-        open(connection, approval.path)
+        if (connection.approvalDevice != null) openApprovalSheet(connection, approval.id) { _, _, _ -> } else open(connection, approval.path)
     }
 
     // A code with a phrase pairs at once; one with a token fills in the form.
@@ -412,6 +582,7 @@ sealed interface Screen {
     data object Pair : Screen
     data class Edit(val target: Connection?) : Screen
     data class Web(val connection: Connection) : Screen
+    data object Approvals : Screen
 }
 
 data class PairDraft(val name: String = "", val address: String = "", val phrase: String = "", val busy: Boolean = false)
@@ -429,4 +600,8 @@ class AppState {
     val opening = mutableStateOf<String?>(null)
     val pairDraft = mutableStateOf(PairDraft())
     val discovered = mutableStateOf<List<DiscoveredServer>>(emptyList())
+    // The approval sheet, over whatever is on screen.
+    val sheet = mutableStateOf<SheetState?>(null)
+    // The open approvals of every saved server.
+    val approvals = mutableStateOf<List<ServerApprovals>?>(null)
 }

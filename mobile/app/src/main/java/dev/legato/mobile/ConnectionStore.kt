@@ -11,7 +11,13 @@ data class Connection(
     val createdAt: String,
     val serverVersion: String? = null,
     val caCertificate: String? = null,
+    // The device this phone enrolled as to sign approvals for the server;
+    // its key is approvalKeyAlias(id).
+    val approvalDevice: String? = null,
 )
+
+// The alias of the Keystore key that signs approvals for a saved server.
+fun approvalKeyAlias(connectionId: String) = "approval-$connectionId"
 
 // Where a connection's token is kept, apart from the list.
 interface TokenVault {
@@ -66,6 +72,10 @@ class ConnectionStore(private val text: Text, private val vault: TokenVault) {
         write(current.map { if (it.id == id) it.copy(serverVersion = version) else it })
     }
 
+    fun rememberApprovalDevice(id: String, device: String?) {
+        write(load().map { if (it.id == id) it.copy(approvalDevice = device) else it })
+    }
+
     fun remove(id: String) {
         vault.remove(id)
         write(load().filter { it.id != id })
@@ -95,6 +105,7 @@ private fun readConnection(json: JSONObject): Connection? {
         createdAt = json.opt("createdAt") as? String ?: "",
         serverVersion = json.opt("serverVersion") as? String,
         caCertificate = json.opt("caCertificate") as? String,
+        approvalDevice = json.opt("approvalDevice") as? String,
     )
 }
 
@@ -106,4 +117,5 @@ private fun writeConnection(connection: Connection): JSONObject = JSONObject()
     .apply {
         connection.serverVersion?.let { put("serverVersion", it) }
         connection.caCertificate?.let { put("caCertificate", it) }
+        connection.approvalDevice?.let { put("approvalDevice", it) }
     }

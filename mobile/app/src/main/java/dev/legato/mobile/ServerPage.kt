@@ -45,6 +45,13 @@ class ServerPage(
         fun unavailable(reason: String)
         fun openExternally(url: String)
         fun chooseFiles(params: WebChromeClient.FileChooserParams, callback: ValueCallback<Array<Uri>>)
+
+        // The page asks to sign a decision on an approval in the app's own
+        // sheet; done tells the page how it closed.
+        fun openApproval(connection: Connection, id: String, done: (status: String, option: String?, error: String?) -> Unit)
+
+        // The page asks to enroll this phone to sign approvals.
+        fun enroll(connection: Connection, done: (status: String, error: String?) -> Unit)
     }
 
     private val appContext = context.applicationContext
@@ -241,6 +248,14 @@ class ServerPage(
         when (val message = PageMessage.parse(data)) {
             is PageMessage.Restore -> keeper.pageAsksToReturnTo(message.url)
             is PageMessage.Voice -> voice.handle(message)
+            is PageMessage.Approval -> if (message.key == shellKey) {
+                callbacks.openApproval(connection, message.id) { status, option, error ->
+                    handler.post { evaluate(approvalEventScript(message.id, status, option, error)) }
+                }
+            }
+            is PageMessage.Enroll -> if (message.key == shellKey) {
+                callbacks.enroll(connection) { status, error -> handler.post { evaluate(enrollEventScript(status, error)) } }
+            }
             PageMessage.Unknown -> Unit
         }
     }

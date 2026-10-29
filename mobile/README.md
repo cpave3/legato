@@ -43,6 +43,9 @@ All of it is in `app/src/main/java/dev/legato/mobile/`.
 | `ConnectionStore.kt` | The saved servers |
 | `ServerProbe.kt` | `/health` and `/api/meta` |
 | `ServerPage.kt` | The WebView, wired to the four above |
+| `ApprovalSigning.kt` | Signed approvals: the server's endpoints, the key's parameters, enrollment, the signed message, what the sheet shows |
+| `AndroidApprovalKeys.kt` | The approval keys in the Keystore, the fingerprint prompt, calls to a server's API |
+| `ApprovalSheet.kt`, `ApprovalsScreen.kt` | The approval sheet with its seal, and the open approvals of every server |
 | `AndroidStorage.kt`, `AndroidMicrophone.kt` | Keystore, SQLite and `MediaRecorder` |
 | `MainActivity.kt`, `Screens.kt` | The activity and its Compose screens |
 
@@ -202,7 +205,55 @@ with a microphone of its own (over HTTPS, or on the desktop) uses that.
 
 ## Approval links
 
-A notification of a new approval opens `legato://approval?url=<server>&id=<approval>` (see `docs/ai/approvals.md`). The app opens the saved server at that address, or the only server saved, at `/?approval=<id>`, where the web UI's tray shows the request; an open page of that server goes there without reloading. A link the app cannot read, or for a server it does not know, says so on the server list (`parseApprovalUri`, `serverForApproval` in `ServerAddress.kt`).
+A notification of a new approval opens `legato://approval?url=<server>&id=<approval>` (see `docs/ai/approvals.md`). When this phone signs approvals for that server, the app opens the approval sheet (see Signed approvals). Otherwise it opens the saved server at that address, or the only server saved, at `/?approval=<id>`, where the web UI's tray shows the request; an open page of that server goes there without reloading. A link the app cannot read, or for a server it does not know, says so on the server list (`parseApprovalUri`, `serverForApproval` in `ServerAddress.kt`).
+
+## Signed approvals
+
+Some approvals can be decided only by a person at an enrolled phone: the
+server refuses an allow without a signature from one (see
+`docs/ai/approvals.md` § Signed approvals). The phone signs with a key it holds
+for that server, which the person's fingerprint or PIN unlocks for one
+signature.
+
+- **The key.** One for each saved server, alias `approval-<connection id>`:
+  EC P-256, for signing only, in StrongBox when the phone has one, unlocked for
+  each use (fingerprint or PIN from Android 11, fingerprint on Android 10), and
+  void once a fingerprint is added or removed. It is made with the server's
+  enrollment challenge, so its attestation chain proves it is new and in secure
+  hardware. Removing the server deletes it.
+- **Enrolling.** The app asks `POST /api/devices/challenge`, makes the key,
+  and sends its chain to `POST /api/devices`. The first phone of a server is
+  enrolled at once; a later one waits for an enrolled phone to allow it. The
+  device's ID is kept with the connection (`approvalDevice`). Settings ›
+  Devices in the page starts it (`{legatoShell: "enroll", key}`, answered with
+  `legato:shell-enroll`), and so does the sheet.
+- **The sheet** (`ApprovalSheet.kt`). The app asks the server itself for the
+  approval (`POST /api/approvals/{id}/challenge`) and draws only what that
+  returns: the canonical request and a one-time challenge. The page passes
+  nothing but the ID, so a page cannot change what is signed. It shows the
+  scope in Legato's words, the agent's reason quoted and marked as the
+  agent's, and a button for each way to allow. A choice opens the system's
+  fingerprint prompt, titled with the option and the scope, never the reason;
+  the unlocked key signs `{"challenge","device","option","request","v":1}` and
+  the decision goes to `POST /api/approvals/{id}/decision`. Deny needs no
+  signature.
+- **The seal.** A signed decision ends on a seal that draws itself: a dial of
+  ticks lights up as an arc sweeps from violet to green, a hexagon fills and a
+  check lands with a haptic tick, then a readout types out the option, the key
+  (and whether it is in StrongBox), the start of the hash of what was signed,
+  of the signature, and the server.
+- **From the page.** A tray card of a signed approval inside the app posts
+  `{legatoShell: "approval", key, id}` (the ID must look like `ap-` and 8 hex
+  characters); the app opens the sheet and answers with `legato:shell-approval`
+  (`status` of `decided`, `cancelled` or `error`, with `option` or `error`).
+- **From a notification.** The approval link opens the sheet when this phone
+  signs for that server, and the page otherwise (see Approval links).
+- **The list.** Approvals on the server list shows the open approvals of every
+  saved server, reread every 10 seconds; a signed one opens the sheet, another
+  opens its server's page on it. A server that does not answer says why.
+- **A new fingerprint.** The key no longer opens. The app deletes it, forgets
+  the device, and offers to enroll again, which an enrolled phone or
+  `legato device reset` at the host then allows.
 
 ## File uploads and links
 

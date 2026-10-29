@@ -17,7 +17,7 @@ class PageContractTest {
     @Test
     fun `tells only the top frame it can record, with the page's key`() {
         val script = bootstrapScript("https://mac.example", "t", shellKey = "k1")
-        assertTrue(script.contains("window.legatoShell={voice:1,key:\"k1\"}"))
+        assertTrue(script.contains("window.legatoShell={voice:1,approval:1,enroll:1,key:\"k1\"}"))
         assertTrue(script.startsWith("if(window===window.top)"))
     }
 
@@ -45,5 +45,23 @@ class PageContractTest {
         // A renderer that is gone answers nothing, or null.
         assertEquals(null, readPageAnswer("null"))
         assertEquals(null, readPageAnswer(null))
+    }
+
+    @Test
+    fun `reads an approval request, and only its ID`() {
+        assertEquals(PageMessage.Approval("k1", "ap-12345678"), PageMessage.parse("""{"legatoShell":"approval","key":"k1","id":"ap-12345678","title":"forged","canonical":"x"}"""))
+        assertEquals(PageMessage.Unknown, PageMessage.parse("""{"legatoShell":"approval","key":"k1"}"""))
+        assertEquals(PageMessage.Unknown, PageMessage.parse("""{"legatoShell":"approval","key":"k1","id":"../../api/x"}"""))
+        assertEquals(PageMessage.Enroll("k1"), PageMessage.parse("""{"legatoShell":"enroll","key":"k1"}"""))
+    }
+
+    @Test
+    fun `tells the page how an approval and an enrollment went`() {
+        val approval = approvalEventScript("ap-1", "decided", "once", null)
+        assertTrue(approval.contains("legato:shell-approval"))
+        assertTrue(approval.contains("\"option\":\"once\""))
+        val enroll = enrollEventScript("error", "it's \"broken\"")
+        assertTrue(enroll.contains("legato:shell-enroll"))
+        assertTrue(enroll.contains("it's \\\"broken\\\""))
     }
 }
