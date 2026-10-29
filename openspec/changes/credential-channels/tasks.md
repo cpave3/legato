@@ -48,3 +48,10 @@ Every task is test-first (red, green, refactor). This change needs `credential-b
 - [x] 6.1 `docs/ai/credentials.md`: the two channels, placeholders, meters, the three profiles, and the limits outside the sandbox
 - [x] 6.2 `docs/ai/config.md`: `credential_channels`, and how `ssh_agent_socket` and 1Password auto-detection now apply to Legato's own processes only when an `ssh` credential exists
 - [x] 6.3 Check in a scratch Legato: a shell agent's session gets a placeholder, the proxy's address and its own socket; `/v1/models` reaches ElevenLabs with the real key; account routes, unknown routes and a wrong key are refused; an `ssh` login waits for the person, logs in after approval, a second login in the window is signed without asking, a forwarded hop is refused; the socket goes within seconds of the agent ending
+
+## 7. Follow-ups found in use
+
+- [x] 7.1 `secrets.onepassword.token_file`, and agent sessions get `OP_SERVICE_ACCOUNT_TOKEN`, `LEGATO_SECRETS_PASSPHRASE` and proxied `env://` variables set empty; host processes drop the first two from their own environment
+- [x] 7.2 Agent guidance for each credential by channel (MCP instructions for Claude Code, launch prompt for Codex and Chimera); a startup warning when `~/.ssh/config` names an `IdentityAgent` for every host; `docs/credentials.md` for setting up a host
+- [x] 7.3 `credential_sources`: every SSH Key item of a 1Password vault is a credential, listed again while Legato runs; public keys from the item's field
+- [x] 7.4 TUI approval overlay: `1`–`9` allow with that option; web approval tray: full-width 48 px choices on a phone
