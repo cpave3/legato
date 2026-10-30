@@ -58,24 +58,27 @@ Post-v0: Attention dashboard (complete) — durable generic registry with centra
 
 ## Detailed Documentation
 
-Read the ones for the area you change, and keep them current. (`@path` lines are loaded automatically by agent tools that support imports.)
+Two docs apply to almost every change and are loaded automatically (`@path` lines are imported by agent tools that support them):
 
 @docs/ai/packages.md
-@docs/ai/database.md
-@docs/ai/config.md
-@docs/ai/sync.md
 @docs/ai/dev-notes.md
-@docs/ai/pr-tracking.md
-@docs/ai/cli.md
-@docs/ai/web-ui.md
-@docs/ai/tui.md
-@docs/ai/swarm.md
-@docs/ai/attention.md
-@docs/ai/approvals.md
-@docs/ai/credentials.md
-@docs/ai/learning.md
-@docs/ai/claude-code-native.md
-@docs/ai/codex-native.md
-@docs/ai/agent-mcp.md
-@docs/ai/resources.md
-@docs/ai/sandbox.md
+
+The rest are not imported. Before changing an area, read its doc, and keep it current:
+
+- `docs/ai/database.md` — store boundary, migrations, schema, execution activity
+- `docs/ai/config.md` — every `config.yaml` setting and its validation
+- `docs/ai/cli.md` — subcommands, host broker, JSON contract and exit codes, hook integrations (Claude Code, Codex, Chimera, Staccato), tmux status line
+- `docs/ai/web-ui.md` — web UI pages, components, API endpoints, WebSocket sync, PWA, pairing
+- `docs/ai/tui.md` — TUI theme, board, agents view, spawn overlay
+- `docs/ai/sync.md` — ticket providers and the Jira sync algorithm
+- `docs/ai/pr-tracking.md` — GitHub PR discovery, code context, read-only client
+- `docs/ai/swarm.md` — conductor/worker orchestration, plans, tiers, adapter launch flags
+- `docs/ai/attention.md` — Attention registry, producers, signal policy
+- `docs/ai/approvals.md` — approval requests, tray, signed approvals and devices
+- `docs/ai/credentials.md` — credential broker, rules, HTTP proxy, SSH agent, GitHub App, stores, audit log
+- `docs/ai/learning.md` — Legato Learn ledger, curation workflow, prompt eligibility
+- `docs/ai/claude-code-native.md` — Claude Code mod and bridge, permissions, scratch-instance setup
+- `docs/ai/codex-native.md` — Codex app-server bridge and launcher
+- `docs/ai/agent-mcp.md` — `legato mcp serve` tools, artifacts/cards, images, videos, studios, HTML sandbox
+- `docs/ai/resources.md` — named file/folder resources given to agents
+- `docs/ai/sandbox.md` — bubblewrap sandbox: what agents see and what is hidden
