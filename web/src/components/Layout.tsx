@@ -5,6 +5,8 @@ import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
 import { OfflineDialog } from "./OfflineDialog"
 import { ApprovalTray } from "./ApprovalTray"
+import { ApprovalNotifier } from "./ApprovalNotifier"
+import { notificationsSupported } from "../lib/approvalNotifications"
 import { AgentSelectionProvider } from "../hooks/useAgentSelection"
 import { useNavigationSummary } from "../hooks/useNavigationSummary"
 import { navSections } from "../lib/navSections"
@@ -43,6 +45,7 @@ export function Layout() {
         </div>
       )}
       {(summary?.approvals ?? 0) > 0 && <ApprovalTray />}
+      {notificationsSupported() && <ApprovalNotifier />}
       <OfflineDialog />
       <PlanApprovalModal />
       </div>

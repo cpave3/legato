@@ -7,6 +7,7 @@ import { PairDeviceDialog } from "../components/PairDeviceDialog"
 import { ResourcesSettings } from "../components/ResourcesSettings"
 import { CredentialsSettings } from "../components/CredentialsSettings"
 import { DevicesSettings } from "../components/DevicesSettings"
+import { ApprovalNotificationSettings } from "../components/ApprovalNotificationSettings"
 import { SettingsCard, SettingsGroup, SettingsRow, SettingsRows, Toggle, BrowserTag, primaryButton, quietButton } from "../components/settings/SettingsUI"
 import { useSettings } from "../hooks/useSettings"
 import { useToast } from "../hooks/useToast"
@@ -218,7 +219,8 @@ export function SettingsPage() {
             </SettingsRows>
           </SettingsGroup>
 
-          <SettingsGroup id="security" title="Security" description="Who can allow approvals, and the secrets agents use without seeing them.">
+          <SettingsGroup id="security" title="Security" description="Who can allow approvals, how you hear of them, and the secrets agents use without seeing them.">
+            <ApprovalNotificationSettings />
             <DevicesSettings baseUrl={baseUrl} />
             <CredentialsSettings baseUrl={baseUrl} />
           </SettingsGroup>
