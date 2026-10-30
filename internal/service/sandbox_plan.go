@@ -189,7 +189,9 @@ var systemPaths = []string{"/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", 
 // toolchains are the person's tools, read-only, and their package and build
 // caches, read-write. None holds a credential.
 var toolchainsRO = []string{".local/bin", ".local/share/mise", ".config/mise", "go/bin", ".cargo/bin", ".rustup", ".bun", ".deno", ".volta", ".nvm", ".pyenv"}
-var toolchainsRW = []string{"go/pkg/mod", ".cache/go-build", ".npm", ".cache/pnpm", ".local/share/pnpm", ".cache/pip", ".cache/uv", ".cargo/registry", ".cache/ms-playwright", ".cache/node", ".nuget/packages"}
+var toolchainsRW = []string{"go/pkg/mod", ".cache/go-build", ".npm", ".cache/pnpm", ".local/share/pnpm", ".cache/pip", ".cache/uv", ".cargo/registry", ".cache/ms-playwright", ".cache/node", ".nuget/packages", ".bun/install/cache",
+	".local/state/pnpm", ".cache/yarn", ".yarn/berry/cache", ".cache/composer", ".gradle/caches", ".gradle/wrapper", ".m2/repository",
+	".cache/deno", ".cache/pypoetry", ".cargo/git", ".cache/bun", ".cache/typescript", ".cache/prisma"}
 var systemToolchains = []string{"/home/linuxbrew/.linuxbrew"}
 
 // agentState is each agent tool's own state, read-write: its login and its
@@ -222,6 +224,9 @@ func forbidden(in SandboxPlanInput) []string {
 		filepath.Join(home, ".kube"), filepath.Join(home, ".gnupg"), filepath.Join(home, ".password-store"),
 		filepath.Join(home, ".local/share/keyrings"), filepath.Join(home, ".config/containers/auth.json"),
 		filepath.Join(home, ".pypirc"), filepath.Join(home, ".npmrc"),
+		// Package managers' registry logins; their caches are mounted.
+		filepath.Join(home, ".yarnrc"), filepath.Join(home, ".yarnrc.yml"), filepath.Join(home, ".gradle/gradle.properties"),
+		filepath.Join(home, ".m2/settings.xml"), filepath.Join(home, ".config/composer/auth.json"), filepath.Join(home, ".composer/auth.json"),
 		"/var/run/docker.sock", "/run/docker.sock", "/run/podman",
 	}
 	if in.RuntimeDir != "" {

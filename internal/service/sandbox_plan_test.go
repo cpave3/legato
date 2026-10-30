@@ -317,3 +317,57 @@ func TestAWorktreeSeesItsMainCheckoutReadOnly(t *testing.T) {
 		}
 	}
 }
+
+// Bun keeps its install cache inside ~/.bun, beside its binary: the binary
+// stays read-only and the cache is writable on top of it.
+func TestBunsInstallCacheIsWritableInsideItsReadOnlyFolder(t *testing.T) {
+	in := baseInput()
+	fs := hostFS()
+	fs["/var/home/me/.bun"] = "dir"
+	fs["/var/home/me/.bun/install/cache"] = "dir"
+	in.FS = fs
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bun, cache := mountIndex(plan, "/var/home/me/.bun"), mountIndex(plan, "/var/home/me/.bun/install/cache")
+	if bun < 0 || cache < 0 || cache < bun {
+		t.Fatalf("~/.bun at %d, its cache at %d: the cache must be mounted after the folder", bun, cache)
+	}
+	m := mounted(plan)
+	if m["/var/home/me/.bun"].Kind != sandbox.ReadOnly || m["/var/home/me/.bun/install/cache"].Kind != sandbox.ReadWrite {
+		t.Fatalf("~/.bun %+v, cache %+v", m["/var/home/me/.bun"], m["/var/home/me/.bun/install/cache"])
+	}
+}
+
+func TestPackageManagersCachesAreWritableAndTheirLoginsHidden(t *testing.T) {
+	in := baseInput()
+	fs := hostFS()
+	caches := []string{".local/state/pnpm", ".cache/yarn", ".yarn/berry/cache", ".cache/composer", ".gradle/caches", ".gradle/wrapper",
+		".m2/repository", ".cache/deno", ".cache/pypoetry", ".cargo/git", ".cache/bun", ".cache/typescript", ".cache/prisma"}
+	for _, rel := range caches {
+		fs["/var/home/me/"+rel] = "dir"
+	}
+	// A folder of the person's mounted on purpose that holds registry logins.
+	fs["/var/home/me/Projects/app/.yarnrc.yml"] = "file"
+	in.FS = fs
+	for _, rel := range []string{".yarnrc", ".yarnrc.yml", ".gradle/gradle.properties", ".m2/settings.xml", ".config/composer/auth.json"} {
+		fs["/var/home/me/"+rel] = "file"
+	}
+	in.Extra = []SandboxPath{{Path: "/var/home/me"}}
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mounted(plan)
+	for _, rel := range caches {
+		if got, ok := m["/var/home/me/"+rel]; !ok || got.Kind != sandbox.ReadWrite {
+			t.Errorf("~/%s = %+v, %v; want read-write", rel, got, ok)
+		}
+	}
+	for _, rel := range []string{".yarnrc", ".yarnrc.yml", ".gradle/gradle.properties", ".m2/settings.xml", ".config/composer/auth.json"} {
+		if got := m["/var/home/me/"+rel]; got.Kind != sandbox.Hide {
+			t.Errorf("~/%s = %+v; want hidden", rel, got)
+		}
+	}
+}

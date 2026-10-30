@@ -61,6 +61,7 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 - [x] 3.30 `gh pr ready` (and `--undo`) is done by Legato after the person allows `pr.ready`: GitHub wants `contents: write` for it, so the token never reaches the agent
 - [x] 3.31 Mount NuGet's package cache (`~/.nuget/packages`) read-write with the other caches, so .NET restores work inside as outside; not NuGet's configuration
 - [x] 3.32 A linked worktree's main checkout is mounted read-only (its untracked files, linked from the worktree, resolve); the worktree and the main `.git` stay writable
+- [x] 3.33 Package managers' caches are writable (Bun's install cache inside the read-only `~/.bun`, Yarn, pnpm's state, Deno, Poetry, Cargo's git, Composer, Gradle, Maven, TypeScript, Prisma); their login files (`.yarnrc`, `.yarnrc.yml`, `gradle.properties`, `settings.xml`, Composer's `auth.json`) are forbidden
 - [x] 3.29 Every decision on a use that could not wait (a push) is messaged to the agent, telling it to run the command again
 - [x] 3.25 Test suites clear the variables of an agent session (`internal/testenv`), so a suite run inside one does not act as it or reach its Legato
 
@@ -78,7 +79,7 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 
 ## Status (2026-10-30)
 
-**Done.** Phase 2 (host broker). Phase 3 for the local sandbox: 3.1–3.7, 3.13–3.32 (with 3.6a and 3.15a). Phase 1: 1.1–1.7 (`prompt` on both spawn endpoints and in the web spawn dialog; `repo.ensure` as a no-op without `repo`; the built-in `legato-job`; unknown agents refused at start; `docs/cloud-agents.md`).
+**Done.** Phase 2 (host broker). Phase 3 for the local sandbox: 3.1–3.7, 3.13–3.33 (with 3.6a and 3.15a). Phase 1: 1.1–1.7 (`prompt` on both spawn endpoints and in the web spawn dialog; `repo.ensure` as a no-op without `repo`; the built-in `legato-job`; unknown agents refused at start; `docs/cloud-agents.md`).
 
 **Interim behaviour.** `repo.ensure` with a non-empty `repo` fails the step ("cannot check out a repository for a job yet") until 3.8–3.11 replace it.
 
