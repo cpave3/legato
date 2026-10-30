@@ -189,7 +189,7 @@ var systemPaths = []string{"/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", 
 // toolchains are the person's tools, read-only, and their package and build
 // caches, read-write. None holds a credential.
 var toolchainsRO = []string{".local/bin", ".local/share/mise", ".config/mise", "go/bin", ".cargo/bin", ".rustup", ".bun", ".deno", ".volta", ".nvm", ".pyenv"}
-var toolchainsRW = []string{"go/pkg/mod", ".cache/go-build", ".npm", ".cache/pnpm", ".local/share/pnpm", ".cache/pip", ".cache/uv", ".cargo/registry", ".cache/ms-playwright", ".cache/node"}
+var toolchainsRW = []string{"go/pkg/mod", ".cache/go-build", ".npm", ".cache/pnpm", ".local/share/pnpm", ".cache/pip", ".cache/uv", ".cargo/registry", ".cache/ms-playwright", ".cache/node", ".nuget/packages"}
 var systemToolchains = []string{"/home/linuxbrew/.linuxbrew"}
 
 // agentState is each agent tool's own state, read-write: its login and its

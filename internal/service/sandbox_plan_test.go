@@ -255,3 +255,22 @@ func TestAnAgentSeesOnlyItsOwnToolsInstallation(t *testing.T) {
 		}
 	}
 }
+
+func TestNuGetsPackageCacheIsMountedButNotItsConfiguration(t *testing.T) {
+	in := baseInput()
+	fs := hostFS()
+	fs["/var/home/me/.nuget/packages"] = "dir"
+	fs["/var/home/me/.nuget/NuGet"] = "dir"
+	in.FS = fs
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mounted(plan)
+	if got, ok := m["/var/home/me/.nuget/packages"]; !ok || got.Kind != sandbox.ReadWrite {
+		t.Fatalf("the NuGet cache = %+v, %v", got, ok)
+	}
+	if _, ok := m["/var/home/me/.nuget/NuGet"]; ok {
+		t.Fatal("NuGet's configuration, which can hold feed passwords, is mounted")
+	}
+}

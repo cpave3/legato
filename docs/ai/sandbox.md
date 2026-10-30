@@ -31,7 +31,7 @@ Built by `service.BuildSandboxPlan` from the host's real paths (links resolved f
 | What each link in the agent tool's folders of skills, commands and agents (`~/.claude/skills`, `commands`, `agents`; `~/.codex/skills`, `prompts`; `~/.chimera/skills`, `commands`, `agents`) leads to: a skill linked to `~/.agents/skills`, and from there to a registry's checkout | the folder or file at the end read-only, and every link on the way made again inside (`HostFS.Chain`) |
 
 A chain of links that passes through a forbidden path is left out, and the link stays broken.
-| Package and build caches (`~/go/pkg/mod`, `~/.cache/go-build`, npm, pnpm, Corepack, pip, uv, cargo registry, Playwright) | read-write, with `default_mounts` |
+| Package and build caches (`~/go/pkg/mod`, `~/.cache/go-build`, npm, pnpm, Corepack, pip, uv, cargo registry, Playwright, NuGet's `~/.nuget/packages`) | read-write, with `default_mounts`. NuGet's configuration (`~/.nuget/NuGet`), which can hold feed passwords, is not: a package already in the cache restores as it does outside, and one that is not needs a feed the sandbox has no credentials for |
 | `<data_dir>/claude-mod`, `<data_dir>/repos` | read-only |
 | The broker's folder (`<runtime>/legato/broker/`), the execution's SSH agent socket, the `gh` wrapper folder and its empty configuration, the `legato` binary, the role prompt and brief folder, the task's pasted images | read-only |
 | `agents.sandbox.mounts`, and the resources the agent is given | as configured |

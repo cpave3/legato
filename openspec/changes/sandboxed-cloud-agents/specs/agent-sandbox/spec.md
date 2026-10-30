@@ -81,7 +81,7 @@ A sandbox's mounts SHALL be fixed when it starts. Adding a resource to a running
 - **THEN** Legato SHALL restart the agent in a sandbox that mounts the new resources, resuming its conversation
 
 ### Requirement: Toolchains are visible
-A sandbox SHALL mount, read-only and at their host paths when they exist, the person's toolchain directories: `~/.local/bin`, `~/.local/share/mise`, `~/go/bin`, `/home/linuxbrew/.linuxbrew`, `~/.cargo/bin`, `~/.rustup` and `~/.bun`; and read-write the package and build caches `~/go/pkg/mod`, `~/.cache/go-build`, `~/.npm`, `~/.cache/pnpm`, `~/.local/share/pnpm` and `~/.cache/pip`. `agents.sandbox.default_mounts: false` SHALL turn these off. `agents.sandbox.mounts` SHALL add to them.
+A sandbox SHALL mount, read-only and at their host paths when they exist, the person's toolchain directories: `~/.local/bin`, `~/.local/share/mise`, `~/go/bin`, `/home/linuxbrew/.linuxbrew`, `~/.cargo/bin`, `~/.rustup` and `~/.bun`; and read-write the package and build caches `~/go/pkg/mod`, `~/.cache/go-build`, `~/.npm`, `~/.cache/pnpm`, `~/.local/share/pnpm`, `~/.cache/pip` and NuGet's `~/.nuget/packages` (not its configuration, which can hold feed passwords). `agents.sandbox.default_mounts: false` SHALL turn these off. `agents.sandbox.mounts` SHALL add to them.
 
 #### Scenario: A tool linked from its checkout
 - **WHEN** `~/.local/bin/st` is a link to `~/Projects/staccato/st` and the sandbox mounts `~/.local/bin`
