@@ -349,3 +349,24 @@ func TestARequestThatDidNotWaitHearsAQuickDecision(t *testing.T) {
 		}
 	}
 }
+
+func TestOnePasswordReferencesAreReadThroughTheSDKByDefault(t *testing.T) {
+	approvals, db, _ := newApprovalFixture(t)
+	broker, err := NewCredentialBroker(db, approvals, CredentialBrokerOptions{
+		Credentials: []config.CredentialConfig{{Name: "eleven", Secret: "op://Legato/eleven/credential", Profile: "secret", Policy: []config.CredentialRule{rule("auto", "read")}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createTask(t, db, "task-1")
+	if err := db.CreateExecution(context.Background(), store.Execution{ID: "ex-1", Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: "task-1", ExecutionTaskID: "task-1", AgentKind: "claude-code", StartedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+
+	// No token is configured: the SDK store says which setting to give,
+	// without running op.
+	_, _, err = broker.Value(context.Background(), use("read", ""))
+	if err == nil || !strings.Contains(err.Error(), "secrets.onepassword.token_file") {
+		t.Fatalf("err = %v; want the SDK store's message", err)
+	}
+}

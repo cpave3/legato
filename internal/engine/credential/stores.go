@@ -110,10 +110,16 @@ type OnePasswordStore struct {
 }
 
 func (s OnePasswordStore) token() (string, error) {
-	if s.TokenFile == "" {
-		return s.Token, nil
+	return serviceAccountToken(s.Token, s.TokenFile)
+}
+
+// serviceAccountToken is token, or the content of file when one is given,
+// read now so that a new token takes effect without a restart.
+func serviceAccountToken(token, file string) (string, error) {
+	if file == "" {
+		return token, nil
 	}
-	secret, err := FileStore{}.Get(context.Background(), Ref{Scheme: "file", Path: s.TokenFile})
+	secret, err := FileStore{}.Get(context.Background(), Ref{Scheme: "file", Path: file})
 	if err != nil {
 		return "", fmt.Errorf("secrets.onepassword.token_file: %w", err)
 	}
@@ -264,6 +270,8 @@ type OnePasswordItem struct {
 	VaultID   string
 	Version   int
 	UpdatedAt string
+	// Category is set by the SDK's list, as it names categories ("SshKey").
+	Category string
 }
 
 // ListItems lists a vault's items of one category ("SSH Key"), names and

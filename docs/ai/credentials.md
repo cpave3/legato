@@ -172,17 +172,22 @@ The first host Legato to take `<runtime dir>/legato/credential-channels.lock` se
 | Reference | Store |
 | --- | --- |
 | `legato://name` | Legato's own store: `secrets` table, sealed |
-| `op://vault/item/field` | 1Password, through `op read` as the service account of `secrets.onepassword` (below) |
+| `op://vault/item/field` | 1Password, through its Go SDK (or `op read` with `backend: op`) as the service account of `secrets.onepassword` (below) |
 | `systemd-creds://name` | `$CREDENTIALS_DIRECTORY/name`, a systemd unit's `LoadCredentialEncrypted=` |
 | `keychain://service/account` | the macOS Keychain, through `security` |
 | `env://NAME` | the Legato process's environment |
 | `file:///path` | a file, refused when other users can read it |
 
-Values are read when used, never cached, logged or put in an error. What `op` or `security` print is never repeated.
+Values are read when used, never cached, logged or put in an error. What `op` or `security` print is never repeated. (The SDK store keeps a signed-in client, not values.)
 
 ### The 1Password service account
 
-`op://` references are read with `op read` as a 1Password service account, so 1Password never asks the person: the rules are the only check. Make one with read access to a vault of its own (`op service-account create Legato --vault Legato:read_items`, or Developer › Service Accounts on 1password.com; it cannot read Personal or Private vaults). Any `op` works for this, a Homebrew one too: the setgid install that 1Password's app integration needs is not required.
+`op://` references are read as a 1Password service account, so 1Password never asks the person: the rules are the only check. Make one with read access to a vault of its own (`op service-account create Legato --vault Legato:read_items`, or Developer › Service Accounts on 1password.com; it cannot read Personal or Private vaults).
+
+`secrets.onepassword.backend` says how:
+
+- **`sdk`** (the default): 1Password's Go SDK (`github.com/1password/onepassword-sdk-go`, `OnePasswordSDKStore` in `onepassword_sdk.go`, the SDK calls in `onepassword_sdkclient.go`). No `op` command is needed. The SDK's core is WebAssembly run by a pure-Go runtime (wazero), so it adds no C code; it adds about 20 MB to the binary. Signing in starts that core, which takes about a second, so the store keeps its client until the token changes. A long-running Legato pays it once, a command such as `legato credential get` once for each run. Vaults are named or given by ID (the SDK lists by ID, so the store looks names up), categories as `op` names them (`SSH Key`), and `Field` gives only fields that are not secret, with an SSH key's public key. Values come without the trailing newline the SDK adds, as `op read --no-newline` gives them. 1Password's error messages are passed on with the token taken out.
+- **`op`**: the `op` command (`OnePasswordStore`), as before. Any `op` works, a Homebrew one too: the setgid install that 1Password's app integration needs is not required.
 
 Give Legato the token as `secrets.onepassword.token_file`: a file of mode `0600`, read for each `op read` (a file other users can read is refused), so a new token takes effect without a restart. `token` takes the token itself. Do not use `token: ${OP_SERVICE_ACCOUNT_TOKEN}` with the token exported in a shell profile: an agent with that variable can run `op read` on the whole vault, past the rules and the audit log.
 

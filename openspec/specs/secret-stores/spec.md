@@ -13,7 +13,19 @@ A secret reference's scheme SHALL select its store: `legato://`, `op://`, `syste
 
 #### Scenario: 1Password
 - **WHEN** a credential's secret is `op://Legato/key/credential`
-- **THEN** Legato SHALL read it with `op read` and the service account token from `secrets.onepassword.token`
+- **THEN** Legato SHALL read it with 1Password's Go SDK as the service account of `secrets.onepassword.token_file` or `token`, with no `op` command needed
+
+#### Scenario: 1Password through the op command
+- **WHEN** `secrets.onepassword.backend` is `op` and a credential's secret is `op://Legato/key/credential`
+- **THEN** Legato SHALL read it with `op read` and the same service account token
+
+#### Scenario: Same value from either backend
+- **WHEN** an SSH key is read as `op://Legato/key/private key?ssh-format=openssh` through the SDK and through `op`
+- **THEN** both SHALL give the key without a trailing newline
+
+#### Scenario: Rotated token
+- **WHEN** the token file is replaced while Legato runs
+- **THEN** the next read SHALL sign in with the new token, and an unchanged token SHALL reuse its client
 
 ### Requirement: Typed secrets
 Each secret SHALL have a type: `value`, `userpass`, `keypair`, `oauth-client` or `oauth-refresh`. A secret from an external store SHALL take the type its profile expects.

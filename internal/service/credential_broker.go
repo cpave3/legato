@@ -110,6 +110,9 @@ type CredentialBrokerOptions struct {
 	// or OnePasswordTokenFile the file that holds it.
 	OnePasswordToken     string
 	OnePasswordTokenFile string
+	// OnePasswordBackend is how op:// references are read: "sdk" (the
+	// default, 1Password's Go SDK) or "op" (the op command).
+	OnePasswordBackend string
 	// Messenger tells an agent of a decision it no longer waits for. Only a
 	// host process (TUI, legato serve) sets it.
 	Messenger AgentMessenger
@@ -184,7 +187,7 @@ func NewCredentialBroker(db *store.Store, approvals *ApprovalService, opts Crede
 	}
 	b.stores = map[string]credential.Store{
 		"env": credential.EnvStore{}, "file": credential.FileStore{}, "systemd-creds": credential.SystemdCredsStore{},
-		"op": credential.OnePasswordStore{Token: opts.OnePasswordToken, TokenFile: opts.OnePasswordTokenFile}, "keychain": credential.KeychainStore{},
+		"op": onePasswordStore(opts), "keychain": credential.KeychainStore{},
 	}
 	for scheme, s := range opts.Stores {
 		b.stores[scheme] = s
@@ -260,6 +263,14 @@ func expandRepositories(rules []config.CredentialRule, repositories []string) []
 		}
 	}
 	return out
+}
+
+// onePasswordStore reads op:// references with the backend opts names.
+func onePasswordStore(opts CredentialBrokerOptions) credential.Store {
+	if opts.OnePasswordBackend == "op" {
+		return credential.OnePasswordStore{Token: opts.OnePasswordToken, TokenFile: opts.OnePasswordTokenFile}
+	}
+	return &credential.OnePasswordSDKStore{Token: opts.OnePasswordToken, TokenFile: opts.OnePasswordTokenFile}
 }
 
 // sourceStaleAfter is how long a vault's list of keys is used before it is

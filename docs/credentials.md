@@ -18,7 +18,7 @@ Approvals reach you in the web UI, the TUI (`!`), Attention, and on your phone t
 
 Skip this part for keys you keep in Legato's own store (step 4).
 
-1. **Install the `op` command.** Any install works: Homebrew (`brew install --cask 1password-cli`), or the zip from `https://cache.agilebits.com/dist/1P/op2/pkg/v<version>/op_linux_amd64_v<version>.zip`. Legato uses a service account, so the 1Password app does not need to be installed, and the app's CLI integration (which needs an `op` owned by the `onepassword-cli` group with the setgid bit) is not needed.
+1. **The `op` command is optional.** Legato reads 1Password with 1Password's SDK, which is built in. You need `op` only to make the service account from a terminal (step 3) or to read a public key (§ SSH keys), and Legato uses it only with `secrets.onepassword.backend: op`. Any install works: Homebrew (`brew install --cask 1password-cli`), or the zip from `https://cache.agilebits.com/dist/1P/op2/pkg/v<version>/op_linux_amd64_v<version>.zip`. Legato uses a service account, so the 1Password app does not need to be installed, and the app's CLI integration (which needs an `op` owned by the `onepassword-cli` group with the setgid bit) is not needed.
 2. **Make a vault for Legato** (here `Legato`). A service account cannot read your Personal or Private vault. Put in it only the items agents may use.
 3. **Make a service account** with read access to that vault and nothing else: on 1password.com, Developer › Service Accounts › New, or `op service-account create Legato --vault Legato:read_items` (that command needs `op signin` as yourself first). Save the token (`ops_…`) in 1Password: it is shown once.
 4. **Save the token in a private file.** In zsh:
@@ -117,6 +117,7 @@ In `~/.config/legato/config.yaml`:
 secrets:
   onepassword:
     token_file: ~/.config/legato/op-token
+    # backend: op   # read with the op command instead of the built-in SDK
 
 # Every SSH Key item of the vault, with these rules.
 credential_sources:

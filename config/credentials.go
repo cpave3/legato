@@ -29,6 +29,9 @@ type SecretsConfig struct {
 type OnePasswordConfig struct {
 	Token     string `yaml:"token"`
 	TokenFile string `yaml:"token_file"`
+	// Backend is how 1Password is read: sdk (the default; 1Password's Go
+	// SDK, no op command needed) or op (the op command).
+	Backend string `yaml:"backend"`
 }
 
 // CredentialConfig is one credential agents can ask for.
@@ -188,6 +191,7 @@ var ApproveModes = []string{"auto", "session", "window", "request", "deny"}
 var (
 	secretSchemes  = []string{"legato", "op", "systemd-creds", "keychain", "env", "file"}
 	masterKeys     = []string{"auto", "systemd-creds", "secret-service", "keychain", "passphrase", "file"}
+	opBackends     = []string{"sdk", "op"}
 	credentialName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	githubRepo     = regexp.MustCompile(`^[A-Za-z0-9_.-]+/([A-Za-z0-9_.-]+|\*)$`)
 	limitPattern   = regexp.MustCompile(`^\s*(\d+)\s*/\s*(minute|hour|day|week)\s*$`)
@@ -216,6 +220,12 @@ func normalizeCredentials(cfg *Config) error {
 	}
 	if op.TokenFile != "" && !filepath.IsAbs(op.TokenFile) {
 		return fmt.Errorf("secrets.onepassword.token_file %q: want an absolute path or one starting with ~/", op.TokenFile)
+	}
+	if op.Backend = strings.TrimSpace(op.Backend); op.Backend == "" {
+		op.Backend = "sdk"
+	}
+	if !oneOf(op.Backend, opBackends) {
+		return fmt.Errorf("secrets.onepassword.backend %q: want one of %s", op.Backend, strings.Join(opBackends, ", "))
 	}
 	seen := map[string]bool{}
 	for i := range cfg.Credentials {

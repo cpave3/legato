@@ -145,7 +145,8 @@ func TestCredentialListAsksTheVaultForItsKeys(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	configYAML := "db:\n  path: " + filepath.Join(root, "legato.db") + "\n" +
 		"data_dir: " + filepath.Join(root, "data") + "\n" +
-		"credential_sources:\n  - vault: op://Legato\n"
+		"credential_sources:\n  - vault: op://Legato\n" +
+		"secrets:\n  onepassword:\n    backend: op\n"
 	configPath := filepath.Join(root, "config.yaml")
 	_ = os.WriteFile(configPath, []byte(configYAML), 0o600)
 	t.Setenv("LEGATO_CONFIG", configPath)

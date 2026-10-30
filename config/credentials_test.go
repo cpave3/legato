@@ -75,3 +75,24 @@ func TestBadCredentialsFailToLoad(t *testing.T) {
 		}
 	}
 }
+
+func TestOnePasswordIsReadThroughTheSDKUnlessOpIsChosen(t *testing.T) {
+	writeTestConfig(t, "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Secrets.OnePassword.Backend != "sdk" {
+		t.Fatalf("backend = %q, want sdk", cfg.Secrets.OnePassword.Backend)
+	}
+
+	writeTestConfig(t, "secrets:\n  onepassword:\n    backend: op\n")
+	if cfg, err = Load(); err != nil || cfg.Secrets.OnePassword.Backend != "op" {
+		t.Fatalf("backend = %q, %v; want op", cfg.Secrets.OnePassword.Backend, err)
+	}
+
+	writeTestConfig(t, "secrets:\n  onepassword:\n    backend: cli\n")
+	if _, err = Load(); err == nil || !strings.Contains(err.Error(), "secrets.onepassword.backend") || !strings.Contains(err.Error(), "sdk, op") {
+		t.Fatalf("err = %v; want the setting and its values", err)
+	}
+}

@@ -59,6 +59,7 @@ func credentialProfileDirs() []string {
 // configuredCredentialBroker builds the broker over the configured
 // credentials. messenger is set only in a host process.
 func configuredCredentialBroker(cfg *config.Config, db *store.Store, approvals *service.ApprovalService, messenger service.AgentMessenger) (*service.CredentialBroker, error) {
+	credential.OnePasswordIntegrationVersion = mcpServerVersion()
 	return service.NewCredentialBroker(db, approvals, service.CredentialBrokerOptions{
 		Credentials:          cfg.Credentials,
 		Sources:              cfg.CredentialSources,
@@ -66,6 +67,7 @@ func configuredCredentialBroker(cfg *config.Config, db *store.Store, approvals *
 		Stores:               map[string]credential.Store{"legato": configuredSecretStore(cfg, db)},
 		OnePasswordToken:     cfg.Secrets.OnePassword.Token,
 		OnePasswordTokenFile: cfg.Secrets.OnePassword.TokenFile,
+		OnePasswordBackend:   cfg.Secrets.OnePassword.Backend,
 		Messenger:            messenger,
 	})
 }
