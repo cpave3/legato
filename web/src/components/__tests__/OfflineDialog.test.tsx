@@ -4,8 +4,12 @@ import { MemoryRouter } from "react-router-dom"
 import { OfflineDialog } from "../OfflineDialog"
 
 const mockSetActiveServer = vi.fn()
+const mockReconnect = vi.fn()
 
 let mockConnected = false
+// The hook's own judgement: no connection for its lost window.
+let mockLost = true
+let mockGeneration = 1
 let mockServers = [
   { name: "Remote A", url: "https://remote-a:3080" },
   { name: "Remote B", url: "https://remote-b:3080" },
@@ -14,7 +18,12 @@ let mockBaseUrl = "https://remote-a:3080"
 let mockIsRemote = true
 
 vi.mock("../../hooks/useWebSocket", () => ({
-  useWebSocket: () => ({ get connected() { return mockConnected } }),
+  useWebSocket: () => ({
+    get connected() { return mockConnected },
+    get lost() { return mockLost },
+    get connectionGeneration() { return mockGeneration },
+    reconnect: mockReconnect,
+  }),
 }))
 
 vi.mock("../../hooks/useServer", () => ({
@@ -29,6 +38,8 @@ vi.mock("../../hooks/useServer", () => ({
 
 function resetMocks() {
   mockConnected = false
+  mockLost = true
+  mockGeneration = 1
   mockServers = [
     { name: "Remote A", url: "https://remote-a:3080" },
     { name: "Remote B", url: "https://remote-b:3080" },
@@ -55,27 +66,55 @@ describe("OfflineDialog", () => {
     cleanup()
     vi.useRealTimers()
     mockSetActiveServer.mockClear()
+    mockReconnect.mockClear()
   })
 
-  it("shows the dialog after the delay", async () => {
-    renderDialog(<OfflineDialog delayMs={100} />)
-    expect(screen.queryByText(/Connection Lost/i)).toBeNull()
+  it("shows Reconnecting over the page while it reconnects, and no dialog", async () => {
+    mockLost = false
+    renderDialog(<><p>The open agent</p><OfflineDialog overlayDelayMs={100} /></>)
+    expect(screen.queryByRole("status")).toBeNull()
 
     await act(async () => { vi.advanceTimersByTime(150) })
 
-    expect(screen.queryByText(/Connection Lost/i)).toBeTruthy()
+    expect(screen.getByRole("status").textContent).toMatch(/Reconnecting/)
+    expect(screen.queryByRole("dialog")).toBeNull()
+    expect(screen.getByText("The open agent")).toBeTruthy()
   })
 
-  it("does NOT show when connected", async () => {
+  it("says Connecting before the page has ever connected", async () => {
+    mockLost = false
+    mockGeneration = 0
+    renderDialog(<OfflineDialog overlayDelayMs={0} />)
+    await act(async () => { vi.advanceTimersByTime(0) })
+
+    expect(screen.getByRole("status").textContent).toMatch(/^Connecting/)
+  })
+
+  it("shows the Connection Lost dialog only once the connection is lost", async () => {
+    mockLost = false
+    const { rerenderDialog } = renderDialog(<OfflineDialog overlayDelayMs={0} />)
+    await act(async () => { vi.advanceTimersByTime(0) })
+    expect(screen.queryByText(/Connection Lost/i)).toBeNull()
+
+    mockLost = true
+    rerenderDialog(<OfflineDialog overlayDelayMs={0} />)
+
+    expect(screen.getByRole("dialog", { name: /Connection Lost/i })).toBeTruthy()
+    expect(screen.queryByRole("status")).toBeNull()
+  })
+
+  it("shows nothing when connected", async () => {
     mockConnected = true
-    renderDialog(<OfflineDialog delayMs={100} />)
+    mockLost = false
+    renderDialog(<OfflineDialog overlayDelayMs={0} />)
     await act(async () => { vi.advanceTimersByTime(150) })
 
     expect(screen.queryByText(/Connection Lost/i)).toBeNull()
+    expect(screen.queryByRole("status")).toBeNull()
   })
 
   it("lists servers and calls setActiveServer on remote click", async () => {
-    renderDialog(<OfflineDialog delayMs={0} />)
+    renderDialog(<OfflineDialog />)
     await act(async () => { vi.advanceTimersByTime(0) })
 
     const remoteBBtn = screen.getByRole("button", { name: /Remote B/i })
@@ -86,7 +125,7 @@ describe("OfflineDialog", () => {
   })
 
   it("calls setActiveServer('') when Local is clicked", async () => {
-    renderDialog(<OfflineDialog delayMs={0} />)
+    renderDialog(<OfflineDialog />)
     await act(async () => { vi.advanceTimersByTime(0) })
 
     const localBtn = screen.getByRole("button", { name: /Local/i })
@@ -95,7 +134,7 @@ describe("OfflineDialog", () => {
   })
 
   it("shows active styling on the currently selected server", async () => {
-    renderDialog(<OfflineDialog delayMs={0} />)
+    renderDialog(<OfflineDialog />)
     await act(async () => { vi.advanceTimersByTime(0) })
 
     // Remote A is active: should have amber highlight classes
@@ -109,7 +148,7 @@ describe("OfflineDialog", () => {
 
   it("shows a Go to Settings link when no remote servers exist", async () => {
     mockServers = []
-    renderDialog(<OfflineDialog delayMs={0} />)
+    renderDialog(<OfflineDialog />)
     await act(async () => { vi.advanceTimersByTime(0) })
 
     expect(screen.getByRole("link", { name: /Go to Settings/i })).toBeTruthy()
@@ -117,14 +156,14 @@ describe("OfflineDialog", () => {
   })
 
   it("shows TLS hint for remote servers", async () => {
-    renderDialog(<OfflineDialog delayMs={0} />)
+    renderDialog(<OfflineDialog />)
     await act(async () => { vi.advanceTimersByTime(0) })
 
     expect(screen.getByText(/TLS certificate is trusted/i)).toBeTruthy()
   })
 
   it("renders a dialog without replacing the underlying page", async () => {
-    renderDialog(<><p>Cached plan queue</p><OfflineDialog delayMs={0} /></>)
+    renderDialog(<><p>Cached plan queue</p><OfflineDialog /></>)
     await act(async () => { vi.advanceTimersByTime(0) })
 
     expect(screen.getByRole("dialog", { name: /Connection Lost/i })).toBeTruthy()
@@ -132,46 +171,56 @@ describe("OfflineDialog", () => {
   })
 
   it("closes automatically when the connection recovers", async () => {
-    const { rerenderDialog } = renderDialog(<OfflineDialog delayMs={0} />)
+    const { rerenderDialog } = renderDialog(<OfflineDialog />)
     await act(async () => { vi.advanceTimersByTime(0) })
     expect(screen.getByRole("dialog")).toBeTruthy()
 
     mockConnected = true
-    rerenderDialog(<OfflineDialog delayMs={0} />)
+    mockLost = false
+    rerenderDialog(<OfflineDialog />)
 
     expect(screen.queryByRole("dialog")).toBeNull()
   })
 
-  it("cancels the delayed dialog when the connection recovers", async () => {
-    const { rerenderDialog } = renderDialog(<OfflineDialog delayMs={100} />)
+  it("cancels the Reconnecting notice when the connection recovers in time", async () => {
+    mockLost = false
+    const { rerenderDialog } = renderDialog(<OfflineDialog overlayDelayMs={100} />)
 
     mockConnected = true
-    rerenderDialog(<OfflineDialog delayMs={100} />)
+    rerenderDialog(<OfflineDialog overlayDelayMs={100} />)
     await act(async () => { vi.advanceTimersByTime(150) })
 
-    expect(screen.queryByRole("dialog")).toBeNull()
+    expect(screen.queryByRole("status")).toBeNull()
   })
 
   it("can be dismissed and reappears after a later disconnect", async () => {
-    const { rerenderDialog } = renderDialog(<OfflineDialog delayMs={0} />)
+    const { rerenderDialog } = renderDialog(<OfflineDialog />)
     await act(async () => { vi.advanceTimersByTime(0) })
 
     fireEvent.click(screen.getByRole("button", { name: /Dismiss connection warning/i }))
     expect(screen.queryByRole("dialog")).toBeNull()
 
     mockConnected = true
-    rerenderDialog(<OfflineDialog delayMs={0} />)
+    mockLost = false
+    rerenderDialog(<OfflineDialog />)
     mockConnected = false
-    rerenderDialog(<OfflineDialog delayMs={0} />)
+    mockLost = true
+    rerenderDialog(<OfflineDialog />)
     await act(async () => { vi.advanceTimersByTime(0) })
 
     expect(screen.getByRole("dialog", { name: /Connection Lost/i })).toBeTruthy()
   })
 
   it("dismisses with Escape and restores focus", async () => {
-    renderDialog(<><button type="button">Open menu</button><OfflineDialog delayMs={0} /></>)
+    // Focus is somewhere on the page when the connection is lost.
+    mockLost = false
+    mockConnected = true
+    const { rerenderDialog } = renderDialog(<><button type="button">Open menu</button><OfflineDialog /></>)
     const opener = screen.getByRole("button", { name: "Open menu" })
     opener.focus()
+    mockConnected = false
+    mockLost = true
+    rerenderDialog(<><button type="button">Open menu</button><OfflineDialog /></>)
     await act(async () => { vi.advanceTimersByTime(0) })
 
     expect(screen.getByRole("button", { name: /Dismiss connection warning/i })).toBe(document.activeElement)
@@ -181,15 +230,16 @@ describe("OfflineDialog", () => {
     expect(opener).toBe(document.activeElement)
   })
 
-  it("has a Retry button that triggers a page reload", async () => {
+  it("has a Retry button that reconnects in place, without reloading the page", async () => {
     const reloadSpy = vi.fn()
     vi.stubGlobal("location", { ...window.location, reload: reloadSpy })
 
-    renderDialog(<OfflineDialog delayMs={0} />)
+    renderDialog(<OfflineDialog />)
     await act(async () => { vi.advanceTimersByTime(0) })
 
     fireEvent.click(screen.getByRole("button", { name: /Retry/i }))
-    expect(reloadSpy).toHaveBeenCalled()
+    expect(mockReconnect).toHaveBeenCalled()
+    expect(reloadSpy).not.toHaveBeenCalled()
 
     vi.unstubAllGlobals()
   })

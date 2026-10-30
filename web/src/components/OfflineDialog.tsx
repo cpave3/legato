@@ -1,25 +1,37 @@
 import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router-dom"
-import { ChevronRight, Plus, QrCode, Settings, WifiOff, X } from "lucide-react"
+import { ChevronRight, Loader2, Plus, QrCode, Settings, WifiOff, X } from "lucide-react"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 
-export function OfflineDialog({ delayMs = 2000 }: { delayMs?: number }) {
-  const { connected } = useWebSocket()
+// A dropped connection first shows a small Reconnecting notice over the page,
+// which stays as it is: a phone back from the lock screen or another app
+// usually reconnects within a second. Only when the connection is lost (the
+// WebSocket hook's judgement: none for ten seconds, so the server is likely
+// down) does the Connection Lost dialog appear. overlayDelayMs keeps a quick
+// reconnect from flashing the notice.
+export function OfflineDialog({ overlayDelayMs = 500 }: { overlayDelayMs?: number }) {
+  const { connected, lost, connectionGeneration, reconnect } = useWebSocket()
   const { baseUrl, servers, activeServerName, isRemote, setActiveServer } = useServer()
   const [visible, setVisible] = useState(false)
+  const [reconnecting, setReconnecting] = useState(false)
   const dialogRef = useRef<HTMLElement>(null)
   const dismissRef = useRef<HTMLButtonElement>(null)
 
+  // The dialog opens each time the connection is lost; dismissing it lasts
+  // until the next time.
   useEffect(() => {
-    if (connected) {
-      setVisible(false)
+    setVisible(lost && !connected)
+  }, [lost, connected])
+
+  useEffect(() => {
+    if (connected || lost) {
+      setReconnecting(false)
       return
     }
-
-    const timer = setTimeout(() => setVisible(true), delayMs)
+    const timer = setTimeout(() => setReconnecting(true), overlayDelayMs)
     return () => clearTimeout(timer)
-  }, [connected, delayMs])
+  }, [connected, lost, overlayDelayMs])
 
   useEffect(() => {
     if (!visible) return
@@ -56,6 +68,21 @@ export function OfflineDialog({ delayMs = 2000 }: { delayMs?: number }) {
       previousFocus?.focus()
     }
   }, [visible])
+
+  if (reconnecting) {
+    return (
+      <div className="pointer-events-none fixed inset-x-0 top-3 z-50 flex justify-center px-4">
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/95 px-4 py-2 text-sm text-zinc-200 shadow-lg shadow-black/40"
+        >
+          <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin text-amber-400" />
+          {connectionGeneration > 0 ? "Reconnecting…" : "Connecting…"}
+        </div>
+      </div>
+    )
+  }
 
   if (!visible) return null
 
@@ -154,7 +181,7 @@ export function OfflineDialog({ delayMs = 2000 }: { delayMs?: number }) {
           </Link>
           <button
             type="button"
-            onClick={() => window.location.reload()}
+            onClick={reconnect}
             className="ml-auto min-h-11 rounded-md bg-amber-500 px-4 text-sm font-medium text-zinc-950 transition-colors hover:bg-amber-400"
           >
             Retry

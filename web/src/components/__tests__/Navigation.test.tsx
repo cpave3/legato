@@ -7,13 +7,14 @@ const { state } = vi.hoisted(() => ({
   state: {
     summary: { agents: 0, attention: 0, review: 0, plans: 0, workflow_attention: 0, learning: 0 },
     connected: true,
+    lost: false,
     servers: [] as { name: string; url: string }[],
     setActiveServer: (() => {}) as (url: string) => void,
   },
 }))
 
 vi.mock("../../hooks/useNavigationSummary", () => ({ useNavigationSummary: () => ({ data: state.summary }) }))
-vi.mock("../../hooks/useWebSocket", () => ({ useWebSocket: () => ({ connected: state.connected }) }))
+vi.mock("../../hooks/useWebSocket", () => ({ useWebSocket: () => ({ connected: state.connected, lost: state.lost }) }))
 vi.mock("../../hooks/useServer", () => ({
   useServer: () => ({ servers: state.servers, activeServerName: "Local", baseUrl: "", setActiveServer: state.setActiveServer }),
 }))
@@ -39,6 +40,7 @@ const tabs = () => screen.getByRole("navigation", { name: "Primary navigation" }
 beforeEach(() => {
   state.summary = { agents: 0, attention: 0, review: 0, plans: 0, workflow_attention: 0, learning: 0 }
   state.connected = true
+  state.lost = false
   state.servers = []
   state.setActiveServer = vi.fn()
   localStorage.clear()
@@ -82,10 +84,17 @@ describe("the rail", () => {
     expect(within(rail()).getByText("sync")).toBeTruthy()
   })
 
-  it("says when it is not", () => {
+  it("says when it is not, once the connection is lost", () => {
     state.connected = false
+    state.lost = true
     renderAt("/board")
     expect(within(rail()).getByText("offline")).toBeTruthy()
+  })
+
+  it("keeps saying sync while it reconnects", () => {
+    state.connected = false
+    renderAt("/board")
+    expect(within(rail()).getByText("sync")).toBeTruthy()
   })
 })
 

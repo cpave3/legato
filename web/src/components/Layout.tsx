@@ -14,7 +14,10 @@ import { NavRail } from "./NavRail"
 import { MobileTabBar, MoreSheet } from "./MobileNav"
 
 export function Layout() {
-  const { connected, updateRequired, retryUpdate } = useWebSocket()
+  const { connected: open, lost, updateRequired, retryUpdate } = useWebSocket()
+  // A drop that is still reconnecting is not shown as offline: the page is
+  // likely back within a second (OfflineDialog shows Reconnecting meanwhile).
+  const connected = open || !lost
   const { servers, activeServerName, baseUrl, setActiveServer } = useServer()
   const { data: summary } = useNavigationSummary()
   const sections = useMemo(() => navSections(summary), [summary])

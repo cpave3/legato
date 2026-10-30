@@ -100,8 +100,18 @@ export interface PromptState {
 
 type MessageHandler = (msg: WSMessage) => void
 
+// lostAfterMs is how long the page goes without a connection before it is
+// lost. A phone back from the lock screen or another app usually reconnects
+// well within it: the server is still there. Past it, the server is likely
+// down, and the page says so.
+export const lostAfterMs = 10_000
+
 interface WebSocketContextValue {
   connected: boolean
+  // lost: no connection for lostAfterMs. Until then a drop is "reconnecting".
+  lost: boolean
+  // reconnect tries at once, without reloading the page.
+  reconnect: () => void
   connectionGeneration: number
   send: (msg: WSMessage) => void
   subscribe: (handler: MessageHandler) => () => void
@@ -117,6 +127,8 @@ export function useWebSocket() {
 
 export function useWebSocketProvider(wsUrl: string) {
   const [connected, setConnected] = useState(false)
+  const [lost, setLost] = useState(false)
+  const lostTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [connectionGeneration, setConnectionGeneration] = useState(0)
   const [updateRequired, setUpdateRequired] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
@@ -143,6 +155,11 @@ export function useWebSocketProvider(wsUrl: string) {
 
     ws.onopen = () => {
       setConnected(true)
+      if (lostTimerRef.current != null) {
+        clearTimeout(lostTimerRef.current)
+        lostTimerRef.current = null
+      }
+      setLost(false)
       setConnectionGeneration((generation) => generation + 1)
       attemptRef.current = 0
       void coordinateFrontendUpdate(__LEGATO_FRONTEND_BUILD_ID__, {
@@ -161,10 +178,11 @@ export function useWebSocketProvider(wsUrl: string) {
 
     ws.onclose = () => {
       setConnected(false)
+      // The window starts at the first failure and runs until a connection.
+      lostTimerRef.current ??= setTimeout(() => setLost(true), lostAfterMs)
       wsRef.current = null
       const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30000)
       attemptRef.current++
-      // eslint-disable-next-line react-hooks/immutability
       reconnectTimeoutRef.current = setTimeout(connect, delay)
     }
 
@@ -196,9 +214,42 @@ export function useWebSocketProvider(wsUrl: string) {
     connect()
     return () => {
       if (reconnectTimeoutRef.current != null) clearTimeout(reconnectTimeoutRef.current)
+      if (lostTimerRef.current != null) clearTimeout(lostTimerRef.current)
+      lostTimerRef.current = null
       wsRef.current?.close()
     }
   }, [wsUrl, connect])
+
+  // reconnectNow skips the backoff: the page has come back into view, the
+  // network is back, or the mobile app has returned to the foreground. A
+  // phone that slept or switched apps usually finds its socket closed while
+  // the server is still there, so trying at once is what brings it back.
+  const reconnectNow = useCallback(() => {
+    const current = wsRef.current
+    if (current && (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING)) return
+    if (reconnectTimeoutRef.current != null) {
+      clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
+    }
+    attemptRef.current = 0
+    connect()
+  }, [connect])
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") reconnectNow()
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    window.addEventListener("online", reconnectNow)
+    window.addEventListener("pageshow", reconnectNow)
+    window.addEventListener("legato:shell-return", reconnectNow)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible)
+      window.removeEventListener("online", reconnectNow)
+      window.removeEventListener("pageshow", reconnectNow)
+      window.removeEventListener("legato:shell-return", reconnectNow)
+    }
+  }, [reconnectNow])
 
   const send = useCallback((msg: WSMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -219,5 +270,5 @@ export function useWebSocketProvider(wsUrl: string) {
     window.location.reload()
   }, [])
 
-  return { connected, connectionGeneration, send, subscribe, updateRequired, retryUpdate, Provider: WebSocketContext.Provider }
+  return { connected, lost, reconnect: reconnectNow, connectionGeneration, send, subscribe, updateRequired, retryUpdate, Provider: WebSocketContext.Provider }
 }

@@ -192,7 +192,8 @@ page does, so the agent that was open is open again afterwards.
 A page that is still there on return is told so: the app dispatches a
 `legato:shell-return` event on its `window`. The web interface treats that as
 picking the open agent again, which refreshes a native agent panel from its
-snapshot. A page on screen while the person is in the server list counts as in
+snapshot, and reconnects its WebSocket at once if the connection dropped while
+the app was away, showing "Reconnecting…" instead of Connection Lost. A page on screen while the person is in the server list counts as in
 the background, so coming back to it does the same.
 
 `adb logcat -s LegatoPage` shows each time Android reclaims the page.
