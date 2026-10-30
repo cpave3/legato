@@ -274,3 +274,46 @@ func TestNuGetsPackageCacheIsMountedButNotItsConfiguration(t *testing.T) {
 		t.Fatal("NuGet's configuration, which can hold feed passwords, is mounted")
 	}
 }
+
+func mountIndex(plan sandbox.Plan, path string) int {
+	for i, m := range plan.Mounts {
+		if m.Path == path && m.Dest == "" {
+			return i
+		}
+	}
+	return -1
+}
+
+// A worktree's files often link into its main checkout (an untracked
+// local.settings.json), so the main checkout is seen read-only; its .git
+// stays writable for commits, and the worktree itself is writable.
+func TestAWorktreeSeesItsMainCheckoutReadOnly(t *testing.T) {
+	for name, layout := range map[string]struct{ main, work string }{
+		"beside": {"/var/home/me/Development/app", "/var/home/me/Development/app.feature"},
+		"inside": {"/var/home/me/Development/app", "/var/home/me/Development/app/.worktrees/feature"},
+	} {
+		in := baseInput()
+		fs := hostFS()
+		fs[layout.main] = "dir"
+		fs[layout.main+"/.git"] = "dir"
+		fs[layout.work] = "dir"
+		in.FS, in.WorkDir, in.GitCommonDir = fs, layout.work, layout.main+"/.git"
+		plan, err := BuildSandboxPlan(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := mounted(plan)
+		for _, path := range []string{layout.main, layout.main + "/.git", layout.work} {
+			if mountIndex(plan, path) < 0 {
+				t.Fatalf("%s: %s is not mounted", name, path)
+			}
+		}
+		if m[layout.main].Kind != sandbox.ReadOnly || m[layout.main+"/.git"].Kind != sandbox.ReadWrite || m[layout.work].Kind != sandbox.ReadWrite {
+			t.Fatalf("%s: main %+v, .git %+v, work %+v", name, m[layout.main], m[layout.main+"/.git"], m[layout.work])
+		}
+		mainAt, gitAt, workAt := mountIndex(plan, layout.main), mountIndex(plan, layout.main+"/.git"), mountIndex(plan, layout.work)
+		if mainAt > gitAt || mainAt > workAt {
+			t.Fatalf("%s: the main checkout is mounted after what it holds: main %d, .git %d, work %d", name, mainAt, gitAt, workAt)
+		}
+	}
+}

@@ -34,6 +34,10 @@ A sandbox SHALL mount: system directories read-only; a private `/tmp`; the job's
 - **THEN** it SHALL succeed
 - **AND** writing under that path SHALL fail
 
+#### Scenario: A worktree's links into its main checkout
+- **WHEN** the agent works in a linked worktree whose `local.settings.json` links to the main checkout's
+- **THEN** the sandbox SHALL mount the main checkout read-only, with the worktree and the main `.git` writable, so the link resolves
+
 #### Scenario: Working copy is writable
 - **WHEN** the agent commits in its job checkout
 - **THEN** the commit SHALL succeed and be visible to the host at the same path

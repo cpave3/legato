@@ -390,6 +390,12 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	if err := check(filepath.Clean(in.WorkDir)); err != nil {
 		return sandbox.Plan{}, err
 	}
+	// A linked worktree's files often link into its main checkout (an
+	// untracked settings file), so the main checkout is seen read-only,
+	// mounted first so the worktree and the main .git stay writable on top.
+	if main := mainCheckout(in.GitCommonDir); main != "" && !within(in.GitCommonDir, in.WorkDir) && check(main) == nil {
+		add(main, sandbox.ReadOnly)
+	}
 	add(in.WorkDir, sandbox.ReadWrite)
 	if in.GitCommonDir != "" && !within(in.GitCommonDir, in.WorkDir) {
 		if err := check(in.GitCommonDir); err != nil {
@@ -534,4 +540,13 @@ func linkTargetMounts(in SandboxPlanInput, mounts []sandbox.Mount, forbiddenPath
 		follow(filepath.Join(in.Home, rel), true)
 	}
 	return out
+}
+
+// mainCheckout is the working tree a worktree's common .git belongs to, or
+// "" for a bare repository.
+func mainCheckout(gitCommonDir string) string {
+	if gitCommonDir == "" || filepath.Base(gitCommonDir) != ".git" {
+		return ""
+	}
+	return filepath.Dir(gitCommonDir)
 }
