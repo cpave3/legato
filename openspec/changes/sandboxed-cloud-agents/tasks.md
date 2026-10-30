@@ -57,6 +57,8 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 - [x] 3.24 TUI: `R` in the agents view reloads the selected agent, resuming its conversation
 - [x] 3.26 Mount, read-only, the file each link in a mounted command folder leads to, when no mount holds it (a tool linked from its checkout, such as `st`); a target in a forbidden path is left out
 - [x] 3.27 Follow links in the agent tool's folders of skills, commands and agents through every link on the way (`~/.claude/skills/x` → `~/.agents/skills/x` → a registry), making each link again inside and mounting the end read-only
+- [x] 3.28 `gh`'s pull request commands work in the sandbox: they ask for `pr.write` on the repository (default: once a session), get a token that writes pull requests and only reads code, and the wrapper revokes it after `gh`; outside the sandbox the wrapper stays out of the way
+- [x] 3.29 Every decision on a use that could not wait (a push) is messaged to the agent, telling it to run the command again
 - [x] 3.25 Test suites clear the variables of an agent session (`internal/testenv`), so a suite run inside one does not act as it or reach its Legato
 
 ## 4. Phase 4: repository tools, with pushes and pull requests through the credential broker
@@ -73,7 +75,7 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 
 ## Status (2026-10-30)
 
-**Done.** Phase 2 (host broker). Phase 3 for the local sandbox: 3.1–3.7, 3.13–3.27 (with 3.6a and 3.15a). Phase 1: 1.1–1.7 (`prompt` on both spawn endpoints and in the web spawn dialog; `repo.ensure` as a no-op without `repo`; the built-in `legato-job`; unknown agents refused at start; `docs/cloud-agents.md`).
+**Done.** Phase 2 (host broker). Phase 3 for the local sandbox: 3.1–3.7, 3.13–3.29 (with 3.6a and 3.15a). Phase 1: 1.1–1.7 (`prompt` on both spawn endpoints and in the web spawn dialog; `repo.ensure` as a no-op without `repo`; the built-in `legato-job`; unknown agents refused at start; `docs/cloud-agents.md`).
 
 **Interim behaviour.** `repo.ensure` with a non-empty `repo` fails the step ("cannot check out a repository for a job yet") until 3.8–3.11 replace it.
 

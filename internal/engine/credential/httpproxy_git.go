@@ -256,8 +256,9 @@ func (p *HTTPProxy) forwardGit(w http.ResponseWriter, r *http.Request, c ProxyCr
 	_, _ = copyFlushing(w, resp.Body)
 }
 
-// serveToken gives the git and gh helpers a read token for one repository,
-// after the broker allows the read. Writes never come this way.
+// serveToken gives the git and gh helpers a token for one repository, after
+// the broker allows its operation: a read, or pr.write for gh's pull
+// request commands. Pushes never come this way.
 func (p *HTTPProxy) serveToken(w http.ResponseWriter, r *http.Request, c ProxyCredential) {
 	ctx := r.Context()
 	if r.Method != http.MethodPost {
@@ -287,8 +288,8 @@ func (p *HTTPProxy) serveToken(w http.ResponseWriter, r *http.Request, c ProxyCr
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "repo: want owner/name"})
 		return
 	}
-	if in.Operation != OperationGitRead && in.Operation != "api.read" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "only read tokens are given out; pushes go through Legato's proxy"})
+	if in.Operation != OperationGitRead && in.Operation != "api.read" && in.Operation != OperationPRWrite {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "only read and pull request tokens are given out; pushes go through Legato's proxy"})
 		return
 	}
 	use := ProxyUse{Execution: execution, Credential: c.Name, Method: "TOKEN", Path: in.Repo,
@@ -311,7 +312,7 @@ func (p *HTTPProxy) serveToken(w http.ResponseWriter, r *http.Request, c ProxyCr
 	}
 	token, _, err := p.Backend.Key(ctx, use)
 	if err != nil {
-		log.Printf("credentials: proxy %s: a read token for %s: %v", c.Name, in.Repo, err)
+		log.Printf("credentials: proxy %s: a %s token for %s: %v", c.Name, in.Operation, in.Repo, err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "Legato could not get a token for " + in.Repo})
 		return
 	}

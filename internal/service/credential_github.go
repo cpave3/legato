@@ -305,16 +305,27 @@ func writeGHWrapper(dir, legato string) error {
 		return errors.New("no gh on PATH")
 	}
 	// In a sandbox the real gh's own path is this wrapper (see
-	// sandboxGHMounts), and the real one is at LEGATO_GH_REAL.
+	// sandboxGH), and the real one is at LEGATO_GH_REAL. Outside the sandbox
+	// gh keeps the person's own login and the wrapper stays out of the way.
+	// A token that can write (gh-token prints "<token> revoke", for a pull
+	// request command) is revoked when gh exits.
 	script := "#!/bin/sh\n" +
-		"# Legato: gh with a read token for one repository. Writes go through\n" +
-		"# Legato's proxy ($LEGATO_GITHUB_API_URL), not through gh.\n" +
+		"# Legato: in Legato's sandbox, gh with a token for one repository from\n" +
+		"# Legato: a read token, or one that writes pull requests once allowed.\n" +
 		"real=${LEGATO_GH_REAL:-" + shellQuote(real) + "}\n" +
-		"if out=$(" + shellQuote(legato) + " credential gh-token -- \"$@\" 2>&1); then GH_TOKEN=$out; export GH_TOKEN\n" +
+		"[ \"$LEGATO_SANDBOXED\" = 1 ] || exec \"$real\" \"$@\"\n" +
+		"if out=$(" + shellQuote(legato) + " credential gh-token -- \"$@\" 2>&1); then\n" +
+		"  token=${out%% *}; GH_TOKEN=$token; export GH_TOKEN\n" +
+		"  if [ \"$token\" != \"$out\" ]; then\n" +
+		"    \"$real\" \"$@\"; status=$?\n" +
+		"    \"$real\" api -X DELETE installation/token >/dev/null 2>&1\n" +
+		"    exit $status\n" +
+		"  fi\n" +
 		"elif [ \"$GH_TOKEN\" = " + GHSignedOut + " ]; then\n" +
 		"  echo \"legato: gh has no GitHub token for this command, so GitHub will refuse it.\" >&2\n" +
 		"  [ -n \"$out\" ] && echo \"$out\" >&2\n" +
-		"  echo \"legato: name a listed repository with -R owner/name, or run gh inside a clone. In Legato's sandbox gh never uses the person's own login.\" >&2\n" +
+		"  case $out in *pending*) echo \"legato: the person has been asked. When they decide you get a [legato approvals] message; run this gh command again then.\" >&2 ;;\n" +
+		"  *) echo \"legato: name a listed repository with -R owner/name, or run gh inside a clone. In Legato's sandbox gh never uses the person's own login.\" >&2 ;; esac\n" +
 		"fi\n" +
 		"exec \"$real\" \"$@\"\n"
 	if err := os.MkdirAll(dir, 0o700); err != nil {

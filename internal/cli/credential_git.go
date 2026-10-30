@@ -32,8 +32,9 @@ func GitHubSessionFromEnv(getenv func(string) string) (GitHubSession, bool) {
 
 func (s GitHubSession) base() string { return strings.TrimSuffix(s.APIURL, "/api") }
 
-// ReadToken asks Legato's proxy for a read token for one repository.
-func (s GitHubSession) ReadToken(ctx context.Context, repo, operation string) (string, error) {
+// Token asks Legato's proxy for a token for one repository and operation:
+// a read token, or one that writes pull requests (pr.write).
+func (s GitHubSession) Token(ctx context.Context, repo, operation string) (string, error) {
 	body, _ := json.Marshal(map[string]string{"repo": repo, "operation": operation})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.base()+"/token", bytes.NewReader(body))
 	if err != nil {
@@ -106,13 +107,38 @@ func GitCredentialHelper(ctx context.Context, action string, in io.Reader, out, 
 		fmt.Fprintln(errOut, "legato: git did not name a repository; set credential.useHttpPath")
 		return nil
 	}
-	token, err := session.ReadToken(ctx, m[1]+"/"+m[2], "git.read")
+	token, err := session.Token(ctx, m[1]+"/"+m[2], "git.read")
 	if err != nil {
 		fmt.Fprintln(errOut, "legato: "+err.Error())
 		return nil
 	}
 	_, err = fmt.Fprintf(out, "username=x-access-token\npassword=%s\n", token)
 	return err
+}
+
+// prWrites are the gh pr commands that write to a pull request. Merging is
+// not one: it writes code, which a pr.write token cannot.
+var prWrites = map[string]bool{"create": true, "edit": true, "comment": true, "review": true, "close": true, "reopen": true, "ready": true}
+
+// GHOperation is the operation a gh command needs: pr.write for a command
+// that writes to a pull request, api.read for everything else.
+func GHOperation(args []string) string {
+	var words []string
+	for i := 0; i < len(args) && len(words) < 2; i++ {
+		a := args[i]
+		if a == "-R" || a == "--repo" {
+			i++
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		words = append(words, a)
+	}
+	if len(words) == 2 && words[0] == "pr" && prWrites[words[1]] {
+		return "pr.write"
+	}
+	return "api.read"
 }
 
 var githubRemote = regexp.MustCompile(`github\.com[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(\.git)?/?$`)

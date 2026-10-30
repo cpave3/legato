@@ -288,6 +288,29 @@ func TestTheHelperGetsAReadTokenForOneRepository(t *testing.T) {
 	}
 }
 
+// gh's pull request commands (gh pr edit, comment, ...) get a token that can
+// write pull requests, after the broker allows pr.write on the repository.
+func TestGHGetsAPullRequestWriteTokenWhenTheBrokerAllowsIt(t *testing.T) {
+	github, _, _ := fakeGitHubGit(t)
+	backend := gitTestBackend()
+	proxy := gitProxy(t, backend, github)
+	req, _ := http.NewRequest("POST", proxy.URL+"/c/github/token", strings.NewReader(`{"repo":"cpave3/legato","operation":"pr.write"}`))
+	req.Header.Set("Authorization", "Bearer lgk_one")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var got map[string]string
+	_ = json.NewDecoder(resp.Body).Decode(&got)
+	if resp.StatusCode != 200 || got["token"] == "" {
+		t.Fatalf("status %d body %v", resp.StatusCode, got)
+	}
+	if len(backend.uses) != 1 || backend.uses[0].Operation != "pr.write" || backend.uses[0].Resource != "github:cpave3/legato" {
+		t.Fatalf("uses = %+v", backend.uses)
+	}
+}
+
 func TestTheAPIIsServedUnderItsPrefix(t *testing.T) {
 	api := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/repos/cpave3/legato/pulls" || r.Header.Get("Authorization") != "Bearer ghs_READ_TOKEN" {

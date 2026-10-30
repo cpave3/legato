@@ -119,9 +119,12 @@ func runCredentialGit(args []string) int {
 	return exitOK
 }
 
-// runCredentialGHToken prints a read token for the repository a gh command
-// acts on, for Legato's gh wrapper: `legato credential gh-token -- <gh args>`.
-// It prints nothing, and fails, when there is no token to give.
+// runCredentialGHToken prints a token for the repository a gh command acts
+// on, for Legato's gh wrapper: `legato credential gh-token -- <gh args>`. A
+// pull request command (gh pr edit, comment, ...) asks for pr.write, which
+// the person may have to allow, and its token is printed as "<token> revoke"
+// so the wrapper revokes it after gh; anything else gets a read token. It
+// prints nothing, and fails, when there is no token to give.
 func runCredentialGHToken(args []string) int {
 	for i, a := range args {
 		if a == "--" {
@@ -144,12 +147,17 @@ func runCredentialGHToken(args []string) int {
 		fmt.Fprintln(os.Stderr, "legato:", err)
 		return exitUsage
 	}
-	token, err := session.ReadToken(context.Background(), repo, "api.read")
+	operation := cli.GHOperation(args)
+	token, err := session.Token(context.Background(), repo, operation)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "legato:", err)
 		return exitForbidden
 	}
-	fmt.Println(token)
+	if operation == "api.read" {
+		fmt.Println(token)
+	} else {
+		fmt.Println(token + " revoke")
+	}
 	return exitOK
 }
 

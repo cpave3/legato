@@ -109,3 +109,27 @@ func TestGHFindsItsRepository(t *testing.T) {
 		t.Error("a repository was found with nothing to find it from")
 	}
 }
+
+func TestGHOperationSaysWhichCommandsWriteToAPullRequest(t *testing.T) {
+	for args, want := range map[string]string{
+		"pr edit 1529 -R autopilot-dev/autopilot --body-file b.md": "pr.write",
+		"pr create --fill":           "pr.write",
+		"pr comment 12 --body hi":    "pr.write",
+		"pr review 12 --approve":     "pr.write",
+		"pr close 12":                "pr.write",
+		"pr reopen 12":               "pr.write",
+		"pr ready 12":                "pr.write",
+		"-R cpave3/legato pr edit 3": "pr.write",
+		"pr view 1529 --json body":   "api.read",
+		"pr list":                    "api.read",
+		"pr checks 12":               "api.read",
+		"pr merge 12":                "api.read",
+		"repo view":                  "api.read",
+		"api /repos/a/b":             "api.read",
+		"":                           "api.read",
+	} {
+		if got := cli.GHOperation(strings.Fields(args)); got != want {
+			t.Errorf("gh %s: %s, want %s", args, got, want)
+		}
+	}
+}

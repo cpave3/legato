@@ -145,7 +145,7 @@ func TestTheGuidanceSaysHowToWorkWithGitHub(t *testing.T) {
 		Env: []string{"LEGATO_GITHUB_TOKEN", "LEGATO_GITHUB_API_URL"}, Git: "https://github.com", Repositories: []string{"cpave3/legato"}}})
 	for _, want := range []string{
 		"cpave3/legato", "legato/$LEGATO_TASK_ID-", "request_access", "operation git.push", "github:cpave3/legato@refs/heads/legato/",
-		"git push", "pending ap-", "[legato approvals]", "$LEGATO_GITHUB_API_URL/repos/", "Bearer $LEGATO_GITHUB_TOKEN", "not gh",
+		"git push", "pending ap-", "[legato approvals]", "gh pr create, edit, comment", "pr.write", "run the command again", "gh pr merge is not allowed",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the GitHub guidance does not say %q:\n%s", want, text)

@@ -194,7 +194,7 @@ func commandTree() *commandDef {
 		leaf("git", "git's credential helper in an agent session with a GitHub credential (git runs it)", runCredentialGit,
 			[]argumentDef{arg("credential", "Credential name"), arg("action", "get, store or erase")}, nil,
 			"git -c credential.helper='!legato credential git github' fetch"),
-		leaf("gh-token", "Print a read token for the repository a gh command acts on (Legato's gh wrapper runs it)", runCredentialGHToken,
+		leaf("gh-token", "Print a token for the repository a gh command acts on: a read token, or one that writes pull requests for gh pr edit, comment and the like (Legato's gh wrapper runs it)", runCredentialGHToken,
 			[]argumentDef{{Name: "-- gh arguments", Optional: true, Repeatable: true, Description: "The gh command's arguments, after --"}}, nil,
 			"legato credential gh-token -- pr list -R cpave3/legato"),
 	)

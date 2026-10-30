@@ -133,6 +133,12 @@ With a `github` credential, a sandbox SHALL mount Legato's `gh` wrapper over eve
 - **WHEN** Legato gives the wrapper no token
 - **THEN** the wrapper SHALL print Legato's reason before the real `gh` runs
 
+#### Scenario: A pull request command
+- **WHEN** a sandboxed agent runs `gh pr edit 12 --body-file b.md`
+- **THEN** Legato SHALL decide `pr.write` on the repository (by default asking the person once a session, waiting up to a minute)
+- **AND** when allowed, `gh` SHALL run with a token that writes pull requests of that repository and only reads its code, revoked when `gh` exits
+- **AND** while the decision is pending, the wrapper SHALL say so and that the command is to be run again after the `[legato approvals]` message
+
 #### Scenario: Outside the sandbox
 - **WHEN** an agent is spawned without the sandbox
 - **THEN** its environment SHALL have neither the stand-in `GH_TOKEN` nor Legato's empty `GH_CONFIG_DIR`

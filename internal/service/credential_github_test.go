@@ -215,6 +215,45 @@ func TestAListedRepositoryIsReadWithoutAsking(t *testing.T) {
 	}
 }
 
+// gh's pull request commands get a token that can write pull requests and
+// only read code, after the person allows pr.write on the repository for
+// the session.
+func TestAPullRequestWriteTokenIsAskedOnceASession(t *testing.T) {
+	f := newGitHubFixture(t)
+	token := func() (int, map[string]string) {
+		req, _ := http.NewRequest("POST", f.proxy.URL+"/c/gh/token", strings.NewReader(`{"repo":"cpave3/legato","operation":"pr.write"}`))
+		req.Header.Set("Authorization", "Bearer "+f.env["LEGATO_GITHUB_TOKEN"])
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var body map[string]string
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		return resp.StatusCode, body
+	}
+	status, body := token()
+	if status != 403 || body["status"] != "pending" {
+		t.Fatalf("the first request was not held for the person: %d %v", status, body)
+	}
+	approval := f.pending(t)
+	if approval.Options[0].ID != "session" || !strings.Contains(approval.Summary, "pr.write") {
+		t.Fatalf("approval = %+v", approval)
+	}
+	if _, err := f.approvals.Decide(context.Background(), approval.ID, ApprovalDecision{Decision: ApprovalAllow, Option: "session", By: "web"}); err != nil {
+		t.Fatal(err)
+	}
+	status, body = token()
+	perms := f.github.tokens[body["token"]]
+	if status != 200 || perms["pull_requests"] != "write" || perms["contents"] != "read" {
+		t.Fatalf("after approval: %d %v, permissions %v", status, body, perms)
+	}
+	again, second := token()
+	if again != 200 || second["token"] == body["token"] {
+		t.Fatalf("a second command: %d, same token %v", again, second["token"] == body["token"])
+	}
+}
+
 func TestAPushToALegatoBranchIsAskedOnceASession(t *testing.T) {
 	f := newGitHubFixture(t)
 	out, err := f.push(t, "HEAD:refs/heads/legato/task-1-fix")
@@ -340,7 +379,7 @@ func TestGHRunsWithAReadTokenThroughLegatosWrapper(t *testing.T) {
 	before := os.Getenv("GH_TOKEN")
 	// As the agent's shell runs it: gh found on the session's PATH.
 	cmd := exec.Command("/bin/sh", "-c", "gh pr list -R cpave3/legato")
-	cmd.Env = append(os.Environ(), "PATH="+env["PATH"])
+	cmd.Env = append(os.Environ(), "PATH="+env["PATH"], "LEGATO_SANDBOXED=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil || strings.TrimSpace(string(out)) != "gh pr list -R cpave3/legato token=ghs_read_for_gh" {
 		t.Fatalf("gh through the wrapper: %v %q", err, out)
@@ -446,7 +485,7 @@ func TestTheWrapperSaysWhyGHHasNoToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("/bin/sh", "-c", "gh api /user")
-	cmd.Env = append(os.Environ(), "PATH="+wrappers+string(os.PathListSeparator)+os.Getenv("PATH"), "GH_TOKEN="+GHSignedOut)
+	cmd.Env = append(os.Environ(), "PATH="+wrappers+string(os.PathListSeparator)+os.Getenv("PATH"), "GH_TOKEN="+GHSignedOut, "LEGATO_SANDBOXED=1")
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, _ := cmd.Output()
@@ -471,10 +510,68 @@ func TestTheWrapperRunsTheRealGHItIsGiven(t *testing.T) {
 	// In a sandbox the real gh's own path is the wrapper, so the real one is
 	// reached through LEGATO_GH_REAL.
 	cmd := exec.Command(filepath.Join(wrappers, "gh"), "pr", "list")
-	cmd.Env = append(os.Environ(), "LEGATO_GH_REAL="+moved)
+	cmd.Env = append(os.Environ(), "LEGATO_GH_REAL="+moved, "LEGATO_SANDBOXED=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil || strings.TrimSpace(string(out)) != "moved pr list token=ghs_read" {
 		t.Fatalf("%v %q", err, out)
+	}
+}
+
+// ghWrapperFixture is a real gh that records each call with the token it
+// got, a legato whose gh-token answers as given, and the wrapper.
+func ghWrapperFixture(t *testing.T, ghToken string) (wrapper, calls, asked string) {
+	t.Helper()
+	dir := t.TempDir()
+	calls, asked = filepath.Join(dir, "calls"), filepath.Join(dir, "asked")
+	realGH := filepath.Join(dir, "gh-real")
+	_ = os.WriteFile(realGH, []byte("#!/bin/sh\necho \"$* token=$GH_TOKEN\" >> "+calls+"\n"), 0o755)
+	legato := filepath.Join(dir, "legato")
+	_ = os.WriteFile(legato, []byte("#!/bin/sh\necho asked >> "+asked+"\n"+ghToken+"\n"), 0o755)
+	wrappers := filepath.Join(dir, "bin")
+	t.Setenv("PATH", filepath.Dir(realGH)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := writeGHWrapper(wrappers, legato); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_GH_REAL", realGH)
+	return filepath.Join(wrappers, "gh"), calls, asked
+}
+
+func TestInTheSandboxAPullRequestCommandGetsAWriteTokenThatIsRevokedAfterIt(t *testing.T) {
+	wrapper, calls, _ := ghWrapperFixture(t, `echo "ghs_WRITE revoke"`)
+	cmd := exec.Command(wrapper, "pr", "edit", "1529", "--body-file", "b.md")
+	cmd.Env = append(os.Environ(), "LEGATO_SANDBOXED=1", "GH_TOKEN="+GHSignedOut)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	got, _ := os.ReadFile(calls)
+	lines := strings.Split(strings.TrimSpace(string(got)), "\n")
+	if len(lines) != 2 || lines[0] != "pr edit 1529 --body-file b.md token=ghs_WRITE" || !strings.Contains(lines[1], "api -X DELETE installation/token token=ghs_WRITE") {
+		t.Fatalf("calls = %q", lines)
+	}
+}
+
+func TestOutsideTheSandboxGHRunsAsThePersonsOwn(t *testing.T) {
+	wrapper, calls, asked := ghWrapperFixture(t, `echo ghs_READ`)
+	cmd := exec.Command(wrapper, "pr", "edit", "3")
+	cmd.Env = append(os.Environ(), "LEGATO_SANDBOXED=", "GH_TOKEN=")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	if _, err := os.Stat(asked); err == nil {
+		t.Fatal("Legato was asked for a token outside the sandbox")
+	}
+	if got, _ := os.ReadFile(calls); strings.TrimSpace(string(got)) != "pr edit 3 token=" {
+		t.Fatalf("calls = %q", got)
+	}
+}
+
+func TestInTheSandboxGHSaysWhenItWaitsForThePerson(t *testing.T) {
+	wrapper, _, _ := ghWrapperFixture(t, `echo "legato: Legato did not give a token for a/b: waiting for the person (pending ap-123)" >&2; exit 4`)
+	cmd := exec.Command(wrapper, "pr", "edit", "3")
+	cmd.Env = append(os.Environ(), "LEGATO_SANDBOXED=1", "GH_TOKEN="+GHSignedOut)
+	out, _ := cmd.CombinedOutput()
+	if !strings.Contains(string(out), "pending ap-123") || !strings.Contains(string(out), "[legato approvals]") {
+		t.Fatalf("out = %s", out)
 	}
 }
 

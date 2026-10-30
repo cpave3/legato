@@ -18,6 +18,9 @@ const (
 	OperationGitPushTag     = "git.push-tag"
 	OperationGitDeleteRef   = "git.delete-ref"
 	OperationGitRead        = "git.read"
+	// OperationPRWrite is gh's pull request commands: a token that can write
+	// pull requests of one repository, and read its code.
+	OperationPRWrite = "pr.write"
 )
 
 // RefUpdate is one command of a push: a ref, from one object to another.
