@@ -325,3 +325,27 @@ func TestLiveGrantsAreListedAndCanBeEndedEarly(t *testing.T) {
 		t.Fatalf("audit = %d, %v", len(entries), err)
 	}
 }
+
+// A channel that cannot wait (a push) is refused at once while the person
+// is asked, so the agent is told of the decision however soon it comes.
+func TestARequestThatDidNotWaitHearsAQuickDecision(t *testing.T) {
+	for _, decision := range []ApprovalDecision{{Decision: ApprovalAllow, Option: "session"}, {Decision: ApprovalDeny, Feedback: "not that branch"}} {
+		f := newBrokerFixture(t, eleven(rule("session", "read")))
+		f.broker.wait = time.Hour // a waiting requester would still be waiting
+		ctx := context.Background()
+		d, err := f.broker.CheckUse(ctx, use("read", ""))
+		if err != nil || d.Allowed || d.ApprovalID == "" {
+			t.Fatalf("check = %+v, %v", d, err)
+		}
+		if _, err := f.approvals.Decide(ctx, d.ApprovalID, decision); err != nil {
+			t.Fatal(err)
+		}
+		messages := f.messenger.all()
+		if len(messages) != 1 || !strings.Contains(messages[0], "[legato approvals] "+d.ApprovalID) {
+			t.Fatalf("%s: messages = %v", decision.Decision, messages)
+		}
+		if decision.Decision == ApprovalAllow && !strings.Contains(messages[0], "again") {
+			t.Fatalf("an approval should say to try again: %q", messages[0])
+		}
+	}
+}

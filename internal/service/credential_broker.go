@@ -823,6 +823,9 @@ type credentialRequestDetails struct {
 	ScopeHash     string   `json:"scope_hash"`
 	TaskTitle     string   `json:"task_title,omitempty"`
 	AgentKind     string   `json:"agent_kind,omitempty"`
+	// NoWait says the requester did not wait for the decision (a push, which
+	// git cannot hold): the agent is told of it however soon it comes.
+	NoWait bool `json:"no_wait,omitempty"`
 }
 
 // submit asks the person, reusing a pending approval of the same scope.
@@ -848,6 +851,7 @@ func (b *CredentialBroker) submit(ctx context.Context, req AccessRequest, c brok
 	details := credentialRequestDetails{
 		Credential: req.Credential, Profile: c.profile.Name, Operations: req.Operations, Resources: req.Resources,
 		Reason: clip(req.Reason, 500), Broader: broader, Mode: r.Approve, WindowSeconds: int(window.Seconds()), Signed: needsSignature(r, b.devicesEnrolled(ctx)), ScopeHash: scope,
+		NoWait: req.noWait,
 	}
 	if task, err := b.db.GetTask(ctx, req.TaskID); err == nil {
 		details.TaskTitle = task.Title
@@ -1140,13 +1144,17 @@ func (r credentialResolver) Resolve(ctx context.Context, approval Approval, deci
 		}
 		phrase := map[string]string{grantSession: "for this session", grantWindow: "for " + humanDuration(window), grantOnce: "once"}[decision.Option]
 		message = fmt.Sprintf("[legato approvals] %s approved: %s with %s %s. Carry on with what needed it.", approval.ID, scope, d.Credential, phrase)
+		if d.NoWait {
+			message = fmt.Sprintf("[legato approvals] %s approved: %s with %s %s. It was refused while it waited for the person, so run it again now.", approval.ID, scope, d.Credential, phrase)
+		}
 	default:
 		r.b.audit(ctx, approval.TaskID, approval.ExecutionID, store.CredentialAuditEntry{Event: "deny", Credential: d.Credential, Operation: strings.Join(d.Operations, ","), Resource: strings.Join(d.Resources, " "), ApprovalID: approval.ID, DecidedBy: decidedBy(decision), Detail: clip(decision.Feedback, 500)})
 		note := firstNonEmpty(decision.Feedback, "no reason given")
 		message = fmt.Sprintf("[legato approvals] %s denied: %s with %s. The person said: %s. Do not look for another way to get this credential.", approval.ID, scope, d.Credential, note)
 	}
-	// A decision made while the requester still waited reached it directly.
-	if r.b.messenger != nil && r.b.now().Sub(parseApprovalTime(approval.CreatedAt)) >= r.b.wait {
+	// A decision made while the requester still waited reached it directly;
+	// a requester that did not wait hears every decision.
+	if r.b.messenger != nil && (d.NoWait || r.b.now().Sub(parseApprovalTime(approval.CreatedAt)) >= r.b.wait) {
 		if err := r.b.messenger.QueueMessage(ctx, approval.TaskID, message); err != nil {
 			log.Printf("credentials: telling %s of %s: %v", approval.TaskID, approval.ID, err)
 		}
