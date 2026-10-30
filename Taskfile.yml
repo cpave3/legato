@@ -3,6 +3,10 @@ version: "3"
 tasks:
   build:
     desc: Build the legato binary (TUI only — no web dashboard)
+    # Without C: one static binary that runs on any Linux, and cross-compiles
+    # with GOOS and GOARCH alone. TestLegatoBuildsWithoutC keeps it possible.
+    env:
+      CGO_ENABLED: "0"
     cmds:
       - go build -o legato ./cmd/legato/
 
@@ -76,6 +80,8 @@ tasks:
 
   install:
     desc: Install legato to $GOPATH/bin
+    env:
+      CGO_ENABLED: "0"
     cmds:
       - go install ./cmd/legato/
 
