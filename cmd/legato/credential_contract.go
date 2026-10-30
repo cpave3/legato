@@ -208,10 +208,36 @@ func runCredentialContract(verb string, args []string) int {
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
 	}
-	if verb == "exec" && sandboxed() {
-		// The command runs here, in the sandbox; only the value comes from
-		// the host, through the forwarded `credential get`.
-		return sandboxedCredentialExec(command, args, parsed.Values["env"], commandLine, jsonMode)
+	if verb == "get" || verb == "exec" {
+		if len(parsed.Positionals) != 1 {
+			return renderCommandError(command, usageError("missing_argument", fmt.Sprintf("credential %s needs the credential's name", verb)), jsonMode)
+		}
+		if verb == "exec" && (parsed.Values["env"] == "" || len(commandLine) == 0) {
+			// Said before the value is fetched, so a mistyped command is not a use.
+			return renderCommandError(command, usageError("missing_argument", "credential exec needs --env VARIABLE and a command after --"), jsonMode)
+		}
+		name, operation := parsed.Positionals[0], firstSet(parsed.Values["operation"], "read")
+		resource := firstSet(splitRepeated(parsed.Values["resource"])...)
+		result, answer, err := credentialFromHost(name, operation, resource)
+		switch answer {
+		case hostTooOld:
+			if verb == "exec" {
+				// The command runs here, in the sandbox; only the value
+				// comes from the host, through the forwarded `credential get`.
+				return sandboxedCredentialExec(command, args, parsed.Values["env"], commandLine, jsonMode)
+			}
+			return forwardToHost(append([]string{"credential", verb}, args...))
+		case hostAnswered:
+			if err != nil {
+				return renderCommandError(command, &commandError{Code: "credential_unavailable", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+			}
+			if !result.Allowed {
+				decision := service.UseDecision{Allowed: false, ApprovalID: result.ApprovalID, Reason: result.Reason}
+				message := cli.AccessText(name, []string{operation}, nonEmptyList(resource), useResult(decision))
+				return renderCommandError(command, &commandError{Code: "access_refused", Message: message, Details: map[string]any{"approval_id": decision.ApprovalID}, Exit: exitForbidden}, jsonMode)
+			}
+			return deliverCredential(command, verb, result.Value, parsed.Values["env"], commandLine, jsonMode)
+		}
 	}
 	cfg, db, code := openCommandStoreWithConfig(command, jsonMode)
 	if db == nil {
@@ -294,25 +320,7 @@ func runCredentialContract(verb string, args []string) int {
 			message := cli.AccessText(name, []string{use.Operation}, nonEmptyList(use.Resource), useResult(decision))
 			return renderCommandError(command, &commandError{Code: "access_refused", Message: message, Details: map[string]any{"approval_id": decision.ApprovalID}, Exit: exitForbidden}, jsonMode)
 		}
-		if verb == "get" {
-			_, _ = os.Stdout.Write(secret.Value)
-			return exitOK
-		}
-		variable := parsed.Values["env"]
-		if variable == "" || len(commandLine) == 0 {
-			return renderCommandError(command, usageError("missing_argument", "credential exec needs --env VARIABLE and a command after --"), jsonMode)
-		}
-		run := exec.Command(commandLine[0], commandLine[1:]...)
-		run.Env = append(os.Environ(), variable+"="+string(secret.Value))
-		run.Stdin, run.Stdout, run.Stderr = os.Stdin, os.Stdout, os.Stderr
-		if err := run.Run(); err != nil {
-			var exit *exec.ExitError
-			if errors.As(err, &exit) {
-				return exit.ExitCode()
-			}
-			return renderCommandError(command, &commandError{Code: "exec_failed", Message: err.Error(), Exit: exitDependency}, jsonMode)
-		}
-		return exitOK
+		return deliverCredential(command, verb, secret.Value, parsed.Values["env"], commandLine, jsonMode)
 	}
 	return renderCommandError(command, usageError("unknown_command", fmt.Sprintf("unknown credential command %q", verb)), jsonMode)
 }

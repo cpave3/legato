@@ -86,7 +86,7 @@ func runCLI(args []string) int {
 	}
 	// In Legato's sandbox an agent's own commands run on the host, for its
 	// session, through the broker.
-	if sandboxed() && forwardable(args) {
+	if sandboxed() && forwardable(args) && !asksHostItself(args) {
 		return forwardToHost(args)
 	}
 	node, path, remaining, resolveErr := resolveCommand(commandTree(), args)

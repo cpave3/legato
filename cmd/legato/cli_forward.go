@@ -45,6 +45,13 @@ var forwardedCommands = map[string][]string{
 var forwardedEnv = []string{"LEGATO_PARENT_TASK_ID", "LEGATO_SUBTASK_ID", "LEGATO_AGENT_ROLE", "LEGATO_WORKFLOW_RUN_ID",
 	"LEGATO_WORKFLOW_STEP_ID", "LEGATO_WORKFLOW_ATTEMPT_ID", "LEGATO_LEARNING_REQUEST_ID", "LEGATO_PLAN_NAME", "LEGATO_REVIEW_NAME", "LEGATO_REVIEW_TASK_ID"}
 
+// asksHostItself reports whether a command reaches the host by an operation
+// of its own instead of being forwarded whole: credential get and exec ask
+// for the value (credential.value), and forward only to a host without it.
+func asksHostItself(args []string) bool {
+	return len(args) >= 2 && args[0] == "credential" && (args[1] == "get" || args[1] == "exec")
+}
+
 func forwardable(args []string) bool {
 	if len(args) < 2 {
 		return false

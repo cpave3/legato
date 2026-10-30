@@ -53,20 +53,7 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 		giveSessionsChannels(agents, host.Channels())
 	}
 	// The broker agent-side processes ask instead of the store.
-	deps := cli.BrokerDeps{Push: agentPushNotifier(cfg), OS: agentOSNotifier(cfg), ClaudeModels: cfg.Adapters["claude-code"].Models}
-	deps.Ops = cli.MCPBrokerOps(func(cli.BrokerCaller) cli.MCPOptions {
-		opts := cli.MCPOptions{Store: db, Version: mcpServerVersion(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
-			ImageDir: agentUIImageRoot(cfg), VideoDir: agentUIVideoRoot(cfg)}
-		if peers, ok := agents.(cli.MCPPeers); ok && agents != nil {
-			opts.Agents = peers
-		}
-		if rt.credentials != nil {
-			opts.Credentials = rt.credentials
-		}
-		return opts
-	})
-	// Agents in the sandbox run their own `legato` commands here.
-	deps.Ops["cli.run"] = cliRunOp(legatoBinary(), ipc.SocketDir())
+	deps := hostBrokerDeps(cfg, db, agents, rt.credentials)
 	broker := startBrokerHost(ctx, db, ipc.SocketDir(), brokerHostOptions{Deps: deps})
 	stops = append(stops, broker.Stop)
 	if agents != nil {
@@ -159,4 +146,31 @@ func registerApprovalAttention(attention *service.AttentionService, rt *approval
 	if rt.devices != nil {
 		mustRegister(attention.RegisterProducerWithEvents(service.NewDeviceAttentionAdapter(rt.devices), events.EventApprovalChanged))
 	}
+}
+
+// hostBrokerDeps is what the host's broker serves agent-side processes:
+// Legato's MCP tools, forwarded commands of the sandbox, and, with a
+// credential broker, the values `legato credential get` and `exec` ask for.
+func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentService, credentials *service.CredentialBroker) cli.BrokerDeps {
+	deps := cli.BrokerDeps{Push: agentPushNotifier(cfg), OS: agentOSNotifier(cfg), ClaudeModels: cfg.Adapters["claude-code"].Models}
+	deps.Ops = cli.MCPBrokerOps(func(cli.BrokerCaller) cli.MCPOptions {
+		opts := cli.MCPOptions{Store: db, Version: mcpServerVersion(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
+			ImageDir: agentUIImageRoot(cfg), VideoDir: agentUIVideoRoot(cfg)}
+		if peers, ok := agents.(cli.MCPPeers); ok && agents != nil {
+			opts.Agents = peers
+		}
+		if credentials != nil {
+			opts.Credentials = credentials
+		}
+		return opts
+	})
+	// Agents in the sandbox run their own `legato` commands here.
+	deps.Ops["cli.run"] = cliRunOp(legatoBinary(), ipc.SocketDir())
+	// Values come from this broker, whose stores (1Password) stay signed in.
+	if credentials != nil {
+		for name, op := range cli.CredentialBrokerOps(credentials) {
+			deps.Ops[name] = op
+		}
+	}
+	return deps
 }
