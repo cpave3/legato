@@ -127,7 +127,15 @@ func TestGHOperationSaysWhichCommandsWriteToAPullRequest(t *testing.T) {
 		"pr merge 12":                "api.read",
 		"repo view":                  "api.read",
 		"api /repos/a/b":             "api.read",
-		"":                           "api.read",
+		"api repos/a/b/pulls/1/comments --jq .[].id":                             "api.read",
+		"api -X POST repos/a/b/pulls/1529/comments/4419474170/replies -f body=x": "pr.write",
+		"api --method PATCH repos/a/b/pulls/3 -f title=y":                        "pr.write",
+		"api repos/a/b/issues/3/comments -f body=hello":                          "pr.write",
+		"api -XPOST repos/a/b/pulls/1/reviews":                                   "pr.write",
+		"api -X GET repos/a/b/pulls -f state=open":                               "api.read",
+		"api graphql -f query=query{viewer{login}}":                              "api.read",
+		"api graphql -f query=mutation{addComment(input:{}){clientMutationId}}":  "pr.write",
+		"": "api.read",
 	} {
 		if got := cli.GHOperation(strings.Fields(args)); got != want {
 			t.Errorf("gh %s: %s, want %s", args, got, want)
@@ -149,6 +157,21 @@ func TestGHReadyTargetFindsThePullRequestAndWhetherToUndo(t *testing.T) {
 		number, undo := cli.GHReadyTarget(strings.Fields(args))
 		if number != want.number || undo != want.undo {
 			t.Errorf("gh %s: %d %v, want %d %v", args, number, undo, want.number, want.undo)
+		}
+	}
+}
+
+func TestGHRepoReadsTheRepositoryFromAnAPIPath(t *testing.T) {
+	none := func(string) string { return "" }
+	origin := func() string { return "git@github.com:someone/else.git" }
+	for args, want := range map[string]string{
+		"api -X POST repos/autopilot-dev/autopilot/pulls/1529/comments/1/replies": "autopilot-dev/autopilot",
+		"api /repos/cpave3/legato/issues/3/comments":                              "cpave3/legato",
+		"api repos/{owner}/{repo}/pulls":                                          "someone/else",
+	} {
+		got, err := cli.GHRepo(strings.Fields(args), none, origin)
+		if err != nil || got != want {
+			t.Errorf("gh %s: %q %v, want %q", args, got, err, want)
 		}
 	}
 }

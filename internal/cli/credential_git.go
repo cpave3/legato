@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -139,6 +140,9 @@ func GHOperation(args []string) string {
 		}
 		words = append(words, a)
 	}
+	if len(words) > 0 && words[0] == "api" && ghAPIWrites(args) {
+		return "pr.write"
+	}
 	if len(words) == 2 && words[0] == "pr" && words[1] == "ready" {
 		return "pr.ready"
 	}
@@ -147,6 +151,75 @@ func GHOperation(args []string) string {
 	}
 	return "api.read"
 }
+
+// ghAPIValueFlags are gh api's flags that take a value.
+var ghAPIValueFlags = map[string]bool{"-X": true, "--method": true, "-f": true, "--raw-field": true, "-F": true, "--field": true,
+	"-H": true, "--header": true, "--input": true, "-q": true, "--jq": true, "-t": true, "--template": true, "--hostname": true,
+	"--cache": true, "-p": true, "--preview": true}
+
+// ghAPICall is what a gh api command does: its endpoint, its method (gh
+// sends POST when fields are given and no method), and its fields' values.
+func ghAPICall(args []string) (endpoint, method string, values []string) {
+	afterAPI, fields := false, false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		name, value, inline := strings.Cut(a, "=")
+		switch {
+		case !afterAPI:
+			afterAPI = a == "api"
+		case strings.HasPrefix(a, "-X") && len(a) > 2:
+			method = a[2:]
+		case strings.HasPrefix(a, "-") && ghAPIValueFlags[name]:
+			if !inline && i+1 < len(args) {
+				i++
+				value = args[i]
+			}
+			switch name {
+			case "-X", "--method":
+				method = value
+			case "-f", "--raw-field", "-F", "--field", "--input":
+				fields = true
+				values = append(values, value)
+			}
+		case strings.HasPrefix(a, "-"):
+		case endpoint == "":
+			endpoint = a
+		}
+	}
+	method = strings.ToUpper(method)
+	if method == "" && (fields || endpoint == "graphql") {
+		method = "POST"
+	}
+	return endpoint, method, values
+}
+
+// ghAPIWrites says whether a gh api command writes: a REST call with a
+// writing method, or a GraphQL mutation. What it may write is limited by the
+// pr.write token it gets: one repository's pull requests.
+func ghAPIWrites(args []string) bool {
+	endpoint, method, values := ghAPICall(args)
+	if endpoint == "graphql" {
+		for _, v := range values {
+			query := strings.TrimPrefix(v, "query=")
+			if strings.HasPrefix(query, "@") {
+				if data, err := os.ReadFile(strings.TrimPrefix(query, "@")); err == nil {
+					query = string(data)
+				}
+			}
+			if strings.Contains(query, "mutation") {
+				return true
+			}
+		}
+		return false
+	}
+	switch method {
+	case "POST", "PATCH", "PUT", "DELETE":
+		return true
+	}
+	return false
+}
+
+var apiRepoPath = regexp.MustCompile(`^/?repos/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(/|$)`)
 
 var pullNumber = regexp.MustCompile(`^#?(\d+)$|/pull/(\d+)/?$`)
 
@@ -210,6 +283,12 @@ var githubRemote = regexp.MustCompile(`github\.com[:/]([A-Za-z0-9_.-]+)/([A-Za-z
 // GHRepo finds the repository a gh command acts on: -R/--repo, then
 // GH_REPO, then the origin remote of the current directory.
 func GHRepo(args []string, getenv func(string) string, origin func() string) (string, error) {
+	// gh api names the repository in its path, not with -R.
+	if endpoint, _, _ := ghAPICall(args); endpoint != "" {
+		if m := apiRepoPath.FindStringSubmatch(endpoint); m != nil {
+			return m[1] + "/" + m[2], nil
+		}
+	}
 	for i, a := range args {
 		var value string
 		switch {
