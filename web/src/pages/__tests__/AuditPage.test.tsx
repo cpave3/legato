@@ -27,10 +27,21 @@ function calls(path: string) {
   return apiFetch.mock.calls.map(([, called]) => called as string).filter((called) => called.startsWith(path))
 }
 
+let grants: { id: string; [key: string]: unknown }[] = []
+
 describe("AuditPage", () => {
   beforeEach(() => {
     apiFetch.mockReset()
-    apiFetch.mockImplementation((_: string, path: string) => {
+    grants = [
+      { id: "cg-1", credential: "github", task_id: "AG-10102", task_title: "Comparable sales", execution_id: "ex-a", operations: ["pr.write"], resources: ["github:autopilot-dev/autopilot"], mode: "session", created_at: "2026-10-30T01:00:00Z" },
+      { id: "cg-2", credential: "github", task_id: "AG-10102", execution_id: "ex-a", operations: ["api.read"], resources: ["github:autopilot-dev/autopilot"], mode: "auto", created_at: "2026-10-30T01:00:00Z" },
+    ]
+    apiFetch.mockImplementation((_: string, path: string, init?: RequestInit) => {
+      if (path.startsWith("/api/credentials/grants/") && init?.method === "DELETE") {
+        grants = grants.filter((g) => !path.endsWith(g.id))
+        return Promise.resolve(new Response(null, { status: 204 }))
+      }
+      if (path.startsWith("/api/credentials/grants")) return json({ grants })
       if (path.startsWith("/api/credentials/audit/verify")) return json({ intact: true })
       if (path.startsWith("/api/credentials/audit")) return json({ entries: new URLSearchParams(path.split("?")[1]).get("before") ? olderPage : firstPage })
       if (path.startsWith("/api/credentials")) return json({ credentials: [{ name: "github" }, { name: "proxmox_vms" }] })
@@ -49,6 +60,19 @@ describe("AuditPage", () => {
     expect(within(ssh).getByText("grant")).toBeTruthy()
     expect(within(ssh).getByText(/ap-e1e2d310/)).toBeTruthy()
     expect(await screen.findByText(/Chain intact/)).toBeTruthy()
+  })
+
+  it("lists the grants the person gave, and revokes one so the agent must ask again", async () => {
+    render(<MemoryRouter><AuditPage /></MemoryRouter>)
+    const standing = await screen.findByRole("region", { name: "Standing grants" })
+    const row = await within(standing).findByRole("listitem")
+    expect(within(standing).getAllByRole("listitem")).toHaveLength(1) // not the automatic read
+    expect(within(row).getByText("Comparable sales")).toBeTruthy()
+    expect(within(row).getByText(/pr\.write/)).toBeTruthy()
+    expect(within(row).getByText("this session")).toBeTruthy()
+    fireEvent.click(within(row).getByRole("button", { name: "Revoke" }))
+    await vi.waitFor(() => expect(apiFetch.mock.calls.some(([, path, init]) => path === "/api/credentials/grants/cg-1" && init?.method === "DELETE")).toBe(true))
+    expect(await within(standing).findByText(/No standing grants/)).toBeTruthy()
   })
 
   it("asks again for one credential's rows when it is chosen", async () => {

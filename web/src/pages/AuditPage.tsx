@@ -5,6 +5,7 @@ import { apiFetch } from "../lib/api"
 import { agentKindLabel } from "../lib/agentKind"
 import { AUDIT_EVENTS, eventTone, fetchAudit, foldAuditRows, verifyAudit, type AuditChain, type AuditFilter, type AuditRow } from "../lib/audit"
 import { LoadingState } from "../components/ui/LoadingState"
+import { endCredentialGrant, grantLasts, listCredentialGrants, type CredentialGrant } from "../lib/credentials"
 
 const PAGE = 100
 const REFRESH_MS = 15_000
@@ -89,6 +90,8 @@ export function AuditPage() {
         </button>
       </header>
 
+      <StandingGrants baseUrl={baseUrl} onRevoked={() => void load()} />
+
       <div className="flex flex-wrap gap-2 px-4 py-3 sm:px-6">
         <Select label="Credential" value={filter.credential ?? ""} onChange={set("credential")} options={credentials} all="All credentials" />
         <Select label="Event" value={filter.event ?? ""} onChange={set("event")} options={[...AUDIT_EVENTS]} all="All events" />
@@ -151,6 +154,81 @@ export function AuditPage() {
         )}
       </div>
     </div>
+  )
+}
+
+// StandingGrants lists what the person allowed and an agent may still do
+// without asking (for its session, for a while, or once), and ends any of
+// them. Grants a rule gives without asking are left out: they would be
+// given again at the next use.
+function StandingGrants({ baseUrl, onRevoked }: { baseUrl: string; onRevoked: () => void }) {
+  const [grants, setGrants] = useState<CredentialGrant[] | null>(null)
+  const [error, setError] = useState("")
+  const [ending, setEnding] = useState("")
+
+  const load = useCallback(async () => {
+    try {
+      setGrants((await listCredentialGrants(baseUrl)).filter((g) => g.mode !== "auto"))
+      setError("")
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }, [baseUrl])
+
+  useEffect(() => {
+    void load()
+    const timer = window.setInterval(() => void load(), REFRESH_MS)
+    return () => window.clearInterval(timer)
+  }, [load])
+
+  const revoke = async (grant: CredentialGrant) => {
+    setEnding(grant.id)
+    try {
+      await endCredentialGrant(baseUrl, grant.id)
+      await load()
+      onRevoked()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setEnding("")
+    }
+  }
+
+  return (
+    <section aria-label="Standing grants" className="border-b border-lw-line px-4 py-3 sm:px-6">
+      <h2 className="text-sm font-medium">Standing grants</h2>
+      <p className="mb-2 text-xs text-lw-text-2">What you allowed that an agent may still do without asking. Revoke one and the agent must ask again.</p>
+      {error && <p role="alert" className="mb-2 text-xs text-lw-danger">{error}</p>}
+      {grants === null ? (
+        <LoadingState size="inline" label="Loading grants…" />
+      ) : grants.length === 0 ? (
+        <p className="text-xs text-lw-faint">No standing grants.</p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {grants.map((grant) => (
+            <li key={grant.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-lw-line bg-lw-surface px-3 py-2 text-sm">
+              <span className="min-w-0">
+                <Link to={`/agents?task=${encodeURIComponent(grant.task_id)}`} className="font-lw-mono text-[13px] text-lw-link hover:underline">{grant.task_id}</Link>
+                {grant.task_title && <span className="ml-2 text-xs text-lw-text-2">{grant.task_title}</span>}
+              </span>
+              <span className="min-w-0 flex-1 break-all font-lw-mono text-[13px]">
+                {grant.credential}: {grant.operations.join(", ")}
+                {grant.resources.length > 0 && <span className="text-lw-text-2"> on {grant.resources.join(", ")}</span>}
+              </span>
+              <span className="rounded bg-lw-accent/15 px-1.5 py-0.5 text-xs font-medium text-lw-accent">{grantLasts(grant)}</span>
+              <button
+                type="button"
+                disabled={ending === grant.id}
+                onClick={() => void revoke(grant)}
+                className="h-8 rounded-md border border-lw-danger-line px-3 text-[13px] text-lw-danger hover:bg-lw-error-soft disabled:opacity-40"
+              >
+                Revoke
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   )
 }
 

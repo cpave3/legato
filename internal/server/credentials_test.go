@@ -60,6 +60,9 @@ func TestCredentialsAPIListsCredentialsGrantsAndTheAudit(t *testing.T) {
 	if rec.Code != http.StatusOK || len(grants.Grants) != 1 {
 		t.Fatalf("grants = %d %s", rec.Code, rec.Body)
 	}
+	if grants.Grants[0].TaskTitle != "Narrate" {
+		t.Fatalf("a grant does not name its task: %+v", grants.Grants[0])
+	}
 	if rec := serve(srv, http.MethodDelete, "/api/credentials/grants/"+grants.Grants[0].ID, ""); rec.Code != http.StatusNoContent {
 		t.Fatalf("end grant = %d %s", rec.Code, rec.Body)
 	}

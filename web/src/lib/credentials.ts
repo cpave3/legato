@@ -6,6 +6,7 @@ export type CredentialGrant = {
   id: string
   credential: string
   task_id: string
+  task_title?: string
   execution_id: string
   operations: string[]
   resources: string[]

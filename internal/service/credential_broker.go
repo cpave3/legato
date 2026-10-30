@@ -1261,6 +1261,7 @@ type GrantInfo struct {
 	ID          string   `json:"id"`
 	Credential  string   `json:"credential"`
 	TaskID      string   `json:"task_id"`
+	TaskTitle   string   `json:"task_title,omitempty"`
 	ExecutionID string   `json:"execution_id"`
 	Operations  []string `json:"operations"`
 	Resources   []string `json:"resources"`
@@ -1279,11 +1280,20 @@ func (b *CredentialBroker) Grants(ctx context.Context) ([]GrantInfo, error) {
 		return nil, err
 	}
 	out := make([]GrantInfo, 0, len(rows))
+	titles := map[string]string{}
 	for _, g := range rows {
 		info := GrantInfo{ID: g.ID, Credential: g.Credential, TaskID: g.TaskID, ExecutionID: g.ExecutionID, Mode: g.Mode,
 			UsesLeft: g.UsesLeft, ExpiresAt: g.ExpiresAt, ApprovalID: g.ApprovalID, CreatedAt: g.CreatedAt, Operations: []string{}, Resources: []string{}}
 		_ = json.Unmarshal([]byte(g.OperationsJSON), &info.Operations)
 		_ = json.Unmarshal([]byte(g.ResourcesJSON), &info.Resources)
+		title, known := titles[g.TaskID]
+		if !known {
+			if task, err := b.db.GetTask(ctx, g.TaskID); err == nil {
+				title = task.Title
+			}
+			titles[g.TaskID] = title
+		}
+		info.TaskTitle = title
 		out = append(out, info)
 	}
 	return out, nil
