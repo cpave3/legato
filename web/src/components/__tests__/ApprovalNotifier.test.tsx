@@ -19,7 +19,13 @@ class FakeNotification {
   static shown: FakeNotification[] = []
   onclick: (() => void) | null = null
   closed = false
-  constructor(public title: string, public options: { body?: string; tag?: string }) { FakeNotification.shown.push(this) }
+  title: string
+  options: { body?: string; tag?: string }
+  constructor(title: string, options: { body?: string; tag?: string }) {
+    this.title = title
+    this.options = options
+    FakeNotification.shown.push(this)
+  }
   close() { this.closed = true }
 }
 
