@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -317,4 +318,77 @@ func (p *HTTPProxy) serveToken(w http.ResponseWriter, r *http.Request, c ProxyCr
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"token": string(token)})
+}
+
+// OperationPRReady marks a pull request ready for review, or turns it back
+// into a draft. GitHub wants a token that can also write code for it, so
+// Legato does it itself and the agent never holds that token.
+const OperationPRReady = "pr.ready"
+
+// PRBackend changes a pull request's state with a token only Legato holds.
+type PRBackend interface {
+	// SetPullRequestReady marks a pull request ready for review (or a draft
+	// when undo): the one numbered, or the open one whose head is branch.
+	// It returns the pull request's number.
+	SetPullRequestReady(ctx context.Context, execution Execution, credential, repo string, number int, branch string, undo bool) (int, error)
+}
+
+// servePRReady does gh pr ready for the agent, after the broker allows
+// pr.ready on the repository.
+func (p *HTTPProxy) servePRReady(w http.ResponseWriter, r *http.Request, c ProxyCredential) {
+	ctx := r.Context()
+	pb, ok := p.Backend.(PRBackend)
+	if !ok || r.Method != http.MethodPost {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "Legato does not change pull requests for " + c.Name})
+		return
+	}
+	placeholder := c.placeholderIn(r)
+	owner, execution, found, err := p.Backend.ResolvePlaceholder(ctx, placeholder)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Legato could not check the key: " + err.Error()})
+		return
+	}
+	if placeholder == "" || !found || owner != c.Name {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "this request carries no key Legato gave this agent for " + c.Name})
+		return
+	}
+	var in struct {
+		Repo   string `json:"repo"`
+		Number int    `json:"number"`
+		Branch string `json:"branch"`
+		Undo   bool   `json:"undo"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in); err != nil || (in.Number <= 0 && in.Branch == "") {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "want {repo, number or branch, undo}"})
+		return
+	}
+	repoOwner, repoName, ok := strings.Cut(in.Repo, "/")
+	if !ok || !repoPart.MatchString(repoOwner) || !repoPart.MatchString(repoName) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "repo: want owner/name"})
+		return
+	}
+	use := ProxyUse{Execution: execution, Credential: c.Name, Method: "READY", Path: in.Repo,
+		Classified: Classified{Operation: OperationPRReady, Resource: "github:" + in.Repo, Amounts: map[string]int64{"requests": 1}}}
+	decision, err := p.Backend.Authorize(ctx, use)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Legato could not check this use: " + err.Error()})
+		return
+	}
+	if !decision.Allowed {
+		out := map[string]string{"error": firstOr(decision.Reason, "not allowed"), "operation": use.Operation, "resource": use.Resource, "status": "denied"}
+		if decision.Pending {
+			out["status"] = "pending"
+		}
+		if decision.ApprovalID != "" {
+			out["approval"] = decision.ApprovalID
+		}
+		writeJSON(w, http.StatusForbidden, out)
+		return
+	}
+	number, err := pb.SetPullRequestReady(ctx, execution, c.Name, in.Repo, in.Number, in.Branch, in.Undo)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"number": strconv.Itoa(number)})
 }

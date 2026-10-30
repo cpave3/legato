@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cgi"
@@ -34,6 +35,7 @@ type githubFake struct {
 	revoked []string
 	pulls   []map[string]any
 	next    int
+	graphql []string // the mutations it was sent, with the token's permissions
 }
 
 func newGitHubFake(t *testing.T) *githubFake {
@@ -74,6 +76,30 @@ func newGitHubFake(t *testing.T) *githubFake {
 			g.pulls = append(g.pulls, body)
 			w.WriteHeader(201)
 			_, _ = io.WriteString(w, `{"number": 1}`)
+		case r.Method == "POST" && r.URL.Path == "/graphql" && g.tokens[bearer] != nil:
+			var body struct {
+				Query     string         `json:"query"`
+				Variables map[string]any `json:"variables"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			perms := g.tokens[bearer]
+			switch {
+			case strings.Contains(body.Query, "markPullRequestReadyForReview") || strings.Contains(body.Query, "convertPullRequestToDraft"):
+				if perms["contents"] != "write" || perms["pull_requests"] != "write" {
+					_, _ = io.WriteString(w, `{"errors":[{"message":"Resource not accessible by integration"}]}`)
+					return
+				}
+				name := "markPullRequestReadyForReview"
+				if strings.Contains(body.Query, "convertPullRequestToDraft") {
+					name = "convertPullRequestToDraft"
+				}
+				g.graphql = append(g.graphql, fmt.Sprintf("%s %v", name, body.Variables["id"]))
+				_, _ = io.WriteString(w, `{"data":{"`+name+`":{"pullRequest":{"number":1529}}}}`)
+			case strings.Contains(body.Query, "headRefName"):
+				_, _ = io.WriteString(w, `{"data":{"repository":{"pullRequests":{"nodes":[{"id":"PR_branch","number":1530,"isDraft":false}]}}}}`)
+			default:
+				_, _ = io.WriteString(w, `{"data":{"repository":{"pullRequest":{"id":"PR_1529","number":1529,"isDraft":true}}}}`)
+			}
 		case strings.HasPrefix(r.URL.Path, "/cpave3/legato.git/"):
 			user, pass, _ := r.BasicAuth()
 			if user != "x-access-token" || g.tokens[pass]["contents"] != "write" {
@@ -251,6 +277,45 @@ func TestAPullRequestWriteTokenIsAskedOnceASession(t *testing.T) {
 	again, second := token()
 	if again != 200 || second["token"] == body["token"] {
 		t.Fatalf("a second command: %d, same token %v", again, second["token"] == body["token"])
+	}
+}
+
+// gh pr ready needs a token that can write code; Legato marks the pull
+// request itself with one, after the person allows pr.ready, and revokes it.
+func TestLegatoMarksAPullRequestReadyWithATokenTheAgentNeverHolds(t *testing.T) {
+	f := newGitHubFixture(t)
+	ready := func(body string) (int, map[string]string) {
+		req, _ := http.NewRequest("POST", f.proxy.URL+"/c/gh/pr-ready", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+f.env["LEGATO_GITHUB_TOKEN"])
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]string
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out
+	}
+	if status, out := ready(`{"repo":"cpave3/legato","number":1529}`); status != 403 || out["status"] != "pending" {
+		t.Fatalf("the first request was not held for the person: %d %v", status, out)
+	}
+	approval := f.pending(t)
+	if _, err := f.approvals.Decide(context.Background(), approval.ID, ApprovalDecision{Decision: ApprovalAllow, Option: "session", By: "web"}); err != nil {
+		t.Fatal(err)
+	}
+	if status, out := ready(`{"repo":"cpave3/legato","number":1529}`); status != 200 || out["number"] != "1529" {
+		t.Fatalf("after approval: %d %v", status, out)
+	}
+	if status, out := ready(`{"repo":"cpave3/legato","branch":"legato/x","undo":true}`); status != 200 || out["number"] != "1530" {
+		t.Fatalf("by branch: %d %v", status, out)
+	}
+	if len(f.github.graphql) != 2 || f.github.graphql[0] != "markPullRequestReadyForReview PR_1529" || f.github.graphql[1] != "convertPullRequestToDraft PR_branch" {
+		t.Fatalf("mutations = %v", f.github.graphql)
+	}
+	for token, perms := range f.github.tokens {
+		if perms["contents"] == "write" {
+			t.Fatalf("a token that writes code is still live: %s", token)
+		}
 	}
 }
 
@@ -611,5 +676,18 @@ func TestInTheSandboxGitHubFetchesOverSSHUseHTTPS(t *testing.T) {
 	}
 	if extra := sandboxGitFetches(map[string]string{}); len(extra) != 0 {
 		t.Fatalf("without a GitHub credential: %v", extra)
+	}
+}
+
+func TestInTheSandboxGHPRReadyIsDoneByLegatoWithoutRunningGH(t *testing.T) {
+	wrapper, calls, _ := ghWrapperFixture(t, `echo 'done ✓ Pull request a/b#3 is marked as "ready for review"'`)
+	cmd := exec.Command(wrapper, "pr", "ready", "3")
+	cmd.Env = append(os.Environ(), "LEGATO_SANDBOXED=1", "GH_TOKEN="+GHSignedOut)
+	out, err := cmd.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != `✓ Pull request a/b#3 is marked as "ready for review"` {
+		t.Fatalf("%v %q", err, out)
+	}
+	if _, err := os.Stat(calls); err == nil {
+		t.Fatal("the real gh was run")
 	}
 }

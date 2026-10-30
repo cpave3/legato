@@ -148,6 +148,9 @@ func runCredentialGHToken(args []string) int {
 		return exitUsage
 	}
 	operation := cli.GHOperation(args)
+	if operation == "pr.ready" {
+		return runGHReady(session, repo, args)
+	}
 	token, err := session.Token(context.Background(), repo, operation)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "legato:", err)
@@ -158,6 +161,33 @@ func runCredentialGHToken(args []string) int {
 	} else {
 		fmt.Println(token + " revoke")
 	}
+	return exitOK
+}
+
+// runGHReady has Legato do gh pr ready, which GitHub allows only a token
+// that can also write code. It prints "done" and gh's own message, which the
+// wrapper shows in place of running gh.
+func runGHReady(session cli.GitHubSession, repo string, args []string) int {
+	number, undo := cli.GHReadyTarget(args)
+	branch := ""
+	if number == 0 {
+		out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
+		if err != nil || strings.TrimSpace(string(out)) == "HEAD" {
+			fmt.Fprintln(os.Stderr, "legato: name the pull request: gh pr ready <number>")
+			return exitUsage
+		}
+		branch = strings.TrimSpace(string(out))
+	}
+	n, err := session.SetPullRequestReady(context.Background(), repo, number, branch, undo)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "legato:", err)
+		return exitForbidden
+	}
+	state := `is marked as "ready for review"`
+	if undo {
+		state = `is converted to "draft"`
+	}
+	fmt.Printf("done ✓ Pull request %s#%d %s\n", repo, n, state)
 	return exitOK
 }
 

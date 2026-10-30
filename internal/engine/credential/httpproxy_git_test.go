@@ -26,6 +26,7 @@ type gitBackend struct {
 	revoked  int
 	readUses []ProxyUse
 	pending  bool
+	ready    []readyCall
 }
 
 func (g *gitBackend) DefaultBranch(_ context.Context, credential, repo string) (string, error) {
@@ -331,5 +332,65 @@ func TestTheAPIIsServedUnderItsPrefix(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
+	}
+}
+
+type readyCall struct {
+	repo, branch string
+	number       int
+	undo         bool
+}
+
+func (g *gitBackend) SetPullRequestReady(_ context.Context, _ Execution, _ string, repo string, number int, branch string, undo bool) (int, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.ready = append(g.ready, readyCall{repo: repo, number: number, branch: branch, undo: undo})
+	if number == 0 {
+		number = 42
+	}
+	return number, nil
+}
+
+func postReady(t *testing.T, url, body string) (int, map[string]any) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", url+"/c/github/pr-ready", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer lgk_one")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var got map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&got)
+	return resp.StatusCode, got
+}
+
+// gh pr ready needs a token that can also write code, so Legato marks the
+// pull request itself, after the broker allows pr.ready, and the agent never
+// holds that token.
+func TestLegatoMarksAPullRequestReadyItselfWhenTheBrokerAllowsIt(t *testing.T) {
+	github, _, _ := fakeGitHubGit(t)
+	backend := gitTestBackend()
+	proxy := gitProxy(t, backend, github)
+
+	status, got := postReady(t, proxy.URL, `{"repo":"cpave3/legato","number":1529}`)
+	if status != 200 || got["number"] != "1529" {
+		t.Fatalf("status %d body %v", status, got)
+	}
+	if len(backend.uses) != 1 || backend.uses[0].Operation != "pr.ready" || backend.uses[0].Resource != "github:cpave3/legato" {
+		t.Fatalf("uses = %+v", backend.uses)
+	}
+	status, got = postReady(t, proxy.URL, `{"repo":"cpave3/legato","branch":"legato/x","undo":true}`)
+	if status != 200 || got["number"] != "42" {
+		t.Fatalf("by branch: status %d body %v", status, got)
+	}
+	if len(backend.ready) != 2 || backend.ready[0] != (readyCall{repo: "cpave3/legato", number: 1529}) || backend.ready[1] != (readyCall{repo: "cpave3/legato", branch: "legato/x", undo: true}) {
+		t.Fatalf("ready = %+v", backend.ready)
+	}
+
+	backend.decide = func(ProxyUse) Decision { return Decision{Pending: true, ApprovalID: "ap-1"} }
+	status, got = postReady(t, proxy.URL, `{"repo":"cpave3/legato","number":7}`)
+	if status != 403 || got["status"] != "pending" || got["approval"] != "ap-1" || len(backend.ready) != 2 {
+		t.Fatalf("pending: status %d body %v", status, got)
 	}
 }

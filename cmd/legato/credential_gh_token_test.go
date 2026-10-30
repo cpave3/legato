@@ -35,3 +35,36 @@ func TestGHTokenAsksForWhatTheGHCommandNeeds(t *testing.T) {
 		t.Fatalf("asked = %v", asked)
 	}
 }
+
+// gh pr ready is done by Legato: gh-token asks for it and prints "done" with
+// gh's own message, so the wrapper does not run gh.
+func TestGHTokenHasLegatoMarkAPullRequestReady(t *testing.T) {
+	var got map[string]any
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/c/github/pr-ready" {
+			w.WriteHeader(404)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_ = json.NewEncoder(w).Encode(map[string]string{"number": "1529"})
+	}))
+	defer proxy.Close()
+	t.Setenv("LEGATO_GITHUB_API_URL", proxy.URL+"/c/github/api")
+	t.Setenv("LEGATO_GITHUB_TOKEN", "lgk_x")
+
+	out := captureStdout(t, func() int {
+		return runCredentialGHToken([]string{"--", "pr", "ready", "1529", "-R", "autopilot-dev/autopilot"})
+	})
+	if strings.TrimSpace(out) != `done ✓ Pull request autopilot-dev/autopilot#1529 is marked as "ready for review"` {
+		t.Fatalf("out = %q", out)
+	}
+	if got["repo"] != "autopilot-dev/autopilot" || got["number"] != float64(1529) || got["undo"] != false {
+		t.Fatalf("asked = %v", got)
+	}
+	out = captureStdout(t, func() int {
+		return runCredentialGHToken([]string{"--", "pr", "ready", "1529", "--undo", "-R", "autopilot-dev/autopilot"})
+	})
+	if strings.TrimSpace(out) != `done ✓ Pull request autopilot-dev/autopilot#1529 is converted to "draft"` {
+		t.Fatalf("undo: out = %q", out)
+	}
+}

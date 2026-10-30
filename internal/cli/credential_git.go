@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -117,11 +118,14 @@ func GitCredentialHelper(ctx context.Context, action string, in io.Reader, out, 
 }
 
 // prWrites are the gh pr commands that write to a pull request. Merging is
-// not one: it writes code, which a pr.write token cannot.
-var prWrites = map[string]bool{"create": true, "edit": true, "comment": true, "review": true, "close": true, "reopen": true, "ready": true}
+// not one: it writes code, which a pr.write token cannot. Nor is ready (see
+// GHOperation).
+var prWrites = map[string]bool{"create": true, "edit": true, "comment": true, "review": true, "close": true, "reopen": true}
 
 // GHOperation is the operation a gh command needs: pr.write for a command
-// that writes to a pull request, api.read for everything else.
+// that writes to a pull request; pr.ready for gh pr ready, which GitHub
+// allows only a token that can also write code, so Legato does it itself;
+// api.read for everything else.
 func GHOperation(args []string) string {
 	var words []string
 	for i := 0; i < len(args) && len(words) < 2; i++ {
@@ -135,10 +139,70 @@ func GHOperation(args []string) string {
 		}
 		words = append(words, a)
 	}
+	if len(words) == 2 && words[0] == "pr" && words[1] == "ready" {
+		return "pr.ready"
+	}
 	if len(words) == 2 && words[0] == "pr" && prWrites[words[1]] {
 		return "pr.write"
 	}
 	return "api.read"
+}
+
+var pullNumber = regexp.MustCompile(`^#?(\d+)$|/pull/(\d+)/?$`)
+
+// GHReadyTarget is the pull request gh pr ready names (0 for the current
+// branch's) and whether --undo turns it back into a draft.
+func GHReadyTarget(args []string) (number int, undo bool) {
+	seenReady := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-R" || a == "--repo":
+			i++
+		case a == "--undo":
+			undo = true
+		case a == "ready":
+			seenReady = true
+		case seenReady && number == 0 && !strings.HasPrefix(a, "-"):
+			if m := pullNumber.FindStringSubmatch(a); m != nil {
+				number, _ = strconv.Atoi(m[1] + m[2])
+			}
+		}
+	}
+	return number, undo
+}
+
+// SetPullRequestReady asks Legato to mark a pull request ready for review
+// (or a draft, when undo): the one numbered, or the open one whose head is
+// branch. It returns the pull request's number.
+func (s GitHubSession) SetPullRequestReady(ctx context.Context, repo string, number int, branch string, undo bool) (int, error) {
+	body, _ := json.Marshal(map[string]any{"repo": repo, "number": number, "branch": branch, "undo": undo})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.base()+"/pr-ready", bytes.NewReader(body))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.Placeholder)
+	req.Header.Set("Content-Type", "application/json")
+	client := s.Client
+	if client == nil {
+		client = &http.Client{Timeout: 90 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("Legato's proxy did not answer: %w", err)
+	}
+	defer resp.Body.Close()
+	var out map[string]string
+	_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out)
+	if resp.StatusCode != http.StatusOK {
+		reason := out["error"]
+		if out["status"] == "pending" {
+			reason += " (pending " + out["approval"] + ")"
+		}
+		return 0, fmt.Errorf("Legato did not change the pull request: %s", firstNonEmptyString(reason, resp.Status))
+	}
+	n, _ := strconv.Atoi(out["number"])
+	return n, nil
 }
 
 var githubRemote = regexp.MustCompile(`github\.com[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(\.git)?/?$`)

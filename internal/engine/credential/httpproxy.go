@@ -130,6 +130,9 @@ func (p *HTTPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case c.Tokens && path == "/token":
 		p.serveToken(w, r, c)
 		return
+	case c.Tokens && path == "/pr-ready":
+		p.servePRReady(w, r, c)
+		return
 	case c.Git != nil && strings.HasPrefix(path, "/git/"):
 		p.serveGit(w, r, c, strings.TrimPrefix(path, "/git/"))
 		return

@@ -118,7 +118,8 @@ func TestGHOperationSaysWhichCommandsWriteToAPullRequest(t *testing.T) {
 		"pr review 12 --approve":     "pr.write",
 		"pr close 12":                "pr.write",
 		"pr reopen 12":               "pr.write",
-		"pr ready 12":                "pr.write",
+		"pr ready 12":                "pr.ready",
+		"pr ready 12 --undo":         "pr.ready",
 		"-R cpave3/legato pr edit 3": "pr.write",
 		"pr view 1529 --json body":   "api.read",
 		"pr list":                    "api.read",
@@ -130,6 +131,24 @@ func TestGHOperationSaysWhichCommandsWriteToAPullRequest(t *testing.T) {
 	} {
 		if got := cli.GHOperation(strings.Fields(args)); got != want {
 			t.Errorf("gh %s: %s, want %s", args, got, want)
+		}
+	}
+}
+
+func TestGHReadyTargetFindsThePullRequestAndWhetherToUndo(t *testing.T) {
+	for args, want := range map[string]struct {
+		number int
+		undo   bool
+	}{
+		"pr ready 1529 -R autopilot-dev/autopilot":                      {1529, false},
+		"pr ready #12 --undo":                                           {12, true},
+		"pr ready https://github.com/autopilot-dev/autopilot/pull/1531": {1531, false},
+		"-R a/b pr ready":                                               {0, false},
+		"pr ready --undo":                                               {0, true},
+	} {
+		number, undo := cli.GHReadyTarget(strings.Fields(args))
+		if number != want.number || undo != want.undo {
+			t.Errorf("gh %s: %d %v, want %d %v", args, number, undo, want.number, want.undo)
 		}
 	}
 }

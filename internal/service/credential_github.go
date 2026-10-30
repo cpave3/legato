@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -108,6 +109,112 @@ func (c *CredentialChannels) githubToken(ctx context.Context, bc brokerCredentia
 			log.Printf("credentials: %s: a write token for %s was not revoked: %v", bc.config.Name, repo, err)
 		}
 	}, nil
+}
+
+// SetPullRequestReady marks a pull request ready for review, or turns it
+// back into a draft (undo), for gh pr ready. GitHub wants a token that can
+// also write code for it, so Legato makes one, uses it here and revokes it:
+// the agent never holds it. The pull request is the one numbered, or the
+// open one whose head is branch.
+func (c *CredentialChannels) SetPullRequestReady(ctx context.Context, _ credential.Execution, name, repo string, number int, branch string, undo bool) (int, error) {
+	bc, ok := c.broker.lookup(ctx, name)
+	if !ok || bc.jwt == nil || bc.upstream == nil {
+		return 0, fmt.Errorf("no GitHub credential named %q", name)
+	}
+	token, release, err := c.githubToken(ctx, bc, repo, credential.OperationPRReady)
+	if err != nil {
+		return 0, err
+	}
+	if release != nil {
+		defer release()
+	}
+	owner, repoName, _ := strings.Cut(repo, "/")
+	type pull struct {
+		ID      string `json:"id"`
+		Number  int    `json:"number"`
+		IsDraft bool   `json:"isDraft"`
+	}
+	var found struct {
+		Repository struct {
+			PullRequest  *pull `json:"pullRequest"`
+			PullRequests struct {
+				Nodes []pull `json:"nodes"`
+			} `json:"pullRequests"`
+		} `json:"repository"`
+	}
+	vars := map[string]any{"owner": owner, "name": repoName}
+	query := `query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { id number isDraft } } }`
+	if number > 0 {
+		vars["number"] = number
+	} else {
+		vars["head"] = branch
+		query = `query($owner: String!, $name: String!, $head: String!) { repository(owner: $owner, name: $name) { pullRequests(headRefName: $head, states: OPEN, first: 1) { nodes { id number isDraft } } } }`
+	}
+	if err := c.githubGraphQL(ctx, bc, token, query, vars, &found); err != nil {
+		return 0, err
+	}
+	target := found.Repository.PullRequest
+	if target == nil && len(found.Repository.PullRequests.Nodes) > 0 {
+		target = &found.Repository.PullRequests.Nodes[0]
+	}
+	if target == nil {
+		if number > 0 {
+			return 0, fmt.Errorf("no pull request #%d in %s", number, repo)
+		}
+		return 0, fmt.Errorf("no open pull request in %s has %s as its head", repo, branch)
+	}
+	if target.IsDraft == undo {
+		return target.Number, nil // already as asked
+	}
+	mutation := `mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { number } } }`
+	if undo {
+		mutation = `mutation($id: ID!) { convertPullRequestToDraft(input: {pullRequestId: $id}) { pullRequest { number } } }`
+	}
+	if err := c.githubGraphQL(ctx, bc, token, mutation, map[string]any{"id": target.ID}, nil); err != nil {
+		return 0, err
+	}
+	return target.Number, nil
+}
+
+// githubGraphQL runs one GraphQL request against the credential's API and
+// decodes its data into out. GitHub reports most failures as errors in a
+// 200 response.
+func (c *CredentialChannels) githubGraphQL(ctx context.Context, bc brokerCredential, token []byte, query string, vars map[string]any, out any) error {
+	body, _ := json.Marshal(map[string]any{"query": query, "variables": vars})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(bc.upstream.String(), "/")+"/graphql", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+string(token))
+	req.Header.Set("Content-Type", "application/json")
+	client := c.broker.httpClient
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	var answer struct {
+		Data   json.RawMessage `json:"data"`
+		Errors []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&answer); err != nil {
+		return fmt.Errorf("GitHub answered %s", resp.Status)
+	}
+	if len(answer.Errors) > 0 {
+		return fmt.Errorf("GitHub: %s", answer.Errors[0].Message)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("GitHub answered %s", resp.Status)
+	}
+	if out != nil {
+		return json.Unmarshal(answer.Data, out)
+	}
+	return nil
 }
 
 // DefaultBranch reads a repository's default branch with a read token, and
@@ -308,13 +415,15 @@ func writeGHWrapper(dir, legato string) error {
 	// sandboxGH), and the real one is at LEGATO_GH_REAL. Outside the sandbox
 	// gh keeps the person's own login and the wrapper stays out of the way.
 	// A token that can write (gh-token prints "<token> revoke", for a pull
-	// request command) is revoked when gh exits.
+	// request command) is revoked when gh exits. A command Legato does
+	// itself (gh pr ready; gh-token prints "done <message>") is not run.
 	script := "#!/bin/sh\n" +
 		"# Legato: in Legato's sandbox, gh with a token for one repository from\n" +
 		"# Legato: a read token, or one that writes pull requests once allowed.\n" +
 		"real=${LEGATO_GH_REAL:-" + shellQuote(real) + "}\n" +
 		"[ \"$LEGATO_SANDBOXED\" = 1 ] || exec \"$real\" \"$@\"\n" +
 		"if out=$(" + shellQuote(legato) + " credential gh-token -- \"$@\" 2>&1); then\n" +
+		"  case $out in \"done \"*) echo \"${out#done }\"; exit 0 ;; esac\n" +
 		"  token=${out%% *}; GH_TOKEN=$token; export GH_TOKEN\n" +
 		"  if [ \"$token\" != \"$out\" ]; then\n" +
 		"    \"$real\" \"$@\"; status=$?\n" +

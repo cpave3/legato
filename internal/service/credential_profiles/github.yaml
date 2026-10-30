@@ -46,6 +46,9 @@ permissions:
   # gh's pull request commands (gh pr edit, comment, review, create, ...),
   # given to the gh wrapper for one command and revoked after it.
   pr.write: { pull_requests: write, contents: read, metadata: read }
+  # gh pr ready: GitHub wants contents: write for it too, so Legato marks
+  # the pull request itself and the agent never holds this token.
+  pr.ready: { pull_requests: write, contents: write, metadata: read }
 routes:
   - { method: GET, path: "/repos/{owner}/{repo}/**", operation: api.read, resource: "github:{owner}/{repo}" }
   - { method: POST, path: "/repos/{owner}/{repo}/pulls", operation: pr.create, resource: "github:{owner}/{repo}@refs/heads/{$.head}" }
@@ -54,5 +57,5 @@ policy:
   - { operation: [git.read, api.read], resource: "github:{repositories}", approve: auto }
   - { operation: [git.push, pr.create], resource: "github:{repositories}@refs/heads/legato/**", approve: session }
   - { operation: [git.push, pr.create], resource: "github:{repositories}@refs/heads/**", approve: request, signed: true }
-  - { operation: pr.write, resource: "github:{repositories}", approve: session }
+  - { operation: [pr.write, pr.ready], resource: "github:{repositories}", approve: session }
   - { operation: [git.push-default, git.push-tag, git.delete-ref], approve: deny }
