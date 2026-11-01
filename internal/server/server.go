@@ -82,6 +82,9 @@ type Server struct {
 	pairing                  *service.PairingService
 	pairingAddresses         func() []string
 	sandboxEnabled           bool
+	integrationAuth          IntegrationAuthenticator
+	owners                   OwnerLookup
+	delegations              Delegations
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -280,6 +283,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/{task_id}/chimera/model", s.chimeraModelHandler())
 	mux.HandleFunc("/api/agents/{task_id}/chimera/models", s.chimeraModelsHandler())
 	mux.HandleFunc("/ws", s.wsHandler())
+	s.registerIntegrationRoutes(mux)
 
 	// SPA fallback — serve embedded frontend for all non-API paths.
 	if fsys := static.DistFS(); fsys != nil {
@@ -459,6 +463,14 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
+			if s.integrationAuth != nil && strings.HasPrefix(token, service.IntegrationTokenPrefix) {
+				s.serveScopedToken(w, r, next, token)
+				return
+			}
+		}
+		if isIntegrationPath(r.URL.Path) {
+			writeIntegrationError(w, http.StatusUnauthorized, "unauthorized", "send a bearer token")
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")

@@ -58,6 +58,9 @@ var defaultAttentionSignals = []string{
 	AttentionSignalWorkflowTriggerFailed,
 	AttentionSignalApproval,
 	AttentionSignalDevicesReset,
+	AttentionSignalDelegationFailed,
+	AttentionSignalCaseReplyFailed,
+	AttentionSignalIntegrationDisconnected,
 }
 
 var knownAttentionSignals = map[string]bool{
@@ -76,6 +79,9 @@ var knownAttentionSignals = map[string]bool{
 	AttentionSignalLearningCuratorWork:         true,
 	AttentionSignalApproval:                    true,
 	AttentionSignalDevicesReset:                true,
+	AttentionSignalDelegationFailed:            true,
+	AttentionSignalCaseReplyFailed:             true,
+	AttentionSignalIntegrationDisconnected:     true,
 }
 
 type AttentionInput struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
@@ -18,7 +19,11 @@ import (
 // approvalRuntime is the approval service of one Legato process, with the
 // watcher that turns native agents' requests into approvals.
 type approvalRuntime struct {
-	approvals   *service.ApprovalService
+	approvals *service.ApprovalService
+	// caseReplies sends agents' replies to Argus; nil without it.
+	caseReplies *service.CaseReplyService
+	// brokerOwner says whether this process serves the broker now.
+	brokerOwner func() bool
 	devices     *service.DeviceService
 	watcher     *service.ApprovalWatcher
 	credentials *service.CredentialBroker
@@ -53,9 +58,17 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 		giveSessionsChannels(agents, host.Channels())
 	}
 	// The broker agent-side processes ask instead of the store.
-	deps := hostBrokerDeps(cfg, db, agents, rt.credentials)
+	rt.caseReplies = newCaseReplyService(cfg, db, bus, true)
+	deps := hostBrokerDeps(cfg, db, agents, rt.credentials, rt.caseReplies)
 	broker := startBrokerHost(ctx, db, ipc.SocketDir(), brokerHostOptions{Deps: deps})
 	stops = append(stops, broker.Stop)
+	rt.brokerOwner = broker.Owner
+	if rt.caseReplies != nil {
+		// Replies are sent by the process that serves the broker.
+		repliesCtx, stopReplies := context.WithCancel(ctx)
+		go whileBrokerOwner(repliesCtx, broker.Owner, 15*time.Second, rt.caseReplies.SendDue)
+		stops = append(stops, stopReplies)
+	}
 	if agents != nil {
 		giveSessionsBroker(agents, db, broker.SocketPath())
 	}
@@ -146,12 +159,16 @@ func registerApprovalAttention(attention *service.AttentionService, rt *approval
 	if rt.devices != nil {
 		mustRegister(attention.RegisterProducerWithEvents(service.NewDeviceAttentionAdapter(rt.devices), events.EventApprovalChanged))
 	}
+	// What went wrong between Legato and Argus.
+	if rt.cfg != nil && rt.cfg.Integrations.Argus != nil {
+		mustRegister(attention.RegisterProducerWithEvents(service.NewIntegrationAttentionAdapter(rt.approvals.Store()), events.EventDelegationChanged))
+	}
 }
 
 // hostBrokerDeps is what the host's broker serves agent-side processes:
 // Legato's MCP tools, forwarded commands of the sandbox, and, with a
 // credential broker, the values `legato credential get` and `exec` ask for.
-func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentService, credentials *service.CredentialBroker) cli.BrokerDeps {
+func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentService, credentials *service.CredentialBroker, caseReplies *service.CaseReplyService) cli.BrokerDeps {
 	deps := cli.BrokerDeps{Push: agentPushNotifier(cfg), OS: agentOSNotifier(cfg), ClaudeModels: cfg.Adapters["claude-code"].Models}
 	deps.Ops = cli.MCPBrokerOps(func(cli.BrokerCaller) cli.MCPOptions {
 		opts := cli.MCPOptions{Store: db, Version: mcpServerVersion(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
@@ -161,6 +178,9 @@ func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentSer
 		}
 		if credentials != nil {
 			opts.Credentials = credentials
+		}
+		if caseReplies != nil {
+			opts.CaseReplies = caseReplies
 		}
 		return opts
 	})

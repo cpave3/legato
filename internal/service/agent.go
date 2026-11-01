@@ -133,7 +133,12 @@ type AgentSpawnOptions struct {
 	Prompt string
 	// Unsandboxed starts this agent outside Legato's sandbox when it is on.
 	// Swarm and workflow agents ignore it: they are always sandboxed.
-	Unsandboxed       bool
+	Unsandboxed bool
+	// ReadOnlyCheckout starts an agent that may look but not change (a
+	// find-out delegation): sandboxed whatever Unsandboxed says, with its
+	// working directory and git folder read-only, and its execution marked so
+	// the credential broker refuses its pushes and pull request writes.
+	ReadOnlyCheckout  bool
 	WorkflowAttemptID string     // owning workflow attempt, when applicable
 	SwarmID           string     // owning swarm parent ID, when applicable
 	Resources         []Resource // files and folders the agent is given: granted to Chimera, listed in every launch prompt
@@ -726,6 +731,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if err := a.store.CreateExecution(ctx, execution); err != nil {
 		return fmt.Errorf("creating execution: %w", err)
 	}
+	if opt.ReadOnlyCheckout {
+		if err := a.store.SetExecutionReadOnly(ctx, executionID); err != nil {
+			return fmt.Errorf("marking the execution read-only: %w", err)
+		}
+	}
 	envMap["LEGATO_EXECUTION_ID"] = executionID
 	failExecution := func() { _ = a.store.TerminalizeExecution(ctx, executionID, store.ExecutionFailed) }
 	// Credential channels: placeholder keys, the proxy's address and the
@@ -753,9 +763,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// Legato's sandbox: decided and checked before any tmux session exists,
 	// so a sandbox that cannot be built never leaves an unsandboxed agent.
 	sandboxPrefix := ""
-	sandboxed := a.sandbox != nil && (!opt.Unsandboxed || opt.ParentTaskID != "" || opt.SubtaskID != "" || opt.WorkflowRunID != "")
+	sandboxed := a.sandbox != nil && (!opt.Unsandboxed || opt.ReadOnlyCheckout || opt.ParentTaskID != "" || opt.SubtaskID != "" || opt.WorkflowRunID != "")
 	if sandboxed {
-		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, resources)
+		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, resources, opt.ReadOnlyCheckout)
 		if err != nil {
 			failExecution()
 			return fmt.Errorf("Legato's sandbox: %w", err)

@@ -76,6 +76,10 @@ Migration 074 adds `executions.broker_token_hash`: the SHA-256 of the token an e
 
 Migration 075 adds `agent_sessions.sandboxed`: whether the session's agent runs in Legato's sandbox. A database from before agent sessions has no table to change. See [Sandbox](sandbox.md).
 
+### Integrations
+
+Migration 076 adds what integrations (Argus) use: `integration_tokens` (hashed scoped tokens; a name is unique among tokens not revoked), `integrations` (Legato's OAuth registration with an integration; the refresh token is in the sealed store), `delegations` and `delegation_messages` (unique per integration and idempotency key, or per delegation and key), `case_reply_outbox` (replies waiting to be sent; times are fixed-width UTC text so they compare), and `executions.read_only` (a find-out delegation's agent, whose pushes and pull request writes the credential broker refuses). See [Integrations](integrations.md).
+
 ### Directory presets
 
 Migration 067 adds `directory_presets`: the directories the person saved from a spawn dialog (`path`, the identity and absolute; `name`; `created_at`). Saving a path again renames it and keeps its place. The spawn dialogs list them after the `repositories` of the configuration, through `service.DirectoryService`; a saved directory that the configuration also names is listed once, as the configured one.

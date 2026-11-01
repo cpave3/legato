@@ -75,17 +75,21 @@ type SandboxGH struct {
 
 // SandboxPlanInput is everything a sandbox's plan is made from.
 type SandboxPlanInput struct {
-	Home, WorkDir        string
-	ExecutionID, TaskID  string
-	AgentKind            string
-	RuntimeDir           string // <runtime>/legato
-	DataDir, ConfigPath  string
-	BinaryPath           string
-	BrokerSocket         string
-	SSHSocket            string // the execution's own, when it has one
-	PastedImagesDir      string
-	AgentFilesDir        string // ~/.legato/agents/<task>: role prompt and brief
-	GitCommonDir         string // a worktree's main .git, written by commits
+	Home, WorkDir       string
+	ExecutionID, TaskID string
+	AgentKind           string
+	RuntimeDir          string // <runtime>/legato
+	DataDir, ConfigPath string
+	BinaryPath          string
+	BrokerSocket        string
+	SSHSocket           string // the execution's own, when it has one
+	PastedImagesDir     string
+	AgentFilesDir       string // ~/.legato/agents/<task>: role prompt and brief
+	GitCommonDir        string // a worktree's main .git, written by commits
+	// ReadOnlyCheckout mounts the working directory and its git folder
+	// read-only, for an agent that may look but not change (a find-out
+	// delegation).
+	ReadOnlyCheckout     bool
 	GitIdentity          [2]string
 	DefaultMounts        bool
 	Extra                []SandboxPath // agents.sandbox.mounts and resources
@@ -401,12 +405,16 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	if main := mainCheckout(in.GitCommonDir); main != "" && !within(in.GitCommonDir, in.WorkDir) && check(main) == nil {
 		add(main, sandbox.ReadOnly)
 	}
-	add(in.WorkDir, sandbox.ReadWrite)
+	checkout := sandbox.ReadWrite
+	if in.ReadOnlyCheckout {
+		checkout = sandbox.ReadOnly
+	}
+	add(in.WorkDir, checkout)
 	if in.GitCommonDir != "" && !within(in.GitCommonDir, in.WorkDir) {
 		if err := check(in.GitCommonDir); err != nil {
 			return sandbox.Plan{}, err
 		}
-		add(in.GitCommonDir, sandbox.ReadWrite)
+		add(in.GitCommonDir, checkout)
 	}
 	for _, p := range []string{in.AgentFilesDir, in.PastedImagesDir, in.CredentialWrapperDir, in.GHConfigDir, in.BinaryPath} {
 		if p != "" {

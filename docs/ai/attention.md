@@ -36,6 +36,7 @@ Executable source actions additionally implement `AttentionActionHandler`. Navig
 | `workflow_triggers` | Missing input, confirmation, and failed automatic triggers | `EventWorkflowTriggerChanged` |
 | `approvals` | Pending approval requests (agents' permissions and questions), with their options as actions; see [Approvals](approvals.md) | `EventApprovalChanged` |
 | `devices` | The last `legato device reset`, until dismissed; see [Approvals](approvals.md) § Signed approvals | `EventApprovalChanged` |
+| `integrations` | Delegations that did not reach an agent (`delegation_failed`), agents' replies Argus never took (`case_reply_failed`), a connection Argus refused (`integration_disconnected`); the last 7 days; see [Integrations](integrations.md) | `EventDelegationChanged` |
 
 Startup reconciliation remains the safety net. Source events reconcile the relevant projections without requiring an Attention request to query GitHub or mutate source state.
 

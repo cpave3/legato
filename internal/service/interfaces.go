@@ -129,6 +129,36 @@ type TaskActivity struct {
 	Reviews      []store.ReviewTour     `json:"reviews"`
 	Plans        []store.Plan           `json:"plans"`
 	WorkflowRuns []TaskWorkflowActivity `json:"workflow_runs"`
+	// Delegations are briefs integrations (Argus) handed the task's agent,
+	// newest first, with the agent's replies.
+	Delegations []TaskDelegationActivity `json:"delegations"`
+}
+
+// TaskDelegationActivity is a delegation as a task's activity shows it.
+type TaskDelegationActivity struct {
+	ID           string              `json:"id"`
+	Integration  string              `json:"integration"`
+	CaseID       string              `json:"case_id"`
+	Mode         string              `json:"mode"`
+	Route        string              `json:"route"`
+	State        string              `json:"state"`
+	Enforced     bool                `json:"enforced"`
+	ErrorCode    string              `json:"error_code,omitempty"`
+	ErrorMessage string              `json:"error_message,omitempty"`
+	Brief        string              `json:"brief"`
+	CreatedAt    string              `json:"created_at"`
+	DeliveredAt  string              `json:"delivered_at,omitempty"`
+	Replies      []TaskCaseReplyItem `json:"replies"`
+}
+
+// TaskCaseReplyItem is an agent's reply to a delegation.
+type TaskCaseReplyItem struct {
+	ID        string `json:"id"`
+	Outcome   string `json:"outcome"`
+	Text      string `json:"text"`
+	State     string `json:"state"`
+	LastError string `json:"last_error,omitempty"`
+	CreatedAt string `json:"created_at"`
 }
 type TaskWorkflowActivity struct {
 	Run       store.WorkflowRun        `json:"run"`

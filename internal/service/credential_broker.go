@@ -704,6 +704,11 @@ func (b *CredentialBroker) Request(ctx context.Context, req AccessRequest) (Acce
 	if !b.executionRunning(ctx, req.ExecutionID, req.TaskID) {
 		return b.refuse(ctx, req, "the agent is not running"), nil
 	}
+	for _, op := range req.Operations {
+		if reason := b.readOnlyRefusal(ctx, req.ExecutionID, op); reason != "" {
+			return b.refuse(ctx, req, reason), nil
+		}
+	}
 	ps := pairs(req.Operations, req.Resources)
 	var strictest *config.CredentialRule
 	for _, p := range ps {
@@ -933,6 +938,11 @@ func (b *CredentialBroker) Authorize(ctx context.Context, use CredentialUse) (Us
 		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
 		return UseDecision{Reason: entry.Detail}, nil
 	}
+	if reason := b.readOnlyRefusal(ctx, use.ExecutionID, use.Operation); reason != "" {
+		entry.Event, entry.Detail = "refuse", withCall(reason, use.Call)
+		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
+		return UseDecision{Reason: reason}, nil
+	}
 	p := pair{use.Operation, use.Resource}
 	r := b.selectRule(ctx, c, p, use.Amounts)
 	if r == nil || r.Approve == "deny" {
@@ -980,6 +990,11 @@ func (b *CredentialBroker) CheckUse(ctx context.Context, use CredentialUse) (Use
 		entry.Detail = withCall("the agent is not running", use.Call)
 		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
 		return UseDecision{Reason: "the agent is not running"}, nil
+	}
+	if reason := b.readOnlyRefusal(ctx, use.ExecutionID, use.Operation); reason != "" {
+		entry.Detail = withCall(reason, use.Call)
+		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
+		return UseDecision{Reason: reason}, nil
 	}
 	r := b.selectRule(ctx, c, pair{use.Operation, use.Resource}, use.Amounts)
 	if r == nil || r.Approve == "deny" {
@@ -1366,4 +1381,17 @@ func (b *CredentialBroker) AuditRows(ctx context.Context, filter store.Credentia
 // number of the first row that does not match, or 0 when it holds.
 func (b *CredentialBroker) VerifyAudit(ctx context.Context) (int64, error) {
 	return b.db.VerifyCredentialAudit(ctx)
+}
+
+// readOnlyRefusal is why an execution that may only look (a find-out
+// delegation's) is refused an operation that writes: a push, a ref deletion
+// or a pull request write. Empty when it is not refused.
+func (b *CredentialBroker) readOnlyRefusal(ctx context.Context, executionID, operation string) string {
+	if !strings.HasPrefix(operation, "git.push") && operation != "git.delete-ref" && !strings.HasPrefix(operation, "pr.") {
+		return ""
+	}
+	if readOnly, err := b.db.ExecutionReadOnly(ctx, executionID); err != nil || !readOnly {
+		return ""
+	}
+	return "this agent may only look: it was started to find something out, so " + operation + " is refused"
 }

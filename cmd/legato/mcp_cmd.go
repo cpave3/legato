@@ -88,6 +88,10 @@ func runMCPServe(args []string, in io.ReadCloser, out io.WriteCloser) int {
 			opts.Credentials = broker
 		}
 	}
+	// reply_case records the reply; the host Legato sends it to Argus.
+	if replies := newCaseReplyService(cfg, db, nil, false); replies != nil {
+		opts.CaseReplies = replies
+	}
 	// The peer tools reach other agents through tmux. Without it the rest of
 	// the tools still work, so its absence costs those three and no more.
 	if manager, tmuxErr := newAgentContractTmux(); tmuxErr == nil {

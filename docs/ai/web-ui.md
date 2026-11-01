@@ -26,6 +26,8 @@ Chimera resumes with its actual hook-captured ID, not the task ID. Native provid
 
 **Authentication**: Bearer token auth on all API/WebSocket requests. Token auto-generated on first server start at `<dataDir>/auth-token` (32 bytes, hex-encoded). `Server.SetAuthToken(token)` configures auth middleware. REST uses `Authorization: Bearer <token>` header, WebSocket uses `?token=` query param. Exempt: `GET /health` (monitoring), `OPTIONS` (CORS preflight), static assets (SPA shell). Web UI checks auth on load — shows `TokenPrompt` modal on 401. Token stored per-server in localStorage (`legato:token:<url>`). Stored token invalidation triggers page reload to re-prompt. `web/src/lib/auth.ts` provides `getToken`/`setToken`/`clearToken`/`authHeaders` helpers.
 
+**Integration tokens**: `/api/integrations/*` also takes scoped `lgi_` tokens made with `legato integration token create`, which reach nothing else (403) and never the WebSocket. Its routes answer errors as `{error: <code>, message}`. See [Integrations](integrations.md).
+
 **CORS**: `Access-Control-Allow-Origin: *` on all responses via `corsMiddleware` in `server.go`. Enables cross-origin access from PWA served by another legato instance. `Access-Control-Allow-Headers` includes `Authorization` for token auth.
 
 **QR pairing**: `legato pair` CLI renders terminal QR code encoding `legato://pair?url=<serverUrl>&token=<token>`. PWA Settings page has "Scan QR Code" button using `html5-qrcode` library — opens device camera, decodes QR, stores server URL + token in one step. Falls back to manual token paste on camera denial. `QRScanner` component in `web/src/components/QRScanner.tsx`.

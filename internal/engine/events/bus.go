@@ -35,6 +35,9 @@ const (
 	EventLearningChanged
 	EventAgentUIChanged
 	EventApprovalChanged
+	// EventDelegationChanged: an integration's delegation to a task was
+	// made, delivered, failed or answered. Payload: the task ID.
+	EventDelegationChanged
 )
 
 // ErrorPayload carries structured error information for error events.

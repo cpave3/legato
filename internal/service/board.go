@@ -141,6 +141,9 @@ func (b *boardService) TaskActivity(ctx context.Context, id string) (*TaskActivi
 		}
 		activity.WorkflowRuns = append(activity.WorkflowRuns, TaskWorkflowActivity{Run: run, Artifacts: view.Artifacts})
 	}
+	if activity.Delegations, err = taskDelegations(ctx, b.store, id); err != nil {
+		return nil, err
+	}
 	return activity, nil
 }
 

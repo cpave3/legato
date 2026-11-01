@@ -22,13 +22,14 @@ type SandboxSettings struct {
 
 // sandboxPrefix is the command line that starts an agent's launch command
 // in its sandbox, ending in "--".
-func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, agentKind, workDir string, env map[string]string, resources []Resource) (string, error) {
+func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, agentKind, workDir string, env map[string]string, resources []Resource, readOnly bool) (string, error) {
 	backend := a.sandbox.Backend
 	if err := backend.Available(); err != nil {
 		return "", err
 	}
 	in := a.sandbox.Base
 	in.WorkDir, in.ExecutionID, in.TaskID, in.AgentKind = workDir, executionID, taskID, agentKind
+	in.ReadOnlyCheckout = readOnly
 	in.BrokerSocket = env["LEGATO_BROKER_SOCKET"]
 	if sock := env["SSH_AUTH_SOCK"]; sock != "" && in.RuntimeDir != "" && strings.HasPrefix(sock, filepath.Join(in.RuntimeDir, "ssh")+"/") {
 		in.SSHSocket = sock

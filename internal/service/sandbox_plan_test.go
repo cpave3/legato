@@ -371,3 +371,28 @@ func TestPackageManagersCachesAreWritableAndTheirLoginsHidden(t *testing.T) {
 		}
 	}
 }
+
+// A find-out delegation reads the checkout and its git history, and changes
+// neither.
+func TestAReadOnlyCheckoutIsMountedReadOnly(t *testing.T) {
+	in := baseInput()
+	fs := hostFS()
+	fs["/var/home/me/Development/app"] = "dir"
+	fs["/var/home/me/Development/app/.git"] = "dir"
+	fs["/var/home/me/Development/app.feature"] = "dir"
+	in.FS, in.WorkDir, in.GitCommonDir = fs, "/var/home/me/Development/app.feature", "/var/home/me/Development/app/.git"
+	in.ReadOnlyCheckout = true
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mounted(plan)
+	for _, path := range []string{in.WorkDir, "/var/home/me/Development/app/.git"} {
+		if mountIndex(plan, path) < 0 || m[path].Kind != sandbox.ReadOnly {
+			t.Fatalf("%s = %+v, want read-only", path, m[path])
+		}
+	}
+	if m["/var/home/me/.claude"].Kind != sandbox.ReadWrite {
+		t.Fatalf("the tool's own state should stay writable: %+v", m["/var/home/me/.claude"])
+	}
+}

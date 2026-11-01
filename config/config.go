@@ -52,6 +52,8 @@ type Config struct {
 	Learning           LearningConfig           `yaml:"learning"`
 	SSHAgentSocket     string                   `yaml:"ssh_agent_socket"`
 	Manticore          ManticoreConfig          `yaml:"manticore"`
+	// Integrations are services outside Legato that hand work to agents.
+	Integrations IntegrationsConfig `yaml:"integrations"`
 }
 
 // ManticoreConfig names the Manticore instance that Claude Code sessions
@@ -428,6 +430,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if err := normalizeManticoreConfig(cfg); err != nil {
+		return nil, err
+	}
+	if err := normalizeIntegrations(cfg); err != nil {
 		return nil, err
 	}
 	if err := normalizeAgentMCPConfig(cfg); err != nil {

@@ -1621,6 +1621,7 @@ func runServeCmd(args []string) int {
 	srv.StartBoardEvents()
 	srv.StartLearningEvents()
 	defer wireAgentUI(srv, cfg, db, bus)()
+	defer wireIntegrations(srv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT})()
 	srv.SetDirectoryService(configuredDirectoryService(cfg, db))
 	srv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 
@@ -1689,6 +1690,7 @@ func runTUI() int {
 	// stopAgentUI stops what the web server's agent UI started; nothing
 	// until there is a web server.
 	stopAgentUI := func() {}
+	stopIntegrations := func() {}
 	socketPath := ipc.SocketPath()
 	ipcServer, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
 		var wn webNotifier
@@ -1881,6 +1883,7 @@ func runTUI() int {
 			webSrv.StartBoardEvents()
 			webSrv.StartLearningEvents()
 			stopAgentUI = wireAgentUI(webSrv, cfg, db, bus)
+			stopIntegrations = wireIntegrations(webSrv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT})
 			webSrv.SetDirectoryService(configuredDirectoryService(cfg, db))
 			webSrv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 			go func() {
@@ -1994,6 +1997,7 @@ func runTUI() int {
 	// Shut down the web server so the process can exit cleanly.
 	stopAnnouncing()
 	stopAgentUI()
+	stopIntegrations()
 	if webSrv != nil {
 		if err := stopWithTimeout(applicationShutdownTimeout, webSrv.Stop); err != nil {
 			fmt.Fprintf(os.Stderr, "web server shutdown: %v\n", err)

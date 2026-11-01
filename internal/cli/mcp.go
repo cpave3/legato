@@ -45,6 +45,9 @@ type MCPOptions struct {
 	// Credentials is the credential broker. Without it, or with no
 	// credentials configured, request_access is not offered.
 	Credentials MCPCredentials
+	// CaseReplies sends replies to an integration's delegations. Without it
+	// reply_case is not offered.
+	CaseReplies MCPCaseReplies
 }
 
 // LibrettoProbe asks the installed libretto what it can do.
@@ -125,9 +128,12 @@ func MCPToolNames() []string {
 	for _, tool := range tools {
 		names = append(names, tool.Name)
 	}
-	// request_access is offered only with credentials; it is named always.
-	if !listHasName(names, "request_access") {
-		names = append(names, "request_access")
+	// request_access is offered only with credentials and reply_case only
+	// with an integration; they are named always.
+	for _, always := range []string{"request_access", "reply_case"} {
+		if !listHasName(names, always) {
+			names = append(names, always)
+		}
 	}
 	return names
 }
@@ -170,6 +176,9 @@ func (m *mcpTools) all() []mcpserver.Tool {
 	}
 	if m.opts.Credentials != nil && len(m.opts.Credentials.Credentials()) > 0 {
 		tools = append(tools, m.requestAccess())
+	}
+	if m.opts.CaseReplies != nil {
+		tools = append(tools, m.replyCase())
 	}
 	return tools
 }

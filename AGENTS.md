@@ -80,5 +80,6 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/claude-code-native.md` — Claude Code mod and bridge, permissions, scratch-instance setup
 - `docs/ai/codex-native.md` — Codex app-server bridge and launcher
 - `docs/ai/agent-mcp.md` — `legato mcp serve` tools, artifacts/cards, images, videos, studios, HTML sandbox
+- `docs/ai/integrations.md` — Argus: scoped tokens, owner lookup, delegations, replies and the OAuth connection
 - `docs/ai/resources.md` — named file/folder resources given to agents
 - `docs/ai/sandbox.md` — bubblewrap sandbox: what agents see and what is hidden
