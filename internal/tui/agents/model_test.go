@@ -129,8 +129,20 @@ func TestReloadKeybinding(t *testing.T) {
 		t.Fatal("expected command from 'R' key")
 	}
 	reload, ok := cmd().(ReloadAgentMsg)
-	if !ok || reload.TaskID != "REX-1238" {
+	if !ok || reload.TaskID != "REX-1238" || reload.SwitchSandbox {
 		t.Fatalf("got %#v, want ReloadAgentMsg for REX-1238", reload)
+	}
+}
+
+func TestReloadSwitchingSandboxKeybinding(t *testing.T) {
+	m := newTestModel()
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'U'}})
+	if cmd == nil {
+		t.Fatal("expected command from 'U' key")
+	}
+	reload, ok := cmd().(ReloadAgentMsg)
+	if !ok || reload.TaskID != "REX-1238" || !reload.SwitchSandbox {
+		t.Fatalf("got %#v, want a sandbox-switching ReloadAgentMsg for REX-1238", reload)
 	}
 }
 

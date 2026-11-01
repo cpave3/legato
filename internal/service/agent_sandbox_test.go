@@ -153,6 +153,58 @@ func TestReloadingAnAgentKeepsItsSandboxChoice(t *testing.T) {
 	}
 }
 
+func TestReloadingAnAgentWithoutTheSandboxTakesItOut(t *testing.T) {
+	backend := &fakeBackend{}
+	svc, s, mt := sandboxedService(t, backend)
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	running, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
+	execution, _ := s.GetExecution(context.Background(), running.ExecutionID)
+	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	sandboxed, err := svc.(SandboxSwitcher).RestartAgentSwitchingSandbox(context.Background(), "task-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
+	if sandboxed || session.Sandboxed {
+		t.Fatalf("the agent is still sandboxed (said %v, recorded %v)", sandboxed, session.Sandboxed)
+	}
+	lines := mt.sentLinesFor("legato-task-1")
+	if last := lines[len(lines)-1]; strings.HasPrefix(last, "SANDBOX") {
+		t.Fatalf("relaunched as %q", last)
+	}
+}
+
+func TestReloadingAnUnsandboxedAgentSwitchingTheSandboxPutsItBack(t *testing.T) {
+	backend := &fakeBackend{}
+	svc, s, mt := sandboxedService(t, backend)
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Unsandboxed: true}); err != nil {
+		t.Fatal(err)
+	}
+	running, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
+	execution, _ := s.GetExecution(context.Background(), running.ExecutionID)
+	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	sandboxed, err := svc.(SandboxSwitcher).RestartAgentSwitchingSandbox(context.Background(), "task-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
+	if !sandboxed || !session.Sandboxed {
+		t.Fatalf("the agent is not back in the sandbox (said %v, recorded %v)", sandboxed, session.Sandboxed)
+	}
+	lines := mt.sentLinesFor("legato-task-1")
+	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "SANDBOX") {
+		t.Fatalf("relaunched as %q", last)
+	}
+}
+
 func mountOf(plan sandbox.Plan, path string) (sandbox.Mount, bool) {
 	for _, m := range plan.Mounts {
 		if m.Path == path && m.Dest == "" {

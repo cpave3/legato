@@ -63,7 +63,7 @@ In the sandbox, `legato task|plan|review|swarm|learn …`, `credential request|g
 
 ## Leaving it
 
-- **One agent outside.** The spawn dialogs offer **Run without sandbox** (web, unticked each time) and `ctrl+u` (TUI); the API takes `sandbox: false` on `POST /api/agents/spawn` and `POST /api/tasks/{id}/agent`. Such an agent is marked `unsandboxed` (`/api/agents`). Swarm and workflow agents are always sandboxed. **Reload agent** keeps the choice.
+- **One agent outside.** The spawn dialogs offer **Run without sandbox** (web, unticked each time) and `ctrl+u` (TUI); the API takes `sandbox: false` on `POST /api/agents/spawn` and `POST /api/tasks/{id}/agent`. Such an agent is marked `unsandboxed` (`/api/agents`). Swarm and workflow agents are always sandboxed. **Reload agent** keeps the choice. `U` in the TUI's agents view reloads a running agent on the other side of the sandbox, resuming its conversation: out when it ran in it, back in when it ran outside.
 - **Folders added later.** A sandbox's mounts are fixed when it starts. Adding a resource to a running sandboxed agent is refused (`409`) unless the request asks to reload (`{names, reload: true}`): the agent is then restarted with its resources and the new ones, resuming its conversation. The web Resources button explains this and asks first.
 
 ## Verified

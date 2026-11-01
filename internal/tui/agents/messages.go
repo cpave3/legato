@@ -8,9 +8,12 @@ type KillAgentMsg struct {
 }
 
 // ReloadAgentMsg requests restarting the selected agent, resuming its
-// conversation, so it reads its configuration afresh.
+// conversation, so it reads its configuration afresh. SwitchSandbox starts
+// it on the other side of the sandbox: outside when it ran in it, in it when
+// it ran outside.
 type ReloadAgentMsg struct {
-	TaskID string
+	TaskID        string
+	SwitchSandbox bool
 }
 
 // AttachSessionMsg requests attaching to a tmux session.

@@ -63,7 +63,7 @@ Agents are listed by what they are doing: **NEEDS YOU** (waiting, or stopped on 
 - **Header.** `<id> › <tool> › <task>`, and at the far end the state and its time.
 - **Banner.** When an agent other than the selected one needs the person, a line above the foot names it. `w` selects the next such agent, around.
 - **Foot.** How to talk to the selected agent (`↵ attaches`, `m` sends a macro, `v` dictates).
-- **Reload.** `R` (in the key reference, not the bar) stops the selected agent and starts it again with its tool, directory, resources and sandbox choice, resuming its conversation, as **Reload agent** does in the web UI (`AgentRestarter`, `app.go` `handleReloadAgent`). The status bar says the outcome; an agent a swarm or a workflow runs is refused with the reason.
+- **Reload.** `R` (in the key reference, not the bar) stops the selected agent and starts it again with its tool, directory, resources and sandbox choice, resuming its conversation, as **Reload agent** does in the web UI (`AgentRestarter`, `app.go` `handleReloadAgent`). The status bar says the outcome; an agent a swarm or a workflow runs is refused with the reason. `U` reloads it the same way on the other side of the sandbox (`SandboxSwitcher`): out of it when it ran in it, for when the sandbox blocks something the agent needs, and back in when it ran outside. The status bar says where it now runs, and later `R` reloads keep it there. With the sandbox off in the configuration, putting an agent in is refused and the agent keeps running.
 
 ### Ensemble
 

@@ -23,20 +23,47 @@ type AgentRestarter interface {
 	RestartAgent(ctx context.Context, taskID string, resources []Resource) error
 }
 
+// SandboxSwitcher starts a running agent again on the other side of the
+// sandbox.
+type SandboxSwitcher interface {
+	// RestartAgentSwitchingSandbox restarts the agent as RestartAgent does,
+	// but outside the sandbox when it ran in it and in it when it ran
+	// outside, for when the sandbox blocks something the agent needs. It
+	// says whether the agent now runs in the sandbox.
+	RestartAgentSwitchingSandbox(ctx context.Context, taskID string, resources []Resource) (sandboxed bool, err error)
+}
+
 func (a *agentService) RestartAgent(ctx context.Context, taskID string, resources []Resource) error {
+	_, err := a.restartAgent(ctx, taskID, resources, false)
+	return err
+}
+
+func (a *agentService) RestartAgentSwitchingSandbox(ctx context.Context, taskID string, resources []Resource) (bool, error) {
+	return a.restartAgent(ctx, taskID, resources, true)
+}
+
+func (a *agentService) restartAgent(ctx context.Context, taskID string, resources []Resource, switchSandbox bool) (bool, error) {
 	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if owner := restartOwner(session); owner != "" {
-		return fmt.Errorf("%w: %s", ErrAgentNotRestartable, owner)
+		return false, fmt.Errorf("%w: %s", ErrAgentNotRestartable, owner)
 	}
 	task, err := a.store.GetTask(ctx, taskID)
 	if err != nil {
-		return err
+		return false, err
 	}
-	// It comes back as it was, in the sandbox or out of it.
-	opt := AgentSpawnOptions{AgentKind: session.AgentKind, Resources: resources, Ephemeral: task.Ephemeral, Unsandboxed: !session.Sandboxed}
+	// It comes back as it was, in the sandbox or out of it, unless it is
+	// asked to switch.
+	sandboxed := session.Sandboxed
+	if switchSandbox {
+		sandboxed = !sandboxed
+		if sandboxed && a.sandbox == nil {
+			return false, errors.New("Legato's sandbox is off, so there is no sandbox to put the agent in")
+		}
+	}
+	opt := AgentSpawnOptions{AgentKind: session.AgentKind, Resources: resources, Ephemeral: task.Ephemeral, Unsandboxed: !sandboxed}
 	if session.ExecutionID != "" {
 		if execution, err := a.store.GetExecution(ctx, session.ExecutionID); err == nil {
 			opt.WorkingDir = execution.WorkingDir
@@ -45,20 +72,20 @@ func (a *agentService) RestartAgent(ctx context.Context, taskID string, resource
 	if SupportsTaskResume(session.AgentKind) {
 		resume, err := a.restartConversation(ctx, task, session)
 		if err != nil {
-			return err
+			return false, err
 		}
 		opt.SessionPolicy = "resume"
 		opt.ResumeSessionID = resume.ID
 		opt.ResumeWorkingDir = resume.CWD
 		check := opt
 		if err := a.prepareTaskResume(ctx, taskID, &check); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if err := a.stopAgent(ctx, taskID, false); err != nil {
-		return err
+		return false, err
 	}
-	return a.SpawnAgent(ctx, taskID, 0, 0, opt)
+	return sandboxed, a.SpawnAgent(ctx, taskID, 0, 0, opt)
 }
 
 // restartOwner names what owns an agent that is started by it, not by the

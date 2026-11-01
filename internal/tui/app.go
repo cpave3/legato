@@ -2783,11 +2783,31 @@ func (a App) handleKillAgent(msg agents.KillAgentMsg) (tea.Model, tea.Cmd) {
 
 // handleReloadAgent stops the selected agent and starts it again with its
 // tool, directory and resources, resuming its conversation, as Reload agent
-// does in the web UI.
+// does in the web UI. Switching the sandbox starts it on the other side of
+// the sandbox.
 func (a App) handleReloadAgent(msg agents.ReloadAgentMsg) (tea.Model, tea.Cmd) {
 	restarter, ok := a.agentSvc.(service.AgentRestarter)
 	if !ok {
 		return a, func() tea.Msg { return statusbar.ErrorMsg{Text: "This Legato cannot reload agents"} }
+	}
+	// restart says how the agent came back.
+	restart := func(taskID string) (string, error) {
+		return ", resuming its conversation", restarter.RestartAgent(context.Background(), taskID, nil)
+	}
+	if msg.SwitchSandbox {
+		switcher, ok := a.agentSvc.(service.SandboxSwitcher)
+		if !ok {
+			return a, func() tea.Msg {
+				return statusbar.ErrorMsg{Text: "This Legato cannot move agents in or out of the sandbox"}
+			}
+		}
+		restart = func(taskID string) (string, error) {
+			sandboxed, err := switcher.RestartAgentSwitchingSandbox(context.Background(), taskID, nil)
+			if sandboxed {
+				return " in the sandbox, resuming its conversation", err
+			}
+			return " without the sandbox, resuming its conversation", err
+		}
 	}
 	svc := a.agentSvc
 	taskID := msg.TaskID
@@ -2795,9 +2815,11 @@ func (a App) handleReloadAgent(msg agents.ReloadAgentMsg) (tea.Model, tea.Cmd) {
 		func() tea.Msg { return statusbar.ProgressMsg{Text: "Reloading " + taskID + "…"} },
 		func() tea.Msg {
 			// The list is read after the restart, so it shows the new agent.
-			var outcome tea.Msg = statusbar.InfoMsg{Text: "Reloaded " + taskID + ", resuming its conversation"}
-			if err := restarter.RestartAgent(context.Background(), taskID, nil); err != nil {
+			var outcome tea.Msg
+			if how, err := restart(taskID); err != nil {
 				outcome = statusbar.ErrorMsg{Text: "Could not reload " + taskID + ": " + err.Error()}
+			} else {
+				outcome = statusbar.InfoMsg{Text: "Reloaded " + taskID + how}
 			}
 			agentList, _ := svc.ListAgents(context.Background())
 			return tea.BatchMsg{

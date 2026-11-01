@@ -200,3 +200,27 @@ func TestRestartAgentResumesAChimeraAgentsOwnSession(t *testing.T) {
 		t.Fatalf("launch = %q, want chimera --session chimera-session-7", launch)
 	}
 }
+
+// With Legato's sandbox off there is no sandbox to put an agent back in, so
+// switching is refused and the agent keeps running.
+func TestSwitchingTheSandboxWhenItIsOffLeavesTheAgentRunning(t *testing.T) {
+	f := newRestartFixture(t)
+	ctx := context.Background()
+	createTask(t, f.store, "task-r")
+	cwd := t.TempDir()
+	if err := f.svc.SpawnAgent(ctx, "task-r", 0, 0, AgentSpawnOptions{AgentKind: "claude-code", WorkingDir: cwd}); err != nil {
+		t.Fatal(err)
+	}
+	f.reportConversation(t, "task-r", cwd)
+	before, _ := f.store.GetAgentSessionByTaskID(ctx, "task-r")
+
+	_, err := f.svc.(SandboxSwitcher).RestartAgentSwitchingSandbox(ctx, "task-r", nil)
+
+	if err == nil || !strings.Contains(err.Error(), "sandbox is off") {
+		t.Fatalf("err = %v, want the sandbox is off", err)
+	}
+	after, err := f.store.GetAgentSessionByTaskID(ctx, "task-r")
+	if err != nil || after.ExecutionID != before.ExecutionID || !f.tmux.sessionAlive("legato-task-r") {
+		t.Fatalf("agent after a refused switch = %#v, %v; want it still running", after, err)
+	}
+}
