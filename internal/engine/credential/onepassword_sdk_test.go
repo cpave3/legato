@@ -205,3 +205,26 @@ func TestOnePasswordSDKStoreTrimsTheNewlineAfterAValue(t *testing.T) {
 		t.Fatalf("value = %q", got.Value)
 	}
 }
+
+// 1Password refuses an integration version over 20 characters or with a '+',
+// which a Go build's own version usually has.
+func TestOnePasswordIntegrationVersionFitsWhat1PasswordAccepts(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"v0.0.0-20261101035530-446a2ba1dc00+dirty", "v0.0.0-446a2ba"},
+		{"v1.4.0-0.20261101035530-446a2ba1dc00", "v1.4.0-446a2ba"},
+		{"v1.4.0-rc.1.0.20261101035530-446a2ba1dc00+dirty", "v1.4.0-446a2ba"},
+		{"v1.2.3", "v1.2.3"},
+		{"v1.2.3+incompatible", "v1.2.3"},
+		{"dev", "dev"},
+		{"", "dev"},
+		{"v1.2.3-a-very-long-prerelease-name", "v1.2.3-a-very-long-p"},
+	} {
+		got := onePasswordIntegrationVersion(tc.in)
+		if got != tc.want {
+			t.Errorf("onePasswordIntegrationVersion(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+		if len(got) > 20 || strings.ContainsAny(got, "+ ") {
+			t.Errorf("onePasswordIntegrationVersion(%q) = %q, which 1Password refuses", tc.in, got)
+		}
+	}
+}

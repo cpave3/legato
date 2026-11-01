@@ -2,6 +2,8 @@ package credential
 
 import (
 	"context"
+	"regexp"
+	"strings"
 	"time"
 
 	onepassword "github.com/1password/onepassword-sdk-go"
@@ -17,11 +19,39 @@ var OnePasswordIntegrationVersion = "dev"
 func ConnectOnePassword(ctx context.Context, token string) (OnePasswordAPI, error) {
 	client, err := onepassword.NewClient(ctx,
 		onepassword.WithServiceAccountToken(token),
-		onepassword.WithIntegrationInfo("Legato", OnePasswordIntegrationVersion))
+		onepassword.WithIntegrationInfo("Legato", onePasswordIntegrationVersion(OnePasswordIntegrationVersion)))
 	if err != nil {
 		return nil, err
 	}
 	return sdkOnePassword{client: client}, nil
+}
+
+// pseudoVersion is a Go pseudo-version: the base version, a timestamp and
+// a 12-character commit hash.
+var pseudoVersion = regexp.MustCompile(`^(v\d+\.\d+\.\d+)-(?:[0-9A-Za-z.-]*\.)?\d{14}-([0-9a-f]{12})$`)
+
+// onePasswordIntegrationVersion shortens a Go build's version to one that
+// 1Password accepts: at most 20 characters, without '+'. Build metadata
+// (+dirty, +incompatible) is dropped and a pseudo-version keeps its base
+// version and a short commit hash.
+func onePasswordIntegrationVersion(v string) string {
+	v, _, _ = strings.Cut(v, "+")
+	if m := pseudoVersion.FindStringSubmatch(v); m != nil {
+		v = m[1] + "-" + m[2][:7]
+	}
+	v = strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' {
+			return r
+		}
+		return -1
+	}, v)
+	if len(v) > 20 {
+		v = v[:20]
+	}
+	if v == "" {
+		return "dev"
+	}
+	return v
 }
 
 // sdkOnePassword is OnePasswordAPI over the SDK's client.
