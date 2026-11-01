@@ -25,6 +25,10 @@ import androidx.webkit.WebViewFeature
 import java.util.UUID
 
 private const val TAG = "LegatoPage"
+
+// How long a page told the person left gets to stop what it streams before
+// its timers are paused too.
+private const val PAUSE_TIMERS_AFTER_MS = 5_000L
 private val PAGE_BACKGROUND = Color.parseColor("#0a0a0f")
 
 // ServerPage is one server's page: the WebView that shows it, kept on screen
@@ -111,6 +115,9 @@ class ServerPage(
     fun destroy() {
         voice.release()
         handler.removeCallbacksAndMessages(null)
+        // The next page of this process would start with its timers paused.
+        if (timersPaused) webView?.resumeTimers()
+        timersPaused = false
         webView?.let(::discard)
         webView = null
     }
@@ -149,6 +156,37 @@ class ServerPage(
     }
 
     override fun unavailable(reason: String) = callbacks.unavailable(reason)
+
+    // Timers are paused for every WebView of the app, so they are paused once
+    // and resumed before any page, a reopened one too, is used again.
+    private var pauseTimersLater: Runnable? = null
+    private var timersPaused = false
+
+    override fun pause() {
+        val page = webView ?: return
+        page.evaluateJavascript(LEAVE_SCRIPT, null)
+        page.onPause()
+        val later = Runnable {
+            pauseTimersLater = null
+            webView?.let {
+                it.pauseTimers()
+                timersPaused = true
+            }
+        }
+        pauseTimersLater = later
+        handler.postDelayed(later, PAUSE_TIMERS_AFTER_MS)
+    }
+
+    override fun resume() {
+        pauseTimersLater?.let(handler::removeCallbacks)
+        pauseTimersLater = null
+        val page = webView ?: return
+        if (timersPaused) {
+            page.resumeTimers()
+            timersPaused = false
+        }
+        page.onResume()
+    }
 
     private fun evaluate(script: String) {
         webView?.evaluateJavascript(script, null)

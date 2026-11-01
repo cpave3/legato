@@ -107,6 +107,23 @@ it("does not stream the selected agent's terminal while the ensemble is shown", 
   expect(socket.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "subscribe_agent" }))
 })
 
+it("stops streaming the terminal while the page is out of view, and streams it again on return", async () => {
+  open("/agents")
+
+  const last = () => socket.send.mock.calls.at(-1)?.[0]
+  // The page subscribes again as its agent list loads; let it settle.
+  await screen.findByText("Terminal of TASK-1")
+  await waitFor(() => expect(last()).toEqual({ type: "subscribe_agent", agent_id: "TASK-1" }))
+
+  window.dispatchEvent(new Event("legato:shell-leave"))
+  await waitFor(() => expect(last()).toEqual({ type: "unsubscribe_agent", agent_id: "TASK-1" }))
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  expect(last()).toEqual({ type: "unsubscribe_agent", agent_id: "TASK-1" })
+
+  window.dispatchEvent(new Event("legato:shell-return"))
+  await waitFor(() => expect(last()).toEqual({ type: "subscribe_agent", agent_id: "TASK-1" }))
+})
+
 it("opens an agent from its tile and leaves the ensemble", async () => {
   open("/agents?view=ensemble")
   fireEvent.click(await screen.findByRole("button", { name: "Open TASK-2" }))

@@ -47,6 +47,12 @@ const val RETURN_SCRIPT =
         "try{window.dispatchEvent(new Event(\"legato:shell-return\"))}catch(e){}" +
         "return rendered})()"
 
+// Run in the page when the app goes to the background, before the page is
+// paused: the web app stops following what it streams (web/src/hooks/
+// usePageInView.ts) and catches up on legato:shell-return.
+const val LEAVE_SCRIPT =
+    "(function(){try{window.dispatchEvent(new Event(\"legato:shell-leave\"))}catch(e){}})()"
+
 // readPageAnswer reads the value RETURN_SCRIPT evaluated to. A page that
 // cannot answer gives null.
 fun readPageAnswer(result: String?): Boolean? = when (result) {

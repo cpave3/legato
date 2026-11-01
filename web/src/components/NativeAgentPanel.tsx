@@ -20,6 +20,7 @@ import { ResourcesButton } from "./ResourcesButton"
 import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
 import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, formatElapsed, queueMessage, unreadQueued, type QueuedMessage } from "../lib/composer"
 import { useTurnClock } from "../hooks/useTurnClock"
+import { usePageInView } from "../hooks/usePageInView"
 import { appendProposal, legatoUICall, onComposerProposal } from "../lib/agentUi"
 import { insertAtCursor, isImagePath } from "../lib/agentImage"
 import { usePastedImages } from "../hooks/usePastedImages"
@@ -215,6 +216,11 @@ interface NativeAgentPanelProps {
 
 export function NativeAgentPanel({ agentId, sandboxed, onKill, onReload, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
+  // Out of view the panel stops following the agent and catches up from its
+  // cursor on return, so a phone with its screen off does not keep receiving
+  // the conversation.
+  const inView = usePageInView()
+  const following = connected && inView
   const { baseUrl } = useServer()
   const [syncState, setSyncState] = useState<NativeSyncState>(() => createNativeSyncState())
   const syncStateRef = useRef(syncState)
@@ -563,7 +569,7 @@ export function NativeAgentPanel({ agentId, sandboxed, onKill, onReload, onDisco
         replaceSyncState({ ...syncStateRef.current, error: "Invalid native event; refresh from snapshot" })
       }
     })
-    if (connected) {
+    if (following) {
       send({ type: "subscribe_agent", agent_id: agentId, cursor: syncStateRef.current.cursor })
       if (hydratedAgentRef.current !== agentId) {
         hydratedAgentRef.current = agentId
@@ -572,9 +578,9 @@ export function NativeAgentPanel({ agentId, sandboxed, onKill, onReload, onDisco
     }
     return () => {
       unsubscribe()
-      if (connected) send({ type: "unsubscribe_agent", agent_id: agentId })
+      if (following) send({ type: "unsubscribe_agent", agent_id: agentId })
     }
-  }, [subscribe, agentId, applyEvent, replaceSyncState, resync, executeBang, connected, send])
+  }, [subscribe, agentId, applyEvent, replaceSyncState, resync, executeBang, following, send])
 
   const handleBuiltinSlash = useCallback(async (raw: string) => {
     const parts = raw.split(/\s+/)

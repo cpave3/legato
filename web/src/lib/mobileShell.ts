@@ -24,6 +24,13 @@ export function onShellReturn(handler: () => void): () => void {
   return () => window.removeEventListener("legato:shell-return", handler)
 }
 
+// The mobile app dispatches this in the page when it goes to the background,
+// just before it pauses the page.
+export function onShellLeave(handler: () => void): () => void {
+  window.addEventListener("legato:shell-leave", handler)
+  return () => window.removeEventListener("legato:shell-leave", handler)
+}
+
 type ShellObject = { approval?: number; enroll?: number; key?: string }
 
 function shell(): { object: ShellObject; post: (message: string) => void } | null {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "../hooks/useWebSocket"
+import { usePageInView } from "../hooks/usePageInView"
 import { AgentSidebar } from "../components/AgentSidebar"
 import { AgentContextMenu } from "../components/AgentContextMenu"
 import { TerminalPanel } from "../components/TerminalPanel"
@@ -82,6 +83,8 @@ function isModifierKey(e: globalThis.KeyboardEvent, mod: string): boolean {
 
 export function AgentsPage() {
   const { send, subscribe, connected, connectionGeneration } = useWebSocket()
+  // Terminals are streamed only while the page is in view.
+  const inView = usePageInView()
   const { baseUrl } = useServer()
   const { states: swarmStates, fetchState } = useSwarmEvents()
   const [agents, setAgents] = useState<AgentInfo[]>([])
@@ -397,7 +400,7 @@ export function AgentsPage() {
   }, [fetchState, selectedParentId, swarmMode])
 
   useEffect(() => {
-    if (!connected) return
+    if (!connected || !inView) return
     const next = new Set(interactiveAgentIds)
     for (const id of subscribedAgentIds.current) {
       if (!next.has(id)) send({ type: "unsubscribe_agent", agent_id: id })
@@ -410,7 +413,7 @@ export function AgentsPage() {
       for (const id of next) send({ type: "unsubscribe_agent", agent_id: id })
       subscribedAgentIds.current = new Set()
     }
-  }, [connected, connectionGeneration, interactiveAgentIds, send])
+  }, [connected, connectionGeneration, inView, interactiveAgentIds, send])
 
   const handleToggleNotify = useCallback(async () => {
     if (!selectedId) return

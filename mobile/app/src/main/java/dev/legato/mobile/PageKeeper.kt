@@ -33,6 +33,13 @@ class PageKeeper(
 
         // The page cannot be shown, and why.
         fun unavailable(reason: String)
+
+        // Tells the page the person has left and pauses it, so it stops
+        // following what it streams and stops using the processor.
+        fun pause()
+
+        // Undoes pause, before the page is asked or reopened.
+        fun resume()
     }
 
     private var lastUrl = baseUrl
@@ -81,11 +88,13 @@ class PageKeeper(
         backgrounded = true
         reopenedAt = 0
         stopWaiting()
+        host.pause()
     }
 
     fun foregrounded() {
         if (!backgrounded) return
         backgrounded = false
+        host.resume()
         val lost = lostInBackground
         lostInBackground = null
         if (lost != null) {

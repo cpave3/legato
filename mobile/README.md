@@ -196,6 +196,17 @@ snapshot, and reconnects its WebSocket at once if the connection dropped while
 the app was away, showing "Reconnecting…" instead of Connection Lost. A page on screen while the person is in the server list counts as in
 the background, so coming back to it does the same.
 
+When the app goes to the background (another app, the server list, or the
+screen turned off), it dispatches `legato:shell-leave` in the page and pauses
+the WebView (`WebView.onPause`); five seconds later it pauses the page's timers
+too (`pauseTimers`). On `legato:shell-leave` the web interface stops following
+the agents it shows: the terminal stream and the native agent panel unsubscribe
+(`usePageInView` in `web/src/hooks/usePageInView.ts`). On return the app resumes
+the WebView before asking the page anything, and the interface subscribes again:
+a native panel from the last event it had, or from its snapshot when the server
+no longer holds what it missed. Before this, a phone with its screen off kept
+receiving a busy agent's whole conversation, about 100 MB an hour.
+
 `adb logcat -s LegatoPage` shows each time Android reclaims the page.
 
 ## Dictation

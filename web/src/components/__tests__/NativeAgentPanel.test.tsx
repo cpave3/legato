@@ -1171,6 +1171,30 @@ describe("NativeAgentPanel", () => {
     expect(subscriptions.at(-1)).toEqual({ type: "subscribe_agent", agent_id: "task-1", cursor: "cursor-1" })
   })
 
+  it("stops following the agent while the page is out of view, and catches up from its cursor", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    await waitFor(() => expect(websocketHandler).toBeDefined())
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "cursor-1", type: "assistant_text_done", id: "reply", text: "Received" }),
+    }))
+    send.mockClear()
+
+    act(() => { window.dispatchEvent(new Event("legato:shell-leave")) })
+    expect(send).toHaveBeenCalledWith({ type: "unsubscribe_agent", agent_id: "task-1" })
+    expect(send.mock.calls.some(([message]) => message.type === "subscribe_agent")).toBe(false)
+
+    send.mockClear()
+    act(() => { window.dispatchEvent(new Event("legato:shell-return")) })
+    const subscriptions = send.mock.calls.map(([message]) => message).filter((message) => message.type === "subscribe_agent")
+    expect(subscriptions).toEqual([{ type: "subscribe_agent", agent_id: "task-1", cursor: "cursor-1" }])
+  })
+
   it("repairs from snapshot when the server cannot replay its cursor", async () => {
     let snapshotText = "Before repair"
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")

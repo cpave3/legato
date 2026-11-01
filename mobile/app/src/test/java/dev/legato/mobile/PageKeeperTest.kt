@@ -17,6 +17,12 @@ private class FakePage : PageKeeper.Host {
     // false: the page is running but has nothing on screen.
     var rendered = true
 
+    // true: the page was told the person left and is paused, its timers
+    // with it. Pausing timers holds every page of the app, a reopened one too,
+    // and a paused page answers nothing.
+    var paused = false
+    var leaves = 0
+
     var now = 1_000_000L
     private val timers = mutableListOf<Pair<Long, () -> Unit>>()
 
@@ -26,7 +32,7 @@ private class FakePage : PageKeeper.Host {
     }
 
     override fun ask(answer: (Boolean?) -> Unit) {
-        if (!alive) return
+        if (!alive || paused) return
         events += "legato:shell-return"
         answer(rendered)
     }
@@ -39,6 +45,15 @@ private class FakePage : PageKeeper.Host {
 
     override fun unavailable(reason: String) {
         unavailable += reason
+    }
+
+    override fun pause() {
+        if (alive) leaves++
+        paused = true
+    }
+
+    override fun resume() {
+        paused = false
     }
 
     fun timePasses(ms: Long = 60_000) {
@@ -241,5 +256,28 @@ class PageKeeperTest {
         keeper.foregrounded()
 
         assertEquals(emptyList<String>(), page.events)
+    }
+
+    @Test
+    fun `pauses the page while the app is in the background, and resumes it on return`() {
+        keeper.backgrounded()
+        assertEquals(true, page.paused)
+        assertEquals(1, page.leaves)
+
+        keeper.foregrounded()
+        assertEquals(false, page.paused)
+        assertEquals(listOf("legato:shell-return"), page.events)
+        page.timePasses()
+        assertEquals(listOf(server), page.opened)
+    }
+
+    @Test
+    fun `resumes before reopening a page lost in the background`() {
+        keeper.backgrounded()
+        keeper.rendererLost("$server/agents")
+        keeper.foregrounded()
+
+        assertEquals(false, page.paused)
+        assertEquals(listOf(server, "$server/agents"), page.opened)
     }
 }
