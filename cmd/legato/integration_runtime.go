@@ -31,6 +31,11 @@ type integrationDeps struct {
 func wireIntegrations(srv *server.Server, deps integrationDeps) (stop func()) {
 	srv.SetIntegrationAuth(service.NewIntegrationTokenService(deps.db))
 	srv.SetOwnerLookup(service.NewOwnerLookupService(deps.db, deps.agents, deps.cfg.Web.PublicURL))
+	var argus *service.ArgusSettings
+	if a := deps.cfg.Integrations.Argus; a != nil {
+		argus = &service.ArgusSettings{URL: a.URL, Delivery: a.Delivery, Agent: a.Agent}
+	}
+	srv.SetIntegrationOverview(service.NewIntegrationOverview(deps.db, argus))
 	ctx, cancel := context.WithCancel(context.Background())
 	if deps.cfg.Integrations.Argus != nil && deps.approvals != nil && deps.approvals.caseAttention != nil {
 		srv.SetCaseAttention(deps.approvals.caseAttention)

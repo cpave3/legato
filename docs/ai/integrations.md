@@ -174,6 +174,14 @@ While an open case targets a tracked PR (same repository and number), the `pull_
 
 `GET /api/tasks/{id}/activity` has `delegations`: each with its case, mode, route, state, `enforced`, error, brief and the agent's `replies` (outcome, text, state). The web UI does not show them yet.
 
+## In the web UI's settings
+
+The Integrations group of Settings (`/settings#integrations`, where the `integration_disconnected` Attention item leads) shows Argus and the tokens. It reads `GET /api/settings/integrations` (`service.IntegrationOverview`), which only the full web token reaches: it is outside `/api/integrations/`. It answers:
+- `tokens`: name, scopes, created, last used and revoked, never a token or its hash;
+- `argus`: `configured`, `url`, `delivery`, `agent`, the connection (`state` none, connected or disconnected, `connected_at`, replies by state) and `open_cases`.
+
+It only shows: tokens are made and revoked with `legato integration token`, and the connection with `legato integration connect argus`.
+
 ## Configuration
 
 ```yaml
@@ -196,6 +204,7 @@ Argus trusts Legato's self-signed CA through `NODE_EXTRA_CA_CERTS=<data_dir>/cer
 | `internal/engine/store/integration_attention.go`, migration `077_integration_attention.sql` | Argus's cases for Attention |
 | `internal/engine/oauthclient` | Discovery, registration, PKCE with a loopback listener or a pasted address, exchange, refresh. Knows nothing of Legato |
 | `internal/service/integration_tokens.go`, `owner_lookup.go`, `delegations.go`, `delegations_approval.go`, `case_replies.go`, `integration_connect.go`, `attention_integrations.go`, `case_attention.go` | The services; `attention_pr.go` leaves out what a case says |
-| `internal/server/integrations.go` | Scoped-token middleware, the routes, error codes |
+| `internal/server/integrations.go` | Scoped-token middleware, the routes, error codes, the settings overview |
+| `internal/service/integration_overview.go`, `web/src/components/IntegrationsSettings.tsx` | What Settings shows of integrations |
 | `internal/cli/mcp_reply.go` | `reply_case` |
 | `cmd/legato/integration_runtime.go`, `integration_contract.go` | Wiring in both runtimes, the commands |

@@ -186,6 +186,17 @@ describe("AttentionPage", () => {
     expect(screen.getByRole("button", { name: "Less" })).toBeTruthy()
   })
 
+  it("opens the links in a detail in a new tab, and drops script links", async () => {
+    mockData = [item({ detail: "**Links:**\n- [Pull request acme/widget#12](https://github.com/acme/widget/pull/12)\n- [Bad](javascript:alert(1))" })]
+    const { AttentionPage } = await import("../AttentionPage")
+    render(<MemoryRouter><AttentionPage /></MemoryRouter>)
+    const pr = screen.getByRole("link", { name: "Pull request acme/widget#12" })
+    expect(pr.getAttribute("href")).toBe("https://github.com/acme/widget/pull/12")
+    expect(pr.getAttribute("target")).toBe("_blank")
+    expect(pr.getAttribute("rel")).toContain("noreferrer")
+    expect(screen.getByText("Bad").closest("a")?.getAttribute("href") ?? "").not.toContain("javascript")
+  })
+
   it("leaves a short detail unfolded", async () => {
     mockData = [item({ detail: "Short and plain." })]
     const { AttentionPage } = await import("../AttentionPage")

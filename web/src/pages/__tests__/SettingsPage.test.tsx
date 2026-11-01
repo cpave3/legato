@@ -21,6 +21,9 @@ vi.mock("../../hooks/useServer", () => ({
 vi.mock("../../hooks/useSettings", () => ({ useSettings: () => useSettings() }))
 vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast }) }))
 vi.mock("../../lib/api", () => ({ apiFetch: vi.fn() }))
+vi.mock("../../lib/integrations", () => ({
+  fetchIntegrations: () => Promise.resolve({ tokens: [], argus: { configured: false, connection: { state: "none", replies: {} }, open_cases: 0 } }),
+}))
 
 const mockedApiFetch = vi.mocked(apiFetch)
 
@@ -124,12 +127,14 @@ describe("SettingsPage layout", () => {
   it("groups settings by what they are about, in order", () => {
     renderPage()
     const groups = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)
-    expect(groups).toEqual(["Agents", "Security", "Connection", "Appearance"])
+    expect(groups).toEqual(["Agents", "Security", "Integrations", "Connection", "Appearance"])
   })
 
-  it("puts each setting in its group", () => {
+  it("puts each setting in its group", async () => {
     renderPage()
     const group = (name: string) => screen.getByRole("region", { name })
+    expect(await within(group("Integrations")).findByRole("region", { name: "Argus" })).toBeTruthy()
+    expect(within(group("Integrations")).getByRole("region", { name: "Integration tokens" })).toBeTruthy()
     expect(within(group("Agents")).getByText("Prompt detection")).toBeTruthy()
     expect(within(group("Agents")).getByText("Agent switch key")).toBeTruthy()
     expect(group("Agents").querySelector("#resources")).toBeTruthy()
@@ -153,7 +158,7 @@ describe("SettingsPage layout", () => {
     renderPage()
     const nav = screen.getAllByRole("navigation", { name: "Settings sections" })[0]
     const links = within(nav).getAllByRole("button").map((b) => b.textContent)
-    expect(links).toEqual(["Agents", "Security", "Connection", "Appearance"])
+    expect(links).toEqual(["Agents", "Security", "Integrations", "Connection", "Appearance"])
     fireEvent.click(within(nav).getByRole("button", { name: "Security" }))
     expect(scroll).toHaveBeenCalled()
   })

@@ -105,3 +105,34 @@ func TestTheAttentionRoutesAnswerErrorsWithTheirStatus(t *testing.T) {
 		t.Errorf("without the service = %d %v", status, body)
 	}
 }
+
+type fakeOverview struct{}
+
+func (fakeOverview) Overview(context.Context) (service.IntegrationsOverview, error) {
+	return service.IntegrationsOverview{Argus: service.ArgusOverview{Configured: true, URL: "http://localhost:5173"}}, nil
+}
+
+func TestTheSettingsShowIntegrationsToTheFullTokenOnly(t *testing.T) {
+	srv := caseAttentionServer(t, nil)
+	get := func(token string) (int, map[string]any) {
+		req := httptest.NewRequest("GET", "/api/settings/integrations", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		var out map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+		return w.Code, out
+	}
+	if status, _ := get("full-token"); status != 503 {
+		t.Fatalf("without the overview = %d", status)
+	}
+	srv.SetIntegrationOverview(fakeOverview{})
+	status, body := get("full-token")
+	argus, _ := body["argus"].(map[string]any)
+	if status != 200 || argus["url"] != "http://localhost:5173" {
+		t.Fatalf("overview = %d %v", status, body)
+	}
+	if status, _ := get("lgi_attention"); status != 403 {
+		t.Fatalf("a scoped token read the overview: %d", status)
+	}
+}

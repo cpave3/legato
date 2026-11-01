@@ -39,6 +39,15 @@ type CaseAttention interface {
 // SetCaseAttention serves the attention routes. Without it they answer 503.
 func (s *Server) SetCaseAttention(c CaseAttention) { s.caseAttention = c }
 
+// IntegrationOverview is what the settings show of integrations.
+type IntegrationOverview interface {
+	Overview(ctx context.Context) (service.IntegrationsOverview, error)
+}
+
+// SetIntegrationOverview serves GET /api/settings/integrations, for the full
+// token only: it is outside /api/integrations/, where scoped tokens reach.
+func (s *Server) SetIntegrationOverview(o IntegrationOverview) { s.integrationOverview = o }
+
 // IntegrationAuthenticator checks an integration's scoped token.
 type IntegrationAuthenticator interface {
 	Authenticate(ctx context.Context, token string) (service.IntegrationIdentity, error)
@@ -108,6 +117,22 @@ func (s *Server) registerIntegrationRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/integrations/attention/{key}", s.integrationCaseUpsertHandler())
 	mux.HandleFunc("POST /api/integrations/attention/{key}/resolve", s.integrationCaseResolveHandler())
 	mux.HandleFunc("POST /api/integrations/attention/sync", s.integrationCaseSyncHandler())
+	mux.HandleFunc("GET /api/settings/integrations", s.integrationOverviewHandler())
+}
+
+func (s *Server) integrationOverviewHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.integrationOverview == nil {
+			writeJSONError(w, http.StatusServiceUnavailable, "integrations are not available on this server")
+			return
+		}
+		overview, err := s.integrationOverview.Overview(r.Context())
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSONValue(w, http.StatusOK, overview)
+	}
 }
 
 func unavailable(w http.ResponseWriter, what string) {

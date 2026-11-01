@@ -7,6 +7,7 @@ import { PairDeviceDialog } from "../components/PairDeviceDialog"
 import { ResourcesSettings } from "../components/ResourcesSettings"
 import { CredentialsSettings } from "../components/CredentialsSettings"
 import { DevicesSettings } from "../components/DevicesSettings"
+import { IntegrationsSettings } from "../components/IntegrationsSettings"
 import { ApprovalNotificationSettings } from "../components/ApprovalNotificationSettings"
 import { SettingsCard, SettingsGroup, SettingsRow, SettingsRows, Toggle, BrowserTag, primaryButton, quietButton } from "../components/settings/SettingsUI"
 import { useSettings } from "../hooks/useSettings"
@@ -119,6 +120,7 @@ export function SettingsPage() {
   const groups: Group[] = [
     { id: "agents", title: "Agents" },
     { id: "security", title: "Security" },
+    { id: "integrations", title: "Integrations" },
     { id: "connection", title: "Connection" },
     { id: "appearance", title: "Appearance" },
     ...(settings.data?.hot_reload_enabled ? [{ id: "development", title: "Development" }] : []),
@@ -223,6 +225,10 @@ export function SettingsPage() {
             <ApprovalNotificationSettings />
             <DevicesSettings baseUrl={baseUrl} />
             <CredentialsSettings baseUrl={baseUrl} />
+          </SettingsGroup>
+
+          <SettingsGroup id="integrations" title="Integrations" description="Services outside Legato that look up and hand work to agents, and the tokens they use.">
+            <IntegrationsSettings baseUrl={baseUrl} />
           </SettingsGroup>
 
           <SettingsGroup id="connection" title="Connection" description="The servers this browser talks to, pairing, and trusting this server's certificate.">
