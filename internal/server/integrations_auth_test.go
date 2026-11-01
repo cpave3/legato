@@ -25,8 +25,9 @@ func integrationTestServer(t *testing.T) http.Handler {
 	srv := New(&mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}, nil, nil, ":0")
 	srv.SetAuthToken("full-token")
 	srv.SetIntegrationAuth(fakeIntegrationAuth{
-		"lgi_both":  {Name: "argus", Scopes: []string{service.ScopeOwnerRead, service.ScopeDelegate}},
-		"lgi_owner": {Name: "argus", Scopes: []string{service.ScopeOwnerRead}},
+		"lgi_both":      {Name: "argus", Scopes: []string{service.ScopeOwnerRead, service.ScopeDelegate}},
+		"lgi_owner":     {Name: "argus", Scopes: []string{service.ScopeOwnerRead}},
+		"lgi_attention": {Name: "argus", Scopes: []string{service.ScopeAttention}},
 	})
 	return srv.Handler()
 }
@@ -58,6 +59,10 @@ func TestAScopedTokenReachesOnlyIntegrationRoutes(t *testing.T) {
 		{"status needs delegate", "GET", "/api/integrations/delegations/dl-1", "lgi_owner", 403, "missing_scope"},
 		{"messages need delegate", "POST", "/api/integrations/delegations/dl-1/messages", "lgi_owner", 403, "missing_scope"},
 		{"delegate with its scope passes auth", "POST", "/api/integrations/delegations", "lgi_both", 503, "unavailable"},
+		{"attention upsert needs its scope", "PUT", "/api/integrations/attention/case-1", "lgi_both", 403, "missing_scope"},
+		{"attention resolve needs its scope", "POST", "/api/integrations/attention/case-1/resolve", "lgi_both", 403, "missing_scope"},
+		{"attention sync needs its scope", "POST", "/api/integrations/attention/sync", "lgi_both", 403, "missing_scope"},
+		{"attention with its scope passes auth", "PUT", "/api/integrations/attention/case-1", "lgi_attention", 503, "unavailable"},
 		{"unknown scoped token", "GET", "/api/integrations/owner?repo=a/b&pr=1", "lgi_unknown", 401, "unauthorized"},
 		{"no token on an integration route", "GET", "/api/integrations/owner?repo=a/b&pr=1", "", 401, "unauthorized"},
 		{"full token on an integration route", "GET", "/api/integrations/owner?repo=a/b&pr=1", "full-token", 503, "unavailable"},

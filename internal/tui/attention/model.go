@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/clipboard"
 	"github.com/cpave3/legato/internal/tui/hotkey"
 )
 
@@ -23,6 +24,9 @@ type queueMsg struct {
 type actionMsg struct {
 	err error
 }
+
+// openedMsg says whether an item's page outside Legato opened.
+type openedMsg struct{ err error }
 type ChangedMsg struct{}
 type ReturnToBoardMsg struct{}
 
@@ -33,9 +37,11 @@ type Model struct {
 	err           error
 	info          string
 	width, height int
+	// openURL opens an integration's page (a case in Argus) in the browser.
+	openURL func(string) error
 }
 
-func New(svc Service) Model { return Model{svc: svc} }
+func New(svc Service) Model { return Model{svc: svc, openURL: clipboard.OpenURL} }
 
 func (m *Model) SetSize(w, h int) {
 	m.width = w
@@ -72,6 +78,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 			m.info = "Done"
 			return m, m.loadQueue()
 		}
+	case openedMsg:
+		m.err = x.err
+		if x.err == nil {
+			m.info = "Opened in the browser"
+		}
 	case ChangedMsg:
 		return m, m.loadQueue()
 	case tea.KeyMsg:
@@ -106,6 +117,11 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 				if action.Kind == "execute" {
 					return m, m.executeAction(item, action)
 				}
+			}
+			// An integration's item opens its own page.
+			if item.Navigation.Kind == "external" && m.openURL != nil {
+				url, open := item.Navigation.Target, m.openURL
+				return m, func() tea.Msg { return openedMsg{err: open(url)} }
 			}
 		}
 	case hotkey.ActionAttentionDismiss:

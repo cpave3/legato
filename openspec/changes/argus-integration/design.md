@@ -55,7 +55,7 @@ What Legato has today that this builds on:
 
   A task's rank is the best rule it matches. Within a rank, tasks with a live agent come first, then the most recently updated. PR discovery runs every 10 minutes, so a new PR is usually found by its branch or commit first.
 - **Answer.** 200 `{matches: [ {task, agents, worktree, pr, match} ]}`, best first, or 404 `not_found`:
-  - `task`: `{id, title, status, url}`. `status` is the column name. `url` is `<web.public_url>/board?task=<id>` and is left out when `web.public_url` is not set.
+  - `task`: `{id, title, status, url}`. `status` is the column name. `url` is `<web.public_url>/board?highlight_task=<id>` and is left out when `web.public_url` is not set.
   - `agents`: `[{id, kind, state}]`, the task's agent sessions (at most one today). `id` is the execution ID (`ex-…`). `kind` is `claude-code`, `codex`, `chimera` or another adapter's name. `state` is one of:
     - `working`, `waiting` (needs the person: a permission or a question), `idle`, `error`, from the running session's activity;
     - `stopped`: no running session, but a saved conversation it can resume.

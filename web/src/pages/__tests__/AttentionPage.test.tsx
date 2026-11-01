@@ -147,6 +147,53 @@ describe("AttentionPage", () => {
     expect(screen.getByText("No known merge blockers")).toBeTruthy()
   })
 
+  it("shows Argus's cases with a link to the case and to the task that owns it", async () => {
+    mockData = [
+      item({
+        id: "att-case", producer: "argus", signal_kind: "argus_case", category: "argus",
+        title: "CI failing: acme/widget#12", reason: "real failure", task_id: "task-1",
+        navigation: { kind: "external", target: "https://argus.lan/cases/1" }, actions: [],
+      }),
+      item({
+        id: "att-needs", producer: "argus", signal_kind: "argus_needs_you", category: "argus",
+        title: "Rerun proposed", reason: "waiting for you",
+        navigation: { kind: "external", target: "https://argus.lan/cases/2" }, actions: [],
+      }),
+    ]
+    const { AttentionPage } = await import("../AttentionPage")
+    render(<MemoryRouter><AttentionPage /></MemoryRouter>)
+    const merge = screen.getByRole("region", { name: /Merge blockers/ })
+    const intervention = screen.getByRole("region", { name: /Needs intervention/ })
+    expect(within(intervention).getByText("Rerun proposed")).toBeTruthy()
+    const card = within(merge).getByText("CI failing: acme/widget#12").closest("li") as HTMLElement
+    const open = within(card).getByRole("link", { name: /Open in Argus/ })
+    expect(open.getAttribute("href")).toBe("https://argus.lan/cases/1")
+    expect(open.getAttribute("target")).toBe("_blank")
+    expect(open.getAttribute("rel")).toBe("noopener noreferrer")
+    expect(within(card).getByRole("link", { name: /Open task/ }).getAttribute("href")).toBe("/board?highlight_task=task-1")
+    const unattached = within(intervention).getByText("Rerun proposed").closest("li") as HTMLElement
+    expect(within(unattached).queryByRole("link", { name: /Open task/ })).toBeNull()
+  })
+
+  it("shows an item's detail as Markdown without raw HTML, folded when long", async () => {
+    const long = ["**Flaky** at 0.8.", "", "- rerun proposed", "- waiting on you", "", "Line five", "", "Line six", "<img src=x onerror=alert(1)>"].join("\n")
+    mockData = [item({ detail: long })]
+    const { AttentionPage } = await import("../AttentionPage")
+    const { container } = render(<MemoryRouter><AttentionPage /></MemoryRouter>)
+    expect(screen.getByText("Flaky").tagName).toBe("STRONG")
+    expect(container.querySelector("img")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "More" }))
+    expect(screen.getByRole("button", { name: "Less" })).toBeTruthy()
+  })
+
+  it("leaves a short detail unfolded", async () => {
+    mockData = [item({ detail: "Short and plain." })]
+    const { AttentionPage } = await import("../AttentionPage")
+    render(<MemoryRouter><AttentionPage /></MemoryRouter>)
+    expect(screen.getByText("Short and plain.")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "More" })).toBeNull()
+  })
+
   it("renders loading and source errors", async () => {
     const { AttentionPage } = await import("../AttentionPage")
     mockLoading = true

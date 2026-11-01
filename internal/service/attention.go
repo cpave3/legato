@@ -61,6 +61,8 @@ var defaultAttentionSignals = []string{
 	AttentionSignalDelegationFailed,
 	AttentionSignalCaseReplyFailed,
 	AttentionSignalIntegrationDisconnected,
+	AttentionSignalArgusCase,
+	AttentionSignalArgusNeedsYou,
 }
 
 var knownAttentionSignals = map[string]bool{
@@ -82,6 +84,8 @@ var knownAttentionSignals = map[string]bool{
 	AttentionSignalDelegationFailed:            true,
 	AttentionSignalCaseReplyFailed:             true,
 	AttentionSignalIntegrationDisconnected:     true,
+	AttentionSignalArgusCase:                   true,
+	AttentionSignalArgusNeedsYou:               true,
 }
 
 type AttentionInput struct {
@@ -220,6 +224,14 @@ func (s *AttentionService) RegisterProducerWithEvents(producer AttentionProducer
 		s.eventToProducers[eventType] = append(s.eventToProducers[eventType], producer.Producer())
 	}
 	return nil
+}
+
+// HasProducer says whether a producer of that name is registered.
+func (s *AttentionService) HasProducer(name string) bool {
+	s.producerMu.RLock()
+	defer s.producerMu.RUnlock()
+	_, ok := s.producers[name]
+	return ok
 }
 
 func (s *AttentionService) RegisterHandler(producer string, handler AttentionActionHandler) error {

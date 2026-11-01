@@ -25,12 +25,16 @@ type integrationDeps struct {
 
 // wireIntegrations gives a web server what integrations (Argus) use on
 // /api/integrations/: scoped tokens, owner lookup and, with
-// integrations.argus configured, delegations. It is called for both web
+// integrations.argus configured, delegations and Argus's cases in
+// Attention. It is called for both web
 // servers. See docs/ai/integrations.md.
 func wireIntegrations(srv *server.Server, deps integrationDeps) (stop func()) {
 	srv.SetIntegrationAuth(service.NewIntegrationTokenService(deps.db))
 	srv.SetOwnerLookup(service.NewOwnerLookupService(deps.db, deps.agents, deps.cfg.Web.PublicURL))
 	ctx, cancel := context.WithCancel(context.Background())
+	if deps.cfg.Integrations.Argus != nil && deps.approvals != nil && deps.approvals.caseAttention != nil {
+		srv.SetCaseAttention(deps.approvals.caseAttention)
+	}
 	if delegations := newDelegationService(deps); delegations != nil {
 		srv.SetDelegations(delegations)
 		// A delegation a stopped Legato accepted and never delivered is

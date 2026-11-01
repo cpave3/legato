@@ -29,6 +29,16 @@ type Delegations interface {
 // SetDelegations serves the delegation routes. Without it they answer 503.
 func (s *Server) SetDelegations(d Delegations) { s.delegations = d }
 
+// CaseAttention keeps Argus's cases in Attention.
+type CaseAttention interface {
+	Upsert(ctx context.Context, integration, key string, push service.CasePush) (service.CaseAttentionResult, error)
+	Resolve(ctx context.Context, integration, key, revision, reason string) error
+	Sync(ctx context.Context, integration string, keys []string) (int, error)
+}
+
+// SetCaseAttention serves the attention routes. Without it they answer 503.
+func (s *Server) SetCaseAttention(c CaseAttention) { s.caseAttention = c }
+
 // IntegrationAuthenticator checks an integration's scoped token.
 type IntegrationAuthenticator interface {
 	Authenticate(ctx context.Context, token string) (service.IntegrationIdentity, error)
@@ -55,6 +65,9 @@ func isIntegrationPath(path string) bool { return strings.HasPrefix(path, integr
 func integrationScope(path string) string {
 	if strings.HasPrefix(path, integrationPrefix+"owner") {
 		return service.ScopeOwnerRead
+	}
+	if strings.HasPrefix(path, integrationPrefix+"attention") {
+		return service.ScopeAttention
 	}
 	return service.ScopeDelegate
 }
@@ -92,6 +105,9 @@ func (s *Server) registerIntegrationRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/integrations/delegations", s.integrationDelegateHandler())
 	mux.HandleFunc("GET /api/integrations/delegations/{id}", s.integrationDelegationStatusHandler())
 	mux.HandleFunc("POST /api/integrations/delegations/{id}/messages", s.integrationDelegationMessageHandler())
+	mux.HandleFunc("PUT /api/integrations/attention/{key}", s.integrationCaseUpsertHandler())
+	mux.HandleFunc("POST /api/integrations/attention/{key}/resolve", s.integrationCaseResolveHandler())
+	mux.HandleFunc("POST /api/integrations/attention/sync", s.integrationCaseSyncHandler())
 }
 
 func unavailable(w http.ResponseWriter, what string) {
@@ -152,12 +168,16 @@ func writeDelegationError(w http.ResponseWriter, err error) {
 	switch de.Code {
 	case "bad_request":
 		status = http.StatusBadRequest
+	case "forbidden":
+		status = http.StatusForbidden
 	case "not_found", "unknown_task":
 		status = http.StatusNotFound
-	case "unknown_repo", "no_checkout", "not_resumable":
+	case "unknown_repo", "no_checkout", "not_resumable", "invalid_link":
 		status = http.StatusUnprocessableEntity
 	case "idempotency_conflict", "not_delivered", "closed":
 		status = http.StatusConflict
+	case "unavailable":
+		status = http.StatusServiceUnavailable
 	}
 	writeIntegrationError(w, status, de.Code, de.Message)
 }
@@ -242,5 +262,76 @@ func (s *Server) integrationDelegationMessageHandler() http.HandlerFunc {
 			code = http.StatusCreated
 		}
 		s.writeJSON(w, code, status)
+	}
+}
+
+// decodeCaseBody reads a JSON body of at most limit bytes.
+func decodeCaseBody(w http.ResponseWriter, r *http.Request, limit int64, v any) bool {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(v); err != nil {
+		writeIntegrationError(w, http.StatusBadRequest, "bad_request", "the body must be JSON of at most "+strconv.FormatInt(limit>>10, 10)+" KiB: "+err.Error())
+		return false
+	}
+	return true
+}
+
+func (s *Server) integrationCaseUpsertHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.caseAttention == nil {
+			unavailable(w, "the Argus integration")
+			return
+		}
+		var push service.CasePush
+		if !decodeIntegrationBody(w, r, &push) {
+			return
+		}
+		res, err := s.caseAttention.Upsert(r.Context(), requestIntegration(r), r.PathValue("key"), push)
+		if err != nil {
+			writeDelegationError(w, err)
+			return
+		}
+		writeJSONValue(w, http.StatusOK, res)
+	}
+}
+
+func (s *Server) integrationCaseResolveHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.caseAttention == nil {
+			unavailable(w, "the Argus integration")
+			return
+		}
+		var body struct {
+			Revision string `json:"revision"`
+			Reason   string `json:"reason"`
+		}
+		if !decodeIntegrationBody(w, r, &body) {
+			return
+		}
+		if err := s.caseAttention.Resolve(r.Context(), requestIntegration(r), r.PathValue("key"), body.Revision, body.Reason); err != nil {
+			writeDelegationError(w, err)
+			return
+		}
+		writeJSONValue(w, http.StatusOK, map[string]string{"status": "resolved"})
+	}
+}
+
+func (s *Server) integrationCaseSyncHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.caseAttention == nil {
+			unavailable(w, "the Argus integration")
+			return
+		}
+		var body struct {
+			Keys []string `json:"keys"`
+		}
+		// 10,000 keys of about 45 bytes each.
+		if !decodeCaseBody(w, r, 512<<10, &body) {
+			return
+		}
+		n, err := s.caseAttention.Sync(r.Context(), requestIntegration(r), body.Keys)
+		if err != nil {
+			writeDelegationError(w, err)
+			return
+		}
+		writeJSONValue(w, http.StatusOK, map[string]int{"resolved": n})
 	}
 }

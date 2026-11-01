@@ -1,10 +1,11 @@
 # Integrations (Argus)
 
-Services outside Legato can look up who owns work, hand that work to a task's agent, and hear back from the agent. Argus, the person's operations service, is the first. It opens cases when CI fails and delegates them to the agent that owns the pull request. The contract was agreed with Argus's side. Argus documents it as `design.md` § D19 in its own repository, and Legato's change is `openspec/changes/argus-integration`.
+Services outside Legato can look up who owns work, hand that work to a task's agent, hear back from the agent, and show their cases in Attention. Argus, the person's operations service, is the first. It opens cases when CI fails and delegates them to the agent that owns the pull request. The contract was agreed with Argus's side. Argus documents it as `design.md` § D12 and § D19 in its own repository. Legato's changes are `openspec/changes/argus-integration` and `openspec/changes/argus-attention`.
 
 ```
 Argus ──(lgi_ token)──► /api/integrations/owner              who owns acme/widget#12?
       ──(lgi_ token)──► /api/integrations/delegations        here is a brief
+      ──(lgi_ token)──► /api/integrations/attention/{key}    this case needs Cameron
                               │ message / resume / start
                               ▼
                         the task's agent ──reply_case──► outbox ──(OAuth, argus:reply)──► Argus /api/cases/{id}/replies
@@ -12,7 +13,7 @@ Argus ──(lgi_ token)──► /api/integrations/owner              who owns 
 
 ## Scoped tokens
 
-`legato integration token create argus --scope owner:read,delegate` prints a token once (`lgi_` and 52 base32 characters). The database keeps only its SHA-256 (`integration_tokens`). `token list` shows names, scopes and dates; `token revoke <name>` stops it at once. A name is unique among tokens that are not revoked.
+`legato integration token create argus --scope owner:read,delegate,attention` prints a token once (`lgi_` and 52 base32 characters). The database keeps only its SHA-256 (`integration_tokens`). `token list` shows names, scopes and dates; `token revoke <name>` stops it at once. A name is unique among tokens that are not revoked.
 
 The auth middleware (`internal/server/integrations.go`) lets a bearer token starting `lgi_` reach `/api/integrations/*` only:
 
@@ -20,7 +21,7 @@ The auth middleware (`internal/server/integrations.go`) lets a bearer token star
 - any other path gets 403 `forbidden`;
 - a route whose scope it lacks gets 403 `missing_scope`.
 
-The owner route needs `owner:read`; everything else needs `delegate`. The WebSocket never takes one. The full web token works on the integration routes too, and acts as Argus there. A request made with a scoped token carries its integration's name in its context (`integrationFrom`).
+The owner route needs `owner:read`, the attention routes `attention`, and everything else `delegate`. The WebSocket never takes one. The full web token works on the integration routes too, and acts as Argus there. A request made with a scoped token carries its integration's name in its context (`integrationFrom`).
 
 Integration routes answer errors as `{"error": "<code>", "message": "<text>"}`. The other routes keep `{"error": "<message>"}`.
 
@@ -150,6 +151,25 @@ Producer `integrations` (`service.IntegrationAttentionAdapter`, reconciled on `E
 - `case_reply_failed`: a reply Argus refused or never took, opening the task;
 - `integration_disconnected`: Argus refused Legato's tokens, urgency high, saying to connect again.
 
+## Cases in Attention
+
+Argus pushes one Attention item per open case (`service.CaseAttentionService`, table `integration_attention`). Only the integration named `argus` may push; other tokens get 403 `forbidden`.
+
+- **`PUT /api/integrations/attention/{key}`** takes `{revision, signal, title, reason, detail, urgency, target: {repo, pr, branch, sha}, link}`.
+  - The key is `case-` and up to 96 letters, digits and dashes.
+  - `signal` is `argus_case` or `argus_needs_you`; `urgency` is `low`, `normal` or `high`.
+  - `link` must be on the origin of `integrations.argus.url` (https, or http to loopback), else 422 `invalid_link`.
+  - Title (200 characters), reason (its first line, 300 characters) and detail (4 KiB) are cut with `…`, never refused.
+  - It answers `{itemId, taskId, status}`; `status` is the Attention item's `open`, `dismissed` or `resolved`, and `itemId` is absent until the item exists.
+- **`POST …/attention/{key}/resolve`** `{revision, reason}` closes it and records the revision; an unknown key is 404 `not_found`. An upsert at that same revision then changes nothing, so a late retry cannot reopen a closed case. Another revision reopens it.
+- **`POST …/attention/sync`** `{keys}` (at most 10,000; body up to 512 KiB) resolves every open item not listed, at its current revision, and answers `{resolved: n}`. One invalid key refuses the call. Argus re-upserts its open cases and then syncs, at startup and hourly.
+
+The producer `argus` (category `argus`) shows the open rows. At each reconcile it runs owner lookup on the target and puts the item on the best task and its workspace, so an item attaches when a task later takes on the PR. With no target or no match, the item has no task. It reconciles after every push, on `EventPRStatusUpdated` and `EventCardsRefreshed`, and at startup. It is registered without `integrations.argus` too, and then shows nothing, so removing Argus resolves its items. Revoking the token does not.
+
+Its navigation is `{kind: "external", target: link}`, and it has no actions: proposals are accepted in Argus. The web dashboard puts `argus_case` in Merge blockers and `argus_needs_you` in Needs intervention, with "Open in Argus" (a new tab) and, for an item on a task, "Open task". The TUI's Enter opens the link in the browser.
+
+While an open case targets a tracked PR (same repository and number), the `pull_requests` producer leaves "CI failing" out of that PR's item, and raises none when that was its only reason. Its revision gains `:argus`. When the case closes, the PR's own item comes back.
+
 ## Task activity
 
 `GET /api/tasks/{id}/activity` has `delegations`: each with its case, mode, route, state, `enforced`, error, brief and the agent's `replies` (outcome, text, state). The web UI does not show them yet.
@@ -164,7 +184,7 @@ integrations:
     agent: claude-code       # claude-code | codex | chimera
 ```
 
-Without the block, owner lookup and tokens still work. The delegation routes answer 503 `unavailable`, `reply_case` is not offered, and nothing is sent.
+Without the block, owner lookup and tokens still work. The delegation and attention routes answer 503 `unavailable`, `reply_case` is not offered, and nothing is sent.
 
 Argus trusts Legato's self-signed CA through `NODE_EXTRA_CA_CERTS=<data_dir>/certs/ca.pem`, or reaches it through the person's proxy.
 
@@ -173,8 +193,9 @@ Argus trusts Legato's self-signed CA through `NODE_EXTRA_CA_CERTS=<data_dir>/cer
 | Where | What |
 |---|---|
 | `internal/engine/store/integration_tokens.go`, `delegations.go`, `case_replies.go`, migration `076_integrations.sql` | Tokens, delegations and messages, the connection, the outbox, `executions.read_only` |
+| `internal/engine/store/integration_attention.go`, migration `077_integration_attention.sql` | Argus's cases for Attention |
 | `internal/engine/oauthclient` | Discovery, registration, PKCE with a loopback listener or a pasted address, exchange, refresh. Knows nothing of Legato |
-| `internal/service/integration_tokens.go`, `owner_lookup.go`, `delegations.go`, `delegations_approval.go`, `case_replies.go`, `integration_connect.go`, `attention_integrations.go` | The services |
+| `internal/service/integration_tokens.go`, `owner_lookup.go`, `delegations.go`, `delegations_approval.go`, `case_replies.go`, `integration_connect.go`, `attention_integrations.go`, `case_attention.go` | The services; `attention_pr.go` leaves out what a case says |
 | `internal/server/integrations.go` | Scoped-token middleware, the routes, error codes |
 | `internal/cli/mcp_reply.go` | `reply_case` |
 | `cmd/legato/integration_runtime.go`, `integration_contract.go` | Wiring in both runtimes, the commands |

@@ -30,3 +30,13 @@ describe("legatoHref", () => {
     expect(legatoHref({ kind: "unknown", target: "x" })).toBeNull()
   })
 })
+
+describe("externalHref", () => {
+  it("gives an external navigation's http(s) address and nothing else", async () => {
+    const { externalHref } = await import("../navigation")
+    expect(externalHref({ kind: "external", target: "https://argus.lan/cases/1" })).toBe("https://argus.lan/cases/1")
+    expect(externalHref({ kind: "external", target: "javascript:alert(1)" })).toBeNull()
+    expect(externalHref({ kind: "external", target: "not a url" })).toBeNull()
+    expect(externalHref({ kind: "task", target: "https://argus.lan/cases/1" })).toBeNull()
+  })
+})

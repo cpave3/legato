@@ -32,3 +32,18 @@ export function legatoHref(navigation: { kind: string; target: string }): string
       return null
   }
 }
+
+/**
+ * The address of an `external` navigation (an integration's own page, such
+ * as a case in Argus), or null for any other kind or a target that is not an
+ * http(s) address.
+ */
+export function externalHref(navigation: { kind: string; target: string }): string | null {
+  if (navigation.kind !== "external") return null
+  try {
+    const url = new URL(navigation.target)
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null
+  } catch {
+    return null
+  }
+}

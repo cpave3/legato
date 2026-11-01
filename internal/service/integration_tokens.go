@@ -19,6 +19,7 @@ import (
 const (
 	ScopeOwnerRead = "owner:read"
 	ScopeDelegate  = "delegate"
+	ScopeAttention = "attention"
 )
 
 // IntegrationTokenPrefix starts every integration token, so it can be told
@@ -30,7 +31,7 @@ var (
 	ErrIntegrationUnauthorized = errors.New("unknown or revoked integration token")
 
 	integrationNamePattern = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
-	integrationScopes      = []string{ScopeOwnerRead, ScopeDelegate}
+	integrationScopes      = []string{ScopeOwnerRead, ScopeDelegate, ScopeAttention}
 )
 
 // IntegrationIdentity is who a valid integration token belongs to.

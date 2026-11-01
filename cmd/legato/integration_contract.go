@@ -33,7 +33,7 @@ func runIntegrationTokenContract(verb string, args []string) int {
 	switch verb {
 	case "create":
 		if len(parsed.Positionals) != 1 {
-			return renderCommandError(command, usageError("missing_name", "name the integration: legato integration token create <name> --scope owner:read,delegate"), jsonMode)
+			return renderCommandError(command, usageError("missing_name", "name the integration: legato integration token create <name> --scope owner:read,delegate,attention"), jsonMode)
 		}
 		name := parsed.Positionals[0]
 		var scopes []string

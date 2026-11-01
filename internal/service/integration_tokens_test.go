@@ -46,6 +46,19 @@ func TestAnIntegrationTokenAuthenticatesWithItsScopes(t *testing.T) {
 	}
 }
 
+func TestAnIntegrationTokenCanHoldTheAttentionScope(t *testing.T) {
+	svc := NewIntegrationTokenService(newIntegrationStore(t))
+	ctx := context.Background()
+	token, err := svc.Create(ctx, "argus", []string{ScopeOwnerRead, ScopeDelegate, ScopeAttention})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := svc.Authenticate(ctx, token)
+	if err != nil || !id.Has(ScopeAttention) {
+		t.Fatalf("id = %+v, %v", id, err)
+	}
+}
+
 func TestIntegrationTokensRefuseBadScopesAndNames(t *testing.T) {
 	svc := NewIntegrationTokenService(newIntegrationStore(t))
 	ctx := context.Background()

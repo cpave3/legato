@@ -64,7 +64,7 @@ func TestOwnerLookupFindsATaskByBranchBeforeItsPRIsLinked(t *testing.T) {
 		t.Fatalf("matches = %+v", matches)
 	}
 	m := matches[0]
-	if m.Task.URL != "https://legato.lan/board?task=t1" || m.Task.Status != "Doing" || m.Worktree == nil || m.Worktree.Branch != "feat-x" || m.PR != nil {
+	if m.Task.URL != "https://legato.lan/board?highlight_task=t1" || m.Task.Status != "Doing" || m.Worktree == nil || m.Worktree.Branch != "feat-x" || m.PR != nil {
 		t.Fatalf("match = %+v", m)
 	}
 	if len(m.Agents) != 0 {

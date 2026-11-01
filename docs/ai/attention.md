@@ -30,12 +30,13 @@ Executable source actions additionally implement `AttentionActionHandler`. Navig
 |---|---|---|
 | `plans` | Proposed revisions awaiting a current user decision | `EventPlanChanged` |
 | `reviews` | Explicitly ready tours with visible unreviewed work | `EventReviewChanged` |
-| `pull_requests` | Open non-draft tracked PRs with a required review, changes requested, failed CI, or a combination | `EventPRStatusUpdated` |
+| `pull_requests` | Open non-draft tracked PRs with a required review, changes requested, failed CI, or a combination. Failed CI is left out while an open Argus case targets the PR | `EventPRStatusUpdated`, and after each Argus push |
 | `agents` | Running standalone interactive agents explicitly reporting waiting or error | `EventAgentActivityChanged`, start/death/completion lifecycle |
 | `workflows` | Manual gates, workflow agents waiting for input, failed steps | Workflow and agent lifecycle events |
 | `workflow_triggers` | Missing input, confirmation, and failed automatic triggers | `EventWorkflowTriggerChanged` |
 | `approvals` | Pending approval requests (agents' permissions and questions), with their options as actions; see [Approvals](approvals.md) | `EventApprovalChanged` |
 | `devices` | The last `legato device reset`, until dismissed; see [Approvals](approvals.md) § Signed approvals | `EventApprovalChanged` |
+| `argus` | Argus's open CI cases on the person's PRs (`argus_case`, `argus_needs_you`), pushed by Argus and put on the task that owns the PR; navigation `external`; see [Integrations](integrations.md) § Cases in Attention | After each push, `EventPRStatusUpdated`, `EventCardsRefreshed` |
 | `integrations` | Delegations that did not reach an agent (`delegation_failed`), agents' replies Argus never took (`case_reply_failed`), a connection Argus refused (`integration_disconnected`); the last 7 days; see [Integrations](integrations.md) | `EventDelegationChanged` |
 
 Startup reconciliation remains the safety net. Source events reconcile the relevant projections without requiring an Attention request to query GitHub or mutate source state.
@@ -83,11 +84,11 @@ All endpoints use the configured authentication boundary.
 2. **Ready for review**
 3. **Merge blockers**
 
-Unknown future allowed signals fall back to Needs intervention rather than disappearing. Cards retain source, urgency, reason/detail, relative time, executable source actions, revision-scoped Dismiss, and direct navigation. Dismiss is visually secondary to the source-owned action or Open. A larger global all-clear appears only when all sections are empty. Controls wrap below content on narrow screens.
+`argus_case` joins Merge blockers; `argus_needs_you` falls to Needs intervention. Unknown future allowed signals fall back to Needs intervention rather than disappearing. A detail is drawn as Markdown without raw HTML or images, folded to a few lines with More when long. An item with `external` navigation opens that address in a new tab ("Open in <producer>") and, when it has a task, also offers Open task (`/board?highlight_task=`). Cards retain source, urgency, reason/detail, relative time, executable source actions, revision-scoped Dismiss, and direct navigation. Dismiss is visually secondary to the source-owned action or Open. A larger global all-clear appears only when all sections are empty. Controls wrap below content on narrow screens.
 
 ## Other clients
 
-- **TUI:** `I` opens the shared generic list; `j`/`k`, Enter, `D`, and `q` retain their existing behavior.
+- **TUI:** `I` opens the shared generic list; `j`/`k`, Enter, `D`, and `q` retain their existing behavior. Enter on an item with `external` navigation and no executable action opens its address in the browser.
 - **CLI:** `legato attention list` reconciles CLI-available sources and lists the durable default-policy set with producer/category/urgency/JSON options.
 - **Stream Deck and navigation badges:** consume the same expanded count/list policy.
 

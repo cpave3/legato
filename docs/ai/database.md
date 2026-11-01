@@ -78,7 +78,7 @@ Migration 075 adds `agent_sessions.sandboxed`: whether the session's agent runs 
 
 ### Integrations
 
-Migration 076 adds what integrations (Argus) use: `integration_tokens` (hashed scoped tokens; a name is unique among tokens not revoked), `integrations` (Legato's OAuth registration with an integration; the refresh token is in the sealed store), `delegations` and `delegation_messages` (unique per integration and idempotency key, or per delegation and key), `case_reply_outbox` (replies waiting to be sent; times are fixed-width UTC text so they compare), and `executions.read_only` (a find-out delegation's agent, whose pushes and pull request writes the credential broker refuses). See [Integrations](integrations.md).
+Migration 076 adds what integrations (Argus) use: `integration_tokens` (hashed scoped tokens; a name is unique among tokens not revoked), `integrations` (Legato's OAuth registration with an integration; the refresh token is in the sealed store), `delegations` and `delegation_messages` (unique per integration and idempotency key, or per delegation and key), `case_reply_outbox` (replies waiting to be sent; times are fixed-width UTC text so they compare), and `executions.read_only` (a find-out delegation's agent, whose pushes and pull request writes the credential broker refuses). Migration 077 adds `integration_attention`: Argus's cases for Attention, keyed by integration and case key, with the revision a case was resolved at so that a late upsert at that revision changes nothing. See [Integrations](integrations.md).
 
 ### Directory presets
 

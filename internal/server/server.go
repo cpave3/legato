@@ -85,6 +85,7 @@ type Server struct {
 	integrationAuth          IntegrationAuthenticator
 	owners                   OwnerLookup
 	delegations              Delegations
+	caseAttention            CaseAttention
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).

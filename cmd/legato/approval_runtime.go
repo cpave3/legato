@@ -27,7 +27,11 @@ type approvalRuntime struct {
 	devices     *service.DeviceService
 	watcher     *service.ApprovalWatcher
 	credentials *service.CredentialBroker
-	stop        func()
+	// caseAttention keeps Argus's cases in Attention; set by the first
+	// Attention service registered. Every Attention service shares the
+	// database and the bus, so any of them serves the routes.
+	caseAttention *service.CaseAttentionService
+	stop          func()
 
 	cfg  *config.Config
 	mu   sync.Mutex
@@ -163,6 +167,23 @@ func registerApprovalAttention(attention *service.AttentionService, rt *approval
 	if rt.cfg != nil && rt.cfg.Integrations.Argus != nil {
 		mustRegister(attention.RegisterProducerWithEvents(service.NewIntegrationAttentionAdapter(rt.approvals.Store()), events.EventDelegationChanged))
 	}
+	// Argus's cases. Registered without Argus too, so that its items are
+	// resolved when it is removed from the configuration.
+	cases := newCaseAttentionService(rt.cfg, rt.approvals.Store(), attention)
+	mustRegister(attention.RegisterProducerWithEvents(cases.Producer(), events.EventPRStatusUpdated, events.EventCardsRefreshed))
+	if rt.caseAttention == nil {
+		rt.caseAttention = cases
+	}
+}
+
+// newCaseAttentionService takes Argus's cases into an Attention service;
+// without integrations.argus it refuses them and shows none.
+func newCaseAttentionService(cfg *config.Config, db *store.Store, attention *service.AttentionService) *service.CaseAttentionService {
+	opts := service.CaseAttentionOptions{Attention: attention, Owners: service.NewOwnerLookupService(db, nil, "")}
+	if cfg != nil && cfg.Integrations.Argus != nil {
+		opts.Origin = cfg.Integrations.Argus.URL
+	}
+	return service.NewCaseAttentionService(db, opts)
 }
 
 // hostBrokerDeps is what the host's broker serves agent-side processes:

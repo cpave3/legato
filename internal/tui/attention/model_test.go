@@ -127,3 +127,25 @@ func findSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+func TestEnterOnAnArgusCaseOpensItInTheBrowser(t *testing.T) {
+	svc := &fakeService{items: []service.AttentionItem{{
+		ID: "att-1", Title: "CI failing", Reason: "flaky", Producer: "argus", SourceRevision: "r1", Urgency: "high",
+		Navigation: service.AttentionNavigation{Kind: "external", Target: "https://argus.lan/cases/1"},
+	}}}
+	var opened string
+	m := New(svc)
+	m.openURL = func(url string) error { opened = url; return nil }
+	m, _ = m.Update(queueMsg{items: svc.items})
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter did nothing")
+	}
+	m, _ = m.Update(cmd())
+	if opened != "https://argus.lan/cases/1" || svc.calls != 0 {
+		t.Fatalf("opened %q, service calls %d", opened, svc.calls)
+	}
+	if !contains(m.View(), "Opened in the browser") {
+		t.Fatalf("view = %q", m.View())
+	}
+}

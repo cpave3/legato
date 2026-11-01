@@ -1,11 +1,12 @@
 import { Link } from "react-router-dom"
-import { AlertTriangle, Bell, CheckCircle, ChevronRight, GitPullRequest, ScanEye, type LucideIcon } from "lucide-react"
+import { AlertTriangle, Bell, CheckCircle, ChevronRight, ExternalLink, GitPullRequest, ScanEye, type LucideIcon } from "lucide-react"
 import { useState } from "react"
 import { useAttention } from "../hooks/useAttention"
 import { useServer } from "../hooks/useServer"
 import { executeAttentionAction, dismissAttentionItem, type AttentionItem } from "../lib/attention"
-import { legatoHref } from "../lib/navigation"
+import { externalHref, legatoHref } from "../lib/navigation"
 import { LoadingState } from "../components/ui/LoadingState"
+import { MarkdownBody } from "../components/MarkdownBody"
 
 function formatRelativeTime(iso: string): string {
   const date = new Date(iso)
@@ -20,6 +21,37 @@ function formatRelativeTime(iso: string): string {
 
 function navigationPath(item: AttentionItem): string | null {
   return legatoHref(item.navigation)
+}
+
+// The signals that block a pull request's merge: Legato's own, and a CI
+// case Argus follows.
+const mergeSignals = new Set(["pr_merge_blocked", "argus_case"])
+
+// An integration's name as the label of a link to its own page.
+function producerLabel(producer: string): string {
+  return producer.charAt(0).toUpperCase() + producer.slice(1)
+}
+
+// A detail longer than this is folded until the person asks for more.
+function isLongDetail(detail: string): boolean {
+  return detail.length > 280 || detail.split("\n").filter((line) => line.trim() !== "").length > 3
+}
+
+function AttentionDetail({ detail }: { detail: string }) {
+  const [open, setOpen] = useState(false)
+  const long = isLongDetail(detail)
+  return (
+    <div className="mt-1 text-xs text-zinc-500">
+      <div className={long && !open ? "max-h-16 overflow-hidden" : undefined}>
+        <MarkdownBody body={detail} skipHtml disableImages />
+      </div>
+      {long && (
+        <button type="button" onClick={() => setOpen(!open)} className="mt-1 min-h-11 text-xs text-zinc-400 hover:text-zinc-200">
+          {open ? "Less" : "More"}
+        </button>
+      )}
+    </div>
+  )
 }
 
 type AttentionSection = {
@@ -38,7 +70,7 @@ const sections: AttentionSection[] = [
     description: "Decisions, failed work, and agents waiting for you",
     emptyLabel: "No interventions needed",
     icon: AlertTriangle,
-    matches: (item) => item.signal_kind !== "review_ready" && item.signal_kind !== "pr_merge_blocked",
+    matches: (item) => item.signal_kind !== "review_ready" && !mergeSignals.has(item.signal_kind),
   },
   {
     id: "review",
@@ -54,7 +86,7 @@ const sections: AttentionSection[] = [
     description: "Known actionable blockers from tracked pull requests",
     emptyLabel: "No known merge blockers",
     icon: GitPullRequest,
-    matches: (item) => item.signal_kind === "pr_merge_blocked",
+    matches: (item) => mergeSignals.has(item.signal_kind),
   },
 ]
 
@@ -76,6 +108,7 @@ type AttentionCardProps = {
 
 function AttentionCard({ item, pending, onAction, onDismiss }: AttentionCardProps) {
   const navPath = navigationPath(item)
+  const external = externalHref(item.navigation)
   const urgent = item.urgency === "high" || item.urgency === "critical"
 
   return (
@@ -89,7 +122,7 @@ function AttentionCard({ item, pending, onAction, onDismiss }: AttentionCardProp
             <span className="text-xs text-zinc-600">{formatRelativeTime(item.updated_at)}</span>
           </div>
           <p className="mt-1 text-sm text-zinc-300">{item.reason}</p>
-          {item.detail && <p className="mt-1 break-words text-xs text-zinc-500">{item.detail}</p>}
+          {item.detail && <AttentionDetail detail={item.detail} />}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
           {(item.actions ?? []).filter((action) => action.kind === "execute").map((action) => (
@@ -116,6 +149,16 @@ function AttentionCard({ item, pending, onAction, onDismiss }: AttentionCardProp
               {action.label} <ChevronRight size={16} className="ml-1" />
             </Link>
           ))}
+          {external && item.task_id && (
+            <Link to={`/board?highlight_task=${encodeURIComponent(item.task_id)}`} className="flex min-h-11 items-center rounded-lg border border-zinc-700 px-3 text-sm text-zinc-200 hover:bg-zinc-800">
+              Open task <ChevronRight size={16} className="ml-1" />
+            </Link>
+          )}
+          {external && (
+            <a href={external} target="_blank" rel="noopener noreferrer" className="flex min-h-11 items-center rounded-lg border border-zinc-700 px-3 text-sm text-zinc-200 hover:bg-zinc-800">
+              Open in {producerLabel(item.producer)} <ExternalLink size={14} className="ml-1.5" />
+            </a>
+          )}
         </div>
       </div>
     </li>

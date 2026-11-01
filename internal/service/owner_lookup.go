@@ -113,7 +113,7 @@ func (s *OwnerLookupService) Lookup(ctx context.Context, q OwnerQuery) ([]OwnerM
 		}
 		m := OwnerMatch{Task: OwnerTask{ID: task.ID, Title: task.Title, Status: task.Status}, Agents: presence.agents(), Match: match}
 		if s.publicURL != "" {
-			m.Task.URL = s.publicURL + "/board?task=" + task.ID
+			m.Task.URL = s.publicURL + "/board?highlight_task=" + task.ID
 		}
 		if branch := ownerBranch(task, cc); branch != "" {
 			m.Worktree = &OwnerWorktree{Branch: branch}
