@@ -271,7 +271,7 @@ func runCredentialContract(verb string, args []string) int {
 		}
 		_ = w.Flush()
 		for _, src := range sources {
-			fmt.Fprintf(&b, "Vault %s gives every SSH key in it (profile %s).\n", src.Vault, src.Profile)
+			fmt.Fprintf(&b, "Vault %s gives %s in it.\n", src.Vault, sourceItems(src.Profiles))
 		}
 		if refreshErr != nil {
 			fmt.Fprintf(&b, "Could not list a vault: %v\n", refreshErr)
@@ -403,4 +403,19 @@ func firstSet(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// sourceItems says which items of a vault are credentials, by the profiles
+// they take.
+func sourceItems(profiles []string) string {
+	var parts []string
+	for _, p := range profiles {
+		switch p {
+		case "ssh":
+			parts = append(parts, "every SSH key (profile ssh)")
+		case "secret":
+			parts = append(parts, "every API credential, password and login (profile secret)")
+		}
+	}
+	return strings.Join(parts, " and ")
 }

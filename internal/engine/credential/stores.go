@@ -270,14 +270,15 @@ type OnePasswordItem struct {
 	VaultID   string
 	Version   int
 	UpdatedAt string
-	// Category is set by the SDK's list, as it names categories ("SshKey").
+	// Category is as the list names it: "SshKey" from the SDK, "SSH_KEY"
+	// from op.
 	Category string
 }
 
-// ListItems lists a vault's items of one category ("SSH Key"), names and
-// identifiers only.
-func (s OnePasswordStore) ListItems(ctx context.Context, vault, category string) ([]OnePasswordItem, error) {
-	out, err := s.op(ctx, "item", "list", "--vault", vault, "--categories", category, "--format", "json")
+// ListItems lists a vault's items of the categories named as op names them
+// ("SSH Key", "API Credential"), names and identifiers only.
+func (s OnePasswordStore) ListItems(ctx context.Context, vault string, categories ...string) ([]OnePasswordItem, error) {
+	out, err := s.op(ctx, "item", "list", "--vault", vault, "--categories", strings.Join(categories, ","), "--format", "json")
 	if err != nil {
 		return nil, fmt.Errorf("1Password could not list vault %s (does the service account have read access to it?)", vault)
 	}
@@ -286,6 +287,7 @@ func (s OnePasswordStore) ListItems(ctx context.Context, vault, category string)
 		Title     string `json:"title"`
 		Version   int    `json:"version"`
 		UpdatedAt string `json:"updated_at"`
+		Category  string `json:"category"`
 		Vault     struct {
 			ID string `json:"id"`
 		} `json:"vault"`
@@ -295,7 +297,7 @@ func (s OnePasswordStore) ListItems(ctx context.Context, vault, category string)
 	}
 	items := make([]OnePasswordItem, 0, len(rows))
 	for _, r := range rows {
-		items = append(items, OnePasswordItem{ID: r.ID, Title: r.Title, VaultID: r.Vault.ID, Version: r.Version, UpdatedAt: r.UpdatedAt})
+		items = append(items, OnePasswordItem{ID: r.ID, Title: r.Title, VaultID: r.Vault.ID, Version: r.Version, UpdatedAt: r.UpdatedAt, Category: r.Category})
 	}
 	return items, nil
 }

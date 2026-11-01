@@ -34,7 +34,17 @@ func (noCredentials) Credentials() []service.CredentialSummary { return nil }
 func (m *mcpTools) requestAccess() mcpserver.Tool {
 	var names []string
 	for _, c := range m.opts.Credentials.Credentials() {
-		names = append(names, c.Name)
+		if c.Source == "" {
+			names = append(names, c.Name)
+		}
+	}
+	// A vault's items change while Legato runs, so they are named by vault.
+	if s, ok := m.opts.Credentials.(interface {
+		Sources() []service.CredentialSourceSummary
+	}); ok {
+		for _, vault := range VaultSecrets(s.Sources()) {
+			names = append(names, vault+", by its title (legato credential list names them)")
+		}
 	}
 	known := "none"
 	if len(names) > 0 {

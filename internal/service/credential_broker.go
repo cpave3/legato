@@ -164,10 +164,67 @@ type brokerCredential struct {
 
 // brokerSource is a vault whose items are credentials.
 type brokerSource struct {
-	config  config.CredentialSourceConfig
-	vault   string
+	config config.CredentialSourceConfig
+	vault  string
+	kinds  []sourceKind
+}
+
+// sourceKind is one category of 1Password item a source gives, with the
+// profile and rules its credentials take.
+type sourceKind struct {
+	sourceItemKind
 	profile CredentialProfile
 	rules   []config.CredentialRule
+}
+
+// sourceItemKind says how an item of a 1Password category is a credential:
+// its profile, the field its secret is in, and the secret's type.
+type sourceItemKind struct {
+	category, profile, field, secretType string
+}
+
+// sourceItemKinds are the items a vault gives: SSH keys for Legato's SSH
+// agent, and API keys, passwords and logins as secrets handed out on request.
+// Other items (notes, documents, cards) are not credentials.
+var sourceItemKinds = []sourceItemKind{
+	{category: "SSH Key", profile: "ssh", field: "private key?ssh-format=openssh", secretType: credential.TypeKeyPair},
+	{category: "API Credential", profile: "secret", field: "credential"},
+	{category: "Password", profile: "secret", field: "password"},
+	{category: "Login", profile: "secret", field: "password"},
+}
+
+// itemCategoryKey lets the names op and the SDK give a category match:
+// "API Credential", "API_CREDENTIAL" and "ApiCredentials" are one.
+func itemCategoryKey(name string) string {
+	key := strings.ToLower(strings.NewReplacer(" ", "", "_", "").Replace(name))
+	return strings.TrimSuffix(key, "s")
+}
+
+// sourceRules are the rules of a source an item of a profile takes: those
+// that name an operation the profile's own rules name, or no operation.
+// With none, the profile's own rules apply, so a source whose rules are all
+// for SSH logins still gives secrets their usual rules.
+func sourceRules(rules []config.CredentialRule, profile CredentialProfile) []config.CredentialRule {
+	operations := map[string]bool{}
+	for _, r := range profile.Policy {
+		for _, op := range r.Operation {
+			operations[op] = true
+		}
+	}
+	var out []config.CredentialRule
+	for _, r := range rules {
+		applies := len(r.Operation) == 0
+		for _, op := range r.Operation {
+			applies = applies || operations[op]
+		}
+		if applies {
+			out = append(out, r)
+		}
+	}
+	if len(out) == 0 {
+		return profile.Policy
+	}
+	return out
 }
 
 // NewCredentialBroker checks the configured credentials against the
@@ -226,22 +283,25 @@ func NewCredentialBroker(db *store.Store, approvals *ApprovalService, opts Crede
 	}
 	sort.Strings(b.names)
 	for _, src := range opts.Sources {
-		profile, ok := profiles[src.Profile]
-		if !ok {
-			return nil, fmt.Errorf("credential_sources %s: no profile %q", src.Vault, src.Profile)
-		}
-		if !listHas(profile.Channels, ChannelSSHAgent) {
-			return nil, fmt.Errorf("credential_sources %s: a vault gives SSH keys only for now (profile ssh)", src.Vault)
+		if src.Profile != "" && src.Profile != "ssh" && src.Profile != "secret" {
+			return nil, fmt.Errorf("credential_sources %s: profile %q: a vault gives SSH keys (profile ssh) and secrets (profile secret)", src.Vault, src.Profile)
 		}
 		vault, err := credential.ParseVaultRef(src.Vault)
 		if err != nil {
 			return nil, fmt.Errorf("credential_sources: %w", err)
 		}
-		rules := src.Policy
-		if len(rules) == 0 {
-			rules = profile.Policy
+		bs := brokerSource{config: src, vault: vault}
+		for _, kind := range sourceItemKinds {
+			if src.Profile != "" && src.Profile != kind.profile {
+				continue
+			}
+			profile, ok := profiles[kind.profile]
+			if !ok {
+				return nil, fmt.Errorf("credential_sources %s: no profile %q", src.Vault, kind.profile)
+			}
+			bs.kinds = append(bs.kinds, sourceKind{sourceItemKind: kind, profile: profile, rules: sourceRules(src.Policy, profile)})
 		}
-		b.sources = append(b.sources, brokerSource{config: src, vault: vault, profile: profile, rules: rules})
+		b.sources = append(b.sources, bs)
 	}
 	return b, nil
 }
@@ -277,19 +337,17 @@ func onePasswordStore(opts CredentialBrokerOptions) credential.Store {
 // listed again, when a use needs it.
 const sourceStaleAfter = 30 * time.Second
 
-// sourceSSHCategory is the 1Password category of SSH keys.
-const sourceSSHCategory = "SSH Key"
-
 // vaultLister is a store that can list a vault's items (1Password).
 type vaultLister interface {
-	ListItems(ctx context.Context, vault, category string) ([]credential.OnePasswordItem, error)
+	ListItems(ctx context.Context, vault string, categories ...string) ([]credential.OnePasswordItem, error)
 	Field(ctx context.Context, vault, item, label string) (string, error)
 }
 
-// CredentialSourceSummary describes a vault credentials come from.
+// CredentialSourceSummary describes a vault credentials come from: the
+// profiles its items take and their channels.
 type CredentialSourceSummary struct {
 	Vault    string   `json:"vault"`
-	Profile  string   `json:"profile"`
+	Profiles []string `json:"profiles"`
 	Channels []string `json:"channels"`
 }
 
@@ -297,7 +355,18 @@ type CredentialSourceSummary struct {
 func (b *CredentialBroker) Sources() []CredentialSourceSummary {
 	out := make([]CredentialSourceSummary, 0, len(b.sources))
 	for _, src := range b.sources {
-		out = append(out, CredentialSourceSummary{Vault: src.config.Vault, Profile: src.profile.Name, Channels: src.profile.Channels})
+		summary := CredentialSourceSummary{Vault: src.config.Vault, Profiles: []string{}, Channels: []string{}}
+		for _, kind := range src.kinds {
+			if !listHas(summary.Profiles, kind.profile.Name) {
+				summary.Profiles = append(summary.Profiles, kind.profile.Name)
+			}
+			for _, ch := range kind.profile.Channels {
+				if !listHas(summary.Channels, ch) {
+					summary.Channels = append(summary.Channels, ch)
+				}
+			}
+		}
+		out = append(out, summary)
 	}
 	return out
 }
@@ -305,8 +374,10 @@ func (b *CredentialBroker) Sources() []CredentialSourceSummary {
 // hasSourceChannel reports whether a source gives credentials of a channel.
 func (b *CredentialBroker) hasSourceChannel(channel string) bool {
 	for _, src := range b.sources {
-		if listHas(src.profile.Channels, channel) {
-			return true
+		for _, kind := range src.kinds {
+			if listHas(kind.profile.Channels, channel) {
+				return true
+			}
 		}
 	}
 	return false
@@ -351,7 +422,13 @@ func (b *CredentialBroker) refreshLocked(ctx context.Context) error {
 			errs = append(errs, "no 1Password store in this Legato")
 			continue
 		}
-		items, err := lister.ListItems(ctx, src.vault, sourceSSHCategory)
+		categories := make([]string, 0, len(src.kinds))
+		kinds := map[string]sourceKind{}
+		for _, kind := range src.kinds {
+			categories = append(categories, kind.category)
+			kinds[itemCategoryKey(kind.category)] = kind
+		}
+		items, err := lister.ListItems(ctx, src.vault, categories...)
 		if err != nil {
 			errs = append(errs, err.Error())
 			for name, bc := range previous {
@@ -363,6 +440,10 @@ func (b *CredentialBroker) refreshLocked(ctx context.Context) error {
 		}
 		for i := range items {
 			item := items[i]
+			kind, ok := kinds[itemCategoryKey(item.Category)]
+			if !ok {
+				continue
+			}
 			name := itemCredentialName(item)
 			if _, configured := b.credentials[name]; configured {
 				continue
@@ -371,13 +452,13 @@ func (b *CredentialBroker) refreshLocked(ctx context.Context) error {
 				log.Printf("credentials: %s: two items are named %s; the first is used", src.config.Vault, name)
 				continue
 			}
-			ref, err := credential.ParseRef("op://" + item.VaultID + "/" + item.ID + "/private key?ssh-format=openssh")
+			ref, err := credential.ParseRef("op://" + item.VaultID + "/" + item.ID + "/" + kind.field)
 			if err != nil {
 				continue
 			}
 			next[name] = brokerCredential{
-				config: config.CredentialConfig{Name: name, Secret: ref.String(), Profile: src.profile.Name, Type: credential.TypeKeyPair, Policy: src.config.Policy},
-				ref:    ref, profile: src.profile, rules: src.rules, source: src.config.Vault, item: &item,
+				config: config.CredentialConfig{Name: name, Secret: ref.String(), Profile: kind.profile.Name, Type: kind.secretType, Policy: kind.rules},
+				ref:    ref, profile: kind.profile, rules: kind.rules, source: src.config.Vault, item: &item, issuer: credential.StaticIssuer{},
 			}
 		}
 	}

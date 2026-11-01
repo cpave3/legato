@@ -122,7 +122,7 @@ func TestTheGuidanceNamesAVaultOfSSHKeysOnce(t *testing.T) {
 			{Name: "legato_default", Profile: "ssh", Channels: []string{"ssh-agent"}, Source: "op://Legato"},
 			{Name: "proxmox_vms", Profile: "ssh", Channels: []string{"ssh-agent"}, Source: "op://Legato"},
 		},
-		service.CredentialSourceSummary{Vault: "op://Legato", Profile: "ssh", Channels: []string{"ssh-agent"}},
+		service.CredentialSourceSummary{Vault: "op://Legato", Profiles: []string{"ssh"}, Channels: []string{"ssh-agent"}},
 	)
 	if strings.Count(text, "run ssh") != 1 {
 		t.Errorf("the SSH paragraph is repeated:\n%s", text)
@@ -137,6 +137,48 @@ func TestTheGuidanceNamesAVaultOfSSHKeysOnce(t *testing.T) {
 	}
 	if cli.CredentialGuidance(nil, service.CredentialSourceSummary{Vault: "op://Legato", Channels: []string{"ssh-agent"}}) == "" {
 		t.Error("no guidance for a vault before it is listed")
+	}
+}
+
+// vaultSecrets is the summary of a vault that gives keys and secrets.
+var vaultSecrets = service.CredentialSourceSummary{Vault: "op://Legato", Profiles: []string{"ssh", "secret"}, Channels: []string{"ssh-agent", "helper"}}
+
+func TestTheGuidanceNamesAVaultOfSecretsOnce(t *testing.T) {
+	text := cli.CredentialGuidance(
+		[]service.CredentialSummary{
+			{Name: "OpenAI", Profile: "secret", Channels: []string{"helper"}, Source: "op://Legato"},
+			{Name: "proxmox_vms", Profile: "ssh", Channels: []string{"ssh-agent"}, Source: "op://Legato"},
+		},
+		vaultSecrets,
+	)
+	for _, want := range []string{"every SSH key in the 1Password vault Legato", "every API credential, password and login in the 1Password vault Legato", "legato credential list", "request_access", "legato credential exec <name>"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the guidance does not say %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "OpenAI") {
+		t.Errorf("secrets of a vault are named one by one:\n%s", text)
+	}
+}
+
+// vaultCredentials is a broker with a vault of keys and secrets.
+type vaultCredentials struct{ fakeCredentials }
+
+func (vaultCredentials) Sources() []service.CredentialSourceSummary {
+	return []service.CredentialSourceSummary{vaultSecrets}
+}
+
+func TestRequestAccessNamesAVaultOfSecrets(t *testing.T) {
+	s := newTestStore(t)
+	executionID := seedMCPAgent(t, s, "task1")
+	listed, err := connectMCP(t, cli.MCPOptions{Store: s, TaskID: "task1", ExecutionID: executionID, Credentials: &vaultCredentials{}}).ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range listed.Tools {
+		if tool.Name == "request_access" && !strings.Contains(tool.Description, "every API credential, password and login in the 1Password vault Legato, by its title") {
+			t.Fatalf("description = %s", tool.Description)
+		}
 	}
 }
 

@@ -131,7 +131,7 @@ An agent can still use `~/.1password/agent.sock` or `~/.ssh` directly: outside t
 
 ## Vaults as sources
 
-`credential_sources` makes every SSH Key item of a 1Password vault a credential of the `ssh` profile, with the source's `policy` (else the profile's):
+`credential_sources` makes the items of a 1Password vault credentials: each SSH Key item one of the `ssh` profile, and each API Credential, Password and Login item one of the `secret` profile. `profile: ssh` or `profile: secret` limits a source to one of them; other categories are not credentials.
 
 ```yaml
 credential_sources:
@@ -140,11 +140,12 @@ credential_sources:
       - { operation: ssh.login, approve: window, window: 30m }
 ```
 
-- The vault is listed with `op item list --vault <vault> --categories "SSH Key"`. Each item is a credential named after its title (characters other than letters, digits, `.`, `_` and `-` become `-`; an empty title gives the item's ID), read by ID as `op://<vault id>/<item id>/private key?ssh-format=openssh`, so a renamed item keeps working. A `credentials:` entry of the same name wins; of two items with one name, the first is used.
+- The vault is listed with `op item list --vault <vault> --categories "SSH Key,API Credential,Password,Login"` (or the SDK's list, filtered by `categoryKey`; the broker matches the names with `itemCategoryKey`). Each item is a credential named after its title (characters other than letters, digits, `.`, `_` and `-` become `-`; an empty title gives the item's ID), read by ID, so a renamed item keeps working: `op://<vault id>/<item id>/private key?ssh-format=openssh` for a key, `…/credential` for an API Credential, `…/password` for a Password or Login (`sourceItemKinds`). A `credentials:` entry of the same name wins; of two items with one name, the first is used.
+- **Rules.** The source's `policy` is one list for all its items. Each item takes the rules that name an operation its profile's own rules name (`ssh.login`, `ssh.forwarded-login`; `read`) or no operation; with none, the profile's rules (`sourceRules`). So a source whose rules are all for SSH logins gives its secrets `read: session`.
 - **No restart.** A host Legato lists the vault at start and every two minutes. A use, and the SSH agent's list of keys, list it again when the last list is older than 30 seconds (`sourceStaleAfter`), so a new key is offered at the next `ssh`. A vault that cannot be listed keeps the keys it gave last.
 - **No private key to list keys.** The socket lists a vault key from the item's `public key` field (`op item get … --fields "label=public key"`), cached by item version. The private key is read only to sign a login.
-- Only `ssh` for now; API keys from a vault (by a tag naming the profile) come later.
-- `CredentialSummary.source` names the vault of such a credential; `CredentialBroker.Sources` lists the vaults, and the guidance names a vault once ("every SSH key in the 1Password vault Legato") instead of each key.
+- **Secrets** are handed out as any `secret` is: `request_access` or `legato credential request` with `read`, then `legato credential exec` or `get`. A vault's API key is not proxied; to send one through the proxy, list it in `credentials:` with the `api-key` profile.
+- `CredentialSummary.source` names the vault of such a credential; `CredentialBroker.Sources` lists the vaults with the profiles (`profiles`) and channels their items take. The guidance names a vault once ("every SSH key in the 1Password vault Legato", "every API credential, password and login in the 1Password vault Legato", `cli.VaultSecrets`) instead of each item, and so does `request_access`'s description, since the vault changes while the session runs.
 
 ## GitHub
 

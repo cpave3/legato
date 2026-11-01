@@ -103,7 +103,7 @@ func TestTheOnePasswordTokenCanComeFromAFile(t *testing.T) {
 	}
 }
 
-func TestAVaultIsASourceOfSSHKeys(t *testing.T) {
+func TestAVaultIsASourceOfCredentials(t *testing.T) {
 	writeTestConfig(t, `
 credential_sources:
   - vault: op://Legato
@@ -123,8 +123,13 @@ credential_sources:
 	if s.Vault != "op://Legato" || s.Profile != "ssh" || len(s.Policy) != 1 || s.Policy[0].WindowDuration.Minutes() != 30 {
 		t.Fatalf("source = %+v", s)
 	}
-	if cfg.CredentialSources[1].Profile != "ssh" {
-		t.Fatalf("the default profile is %q, want ssh", cfg.CredentialSources[1].Profile)
+	// No profile: every item that is a credential, keys and secrets.
+	if cfg.CredentialSources[1].Profile != "" {
+		t.Fatalf("the default profile is %q, want none", cfg.CredentialSources[1].Profile)
+	}
+	writeTestConfig(t, "credential_sources:\n  - {vault: op://Legato, profile: secret}\n")
+	if _, err := Load(); err != nil {
+		t.Fatalf("a source of secrets: %v", err)
 	}
 	for name, body := range map[string]string{
 		"not a vault":     "credential_sources:\n  - vault: op://Legato/item\n",

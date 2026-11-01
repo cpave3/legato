@@ -33,9 +33,16 @@ func CredentialGuidance(credentials []service.CredentialSummary, sources ...serv
 	if what := append(sshNames, vaults...); len(what) > 0 {
 		fmt.Fprintf(&b, "- SSH keys (%s): run ssh, scp and git over ssh as usual. Your SSH_AUTH_SOCK is Legato's SSH agent, which offers these keys and signs each login the person's rules allow, for the host the server proves it is. A login to a host the person has not allowed yet waits up to a minute while they are asked, so let the command run and do not stop it. If it then fails with \"agent refused operation\" or \"Permission denied (publickey)\", they have not allowed it yet: tell them which host, carry on with other work or end your turn, and try again after the [legato approvals] message. Never get in another way: no other key or IdentityFile, no IdentityAgent or agent socket of your own, no ssh -A.\n", strings.Join(what, "; "))
 	}
+	// A vault's secrets change while Legato runs, so they are named as the
+	// vault; legato credential list names them as they are now.
+	for _, vault := range VaultSecrets(sources) {
+		fmt.Fprintf(&b, "- Secrets (%s): legato credential list names them. Ask for one with request_access (operation read), then use it with legato credential exec <name> --env <VARIABLE> -- <command>, which gives the value to that command only. Do not print it.\n", vault)
+	}
 	for _, c := range credentials {
 		switch {
 		case has(c.Channels, service.ChannelSSHAgent):
+			continue
+		case c.Source != "" && c.Git == "" && !has(c.Channels, service.ChannelHTTPProxy):
 			continue
 		case c.Git != "":
 			b.WriteString(githubGuidance(c))
@@ -53,6 +60,18 @@ func CredentialGuidance(credentials []service.CredentialSummary, sources ...serv
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// VaultSecrets describes each vault that gives secrets, for an agent:
+// "every API credential, password and login in the 1Password vault Legato".
+func VaultSecrets(sources []service.CredentialSourceSummary) []string {
+	var out []string
+	for _, src := range sources {
+		if has(src.Profiles, "secret") {
+			out = append(out, "every API credential, password and login in the 1Password vault "+strings.TrimPrefix(src.Vault, "op://"))
+		}
+	}
+	return out
 }
 
 func has(list []string, want string) bool {

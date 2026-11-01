@@ -99,9 +99,9 @@ func (s *OnePasswordSDKStore) Get(ctx context.Context, ref Ref) (Secret, error) 
 	return Secret{Type: TypeValue, Value: trimNewline([]byte(value))}, nil
 }
 
-// ListItems lists a vault's items of one category, named as op names it
-// ("SSH Key"). The vault is a name or an identifier.
-func (s *OnePasswordSDKStore) ListItems(ctx context.Context, vault, category string) ([]OnePasswordItem, error) {
+// ListItems lists a vault's items of the categories named as op names them
+// ("SSH Key", "API Credential"). The vault is a name or an identifier.
+func (s *OnePasswordSDKStore) ListItems(ctx context.Context, vault string, categories ...string) ([]OnePasswordItem, error) {
 	api, err := s.client(ctx)
 	if err != nil {
 		return nil, err
@@ -124,19 +124,23 @@ func (s *OnePasswordSDKStore) ListItems(ctx context.Context, vault, category str
 	if err != nil {
 		return nil, fmt.Errorf("1Password could not list vault %s: %s", vault, withoutToken(err, s.currentToken()))
 	}
-	want := categoryKey(category)
+	want := map[string]bool{}
+	for _, c := range categories {
+		want[categoryKey(c)] = true
+	}
 	var items []OnePasswordItem
 	for _, item := range all {
-		if categoryKey(item.Category) == want {
+		if want[categoryKey(item.Category)] {
 			items = append(items, item)
 		}
 	}
 	return items, nil
 }
 
-// categoryKey lets op's category names ("SSH Key") match the SDK's ("SshKey").
+// categoryKey lets op's category names ("SSH Key", "API Credential") match
+// the SDK's ("SshKey", "ApiCredentials").
 func categoryKey(name string) string {
-	return strings.ToLower(strings.ReplaceAll(name, " ", ""))
+	return strings.TrimSuffix(strings.ToLower(strings.ReplaceAll(name, " ", "")), "s")
 }
 
 // Field reads one field of an item that is not secret: "public key" is an

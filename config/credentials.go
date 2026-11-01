@@ -68,8 +68,9 @@ type CredentialKeyPlace struct {
 	Query  string `yaml:"query"`
 }
 
-// CredentialSourceConfig is a vault whose items are credentials: for the
-// ssh profile, every SSH Key item of a 1Password vault.
+// CredentialSourceConfig is a vault whose items are credentials: its SSH
+// keys (profile ssh) and its API credentials, passwords and logins (profile
+// secret). Profile limits it to one of them.
 type CredentialSourceConfig struct {
 	Vault   string           `yaml:"vault"`
 	Profile string           `yaml:"profile"`
@@ -279,11 +280,11 @@ func normalizeCredentialSources(cfg *Config) error {
 			return fmt.Errorf("credential_sources: %s is listed twice", src.Vault)
 		}
 		seen[strings.ToLower(src.Vault)] = true
-		if src.Profile = strings.TrimSpace(src.Profile); src.Profile == "" {
-			src.Profile = "ssh"
-		}
-		if src.Profile != "ssh" {
-			return fmt.Errorf("credential_sources %s: profile %q: a vault gives SSH keys only for now (profile ssh)", src.Vault, src.Profile)
+		// No profile: every item that is a credential. ssh or secret: only
+		// the items of that profile.
+		src.Profile = strings.TrimSpace(src.Profile)
+		if src.Profile != "" && src.Profile != "ssh" && src.Profile != "secret" {
+			return fmt.Errorf("credential_sources %s: profile %q: a vault gives SSH keys (profile ssh) and secrets (profile secret); leave it out for both", src.Vault, src.Profile)
 		}
 		for j := range src.Policy {
 			if err := NormalizeCredentialRule(&src.Policy[j]); err != nil {

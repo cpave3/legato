@@ -80,7 +80,7 @@ Agents read your repositories, push to `legato/…` branches and open pull reque
    legato secret add github-app --type keypair --from ~/Downloads/<app>.private-key.pem
    ```
 
-   Or keep it in 1Password and name it as `op://Legato/<item>/<field>`. A vault source gives SSH keys only, so the App key is listed in `credentials:` by itself.
+   Or keep it in 1Password and name it as `op://Legato/<item>/<field>`. A vault source gives SSH keys and secrets, not GitHub Apps, so the App key is listed in `credentials:` by itself.
 4. **Install the App** (its page, Install App): your account, **Only select repositories**, and pick the ones agents may use.
 5. **The configuration** (step 6 below), with the same repositories:
 
@@ -119,7 +119,8 @@ secrets:
     token_file: ~/.config/legato/op-token
     # backend: op   # read with the op command instead of the built-in SDK
 
-# Every SSH Key item of the vault, with these rules.
+# Every SSH key of the vault, and every API credential, password and
+# login as a secret named after the item's title.
 credential_sources:
   - vault: op://Legato
     policy:
@@ -135,7 +136,7 @@ credentials:
       - { operation: read, approve: window, window: 30m }
 ```
 
-`policy` replaces the profile's rules; leave it out to use them (the `ssh` profile asks once an hour for each host). A key that needs rules of its own can still be listed in `credentials:`: an entry there wins over a vault item of the same name. Restart Legato after a change to the configuration: it reads it at start. Changes in the vault need no restart.
+`policy` replaces the profile's rules; leave it out to use them (the `ssh` profile asks once an hour for each host). Each item takes the rules that name an operation of its profile (`ssh.login` for a key, `read` for a secret) or none; with none, its profile's own, so the rules above leave secrets asked once per agent session. `profile: ssh` or `profile: secret` gives only the keys or only the secrets. Other items (notes, documents, cards) are not credentials. A key that needs rules of its own can still be listed in `credentials:`: an entry there wins over a vault item of the same name: list a vault's API key there to send it through Legato's proxy (`api-key`) instead. Restart Legato after a change to the configuration: it reads it at start. Changes in the vault need no restart.
 
 `ssh` offers an agent's keys one after another, and a server allows only a few tries (`MaxAuthTries`, 6 by default). With more than about five keys in the vault, a login can fail with "Too many authentication failures" before the right key is offered. For such a host, name its key in `~/.ssh/config` (`IdentityFile` of the public key file, and `IdentitiesOnly yes`).
 

@@ -137,7 +137,7 @@ func TestCredentialListAsksTheVaultForItsKeys(t *testing.T) {
 	bin := filepath.Join(root, "bin")
 	_ = os.MkdirAll(bin, 0o755)
 	fakeOp := "#!/bin/sh\n" +
-		"if [ \"$1 $2\" = \"item list\" ]; then echo '[{\"id\":\"id-1\",\"title\":\"legato_default\",\"version\":1,\"vault\":{\"id\":\"v1\",\"name\":\"Legato\"}}]'; exit 0; fi\n" +
+		"if [ \"$1 $2\" = \"item list\" ]; then echo '[{\"id\":\"id-1\",\"title\":\"legato_default\",\"version\":1,\"category\":\"SSH_KEY\",\"vault\":{\"id\":\"v1\",\"name\":\"Legato\"}}]'; exit 0; fi\n" +
 		"exit 1\n"
 	if err := os.WriteFile(filepath.Join(bin, "op"), []byte(fakeOp), 0o755); err != nil {
 		t.Fatal(err)

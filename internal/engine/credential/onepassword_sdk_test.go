@@ -150,6 +150,15 @@ func TestOnePasswordSDKStoreListsAVaultsItemsOfACategoryByVaultName(t *testing.T
 	if len(items) != 2 || items[0].ID != "en2x" || items[0].VaultID != "agif" || items[0].UpdatedAt != "2026-10-29T07:13:48Z" || items[1].ID != "5xv7" {
 		t.Fatalf("items = %+v", items)
 	}
+	// Several categories at once; the SDK says ApiCredentials.
+	api.items["agif"] = append(api.items["agif"], OnePasswordItem{ID: "ak01", Title: "OpenAI", VaultID: "agif", Category: "ApiCredentials"})
+	items, err = store.ListItems(context.Background(), "Legato", "API Credential", "Login")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].ID != "lg01" || items[1].ID != "ak01" {
+		t.Fatalf("items = %+v", items)
+	}
 }
 
 func TestOnePasswordSDKStoreSaysWhenItCannotSeeAVault(t *testing.T) {
