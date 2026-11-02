@@ -3,6 +3,9 @@ import { useState } from "react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { MemoryRouter, useLocation } from "react-router-dom"
 import { AgentsPage } from "../Agents"
+// The agents being started have their own tests, and a query client.
+vi.mock("../../components/PreparingAgents", () => ({ PreparingAgents: () => null }))
+
 
 // The socket's functions keep their identity between renders, as the real
 // ones do: the page reloads its agents whenever subscribe changes.

@@ -91,15 +91,15 @@ type countingGit struct {
 	slow            time.Duration
 }
 
-func (c *countingGit) CloneBare(ctx context.Context, url, dest string, token []byte) error {
+func (c *countingGit) CloneBare(ctx context.Context, url, dest string, token []byte, progress func(gitrepo.Progress)) error {
 	c.clones.Add(1)
 	time.Sleep(c.slow)
-	return c.Runner.CloneBare(ctx, url, dest, token)
+	return c.Runner.CloneBare(ctx, url, dest, token, progress)
 }
 
-func (c *countingGit) Fetch(ctx context.Context, dir string, token []byte) error {
+func (c *countingGit) Fetch(ctx context.Context, dir string, token []byte, progress func(gitrepo.Progress)) error {
 	c.fetches.Add(1)
-	return c.Runner.Fetch(ctx, dir, token)
+	return c.Runner.Fetch(ctx, dir, token, progress)
 }
 
 type repoFixture struct {

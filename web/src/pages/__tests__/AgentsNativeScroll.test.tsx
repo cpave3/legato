@@ -4,6 +4,9 @@ import { MemoryRouter } from "react-router-dom"
 import { AgentSelectionProvider } from "../../hooks/useAgentSelection"
 import type { AgentInfo } from "../../hooks/useWebSocket"
 import { AgentsPage } from "../Agents"
+// The agents being started have their own tests, and a query client.
+vi.mock("../../components/PreparingAgents", () => ({ PreparingAgents: () => null }))
+
 
 const { mockFetch } = vi.hoisted(() => ({ mockFetch: vi.fn() }))
 

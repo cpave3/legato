@@ -1218,9 +1218,9 @@ func (a *agentService) SpawnWorkflowAgent(ctx context.Context, taskID string, op
 }
 
 func (a *agentService) SpawnEphemeralAgent(ctx context.Context, title string, width, height int, opts ...AgentSpawnOptions) error {
-	taskID, err := a.store.CreateEphemeralTask(ctx, title)
+	taskID, err := a.CreateEphemeralTask(ctx, title)
 	if err != nil {
-		return fmt.Errorf("creating ephemeral task: %w", err)
+		return err
 	}
 	var opt AgentSpawnOptions
 	if len(opts) > 0 {
@@ -1228,6 +1228,17 @@ func (a *agentService) SpawnEphemeralAgent(ctx context.Context, title string, wi
 	}
 	opt.Ephemeral = true
 	return a.SpawnAgent(ctx, taskID, width, height, opt)
+}
+
+// CreateEphemeralTask makes the task of an agent that belongs to no card,
+// before the agent is started: a spawn that clones in the background
+// answers with it at once.
+func (a *agentService) CreateEphemeralTask(ctx context.Context, title string) (string, error) {
+	taskID, err := a.store.CreateEphemeralTask(ctx, title)
+	if err != nil {
+		return "", fmt.Errorf("creating ephemeral task: %w", err)
+	}
+	return taskID, nil
 }
 
 // RegisteredAdapters returns the names of all registered adapters sorted

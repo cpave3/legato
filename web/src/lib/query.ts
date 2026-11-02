@@ -20,6 +20,11 @@ export const queryKeys = {
   agentUIItems: (baseUrl: string, taskId: string) => [baseUrl, "agent-ui-items", taskId] as const,
   // revision 0 is "the latest", which changes when the agent shows it again.
   agentUIItem: (baseUrl: string, itemId: string, revision = 0) => [baseUrl, "agent-ui-item", itemId, revision] as const,
+  // Agents being started in the background while their clone is made.
+  preparingAgents: (baseUrl: string) => [baseUrl, "preparing-agents"] as const,
+  // How each repository's copy in the server's cache stands, by owner/name;
+  // repository_cache messages update it.
+  repositoryCache: (baseUrl: string) => [baseUrl, "repository-cache"] as const,
   reviewBriefing: (baseUrl: string, taskId: string) => [baseUrl, "review-briefing", taskId] as const,
   reviewBriefingPage: (baseUrl: string, taskId: string, path: string, version: string) => [baseUrl, "review-briefing-page", taskId, path, version] as const,
 }

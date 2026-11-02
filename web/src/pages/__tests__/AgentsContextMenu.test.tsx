@@ -2,6 +2,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter } from "react-router-dom"
 import { AgentsPage } from "../Agents"
+// The agents being started have their own tests, and a query client.
+vi.mock("../../components/PreparingAgents", () => ({ PreparingAgents: () => null }))
+
 
 const { mockFetch, setSelectedAgentId, addToast } = vi.hoisted(() => ({
   mockFetch: vi.fn(),

@@ -1,3 +1,4 @@
+import type { RepositoryCacheStatus } from "./preparingAgents"
 import { apiFetch } from "./api"
 
 // A repository Legato offers: a GitHub repository the spawn dialog can clone
@@ -15,6 +16,8 @@ export interface Repository {
   // Why Legato cannot clone repo (its GitHub credential does not list it),
   // absent when it can.
   clone_problem?: string
+  // How repo's copy in Legato's cache stands; absent with no repo.
+  cache?: RepositoryCacheStatus
 }
 
 export interface NewRepository {

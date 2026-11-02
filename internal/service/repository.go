@@ -35,8 +35,8 @@ type RepoTokenSource interface {
 
 // RepoGit is the git the repository cache runs (gitrepo.Runner).
 type RepoGit interface {
-	CloneBare(ctx context.Context, url, dest string, token []byte) error
-	Fetch(ctx context.Context, dir string, token []byte) error
+	CloneBare(ctx context.Context, url, dest string, token []byte, progress func(gitrepo.Progress)) error
+	Fetch(ctx context.Context, dir string, token []byte, progress func(gitrepo.Progress)) error
 	CloneJob(ctx context.Context, j gitrepo.JobClone) (string, error)
 	StartBranch(ctx context.Context, clone, branch string) error
 	UnpushedTips(ctx context.Context, clone, cache string) ([]string, error)
@@ -70,6 +70,9 @@ type RepositoryService struct {
 	mu     sync.Mutex
 	locks  map[string]*sync.Mutex
 	tokens RepoTokenSource
+	// statuses are the copies being made or fetched, and those that failed.
+	statuses map[string]RepositoryCacheStatus
+	listener func(RepositoryCacheStatus)
 }
 
 // NewRepositoryService builds the repository cache.
@@ -80,7 +83,7 @@ func NewRepositoryService(opts RepositoryServiceOptions) *RepositoryService {
 	if opts.KeepFor == 0 {
 		opts.KeepFor = 7 * 24 * time.Hour
 	}
-	return &RepositoryService{opts: opts, locks: map[string]*sync.Mutex{}, tokens: opts.Tokens}
+	return &RepositoryService{opts: opts, locks: map[string]*sync.Mutex{}, tokens: opts.Tokens, statuses: map[string]RepositoryCacheStatus{}}
 }
 
 // SetTokens gives the cache its GitHub credential once the credential
@@ -160,29 +163,43 @@ func (s *RepositoryService) ensure(ctx context.Context, repo string, force bool)
 			return path, nil
 		}
 	}
+	state := CacheCopying
+	if exists {
+		state = CacheFetching
+	}
+	s.setStatus(RepositoryCacheStatus{Repo: repo, State: state})
+	if err := s.copyOrFetch(ctx, repo, path, exists); err != nil {
+		s.setStatus(RepositoryCacheStatus{Repo: repo, State: CacheFailed, Error: err.Error()})
+		return "", err
+	}
+	s.setStatus(RepositoryCacheStatus{Repo: repo, State: CacheReady})
+	return path, nil
+}
+
+// copyOrFetch makes the repository's copy at path, or fetches the one
+// there, reporting git's progress, and stamps when.
+func (s *RepositoryService) copyOrFetch(ctx context.Context, repo, path string, exists bool) error {
 	tokens := s.tokenSource()
 	if tokens == nil {
-		return "", fmt.Errorf("%s: Legato needs a GitHub credential to clone repositories (credentials in config.yaml)", repo)
+		return fmt.Errorf("%s: Legato needs a GitHub credential to clone repositories (credentials in config.yaml)", repo)
 	}
 	token, url, err := tokens.GitReadToken(ctx, repo)
 	if err != nil {
-		return "", fmt.Errorf("%s: %w", repo, err)
+		return fmt.Errorf("%s: %w", repo, err)
 	}
 	if exists {
-		if err := s.opts.Git.Fetch(ctx, path, token); err != nil {
-			return "", fmt.Errorf("fetching %s: %w", repo, err)
+		if err := s.opts.Git.Fetch(ctx, path, token, s.reporter(repo, CacheFetching)); err != nil {
+			return fmt.Errorf("fetching %s: %w", repo, err)
 		}
 	} else if err := s.clone(ctx, repo, url, path, token); err != nil {
-		return "", err
+		return err
 	}
 	now := s.opts.Now()
+	stamp := filepath.Join(path, fetchedStamp)
 	if err := os.WriteFile(stamp, nil, 0o600); err != nil {
-		return "", err
+		return err
 	}
-	if err := os.Chtimes(stamp, now, now); err != nil {
-		return "", err
-	}
-	return path, nil
+	return os.Chtimes(stamp, now, now)
 }
 
 // clone makes the cache in a folder beside path and moves it into place,
@@ -198,7 +215,7 @@ func (s *RepositoryService) clone(ctx context.Context, repo, url, path string, t
 	}
 	defer os.RemoveAll(tmp)
 	dest := filepath.Join(tmp, "repo.git")
-	if err := s.opts.Git.CloneBare(ctx, url, dest, token); err != nil {
+	if err := s.opts.Git.CloneBare(ctx, url, dest, token, s.reporter(repo, CacheCopying)); err != nil {
 		return fmt.Errorf("cloning %s: %w", repo, err)
 	}
 	if err := os.Rename(dest, path); err != nil {

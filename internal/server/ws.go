@@ -49,7 +49,10 @@ const (
 	MsgAttentionChanged    = "attention_changed"
 	MsgLearningChanged     = "learning_changed"
 	MsgAgentUIChanged      = "agent_ui_changed"
-	MsgError               = "error"
+	// MsgRepositoryCache says how a repository's copy in Legato's cache
+	// stands, with git's progress while it is copied or fetched.
+	MsgRepositoryCache = "repository_cache"
+	MsgError           = "error"
 )
 
 // WSMessage is the JSON envelope for all WebSocket messages.
@@ -97,6 +100,8 @@ type WSMessage struct {
 	// ContextUsed and ContextWindow are an agent's context fill (agent_context).
 	ContextUsed   int `json:"context_used,omitempty"`
 	ContextWindow int `json:"context_window,omitempty"`
+	// Cache is a repository's copy (repository_cache).
+	Cache *service.RepositoryCacheStatus `json:"cache,omitempty"`
 }
 
 // wsClient represents a connected WebSocket client.

@@ -2,6 +2,44 @@ import { useCallback, useEffect, useState } from "react"
 import { AlertTriangle, GitBranch, Plus, Trash2 } from "lucide-react"
 import { SettingsCard } from "./settings/SettingsUI"
 import { addRepository, listRepositories, removeRepository, type NewRepository, type Repository } from "../lib/repositories"
+import { useRepositoryCache } from "../hooks/usePreparingAgents"
+import { progressDetail, type RepositoryCacheStatus } from "../lib/preparingAgents"
+
+function fetchedAgo(iso?: string): string {
+  if (!iso) return ""
+  const when = new Date(iso)
+  if (Number.isNaN(when.getTime())) return ""
+  return ` · fetched ${when.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
+}
+
+// CopyStatus says how a repository's copy in Legato's cache stands: an
+// agent in a new clone of it waits for nothing but its clone once copied.
+function CopyStatus({ status }: { status: RepositoryCacheStatus }) {
+  switch (status.state) {
+    case "copying":
+    case "fetching": {
+      const detail = progressDetail(status)
+      const label = `${status.state === "copying" ? "Copying" : "Fetching"}${detail ? ` · ${detail}` : ""}`
+      return (
+        <div className="flex flex-col gap-1">
+          <p className="text-xs text-zinc-400">{label}</p>
+          {status.percent != null && (
+            <div role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={status.percent}
+              className="h-1 max-w-xs overflow-hidden rounded-full bg-zinc-800">
+              <div className="h-full rounded-full bg-emerald-500 transition-[width] duration-300 motion-reduce:transition-none" style={{ width: `${status.percent}%` }} />
+            </div>
+          )}
+        </div>
+      )
+    }
+    case "failed":
+      return <p className="text-xs text-amber-300/90">Copy failed: {status.error}</p>
+    case "ready":
+      return <p className="text-xs text-zinc-500">Copied{fetchedAgo(status.fetched_at)}</p>
+    default:
+      return <p className="text-xs text-zinc-500">Not copied yet</p>
+  }
+}
 
 const emptyDraft = (): NewRepository => ({ name: "", repo: "", base_branch: "", primary_dir: "" })
 
@@ -15,6 +53,8 @@ export function RepositoriesSettings({ baseUrl, onChanged }: { baseUrl: string; 
   const [confirming, setConfirming] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Copies as git goes: repository_cache messages keep this up to date.
+  const { data: liveCache = {} } = useRepositoryCache()
 
   const load = useCallback(async () => {
     try {
@@ -99,6 +139,9 @@ export function RepositoriesSettings({ baseUrl, onChanged }: { baseUrl: string; 
                   {repository.base_branch && <span className="font-mono text-zinc-600">from {repository.base_branch}</span>}
                   {repository.primary_dir && <span className="truncate font-mono" title={repository.primary_dir}>{repository.primary_dir}</span>}
                 </div>
+                {repository.repo && !repository.clone_problem && (liveCache[repository.repo] ?? repository.cache) && (
+                  <CopyStatus status={(liveCache[repository.repo] ?? repository.cache)!} />
+                )}
                 {repository.clone_problem && (
                   <p className="flex items-start gap-1.5 text-xs text-amber-300/90">
                     <AlertTriangle size={12} className="mt-0.5 shrink-0" aria-hidden="true" />

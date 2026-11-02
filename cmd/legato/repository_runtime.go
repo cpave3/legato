@@ -51,9 +51,10 @@ func giveAgentsRepositories(agents service.AgentService, repos *service.Reposito
 }
 
 // giveRepositories gives the repository cache this process's GitHub
-// credential, and sweeps idle job clones while this process serves the
-// broker, so one Legato does it.
-func (rt *approvalRuntime) giveRepositories(repos *service.RepositoryService) {
+// credential. While this process serves the broker, so one Legato does it,
+// it copies every repository offered once at the start, so an agent's
+// first clone rarely waits for one, and sweeps idle job clones.
+func (rt *approvalRuntime) giveRepositories(repos *service.RepositoryService, presets *service.RepositoryPresetService) {
 	if rt == nil || repos == nil {
 		return
 	}
@@ -72,6 +73,7 @@ func (rt *approvalRuntime) giveRepositories(repos *service.RepositoryService) {
 	go func() {
 		if rt.brokerOwner() {
 			sweep(ctx)
+			repos.Warm(ctx, offeredRepositories(ctx, presets))
 		}
 		whileBrokerOwner(ctx, rt.brokerOwner, jobCloneSweepEvery, sweep)
 	}()
@@ -94,6 +96,26 @@ func newRepositoryPresetService(cfg *config.Config, db *store.Store, repos *serv
 	presets := service.NewRepositoryPresetService(db, configured, home)
 	if repos != nil {
 		presets.SetCloneChecker(repos)
+		// One added in the web UI is copied at once, before an agent needs it.
+		presets.SetOnAdded(func(repo string) { go repos.Warm(context.Background(), []string{repo}) })
 	}
 	return presets
+}
+
+// offeredRepositories are the GitHub repositories Legato offers.
+func offeredRepositories(ctx context.Context, presets *service.RepositoryPresetService) []string {
+	if presets == nil {
+		return nil
+	}
+	listed, err := presets.List(ctx)
+	if err != nil {
+		log.Printf("repositories: listing them to copy: %v", err)
+	}
+	var repos []string
+	for _, p := range listed {
+		if p.Repo != "" {
+			repos = append(repos, p.Repo)
+		}
+	}
+	return repos
 }

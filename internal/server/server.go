@@ -75,6 +75,7 @@ type Server struct {
 	workflowRepositories     []workflowengine.RepositoryPreset
 	repositoryPresets        RepositoryPresetService
 	jobClones                JobCloneService
+	preparing                preparingAgents
 	builtInWorkflows         []*workflowengine.Definition
 	worktrees                WorktreeService
 	notifyTaskChanged        func(string)
@@ -171,6 +172,8 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/directories/presets", s.directoryPresetsHandler())
 	mux.HandleFunc("/api/repositories", s.repositoriesHandler())
 	mux.HandleFunc("/api/repositories/{id}", s.repositoryHandler())
+	mux.HandleFunc("/api/preparing-agents", s.preparingAgentsHandler())
+	mux.HandleFunc("/api/preparing-agents/{task_id}", s.preparingAgentHandler())
 	mux.HandleFunc("/api/job-clones", s.jobClonesHandler())
 	mux.HandleFunc("/api/job-clones/{id}", s.jobCloneHandler())
 	mux.HandleFunc("/api/resources", s.resourcesHandler())
@@ -300,7 +303,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	}
 
 	s.server = &http.Server{
-		Addr:    addr,
+		Addr: addr,
 		// CORS outside the token check: a refusal reaches another origin's
 		// web UI as a 401, which asks for a token, not as a network error.
 		Handler: corsMiddleware(s.authMiddleware(mux)),

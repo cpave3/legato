@@ -147,3 +147,22 @@ func TestSpawningInAJobCloneJoinsIt(t *testing.T) {
 		t.Fatal("a spawn with both a job clone and a directory was taken")
 	}
 }
+
+// A spawn in the background needs its task first, to answer with it.
+func TestAnEphemeralTaskIsMadeBeforeItsAgent(t *testing.T) {
+	svc, db, _ := newTestAgentService(t)
+	creator, ok := svc.(interface {
+		CreateEphemeralTask(context.Context, string) (string, error)
+	})
+	if !ok {
+		t.Fatal("the agent service cannot make an ephemeral task on its own")
+	}
+	taskID, err := creator.CreateEphemeralTask(context.Background(), "Flaky sync")
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := db.GetTask(context.Background(), taskID)
+	if err != nil || task.Title != "Flaky sync" || !task.Ephemeral {
+		t.Fatalf("task = %+v, %v", task, err)
+	}
+}

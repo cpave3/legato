@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -17,5 +21,22 @@ func TestJobClonesAreKeptIdleAsConfigured(t *testing.T) {
 		if got := jobCloneKeepIdle(cfg); got != tc.want {
 			t.Errorf("keep_idle %q = %v, want %v", tc.keepIdle, got, tc.want)
 		}
+	}
+}
+
+func TestTheRepositoriesCopiedAtTheStartAreTheGitHubOnesOffered(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cfg := &config.Config{Repositories: []config.RepositoryConfig{
+		{Name: "Legato", Repo: "cpave3/legato"},
+		{Name: "Notes", PrimaryDir: t.TempDir()},
+		{Name: "Chimera", Repo: "cpave3/chimera"},
+	}}
+	got := offeredRepositories(context.Background(), newRepositoryPresetService(cfg, db, nil))
+	if strings.Join(got, ",") != "cpave3/legato,cpave3/chimera" {
+		t.Fatalf("copied %v", got)
 	}
 }

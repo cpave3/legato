@@ -118,7 +118,7 @@ func TestCloneBareWithToken(t *testing.T) {
 
 	r := Runner{Git: git, AskPass: self(t)}
 	dest := filepath.Join(t.TempDir(), "widget.git")
-	if err := r.CloneBare(context.Background(), srv.URL+"/acme/widget.git", dest, []byte(testToken)); err != nil {
+	if err := r.CloneBare(context.Background(), srv.URL+"/acme/widget.git", dest, []byte(testToken), nil); err != nil {
 		t.Fatalf("CloneBare: %v", err)
 	}
 
@@ -166,7 +166,7 @@ func TestFetchUpdatesBranches(t *testing.T) {
 	srv := server(t, root, testToken)
 	r := Runner{AskPass: self(t)}
 	dest := filepath.Join(t.TempDir(), "widget.git")
-	if err := r.CloneBare(context.Background(), srv.URL+"/acme/widget.git", dest, []byte(testToken)); err != nil {
+	if err := r.CloneBare(context.Background(), srv.URL+"/acme/widget.git", dest, []byte(testToken), nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -176,14 +176,14 @@ func TestFetchUpdatesBranches(t *testing.T) {
 	run(t, work, "push", "-q", "origin", "main")
 	want := run(t, work, "rev-parse", "HEAD")
 
-	if err := r.Fetch(context.Background(), dest, []byte(testToken)); err != nil {
+	if err := r.Fetch(context.Background(), dest, []byte(testToken), nil); err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
 	if got := run(t, "", "--git-dir", dest, "rev-parse", "refs/heads/main"); got != want {
 		t.Fatalf("main = %s after the fetch, want %s", got, want)
 	}
 
-	if err := r.Fetch(context.Background(), dest, []byte("wrong")); err == nil {
+	if err := r.Fetch(context.Background(), dest, []byte("wrong"), nil); err == nil {
 		t.Fatal("Fetch with a wrong token succeeded")
 	}
 }
@@ -196,7 +196,7 @@ func cache(t *testing.T) string {
 	upstream(t, root, "acme/widget")
 	srv := server(t, root, testToken)
 	dest := filepath.Join(t.TempDir(), "widget.git")
-	if err := (Runner{AskPass: self(t)}).CloneBare(context.Background(), srv.URL+"/acme/widget.git", dest, []byte(testToken)); err != nil {
+	if err := (Runner{AskPass: self(t)}).CloneBare(context.Background(), srv.URL+"/acme/widget.git", dest, []byte(testToken), nil); err != nil {
 		t.Fatal(err)
 	}
 	return dest

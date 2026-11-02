@@ -112,11 +112,18 @@ func (r Runner) env() []string {
 // run runs git with args in dir. With a token, git can ask for it once
 // through the askpass helper.
 func (r Runner) run(ctx context.Context, dir string, token []byte, args ...string) (string, error) {
+	return r.runReporting(ctx, dir, token, nil, args...)
+}
+
+// runReporting is run, giving each line of git's progress to progress
+// when it is set.
+func (r Runner) runReporting(ctx context.Context, dir string, token []byte, progress func(Progress), args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, r.git(), append(append([]string{}, hardened...), args...)...)
 	cmd.Dir = dir
 	cmd.Env = r.env()
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	var stdout bytes.Buffer
+	stderr := &progressWriter{report: progress}
+	cmd.Stdout, cmd.Stderr = &stdout, stderr
 	if token != nil {
 		if r.AskPass == "" {
 			return "", errors.New("no askpass helper to give git the token")
@@ -142,16 +149,25 @@ func (r Runner) run(ctx context.Context, dir string, token []byte, args ...strin
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// lastLine is the last line git wrote, which says what went wrong.
+// lastLine is the last line git wrote, which says what went wrong: not a
+// line of its progress, which it ends with \r.
 func lastLine(s string) string {
-	lines := strings.Split(strings.TrimSpace(s), "\n")
-	return strings.TrimSpace(lines[len(lines)-1])
+	lines := strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == '\r' })
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := strings.TrimSpace(lines[i]); line != "" {
+			if _, ok := ParseProgress(line); !ok {
+				return line
+			}
+		}
+	}
+	return ""
 }
 
 // CloneBare makes a bare clone of url at dest holding its branches and
-// tags. dest's remote keeps url, and fetches update its branches.
-func (r Runner) CloneBare(ctx context.Context, url, dest string, token []byte) error {
-	if _, err := r.run(ctx, "", token, "clone", "--quiet", "--bare", url, dest); err != nil {
+// tags. dest's remote keeps url, and fetches update its branches. progress,
+// when set, is given git's progress as it goes.
+func (r Runner) CloneBare(ctx context.Context, url, dest string, token []byte, progress func(Progress)) error {
+	if _, err := r.runReporting(ctx, "", token, progress, "clone", progressFlag(progress), "--bare", url, dest); err != nil {
 		return err
 	}
 	// A bare clone sets no fetch refspec: a later fetch would update nothing.
@@ -160,10 +176,20 @@ func (r Runner) CloneBare(ctx context.Context, url, dest string, token []byte) e
 }
 
 // Fetch updates a bare clone's branches and tags from its remote, removing
-// branches the remote no longer has.
-func (r Runner) Fetch(ctx context.Context, dir string, token []byte) error {
-	_, err := r.run(ctx, "", token, "--git-dir", dir, "fetch", "--quiet", "--prune", "--tags", "origin")
+// branches the remote no longer has. progress, when set, is given git's
+// progress as it goes.
+func (r Runner) Fetch(ctx context.Context, dir string, token []byte, progress func(Progress)) error {
+	_, err := r.runReporting(ctx, "", token, progress, "--git-dir", dir, "fetch", progressFlag(progress), "--prune", "--tags", "origin")
 	return err
+}
+
+// progressFlag asks git for its progress when someone follows it: git
+// writes none when its output is not a terminal unless asked.
+func progressFlag(progress func(Progress)) string {
+	if progress == nil {
+		return "--quiet"
+	}
+	return "--progress"
 }
 
 // JobClone describes a clone made for one job.

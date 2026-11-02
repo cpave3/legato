@@ -122,3 +122,45 @@ func TestOnlyARepositoryAddedInTheUICanBeRemoved(t *testing.T) {
 		t.Fatalf("after delete %+v", listed)
 	}
 }
+
+// statusChecker clones every repository and says each copy is ready.
+type statusChecker struct{ ownerChecker }
+
+func (statusChecker) CacheStatus(repo string) RepositoryCacheStatus {
+	return RepositoryCacheStatus{Repo: repo, State: CacheCopying, Percent: 40}
+}
+
+func TestRepositoriesSayHowTheirCopyStands(t *testing.T) {
+	svc, _ := newPresetFixture(t)
+	svc.SetCloneChecker(statusChecker{ownerChecker("cpave3")})
+	ctx := context.Background()
+	if _, err := svc.Save(ctx, RepositoryPreset{Name: "Notes", PrimaryDir: "~/src/notes"}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := svc.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed[0].Cache == nil || listed[0].Cache.State != CacheCopying || listed[0].Cache.Percent != 40 {
+		t.Fatalf("Legato's copy = %+v", listed[0].Cache)
+	}
+	if listed[1].Cache != nil {
+		t.Fatalf("a folder with no GitHub repository has a copy: %+v", listed[1].Cache)
+	}
+}
+
+func TestARepositoryAddedIsCopiedAtOnce(t *testing.T) {
+	svc, _ := newPresetFixture(t)
+	var added []string
+	svc.SetOnAdded(func(repo string) { added = append(added, repo) })
+	ctx := context.Background()
+	if _, err := svc.Save(ctx, RepositoryPreset{Name: "Chimera", Repo: "https://github.com/cpave3/chimera"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Save(ctx, RepositoryPreset{Name: "Notes", PrimaryDir: "~/src/notes"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(added) != 1 || added[0] != "cpave3/chimera" {
+		t.Fatalf("added = %v, want cpave3/chimera only", added)
+	}
+}

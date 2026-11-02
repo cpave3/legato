@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, createContext, useContext } from "react"
 import { getToken } from "../lib/auth"
+import type { RepositoryCacheStatus } from "../lib/preparingAgents"
 import { clearFrontendUpdateAttempt, coordinateFrontendUpdate, updateRegisteredServiceWorkers } from "../lib/frontendUpdate"
 
 export interface WSMessage {
@@ -7,7 +8,7 @@ export interface WSMessage {
     | "subscribe_agent" | "unsubscribe_agent" | "send_keys" | "resize" | "detect_prompt" | "refresh_pane"
     | "agent_message" | "agent_interrupt" | "agent_permission" | "agent_question"
     | "plan_proposed" | "plan_verdict" | "plan_changed" | "swarm_changed" | "cards_changed" | "review_changed" | "workflow_changed" | "attention_changed" | "approvals_changed"
-    | "agent_ui_changed" | "agent_context" | "pairing_changed"
+    | "agent_ui_changed" | "agent_context" | "pairing_changed" | "repository_cache"
   agent_id?: string
   // How full a native agent's context window is (agent_context).
   context_used?: number
@@ -55,6 +56,8 @@ export interface WSMessage {
   // closed the question unanswered.
   answers?: Record<string, string[]>
   dismissed?: boolean
+  // repository_cache: how a repository's copy in the server's cache stands.
+  cache?: RepositoryCacheStatus
 }
 
 export interface AgentInfo {

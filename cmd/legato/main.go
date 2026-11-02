@@ -1558,6 +1558,7 @@ func runServeCmd(args []string) int {
 	repoPresets := newRepositoryPresetService(cfg, db, repos)
 	srv.SetRepositoryPresetService(repoPresets)
 	srv.SetJobCloneService(repos)
+	repos.SetCacheListener(srv.BroadcastRepositoryCache)
 	if built, workflowErr := buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: boardSvc, Sync: syncSvc, Agents: agentSvc, WorkDir: wd, Repos: repos, Presets: repoPresets}); workflowErr == nil {
 		workflowSvc = built
 		globalWorkflows, projectWorkflows := workflowDirs()
@@ -1572,7 +1573,7 @@ func runServeCmd(args []string) int {
 		log.Printf("workflows: %v", workflowErr)
 	}
 	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
-	approvalsRT.giveRepositories(repos)
+	approvalsRT.giveRepositories(repos, repoPresets)
 	defer approvalsRT.stop()
 	approvalsRT.attach(srv)
 	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, triggerCoordinator)
@@ -1834,7 +1835,7 @@ func runTUI() int {
 	// Approval requests, and the watcher that turns native agents' own
 	// requests into them, whether or not the web server runs.
 	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
-	approvalsRT.giveRepositories(repos)
+	approvalsRT.giveRepositories(repos, repoPresets)
 	defer approvalsRT.stop()
 
 	// Auto-start web server if configured and port is free.
@@ -1871,6 +1872,7 @@ func runTUI() int {
 			webSrv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
 			webSrv.SetRepositoryPresetService(repoPresets)
 			webSrv.SetJobCloneService(repos)
+			repos.SetCacheListener(webSrv.BroadcastRepositoryCache)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)
 			webSrv.SetProviderSyncService(providerSync)

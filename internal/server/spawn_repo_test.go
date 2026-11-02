@@ -31,9 +31,10 @@ func TestTaskAgentEndpointStartsTheAgentInAClone(t *testing.T) {
 	server.workDir = "/default"
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/tasks/T-1/agent", strings.NewReader(`{"repo":"acme/widget","branch":"legato/t-1"}`)))
-	if response.Code != http.StatusCreated {
+	if response.Code != http.StatusAccepted {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
+	waitFor(t, server, func(l preparingList) bool { return len(l) == 0 })
 	if agents.opts.Repo != "acme/widget" || agents.opts.Branch != "legato/t-1" || agents.opts.WorkingDir != "" {
 		t.Fatalf("opts = %+v", agents.opts)
 	}
@@ -75,9 +76,10 @@ func TestTaskAgentEndpointStartsTheAgentInAJobClone(t *testing.T) {
 	server.workDir = "/default"
 	response := httptest.NewRecorder()
 	server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/tasks/T-1/agent", strings.NewReader(`{"clone_id":7}`)))
-	if response.Code != http.StatusCreated {
+	if response.Code != http.StatusAccepted {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
+	waitFor(t, server, func(l preparingList) bool { return len(l) == 0 })
 	if agents.opts.Clone != 7 || agents.opts.WorkingDir != "" {
 		t.Fatalf("opts = %+v", agents.opts)
 	}

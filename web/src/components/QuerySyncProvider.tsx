@@ -4,6 +4,7 @@ import { queryKeys } from "../lib/query"
 import { useServer } from "../hooks/useServer"
 import { useWebSocket, type AgentInfo, type WSMessage } from "../hooks/useWebSocket"
 import type { NavigationSummary } from "../hooks/useNavigationSummary"
+import type { RepositoryCacheStatus } from "../lib/preparingAgents"
 
 const COALESCE_MS = 75
 
@@ -74,6 +75,19 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           invalidate(queryKeys.jobClones(baseUrl))
           invalidate(queryKeys.navigationSummary(baseUrl))
           invalidate([baseUrl, "board"], false)
+          // An agent started in the background began, or failed.
+          invalidate(queryKeys.preparingAgents(baseUrl))
+          break
+        case "repository_cache":
+          // git's progress comes several times a second: the message is
+          // the new state, so nothing is asked for again.
+          if (message.cache) {
+            const status = message.cache
+            queryClient.setQueryData<Record<string, RepositoryCacheStatus>>(queryKeys.repositoryCache(baseUrl), (current) => ({
+              ...current,
+              [status.repo]: status,
+            }))
+          }
           break
         case "agent_list":
           if (message.agents) {

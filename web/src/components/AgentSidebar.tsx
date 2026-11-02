@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { AgentInfo } from "../hooks/useWebSocket";
 import type { AgentContext } from "../hooks/useAgentContexts";
 import { cn } from "../lib/utils";
@@ -23,6 +24,8 @@ interface AgentSidebarProps {
   unseenArtifacts?: Record<string, number>;
   // How full each native agent's context window is, by task ID.
   contexts?: Record<string, AgentContext>;
+  // Shown above the agents: those still being started (PreparingAgents).
+  preparing?: ReactNode;
 }
 
 const sectionTone: Record<EnsembleSection, string> = {
@@ -43,6 +46,7 @@ export function AgentSidebar({
   modifierHeld,
   unseenArtifacts,
   contexts,
+  preparing,
 }: AgentSidebarProps) {
   const sections = agentSections(agents);
   let position = 0;
@@ -86,6 +90,7 @@ export function AgentSidebar({
       </div>
 
       <div className="flex flex-col gap-0.5 px-2 pb-3">
+        {preparing}
         {sections.map(({ section, agents: members }) => (
           <section key={section} className="flex flex-col gap-0.5">
             <h2 className={cn("m-0 px-2 pb-0.5 pt-2.5 text-[11px] font-semibold uppercase tracking-[1px]", sectionTone[section])}>

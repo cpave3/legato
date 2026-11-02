@@ -28,11 +28,18 @@ type RepositoryPreset struct {
 	// CloneProblem says why Legato cannot clone Repo, "" when it can (or
 	// there is no Repo).
 	CloneProblem string `json:"clone_problem,omitempty"`
+	// Cache is how Repo's copy in Legato's cache stands; nil with no Repo.
+	Cache *RepositoryCacheStatus `json:"cache,omitempty"`
 }
 
 // CloneChecker says why a repository cannot be cloned (RepositoryService).
 type CloneChecker interface {
 	CloneProblem(repo string) string
+}
+
+// cacheStatuser says how a repository's copy stands (RepositoryService).
+type cacheStatuser interface {
+	CacheStatus(repo string) RepositoryCacheStatus
 }
 
 // RepositoryPresetStore keeps the repositories added in the web UI.
@@ -50,6 +57,7 @@ type RepositoryPresetService struct {
 	configured []RepositoryPreset
 	home       string
 	checker    CloneChecker
+	onAdded    func(repo string)
 }
 
 // NewRepositoryPresetService builds the catalog from the configuration's
@@ -63,8 +71,13 @@ func NewRepositoryPresetService(saved RepositoryPresetStore, configured []Reposi
 	return s
 }
 
-// SetCloneChecker lets List say which repositories cannot be cloned.
+// SetCloneChecker lets List say which repositories cannot be cloned, and
+// how each copy stands when the checker knows.
 func (s *RepositoryPresetService) SetCloneChecker(checker CloneChecker) { s.checker = checker }
+
+// SetOnAdded is told the GitHub repository of each one added, so its copy
+// can be made before an agent needs it.
+func (s *RepositoryPresetService) SetOnAdded(added func(repo string)) { s.onAdded = added }
 
 // List returns the configuration's repositories, then the added ones.
 func (s *RepositoryPresetService) List(ctx context.Context) ([]RepositoryPreset, error) {
@@ -79,9 +92,15 @@ func (s *RepositoryPresetService) List(ctx context.Context) ([]RepositoryPreset,
 		}
 	}
 	if s.checker != nil {
+		statuses, _ := s.checker.(cacheStatuser)
 		for i := range out {
-			if out[i].Repo != "" {
-				out[i].CloneProblem = s.checker.CloneProblem(out[i].Repo)
+			if out[i].Repo == "" {
+				continue
+			}
+			out[i].CloneProblem = s.checker.CloneProblem(out[i].Repo)
+			if statuses != nil {
+				status := statuses.CacheStatus(out[i].Repo)
+				out[i].Cache = &status
 			}
 		}
 	}
@@ -159,6 +178,9 @@ func (s *RepositoryPresetService) Save(ctx context.Context, p RepositoryPreset) 
 	p.ID, p.Configured = row.ID, false
 	if s.checker != nil && p.Repo != "" {
 		p.CloneProblem = s.checker.CloneProblem(p.Repo)
+	}
+	if s.onAdded != nil && p.Repo != "" {
+		s.onAdded(p.Repo)
 	}
 	return p, nil
 }

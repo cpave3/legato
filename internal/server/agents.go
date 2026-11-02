@@ -171,6 +171,20 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			Unsandboxed: req.Sandbox != nil && !*req.Sandbox,
 			Prompt:      req.Prompt,
 		}
+		if creator, ok := s.agents.(ephemeralTaskCreator); ok && startsInBackground(opts) {
+			// A clone can take minutes: the agent is started in the
+			// background and listed as preparing until it runs.
+			taskID, err := creator.CreateEphemeralTask(r.Context(), req.Title)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			opts.Ephemeral = true
+			s.startInBackground(PreparingAgent{TaskID: taskID, Title: req.Title, AgentKind: req.AgentKind, Repo: opts.Repo, CloneID: opts.Clone},
+				func(ctx context.Context) error { return s.agents.SpawnAgent(ctx, taskID, 0, 0, opts) })
+			s.writeJSON(w, http.StatusAccepted, map[string]any{"status": "preparing", "task_id": taskID, "preparing": true})
+			return
+		}
 		if err := s.agents.SpawnEphemeralAgent(context.Background(), req.Title, 0, 0, opts); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -584,6 +598,22 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			if opts.SessionPolicy == "resume" && opts.ResumeWorkingDir != "" {
 				opts.WorkingDir = opts.ResumeWorkingDir
 			}
+		}
+		if startsInBackground(opts) {
+			// A clone can take minutes: the agent is started in the
+			// background and listed as preparing until it runs.
+			title := taskID
+			if card, err := s.board.GetCard(r.Context(), taskID); err == nil && card.Title != "" {
+				title = card.Title
+			}
+			started := s.startInBackground(PreparingAgent{TaskID: taskID, Title: title, AgentKind: req.AgentKind, Repo: opts.Repo, CloneID: opts.Clone},
+				func(ctx context.Context) error { return agents.SpawnAgent(ctx, taskID, 0, 0, opts) })
+			if !started {
+				http.Error(w, "the task's agent is being prepared already", http.StatusConflict)
+				return
+			}
+			s.writeJSON(w, http.StatusAccepted, map[string]any{"task_id": taskID, "created": true, "preparing": true})
+			return
 		}
 		if err := agents.SpawnAgent(r.Context(), taskID, 0, 0, opts); err != nil {
 			if errors.Is(err, service.ErrTaskResumeConflict) {

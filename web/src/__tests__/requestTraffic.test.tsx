@@ -10,6 +10,7 @@ import { useWorkflowRun, useWorkflowRuns, useWorkflows } from "../hooks/useWorkf
 import { useNavigationSummary } from "../hooks/useNavigationSummary"
 import { useTaskCard } from "../hooks/useTaskCard"
 import { useDevices } from "../hooks/useDevices"
+import { usePreparingAgents, useRepositoryCache } from "../hooks/usePreparingAgents"
 import { fetchHandoff } from "../lib/handoff"
 import { createQueryClient, queryKeys } from "../lib/query"
 import type { WSMessage } from "../hooks/useWebSocket"
@@ -282,4 +283,46 @@ it("reads the devices again when an approval changes, as one is enrolled", async
   act(() => { websocket.handler?.({ type: "approvals_changed" }) })
   await screen.findByText("active")
   expect(reads).toBe(2)
+})
+
+it("reads the agents being started again when the agents change", async () => {
+  let reads = 0
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+    const path = requestPath(input)
+    if (path !== "/api/preparing-agents") throw new Error(`unexpected request: ${path}`)
+    reads += 1
+    return response(reads === 1 ? [{ task_id: "T-1", title: "Cloning", started_at: "" }] : [])
+  }))
+  function Preparing() {
+    const { data } = usePreparingAgents()
+    return <span>{data ? `${data.length} starting` : "loading"}</span>
+  }
+
+  render(<QueryClientProvider client={createQueryClient()}><QuerySyncProvider><Preparing /></QuerySyncProvider></QueryClientProvider>)
+  await screen.findByText("1 starting")
+  act(() => { websocket.handler?.({ type: "agents_changed" }) })
+  await screen.findByText("0 starting")
+})
+
+it("takes a repository's copy from the message, without asking again", async () => {
+  let reads = 0
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+    const path = requestPath(input)
+    if (path !== "/api/repositories") throw new Error(`unexpected request: ${path}`)
+    reads += 1
+    return response({ repositories: [{ name: "Widget", repo: "acme/widget", cache: { repo: "acme/widget", state: "copying", percent: 10 } }] })
+  }))
+  function Copy() {
+    const { data } = useRepositoryCache()
+    const status = data?.["acme/widget"]
+    return <span>{status ? `${status.state} ${status.percent ?? ""}`.trim() : "loading"}</span>
+  }
+
+  render(<QueryClientProvider client={createQueryClient()}><QuerySyncProvider><Copy /></QuerySyncProvider></QueryClientProvider>)
+  await screen.findByText("copying 10")
+  act(() => { websocket.handler?.({ type: "repository_cache", cache: { repo: "acme/widget", state: "copying", percent: 64 } }) })
+  await screen.findByText("copying 64")
+  act(() => { websocket.handler?.({ type: "repository_cache", cache: { repo: "acme/widget", state: "ready" } }) })
+  await screen.findByText("ready")
+  expect(reads).toBe(1)
 })
