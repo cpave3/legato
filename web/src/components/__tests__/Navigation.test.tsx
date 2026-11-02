@@ -53,7 +53,7 @@ describe("the rail", () => {
     renderAt("/board")
 
     const names = within(rail()).getAllByRole("link").map((link) => link.textContent)
-    expect(names).toEqual(["Attention", "Agents", "Ensemble", "Board", "Review", "Plans", "Flows", "Learning", "Reports", "Audit", "Settings"])
+    expect(names).toEqual(["Attention", "Agents", "Ensemble", "Board", "Review", "Plans", "Flows", "Learning", "Reports", "Remote", "Audit", "Settings"])
     expect(within(rail()).getAllByRole("separator")).toHaveLength(3)
     expect(within(rail()).getByRole("link", { name: "Board" }).getAttribute("aria-current")).toBe("page")
   })
@@ -120,7 +120,7 @@ describe("the More sheet", () => {
     const queues = within(sheet).getByRole("group", { name: "Queues" })
     expect(within(queues).getAllByRole("link").map((link) => link.textContent)).toEqual(["Plans8", "Learning2"])
     const tools = within(sheet).getByRole("group", { name: "Tools" })
-    expect(within(tools).getAllByRole("link").map((link) => link.textContent)).toEqual(["Workflows", "Reports", "Audit log"])
+    expect(within(tools).getAllByRole("link").map((link) => link.textContent)).toEqual(["Workflows", "Reports", "Remote", "Audit log"])
     expect(within(sheet).getByRole("link", { name: "Pair with QR code" }).getAttribute("href")).toBe("/settings?pair=qr")
     expect(within(sheet).getByRole("link", { name: "All settings" }).getAttribute("href")).toBe("/settings")
   })
