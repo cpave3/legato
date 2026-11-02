@@ -100,3 +100,34 @@ describe("useWebSocketProvider", () => {
     expect(result.current.lost).toBe(false)
   })
 })
+
+describe("the web build check", () => {
+  beforeEach(() => {
+    FakeWebSocket.made = []
+    vi.stubGlobal("WebSocket", FakeWebSocket)
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ build_id: "another-build" }) })))
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
+
+  const metaRequests = () => (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    .map(([url]) => String(url)).filter((url) => url.endsWith("/frontend-meta"))
+
+  it("asks the server that served this page whether its web build is newer", async () => {
+    renderHook(() => useWebSocketProvider(`ws://${window.location.host}/ws`))
+    await act(async () => latest().open())
+    expect(metaRequests()).toEqual(["/frontend-meta"])
+  })
+
+  // This page is the build of the server that served it; another server's
+  // build says nothing about it, and reloading would only load this one again.
+  it("does not compare this page with another server's build", async () => {
+    const { result } = renderHook(() => useWebSocketProvider("wss://192.168.1.19:3080/ws"))
+    await act(async () => latest().open())
+    expect(metaRequests()).toEqual([])
+    expect(result.current.updateRequired).toBe(false)
+  })
+})

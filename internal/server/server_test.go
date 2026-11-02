@@ -727,6 +727,30 @@ func TestAuthMiddlewareRejectsWrongToken(t *testing.T) {
 	}
 }
 
+// A web UI that has switched to this server reads a refusal as such, and
+// asks for a token: without CORS headers on the 401 the browser hides it
+// behind a network error.
+func TestARefusedRequestFromAnotherOriginCarriesCORSHeaders(t *testing.T) {
+	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+	srv := New(svc, nil, nil, ":0")
+	srv.SetAuthToken("test-secret-token")
+	handler := srv.Handler()
+
+	for _, path := range []string{"/api/settings", "/ws"} {
+		req := httptest.NewRequest("GET", path, nil)
+		req.Header.Set("Origin", "https://localhost:3080")
+		req.Header.Set("Authorization", "Bearer wrong-token")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("%s: status = %d, want 401", path, w.Code)
+		}
+		if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+			t.Errorf("%s: Access-Control-Allow-Origin = %q on the 401, want *", path, got)
+		}
+	}
+}
+
 func TestAuthMiddlewareAcceptsCorrectToken(t *testing.T) {
 	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
 	srv := New(svc, nil, nil, ":0")

@@ -162,6 +162,10 @@ export function useWebSocketProvider(wsUrl: string) {
       setLost(false)
       setConnectionGeneration((generation) => generation + 1)
       attemptRef.current = 0
+      // This page is the web build of the server that served it. Another
+      // server's build says nothing about it, and a reload would only load
+      // this one again.
+      if (!isOrigin) return
       void coordinateFrontendUpdate(__LEGATO_FRONTEND_BUILD_ID__, {
         fetchBuildID: async () => {
           const response = await fetch(`${baseUrl}/frontend-meta`, { cache: "no-store" })

@@ -301,7 +301,9 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 
 	s.server = &http.Server{
 		Addr:    addr,
-		Handler: s.authMiddleware(corsMiddleware(mux)),
+		// CORS outside the token check: a refusal reaches another origin's
+		// web UI as a 401, which asks for a token, not as a network error.
+		Handler: corsMiddleware(s.authMiddleware(mux)),
 		// Disable HTTP/2 — WebSocket upgrades require the HTTP/1.1
 		// Connection: Upgrade mechanism which doesn't exist in HTTP/2.
 		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
