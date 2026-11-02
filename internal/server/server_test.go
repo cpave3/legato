@@ -751,6 +751,23 @@ func TestARefusedRequestFromAnotherOriginCarriesCORSHeaders(t *testing.T) {
 	}
 }
 
+// A web UI switched to this server from another sends every method it
+// uses across origins: the browser asks first, and refuses what is not listed.
+func TestEveryMethodTheWebUIUsesIsAllowedAcrossOrigins(t *testing.T) {
+	srv := New(&mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}, nil, nil, ":0")
+	srv.SetAuthToken("test-secret-token")
+	for _, method := range []string{"GET", "POST", "PUT", "PATCH", "DELETE"} {
+		req := httptest.NewRequest(http.MethodOptions, "/api/settings/tint", nil)
+		req.Header.Set("Origin", "https://localhost:3080")
+		req.Header.Set("Access-Control-Request-Method", method)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		if allowed := w.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(allowed, method) {
+			t.Errorf("%s is not allowed across origins: %q", method, allowed)
+		}
+	}
+}
+
 func TestAuthMiddlewareAcceptsCorrectToken(t *testing.T) {
 	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
 	srv := New(svc, nil, nil, ":0")
