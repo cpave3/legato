@@ -52,6 +52,8 @@ const (
 	// MsgRepositoryCache says how a repository's copy in Legato's cache
 	// stands, with git's progress while it is copied or fetched.
 	MsgRepositoryCache = "repository_cache"
+	// MsgSettingsChanged says this server's settings changed (its tint).
+	MsgSettingsChanged = "settings_changed"
 	MsgError           = "error"
 )
 

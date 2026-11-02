@@ -31,8 +31,8 @@ func frontendMetaHandler() http.HandlerFunc {
 }
 
 func (s *Server) mobileMetaHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		meta := MobileMetaResponse{Version: buildVersion(), MobileShellAPI: 1, AuthBootstrap: "local_storage_v1"}
+	return func(w http.ResponseWriter, r *http.Request) {
+		meta := MobileMetaResponse{Version: buildVersion(), MobileShellAPI: 1, AuthBootstrap: "local_storage_v1", Tint: s.tint(r.Context())}
 		if s.pairing != nil {
 			meta.PhrasePairing = 1
 		}

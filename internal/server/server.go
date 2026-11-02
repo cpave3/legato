@@ -76,6 +76,7 @@ type Server struct {
 	repositoryPresets        RepositoryPresetService
 	jobClones                JobCloneService
 	preparing                preparingAgents
+	tints                    TintService
 	builtInWorkflows         []*workflowengine.Definition
 	worktrees                WorktreeService
 	notifyTaskChanged        func(string)
@@ -164,6 +165,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/board/archive-done", s.archiveDoneHandler())
 	mux.HandleFunc("/api/workspaces", s.workspacesHandler())
 	mux.HandleFunc("/api/settings", s.settingsHandler())
+	mux.HandleFunc("/api/settings/tint", s.tintHandler())
 	mux.HandleFunc("/api/hot-reload/build", s.hotReloadBuildHandler())
 	mux.HandleFunc("/api/navigation-summary", s.navigationSummaryHandler())
 	mux.HandleFunc("/api/ca-cert", s.caCertHandler())
@@ -517,6 +519,8 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			DefaultWorkspaceID       *int                              `json:"default_workspace_id"`
 			DefaultImportWorkspaceID *int                              `json:"default_import_workspace_id"`
 			Repositories             []workflowengine.RepositoryPreset `json:"repositories"`
+			// Tint is this Legato's colour, "" for none (service.Tints).
+			Tint string `json:"tint"`
 		}{
 			CaCertAvailable:          hasCACert,
 			WorkingDir:               s.workDir,
@@ -529,6 +533,7 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			DefaultWorkspaceID:       s.defaultWorkspaceID,
 			DefaultImportWorkspaceID: s.defaultImportWorkspaceID,
 			Repositories:             s.repositories(r.Context()),
+			Tint:                     s.tint(r.Context()),
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}

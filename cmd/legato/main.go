@@ -1557,6 +1557,7 @@ func runServeCmd(args []string) int {
 	giveAgentsRepositories(agentSvc, repos)
 	repoPresets := newRepositoryPresetService(cfg, db, repos)
 	srv.SetRepositoryPresetService(repoPresets)
+	srv.SetTintService(service.NewTintService(db))
 	srv.SetJobCloneService(repos)
 	repos.SetCacheListener(srv.BroadcastRepositoryCache)
 	if built, workflowErr := buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: boardSvc, Sync: syncSvc, Agents: agentSvc, WorkDir: wd, Repos: repos, Presets: repoPresets}); workflowErr == nil {
@@ -1871,6 +1872,7 @@ func runTUI() int {
 			webSrv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
 			webSrv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
 			webSrv.SetRepositoryPresetService(repoPresets)
+			webSrv.SetTintService(service.NewTintService(db))
 			webSrv.SetJobCloneService(repos)
 			repos.SetCacheListener(webSrv.BroadcastRepositoryCache)
 			webSrv.SetSyncService(syncSvc)

@@ -2,6 +2,8 @@ import { Fragment, useEffect, useRef, useState } from "react"
 import { Link, useLocation } from "react-router-dom"
 import { Server } from "lucide-react"
 import { cn } from "../lib/utils"
+import { useServerTint } from "../hooks/useServerTint"
+import { tintColor, tintWash } from "../lib/tints"
 import { badgeText, badgeTone, railOrder, sectionActive, sectionName, type NavSection } from "../lib/navSections"
 
 // NavIcon draws a section's icon from its path, as the design draws it.
@@ -46,13 +48,19 @@ interface NavRailProps {
   activeServerName: string
   baseUrl: string
   onSwitchServer: (url: string) => void
+  // The tint of the server in use (Settings › Appearance), "" for none.
+  tint?: string
 }
 
 // NavRail is the column of sections down the left of a wide screen: each an
 // icon over its name, in groups, with what waits in it counted.
-export function NavRail({ sections, connected, servers, activeServerName, baseUrl, onSwitchServer }: NavRailProps) {
+export function NavRail({ sections, connected, servers, activeServerName, baseUrl, onSwitchServer, tint }: NavRailProps) {
+  const color = tintColor(tint)
+  // A wash of the server's tint over the rail, which keeps its own colour.
+  const tinted = color ? { backgroundImage: `linear-gradient(${tintWash(color, 0.16)}, ${tintWash(color, 0.16)})`, borderRightColor: tintWash(color, 0.45) } : undefined
   return (
-    <nav aria-label="Primary" className="hidden w-16 shrink-0 flex-col items-center gap-0.5 border-r border-[#222228] bg-lw-rail pb-3.5 pt-3 font-lw md:flex">
+    <nav aria-label="Primary" data-tint={color ? tint : undefined} style={tinted}
+      className="hidden w-16 shrink-0 flex-col items-center gap-0.5 border-r border-[#222228] bg-lw-rail pb-3.5 pt-3 font-lw md:flex">
       {railOrder.map((key) => (
         <Fragment key={key}>
           {sections[key].separated && <div role="separator" className="my-1.5 h-px w-7 bg-lw-line" />}
@@ -61,7 +69,7 @@ export function NavRail({ sections, connected, servers, activeServerName, baseUr
       ))}
       <div className="mt-auto flex flex-col items-center gap-2.5">
         <RailLink section={sections.settings} />
-        {servers.length > 0 && <ServerSwitcher servers={servers} activeServerName={activeServerName} baseUrl={baseUrl} onSwitch={onSwitchServer} />}
+        {servers.length > 0 && <ServerSwitcher servers={servers} activeServerName={activeServerName} baseUrl={baseUrl} onSwitch={onSwitchServer} color={color} />}
         <div title={connected ? "Connected" : "Disconnected"} className={cn("flex items-center gap-1 text-[10px]", connected ? "text-lw-faint" : "text-lw-error")}>
           <span className={cn("size-[7px] rounded-full", connected ? "bg-lw-live" : "bg-lw-error")} />
           {connected ? "sync" : "offline"}
@@ -72,11 +80,13 @@ export function NavRail({ sections, connected, servers, activeServerName, baseUr
 }
 
 // The servers this page can talk to, when there are more than this one.
-function ServerSwitcher({ servers, activeServerName, baseUrl, onSwitch }: {
+function ServerSwitcher({ servers, activeServerName, baseUrl, onSwitch, color }: {
   servers: { name: string; url: string }[]
   activeServerName: string
   baseUrl: string
   onSwitch: (url: string) => void
+  // The tint of the server in use.
+  color?: string
 }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
@@ -92,10 +102,7 @@ function ServerSwitcher({ servers, activeServerName, baseUrl, onSwitch }: {
 
   const choose = (url: string) => { onSwitch(url); setOpen(false) }
   const item = (label: string, url: string) => (
-    <button key={url || "local"} type="button" onClick={() => choose(url)}
-      className={cn("flex w-full items-center px-3 py-1.5 text-left text-xs", baseUrl === url ? "bg-lw-selected text-lw-link" : "text-lw-text hover:bg-lw-raised")}>
-      <span className="truncate">{label}</span>
-    </button>
+    <ServerItem key={url || "local"} label={label} url={url} current={baseUrl === url} onChoose={choose} />
   )
 
   return (
@@ -106,6 +113,7 @@ function ServerSwitcher({ servers, activeServerName, baseUrl, onSwitch }: {
         aria-label={`Server: ${activeServerName}`}
         title={`Server: ${activeServerName}`}
         className={cn("flex size-9 items-center justify-center rounded-lg hover:bg-lw-raised", baseUrl ? "text-lw-link" : "text-[#8a8994] hover:text-lw-text")}
+        style={color ? { color } : undefined}
       >
         <Server size={16} />
       </button>
@@ -116,5 +124,18 @@ function ServerSwitcher({ servers, activeServerName, baseUrl, onSwitch }: {
         </div>
       )}
     </div>
+  )
+}
+
+// One server in the switcher, with its tint as a dot when it has one.
+function ServerItem({ label, url, current, onChoose }: { label: string; url: string; current: boolean; onChoose: (url: string) => void }) {
+  const tint = useServerTint(url)
+  const color = tintColor(tint)
+  return (
+    <button type="button" onClick={() => onChoose(url)}
+      className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs", current ? "bg-lw-selected text-lw-link" : "text-lw-text hover:bg-lw-raised")}>
+      <span className="truncate">{label}</span>
+      {color && <span title={tint} className="ml-auto size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
+    </button>
   )
 }

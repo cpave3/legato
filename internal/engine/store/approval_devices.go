@@ -198,3 +198,19 @@ func (s *Store) InstanceValue(ctx context.Context, key string, make func() strin
 	err := s.db.GetContext(ctx, &value, "SELECT value FROM instance_values WHERE key = ?", key)
 	return value, err
 }
+
+// GetInstanceValue reads a setting of this Legato, "" when it was never set.
+func (s *Store) GetInstanceValue(ctx context.Context, key string) (string, error) {
+	var value string
+	err := s.db.GetContext(ctx, &value, "SELECT value FROM instance_values WHERE key = ?", key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return value, err
+}
+
+// SetInstanceValue keeps a setting of this Legato.
+func (s *Store) SetInstanceValue(ctx context.Context, key, value string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO instance_values (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, value)
+	return err
+}

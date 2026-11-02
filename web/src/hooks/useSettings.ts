@@ -25,6 +25,8 @@ export interface Settings {
   default_workspace_id: number | null
   default_import_workspace_id: number | null
   repositories: RepositorySetting[]
+  // This server's tint (lib/tints), "" for none; absent from an older server.
+  tint?: string
 }
 
 export class SettingsRequestError extends Error {

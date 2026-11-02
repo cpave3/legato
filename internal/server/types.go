@@ -14,6 +14,9 @@ type MobileMetaResponse struct {
 	AuthBootstrap  string `json:"auth_bootstrap"`
 	// PhrasePairing is 1 when a phone can pair by phrase (/api/pair/...).
 	PhrasePairing int `json:"phrase_pairing,omitempty"`
+	// Tint is this Legato's colour, so a switcher shows it before it has
+	// a token for the server.
+	Tint string `json:"tint,omitempty"`
 }
 
 // ColumnResponse represents a column with its cards in the board response.

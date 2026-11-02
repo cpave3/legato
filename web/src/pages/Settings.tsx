@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
-import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone, Sparkles, FolderGit2 } from "lucide-react"
+import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone, Sparkles, FolderGit2, Palette } from "lucide-react"
+import { TintPicker } from "../components/TintPicker"
 import { setToken } from "../lib/auth"
 import { useServer } from "../hooks/useServer"
 import { QRScanner } from "../components/QRScanner"
@@ -323,8 +324,14 @@ export function SettingsPage() {
             </SettingsCard>
           </SettingsGroup>
 
-          <SettingsGroup id="appearance" title="Appearance" description="Motion and effects. These are saved in this browser only.">
+          <SettingsGroup id="appearance" title="Appearance" description="This server's tint, saved on the server; motion and effects, saved in this browser only.">
             <SettingsRows>
+              <SettingsRow
+                icon={Palette}
+                title="Tint"
+                description="A colour for this server, along the top of the window and down the rail, so you can tell at a glance which Legato you are on. Every browser and phone that uses this server shows it."
+                control={<TintPicker tint={settings.data?.tint} onChanged={() => void settings.refetch()} />}
+              />
               <SettingsRow
                 icon={Zap}
                 title="Glitch effect"

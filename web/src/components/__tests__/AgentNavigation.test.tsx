@@ -7,6 +7,8 @@ const { state } = vi.hoisted(() => ({ state: { agentCount: 0 } }))
 
 vi.mock("../../hooks/useNavigationSummary", () => ({ useNavigationSummary: () => ({ data: { agents: state.agentCount, attention: 0, review: 0, plans: 0, workflow_attention: 0 } }) }))
 vi.mock("../../hooks/useWebSocket", () => ({ useWebSocket: () => ({ connected: true }) }))
+// The tint comes from the settings; these pages are not tinted.
+vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ data: undefined }) }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ servers: [], activeServerName: "Local", baseUrl: "", setActiveServer: vi.fn() }) }))
 vi.mock("../../hooks/useReview", () => ({ useReviewQueue: () => ({ data: [] }) }))
 vi.mock("../../hooks/usePlan", () => ({ usePlanQueue: () => ({ data: [] }) }))

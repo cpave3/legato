@@ -78,6 +78,10 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           // An agent started in the background began, or failed.
           invalidate(queryKeys.preparingAgents(baseUrl))
           break
+        case "settings_changed":
+          // Another browser changed this server's settings: its tint.
+          invalidate(queryKeys.settings(baseUrl))
+          break
         case "repository_cache":
           // git's progress comes several times a second: the message is
           // the new state, so nothing is asked for again.

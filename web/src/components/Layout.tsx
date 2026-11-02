@@ -12,6 +12,8 @@ import { useNavigationSummary } from "../hooks/useNavigationSummary"
 import { navSections } from "../lib/navSections"
 import { NavRail } from "./NavRail"
 import { MobileTabBar, MoreSheet } from "./MobileNav"
+import { TintBand } from "./TintBand"
+import { useSettings } from "../hooks/useSettings"
 
 export function Layout() {
   const { connected: open, lost, updateRequired, retryUpdate } = useWebSocket()
@@ -20,6 +22,8 @@ export function Layout() {
   const connected = open || !lost
   const { servers, activeServerName, baseUrl, setActiveServer } = useServer()
   const { data: summary } = useNavigationSummary()
+  // The tint of the server in use, so it is clear which Legato this is.
+  const tint = useSettings().data?.tint
   const sections = useMemo(() => navSections(summary), [summary])
   const [moreOpen, setMoreOpen] = useState(false)
   const location = useLocation()
@@ -29,7 +33,8 @@ export function Layout() {
   return (
     <AgentSelectionProvider>
       <div className="flex h-dvh w-full overflow-hidden">
-      <NavRail sections={sections} connected={connected} servers={servers} activeServerName={activeServerName} baseUrl={baseUrl} onSwitchServer={setActiveServer} />
+      <TintBand tint={tint} />
+      <NavRail sections={sections} connected={connected} servers={servers} activeServerName={activeServerName} baseUrl={baseUrl} onSwitchServer={setActiveServer} tint={tint} />
 
       {/* Main content */}
       <main className="flex flex-1 flex-col overflow-hidden pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">

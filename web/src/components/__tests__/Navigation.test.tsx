@@ -15,6 +15,8 @@ const { state } = vi.hoisted(() => ({
 
 vi.mock("../../hooks/useNavigationSummary", () => ({ useNavigationSummary: () => ({ data: state.summary }) }))
 vi.mock("../../hooks/useWebSocket", () => ({ useWebSocket: () => ({ connected: state.connected, lost: state.lost }) }))
+// The tint comes from the settings; these pages are not tinted.
+vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ data: undefined }) }))
 vi.mock("../../hooks/useServer", () => ({
   useServer: () => ({ servers: state.servers, activeServerName: "Local", baseUrl: "", setActiveServer: state.setActiveServer }),
 }))
