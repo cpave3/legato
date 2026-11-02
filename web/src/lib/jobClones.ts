@@ -23,6 +23,19 @@ export interface JobClone {
   problem?: string
 }
 
+function isJobClone(value: unknown): value is JobClone {
+  if (typeof value !== "object" || value === null) return false
+  const clone = value as Record<string, unknown>
+  return typeof clone.id === "number" && Number.isInteger(clone.id) && clone.id > 0
+    && typeof clone.repo === "string" && typeof clone.path === "string"
+    && typeof clone.branch === "string" && typeof clone.busy === "boolean"
+    && Array.isArray(clone.task_ids) && clone.task_ids.every((id) => typeof id === "string")
+    && typeof clone.last_used_at === "string"
+    && typeof clone.unpushed === "number" && Number.isInteger(clone.unpushed) && clone.unpushed >= 0
+    && (clone.remove_after === undefined || typeof clone.remove_after === "string")
+    && (clone.problem === undefined || typeof clone.problem === "string")
+}
+
 async function ok(response: Response): Promise<Response> {
   if (response.ok) return response
   let message = response.statusText
@@ -35,13 +48,13 @@ async function ok(response: Response): Promise<Response> {
   throw new Error(message || `request failed (${response.status})`)
 }
 
-// The live job clones, the most recently used first. A server that keeps
-// none, or an older one, lists none.
+// The live job clones, the most recently used first.
 export async function listJobClones(baseUrl: string): Promise<JobClone[]> {
-  const response = await apiFetch(baseUrl, "/api/job-clones")
-  if (!response.ok) return []
-  const body = await response.json()
-  return Array.isArray(body?.clones) ? body.clones : []
+  const response = await ok(await apiFetch(baseUrl, "/api/job-clones"))
+  const body = await response.json().catch(() => { throw new Error("Invalid job clones response: expected JSON") })
+  if (!Array.isArray(body?.clones)) throw new Error("Invalid job clones response: expected a clones list")
+  if (!body.clones.every(isJobClone)) throw new Error("Invalid job clones response: malformed clone")
+  return body.clones
 }
 
 // Removes a clone now, with whatever is unpushed in it.

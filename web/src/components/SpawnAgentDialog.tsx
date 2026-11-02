@@ -174,6 +174,7 @@ export function SpawnAgentDialog({
   // one picked: newClone, or null for the repository's first choice.
   const [jobClones, setJobClones] = useState<JobClone[]>([])
   const [jobCloneId, setJobCloneId] = useState<number | null>(null)
+  const [jobClonesError, setJobClonesError] = useState("")
 
   const formRef = useRef<HTMLFormElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -203,9 +204,9 @@ export function SpawnAgentDialog({
     setBaseBranch(firstCloneable?.base_branch ?? "")
     setJobClones([])
     setJobCloneId(null)
+    setJobClonesError("")
     if (settingsRef.current?.fresh_clones_enabled) {
       listJobClones(baseUrl)
-        .catch(() => [])
         .then((listed) => {
           if (!current) return
           setJobClones(listed)
@@ -216,6 +217,9 @@ export function SpawnAgentDialog({
             setCloneName(preset?.name ?? own.repo)
             setBaseBranch(preset?.base_branch ?? "")
           }
+        })
+        .catch((reason) => {
+          if (current) setJobClonesError(`Could not load clones: ${reason instanceof Error ? reason.message : String(reason)}`)
         })
     }
     // Not the path field: its suggestions open with its focus.
@@ -472,6 +476,11 @@ export function SpawnAgentDialog({
         </div>
 
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto px-4 pb-4 pt-2 sm:px-5 sm:pt-1">
+          {jobClonesError && (
+            <div role="alert" className="rounded-md border border-lw-danger-line bg-lw-error-soft px-3 py-2 text-xs text-lw-danger">
+              {jobClonesError}
+            </div>
+          )}
           {error && (
             <div role="alert" className="rounded-md border border-lw-danger-line bg-lw-error-soft px-3 py-2 text-xs text-lw-danger">
               {error}

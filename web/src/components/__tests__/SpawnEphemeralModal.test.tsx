@@ -45,6 +45,7 @@ function serve(overrides: Record<string, () => Promise<Response>> = {}) {
   apiFetch.mockImplementation((_: string, path: string, init?: RequestInit) => {
     const key = `${init?.method ?? "GET"} ${path.split("?")[0]}`
     if (overrides[key]) return overrides[key]()
+    if (key === "GET /api/job-clones") return json({ clones: [] })
     if (key === "GET /api/adapters") return json({ adapters: ["chimera", "claude-code", "codex"], default: "chimera" })
     if (key === "GET /api/directories/presets") return json(presets)
     if (key === "GET /api/directories") {
@@ -380,6 +381,19 @@ describe("SpawnEphemeralModal", () => {
     beforeEach(() => { settingsData.fresh_clones_enabled = true })
     afterEach(() => { settingsData.fresh_clones_enabled = false })
 
+    it("shows clone-loading failures and keeps them visible after a failed spawn", async () => {
+      serve({
+        "GET /api/job-clones": () => json({ error: "clone store unavailable" }, 503),
+        "POST /api/agents/spawn": () => Promise.resolve(new Response("spawn refused", { status: 500 })),
+      })
+      await openModal()
+
+      expect((await screen.findByRole("alert")).textContent).toBe("Could not load clones: clone store unavailable")
+      fireEvent.click(screen.getByRole("button", { name: "Spawn in legato" }))
+      await screen.findByText(/spawn refused/)
+      expect(screen.getByText("Could not load clones: clone store unavailable").getAttribute("role")).toBe("alert")
+    })
+
     it("spawns in a fresh clone on a new branch from the preset's base branch", async () => {
       await openModal()
       fireEvent.click(screen.getByRole("radio", { name: "Clone" }))
@@ -419,6 +433,7 @@ describe("SpawnEphemeralModal", () => {
       fireEvent.click(screen.getByRole("radio", { name: "Clone" }))
       expect(screen.queryByRole("combobox", { name: "Clone" })).toBeNull()
       expect(screen.getByRole("textbox", { name: "Base branch" })).toBeTruthy()
+      expect(screen.queryByRole("alert")).toBeNull()
     })
 
     it("continues in a clone of the repository on a branch stacked on its current one", async () => {

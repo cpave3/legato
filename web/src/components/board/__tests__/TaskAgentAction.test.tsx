@@ -171,7 +171,9 @@ describe("TaskAgentAction", () => {
   it("starts the task's agent in a fresh clone on a branch named after the task", async () => {
     settingsData.fresh_clones_enabled = true
     apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
-      path === "/api/adapters" || path === "/api/resources"
+      path === "/api/job-clones"
+        ? new Response(JSON.stringify({ clones: [] }), { status: 200 })
+        : path === "/api/adapters" || path === "/api/resources"
         ? new Response(JSON.stringify({ adapters: [], resources: [] }), { status: 200 })
         : new Response(JSON.stringify({ task_id: "T-1", created: true }), { status: 201 }),
     ))
@@ -185,6 +187,37 @@ describe("TaskAgentAction", () => {
       await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
         body: JSON.stringify({ agent_kind: "", repo: "cpave3/legato", ref: "main", branch: "legato/t-1" }),
       })))
+    } finally {
+      settingsData.fresh_clones_enabled = false
+    }
+  })
+
+  it.each([
+    { name: "older server", answer: () => Promise.resolve(new Response("not found", { status: 404 })), message: "request failed (404)" },
+    { name: "malformed list", answer: () => Promise.resolve(new Response('{"clones":{}}')), message: "Invalid job clones response" },
+    { name: "HTML fallback", answer: () => Promise.resolve(new Response("<html>app</html>")), message: "Invalid job clones response" },
+    { name: "network failure", answer: () => Promise.reject(new Error("Failed to fetch")), message: "Failed to fetch" },
+  ])("shows $name clone-loading errors and clears them on a successful reopen", async ({ answer, message }) => {
+    settingsData.fresh_clones_enabled = true
+    let list = answer
+    apiFetch.mockImplementation((_: string, path: string) => {
+      if (path === "/api/job-clones") return list()
+      return Promise.resolve(new Response(JSON.stringify({ adapters: [], resources: [] })))
+    })
+    try {
+      render(<MemoryRouter><TaskAgentAction taskId="T-1" worktreePath="/trees/t-1" /></MemoryRouter>)
+      fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+      await startsIn("/trees/t-1")
+      expect((await screen.findByRole("alert")).textContent).toContain(`Could not load clones: ${message}`)
+
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+      list = () => Promise.resolve(new Response('{"clones":[]}'))
+      fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+      await startsIn("/trees/t-1")
+      await vi.waitFor(() => expect(apiFetch.mock.calls.filter(([, path]) => path === "/api/job-clones")).toHaveLength(2))
+      fireEvent.click(screen.getByRole("radio", { name: "Clone" }))
+      expect(screen.queryByRole("alert")).toBeNull()
+      expect(screen.getByRole("textbox", { name: "Base branch" })).toBeTruthy()
     } finally {
       settingsData.fresh_clones_enabled = false
     }
