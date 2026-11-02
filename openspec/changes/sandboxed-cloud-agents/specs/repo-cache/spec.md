@@ -58,7 +58,7 @@ For a job naming a repository, Legato SHALL create a clone at `<data_dir>/jobs/<
 - **THEN** the task's code context SHALL record `acme/widget` and the branch
 
 ### Requirement: Job clone cleanup
-When no agent has worked in a job clone for `repository_cache.keep_idle` (default 7 days; `0` keeps clones until removed by hand), Legato SHALL remove it if it has no commits absent from the cache. A clone with such commits SHALL be kept for 7 days more and then removed. A clone SHALL be removable at once from Settings, except while an agent works in it.
+When no agent has worked in a job clone for `repository_cache.keep_idle` (default 7 days; `0` keeps clones until removed by hand), Legato SHALL remove it if it has no commits absent from the cache. A clone with such commits SHALL be kept for 7 days more and then removed. A clone SHALL be removable at once from the Remote page (`/remote`), except while an agent works in it. Settings SHALL keep an always-visible link at `#job-clones` to that page, regardless of `repository_cache.enabled`, and SHALL NOT duplicate the inventory. The desktop rail and mobile More sheet's Tools group SHALL link to Remote; More SHALL remain active on that route. This UI relocation SHALL NOT change retention.
 
 #### Scenario: Nothing unpushed
 - **WHEN** no agent has worked in a clone for `keep_idle` and its branch tips are all reachable from the cache or were pushed
@@ -90,3 +90,15 @@ A spawn SHALL be able to name a live job clone (`clone_id`) to work in instead o
 #### Scenario: The task's next agent
 - **WHEN** a task whose agent worked in a clone of `acme/widget` is spawned again with `acme/widget`
 - **THEN** it SHALL work in that clone, on its branch
+
+### Requirement: Truthful managed-clone inventory
+The Remote page SHALL describe the selected server's managed job clones, not arbitrary checkouts or cloud-provider state. The legacy `unpushed` field SHALL be presented as local tips absent from the cache, never as verified GitHub push status. The cache may be stale. Comparison failures SHALL be shown as unavailable, not as zero. The UI SHALL state that working-tree changes are not checked, and removal confirmation SHALL warn that local commits and unchecked working-tree changes may be lost. Refreshing the inventory SHALL NOT imply a GitHub fetch or a working-tree inspection.
+
+#### Scenario: Cache comparison only
+- **WHEN** a clone has tips absent from the cache
+- **THEN** Remote SHALL describe them as local tips absent from cache, not as confirmed unpushed work
+- **AND** SHALL state that working-tree changes are not checked
+
+#### Scenario: Fresh clone creation disabled
+- **WHEN** `repository_cache.enabled` is false
+- **THEN** Remote and the Settings link at `#job-clones` SHALL remain available to manage existing clones
