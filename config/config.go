@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,7 +39,10 @@ type Config struct {
 	Groups                 GroupsConfig             `yaml:"groups"`
 	Workflows              WorkflowsConfig          `yaml:"workflows"`
 	Repositories           []RepositoryConfig       `yaml:"repositories"`
-	Resources              []ResourceConfig         `yaml:"resources"`
+	// RepositoryCache is Legato's own clones of GitHub repositories, which
+	// jobs check out from.
+	RepositoryCache RepositoryCacheConfig `yaml:"repository_cache"`
+	Resources       []ResourceConfig      `yaml:"resources"`
 	// Credentials agents can ask for, and where Legato keeps its own secrets.
 	Credentials []CredentialConfig `yaml:"credentials"`
 	Secrets     SecretsConfig      `yaml:"secrets"`
@@ -421,6 +425,9 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("github.auth must be auto, gh, or token")
 	}
 	if err := ValidateSwarmConfig(cfg); err != nil {
+		return nil, err
+	}
+	if err := ValidateRepositoryCache(cfg); err != nil {
 		return nil, err
 	}
 	if err := ValidateLearningConfig(cfg); err != nil {
@@ -833,4 +840,88 @@ func DefaultColumns() []ColumnConfig {
 		{Name: "Review", RemoteStatuses: []string{"In Review"}},
 		{Name: "Done", RemoteStatuses: []string{"Done", "Closed"}},
 	}
+}
+
+// RepositoryCacheConfig configures Legato's repository cache.
+type RepositoryCacheConfig struct {
+	// Enabled offers a fresh clone of a repository, on a branch of its
+	// own, as a place to start an agent in the spawn dialog. Jobs and the
+	// API can clone without it.
+	Enabled bool `yaml:"enabled"`
+	// MaxAge is how long a fetch of a cached repository is trusted before
+	// a job that needs it fetches again: a Go duration, 5m when unset, 0
+	// to fetch for every job.
+	MaxAge string `yaml:"max_age"`
+	// KeepIdle is how long a job clone no agent works in is kept, so the
+	// next agent of a stack can work in it again: a Go duration or a number
+	// of days (7d), 7d when unset, 0 to keep clones until they are removed
+	// in Settings. One with unpushed commits is kept 7 days more.
+	KeepIdle string `yaml:"keep_idle"`
+}
+
+// DefaultRepositoryCacheKeepIdle is KeepIdle when unset.
+const DefaultRepositoryCacheKeepIdle = 7 * 24 * time.Hour
+
+func parseKeepIdle(value string) (time.Duration, error) {
+	value = strings.TrimSpace(value)
+	if value == "0" {
+		return 0, nil
+	}
+	if days, ok := strings.CutSuffix(value, "d"); ok {
+		n, err := strconv.Atoi(days)
+		if err != nil || n < 0 {
+			return 0, fmt.Errorf("%q is not a number of days", value)
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("%q is not a duration", value)
+	}
+	return d, nil
+}
+
+// KeepIdleDuration is KeepIdle as a duration; forever when it is 0.
+func (c RepositoryCacheConfig) KeepIdleDuration() (d time.Duration, forever bool) {
+	if strings.TrimSpace(c.KeepIdle) == "" {
+		return DefaultRepositoryCacheKeepIdle, false
+	}
+	d, err := parseKeepIdle(c.KeepIdle)
+	if err != nil {
+		return DefaultRepositoryCacheKeepIdle, false
+	}
+	return d, d == 0
+}
+
+// DefaultRepositoryCacheMaxAge is MaxAge when unset.
+const DefaultRepositoryCacheMaxAge = 5 * time.Minute
+
+// MaxAgeDuration is MaxAge as a duration.
+func (c RepositoryCacheConfig) MaxAgeDuration() time.Duration {
+	if strings.TrimSpace(c.MaxAge) == "" {
+		return DefaultRepositoryCacheMaxAge
+	}
+	d, err := time.ParseDuration(c.MaxAge)
+	if err != nil || d < 0 {
+		return DefaultRepositoryCacheMaxAge
+	}
+	return d
+}
+
+// ValidateRepositoryCache checks repository_cache.max_age and keep_idle.
+func ValidateRepositoryCache(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	if strings.TrimSpace(cfg.RepositoryCache.MaxAge) != "" {
+		if d, err := time.ParseDuration(cfg.RepositoryCache.MaxAge); err != nil || d < 0 {
+			return fmt.Errorf("repository_cache.max_age must be a duration such as 5m, or 0s to fetch for every job")
+		}
+	}
+	if strings.TrimSpace(cfg.RepositoryCache.KeepIdle) != "" {
+		if _, err := parseKeepIdle(cfg.RepositoryCache.KeepIdle); err != nil {
+			return fmt.Errorf("repository_cache.keep_idle must be a duration such as 7d or 36h, or 0 to keep job clones until removed: %w", err)
+		}
+	}
+	return nil
 }

@@ -32,7 +32,8 @@ func hostFS() fakeFS {
 		"/var/home/me/.gitconfig": "file", "/var/home/me/.local/bin": "dir", "/var/home/me/go/pkg/mod": "dir",
 		"/var/home/me/Projects/app": "dir", "/var/home/me/Projects": "dir",
 		"/var/home/me/.config/legato": "dir", "/var/home/me/.local/share/legato": "dir",
-		"/var/home/me/.local/share/legato/claude-mod": "dir",
+		"/var/home/me/.local/share/legato/claude-mod":       "dir",
+		"/var/home/me/.local/share/legato/jobs/ex-1/widget": "dir", "/var/home/me/.local/share/legato/jobs/ex-2/gadget": "dir",
 	}
 }
 
@@ -394,5 +395,48 @@ func TestAReadOnlyCheckoutIsMountedReadOnly(t *testing.T) {
 	}
 	if m["/var/home/me/.claude"].Kind != sandbox.ReadWrite {
 		t.Fatalf("the tool's own state should stay writable: %+v", m["/var/home/me/.claude"])
+	}
+}
+
+// A job's clone is in Legato's data folder, which the sandbox never sees:
+// only the clone the session's task was given is its work.
+func TestTheTasksJobCloneIsItsWorkAndNoOtherJobIs(t *testing.T) {
+	const clone = "/var/home/me/.local/share/legato/jobs/ex-1/widget"
+	in := baseInput()
+	in.WorkDir = clone
+	if _, err := BuildSandboxPlan(in); err == nil {
+		t.Fatal("a folder in Legato's data was taken as work without being the task's job clone")
+	}
+	in.JobDir = clone
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatalf("the task's job clone was refused: %v", err)
+	}
+	m := mounted(plan)
+	if m[clone].Kind != sandbox.ReadWrite || plan.Chdir != clone {
+		t.Fatalf("clone %+v chdir %q", m[clone], plan.Chdir)
+	}
+	for _, never := range []string{"/var/home/me/.local/share/legato", "/var/home/me/.local/share/legato/jobs", "/var/home/me/.local/share/legato/jobs/ex-2/gadget"} {
+		if _, ok := m[never]; ok {
+			t.Errorf("%s is mounted", never)
+		}
+	}
+	in.Extra = []SandboxPath{{Path: "/var/home/me/.local/share/legato/jobs/ex-2/gadget", Access: "read"}}
+	if _, err := BuildSandboxPlan(in); err == nil {
+		t.Error("another job's clone was mounted")
+	}
+}
+
+func TestSccachesCacheIsMounted(t *testing.T) {
+	in := baseInput()
+	fs := hostFS()
+	fs["/var/home/me/.cache/sccache"] = "dir"
+	in.FS = fs
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := mounted(plan)["/var/home/me/.cache/sccache"]; !ok || got.Kind != sandbox.ReadWrite {
+		t.Fatalf("sccache's cache, which Rust builds in fresh clones share, = %+v, %v", got, ok)
 	}
 }

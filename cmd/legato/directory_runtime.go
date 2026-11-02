@@ -12,7 +12,7 @@ import (
 // UI ask where an agent can start: the repositories of the configuration as
 // presets, the directories the person saved, and the directories that
 // complete a typed path. Both runtimes build it here, so neither can drift.
-func configuredDirectoryService(cfg *config.Config, db *store.Store) *service.DirectoryService {
+func configuredDirectoryService(cfg *config.Config, db *store.Store, repositories *service.RepositoryPresetService) *service.DirectoryService {
 	configured := make([]service.DirectoryPreset, 0, len(cfg.Repositories))
 	for _, repository := range cfg.Repositories {
 		if repository.PrimaryDir != "" {
@@ -22,5 +22,10 @@ func configuredDirectoryService(cfg *config.Config, db *store.Store) *service.Di
 	// Without a home directory a tilde stands for nothing, and paths are
 	// written in full.
 	home, _ := os.UserHomeDir()
-	return service.NewDirectoryService(db, configured, home)
+	directories := service.NewDirectoryService(db, configured, home)
+	if repositories != nil {
+		// Repositories added in the web UI are presets at once.
+		directories.SetRepositories(repositories)
+	}
+	return directories
 }

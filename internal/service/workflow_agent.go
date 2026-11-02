@@ -136,9 +136,12 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 	kind, _ := workflowString(step.With, "agent", false)
 	tier, _ := workflowString(step.With, "tier", false)
 	workingDir, _ := workflowString(step.With, "working_dir", false)
+	repo, _ := workflowString(step.With, "repo", false)
+	ref, _ := workflowString(step.With, "ref", false)
+	branch, _ := workflowString(step.With, "branch", false)
 	assignment := buildWorkflowAssignment(prompt, step, e.binaryPath)
 	opts := AgentSpawnOptions{
-		AgentKind: kind, Tier: tier, WorkingDir: workingDir, Assignment: assignment,
+		AgentKind: kind, Tier: tier, WorkingDir: workingDir, Repo: strings.TrimSpace(repo), Ref: strings.TrimSpace(ref), Branch: strings.TrimSpace(branch), Assignment: assignment,
 		ExecutionKind: store.ExecutionWorkflowAgent, AttributionTaskID: step.RelatedTaskID,
 		WorkflowRunID: step.RunID, WorkflowAttemptID: step.AttemptID,
 		ExtraEnv: map[string]string{

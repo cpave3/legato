@@ -50,7 +50,7 @@ func (s *Server) workflowsHandler() http.HandlerFunc {
 			return
 		}
 		result := s.discoverWorkflows()
-		result.Repositories = append([]workflowengine.RepositoryPreset(nil), s.workflowRepositories...)
+		result.Repositories = s.repositories(r.Context())
 		s.writeJSON(w, http.StatusOK, result)
 	}
 }

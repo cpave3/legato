@@ -265,3 +265,26 @@ func TestSavePresetRefusesWhatIsNotADirectory(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// repositorySource stands for the repositories, which the person can add
+// while Legato runs.
+type repositorySource struct{ presets []service.DirectoryPreset }
+
+func (r *repositorySource) DirectoryPresets(context.Context) ([]service.DirectoryPreset, error) {
+	return r.presets, nil
+}
+
+func TestPresetsFollowTheRepositoriesAsTheyChange(t *testing.T) {
+	home := directoryTree(t, "src/legato", "src/notes")
+	svc := service.NewDirectoryService(nil, nil, home)
+	repos := &repositorySource{presets: []service.DirectoryPreset{{Name: "Legato", Path: filepath.Join(home, "src/legato")}}}
+	svc.SetRepositories(repos)
+	presets, err := svc.Presets(context.Background())
+	if err != nil || len(presets) != 1 || presets[0].Name != "Legato" || presets[0].Display != "~/src/legato" {
+		t.Fatalf("presets %+v, %v", presets, err)
+	}
+	repos.presets = append(repos.presets, service.DirectoryPreset{Name: "Notes", Path: filepath.Join(home, "src/notes")})
+	if presets, _ := svc.Presets(context.Background()); len(presets) != 2 || presets[1].Name != "Notes" {
+		t.Fatalf("after one was added: %+v", presets)
+	}
+}

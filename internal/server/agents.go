@@ -122,6 +122,18 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			Sandbox *bool `json:"sandbox"`
 			// Prompt is the agent's first message.
 			Prompt string `json:"prompt"`
+			// Repo (owner/name) starts the agent in a fresh clone of the
+			// repository at Ref, made for it, instead of a directory.
+			Repo string `json:"repo"`
+			Ref  string `json:"ref"`
+			// Branch is the branch the clone ends on (legato/<task> when
+			// empty): GitHub's when it exists, else made from Ref. In a
+			// job clone that exists, a new branch at its commit, and its
+			// current branch when empty.
+			Branch string `json:"branch"`
+			// CloneID starts the agent in a job clone that exists: the
+			// next branch of a stack in the same folder.
+			CloneID int64 `json:"clone_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -130,7 +142,12 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 		if req.Title == "" {
 			req.Title = "Ephemeral session"
 		}
-		if req.WorkingDir == "" {
+		req.Repo, req.Ref = strings.TrimSpace(req.Repo), strings.TrimSpace(req.Ref)
+		if (req.Repo != "" || req.CloneID != 0) && req.WorkingDir != "" {
+			http.Error(w, "give repo or clone_id, or working_dir, not both", http.StatusBadRequest)
+			return
+		}
+		if req.WorkingDir == "" && req.Repo == "" && req.CloneID == 0 {
 			req.WorkingDir = s.workDir
 		}
 		// The spawn dialog writes paths under the home directory with a tilde.
@@ -146,6 +163,10 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 		opts := service.AgentSpawnOptions{
 			AgentKind:   req.AgentKind,
 			WorkingDir:  req.WorkingDir,
+			Repo:        req.Repo,
+			Ref:         req.Ref,
+			Branch:      strings.TrimSpace(req.Branch),
+			Clone:       req.CloneID,
 			Resources:   resources,
 			Unsandboxed: req.Sandbox != nil && !*req.Sandbox,
 			Prompt:      req.Prompt,
@@ -478,6 +499,18 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			// Prompt is the agent's first message, or a message to the
 			// agent already running.
 			Prompt string `json:"prompt"`
+			// Repo (owner/name) starts the agent in a fresh clone of the
+			// repository at Ref, made for it, instead of a directory.
+			Repo string `json:"repo"`
+			Ref  string `json:"ref"`
+			// Branch is the branch the clone ends on (legato/<task> when
+			// empty): GitHub's when it exists, else made from Ref. In a
+			// job clone that exists, a new branch at its commit, and its
+			// current branch when empty.
+			Branch string `json:"branch"`
+			// CloneID starts the agent in a job clone that exists: the
+			// next branch of a stack in the same folder.
+			CloneID int64 `json:"clone_id"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -504,12 +537,17 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 		if s.directories != nil {
 			req.WorkingDir = s.directories.Expand(req.WorkingDir)
 		}
+		req.Repo, req.Ref = strings.TrimSpace(req.Repo), strings.TrimSpace(req.Ref)
+		if (req.Repo != "" || req.CloneID != 0) && req.WorkingDir != "" {
+			http.Error(w, "give repo or clone_id, or working_dir, not both", http.StatusBadRequest)
+			return
+		}
 		resources, err := s.resolveResources(r.Context(), req.Resources)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt}
+		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, Repo: req.Repo, Ref: req.Ref, Branch: strings.TrimSpace(req.Branch), Clone: req.CloneID, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt}
 		effectiveAdapter := req.AgentKind
 		if effectiveAdapter == "" {
 			effectiveAdapter = agents.DefaultAdapter()
@@ -541,7 +579,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 				opts.ResumeWorkingDir = saved.CWD
 			}
 		}
-		if opts.WorkingDir == "" {
+		if opts.WorkingDir == "" && opts.Repo == "" && opts.Clone == 0 {
 			opts.WorkingDir = s.workDir
 			if opts.SessionPolicy == "resume" && opts.ResumeWorkingDir != "" {
 				opts.WorkingDir = opts.ResumeWorkingDir

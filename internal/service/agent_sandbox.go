@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/sandbox"
@@ -51,6 +52,7 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 		}
 	}
 	in.GitCommonDir = gitCommonDir(ctx, workDir)
+	in.JobDir = a.taskJobClone(ctx, taskID, in.DataDir, workDir)
 	in.Extra = append([]SandboxPath{}, in.Extra...)
 	for _, resource := range resources {
 		for _, p := range resource.Paths {
@@ -215,4 +217,29 @@ func sandboxGH(wrapperDir, sessionPath, realMount string) (SandboxGH, bool) {
 		gh.Overlays = append(gh.Overlays, real)
 	}
 	return gh, gh.Real != ""
+}
+
+// taskJobClone is the job clone that holds workDir when the task works in
+// it (Legato made it for the task, or the task joined it), "" otherwise.
+// Only such a clone of Legato's data folder can be a sandboxed agent's
+// work: also when the agent is started again in it.
+func (a *agentService) taskJobClone(ctx context.Context, taskID, dataDir, workDir string) string {
+	if dataDir == "" {
+		return ""
+	}
+	jobs := filepath.Join(dataDir, "jobs")
+	rel, err := filepath.Rel(jobs, workDir)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return ""
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	if len(parts) < 2 {
+		return ""
+	}
+	path := filepath.Join(jobs, parts[0], parts[1])
+	clone, err := a.store.JobCloneByPath(ctx, path)
+	if err != nil || !slices.Contains(clone.TaskIDs, taskID) {
+		return ""
+	}
+	return path
 }

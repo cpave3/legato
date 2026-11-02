@@ -5,6 +5,8 @@ import { useServer } from "../hooks/useServer"
 import { QRScanner } from "../components/QRScanner"
 import { PairDeviceDialog } from "../components/PairDeviceDialog"
 import { ResourcesSettings } from "../components/ResourcesSettings"
+import { RepositoriesSettings } from "../components/RepositoriesSettings"
+import { JobClonesSettings } from "../components/JobClonesSettings"
 import { CredentialsSettings } from "../components/CredentialsSettings"
 import { DevicesSettings } from "../components/DevicesSettings"
 import { IntegrationsSettings } from "../components/IntegrationsSettings"
@@ -191,6 +193,9 @@ export function SettingsPage() {
           <h1 className="text-xl font-semibold lg:hidden">Settings</h1>
 
           <SettingsGroup id="agents" title="Agents" description="What agents are given, and how this browser works with them.">
+            {/* The spawn dialog and the workflow form read the repositories from the settings. */}
+            <RepositoriesSettings baseUrl={baseUrl} onChanged={() => void settings.refetch()} />
+            {settings.data?.fresh_clones_enabled && <JobClonesSettings baseUrl={baseUrl} />}
             <ResourcesSettings baseUrl={baseUrl} />
             <SettingsRows>
               <SettingsRow

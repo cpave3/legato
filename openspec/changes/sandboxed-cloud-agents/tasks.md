@@ -29,7 +29,7 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 
 ## 3. Phase 3: sandbox launcher and repository cache
 
-- [x] 3.1 Config: `agents.sandbox` (`enabled`, `backend`, `mounts`), `repositories.cache.max_age`; validation and tests
+- [x] 3.1 Config: `agents.sandbox` (`enabled`, `backend`, `mounts`), `repository_cache.max_age` (added with 3.9: `repositories` is a list); validation and tests
 - [x] 3.2 `internal/engine/sandbox`: backend interface and `bwrap` implementation that builds the argument list from a mount plan; table tests of the arguments for each mount kind
 - [x] 3.3 Mount plan in the service: working directory, cache, agent tool state per adapter, broker socket, the execution's SSH agent socket when one is open, `legato` binary, pasted-image folder, resources, configured mounts; and the paths that must never be mounted; tests
 - [x] 3.4 Wrap each adapter's launch command when the sandbox is on; refuse the spawn before tmux when the backend binary is missing; tests per adapter
@@ -37,11 +37,12 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 - [x] 3.6 Integration test (skipped without bwrap): inside the sandbox the config, auth token, `~/.config/gh` and `~/.ssh` do not exist, the cache is read-only, the working copy is writable, and every process ends with the pane
 - [x] 3.6a Never mount the Docker or Podman socket; drop Chimera's `--sandbox` and `--sandbox-*` flags from a sandboxed launch, with a log line; tests
 - [x] 3.7 Verify each agent tool inside bubblewrap (Claude Code, Codex, Chimera): starts, its own sandbox setting, native bridge binds through the broker, MCP tools work; record results in the design's Open Questions
-- [ ] 3.8 `internal/engine/gitrepo`: bare clone and fetch with a read token from the credential broker, passed through an inherited file descriptor and an askpass helper; tests against a local bare repository served over a file URL, and a test that the token is in no argument, environment variable or file
-- [ ] 3.9 `RepositoryService.Ensure`: cache path, `max_age`, per-repository serialization, clean failure with no partial directory; concurrency test
-- [ ] 3.10 Job clones: `git clone --reference`, checkout of ref or default branch, `origin` left at the GitHub URL; migration for the job clone table; test that with no `github` credential `git push` from the clone goes to the placeholder push URL and fails without network
-- [ ] 3.11 Implement `repo.ensure` with the cache; let presets with `repo` and no `primary_dir` use a job clone; record code context
-- [ ] 3.12 Job clone cleanup on terminal executions (remove when nothing is unpushed, keep 7 days otherwise with a task note); tests
+- [x] 3.8 `internal/engine/gitrepo`: bare clone and fetch with a read token from the credential broker, passed through an inherited file descriptor and an askpass helper; tests against a local bare repository served over a file URL, and a test that the token is in no argument, environment variable or file
+- [x] 3.9 `RepositoryService.Ensure`: cache path, `max_age`, per-repository serialization, clean failure with no partial directory; concurrency test
+- [x] 3.10 Job clones: `git clone --reference`, checkout of ref or default branch, `origin` left at the GitHub URL; migration for the job clone table; test that with no `github` credential `git push` from the clone goes to the placeholder push URL and fails without network
+- [x] 3.11 Implement `repo.ensure` with the cache; let presets with `repo` and no `primary_dir` use a job clone; record code context
+- [x] 3.12 Job clone cleanup (remove when nothing is unpushed, keep 7 days otherwise with a task note); tests. Since 3.12a, after `repository_cache.keep_idle`
+- [x] 3.12a Shared job clones for stacks: `clone_id` on both spawn endpoints; the web spawn dialog's **Folder | Clone** switch offers a new clone or one that exists (the task's own first, with no new one beside it); a task's next agent reuses its clone; branches started by writing git's files (`gitrepo.StartBranch`, `os.Root`), never by running git in the clone; `job_clone_tasks` and `last_used_at` (migration 080); `repository_cache.keep_idle`; Settings › Agents › Clones; sandbox lets every task of a clone in; sccache's cache mounted; tests
 - [x] 3.13 Default toolchain mounts (read-only tools, read-write package and build caches) and `agents.sandbox.default_mounts`; tests of the mount plan with and without them
 - [x] 3.14 Opting out per spawn: `sandbox: false` on both spawn endpoints, **Run without sandbox** in the web and TUI spawn dialogs (unticked each time), `unsandboxed` marked on the agent's kind badge and in the TUI; swarm and workflow agents always sandboxed; tests
 - [x] 3.15 Refuse adding a resource to a running sandboxed agent, with a message that points to an unsandboxed agent; service and web tests
@@ -77,18 +78,24 @@ Every task is test-first (red, green, refactor). Each phase ends usable on its o
 - [ ] 4.8 Docs: `docs/ai/agent-mcp.md` (repository tools), `docs/ai/pr-tracking.md` (the changed boundary), `docs/cloud-agents.md` (a GitHub App credential on the VM, replacing the fine-grained token for pushes)
 - [ ] 4.9 Update the `github-pr-client` main spec when the change is archived
 
-## Status (2026-10-30)
+## Status (2026-11-02)
 
-**Done.** Phase 2 (host broker). Phase 3 for the local sandbox: 3.1–3.7, 3.13–3.33 (with 3.6a and 3.15a). Phase 1: 1.1–1.7 (`prompt` on both spawn endpoints and in the web spawn dialog; `repo.ensure` as a no-op without `repo`; the built-in `legato-job`; unknown agents refused at start; `docs/cloud-agents.md`).
+**Done.** Phase 2 (host broker). Phase 3: 3.1–3.33 (with 3.6a and 3.15a). Phase 1: 1.1–1.7 (`prompt` on both spawn endpoints and in the web spawn dialog; the built-in `legato-job`; unknown agents refused at start; `docs/cloud-agents.md`).
 
-**Interim behaviour.** `repo.ensure` with a non-empty `repo` fails the step ("cannot check out a repository for a job yet") until 3.8–3.11 replace it.
+**3.8–3.12 as built.** `internal/engine/gitrepo` and `RepositoryService` (cache, job clones, sweep every 5 minutes by the broker owner). The clone is made by the agent service at spawn (`AgentSpawnOptions.Repo`), so it is keyed by the agent's execution; `repo.ensure` readies the cache and hands `repo`/`ref` to `agent.run`. `repo`/`ref`/`branch` on both spawn endpoints and in `legato-job`; a clone ends on its own branch (`legato/<task id>` unless named). The web spawn dialogs offer **Clone** when `repository_cache.enabled`. `repo.ensure` was never registered in the runtime's executors before this; it is now. The cache key is `repository_cache.max_age`.
 
-**Not yet seen live.** 3.18 (the options file), 3.20 and 3.22 (`gh` in the sandbox) passed tests with real bwrap but no agent has been spawned with them yet. A read token for `autopilot-dev/autopilot` was issued from inside a bwrap sandbox and GitHub accepted it, so the App and the rules are right. `docs/cloud-agents.md` has not been tried on a VM.
+**3.12a as built.** A clone outlives its agent for `keep_idle` (7 days). Joining a clone never runs git in it: `Head` and `StartBranch` read and write `.git` through `os.Root`, so a planted filter, hook or link does nothing. A new branch is refused while another agent works there (it would move that agent's branch); joining on the current branch is allowed, and agents in one clone are peers (same git root). `legato-job` has no `clone_id` yet.
+
+**Gaps.**
+- `legato-job` cannot name an existing clone; the spawn endpoints and the web dialog can.
+- The TUI's spawn overlay does not offer a fresh clone; the web spawn dialogs do (`repository_cache.enabled`), with a branch and a base branch as the worktree dialog asks.
+- The sweep counts unpushed commits only: uncommitted changes in an ended agent's clone are removed with it. Checking them would mean running git in the clone, whose configuration the agent controls (D6).
+
+**Not yet seen live.** 3.18 (the options file), 3.20 and 3.22 (`gh` in the sandbox) passed tests with real bwrap but no agent has been spawned with them yet. A job clone has been made and cloned through the GitHub App credential only against a fake GitHub in tests. `docs/cloud-agents.md` has not been tried on a VM.
 
 **Next, in order.**
-1. 3.8–3.12: the repository cache and job clones; then `legato-job` with `repo`.
-2. Phase 4 (4.1–4.9): repository tools, pushes and pull requests from the sandbox through the proxy, PR linking, docs.
-3. 1.8: the trial on the person's always-on server, when it exists; record what hurt in design.md Open Questions.
-4. Archive the change (sync the six delta specs; 4.9 updates `github-pr-client`).
+1. Phase 4 (4.1–4.9): repository tools, pushes and pull requests from the sandbox through the proxy, PR linking, docs.
+2. 1.8: the trial on the person's always-on server, when it exists; record what hurt in design.md Open Questions.
+3. Archive the change (sync the six delta specs; 4.9 updates `github-pr-client`).
 
 The same list is the Legato task "Finish sandboxed cloud agents" in the Personal workspace.

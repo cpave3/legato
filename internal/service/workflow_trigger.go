@@ -141,7 +141,7 @@ func (c *WorkflowTriggerCoordinator) process(ctx context.Context, transition sto
 	if !matched {
 		return c.update(ctx, request.ID, "skipped", "", `{}`, `[]`, "condition did not match")
 	}
-	inputs, missing := resolveTriggerInputs(definition, task, supplied, c.workflows.repositories)
+	inputs, missing := resolveTriggerInputs(definition, task, supplied, c.workflows.repositoryPresets(ctx))
 	encodedInputs, _ := json.Marshal(inputs)
 	encodedMissing, _ := json.Marshal(missing)
 	if len(missing) > 0 {

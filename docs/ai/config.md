@@ -14,14 +14,33 @@ repositories:
 
 Legacy `workflows.repositories` is loaded only when the shared top-level catalog is absent.
 
+Repositories can also be added in the web UI (Settings › Agents › Repositories), kept in the database (`repository_presets`) and offered beside these at once: in the spawn dialogs, as folder presets, and as workflow repository presets (`RepositoryPresetService`). Those of this file are listed there but changed here. PR tracking's repository mappings and the Argus owner lookup read this file's list only, at start.
+
 - `name`: dropdown label.
 - `repo`: GitHub `owner/repository` value.
 - `primary_dir`: absolute path to the primary local checkout.
 - `base_branch`: optional default branch.
 
+A repository with no `primary_dir` is checked out fresh for each job: `legato-job` (and its workflow preset) and `repo` on the spawn endpoints make a clone of it from Legato's repository cache, which needs a `github` credential that lists it (see [Agents on a server of their own](../cloud-agents.md)). On a server, list repositories this way; on a desktop where you keep your own checkout, give `primary_dir`.
+
 A repository with a `primary_dir` is also a directory preset of the spawn dialogs (the TUI's overlay and the web UI's **Spawn agent**), listed there ahead of the directories the person saved from those dialogs. Saved directories are kept in the database, not in this file.
 
 For workflow launches, the preset control appears only when the definition declares `repo`, `primary_dir`, or `base_branch`. Selecting a preset prefills only declared matching inputs; undeclared values are not submitted. The ephemeral-agent and task-agent web dialogs offer each preset with a `primary_dir` as a tile, beside the directories the person saved, and put the picked one in their editable path field; a path typed by hand is submitted as typed (see [Web UI](web-ui.md) § Spawn dialog). The swarm and worktree dialogs use the same list as a selector that copies the preset's `primary_dir` into their working-directory field; editing that field switches the selector to **Custom** and the manual value is submitted.
+
+## Repository cache
+
+```yaml
+repository_cache:
+  enabled: true # offer "Clone" in the spawn dialogs
+  max_age: 5m   # a Go duration; 0s fetches for every job
+  keep_idle: 7d # how long a job clone no agent works in is kept; 0 keeps them
+```
+
+`enabled` shows a **Folder | Clone** switch under **Where** in the web spawn dialogs (`fresh_clones_enabled` in `/api/settings`), offering a new clone of each repository with a `repo`, and the clones agents worked in. It only gates the dialog: `legato-job` and `repo` on the spawn endpoints clone without it.
+
+`keep_idle` is how long a job clone no agent has worked in is kept for the next one (**Clone** in the spawn dialog, with a clone picked instead of **New clone**: the next branch of a stack in the same folder): a Go duration or a whole number of days (`7d`), `7d` when unset, `0` to keep clones until they are removed in Settings › Agents › Clones. The time counts from when an agent last started in the clone or was last seen working in it (the sweep, every 5 minutes). After it, a clone with nothing unpushed is removed and one with unpushed commits is kept 7 days more with a note on its task. A negative or unparsable value is refused at load.
+
+Legato's own bare clones of GitHub repositories, at `<data_dir>/repos/<owner>/<name>.git`, which job clones borrow objects from (`<data_dir>/jobs/<execution>/<name>`). A job fetches the cache first when its last fetch is older than `max_age`. A negative or unparsable value is refused at load. Clones and fetches use a read token from the `github` credential whose `settings.repositories` lists the repository; without one, a job naming a repository fails and says which setting to change.
 
 ## Config
 

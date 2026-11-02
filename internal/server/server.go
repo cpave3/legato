@@ -73,6 +73,8 @@ type Server struct {
 	workflowGlobalDir        string
 	workflowProjectDir       string
 	workflowRepositories     []workflowengine.RepositoryPreset
+	repositoryPresets        RepositoryPresetService
+	jobClones                JobCloneService
 	builtInWorkflows         []*workflowengine.Definition
 	worktrees                WorktreeService
 	notifyTaskChanged        func(string)
@@ -82,6 +84,7 @@ type Server struct {
 	pairing                  *service.PairingService
 	pairingAddresses         func() []string
 	sandboxEnabled           bool
+	freshClonesEnabled       bool
 	integrationAuth          IntegrationAuthenticator
 	owners                   OwnerLookup
 	delegations              Delegations
@@ -166,6 +169,10 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/adapters", s.adaptersHandler())
 	mux.HandleFunc("/api/directories", s.directoriesHandler())
 	mux.HandleFunc("/api/directories/presets", s.directoryPresetsHandler())
+	mux.HandleFunc("/api/repositories", s.repositoriesHandler())
+	mux.HandleFunc("/api/repositories/{id}", s.repositoryHandler())
+	mux.HandleFunc("/api/job-clones", s.jobClonesHandler())
+	mux.HandleFunc("/api/job-clones/{id}", s.jobCloneHandler())
 	mux.HandleFunc("/api/resources", s.resourcesHandler())
 	mux.HandleFunc("/api/resources/{id}", s.resourceHandler())
 	mux.HandleFunc("/api/agents/{task_id}/resources", s.agentResourcesHandler())
@@ -358,6 +365,10 @@ func (s *Server) SetReflectionWorkflowService(workflows ReflectionWorkflowServic
 // spawn opts out, for the spawn dialog and the agent list.
 func (s *Server) SetSandboxEnabled(enabled bool) { s.sandboxEnabled = enabled }
 
+// SetFreshClonesEnabled says that the spawn dialog offers a fresh clone of
+// a repository (repository_cache.enabled).
+func (s *Server) SetFreshClonesEnabled(enabled bool) { s.freshClonesEnabled = enabled }
+
 func (s *Server) SetWorktreeService(worktrees WorktreeService) {
 	s.worktrees = worktrees
 }
@@ -496,6 +507,7 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			VoiceEnabled             bool                              `json:"voice_enabled"`
 			WorktreesEnabled         bool                              `json:"worktrees_enabled"`
 			SandboxEnabled           bool                              `json:"sandbox_enabled"`
+			FreshClonesEnabled       bool                              `json:"fresh_clones_enabled"`
 			HotReloadEnabled         bool                              `json:"hot_reload_enabled"`
 			DefaultWorkspaceID       *int                              `json:"default_workspace_id"`
 			DefaultImportWorkspaceID *int                              `json:"default_import_workspace_id"`
@@ -507,10 +519,11 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			VoiceEnabled:             s.voiceSvc != nil,
 			WorktreesEnabled:         s.worktrees != nil,
 			SandboxEnabled:           s.sandboxEnabled,
+			FreshClonesEnabled:       s.freshClonesEnabled,
 			HotReloadEnabled:         s.hotReloadBuildTrigger != nil,
 			DefaultWorkspaceID:       s.defaultWorkspaceID,
 			DefaultImportWorkspaceID: s.defaultImportWorkspaceID,
-			Repositories:             append([]workflowengine.RepositoryPreset(nil), s.workflowRepositories...),
+			Repositories:             s.repositories(r.Context()),
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}

@@ -24,6 +24,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/auth"
 	"github.com/cpave3/legato/internal/engine/certs"
 	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/gitrepo"
 	"github.com/cpave3/legato/internal/engine/hooks"
 	"github.com/cpave3/legato/internal/engine/hotreload"
 	"github.com/cpave3/legato/internal/engine/ipc"
@@ -43,6 +44,11 @@ import (
 )
 
 func main() {
+	// git runs legato as its askpass helper when the repository cache
+	// clones or fetches; nothing else may run first.
+	if gitrepo.IsAskPass(os.Getenv) {
+		os.Exit(gitrepo.AskPass(os.Args[1:], os.Stdout, os.Stderr))
+	}
 	launch, err := parseLaunch(os.Args[1:], os.Getenv(hotReloadChildEnv) == "1")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n\n%s", err, helpText(nil))
@@ -1547,7 +1553,12 @@ func runServeCmd(args []string) int {
 	srv.SetArtifactService(artifactSvc)
 	var workflowSvc *service.WorkflowService
 	var triggerCoordinator *service.WorkflowTriggerCoordinator
-	if built, workflowErr := buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: boardSvc, Sync: syncSvc, Agents: agentSvc, WorkDir: wd}); workflowErr == nil {
+	repos := newRepositoryService(cfg, db)
+	giveAgentsRepositories(agentSvc, repos)
+	repoPresets := newRepositoryPresetService(cfg, db, repos)
+	srv.SetRepositoryPresetService(repoPresets)
+	srv.SetJobCloneService(repos)
+	if built, workflowErr := buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: boardSvc, Sync: syncSvc, Agents: agentSvc, WorkDir: wd, Repos: repos, Presets: repoPresets}); workflowErr == nil {
 		workflowSvc = built
 		globalWorkflows, projectWorkflows := workflowDirs()
 		srv.SetWorkflowService(workflowSvc, globalWorkflows, projectWorkflows, workflowRepositoryPresets(cfg)...)
@@ -1561,11 +1572,13 @@ func runServeCmd(args []string) int {
 		log.Printf("workflows: %v", workflowErr)
 	}
 	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
+	approvalsRT.giveRepositories(repos)
 	defer approvalsRT.stop()
 	approvalsRT.attach(srv)
 	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, triggerCoordinator)
 	srv.SetMacros(cfg.Macros)
 	srv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
+	srv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
 	srv.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 	srvWindow, srvBuckets := resolveSparklineWindow(cfg)
 	srv.SetSparklineWindow(srvWindow, srvBuckets)
@@ -1622,7 +1635,7 @@ func runServeCmd(args []string) int {
 	srv.StartLearningEvents()
 	defer wireAgentUI(srv, cfg, db, bus)()
 	defer wireIntegrations(srv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT})()
-	srv.SetDirectoryService(configuredDirectoryService(cfg, db))
+	srv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 	srv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 
 	scheme := "http"
@@ -1800,7 +1813,10 @@ func runTUI() int {
 	// Build workflow service for both web and TUI attention producers.
 	var tuiWorkflowSvc *service.WorkflowService
 	var triggerCoordinator *service.WorkflowTriggerCoordinator
-	if built, workflowErr := buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: boardSvc, Sync: syncSvc, Agents: agentSvc, PR: prSvc, PRErr: ghErr, WorkDir: wd}); workflowErr == nil {
+	repos := newRepositoryService(cfg, db)
+	giveAgentsRepositories(agentSvc, repos)
+	repoPresets := newRepositoryPresetService(cfg, db, repos)
+	if built, workflowErr := buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: boardSvc, Sync: syncSvc, Agents: agentSvc, PR: prSvc, PRErr: ghErr, WorkDir: wd, Repos: repos, Presets: repoPresets}); workflowErr == nil {
 		tuiWorkflowSvc = built
 		triggerCoordinator = buildWorkflowTriggerCoordinator(db, tuiWorkflowSvc, cfg, bus)
 		defer triggerCoordinator.StartEventLoop(context.Background(), bus)()
@@ -1818,6 +1834,7 @@ func runTUI() int {
 	// Approval requests, and the watcher that turns native agents' own
 	// requests into them, whether or not the web server runs.
 	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
+	approvalsRT.giveRepositories(repos)
 	defer approvalsRT.stop()
 
 	// Auto-start web server if configured and port is free.
@@ -1851,6 +1868,9 @@ func runTUI() int {
 			wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, triggerCoordinator)
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
+			webSrv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
+			webSrv.SetRepositoryPresetService(repoPresets)
+			webSrv.SetJobCloneService(repos)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)
 			webSrv.SetProviderSyncService(providerSync)
@@ -1884,7 +1904,7 @@ func runTUI() int {
 			webSrv.StartLearningEvents()
 			stopAgentUI = wireAgentUI(webSrv, cfg, db, bus)
 			stopIntegrations = wireIntegrations(webSrv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT})
-			webSrv.SetDirectoryService(configuredDirectoryService(cfg, db))
+			webSrv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 			webSrv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 			go func() {
 				if err := webSrv.Serve(ln); err != nil && err.Error() != "http: Server closed" {
@@ -1901,7 +1921,7 @@ func runTUI() int {
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
-	app.SetDirectoryService(configuredDirectoryService(cfg, db))
+	app.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 	app.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
 	app.SetResourceService(configuredResourceService(cfg, db))
 	app.SetProviderSyncService(providerSync)

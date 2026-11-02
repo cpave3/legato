@@ -8,6 +8,7 @@ import { useSettings } from "../../hooks/useSettings"
 import { apiFetch } from "../../lib/api"
 import { Button } from "../ui/Button"
 import { SpawnAgentDialog, type SpawnAgentRequest } from "../SpawnAgentDialog"
+import { spawnPlace } from "../../lib/spawnPlace"
 import { StartSwarmModal } from "../StartSwarmModal"
 import { resolveTaskWorkingDirectory } from "../../lib/taskLaunch"
 
@@ -24,10 +25,10 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
   const initialWorkingDir = resolveTaskWorkingDirectory(worktreePath, rememberedWorkingDir, settings.data?.working_dir || "")
 
   const launch = useCallback(async (request: SpawnAgentRequest) => {
-    const body: { agent_kind: string; working_dir: string; session_policy?: "resume" | "new"; resources?: string[]; sandbox?: false; prompt?: string } = {
+    const body: { agent_kind: string; working_dir?: string; repo?: string; ref?: string; branch?: string; clone_id?: number; session_policy?: "resume" | "new"; resources?: string[]; sandbox?: false; prompt?: string } = {
       agent_kind: request.agentKind,
-      working_dir: request.workingDir,
     }
+    Object.assign(body, spawnPlace(request))
     if (request.sessionPolicy) body.session_policy = request.sessionPolicy
     if (request.resources) body.resources = request.resources
     if (request.sandbox === false) body.sandbox = false
@@ -75,6 +76,9 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
       // starts in the server's default, as it writes it.
       initialWorkingDir={worktreePath || rememberedWorkingDir}
       resumableAgentKinds={resumableAgentKinds}
+      // A fresh clone works on the task's own branch, as the server names it.
+      defaultBranch={`legato/${taskId.toLowerCase()}`}
+      taskId={taskId}
       onSubmit={launch}
     />
     <StartSwarmModal

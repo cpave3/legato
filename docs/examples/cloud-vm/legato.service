@@ -1,0 +1,27 @@
+# Legato as a systemd user service on the VM.
+#
+#   cp legato.service ~/.config/systemd/user/
+#   loginctl enable-linger agent        # run with nobody logged in
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now legato
+#   journalctl --user -u legato -f      # its log
+#
+# See docs/cloud-agents.md § 5.
+
+[Unit]
+Description=Legato
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/legato serve --port 3080
+EnvironmentFile=-%h/.config/legato/env
+# A service does not read your shell's profile: every agent tool and
+# toolchain the agents build with must be on this PATH.
+Environment=PATH=%h/.local/bin:%h/.local/share/mise/shims:/usr/local/bin:/usr/bin
+Restart=on-failure
+# Stop only Legato: the tmux server it starts, and the agents in it, keep
+# running across a restart, and Legato finds them again when it starts.
+KillMode=process
+
+[Install]
+WantedBy=default.target

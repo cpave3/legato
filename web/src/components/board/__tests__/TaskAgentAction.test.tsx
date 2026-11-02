@@ -17,10 +17,10 @@ const { apiFetch, select, startSwarmProps, runningAgentState } = vi.hoisted(() =
 vi.mock("../../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 vi.mock("../../../hooks/useAgentSelection", () => ({ useAgentSelection: () => ({ setSelectedAgentId: select }) }))
 vi.mock("../../../hooks/useRunningAgent", () => ({ useRunningAgent: () => runningAgentState }))
-vi.mock("../../../hooks/useSettings", () => {
-  const data = { working_dir: "/default", repositories: [{ name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato" }] }
-  return { useSettings: () => ({ data }) }
-})
+const { settingsData } = vi.hoisted(() => ({
+  settingsData: { working_dir: "/default", fresh_clones_enabled: false, repositories: [{ name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato", base_branch: "main" }] },
+}))
+vi.mock("../../../hooks/useSettings", () => ({ useSettings: () => ({ data: settingsData }) }))
 vi.mock("../../../lib/api", () => ({ apiFetch }))
 vi.mock("../../StartSwarmModal", () => ({ StartSwarmModal: (props: Record<string, unknown>) => { startSwarmProps.current = props; return null } }))
 
@@ -166,6 +166,57 @@ describe("TaskAgentAction", () => {
     await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "", working_dir: "/trees/t-1", resources: ["Vault"] }),
     })))
+  })
+
+  it("starts the task's agent in a fresh clone on a branch named after the task", async () => {
+    settingsData.fresh_clones_enabled = true
+    apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
+      path === "/api/adapters" || path === "/api/resources"
+        ? new Response(JSON.stringify({ adapters: [], resources: [] }), { status: 200 })
+        : new Response(JSON.stringify({ task_id: "T-1", created: true }), { status: 201 }),
+    ))
+    try {
+      render(<MemoryRouter><TaskAgentAction taskId="T-1" worktreePath="/trees/t-1" /></MemoryRouter>)
+      fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+      await startsIn("/trees/t-1")
+      fireEvent.click(screen.getByRole("radio", { name: "Clone" }))
+      expect((screen.getByRole("textbox", { name: "Branch" }) as HTMLInputElement).value).toBe("legato/t-1")
+      await confirm()
+      await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
+        body: JSON.stringify({ agent_kind: "", repo: "cpave3/legato", ref: "main", branch: "legato/t-1" }),
+      })))
+    } finally {
+      settingsData.fresh_clones_enabled = false
+    }
+  })
+
+  it("continues in the task's own clone rather than offering a new one", async () => {
+    settingsData.fresh_clones_enabled = true
+    apiFetch.mockImplementation((_: string, path: string) => Promise.resolve(
+      path === "/api/job-clones"
+        ? new Response(JSON.stringify({ clones: [
+          { id: 2, repo: "cpave3/legato", path: "/data/jobs/ex-9/legato", branch: "stack/one", task_ids: ["T-0"], busy: false, last_used_at: "2026-11-02T09:00:00Z", unpushed: 0 },
+          { id: 8, repo: "cpave3/legato", path: "/data/jobs/ex-1/legato", branch: "legato/t-1", task_ids: ["T-0", "T-1"], busy: false, last_used_at: "2026-11-02T10:00:00Z", unpushed: 0 },
+        ] }), { status: 200 })
+        : path === "/api/adapters" || path === "/api/resources"
+          ? new Response(JSON.stringify({ adapters: [], resources: [] }), { status: 200 })
+          : new Response(JSON.stringify({ task_id: "T-1", created: true }), { status: 201 }),
+    ))
+    try {
+      render(<MemoryRouter><TaskAgentAction taskId="T-1" worktreePath="/trees/t-1" /></MemoryRouter>)
+      fireEvent.click(screen.getByRole("button", { name: "Open agent" }))
+      await startsIn("/trees/t-1")
+      fireEvent.click(screen.getByRole("radio", { name: "Clone" }))
+      const clone = await screen.findByRole("combobox", { name: "Clone" }) as HTMLSelectElement
+      expect(Array.from(clone.options).map((option) => option.textContent)).toEqual(["legato/t-1 · this task's", "stack/one"])
+      expect(clone.value).toBe("8")
+      await confirm()
+      await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
+        body: JSON.stringify({ agent_kind: "", clone_id: 8, branch: "legato/t-1" }),
+      })))
+    } finally {
+      settingsData.fresh_clones_enabled = false
+    }
   })
 
   it("starts the task's agent with the first message that was written", async () => {

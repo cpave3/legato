@@ -78,6 +78,12 @@ Migration 075 adds `agent_sessions.sandboxed`: whether the session's agent runs 
 
 ### Integrations
 
+Migration 079 adds `repository_presets`: repositories added in the web UI (a unique name, `repo`, `primary_dir`, `base_branch`), offered beside the configuration's. See [Configuration](config.md) § Shared repository presets.
+
+Migration 080 lets a job clone be shared: `job_clone_tasks` (`clone_id`, `task_id`, `attached_at`; the clone's own task is listed first, and existing clones are filled in) holds every task that works in a clone, and `job_clones.last_used_at` is when an agent last started there or was seen working there, from which `repository_cache.keep_idle` counts. `job_clones.task_id` stays the task the clone was made for. `CreateJobClone` returns the new ID; `AttachJobCloneTask`, `TouchJobClone`, `JobCloneByID` and `LiveJobCloneForTask` (the newest live clone of a repository a task works in) go with it, and every read fills `TaskIDs` and `LastUsedAt`.
+
+Migration 078 adds `job_clones`: the clones Legato made for jobs in its data folder, with their execution, task, repository, ref, branch and path (unique among those not removed), when they were made, `remove_after` once one is kept for unpushed commits, and `removed_at`. Times are fixed-width UTC text like the executions'. `RepositoryService.SweepJobClones` reads and updates them; the sandbox lets an agent work in a clone only when `job_clone_tasks` lists the agent's task for it. See [Sandbox](sandbox.md).
+
 Migration 076 adds what integrations (Argus) use: `integration_tokens` (hashed scoped tokens; a name is unique among tokens not revoked), `integrations` (Legato's OAuth registration with an integration; the refresh token is in the sealed store), `delegations` and `delegation_messages` (unique per integration and idempotency key, or per delegation and key), `case_reply_outbox` (replies waiting to be sent; times are fixed-width UTC text so they compare), and `executions.read_only` (a find-out delegation's agent, whose pushes and pull request writes the credential broker refuses). Migration 077 adds `integration_attention`: Argus's cases for Attention, keyed by integration and case key, with the revision a case was resolved at so that a late upsert at that revision changes nothing. See [Integrations](integrations.md).
 
 ### Directory presets

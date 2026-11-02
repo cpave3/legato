@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/gitrepo"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -102,7 +103,13 @@ func newGitHubFake(t *testing.T) *githubFake {
 			}
 		case strings.HasPrefix(r.URL.Path, "/cpave3/legato.git/"):
 			user, pass, _ := r.BasicAuth()
-			if user != "x-access-token" || g.tokens[pass]["contents"] != "write" {
+			// Fetches need a token that reads code; pushes one that writes it.
+			need := "read"
+			if r.URL.Query().Get("service") == "git-receive-pack" || strings.HasSuffix(r.URL.Path, "/git-receive-pack") {
+				need = "write"
+			}
+			if have := g.tokens[pass]["contents"]; user != "x-access-token" || (have != "write" && have != need) {
+				w.Header().Set("WWW-Authenticate", `Basic realm="GitHub"`)
 				w.WriteHeader(401)
 				return
 			}
@@ -689,5 +696,77 @@ func TestInTheSandboxGHPRReadyIsDoneByLegatoWithoutRunningGH(t *testing.T) {
 	}
 	if _, err := os.Stat(calls); err == nil {
 		t.Fatal("the real gh was run")
+	}
+}
+
+// Legato's repository cache clones with a read token the GitHub credential
+// makes for that one repository.
+func TestTheHostGetsAReadTokenForAListedRepository(t *testing.T) {
+	f := newGitHubFixture(t)
+	token, url, err := f.channels.GitReadToken(context.Background(), "cpave3/legato")
+	if err != nil {
+		t.Fatalf("GitReadToken: %v", err)
+	}
+	if perms := f.github.tokens[string(token)]; perms["contents"] != "read" || len(perms) == 0 {
+		t.Fatalf("token permissions = %v, want contents read", perms)
+	}
+	if url != f.github.srv.URL+"/cpave3/legato.git" {
+		t.Fatalf("clone address = %s", url)
+	}
+	if !f.channels.PushesThroughProxy("cpave3/legato") {
+		t.Fatal("sessions' pushes to a listed repository do not go to the proxy")
+	}
+
+	if _, _, err := f.channels.GitReadToken(context.Background(), "someone/else"); err == nil || !strings.Contains(err.Error(), "settings.repositories") {
+		t.Fatalf("an unlisted repository: error = %v", err)
+	}
+	if err := f.channels.CanRead("cpave3/legato"); err != nil {
+		t.Fatalf("CanRead of a listed repository: %v", err)
+	}
+	if err := f.channels.CanRead("someone/else"); err == nil || !strings.Contains(err.Error(), "someone/*") {
+		t.Fatalf("CanRead of an unlisted repository: %v, want a hint at someone/*", err)
+	}
+	if f.channels.PushesThroughProxy("someone/else") {
+		t.Fatal("an unlisted repository's pushes are said to go to the proxy")
+	}
+}
+
+func TestTheHostGetsNoReadTokenWithoutAGitHubCredential(t *testing.T) {
+	approvals, db, _ := newApprovalFixture(t)
+	broker, err := NewCredentialBroker(db, approvals, CredentialBrokerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	channels := NewCredentialChannels(broker, CredentialChannelsOptions{})
+	if _, _, err := channels.GitReadToken(context.Background(), "cpave3/legato"); err == nil || !strings.Contains(err.Error(), "github") {
+		t.Fatalf("error = %v, want one that names a github credential", err)
+	}
+}
+
+// The cache clones over git's HTTP protocol with that token.
+func TestTheRepositoryCacheClonesWithTheCredential(t *testing.T) {
+	f := newGitHubFixture(t)
+	work := t.TempDir()
+	ghGit(t, work, "init", "-q", "-b", "main")
+	ghGit(t, work, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "--allow-empty", "-m", "first")
+	ghGit(t, work, "push", "-q", f.github.bare, "main")
+
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: f.github.srv.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_SSL_CAINFO", ca)
+	repos := NewRepositoryService(RepositoryServiceOptions{DataDir: t.TempDir(), MaxAge: time.Minute, Tokens: f.channels,
+		Git: gitrepo.Runner{AskPass: exe}, Store: f.store})
+	path, err := repos.Ensure(context.Background(), "cpave3/legato")
+	if err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if out := ghGit(t, "", "--git-dir", path, "rev-parse", "--verify", "refs/heads/main"); strings.TrimSpace(out) == "" {
+		t.Fatal("the cache has no main")
 	}
 }

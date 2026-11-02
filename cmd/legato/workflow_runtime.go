@@ -35,6 +35,11 @@ type workflowRuntimeOptions struct {
 	PR      service.PRTrackingService
 	PRErr   error
 	WorkDir string
+	// Repos is the repository cache jobs clone from; built here when nil.
+	Repos *service.RepositoryService
+	// Presets are the repositories runs pick from, read for each run;
+	// the configuration's alone when nil.
+	Presets *service.RepositoryPresetService
 }
 
 func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRuntimeOptions) (*service.WorkflowService, error) {
@@ -73,7 +78,14 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 			promptProvider = learningSvc
 		}
 		agentSvc = service.NewAgentService(db, mgr, opts.WorkDir, service.AgentServiceOptions{Adapter: defaultAdapter, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes, DisablePeerAwareness: !cfg.Agents.PeerAwareness, Sandbox: sandboxSettings(cfg)})
-		attachCredentialChannels(cfg, db, agentSvc)
+		channels := attachCredentialChannels(cfg, db, agentSvc)
+		if opts.Repos == nil {
+			opts.Repos = newRepositoryService(cfg, db)
+			if channels != nil {
+				opts.Repos.SetTokens(channels)
+			}
+		}
+		giveAgentsRepositories(agentSvc, opts.Repos)
 	}
 	binary, _ := os.Executable()
 	runner := service.NewWorkflowAgentRunner(agentSvc, db, binary)
@@ -83,6 +95,11 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		service.NewAgentStopExecutor(runner),
 		service.NewChimeraSessionRemoveExecutor(db, chimera.NewSessionRemover("chimera")),
 	}
+	var repoCache service.RepoCache
+	if opts.Repos != nil {
+		repoCache = opts.Repos
+	}
+	executors = append(executors, service.NewRepoEnsureExecutor(repoCache))
 	executors = append(executors, learningWorkflowExecutors(db, learningSvc, runner, binary)...)
 	var moveSync service.CardMoveSync
 	if configured, ok := opts.Sync.(service.CardMoveSync); ok {
@@ -107,6 +124,9 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	}
 	workflows := service.NewWorkflowServiceWithOutputs(db, executors, workflowArtifactRoot(cfg))
 	workflows.SetRepositoryPresets(workflowRepositoryPresets(cfg))
+	if opts.Presets != nil {
+		workflows.SetRepositorySource(opts.Presets.WorkflowPresets)
+	}
 	workflows.SetAgentKinds(agentSvc.RegisteredAdapters())
 	return workflows, nil
 }

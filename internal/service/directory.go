@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -65,9 +66,10 @@ type DirectoryPresetStore interface {
 // DirectoryService answers where an agent can be started: the presets, and
 // the directories that complete a path as it is typed.
 type DirectoryService struct {
-	presets    DirectoryPresetStore
-	configured []DirectoryPreset
-	home       string
+	presets      DirectoryPresetStore
+	configured   []DirectoryPreset
+	repositories RepositoryDirectories
+	home         string
 }
 
 // NewDirectoryService makes a directory service. presets may be nil, in which
@@ -125,10 +127,44 @@ func (s *DirectoryService) Display(path string) string {
 	return path
 }
 
+// RepositoryDirectories gives the repositories that have a folder, read
+// each time, since repositories can be added while Legato runs.
+type RepositoryDirectories interface {
+	DirectoryPresets(ctx context.Context) ([]DirectoryPreset, error)
+}
+
+// SetRepositories makes the repositories' folders the first presets, in
+// place of those given at construction.
+func (s *DirectoryService) SetRepositories(repos RepositoryDirectories) { s.repositories = repos }
+
+// configuredPresets are the repositories' folders.
+func (s *DirectoryService) configuredPresets(ctx context.Context) []DirectoryPreset {
+	if s.repositories == nil {
+		return append([]DirectoryPreset(nil), s.configured...)
+	}
+	listed, err := s.repositories.DirectoryPresets(ctx)
+	if err != nil {
+		log.Printf("directories: the repositories' folders: %v", err)
+	}
+	out := make([]DirectoryPreset, 0, len(listed))
+	for _, preset := range listed {
+		path := s.Expand(preset.Path)
+		if path == "" {
+			continue
+		}
+		name := strings.TrimSpace(preset.Name)
+		if name == "" {
+			name = filepath.Base(path)
+		}
+		out = append(out, DirectoryPreset{Name: name, Path: path, Display: s.Display(path)})
+	}
+	return out
+}
+
 // Presets returns the presets of the configuration, then the directories the
 // person saved that are not among them.
 func (s *DirectoryService) Presets(ctx context.Context) ([]DirectoryPreset, error) {
-	presets := append([]DirectoryPreset(nil), s.configured...)
+	presets := s.configuredPresets(ctx)
 	if s.presets == nil {
 		return presets, nil
 	}

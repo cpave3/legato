@@ -108,11 +108,26 @@ type DurationData struct {
 // to inject role tags, scope-based conflict checks, a role system prompt, and
 // the per-worker initial brief that the launch command delivers.
 type AgentSpawnOptions struct {
-	Role              string            // free-form role label (e.g. "conductor", "backend"); "" for non-swarm
-	ParentTaskID      string            // parent task ID when spawning a swarm sub-task
-	SubtaskID         string            // sub-task ID being assigned
-	Scope             []string          // scope globs for conflict checks
-	WorkingDir        string            // override for tmux session working directory; falls back to agent service workDir
+	Role         string   // free-form role label (e.g. "conductor", "backend"); "" for non-swarm
+	ParentTaskID string   // parent task ID when spawning a swarm sub-task
+	SubtaskID    string   // sub-task ID being assigned
+	Scope        []string // scope globs for conflict checks
+	WorkingDir   string   // override for tmux session working directory; falls back to agent service workDir
+	// Repo, a GitHub repository (owner/name), makes the agent work in a
+	// fresh clone of it at Ref (the default branch when empty) made for
+	// its execution, instead of WorkingDir.
+	Repo string
+	Ref  string
+	// Clone, a job clone's ID, makes the agent work in that clone, which
+	// another task made: the next branch of a stack in the same folder.
+	// Without it, a task with a clone of Repo works in that one again.
+	Clone int64
+	// Branch is the branch the clone ends on. A new clone: GitHub's branch
+	// of that name when there is one, else a new one made at Ref, and
+	// legato/<task id> when empty, which the GitHub credential lets agents
+	// push. A clone that exists: a new branch at the commit it has checked
+	// out, and the branch it is on when empty.
+	Branch            string
 	AgentKind         string            // adapter name to use; "" → default adapter
 	Model             string            // direct model selector; "" → adapter default
 	Tier              string            // adapter tier name (selects per-tier launch_args from cfg.Adapters.<kind>.tiers); "" → base launch_args only
@@ -225,6 +240,7 @@ type agentService struct {
 	sessionEnvMu      sync.Mutex
 	sessionEnv        SessionEnvProvider // credential channels; nil without any
 	brokerEnv         SessionEnvProvider // the host broker's socket and a token; nil without one
+	repos             JobCloner          // makes clones for agents spawned with a repository; nil without one
 	sandbox           *SandboxSettings   // nil: agents run unsandboxed
 	store             *store.Store
 	tmux              TmuxManager
@@ -419,6 +435,25 @@ type AgentServiceOptions struct {
 	Sandbox *SandboxSettings
 }
 
+// JobCloner makes the clone an agent spawned with a repository works in.
+type JobCloner interface {
+	JobClone(ctx context.Context, req JobCloneRequest) (store.JobClone, error)
+}
+
+// SetRepositories lets agents spawned from now on work in a clone of a
+// repository.
+func (a *agentService) SetRepositories(repos JobCloner) {
+	a.sessionEnvMu.Lock()
+	defer a.sessionEnvMu.Unlock()
+	a.repos = repos
+}
+
+func (a *agentService) repositories() JobCloner {
+	a.sessionEnvMu.Lock()
+	defer a.sessionEnvMu.Unlock()
+	return a.repos
+}
+
 // SetSessionEnv gives every session spawned from now on the environment of
 // the credential channels.
 func (a *agentService) SetSessionEnv(provider SessionEnvProvider) {
@@ -487,15 +522,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if err := a.prepareTaskResume(ctx, taskID, &opt); err != nil {
 		return err
 	}
+	if (opt.Repo != "" || opt.Clone != 0) && opt.WorkingDir != "" {
+		return fmt.Errorf("an agent works in a job clone or in %s, not both", opt.WorkingDir)
+	}
 	workDir := opt.WorkingDir
 	if workDir == "" {
 		workDir = a.workDir
-	}
-	var launchPeers []AgentPeer
-	if a.peerAwareness {
-		if peers, peerErr := a.ListPeers(ctx, taskID, "", workDir); peerErr == nil {
-			launchPeers = peers
-		}
 	}
 
 	// Swarm scope-conflict check: collect overlaps with active siblings (status
@@ -531,6 +563,28 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 
 	// Clean up dead sessions so UNIQUE constraint doesn't block re-spawn
 	_ = a.store.DeleteDeadAgentSessions(ctx, taskID)
+
+	executionID := "ex-" + store.GenerateTaskID()
+	if opt.Repo != "" || opt.Clone != 0 {
+		// A clone, made or joined before anything starts. One whose spawn
+		// fails below is swept with the other idle clones.
+		repos := a.repositories()
+		if repos == nil {
+			return fmt.Errorf("%s: Legato clones repositories for agents with a github credential, and none is configured", opt.Repo)
+		}
+		clone, err := repos.JobClone(ctx, JobCloneRequest{ExecutionID: executionID, TaskID: taskID, Repo: opt.Repo, Ref: opt.Ref,
+			Branch: opt.Branch, FreshBranch: "legato/" + strings.ToLower(taskID), CloneID: opt.Clone})
+		if err != nil {
+			return err
+		}
+		workDir = clone.Path
+	}
+	var launchPeers []AgentPeer
+	if a.peerAwareness {
+		if peers, peerErr := a.ListPeers(ctx, taskID, "", workDir); peerErr == nil {
+			launchPeers = peers
+		}
+	}
 
 	sessionName := "legato-" + taskID
 	// Kill any orphaned tmux session with the same name
@@ -701,7 +755,6 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 
-	executionID := "ex-" + store.GenerateTaskID()
 	executionKind := opt.ExecutionKind
 	if executionKind == "" {
 		switch {

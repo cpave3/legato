@@ -4,6 +4,8 @@ Legato can run on an always-on machine (a VM, a spare box) with nobody at its te
 
 The steps are written from Legato's code and have not yet been run end to end on a fresh VM (task 1.8 of `openspec/changes/sandboxed-cloud-agents`). Where a step is wrong, fix it here.
 
+A complete example of the files this guide makes is in [`examples/cloud-vm/`](examples/cloud-vm/): `config.yaml`, `legato.service` and `env.example`. A test loads the configuration, so it stays valid.
+
 ## What protects what
 
 There are two ways to keep agents on the server from doing harm, and you can use both.
@@ -42,7 +44,7 @@ The certificate lasts 90 days; run the command again from a monthly timer. Legat
 
 Log in over SSH, as the `agent` user, inside `tmux` so a long login survives a dropped connection.
 
-- **Claude Code.** `claude setup-token` prints a long-lived token for your subscription. Put it in the service's environment file (step 5) as `CLAUDE_CODE_OAUTH_TOKEN`. Or run `claude`, choose to log in, open the address it prints on any device, and paste the code back.
+- **Claude Code.** Run `claude`, choose to log in, open the address it prints on any device, and paste the code back. The login is kept in `~/.claude`, as on a desktop, and every agent Legato starts uses it. Or run `claude setup-token`, which signs in the same way and prints a token for your subscription that lasts about a year, and put it in the service's environment file (step 5) as `CLAUDE_CODE_OAUTH_TOKEN`. The token never needs renewing, so an unattended VM never finds its agents stopped at a login prompt.
 - **Codex.** `codex login --device-auth` prints an address and a code to enter on any device. With an API key: `printenv OPENAI_API_KEY | codex login --with-api-key`.
 - **Chimera.** Log in as its own documentation says; its state is in `~/.chimera`.
 
@@ -67,10 +69,14 @@ board:
     - name: Review
     - name: Done
 
-repositories:                       # what the spawn dialogs offer as places to work
+repository_cache:
+  enabled: true                     # offer "Clone" in the spawn dialog
+  keep_idle: 7d                     # keep a clone this long for the next agent
+
+# More can be added in the web UI: Settings › Agents › Repositories.
+repositories:                       # what jobs and the workflow form offer
   - name: Legato
-    repo: cpave3/legato
-    primary_dir: /home/agent/src/legato
+    repo: cpave3/legato             # no primary_dir: each job gets a fresh clone
     base_branch: main
 
 adapters:
@@ -156,7 +162,11 @@ The server switcher at the foot of the rail (and in **More** on a phone) moves b
 
 ## 8. Starting a job
 
-From the web UI or the phone: **Spawn agent**, pick the agent tool and a preset, and write the job in **First message**. The agent starts on it as soon as it is ready.
+From the web UI or the phone: **Spawn agent**, pick the agent tool, switch **Where** to **Clone** (`repository_cache.enabled: true` in step 4), pick the repository and **New clone**, give a branch (blank for `legato/<task id>`) and a base branch, and write the job in **First message**. The agent starts on it in a fresh clone as soon as it is ready. For a run record, run **Agent job** (`legato-job`) from **Workflows** instead.
+
+**A stack of branches in one folder.** Work you would do as a stack (one branch on top of another, each its own task and agent) can stay in one clone, with its dependencies and build output. Start the first part in a fresh clone. For each next part, **Spawn agent** on its task, switch **Where** to **Clone**, pick the repository and, under **Clone**, the clone (named by its branch) instead of New clone, and give the new branch: it is made at the clone's current commit, stacked on the branch before it. Leave Branch empty to stay on the clone's branch. Restacking (`st restack`, a rebase on main) is the agents' work, in the same folder. A task's later agents (a restart, a new agent on the same task) work in its clone again by themselves.
+
+Two agents can work in one clone at once, for example one reviewing while another builds. The second joins on the clone's branch (Legato will not move the branch under the first), and the two see each other as peers and can message each other. A clone no agent has worked in for `repository_cache.keep_idle` (7 days) is removed if everything in it is pushed; Settings › Agents › Clones lists them and removes one early.
 
 By API, with the token from `legato auth token`:
 
@@ -164,30 +174,32 @@ By API, with the token from `legato auth token`:
 SERVER=https://legato-vm.example.ts.net:3080
 TOKEN=…   # legato auth token, on the VM
 
-# A job with a run record: legato-job. It shows under Workflows, and the
-# agent stays running when it reports its summary, so you can read it and
-# go on talking to it.
+# A job with a run record: legato-job, in a fresh clone of the repository.
+# It shows under Workflows, and the agent stays running when it reports its
+# summary, so you can read it and go on talking to it.
 curl -sS -X POST "$SERVER/api/workflows/legato-job/runs" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"inputs": {"prompt": "Find why TestSync is flaky and open a PR with the fix.",
-                  "working_dir": "/home/agent/src/legato", "agent": "claude-code"}}'
+                  "repo": "cpave3/legato", "agent": "claude-code"}}'
 
 # Or a plain agent, with no run record:
 curl -sS -X POST "$SERVER/api/agents/spawn" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"title": "Flaky sync test", "agent_kind": "claude-code",
-       "working_dir": "~/src/legato", "prompt": "Find why TestSync is flaky."}'
+       "repo": "cpave3/legato", "prompt": "Find why TestSync is flaky."}'
 ```
 
-- `legato-job` takes `prompt` (required), `agent` (a configured agent tool; another name is refused before anything starts), and `working_dir`. `repo` and `ref` will check a repository out for the job; until that is built, a non-empty `repo` fails the run, so clone the repository on the VM and name the clone as `working_dir`. See [Workflows](workflows.md) § The agent job workflow.
+- `legato-job` takes `prompt` (required), `agent` (a configured agent tool; another name is refused before anything starts), and either `repo` (with `ref`, a branch, tag or commit; the default branch when empty) or `working_dir`. With `repo`, the agent works in a fresh clone of the repository made for it, from Legato's cache (`repository_cache.max_age`, 5 minutes by default), so every job starts from the current base and never from another job's leftovers. This needs the GitHub App credential (step 6) listing the repository. See [Workflows](workflows.md) § The agent job workflow.
+- `POST /api/agents/spawn` and `POST /api/tasks/{id}/agent` take `repo` and `ref` the same way, instead of `working_dir`, or `clone_id` (from `GET $SERVER/api/job-clones`) to work in a clone that exists, with `branch` for a new branch stacked there.
 - `GET $SERVER/api/workflow-runs?workflow_name=legato-job` lists the jobs; `GET $SERVER/api/workflow-runs/<run id>` shows one, with the agent's `summary` once it has reported.
-- From a script on the VM itself: `legato workflow run legato-job --input prompt="…" --input working_dir=… --json`.
+- From a script on the VM itself: `legato workflow run legato-job --input prompt="…" --input repo=cpave3/legato --json`.
 
 Then open the agent in the web UI or the phone app to watch it, answer its questions and approve what it asks.
 
 ## 9. Keeping it running
 
 - **Updates.** Replace the binary and `systemctl --user restart legato`. Agents keep running (`KillMode=process`); Legato binds their native panels again when it starts.
-- **Disk.** Each agent's checkout is yours to clean: Legato does not remove folders it did not make.
+- **Disk.** Legato keeps a job's clone for `repository_cache.keep_idle` (7 days) after an agent last worked in it, for the next agent of a stack, then removes it if everything in it is pushed; one with unpushed commits is kept seven days more with a note on the task. Build output stays with a clone (Rust's `target/` can be several GB), so lower `keep_idle` on a small disk, or remove clones in Settings › Agents › Clones.
+- **Build caches.** Fresh clones start without build output. Shared caches make their first build warm: Go's is shared already; for Rust set `RUSTC_WRAPPER=sccache` in `~/.config/legato/env` (the sandbox mounts `~/.cache/sccache`); pnpm and Gradle share theirs by default. The cache (`~/.local/share/legato/repos`) holds one bare clone per repository. Checkouts you made yourself are yours to clean.
 - **Logins.** Agent tools' logins expire. When an agent stops at a login prompt, attach to it (`tmux attach -t legato-<task>` over SSH, or **Open terminal** in the web UI) and log in again.
 - **Backups.** The database and the data folder are under `~/.local/share/legato`.

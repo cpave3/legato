@@ -354,23 +354,25 @@ func giveSessionsChannels(agents service.AgentService, channels *service.Credent
 }
 
 // attachCredentialChannels gives the sessions of a command that spawns
-// agents (a swarm or workflow command) their channels. The command serves
-// none: the host Legato's proxy and sockets serve its agents.
-func attachCredentialChannels(cfg *config.Config, db *store.Store, agents service.AgentService) {
+// agents (a swarm or workflow command) their channels, and returns them. The
+// command serves none: the host Legato's proxy and sockets serve its agents.
+func attachCredentialChannels(cfg *config.Config, db *store.Store, agents service.AgentService) *service.CredentialChannels {
 	broker, err := configuredCredentialBroker(cfg, db, newApprovalService(cfg, db, nil, nil), nil)
 	if err != nil {
 		log.Printf("credentials: %v", err)
-		return
+		return nil
 	}
 	dir := ipc.SocketDir()
-	giveSessionsChannels(agents, service.NewCredentialChannels(broker, service.CredentialChannelsOptions{
+	channels := service.NewCredentialChannels(broker, service.CredentialChannelsOptions{
 		ProxyURL:     func() string { return readProxyURL(dir) },
 		SSHSocketDir: filepath.Join(dir, sshSocketDirName),
 		KnownHosts:   cfg.CredentialChannels.SSHAgent.KnownHosts,
 		LegatoBin:    legatoBinary(),
 		WrapperDir:   filepath.Join(dir, wrapperDirName),
 		GHConfigDir:  ghConfigDir(cfg, dir),
-	}))
+	})
+	giveSessionsChannels(agents, channels)
+	return channels
 }
 
 // dropSecretEnv removes from this process's environment the variables that

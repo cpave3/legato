@@ -18,6 +18,8 @@ export interface Settings {
   worktrees_enabled: boolean
   // Agents run in Legato's sandbox unless their spawn opts out.
   sandbox_enabled?: boolean
+  // The spawn dialog offers a fresh clone of a repository (repository_cache.enabled).
+  fresh_clones_enabled?: boolean
   hot_reload_enabled: boolean
   working_dir: string
   default_workspace_id: number | null

@@ -6,7 +6,14 @@ const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 const { settingsData } = vi.hoisted(() => ({
-  settingsData: { working_dir: "/default", sandbox_enabled: false, repositories: [{ name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato" }] },
+  settingsData: {
+    working_dir: "/default", sandbox_enabled: false, fresh_clones_enabled: false,
+    repositories: [
+      { name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato", base_branch: "main" },
+      { name: "Autopilot", repo: "autopilot-dev/autopilot", primary_dir: "", base_branch: "develop" },
+      { name: "Notes", repo: "", primary_dir: "/projects/notes", base_branch: "" },
+    ],
+  },
 }))
 vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ data: settingsData }) }))
 vi.mock("../../lib/api", () => ({ apiFetch }))
@@ -362,5 +369,128 @@ describe("SpawnEphemeralModal", () => {
   it("offers no sandbox choice when the sandbox is off", async () => {
     await openModal()
     expect(screen.queryByRole("checkbox", { name: /Run without sandbox/ })).toBeNull()
+  })
+
+  it("offers no fresh clone unless the server does", async () => {
+    await openModal()
+    expect(screen.queryByRole("radio", { name: "Clone" })).toBeNull()
+  })
+
+  describe("with fresh clones on", () => {
+    beforeEach(() => { settingsData.fresh_clones_enabled = true })
+    afterEach(() => { settingsData.fresh_clones_enabled = false })
+
+    it("spawns in a fresh clone on a new branch from the preset's base branch", async () => {
+      await openModal()
+      fireEvent.click(screen.getByRole("radio", { name: "Clone" }))
+
+      const repository = screen.getByRole("combobox", { name: "Repository" }) as HTMLSelectElement
+      // Only repositories with a GitHub name can be cloned.
+      expect(Array.from(repository.options).map((option) => option.textContent)).toEqual(["Legato", "Autopilot"])
+      fireEvent.change(repository, { target: { value: "Autopilot" } })
+      expect((screen.getByRole("textbox", { name: "Base branch" }) as HTMLInputElement).value).toBe("develop")
+      fireEvent.change(screen.getByRole("textbox", { name: "Branch" }), { target: { value: "legato/flaky-sync" } })
+      fireEvent.click(screen.getByRole("button", { name: "Spawn in Autopilot" }))
+
+      await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+      expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body)).toEqual({
+        title: "Ephemeral session",
+        agent_kind: "",
+        repo: "autopilot-dev/autopilot",
+        ref: "develop",
+        branch: "legato/flaky-sync",
+      })
+    })
+
+    it("leaves the branch to the server when none is typed", async () => {
+      await openModal()
+      fireEvent.click(screen.getByRole("radio", { name: "Clone" }))
+      expect((screen.getByRole("textbox", { name: "Branch" }) as HTMLInputElement).placeholder).toMatch(/legato\//)
+      fireEvent.click(screen.getByRole("button", { name: "Spawn in Legato" }))
+      await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+      const body = JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body)
+      expect(body).toMatchObject({ repo: "cpave3/legato", ref: "main" })
+      expect(body.branch).toBeUndefined()
+      expect(body.working_dir).toBeUndefined()
+    })
+
+    it("offers only a new clone when no clone of the repository exists", async () => {
+      await openModal()
+      fireEvent.click(screen.getByRole("radio", { name: "Clone" }))
+      expect(screen.queryByRole("combobox", { name: "Clone" })).toBeNull()
+      expect(screen.getByRole("textbox", { name: "Base branch" })).toBeTruthy()
+    })
+
+    it("continues in a clone of the repository on a branch stacked on its current one", async () => {
+      serve({ "GET /api/job-clones": () => json({ clones: [
+        { id: 3, repo: "cpave3/legato", path: "/data/jobs/ex-1/legato", branch: "stack/one", task_ids: ["t1"], busy: false, last_used_at: "2026-11-02T10:00:00Z", unpushed: 1 },
+        { id: 4, repo: "autopilot-dev/autopilot", path: "/data/jobs/ex-3/autopilot", branch: "main", task_ids: ["t4"], busy: false, last_used_at: "2026-11-02T09:00:00Z", unpushed: 0 },
+      ] }) })
+      await openModal()
+      fireEvent.click(screen.getByRole("radio", { name: "Clone" }))
+
+      // The clones listed are those of the repository picked.
+      const clone = await screen.findByRole("combobox", { name: "Clone" }) as HTMLSelectElement
+      expect(Array.from(clone.options).map((option) => option.textContent)).toEqual(["New clone", "stack/one"])
+      fireEvent.change(clone, { target: { value: "3" } })
+      // A clone that exists is on its own branch already: no base to pick.
+      expect(screen.queryByRole("textbox", { name: "Base branch" })).toBeNull()
+      const branch = screen.getByRole("textbox", { name: "Branch" }) as HTMLInputElement
+      expect(branch.placeholder).toBe("stay on stack/one")
+      fireEvent.change(branch, { target: { value: "stack/two" } })
+      fireEvent.click(screen.getByRole("button", { name: "Spawn in Legato" }))
+
+      await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+      expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body)).toEqual({
+        title: "Ephemeral session",
+        agent_kind: "",
+        clone_id: 3,
+        branch: "stack/two",
+      })
+    })
+
+    it("joins a clone an agent is working in on its branch", async () => {
+      serve({ "GET /api/job-clones": () => json({ clones: [
+        { id: 5, repo: "cpave3/legato", path: "/data/jobs/ex-2/legato", branch: "fix/x", task_ids: ["t2"], busy: true, last_used_at: "2026-11-01T10:00:00Z", unpushed: 0 },
+      ] }) })
+      await openModal()
+      fireEvent.click(screen.getByRole("radio", { name: "Clone" }))
+      const clone = await screen.findByRole("combobox", { name: "Clone" }) as HTMLSelectElement
+      expect(Array.from(clone.options).map((option) => option.textContent)).toEqual(["New clone", "fix/x · agent working"])
+      fireEvent.change(clone, { target: { value: "5" } })
+      expect((screen.getByRole("textbox", { name: "Branch" }) as HTMLInputElement).disabled).toBe(true)
+      expect(screen.getByText(/An agent is working in this clone/)).toBeTruthy()
+      fireEvent.click(screen.getByRole("button", { name: "Spawn in Legato" }))
+      await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+      const body = JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body)
+      expect(body).toEqual({ title: "Ephemeral session", agent_kind: "", clone_id: 5 })
+    })
+
+    it("offers a clone of a repository that is no longer listed under its GitHub name", async () => {
+      serve({ "GET /api/job-clones": () => json({ clones: [
+        { id: 6, repo: "acme/widget", path: "/data/jobs/ex-4/widget", branch: "main", task_ids: ["t6"], busy: false, last_used_at: "2026-11-01T10:00:00Z", unpushed: 0 },
+      ] }) })
+      await openModal()
+      fireEvent.click(screen.getByRole("radio", { name: "Clone" }))
+      const repository = screen.getByRole("combobox", { name: "Repository" }) as HTMLSelectElement
+      await vi.waitFor(() => expect(Array.from(repository.options).map((option) => option.textContent)).toEqual(["Legato", "Autopilot", "acme/widget"]))
+      fireEvent.change(repository, { target: { value: "acme/widget" } })
+      // Legato cannot make a new clone of a repository it does not offer.
+      const clone = screen.getByRole("combobox", { name: "Clone" }) as HTMLSelectElement
+      expect(Array.from(clone.options).map((option) => option.textContent)).toEqual(["main"])
+      fireEvent.click(screen.getByRole("button", { name: "Spawn in acme/widget" }))
+      await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+      expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body)).toMatchObject({ clone_id: 6 })
+    })
+
+    it("goes back to the folder it had when switched back", async () => {
+      await openModal()
+      fireEvent.click(screen.getByRole("radio", { name: "Clone" }))
+      fireEvent.click(screen.getByRole("radio", { name: "Folder" }))
+      expect(pathField().value).toBe("~/Projects/legato")
+      fireEvent.click(screen.getByRole("button", { name: "Spawn in legato" }))
+      await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+      expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body).working_dir).toBe("~/Projects/legato")
+    })
   })
 })

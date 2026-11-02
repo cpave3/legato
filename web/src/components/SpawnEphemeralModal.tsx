@@ -2,6 +2,7 @@ import { useCallback } from "react"
 import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
 import { SpawnAgentDialog, type SpawnAgentRequest } from "./SpawnAgentDialog"
+import { spawnPlace } from "../lib/spawnPlace"
 
 // SpawnEphemeralModal starts an agent that belongs to no card.
 export function SpawnEphemeralModal({
@@ -22,7 +23,7 @@ export function SpawnEphemeralModal({
       body: JSON.stringify({
         title: request.title || "Ephemeral session",
         agent_kind: request.agentKind,
-        working_dir: request.workingDir,
+        ...spawnPlace(request),
         ...(request.resources ? { resources: request.resources } : {}),
         ...(request.sandbox === false ? { sandbox: false } : {}),
         ...(request.prompt ? { prompt: request.prompt } : {}),

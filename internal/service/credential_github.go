@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/credential"
+	"github.com/cpave3/legato/internal/engine/store"
 )
 
 // defaultBranchLife is how long a repository's default branch is kept.
@@ -449,4 +450,59 @@ func writeGHWrapper(dir, legato string) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// githubCredentialFor finds the GitHub credential (a token-making one with
+// a git host) that lists a repository.
+func (c *CredentialChannels) githubCredentialFor(repo string) (brokerCredential, error) {
+	var found []string
+	for _, bc := range c.broker.all() {
+		if bc.jwt == nil || bc.profile.Git == "" {
+			continue
+		}
+		found = append(found, bc.config.Name)
+		if repoListed(bc.config.Settings.Repositories, repo) {
+			return bc, nil
+		}
+	}
+	if len(found) == 0 {
+		return brokerCredential{}, fmt.Errorf("no github credential is configured (credentials in config.yaml, profile github)")
+	}
+	owner, _, _ := strings.Cut(repo, "/")
+	return brokerCredential{}, fmt.Errorf("%s is not one of the repositories of %s (settings.repositories in config.yaml; %s/* lists every repository of %s)", repo, strings.Join(found, ", "), owner, owner)
+}
+
+// CanRead says whether a GitHub credential lists a repository, without
+// making a token.
+func (c *CredentialChannels) CanRead(repo string) error {
+	_, err := c.githubCredentialFor(repo)
+	return err
+}
+
+// GitReadToken makes a read token for one repository with the GitHub
+// credential that lists it, for Legato's own clones and fetches, and the
+// address to clone it from. Each is recorded in the audit log.
+func (c *CredentialChannels) GitReadToken(ctx context.Context, repo string) ([]byte, string, error) {
+	bc, err := c.githubCredentialFor(repo)
+	if err != nil {
+		return nil, "", err
+	}
+	token, _, err := c.githubToken(ctx, bc, repo, credential.OperationGitRead)
+	if err != nil {
+		return nil, "", err
+	}
+	c.broker.audit(ctx, "", "", store.CredentialAuditEntry{Event: "use", Credential: bc.config.Name, Operation: credential.OperationGitRead,
+		Resource: "github:" + repo, Detail: "Legato's repository cache"})
+	return token, strings.TrimSuffix(bc.profile.Git, "/") + "/" + repo + ".git", nil
+}
+
+// PushesThroughProxy reports whether an agent session's pushes to a
+// repository go to Legato's proxy: a GitHub credential lists it and a
+// proxy serves sessions.
+func (c *CredentialChannels) PushesThroughProxy(repo string) bool {
+	if c.opts.ProxyURL == nil || c.opts.ProxyURL() == "" {
+		return false
+	}
+	bc, err := c.githubCredentialFor(repo)
+	return err == nil && listHas(bc.profile.Channels, ChannelHTTPProxy)
 }

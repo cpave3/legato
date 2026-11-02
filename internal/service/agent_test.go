@@ -30,6 +30,7 @@ type mockTmux struct {
 	captures         map[string]string
 	envVars          map[string]map[string]string // session -> key -> value
 	spawnDims        map[string][2]int            // session -> [width, height]
+	spawnDirs        map[string]string            // session -> working directory
 	options          map[string]map[string]string // session -> key -> value
 	paneCommands     map[string]string            // session -> command
 	paneCommandsErr  error
@@ -48,6 +49,7 @@ func newMockTmux() *mockTmux {
 		captures:         make(map[string]string),
 		envVars:          make(map[string]map[string]string),
 		spawnDims:        make(map[string][2]int),
+		spawnDirs:        make(map[string]string),
 		options:          make(map[string]map[string]string),
 		sentLines:        make(map[string][]string),
 		sentMultiline:    make(map[string][]string),
@@ -68,6 +70,7 @@ func (m *mockTmux) Spawn(name, workDir string, width, height int, envVars ...str
 	}
 	m.sessions[name] = true
 	m.spawnDims[name] = [2]int{width, height}
+	m.spawnDirs[name] = workDir
 	if len(envVars) > 0 {
 		if m.envVars[name] == nil {
 			m.envVars[name] = make(map[string]string)

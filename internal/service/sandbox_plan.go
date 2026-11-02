@@ -86,6 +86,9 @@ type SandboxPlanInput struct {
 	PastedImagesDir     string
 	AgentFilesDir       string // ~/.legato/agents/<task>: role prompt and brief
 	GitCommonDir        string // a worktree's main .git, written by commits
+	// JobDir is the job clone Legato made for the session's task, in its
+	// data folder: the one part of that folder the sandbox may see.
+	JobDir string
 	// ReadOnlyCheckout mounts the working directory and its git folder
 	// read-only, for an agent that may look but not change (a find-out
 	// delegation).
@@ -193,7 +196,7 @@ var systemPaths = []string{"/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", 
 // toolchains are the person's tools, read-only, and their package and build
 // caches, read-write. None holds a credential.
 var toolchainsRO = []string{".local/bin", ".local/share/mise", ".config/mise", "go/bin", ".cargo/bin", ".rustup", ".bun", ".deno", ".volta", ".nvm", ".pyenv"}
-var toolchainsRW = []string{"go/pkg/mod", ".cache/go-build", ".npm", ".cache/pnpm", ".local/share/pnpm", ".cache/pip", ".cache/uv", ".cargo/registry", ".cache/ms-playwright", ".cache/node", ".nuget/packages", ".bun/install/cache",
+var toolchainsRW = []string{"go/pkg/mod", ".cache/go-build", ".npm", ".cache/pnpm", ".local/share/pnpm", ".cache/pip", ".cache/uv", ".cargo/registry", ".cache/sccache", ".cache/ms-playwright", ".cache/node", ".nuget/packages", ".bun/install/cache",
 	".local/state/pnpm", ".cache/yarn", ".yarn/berry/cache", ".cache/composer", ".gradle/caches", ".gradle/wrapper", ".m2/repository",
 	".cache/deno", ".cache/pypoetry", ".cargo/git", ".cache/bun", ".cache/typescript", ".cache/prisma"}
 var systemToolchains = []string{"/home/linuxbrew/.linuxbrew"}
@@ -260,7 +263,7 @@ func within(path, dir string) bool {
 // allowedInside are mounts that may sit inside a forbidden folder: the parts
 // of Legato's runtime and data folders a session needs.
 func allowedInside(in SandboxPlanInput, path string) bool {
-	for _, ok := range []string{filepath.Dir(in.BrokerSocket), in.SSHSocket, in.CredentialWrapperDir, in.GHConfigDir,
+	for _, ok := range []string{filepath.Dir(in.BrokerSocket), in.SSHSocket, in.CredentialWrapperDir, in.GHConfigDir, in.JobDir,
 		filepath.Join(in.DataDir, "claude-mod"), filepath.Join(in.DataDir, "repos"), filepath.Join(in.RuntimeDir, "sandbox", in.ExecutionID)} {
 		if ok != "" && ok != "." && within(path, ok) {
 			return true
@@ -287,6 +290,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			return resolver.Real(p)
 		}
 		in.Home, in.WorkDir, in.DataDir, in.ConfigPath = real(in.Home), real(in.WorkDir), real(in.DataDir), real(in.ConfigPath)
+		in.JobDir = real(in.JobDir)
 		in.BinaryPath, in.GitCommonDir, in.AgentFilesDir, in.PastedImagesDir = real(in.BinaryPath), real(in.GitCommonDir), real(in.AgentFilesDir), real(in.PastedImagesDir)
 		in.CredentialWrapperDir, in.GHConfigDir = real(in.CredentialWrapperDir), real(in.GHConfigDir)
 		in.SSHConfigDir, in.KnownHosts = real(in.SSHConfigDir), real(in.KnownHosts)

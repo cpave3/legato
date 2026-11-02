@@ -54,3 +54,38 @@ steps:
 		t.Fatalf("metadata = %#v, err = %v", metadata, err)
 	}
 }
+
+// A repository added while Legato runs is a preset at once.
+func TestWorkflowRepositoryInputFindsARepositoryAddedLater(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	definition, err := workflowengine.Parse("pick.yaml", []byte(`
+schema_version: 1
+name: pick
+title: Pick
+inputs:
+  repository: {type: repository, required: true}
+steps:
+  - id: checkout
+    title: Checkout
+    type: repo.ensure
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := NewRepositoryPresetService(db, nil, t.TempDir())
+	svc := NewWorkflowService(db, []WorkflowExecutor{&fakeWorkflowExecutor{typeName: "repo.ensure", result: WorkflowExecutionResult{Status: "succeeded"}}})
+	svc.SetRepositorySource(catalog.WorkflowPresets)
+	if _, err := svc.Start(context.Background(), definition, map[string]string{"repository": "widget"}); err == nil {
+		t.Fatal("a repository nobody added was found")
+	}
+	if _, err := catalog.Save(context.Background(), RepositoryPreset{Name: "widget", Repo: "acme/widget"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Start(context.Background(), definition, map[string]string{"repository": "widget"}); err != nil {
+		t.Fatalf("after it was added: %v", err)
+	}
+}

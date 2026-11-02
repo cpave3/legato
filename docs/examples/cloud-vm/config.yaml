@@ -1,0 +1,86 @@
+# Legato on an always-on VM, for agents that work while your desktop is off.
+#
+# Copy to ~/.config/legato/config.yaml on the VM, as the user Legato runs as
+# (`agent` here), and change what is marked CHANGE. The walk-through is
+# docs/cloud-agents.md; this file is its steps 4 to 6 in one place.
+#
+# Before the first start:
+#   legato secret add github-app --type keypair --from <app>.private-key.pem
+#   legato columns sync
+# Then run it with legato.service (beside this file).
+
+web:
+  port: "3080"
+  # The address on your tailnet; notification links open it.
+  public_url: https://legato-vm.example.ts.net:3080   # CHANGE
+  tls:
+    # From `tailscale cert`; see docs/cloud-agents.md § 2.
+    cert: /home/agent/.config/legato/tls.crt
+    key: /home/agent/.config/legato/tls.key
+
+board:
+  columns:
+    - name: Backlog
+    - name: Doing
+    - name: Review
+    - name: Done
+
+# Legato's own bare copy of each repository. Every job gets a fresh clone of
+# it, on a branch of its own, so no job starts from another's leftovers.
+repository_cache:
+  enabled: true   # offer "Clone" in the spawn dialog
+  max_age: 5m     # fetch first when the copy is older; 0s fetches for every job
+  # A clone stays this long after its last agent, so the next part of a stack
+  # can work in it (Clone in the spawn dialog) with its build output.
+  # Then it is removed if everything in it is pushed. 0 keeps clones until
+  # you remove them (Settings > Agents > Clones).
+  keep_idle: 7d
+
+# What the spawn dialog and the Agent job workflow offer. No primary_dir:
+# on the VM nothing is checked out by hand. More can be added in the web UI
+# (Settings › Agents › Repositories) without a restart.
+repositories:
+  - name: Legato                  # CHANGE
+    repo: cpave3/legato
+    base_branch: main
+  - name: Chimera
+    repo: cpave3/chimera
+    base_branch: main
+
+credentials:
+  # A GitHub App of your own (docs/credentials.md § 5): read tokens for
+  # clones and fetches, pushes checked branch by branch. Agents may push
+  # legato/** after you allow it once a session, never the default branch.
+  - name: github
+    secret: legato://github-app
+    profile: github
+    settings:
+      client_id: Iv23liAbCdEf     # CHANGE: the App's client ID
+      # What may be cloned. owner/* is every repository of an owner, so one
+      # added in the web UI can be cloned at once; the App still reaches only
+      # the repositories it is installed on. One not covered cannot be cloned.
+      repositories: [cpave3/*]     # CHANGE
+
+agents:
+  sandbox:
+    # Agents see only their clone, their tool's login and Legato's sockets
+    # (docs/ai/sandbox.md). Needs bubblewrap. Pushes and pull requests from
+    # inside the sandbox are not finished yet (phase 4 of
+    # openspec/changes/sandboxed-cloud-agents); until they are, leave this
+    # off and let the VM be the boundary.
+    enabled: false
+
+adapters:
+  # Agents work while nobody watches. Only where the VM, or the sandbox, is
+  # the boundary: leave these out and every permission request waits for
+  # you in the web UI, the phone app and ntfy.
+  claude-code:
+    launch_args: ["--dangerously-skip-permissions"]
+  codex:
+    launch_args: ["--dangerously-bypass-approvals-and-sandbox"]
+
+notifications:
+  ntfy:
+    # Finished agents, agents that need you, approvals. Pick a topic nobody
+    # could guess.
+    topic: legato-vm-change-me-7f3a9c   # CHANGE

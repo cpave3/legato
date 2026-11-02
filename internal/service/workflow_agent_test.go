@@ -76,3 +76,15 @@ func TestAgentRunExecutorLaunchesExplicitWorkflowAssignment(t *testing.T) {
 		t.Fatalf("assignment lacks exact callback binary: %s", agents.opts.Assignment)
 	}
 }
+
+func TestAgentRunExecutorStartsTheAgentInAClone(t *testing.T) {
+	agents := &fakeWorkflowAgentService{}
+	_, err := NewAgentRunExecutor(agents).Start(context.Background(), ResolvedWorkflowStep{RunID: "wr-1", TaskID: "workflow-task", StepID: "agent",
+		With: map[string]any{"prompt": "Fix it", "repo": "acme/widget", "ref": "feature/x", "branch": "legato/fix", "working_dir": ""}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agents.opts.Repo != "acme/widget" || agents.opts.Ref != "feature/x" || agents.opts.Branch != "legato/fix" || agents.opts.WorkingDir != "" {
+		t.Fatalf("opts = %+v", agents.opts)
+	}
+}

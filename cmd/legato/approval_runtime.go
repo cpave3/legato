@@ -32,6 +32,9 @@ type approvalRuntime struct {
 	// database and the bus, so any of them serves the routes.
 	caseAttention *service.CaseAttentionService
 	stop          func()
+	// channels are the credential channels this process built, nil
+	// without a credential.
+	channels *service.CredentialChannels
 
 	cfg  *config.Config
 	mu   sync.Mutex
@@ -60,6 +63,7 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 		host := startChannelHost(ctx, cfg, db, rt.credentials, bus, ipc.SocketDir(), reconcile)
 		stops = append(stops, host.Stop)
 		giveSessionsChannels(agents, host.Channels())
+		rt.channels = host.Channels()
 	}
 	// The broker agent-side processes ask instead of the store.
 	rt.caseReplies = newCaseReplyService(cfg, db, bus, true)

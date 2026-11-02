@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"slices"
 	"strings"
@@ -47,7 +48,10 @@ type WorkflowService struct {
 	executors    map[string]WorkflowExecutor
 	collector    *WorkflowOutputCollector
 	repositories []workflowengine.RepositoryPreset
-	agentKinds   []string
+	// repositorySource, when set, is read for every run in place of
+	// repositories: repositories can be added while Legato runs.
+	repositorySource func(context.Context) ([]workflowengine.RepositoryPreset, error)
+	agentKinds       []string
 }
 
 func NewWorkflowService(s *store.Store, executors []WorkflowExecutor) *WorkflowService {
@@ -64,6 +68,24 @@ func NewWorkflowServiceWithOutputs(s *store.Store, executors []WorkflowExecutor,
 
 func (s *WorkflowService) SetRepositoryPresets(presets []workflowengine.RepositoryPreset) {
 	s.repositories = append([]workflowengine.RepositoryPreset(nil), presets...)
+}
+
+// SetRepositorySource makes runs read the repository presets each time
+// (RepositoryPresetService.WorkflowPresets).
+func (s *WorkflowService) SetRepositorySource(source func(context.Context) ([]workflowengine.RepositoryPreset, error)) {
+	s.repositorySource = source
+}
+
+// repositoryPresets are the presets now.
+func (s *WorkflowService) repositoryPresets(ctx context.Context) []workflowengine.RepositoryPreset {
+	if s.repositorySource == nil {
+		return s.repositories
+	}
+	presets, err := s.repositorySource(ctx)
+	if err != nil {
+		log.Printf("workflows: repository presets: %v", err)
+	}
+	return presets
 }
 
 // SetAgentKinds names the agent tools agent.run steps may ask for. A run
@@ -110,7 +132,7 @@ func (s *WorkflowService) start(ctx context.Context, definition *workflowengine.
 				inputs[key] = custom
 				continue
 			}
-			preset, ok := findRepositoryPreset(s.repositories, value)
+			preset, ok := findRepositoryPreset(s.repositoryPresets(ctx), value)
 			if !ok {
 				return nil, fmt.Errorf("workflow input %q: repository preset %q not found", key, value)
 			}

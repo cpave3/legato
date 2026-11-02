@@ -94,7 +94,7 @@ Agents read your repositories, push to `legato/…` branches and open pull reque
          repositories: [cpave3/legato, cpave3/chimera]
    ```
 
-   A repository that is not listed is refused, whatever the App is installed on.
+   A repository that is not listed is refused, whatever the App is installed on. `owner/*` lists every repository of an owner (`repositories: [cpave3/*]`): the App's installation then decides which of them agents reach, and a repository added in the web UI (Settings › Agents › Repositories) can be cloned without changing this file.
 6. **A backstop (optional).** In each repository, Settings › Rules › Rulesets › New branch ruleset: target every branch except `legato/**`, restrict creations, updates and deletions, and add your own role to the bypass list. GitHub then refuses the App outside `legato/**` even if Legato had a bug. Rulesets on private repositories need a paid plan.
 
 Agents' `gh` reads with Legato's read tokens and never with your own `gh` login. If you want agents to use your login for queries (`gh api`, searches across repositories), turn that off:

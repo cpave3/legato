@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/sandbox"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -315,5 +316,59 @@ func TestAnAgentOutsideTheSandboxKeepsThePersonsGHLogin(t *testing.T) {
 	inside := mt.envVarsFor("legato-task-2")
 	if inside["GH_TOKEN"] != GHSignedOut || inside["GH_CONFIG_DIR"] == "" {
 		t.Errorf("inside the sandbox: %v", inside)
+	}
+}
+
+// A sandboxed agent works in the job clone made for its task, which is in
+// Legato's data folder, also when it is started again in it; another
+// task's agent cannot be given it.
+func TestASandboxedAgentWorksInItsTasksJobCloneAndNoOther(t *testing.T) {
+	data := t.TempDir()
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) { settings.Base.DataDir = data })
+	createTask(t, s, "task-1")
+	createTask(t, s, "task-2")
+	clone := filepath.Join(data, "jobs", "ex-old", "widget")
+	if err := os.MkdirAll(clone, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := s.CreateJobClone(ctx, store.JobClone{ExecutionID: "ex-old", TaskID: "task-1", Repo: "acme/widget", Path: clone, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.SpawnAgent(ctx, "task-1", 0, 0, AgentSpawnOptions{WorkingDir: clone}); err != nil {
+		t.Fatalf("the task's own job clone: %v", err)
+	}
+	if got := backend.plans[len(backend.plans)-1].Chdir; got != clone {
+		t.Fatalf("the agent works in %s, want %s", got, clone)
+	}
+	if err := svc.SpawnAgent(ctx, "task-2", 0, 0, AgentSpawnOptions{WorkingDir: clone}); err == nil {
+		t.Fatal("another task's agent was given the job clone")
+	}
+}
+
+// A task that joined a job clone, for the next branch of a stack, works in
+// it in the sandbox too.
+func TestASandboxedAgentWorksInAJobCloneItsTaskJoined(t *testing.T) {
+	data := t.TempDir()
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) { settings.Base.DataDir = data })
+	createTask(t, s, "task-1")
+	createTask(t, s, "task-2")
+	clone := filepath.Join(data, "jobs", "ex-old", "widget")
+	if err := os.MkdirAll(clone, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	id, err := s.CreateJobClone(ctx, store.JobClone{ExecutionID: "ex-old", TaskID: "task-1", Repo: "acme/widget", Path: clone, CreatedAt: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AttachJobCloneTask(ctx, id, "task-2", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SpawnAgent(ctx, "task-2", 0, 0, AgentSpawnOptions{WorkingDir: clone}); err != nil {
+		t.Fatalf("a job clone the task joined: %v", err)
 	}
 }
