@@ -41,6 +41,8 @@ task run                   # run the app
 task vet                   # static analysis
 task lint                  # golangci-lint
 task check                 # build + test + vet + lint
+task docs:dev              # serve the docs site (site/) with live reload
+task docs:build            # build the docs site; fails on a broken link
 ```
 
 ## Build Plan
@@ -84,6 +86,38 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/resources.md` — named file/folder resources given to agents
 - `docs/ai/sandbox.md` — bubblewrap sandbox: what agents see and what is hidden
 - `docs/ai/updates.md` — the version, the release workflow, and the self-updater
+- `docs/ai/plans.md` — collaborative plans: storage, revisions, API, image copies
+- `docs/ai/reviews.md` — review tours: capture, chapters, passes, plan and review lineage, the queue
+- `docs/ai/review-handoff.md` — review handoff packets: API, storage, freshness, CLI output
+- `docs/ai/workflows.md` — workflow runs, completion and artifact collection, API, live updates
+- `docs/ai/model-settings.md` — native model settings: proxy, API, vision metadata, rollout
+
+## User documentation site
+
+The documentation for people who use Legato is the Starlight site in `site/`, published to <https://cpave3.github.io/legato/> by `.github/workflows/docs.yml`. `site/README.md` is its page map and style guide. `docs/ai/` stays the reference for agents working on this code; the site never links into it except as "internals on GitHub".
+
+- A change a user can see (a key, a setting, a command, a screen, a default) updates its site page in the same commit, as well as its `docs/ai/` doc.
+- `site/src/content/docs/reference/keyboard.md` is generated from the hotkey registry: run `go test ./internal/tui/hotkey -update` after changing a binding.
+- `go test ./config` fails when a `config.yaml` setting is not named on `site/src/content/docs/reference/configuration.md`.
+- The glossary page is written from `GLOSSARY.md` at build time; edit `GLOSSARY.md` only.
+
+| Agent doc | Site pages with the same facts |
+| --- | --- |
+| `docs/ai/config.md` | `reference/configuration`, the feature page of each setting |
+| `docs/ai/cli.md` | `reference/cli`, `agent-tools/*`, `integrations/staccato`, `integrations/tmux-status` |
+| `docs/ai/tui.md` | `using/board`, `using/agents`, `start/tour` |
+| `docs/ai/web-ui.md` | `using/web-ui`, `running/devices`, `security/web-auth` |
+| `docs/ai/attention.md`, `docs/ai/approvals.md` | `using/attention` |
+| `docs/ai/swarm.md` | `using/swarms` |
+| `docs/ai/learning.md` | `using/learn` |
+| `docs/ai/plans.md`, `docs/ai/reviews.md`, `docs/ai/review-handoff.md` | `using/plans`, `using/reviews`, `using/review-handoff` |
+| `docs/ai/workflows.md` | `using/workflows` |
+| `docs/ai/model-settings.md` | `agent-tools/model-settings` |
+| `docs/ai/sync.md`, `docs/ai/pr-tracking.md` | `integrations/jira`, `integrations/github` |
+| `docs/ai/claude-code-native.md`, `docs/ai/codex-native.md`, `docs/ai/agent-mcp.md`, `docs/ai/resources.md` | `agent-tools/*` |
+| `docs/ai/credentials.md`, `docs/ai/sandbox.md` | `security/*`, `running/agent-server` |
+| `docs/ai/integrations.md` | `integrations/argus` |
+| `docs/ai/updates.md` | `running/updates`, `start/install` |
 
 ## Agent skills
 
