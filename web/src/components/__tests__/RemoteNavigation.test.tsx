@@ -6,6 +6,7 @@ import { Layout } from "../Layout"
 vi.mock("../../hooks/useNavigationSummary", () => ({ useNavigationSummary: () => ({ data: { agents: 0, attention: 0, review: 0, plans: 0, workflow_attention: 0 } }) }))
 vi.mock("../../hooks/useWebSocket", () => ({ useWebSocket: () => ({ connected: true }) }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ servers: [], activeServerName: "Local", baseUrl: "", setActiveServer: vi.fn() }) }))
+vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ data: undefined }) }))
 vi.mock("../../hooks/useReview", () => ({ useReviewQueue: () => ({ data: [] }) }))
 vi.mock("../../hooks/usePlan", () => ({ usePlanQueue: () => ({ data: [] }) }))
 vi.mock("../../hooks/useAttention", () => ({ useAttention: () => ({ data: [] }) }))
