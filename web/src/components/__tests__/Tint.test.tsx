@@ -23,8 +23,8 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     requests.push({ url, method: init?.method ?? "GET", body: init?.body as string | undefined })
     if (url === "/api/settings/tint") return json({ tint: JSON.parse(String(init?.body)).tint })
-    if (url === "https://192.168.1.19:3080/api/meta") return json({ version: "x", tint: "purple" })
-    if (url === "/api/meta") return json({ version: "x" })
+    if (url === "https://192.168.1.19:3080/api/meta") return json({ version: "v2.0.0", tint: "purple" })
+    if (url === "/api/meta") return json({ version: "v1.2.3" })
     return json({}, 404)
   }))
 })
@@ -62,6 +62,18 @@ describe("a server's tint", () => {
     const remote = await screen.findByRole("button", { name: /legato-1/ })
     await waitFor(() => expect(within(remote).getByTitle("purple")).toBeTruthy())
     expect(within(screen.getByRole("button", { name: /^Local/ })).queryByTitle(/./)).toBeNull()
+  })
+
+  it("shows the version of the server in use below the sync indicator", async () => {
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <MemoryRouter>
+          <NavRail sections={navSections()} connected servers={[{ name: "legato-1", url: "https://192.168.1.19:3080" }]}
+            activeServerName="legato-1" baseUrl="https://192.168.1.19:3080" onSwitchServer={() => {}} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    expect((await screen.findByTestId("rail-version")).textContent).toBe("v2.0.0")
   })
 
   it("is chosen in Settings and saved on the server", async () => {

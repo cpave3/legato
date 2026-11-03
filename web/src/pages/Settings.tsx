@@ -3,6 +3,7 @@ import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash
 import { TintPicker } from "../components/TintPicker"
 import { setToken } from "../lib/auth"
 import { useServer } from "../hooks/useServer"
+import { useServerVersion } from "../hooks/useServerTint"
 import { QRScanner } from "../components/QRScanner"
 import { PairDeviceDialog } from "../components/PairDeviceDialog"
 import { ResourcesSettings } from "../components/ResourcesSettings"
@@ -24,6 +25,7 @@ type Group = { id: string; title: string }
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { baseUrl, servers, addServer, removeServer, setActiveServer } = useServer()
+  const version = useServerVersion(baseUrl)
   const settings = useSettings()
   const { addToast } = useToast()
   const [buildStarting, setBuildStarting] = useState(false)
@@ -188,6 +190,7 @@ export function SettingsPage() {
                 </button>
               ))}
             </nav>
+            {version && <p data-testid="settings-version" className="mt-4 px-3 font-lw-mono text-xs text-lw-faint">Legato {version}</p>}
           </div>
         </aside>
 
