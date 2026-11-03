@@ -181,3 +181,13 @@ describe("SettingsPage layout", () => {
   })
 })
 
+
+describe("SettingsPage version", () => {
+  it("shows the version of the current server in the sections menu", async () => {
+    useSettings.mockReturnValue({ ...settings(false), refetch: vi.fn() })
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ version: "v9.9.9" }), { status: 200 })))
+    renderPage()
+    expect((await screen.findByTestId("settings-version")).textContent).toContain("v9.9.9")
+    vi.unstubAllGlobals()
+  })
+})

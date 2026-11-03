@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react"
 import { Link, useLocation } from "react-router-dom"
 import { Server } from "lucide-react"
 import { cn } from "../lib/utils"
-import { useServerTint } from "../hooks/useServerTint"
+import { useServerTint, useServerVersion } from "../hooks/useServerTint"
 import { tintColor, tintWash } from "../lib/tints"
 import { badgeText, badgeTone, railOrder, sectionActive, sectionName, type NavSection } from "../lib/navSections"
 
@@ -56,6 +56,7 @@ interface NavRailProps {
 // icon over its name, in groups, with what waits in it counted.
 export function NavRail({ sections, connected, servers, activeServerName, baseUrl, onSwitchServer, tint }: NavRailProps) {
   const color = tintColor(tint)
+  const version = useServerVersion(baseUrl)
   // A wash of the server's tint over the rail, which keeps its own colour.
   const tinted = color ? { backgroundImage: `linear-gradient(${tintWash(color, 0.16)}, ${tintWash(color, 0.16)})`, borderRightColor: tintWash(color, 0.45) } : undefined
   return (
@@ -74,6 +75,7 @@ export function NavRail({ sections, connected, servers, activeServerName, baseUr
           <span className={cn("size-[7px] rounded-full", connected ? "bg-lw-live" : "bg-lw-error")} />
           {connected ? "sync" : "offline"}
         </div>
+        {version && <div data-testid="rail-version" title={`Legato ${version}`} className="max-w-[60px] truncate font-lw-mono text-[9px] text-lw-faint">{version}</div>}
       </div>
     </nav>
   )

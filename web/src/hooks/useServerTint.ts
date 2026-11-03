@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 
 // The tint of the server at url ("" for this page's own), read from its
@@ -18,4 +19,27 @@ export function useServerTint(url: string): string {
     },
   })
   return data ?? ""
+}
+
+// The build version of the server at url ("" for this page's own), from the
+// same public /api/meta. It needs no query client; an unreachable or older
+// server has none.
+export function useServerVersion(url: string): string {
+  const [shown, setShown] = useState({ url: "", version: "" })
+  useEffect(() => {
+    let live = true
+    const read = async () => {
+      try {
+        const response = await fetch(`${url}/api/meta`)
+        if (!response.ok) return ""
+        const meta = await response.json()
+        return typeof meta?.version === "string" ? meta.version : ""
+      } catch {
+        return ""
+      }
+    }
+    void read().then((version) => { if (live) setShown({ url, version }) })
+    return () => { live = false }
+  }, [url])
+  return shown.url === url ? shown.version : ""
 }

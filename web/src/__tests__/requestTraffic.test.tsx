@@ -66,6 +66,8 @@ describe("web request traffic", () => {
     const counts = new Map<string, number>()
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
       const path = requestPath(input)
+      // The build version shown in the rail is read once and is no snapshot.
+      if (path === "/api/meta") return response({ version: "v1.0.0" })
       counts.set(path, (counts.get(path) ?? 0) + 1)
       if (path === "/api/settings") return response({ repositories: [], working_dir: "", worktrees_enabled: false, voice_enabled: false })
       if (path === "/api/navigation-summary") return response({ attention: 0, review: 0, plans: 0, workflow_attention: 0, agents: 0 })
