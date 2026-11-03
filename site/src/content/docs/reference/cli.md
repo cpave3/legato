@@ -56,7 +56,7 @@ Inside an agent session, Legato sets `LEGATO_TASK_ID`. Commands that act on one 
 ## Running Legato
 
 - `legato`: start the TUI. It also starts the web server when your configuration turns it on. See [On your workstation](/legato/running/workstation/).
-- `legato serve [--port <port>]`: run the web server alone, without the TUI. The port is `3080` unless you pass `--port`. See [Web server](/legato/running/web-server/).
+- `legato serve [--port <port>]`: run the web server alone, without the TUI. It listens on `web.port` (3080 by default); `--port` overrides it. See [Web server](/legato/running/web-server/).
 - `legato --hot-reload` and `legato --hot-reload serve [--port <port>]`: run the TUI or the web server under a supervisor that restarts it when the `legato` binary is rebuilt. `--hot-reload` must come first, and works with these two commands only. See [Build from source](/legato/contributing/build/).
 - `legato version [--json]`: print this binary's version, `vX.Y.Z` for a release or `dev` for a build from source. See [Updates](/legato/running/updates/).
 - `legato pair [--host <host|ip>] [--port <port>] [--json]`: pair a phone with the web UI. When Legato's web server runs on this machine, it shows a QR code and a phrase to type in the Legato app, and waits until a phone pairs (exit `0`) or the phrase expires (exit `4`). With `--json` it prints the phrase and does not wait. See [Phones and other devices](/legato/running/devices/).

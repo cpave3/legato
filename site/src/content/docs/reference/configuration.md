@@ -284,7 +284,7 @@ The web UI and its API. The TUI starts it beside itself when `web.enabled` is on
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `web.enabled` | bool | `false` | Starts the web server with the TUI. If the port is in use, the TUI starts without it. |
-| `web.port` | string | `"3080"` | The port of the TUI's web server. `legato serve` takes its port from `--port` instead (also 3080 by default). |
+| `web.port` | string | `"3080"` | The port of the web server, for the TUI's (`web.enabled`) and for `legato serve`. `legato serve --port` overrides it for one run. |
 | `web.tls.enabled` | bool | `false` | Serves HTTPS with a certificate Legato makes and signs itself, kept in `<data_dir>/certs/`. |
 | `web.tls.cert` | path | none | A certificate file of your own. With `web.tls.key`, it turns HTTPS on. |
 | `web.tls.key` | path | none | The private key of `web.tls.cert`. |

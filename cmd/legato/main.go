@@ -1421,6 +1421,22 @@ func runHooksCmd(args []string) int {
 	}
 }
 
+// servePort is the port `legato serve` listens on: --port, else web.port,
+// else 3080. It writes the choice to cfg.Web.Port, because the links the
+// server hands out (to agents, in notifications) read web.port and must name
+// the port it listens on.
+func servePort(flag string, cfg *config.Config) string {
+	port := flag
+	if port == "" {
+		port = cfg.Web.Port
+	}
+	if port == "" {
+		port = "3080"
+	}
+	cfg.Web.Port = port
+	return port
+}
+
 func runServeCmd(args []string) int {
 	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("serve"))
 	if parseErr != nil || len(parsed.Positionals) != 0 {
@@ -1429,16 +1445,12 @@ func runServeCmd(args []string) int {
 		}
 		return exitUsage
 	}
-	port := parsed.Values["port"]
-	if port == "" {
-		port = "3080"
-	}
-
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
+	port := servePort(parsed.Values["port"], cfg)
 
 	db, err := openStore(cfg)
 	if err != nil {

@@ -21,7 +21,7 @@ It prints the address and keeps running until you stop it with `ctrl+c`:
 Legato web UI: http://localhost:3080
 ```
 
-`legato serve` listens on port 3080 unless you pass `--port`. It does not read `web.port`.
+`legato serve` listens on `web.port` (3080 by default). `--port` overrides it for one run:
 
 ```bash
 legato serve --port 4000
