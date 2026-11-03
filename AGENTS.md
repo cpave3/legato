@@ -84,3 +84,17 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/resources.md` — named file/folder resources given to agents
 - `docs/ai/sandbox.md` — bubblewrap sandbox: what agents see and what is hidden
 - `docs/ai/updates.md` — the version, the release workflow, and the self-updater
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues for `cpave3/legato`, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root, created only when first needed. See `docs/agents/domain.md`.
