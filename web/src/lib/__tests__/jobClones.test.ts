@@ -46,4 +46,18 @@ describe("listJobClones", () => {
 
     await expect(listJobClones("")).rejects.toThrow("Invalid job clones response")
   })
+
+  it("identifies the invalid field when a clone response fails validation", async () => {
+    const clone = { id: 8, repo: "acme/app", path: "/jobs/app", branch: "", task_ids: [42], busy: true, last_used_at: "2026-11-02T10:00:00Z", unpushed: 0 }
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ clones: [clone] }))))
+
+    await expect(listJobClones("")).rejects.toThrow("clones[0].task_ids[0]")
+  })
+
+  it("accepts optional clone details and extra fields from newer servers", async () => {
+    const clone = { id: 8, repo: "acme/app", path: "/jobs/app", branch: "", task_ids: ["T-1"], busy: false, last_used_at: "2026-11-02T10:00:00Z", unpushed: 2, remove_after: "2026-11-09T10:00:00Z", problem: "Cache unavailable" }
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ clones: [{ ...clone, future_status: true }], future_metadata: {} }))))
+
+    expect(await listJobClones("")).toEqual([clone])
+  })
 })

@@ -1,40 +1,32 @@
 import { apiFetch } from "./api"
+import { z } from "zod"
 
 // A clone Legato made for an agent in its data folder, which later agents
 // can work in again: the next branch of a stack, in the same folder.
-export interface JobClone {
-  id: number
+const jobCloneSchema = z.object({
+  id: z.number().int().positive(),
   // owner/name on GitHub.
-  repo: string
+  repo: z.string(),
   // The folder on the server.
-  path: string
+  path: z.string(),
   // The branch checked out now; empty when detached.
-  branch: string
+  branch: z.string(),
   // The tasks that worked in it, the one it was made for first.
-  task_ids: string[]
+  task_ids: z.array(z.string()),
   // An agent is working in it now.
-  busy: boolean
-  last_used_at: string
+  busy: z.boolean(),
+  last_used_at: z.string(),
   // Branch tips that Legato's copy of GitHub lacks.
-  unpushed: number
+  unpushed: z.number().int().nonnegative(),
   // Set while it is kept only for unpushed work.
-  remove_after?: string
+  remove_after: z.string().optional(),
   // Why Legato could not read it.
-  problem?: string
-}
+  problem: z.string().optional(),
+})
 
-function isJobClone(value: unknown): value is JobClone {
-  if (typeof value !== "object" || value === null) return false
-  const clone = value as Record<string, unknown>
-  return typeof clone.id === "number" && Number.isInteger(clone.id) && clone.id > 0
-    && typeof clone.repo === "string" && typeof clone.path === "string"
-    && typeof clone.branch === "string" && typeof clone.busy === "boolean"
-    && Array.isArray(clone.task_ids) && clone.task_ids.every((id) => typeof id === "string")
-    && typeof clone.last_used_at === "string"
-    && typeof clone.unpushed === "number" && Number.isInteger(clone.unpushed) && clone.unpushed >= 0
-    && (clone.remove_after === undefined || typeof clone.remove_after === "string")
-    && (clone.problem === undefined || typeof clone.problem === "string")
-}
+export type JobClone = z.infer<typeof jobCloneSchema>
+
+const jobClonesResponseSchema = z.object({ clones: z.array(jobCloneSchema) })
 
 async function ok(response: Response): Promise<Response> {
   if (response.ok) return response
@@ -51,10 +43,10 @@ async function ok(response: Response): Promise<Response> {
 // The live job clones, the most recently used first.
 export async function listJobClones(baseUrl: string): Promise<JobClone[]> {
   const response = await ok(await apiFetch(baseUrl, "/api/job-clones"))
-  const body = await response.json().catch(() => { throw new Error("Invalid job clones response: expected JSON") })
-  if (!Array.isArray(body?.clones)) throw new Error("Invalid job clones response: expected a clones list")
-  if (!body.clones.every(isJobClone)) throw new Error("Invalid job clones response: malformed clone")
-  return body.clones
+  const body: unknown = await response.json().catch(() => { throw new Error("Invalid job clones response: expected JSON") })
+  const result = jobClonesResponseSchema.safeParse(body)
+  if (!result.success) throw new Error(`Invalid job clones response: ${z.prettifyError(result.error)}`)
+  return result.data.clones
 }
 
 // Removes a clone now, with whatever is unpushed in it.
