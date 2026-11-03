@@ -1,0 +1,112 @@
+/* Legato's look, from the web app's palette (web/src/index.css, the lw
+   tokens): one dark ground, one violet accent, and the colours of an
+   agent's states for the notes and badges. Legato itself has no light
+   theme; the light one here keeps the same accent on a pale ground. */
+
+:root {
+  --sl-font: 'Geist Variable', 'Geist', system-ui, -apple-system, sans-serif;
+  --sl-font-mono: 'Geist Mono Variable', ui-monospace, 'SFMono-Regular', monospace;
+}
+
+/* Dark, the default */
+:root {
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #e6e5eb; /* lw-text */
+  --sl-color-gray-2: #c9c8d0;
+  --sl-color-gray-3: #9a99a5; /* lw-text-2 */
+  --sl-color-gray-4: #66656f; /* lw-faint */
+  --sl-color-gray-5: #31313a; /* lw-line-strong */
+  --sl-color-gray-6: #1d1d22; /* lw-raised */
+  --sl-color-black: #111114; /* lw-ground */
+
+  --sl-color-accent-low: #221f3d; /* lw-accent-soft */
+  --sl-color-accent: #6d5ef6; /* lw-accent */
+  --sl-color-accent-high: #c8c0ff; /* lw-accent-text */
+  --sl-color-text-accent: #a99cff; /* lw-link */
+
+  --sl-color-bg-nav: #0c0c0f; /* lw-rail */
+  --sl-color-bg-sidebar: #0c0c0f;
+  --sl-color-bg-inline-code: #1d1d22;
+  --sl-color-hairline: #26262d; /* lw-line */
+  --sl-color-hairline-light: #31313a;
+  --sl-color-hairline-shade: #0c0c0f;
+
+  /* the states of an agent: running, needs you, done, error */
+  --sl-color-green: #3ecf8e;
+  --sl-color-green-low: #12291d;
+  --sl-color-green-high: #a6ecc9;
+  --sl-color-orange: #f0b44c;
+  --sl-color-orange-low: #3a2c0e;
+  --sl-color-orange-high: #f8dca8;
+  --sl-color-blue: #6aa5ff;
+  --sl-color-blue-low: #15213a;
+  --sl-color-blue-high: #bcd6ff;
+  --sl-color-red: #f0646b;
+  --sl-color-red-low: #33181b;
+  --sl-color-red-high: #f8b9bc;
+  --sl-color-purple: #a99cff;
+  --sl-color-purple-low: #221f3d;
+  --sl-color-purple-high: #c8c0ff;
+}
+
+/* Light */
+:root[data-theme='light'] {
+  --sl-color-white: #111114;
+  --sl-color-gray-1: #1d1d22;
+  --sl-color-gray-2: #31313a;
+  --sl-color-gray-3: #55545e;
+  --sl-color-gray-4: #85848f;
+  --sl-color-gray-5: #c6c5ce;
+  --sl-color-gray-6: #ecebf1;
+  --sl-color-gray-7: #f6f5fa;
+  --sl-color-black: #ffffff;
+
+  --sl-color-accent-low: #e6e2ff;
+  --sl-color-accent: #6d5ef6;
+  --sl-color-accent-high: #3d32b0;
+  --sl-color-text-accent: #4f46b8; /* lw-accent-ring */
+
+  --sl-color-bg-nav: #f6f5fa;
+  --sl-color-bg-sidebar: #f6f5fa;
+  --sl-color-bg-inline-code: #ecebf1;
+  --sl-color-hairline: #e3e2ea;
+  --sl-color-hairline-light: #ecebf1;
+  --sl-color-hairline-shade: #c6c5ce;
+
+  --sl-color-green: #1f9e66;
+  --sl-color-green-low: #dcf5e9;
+  --sl-color-green-high: #0f5c3a;
+  --sl-color-orange: #c98a1c;
+  --sl-color-orange-low: #fbefd6;
+  --sl-color-orange-high: #6b4708;
+  --sl-color-blue: #2f74e0;
+  --sl-color-blue-low: #dde9fd;
+  --sl-color-blue-high: #123d80;
+  --sl-color-red: #d93a42;
+  --sl-color-red-low: #fbe1e2;
+  --sl-color-red-high: #7a1a1f;
+  --sl-color-purple: #6d5ef6;
+  --sl-color-purple-low: #e6e2ff;
+  --sl-color-purple-high: #3d32b0;
+}
+
+/* The site title beside the logo, in the weight the web app uses */
+.site-title {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* The web app's primary button: solid accent, white text */
+.sl-link-button.primary {
+  background: var(--sl-color-accent);
+  border-color: var(--sl-color-accent);
+  color: #ffffff;
+}
+
+/* The current page in the sidebar, as the web app marks a selected item */
+.sidebar-content a[aria-current='page'],
+.sidebar-content a[aria-current='page']:hover,
+.sidebar-content a[aria-current='page']:focus {
+  background-color: var(--sl-color-accent-low);
+  color: var(--sl-color-accent-high);
+}

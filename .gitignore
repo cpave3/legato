@@ -30,3 +30,4 @@ browser-extension/coverage/
 
 # Release binaries (task release:dist)
 /dist/
+.task/

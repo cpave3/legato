@@ -1,0 +1,52 @@
+---
+title: Legato
+description: A keyboard-driven board for tasks and the AI coding agents that work on them.
+template: splash
+hero:
+  tagline: A keyboard-driven board for your tasks and the AI coding agents that work on them. See what every agent is doing, answer the ones that need you, and review what they made, from the terminal, the browser or your phone.
+  image:
+    file: ../../assets/logo.png
+  actions:
+    - text: Install Legato
+      link: /legato/start/install/
+      icon: right-arrow
+    - text: What is Legato?
+      link: /legato/start/what-is-legato/
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/cpave3/legato
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+<CardGrid stagger>
+  <Card title="A board in your terminal" icon="seti:todo">
+    A kanban board you drive with the keyboard. Keep local tasks, or pull tickets from Jira and push your moves back.
+  </Card>
+  <Card title="Agents on every task" icon="rocket">
+    Start Claude Code, Codex or Chimera on a task. Each card shows whether its agent is running, waiting for you, or idle.
+  </Card>
+  <Card title="Web UI and phone" icon="laptop">
+    The same board and agents in the browser and on your phone. Talk to an agent, answer its questions and approve its requests away from your desk.
+  </Card>
+  <Card title="Attention" icon="warning">
+    One queue of everything that needs you: a plan to approve, a review to read, a failed workflow, a PR with a red check.
+  </Card>
+  <Card title="Plans and reviews" icon="document">
+    Agents propose a plan before they write code, and walk you through the change afterwards. You comment, ask and approve in Legato.
+  </Card>
+  <Card title="Credentials and sandbox" icon="seti:lock">
+    Agents use your SSH keys and API keys without holding them, with each use approved by you. A sandbox hides the rest of your machine.
+  </Card>
+</CardGrid>
+
+## Where to go next
+
+<CardGrid>
+  <LinkCard title="Install and first use" href="/legato/start/install/" description="Download a release, run the setup and start your first agent." />
+  <LinkCard title="Ways to run Legato" href="/legato/running/workstation/" description="On your workstation, as a web server, on a server of its own." />
+  <LinkCard title="Configuration" href="/legato/reference/configuration/" description="Every setting of config.yaml." />
+  <LinkCard title="Integrations" href="/legato/integrations/jira/" description="Jira, GitHub, Argus, notifications and more." />
+</CardGrid>

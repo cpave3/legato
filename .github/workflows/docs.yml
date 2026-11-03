@@ -1,0 +1,85 @@
+# Builds the docs site (site/) on every pull request that touches it, and
+# publishes it to GitHub Pages from main: https://cpave3.github.io/legato/
+#
+# Pages must be set to deploy from GitHub Actions (Settings > Pages >
+# Source) for the deploy job to work.
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - GLOSSARY.md
+      - config/**
+      - internal/tui/hotkey/**
+      - .github/workflows/docs.yml
+  pull_request:
+    paths:
+      - site/**
+      - GLOSSARY.md
+      - config/**
+      - internal/tui/hotkey/**
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # each page's "last updated" date comes from git
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The keyboard page and the configuration page must match the code.
+      - name: Pages match the code
+        run: go test ./internal/tui/hotkey ./config
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+
+      - name: Dependencies
+        working-directory: site
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        working-directory: site
+        run: pnpm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: site/dist
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

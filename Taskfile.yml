@@ -138,6 +138,27 @@ tasks:
     cmds:
       - pnpm run test
 
+  docs:install:
+    desc: Install the docs site's dependencies
+    dir: site
+    sources: [package.json, pnpm-lock.yaml]
+    cmds:
+      - pnpm install --frozen-lockfile
+
+  docs:dev:
+    desc: Serve the docs site with live reload at http://localhost:4321/legato/
+    dir: site
+    deps: [docs:install]
+    cmds:
+      - pnpm run dev
+
+  docs:build:
+    desc: Build the docs site into site/dist (fails on a broken link)
+    dir: site
+    deps: [docs:install]
+    cmds:
+      - pnpm run build
+
   mobile:apk:
     desc: Build the Android app's release APK
     cmds:
