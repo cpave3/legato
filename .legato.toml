@@ -1,0 +1,11 @@
+# How Legato makes a fresh clone of this repository ready before an agent
+# starts in it. See docs/ai/config.md § Setting up a fresh clone.
+
+[setup]
+run = [
+  # The web UI's dependencies, for its tests, type check and build.
+  # CI=true: pnpm asks before replacing a node_modules, and nobody answers.
+  "cd web && CI=true pnpm install --frozen-lockfile --prefer-offline",
+  # Go's modules, so the first build does not stop to fetch them.
+  "go mod download",
+]
