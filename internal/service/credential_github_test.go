@@ -623,15 +623,28 @@ func TestInTheSandboxAPullRequestCommandGetsAWriteTokenThatIsRevokedAfterIt(t *t
 	}
 }
 
-func TestOutsideTheSandboxGHRunsAsThePersonsOwn(t *testing.T) {
-	wrapper, calls, asked := ghWrapperFixture(t, `echo ghs_READ`)
+func TestOutsideTheSandboxAPullRequestCommandGetsLegatosWriteToken(t *testing.T) {
+	wrapper, calls, _ := ghWrapperFixture(t, `echo "ghs_WRITE revoke"`)
+	cmd := exec.Command(wrapper, "pr", "create", "--fill")
+	cmd.Env = append(os.Environ(), "LEGATO_SANDBOXED=", "GH_TOKEN="+GHSignedOut)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	got, _ := os.ReadFile(calls)
+	lines := strings.Split(strings.TrimSpace(string(got)), "\n")
+	if len(lines) != 2 || lines[0] != "pr create --fill token=ghs_WRITE" || !strings.Contains(lines[1], "api -X DELETE installation/token token=ghs_WRITE") {
+		t.Fatalf("calls = %q", lines)
+	}
+}
+
+// With isolate_login off, a session's gh keeps the person's login for what
+// Legato gives no token for.
+func TestOutsideTheSandboxWithTheLoginNotIsolatedGHFallsBackToThePersonsOwn(t *testing.T) {
+	wrapper, calls, _ := ghWrapperFixture(t, `echo "legato: not listed" >&2; exit 4`)
 	cmd := exec.Command(wrapper, "pr", "edit", "3")
 	cmd.Env = append(os.Environ(), "LEGATO_SANDBOXED=", "GH_TOKEN=")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%v %s", err, out)
-	}
-	if _, err := os.Stat(asked); err == nil {
-		t.Fatal("Legato was asked for a token outside the sandbox")
 	}
 	if got, _ := os.ReadFile(calls); strings.TrimSpace(string(got)) != "pr edit 3 token=" {
 		t.Fatalf("calls = %q", got)

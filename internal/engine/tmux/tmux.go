@@ -57,10 +57,18 @@ func (m *Manager) Spawn(name, workDir string, width, height int, envVars ...stri
 	if width > 0 && height > 0 {
 		args = append(args, "-x", fmt.Sprintf("%d", width), "-y", fmt.Sprintf("%d", height))
 	}
+	path, hasPath := "", false
 	for _, e := range envVars {
 		args = append(args, "-e", e)
+		if v, ok := strings.CutPrefix(e, "PATH="); ok {
+			path, hasPath = v, true
+		}
 	}
 	cmd := exec.Command(m.tmuxPath, args...)
+	if hasPath {
+		// tmux gives the pane the PATH of this command, not the one in -e.
+		cmd.Env = append(os.Environ(), "PATH="+path)
+	}
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("tmux new-session: %s: %w", strings.TrimSpace(string(out)), err)
 	}

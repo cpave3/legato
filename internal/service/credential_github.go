@@ -414,12 +414,14 @@ func writeGHWrapper(dir, legato string) error {
 	}
 	// In a sandbox the real gh's own path is this wrapper (see
 	// sandboxGH), and the real one is at LEGATO_GH_REAL. Outside the sandbox
-	// gh keeps the person's own login and the wrapper stays out of the way.
+	// the wrapper is only first on PATH: the guided way, which the sandbox
+	// makes the only one. Without a token from Legato, gh falls back to the
+	// person's login unless the session is signed out (isolate_login).
 	// A token that can write (gh-token prints "<token> revoke", for a pull
 	// request command) is revoked when gh exits. A command Legato does
 	// itself (gh pr ready; gh-token prints "done <message>") is not run.
 	script := "#!/bin/sh\n" +
-		"# Legato: in Legato's sandbox, gh with a token for one repository from\n" +
+		"# Legato: gh with a token for one repository from\n" +
 		"# Legato: a read token, or one that writes pull requests once allowed.\n" +
 		"real=${LEGATO_GH_REAL:-" + shellQuote(real) + "}\n" +
 		// In a sandbox the real gh's path is this wrapper: without
@@ -428,7 +430,6 @@ func writeGHWrapper(dir, legato string) error {
 		"  echo \"legato: this gh is Legato's wrapper and the real gh is not reachable: LEGATO_GH_REAL is not set.\" >&2\n" +
 		"  exit 127\n" +
 		"fi\n" +
-		"[ \"$LEGATO_SANDBOXED\" = 1 ] || exec \"$real\" \"$@\"\n" +
 		"if out=$(" + shellQuote(legato) + " credential gh-token -- \"$@\" 2>&1); then\n" +
 		"  case $out in \"done \"*) echo \"${out#done }\"; exit 0 ;; esac\n" +
 		"  token=${out%% *}; GH_TOKEN=$token; export GH_TOKEN\n" +
@@ -441,7 +442,7 @@ func writeGHWrapper(dir, legato string) error {
 		"  echo \"legato: gh has no GitHub token for this command, so GitHub will refuse it.\" >&2\n" +
 		"  [ -n \"$out\" ] && echo \"$out\" >&2\n" +
 		"  case $out in *pending*) echo \"legato: the person has been asked. When they decide you get a [legato approvals] message; run this gh command again then.\" >&2 ;;\n" +
-		"  *) echo \"legato: name a listed repository with -R owner/name, or run gh inside a clone. In Legato's sandbox gh never uses the person's own login.\" >&2 ;; esac\n" +
+		"  *) echo \"legato: name a listed repository with -R owner/name, or run gh inside a clone. In a Legato session gh does not use the person's own login.\" >&2 ;; esac\n" +
 		"fi\n" +
 		"exec \"$real\" \"$@\"\n"
 	if err := os.MkdirAll(dir, 0o700); err != nil {

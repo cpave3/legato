@@ -293,7 +293,9 @@ func TestASandboxWithLegatosGHWrapperCoversEveryRealGH(t *testing.T) {
 	}
 }
 
-func TestAnAgentOutsideTheSandboxKeepsThePersonsGHLogin(t *testing.T) {
+// Outside the sandbox the session is still signed out of the person's gh
+// login, so its gh goes to Legato's wrapper by default.
+func TestAnAgentOutsideTheSandboxIsSignedOutOfThePersonsGHLogin(t *testing.T) {
 	backend := &fakeBackend{}
 	svc, s, mt := sandboxedService(t, backend)
 	isolation := fixedSessionEnv{"GH_TOKEN": GHSignedOut, "GH_CONFIG_DIR": filepath.Join(t.TempDir(), "gh-config")}
@@ -307,11 +309,8 @@ func TestAnAgentOutsideTheSandboxKeepsThePersonsGHLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	outside := mt.envVarsFor("legato-task-1")
-	if _, ok := outside["GH_TOKEN"]; ok {
-		t.Errorf("outside the sandbox GH_TOKEN = %q, want the person's own", outside["GH_TOKEN"])
-	}
-	if _, ok := outside["GH_CONFIG_DIR"]; ok {
-		t.Errorf("outside the sandbox GH_CONFIG_DIR = %q, want the person's own", outside["GH_CONFIG_DIR"])
+	if outside["GH_TOKEN"] != GHSignedOut || outside["GH_CONFIG_DIR"] != isolation["GH_CONFIG_DIR"] {
+		t.Errorf("outside the sandbox: GH_TOKEN = %q, GH_CONFIG_DIR = %q", outside["GH_TOKEN"], outside["GH_CONFIG_DIR"])
 	}
 	inside := mt.envVarsFor("legato-task-2")
 	if inside["GH_TOKEN"] != GHSignedOut || inside["GH_CONFIG_DIR"] == "" {

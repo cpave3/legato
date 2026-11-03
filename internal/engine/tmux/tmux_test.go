@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -83,6 +84,45 @@ func TestSessionEnvironmentReturnsSpawnedVariables(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("session environment missing %q: %v", want, env)
 		}
+	}
+}
+
+// tmux gives a new session's pane the PATH of the tmux command that made
+// it, whatever -e says, so a PATH among the variables must reach the pane
+// another way.
+func TestSpawnGivesThePaneThePATHAmongItsVariables(t *testing.T) {
+	skipWithoutTmux(t)
+	// A tmux server of this test's own: never the person's.
+	t.Setenv("TMUX", "")
+	t.Setenv("TMUX_TMPDIR", t.TempDir())
+
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "legato-test-path"
+	t.Cleanup(func() { m.Kill(name) })
+	path := t.TempDir() + string(os.PathListSeparator) + os.Getenv("PATH")
+	if err := m.Spawn(name, t.TempDir(), 0, 0, "PATH="+path); err != nil {
+		t.Fatal(err)
+	}
+	// What tmux started the pane's shell with, before its profile runs.
+	pid, err := exec.Command("tmux", "display-message", "-p", "-t", name, "#{pane_pid}").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	environ, err := os.ReadFile("/proc/" + strings.TrimSpace(string(pid)) + "/environ")
+	if err != nil {
+		t.Skipf("no /proc to read the pane's environment: %v", err)
+	}
+	got := ""
+	for _, kv := range strings.Split(string(environ), "\x00") {
+		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			got = v
+		}
+	}
+	if got != path {
+		t.Fatalf("the pane's PATH = %q, want %q", got, path)
 	}
 }
 
