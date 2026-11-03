@@ -356,6 +356,12 @@ func TestCodexBridgeCapturesTopLevelIdentityAndHistoryWithoutChangingBinding(t *
 				body, _ := io.ReadAll(resp.Body)
 				return strings.Contains(string(body), "old answer")
 			})
+			// The bridge saves the thread for resume on its own goroutine,
+			// after it serves the history.
+			waitFor(t, "the thread saved for resume", func() bool {
+				record, err := s.GetTaskNativeSession(context.Background(), "task1", "codex")
+				return err == nil && record != nil && record.ProviderSessionID == "thr-1"
+			})
 			id := "thr-1"
 			assertNativeIdentity(t, s, "codex", id, "/work/repo")
 			codex.terminalOpensThread(map[string]any{"id": "child", "parentThreadId": "thr-1"})
