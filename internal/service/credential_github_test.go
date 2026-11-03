@@ -856,3 +856,58 @@ func TestTheWrapperNeverRunsItself(t *testing.T) {
 		}
 	}
 }
+
+// ghToken asks the fixture's proxy for a gh token, as the gh wrapper does.
+func (f githubFixture) ghToken(t *testing.T, operation string) (int, map[string]string) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", f.proxy.URL+"/c/gh/token", strings.NewReader(`{"repo":"cpave3/legato","operation":"`+operation+`"}`))
+	req.Header.Set("Authorization", "Bearer "+f.env["LEGATO_GITHUB_TOKEN"])
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var body map[string]string
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	return resp.StatusCode, body
+}
+
+func TestWorkflowRunsAreReadWithoutAsking(t *testing.T) {
+	f := newGitHubFixture(t)
+	status, body := f.ghToken(t, "actions.read")
+	perms := f.github.tokens[body["token"]]
+	if status != 200 || perms["actions"] != "read" {
+		t.Fatalf("status %d %v, permissions %v", status, body, perms)
+	}
+	for name, level := range perms {
+		if level == "write" {
+			t.Errorf("a read of workflow runs can write %s", name)
+		}
+	}
+	if list, _ := f.approvals.List(context.Background(), store.ApprovalFilter{Status: store.ApprovalPending}); len(list) != 0 {
+		t.Fatalf("the person was asked: %+v", list)
+	}
+}
+
+func TestReRunningOrDispatchingWorkflowsIsAskedOnceASession(t *testing.T) {
+	f := newGitHubFixture(t)
+	status, body := f.ghToken(t, "actions.write")
+	if status != 403 || body["status"] != "pending" {
+		t.Fatalf("the first request was not held for the person: %d %v", status, body)
+	}
+	approval := f.pending(t)
+	if approval.Options[0].ID != "session" || !strings.Contains(approval.Summary, "actions.write") {
+		t.Fatalf("approval = %+v", approval)
+	}
+	if _, err := f.approvals.Decide(context.Background(), approval.ID, ApprovalDecision{Decision: ApprovalAllow, Option: "session", By: "web"}); err != nil {
+		t.Fatal(err)
+	}
+	status, body = f.ghToken(t, "actions.write")
+	perms := f.github.tokens[body["token"]]
+	if status != 200 || perms["actions"] != "write" || perms["contents"] == "write" || perms["pull_requests"] == "write" {
+		t.Fatalf("after approval: %d %v, permissions %v", status, body, perms)
+	}
+	if again, _ := f.ghToken(t, "actions.write"); again != 200 {
+		t.Fatalf("a second command was held: %d", again)
+	}
+}

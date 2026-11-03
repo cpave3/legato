@@ -77,6 +77,9 @@ func newUpdateService(db *store.Store, bus *events.Bus, agents service.AgentServ
 	return service.NewUpdateService(service.UpdateOptions{
 		Store: db, Bus: bus, Current: version.String(), Executable: exe,
 		Releases: selfupdate.Client{Repo: releaseRepo, HTTP: &http.Client{Timeout: 10 * time.Minute}},
+		// st, Staccato's command, is kept current beside Legato when it is
+		// a release build on Legato's PATH.
+		Tools: []*service.ToolUpdater{service.NewSTUpdater(service.ToolUpdaterOptions{})},
 		Busy: func(ctx context.Context) (bool, error) {
 			if agents == nil {
 				return false, nil

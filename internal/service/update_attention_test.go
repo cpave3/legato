@@ -99,3 +99,30 @@ func TestNoUpdateItemWhenThereIsNothingToAsk(t *testing.T) {
 		})
 	}
 }
+
+func TestAnSTReleaseAsksThePersonInAttentionInAskMode(t *testing.T) {
+	newFakeSTTool(t, "v0.1.0", true, "v0.2.0")
+	st := NewSTUpdater(ToolUpdaterOptions{})
+	f := newUpdater(t, "v1.3.0", func(o *UpdateOptions) { o.Tools = []*ToolUpdater{st} })
+	ctx := context.Background()
+	if _, err := f.svc.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	attention, items := updateItems(t, f)
+	if len(items) != 1 || items[0].Title != "st v0.2.0 is available" || items[0].SourceRevision != "st:v0.2.0" {
+		t.Fatalf("items = %+v", items)
+	}
+	if err := attention.Execute(ctx, items[0].ID, AttentionActionRequest{ActionID: "update", ExpectedRevision: items[0].SourceRevision}); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Status(); got.Version != "v0.2.0" {
+		t.Fatalf("st after the action = %+v", got)
+	}
+	if err := f.svc.SetMode(ctx, UpdateModeAuto); err != nil {
+		t.Fatal(err)
+	}
+	if items, _ := attention.List(ctx, AttentionFilter{}); len(items) != 0 {
+		t.Errorf("items once st is current = %+v", items)
+	}
+}

@@ -77,6 +77,7 @@ func runMCPServe(args []string, in io.ReadCloser, out io.WriteCloser) int {
 		Store: db, TaskID: taskID, ExecutionID: executionID,
 		Version: version.String(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
 		ImageDir: agentUIImageRoot(cfg), VideoDir: agentUIVideoRoot(cfg),
+		Stacks: cli.StackSupport(ctx),
 	}
 	// request_access asks the credential broker, which records approvals
 	// that a host Legato decides.

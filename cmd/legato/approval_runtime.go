@@ -198,7 +198,7 @@ func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentSer
 	deps := cli.BrokerDeps{Push: agentPushNotifier(cfg), OS: agentOSNotifier(cfg), ClaudeModels: cfg.Adapters["claude-code"].Models}
 	deps.Ops = cli.MCPBrokerOps(func(cli.BrokerCaller) cli.MCPOptions {
 		opts := cli.MCPOptions{Store: db, Version: version.String(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
-			ImageDir: agentUIImageRoot(cfg), VideoDir: agentUIVideoRoot(cfg)}
+			ImageDir: agentUIImageRoot(cfg), VideoDir: agentUIVideoRoot(cfg), Stacks: hostStackSupport()}
 		if peers, ok := agents.(cli.MCPPeers); ok && agents != nil {
 			opts.Agents = peers
 		}

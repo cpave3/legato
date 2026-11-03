@@ -45,6 +45,9 @@ type MCPOptions struct {
 	// Credentials is the credential broker. Without it, or with no
 	// credentials configured, request_access is not offered.
 	Credentials MCPCredentials
+	// Stacks is true when the session's st can move a stack between clones
+	// (StackSupport): the instructions then say how to build and push one.
+	Stacks bool
 	// CaseReplies sends replies to an integration's delegations. Without it
 	// reply_case is not offered.
 	CaseReplies MCPCaseReplies
@@ -112,7 +115,10 @@ func MCPServerOptions(opts MCPOptions) mcpserver.Options {
 		}); ok {
 			sources = s.Sources()
 		}
-		server.Instructions += CredentialGuidance(opts.Credentials.Credentials(), sources...)
+		server.Instructions += credentialGuidance(opts.Credentials.Credentials(), sources, opts.Stacks)
+	}
+	if opts.Stacks {
+		server.Instructions += stackGuidance
 	}
 	server.Tools = tools.all()
 	return server

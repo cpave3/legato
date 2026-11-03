@@ -21,6 +21,7 @@ type UpdateService interface {
 	Status(ctx context.Context) service.UpdateStatus
 	Check(ctx context.Context) (service.UpdateStatus, error)
 	Apply(ctx context.Context) error
+	ApplyTool(ctx context.Context, name string) error
 	SetMode(ctx context.Context, mode string) error
 }
 
@@ -86,6 +87,44 @@ func (s *Server) updateApplyHandler() http.HandlerFunc {
 		}
 		go func() {
 			if err := s.updates.Apply(context.Background()); err != nil {
+				log.Printf("updates: %v", err)
+			}
+		}()
+		s.writeJSON(w, http.StatusAccepted, status)
+	}
+}
+
+// updateToolApplyHandler serves POST /api/updates/tools/{name}/apply:
+// installs a tool's newest release (st update). It answers 202 at once;
+// update_changed tells how it goes. 409 for a tool the updater does not
+// look after or with nothing newer.
+func (s *Server) updateToolApplyHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !s.haveUpdates(w) {
+			return
+		}
+		name := r.PathValue("name")
+		status := s.updates.Status(r.Context())
+		var tool *service.ToolStatus
+		for i := range status.Tools {
+			if status.Tools[i].Name == name {
+				tool = &status.Tools[i]
+			}
+		}
+		switch {
+		case tool == nil || !tool.Managed:
+			s.writeError(w, http.StatusConflict, service.ErrToolNotManaged.Error())
+			return
+		case !tool.Available:
+			s.writeError(w, http.StatusConflict, service.ErrNoUpdate.Error())
+			return
+		}
+		go func() {
+			if err := s.updates.ApplyTool(context.Background(), name); err != nil {
 				log.Printf("updates: %v", err)
 			}
 		}()

@@ -3,14 +3,15 @@ import {MemoryRouter} from "react-router-dom"
 import {beforeEach,describe,expect,it,vi} from "vitest"
 import {TaskActivityTabs} from "../TaskActivityTabs"
 
-const {apiFetch,initializeMermaid,renderDiagram}=vi.hoisted(()=>({apiFetch:vi.fn(),initializeMermaid:vi.fn(),renderDiagram:vi.fn()}))
+const {apiFetch,initializeMermaid,renderDiagram,fetchTaskStacks}=vi.hoisted(()=>({apiFetch:vi.fn(),initializeMermaid:vi.fn(),renderDiagram:vi.fn(),fetchTaskStacks:vi.fn()}))
+vi.mock("../../../lib/task-stacks",async(original)=>({...(await original<typeof import("../../../lib/task-stacks")>()),fetchTaskStacks}))
 vi.mock("mermaid",()=>({default:{initialize:initializeMermaid,render:renderDiagram}}))
 vi.mock("../../../hooks/useServer",()=>({useServer:()=>({baseUrl:""})}))
 vi.mock("../../../lib/api",()=>({apiFetch}))
 vi.mock("../../../lib/task-activity",()=>({fetchTaskActivity:vi.fn().mockResolvedValue({reviews:[{id:"rt-1",name:"Implementation",status:"ready"}],plans:[{id:"pl-1",title:"Build it",status:"approved"}],workflow_runs:[{run:{id:"wr-1",workflow_title:"Triage",status:"succeeded"},artifacts:[{id:"wfa-1",output_key:"triage",original_path:"reports/task-triage.md"},{id:"wfa-2",output_key:"legacy-report"}]}]})}))
 
 describe("TaskActivityTabs",()=>{
-  beforeEach(()=>{cleanup();apiFetch.mockReset();apiFetch.mockResolvedValue(new Response(new Blob(["report"])));renderDiagram.mockReset();vi.stubGlobal("URL",{...URL,createObjectURL:vi.fn(()=>"blob:test"),revokeObjectURL:vi.fn()})})
+  beforeEach(()=>{cleanup();fetchTaskStacks.mockReset();fetchTaskStacks.mockResolvedValue([]);apiFetch.mockReset();apiFetch.mockResolvedValue(new Response(new Blob(["report"])));renderDiagram.mockReset();vi.stubGlobal("URL",{...URL,createObjectURL:vi.fn(()=>"blob:test"),revokeObjectURL:vi.fn()})})
 
   it("renders task notes as semantic Markdown",()=>{
     const body="# Triage\n\n- Inspect `TaskActivityTabs`\n\n| Status | Value |\n| --- | --- |\n| Result | Confirmed |\n\n[Open docs](https://example.com)\n\n```diff\n-raw\n+rendered\n```\n\n<script>alert('x')</script>"
@@ -44,5 +45,20 @@ describe("TaskActivityTabs",()=>{
     fireEvent.click(await screen.findByRole("tab",{name:"Workflows (1)"}))
     fireEvent.click(screen.getByRole("button",{name:"task-triage.md"}))
     await waitFor(()=>expect(downloadedName).toBe("task-triage.md"))
+  })
+
+  it("shows the task's stacks in a tab of their own, only when there is one",async()=>{
+    fetchTaskStacks.mockResolvedValue([{clone_id:3,repo:"acme/widget",root:"main",read_at:"2026-11-03T09:00:00Z",live:true,importable:false,reason:"not pushed: legato/t1-a",
+      branches:[{name:"legato/t1-a",parent:"main",base_sha:"a",state:"unpushed"}]}])
+    render(<MemoryRouter><TaskActivityTabs taskId="T-1" notes={[]}/></MemoryRouter>)
+    fireEvent.click(await screen.findByRole("tab",{name:"Stacks (1)"}))
+    expect(screen.getByText("legato/t1-a")).toBeTruthy()
+    expect(fetchTaskStacks).toHaveBeenCalledWith("","T-1")
+  })
+
+  it("has no Stacks tab for a task without a stack",async()=>{
+    render(<MemoryRouter><TaskActivityTabs taskId="T-1" notes={[]}/></MemoryRouter>)
+    await screen.findByRole("tab",{name:"Reviews (1)"})
+    expect(screen.queryByRole("tab",{name:/Stacks/})).toBeNull()
   })
 })

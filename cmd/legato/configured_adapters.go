@@ -80,7 +80,7 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 		// Claude Code gives its model the server's own instructions. Codex
 		// and Chimera do not, so the same guidance goes in their launch
 		// prompt, where it tells the agent to use the tools unasked.
-		toolsPrompt := "## Legato tools\n\n" + cli.MCPGuidance + credentialPromptGuidance(cfg)
+		toolsPrompt := "## Legato tools\n\n" + cli.MCPGuidance + credentialPromptGuidance(cfg, hostStackSupport())
 		codex.SetToolsPrompt(toolsPrompt)
 		chimera.SetToolsPrompt(toolsPrompt)
 		if chimeraMCPConfigProbe != nil {
@@ -117,13 +117,16 @@ func nativeBridgeEnabled(cfg *config.Config, adapter string) bool {
 // credentialPromptGuidance names the configured credentials and vaults and
 // how agents use them, for the launch prompt. Credentials the broker refuses
 // are left out; a host Legato logs why.
-func credentialPromptGuidance(cfg *config.Config) string {
+//
+// With stacks (the host's st can move a stack between clones), it also says
+// how to build and push a stack with Staccato.
+func credentialPromptGuidance(cfg *config.Config, stacks bool) string {
 	if len(cfg.Credentials) == 0 && len(cfg.CredentialSources) == 0 {
-		return ""
+		return cli.Guidance(nil, nil, stacks)
 	}
 	summaries, sources, err := service.DescribeCredentials(cfg.Credentials, cfg.CredentialSources, credentialProfileDirs())
 	if err != nil {
-		return ""
+		return cli.Guidance(nil, nil, stacks)
 	}
-	return cli.CredentialGuidance(summaries, sources...)
+	return cli.Guidance(summaries, sources, stacks)
 }

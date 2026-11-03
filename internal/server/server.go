@@ -76,6 +76,7 @@ type Server struct {
 	workflowRepositories     []workflowengine.RepositoryPreset
 	repositoryPresets        RepositoryPresetService
 	jobClones                JobCloneService
+	taskStacks               TaskStackService
 	preparing                preparingAgents
 	tints                    TintService
 	builtInWorkflows         []*workflowengine.Definition
@@ -151,6 +152,8 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/tasks/{id}/restore", s.restoreTaskHandler())
 	mux.HandleFunc("/api/tasks/archived", s.archivedTasksHandler())
 	mux.HandleFunc("/api/tasks/{id}/activity", s.taskActivityHandler())
+	mux.HandleFunc("/api/tasks/{id}/stacks", s.taskStacksHandler())
+	mux.HandleFunc("/api/tasks/{id}/stacks/{clone}/document", s.taskStackDocumentHandler())
 	mux.HandleFunc("/api/tasks/{id}/agent", s.taskAgentHandler())
 	mux.HandleFunc("/api/tasks/{id}/worktree", s.taskWorktreeHandler())
 	mux.HandleFunc("/api/tasks/{id}/artifacts", s.taskArtifactsHandler())
@@ -171,6 +174,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/updates", s.updatesHandler())
 	mux.HandleFunc("/api/updates/check", s.updateCheckHandler())
 	mux.HandleFunc("/api/updates/apply", s.updateApplyHandler())
+	mux.HandleFunc("/api/updates/tools/{name}/apply", s.updateToolApplyHandler())
 	mux.HandleFunc("/api/hot-reload/build", s.hotReloadBuildHandler())
 	mux.HandleFunc("/api/navigation-summary", s.navigationSummaryHandler())
 	mux.HandleFunc("/api/ca-cert", s.caCertHandler())

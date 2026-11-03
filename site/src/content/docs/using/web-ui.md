@@ -38,6 +38,8 @@ The board works as it does in the TUI, with the same keys: `h`/`j`/`k`/`l` to mo
 
 **Sync providers** in the header syncs Jira and GitHub now.
 
+A card's detail has the task's notes, reviews, plans and workflow runs in tabs. When the task's agents built a stack of branches with Staccato, a **Stacks** tab shows it, with **Download stack** once every branch is pushed; see [Staccato](/legato/integrations/staccato/#taking-a-stack-home).
+
 On a phone, the board shows one column at a time. Swipe sideways, or tap a column's chip, to change column.
 
 ## Agents

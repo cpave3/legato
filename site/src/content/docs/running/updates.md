@@ -70,6 +70,16 @@ Use the path your `legato` is at. This brings back the binary only. A new releas
 
 A binary you built yourself (`task build`) says it is `dev` and never updates itself. Settings › Updates says so. This lets a checkout you develop in run beside a machine that runs releases. See [Building Legato](/legato/contributing/build/).
 
+## Staccato's `st`
+
+Legato also keeps [Staccato](/legato/integrations/staccato/)'s `st` up to date, when the `st` on Legato's `PATH` is a release (`st version` says a `vX.Y.Z`). It checks `st` whenever it checks for itself, in the same mode:
+
+- **Automatic** runs `st update` as soon as a newer `st` is out. It doesn't wait for agents: `st` is replaced in place, and nothing restarts.
+- **Ask** shows the release in Settings › Updates, with **Update st to …**, and in Attention.
+- **Off** never looks.
+
+`st` downloads and checks its own release; Legato only runs `st update`. An `st` built from source is left alone, and Legato never installs `st` where there is none. A Legato built from source still keeps a release of `st` up to date.
+
 ## Limits
 
 - Agents also run the `legato` binary, for their hooks and Legato's tools. After an update, new calls use the new binary while processes already running keep the old one, until the agent is reloaded.

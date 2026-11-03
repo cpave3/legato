@@ -1,6 +1,7 @@
 # GitHub through a GitHub App. The person creates the App (contents read and
 # write, pull requests read and write, metadata read; issues read and write
-# for gh's issue commands), installs it on the
+# for gh's issue commands; actions read, and write to re-run, cancel and
+# dispatch, for gh's run, workflow and cache commands), installs it on the
 # repositories, and gives Legato its private key. Agents read the listed
 # repositories with short-lived read tokens from Legato's git credential
 # helper; pushes go through Legato's proxy, which reads each ref a push
@@ -53,13 +54,22 @@ permissions:
   # gh's issue commands (gh issue create, edit, comment, close, ...) and gh
   # api writes under repos/<owner>/<repo>/issues, for one command.
   issue.write: { issues: write, metadata: read }
+  # gh run list/view/watch/download, gh workflow list/view, gh cache list,
+  # and gh api reads under repos/<owner>/<repo>/actions. Kept apart from
+  # api.read, so an App without the Actions permission still gets read
+  # tokens for everything else.
+  actions.read: { actions: read, contents: read, metadata: read }
+  # gh run rerun/cancel/delete, gh workflow run/enable/disable, gh cache
+  # delete, and gh api writes under repos/<owner>/<repo>/actions, for one
+  # command.
+  actions.write: { actions: write, contents: read, metadata: read }
 routes:
   - { method: GET, path: "/repos/{owner}/{repo}/**", operation: api.read, resource: "github:{owner}/{repo}" }
   - { method: POST, path: "/repos/{owner}/{repo}/pulls", operation: pr.create, resource: "github:{owner}/{repo}@refs/heads/{$.head}" }
 # {repositories} is each of settings.repositories; one rule each.
 policy:
-  - { operation: [git.read, api.read], resource: "github:{repositories}", approve: auto }
+  - { operation: [git.read, api.read, actions.read], resource: "github:{repositories}", approve: auto }
   - { operation: [git.push, pr.create], resource: "github:{repositories}@refs/heads/legato/**", approve: session }
   - { operation: [git.push, pr.create], resource: "github:{repositories}@refs/heads/**", approve: request, signed: true }
-  - { operation: [pr.write, pr.ready, issue.write], resource: "github:{repositories}", approve: session }
+  - { operation: [pr.write, pr.ready, issue.write, actions.write], resource: "github:{repositories}", approve: session }
   - { operation: [git.push-default, git.push-tag, git.delete-ref], approve: deny }

@@ -1572,6 +1572,7 @@ func runServeCmd(args []string) int {
 	srv.SetRepositoryPresetService(repoPresets)
 	srv.SetTintService(service.NewTintService(db))
 	srv.SetJobCloneService(repos)
+	srv.SetTaskStackService(wireTaskStacks(db, bus, repos))
 	repos.SetCacheListener(srv.BroadcastRepositoryCache)
 	if built, workflowErr := buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: boardSvc, Sync: syncSvc, Agents: agentSvc, WorkDir: wd, Repos: repos, Presets: repoPresets}); workflowErr == nil {
 		workflowSvc = built
@@ -1835,6 +1836,7 @@ func runTUI() int {
 	var tuiWorkflowSvc *service.WorkflowService
 	var triggerCoordinator *service.WorkflowTriggerCoordinator
 	repos := newRepositoryService(cfg, db)
+	taskStacks := wireTaskStacks(db, bus, repos)
 	giveAgentsRepositories(agentSvc, repos)
 	repoPresets := newRepositoryPresetService(cfg, db, repos)
 	giveAgentsPrimaryDirs(agentSvc, repoPresets)
@@ -1896,6 +1898,7 @@ func runTUI() int {
 			webSrv.SetRepositoryPresetService(repoPresets)
 			webSrv.SetTintService(service.NewTintService(db))
 			webSrv.SetJobCloneService(repos)
+			webSrv.SetTaskStackService(taskStacks)
 			repos.SetCacheListener(webSrv.BroadcastRepositoryCache)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)

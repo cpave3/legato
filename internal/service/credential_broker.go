@@ -1466,9 +1466,9 @@ func (b *CredentialBroker) VerifyAudit(ctx context.Context) (int64, error) {
 
 // readOnlyRefusal is why an execution that may only look (a find-out
 // delegation's) is refused an operation that writes: a push, a ref deletion,
-// or a pull request or issue write. Empty when it is not refused.
+// or a pull request, issue or Actions write. Empty when it is not refused.
 func (b *CredentialBroker) readOnlyRefusal(ctx context.Context, executionID, operation string) string {
-	if !strings.HasPrefix(operation, "git.push") && operation != "git.delete-ref" && !strings.HasPrefix(operation, "pr.") && !strings.HasPrefix(operation, "issue.") {
+	if !strings.HasPrefix(operation, "git.push") && operation != "git.delete-ref" && !strings.HasPrefix(operation, "pr.") && !strings.HasPrefix(operation, "issue.") && operation != "actions.write" {
 		return ""
 	}
 	if readOnly, err := b.db.ExecutionReadOnly(ctx, executionID); err != nil || !readOnly {

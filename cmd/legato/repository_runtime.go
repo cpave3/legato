@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/gitrepo"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
@@ -130,4 +131,13 @@ func offeredRepositories(ctx context.Context, presets *service.RepositoryPresetS
 		}
 	}
 	return repos
+}
+
+// wireTaskStacks records the stacks of branches agents build with Staccato
+// in job clones: when an agent ends and before a clone is removed.
+func wireTaskStacks(db *store.Store, bus *events.Bus, repos *service.RepositoryService) *service.TaskStackService {
+	stacks := service.NewTaskStackService(db, nil)
+	repos.SetBeforeRemove(stacks.Record)
+	stacks.StartEventLoop(context.Background(), bus)
+	return stacks
 }

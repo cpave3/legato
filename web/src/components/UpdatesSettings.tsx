@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Download } from "lucide-react"
 import { SettingsCard, primaryButton, quietButton } from "./settings/SettingsUI"
-import { applyUpdate, checkForUpdates, setUpdateMode, type UpdateMode, type UpdateStatus } from "../lib/updates"
+import { applyToolUpdate, applyUpdate, checkForUpdates, setUpdateMode, type ToolStatus, type UpdateMode, type UpdateStatus } from "../lib/updates"
 import { cn } from "../lib/utils"
 
 const modes: { mode: UpdateMode; label: string; description: string }[] = [
@@ -21,6 +21,16 @@ const states: Partial<Record<UpdateStatus["state"], string>> = {
   failed: "The last update failed",
 }
 
+const toolStates: Record<ToolStatus["state"], string> = {
+  missing: "Not installed on this server",
+  unmanaged: "Not a release build, so Legato leaves it alone",
+  unchecked: "Not checked yet",
+  up_to_date: "Up to date",
+  available: "A newer release is available",
+  installing: "Installing",
+  failed: "The last update failed",
+}
+
 // UpdatesSettings is how this server takes new releases of Legato.
 export function UpdatesSettings({ status, baseUrl, onChanged }: { status: UpdateStatus | null | undefined; baseUrl: string; onChanged?: () => void }) {
   const [busy, setBusy] = useState("")
@@ -30,13 +40,6 @@ export function UpdatesSettings({ status, baseUrl, onChanged }: { status: Update
   if (status === null) {
     return <SettingsCard icon={Download} title="Updates" description="This server does not update itself. It is older than the updater, or runs without it." />
   }
-  if (!status.release) {
-    return (
-      <SettingsCard icon={Download} title="Updates"
-        description={<>This Legato is built from source (<code>{status.version}</code>), so it does not update itself. Releases from GitHub do.</>} />
-    )
-  }
-
   const run = async (what: string, action: () => Promise<unknown>) => {
     setBusy(what)
     setError("")
@@ -48,6 +51,20 @@ export function UpdatesSettings({ status, baseUrl, onChanged }: { status: Update
     } finally {
       setBusy("")
     }
+  }
+  const tools = (status.tools ?? []).filter((tool) => tool.state !== "missing")
+  const toolRows = tools.length > 0 && (
+    <ToolRows tools={tools} busy={busy} onUpdate={(name) => void run(`tool:${name}`, () => applyToolUpdate(baseUrl, name))} />
+  )
+
+  if (!status.release) {
+    return (
+      <SettingsCard icon={Download} title="Updates"
+        description={<>This Legato is built from source (<code>{status.version}</code>), so it does not update itself. Releases from GitHub do.</>}>
+        {toolRows}
+        {error && <p role="alert" className="mt-2 text-xs text-lw-error">{error}</p>}
+      </SettingsCard>
+    )
   }
 
   return (
@@ -93,7 +110,31 @@ export function UpdatesSettings({ status, baseUrl, onChanged }: { status: Update
           </button>
         )}
       </div>
+      {toolRows}
       {error && <p role="alert" className="mt-2 text-xs text-lw-error">{error}</p>}
     </SettingsCard>
+  )
+}
+
+// ToolRows are the command-line tools Legato keeps current beside itself,
+// under the same mode.
+function ToolRows({ tools, busy, onUpdate }: { tools: ToolStatus[]; busy: string; onUpdate: (name: string) => void }) {
+  return (
+    <section className="mt-5 border-t border-lw-line pt-4" aria-label="Tools kept current">
+      <h3 className="text-sm text-lw-text">Tools kept current with Legato</h3>
+      {tools.map((tool) => (
+        <div key={tool.name} className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <span className="font-mono text-lw-text">{tool.name}</span>
+          {tool.version && <span className="font-mono text-lw-text-2">{tool.version}</span>}
+          <span className="text-xs text-lw-text-2">{toolStates[tool.state] ?? tool.state}</span>
+          {tool.managed && tool.available && tool.latest && (
+            <button className={primaryButton} disabled={busy !== "" || tool.state === "installing"} onClick={() => onUpdate(tool.name)}>
+              Update {tool.name} to {tool.latest}
+            </button>
+          )}
+          {tool.error && tool.state === "failed" && <p className="w-full text-xs text-lw-error">{tool.error}</p>}
+        </div>
+      ))}
+    </section>
   )
 }

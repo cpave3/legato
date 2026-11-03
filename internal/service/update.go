@@ -78,6 +78,11 @@ type UpdateOptions struct {
 	// and asks its version.
 	Verify func(want string) func(ctx context.Context, binary string) error
 
+	// Tools are command-line tools kept current beside Legato (st), under
+	// the same mode: checked with Legato, installed at once in auto mode
+	// (nothing holds them open), and on the person's word in ask mode.
+	Tools []*ToolUpdater
+
 	FirstCheckAfter time.Duration // after Run starts
 	CheckEvery      time.Duration
 	QuietPoll       time.Duration // how often an automatic update asks Busy
@@ -95,6 +100,8 @@ type UpdateStatus struct {
 	LatestURL string    `json:"latest_url,omitempty"`
 	CheckedAt time.Time `json:"checked_at,omitzero"`
 	Error     string    `json:"error,omitempty"`
+	// Tools are the tools kept current beside Legato.
+	Tools []ToolStatus `json:"tools"`
 }
 
 // UpdateService keeps a released Legato on the newest stable release:
@@ -120,7 +127,11 @@ func NewUpdateService(opts UpdateOptions) *UpdateService {
 	if opts.Verify == nil {
 		opts.Verify = verifyLegatoBinary
 	}
-	return &UpdateService{opts: opts, state: UpdateUnchecked, wake: make(chan struct{}, 1)}
+	s := &UpdateService{opts: opts, state: UpdateUnchecked, wake: make(chan struct{}, 1)}
+	for _, tool := range opts.Tools {
+		tool.setOnChange(s.changed)
+	}
+	return s
 }
 
 // release reports whether this Legato is a release, which updates itself.
@@ -144,12 +155,16 @@ func (s *UpdateService) available() bool {
 // Status is where updates stand.
 func (s *UpdateService) Status(ctx context.Context) UpdateStatus {
 	mode := s.mode(ctx)
+	tools := make([]ToolStatus, 0, len(s.opts.Tools))
+	for _, tool := range s.opts.Tools {
+		tools = append(tools, tool.Status())
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return UpdateStatus{
 		Version: s.opts.Current, Release: s.release(), Mode: mode, State: s.state,
 		Available: s.available(), Latest: s.latest.Version, LatestURL: s.latest.URL,
-		CheckedAt: s.checkedAt, Error: s.lastErr,
+		CheckedAt: s.checkedAt, Error: s.lastErr, Tools: tools,
 	}
 }
 
@@ -183,6 +198,9 @@ func (s *UpdateService) SetMode(ctx context.Context, mode string) error {
 
 // Check asks GitHub for the newest stable release.
 func (s *UpdateService) Check(ctx context.Context) (UpdateStatus, error) {
+	for _, tool := range s.opts.Tools {
+		tool.Check(ctx)
+	}
 	if !s.release() {
 		return s.Status(ctx), ErrNotARelease
 	}
@@ -267,7 +285,7 @@ func (s *UpdateService) Apply(ctx context.Context) error {
 // installs a newer release once no agent is in the middle of a turn, or
 // after MaxWait whatever the agents are doing.
 func (s *UpdateService) Run(ctx context.Context) {
-	if !s.release() {
+	if !s.release() && len(s.opts.Tools) == 0 {
 		return
 	}
 	timer := time.NewTimer(s.opts.FirstCheckAfter)
@@ -288,6 +306,10 @@ func (s *UpdateService) Run(ctx context.Context) {
 		timer.Reset(s.opts.CheckEvery)
 		mode := s.mode(ctx)
 		if mode == UpdateModeOff {
+			continue
+		}
+		s.keepToolsCurrent(ctx, mode)
+		if !s.release() {
 			continue
 		}
 		available, err := s.check(ctx)
@@ -327,6 +349,30 @@ func (s *UpdateService) waitForQuiet(ctx context.Context) bool {
 			return false
 		}
 	}
+}
+
+// keepToolsCurrent checks each tool and, in auto mode, installs a newer
+// release at once: a tool's file is replaced by renaming, so a run of it
+// that is under way is not disturbed and agents need not be waited for.
+func (s *UpdateService) keepToolsCurrent(ctx context.Context, mode string) {
+	for _, tool := range s.opts.Tools {
+		if st := tool.Check(ctx); mode == UpdateModeAuto && st.Available {
+			if err := tool.Apply(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("updates: %v", err)
+			}
+		}
+	}
+}
+
+// ApplyTool installs a tool's newest release: ErrToolNotManaged for a tool
+// the updater does not look after, ErrNoUpdate when nothing newer is out.
+func (s *UpdateService) ApplyTool(ctx context.Context, name string) error {
+	for _, tool := range s.opts.Tools {
+		if tool.Name() == name {
+			return tool.Apply(ctx)
+		}
+	}
+	return ErrToolNotManaged
 }
 
 func (s *UpdateService) setState(state string) {

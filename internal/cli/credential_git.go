@@ -127,6 +127,31 @@ var prWrites = map[string]bool{"create": true, "edit": true, "comment": true, "r
 var issueWrites = map[string]bool{"create": true, "edit": true, "comment": true, "close": true, "reopen": true, "delete": true,
 	"lock": true, "unlock": true, "pin": true, "unpin": true, "transfer": true, "develop": true}
 
+// GHTokenRevokedAfter reports whether the gh wrapper revokes the token of
+// an operation when gh exits: a token that can write, made for that one
+// command. A read token is cached and shared, so it is never revoked.
+func GHTokenRevokedAfter(operation string) bool {
+	return operation != "api.read" && operation != "actions.read"
+}
+
+// actionsReads and actionsWrites are the gh commands that read and act on
+// GitHub Actions, by group and command.
+var (
+	actionsReads = map[string]map[string]bool{
+		"run":      {"list": true, "view": true, "watch": true, "download": true},
+		"workflow": {"list": true, "view": true},
+		"cache":    {"list": true},
+	}
+	actionsWrites = map[string]map[string]bool{
+		"run":      {"rerun": true, "cancel": true, "delete": true},
+		"workflow": {"run": true, "enable": true, "disable": true},
+		"cache":    {"delete": true},
+	}
+)
+
+// apiActionsPath is a REST path under a repository's Actions.
+var apiActionsPath = regexp.MustCompile(`^/?repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/actions(/|$)`)
+
 // apiIssuePath is a REST path under a repository's issues, which also holds
 // the comments of pull requests.
 var apiIssuePath = regexp.MustCompile(`^/?repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues(/|$)`)
@@ -135,7 +160,9 @@ var apiIssuePath = regexp.MustCompile(`^/?repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/
 // that writes to a pull request; issue.write for one that writes to an
 // issue, a gh api write under repos/<owner>/<repo>/issues included; pr.ready
 // for gh pr ready, which GitHub allows only a token that can also write
-// code, so Legato does it itself; api.read for everything else.
+// code, so Legato does it itself; actions.read and actions.write for the
+// run, workflow and cache commands and gh api calls under
+// repos/<owner>/<repo>/actions; api.read for everything else.
 func GHOperation(args []string) string {
 	var words []string
 	for i := 0; i < len(args) && len(words) < 2; i++ {
@@ -149,11 +176,25 @@ func GHOperation(args []string) string {
 		}
 		words = append(words, a)
 	}
-	if len(words) > 0 && words[0] == "api" && ghAPIWrites(args) {
-		if endpoint, _, _ := ghAPICall(args); apiIssuePath.MatchString(endpoint) {
+	if len(words) > 0 && words[0] == "api" {
+		endpoint, _, _ := ghAPICall(args)
+		writes := ghAPIWrites(args)
+		switch {
+		case apiActionsPath.MatchString(endpoint) && writes:
+			return "actions.write"
+		case apiActionsPath.MatchString(endpoint):
+			return "actions.read"
+		case writes && apiIssuePath.MatchString(endpoint):
 			return "issue.write"
+		case writes:
+			return "pr.write"
 		}
-		return "pr.write"
+	}
+	if len(words) == 2 && actionsWrites[words[0]][words[1]] {
+		return "actions.write"
+	}
+	if len(words) == 2 && actionsReads[words[0]][words[1]] {
+		return "actions.read"
 	}
 	if len(words) == 2 && words[0] == "issue" && issueWrites[words[1]] {
 		return "issue.write"

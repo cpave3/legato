@@ -73,6 +73,8 @@ type RepositoryService struct {
 	// statuses are the copies being made or fetched, and those that failed.
 	statuses map[string]RepositoryCacheStatus
 	listener func(RepositoryCacheStatus)
+	// beforeRemove is told of each clone just before its folder goes.
+	beforeRemove func(context.Context, store.JobClone) error
 }
 
 // NewRepositoryService builds the repository cache.
@@ -570,10 +572,27 @@ func shortList(shas []string) string {
 
 // removeJobClone removes a clone's folder, and its execution's folder when
 // nothing else is in it.
+// SetBeforeRemove sets what is done with a job clone just before its folder
+// is removed, by the person or the sweep: the runtime records its stack.
+// An error is logged and the clone removed all the same.
+func (s *RepositoryService) SetBeforeRemove(before func(context.Context, store.JobClone) error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.beforeRemove = before
+}
+
 func (s *RepositoryService) removeJobClone(ctx context.Context, clone store.JobClone) error {
 	jobs := filepath.Join(s.opts.DataDir, "jobs")
 	if !within(clone.Path, jobs) || clone.Path == jobs {
 		return fmt.Errorf("%s is not in %s; not removing it", clone.Path, jobs)
+	}
+	s.mu.Lock()
+	before := s.beforeRemove
+	s.mu.Unlock()
+	if before != nil {
+		if err := before(ctx, clone); err != nil {
+			log.Printf("repositories: before removing %s: %v", clone.Path, err)
+		}
 	}
 	if err := os.RemoveAll(clone.Path); err != nil {
 		return fmt.Errorf("removing the job clone %s: %w", clone.Path, err)

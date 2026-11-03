@@ -20,6 +20,8 @@ type fakeUpdates struct {
 	status   service.UpdateStatus
 	checkErr error
 	applied  chan struct{}
+	// appliedTools are the tools ApplyTool was asked to update.
+	appliedTools []string
 }
 
 func (f *fakeUpdates) Status(context.Context) service.UpdateStatus {
@@ -35,6 +37,14 @@ func (f *fakeUpdates) Check(context.Context) (service.UpdateStatus, error) {
 }
 
 func (f *fakeUpdates) Apply(context.Context) error {
+	f.applied <- struct{}{}
+	return nil
+}
+
+func (f *fakeUpdates) ApplyTool(_ context.Context, name string) error {
+	f.mu.Lock()
+	f.appliedTools = append(f.appliedTools, name)
+	f.mu.Unlock()
 	f.applied <- struct{}{}
 	return nil
 }
@@ -183,5 +193,38 @@ func TestTheSettingsCarryTheUpdates(t *testing.T) {
 	without.SetAuthToken("secret")
 	if rec := callUpdates(without, http.MethodGet, "/api/settings", ""); strings.Contains(rec.Body.String(), `"updates"`) {
 		t.Errorf("a server without an updater says it has updates: %s", rec.Body)
+	}
+}
+
+func TestAToolUpdateStartsInTheBackground(t *testing.T) {
+	status := availableUpdate
+	status.Tools = []service.ToolStatus{{Name: "st", Managed: true, Version: "v0.1.0", Latest: "v0.2.0", Available: true, State: service.UpdateAvailable}}
+	srv, updates := updateServer(t, status)
+
+	if rec := callUpdates(srv, http.MethodPost, "/api/updates/tools/st/apply", ""); rec.Code != http.StatusAccepted {
+		t.Fatalf("status %d %s", rec.Code, rec.Body.String())
+	}
+	select {
+	case <-updates.applied:
+	case <-time.After(2 * time.Second):
+		t.Fatal("st was not updated")
+	}
+	if updates.appliedTools[0] != "st" {
+		t.Fatalf("updated %v", updates.appliedTools)
+	}
+
+	for name, tool := range map[string]service.ToolStatus{
+		"built from source": {Name: "st", State: service.ToolUnmanaged},
+		"up to date":        {Name: "st", Managed: true, State: service.UpdateUpToDate},
+	} {
+		updates.mu.Lock()
+		updates.status.Tools = []service.ToolStatus{tool}
+		updates.mu.Unlock()
+		if rec := callUpdates(srv, http.MethodPost, "/api/updates/tools/st/apply", ""); rec.Code != http.StatusConflict {
+			t.Errorf("%s: status %d", name, rec.Code)
+		}
+	}
+	if rec := callUpdates(srv, http.MethodPost, "/api/updates/tools/nope/apply", ""); rec.Code != http.StatusConflict {
+		t.Errorf("an unknown tool: status %d", rec.Code)
 	}
 }

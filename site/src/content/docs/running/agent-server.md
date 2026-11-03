@@ -39,6 +39,14 @@ Start with the VM as the boundary: give the VM nothing you would mind an agent u
   ```
 
   A binary built from a checkout (`task build`) works too, but says it is `dev` and never updates itself.
+- For agents that build stacks of branches, install [Staccato](/legato/integrations/staccato/)'s `st` the same way. Legato keeps it up to date with its own updates:
+
+  ```bash
+  curl -fL -o ~/.local/bin/st https://github.com/cpave3/staccato/releases/latest/download/st-linux-amd64   # or st-linux-arm64
+  chmod +x ~/.local/bin/st && st version
+  ```
+
+  If your login shell is zsh, it does not read `~/.profile`, where `~/.local/bin` is usually added to `PATH`. Add `emulate sh -c '. $HOME/.profile'` to `~/.zprofile`.
 - For the sandbox later: `bwrap` (`dnf install bubblewrap`, `apt install bubblewrap`). It needs unprivileged user namespaces, which most distributions allow.
 
 ## 2. Reaching it: Tailscale

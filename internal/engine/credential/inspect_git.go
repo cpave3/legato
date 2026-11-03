@@ -24,6 +24,13 @@ const (
 	// OperationIssueWrite is gh's issue commands: a token that can write the
 	// issues of one repository.
 	OperationIssueWrite = "issue.write"
+	// OperationActionsRead is gh's commands that read GitHub Actions: the
+	// runs, logs, artifacts, workflows and caches of one repository.
+	OperationActionsRead = "actions.read"
+	// OperationActionsWrite is gh's commands that act on GitHub Actions:
+	// re-run, cancel or delete a run, dispatch, enable or disable a
+	// workflow, delete a cache.
+	OperationActionsWrite = "actions.write"
 )
 
 // RefUpdate is one command of a push: a ref, from one object to another.

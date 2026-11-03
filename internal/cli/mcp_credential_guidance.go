@@ -12,6 +12,23 @@ import (
 // MCPGuidance in the server's instructions and in the launch prompt of the
 // agent tools that do not read those. "" with no credential.
 func CredentialGuidance(credentials []service.CredentialSummary, sources ...service.CredentialSourceSummary) string {
+	return credentialGuidance(credentials, sources, false)
+}
+
+// Guidance is the credential guidance and, when stacks is true (the
+// session's st can move a stack between clones; see StackSupport), how to
+// build and push a stack of branches with Staccato. With stacks, an agent
+// with a GitHub credential asks once for every legato/<task>- branch instead
+// of one branch, so a stack is one approval.
+func Guidance(credentials []service.CredentialSummary, sources []service.CredentialSourceSummary, stacks bool) string {
+	text := credentialGuidance(credentials, sources, stacks)
+	if stacks {
+		text += stackGuidance
+	}
+	return text
+}
+
+func credentialGuidance(credentials []service.CredentialSummary, sources []service.CredentialSourceSummary, stacks bool) string {
 	if len(credentials) == 0 && len(sources) == 0 {
 		return ""
 	}
@@ -45,7 +62,7 @@ func CredentialGuidance(credentials []service.CredentialSummary, sources ...serv
 		case c.Source != "" && c.Git == "" && !has(c.Channels, service.ChannelHTTPProxy):
 			continue
 		case c.Git != "":
-			b.WriteString(githubGuidance(c))
+			b.WriteString(githubGuidance(c, stacks))
 		case has(c.Channels, service.ChannelHTTPProxy):
 			key, base := "its key variable", "its base URL variable"
 			if len(c.Env) > 0 {
@@ -86,7 +103,7 @@ func has(list []string, want string) bool {
 // githubGuidance says how to work with GitHub through Legato: reads as
 // usual, a legato/ branch asked for by name, pushes as usual, and pull
 // requests through Legato's API address.
-func githubGuidance(c service.CredentialSummary) string {
+func githubGuidance(c service.CredentialSummary, stacks bool) string {
 	repo := "<owner>/<repo>"
 	for _, r := range c.Repositories {
 		if !strings.Contains(r, "*") {
@@ -94,6 +111,15 @@ func githubGuidance(c service.CredentialSummary) string {
 			break
 		}
 	}
-	return fmt.Sprintf(`- %s (GitHub, for %s; owner/* is every repository of that owner): fetch and pull as usual; Legato's git credential helper gives you a read token for each of these repositories, and gh reads with one too. Work on a branch named legato/$LEGATO_TASK_ID-<a few words>. Before your first push, ask for that one branch with request_access: credential %s, operation git.push, resource github:%s@refs/heads/legato/<the rest of your branch name>; ask for one branch, not a pattern. Then git push as usual: pushes go through Legato, which checks each branch. Pushing to the default branch, pushing tags and deleting branches are refused. A refused push says why in git's output; one that says pending ap-… waits for the person: carry on or end your turn, and push again after the [legato approvals] message. Use gh as usual for pull requests: gh pr create, edit, comment, review, close and reopen, and gh api calls that write to its pull requests (replies to review comments, reviews, comments), work once the person allows pr.write on the repository, and gh pr ready (and --undo) once they allow pr.ready, which Legato carries out for you. Use gh as usual for issues too: gh issue create, edit, comment, close and reopen, and gh api calls that write under repos/<owner>/<repo>/issues (comments, sub-issues, blocking), work once the person allows issue.write on the repository. The first such command of your session asks them and waits up to a minute. If gh says pending ap-…, carry on or end your turn, and run the command again after the [legato approvals] message. Do not ask for pr.write or issue.write with request_access first, and do not look for another token: gh pr merge is not allowed. Never push with your own key, another remote or another token.
-`, c.Name, strings.Join(c.Repositories, ", "), c.Name, repo)
+	return fmt.Sprintf(`- %s (GitHub, for %s; owner/* is every repository of that owner): fetch and pull as usual; Legato's git credential helper gives you a read token for each of these repositories, and gh reads with one too. Work on a branch named legato/$LEGATO_TASK_ID-<a few words>. %s Then git push as usual: pushes go through Legato, which checks each branch. Pushing to the default branch, pushing tags and deleting branches are refused. A refused push says why in git's output; one that says pending ap-… waits for the person: carry on or end your turn, and push again after the [legato approvals] message. Use gh as usual for pull requests: gh pr create, edit, comment, review, close and reopen, and gh api calls that write to its pull requests (replies to review comments, reviews, comments), work once the person allows pr.write on the repository, and gh pr ready (and --undo) once they allow pr.ready, which Legato carries out for you. Use gh as usual for issues too: gh issue create, edit, comment, close and reopen, and gh api calls that write under repos/<owner>/<repo>/issues (comments, sub-issues, blocking), work once the person allows issue.write on the repository. Use gh for GitHub Actions too: gh run list, view, watch and download, gh workflow list and view, and gh api reads under repos/<owner>/<repo>/actions work without asking (the GitHub App needs the Actions permission); gh run rerun, cancel and delete, gh workflow run, enable and disable, and gh cache delete work once the person allows actions.write on the repository. The first such command of your session asks them and waits up to a minute. If gh says pending ap-…, carry on or end your turn, and run the command again after the [legato approvals] message. Do not ask for pr.write, issue.write or actions.write with request_access first, and do not look for another token: gh pr merge is not allowed. Never push with your own key, another remote or another token.
+`, c.Name, strings.Join(c.Repositories, ", "), branchRequest(c.Name, repo, stacks))
+}
+
+// branchRequest says what to ask for before the first push: the one branch,
+// or with stacks every branch of the task, so a stack is one approval.
+func branchRequest(credential, repo string, stacks bool) string {
+	if stacks {
+		return fmt.Sprintf("Before your first push, ask once for all of your branches with request_access: credential %s, operation git.push, resource github:%s@refs/heads/legato/$LEGATO_TASK_ID-* (with your task ID written out). That covers every branch named legato/$LEGATO_TASK_ID-<a few words>, a whole stack included, and no other.", credential, repo)
+	}
+	return fmt.Sprintf("Before your first push, ask for that one branch with request_access: credential %s, operation git.push, resource github:%s@refs/heads/legato/<the rest of your branch name>; ask for one branch, not a pattern.", credential, repo)
 }

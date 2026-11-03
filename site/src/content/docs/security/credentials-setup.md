@@ -73,11 +73,13 @@ Agents read your repositories, push to `legato/…` branches, open pull requests
 | Push to `legato/**`, or a pull request from such a branch | asked once a session, per branch |
 | Push to any other branch, or a pull request from it | asked each time |
 | Write issues (`gh issue create`, `comment`, `close`, …) | asked once a session |
+| Read GitHub Actions (`gh run list`, `view`, `watch`, `download`, `gh workflow view`) | no prompt |
+| Act on GitHub Actions (`gh run rerun`, `cancel`, `delete`, `gh workflow run`, `enable`, `disable`, `gh cache delete`) | asked once a session |
 | Push to the default branch, push a tag, delete a branch | refused |
 
 1. **Create the App.** On GitHub: Settings › Developer settings › GitHub Apps › New GitHub App.
    - Name: anything (`Legato for <you>`). Homepage URL: anything. Webhook: untick **Active**.
-   - Repository permissions: **Contents** read and write, **Pull requests** read and write, **Metadata** read, and **Issues** read and write if agents are to write issues.
+   - Repository permissions: **Contents** read and write, **Pull requests** read and write, **Metadata** read, **Issues** read and write if agents are to write issues, and **Actions** read (or read and write, to let agents re-run, cancel and dispatch workflows) if agents are to see workflow runs. If you add a permission to an App that is already installed, accept the new permission on the installation (Settings › Applications › Installed GitHub Apps), or GitHub refuses the tokens that need it.
    - Where can this GitHub App be installed: **Only on this account**. Create it.
 2. **Note its client ID** (`Iv23…`, on the App's page).
 3. **Generate a private key** (the App's page, Private keys). Store it in Legato and delete the download:
@@ -111,7 +113,7 @@ credential_channels:
     isolate_login: false
 ```
 
-In an agent session, `git fetch` and `git pull` get read tokens from Legato's credential helper, and `git push` (to `https://github.com/…` or `git@github.com:…`) goes to Legato's proxy. Agents are told to work on `legato/<task ID>-<a few words>`, to ask for that one branch before the first push, and to open pull requests with the API address Legato gives them (`$LEGATO_GITHUB_API_URL`), not with `gh`, which only reads.
+In an agent session, `git fetch` and `git pull` get read tokens from Legato's credential helper, and `git push` (to `https://github.com/…` or `git@github.com:…`) goes to Legato's proxy. Agents are told to work on `legato/<task ID>-<a few words>`, to ask for that one branch before the first push (or, when they can build stacks with [Staccato](/legato/integrations/staccato/), for all of the task's branches at once, so a stack is one approval), and to open pull requests with the API address Legato gives them (`$LEGATO_GITHUB_API_URL`), not with `gh`, which only reads.
 
 PR tracking keeps its own read access (`github.auth`); this changes nothing there.
 

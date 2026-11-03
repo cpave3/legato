@@ -204,3 +204,42 @@ func TestGHRepoReadsTheRepositoryFromAnAPIPath(t *testing.T) {
 		}
 	}
 }
+
+func TestGHOperationSaysWhichCommandsUseActions(t *testing.T) {
+	for args, want := range map[string]string{
+		"run list":                                   "actions.read",
+		"run view 123 --log-failed":                  "actions.read",
+		"-R cpave3/legato run watch 123":             "actions.read",
+		"run download 123 -n dist":                   "actions.read",
+		"workflow list":                              "actions.read",
+		"workflow view ci.yml --yaml":                "actions.read",
+		"cache list":                                 "actions.read",
+		"api repos/a/b/actions/runs":                 "actions.read",
+		"api repos/a/b/actions/runs/1/logs":          "actions.read",
+		"run rerun 123 --failed":                     "actions.write",
+		"run cancel 123":                             "actions.write",
+		"run delete 123":                             "actions.write",
+		"workflow run ci.yml -f target=main":         "actions.write",
+		"workflow enable ci.yml":                     "actions.write",
+		"workflow disable ci.yml":                    "actions.write",
+		"cache delete key":                           "actions.write",
+		"api -X POST repos/a/b/actions/runs/1/rerun": "actions.write",
+		"api -X POST repos/a/b/actions/workflows/ci.yml/dispatches -f ref=main": "actions.write",
+		"pr checks 12": "api.read",
+	} {
+		if got := cli.GHOperation(strings.Fields(args)); got != want {
+			t.Errorf("gh %s: %s, want %s", args, got, want)
+		}
+	}
+}
+
+func TestOnlyATokenThatCanWriteIsRevokedAfterGH(t *testing.T) {
+	for op, revoked := range map[string]bool{
+		"api.read": false, "actions.read": false,
+		"pr.write": true, "issue.write": true, "actions.write": true,
+	} {
+		if got := cli.GHTokenRevokedAfter(op); got != revoked {
+			t.Errorf("%s: revoked %v, want %v", op, got, revoked)
+		}
+	}
+}
