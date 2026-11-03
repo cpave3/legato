@@ -152,6 +152,17 @@ describe("SettingsPage layout", () => {
     expect(screen.getByRole("region", { name: "Development" })).toBeTruthy()
   })
 
+  it.each([undefined, false, true])("links the old clones anchor to Remote with fresh clones %s", (enabled) => {
+    useSettings.mockReturnValue({ data: { ...settings(false).data, fresh_clones_enabled: enabled } })
+    renderPage()
+    const agents = screen.getByRole("region", { name: "Agents" })
+    const anchor = agents.querySelector("#job-clones")
+    expect(anchor).toBeTruthy()
+    expect(within(anchor as HTMLElement).getByRole("link", { name: "Open Remote" }).getAttribute("href")).toBe("/remote")
+    expect(within(agents).queryByRole("button", { name: /^Remove .*\// })).toBeNull()
+    expect(mockedApiFetch.mock.calls.some(([, path]) => path === "/api/job-clones")).toBe(false)
+  })
+
   it("lists the groups and goes to one", () => {
     const scroll = vi.fn()
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll })

@@ -71,6 +71,7 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           invalidate([baseUrl, "task"], false)
           break
         case "agents_changed":
+          invalidate(queryKeys.jobClones(baseUrl))
           invalidate(queryKeys.navigationSummary(baseUrl))
           invalidate([baseUrl, "board"], false)
           break

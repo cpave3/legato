@@ -34,7 +34,7 @@ export function MobileTabBar({ sections, connected, moreOpen, onMore }: {
   const tabs = [sections.attention, sections.board, agents, sections.review]
   const rest = [sections.plans, sections.learning, sections.workflows]
   const restCount = rest.reduce((sum, section) => sum + (section.count ?? 0), 0)
-  const restActive = moreOpen || [...rest, sections.reports, sections.audit, sections.settings].some((section) => sectionActive(section, pathname, search))
+  const restActive = moreOpen || [...rest, sections.reports, sections.remote, sections.audit, sections.settings].some((section) => sectionActive(section, pathname, search))
 
   return (
     <nav aria-label="Primary navigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[#222228] bg-lw-rail px-1 pb-[env(safe-area-inset-bottom)] pt-1.5 font-lw md:hidden">
@@ -69,9 +69,9 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
 
 const row = "flex min-h-[52px] items-center justify-between gap-3 px-3.5 text-[15px] text-lw-text no-underline"
 
-function SectionRow({ section, label }: { section: NavSection; label?: string }) {
+function SectionRow({ section, label, onClick }: { section: NavSection; label?: string; onClick?: () => void }) {
   return (
-    <Link to={section.to} className={row}>
+    <Link to={section.to} onClick={onClick} className={row}>
       <span>{label ?? section.label}</span>
       <span className="flex items-center gap-2">
         {!!section.count && <Badge count={section.count} tone={section.tone} />}
@@ -171,6 +171,7 @@ export function MoreSheet({ sections, connected, servers, activeServerName, base
           <Group label="Tools">
             <SectionRow section={sections.workflows} label="Workflows" />
             <SectionRow section={sections.reports} />
+            <SectionRow section={sections.remote} onClick={onClose} />
             <SectionRow section={sections.audit} label="Audit log" />
           </Group>
           <Group label="Settings">

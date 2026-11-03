@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react"
-import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone, Sparkles } from "lucide-react"
+import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone, Sparkles, FolderGit2 } from "lucide-react"
 import { setToken } from "../lib/auth"
 import { useServer } from "../hooks/useServer"
 import { QRScanner } from "../components/QRScanner"
 import { PairDeviceDialog } from "../components/PairDeviceDialog"
 import { ResourcesSettings } from "../components/ResourcesSettings"
 import { RepositoriesSettings } from "../components/RepositoriesSettings"
-import { JobClonesSettings } from "../components/JobClonesSettings"
 import { CredentialsSettings } from "../components/CredentialsSettings"
 import { DevicesSettings } from "../components/DevicesSettings"
 import { IntegrationsSettings } from "../components/IntegrationsSettings"
@@ -15,7 +14,7 @@ import { SettingsCard, SettingsGroup, SettingsRow, SettingsRows, Toggle, Browser
 import { useSettings } from "../hooks/useSettings"
 import { useToast } from "../hooks/useToast"
 import { apiFetch } from "../lib/api"
-import { useSearchParams } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { animatedAgentActivityEnabled, setAnimatedAgentActivityEnabled } from "../lib/appearancePreferences"
 
 type Group = { id: string; title: string }
@@ -195,7 +194,9 @@ export function SettingsPage() {
           <SettingsGroup id="agents" title="Agents" description="What agents are given, and how this browser works with them.">
             {/* The spawn dialog and the workflow form read the repositories from the settings. */}
             <RepositoriesSettings baseUrl={baseUrl} onChanged={() => void settings.refetch()} />
-            {settings.data?.fresh_clones_enabled && <JobClonesSettings baseUrl={baseUrl} />}
+            <SettingsCard id="job-clones" icon={FolderGit2} title="Managed clones" description="View and remove clones Legato made for agents on the Remote page.">
+              <Link to="/remote" className={quietButton}>Open Remote</Link>
+            </SettingsCard>
             <ResourcesSettings baseUrl={baseUrl} />
             <SettingsRows>
               <SettingsRow
