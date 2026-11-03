@@ -28,9 +28,7 @@ The hooks tell Legato when Claude Code starts work, waits for you, and stops. Wi
 
 The command writes five scripts to `.claude/hooks/legato-*.sh` and adds them to `.claude/settings.json`. It fails when the folder has no `.claude/` folder.
 
-:::caution
-The command sets the `UserPromptSubmit`, `PostToolUse`, `Stop`, `PermissionRequest` and `SessionEnd` entries of that `settings.json` to Legato's scripts. Hooks of your own on those five events are replaced, and `legato hooks uninstall --tool claude-code` removes those five entries. Hooks on other events are kept.
-:::
+Legato adds its scripts to the `UserPromptSubmit`, `PostToolUse`, `Stop`, `PermissionRequest` and `SessionEnd` events. Your own hooks, on those events or others, and the rest of `settings.json` stay as they are. Running the command again replaces Legato's entries and does not add a second copy. `legato hooks uninstall --tool claude-code` removes only Legato's entries and scripts.
 
 The scripts do nothing outside a session that Legato started. Inside one, they report to every running Legato.
 

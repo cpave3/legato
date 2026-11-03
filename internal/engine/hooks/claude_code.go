@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -226,6 +227,10 @@ func (a *ClaudeCodeAdapter) UninstallHooks(projectDir string) error {
 	return a.removeSettings(claudeDir)
 }
 
+// mergeSettings adds Legato's hooks to settings.json. It changes only
+// Legato's own entries: other settings, and a person's own hooks on the same
+// events, stay as they are. A Legato hook already there (at this path or
+// another, from before the project moved) is replaced, never doubled.
 func (a *ClaudeCodeAdapter) mergeSettings(claudeDir string) error {
 	settingsPath := filepath.Join(claudeDir, "settings.json")
 
@@ -240,14 +245,13 @@ func (a *ClaudeCodeAdapter) mergeSettings(claudeDir string) error {
 	if hooksMap == nil {
 		hooksMap = make(map[string]interface{})
 	}
+	withoutLegatoHooks(hooksMap)
 
 	hooksDir := filepath.Join(claudeDir, "hooks")
-
-	// Add Legato hook entries.
 	for i, event := range legatoHookEvents {
-		hooksMap[event] = hookEntry(filepath.Join(hooksDir, legatoScriptNames[i]))
+		groups, _ := hooksMap[event].([]interface{})
+		hooksMap[event] = append(groups, hookEntry(filepath.Join(hooksDir, legatoScriptNames[i]))...)
 	}
-
 	settings["hooks"] = hooksMap
 
 	data, err := json.MarshalIndent(settings, "", "  ")
@@ -257,6 +261,8 @@ func (a *ClaudeCodeAdapter) mergeSettings(claudeDir string) error {
 	return os.WriteFile(settingsPath, data, 0o644)
 }
 
+// removeSettings takes Legato's hooks out of settings.json and leaves
+// everything else, a person's own hooks on the same events included.
 func (a *ClaudeCodeAdapter) removeSettings(claudeDir string) error {
 	settingsPath := filepath.Join(claudeDir, "settings.json")
 
@@ -274,10 +280,7 @@ func (a *ClaudeCodeAdapter) removeSettings(claudeDir string) error {
 	if !ok {
 		return nil
 	}
-
-	for _, event := range legatoHookEvents {
-		delete(hooksMap, event)
-	}
+	withoutLegatoHooks(hooksMap)
 
 	if len(hooksMap) == 0 {
 		delete(settings, "hooks")
@@ -287,6 +290,58 @@ func (a *ClaudeCodeAdapter) removeSettings(claudeDir string) error {
 
 	out, _ := json.MarshalIndent(settings, "", "  ")
 	return os.WriteFile(settingsPath, out, 0o644)
+}
+
+// withoutLegatoHooks removes Legato's commands from every event of a
+// settings.json hooks object: a command is Legato's when it runs one of
+// Legato's scripts, wherever that script is. A group left with no command,
+// and an event left with no group, go too. Anything it does not recognise
+// is kept as it is.
+func withoutLegatoHooks(hooksMap map[string]interface{}) {
+	for event, value := range hooksMap {
+		groups, ok := value.([]interface{})
+		if !ok {
+			continue
+		}
+		var keptGroups []interface{}
+		for _, g := range groups {
+			group, ok := g.(map[string]interface{})
+			if !ok {
+				keptGroups = append(keptGroups, g)
+				continue
+			}
+			entries, ok := group["hooks"].([]interface{})
+			if !ok {
+				keptGroups = append(keptGroups, g)
+				continue
+			}
+			var kept []interface{}
+			for _, e := range entries {
+				if !isLegatoHook(e) {
+					kept = append(kept, e)
+				}
+			}
+			if len(kept) == 0 {
+				continue
+			}
+			group["hooks"] = kept
+			keptGroups = append(keptGroups, group)
+		}
+		if len(keptGroups) == 0 {
+			delete(hooksMap, event)
+		} else {
+			hooksMap[event] = keptGroups
+		}
+	}
+}
+
+func isLegatoHook(entry interface{}) bool {
+	hook, ok := entry.(map[string]interface{})
+	if !ok {
+		return false
+	}
+	command, _ := hook["command"].(string)
+	return slices.Contains(legatoScriptNames, filepath.Base(command))
 }
 
 func hookEntry(scriptPath string) []interface{} {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -291,5 +292,110 @@ func TestClaudeCodeAdapter_ImplementsInterruptAdapter(t *testing.T) {
 	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
 	if _, ok := interface{}(adapter).(interface{ InterruptKeys() []string }); !ok {
 		t.Error("ClaudeCodeAdapter does not implement InterruptAdapter")
+	}
+}
+
+// eventCommands lists the commands settings.json runs for an event, in order.
+func eventCommands(t *testing.T, claudeDir, event string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(claudeDir, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		t.Fatal(err)
+	}
+	var commands []string
+	for _, group := range settings.Hooks[event] {
+		for _, hook := range group.Hooks {
+			commands = append(commands, hook.Command)
+		}
+	}
+	return commands
+}
+
+// A person's own hooks on the events Legato also uses: Stop runs a sound,
+// UserPromptSubmit a logger with a timeout of its own.
+const userHooksOnLegatoEvents = `{
+  "hooks": {
+    "Stop": [{"hooks": [{"type": "command", "command": "play-done-sound.sh"}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "log-prompt.sh", "timeout": 5}]}]
+  }
+}`
+
+func TestClaudeCodeAdapter_InstallKeepsUserHooksOnLegatoEvents(t *testing.T) {
+	projectDir := t.TempDir()
+	claudeDir := filepath.Join(projectDir, ".claude")
+	os.MkdirAll(claudeDir, 0o755)
+	os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(userHooksOnLegatoEvents), 0o644)
+
+	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
+	for range 2 { // installing again changes nothing
+		if err := adapter.InstallHooks(projectDir); err != nil {
+			t.Fatalf("InstallHooks: %v", err)
+		}
+	}
+
+	stop := filepath.Join(claudeDir, "hooks", "legato-stop.sh")
+	if got := eventCommands(t, claudeDir, "Stop"); !slices.Equal(got, []string{"play-done-sound.sh", stop}) {
+		t.Errorf("Stop runs %q, want the user's hook and Legato's once", got)
+	}
+	submit := filepath.Join(claudeDir, "hooks", "legato-prompt-submit.sh")
+	if got := eventCommands(t, claudeDir, "UserPromptSubmit"); !slices.Equal(got, []string{"log-prompt.sh", submit}) {
+		t.Errorf("UserPromptSubmit runs %q, want the user's hook and Legato's once", got)
+	}
+	raw, _ := os.ReadFile(filepath.Join(claudeDir, "settings.json"))
+	if !strings.Contains(string(raw), `"timeout": 5`) {
+		t.Errorf("the user's hook lost its timeout:\n%s", raw)
+	}
+}
+
+func TestClaudeCodeAdapter_InstallReplacesLegatoHooksFromAnotherPath(t *testing.T) {
+	projectDir := t.TempDir()
+	claudeDir := filepath.Join(projectDir, ".claude")
+	os.MkdirAll(claudeDir, 0o755)
+	// Installed before the project moved: the same script at its old path.
+	os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(`{"hooks": {"Stop": [
+	  {"hooks": [{"type": "command", "command": "/old/place/.claude/hooks/legato-stop.sh"}]}
+	]}}`), 0o644)
+
+	if err := hooks.NewClaudeCodeAdapter("/usr/bin/legato").InstallHooks(projectDir); err != nil {
+		t.Fatalf("InstallHooks: %v", err)
+	}
+	want := []string{filepath.Join(claudeDir, "hooks", "legato-stop.sh")}
+	if got := eventCommands(t, claudeDir, "Stop"); !slices.Equal(got, want) {
+		t.Errorf("Stop runs %q, want only %q", got, want)
+	}
+}
+
+func TestClaudeCodeAdapter_UninstallKeepsUserHooksOnLegatoEvents(t *testing.T) {
+	projectDir := t.TempDir()
+	claudeDir := filepath.Join(projectDir, ".claude")
+	os.MkdirAll(claudeDir, 0o755)
+	os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(userHooksOnLegatoEvents), 0o644)
+
+	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
+	if err := adapter.InstallHooks(projectDir); err != nil {
+		t.Fatalf("InstallHooks: %v", err)
+	}
+	if err := adapter.UninstallHooks(projectDir); err != nil {
+		t.Fatalf("UninstallHooks: %v", err)
+	}
+
+	if got := eventCommands(t, claudeDir, "Stop"); !slices.Equal(got, []string{"play-done-sound.sh"}) {
+		t.Errorf("Stop runs %q after uninstall, want only the user's hook", got)
+	}
+	if got := eventCommands(t, claudeDir, "UserPromptSubmit"); !slices.Equal(got, []string{"log-prompt.sh"}) {
+		t.Errorf("UserPromptSubmit runs %q after uninstall, want only the user's hook", got)
+	}
+	if got := eventCommands(t, claudeDir, "SessionEnd"); len(got) != 0 {
+		t.Errorf("SessionEnd still runs %q after uninstall", got)
 	}
 }
