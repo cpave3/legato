@@ -12,6 +12,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/engine/version"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -196,7 +197,7 @@ func newCaseAttentionService(cfg *config.Config, db *store.Store, attention *ser
 func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentService, credentials *service.CredentialBroker, caseReplies *service.CaseReplyService) cli.BrokerDeps {
 	deps := cli.BrokerDeps{Push: agentPushNotifier(cfg), OS: agentOSNotifier(cfg), ClaudeModels: cfg.Adapters["claude-code"].Models}
 	deps.Ops = cli.MCPBrokerOps(func(cli.BrokerCaller) cli.MCPOptions {
-		opts := cli.MCPOptions{Store: db, Version: mcpServerVersion(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
+		opts := cli.MCPOptions{Store: db, Version: version.String(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
 			ImageDir: agentUIImageRoot(cfg), VideoDir: agentUIVideoRoot(cfg)}
 		if peers, ok := agents.(cli.MCPPeers); ok && agents != nil {
 			opts.Agents = peers

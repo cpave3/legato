@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"runtime/debug"
 	"strings"
 	"syscall"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/broker"
 	"github.com/cpave3/legato/internal/engine/mcpserver"
+	"github.com/cpave3/legato/internal/engine/version"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -52,14 +52,14 @@ func runMCPServe(args []string, in io.ReadCloser, out io.WriteCloser) int {
 	// A session with a broker gets the host's tools relayed through it, and
 	// reads neither configuration nor store.
 	if socket, token, ok := brokerSession(); ok && taskID != "" {
-		relay, err := cli.MCPRelay(ctx, socket, token, mcpServerVersion())
+		relay, err := cli.MCPRelay(ctx, socket, token, version.String())
 		switch {
 		case err == nil:
 			return serveMCP(ctx, relay, in, out)
 		case !errors.Is(err, broker.ErrUnreachable) || sandboxed():
 			// Nothing else can be reached: offer no tools, and say why.
 			fmt.Fprintf(os.Stderr, "legato mcp serve: %v\n", err)
-			return serveMCP(ctx, mcpserver.Options{Name: "legato", Title: "Legato", Version: mcpServerVersion(),
+			return serveMCP(ctx, mcpserver.Options{Name: "legato", Title: "Legato", Version: version.String(),
 				Instructions: "Legato's tools are unavailable in this session: " + err.Error()}, in, out)
 		}
 	}
@@ -75,7 +75,7 @@ func runMCPServe(args []string, in io.ReadCloser, out io.WriteCloser) int {
 
 	opts := cli.MCPOptions{
 		Store: db, TaskID: taskID, ExecutionID: executionID,
-		Version: mcpServerVersion(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
+		Version: version.String(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
 		ImageDir: agentUIImageRoot(cfg), VideoDir: agentUIVideoRoot(cfg),
 	}
 	// request_access asks the credential broker, which records approvals
@@ -112,12 +112,4 @@ func serveMCP(ctx context.Context, opts mcpserver.Options, in io.ReadCloser, out
 		fmt.Fprintf(os.Stderr, "legato mcp serve: %v\n", err)
 	}
 	return exitOK
-}
-
-// mcpServerVersion is the version this server reports to its client.
-func mcpServerVersion() string {
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-		return info.Main.Version
-	}
-	return "dev"
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/engine/version"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -59,7 +60,7 @@ func credentialProfileDirs() []string {
 // configuredCredentialBroker builds the broker over the configured
 // credentials. messenger is set only in a host process.
 func configuredCredentialBroker(cfg *config.Config, db *store.Store, approvals *service.ApprovalService, messenger service.AgentMessenger) (*service.CredentialBroker, error) {
-	credential.OnePasswordIntegrationVersion = mcpServerVersion()
+	credential.OnePasswordIntegrationVersion = version.String()
 	return service.NewCredentialBroker(db, approvals, service.CredentialBrokerOptions{
 		Credentials:          cfg.Credentials,
 		Sources:              cfg.CredentialSources,

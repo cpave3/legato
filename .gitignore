@@ -27,3 +27,6 @@ browser-extension/coverage/
 
 # pnpm makes its store here because the repo is its own mount
 /.pnpm-store/
+
+# Release binaries (task release:dist)
+/dist/

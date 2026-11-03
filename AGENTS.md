@@ -83,3 +83,4 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/integrations.md` — Argus: scoped tokens, owner lookup, delegations, replies, the OAuth connection, cases in Attention
 - `docs/ai/resources.md` — named file/folder resources given to agents
 - `docs/ai/sandbox.md` — bubblewrap sandbox: what agents see and what is hidden
+- `docs/ai/updates.md` — the version, the release workflow, and the self-updater

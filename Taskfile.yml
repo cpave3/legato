@@ -10,6 +10,26 @@ tasks:
     cmds:
       - go build -o legato ./cmd/legato/
 
+  build:release:
+    desc: Build one release binary stamped with VERSION, for GOOS and GOARCH (run web:build first to embed the web UI)
+    requires:
+      vars: [VERSION]
+    env:
+      CGO_ENABLED: "0"
+    cmds:
+      - go build -trimpath -ldflags "-s -w -X github.com/cpave3/legato/internal/engine/version.stamped={{.VERSION}}" -o {{.OUTPUT | default "legato"}} ./cmd/legato/
+
+  release:dist:
+    desc: Build every release binary for VERSION into dist/, with SHA256SUMS (what the release workflow publishes)
+    requires:
+      vars: [VERSION]
+    cmds:
+      - rm -rf dist && mkdir -p dist
+      - task: web:build
+      - for: [linux/amd64, linux/arm64, darwin/arm64]
+        cmd: GOOS={{splitList "/" .ITEM | first}} GOARCH={{splitList "/" .ITEM | last}} task build:release VERSION={{.VERSION}} OUTPUT=dist/legato-{{splitList "/" .ITEM | first}}-{{splitList "/" .ITEM | last}}
+      - cd dist && sha256sum legato-* > SHA256SUMS
+
   build:full:
     desc: Build the frontend and the legato binary (TUI + web dashboard)
     cmds:

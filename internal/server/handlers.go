@@ -3,8 +3,8 @@ package server
 import (
 	"encoding/json"
 	"net/http"
-	"runtime/debug"
 
+	"github.com/cpave3/legato/internal/engine/version"
 	"github.com/cpave3/legato/internal/server/static"
 )
 
@@ -12,7 +12,7 @@ func healthHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		resp := HealthResponse{
 			Status:  "ok",
-			Version: buildVersion(),
+			Version: version.String(),
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -32,19 +32,11 @@ func frontendMetaHandler() http.HandlerFunc {
 
 func (s *Server) mobileMetaHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		meta := MobileMetaResponse{Version: buildVersion(), MobileShellAPI: 1, AuthBootstrap: "local_storage_v1", Tint: s.tint(r.Context())}
+		meta := MobileMetaResponse{Version: version.String(), MobileShellAPI: 1, AuthBootstrap: "local_storage_v1", Tint: s.tint(r.Context())}
 		if s.pairing != nil {
 			meta.PhrasePairing = 1
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(meta)
 	}
-}
-
-func buildVersion() string {
-	info, ok := debug.ReadBuildInfo()
-	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
-		return "dev"
-	}
-	return info.Main.Version
 }

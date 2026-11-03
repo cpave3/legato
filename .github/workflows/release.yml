@@ -1,0 +1,86 @@
+# Makes a release of Legato: the next version (the newest vX.Y.Z tag, bumped),
+# tested, built for every platform with the web UI inside, and published as a
+# GitHub release that Legato's updater installs.
+#
+#   gh workflow run release -f bump=patch
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: write # the tag and the release
+  id-token: write # build provenance
+  attestations: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # every tag, to find the newest release
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11 # as used to write web/pnpm-lock.yaml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Next version
+        id: version
+        run: echo "version=$(bash scripts/next-version.sh '${{ inputs.bump }}')" >> "$GITHUB_OUTPUT"
+
+      - name: Web dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: |
+          go vet ./...
+          go test -short -timeout 20m ./...
+
+      - name: Build
+        run: task release:dist VERSION='${{ steps.version.outputs.version }}'
+
+      - name: Check the build reports its version
+        run: |
+          got="$(HOME="$RUNNER_TEMP" dist/legato-linux-amd64 version)"
+          test "$got" = "legato ${{ steps.version.outputs.version }}" || { echo "built binary says: $got"; exit 1; }
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/legato-*
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "$VERSION" dist/legato-* dist/SHA256SUMS \
+            --target "$GITHUB_SHA" --title "$VERSION" --generate-notes
