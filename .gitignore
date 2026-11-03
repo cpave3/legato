@@ -24,3 +24,6 @@ browser-extension/coverage/
 # Scratch plan files at repo root
 /plan.yaml
 /fix-plan.yaml
+
+# pnpm makes its store here because the repo is its own mount
+/.pnpm-store/
