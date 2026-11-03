@@ -69,10 +69,14 @@ func TestAThoughtStandsBeforeTheCallItLedTo(t *testing.T) {
 	h := newHarness(t)
 	h.attach()
 	h.begin("turn-1")
+	events := h.subscribe("")
 
 	h.item("completed", reasoningItem("rs-1", []string{"Look at the files first."}, nil))
 	h.item("completed", commandItem("exec-1", "ls", "completed", "main.go\n", 0))
 	h.item("completed", agentMessage("msg-1", "One Go file."))
+	// The bridge takes the items in order, on its own goroutine: once the
+	// reply's event is out, all three are in the snapshot.
+	eventOf(t, events, "assistant_text_done")
 
 	snap := h.snapshot()
 	// The empty entry that holds the launch prompt's place, the step that
