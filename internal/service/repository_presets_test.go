@@ -164,3 +164,23 @@ func TestARepositoryAddedIsCopiedAtOnce(t *testing.T) {
 		t.Fatalf("added = %v, want cpave3/chimera only", added)
 	}
 }
+
+// A fresh clone's setup copies files from the repository's main checkout:
+// the primary_dir of the first repository that names it and has one.
+func TestARepositorysMainCheckoutIsItsPrimaryDir(t *testing.T) {
+	svc, home := newPresetFixture(t)
+	ctx := context.Background()
+	if _, err := svc.Save(ctx, RepositoryPreset{Name: "Widget", Repo: "acme/widget", PrimaryDir: "~/src/notes"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if got := svc.PrimaryDir("Acme/Widget"); got != filepath.Join(home, "src", "notes") {
+		t.Errorf("PrimaryDir(acme/widget) = %q", got)
+	}
+	if got := svc.PrimaryDir("cpave3/legato"); got != "" {
+		t.Errorf("a repository with no primary_dir has %q", got)
+	}
+	if got := svc.PrimaryDir("someone/else"); got != "" {
+		t.Errorf("an unknown repository has %q", got)
+	}
+}

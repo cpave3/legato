@@ -50,6 +50,18 @@ func giveAgentsRepositories(agents service.AgentService, repos *service.Reposito
 	}
 }
 
+// giveAgentsPrimaryDirs tells an agent service where each repository's
+// main checkout is (its primary_dir), which a fresh clone's setup copies
+// and links files from.
+func giveAgentsPrimaryDirs(agents service.AgentService, presets *service.RepositoryPresetService) {
+	if agents == nil || presets == nil {
+		return
+	}
+	if setter, ok := agents.(interface{ SetPrimaryDirs(func(string) string) }); ok {
+		setter.SetPrimaryDirs(presets.PrimaryDir)
+	}
+}
+
 // giveRepositories gives the repository cache this process's GitHub
 // credential. While this process serves the broker, so one Legato does it,
 // it copies every repository offered once at the start, so an agent's

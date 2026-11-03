@@ -40,3 +40,28 @@ func TestTheRepositoriesCopiedAtTheStartAreTheGitHubOnesOffered(t *testing.T) {
 		t.Fatalf("copied %v", got)
 	}
 }
+
+type primaryDirsAgents struct {
+	service.AgentService
+	primaryDir func(string) string
+}
+
+func (a *primaryDirsAgents) SetPrimaryDirs(f func(string) string) { a.primaryDir = f }
+
+// A fresh clone's setup takes files from the repository's primary_dir.
+func TestAgentsAreToldWhereEachRepositorysMainCheckoutIs(t *testing.T) {
+	db, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	checkout := t.TempDir()
+	cfg := &config.Config{Repositories: []config.RepositoryConfig{{Name: "Widget", Repo: "acme/widget", PrimaryDir: checkout}}}
+	agents := &primaryDirsAgents{}
+
+	giveAgentsPrimaryDirs(agents, newRepositoryPresetService(cfg, db, nil))
+
+	if agents.primaryDir == nil || agents.primaryDir("acme/widget") != checkout {
+		t.Fatal("the agents were not told the main checkout of acme/widget")
+	}
+}

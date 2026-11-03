@@ -100,6 +100,8 @@ notifications:
 
 Then, once: `legato columns sync`. A database with no columns has nowhere to put a task.
 
+A clone Legato makes for an agent is set up before the agent starts, from the repository's own `.legato.toml` (or its `.yggdrasil.toml`'s `post_create` hooks): its dependencies installed in the agent's sandbox, with the package caches the sandbox shares. Files a repository copies or links from its main checkout (`.env.local`) come from the repository's `primary_dir`, which a worker usually has none of; give agents such files another way (a resource, or a credential). See [Configuration](ai/config.md) § Setting up a fresh clone.
+
 The skip-permission flags are what let agents work while nobody watches. Use them only where the VM, or the sandbox, is the boundary. Leave them out and every permission request waits for you in the web UI, the phone app and ntfy.
 
 ## 5. Running it: a systemd user service

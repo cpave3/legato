@@ -11,6 +11,9 @@ export interface PreparingAgent {
   clone_id?: number
   started_at: string
   error?: string
+  // What it waits for: its clone being made, then set up (the
+  // repository's .legato.toml or .yggdrasil.toml). An older server says none.
+  stage?: "cloning" | "setting_up"
 }
 
 // How a repository's copy in the server's cache stands, with git's
@@ -64,6 +67,9 @@ export function describePreparing(agent: PreparingAgent, cache: RepositoryCacheS
   failed: boolean
 } {
   if (agent.error) return { line: agent.error, detail: "", failed: true }
+  if (agent.stage === "setting_up") {
+    return { line: "Running setup…", detail: "installing what the repository needs; the agent starts after", failed: false }
+  }
   if (agent.repo && cache && (cache.state === "copying" || cache.state === "fetching")) {
     return {
       line: `${cache.state === "copying" ? "Copying" : "Fetching"} ${agent.repo}`,

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"sort"
 	"sync"
@@ -10,8 +11,24 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
+// What an agent being started is waiting for.
+const (
+	// StageCloning: its clone is being made.
+	StageCloning = "cloning"
+	// StageSettingUp: its clone is made and being set up (the repository's
+	// .legato.toml or .yggdrasil.toml); the agent tool starts after.
+	StageSettingUp = "setting_up"
+)
+
+// cloneSetupAwaiter waits for the setup of the clone an agent was just
+// started in (service.agentService).
+type cloneSetupAwaiter interface {
+	AwaitCloneSetup(ctx context.Context, taskID string) error
+}
+
 // PreparingAgent is an agent being started in the background: its clone
-// is being made. One that failed stays, with why, until it is dismissed.
+// is being made, then set up. One that failed stays, with why, until it is
+// dismissed.
 type PreparingAgent struct {
 	TaskID    string `json:"task_id"`
 	Title     string `json:"title"`
@@ -22,6 +39,8 @@ type PreparingAgent struct {
 	CloneID   int64     `json:"clone_id,omitempty"`
 	StartedAt time.Time `json:"started_at"`
 	Error     string    `json:"error,omitempty"`
+	// Stage is what it waits for: StageCloning, then StageSettingUp.
+	Stage string `json:"stage"`
 }
 
 // preparingAgents are the agents being started in the background.
@@ -55,12 +74,25 @@ func (s *Server) startInBackground(p PreparingAgent, spawn func(ctx context.Cont
 		return false
 	}
 	p.StartedAt = time.Now()
+	p.Stage = StageCloning
 	s.preparing.byTask[p.TaskID] = &p
 	s.preparing.mu.Unlock()
 	s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
 
 	go func() {
 		err := spawn(context.Background())
+		if awaiter, ok := s.agents.(cloneSetupAwaiter); ok && err == nil {
+			// Listed until the clone is set up and the agent tool starts.
+			s.preparing.mu.Lock()
+			if current, ok := s.preparing.byTask[p.TaskID]; ok {
+				current.Stage = StageSettingUp
+			}
+			s.preparing.mu.Unlock()
+			s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
+			if setupErr := awaiter.AwaitCloneSetup(context.Background(), p.TaskID); setupErr != nil {
+				log.Printf("preparing %s: %v", p.TaskID, setupErr)
+			}
+		}
 		s.preparing.mu.Lock()
 		if err == nil {
 			delete(s.preparing.byTask, p.TaskID)

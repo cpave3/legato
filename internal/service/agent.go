@@ -238,10 +238,13 @@ type LearningPromptProvider interface {
 
 type agentService struct {
 	sessionEnvMu      sync.Mutex
-	sessionEnv        SessionEnvProvider // credential channels; nil without any
-	brokerEnv         SessionEnvProvider // the host broker's socket and a token; nil without one
-	repos             JobCloner          // makes clones for agents spawned with a repository; nil without one
-	sandbox           *SandboxSettings   // nil: agents run unsandboxed
+	sessionEnv        SessionEnvProvider       // credential channels; nil without any
+	brokerEnv         SessionEnvProvider       // the host broker's socket and a token; nil without one
+	repos             JobCloner                // makes clones for agents spawned with a repository; nil without one
+	primaryDir        func(repo string) string // a repository's main checkout, for a fresh clone's setup; nil without
+	setupsMu          sync.Mutex
+	setups            map[string]string // task -> the status file of its clone's setup, while it runs
+	sandbox           *SandboxSettings  // nil: agents run unsandboxed
 	store             *store.Store
 	tmux              TmuxManager
 	workDir           string
@@ -565,6 +568,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	_ = a.store.DeleteDeadAgentSessions(ctx, taskID)
 
 	executionID := "ex-" + store.GenerateTaskID()
+	var freshClone *cloneSetup
 	if opt.Repo != "" || opt.Clone != 0 {
 		// A clone, made or joined before anything starts. One whose spawn
 		// fails below is swept with the other idle clones.
@@ -578,6 +582,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			return err
 		}
 		workDir = clone.Path
+		freshClone = a.prepareFreshClone(clone, executionID, clone.Repo, opt.Ref)
 	}
 	var launchPeers []AgentPeer
 	if a.peerAwareness {
@@ -685,6 +690,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 	resources := usableResources(opt.Resources)
 	rolePrompt = joinPromptSections(rolePrompt, resourcesPrompt(resources))
+	rolePrompt = joinPromptSections(rolePrompt, freshClone.prompt(workDir))
 	if nativeResume {
 		rolePrompt = ""
 	}
@@ -818,17 +824,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	sandboxPrefix := ""
 	sandboxed := a.sandbox != nil && (!opt.Unsandboxed || opt.ReadOnlyCheckout || opt.ParentTaskID != "" || opt.SubtaskID != "" || opt.WorkflowRunID != "")
 	if sandboxed {
-		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, resources, opt.ReadOnlyCheckout)
+		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout)
 		if err != nil {
 			failExecution()
 			return fmt.Errorf("Legato's sandbox: %w", err)
 		}
 		sandboxPrefix = prefix
-	} else if envMap["GH_TOKEN"] == GHSignedOut {
-		// Outside the sandbox the agent can reach the person's gh login
-		// anyway, so its gh keeps it; the wrapper still adds read tokens.
-		delete(envMap, "GH_TOKEN")
-		delete(envMap, "GH_CONFIG_DIR")
 	}
 
 	envVars := make([]string, 0, len(envMap))
@@ -952,10 +953,38 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		launchEnv = maps.Clone(envMap)
 		launchEnv["LEGATO_SANDBOXED"] = "1"
 	}
-	if _, ok := adapter.(LaunchCommandAdapter); !ok && sandboxed {
-		// A shell agent: the person's shell, in the sandbox.
-		if err := a.tmux.SendKeysShellCommand(sessionName, sandboxPrefix+" ${SHELL:-/bin/bash}"); err != nil {
-			log.Printf("sandboxed shell send-keys failed for %s: %v", sessionName, err)
+	// A clone this spawn made is set up first, where the agent will be: in
+	// its sandbox. The agent starts whether or not the setup succeeds.
+	setupLine := ""
+	if freshClone != nil && freshClone.command != "" {
+		setupLine = freshClone.command
+		if sandboxed {
+			setupLine = sandboxPrefix + " " + setupLine
+		}
+		// The host shell says how it ended, even when the sandbox failed
+		// to start, so nothing waits for a setup that never ran.
+		status := cloneSetupStatus(workDir)
+		_ = os.Remove(status)
+		setupLine += "; echo $? > " + shellWord(status)
+		a.waitForCloneSetup(taskID, status)
+	}
+	thenLaunch := func(cmd string) string {
+		if setupLine == "" {
+			return cmd
+		}
+		return setupLine + "; " + cmd
+	}
+	if _, ok := adapter.(LaunchCommandAdapter); !ok {
+		switch {
+		case sandboxed:
+			// A shell agent: the person's shell, in the sandbox.
+			if err := a.tmux.SendKeysShellCommand(sessionName, thenLaunch(sandboxPrefix+" ${SHELL:-/bin/bash}")); err != nil {
+				log.Printf("sandboxed shell send-keys failed for %s: %v", sessionName, err)
+			}
+		case setupLine != "":
+			if err := a.tmux.SendKeysShellCommand(sessionName, setupLine); err != nil {
+				log.Printf("clone setup send-keys failed for %s: %v", sessionName, err)
+			}
 		}
 	}
 	if launcher, ok := adapter.(LaunchCommandAdapter); ok {
@@ -967,6 +996,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			if sandboxed {
 				cmd = sandboxPrefix + " " + cmd
 			}
+			cmd = thenLaunch(cmd)
 			if truster, ok := adapter.(WorkspaceTrustAdapter); ok {
 				if err := truster.TrustWorkDir(launchEnv, workDir); err != nil {
 					log.Printf("trusting %s for %s: %v", workDir, taskID, err)
@@ -1079,6 +1109,11 @@ func (a *agentService) notifyPeerJoin(taskID, executionID, workDir string, adapt
 // the pane. A message of more than one line is typed as a pointer to its
 // file, since the pane takes one line.
 func (a *agentService) deliverLaunchMessages(taskID, session string, adapter AIToolAdapter, messages []string, promptFile string) {
+	// The agent tool starts once its clone is set up, which takes minutes
+	// the first time the dependencies are fetched.
+	if err := a.AwaitCloneSetup(context.Background(), taskID); err != nil {
+		log.Printf("launch messages for %s: %v", session, err)
+	}
 	native := a.awaitNativeEndpoint(taskID, adapter)
 	for _, message := range messages {
 		if native {

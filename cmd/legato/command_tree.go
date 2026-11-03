@@ -155,6 +155,15 @@ func commandTree() *commandDef {
 		leaf("list", "List configured workspaces", func(a []string) int { return runWorkspaceContract(append([]string{"list"}, a...)) },
 			nil, []commandFlag{valueFlag("format", "text|json", "Output format"), jsonFlag}, "legato workspace list"),
 	)
+	clone := group("clone", "Make a clone Legato made for an agent ready to work in", []string{"legato clone setup"},
+		leaf("setup", "Run the setup of the clone in the working directory", runCloneSetupCmd, nil,
+			[]commandFlag{valueFlag("base", "ref", "The ref the clone was made from; the default branch when left out"),
+				valueFlag("primary", "path", "The repository's main checkout, for YG_PRIMARY")},
+			"legato clone setup", "legato clone setup --base main"),
+	)
+	clone.Children[0].Description = "Runs the setup commands of the clone in the working directory: its .legato.toml ([setup] run), else the post_create hooks of its .yggdrasil.toml, " +
+		"with Yggdrasil's YG_* variables and LEGATO_CLONE=1. Legato runs it in the pane of a clone it has just made, in the agent's sandbox, before the agent tool starts. " +
+		"Output goes to the terminal and to .git/legato-setup.log; a failure is noted on the task (LEGATO_TASK_ID)."
 	resource := group("resource", "Keep the files and folders agents can be given", []string{"legato resource list", `legato resource add "Obsidian vault" ~/Documents/Vault --write`},
 		leaf("list", "List resources, from the configuration and saved", func(a []string) int { return runResourceContract("list", a) },
 			nil, []commandFlag{jsonFlag}, "legato resource list", "legato resource list --json"),
@@ -362,7 +371,7 @@ func commandTree() *commandDef {
 		"It speaks MCP on stdin and stdout and acts on the session it was started in: showing artifacts and cards in the web UI, reading the task, recording notes and messaging peer agents."
 
 	root := group("", "Legato task management and AI-agent orchestration", []string{"legato task list", "legato workflow list --json"},
-		task, workspace, resource, secret, credentialGroup, device, integration, audit, columns, agent, plan, review, workflow, swarm, attention, learn, hooks, mcp,
+		task, workspace, clone, resource, secret, credentialGroup, device, integration, audit, columns, agent, plan, review, workflow, swarm, attention, learn, hooks, mcp,
 		leaf("serve", "Run the Legato web server", runServeCmd, nil, []commandFlag{valueFlag("port", "port", "Listening port"), boolFlag("hot-reload", "Supervise this foreground server and restart after binary replacement")}, "legato serve --port 3080", "legato --hot-reload serve --port 3080"),
 		authGroup,
 		leaf("version", "Print the version of this Legato", runVersionCmd, nil, []commandFlag{jsonFlag}, "legato version", "legato version --json"),

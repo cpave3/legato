@@ -78,6 +78,14 @@ describe("PreparingAgents", () => {
     expect(await within(fix).findByText(/Resolving deltas · 90%/)).toBeTruthy()
   })
 
+  it("says when the clone is being set up, whatever its copy says", async () => {
+    preparing = [{ task_id: "eph1", title: "Fix the flaky test", repo: "acme/widget", started_at: "2026-11-03T01:00:00Z", stage: "setting_up" }]
+    renderWith()
+    const fix = await screen.findByRole("listitem", { name: "Fix the flaky test" })
+    expect(within(fix).getByText(/Running setup/)).toBeTruthy()
+    expect(within(fix).queryByText(/Copying/)).toBeNull()
+  })
+
   it("shows nothing when no agent is being started", async () => {
     preparing = []
     const { container } = render(<QueryClientProvider client={createQueryClient()}><PreparingAgents /></QueryClientProvider>)

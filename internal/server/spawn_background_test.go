@@ -170,3 +170,43 @@ func TestTheRepositoryCacheIsBroadcast(t *testing.T) {
 		t.Fatal("nothing was broadcast")
 	}
 }
+
+// settingUpAgents is a slowCloneAgents whose clone is set up after the spawn,
+// until the test says the setup has ended.
+type settingUpAgents struct {
+	*slowCloneAgents
+	setupDone chan struct{}
+}
+
+func (a *settingUpAgents) AwaitCloneSetup(ctx context.Context, taskID string) error {
+	select {
+	case <-a.setupDone:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Once its clone is made, an agent stays listed while the clone is set up,
+// and says so, until its agent tool can start.
+func TestAnAgentStaysPreparingWhileItsCloneIsSetUp(t *testing.T) {
+	agents := &settingUpAgents{slowCloneAgents: newSlowCloneAgents(), setupDone: make(chan struct{})}
+	srv := New(nil, agents, nil, ":0")
+	if status := serveJSON(t, srv, http.MethodPost, "/api/agents/spawn", `{"title":"Fix it","agent_kind":"claude-code","repo":"acme/widget"}`, nil); status != http.StatusAccepted {
+		t.Fatalf("status %d", status)
+	}
+	if list := preparing(t, srv); len(list) != 1 || list[0].Stage != StageCloning {
+		t.Fatalf("while cloning: %+v", list)
+	}
+
+	agents.finish(t, nil)
+
+	list := waitFor(t, srv, func(l preparingList) bool { return len(l) == 1 && l[0].Stage == StageSettingUp })
+	if len(list) != 1 || list[0].Stage != StageSettingUp {
+		t.Fatalf("while setting up: %+v", list)
+	}
+	close(agents.setupDone)
+	if list := waitFor(t, srv, func(l preparingList) bool { return len(l) == 0 }); len(list) != 0 {
+		t.Fatalf("still preparing after the setup ended: %+v", list)
+	}
+}

@@ -284,3 +284,41 @@ func TestAnAgentStartsInItsJobCloneWhenTheDataFolderIsCovered(t *testing.T) {
 		t.Errorf("Legato's database is visible:\n%s", out)
 	}
 }
+
+// A fresh clone is set up by `legato clone setup`, run in the agent's
+// sandbox: it needs no configuration or database there, and what it does
+// lands in the clone.
+func TestACloneIsSetUpInsideTheSandbox(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the legato binary")
+	}
+	in := bwrapFixture(t)
+	bin := filepath.Join(t.TempDir(), "legato")
+	build := exec.Command("go", "build", "-o", bin, "github.com/cpave3/legato/cmd/legato")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	clone := filepath.Join(in.DataDir, "jobs", "ex-1", "widget")
+	for _, args := range [][]string{{"init", "-q", "-b", "main", clone}, {"-C", clone, "commit", "-q", "--allow-empty", "-m", "c"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	_ = os.WriteFile(filepath.Join(clone, ".legato.toml"), []byte("[setup]\nrun = [\"echo \\\"deps for $YG_BRANCH\\\" > installed.txt\"]\n"), 0o644)
+	in.WorkDir, in.JobDir, in.BinaryPath = clone, clone, bin
+
+	out, err := runInSandbox(t, in, bin+" clone setup")
+
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if got, _ := os.ReadFile(filepath.Join(clone, "installed.txt")); strings.TrimSpace(string(got)) != "deps for main" {
+		t.Errorf("installed.txt = %q; out:\n%s", got, out)
+	}
+	if log, _ := os.ReadFile(filepath.Join(clone, ".git", "legato-setup.log")); !strings.Contains(string(log), "this clone is set up") {
+		t.Errorf("log = %q", log)
+	}
+}

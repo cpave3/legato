@@ -1556,6 +1556,7 @@ func runServeCmd(args []string) int {
 	repos := newRepositoryService(cfg, db)
 	giveAgentsRepositories(agentSvc, repos)
 	repoPresets := newRepositoryPresetService(cfg, db, repos)
+	giveAgentsPrimaryDirs(agentSvc, repoPresets)
 	srv.SetRepositoryPresetService(repoPresets)
 	srv.SetTintService(service.NewTintService(db))
 	srv.SetJobCloneService(repos)
@@ -1824,6 +1825,7 @@ func runTUI() int {
 	repos := newRepositoryService(cfg, db)
 	giveAgentsRepositories(agentSvc, repos)
 	repoPresets := newRepositoryPresetService(cfg, db, repos)
+	giveAgentsPrimaryDirs(agentSvc, repoPresets)
 	if built, workflowErr := buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: boardSvc, Sync: syncSvc, Agents: agentSvc, PR: prSvc, PRErr: ghErr, WorkDir: wd, Repos: repos, Presets: repoPresets}); workflowErr == nil {
 		tuiWorkflowSvc = built
 		triggerCoordinator = buildWorkflowTriggerCoordinator(db, tuiWorkflowSvc, cfg, bus)

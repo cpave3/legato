@@ -80,6 +80,19 @@ func (s *RepositoryPresetService) SetCloneChecker(checker CloneChecker) { s.chec
 func (s *RepositoryPresetService) SetOnAdded(added func(repo string)) { s.onAdded = added }
 
 // List returns the configuration's repositories, then the added ones.
+// PrimaryDir is the main checkout of a repository (owner/name, any case):
+// the primary_dir of the first repository offered that names it and has
+// one, "" when none does. A fresh clone's setup takes files from it.
+func (s *RepositoryPresetService) PrimaryDir(repo string) string {
+	presets, _ := s.List(context.Background())
+	for _, p := range presets {
+		if p.PrimaryDir != "" && strings.EqualFold(p.Repo, repo) {
+			return s.expand(p.PrimaryDir)
+		}
+	}
+	return ""
+}
+
 func (s *RepositoryPresetService) List(ctx context.Context) ([]RepositoryPreset, error) {
 	out := append([]RepositoryPreset(nil), s.configured...)
 	if s.saved != nil {

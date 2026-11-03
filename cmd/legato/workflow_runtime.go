@@ -86,6 +86,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 			}
 		}
 		giveAgentsRepositories(agentSvc, opts.Repos)
+		giveAgentsPrimaryDirs(agentSvc, opts.Presets)
 	}
 	binary, _ := os.Executable()
 	runner := service.NewWorkflowAgentRunner(agentSvc, db, binary)
