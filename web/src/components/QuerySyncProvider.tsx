@@ -82,6 +82,11 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           // Another browser changed this server's settings: its tint.
           invalidate(queryKeys.settings(baseUrl))
           break
+        case "update_changed":
+          // A check, a new mode, or an update installing: the settings
+          // carry where updates stand.
+          invalidate(queryKeys.settings(baseUrl))
+          break
         case "repository_cache":
           // git's progress comes several times a second: the message is
           // the new state, so nothing is asked for again.

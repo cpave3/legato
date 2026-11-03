@@ -37,6 +37,7 @@ Executable source actions additionally implement `AttentionActionHandler`. Navig
 | `approvals` | Pending approval requests (agents' permissions and questions), with their options as actions; see [Approvals](approvals.md) | `EventApprovalChanged` |
 | `devices` | The last `legato device reset`, until dismissed; see [Approvals](approvals.md) § Signed approvals | `EventApprovalChanged` |
 | `argus` | Argus's open CI cases on the person's PRs (`argus_case`, `argus_needs_you`), pushed by Argus and put on the task that owns the PR; navigation `external`; see [Integrations](integrations.md) § Cases in Attention | After each push, `EventPRStatusUpdated`, `EventCardsRefreshed` |
+| `updates` | A newer release of Legato waiting for the person (`update_available`): in ask mode, with **Update and restart**, or after an install failed, with **Try again**; navigation `settings#updates`; see [Releases and updates](updates.md) | `EventUpdateChanged` |
 | `integrations` | Delegations that did not reach an agent (`delegation_failed`), agents' replies Argus never took (`case_reply_failed`), a connection Argus refused (`integration_disconnected`); the last 7 days; see [Integrations](integrations.md) | `EventDelegationChanged` |
 
 Startup reconciliation remains the safety net. Source events reconcile the relevant projections without requiring an Attention request to query GitHub or mutate source state.

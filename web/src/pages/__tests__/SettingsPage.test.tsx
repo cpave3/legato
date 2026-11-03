@@ -127,7 +127,7 @@ describe("SettingsPage layout", () => {
   it("groups settings by what they are about, in order", () => {
     renderPage()
     const groups = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)
-    expect(groups).toEqual(["Agents", "Security", "Integrations", "Connection", "Appearance"])
+    expect(groups).toEqual(["Agents", "Security", "Integrations", "Connection", "Appearance", "Updates"])
   })
 
   it("puts each setting in its group", async () => {
@@ -169,7 +169,7 @@ describe("SettingsPage layout", () => {
     renderPage()
     const nav = screen.getAllByRole("navigation", { name: "Settings sections" })[0]
     const links = within(nav).getAllByRole("button").map((b) => b.textContent)
-    expect(links).toEqual(["Agents", "Security", "Integrations", "Connection", "Appearance"])
+    expect(links).toEqual(["Agents", "Security", "Integrations", "Connection", "Appearance", "Updates"])
     fireEvent.click(within(nav).getByRole("button", { name: "Security" }))
     expect(scroll).toHaveBeenCalled()
   })

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { apiFetch } from "../lib/api"
 import { queryKeys } from "../lib/query"
 import { useServer } from "./useServer"
+import type { UpdateStatus } from "../lib/updates"
 
 export interface RepositorySetting {
   name: string
@@ -27,6 +28,8 @@ export interface Settings {
   repositories: RepositorySetting[]
   // This server's tint (lib/tints), "" for none; absent from an older server.
   tint?: string
+  // Where this server's updates stand; absent when it has no updater.
+  updates?: UpdateStatus
 }
 
 export class SettingsRequestError extends Error {

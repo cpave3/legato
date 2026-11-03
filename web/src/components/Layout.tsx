@@ -14,6 +14,7 @@ import { NavRail } from "./NavRail"
 import { MobileTabBar, MoreSheet } from "./MobileNav"
 import { TintBand } from "./TintBand"
 import { useSettings } from "../hooks/useSettings"
+import { UpdateNotice } from "./UpdateNotice"
 
 export function Layout() {
   const { connected: open, lost, updateRequired, retryUpdate } = useWebSocket()
@@ -23,7 +24,8 @@ export function Layout() {
   const { servers, activeServerName, baseUrl, setActiveServer } = useServer()
   const { data: summary } = useNavigationSummary()
   // The tint of the server in use, so it is clear which Legato this is.
-  const tint = useSettings().data?.tint
+  const settings = useSettings().data
+  const tint = settings?.tint
   const sections = useMemo(() => navSections(summary), [summary])
   const [moreOpen, setMoreOpen] = useState(false)
   const location = useLocation()
@@ -52,6 +54,7 @@ export function Layout() {
           <button className="shrink-0 rounded bg-amber-400 px-3 py-1.5 font-medium text-zinc-950" onClick={retryUpdate}>Reload update</button>
         </div>
       )}
+      {!updateRequired && <UpdateNotice status={settings?.updates} baseUrl={baseUrl} />}
       {(summary?.approvals ?? 0) > 0 && <ApprovalTray />}
       {notificationsSupported() && <ApprovalNotifier />}
       <OfflineDialog />

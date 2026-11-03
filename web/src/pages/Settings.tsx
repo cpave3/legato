@@ -11,6 +11,7 @@ import { CredentialsSettings } from "../components/CredentialsSettings"
 import { DevicesSettings } from "../components/DevicesSettings"
 import { IntegrationsSettings } from "../components/IntegrationsSettings"
 import { ApprovalNotificationSettings } from "../components/ApprovalNotificationSettings"
+import { UpdatesSettings } from "../components/UpdatesSettings"
 import { SettingsCard, SettingsGroup, SettingsRow, SettingsRows, Toggle, BrowserTag, primaryButton, quietButton } from "../components/settings/SettingsUI"
 import { useSettings } from "../hooks/useSettings"
 import { useToast } from "../hooks/useToast"
@@ -125,6 +126,7 @@ export function SettingsPage() {
     { id: "integrations", title: "Integrations" },
     { id: "connection", title: "Connection" },
     { id: "appearance", title: "Appearance" },
+    { id: "updates", title: "Updates" },
     ...(settings.data?.hot_reload_enabled ? [{ id: "development", title: "Development" }] : []),
   ]
 
@@ -347,6 +349,10 @@ export function SettingsPage() {
                 control={<Toggle label="Animated agent activity" on={animatedActivityEnabled} onChange={toggleAnimatedActivity} />}
               />
             </SettingsRows>
+          </SettingsGroup>
+
+          <SettingsGroup id="updates" title="Updates" description="Which release of Legato this server runs, and how it takes the next.">
+            <UpdatesSettings status={settings.data ? settings.data.updates ?? null : undefined} baseUrl={baseUrl} onChanged={() => void settings.refetch()} />
           </SettingsGroup>
 
           {settings.data?.hot_reload_enabled && (

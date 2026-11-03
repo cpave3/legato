@@ -33,6 +33,7 @@ type Server struct {
 	providerSync             service.ProviderSyncService
 	tmux                     service.TmuxManager
 	bus                      *events.Bus
+	updates                  UpdateService
 	addr                     string
 	workDir                  string // default CWD for agent spawn
 	directories              DirectoryService
@@ -166,6 +167,10 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/workspaces", s.workspacesHandler())
 	mux.HandleFunc("/api/settings", s.settingsHandler())
 	mux.HandleFunc("/api/settings/tint", s.tintHandler())
+	mux.HandleFunc("/api/settings/updates", s.updateModeHandler())
+	mux.HandleFunc("/api/updates", s.updatesHandler())
+	mux.HandleFunc("/api/updates/check", s.updateCheckHandler())
+	mux.HandleFunc("/api/updates/apply", s.updateApplyHandler())
 	mux.HandleFunc("/api/hot-reload/build", s.hotReloadBuildHandler())
 	mux.HandleFunc("/api/navigation-summary", s.navigationSummaryHandler())
 	mux.HandleFunc("/api/ca-cert", s.caCertHandler())
@@ -521,6 +526,10 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			Repositories             []workflowengine.RepositoryPreset `json:"repositories"`
 			// Tint is this Legato's colour, "" for none (service.Tints).
 			Tint string `json:"tint"`
+			// Updates is where this Legato's updates stand; absent when it
+			// has no updater. Here so the web UI's update bar costs no
+			// request of its own.
+			Updates *service.UpdateStatus `json:"updates,omitempty"`
 		}{
 			CaCertAvailable:          hasCACert,
 			WorkingDir:               s.workDir,
@@ -534,6 +543,10 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			DefaultImportWorkspaceID: s.defaultImportWorkspaceID,
 			Repositories:             s.repositories(r.Context()),
 			Tint:                     s.tint(r.Context()),
+		}
+		if s.updates != nil {
+			status := s.updates.Status(r.Context())
+			resp.Updates = &status
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}

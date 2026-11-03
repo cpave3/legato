@@ -38,6 +38,9 @@ const (
 	// EventDelegationChanged: an integration's delegation to a task was
 	// made, delivered, failed or answered. Payload: the task ID.
 	EventDelegationChanged
+	// EventUpdateChanged: where this Legato's updates stand changed (a
+	// check, a new mode, an install). No payload.
+	EventUpdateChanged
 )
 
 // ErrorPayload carries structured error information for error events.

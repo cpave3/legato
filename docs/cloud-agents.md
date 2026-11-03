@@ -23,7 +23,15 @@ Start with the VM as the boundary: give the VM nothing you would mind an agent u
 
 - Any Linux with a user of its own for Legato (`agent` below). Put nothing on it that is not for agents: no personal SSH keys, no browser logins, no cloud credentials.
 - Install `tmux`, `git`, the agent tools you want (`claude`, `codex`, `chimera`), and the toolchains your projects build with.
-- Install `legato` (`task build` on a checkout, or copy a binary to `~/.local/bin/legato`).
+- Install `legato` from the latest release, which keeps itself up to date (see § 5 and [Releases and updates](ai/updates.md)):
+
+  ```bash
+  mkdir -p ~/.local/bin
+  curl -fL -o ~/.local/bin/legato https://github.com/cpave3/legato/releases/latest/download/legato-linux-amd64   # or legato-linux-arm64
+  chmod +x ~/.local/bin/legato && legato version
+  ```
+
+  A binary built from a checkout (`task build`) works too, but says it is `dev` and never updates itself.
 - For the sandbox later: `bwrap` (`dnf install bubblewrap`, `apt install bubblewrap`). It needs unprivileged user namespaces, which most distributions allow.
 
 ## 2. Reaching it: Tailscale
@@ -108,6 +116,8 @@ ExecStart=%h/.local/bin/legato serve --port 3080
 EnvironmentFile=-%h/.config/legato/env
 Environment=PATH=%h/.local/bin:%h/.local/share/mise/shims:/usr/local/bin:/usr/bin
 Restart=on-failure
+# An update makes Legato exit with 75 to be started again on the new binary.
+RestartForceExitStatus=75
 # Stop only Legato: the tmux server it starts, and the agents in it, keep
 # running across a restart, and Legato finds them again when it starts.
 KillMode=process
@@ -126,6 +136,10 @@ journalctl --user -u legato -f        # its log
 ```
 
 `PATH` must hold every agent tool and toolchain: a service does not read your shell's profile.
+
+### Updates
+
+A release of Legato updates itself. Settings › Updates chooses how: **Ask** (the default) shows a bar and an Attention item with **Update and restart**; **Automatic** installs a new release once no agent is in the middle of a turn (after three hours, whatever they are doing); **Off** never looks. An update replaces `~/.local/bin/legato` (the old one is kept as `legato.prev`) and Legato exits with status 75, which this unit starts again. `KillMode=process` keeps tmux and the agents running across it. See [Releases and updates](ai/updates.md).
 
 ## 6. GitHub
 

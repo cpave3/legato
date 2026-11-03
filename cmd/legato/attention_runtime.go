@@ -12,7 +12,7 @@ import (
 
 // wireAttention builds an AttentionService with all runtime producers
 // registered and reconciled, then attaches it to the server.
-func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *server.Server, planSvc *service.PlanService, reviewSvc *service.ReviewService, agentSvc service.AgentService, workflowSvc *service.WorkflowService, approvals *approvalRuntime, triggerCoordinator ...*service.WorkflowTriggerCoordinator) *service.AttentionService {
+func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *server.Server, planSvc *service.PlanService, reviewSvc *service.ReviewService, agentSvc service.AgentService, workflowSvc *service.WorkflowService, approvals *approvalRuntime, updates *service.UpdateService, triggerCoordinator ...*service.WorkflowTriggerCoordinator) *service.AttentionService {
 	attention := service.NewAttentionService(db, bus)
 	if planSvc != nil {
 		adapter := service.NewPlanAttentionAdapter(planSvc)
@@ -37,6 +37,12 @@ func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *s
 	if len(triggerCoordinator) > 0 && triggerCoordinator[0] != nil {
 		adapter := service.NewWorkflowTriggerAttentionAdapter(triggerCoordinator[0], db)
 		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventWorkflowTriggerChanged))
+		mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
+	}
+
+	if updates != nil {
+		adapter := service.NewUpdateAttentionAdapter(updates)
+		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventUpdateChanged))
 		mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
 	}
 

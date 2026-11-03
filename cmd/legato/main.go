@@ -1577,7 +1577,9 @@ func runServeCmd(args []string) int {
 	approvalsRT.giveRepositories(repos, repoPresets)
 	defer approvalsRT.stop()
 	approvalsRT.attach(srv)
-	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, triggerCoordinator)
+	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
+	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, updates, triggerCoordinator)
+	wireUpdates(srv, updates)
 	srv.SetMacros(cfg.Macros)
 	srv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
 	srv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
@@ -1650,6 +1652,10 @@ func runServeCmd(args []string) int {
 	if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
 		fmt.Fprintf(os.Stderr, "server: %v\n", err)
 		return 1
+	}
+	if restartRequested.Load() {
+		fmt.Println("Restarting on the update.")
+		return exitRestart
 	}
 	return 0
 }
@@ -1867,7 +1873,9 @@ func runTUI() int {
 				webSrv.SetWorkflowTriggerCoordinator(triggerCoordinator)
 			}
 			approvalsRT.attach(webSrv)
-			wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, triggerCoordinator)
+			updates := newUpdateService(db, bus, agentSvc, tuiRestarter())
+			wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, updates, triggerCoordinator)
+			wireUpdates(webSrv, updates)
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
 			webSrv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)

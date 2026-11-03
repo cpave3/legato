@@ -63,6 +63,7 @@ var defaultAttentionSignals = []string{
 	AttentionSignalIntegrationDisconnected,
 	AttentionSignalArgusCase,
 	AttentionSignalArgusNeedsYou,
+	AttentionSignalUpdateAvailable,
 }
 
 var knownAttentionSignals = map[string]bool{
@@ -86,6 +87,7 @@ var knownAttentionSignals = map[string]bool{
 	AttentionSignalIntegrationDisconnected:     true,
 	AttentionSignalArgusCase:                   true,
 	AttentionSignalArgusNeedsYou:               true,
+	AttentionSignalUpdateAvailable:             true,
 }
 
 type AttentionInput struct {
