@@ -57,7 +57,6 @@ In the TUI, press `?` to see these keys. The help shows only the keys that work 
 | `b` | Create task worktree (with Yggdrasil worktrees on) |
 | `a` | Spawn agent for task |
 | `t` | Open task agent terminal |
-| `W` | Toggle web server |
 
 ### Swarm
 

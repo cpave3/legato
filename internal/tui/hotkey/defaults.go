@@ -40,7 +40,6 @@ const (
 	ActionBoardWorktree      ActionID = "board.worktree"
 	ActionBoardSpawnAgent    ActionID = "board.spawn-agent"
 	ActionBoardTerminal      ActionID = "board.terminal"
-	ActionBoardToggleWeb     ActionID = "board.toggle-web"
 	// ActionBoardToggleEmpty opens the columns that have no cards, or
 	// collapses them again.
 	ActionBoardToggleEmpty ActionID = "board.toggle-empty"
@@ -212,7 +211,6 @@ func DefaultBindings() []Binding {
 	add(ActionBoardTerminal, board, TargetRoot, []Key{Rune('t')}, "terminal", "Open task agent terminal", "Actions", 20, 160, FullHelp)
 	add(ActionBoardStartSwarm, board, TargetRoot, []Key{Rune('S')}, "start swarm", "Start a swarm", "Swarm", 30, 10, FullHelp, CapabilitySwarm)
 	add(ActionBoardCancelSwarm, board, TargetRoot, []Key{Rune('C')}, "cancel swarm", "Cancel active swarm", "Swarm", 30, 20, FullHelp, CapabilitySwarm)
-	add(ActionBoardToggleWeb, board, TargetRoot, []Key{Rune('W')}, "web", "Toggle web server", "Actions", 20, 170, FullHelp)
 	add(ActionBoardToggleEmpty, board, TargetPage, []Key{Rune('z')}, "empty columns", "Open or collapse columns with no cards", "Views", 40, 5, FullHelp|ShortcutBar|BarEnd)
 	add(ActionViewAgents, board, TargetRoot, []Key{Rune('A')}, "agents", "Open agents view", "Views", 40, 10, FullHelp|ShortcutBar|BarEnd)
 	add(ActionViewReport, board, TargetRoot, []Key{Rune('R')}, "reports", "Open reporting view", "Views", 40, 20, FullHelp)

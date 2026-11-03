@@ -7,7 +7,7 @@ sidebar:
 
 The web UI shows the same board and agents as the TUI, in a browser. It adds a conversation view for agents, a side panel for what they show you, and pages for plans, reviews, workflows and reports. Use it on a second screen, on a laptop away from your desk, or on your phone.
 
-To start the web server, see [Web server](/legato/running/web-server/). In the TUI, `W` turns it on and off. To reach it from a phone or another computer, see [Devices](/legato/running/devices/). You can also install the web UI as an app (a PWA) from the browser.
+To start the web server, see [Web server](/legato/running/web-server/). To run it with the TUI, set `web.enabled: true`. To reach it from a phone or another computer, see [Devices](/legato/running/devices/). You can also install the web UI as an app (a PWA) from the browser.
 
 ## Getting around
 

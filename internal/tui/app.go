@@ -15,7 +15,6 @@ import (
 	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
-	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/agents"
 	"github.com/cpave3/legato/internal/tui/attention"
@@ -214,9 +213,6 @@ type App struct {
 	tmux                     service.TmuxManager
 	swarmSvc                 service.SwarmService
 	workDir                  string
-	webServer                *server.Server
-	webServerStop            func()
-	webServerPort            string
 	macros                   []macros.Macro
 	lastSparklineFetch       time.Time
 	sparklineWindow          time.Duration
@@ -241,9 +237,6 @@ type App struct {
 	defaultImportWorkspaceID *int
 }
 
-// SetWebServerRunning tells the TUI that the web server was auto-started
-// externally, so the status bar shows the indicator without the TUI managing
-// the server lifecycle.
 // SetWorktreeService enables task worktree actions.
 func (a *App) SetWorktreeService(svc WorktreeService) {
 	a.worktreeSvc = svc
@@ -281,8 +274,9 @@ func (a *App) SetAttentionService(svc attention.Service) {
 	a.attentionView = attention.New(svc)
 }
 
+// SetWebServerRunning tells the TUI that the web server web.enabled started
+// is running, so the status bar shows it. The TUI does not manage the server.
 func (a *App) SetWebServerRunning(port string) {
-	a.webServerPort = port
 	a.statusBar = a.statusBar.SetWebServer(port)
 }
 
@@ -335,26 +329,25 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 	b := board.New(svc, icons)
 	b.SetWorkspaces(workspaces)
 	app := App{
-		svc:           svc,
-		syncSvc:       syncSvc,
-		providerSync:  service.NewProviderSyncService(syncSvc, prSvc),
-		agentSvc:      agentSvc,
-		prSvc:         prSvc,
-		board:         b,
-		agentView:     agents.New(icons),
-		reportView:    report.New(reportSvc),
-		statusBar:     statusbar.New(),
-		clip:          clip,
-		openURL:       clipboard.OpenURL,
-		editor:        editor,
-		active:        viewBoard,
-		eventBus:      bus,
-		tmux:          tmux,
-		workDir:       workDir,
-		webServerPort: "3080",
-		swarmSvc:      swarmSvc,
-		macros:        macrosList,
-		hotkeys:       hotkey.DefaultRegistry(),
+		svc:          svc,
+		syncSvc:      syncSvc,
+		providerSync: service.NewProviderSyncService(syncSvc, prSvc),
+		agentSvc:     agentSvc,
+		prSvc:        prSvc,
+		board:        b,
+		agentView:    agents.New(icons),
+		reportView:   report.New(reportSvc),
+		statusBar:    statusbar.New(),
+		clip:         clip,
+		openURL:      clipboard.OpenURL,
+		editor:       editor,
+		active:       viewBoard,
+		eventBus:     bus,
+		tmux:         tmux,
+		workDir:      workDir,
+		swarmSvc:     swarmSvc,
+		macros:       macrosList,
+		hotkeys:      hotkey.DefaultRegistry(),
 	}
 	if len(reviewServices) > 0 && reviewServices[0] != nil {
 		app.SetReviewService(reviewServices[0])
@@ -2590,63 +2583,6 @@ func (a App) switchToReportView() (tea.Model, tea.Cmd) {
 // webServerStartedMsg signals that the web server started.
 type webServerStartedMsg struct{ port string }
 
-// webServerStoppedMsg signals that the web server stopped.
-type webServerStoppedMsg struct{}
-
-func (a App) toggleWebServer() (tea.Model, tea.Cmd) {
-	if a.webServer != nil {
-		// Stop the server.
-		srv := a.webServer
-		stopFn := a.webServerStop
-		a.webServer = nil
-		a.webServerStop = nil
-		a.statusBar = a.statusBar.ClearWebServer()
-		return a, func() tea.Msg {
-			if stopFn != nil {
-				stopFn()
-			}
-			srv.Stop(context.Background())
-			return webServerStoppedMsg{}
-		}
-	}
-
-	// Start the server.
-	addr := ":" + a.webServerPort
-	srv := server.NewWithSwarm(a.svc, a.agentSvc, a.tmux, addr, a.swarmSvc, a.eventBus, a.workDir)
-	a.webServer = srv
-	a.statusBar = a.statusBar.SetWebServer(a.webServerPort)
-	if a.eventBus != nil {
-		srv.StartSwarmEvents()
-	}
-
-	// Bridge event bus → web server: notify WebSocket clients on state changes.
-	stopCh := make(chan struct{})
-	a.webServerStop = func() { close(stopCh) }
-	if a.eventBus != nil {
-		cardCh := a.eventBus.Subscribe(events.EventCardUpdated)
-		prCh := a.eventBus.Subscribe(events.EventPRStatusUpdated)
-		go func() {
-			for {
-				select {
-				case <-stopCh:
-					return
-				case <-cardCh:
-					srv.NotifyAgentsChanged()
-				case <-prCh:
-					srv.NotifyAgentsChanged()
-				}
-			}
-		}()
-	}
-
-	return a, func() tea.Msg {
-		if err := srv.Start(); err != nil {
-			return webServerStoppedMsg{}
-		}
-		return nil
-	}
-}
-
 // agentTickMsg is an internal tick for agent capture polling.
 type agentTickMsg struct{}
 
@@ -3106,8 +3042,6 @@ func (a App) dispatchHotkey(binding hotkey.Binding, msg tea.KeyMsg) (tea.Model, 
 		return a.openArchiveOverlay()
 	case hotkey.ActionBoardArchived:
 		return a.openArchivedOverlay()
-	case hotkey.ActionBoardToggleWeb:
-		return a.toggleWebServer()
 	case hotkey.ActionBoardWorktree:
 		card := a.board.SelectedCard()
 		if card == nil {

@@ -45,10 +45,6 @@ See [Web access and tokens](/legato/security/web-auth/) for what the token prote
 
 The web server stops when you quit the TUI.
 
-:::caution
-`W` on the board also starts a web server from the TUI, and stops one that `W` started. A server started with `W` does not check the token, does not use TLS, and has fewer features than one started by `web.enabled`. It does not stop a server that `web.enabled` started. Use `web.enabled: true` instead, above all on a network you share.
-:::
-
 ## What the web UI gives you
 
 The web UI shows the same board and agents as the TUI, and more:

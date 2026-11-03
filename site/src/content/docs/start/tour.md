@@ -59,7 +59,7 @@ See [Attention and approvals](/legato/using/attention/), [Plans](/legato/using/p
 
 ## The web UI
 
-With `web.enabled: true`, the web UI runs beside the TUI at <http://localhost:3080>. Press `W` on the board to start or stop it. It has the same board, agents, Attention, plans and reviews, and some things the TUI does not have:
+With `web.enabled: true`, the web UI runs beside the TUI at <http://localhost:3080>. It has the same board, agents, Attention, plans and reviews, and some things the TUI does not have:
 
 - The conversation of a Claude Code or Codex agent, with its tool calls, in a native panel.
 - The cards, artifacts and videos that agents show with [Legato's tools](/legato/agent-tools/mcp-tools/).

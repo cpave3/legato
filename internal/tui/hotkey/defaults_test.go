@@ -1,6 +1,7 @@
 package hotkey
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -28,6 +29,24 @@ func TestMoveTaskToWorkspaceIsDiscoverableOnBoardAndDetail(t *testing.T) {
 		}
 		if !found {
 			t.Fatalf("page %s workspace move is absent from full help", page)
+		}
+	}
+}
+
+// The web server starts from web.enabled in the configuration. No key in
+// the TUI starts or stops one.
+func TestNoKeyStartsAWebServer(t *testing.T) {
+	ctx := Context{Page: PageBoard, Capabilities: NewCapabilities(
+		CapabilityWorktrees, CapabilitySwarm, CapabilityVoice, CapabilityNotifications,
+		CapabilityReview, CapabilityPlans, CapabilityAttention, CapabilitySync, CapabilityPR,
+		CapabilityAgentUI, CapabilityApprovals,
+	)}
+	if binding, ok := DefaultRegistry().Resolve(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'W'}}, ctx); ok {
+		t.Fatalf("W on the board runs %s", binding.ID)
+	}
+	for _, binding := range DefaultBindings() {
+		if strings.Contains(strings.ToLower(binding.Help), "web server") {
+			t.Errorf("%s (%s) still controls a web server", binding.ID, DisplayKey(binding))
 		}
 	}
 }

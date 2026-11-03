@@ -165,12 +165,6 @@ func (m Model) SetWebServer(port string) Model {
 	return m
 }
 
-// ClearWebServer removes the web server indicator from the status bar.
-func (m Model) ClearWebServer() Model {
-	m.webServerPort = ""
-	return m
-}
-
 // barPadding is the space at each end of the bar.
 const barPadding = 2
 

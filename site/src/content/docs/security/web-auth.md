@@ -65,5 +65,4 @@ Never open Legato's port to the internet. Anyone who reaches it and has the toke
 
 - **Use Tailscale** to reach Legato away from home. Only your own devices can connect, and Tailscale gives the machine a certificate browsers trust. See [Your phone and other devices](/legato/running/devices/#from-anywhere-with-tailscale).
 - **Turn on TLS** on any network you share. By default the web server speaks plain HTTP, and other devices on the network can read the token as it passes. Set `web.tls.enabled: true` for a certificate Legato makes itself, or `web.tls.cert` and `web.tls.key` for your own. See [HTTPS with Legato's own certificate](/legato/running/devices/#https-with-legatos-own-certificate).
-- **Use `web.enabled`, not `W`.** A web server started with `W` in the TUI does not check the token.
 - **Mind your agents.** An agent outside the [sandbox](/legato/security/sandbox/) runs as you and can read the token file. [Signed approvals](/legato/security/credential-broker/#signed-approvals) keep the decisions that matter most for a person at an enrolled phone or passkey, which a token alone cannot make.
