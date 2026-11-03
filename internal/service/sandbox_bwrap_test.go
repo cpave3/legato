@@ -257,3 +257,30 @@ func TestSkillsLinkedThroughAChainOfLinksAreReadableInside(t *testing.T) {
 		}
 	}
 }
+
+// A job clone is in Legato's data folder, which the sandbox covers when a
+// mount holds it (a resource of ~/.local/share, or a /home that is a
+// folder). The agent still starts in the clone, and the rest stays hidden.
+func TestAnAgentStartsInItsJobCloneWhenTheDataFolderIsCovered(t *testing.T) {
+	in := bwrapFixture(t)
+	clone := filepath.Join(in.DataDir, "jobs", "ex-1", "widget")
+	if err := os.MkdirAll(clone, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(clone, "main.go"), []byte("package main"), 0o600)
+	_ = os.WriteFile(filepath.Join(in.DataDir, "legato.db"), []byte("SQLite"), 0o600)
+	in.WorkDir, in.JobDir = clone, clone
+	in.Extra = []SandboxPath{{Path: filepath.Dir(in.DataDir), Access: "read"}}
+
+	out, err := runInSandbox(t, in, `pwd; [ -f main.go ] && echo clone-visible; [ -e `+in.DataDir+`/legato.db ] && echo DB-VISIBLE; true`)
+
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if !strings.Contains(out, clone) || !strings.Contains(out, "clone-visible") {
+		t.Errorf("the agent did not start in its clone:\n%s", out)
+	}
+	if strings.Contains(out, "DB-VISIBLE") {
+		t.Errorf("Legato's database is visible:\n%s", out)
+	}
+}

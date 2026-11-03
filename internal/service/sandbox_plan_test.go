@@ -440,3 +440,80 @@ func TestSccachesCacheIsMounted(t *testing.T) {
 		t.Fatalf("sccache's cache, which Rust builds in fresh clones share, = %+v, %v", got, ok)
 	}
 }
+
+// debianFS is a host whose /home is a folder, not a link (Ubuntu, Debian).
+func debianFS() fakeFS {
+	return fakeFS{
+		"/usr": "dir", "/etc": "dir", "/bin": "link:usr/bin", "/home": "dir", "/run/systemd/resolve": "dir",
+		"/home/me": "dir", "/home/me/.claude": "dir", "/home/me/.claude.json": "file",
+		"/home/me/.ssh": "dir", "/home/me/.config/gh": "dir", "/home/me/.gitconfig": "file", "/home/me/.local/bin": "dir",
+		"/home/me/.bash_history": "file", "/home/me/.local/share": "dir",
+		"/home/me/.config/legato": "dir", "/home/me/.local/share/legato": "dir",
+		"/home/me/.local/share/legato/claude-mod": "dir", "/home/me/.local/share/legato/repos": "dir",
+		"/home/me/.local/share/legato/jobs/ex-1/widget": "dir",
+	}
+}
+
+func debianInput() SandboxPlanInput {
+	return SandboxPlanInput{
+		Home: "/home/me", WorkDir: "/home/me/.local/share/legato/jobs/ex-1/widget", JobDir: "/home/me/.local/share/legato/jobs/ex-1/widget",
+		ExecutionID: "ex-1", TaskID: "t1", AgentKind: "claude-code",
+		RuntimeDir: "/run/user/1000/legato", DataDir: "/home/me/.local/share/legato", ConfigPath: "/home/me/.config/legato/config.yaml",
+		BinaryPath: "/home/me/.local/bin/legato", BrokerSocket: "/run/user/1000/legato/broker/broker.sock",
+		DefaultMounts: true, FS: debianFS(),
+	}
+}
+
+// The home folder starts empty: only what the plan lists is in it. A /home
+// that is a folder of the host is not mounted, or the whole home would be
+// seen under the empty one.
+func TestOnAHostWhoseHomeIsAFolderTheHomeStillStartsEmpty(t *testing.T) {
+	plan, err := BuildSandboxPlan(debianInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range plan.Mounts {
+		if (m.Kind == sandbox.ReadOnly || m.Kind == sandbox.ReadWrite) && m.Dest == "" && within(plan.Home, m.Path) {
+			t.Errorf("%s is mounted, which shows the whole home folder %s", m.Path, plan.Home)
+		}
+	}
+	if _, ok := mounted(plan)["/home/me/.claude"]; !ok {
+		t.Error("the agent tool's own state is not mounted")
+	}
+}
+
+// A folder that is hidden is covered after the mount that holds it, never
+// after one the sandbox must see inside it: the job clone the agent works
+// in, Legato's mod and its repository cache are all in the data folder.
+func TestACoverNeverHidesWhatTheSandboxMustSee(t *testing.T) {
+	in := debianInput()
+	in.Extra = []SandboxPath{{Path: "/home/me/.local/share", Access: "read"}} // a resource that holds the data folder
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hidden := false
+	for i, m := range plan.Mounts {
+		if m.Kind != sandbox.Hide && m.Kind != sandbox.HideDir {
+			continue
+		}
+		hidden = hidden || m.Path == in.DataDir
+		for _, earlier := range plan.Mounts[:i] {
+			dest := earlier.Dest
+			if dest == "" {
+				dest = earlier.Path
+			}
+			if earlier.Kind != sandbox.Hide && earlier.Kind != sandbox.HideDir && dest != m.Path && within(dest, m.Path) {
+				t.Errorf("%s is mounted, then hidden by the cover of %s", dest, m.Path)
+			}
+		}
+	}
+	if !hidden {
+		t.Fatal("the data folder, which the resource holds, is not hidden")
+	}
+	for _, want := range []string{in.JobDir, in.DataDir + "/claude-mod", in.DataDir + "/repos"} {
+		if _, ok := mounted(plan)[want]; !ok {
+			t.Errorf("%s is not mounted", want)
+		}
+	}
+}

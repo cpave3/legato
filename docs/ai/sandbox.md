@@ -19,7 +19,7 @@ Built by `service.BuildSandboxPlan` from the host's real paths (links resolved f
 
 | Seen | How |
 | --- | --- |
-| `/usr`, `/etc`, `/opt`, `/run/systemd/resolve`, and `/bin`, `/lib*`, `/home` as the same links as on the host | read-only |
+| `/usr`, `/etc`, `/opt`, `/run/systemd/resolve`, and `/bin`, `/lib*`, `/home` as the same links as on the host. A `/home` that is a folder (Ubuntu, Debian) is not mounted: it would show the whole home folder over the empty one | read-only |
 | The home folder | an empty, writable folder; only what is listed here is in it |
 | `/tmp` | the execution's own folder on the host, `<runtime>/legato/sandbox/<execution>/tmp`, so the host can read what an agent writes there |
 | The working directory, and a worktree's main `.git` | read-write |
@@ -40,7 +40,7 @@ Built by `service.BuildSandboxPlan` from the host's real paths (links resolved f
 
 A chain of links that passes through a forbidden path is left out, and the link stays broken.
 
-Never seen: Legato's configuration file and data folder, `~/.config/legato` (the 1Password token file), `~/.ssh`, `~/.config/gh`, `~/.gitconfig`, git credential stores, `~/.netrc`, `~/.1password`, `~/.config/op`, `~/.docker`, `~/.aws`, `~/.kube`, `~/.gnupg`, password stores and keyrings, `~/.npmrc`, `~/.pypirc`, `~/.yarnrc`, `~/.yarnrc.yml`, Gradle's `gradle.properties`, Maven's `settings.xml`, Composer's `auth.json`, the Docker and Podman sockets, and the person's runtime folder (`/run/user/<uid>`: the session bus, every Legato's IPC socket). A mount that is inside one of these is refused; one that holds one has it covered with an empty file or folder.
+Never seen: Legato's configuration file and data folder, `~/.config/legato` (the 1Password token file), `~/.ssh`, `~/.config/gh`, `~/.gitconfig`, git credential stores, `~/.netrc`, `~/.1password`, `~/.config/op`, `~/.docker`, `~/.aws`, `~/.kube`, `~/.gnupg`, password stores and keyrings, `~/.npmrc`, `~/.pypirc`, `~/.yarnrc`, `~/.yarnrc.yml`, Gradle's `gradle.properties`, Maven's `settings.xml`, Composer's `auth.json`, the Docker and Podman sockets, and the person's runtime folder (`/run/user/<uid>`: the session bus, every Legato's IPC socket). A mount that is inside one of these is refused; one that holds one has it covered with an empty file or folder. The covers come after the mounts that hold what they hide and before the mounts inside it that the sandbox may see (a job clone, `claude-mod`, `repos`, all in the data folder), which bwrap would otherwise cover in turn.
 
 The environment loses the variables secrets come from (`OP_SERVICE_ACCOUNT_TOKEN`, `GITHUB_TOKEN`, `GH_TOKEN` unless it is Legato's stand-in, the session bus, `TMUX`, `DOCKER_HOST`, cloud and registry tokens, …) and `SSH_AUTH_SOCK` unless it is the execution's own socket. It gains `LEGATO_SANDBOXED=1`, `TMPDIR=/tmp`, and the person's git name and address (read from `git config --global` at start), since `~/.gitconfig` is not there.
 

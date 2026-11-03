@@ -344,6 +344,12 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		mounts = append(mounts, sandbox.Mount{Kind: kind, Path: path})
 	}
 	for _, p := range systemPaths {
+		// The home folder starts empty. A /home that holds it is made again
+		// as the link it is on a host where it is one (var/home); a /home
+		// that is a folder is not mounted, or the whole home would show.
+		if within(in.Home, p) && in.FS.Probe(p).Link == "" {
+			continue
+		}
 		add(p, sandbox.ReadOnly)
 	}
 	mounts = append(mounts, sshConfigMounts(in)...)
@@ -442,13 +448,15 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		plan.Setenv["LEGATO_GH_REAL"] = gh.RealMount
 	}
 	mounts = append(mounts, linkTargetMounts(in, mounts, no)...)
-	// Hide each forbidden path that a mount above holds, after that mount.
+	// Hide each forbidden path that a mount above holds.
 	var hides []sandbox.Mount
+	seen := map[string]bool{}
 	for _, f := range no {
 		info := in.FS.Probe(f)
-		if !info.Exists || allowedInside(in, f) {
+		if !info.Exists || allowedInside(in, f) || seen[f] {
 			continue
 		}
+		seen[f] = true
 		for _, m := range mounts {
 			if m.Kind != sandbox.ReadOnly && m.Kind != sandbox.ReadWrite {
 				continue
@@ -463,7 +471,27 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			}
 		}
 	}
-	plan.Mounts = append(mounts, hides...)
+	// The covers go after the mounts that hold what they hide, and before
+	// any mount inside what they hide (the job clone, Legato's mod and its
+	// repository cache are in the data folder), which bwrap would otherwise
+	// cover in turn.
+	var before, inside []sandbox.Mount
+	for _, m := range mounts {
+		dest := m.Dest
+		if dest == "" {
+			dest = m.Path
+		}
+		covered := false
+		for _, h := range hides {
+			covered = covered || (dest != h.Path && within(dest, h.Path))
+		}
+		if covered {
+			inside = append(inside, m)
+		} else {
+			before = append(before, m)
+		}
+	}
+	plan.Mounts = append(append(before, hides...), inside...)
 	if in.GitIdentity[0] != "" {
 		plan.Setenv["GIT_AUTHOR_NAME"], plan.Setenv["GIT_COMMITTER_NAME"] = in.GitIdentity[0], in.GitIdentity[0]
 	}
