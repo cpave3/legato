@@ -967,6 +967,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			if sandboxed {
 				cmd = sandboxPrefix + " " + cmd
 			}
+			if truster, ok := adapter.(WorkspaceTrustAdapter); ok {
+				if err := truster.TrustWorkDir(launchEnv, workDir); err != nil {
+					log.Printf("trusting %s for %s: %v", workDir, taskID, err)
+				}
+			}
 			// Use SendKeysShellCommand because the receiver here is the
 			// freshly-spawned bash shell, not the AI tool. Bash with
 			// bracketed-paste mode treats a single text+Enter send-keys as

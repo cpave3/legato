@@ -166,6 +166,16 @@ adapters:
       - claude-haiku-5-5
 ```
 
+## Trusting the folder
+
+Claude Code asks whether to trust a folder the first time a session starts there. Legato answers for it: before it types the launch command, the agent service calls `TrustWorkDir` (`service.WorkspaceTrustAdapter`, implemented in `internal/engine/hooks/claude_trust.go`), which writes what accepting the dialog writes, `projects["<folder>"].hasTrustDialogAccepted: true`, into `~/.claude.json` (`<CLAUDE_CONFIG_DIR>/.claude.json` when the session or Legato sets that variable). This is not a documented interface of Claude Code; it is the value its dialog checks.
+
+- The key is the folder's real path, links resolved, which is what Claude Code sees as its working directory inside a sandbox or out.
+- Nothing is written when Claude Code would not ask: the folder, or a parent up to its git root (any parent outside git), is already trusted. A missing file stays missing: a Claude Code that never ran does its onboarding first.
+- Claude Code saves this file under a lock, the folder `<file>.lock` (proper-lockfile: `mkdir`, abandoned after 10 seconds without a refresh), and re-reads it under that lock before each save. Legato takes the same lock (waiting up to 5 seconds), so a running session's next save keeps the trust. It writes a new file and renames it over the old, as Claude Code does, through a link when the file is one, keeping its mode and every other setting.
+- A sandbox mounts `~/.claude.json` when bwrap starts, which is after the trust is written, so a sandboxed session sees it. See [Sandbox](sandbox.md).
+- A failure (a lock held too long, a file that is not JSON) is logged and the launch goes on; the session then asks, as before.
+
 ## Lifecycle and recovery
 
 - A bridge refuses to start when the task is already bound to a live endpoint, after giving that endpoint ten seconds to go: a session sent to the background starts its bridge while the old one is leaving.

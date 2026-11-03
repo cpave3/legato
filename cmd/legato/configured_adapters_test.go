@@ -280,3 +280,13 @@ func TestTheLaunchPromptNamesAVaultOfSSHKeys(t *testing.T) {
 		t.Fatalf("codex launch prompt names no vault")
 	}
 }
+
+func TestConfiguredAdaptersTrustTheFolderAClaudeSessionStartsIn(t *testing.T) {
+	cfg := &config.Config{DataDir: t.TempDir()}
+
+	_, adapters := configuredAdapters(cfg, "/opt/legato")
+
+	if _, ok := adapters["claude-code"].(service.WorkspaceTrustAdapter); !ok {
+		t.Fatal("Claude Code sessions would stop at the trust dialog")
+	}
+}

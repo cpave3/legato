@@ -24,7 +24,7 @@ Built by `service.BuildSandboxPlan` from the host's real paths (links resolved f
 | `/tmp` | the execution's own folder on the host, `<runtime>/legato/sandbox/<execution>/tmp`, so the host can read what an agent writes there |
 | The working directory, and a worktree's main `.git` | read-write |
 | A linked worktree's main checkout (the folder of its common `.git`), whose untracked files the worktree often links to (`local.settings.json`) | read-only, mounted before the worktree and the main `.git`, which stay writable |
-| The agent tool's own state (`~/.claude`, `~/.claude.json`, `~/.codex`, `~/.chimera`, …), so sessions are the same files inside and out and resume either way | read-write |
+| The agent tool's own state (`~/.claude`, `~/.claude.json`, `~/.codex`, `~/.chimera`, …), so sessions are the same files inside and out and resume either way. `~/.claude.json` is mounted as it is when bwrap starts, after Legato has trusted the working directory in it (see [Claude Code native integration](claude-code-native.md) § Trusting the folder) | read-write |
 | A state folder a variable moves elsewhere: `CLAUDE_CONFIG_DIR`, `CODEX_HOME` (the session's, such as a resumed session's storage folder, else the one Legato inherited) | read-write, made when missing; refused when inside a forbidden path |
 | The agent tool's installation (where its command's link leads, or the git checkout a launcher script runs, as for Chimera linked with `pnpm link`) | read-only, found when Legato starts; only the installation of the tool the agent runs (`ToolInstalls`, by agent kind), so a Claude Code agent does not see a Chimera checkout |
 | Toolchains (`~/.local/bin`, mise, `~/go/bin`, linuxbrew, Rust, Bun, …) | read-only, with `default_mounts` |

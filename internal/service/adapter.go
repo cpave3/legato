@@ -114,6 +114,16 @@ type PathGrantingAdapter interface {
 	PathGrantFlags(read, write []string) string
 }
 
+// WorkspaceTrustAdapter is an adapter whose tool asks the person to trust a
+// folder before it works there, as Claude Code does. The agent service calls
+// TrustWorkDir with the session's environment and working directory before it
+// types the launch command, so the tool starts without asking and a sandbox,
+// which mounts the tool's state as it is when it starts, sees the trust. An
+// error is logged and the launch goes on: the tool then asks, as before.
+type WorkspaceTrustAdapter interface {
+	TrustWorkDir(env map[string]string, dir string) error
+}
+
 // NativeBindingAdapter is an optional capability for adapters whose sessions
 // bind a native endpoint on their own shortly after launch (Claude Code, once
 // the Legato mod has started its bridge). The agent service then holds the
