@@ -245,6 +245,9 @@ func TestAnIdentityAgentInSSHConfigIsWarnedAbout(t *testing.T) {
 		if tc.warn && !strings.Contains(got, "~/.ssh/config") {
 			t.Errorf("%s: %q does not say what to change", name, got)
 		}
+		if tc.warn && !strings.Contains(got, "https://cpave3.github.io/legato/security/credentials-setup/") {
+			t.Errorf("%s: %q does not point at the guide to setting up credentials", name, got)
+		}
 	}
 	if got := sshAgentOverride(func([]string) ([]byte, error) { return nil, errors.New("no ssh") }); got != "" {
 		t.Errorf("no ssh: %q", got)

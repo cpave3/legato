@@ -1,8 +1,34 @@
-# Review handoff
+---
+title: Review handoff
+description: An optional packet of behaviour, decisions and evidence that an agent writes for a review.
+sidebar:
+  order: 65
+---
 
-Handoff is optional, AI-authored context for a normal review tour. It does not change `review ready`, review completion, or GitHub approval. Use **Diff review** for independent inspection and **Handoff** for behavior, decisions, evidence, and maintenance context.
+A review handoff is a briefing an agent writes about a change it made, to sit beside its [review tour](/legato/using/reviews/). The tour walks you through the diff. The review handoff tells you what the diff does not: how the behaviour changed and why, which decisions the agent made and what it rejected, what it checked and what it did not, where the risk is, and how to roll the change back. Every statement points at pinned lines of source, so you can check it.
 
-## Author workflow
+Use one for a change you will have to explain to someone else, or maintain later. You read it in the web UI, challenge what you doubt, keep your own notes on it, and export it as Markdown for a pull request or for maintenance notes.
+
+A review handoff is optional. It does not change whether the review is ready or complete, and it is not an approval on GitHub. The agent writes it; nothing in it is verified by Legato beyond the source it points at.
+
+## Reading a review handoff
+
+Open the tour in the web UI (`/review`) and switch from **Diff review** to **Handoff**. Use **Diff review** to inspect the change yourself, and **Handoff** for its behaviour, decisions, evidence and maintenance context.
+
+- **Overview.** Before and after, why, what the change does not try to do, the main decision and the alternative that was rejected, the highest risk, verification gaps, a question for the reviewer, and how to roll back. A field the agent did not know says so.
+- **Concepts.** Usually three to seven cards, in order of behaviour and risk. Each makes one claim and gives its flow, the invariant it keeps, how it fails, where to start when you change it, and links to source lines, checks and chapters.
+- **Reading route.** **Author / owner**, **GitHub reviewer**, **Maintainer** or **Colleague** reorders the cards for that reader. Routes never hide risks, checks or the coverage of the diff.
+- **Evidence.** Each check the agent reports, with its command, the commit it ran on, its outcome (`passed`, `failed` or `skipped`) and its limits. **No evidence attached** means the agent reported none. A reported check is the agent's report, not a run that Legato watched.
+- **Coverage.** Every file of the diff, as `behavior`, `tests`, `mechanical` or `uncategorized`. A file the agent did not classify is `uncategorized`, never left out.
+- **Revision history.** Earlier packets, with what changed between them. A packet older than the code is marked outdated.
+- **Challenge this claim.** Ask about a concept, or flag a change, through the tour's usual questions and findings.
+- **Optional practice.** Scenarios the agent wrote: a maintenance question with a hidden explanation. They are not graded.
+- **Your note.** Record your own readiness (**Ready to maintain**, **Need help** or **Deferred**), scenario answers and notes with **Save my note**. A note is a self-assessment kept on this Legato. It does not complete or approve the review.
+- **Export handoff brief.** Choose **GitHub review brief** or **Maintenance brief**, preview it, then copy or download the Markdown. Nothing is posted to GitHub.
+
+The rest of this page is for the agent that writes the packet, and for you when you want to know what it must contain.
+
+## Writing a review handoff
 
 1. Finish tests and make clean, meaningful commits. Workers do not commit or submit packets; the conductor owns this step. Do not change Git history to repair review metadata.
 2. Author chapters and source-linked narration, then run `legato review ready "Summary"`.
@@ -11,7 +37,7 @@ Handoff is optional, AI-authored context for a normal review tour. It does not c
 5. Submit with `legato review handoff submit --file packet.json`. For stdin, use `--file -`. Input is one strict JSON object, at most 256 KiB; unknown fields and trailing documents fail. Agent input cannot contain captured source text or human notes.
 6. Inspect the stored packet, select its exact ID, and preview an export before sharing it.
 
-All handoff commands accept `--task <id>` and `--name <name>`, with `LEGATO_TASK_ID` and `LEGATO_REVIEW_NAME` as fallbacks. Missing tours return an error; handoff inspection does not create a tour. Show and export read persisted data without scanning Git.
+All `legato review handoff` commands accept `--task <id>` and `--name <name>`, with `LEGATO_TASK_ID` and `LEGATO_REVIEW_NAME` as fallbacks. A command for a tour that does not exist fails; inspecting a review handoff never creates a tour. Show and export read persisted data without scanning Git.
 
 ## Complete runnable packet example
 
@@ -214,15 +240,15 @@ This second snippet is a template, not a claim that this test exists or ran. Rep
 
 `expected_revision` is the latest packet revision, or `0` for the first packet. A successful submit returns a new immutable packet ID and revision. Conflicting writes require a fresh read and deliberate re-authoring, not a blind retry.
 
-Changes to HEAD, pass, or chapter metadata/membership conservatively invalidate prior context. Run `legato review sync` to observe repository changes; ordinary GET/show/export do not continuously check Git. `checked_at` means the last successful observation, not proof that your repository is still unchanged. After further work, commit, ready the current review, inspect exact pass/base/head, and submit a new packet with the latest expected revision. Use `review restart` for a replacement pass where appropriate; old snapshots remain readable even when old chapter links are unavailable. Deleting the parent review deletes its handoff history.
+Changes to HEAD, pass, or chapter metadata/membership conservatively invalidate prior context. Run `legato review sync` to observe repository changes; viewing, `show` and `export` do not check Git. `checked_at` means the last successful observation, not proof that your repository is still unchanged. After further work, commit, ready the current review, inspect exact pass/base/head, and submit a new packet with the latest expected revision. Use `review restart` for a replacement pass where appropriate; old snapshots remain readable even when old chapter links are unavailable. Deleting the review tour deletes its review handoff history.
 
 New packets do not inherit human notes. Comparisons describe known snapshots, changed concepts/files, and evidence to recheck; when comparison is unsafe, do a full reread. A completed review is not itself evidence that a packet is current.
 
-## Human notes, challenge, and exports
+## Exports and your notes
 
-The web Handoff view offers owner, reviewer, maintainer, and colleague reading routes over the same content. Routes do not hide risks or uncategorized diff files. Use the existing question/finding flow to challenge a claim. Include packet and concept IDs; historical chapter links may no longer be usable.
+Use the tour's question and finding flow to challenge a claim, and include the packet and concept IDs; links to chapters of an earlier pass may no longer work.
 
-Optional scenario answers, skips, and readiness (`ready`, `need_help`, `deferred`, or empty) belong to a local-instance human note. They are not a quiz grade, verified identity, review approval, or merge gate. The authoring CLI has no human-note write command.
+Scenario answers, skips and readiness (`ready`, `need_help`, `deferred` or empty) belong to a human note kept on your Legato. They are not a quiz grade, a verified identity, a review approval or a merge gate. The authoring CLI cannot write them.
 
 ```bash
 legato review handoff export --packet <exact-id> --format github
@@ -231,18 +257,15 @@ legato review handoff export --packet <exact-id> --format maintenance \
 legato review handoff export --packet <exact-id> --format maintenance --include-notes --json
 ```
 
-No concept selection means all concepts. Unlinked check records are packet-level evidence and remain in every export, including failures. Linked evidence and scenarios follow the selected concepts. Source excerpts and personal notes are excluded unless explicitly selected. Text export writes Markdown to stdout; `--json` returns Markdown, filename, and warnings. Template returns the raw editable input JSON; show returns raw view JSON; submit returns the standard CLI success envelope containing the packet. Validation/conflict errors are structured CLI usage errors; missing tours/packets are not-found errors.
+- With no `--concept`, the export includes every concept.
+- Checks linked to no concept are evidence for the whole packet, and every export includes them, failures too. Linked checks and scenarios follow the concepts you select.
+- Source excerpts and personal notes are left out unless you ask for them (`--include-sources`, `--include-notes`).
+- The export writes Markdown to standard output; `--json` returns the Markdown, a file name and any warnings.
 
-Preview the brief before copying it into a GitHub PR description or context comment, or saving it as maintenance documentation. Export never posts, approves, commits, or changes GitHub. GitHub remains authoritative for discussion and verdicts. Exports are AI-authored snapshots, with exact base/head and an unverified-current-PR warning. Verify the current PR head/base yourself; do not imply that pinned blob links verify PR alignment. Static briefs do not update after a push.
+Preview the brief before you copy it into a pull request description or comment, or save it as maintenance notes. Export never posts, approves, commits or changes anything on GitHub; GitHub remains the place for discussion and verdicts. An export is an AI-authored snapshot of exact base and head commits, with a warning that it is not checked against the current pull request. Check the pull request's head and base yourself: links to pinned source do not prove that they match. A brief does not update after a push.
 
-**Privacy:** Never submit credentials, secrets, raw logs, unnecessary personal data, or private absolute paths. Do not select sensitive source excerpts. Preview every export, especially when including notes or sources. Automatic secret detection is not guaranteed. Local notes are private to the instance unless exported, not protected by per-person authentication; the shared API token is not a team-attestation system.
+:::caution[Privacy]
+Never submit credentials, secrets, raw logs, unnecessary personal data or private absolute paths. Do not select sensitive source excerpts. Preview every export, especially one with notes or sources. Legato does not detect secrets for you. Your notes stay on your Legato unless you export them, but they are not protected per person: anyone with the web UI's token can read and change them.
+:::
 
-## HTTP API
-
-Existing bearer-token authentication applies. Packet authoring is CLI-only; there is no HTTP ingestion route.
-
-- `GET /api/review/tours/{tour_id}/handoff` returns `{tour_id, checked_at, packets}` (newest first).
-- `POST /api/review/tours/{tour_id}/handoff/{packet_id}/note` replaces the human note. Example: `{"revision":0,"readiness":"need_help","body":"Check retry ordering","answers":{},"skipped":["next-push"]}`. Supply the previous note revision; success returns the incremented revision. Answers and skips cannot overlap.
-- `POST /api/review/tours/{tour_id}/handoff/export` returns `{markdown, filename, warnings}` for preview/download. Example: `{"packet_id":"EXACT_PACKET_ID","format":"github","concept_ids":["reading-route"],"include_sources":false,"include_notes":false}`.
-
-POST bodies are strict, bounded JSON objects. Errors are 400 for invalid input, 404 for missing records, 409 for stale writes, and 500 for internal failures. An instance without the optional handoff capability returns 503. Successful packet submission and note saves emit the existing `review_changed` event.
+Internals (the HTTP API, storage and freshness) are in [docs/ai/review-handoff.md](https://github.com/cpave3/legato/blob/main/docs/ai/review-handoff.md) on GitHub.

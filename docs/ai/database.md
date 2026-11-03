@@ -56,7 +56,7 @@ Migration 064 adds `agent_ui_item_revisions.images`: the image files one revisio
 
 ### Image files of plans and reviews
 
-Migration 065 adds an `images` column to `plan_revisions`, `plan_transcript`, `review_steps` and `review_transcript`: the image files that row's Markdown shows, as the service encodes them (the path the Markdown names, and the stored copy's file name). The column is empty for Markdown with no image files. The files are under `<data_dir>/plan-images/<plan-id>/` and `<data_dir>/review-images/<tour-id>/`, kept and removed by `PlanService` and `ReviewService`; `Store.ListPlanImageSets` and `ListReviewImageSets` list what is still named, for the sweep of what is not. A database from before plans or reviews has none of the four tables, and the migration then changes only those that exist. See [Collaborative plans](../plans.md) § Image files.
+Migration 065 adds an `images` column to `plan_revisions`, `plan_transcript`, `review_steps` and `review_transcript`: the image files that row's Markdown shows, as the service encodes them (the path the Markdown names, and the stored copy's file name). The column is empty for Markdown with no image files. The files are under `<data_dir>/plan-images/<plan-id>/` and `<data_dir>/review-images/<tour-id>/`, kept and removed by `PlanService` and `ReviewService`; `Store.ListPlanImageSets` and `ListReviewImageSets` list what is still named, for the sweep of what is not. A database from before plans or reviews has none of the four tables, and the migration then changes only those that exist. See [Plans](plans.md) § Image files.
 
 ### Approval requests
 

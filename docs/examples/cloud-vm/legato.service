@@ -6,7 +6,7 @@
 #   systemctl --user enable --now legato
 #   journalctl --user -u legato -f      # its log
 #
-# See docs/cloud-agents.md § 5.
+# See https://cpave3.github.io/legato/running/agent-server/ § 5.
 
 [Unit]
 Description=Legato

@@ -1,10 +1,17 @@
-# Agents on a server of their own
+---
+title: Agents on a server of their own
+description: Run Legato on an always-on machine, so agents work while your laptop is closed.
+sidebar:
+  order: 40
+---
 
 Legato can run on an always-on machine (a VM, a spare box) with nobody at its terminal. Agents work there while your laptop is closed: you start them from the web UI or the phone app, or by API, and you watch and answer them from either. This guide sets one up.
 
-The steps are written from Legato's code and have not yet been run end to end on a fresh VM (task 1.8 of `openspec/changes/sandboxed-cloud-agents`). Where a step is wrong, fix it here.
+:::caution
+These steps are written from Legato's code, and nobody has yet run them end to end on a fresh VM. If a step is wrong, [open an issue](https://github.com/cpave3/legato/issues) or edit this page.
+:::
 
-A complete example of the files this guide makes is in [`examples/cloud-vm/`](examples/cloud-vm/): `config.yaml`, `legato.service` and `env.example`. A test loads the configuration, so it stays valid.
+A complete example of the files this guide makes is in [`docs/examples/cloud-vm/`](https://github.com/cpave3/legato/tree/main/docs/examples/cloud-vm): `config.yaml`, `legato.service` and `env.example`. A test loads that configuration, so it stays valid.
 
 ## What protects what
 
@@ -12,8 +19,8 @@ There are two ways to keep agents on the server from doing harm, and you can use
 
 | | The VM is the boundary | Legato's sandbox |
 | --- | --- | --- |
-| What an agent can reach | Everything the VM's user can: its files, its tokens | Its work, its tool's login, and Legato's sockets for it (see [Sandbox](ai/sandbox.md)) |
-| GitHub | A fine-grained token on the VM, narrowed to the repositories agents work on, plus branch protection | A GitHub App credential: read tokens, and pushes Legato checks branch by branch (see [Setting up credentials](credentials.md) § 5. GitHub) |
+| What an agent can reach | Everything the VM's user can: its files, its tokens | Its work, its tool's login, and Legato's sockets for it (see [Sandbox](/legato/security/sandbox/)) |
+| GitHub | A fine-grained token on the VM, narrowed to the repositories agents work on, plus branch protection | A GitHub App credential: read tokens, and pushes Legato checks branch by branch (see [Setting up credentials](/legato/security/credentials-setup/) § 5. GitHub) |
 | Permission prompts | Off: agents run with their tools' skip-permission flags | Can stay off too; the sandbox and the credential rules are the check |
 | Setup | Short | Needs bubblewrap and a GitHub App |
 
@@ -23,7 +30,7 @@ Start with the VM as the boundary: give the VM nothing you would mind an agent u
 
 - Any Linux with a user of its own for Legato (`agent` below). Put nothing on it that is not for agents: no personal SSH keys, no browser logins, no cloud credentials.
 - Install `tmux`, `git`, the agent tools you want (`claude`, `codex`, `chimera`), and the toolchains your projects build with.
-- Install `legato` from the latest release, which keeps itself up to date (see § 5 and [Releases and updates](ai/updates.md)):
+- Install `legato` from the latest release, which keeps itself up to date (see § 5 and [Releases and updates](/legato/running/updates/)):
 
   ```bash
   mkdir -p ~/.local/bin
@@ -100,7 +107,7 @@ notifications:
 
 Then, once: `legato columns sync`. A database with no columns has nowhere to put a task.
 
-A clone Legato makes for an agent is set up before the agent starts, from the repository's own `.legato.toml` (or its `.yggdrasil.toml`'s `post_create` hooks): its dependencies installed in the agent's sandbox, with the package caches the sandbox shares. Files a repository copies or links from its main checkout (`.env.local`) come from the repository's `primary_dir`, which a worker usually has none of; give agents such files another way (a resource, or a credential). See [Configuration](ai/config.md) § Setting up a fresh clone.
+A clone Legato makes for an agent is set up before the agent starts, from the repository's own `.legato.toml` (or its `.yggdrasil.toml`'s `post_create` hooks): its dependencies installed in the agent's sandbox, with the package caches the sandbox shares. Files a repository copies or links from its main checkout (`.env.local`) come from the repository's `primary_dir`, which a worker usually has none of; give agents such files another way (a resource, or a credential). See [Configuration](/legato/reference/configuration/) § Setting up a fresh clone.
 
 The skip-permission flags are what let agents work while nobody watches. Use them only where the VM, or the sandbox, is the boundary. Leave them out and every permission request waits for you in the web UI, the phone app and ntfy.
 
@@ -141,7 +148,7 @@ journalctl --user -u legato -f        # its log
 
 ### Updates
 
-A release of Legato updates itself. Settings › Updates chooses how: **Ask** (the default) shows a bar and an Attention item with **Update and restart**; **Automatic** installs a new release once no agent is in the middle of a turn (after three hours, whatever they are doing); **Off** never looks. An update replaces `~/.local/bin/legato` (the old one is kept as `legato.prev`) and Legato exits with status 75, which this unit starts again. `KillMode=process` keeps tmux and the agents running across it. See [Releases and updates](ai/updates.md).
+A release of Legato updates itself. Settings › Updates chooses how: **Ask** (the default) shows a bar and an Attention item with **Update and restart**; **Automatic** installs a new release once no agent is in the middle of a turn (after three hours, whatever they are doing); **Off** never looks. An update replaces `~/.local/bin/legato` (the old one is kept as `legato.prev`) and Legato exits with status 75, which this unit starts again. `KillMode=process` keeps tmux and the agents running across it. See [Releases and updates](/legato/running/updates/).
 
 ## 6. GitHub
 
@@ -162,7 +169,7 @@ Give Legato's own pull request tracking the same token with `github.auth: gh` (t
 
 ### With Legato's sandbox
 
-Turn the sandbox on (`agents.sandbox.enabled: true`) and give agents GitHub through a GitHub App instead of a token on the VM: [Setting up credentials on a host](credentials.md) § 5. GitHub. Agents then get read tokens for the listed repositories, push only branches the rules allow, and never hold the App's key. Remove the personal token from the VM (`gh auth logout`) so nothing on it outranks the credential.
+Turn the sandbox on (`agents.sandbox.enabled: true`) and give agents GitHub through a GitHub App instead of a token on the VM: [Setting up credentials on a host](/legato/security/credentials-setup/) § 5. GitHub. Agents then get read tokens for the listed repositories, push only branches the rules allow, and never hold the App's key. Remove the personal token from the VM (`gh auth logout`) so nothing on it outranks the credential.
 
 With the sandbox on, the skip-permission flags in step 4 are reasonable: an agent cannot read the VM's other files or Legato's state, and every push and credential use goes through Legato's rules.
 
@@ -205,7 +212,7 @@ curl -sS -X POST "$SERVER/api/agents/spawn" \
        "repo": "cpave3/legato", "prompt": "Find why TestSync is flaky."}'
 ```
 
-- `legato-job` takes `prompt` (required), `agent` (a configured agent tool; another name is refused before anything starts), and either `repo` (with `ref`, a branch, tag or commit; the default branch when empty) or `working_dir`. With `repo`, the agent works in a fresh clone of the repository made for it, from Legato's cache (`repository_cache.max_age`, 5 minutes by default), so every job starts from the current base and never from another job's leftovers. This needs the GitHub App credential (step 6) listing the repository. See [Workflows](workflows.md) § The agent job workflow.
+- `legato-job` takes `prompt` (required), `agent` (a configured agent tool; another name is refused before anything starts), and either `repo` (with `ref`, a branch, tag or commit; the default branch when empty) or `working_dir`. With `repo`, the agent works in a fresh clone of the repository made for it, from Legato's cache (`repository_cache.max_age`, 5 minutes by default), so every job starts from the current base and never from another job's leftovers. This needs the GitHub App credential (step 6) listing the repository. See [Workflows](/legato/using/workflows/) § The agent job workflow.
 - `POST /api/agents/spawn` and `POST /api/tasks/{id}/agent` take `repo` and `ref` the same way, instead of `working_dir`, or `clone_id` (from `GET $SERVER/api/job-clones`) to work in a clone that exists, with `branch` for a new branch stacked there.
 - `GET $SERVER/api/workflow-runs?workflow_name=legato-job` lists the jobs; `GET $SERVER/api/workflow-runs/<run id>` shows one, with the agent's `summary` once it has reported.
 - From a script on the VM itself: `legato workflow run legato-job --input prompt="…" --input repo=cpave3/legato --json`.

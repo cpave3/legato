@@ -2,7 +2,9 @@
 #
 # Copy to ~/.config/legato/config.yaml on the VM, as the user Legato runs as
 # (`agent` here), and change what is marked CHANGE. The walk-through is
-# docs/cloud-agents.md; this file is its steps 4 to 6 in one place.
+# https://cpave3.github.io/legato/running/agent-server/ (in the repository,
+# site/src/content/docs/running/agent-server.md); this file is its steps 4 to
+# 6 in one place.
 #
 # Before the first start:
 #   legato secret add github-app --type keypair --from <app>.private-key.pem
@@ -14,7 +16,7 @@ web:
   # The address on your tailnet; notification links open it.
   public_url: https://legato-vm.example.ts.net:3080   # CHANGE
   tls:
-    # From `tailscale cert`; see docs/cloud-agents.md § 2.
+    # From `tailscale cert`; see the walk-through's step 2.
     cert: /home/agent/.config/legato/tls.crt
     key: /home/agent/.config/legato/tls.key
 
@@ -48,7 +50,8 @@ repositories:
     base_branch: main
 
 credentials:
-  # A GitHub App of your own (docs/credentials.md § 5): read tokens for
+  # A GitHub App of your own (step 5 of
+  # https://cpave3.github.io/legato/security/credentials-setup/): read tokens for
   # clones and fetches, pushes checked branch by branch. Agents may push
   # legato/** after you allow it once a session, never the default branch.
   - name: github

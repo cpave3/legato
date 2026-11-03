@@ -405,7 +405,7 @@ func sshAgentOverride(sshG func(env []string) ([]byte, error)) string {
 		if value == "SSH_AUTH_SOCK" || value == "$SSH_AUTH_SOCK" || value == "${SSH_AUTH_SOCK}" {
 			return ""
 		}
-		return fmt.Sprintf("ssh is configured to use the agent %s for every host (IdentityAgent), so agents' ssh logins skip Legato's SSH agent. In ~/.ssh/config, set it only outside agent sessions: Match exec \"test -z \\\"$LEGATO_EXECUTION_ID\\\"\" then IdentityAgent %s (see docs/credentials.md)", value, value)
+		return fmt.Sprintf("ssh is configured to use the agent %s for every host (IdentityAgent), so agents' ssh logins skip Legato's SSH agent. In ~/.ssh/config, set it only outside agent sessions: Match exec \"test -z \\\"$LEGATO_EXECUTION_ID\\\"\" then IdentityAgent %s (see https://cpave3.github.io/legato/security/credentials-setup/)", value, value)
 	}
 	return ""
 }

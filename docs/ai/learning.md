@@ -106,7 +106,7 @@ The curator is a normal workflow agent. It completes its `agent.run` contract wi
 legato workflow step complete --output operations='<schema-versioned JSON>' --json
 ```
 
-The critic completes the same output contract after reviewing that draft. Only the critic output is followed by the deterministic `learning.proposals.submit` executor. See [workflows](../workflows.md) for the general callback contract.
+The critic completes the same output contract after reviewing that draft. Only the critic output is followed by the deterministic `learning.proposals.submit` executor. See [Workflows](../../site/src/content/docs/using/workflows.md) § Agent completion for the general callback contract, and [Workflows internals](workflows.md).
 
 ## Configuration and opt-in behavior
 

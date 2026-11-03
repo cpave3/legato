@@ -1,6 +1,11 @@
-# Setting up credentials on a host
+---
+title: Set up credentials on a host
+description: Give agents an SSH key and API keys that they use without holding them, step by step.
+sidebar:
+  order: 10
+---
 
-How to give Legato's agents an SSH key and API keys on a new machine, so that agents use them without holding them, and you approve their use from the web UI, the TUI or your phone. Do the steps in order. What each part does, and the reference for every setting, is in [Credentials](ai/credentials.md).
+How to give Legato's agents an SSH key and API keys on a new machine, so that agents use them without holding them, and you approve their use from the web UI, the TUI or your phone. Do the steps in order. What each part does is in [How credentials reach agents](/legato/security/credential-broker/), and every setting is in the [configuration reference](/legato/reference/configuration/).
 
 | What | Where it lives | Agents get |
 | --- | --- | --- |
@@ -170,4 +175,4 @@ In a sandboxed Chimera session (`--sandbox`), `ssh` fails before it connects wit
 
 ## What this does not stop
 
-Outside the agent sandbox (not built yet), an agent runs as you. It can read `~/.config/legato/op-token`, the configuration, `~/.ssh`, and `~/.1password/agent.sock`, and it can push with your own `gh` login or SSH key by undoing the session's git settings. These steps make the approved way the one agents use and are told to use, and they record every use; they do not make the other ways impossible.
+An agent that runs outside the [sandbox](/legato/security/sandbox/) runs as you. It can read `~/.config/legato/op-token`, the configuration, `~/.ssh`, and `~/.1password/agent.sock`, and it can push with your own `gh` login or SSH key by undoing the session's git settings. These steps make the approved way the one agents use and are told to use, and they record every use; they do not make the other ways impossible. Turn on the sandbox (`agents.sandbox.enabled: true`) to hide those files from agents.

@@ -19,7 +19,8 @@ import (
 
 // exitRestart is the exit status of `legato serve` shutting down to start
 // again on an update. systemd's Restart=on-failure starts it again, and so
-// does RestartForceExitStatus=75 with any Restart= (docs/cloud-agents.md).
+// does RestartForceExitStatus=75 with any Restart=
+// (site/src/content/docs/running/agent-server.md).
 const exitRestart = 75
 
 // restartRequested is set once an update asked `legato serve` to exit for a

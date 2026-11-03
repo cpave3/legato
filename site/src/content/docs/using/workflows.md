@@ -1,6 +1,13 @@
-# Workflows
+---
+title: Workflows
+description: Reusable recipes of Legato steps and agent assignments, with typed inputs, outputs and artifacts.
+sidebar:
+  order: 70
+---
 
-Workflows are reusable, ordered recipes that combine deterministic Legato operations with agent assignments. Each run records typed inputs, step progress, attempts, outputs, artifacts, and associated agent sessions.
+A workflow is a recipe you write once in YAML and run many times: a list of steps that Legato carries out in order. Some steps are fixed operations, such as checking out a pull request, moving a task or adding a note to it. Others hand an assignment to an agent and wait for it to report its results. Use a workflow for work you repeat, such as reviewing a pull request or triaging a new task, so that every run is done the same way and leaves a record.
+
+Each run keeps its inputs, the progress of every step, each attempt, the outputs and files the steps produced, and the agents that worked on it. You start a run from the command line, the web UI or a board card, or let Legato start it when a task enters a column.
 
 ## Definition locations
 
@@ -13,27 +20,28 @@ Legato also reads `~/.legato/workflows` for compatibility. Precedence is legacy 
 
 ## Repository presets
 
-Frequently used repository/path pairs can be configured once and selected from web workflow and agent launch forms:
+Repositories you use often can be configured once, and then chosen in the web UI's workflow and agent forms:
 
 ```yaml
-workflows:
-  repositories:
-    - name: Legato
-      repo: cpave3/legato
-      primary_dir: /home/cameron/Projects/legato
-      base_branch: main
+repositories:
+  - name: Legato
+    repo: cpave3/legato
+    primary_dir: /home/cameron/Projects/legato
+    base_branch: main
 ```
 
-For legacy workflows, the preset control appears when a definition declares at least one of `repo`, `primary_dir`, or `base_branch`, and prefills only those fields. New workflows can declare one typed `repository` input instead. It accepts an existing preset name or Custom values (`repo`, `primary_dir`, and optional `base_branch`) and exposes the resolved snapshot as `${{ workflow.inputs.repository.* }}`.
+You can also add repositories in the web UI, under Settings › Agents › Repositories. An older configuration may list them under `workflows.repositories`; Legato reads that list only when the top-level `repositories` list is absent. See the [configuration reference](/legato/reference/configuration/).
 
-The web dialogs for spawning an ephemeral agent or opening an agent for an existing task also list these presets. Selecting one copies its `primary_dir` into the working-directory field. The field remains editable, and a manual edit switches the selector to **Custom** without discarding the entered path.
+For older workflows, the preset control appears when a definition declares at least one of `repo`, `primary_dir`, or `base_branch`, and fills in only those fields. New workflows can declare one typed `repository` input instead. It accepts an existing preset name or Custom values (`repo`, `primary_dir`, and optional `base_branch`) and exposes the resolved snapshot as `${{ workflow.inputs.repository.* }}`.
+
+The web dialogs for spawning an agent, or opening an agent for an existing task, offer each preset that has a `primary_dir` as a tile beside the directories you saved. Picking one puts its folder in the path field, which you can still edit.
 
 ## Schema version 1
 
 Version 1 executes steps in declaration order and supports these executors:
 
 - `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
-- `agent.run`: launch a workflow-owned Legato agent with an explicit assignment and completion contract. Set `with.name` to customize the agent's visible name; workflow input references are supported. The agent is removed after completing its step, unless `with.keep_agent: true`: then its outputs are collected and the run moves on as usual, but the agent keeps running on the workflow task, for the person to go on talking to. Follow it with a step with `trigger: agent_ended` to end the run (and remove a worktree) when that agent ends.
+- `agent.run`: launch a workflow-owned Legato agent with an explicit assignment and completion contract. Set `with.name` to customize the agent's visible name; workflow input references are supported. The agent is removed after completing its step, unless `with.keep_agent: true`: then its outputs are collected and the run moves on as usual, but the agent keeps running on the workflow task, for you to go on talking to. Follow it with a step with `trigger: agent_ended` to end the run (and remove a worktree) when that agent ends.
 - `agent.dispatch`: send a prompt to the selected task's ordinary durable agent, or spawn that task-linked agent in `with.working_dir` when none is active. The workflow does not own or tear down this session. Outputs include `agent_session_id`, `created`, and `working_dir`.
 - `agent.stop`: idempotently stop the active agent for the resolved `with.task`. Built-in Learn does not use it because interviews borrow the original task session; curator and critic agents run under the separate generated workflow task.
 - `worktree.remove`: validate and remove the shared task's worktree through Yggdrasil, then clear task metadata.
@@ -43,9 +51,9 @@ Version 1 executes steps in declaration order and supports these executors:
 - `task.working_dir.resolve`: choose a selected task's linked worktree when present, otherwise use the required `with.fallback` repository path. Outputs are `path` and `source` (`worktree` or `repository`).
 - `task.note`: add Markdown to a selected task. Pass a resolved `task` input plus either inline `body` or a managed/file `body_path`. Notes are stored locally in Legato and shown in task detail, including for provider-backed tasks; they are not published to Jira.
 - `task.metadata.set`: atomically set one or more dotted local metadata paths on a task. Provider sync preserves this metadata.
-- `task.move`: move the required structured `with.task` to the required non-empty, exact case-sensitive configured column named by `with.column`. A real move appends the task to the end of that column and uses normal transitions, events, and column-entry triggers; use trigger conditions to avoid authoring loops. Moving to the current column is an idempotent local no-op with no new transition or event. In a configured provider runtime, `PushMove` may still queue the mapped Jira transition so a previously failed remote push can recover; workflow success confirms local persistence and queueing, not remote completion.
+- `task.move`: move the required structured `with.task` to the required non-empty, exact case-sensitive configured column named by `with.column`. A real move appends the task to the end of that column and uses normal transitions, events, and column-entry triggers; use trigger conditions to avoid authoring loops. Moving to the current column is an idempotent local no-op with no new transition or event. With a ticket provider such as Jira configured, Legato may still queue the mapped Jira transition, so a remote push that failed earlier can recover. A successful step means the move is saved locally and queued, not that Jira has accepted it.
 - `repo.ensure`: prepare what a job works in. With an empty `with.repo` it does nothing and outputs `working_dir` as given in `with.working_dir`. With a repository (`owner/name`) it makes Legato's cache of it ready (cloning or fetching with the `github` credential, so a repository Legato cannot read fails here) and outputs `repo`, `ref` and `branch` for the agent step; giving both `repo` and `working_dir` is refused. `agent.run` with `with.repo` (and `with.ref`, `with.branch`) starts its agent in a fresh clone made for the agent's execution, on its own branch.
-- Built-in Learn definitions additionally own `agent.interview`, `learning.packet.prepare`, and `learning.proposals.submit`. They are internal orchestration contracts rather than general-purpose user workflow examples; see [Legato Learn](ai/learning.md).
+- Built-in Learn definitions additionally own `agent.interview`, `learning.packet.prepare`, and `learning.proposals.submit`. They are internal orchestration contracts rather than general-purpose user workflow examples; see [Legato Learn](/legato/using/learn/).
 
 Task inputs expose `${{ workflow.inputs.task.metadata.<path> }}`. Metadata is arbitrary JSON, local to Legato, and separate from provider-owned `remote_meta`. `${{ workflow.inputs.task.description }}` is effective Markdown: local tasks receive their description unchanged, while provider-backed tasks receive provider Markdown followed by editable local content under `## Legato details`.
 
@@ -64,7 +72,7 @@ Workflow definitions do not support `notify_on_complete`. Successful runs remain
 
 ### Run from a board card
 
-Press `c` on a selected TUI board card, or right-click a web board card, and choose a workflow from the Workflows flyout to list definitions with exactly one `task` input. The web flyout scrolls independently and flips around viewport edges; web cards also expose an action button for keyboard, touch, and assistive-technology access. The input key can have any name and receives the selected card automatically. Definitions with zero task inputs are unrelated to the card, while definitions with multiple task inputs are ambiguous, so neither is shown. Column-entry triggers do not exclude an otherwise eligible workflow.
+Press `c` on a selected TUI board card, or right-click a web board card, and open **Workflows** to list the definitions with exactly one `task` input. On a web card you can also use its action button, from the keyboard or on a touch screen. The input key can have any name and receives the selected card automatically. Definitions with zero task inputs are unrelated to the card, while definitions with multiple task inputs are ambiguous, so neither is shown. Column-entry triggers do not exclude an otherwise eligible workflow.
 
 Declared defaults and unambiguous repository context are prefilled. The form collects remaining string, integer, boolean, JSON, and repository values, honors choices, masks secret values, and leaves validation to the normal workflow start path. Discovery and launch failures remain visible in the menu/form for correction.
 
@@ -277,20 +285,22 @@ Legato ships one workflow of its own, `legato-job`: one agent on one prompt, wit
 | Input | Required | Meaning |
 | --- | --- | --- |
 | `prompt` | yes | What the agent is asked to do |
-| `agent` | no | The agent tool (`claude-code`, `codex`, `chimera`); the default adapter when empty. A name that is not a configured adapter is refused when the run starts, and no run is created |
-| `working_dir` | no | The directory the agent works in; the agent service's default when empty |
+| `agent` | no | The agent tool (`claude-code`, `codex`, `chimera`); the default agent tool when empty. A name that is not a configured agent tool is refused when the run starts, and no run is created |
+| `working_dir` | no | The directory the agent works in; Legato's default directory for agents when empty |
 | `repo`, `ref`, `branch` | no | A GitHub repository (`owner/name`), the branch, tag or commit the job starts from (the default branch when empty), and the branch it works on (`legato/<task id>` when empty, which the GitHub credential lets agents push; GitHub's branch of that name is checked out when it exists). The agent works in a fresh clone made for it at `<data_dir>/jobs/<execution>/<name>`, which borrows the objects of Legato's cache of the repository; give this or `working_dir`, not both. Needs a `github` credential that lists the repository |
 
-A job's clone is kept for `repository_cache.keep_idle` (7 days) after an agent last worked in it, so the task's next agent, or the next part of a stack, can work in it again; then it is removed if every branch in it is pushed; one with commits that were never pushed is kept for seven days, with a note on the task that says where it is and when it goes. The process that serves the broker checks every five minutes.
+A job's clone is kept for `repository_cache.keep_idle` (7 days) after an agent last worked in it, so the task's next agent, or the next part of a stack, can work in it again; then it is removed if every branch in it is pushed; one with commits that were never pushed is kept for seven days, with a note on the task that says where it is and when it goes. Legato checks for such clones every five minutes.
 
-It runs `repo.ensure`, then `agent.run` with `keep_agent: true`: the agent completes the step with a `summary` output and stays running, so the person can read its answer in the native panel and go on talking to it. Start it like any workflow:
+It runs `repo.ensure`, then `agent.run` with `keep_agent: true`: the agent completes the step with a `summary` output and stays running, so you can read its answer in the native panel and go on talking to it. Start it like any workflow:
 
 ```bash
 legato workflow run legato-job --input prompt="Find why the sync test is flaky" --input working_dir=/srv/legato --json
-curl -X POST -H "Authorization: Bearer $TOKEN" -d '{"inputs":{"prompt":"Find why the sync test is flaky","repo":"cpave3/legato"}}' https://server:3080/api/workflows/legato-job/runs
+legato workflow run legato-job --input prompt="Find why the sync test is flaky" --input repo=cpave3/legato --json
 ```
 
-The check on `agent` applies to every workflow: an `agent.run` step whose `agent` is known from the inputs alone and names no configured adapter is refused at start (`WorkflowService.SetAgentKinds`).
+Another program can start it through the web server's API too; see the internals linked at the foot of this page.
+
+The check on `agent` applies to every workflow: an `agent.run` step whose `agent` is known from the inputs alone and names no configured agent tool is refused when the run starts.
 
 ## Running and inspecting
 
@@ -310,7 +320,11 @@ legato workflow cancel <run-id> --json
 
 For a `worktree.remove` step, `--force` forwards Yggdrasil's force option and discards uncommitted worktree changes. It can be selected when first triggering a manual removal or when retrying a failed removal; other step types reject it.
 
-A run creates one shared local execution task in the automatically managed **Workflows** workspace. The default **All** workspace view excludes these tasks; select **Workflows** explicitly to inspect active runs. `${{ workflow.task }}` and `LEGATO_TASK_ID` expose this task for explicit references or nonstandard operations; they do not replace normal lifecycle handling. When the run succeeds, the execution task moves to **Done** and is archived immediately; failed or cancelled runs remain active in their current column for intervention. When a workflow accepts a `task` input, the selected target is stored separately as `related_task_id`; agent sessions continue to use the execution task so an existing task's active agent session is not replaced. Deterministic steps execute synchronously until an agent step starts. The run then advances when that agent explicitly completes or fails its step.
+Each run makes one task of its own, the execution task, in the **Workflows** workspace, which Legato manages. The **All** view of the board leaves these tasks out; switch to the **Workflows** workspace to see the runs in progress. When a run succeeds, its execution task moves to **Done** and is archived at once. A run that failed or was cancelled stays in its column, for you to deal with.
+
+The execution task is where the run's agents work, and `${{ workflow.task }}` and `LEGATO_TASK_ID` name it. When a workflow takes a `task` input, the task you chose is the run's subject, recorded beside the run; the run's agents still work on the execution task, so an agent already running on your task is not replaced. The run shows on that task's detail.
+
+Fixed steps run one after another until a step hands work to an agent. The run moves on when that agent reports that it completed or failed its step.
 
 ## Agent completion
 
@@ -340,7 +354,7 @@ Report an unrecoverable failure:
 legato workflow step fail "review tool unavailable" --json
 ```
 
-Agent or tmux exit alone never means success. Missing or invalid outputs leave the step incomplete or failed. Learn's borrowed-agent interview follows the same rule through `legato learn reflection submit`, which persists the typed reflection before completing its exact waiting attempt; see [Legato Learn](ai/learning.md). Completion is persisted and downstream steps are advanced before Legato removes the completed agent session, because the callback may be running inside that session. Managed artifact collection is replay-safe: rerunning an interrupted completion callback reuses an existing `(attempt, output)` artifact only when its source path and digest still match; changed content is rejected.
+An agent that exits, or whose terminal closes, has not succeeded: only `legato workflow step complete` completes a step. Missing or invalid outputs leave the step incomplete or failed. Learn's interview follows the same rule through `legato learn reflection submit`; see [Legato Learn](/legato/using/learn/). Legato saves the outputs and moves the run on before it removes the agent. If a completion is interrupted and the agent runs the command again, a file that has not changed is accepted again, and a file that changed is refused.
 
 ## Artifacts and security
 
@@ -364,12 +378,12 @@ The **Workflows** destination includes:
 - retry and cancellation controls;
 - manual-step actions, including an expected-path confirmation before Yggdrasil worktree removal.
 
-Board task detail also shows related workflow runs and their downloadable managed artifacts when the run selected that task through a `task` input.
+A board task's detail also shows the runs that took it as their `task` input, with the files they produced to download.
 
-External clients can query `GET /api/workflow-runs` with optional `status`, `workflow_name`, `limit` (1–100), and `input.<name>=<value>` parameters. Multiple input filters are ANDed and compare normalized scalar JSON values, so numeric and boolean workflow inputs can be supplied as query text. Results remain newest-first. Input names that cannot be represented safely as a direct JSON object key, repeated singleton or input values, empty input values, and out-of-range limits return `400` rather than silently broadening the query.
+Runs update on the page as they progress. When the agent of an unfinished `agent.run` step stops to wait for you, goes idle or disappears, the step is marked as needing attention: the Workflows item in the navigation shows a red count, the run's card says why it stalled, and the run page offers **Prompt to continue** while the agent is still running. Legato never prompts the agent by itself, so it cannot start the same work twice.
 
-Run views update through targeted `workflow_changed` events. When an agent activity transition belongs to an active `agent.run` attempt, the server resolves its task to the persisted run/step identity and emits that targeted event; unrelated `agents_changed` events do not reload workflow runs or definitions. An unfinished `agent.run` step is marked as needing attention when its session becomes waiting, idle, or disappears. The Workflows navigation item gets its red count from the lightweight navigation summary, run cards explain the stall, and the run page offers **Prompt to continue** for a live stalled agent. Definitions and runs are lazy tabs and only the visible tab loads. Legato does not prompt automatically, avoiding duplicate or unsafe agent work. Mobile layouts use stacked step cards, contained JSON/code scrolling, touch-sized actions, and safe-area navigation spacing.
+## Limits
 
-## Extension model
+Schema version 1 runs steps one after another. It has no branching graphs of steps, no parallel steps, no schedules, no shell plugins, no approval gates beyond manual steps, and no steps that publish to outside services.
 
-Workflow persistence and UI are executor-neutral. Future deterministic executors can implement the service executor contract and render type-specific details without replacing runs, steps, attempts, outputs, or artifacts. DAGs, parallel execution, schedules, shell plugins, approval gates, and native external publishers are not part of schema version 1.
+Internals (the HTTP API, how runs and artifacts are stored, how the web UI is kept up to date) are in [docs/ai/workflows.md](https://github.com/cpave3/legato/blob/main/docs/ai/workflows.md) on GitHub.

@@ -21,7 +21,7 @@ Repositories can also be added in the web UI (Settings › Agents › Repositori
 - `primary_dir`: absolute path to the primary local checkout.
 - `base_branch`: optional default branch.
 
-A repository with no `primary_dir` is checked out fresh for each job: `legato-job` (and its workflow preset) and `repo` on the spawn endpoints make a clone of it from Legato's repository cache, which needs a `github` credential that lists it (see [Agents on a server of their own](../cloud-agents.md)). On a server, list repositories this way; on a desktop where you keep your own checkout, give `primary_dir`.
+A repository with no `primary_dir` is checked out fresh for each job: `legato-job` (and its workflow preset) and `repo` on the spawn endpoints make a clone of it from Legato's repository cache, which needs a `github` credential that lists it (see [Agents on a server of their own](../../site/src/content/docs/running/agent-server.md)). On a server, list repositories this way; on a desktop where you keep your own checkout, give `primary_dir`.
 
 A repository with a `primary_dir` is also a directory preset of the spawn dialogs (the TUI's overlay and the web UI's **Spawn agent**), listed there ahead of the directories the person saved from those dialogs. Saved directories are kept in the database, not in this file.
 

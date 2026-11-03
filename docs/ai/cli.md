@@ -44,7 +44,7 @@ legato workflow step complete --output result=value --artifact review=review.md 
 legato workflow step fail "reason" --json
 ```
 
-See `docs/workflows.md` for the schema and lifecycle. Workflow commands currently emit raw JSON for successful structured output; errors use the standard CLI error rendering.
+See [Workflows](../../site/src/content/docs/using/workflows.md) for the schema and lifecycle, and [Workflows internals](workflows.md). Workflow commands currently emit raw JSON for successful structured output; errors use the standard CLI error rendering.
 
 ## Legato Learn
 
@@ -52,7 +52,7 @@ See `docs/workflows.md` for the schema and lifecycle. Workflow commands currentl
 
 ## Review handoff
 
-`legato review handoff template` prints the editable nested contract bound to the current ready review. `legato review handoff submit --file path|-` authors a bounded, strict JSON packet for an existing clean ready review. `show [--json]` reads persisted history; `export --packet ID --format github|maintenance` previews selected Markdown without publishing. Selectors use `--task`/`--name` or the corresponding review environment variables. Human notes are not writable through this authoring CLI. See [Review handoff](../handoff.md) for the full runnable schema example, evidence limits, revision conflicts, API, and privacy rules. Handoff is optional and does not change review readiness or approval.
+`legato review handoff template` prints the editable nested contract bound to the current ready review. `legato review handoff submit --file path|-` authors a bounded, strict JSON packet for an existing clean ready review. `show [--json]` reads persisted history; `export --packet ID --format github|maintenance` previews selected Markdown without publishing. Selectors use `--task`/`--name` or the corresponding review environment variables. Human notes are not writable through this authoring CLI. See [Review handoff](../../site/src/content/docs/using/review-handoff.md) for the full runnable schema example, evidence limits, revision conflicts, and privacy rules, and [Review handoff internals](review-handoff.md) for the API. Handoff is optional and does not change review readiness or approval.
 
 ## Subcommands
 
@@ -133,7 +133,7 @@ database is loaded.
 - `legato plan complete [--task <id>] [--name <name>]` — mark successful implementation complete and safely remove the submitted source bundle when approval requested cleanup
 - `legato plan withdraw [--task <id>] [--name <name>]` — remove a non-approved proposal
 
-See `docs/plans.md` for the bundle schema and approval lifecycle.
+See [Plans](../../site/src/content/docs/using/plans.md) for the bundle schema and approval lifecycle, and [Plans internals](plans.md) for storage and the API.
 
 Review tours use the same handoff model: `legato review claim --task
 <review-task-id> [--name <name>]` assigns an existing tour to the current agent,
@@ -160,7 +160,7 @@ Chapter narration is Markdown too. `legato review chapter <title>
 --narration-file <path|-> --include <path>:<hunk>` and `legato review chapter
 edit <id> --narration-file <path|->` read it from a file or standard input in
 place of the narration argument, and show the image files it names the same
-way. See [Collaborative plans](../plans.md) § Image files. A retry replaces the answer after the latest question on
+way. See [Plans](plans.md) § Image files. A retry replaces the answer after the latest question on
 the step. A later question starts a new transcript turn.
 
 ### Swarm verbs
