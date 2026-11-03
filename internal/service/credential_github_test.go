@@ -288,6 +288,44 @@ func TestAPullRequestWriteTokenIsAskedOnceASession(t *testing.T) {
 	}
 }
 
+// gh's issue commands get a token that can write issues and nothing else,
+// after the person allows issue.write on the repository for the session.
+func TestAnIssueWriteTokenIsAskedOnceASession(t *testing.T) {
+	f := newGitHubFixture(t)
+	token := func() (int, map[string]string) {
+		req, _ := http.NewRequest("POST", f.proxy.URL+"/c/gh/token", strings.NewReader(`{"repo":"cpave3/legato","operation":"issue.write"}`))
+		req.Header.Set("Authorization", "Bearer "+f.env["LEGATO_GITHUB_TOKEN"])
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var body map[string]string
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		return resp.StatusCode, body
+	}
+	status, body := token()
+	if status != 403 || body["status"] != "pending" {
+		t.Fatalf("the first request was not held for the person: %d %v", status, body)
+	}
+	approval := f.pending(t)
+	if approval.Options[0].ID != "session" || !strings.Contains(approval.Summary, "issue.write") {
+		t.Fatalf("approval = %+v", approval)
+	}
+	if _, err := f.approvals.Decide(context.Background(), approval.ID, ApprovalDecision{Decision: ApprovalAllow, Option: "session", By: "web"}); err != nil {
+		t.Fatal(err)
+	}
+	status, body = token()
+	perms := f.github.tokens[body["token"]]
+	_, prs := perms["pull_requests"]
+	if status != 200 || perms["issues"] != "write" || prs || perms["contents"] == "write" {
+		t.Fatalf("after approval: %d %v, permissions %v", status, body, perms)
+	}
+	if again, _ := token(); again != 200 {
+		t.Fatalf("a second command was held: %d", again)
+	}
+}
+
 // gh pr ready needs a token that can write code; Legato marks the pull
 // request itself with one, after the person allows pr.ready, and revokes it.
 func TestLegatoMarksAPullRequestReadyWithATokenTheAgentNeverHolds(t *testing.T) {

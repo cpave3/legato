@@ -130,12 +130,41 @@ func TestGHOperationSaysWhichCommandsWriteToAPullRequest(t *testing.T) {
 		"api repos/a/b/pulls/1/comments --jq .[].id":                             "api.read",
 		"api -X POST repos/a/b/pulls/1529/comments/4419474170/replies -f body=x": "pr.write",
 		"api --method PATCH repos/a/b/pulls/3 -f title=y":                        "pr.write",
-		"api repos/a/b/issues/3/comments -f body=hello":                          "pr.write",
 		"api -XPOST repos/a/b/pulls/1/reviews":                                   "pr.write",
 		"api -X GET repos/a/b/pulls -f state=open":                               "api.read",
 		"api graphql -f query=query{viewer{login}}":                              "api.read",
 		"api graphql -f query=mutation{addComment(input:{}){clientMutationId}}":  "pr.write",
 		"": "api.read",
+	} {
+		if got := cli.GHOperation(strings.Fields(args)); got != want {
+			t.Errorf("gh %s: %s, want %s", args, got, want)
+		}
+	}
+}
+
+func TestGHOperationSaysWhichCommandsWriteToAnIssue(t *testing.T) {
+	for args, want := range map[string]string{
+		"issue create --title t --body b":                   "issue.write",
+		"issue edit 5 --add-assignee cpave3":                "issue.write",
+		"-R cpave3/legato issue comment 5 --body-file r.md": "issue.write",
+		"issue close 5":                                 "issue.write",
+		"issue reopen 5":                                "issue.write",
+		"issue delete 5 --yes":                          "issue.write",
+		"issue lock 5":                                  "issue.write",
+		"issue unlock 5":                                "issue.write",
+		"issue pin 5":                                   "issue.write",
+		"issue unpin 5":                                 "issue.write",
+		"issue transfer 5 cpave3/other":                 "issue.write",
+		"issue develop 5 --name legato/x":               "issue.write",
+		"issue view 5 --json body":                      "api.read",
+		"issue list --label wayfinder:map":              "api.read",
+		"issue status":                                  "api.read",
+		"api repos/a/b/issues/3/comments -f body=hello": "issue.write",
+		"api --method POST repos/a/b/issues/2/sub_issues -F sub_issue_id=7":    "issue.write",
+		"api -X POST repos/a/b/issues/6/dependencies/blocked_by -F issue_id=9": "issue.write",
+		"api -X PATCH /repos/a/b/issues/6 -f state=closed":                     "issue.write",
+		"api repos/a/b/issues/2/sub_issues":                                    "api.read",
+		"api -X POST repos/a/b/pulls/1/reviews":                                "pr.write",
 	} {
 		if got := cli.GHOperation(strings.Fields(args)); got != want {
 			t.Errorf("gh %s: %s, want %s", args, got, want)

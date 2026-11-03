@@ -1,5 +1,6 @@
 # GitHub through a GitHub App. The person creates the App (contents read and
-# write, pull requests read and write, metadata read), installs it on the
+# write, pull requests read and write, metadata read; issues read and write
+# for gh's issue commands), installs it on the
 # repositories, and gives Legato its private key. Agents read the listed
 # repositories with short-lived read tokens from Legato's git credential
 # helper; pushes go through Legato's proxy, which reads each ref a push
@@ -49,6 +50,9 @@ permissions:
   # gh pr ready: GitHub wants contents: write for it too, so Legato marks
   # the pull request itself and the agent never holds this token.
   pr.ready: { pull_requests: write, contents: write, metadata: read }
+  # gh's issue commands (gh issue create, edit, comment, close, ...) and gh
+  # api writes under repos/<owner>/<repo>/issues, for one command.
+  issue.write: { issues: write, metadata: read }
 routes:
   - { method: GET, path: "/repos/{owner}/{repo}/**", operation: api.read, resource: "github:{owner}/{repo}" }
   - { method: POST, path: "/repos/{owner}/{repo}/pulls", operation: pr.create, resource: "github:{owner}/{repo}@refs/heads/{$.head}" }
@@ -57,5 +61,5 @@ policy:
   - { operation: [git.read, api.read], resource: "github:{repositories}", approve: auto }
   - { operation: [git.push, pr.create], resource: "github:{repositories}@refs/heads/legato/**", approve: session }
   - { operation: [git.push, pr.create], resource: "github:{repositories}@refs/heads/**", approve: request, signed: true }
-  - { operation: [pr.write, pr.ready], resource: "github:{repositories}", approve: session }
+  - { operation: [pr.write, pr.ready, issue.write], resource: "github:{repositories}", approve: session }
   - { operation: [git.push-default, git.push-tag, git.delete-ref], approve: deny }

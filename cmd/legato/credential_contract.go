@@ -121,7 +121,8 @@ func runCredentialGit(args []string) int {
 
 // runCredentialGHToken prints a token for the repository a gh command acts
 // on, for Legato's gh wrapper: `legato credential gh-token -- <gh args>`. A
-// pull request command (gh pr edit, comment, ...) asks for pr.write, which
+// pull request command (gh pr edit, comment, ...) asks for pr.write, and an
+// issue command (gh issue create, comment, ...) for issue.write, which
 // the person may have to allow, and its token is printed as "<token> revoke"
 // so the wrapper revokes it after gh; anything else gets a read token. It
 // prints nothing, and fails, when there is no token to give.

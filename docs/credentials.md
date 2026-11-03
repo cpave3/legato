@@ -60,18 +60,19 @@ A proxied key works only with a tool that takes a base address. The `elevenlabs`
 
 ## 5. GitHub
 
-Agents read your repositories, push to `legato/…` branches and open pull requests through a GitHub App of your own, never with your login. Legato makes a token for each use, narrowed to one repository: read tokens last an hour, and a write token is made for one push or one pull request and revoked after it. The agent never holds a write token: its pushes go through Legato's proxy, which reads which branches each push changes.
+Agents read your repositories, push to `legato/…` branches, open pull requests and write issues through a GitHub App of your own, never with your login. Legato makes a token for each use, narrowed to one repository: read tokens last an hour, and a write token is made for one push or one pull request and revoked after it. The agent never holds a write token: its pushes go through Legato's proxy, which reads which branches each push changes.
 
 | Use | Default rule |
 | --- | --- |
 | Fetch, pull, `gh` reads, API reads, of a listed repository | no prompt |
 | Push to `legato/**`, or a pull request from such a branch | asked once a session, per branch |
 | Push to any other branch, or a pull request from it | asked each time |
+| Write issues (`gh issue create`, `comment`, `close`, …) | asked once a session |
 | Push to the default branch, push a tag, delete a branch | refused |
 
 1. **Create the App.** On GitHub: Settings › Developer settings › GitHub Apps › New GitHub App.
    - Name: anything (`Legato for <you>`). Homepage URL: anything. Webhook: untick **Active**.
-   - Repository permissions: **Contents** read and write, **Pull requests** read and write, **Metadata** read.
+   - Repository permissions: **Contents** read and write, **Pull requests** read and write, **Metadata** read, and **Issues** read and write if agents are to write issues.
    - Where can this GitHub App be installed: **Only on this account**. Create it.
 2. **Note its client ID** (`Iv23…`, on the App's page).
 3. **Generate a private key** (the App's page, Private keys). Store it in Legato and delete the download:

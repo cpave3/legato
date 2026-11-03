@@ -258,8 +258,9 @@ func (p *HTTPProxy) forwardGit(w http.ResponseWriter, r *http.Request, c ProxyCr
 }
 
 // serveToken gives the git and gh helpers a token for one repository, after
-// the broker allows its operation: a read, or pr.write for gh's pull
-// request commands. Pushes never come this way.
+// the broker allows its operation: a read, pr.write for gh's pull request
+// commands, or issue.write for its issue commands. Pushes never come this
+// way.
 func (p *HTTPProxy) serveToken(w http.ResponseWriter, r *http.Request, c ProxyCredential) {
 	ctx := r.Context()
 	if r.Method != http.MethodPost {
@@ -289,8 +290,8 @@ func (p *HTTPProxy) serveToken(w http.ResponseWriter, r *http.Request, c ProxyCr
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "repo: want owner/name"})
 		return
 	}
-	if in.Operation != OperationGitRead && in.Operation != "api.read" && in.Operation != OperationPRWrite {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "only read and pull request tokens are given out; pushes go through Legato's proxy"})
+	if in.Operation != OperationGitRead && in.Operation != "api.read" && in.Operation != OperationPRWrite && in.Operation != OperationIssueWrite {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "only read, pull request and issue tokens are given out; pushes go through Legato's proxy"})
 		return
 	}
 	use := ProxyUse{Execution: execution, Credential: c.Name, Method: "TOKEN", Path: in.Repo,

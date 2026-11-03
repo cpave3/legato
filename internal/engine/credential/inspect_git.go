@@ -21,6 +21,9 @@ const (
 	// OperationPRWrite is gh's pull request commands: a token that can write
 	// pull requests of one repository, and read its code.
 	OperationPRWrite = "pr.write"
+	// OperationIssueWrite is gh's issue commands: a token that can write the
+	// issues of one repository.
+	OperationIssueWrite = "issue.write"
 )
 
 // RefUpdate is one command of a push: a ref, from one object to another.

@@ -123,10 +123,19 @@ func GitCredentialHelper(ctx context.Context, action string, in io.Reader, out, 
 // GHOperation).
 var prWrites = map[string]bool{"create": true, "edit": true, "comment": true, "review": true, "close": true, "reopen": true}
 
+// issueWrites are the gh issue commands that write to an issue.
+var issueWrites = map[string]bool{"create": true, "edit": true, "comment": true, "close": true, "reopen": true, "delete": true,
+	"lock": true, "unlock": true, "pin": true, "unpin": true, "transfer": true, "develop": true}
+
+// apiIssuePath is a REST path under a repository's issues, which also holds
+// the comments of pull requests.
+var apiIssuePath = regexp.MustCompile(`^/?repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues(/|$)`)
+
 // GHOperation is the operation a gh command needs: pr.write for a command
-// that writes to a pull request; pr.ready for gh pr ready, which GitHub
-// allows only a token that can also write code, so Legato does it itself;
-// api.read for everything else.
+// that writes to a pull request; issue.write for one that writes to an
+// issue, a gh api write under repos/<owner>/<repo>/issues included; pr.ready
+// for gh pr ready, which GitHub allows only a token that can also write
+// code, so Legato does it itself; api.read for everything else.
 func GHOperation(args []string) string {
 	var words []string
 	for i := 0; i < len(args) && len(words) < 2; i++ {
@@ -141,7 +150,13 @@ func GHOperation(args []string) string {
 		words = append(words, a)
 	}
 	if len(words) > 0 && words[0] == "api" && ghAPIWrites(args) {
+		if endpoint, _, _ := ghAPICall(args); apiIssuePath.MatchString(endpoint) {
+			return "issue.write"
+		}
 		return "pr.write"
+	}
+	if len(words) == 2 && words[0] == "issue" && issueWrites[words[1]] {
+		return "issue.write"
 	}
 	if len(words) == 2 && words[0] == "pr" && words[1] == "ready" {
 		return "pr.ready"

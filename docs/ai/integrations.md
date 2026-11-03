@@ -86,7 +86,7 @@ The process serving the broker takes over delegations left `pending` for more th
 **Find out, enforced.** For `find_out`, a `resume` or `start` spawns with `AgentSpawnOptions.ReadOnlyCheckout`:
 
 - **Sandbox:** the agent runs in the sandbox even if asked not to (when `agents.sandbox` is configured), and `BuildSandboxPlan` mounts the working directory and its git folder read-only. The tool's state, caches and `/tmp` stay writable.
-- **Credentials:** the execution is marked read-only (`executions.read_only`), and the credential broker refuses its `git.push*`, `git.delete-ref` and `pr.*` operations whatever the rules say (`readOnlyRefusal`).
+- **Credentials:** the execution is marked read-only (`executions.read_only`), and the credential broker refuses its `git.push*`, `git.delete-ref`, `pr.*` and `issue.*` operations whatever the rules say (`readOnlyRefusal`).
 - **`enforced`** is `true` only when the started agent's session is sandboxed.
 
 A message to a running agent changes nothing it can do: the delegation records `enforced: false`.
