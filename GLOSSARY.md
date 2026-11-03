@@ -32,6 +32,10 @@ A main instance taking an away task back before the worker has finished with it.
 **Return**:
 An away task coming back to its main instance with what the worker did.
 
+**Take back**:
+A main instance ending an away task by itself, without the worker's results, when the worker cannot be reached or no longer has the task.
+_Avoid_: force recall, abandon
+
 ### Neighbouring terms
 
 **Delegation**:
