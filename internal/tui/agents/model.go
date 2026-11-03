@@ -67,6 +67,9 @@ type Model struct {
 	icons             theme.Icons
 	ntfyConfigured    bool
 	voiceEnabled      bool
+	// sandbox is true when agents run in Legato's sandbox unless their spawn
+	// opted out, so an agent outside it is marked.
+	sandbox bool
 	// syncLabel and webLabel close the sidebar as given.
 	syncLabel string
 	webLabel  string
@@ -101,6 +104,12 @@ func New(icons theme.Icons) Model {
 // SetNtfyConfigured records whether a notification channel is available.
 func (m *Model) SetNtfyConfigured(v bool) {
 	m.ntfyConfigured = v
+}
+
+// SetSandboxEnabled says that agents run in Legato's sandbox, so the view
+// marks each agent that runs outside it.
+func (m *Model) SetSandboxEnabled(v bool) {
+	m.sandbox = v
 }
 
 // SetVoiceEnabled controls whether the 'v' voice dictation keybinding is active.

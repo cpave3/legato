@@ -215,3 +215,22 @@ func TestPreviewsAreAskedForOnlyInTheEnsembleAndNotTooOften(t *testing.T) {
 		t.Fatal("previews should be asked for again after a while")
 	}
 }
+
+func TestATileMarksAnAgentRunningOutsideTheSandbox(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetSandboxEnabled(true)
+	m.SetAgents([]service.AgentSession{
+		{TaskID: "inside", AgentKind: "claude-code", Title: "Fix login", Sandboxed: true},
+		{TaskID: "outside", AgentKind: "codex", Title: "Spike"},
+	})
+	m.SetSize(170, 44)
+	m, _ = m.Update(key('e'))
+
+	view := m.View()
+	if !strings.Contains(view, "unsandboxed · Spike") {
+		t.Errorf("the tile of an agent outside the sandbox should say so: %q", view)
+	}
+	if strings.Count(view, "unsandboxed") != 1 {
+		t.Errorf("only the agent outside the sandbox should be marked: %q", view)
+	}
+}

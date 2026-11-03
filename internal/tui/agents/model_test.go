@@ -915,3 +915,48 @@ func TestWStaysPutWhenNoAgentNeedsThePerson(t *testing.T) {
 		t.Fatalf("selection moved to %s", got)
 	}
 }
+
+func TestTheListMarksAnAgentRunningOutsideTheSandboxWithAnIconBesideItsID(t *testing.T) {
+	icons := theme.NewIcons("unicode")
+	m := New(icons)
+	m.SetSandboxEnabled(true)
+	m.SetAgents([]service.AgentSession{
+		{TaskID: "inside", AgentKind: "claude-code", Title: "Fix login", Sandboxed: true},
+		{TaskID: "outside", AgentKind: "codex", Title: "Spike"},
+	})
+	m.SetSize(140, 40)
+
+	view := m.View()
+	if !strings.Contains(view, "outside "+icons.Unsandboxed) {
+		t.Errorf("an agent outside the sandbox should have the icon beside its ID: %q", view)
+	}
+	if strings.Contains(view, "inside "+icons.Unsandboxed) {
+		t.Errorf("a sandboxed agent should not be marked: %q", view)
+	}
+	for _, want := range []string{"codex · Spike", "claude · Fix login"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the second line should keep only the tool and task, %q: %q", want, view)
+		}
+	}
+}
+
+func TestNoAgentIsMarkedUnsandboxedWhenTheSandboxIsOff(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetAgents([]service.AgentSession{{TaskID: "plain", AgentKind: "codex", Title: "Spike"}})
+	m.SetSize(140, 40)
+
+	if view := m.View(); strings.Contains(view, "unsandboxed") || strings.Contains(view, theme.NewIcons("unicode").Unsandboxed) {
+		t.Errorf("with the sandbox off every agent runs outside it, so none is marked: %q", view)
+	}
+}
+
+func TestTheHeaderMarksTheSelectedAgentWhenItRunsOutsideTheSandbox(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	m.SetSandboxEnabled(true)
+	m.SetAgents([]service.AgentSession{{TaskID: "outside", AgentKind: "codex", Title: "Spike"}})
+	m.SetSize(140, 40)
+
+	if view := m.View(); !strings.Contains(view, "outside › codex › unsandboxed › Spike") {
+		t.Errorf("the header over the terminal should say the agent runs outside the sandbox: %q", view)
+	}
+}

@@ -364,7 +364,12 @@ func (m Model) renderTile(a service.AgentSession, selected bool, width, height i
 	// lines. The rest shows what the agent is at: the end of its conversation
 	// when its endpoint can be asked, and of its terminal otherwise.
 	room := max(height-2-1-1-2, 0)
-	body := []string{" " + colored(theme.TextSecondary, truncateID(task, inner-2))}
+	taskLine := colored(theme.TextSecondary, truncateID(task, inner-2))
+	if m.unsandboxed(a) {
+		// An agent outside the sandbox says so before its task.
+		taskLine = unsandboxedLine(parts, theme.TextSecondary, inner-2)
+	}
+	body := []string{" " + taskLine}
 	tail, native := m.conversations[a.TaskID]
 	var shown []string
 	if native {

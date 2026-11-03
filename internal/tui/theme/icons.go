@@ -2,12 +2,14 @@ package theme
 
 // Icons holds the icon glyphs for different providers and indicators.
 type Icons struct {
-	Jira         string
-	GitHub       string
-	Local        string
-	Terminal     string
-	Worktree     string
-	Warning      string
+	Jira     string
+	GitHub   string
+	Local    string
+	Terminal string
+	Worktree string
+	Warning  string
+	// Unsandboxed marks an agent that runs outside Legato's sandbox.
+	Unsandboxed  string
 	AgentWorking string
 	AgentWaiting string
 	// AgentWorked marks time an agent spent working. Unlike AgentWorking,
@@ -39,6 +41,7 @@ func NewIcons(mode string) Icons {
 			Terminal:        "\uf489", // nf-cod-terminal
 			Worktree:        "\uf1bb", // nf-fa-tree
 			Warning:         "\uf071", // nf-fa-exclamation_triangle
+			Unsandboxed:     "\uf09c", // nf-fa-unlock
 			AgentWorking:    "\uf46a", // nf-oct-sync (spinning arrows)
 			AgentWaiting:    "\uf4a5", // nf-oct-bell
 			AgentWorked:     "\uf46a", // nf-oct-sync
@@ -63,6 +66,7 @@ func NewIcons(mode string) Icons {
 		Terminal:        "▶",
 		Worktree:        "⑂",
 		Warning:         "!",
+		Unsandboxed:     "⊘",
 		AgentWorking:    "⠹",
 		AgentWaiting:    "◆",
 		AgentWorked:     "⠹",

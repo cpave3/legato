@@ -116,6 +116,19 @@ func kindLabel(a service.AgentSession) string {
 	}
 }
 
+// unsandboxed is true when the sandbox is on and this agent runs outside it.
+// With the sandbox off every agent runs outside it, so none is marked.
+func (m Model) unsandboxed(a service.AgentSession) bool {
+	return m.sandbox && !a.Sandboxed
+}
+
+// unsandboxedTag is the word that marks an agent outside the sandbox, in the
+// color of what needs the person, as the web UI marks it. The list, where
+// room is short, uses the icon instead.
+func unsandboxedTag() string {
+	return colored(theme.Amber, "unsandboxed")
+}
+
 // stateDuration is the time that goes with an agent's state: how long it
 // has waited when it waits, how long it has worked otherwise.
 func (m Model) stateDuration(a service.AgentSession) string {
@@ -252,10 +265,10 @@ func (m Model) sidebarEntries(width int) (lines []string, selectedStart, selecte
 	return lines, selectedStart, selectedHeight
 }
 
-// renderSidebarEntry renders one agent of the list: its state and its ID with
-// the time that goes with the state, then the tool it runs and its task with
-// its recent activity. A swarm worker and a grouped agent add where they
-// belong.
+// renderSidebarEntry renders one agent of the list: its state and its ID
+// (with an icon when it runs outside the sandbox) and the time that goes with
+// the state, then the tool it runs and its task with its recent activity. A
+// swarm worker and a grouped agent add where they belong.
 func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width int) []string {
 	text := width - 4 // two columns of margin at each side
 	quiet := sectionOf(a) == sectionIdle || sectionOf(a) == sectionEnded
@@ -272,13 +285,18 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 		note = colored(theme.TextSecondary, m.stateDuration(a))
 	}
 
-	bell := ""
-	if m.ntfyConfigured && m.notifyStates[a.TaskID] {
-		bell = " " + colored(theme.Accent, "🔔")
+	// Beside the ID: the mark of an agent outside the sandbox, then the bell
+	// of one that notifies.
+	marks := ""
+	if m.unsandboxed(a) {
+		marks += " " + colored(theme.Amber, m.icons.Unsandboxed)
 	}
-	idWidth := text - 2 - lipgloss.Width(bell) - lipgloss.Width(note) - 1
+	if m.ntfyConfigured && m.notifyStates[a.TaskID] {
+		marks += " " + colored(theme.Accent, "🔔")
+	}
+	idWidth := text - 2 - lipgloss.Width(marks) - lipgloss.Width(note) - 1
 	id := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(selected).Render(truncateID(a.TaskID, idWidth))
-	first := theme.Spread(colored(theme.StateColor(stateOf(a)), m.stateMark(a))+" "+id+bell, note, text)
+	first := theme.Spread(colored(theme.StateColor(stateOf(a)), m.stateMark(a))+" "+id+marks, note, text)
 
 	parts := []string{kindLabel(a)}
 	if a.ParentTaskID != "" && a.Role != "" {
@@ -316,6 +334,22 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 		lines[i] = theme.Fill(lead+line, width, bg)
 	}
 	return lines
+}
+
+// unsandboxedLine is a line that starts with the mark of an agent outside
+// the sandbox and goes on with words joined by " · ", cut to width.
+func unsandboxedLine(words []string, color lipgloss.Color, width int) string {
+	const sep = " · "
+	head := unsandboxedTag()
+	room := width - lipgloss.Width(head) - lipgloss.Width(sep)
+	if room < 0 {
+		// Too narrow for the mark to keep its color: the words as they fit.
+		return colored(color, truncateID(strings.Join(append([]string{"unsandboxed"}, words...), sep), width))
+	}
+	if len(words) == 0 || room < 1 {
+		return head
+	}
+	return head + colored(color, sep+truncateID(strings.Join(words, sep), room))
 }
 
 // timelineBar draws an agent's recent activity, one cell for each stretch of
@@ -360,7 +394,8 @@ func (m Model) renderMain(width int) string {
 }
 
 // renderHeader renders the line over the terminal and its rule: the agent,
-// the tool it runs and its task, and at the far end what it is doing.
+// the tool it runs, whether it runs outside the sandbox, and its task, and at
+// the far end what it is doing.
 func (m Model) renderHeader(width int) string {
 	rule := colored(theme.Border, strings.Repeat("─", width))
 	a := m.SelectedAgent()
@@ -381,6 +416,9 @@ func (m Model) renderHeader(width int) string {
 	step := " " + colored(theme.TextFaint, "›") + " "
 	trail := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true).Render(a.TaskID) +
 		step + colored(theme.TextSecondary, kindLabel(*a))
+	if m.unsandboxed(*a) {
+		trail += step + unsandboxedTag()
+	}
 	if a.Title != "" {
 		room := inner - lipgloss.Width(trail) - lipgloss.Width(step) - lipgloss.Width(status) - 2
 		if room >= 4 {

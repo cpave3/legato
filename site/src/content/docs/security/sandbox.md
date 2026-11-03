@@ -102,7 +102,7 @@ You can start one agent without the sandbox:
 - **TUI**: press `ctrl+u` in the spawn overlay.
 - **API**: send `"sandbox": false` to `POST /api/agents/spawn` or `POST /api/tasks/{id}/agent`.
 
-Such an agent is marked unsandboxed. Swarm and workflow agents always run in the sandbox.
+Such an agent is marked unsandboxed, in the web UI and in the TUI's agents view. Swarm and workflow agents always run in the sandbox.
 
 To move a running agent, press `U` in the TUI's agents view. Legato restarts it on the other side of the sandbox, resuming its conversation. **Reload agent** keeps whichever side the agent is on.
 
