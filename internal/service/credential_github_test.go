@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -768,5 +769,39 @@ func TestTheRepositoryCacheClonesWithTheCredential(t *testing.T) {
 	}
 	if out := ghGit(t, "", "--git-dir", path, "rev-parse", "--verify", "refs/heads/main"); strings.TrimSpace(out) == "" {
 		t.Fatal("the cache has no main")
+	}
+}
+
+// In a sandbox the wrapper is mounted over the real gh's own path. A process
+// there that has lost LEGATO_GH_REAL (Go's tests clear the session's
+// variables) would have the wrapper run itself forever.
+func TestTheWrapperNeverRunsItself(t *testing.T) {
+	bin := t.TempDir()
+	realPath := filepath.Join(bin, "gh")
+	_ = os.WriteFile(realPath, []byte("#!/bin/sh\necho real\n"), 0o755)
+	legato := filepath.Join(t.TempDir(), "legato")
+	_ = os.WriteFile(legato, []byte("#!/bin/sh\nexit 1\n"), 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	wrappers := filepath.Join(t.TempDir(), "bin")
+	if err := writeGHWrapper(wrappers, legato); err != nil {
+		t.Fatal(err)
+	}
+	// As the sandbox's mount does: the wrapper where the real gh was.
+	script, _ := os.ReadFile(filepath.Join(wrappers, "gh"))
+	_ = os.WriteFile(realPath, script, 0o755)
+
+	for _, env := range [][]string{{"LEGATO_SANDBOXED=", "LEGATO_GH_REAL="}, {"LEGATO_SANDBOXED=1", "LEGATO_GH_REAL="}} {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		cmd := exec.CommandContext(ctx, realPath, "auth", "token")
+		cmd.Env = append(os.Environ(), env...)
+		out, err := cmd.CombinedOutput()
+		looped := errors.Is(ctx.Err(), context.DeadlineExceeded)
+		cancel()
+		if looped {
+			t.Fatalf("%v: the wrapper ran itself until killed", env)
+		}
+		if err == nil || !strings.Contains(string(out), "LEGATO_GH_REAL") {
+			t.Errorf("%v: err %v, out %q; want a failure that says the real gh is missing", env, err, out)
+		}
 	}
 }

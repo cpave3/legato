@@ -2,8 +2,11 @@ package github
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 type recordingTokenCommand struct {
@@ -81,5 +84,28 @@ func TestResolveCredentialRejectsEmptyGitHubCLIToken(t *testing.T) {
 	_, err := resolveCredential(AuthOptions{Mode: AuthGitHubCLI, Command: &recordingTokenCommand{out: []byte(" \n")}})
 	if err == nil || !strings.Contains(err.Error(), "gh auth login") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+// A gh that never answers (one stuck on a prompt, or looping) must not hold
+// up whatever needed the token: Legato's start, a workflow, a test.
+func TestAGHThatNeverAnswersIsGivenUpOn(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\nexec sleep 60\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	old := tokenCommandTimeout
+	tokenCommandTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { tokenCommandTimeout = old })
+
+	start := time.Now()
+	_, err := resolveCredential(AuthOptions{Mode: AuthGitHubCLI})
+
+	if err == nil {
+		t.Fatal("no error from a gh that never answered")
+	}
+	if waited := time.Since(start); waited > 5*time.Second {
+		t.Errorf("waited %s for gh", waited)
 	}
 }

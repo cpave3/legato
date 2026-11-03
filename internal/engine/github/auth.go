@@ -1,10 +1,12 @@
 package github
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 type AuthMode string
@@ -39,8 +41,17 @@ type AuthOptions struct {
 
 type execTokenCommand struct{}
 
+// tokenCommandTimeout bounds `gh auth token`, so a gh stuck on a prompt or
+// in a loop does not hold up what needed the token.
+var tokenCommandTimeout = 15 * time.Second
+
 func (execTokenCommand) Run(name string, args ...string) ([]byte, error) {
-	return exec.Command(name, args...).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), tokenCommandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	// Do not wait for children that outlive gh and hold its output open.
+	cmd.WaitDelay = time.Second
+	return cmd.Output()
 }
 
 // ResolveCredential returns one in-memory credential without exposing command

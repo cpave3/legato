@@ -422,6 +422,12 @@ func writeGHWrapper(dir, legato string) error {
 		"# Legato: in Legato's sandbox, gh with a token for one repository from\n" +
 		"# Legato: a read token, or one that writes pull requests once allowed.\n" +
 		"real=${LEGATO_GH_REAL:-" + shellQuote(real) + "}\n" +
+		// In a sandbox the real gh's path is this wrapper: without
+		// LEGATO_GH_REAL it would run itself for ever.
+		"if [ \"$real\" -ef \"$0\" ]; then\n" +
+		"  echo \"legato: this gh is Legato's wrapper and the real gh is not reachable: LEGATO_GH_REAL is not set.\" >&2\n" +
+		"  exit 127\n" +
+		"fi\n" +
 		"[ \"$LEGATO_SANDBOXED\" = 1 ] || exec \"$real\" \"$@\"\n" +
 		"if out=$(" + shellQuote(legato) + " credential gh-token -- \"$@\" 2>&1); then\n" +
 		"  case $out in \"done \"*) echo \"${out#done }\"; exit 0 ;; esac\n" +
