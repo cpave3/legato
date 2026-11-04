@@ -143,6 +143,8 @@ The command refuses when the store's master key is unlocked by a passphrase: the
 
 `legato integration status argus` shows the connection and the outbox counts. `legato integration disconnect argus` forgets both.
 
+The connection is not Argus's alone. `IntegrationConnector.BeginWith` takes the integration's name, its scope and where the browser comes back to: `""` is the loopback listener above, any other address is one of Legato's web server's (`StartRedirectAuthorization`, no listener; the server's callback finds the connection by its `State` and hands it the address with `Paste`). Each integration's refresh token is `legato://integration-<name>-refresh` (`IntegrationRefreshSecret`), and `OAuthTokens` gives any connected integration's access token with the refresh, rotation and `invalid_grant` handling above. Burnlite, a ticket provider, connects this way; see [Sync](sync.md) § Burnlite.
+
 ## Attention
 
 Producer `integrations` (`service.IntegrationAttentionAdapter`, reconciled on `EventDelegationChanged`), registered when `integrations.argus` is set. It covers the last 7 days:

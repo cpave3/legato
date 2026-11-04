@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -65,4 +67,37 @@ func TestIntegrationStatusSaysWhenLegatoIsNotConnected(t *testing.T) {
 	if code := runCLI([]string{"integration", "status", "jira"}); code == 0 {
 		t.Fatal("an unknown integration was accepted")
 	}
+}
+
+func TestIntegrationCommandsKnowBurnlite(t *testing.T) {
+	credentialTestConfig(t)
+	out := captureStdout(t, func() int { return runCLI([]string{"integration", "status", "burnlite"}) })
+	if !strings.Contains(out, "Not connected to Burnlite") || !strings.Contains(out, "legato integration connect burnlite") || strings.Contains(out, "Replies") {
+		t.Fatalf("status = %q", out)
+	}
+	// With no address given or configured, connect says what to give.
+	code, out := captureFailure(t, func() int { return runCLI([]string{"integration", "connect", "burnlite", "--json"}) })
+	if code == 0 || !strings.Contains(out, "missing_url") || !strings.Contains(out, "burnlite.url") {
+		t.Fatalf("connect exited %d: %q", code, out)
+	}
+	if code := runCLI([]string{"integration", "disconnect", "burnlite"}); code != 0 {
+		t.Fatalf("disconnect exited %d", code)
+	}
+}
+
+// captureFailure runs a command that is expected to fail and gives its exit
+// code and everything it wrote.
+func captureFailure(t *testing.T, run func() int) (int, string) {
+	t.Helper()
+	oldOut, oldErr := os.Stdout, os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout, os.Stderr = w, w
+	code := run()
+	w.Close()
+	os.Stdout, os.Stderr = oldOut, oldErr
+	out, _ := io.ReadAll(r)
+	return code, string(out)
 }

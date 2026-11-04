@@ -305,7 +305,7 @@ legato credential exec elevenlabs --env ELEVENLABS_API_KEY -- libretto render st
 
 ## Integrations
 
-These commands connect Legato to Argus. They run only on the machine that runs Legato. See [Argus](/legato/integrations/argus/).
+These commands connect Legato to Argus and Burnlite. They run only on the machine that runs Legato. See [Argus](/legato/integrations/argus/) and [Burnlite](/legato/integrations/burnlite/).
 
 - `legato integration token create <name> --scope <scopes> [--json]`: make a token for an integration and print it once. The scopes are `owner:read`, `delegate` and `attention`, separated by commas.
 - `legato integration token list [--json]`: list integration tokens, never the tokens themselves.
@@ -313,10 +313,13 @@ These commands connect Legato to Argus. They run only on the machine that runs L
 - `legato integration connect argus [<url>] [--no-browser] [--json]`: connect Legato to Argus, so agents' replies reach it. It asks for your consent in the browser. The address defaults to `integrations.argus.url`.
 - `legato integration status argus [--json]`: say whether Legato is connected and how many replies wait to be sent.
 - `legato integration disconnect argus [--json]`: forget the connection.
+- `legato integration connect burnlite [<url>] [--no-browser] [--json]`: connect Legato to Burnlite, so you can import its tasks and they stay up to date. It asks for your consent in the browser, to read your tasks only. The address defaults to `burnlite.url`. You can also connect from Settings › Integrations in the web UI.
+- `legato integration status burnlite [--json]` and `legato integration disconnect burnlite [--json]`: the same for Burnlite. Its tasks stop syncing when you disconnect.
 
 ```bash
 legato integration token create argus --scope owner:read,delegate,attention
 legato integration connect argus https://argus.lan
+legato integration connect burnlite https://burnlite.example.com
 ```
 
 ## Clones

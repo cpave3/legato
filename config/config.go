@@ -17,6 +17,7 @@ import (
 
 type Config struct {
 	Jira                   JiraConfig               `yaml:"jira"`
+	Burnlite               BurnliteConfig           `yaml:"burnlite"`
 	Board                  BoardConfig              `yaml:"board"`
 	Theme                  string                   `yaml:"theme"`
 	Icons                  string                   `yaml:"icons"` // "unicode" (default) or "nerdfonts"
@@ -326,6 +327,28 @@ type JiraConfig struct {
 	SyncIntervalSeconds    int      `yaml:"sync_interval_seconds"`
 	StatusSyncEnabled      bool     `yaml:"status_sync_enabled"`
 	AttachmentMaxSizeBytes int64    `yaml:"attachment_max_size_bytes"`
+}
+
+// BurnliteConfig is Burnlite as a ticket provider. Legato reads it only once
+// it is connected (legato integration connect burnlite, or Settings in the
+// web UI); url is the address to connect to.
+type BurnliteConfig struct {
+	URL string `yaml:"url"`
+	// Projects are the project keys searched for import; none is every one.
+	Projects            []string `yaml:"projects"`
+	SyncIntervalSeconds int      `yaml:"sync_interval_seconds"`
+	// StatusSyncEnabled moves a card when its task changes state in Burnlite.
+	StatusSyncEnabled bool            `yaml:"status_sync_enabled"`
+	Columns           BurnliteColumns `yaml:"columns"`
+}
+
+// BurnliteColumns are the board columns of a Burnlite task's states.
+type BurnliteColumns struct {
+	// Ready: open, not claimed, no open Blocker (Burnlite's frontier).
+	Ready   string `yaml:"ready"`
+	Blocked string `yaml:"blocked"`
+	Claimed string `yaml:"claimed"`
+	Closed  string `yaml:"closed"`
 }
 
 type BoardConfig struct {
@@ -737,12 +760,19 @@ func ResolveDataDir(cfg *Config) string {
 	return filepath.Dir(ResolveDBPath(cfg))
 }
 
+var defaultBurnliteColumns = BurnliteColumns{Ready: "Ready", Blocked: "Backlog", Claimed: "Doing", Closed: "Done"}
+
 func defaults() *Config {
 	return &Config{
 		Jira: JiraConfig{
 			SyncIntervalSeconds:    60,
 			StatusSyncEnabled:      true,
 			AttachmentMaxSizeBytes: 25 * 1024 * 1024,
+		},
+		Burnlite: BurnliteConfig{
+			SyncIntervalSeconds: 60,
+			StatusSyncEnabled:   true,
+			Columns:             defaultBurnliteColumns,
 		},
 		Board: BoardConfig{
 			Columns: DefaultColumns(),
@@ -774,6 +804,22 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Jira.AttachmentMaxSizeBytes == 0 {
 		cfg.Jira.AttachmentMaxSizeBytes = 25 * 1024 * 1024
+	}
+	if cfg.Burnlite.SyncIntervalSeconds == 0 {
+		cfg.Burnlite.SyncIntervalSeconds = 60
+	}
+	for _, c := range []struct {
+		value    *string
+		fallback string
+	}{
+		{&cfg.Burnlite.Columns.Ready, defaultBurnliteColumns.Ready},
+		{&cfg.Burnlite.Columns.Blocked, defaultBurnliteColumns.Blocked},
+		{&cfg.Burnlite.Columns.Claimed, defaultBurnliteColumns.Claimed},
+		{&cfg.Burnlite.Columns.Closed, defaultBurnliteColumns.Closed},
+	} {
+		if *c.value == "" {
+			*c.value = c.fallback
+		}
 	}
 	if cfg.Theme == "" {
 		cfg.Theme = "default"

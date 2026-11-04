@@ -95,8 +95,12 @@ func runIntegrationContract(verb string, args []string) int {
 	if parseErr != nil {
 		return renderCommandError(command, parseErr, jsonMode)
 	}
-	if len(parsed.Positionals) == 0 || parsed.Positionals[0] != "argus" {
-		return renderCommandError(command, usageError("unknown_integration", "the only integration is argus: legato integration "+verb+" argus"), jsonMode)
+	if len(parsed.Positionals) == 0 || (parsed.Positionals[0] != "argus" && parsed.Positionals[0] != "burnlite") {
+		return renderCommandError(command, usageError("unknown_integration", "the integrations are argus and burnlite: legato integration "+verb+" argus"), jsonMode)
+	}
+	name := parsed.Positionals[0]
+	if name == "burnlite" {
+		return runBurnliteIntegration(command, verb, parsed, jsonMode)
 	}
 	cfg, db, code := openCommandStoreWithConfig(command, jsonMode)
 	if db == nil {
@@ -176,6 +180,88 @@ func runIntegrationContract(verb string, args []string) int {
 			return renderCommandError(command, &commandError{Code: "connect_failed", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
 		}
 		return writeCommandSuccess(command, map[string]any{"connected": "argus", "url": url}, "Connected to Argus. Agents' replies go to "+url+".\n", jsonMode)
+	}
+	return renderCommandError(command, usageError("unknown_verb", "integration "+verb), jsonMode)
+}
+
+// runBurnliteIntegration connects Legato to Burnlite as a ticket provider:
+// read-only, so it asks for read:tasks alone.
+func runBurnliteIntegration(command, verb string, parsed parsedArgs, jsonMode bool) int {
+	cfg, db, code := openCommandStoreWithConfig(command, jsonMode)
+	if db == nil {
+		return code
+	}
+	defer db.Close()
+	ctx := context.Background()
+	secretStore := configuredSecretStore(cfg, db)
+	connector := service.NewIntegrationConnector(db, service.SealedIntegrationSecrets{Store: secretStore}, nil)
+
+	switch verb {
+	case "status":
+		st, err := connector.Status(ctx, "burnlite")
+		if err != nil {
+			return renderCommandError(command, &commandError{Code: "store_failed", Message: err.Error(), Exit: exitInternal}, jsonMode)
+		}
+		st.Replies = nil
+		text := "Not connected to Burnlite. Connect with: legato integration connect burnlite <url>\n"
+		if st.State != "none" {
+			text = fmt.Sprintf("Burnlite at %s: %s since %s\n", st.URL, st.State, st.ConnectedAt)
+			if st.State == "disconnected" {
+				text += "Burnlite refused Legato's tokens. Connect again with: legato integration connect burnlite\n"
+			}
+		}
+		return writeCommandSuccess(command, st, text, jsonMode)
+	case "disconnect":
+		if err := connector.Disconnect(ctx, "burnlite"); err != nil {
+			return renderCommandError(command, &commandError{Code: "store_failed", Message: err.Error(), Exit: exitInternal}, jsonMode)
+		}
+		return writeCommandSuccess(command, map[string]any{"disconnected": "burnlite"}, "Legato forgot its connection to Burnlite. Its tasks stop syncing until you connect again.\n", jsonMode)
+	case "connect":
+		url := cfg.Burnlite.URL
+		if len(parsed.Positionals) > 1 {
+			url = parsed.Positionals[1]
+		}
+		if url == "" {
+			return renderCommandError(command, usageError("missing_url", "give Burnlite's address, or set burnlite.url: legato integration connect burnlite <url>"), jsonMode)
+		}
+		// Burnlite rotates the refresh token every hour, while nobody watches.
+		if source, err := secretStore.Source(ctx); err != nil {
+			return renderCommandError(command, &commandError{Code: "secrets_unavailable", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+		} else if source == "passphrase" {
+			return renderCommandError(command, &commandError{Code: "secrets_passphrase", Exit: exitEnvironment,
+				Message: "Legato's secret store is unlocked by a passphrase, but Burnlite's refresh token is rewritten every hour as Legato syncs. Set secrets.master_key to a source Legato can read alone (auto, systemd-creds, secret-service, keychain or file)"}, jsonMode)
+		}
+		hostname, _ := os.Hostname()
+		pending, err := connector.BeginWith(ctx, service.ConnectRequest{Name: "burnlite", URL: url, ClientName: "Legato (" + hostname + ")", Scope: service.BurnliteScope})
+		if err != nil {
+			return renderCommandError(command, &commandError{Code: "connect_failed", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+		}
+		defer pending.Close()
+		fmt.Fprintf(os.Stderr, "Open this address and allow Legato to read your Burnlite tasks:\n\n  %s\n\n", pending.URL())
+		if !parsed.Present["no-browser"] {
+			_ = clipboard.OpenURL(pending.URL())
+		}
+		fmt.Fprintln(os.Stderr, "If your browser is on another machine, it cannot reach Legato's 127.0.0.1 address: paste the address it tried here and press Enter.")
+		go func() {
+			scanner := bufio.NewScanner(os.Stdin)
+			for scanner.Scan() {
+				line := strings.TrimSpace(scanner.Text())
+				if line == "" {
+					continue
+				}
+				if err := pending.Paste(line); err != nil {
+					fmt.Fprintf(os.Stderr, "That address has no code: %v\n", err)
+					continue
+				}
+				return
+			}
+		}()
+		waitCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		defer cancel()
+		if err := pending.Finish(waitCtx); err != nil {
+			return renderCommandError(command, &commandError{Code: "connect_failed", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+		}
+		return writeCommandSuccess(command, map[string]any{"connected": "burnlite", "url": url}, "Connected to Burnlite at "+url+". Import its tasks from the board.\n", jsonMode)
 	}
 	return renderCommandError(command, usageError("unknown_verb", "integration "+verb), jsonMode)
 }

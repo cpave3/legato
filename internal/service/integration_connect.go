@@ -39,23 +39,69 @@ type PendingConnection struct {
 	auth     *oauthclient.Authorization
 }
 
-// Begin discovers the integration's authorization server, registers Legato
-// with it, and prepares the address the person opens to consent.
+// ConnectRequest is a connection to make.
+type ConnectRequest struct {
+	// Name is the integration's ("argus", "burnlite").
+	Name string
+	// URL is its address, where discovery starts.
+	URL        string
+	ClientName string
+	Scope      string
+	// RedirectURI is where the browser comes back to: "" is a loopback
+	// listener of Legato's own (the CLI), else an address of Legato's web
+	// server, whose handler gives the connection the address (Paste).
+	RedirectURI string
+}
+
+// BurnliteScope is what Legato asks Burnlite for: reading tasks, since
+// Burnlite is a read-only ticket provider.
+const BurnliteScope = "read:tasks"
+
+// IntegrationRefreshSecret is the name, in Legato's sealed store, of an
+// integration's refresh token.
+func IntegrationRefreshSecret(name string) string { return "integration-" + name + "-refresh" }
+
+// Begin discovers Argus's authorization server, registers Legato with it,
+// and prepares the address the person opens to consent.
 func (c *IntegrationConnector) Begin(ctx context.Context, name, integrationURL, clientName string) (*PendingConnection, error) {
-	md, err := oauthclient.Discover(ctx, c.http, integrationURL)
+	return c.BeginWith(ctx, ConnectRequest{Name: name, URL: integrationURL, ClientName: clientName, Scope: "argus:reply"})
+}
+
+// BeginWith discovers an integration's authorization server, registers
+// Legato with it, and prepares the address the person opens to consent.
+func (c *IntegrationConnector) BeginWith(ctx context.Context, r ConnectRequest) (*PendingConnection, error) {
+	md, err := oauthclient.Discover(ctx, c.http, r.URL)
 	if err != nil {
-		return nil, fmt.Errorf("finding %s's authorization server: %w", name, err)
+		return nil, fmt.Errorf("finding %s's authorization server: %w", r.Name, err)
 	}
-	reg, err := oauthclient.Register(ctx, c.http, md, oauthclient.RegistrationRequest{ClientName: clientName, RedirectURI: argusRedirect})
+	// A loopback redirect is registered without its port (RFC 8252 §7.3), so
+	// each connect binds a free one.
+	registered := r.RedirectURI
+	if registered == "" {
+		registered = argusRedirect
+	}
+	reg, err := oauthclient.Register(ctx, c.http, md, oauthclient.RegistrationRequest{ClientName: r.ClientName, RedirectURI: registered})
 	if err != nil {
-		return nil, fmt.Errorf("registering with %s: %w", name, err)
+		return nil, fmt.Errorf("registering with %s: %w", r.Name, err)
 	}
-	auth, err := oauthclient.StartAuthorization(md, reg.ClientID, "argus:reply")
+	var auth *oauthclient.Authorization
+	if r.RedirectURI == "" {
+		auth, err = oauthclient.StartAuthorization(md, reg.ClientID, r.Scope)
+	} else {
+		auth, err = oauthclient.StartRedirectAuthorization(md, reg.ClientID, r.Scope, r.RedirectURI)
+	}
 	if err != nil {
 		return nil, err
 	}
-	return &PendingConnection{c: c, name: name, url: integrationURL, md: md, clientID: reg.ClientID, auth: auth}, nil
+	return &PendingConnection{c: c, name: r.Name, url: r.URL, md: md, clientID: reg.ClientID, auth: auth}, nil
 }
+
+// Name is the integration being connected.
+func (p *PendingConnection) Name() string { return p.name }
+
+// State is the state the browser's return carries, by which a web server's
+// callback finds this connection.
+func (p *PendingConnection) State() string { return p.auth.State() }
 
 // URL is the address the person opens to consent.
 func (p *PendingConnection) URL() string { return p.auth.URL() }
@@ -81,7 +127,7 @@ func (p *PendingConnection) Finish(ctx context.Context) error {
 	if token.RefreshToken == "" {
 		return errors.New(p.name + " gave no refresh token, so Legato could not keep the connection")
 	}
-	if err := p.c.secrets.Write(ctx, ArgusRefreshSecret, token.RefreshToken); err != nil {
+	if err := p.c.secrets.Write(ctx, IntegrationRefreshSecret(p.name), token.RefreshToken); err != nil {
 		return fmt.Errorf("keeping the refresh token: %w", err)
 	}
 	return p.c.db.SaveIntegration(ctx, store.Integration{Name: p.name, URL: p.url, Issuer: p.md.Issuer,
@@ -123,7 +169,7 @@ type SecretRemover interface {
 // Disconnect forgets the registration and the refresh token.
 func (c *IntegrationConnector) Disconnect(ctx context.Context, name string) error {
 	if remover, ok := c.secrets.(SecretRemover); ok {
-		_ = remover.Remove(ctx, ArgusRefreshSecret)
+		_ = remover.Remove(ctx, IntegrationRefreshSecret(name))
 	}
 	if err := c.db.DeleteIntegration(ctx, name); err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err

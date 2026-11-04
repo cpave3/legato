@@ -260,3 +260,27 @@ func TestErrorsDoNotCarryTheCodeOrVerifier(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestAnAuthorizationCanReturnToAnAddressOfTheCallers(t *testing.T) {
+	f := newFakeServer(t)
+	const back = "https://legato.local:3080/oauth/callback"
+	a, err := oauthclient.StartRedirectAuthorization(f.metadata(t), "client-1", "read:tasks write:tasks", back)
+	if err != nil {
+		t.Fatalf("StartRedirectAuthorization: %v", err)
+	}
+	u, _ := url.Parse(a.URL())
+	q := u.Query()
+	if q.Get("redirect_uri") != back || a.RedirectURI() != back || q.Get("state") != a.State() || q.Get("scope") != "read:tasks write:tasks" {
+		t.Fatalf("query = %v, state %q", q, a.State())
+	}
+	// The caller's own handler hands it the address the browser came back to.
+	if err := a.Paste(back + "?code=c-9&state=" + url.QueryEscape(a.State())); err != nil {
+		t.Fatalf("Paste: %v", err)
+	}
+	if code, err := wait(t, a); err != nil || code != "c-9" {
+		t.Fatalf("Wait = %q, %v", code, err)
+	}
+	if err := a.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}

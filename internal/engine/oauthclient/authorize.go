@@ -40,6 +40,31 @@ type Authorization struct {
 // prepares the authorization address with a random state and a PKCE
 // verifier. Close it (or Wait for it) when done.
 func StartAuthorization(md *Metadata, clientID, scope string) (*Authorization, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("oauth: loopback listener: %w", err)
+	}
+	a, err := newAuthorization(md, clientID, scope, fmt.Sprintf("http://127.0.0.1:%d/callback", ln.Addr().(*net.TCPAddr).Port))
+	if err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /callback", a.callback)
+	a.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = a.srv.Serve(ln) }()
+	return a, nil
+}
+
+// StartRedirectAuthorization prepares an authorization that returns to
+// redirectURI, an address of the caller's (a web server's own callback),
+// with no listener: the caller's handler gives Paste the address the
+// browser came back to, finding the authorization by its State.
+func StartRedirectAuthorization(md *Metadata, clientID, scope, redirectURI string) (*Authorization, error) {
+	return newAuthorization(md, clientID, scope, redirectURI)
+}
+
+func newAuthorization(md *Metadata, clientID, scope, redirectURI string) (*Authorization, error) {
 	authURL, err := url.Parse(md.AuthorizationEndpoint)
 	if err != nil {
 		return nil, fmt.Errorf("oauth: authorization endpoint: %w", err)
@@ -53,13 +78,8 @@ func StartAuthorization(md *Metadata, clientID, scope string) (*Authorization, e
 	if err != nil {
 		return nil, err
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, fmt.Errorf("oauth: loopback listener: %w", err)
-	}
-
 	a := &Authorization{
-		redirectURI: fmt.Sprintf("http://127.0.0.1:%d/callback", ln.Addr().(*net.TCPAddr).Port),
+		redirectURI: redirectURI,
 		state:       state,
 		verifier:    verifier,
 		done:        make(chan struct{}),
@@ -76,13 +96,11 @@ func StartAuthorization(md *Metadata, clientID, scope string) (*Authorization, e
 	q.Set("resource", md.Resource)
 	authURL.RawQuery = q.Encode()
 	a.url = authURL.String()
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /callback", a.callback)
-	a.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	go func() { _ = a.srv.Serve(ln) }()
 	return a, nil
 }
+
+// State is the random state the redirect must carry back.
+func (a *Authorization) State() string { return a.state }
 
 // URL is the address to open in the browser.
 func (a *Authorization) URL() string { return a.url }
@@ -127,6 +145,9 @@ func (a *Authorization) Paste(redirected string) error {
 // Close stops the listener. Wait calls it.
 func (a *Authorization) Close() error {
 	a.closeOnce.Do(func() {
+		if a.srv == nil {
+			return
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		// Shutdown lets the callback page finish before the listener goes.

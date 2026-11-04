@@ -107,6 +107,21 @@ Connects the board to Jira, so that tickets you import stay up to date and movin
 | `jira.status_sync_enabled` | bool | `true` | Moves cards when their Jira status changes, and transitions the issue when you move a card. `false` keeps pulling ticket details but changes no status in either direction. |
 | `jira.attachment_max_size_bytes` | integer | `26214400` (25 MiB) | The largest image attachment Legato downloads from a ticket. It downloads only images. |
 
+## Burnlite
+
+Connects the board to Burnlite, so that you can import its tasks and they stay up to date. Legato reads Burnlite only after you connect it: run `legato integration connect burnlite`, or use Settings › Integrations in the web UI. Moving a card never changes the task in Burnlite. See [Burnlite](/legato/integrations/burnlite/).
+
+| Setting | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `burnlite.url` | URL | none | Your Burnlite, such as `https://burnlite.example.com`. `legato integration connect burnlite` and the web UI's connect form use it when you give no address. |
+| `burnlite.projects` | list of strings | none | The project keys (`EST` in `EST-42`) that the import search looks in. Empty uses the projects saved in the web UI, and with none of those, every project. |
+| `burnlite.sync_interval_seconds` | integer | `60` | How often Legato pulls the tasks it tracks. |
+| `burnlite.status_sync_enabled` | bool | `true` | Moves a card when its task changes state in Burnlite. `false` keeps pulling task details but never moves a card. |
+| `burnlite.columns.ready` | string | `Ready` | The column of an open task that is not claimed and has no open blocker. |
+| `burnlite.columns.blocked` | string | `Backlog` | The column of an open task with an open blocker. |
+| `burnlite.columns.claimed` | string | `Doing` | The column of an open task that someone has claimed. |
+| `burnlite.columns.closed` | string | `Done` | The column of a closed task, completed or not planned. |
+
 ## Board
 
 The columns of the board, in order. Each column can map Jira statuses to it. Run `legato columns sync` after a change. See [The board](/legato/using/board/).
