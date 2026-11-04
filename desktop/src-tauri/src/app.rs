@@ -4,7 +4,7 @@
 //! shown and kept, so switching is instant and one server going down leaves
 //! the others alone. A server's webview trusts its pinned certificate only.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
@@ -19,7 +19,7 @@ use crate::store::{Keyring, Server, Store};
 use crate::updates;
 use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
-use crate::{fido, pin::Pin, touchid};
+use crate::{fido, pin::Pin, systrust, touchid};
 
 // The shell's chrome, in logical pixels: the title bar across the top and
 // the dock down the left. Server pages fill the rest.
@@ -48,6 +48,8 @@ pub struct Desktop {
     active: Mutex<Option<String>>,
     content_visible: Mutex<bool>,
     browser: Browser,
+    /// Servers whose page this computer's web view is known to trust.
+    page_trusted: Mutex<HashSet<String>>,
 }
 
 fn webview_label(id: &str) -> String {
@@ -247,6 +249,73 @@ fn show_server(app: AppHandle, desktop: State<'_, Desktop>, id: String) -> Resul
 
 /// Whether the content area shows the server's page (false while the shell
 /// draws a panel or a sheet over it).
+// ---- A page the system must trust (macOS) ----
+
+/// Whether the web view will load a server's page. On a Mac it checks the
+/// system's trust, not the pin (see `systrust`), so a server with Legato's
+/// own CA loads only once the Mac trusts that CA. Elsewhere, and for http,
+/// always.
+async fn check_page(desktop: &Desktop, id: &str) -> Result<bool, String> {
+    if !cfg!(target_os = "macos") || desktop.page_trusted.lock().unwrap().contains(id) {
+        return Ok(true);
+    }
+    let server = desktop.store.lock().unwrap().server(id).cloned().ok_or("no such server")?;
+    let (Some(host), Some(ca)) = (systrust::page_host(&server.url), server.ca_pem) else { return Ok(true) };
+    let leaf = legato::certificate_pem(&legato::presented_certificate(&server.url, &ca).await?);
+    let trusted = tauri::async_runtime::spawn_blocking(move || systrust::trusts(&leaf, &ca, &host)).await.map_err(|e| e.to_string())??;
+    if trusted {
+        desktop.page_trusted.lock().unwrap().insert(id.to_string());
+    }
+    Ok(trusted)
+}
+
+#[tauri::command]
+async fn page_trusted(desktop: State<'_, Desktop>, id: String) -> Result<bool, String> {
+    check_page(&desktop, &id).await
+}
+
+/// Trusts a server's pinned CA on this Mac, for TLS to its host only (macOS
+/// asks for the password), then checks again and reloads its page.
+#[tauri::command]
+async fn trust_server_certificate(app: AppHandle, desktop: State<'_, Desktop>, id: String) -> Result<bool, String> {
+    let server = desktop.store.lock().unwrap().server(&id).cloned().ok_or("no such server")?;
+    let host = systrust::page_host(&server.url).ok_or("This server's page is not served over HTTPS.")?;
+    let ca = server.ca_pem.ok_or("This server has no pinned certificate; pair with it again.")?;
+    tauri::async_runtime::spawn_blocking(move || systrust::trust(&ca, &host)).await.map_err(|e| e.to_string())??;
+    let trusted = check_page(&desktop, &id).await?;
+    if trusted {
+        if let Some(view) = app.get_webview(&webview_label(&id)) {
+            let _ = view.reload();
+        }
+    }
+    Ok(trusted)
+}
+
+/// Saves a server's pinned CA to Downloads, to install by hand, and shows
+/// it in the file manager. Says where.
+#[tauri::command]
+fn save_server_certificate(desktop: State<'_, Desktop>, id: String) -> Result<String, String> {
+    let server = desktop.store.lock().unwrap().server(&id).cloned().ok_or("no such server")?;
+    let ca = server.ca_pem.ok_or("This server has no pinned certificate.")?;
+    let dir = dirs::download_dir().or_else(dirs::home_dir).ok_or("no Downloads folder")?;
+    let path = dir.join(systrust::certificate_file_name(&server.name));
+    std::fs::write(&path, ca).map_err(|e| format!("{}: {e}", path.display()))?;
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("/usr/bin/open").arg("-R").arg(&path).status();
+    Ok(path.display().to_string())
+}
+
+/// Opens a saved certificate, which on a Mac adds it in Keychain Access.
+#[tauri::command]
+fn open_certificate(path: String) -> Result<(), String> {
+    if !path.ends_with(" Legato CA.cer") {
+        return Err("not a certificate this app saved".into());
+    }
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("/usr/bin/open").arg(&path).status().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 fn set_content_visible(app: AppHandle, desktop: State<'_, Desktop>, visible: bool) {
     *desktop.content_visible.lock().unwrap() = visible;
@@ -761,7 +830,14 @@ fn state_path() -> std::path::PathBuf {
 pub fn run() {
     let store = Store::open(state_path(), Box::new(Keyring)).expect("the app's saved state does not read");
     tauri::Builder::default()
-        .manage(Desktop { store: Mutex::new(store), prepared: Mutex::default(), active: Mutex::default(), content_visible: Mutex::new(true), browser: Browser::default() })
+        .manage(Desktop {
+            store: Mutex::new(store),
+            prepared: Mutex::default(),
+            active: Mutex::default(),
+            content_visible: Mutex::new(true),
+            browser: Browser::default(),
+            page_trusted: Mutex::default(),
+        })
         .setup(|app| {
             // Servers take a few seconds to answer on the network; listening
             // from the start has the pair form's list ready when it opens.
@@ -791,6 +867,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             servers,
             show_server,
+            page_trusted,
+            trust_server_certificate,
+            save_server_certificate,
+            open_certificate,
             set_content_visible,
             reload_server,
             pair_server,

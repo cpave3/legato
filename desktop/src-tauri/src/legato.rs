@@ -203,3 +203,40 @@ pub async fn pair(url: &str, phrase: &str, device: &str) -> Result<Paired, Strin
     }
     Ok(Paired { name: secret.name, token: secret.token, ca_pem: secret.ca_certificate })
 }
+
+/// A DER certificate as PEM, as the system's tools read it.
+pub fn certificate_pem(der: &[u8]) -> String {
+    let b64 = STANDARD.encode(der);
+    let mut out = String::from("-----BEGIN CERTIFICATE-----\n");
+    for line in b64.as_bytes().chunks(64) {
+        out.push_str(std::str::from_utf8(line).expect("base64 is ASCII"));
+        out.push('\n');
+    }
+    out.push_str("-----END CERTIFICATE-----\n");
+    out
+}
+
+/// The certificate the server presents now, which must be its pinned one
+/// or issued by it.
+pub async fn presented_certificate(url: &str, ca_pem: &str) -> Result<Vec<u8>, String> {
+    let seen = Arc::new(Mutex::new(None));
+    let http = http_client(Some(Pin::from_pem(ca_pem)?), seen.clone());
+    http.get(format!("{}/health", url.trim_end_matches('/'))).send().await.map_err(|e| describe(&e))?;
+    let leaf = seen.lock().unwrap().clone();
+    leaf.ok_or_else(|| "the server presented no certificate".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_certificate_reads_back_from_its_pem() {
+        let cert = rcgen::generate_simple_self_signed(vec!["erebus.local".into()]).unwrap().cert;
+        let pem = certificate_pem(cert.der());
+        assert!(pem.lines().all(|l| l.len() <= 64), "lines of at most 64 characters");
+        let back: Vec<_> = rustls_pemfile::certs(&mut pem.as_bytes()).collect::<Result<_, _>>().unwrap();
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0].as_ref(), cert.der().as_ref());
+    }
+}

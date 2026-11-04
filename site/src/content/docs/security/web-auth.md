@@ -41,6 +41,7 @@ A few things answer without the token:
 
 - `GET /health`, which says the server is up and its version, for monitoring.
 - `GET /api/meta`, which says the version, the server's tint and whether it pairs by phrase, so the app can list a server before it pairs.
+- `GET /api/ca-cert`, the server's CA certificate, which is public, so a device can install it before it has the token.
 - The web UI's own files, so the page can load and ask for the token. The page shows nothing of yours until it has one.
 - The two steps of pairing by phrase. The phrase is their check: it lasts five minutes and allows five tries.
 - The image files agents, plans and reviews show. Each address is the hash of the image's content, so it cannot be guessed.

@@ -455,7 +455,9 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if (r.URL.Path == "/health" || r.URL.Path == "/frontend-meta" || r.URL.Path == "/api/meta") && r.Method == http.MethodGet {
+		// The CA certificate is public, and a device fetches it before it
+		// has a token, through a plain link that sends none.
+		if (r.URL.Path == "/health" || r.URL.Path == "/frontend-meta" || r.URL.Path == "/api/meta" || r.URL.Path == "/api/ca-cert") && r.Method == http.MethodGet {
 			next.ServeHTTP(w, r)
 			return
 		}

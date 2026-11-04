@@ -9,7 +9,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -814,6 +816,32 @@ func TestAuthMiddlewareHealthExempt(t *testing.T) {
 	handler.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Errorf("authenticated board status = %d, want 200", w.Code)
+	}
+}
+
+// The CA certificate is public, and a device fetches it before it has a
+// token: the web UI's download is a plain link, which sends none.
+func TestTheCACertificateDownloadsWithoutAToken(t *testing.T) {
+	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+	srv := New(svc, nil, nil, ":0")
+	srv.SetAuthToken("test-secret-token")
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(path, []byte("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srv.SetCACertPath(path)
+
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/api/ca-cert", nil))
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "BEGIN CERTIFICATE") {
+		t.Fatalf("body = %q, want the certificate", w.Body.String())
+	}
+	if got := w.Header().Get("Content-Disposition"); !strings.Contains(got, "legato-ca.pem") {
+		t.Fatalf("Content-Disposition = %q", got)
 	}
 }
 

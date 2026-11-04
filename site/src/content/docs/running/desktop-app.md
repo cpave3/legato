@@ -73,7 +73,7 @@ A copy built from source says it is `dev` and never updates itself.
 
 There is a disk image for Apple Silicon Macs, `legato-desktop-macos-arm64.dmg`. It is not notarized: the first time, right-click the app and choose **Open**. For now it has limits the Linux build does not:
 
-- A server's page loads only when the Mac trusts the server's certificate: a certificate from a public authority, or Legato's own CA installed in Keychain Access. Pairing, keys and approvals work either way.
+- A server's page loads only when the Mac trusts the server's certificate: a certificate from a public authority, or Legato's own CA. When it does not, the app says so in place of the blank page and offers the CA it pinned when it paired. **Trust it on this Mac** asks for your password and trusts that CA for that server's address only. **Save the certificate** puts it in Downloads, with the steps to trust it in Keychain Access yourself, which trusts it for every site. Pairing, keys and approvals work either way.
 - It does not update itself; download the new disk image.
 - Touch ID is new and has had little use on a Mac.
 

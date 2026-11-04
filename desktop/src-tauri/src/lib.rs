@@ -12,3 +12,4 @@ pub mod legato;
 pub mod discovery;
 pub mod updates;
 pub mod touchid;
+pub mod systrust;

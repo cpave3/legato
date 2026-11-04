@@ -63,6 +63,12 @@ export type UpdateStatus = {
 export const api = {
   servers: () => invoke<Server[]>("servers"),
   showServer: (id: string) => invoke<void>("show_server", { id }),
+  // Whether this computer's web view will load the server's page: on a Mac,
+  // whether the system trusts its certificate. Always true on Linux.
+  pageTrusted: (id: string) => invoke<boolean>("page_trusted", { id }),
+  trustServerCertificate: (id: string) => invoke<boolean>("trust_server_certificate", { id }),
+  saveServerCertificate: (id: string) => invoke<string>("save_server_certificate", { id }),
+  openCertificate: (path: string) => invoke<void>("open_certificate", { path }),
   setContentVisible: (visible: boolean) => invoke<void>("set_content_visible", { visible }),
   reloadServer: (id: string) => invoke<void>("reload_server", { id }),
   pairServer: (url: string, phrase: string) => invoke<Server>("pair_server", { url, phrase }),

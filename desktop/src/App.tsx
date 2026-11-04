@@ -6,6 +6,7 @@ import { Dock } from "./components/Dock"
 import { PairForm } from "./components/PairForm"
 import { ServersPanel } from "./components/ServersPanel"
 import { TitleBar } from "./components/TitleBar"
+import { TrustScreen } from "./components/TrustScreen"
 
 type Panel = null | { kind: "manage"; pairing: boolean }
 type Sheet = null | { server: Server; approval: Approval }
@@ -22,6 +23,8 @@ export function App() {
   const [active, setActive] = useState<string | undefined>(remembered)
   const [panel, setPanel] = useState<Panel>(null)
   const [sheet, setSheet] = useState<Sheet>(null)
+  // Whether each server's page will load here (see api.pageTrusted).
+  const [pages, setPages] = useState<Record<string, "trusted" | "untrusted">>({})
 
   const loadServers = useCallback(async () => setServers(await api.servers()), [])
   useEffect(() => { loadServers() }, [loadServers])
@@ -43,13 +46,28 @@ export function App() {
   // The server in front: the remembered one, else the first.
   const current = useMemo(() => servers?.find((s) => s.id === active) ?? servers?.[0], [servers, active])
 
+  // A page the web view would not load (a Mac that does not trust the
+  // server's certificate yet) is not shown: the shell explains instead. A
+  // check that fails (the server is down) shows the page as before.
+  useEffect(() => {
+    if (!current || pages[current.id]) return
+    let stop = false
+    const id = current.id
+    api.pageTrusted(id)
+      .then((ok) => { if (!stop) setPages((p) => ({ ...p, [id]: ok ? "trusted" : "untrusted" })) })
+      .catch(() => { if (!stop) setPages((p) => ({ ...p, [id]: "trusted" })) })
+    return () => { stop = true }
+  }, [current, pages])
+  const page = current ? pages[current.id] : undefined
+  const recheck = (id: string) => setPages((p) => { const { [id]: _, ...rest } = p; return rest })
+
   // The content area shows the server's page unless the shell draws over it.
-  const overlay = !!panel || !!sheet || !current
+  const overlay = !!panel || !!sheet || !current || page !== "trusted"
   useEffect(() => {
     if (!servers) return
-    if (current && !panel) api.showServer(current.id).catch(() => {})
+    if (current && !panel && page === "trusted") api.showServer(current.id).catch(() => {})
     api.setContentVisible(!overlay).catch(() => {})
-  }, [servers, current, panel, overlay])
+  }, [servers, current, panel, overlay, page])
 
   const select = (id: string) => {
     setActive(id)
@@ -101,6 +119,12 @@ export function App() {
           />
         ) : !current ? (
           <Welcome onPaired={(s) => { loadServers(); select(s.id) }} />
+        ) : page === "untrusted" ? (
+          <TrustScreen
+            server={current}
+            onTrusted={() => setPages((p) => ({ ...p, [current.id]: "trusted" }))}
+            onCheckAgain={() => recheck(current.id)}
+          />
         ) : (
           <div className="content-under">
             {statuses[current.id] && !statuses[current.id].online && (

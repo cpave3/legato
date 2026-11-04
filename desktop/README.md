@@ -32,6 +32,7 @@ Tokens still go to your keyring under `dev.legato.desktop`; removing a server in
 | `src-tauri/src/pin.rs` | Whether a certificate is the pinned one or issued by it |
 | `src-tauri/src/webauthn.rs` | The WebAuthn messages Legato checks |
 | `src-tauri/src/fido.rs` | Security keys over CTAP2 |
+| `src-tauri/src/systrust.rs` | On a Mac, whether the system trusts a server's page, and trusting its CA |
 | `src-tauri/src/touchid.rs` | Touch ID: a Secure Enclave key, as a WebAuthn authenticator |
 | `src-tauri/touchid/` | The Swift that reaches the Secure Enclave, linked on a Mac only |
 | `src-tauri/src/store.rs` | The state file and the keyring |

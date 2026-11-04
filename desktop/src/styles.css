@@ -81,6 +81,15 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .welcome { margin: 0 auto; padding-top: 8vh; text-align: center; }
 .welcome .card { text-align: left; max-width: 520px; margin: 22px auto 0; }
 .welcome-mark { width: 64px; height: 64px; }
+.trust { margin: 0 auto; padding: 8vh 28px 28px; max-width: 640px; }
+.trust h1 { font-size: 20px; margin: 14px 0 8px; }
+.trust > p { line-height: 1.5; margin: 0 0 18px; }
+.trust code { background: var(--sunk); padding: 1px 5px; border-radius: 4px; }
+.mini-tile.big { width: 52px; height: 52px; border-radius: 14px; font-size: 17px; }
+.wrap { flex-wrap: wrap; }
+.steps summary { cursor: pointer; font-weight: 600; }
+.steps ol { margin: 12px 0 8px; padding-left: 20px; line-height: 1.7; font-size: 13px; color: var(--text2); }
+.steps ol b { color: var(--text); font-weight: 600; }
 .welcome h1 { font-size: 22px; margin: 14px 0 6px; }
 .panel-head { display: flex; align-items: center; margin-bottom: 8px; }
 .panel-head h1 { font-size: 20px; margin: 0; }
