@@ -1,0 +1,726 @@
+//! The window and what the shell asks of it. One frameless window holds the
+//! shell (title bar, dock, panels, the approval sheet) across its whole
+//! area, and a webview per server over the content area, made when first
+//! shown and kept, so switching is instant and one server going down leaves
+//! the others alone. A server's webview trusts its pinned certificate only.
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
+use base64::Engine;
+use rand::RngCore;
+use serde::Serialize;
+use serde_json::{json, Value};
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, State, WebviewBuilder, WebviewUrl, WindowBuilder, WindowEvent};
+
+use crate::legato::{self, Client};
+use crate::store::{Keyring, Server, Store};
+use crate::updates;
+use crate::webauthn::{self, ORIGIN, RP_ID};
+use crate::discovery::{Browser, Found};
+use crate::{fido, pin::Pin};
+
+// The shell's chrome, in logical pixels: the title bar across the top and
+// the dock down the left. Server pages fill the rest.
+const TITLE_BAR: f64 = 40.0;
+const DOCK: f64 = 68.0;
+// A strip along the right and bottom edges left to the shell, where it
+// catches a drag to resize the frameless window.
+const EDGE: f64 = 4.0;
+
+/// A decision challenge fetched for one approval, ready to sign. The sheet
+/// draws the request from it; the signature covers exactly this.
+struct Prepared {
+    device: String,
+    challenge: String,
+    canonical: String,
+    rp_id: String,
+    origin: String,
+    credential: Vec<u8>,
+}
+
+pub struct Desktop {
+    store: Mutex<Store>,
+    prepared: Mutex<HashMap<String, Prepared>>,
+    active: Mutex<Option<String>>,
+    content_visible: Mutex<bool>,
+    browser: Browser,
+}
+
+fn webview_label(id: &str) -> String {
+    format!("server-{id}")
+}
+
+fn client(store: &Store, id: &str) -> Result<Client, String> {
+    let s = store.server(id).ok_or("no such server")?;
+    Client::new(&s.url, s.ca_pem.as_deref(), store.token(id))
+}
+
+fn device_name() -> String {
+    let host = std::fs::read_to_string("/etc/hostname").ok().map(|h| h.trim().to_string()).filter(|h| !h.is_empty());
+    format!("{} (desktop app)", host.unwrap_or_else(|| "This computer".into()))
+}
+
+// ---- Layout ----
+
+fn content_rect(app: &AppHandle) -> Option<(LogicalPosition<f64>, LogicalSize<f64>)> {
+    let window = app.get_window("main")?;
+    let scale = window.scale_factor().ok()?;
+    let size = window.inner_size().ok()?.to_logical::<f64>(scale);
+    Some((LogicalPosition::new(DOCK, TITLE_BAR), LogicalSize::new((size.width - DOCK - EDGE).max(1.0), (size.height - TITLE_BAR - EDGE).max(1.0))))
+}
+
+/// On Linux, Tauri packs a window's webviews into a vertical box, one under
+/// the other. The shell instead fills a GTK overlay, and each server's page
+/// floats over it, held to the content area by its margins, so GTK keeps
+/// it there as the window resizes.
+#[cfg(target_os = "linux")]
+mod overlay {
+    use gtk::prelude::*;
+
+    /// Puts an overlay in the window's box, for the webviews to move into.
+    pub fn install(window: &tauri::Window) -> tauri::Result<()> {
+        let vbox = window.default_vbox()?;
+        let overlay = gtk::Overlay::new();
+        vbox.pack_start(&overlay, true, true, 0);
+        overlay.show();
+        Ok(())
+    }
+
+    /// Moves a webview out of the window's box into the overlay: the shell
+    /// as its base, a server's page over the content area.
+    pub fn adopt(view: &webkit2gtk::WebView, content: Option<(i32, i32, i32)>) {
+        let Some(vbox) = view.parent().and_then(|p| p.downcast::<gtk::Box>().ok()) else { return };
+        let Some(overlay) = vbox.children().into_iter().find_map(|c| c.downcast::<gtk::Overlay>().ok()) else { return };
+        vbox.remove(view);
+        match content {
+            None => overlay.add(view),
+            Some((left, top, edge)) => {
+                view.set_halign(gtk::Align::Fill);
+                view.set_valign(gtk::Align::Fill);
+                view.set_margin_start(left);
+                view.set_margin_top(top);
+                view.set_margin_end(edge);
+                view.set_margin_bottom(edge);
+                overlay.add_overlay(view);
+            }
+        }
+        view.show();
+    }
+}
+
+fn relayout(app: &AppHandle) {
+    if cfg!(target_os = "linux") {
+        return; // GTK lays the overlay out.
+    }
+    let Some(window) = app.get_window("main") else { return };
+    let Ok(scale) = window.scale_factor() else { return };
+    let Ok(size) = window.inner_size() else { return };
+    if let Some(shell) = app.get_webview("shell") {
+        let _ = shell.set_position(LogicalPosition::new(0.0, 0.0));
+        let _ = shell.set_size(size.to_logical::<f64>(scale));
+    }
+    if let Some((pos, size)) = content_rect(app) {
+        for (label, view) in app.webviews() {
+            if label.starts_with("server-") {
+                let _ = view.set_position(pos);
+                let _ = view.set_size(size);
+            }
+        }
+    }
+}
+
+/// Shows the active server's page when the content area is the server's,
+/// and hides every other one.
+fn show_only_active(app: &AppHandle, desktop: &Desktop) {
+    let active = desktop.active.lock().unwrap().clone();
+    let visible = *desktop.content_visible.lock().unwrap();
+    for (label, view) in app.webviews() {
+        if !label.starts_with("server-") {
+            continue;
+        }
+        let show = visible && active.as_deref().map(webview_label).as_deref() == Some(label.as_str());
+        let _ = if show { view.show() } else { view.hide() };
+    }
+}
+
+/// Makes a server's webview: the web UI's token seeded before its scripts
+/// run, and its certificate checked against the pin on each TLS error.
+fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>) -> Result<(), String> {
+    let window = app.get_window("main").ok_or("no window")?;
+    let (pos, size) = content_rect(app).ok_or("no window size")?;
+    let origin = reqwest::Url::parse(&server.url).map_err(|e| e.to_string())?.origin().ascii_serialization();
+    // Before the page's scripts: the web UI's token where it keeps it, and no
+    // service worker. The web UI's offline cache would take over the page's
+    // requests from its second load, and its requests do not get the pinned
+    // certificate's allowance, so they hang; the dock shows a server that is
+    // down instead. One already there is removed, and the page reloaded once.
+    let seed = format!(
+        r#"(() => {{
+  if (location.origin !== {origin:?}) return;
+  try {{ localStorage.setItem("legato:token:local", {token:?}); }} catch (e) {{}}
+  const sw = navigator.serviceWorker;
+  if (!sw) return;
+  try {{ sw.register = () => Promise.reject(new DOMException("The desktop app keeps no offline copy.", "NotSupportedError")); }} catch (e) {{}}
+  sw.getRegistrations().then((all) => {{
+    if (!all.length) return;
+    Promise.all(all.map((r) => r.unregister())).then(() => {{ if (sw.controller) location.reload(); }});
+  }}).catch(() => {{}});
+}})();"#,
+        token = token.unwrap_or_default()
+    );
+    let builder = WebviewBuilder::new(webview_label(&server.id), WebviewUrl::External("about:blank".parse().unwrap())).initialization_script(&seed);
+    let view = window.add_child(builder, pos, size).map_err(|e| e.to_string())?;
+    let url = server.url.parse::<tauri::Url>().map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "linux")]
+    {
+        let pin = server.ca_pem.as_deref().map(Pin::from_pem).transpose()?;
+        let target = server.url.clone();
+        view.with_webview(move |platform| {
+            use webkit2gtk::gio::prelude::TlsCertificateExt;
+            use webkit2gtk::{WebContextExt, WebViewExt};
+            let page = platform.inner();
+            overlay::adopt(&page, Some((DOCK as i32, TITLE_BAR as i32, EDGE as i32)));
+            page.connect_load_failed_with_tls_errors(move |page, uri, cert, _flags| {
+                let host = reqwest::Url::parse(uri).ok().and_then(|u| u.host_str().map(String::from)).unwrap_or_default();
+                let leaf = cert.certificate().map(|b| b.to_vec()).unwrap_or_default();
+                match &pin {
+                    Some(pin) if pin.trusts(&leaf, &host) => {
+                        if let Some(ctx) = page.context() {
+                            ctx.allow_tls_certificate_for_host(cert, &host);
+                        }
+                        page.load_uri(uri);
+                        true
+                    }
+                    _ => false,
+                }
+            });
+            page.load_uri(&target);
+        })
+        .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "linux"))]
+    view.navigate(url.clone()).map_err(|e| e.to_string())?;
+    let _ = url;
+    Ok(())
+}
+
+// ---- Servers ----
+
+#[derive(Serialize)]
+pub struct ServerView {
+    id: String,
+    name: String,
+    url: String,
+    tint: Option<String>,
+    pinned: bool,
+    keys: Vec<String>,
+}
+
+fn view(s: &Server) -> ServerView {
+    ServerView { id: s.id.clone(), name: s.name.clone(), url: s.url.clone(), tint: s.tint.clone(), pinned: s.ca_pem.is_some(), keys: s.devices.keys().cloned().collect() }
+}
+
+#[tauri::command]
+fn servers(desktop: State<'_, Desktop>) -> Vec<ServerView> {
+    desktop.store.lock().unwrap().state.servers.iter().map(view).collect()
+}
+
+#[tauri::command]
+fn show_server(app: AppHandle, desktop: State<'_, Desktop>, id: String) -> Result<(), String> {
+    let label = webview_label(&id);
+    if app.get_webview(&label).is_none() {
+        let (server, token) = {
+            let store = desktop.store.lock().unwrap();
+            (store.server(&id).cloned().ok_or("no such server")?, store.token(&id))
+        };
+        make_server_view(&app, &server, token)?;
+    }
+    *desktop.active.lock().unwrap() = Some(id);
+    show_only_active(&app, &desktop);
+    Ok(())
+}
+
+/// Whether the content area shows the server's page (false while the shell
+/// draws a panel or a sheet over it).
+#[tauri::command]
+fn set_content_visible(app: AppHandle, desktop: State<'_, Desktop>, visible: bool) {
+    *desktop.content_visible.lock().unwrap() = visible;
+    show_only_active(&app, &desktop);
+}
+
+#[tauri::command]
+fn reload_server(app: AppHandle, id: String) {
+    if let Some(view) = app.get_webview(&webview_label(&id)) {
+        let _ = view.eval("location.reload()");
+    }
+}
+
+/// Pairs by phrase, keeps the server, and enrolls each key the app holds.
+#[tauri::command]
+async fn pair_server(desktop: State<'_, Desktop>, url: String, phrase: String) -> Result<ServerView, String> {
+    let url = url.trim().trim_end_matches('/').to_string();
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("The address starts with https:// (or http://).".into());
+    }
+    let paired = legato::pair(&url, &phrase, &device_name()).await?;
+    let server = {
+        let mut store = desktop.store.lock().unwrap();
+        let s = store.add_server(&paired.name, &url, paired.ca_pem, &paired.token)?;
+        store.save()?;
+        s
+    };
+    let keys = desktop.store.lock().unwrap().state.keys.clone();
+    for key in keys {
+        let _ = enroll(&desktop, &key.id, &server.id).await;
+    }
+    let store = desktop.store.lock().unwrap();
+    Ok(view(store.server(&server.id).unwrap()))
+}
+
+/// Legato servers announcing themselves on the local network, except those
+/// already paired.
+#[tauri::command]
+fn discovered(desktop: State<'_, Desktop>) -> Vec<Found> {
+    desktop.browser.start();
+    let store = desktop.store.lock().unwrap();
+    desktop.browser.found().into_iter().filter(|f| !store.state.servers.iter().any(|s| s.url == f.url)).collect()
+}
+
+#[tauri::command]
+fn rename_server(desktop: State<'_, Desktop>, id: String, name: String) -> Result<(), String> {
+    let mut store = desktop.store.lock().unwrap();
+    store.server_mut(&id).ok_or("no such server")?.name = name.trim().to_string();
+    store.save()
+}
+
+#[tauri::command]
+fn remove_server(app: AppHandle, desktop: State<'_, Desktop>, id: String) -> Result<(), String> {
+    if let Some(view) = app.get_webview(&webview_label(&id)) {
+        let _ = view.close();
+    }
+    let mut store = desktop.store.lock().unwrap();
+    store.remove_server(&id)?;
+    store.save()
+}
+
+#[derive(Serialize)]
+pub struct Status {
+    id: String,
+    online: bool,
+    error: Option<String>,
+    version: Option<String>,
+    tint: Option<String>,
+    approvals: Vec<Value>,
+}
+
+/// Each server's state: answering, its tint, and its open approvals that
+/// need a signature.
+#[tauri::command]
+async fn poll(desktop: State<'_, Desktop>) -> Result<Vec<Status>, String> {
+    let clients: Vec<(String, Result<Client, String>)> = {
+        let store = desktop.store.lock().unwrap();
+        store.state.servers.iter().map(|s| (s.id.clone(), client(&store, &s.id))).collect()
+    };
+    let mut out = Vec::new();
+    for (id, c) in clients {
+        let status = match c {
+            Err(e) => Status { id, online: false, error: Some(e), version: None, tint: None, approvals: vec![] },
+            Ok(c) => match c.get("/api/meta").await {
+                Err(e) => Status { id, online: false, error: Some(e), version: None, tint: None, approvals: vec![] },
+                Ok(meta) => {
+                    let approvals = c.get("/api/approvals?status=pending").await.ok().and_then(|v| v["approvals"].as_array().cloned()).unwrap_or_default();
+                    Status {
+                        id,
+                        online: true,
+                        error: None,
+                        version: meta["version"].as_str().map(String::from),
+                        tint: meta["tint"].as_str().filter(|t| !t.is_empty()).map(String::from),
+                        approvals: approvals.into_iter().filter(|a| a["signed"] == true).collect(),
+                    }
+                }
+            },
+        };
+        out.push(status);
+    }
+    // Keep each tint, so the dock has it while a server is down.
+    let mut store = desktop.store.lock().unwrap();
+    let mut changed = false;
+    for st in out.iter().filter(|s| s.online) {
+        if let Some(s) = store.server_mut(&st.id) {
+            if s.tint != st.tint {
+                s.tint = st.tint.clone();
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        let _ = store.save();
+    }
+    Ok(out)
+}
+
+// ---- Keys ----
+
+#[derive(Serialize)]
+pub struct KeyView {
+    id: String,
+    name: String,
+    plugged: bool,
+    /// By server ID: "active", "pending", or absent.
+    servers: HashMap<String, String>,
+}
+
+/// The keys, whether each is plugged in, and how each server has it.
+#[tauri::command]
+async fn keys(desktop: State<'_, Desktop>) -> Result<Vec<KeyView>, String> {
+    let (keys, servers) = {
+        let store = desktop.store.lock().unwrap();
+        let servers: Vec<(Server, Result<Client, String>)> = store.state.servers.iter().map(|s| (s.clone(), client(&store, &s.id))).collect();
+        (store.state.keys.clone(), servers)
+    };
+    let credentials: Vec<Vec<u8>> = keys.iter().map(|k| URL_SAFE_NO_PAD.decode(&k.credential_id).unwrap_or_default()).collect();
+    let plugged = tauri::async_runtime::spawn_blocking(move || fido::held(RP_ID, &credentials)).await.map_err(|e| e.to_string())?;
+
+    let mut statuses: HashMap<(String, String), String> = HashMap::new();
+    let mut gone: Vec<(String, String)> = Vec::new();
+    for (server, c) in &servers {
+        let Ok(c) = c else { continue };
+        let Ok(list) = c.get("/api/devices").await else { continue };
+        let devices = list.as_array().cloned().or_else(|| list["devices"].as_array().cloned()).unwrap_or_default();
+        for (key_id, device_id) in &server.devices {
+            match devices.iter().find(|d| d["id"] == device_id.as_str()) {
+                Some(d) if d["status"] == "active" || d["status"] == "pending" => {
+                    statuses.insert((key_id.clone(), server.id.clone()), d["status"].as_str().unwrap().to_string());
+                }
+                // Removed on the server (or refused): no longer enrolled there.
+                _ => gone.push((server.id.clone(), key_id.clone())),
+            }
+        }
+    }
+    if !gone.is_empty() {
+        let mut store = desktop.store.lock().unwrap();
+        for (sid, kid) in gone {
+            if let Some(s) = store.server_mut(&sid) {
+                s.devices.remove(&kid);
+            }
+        }
+        let _ = store.save();
+    }
+    Ok(keys
+        .iter()
+        .map(|k| KeyView {
+            id: k.id.clone(),
+            name: k.name.clone(),
+            plugged: plugged.iter().any(|c| URL_SAFE_NO_PAD.encode(c) == k.credential_id),
+            servers: servers.iter().filter_map(|(s, _)| statuses.get(&(k.id.clone(), s.id.clone())).map(|st| (s.id.clone(), st.clone()))).collect(),
+        })
+        .collect())
+}
+
+/// Enrolls a key's credential on a server: no touch, since the credential
+/// exists. A server with keys already makes this an approval that one of
+/// them signs.
+async fn enroll(desktop: &Desktop, key_id: &str, server_id: &str) -> Result<String, String> {
+    let (c, key) = {
+        let store = desktop.store.lock().unwrap();
+        (client(&store, server_id)?, store.state.keys.iter().find(|k| k.id == key_id).cloned().ok_or("no such key")?)
+    };
+    let options = c.post("/api/devices/passkey/options", json!({ "origin": ORIGIN })).await?;
+    let challenge = options["publicKey"]["challenge"].as_str().ok_or("the server gave no challenge")?;
+    let client_data = webauthn::client_data("webauthn.create", challenge, ORIGIN);
+    let credential = URL_SAFE_NO_PAD.decode(&key.credential_id).map_err(|e| e.to_string())?;
+    let auth_data = URL_SAFE_NO_PAD.decode(&key.auth_data).map_err(|e| e.to_string())?;
+    let device = c.post("/api/devices", webauthn::registration(&key.name, &credential, &auth_data, &client_data)).await?;
+    let id = device["id"].as_str().ok_or("the server did not say which device")?.to_string();
+    let mut store = desktop.store.lock().unwrap();
+    if let Some(s) = store.server_mut(server_id) {
+        s.devices.insert(key_id.to_string(), id);
+    }
+    store.save()?;
+    Ok(device["status"].as_str().unwrap_or("").to_string())
+}
+
+/// Adds the one plugged-in key: it makes a credential for the app (a touch,
+/// and its PIN when it insists), then it is enrolled on every server.
+#[tauri::command]
+async fn add_key(desktop: State<'_, Desktop>, name: String, pin: Option<String>) -> Result<Value, String> {
+    let mut challenge = [0u8; 32];
+    let mut user = [0u8; 16];
+    rand::rngs::OsRng.fill_bytes(&mut challenge);
+    rand::rngs::OsRng.fill_bytes(&mut user);
+    let client_data = webauthn::client_data("webauthn.create", &URL_SAFE_NO_PAD.encode(challenge), ORIGIN);
+    let (credential, auth_data) =
+        tauri::async_runtime::spawn_blocking(move || fido::make_credential(RP_ID, &client_data, &user, "Legato desktop", pin.as_deref()))
+            .await
+            .map_err(|e| e.to_string())??;
+    let key = {
+        let mut store = desktop.store.lock().unwrap();
+        if store.state.keys.iter().any(|k| k.credential_id == URL_SAFE_NO_PAD.encode(&credential)) {
+            return Err("This key is already added.".into());
+        }
+        let k = store.add_key(name.trim(), &URL_SAFE_NO_PAD.encode(&credential), &URL_SAFE_NO_PAD.encode(&auth_data))?;
+        store.save()?;
+        k
+    };
+    let servers: Vec<String> = desktop.store.lock().unwrap().state.servers.iter().map(|s| s.id.clone()).collect();
+    let mut results = serde_json::Map::new();
+    for sid in servers {
+        let r = enroll(&desktop, &key.id, &sid).await;
+        results.insert(sid, match r { Ok(status) => json!({ "status": status }), Err(e) => json!({ "error": e }) });
+    }
+    Ok(json!({ "key": key.id, "servers": results }))
+}
+
+#[tauri::command]
+async fn enroll_key(desktop: State<'_, Desktop>, key: String, server: String) -> Result<String, String> {
+    enroll(&desktop, &key, &server).await
+}
+
+/// Revokes a key everywhere: each server is asked to remove it (an
+/// approval another key, or this one, signs), and the app forgets it.
+#[tauri::command]
+async fn revoke_key(desktop: State<'_, Desktop>, key: String) -> Result<Value, String> {
+    let targets: Vec<(String, Result<Client, String>, String)> = {
+        let store = desktop.store.lock().unwrap();
+        store.state.servers.iter().filter_map(|s| s.devices.get(&key).map(|d| (s.id.clone(), client(&store, &s.id), d.clone()))).collect()
+    };
+    let mut results = serde_json::Map::new();
+    for (sid, c, device) in targets {
+        let r = match c {
+            Ok(c) => c.delete(&format!("/api/devices/{device}")).await,
+            Err(e) => Err(e),
+        };
+        results.insert(sid, match r { Ok(v) => v, Err(e) => json!({ "error": e }) });
+    }
+    let mut store = desktop.store.lock().unwrap();
+    store.remove_key(&key)?;
+    store.save()?;
+    Ok(Value::Object(results))
+}
+
+// ---- Approvals ----
+
+/// The device a server knows a plugged-in key as.
+fn signing_device(desktop: &Desktop, server_id: &str, plugged: &[Vec<u8>]) -> Option<String> {
+    let store = desktop.store.lock().unwrap();
+    let server = store.server(server_id)?;
+    store
+        .state
+        .keys
+        .iter()
+        .filter(|k| plugged.iter().any(|c| URL_SAFE_NO_PAD.encode(c) == k.credential_id))
+        .find_map(|k| server.devices.get(&k.id).cloned())
+}
+
+/// Fetches the request a key would sign for an approval, and keeps it. The
+/// sheet is drawn from what this returns.
+#[tauri::command]
+async fn prepare(desktop: State<'_, Desktop>, server: String, approval: String) -> Result<Value, String> {
+    let (c, credentials) = {
+        let store = desktop.store.lock().unwrap();
+        let creds: Vec<Vec<u8>> = store.state.keys.iter().map(|k| URL_SAFE_NO_PAD.decode(&k.credential_id).unwrap_or_default()).collect();
+        (client(&store, &server)?, creds)
+    };
+    if credentials.is_empty() {
+        return Err("Add a security key first: Servers & keys, at the foot of the dock.".into());
+    }
+    let plugged = tauri::async_runtime::spawn_blocking(move || fido::held(RP_ID, &credentials)).await.map_err(|e| e.to_string())?;
+    let device = signing_device(&desktop, &server, &plugged).ok_or("Plug in a key this server knows.")?;
+    let given = c.post(&format!("/api/approvals/{approval}/challenge"), json!({ "device": device })).await?;
+    let canonical = String::from_utf8(STANDARD.decode(given["canonical"].as_str().unwrap_or_default()).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let passkey = &given["passkey"];
+    let prepared = Prepared {
+        device: device.clone(),
+        challenge: given["challenge"].as_str().ok_or("no challenge")?.to_string(),
+        rp_id: passkey["rp_id"].as_str().ok_or("the server did not name the key")?.to_string(),
+        origin: passkey["origin"].as_str().unwrap_or(ORIGIN).to_string(),
+        credential: URL_SAFE_NO_PAD.decode(passkey["credential_id"].as_str().unwrap_or_default()).map_err(|e| e.to_string())?,
+        canonical: canonical.clone(),
+    };
+    desktop.prepared.lock().unwrap().insert(format!("{server}/{approval}"), prepared);
+    let request: Value = serde_json::from_str(&canonical).map_err(|e| e.to_string())?;
+    Ok(json!({ "request": request, "device": device }))
+}
+
+/// Signs the prepared request with one of its allow options: a touch.
+#[tauri::command]
+async fn sign(desktop: State<'_, Desktop>, server: String, approval: String, option: String) -> Result<Value, String> {
+    let p = desktop.prepared.lock().unwrap().remove(&format!("{server}/{approval}")).ok_or("Nothing is prepared for this approval; open it again.")?;
+    let request: Value = serde_json::from_str(&p.canonical).map_err(|e| e.to_string())?;
+    if !request["options"].as_array().into_iter().flatten().any(|o| o["id"] == option.as_str() && o["kind"] == "allow") {
+        return Err(format!("{option} is not one of this request's allow options"));
+    }
+    let message = webauthn::signed_message(&p.challenge, &p.device, &option, &p.canonical);
+    let client_data = webauthn::client_data("webauthn.get", &webauthn::decision_challenge(&message), &p.origin);
+    let (cd, rp, cred) = (client_data.clone(), p.rp_id.clone(), p.credential.clone());
+    let signed = tauri::async_runtime::spawn_blocking(move || fido::sign(&rp, &cd, &cred)).await.map_err(|e| e.to_string())??;
+    let value = webauthn::assertion(&p.credential, &signed.auth_data, &signed.signature, &client_data);
+    let c = {
+        let store = desktop.store.lock().unwrap();
+        client(&store, &server)?
+    };
+    c.post(
+        &format!("/api/approvals/{approval}/decision"),
+        json!({ "decision": "allow", "option": option, "by": "desktop", "signature": { "device": p.device, "challenge": p.challenge, "value": value } }),
+    )
+    .await?;
+    use sha2::Digest;
+    Ok(json!({
+        "device": p.device,
+        "message_sha256": hex::encode(sha2::Sha256::digest(message.as_bytes())),
+        "signature": hex::encode(&signed.signature),
+        "verified": signed.verified,
+        "counter": signed.counter,
+    }))
+}
+
+/// A deny needs no signature.
+#[tauri::command]
+async fn deny(desktop: State<'_, Desktop>, server: String, approval: String) -> Result<(), String> {
+    desktop.prepared.lock().unwrap().remove(&format!("{server}/{approval}"));
+    let c = {
+        let store = desktop.store.lock().unwrap();
+        client(&store, &server)?
+    };
+    c.post(&format!("/api/approvals/{approval}/decision"), json!({ "decision": "deny", "by": "desktop" })).await.map(|_| ())
+}
+
+// ---- Updates ----
+
+fn github() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent(concat!("legato-desktop/", env!("CARGO_PKG_VERSION")))
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .expect("HTTP client")
+}
+
+/// The AppImage this app runs from: the AppImage runtime names it. Only an
+/// AppImage updates itself.
+fn appimage() -> Option<std::path::PathBuf> {
+    std::env::var_os("APPIMAGE").map(Into::into).filter(|p: &std::path::PathBuf| p.is_file())
+}
+
+/// This build's version, and the newest release with a desktop build.
+#[tauri::command]
+async fn check_update() -> Result<Value, String> {
+    let current = updates::version();
+    if updates::parse(current).is_none() {
+        return Ok(json!({ "version": current, "latest": null, "available": false, "can_install": false }));
+    }
+    let releases: Vec<Value> = github()
+        .get(format!("https://api.github.com/repos/{}/releases?per_page=30", updates::REPOSITORY))
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+    let latest = updates::newest_with(&releases, updates::APPIMAGE);
+    let available = latest.as_ref().is_some_and(|c| updates::newer(&c.version, current));
+    Ok(json!({ "version": current, "latest": latest, "available": available, "can_install": appimage().is_some() }))
+}
+
+/// Downloads the newest AppImage, checks it, and puts it in place of this
+/// one, which is kept as `.prev`. It runs at the next start.
+#[tauri::command]
+async fn apply_update() -> Result<String, String> {
+    let target = appimage().ok_or("Only the AppImage updates itself; this copy was not started as one.")?;
+    let status = check_update().await?;
+    if status["available"] != true {
+        return Err("Nothing newer to install.".into());
+    }
+    let latest: updates::Candidate = serde_json::from_value(status["latest"].clone()).map_err(|e| e.to_string())?;
+    let client = github();
+    let fetch = |url: String| {
+        let client = client.clone();
+        async move {
+            let resp = client.get(url).send().await.map_err(|e| e.to_string())?.error_for_status().map_err(|e| e.to_string())?;
+            resp.bytes().await.map_err(|e| e.to_string())
+        }
+    };
+    let sums = String::from_utf8(fetch(latest.sums_url.clone()).await?.to_vec()).map_err(|e| e.to_string())?;
+    let bytes = fetch(latest.appimage_url.clone()).await?;
+    updates::check_sum(&bytes, &sums, updates::APPIMAGE)?;
+    tauri::async_runtime::spawn_blocking(move || updates::install(&target, &bytes)).await.map_err(|e| e.to_string())??;
+    Ok(latest.version)
+}
+
+/// Starts the AppImage again, which is the new version once installed.
+#[tauri::command]
+fn restart_app(app: AppHandle) -> Result<(), String> {
+    let target = appimage().ok_or("not running as an AppImage")?;
+    std::process::Command::new(target).spawn().map_err(|e| e.to_string())?;
+    app.exit(0);
+    Ok(())
+}
+
+// ---- Start ----
+
+fn state_path() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("LEGATO_DESKTOP_STATE") {
+        return p.into();
+    }
+    dirs::config_dir().unwrap_or_else(|| ".".into()).join("legato-desktop").join("state.json")
+}
+
+pub fn run() {
+    let store = Store::open(state_path(), Box::new(Keyring)).expect("the app's saved state does not read");
+    tauri::Builder::default()
+        .manage(Desktop { store: Mutex::new(store), prepared: Mutex::default(), active: Mutex::default(), content_visible: Mutex::new(true), browser: Browser::default() })
+        .setup(|app| {
+            // Servers take a few seconds to answer on the network; listening
+            // from the start has the pair form's list ready when it opens.
+            app.state::<Desktop>().browser.start();
+            let window = WindowBuilder::new(app, "main")
+                .title("Legato")
+                .inner_size(1360.0, 880.0)
+                .min_inner_size(820.0, 560.0)
+                .decorations(false)
+                .build()?;
+            #[cfg(target_os = "linux")]
+            overlay::install(&window)?;
+            let size = window.inner_size()?.to_logical::<f64>(window.scale_factor()?);
+            let shell = window.add_child(WebviewBuilder::new("shell", WebviewUrl::App("index.html".into())), LogicalPosition::new(0.0, 0.0), size)?;
+            #[cfg(target_os = "linux")]
+            shell.with_webview(|platform| overlay::adopt(&platform.inner(), None))?;
+            #[cfg(not(target_os = "linux"))]
+            let _ = shell;
+            let handle = app.handle().clone();
+            window.on_window_event(move |e| {
+                if matches!(e, WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }) {
+                    relayout(&handle);
+                }
+            });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            servers,
+            show_server,
+            set_content_visible,
+            reload_server,
+            pair_server,
+            discovered,
+            rename_server,
+            remove_server,
+            poll,
+            keys,
+            add_key,
+            enroll_key,
+            revoke_key,
+            prepare,
+            sign,
+            deny,
+            check_update,
+            apply_update,
+            restart_app
+        ])
+        .run(tauri::generate_context!())
+        .expect("the app did not start");
+}

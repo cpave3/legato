@@ -1,8 +1,11 @@
 # Makes a release of Legato: the next version (the newest vX.Y.Z tag, bumped),
 # tested, built for every platform with the web UI inside, and published as a
-# GitHub release that Legato's updater installs.
+# GitHub release that Legato's updater installs. When desktop/ changed since
+# the last release that has one (or desktop=always), the desktop app is built
+# too and attached to the same release: an AppImage, which updates itself
+# from these releases, and a macOS disk image.
 #
-#   gh workflow run release -f bump=patch
+#   gh workflow run release -f bump=patch [-f desktop=always]
 name: release
 
 on:
@@ -13,6 +16,11 @@ on:
         type: choice
         options: [patch, minor, major]
         default: patch
+      desktop:
+        description: Build the desktop app (auto builds it when desktop/ changed)
+        type: choice
+        options: [auto, always, never]
+        default: auto
 
 permissions:
   contents: write # the tag and the release
@@ -28,6 +36,9 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      desktop: ${{ steps.desktop.outputs.build }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,6 +66,12 @@ jobs:
       - name: Next version
         id: version
         run: echo "version=$(bash scripts/next-version.sh '${{ inputs.bump }}')" >> "$GITHUB_OUTPUT"
+
+      - name: Whether to build the desktop app
+        id: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "build=$(bash scripts/desktop-changed.sh '${{ inputs.desktop }}')" >> "$GITHUB_OUTPUT"
 
       - name: Web dependencies
         working-directory: web
@@ -84,3 +101,124 @@ jobs:
         run: |
           gh release create "$VERSION" dist/legato-* dist/SHA256SUMS \
             --target "$GITHUB_SHA" --title "$VERSION" --generate-notes
+
+  # The desktop app for Linux: an AppImage, built on an older Ubuntu so its
+  # glibc suits more distributions. It finds its updates in these releases.
+  desktop-linux:
+    needs: release
+    if: needs.release.outputs.desktop == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.version }}
+
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libudev-dev libssl-dev patchelf file
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Dependencies
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        working-directory: desktop
+        run: |
+          pnpm exec tsc -b
+          pnpm exec vite build
+          (cd src-tauri && cargo test --lib)
+
+      - name: Build
+        working-directory: desktop
+        env:
+          LEGATO_DESKTOP_VERSION: ${{ needs.release.outputs.version }}
+        run: pnpm tauri build --bundles appimage --config "{\"version\":\"${VERSION#v}\"}"
+
+      - name: Name it
+        run: |
+          mkdir -p dist
+          cp desktop/src-tauri/target/release/bundle/appimage/*.AppImage dist/legato-desktop-x86_64.AppImage
+          (cd dist && sha256sum legato-desktop-x86_64.AppImage > legato-desktop-SHA256SUMS)
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/legato-desktop-x86_64.AppImage
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$VERSION" dist/legato-desktop-x86_64.AppImage dist/legato-desktop-SHA256SUMS
+
+  # The desktop app for Apple Silicon Macs, as a disk image: ad hoc signed,
+  # not notarized, and not yet self-updating.
+  desktop-macos:
+    needs: release
+    if: needs.release.outputs.desktop == 'true'
+    runs-on: macos-14
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.version }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Dependencies
+        working-directory: desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        working-directory: desktop
+        env:
+          LEGATO_DESKTOP_VERSION: ${{ needs.release.outputs.version }}
+        run: pnpm tauri build --bundles dmg --config "{\"version\":\"${VERSION#v}\"}"
+
+      - name: Name it
+        run: |
+          mkdir -p dist
+          cp desktop/src-tauri/target/release/bundle/dmg/*.dmg dist/legato-desktop-macos-arm64.dmg
+
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/legato-desktop-macos-arm64.dmg
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$VERSION" dist/legato-desktop-macos-arm64.dmg

@@ -43,6 +43,8 @@ task lint                  # golangci-lint
 task check                 # build + test + vet + lint
 task docs:dev              # serve the docs site (site/) with live reload
 task docs:build            # build the docs site; fails on a broken link
+task desktop:test          # the desktop app's Rust tests and TypeScript check
+task desktop:dev           # run the desktop app (desktop/)
 ```
 
 ## Build Plan
@@ -91,6 +93,7 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/review-handoff.md` — review handoff packets: API, storage, freshness, CLI output
 - `docs/ai/workflows.md` — workflow runs, completion and artifact collection, API, live updates
 - `docs/ai/model-settings.md` — native model settings: proxy, API, vision metadata, rollout
+- `docs/ai/desktop.md` — the desktop app (`desktop/`, Tauri): window and webviews, pairing, pinned TLS, security keys, its releases and updater
 
 ## User documentation site
 
@@ -118,6 +121,7 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 | `docs/ai/credentials.md`, `docs/ai/sandbox.md` | `security/*`, `running/agent-server` |
 | `docs/ai/integrations.md` | `integrations/argus` |
 | `docs/ai/updates.md` | `running/updates`, `start/install` |
+| `docs/ai/desktop.md` | `running/desktop-app` |
 
 ## Agent skills
 

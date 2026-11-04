@@ -115,7 +115,8 @@ The first decision counts. To deny, you can add a note that the agent reads.
 Some decisions should need you in person, not just someone who has the web token. A signed approval can be allowed only with a signature from a device you enrolled:
 
 - **A phone** running the Legato app keeps a key in its secure hardware and unlocks it with your fingerprint or PIN for each signature.
-- **A passkey** on a computer, made in Settings › Security in the web UI. It needs a secure page: `localhost`, or HTTPS at a host name.
+- **A security key in the [desktop app](/legato/running/desktop-app/)**, enrolled on every server the app has paired with. You touch the key to sign.
+- **A passkey** on a computer, made in Settings › Security in the web UI. It needs a secure page: `localhost`, or HTTPS at a host name. A security key such as a YubiKey can sign with a touch alone; your browser or password manager may still ask for a PIN or fingerprint. Each decision records which it was: a touch, or a verification.
 
 A rule asks for a signature with `signed: true`. Once you enroll any device, rules with `approve: request` ask for one by default. Adding or removing a device always needs one. Denying never does.
 

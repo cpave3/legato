@@ -13,9 +13,10 @@ import (
 
 var updateFixture = flag.Bool("update", false, "rewrite testdata/exchange.json")
 
-// One whole exchange with fixed randomness. The app's tests read the same file
-// (mobile/app/src/test/resources/pairing-exchange.json) and must reach the same
-// values, which is what proves the two sides speak the same protocol.
+// One whole exchange with fixed randomness. The apps' tests read the same file
+// (mobile/app/src/test/resources/pairing-exchange.json and
+// desktop/src-tauri/tests/fixtures/pairing-exchange.json) and must reach the
+// same values, which is what proves the sides speak the same protocol.
 type exchangeFixture struct {
 	Phrase          string `json:"phrase"`
 	W               string `json:"w"`
@@ -85,8 +86,9 @@ func TestExchangeFixtureIsCurrentAndSharedWithTheApp(t *testing.T) {
 	want = append(want, '\n')
 	path := filepath.Join("testdata", "exchange.json")
 	appCopy := filepath.Join("..", "..", "..", "mobile", "app", "src", "test", "resources", "pairing-exchange.json")
+	desktopCopy := filepath.Join("..", "..", "..", "desktop", "src-tauri", "tests", "fixtures", "pairing-exchange.json")
 	if *updateFixture {
-		for _, p := range []string{path, appCopy} {
+		for _, p := range []string{path, appCopy, desktopCopy} {
 			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 				t.Fatal(err)
 			}
@@ -95,7 +97,7 @@ func TestExchangeFixtureIsCurrentAndSharedWithTheApp(t *testing.T) {
 			}
 		}
 	}
-	for _, p := range []string{path, appCopy} {
+	for _, p := range []string{path, appCopy, desktopCopy} {
 		got, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatalf("%v (run go test -update)", err)

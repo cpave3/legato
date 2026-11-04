@@ -83,6 +83,7 @@ Both the web UI and the Legato app keep a list of servers.
 
 - In the web UI, add one in Settings › Connection › Servers with a name and its address, such as `https://legato-vm.example.ts.net:3080`. The page asks for that server's token when you switch to it. Switch between servers with the switcher at the foot of the side rail, or in **More** on a phone.
 - In the app, add each server with **+** and pair it.
+- The [desktop app](/legato/running/desktop-app/) keeps every server in one window, with a dock to switch between them.
 
 Give each Legato a tint in Settings › Appearance › Tint, so you can tell at a glance which one a page is on. The tint is saved on the server, so every device shows it.
 

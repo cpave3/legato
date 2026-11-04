@@ -1,0 +1,254 @@
+//! What the app keeps: the servers it paired with (address, name, pinned
+//! certificate, and which of its keys each has enrolled) and the security
+//! keys it holds, in one JSON file readable only by the person. A server's
+//! token is not in that file: it is in the desktop's keyring.
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
+use rand::RngCore;
+use serde::{Deserialize, Serialize};
+
+fn new_id(prefix: &str) -> String {
+    let mut b = [0u8; 5];
+    rand::rngs::OsRng.fill_bytes(&mut b);
+    format!("{prefix}-{}", hex::encode(b))
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Server {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    /// The certificate the server sealed when it paired, as PEM.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ca_pem: Option<String>,
+    /// The server's tint, as /api/meta last gave it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tint: Option<String>,
+    /// The device each key is enrolled as on this server, by key ID.
+    #[serde(default)]
+    pub devices: BTreeMap<String, String>,
+}
+
+/// A security key's credential, made once for the app's origin.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Key {
+    pub id: String,
+    pub name: String,
+    /// base64url
+    pub credential_id: String,
+    /// The authenticator data the key gave when it made the credential,
+    /// base64url: what each server's enrollment carries.
+    pub auth_data: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct State {
+    #[serde(default)]
+    pub servers: Vec<Server>,
+    #[serde(default)]
+    pub keys: Vec<Key>,
+}
+
+/// Where tokens are kept: the desktop's keyring, or memory in tests.
+pub trait Secrets: Send + Sync {
+    fn get(&self, id: &str) -> Option<String>;
+    fn set(&self, id: &str, token: &str) -> Result<(), String>;
+    fn delete(&self, id: &str);
+}
+
+pub struct Store {
+    path: PathBuf,
+    secrets: Box<dyn Secrets>,
+    pub state: State,
+}
+
+impl Store {
+    /// Reads the file at path, or starts empty when there is none.
+    pub fn open(path: PathBuf, secrets: Box<dyn Secrets>) -> Result<Store, String> {
+        let state = match std::fs::read(&path) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| format!("{} does not read: {e}", path.display()))?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => State::default(),
+            Err(e) => return Err(format!("{}: {e}", path.display())),
+        };
+        Ok(Store { path, secrets, state })
+    }
+
+    /// Writes the file whole, beside it first, then over it.
+    pub fn save(&self) -> Result<(), String> {
+        use std::io::Write;
+        let fail = |e: std::io::Error| format!("{}: {e}", self.path.display());
+        if let Some(dir) = self.path.parent() {
+            std::fs::create_dir_all(dir).map_err(fail)?;
+        }
+        let tmp = self.path.with_extension("json.tmp");
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&tmp).map_err(fail)?;
+        file.write_all(&serde_json::to_vec_pretty(&self.state).expect("state encodes")).map_err(fail)?;
+        file.sync_all().map_err(fail)?;
+        std::fs::rename(&tmp, &self.path).map_err(fail)
+    }
+
+    pub fn add_server(&mut self, name: &str, url: &str, ca_pem: Option<String>, token: &str) -> Result<Server, String> {
+        let server = Server { id: new_id("s"), name: name.into(), url: url.trim_end_matches('/').into(), ca_pem, ..Default::default() };
+        self.secrets.set(&server.id, token)?;
+        self.state.servers.push(server.clone());
+        Ok(server)
+    }
+
+    pub fn server(&self, id: &str) -> Option<&Server> {
+        self.state.servers.iter().find(|s| s.id == id)
+    }
+
+    pub fn server_mut(&mut self, id: &str) -> Option<&mut Server> {
+        self.state.servers.iter_mut().find(|s| s.id == id)
+    }
+
+    pub fn token(&self, id: &str) -> Option<String> {
+        self.secrets.get(id)
+    }
+
+    /// Forgets a server and its token.
+    pub fn remove_server(&mut self, id: &str) -> Result<(), String> {
+        self.state.servers.retain(|s| s.id != id);
+        self.secrets.delete(id);
+        Ok(())
+    }
+
+    pub fn add_key(&mut self, name: &str, credential_id: &str, auth_data: &str) -> Result<Key, String> {
+        let key = Key { id: new_id("k"), name: name.into(), credential_id: credential_id.into(), auth_data: auth_data.into() };
+        self.state.keys.push(key.clone());
+        Ok(key)
+    }
+
+    /// Forgets a key, and that any server enrolled it.
+    pub fn remove_key(&mut self, id: &str) -> Result<(), String> {
+        self.state.keys.retain(|k| k.id != id);
+        for s in &mut self.state.servers {
+            s.devices.remove(id);
+        }
+        Ok(())
+    }
+}
+
+/// The desktop's keyring: the Secret Service on Linux, the Keychain on
+/// macOS, the Credential Manager on Windows.
+pub struct Keyring;
+
+impl Secrets for Keyring {
+    fn get(&self, id: &str) -> Option<String> {
+        keyring::Entry::new("dev.legato.desktop", id).ok()?.get_password().ok()
+    }
+
+    fn set(&self, id: &str, token: &str) -> Result<(), String> {
+        keyring::Entry::new("dev.legato.desktop", id)
+            .and_then(|e| e.set_password(token))
+            .map_err(|e| format!("the keyring would not keep the token: {e}"))
+    }
+
+    fn delete(&self, id: &str) {
+        if let Ok(e) = keyring::Entry::new("dev.legato.desktop", id) {
+            let _ = e.delete_credential();
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    pub(crate) struct Memory(pub Arc<Mutex<BTreeMap<String, String>>>);
+
+    impl Secrets for Memory {
+        fn get(&self, id: &str) -> Option<String> {
+            self.0.lock().unwrap().get(id).cloned()
+        }
+        fn set(&self, id: &str, token: &str) -> Result<(), String> {
+            self.0.lock().unwrap().insert(id.into(), token.into());
+            Ok(())
+        }
+        fn delete(&self, id: &str) {
+            self.0.lock().unwrap().remove(id);
+        }
+    }
+
+    fn open(dir: &tempfile::TempDir, secrets: &Memory) -> Store {
+        Store::open(dir.path().join("legato-desktop.json"), Box::new(secrets.clone())).unwrap()
+    }
+
+    #[test]
+    fn servers_and_keys_are_kept_across_opens() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let mut store = open(&dir, &secrets);
+        let s = store.add_server("erebus", "https://erebus.local:3080", Some("PEM".into()), "tok-1").unwrap();
+        let k = store.add_key("YubiKey 1", "Y3JlZA", "YXV0aA").unwrap();
+        store.server_mut(&s.id).unwrap().devices.insert(k.id.clone(), "dev-1".into());
+        store.save().unwrap();
+
+        let again = open(&dir, &secrets);
+        assert_eq!(again.state, store.state);
+        assert_eq!(again.token(&s.id).as_deref(), Some("tok-1"));
+    }
+
+    #[test]
+    fn a_token_is_kept_in_the_keyring_not_the_file() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let mut store = open(&dir, &secrets);
+        store.add_server("erebus", "https://erebus.local:3080", None, "secret-token-xyz").unwrap();
+        store.save().unwrap();
+        let text = std::fs::read_to_string(dir.path().join("legato-desktop.json")).unwrap();
+        assert!(!text.contains("secret-token-xyz"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_file_is_readable_by_its_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let mut store = open(&dir, &secrets);
+        store.add_server("erebus", "https://erebus.local:3080", None, "t").unwrap();
+        store.save().unwrap();
+        let mode = std::fs::metadata(dir.path().join("legato-desktop.json")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn removing_a_server_forgets_its_token() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let mut store = open(&dir, &secrets);
+        let s = store.add_server("erebus", "https://erebus.local:3080", None, "t").unwrap();
+        store.remove_server(&s.id).unwrap();
+        assert!(store.server(&s.id).is_none());
+        assert!(secrets.get(&s.id).is_none());
+    }
+
+    #[test]
+    fn removing_a_key_forgets_where_it_was_enrolled() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let mut store = open(&dir, &secrets);
+        let s = store.add_server("erebus", "https://erebus.local:3080", None, "t").unwrap();
+        let k = store.add_key("YubiKey 1", "Y3JlZA", "YXV0aA").unwrap();
+        store.server_mut(&s.id).unwrap().devices.insert(k.id.clone(), "dev-1".into());
+        store.remove_key(&k.id).unwrap();
+        assert!(store.state.keys.is_empty());
+        assert!(store.server(&s.id).unwrap().devices.is_empty());
+    }
+
+    #[test]
+    fn ids_are_distinct() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let mut store = open(&dir, &secrets);
+        let a = store.add_server("a", "https://a.local", None, "t").unwrap();
+        let b = store.add_server("b", "https://b.local", None, "t").unwrap();
+        assert_ne!(a.id, b.id);
+    }
+}

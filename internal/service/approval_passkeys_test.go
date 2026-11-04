@@ -28,6 +28,11 @@ type passkey struct {
 	origin string
 	user   []byte
 	device string
+	// flags the authenticator sets on an assertion; zero is a synced
+	// passkey's: presence, verification, backed up.
+	assertFlags byte
+	// securityKey makes the credential as a hardware key does: not backed up.
+	securityKey bool
 }
 
 func newPasskey(t *testing.T, origin, rpID string) *passkey {
@@ -73,6 +78,13 @@ func clientData(kind, challenge, origin string) []byte {
 	return b
 }
 
+func (p *passkey) createFlags() byte {
+	if p.securityKey {
+		return flagUP | flagUV | flagAT
+	}
+	return flagUP | flagUV | flagBE | flagBS | flagAT
+}
+
 // create answers creation options as navigator.credentials.create would,
 // in the JSON the web page sends.
 func (p *passkey) create(t *testing.T, options []byte) []byte {
@@ -98,7 +110,7 @@ func (p *passkey) create(t *testing.T, options []byte) []byte {
 		t.Fatalf("options are for %q, the page is %q", o.PublicKey.RP.ID, p.rpID)
 	}
 	p.user, _ = b64u.DecodeString(o.PublicKey.User.ID)
-	att, _ := cbor.Marshal(map[string]any{"fmt": "none", "attStmt": map[string]any{}, "authData": p.authData(flagUP|flagUV|flagBE|flagBS|flagAT, true)})
+	att, _ := cbor.Marshal(map[string]any{"fmt": "none", "attStmt": map[string]any{}, "authData": p.authData(p.createFlags(), true)})
 	body, _ := json.Marshal(map[string]any{
 		"id": b64u.EncodeToString(p.credID), "rawId": b64u.EncodeToString(p.credID), "type": "public-key",
 		"response": map[string]any{
@@ -113,7 +125,11 @@ func (p *passkey) create(t *testing.T, options []byte) []byte {
 // assert answers navigator.credentials.get over challenge.
 func (p *passkey) assert(t *testing.T, challenge []byte) []byte {
 	t.Helper()
-	auth := p.authData(flagUP|flagUV|flagBE|flagBS, false)
+	flags := p.assertFlags
+	if flags == 0 {
+		flags = flagUP | flagUV | flagBE | flagBS
+	}
+	auth := p.authData(flags, false)
 	cd := clientData("webauthn.get", b64u.EncodeToString(challenge), p.origin)
 	cdHash := sha256.Sum256(cd)
 	sum := sha256.Sum256(append(append([]byte{}, auth...), cdHash[:]...))
@@ -263,5 +279,116 @@ func TestAPhoneEnrollmentKeepsItsAttestationChain(t *testing.T) {
 	chain, err := f.devices.AttestationChain(context.Background(), d.ID)
 	if err != nil || len(chain) != 1 || string(chain[0]) != string(p.chain(t)[0]) {
 		t.Fatalf("chain = %d certificates, %v", len(chain), err)
+	}
+}
+
+// A security key signs with a touch alone: presence without verification.
+// Legato accepts it, and records which it was.
+func TestAPasskeySignsWithPresenceAloneAndTheDecisionSaysSo(t *testing.T) {
+	f := newDevicesFixture(t)
+	ctx := context.Background()
+	key := newPasskey(t, "https://erebus.example:3080", "erebus.example")
+	if _, err := f.enrollPasskey(t, key, "YubiKey"); err != nil {
+		t.Fatal(err)
+	}
+	f.approvals.RegisterResolver(ApprovalSourceCredential, acceptingResolver{})
+	submit := func(k string) *Approval {
+		a, _, err := f.approvals.Submit(ctx, ApprovalInput{Source: ApprovalSourceCredential, SourceKey: k, TaskID: "t", Title: "Use github",
+			Options: []ApprovalOption{{ID: "once", Label: "Once", Kind: ApprovalAllow}}, Signed: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+
+	key.assertFlags = flagUP | flagBE | flagBS
+	first := submit("touch")
+	touched, err := f.approvals.Decide(ctx, first.ID, ApprovalDecision{Decision: ApprovalAllow, Option: "once", Signature: f.signWithPasskey(t, key, first.ID, "once")})
+	if err != nil {
+		t.Fatalf("a touch alone: %v", err)
+	}
+	if got := touched.Decision.Verification; got != "presence" {
+		t.Fatalf("a touch alone is recorded as %q, want presence", got)
+	}
+
+	key.assertFlags = flagUP | flagUV | flagBE | flagBS
+	second := submit("pin")
+	verified, err := f.approvals.Decide(ctx, second.ID, ApprovalDecision{Decision: ApprovalAllow, Option: "once", Signature: f.signWithPasskey(t, key, second.ID, "once")})
+	if err != nil {
+		t.Fatalf("a touch and a PIN: %v", err)
+	}
+	if got := verified.Decision.Verification; got != "verified" {
+		t.Fatalf("a verified signature is recorded as %q, want verified", got)
+	}
+}
+
+// Without even a touch, an assertion is no person's decision.
+func TestAPasskeyAssertionWithoutPresenceIsRefused(t *testing.T) {
+	f := newDevicesFixture(t)
+	ctx := context.Background()
+	key := newPasskey(t, "https://erebus.example:3080", "erebus.example")
+	if _, err := f.enrollPasskey(t, key, "YubiKey"); err != nil {
+		t.Fatal(err)
+	}
+	f.approvals.RegisterResolver(ApprovalSourceCredential, acceptingResolver{})
+	a, _, err := f.approvals.Submit(ctx, ApprovalInput{Source: ApprovalSourceCredential, SourceKey: "k", TaskID: "t", Title: "Use github",
+		Options: []ApprovalOption{{ID: "once", Label: "Once", Kind: ApprovalAllow}}, Signed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key.assertFlags = flagBE | flagBS // no presence, no verification
+	if _, err := f.approvals.Decide(ctx, a.ID, ApprovalDecision{Decision: ApprovalAllow, Option: "once", Signature: f.signWithPasskey(t, key, a.ID, "once")}); !errors.Is(err, ErrApprovalBadSignature) {
+		t.Fatalf("no presence: %v", err)
+	}
+}
+
+// Enrolling asks for verification where the authenticator can give it,
+// without requiring it: a security key may then sign with a touch.
+func TestPasskeyOptionsPreferVerification(t *testing.T) {
+	f := newDevicesFixture(t)
+	options, err := f.devices.PasskeyOptions(context.Background(), "https://erebus.example:3080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var o struct {
+		PublicKey struct {
+			AuthenticatorSelection struct {
+				UserVerification string `json:"userVerification"`
+			} `json:"authenticatorSelection"`
+		} `json:"publicKey"`
+	}
+	if err := json.Unmarshal(options, &o); err != nil {
+		t.Fatal(err)
+	}
+	if got := o.PublicKey.AuthenticatorSelection.UserVerification; got != "preferred" {
+		t.Fatalf("userVerification = %q, want preferred", got)
+	}
+}
+
+// The desktop app makes one credential per security key, at an origin of
+// its own, and enrolls that same credential on each server it pairs with.
+func TestOneCredentialEnrollsAndSignsOnSeveralServers(t *testing.T) {
+	ctx := context.Background()
+	key := newPasskey(t, "https://legato-desktop.invalid", "legato-desktop.invalid")
+	key.securityKey = true
+	key.assertFlags = flagUP // a touch, as the app asks
+	for _, name := range []string{"erebus", "nyx"} {
+		f := newDevicesFixture(t)
+		device, err := f.enrollPasskey(t, key, "YubiKey")
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if device.Origin != "https://legato-desktop.invalid" {
+			t.Fatalf("%s: origin = %q", name, device.Origin)
+		}
+		f.approvals.RegisterResolver(ApprovalSourceCredential, acceptingResolver{})
+		a, _, err := f.approvals.Submit(ctx, ApprovalInput{Source: ApprovalSourceCredential, SourceKey: "k", TaskID: "t", Title: "Use github",
+			Options: []ApprovalOption{{ID: "once", Label: "Once", Kind: ApprovalAllow}}, Signed: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.approvals.Decide(ctx, a.ID, ApprovalDecision{Decision: ApprovalAllow, Option: "once", Signature: f.signWithPasskey(t, key, a.ID, "once")}); err != nil {
+			t.Fatalf("%s: signing: %v", name, err)
+		}
 	}
 }

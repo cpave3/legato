@@ -80,6 +80,10 @@ Legato also keeps [Staccato](/legato/integrations/staccato/)'s `st` up to date, 
 
 `st` downloads and checks its own release; Legato only runs `st update`. An `st` built from source is left alone, and Legato never installs `st` where there is none. A Legato built from source still keeps a release of `st` up to date.
 
+## The desktop app
+
+The desktop app's AppImage updates itself from the same releases, when a release carries a new desktop build. See [The desktop app](/legato/running/desktop-app/#updates).
+
 ## Limits
 
 - Agents also run the `legato` binary, for their hooks and Legato's tools. After an update, new calls use the new binary while processes already running keep the old one, until the agent is reloaded.

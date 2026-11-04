@@ -133,6 +133,18 @@ task mobile:install   # build, install on the connected device, and start
 
 See [`mobile/README.md`](https://github.com/cpave3/legato/blob/main/mobile/README.md) for signing.
 
+### Desktop app
+
+A Tauri app in `desktop/`: Rust, with a React shell. It needs Rust, Node with pnpm, and on Linux the WebKitGTK 4.1, GTK 3, librsvg and libudev development packages.
+
+```bash
+task desktop:test    # Rust unit tests and the TypeScript check
+task desktop:dev     # run it, the shell reloading as you edit
+task desktop:build   # an AppImage
+```
+
+See [The desktop app](/legato/running/desktop-app/) and [`desktop/README.md`](https://github.com/cpave3/legato/blob/main/desktop/README.md).
+
 ### Stream Deck plugin
 
 A Go plugin for OpenDeck in `streamdeck/`.

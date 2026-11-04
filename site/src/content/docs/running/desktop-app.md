@@ -1,0 +1,72 @@
+---
+title: The desktop app
+description: Every Legato server in one window, each paired by four words, with approvals signed by a touch of a security key.
+sidebar:
+  order: 35
+---
+
+The Legato desktop app keeps all your Legato servers in one window. A dock down the left shows each server as a tile in its tint; click one and its web UI fills the rest of the window. Each server's page stays open, so switching is instant, and a server that goes down leaves the others alone. The app also signs approvals with a touch of a security key, such as a YubiKey, and gathers the approvals that wait for one from every server.
+
+:::caution
+The desktop app is new. The AppImage for Linux is the main build. The Mac build is an early version (see [On a Mac](#on-a-mac)), and there is no Windows build yet.
+:::
+
+## Install it
+
+Download `legato-desktop-x86_64.AppImage` from the [latest release that has one](https://github.com/cpave3/legato/releases), make it executable, and run it:
+
+```bash
+chmod +x legato-desktop-x86_64.AppImage
+./legato-desktop-x86_64.AppImage
+```
+
+Not every Legato release carries a desktop build: one is made only when the app has changed.
+
+## Pair a server
+
+The app pairs with a server by four words, the same way the Legato app for Android does, so you never copy a token.
+
+1. On the server, run `legato pair`, or open Settings › **Pair a device** in its web UI. It shows four words.
+2. In the app, click **+** in the dock. Servers announcing themselves on the network are listed under **On this network**; click one, or type the address.
+3. Type the four words and click **Pair**.
+
+The words are never sent. The app and the server each prove they know them, and the server then sends its token and its certificate, sealed so only the app can read them. From then on the app trusts that certificate for that server and nothing else, so a server with Legato's own certificate works without installing anything, and something else on the network cannot answer in its place. The token is kept in your desktop's keyring, not in a file.
+
+A phrase lasts five minutes and five tries. Servers are found on the network as described in [Your phone and other devices](/legato/running/devices/#found-on-the-network); some networks block that, and then you type the address.
+
+## Sign approvals with a security key
+
+A [signed approval](/legato/security/credential-broker/#signed-approvals) needs a signature from a device you enrolled. In the app that device is a security key: you touch it to sign, and no agent can do that for you.
+
+1. Click the key icon at the foot of the dock to open **Servers & keys**.
+2. Under **Security keys**, click **Add a key**, give it a name, and touch the key when it blinks. Leave only that key plugged in. Some keys ask for their PIN once here, to make the key's credential; signing later is a touch alone.
+
+The app enrolls each key on every server it has paired with, and on each server you pair later. A server that already has an enrolled device asks for the new key to be approved with a signature from one it knows, as it does for any new device.
+
+When an approval waits for a signature, its server's tile shows a count, and the title bar shows **to sign**. Click it: a sheet shows what you are about to sign, drawn from the exact request the key signs. Choose an option and touch the key. Each decision records whether it was signed by a touch alone or with a PIN or fingerprint.
+
+To revoke a key, click **Revoke** beside it. Every server is asked to remove it; each removal is itself a signed approval, which you sign with another key (or that one, while you still have it).
+
+## The window
+
+- The title bar is the app's own: drag it to move the window, double-click it to maximize. It names the server in front and has a button to reload its page.
+- When the server in front has a [tint](/legato/using/web-ui/), the title bar, the dock and the window's edges take its colour.
+- The dock's dot on each tile is green while the server answers and red while it does not.
+- The app keeps no offline copy of a server's web UI.
+
+## Updates
+
+The AppImage keeps itself current. It checks GitHub for a newer release with a desktop build when it starts and every six hours. When there is one, the title bar shows **Update to vX.Y.Z**: click it, and the app downloads the new AppImage, checks it against the release's checksums, and puts it in place of the old one, which it keeps beside it as `.prev`. Then click **Restart to update**.
+
+A copy built from source says it is `dev` and never updates itself.
+
+## On a Mac
+
+There is a disk image for Apple Silicon Macs, `legato-desktop-macos-arm64.dmg`. It is not notarized: the first time, right-click the app and choose **Open**. For now it has limits the Linux build does not:
+
+- A server's page loads only when the Mac trusts the server's certificate: a certificate from a public authority, or Legato's own CA installed in Keychain Access. Pairing, keys and approvals work either way.
+- It does not update itself; download the new disk image.
+
+## Build it yourself
+
+See [Building Legato](/legato/contributing/build/) and the app's README on GitHub: [desktop/README.md](https://github.com/cpave3/legato/blob/main/desktop/README.md). The internals are in [docs/ai/desktop.md](https://github.com/cpave3/legato/blob/main/docs/ai/desktop.md).

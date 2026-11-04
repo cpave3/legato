@@ -68,6 +68,10 @@ type ApprovalDecision struct {
 	Signature *ApprovalSignature `json:"signature,omitempty"`
 	// Device is the device whose signature was checked; set by Decide.
 	Device string `json:"device,omitempty"`
+	// Verification is how the device knew it was the person: "verified"
+	// (fingerprint, PIN, or an unlocked password manager) or "presence"
+	// (a touch of a security key, nothing more); set by Decide.
+	Verification string `json:"verification,omitempty"`
 }
 
 // ApprovalSignature is a device's signed decision.
@@ -77,10 +81,23 @@ type ApprovalSignature struct {
 	Value     string `json:"value"`
 }
 
+// SignedBy is the device whose signature on a decision held, and how it
+// knew it was the person.
+type SignedBy struct {
+	Device       string
+	Verification string
+}
+
+// Verifications a signed decision records.
+const (
+	VerificationVerified = "verified"
+	VerificationPresence = "presence"
+)
+
 // SignatureVerifier checks a signed decision and returns the device that
 // signed it. The device service is one.
 type SignatureVerifier interface {
-	VerifyDecision(ctx context.Context, approval Approval, decision ApprovalDecision) (string, error)
+	VerifyDecision(ctx context.Context, approval Approval, decision ApprovalDecision) (SignedBy, error)
 }
 
 var (
@@ -244,7 +261,7 @@ func (s *ApprovalService) Decide(ctx context.Context, id string, decision Approv
 	if err != nil {
 		return nil, err
 	}
-	decision.Device = ""
+	decision.Device, decision.Verification = "", ""
 	allows := decision.Decision == ApprovalAllow || decision.Decision == ApprovalAnswer
 	if current.Signed && allows && decision.Signature == nil {
 		return nil, ErrApprovalNeedsSignature
@@ -254,11 +271,11 @@ func (s *ApprovalService) Decide(ctx context.Context, id string, decision Approv
 		if verifier == nil {
 			return nil, ErrApprovalBadSignature
 		}
-		device, err := verifier.VerifyDecision(ctx, *current, decision)
+		by, err := verifier.VerifyDecision(ctx, *current, decision)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrApprovalBadSignature, err)
 		}
-		decision.Device = device
+		decision.Device, decision.Verification = by.Device, by.Verification
 	}
 	resolver := s.resolver(current.Source)
 	if resolver == nil {

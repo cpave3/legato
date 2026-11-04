@@ -118,7 +118,7 @@ func (d *DeviceService) PasskeyOptions(ctx context.Context, origin string) ([]by
 		exclude = append(exclude, c.Descriptor())
 	}
 	creation, session, err := rp.BeginRegistration(user,
-		webauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{ResidentKey: protocol.ResidentKeyRequirementPreferred, UserVerification: protocol.VerificationRequired}),
+		webauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{ResidentKey: protocol.ResidentKeyRequirementPreferred, UserVerification: protocol.VerificationPreferred}),
 		webauthn.WithConveyancePreference(protocol.PreferNoAttestation),
 		webauthn.WithExclusions(exclude))
 	if err != nil {
@@ -167,7 +167,7 @@ func (d *DeviceService) passkeyDevice(ctx context.Context, req EnrollRequest) (D
 	}
 	credential, err := rp.CreateCredential(user, webauthn.SessionData{
 		Challenge: client.Challenge, RelyingPartyID: rpID, UserID: user.id,
-		UserVerification: protocol.VerificationRequired, CredParams: webauthn.CredentialParametersDefault(),
+		UserVerification: protocol.VerificationPreferred, CredParams: webauthn.CredentialParametersDefault(),
 	}, parsed)
 	if err != nil {
 		return Device{}, fmt.Errorf("the passkey is not accepted: %w", err)
@@ -193,39 +193,41 @@ func passkeyRequest(device *Device) (*PasskeyRequest, error) {
 }
 
 // verifyPasskey checks an assertion over msg, made at the passkey's own
-// page, with user verification, and keeps the credential's new state.
-func (d *DeviceService) verifyPasskey(ctx context.Context, device *Device, msg []byte, value string) error {
+// page with the person present, and keeps the credential's new state. It
+// says whether the authenticator also verified the person: a security key
+// may sign with a touch alone, which is enough to keep an agent out.
+func (d *DeviceService) verifyPasskey(ctx context.Context, device *Device, msg []byte, value string) (bool, error) {
 	var rec passkeyRecord
 	if err := json.Unmarshal(device.PublicKey, &rec); err != nil {
-		return err
+		return false, err
 	}
 	parsed, err := protocol.ParseCredentialRequestResponseBytes([]byte(value))
 	if err != nil {
-		return fmt.Errorf("the passkey's answer does not read: %w", err)
+		return false, fmt.Errorf("the passkey's answer does not read: %w", err)
 	}
 	rp, err := relyingParty(rec.RPID, device.Origin)
 	if err != nil {
-		return err
+		return false, err
 	}
 	server, err := d.ServerID(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	sum := sha256.Sum256(msg)
 	credential, err := rp.ValidateLogin(passkeyUser{id: []byte(server), credentials: []webauthn.Credential{rec.Credential}}, webauthn.SessionData{
 		Challenge: base64.RawURLEncoding.EncodeToString(sum[:]), RelyingPartyID: rec.RPID, UserID: []byte(server),
-		AllowedCredentialIDs: [][]byte{rec.Credential.ID}, UserVerification: protocol.VerificationRequired,
+		AllowedCredentialIDs: [][]byte{rec.Credential.ID}, UserVerification: protocol.VerificationPreferred,
 	}, parsed)
 	if err != nil {
-		return fmt.Errorf("the passkey's signature is not over this request, option and challenge, from its page: %w", err)
+		return false, fmt.Errorf("the passkey's signature is not over this request, option and challenge, from its page: %w", err)
 	}
 	if credential.Authenticator.CloneWarning {
-		return errors.New("the passkey's counter went backwards: it may have been copied")
+		return false, errors.New("the passkey's counter went backwards: it may have been copied")
 	}
 	rec.Credential = *credential
 	updated, err := json.Marshal(rec)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return d.db.SetApprovalDeviceKey(ctx, device.ID, updated)
+	return credential.Flags.UserVerified, d.db.SetApprovalDeviceKey(ctx, device.ID, updated)
 }

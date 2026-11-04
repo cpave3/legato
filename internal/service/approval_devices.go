@@ -382,23 +382,23 @@ func signedMessage(challenge, device, option string, canonical []byte) ([]byte, 
 // approval and device and is spent now, whatever the outcome; the request
 // is what it was when the challenge was given; and the signature verifies
 // with the device's key.
-func (d *DeviceService) VerifyDecision(ctx context.Context, approval Approval, decision ApprovalDecision) (string, error) {
+func (d *DeviceService) VerifyDecision(ctx context.Context, approval Approval, decision ApprovalDecision) (SignedBy, error) {
 	sig := decision.Signature
 	device, err := d.db.GetApprovalDevice(ctx, sig.Device)
 	if err != nil || device.Status != store.DeviceActive {
-		return "", errors.New("the signing device is not enrolled")
+		return SignedBy{}, errors.New("the signing device is not enrolled")
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(sig.Challenge)
 	if err != nil {
-		return "", errors.New("the challenge does not read")
+		return SignedBy{}, errors.New("the challenge does not read")
 	}
 	challenge, err := d.db.SpendApprovalChallenge(ctx, challengeHash(raw), d.opts.Now())
 	if err != nil || challenge.Purpose != "decide" || challenge.ApprovalID != approval.ID || challenge.DeviceID != sig.Device {
-		return "", errors.New("the challenge is not one given for this approval and device, or it is used or expired")
+		return SignedBy{}, errors.New("the challenge is not one given for this approval and device, or it is used or expired")
 	}
 	canonical, err := d.canonical(ctx, approval)
 	if err != nil {
-		return "", err
+		return SignedBy{}, err
 	}
 	option := decision.Option
 	if option == "" {
@@ -406,35 +406,41 @@ func (d *DeviceService) VerifyDecision(ctx context.Context, approval Approval, d
 	}
 	msg, err := signedMessage(sig.Challenge, sig.Device, option, canonical)
 	if err != nil {
-		return "", err
+		return SignedBy{}, err
 	}
 	if device.Kind == "passkey" {
-		if err := d.verifyPasskey(ctx, device, msg, sig.Value); err != nil {
-			return "", err
+		verified, err := d.verifyPasskey(ctx, device, msg, sig.Value)
+		if err != nil {
+			return SignedBy{}, err
 		}
 		_ = d.db.TouchApprovalDevice(ctx, sig.Device)
-		return sig.Device, nil
+		if verified {
+			return SignedBy{Device: sig.Device, Verification: VerificationVerified}, nil
+		}
+		return SignedBy{Device: sig.Device, Verification: VerificationPresence}, nil
 	}
 	value, err := base64.StdEncoding.DecodeString(sig.Value)
 	if err != nil {
 		if value, err = base64.RawURLEncoding.DecodeString(sig.Value); err != nil {
-			return "", errors.New("the signature does not read")
+			return SignedBy{}, errors.New("the signature does not read")
 		}
 	}
 	parsed, err := x509.ParsePKIXPublicKey(device.PublicKey)
 	if err != nil {
-		return "", err
+		return SignedBy{}, err
 	}
 	key, ok := parsed.(*ecdsa.PublicKey)
 	if !ok {
-		return "", errors.New("the device's key is not an EC key")
+		return SignedBy{}, errors.New("the device's key is not an EC key")
 	}
 	sum := sha256.Sum256(msg)
 	if !ecdsa.VerifyASN1(key, sum[:], value) {
-		return "", errors.New("the signature is not the device's over this request, option and challenge")
+		return SignedBy{}, errors.New("the signature is not the device's over this request, option and challenge")
 	}
 	_ = d.db.TouchApprovalDevice(ctx, sig.Device)
-	return sig.Device, nil
+	// A phone's key is enrolled only if it needs the person's fingerprint or
+	// PIN for each use.
+	return SignedBy{Device: sig.Device, Verification: VerificationVerified}, nil
 }
 
 // deviceResolver applies decisions on enrolling and removing devices.
