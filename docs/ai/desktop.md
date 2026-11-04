@@ -1,6 +1,6 @@
 # Desktop app
 
-`desktop/` is Legato's desktop app: Tauri 2 (Rust) with a React and TypeScript shell. It shows every paired Legato server in one window, pairs by phrase with the server's certificate pinned, and signs approvals with a security key. The person's page is `site/src/content/docs/running/desktop-app.md`; how to build and run it is in `desktop/README.md`.
+`desktop/` is Legato's desktop app: Tauri 2 (Rust) with a React and TypeScript shell. It shows every paired Legato server in one window, pairs by phrase with the server's certificate pinned, and signs approvals with a security key, or on a Mac with Touch ID. The person's page is `site/src/content/docs/running/desktop-app.md`; how to build and run it is in `desktop/README.md`.
 
 ## The window
 
@@ -33,9 +33,18 @@ The app is its own WebAuthn client (WebKitGTK has none), over CTAP2 with `ctap-h
 - **Signing**: `prepare` finds a plugged-in key the server knows (each plugged-in key is asked, without a touch, `up=false`, whether it holds each credential), fetches `/api/approvals/{id}/challenge` for that device and keeps the request on the Rust side. `sign` checks the option is one of the request's allow options, builds the message a phone signs (`webauthn::signed_message`), asks the key for an assertion over the SHA-256 of it with a touch and no PIN, and posts the decision `by: "desktop"`. Legato records `verification: presence` (see [Approvals](approvals.md)). The sheet draws the request from what `prepare` returned, so the page cannot change what is signed.
 - **Revoking** asks every server to remove the key's device (each a signed approval) and forgets the key. `keys` drops an enrolment the server no longer lists.
 
+### Touch ID
+
+`src-tauri/src/touchid.rs`. On a Mac the app is the authenticator: a P-256 key in the Secure Enclave with the access control `privateKeyUsage` and `biometryCurrentSet`, so it signs only after a fingerprint. `touchid::make` asks the chip for a key and builds the authenticator data a platform authenticator gives (rpIdHash of `legato-desktop.invalid`, flags UP, UV and AT, counter 0, AAGUID zero, the credential ID, which is the SHA-256 of the public key, and the key as a COSE_Key); no fingerprint is asked for. It is enrolled as a security key's credential is, a `none` attestation over that data, with `authenticatorAttachment: platform` and transport `internal`, so Legato lists it as a `passkey`. `touchid::sign` signs the authenticator data (UP, UV, counter 0) and the client data's hash; the dialog reads "Legato is trying to sign “<title>” on <server>". Legato records `verification: verified`. The counter stays 0, which WebAuthn takes as "no counter".
+
+- **The chip** is behind the `Enclave` trait. On a Mac it is `touchid/`, a Swift package of three C functions (`legato_touchid_available`, `_create`, `_sign`; buffers are the caller's; 0 worked, 1 failed with words, 2 cancelled) that `build.rs` builds and links with `swift-rs` when the build machine is a Mac. The key is CryptoKit's `dataRepresentation`, a blob only this Mac's chip can use, not a Keychain item: so no entitlement or developer account is needed, and every build of the app can use it (checked on a Mac with two ad hoc builds with the hardened runtime, as the release signs it). Any program running as the person can ask the chip to sign with the blob, as any can ask a security key, but not without a fingerprint.
+- **One per Mac** (`add_touch_id`). `touch_id` says whether this computer can (`this_mac`: a Secure Enclave and Touch ID set up), and the panel offers **Add Touch ID** only then.
+- **Signing** prefers Touch ID when the server knows it and this Mac has it, else a plugged-in security key it knows. `prepare` says which (`with`), and the sheet asks for a fingerprint or a touch.
+- Adding or removing a fingerprint in System Settings invalidates the key for good (`biometryCurrentSet`): remove it and add Touch ID again.
+
 ## What the app keeps
 
-`store.rs`: `~/.config/legato-desktop/state.json` (mode `0600`, written beside and renamed over; `LEGATO_DESKTOP_STATE` names another file): each server's name, address, sealed certificate, tint and the device each key is on it; each key's name, credential ID and authenticator data. Tokens are in the desktop's keyring (`keyring`: Secret Service on Linux, Keychain on macOS) under service `dev.legato.desktop`, account the server's ID. Removing a server deletes its token. WebKit's data (cookies, storage) is in `~/.local/share/dev.legato.desktop/`.
+`store.rs`: `~/.config/legato-desktop/state.json` (mode `0600`, written beside and renamed over; `LEGATO_DESKTOP_STATE` names another file): each server's name, address, sealed certificate, tint and the device each key is on it; each key's name, credential ID and authenticator data, and a Touch ID key's Secure Enclave blob (`enclave`). Tokens are in the desktop's keyring (`keyring`: Secret Service on Linux, Keychain on macOS) under service `dev.legato.desktop`, account the server's ID. Removing a server deletes its token. WebKit's data (cookies, storage) is in `~/.local/share/dev.legato.desktop/`.
 
 ## Network discovery
 
@@ -49,10 +58,10 @@ The release workflow builds the app when `scripts/desktop-changed.sh` says so (t
 
 ## Tests
 
-`task desktop:test`: `cargo test --lib` (pairing against the shared fixture, the pin check against certificates `rcgen` makes, the WebAuthn messages, the state file, discovery's addresses, the updater's choice, checksum and swap) and `tsc -b`. The window, the keys and pairing with a server are checked by running the app against a scratch Legato (`task desktop:dev`, `LEGATO_DESKTOP_STATE` on a scratch file).
+`task desktop:test`: `cargo test --lib` (pairing against the shared fixture, the pin check against certificates `rcgen` makes, the WebAuthn messages, Touch ID's authenticator data and signatures with a software key in place of the chip, the state file, discovery's addresses, the updater's choice, checksum and swap) and `tsc -b`. `tests/fixtures/touch-id-key.json` records what the app builds for a known key (`LEGATO_UPDATE_FIXTURES=1 cargo test --lib` rewrites it); `internal/service`'s `TestADesktopTouchIDKeyEnrollsAndSignsAsVerified` enrolls and signs with those bytes through Legato's own checks. The Swift in `touchid/` builds only on a Mac. The window, the keys and pairing with a server are checked by running the app against a scratch Legato (`task desktop:dev`, `LEGATO_DESKTOP_STATE` on a scratch file).
 
 ## Known limits
 
-- macOS: no pinned TLS in server pages, no self-update; untested on a Mac. No Windows build.
+- macOS: no pinned TLS in server pages, no self-update; the app is untested on a Mac (Touch ID's Secure Enclave key was tried there alone). No Windows build.
 - One key at a time is added; signing finds the right key among several plugged in.
 - The server webview is hidden while a panel or the sheet is open, rather than drawn under it.

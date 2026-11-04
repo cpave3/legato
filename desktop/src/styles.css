@@ -167,6 +167,9 @@ button.big:disabled { opacity: 0.5; cursor: default; }
 .key-plug { fill: #2A2933; }
 .key-pad { fill: var(--amber); opacity: 0.85; animation: blink 1s ease-in-out infinite; }
 .key-ring { fill: none; stroke: var(--amber); stroke-width: 2; transform-origin: 38px 32px; animation: ring 1.2s ease-out infinite; }
+.fingerprint { width: 64px; }
+.fp-lines { fill: none; stroke: var(--amber); stroke-width: 2.5; stroke-linecap: round; animation: blink 1s ease-in-out infinite; }
+.fp-ring { fill: none; stroke: var(--amber); stroke-width: 2; transform-origin: 32px 32px; animation: ring 1.2s ease-out infinite; }
 
 .seal { display: flex; flex-direction: column; align-items: center; }
 .dial { position: relative; width: 196px; height: 196px; }

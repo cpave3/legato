@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
-import { api, errorText, initials, tintColor, type Key, type Server, type Status } from "../api"
+import { api, errorText, initials, tintColor, type Key, type Server, type Status, type TouchId } from "../api"
 import { PairForm } from "./PairForm"
-import { KeyIcon, Lock, Plus, Servers } from "./Icons"
+import { Fingerprint, KeyIcon, Lock, Plus, Servers } from "./Icons"
 
 type Props = {
   servers: Server[]
@@ -11,13 +11,16 @@ type Props = {
   onClose: () => void
 }
 
-// Servers and keys. A key is added once (a touch, and its PIN if it insists)
-// and enrolled on every server; revoking it here asks every server to drop it.
+// Servers and keys. A key is added once (a touch, and its PIN if it insists;
+// on a Mac, Touch ID can be one) and enrolled on every server; revoking it
+// here asks every server to drop it.
 export function ServersPanel({ servers, statuses, startPairing, onChanged, onClose }: Props) {
   const [pairing, setPairing] = useState(startPairing)
   const [keys, setKeys] = useState<Key[] | null>(null)
   const [error, setError] = useState("")
   const [note, setNote] = useState("")
+  const [touchId, setTouchId] = useState<TouchId | null>(null)
+  useEffect(() => { api.touchId().then(setTouchId).catch(() => {}) }, [])
 
   const loadKeys = useCallback(async () => {
     try { setKeys(await api.keys()) } catch (e) { setError(errorText(e)) }
@@ -55,10 +58,10 @@ export function ServersPanel({ servers, statuses, startPairing, onChanged, onClo
 
       <div className="panel-section">
         <div className="section-head">
-          <KeyIcon /><h2>Security keys</h2><span className="spacer" />
+          <KeyIcon /><h2>Keys</h2><span className="spacer" />
         </div>
         <p className="hint">
-          A key signs approvals with a touch. Each one is enrolled on every server, so any of them can sign anywhere, and revoking one here removes it everywhere.
+          A security key signs approvals with a touch{touchId?.mac ? ", and Touch ID with your fingerprint" : ""}. Each key is enrolled on every server, so any of them can sign anywhere, and revoking one here removes it everywhere.
         </p>
         {keys === null ? <p className="dim">Looking for keys…</p> : (
           <div className="keys">
@@ -66,7 +69,13 @@ export function ServersPanel({ servers, statuses, startPairing, onChanged, onClo
             {!keys.length && <p className="dim">No keys yet.</p>}
           </div>
         )}
-        <AddKey onAdded={(msg) => { setNote(msg); loadKeys(); onChanged() }} />
+        <div className="row gap">
+          <AddKey onAdded={(msg) => { setNote(msg); loadKeys(); onChanged() }} />
+          {touchId?.available && keys !== null && !keys.some((k) => k.kind === "touch-id") && (
+            <AddTouchId onAdded={(msg) => { setNote(msg); loadKeys(); onChanged() }} />
+          )}
+        </div>
+        {touchId?.mac && !touchId.available && <p className="dim small">Touch ID can't sign here: {touchId.reason}</p>}
       </div>
 
       {note && <p className="note">{note}</p>}
@@ -118,9 +127,9 @@ function KeyRow({ keyItem: k, servers, onChanged, onNote }: { keyItem: Key; serv
   return (
     <div className="key-row">
       <div className="key-head">
-        <span className={"led " + (k.plugged ? "on" : "")} title={k.plugged ? "Plugged in" : "Not plugged in"} />
+        <span className={"led " + (k.plugged ? "on" : "")} title={keyState(k)} />
         <span className="key-name">{k.name}</span>
-        <span className="dim small">{k.plugged ? "plugged in" : "not plugged in"}</span>
+        <span className="dim small">{keyState(k)}</span>
         <span className="spacer" />
         {confirm ? (
           <>
@@ -160,6 +169,41 @@ function KeyRow({ keyItem: k, servers, onChanged, onNote }: { keyItem: Key; serv
   )
 }
 
+function keyState(k: Key) {
+  if (k.kind === "touch-id") return k.plugged ? "Touch ID on this Mac" : "Touch ID is not available"
+  return k.plugged ? "plugged in" : "not plugged in"
+}
+
+// What adding a key did on each server, in a sentence.
+function added(name: string, servers: Record<string, { status?: string; error?: string }>) {
+  const failed = Object.values(servers).filter((r) => r.error).length
+  const waiting = Object.values(servers).filter((r) => r.status === "pending").length
+  return (
+    `${name} is added.` +
+    (waiting ? ` ${waiting} server${waiting > 1 ? "s" : ""} will ask for a signature from a key they already know.` : "") +
+    (failed ? ` ${failed} server${failed > 1 ? "s" : ""} could not be reached; enrol it there later.` : "")
+  )
+}
+
+// Touch ID as a key: the Mac makes a key in its Secure Enclave that signs
+// only after a fingerprint. Making it asks for nothing.
+function AddTouchId({ onAdded }: { onAdded: (msg: string) => void }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  return (
+    <>
+      <button className="btn" disabled={busy} onClick={async () => {
+        setBusy(true); setError("")
+        try {
+          const out = await api.addTouchId("Touch ID")
+          onAdded(added("Touch ID", out.servers))
+        } catch (e) { setError(errorText(e)) } finally { setBusy(false) }
+      }}><Fingerprint size={14} /> Add Touch ID</button>
+      {error && <p className="error">{error}</p>}
+    </>
+  )
+}
+
 function AddKey({ onAdded }: { onAdded: (msg: string) => void }) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState("")
@@ -173,13 +217,7 @@ function AddKey({ onAdded }: { onAdded: (msg: string) => void }) {
     setError("")
     try {
       const out = await api.addKey(name || "YubiKey", needPin ? pin : null)
-      const failed = Object.values(out.servers).filter((r) => r.error).length
-      const waiting = Object.values(out.servers).filter((r) => r.status === "pending").length
-      onAdded(
-        `${name || "YubiKey"} is added.` +
-        (waiting ? ` ${waiting} server${waiting > 1 ? "s" : ""} will ask for a signature from a key they already know.` : "") +
-        (failed ? ` ${failed} server${failed > 1 ? "s" : ""} could not be reached; enrol it there later.` : ""),
-      )
+      onAdded(added(name || "YubiKey", out.servers))
       setOpen(false); setName(""); setNeedPin(false)
     } catch (e) {
       const msg = errorText(e)
@@ -194,7 +232,7 @@ function AddKey({ onAdded }: { onAdded: (msg: string) => void }) {
     }
   }
 
-  if (!open) return <button className="btn" onClick={() => setOpen(true)}><Plus size={14} /> Add a key</button>
+  if (!open) return <button className="btn" onClick={() => setOpen(true)}><Plus size={14} /> Add a security key</button>
   return (
     <div className="card">
       <p className="hint">Leave only the key to add plugged in. It blinks: touch it.</p>

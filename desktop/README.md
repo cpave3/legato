@@ -1,12 +1,12 @@
 # Legato desktop app
 
-Every Legato server in one window: a dock of servers, each one's own web UI beside it, pairing by four words with the server's certificate pinned, and approvals signed with a touch of a security key. Tauri 2 (Rust, `src-tauri/`) with a React and TypeScript shell (`src/`).
+Every Legato server in one window: a dock of servers, each one's own web UI beside it, pairing by four words with the server's certificate pinned, and approvals signed with a touch of a security key, or on a Mac with Touch ID. Tauri 2 (Rust, `src-tauri/`) with a React and TypeScript shell (`src/`).
 
 What it does for a person is on the docs site: [The desktop app](https://cpave3.github.io/legato/running/desktop-app/). How it works is in [docs/ai/desktop.md](../docs/ai/desktop.md).
 
 ## Building
 
-You need Rust, Node 24 with pnpm 11, and on Linux the WebKitGTK 4.1, GTK 3, librsvg and libudev development packages.
+You need Rust, Node 24 with pnpm 11, and on Linux the WebKitGTK 4.1, GTK 3, librsvg and libudev development packages. On a Mac, Xcode or its command line tools (`xcode-select --install`), which build the Swift in `src-tauri/touchid/`.
 
 ```bash
 task desktop:test    # Rust unit tests and the TypeScript check
@@ -32,9 +32,11 @@ Tokens still go to your keyring under `dev.legato.desktop`; removing a server in
 | `src-tauri/src/pin.rs` | Whether a certificate is the pinned one or issued by it |
 | `src-tauri/src/webauthn.rs` | The WebAuthn messages Legato checks |
 | `src-tauri/src/fido.rs` | Security keys over CTAP2 |
+| `src-tauri/src/touchid.rs` | Touch ID: a Secure Enclave key, as a WebAuthn authenticator |
+| `src-tauri/touchid/` | The Swift that reaches the Secure Enclave, linked on a Mac only |
 | `src-tauri/src/store.rs` | The state file and the keyring |
 | `src-tauri/src/discovery.rs` | Servers on the network over mDNS |
 | `src-tauri/src/updates.rs` | The AppImage updating itself from GitHub releases |
 | `src/` | The shell: title bar, dock, panels, the approval sheet |
 
-`tests/fixtures/pairing-exchange.json` is a copy of the server's recorded exchange: `go test ./internal/engine/pairing` fails when it differs, and `-update` rewrites it. `resources/pairing-words.txt` is the server's word list; a test here checks its digest against the one the Go test holds.
+`tests/fixtures/pairing-exchange.json` is a copy of the server's recorded exchange: `go test ./internal/engine/pairing` fails when it differs, and `-update` rewrites it. `resources/pairing-words.txt` is the server's word list; a test here checks its digest against the one the Go test holds. `tests/fixtures/touch-id-key.json` is what the app builds for a known Touch ID key: `LEGATO_UPDATE_FIXTURES=1 cargo test --lib` rewrites it, and `go test ./internal/service` enrolls and signs with it.

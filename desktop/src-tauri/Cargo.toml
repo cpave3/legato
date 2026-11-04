@@ -16,6 +16,10 @@ path = "src/main.rs"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[target.'cfg(target_os = "macos")'.build-dependencies]
+# Builds and links touchid/, the Swift that reaches the Secure Enclave.
+swift-rs = { version = "1.0.9", features = ["build"] }
+
 [dependencies]
 # "unstable" gives a window several webviews: the shell beside each server's page.
 tauri = { version = "2", features = ["unstable"] }
@@ -46,3 +50,5 @@ gtk = "0.18"
 rcgen = "0.13"
 ciborium = "0.2"
 tempfile = "3"
+# A software stand-in for the Secure Enclave in touchid's tests.
+p256 = { version = "0.13", features = ["ecdsa"] }

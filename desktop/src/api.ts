@@ -22,7 +22,13 @@ export type Status = {
   approvals: Approval[]
 }
 
-export type Key = { id: string; name: string; plugged: boolean; servers: Record<string, "active" | "pending"> }
+// A security key, or Touch ID on a Mac. plugged: the key is plugged in, or
+// Touch ID is set up.
+export type Key = { id: string; name: string; kind: "security-key" | "touch-id"; plugged: boolean; servers: Record<string, "active" | "pending"> }
+
+export type TouchId = { mac: boolean; available: boolean; reason?: string }
+
+type Added = { key: string; servers: Record<string, { status?: string; error?: string }> }
 
 export type Option = { id: string; label: string; kind: "allow" | "deny" | string }
 
@@ -65,10 +71,12 @@ export const api = {
   removeServer: (id: string) => invoke<void>("remove_server", { id }),
   poll: () => invoke<Status[]>("poll"),
   keys: () => invoke<Key[]>("keys"),
-  addKey: (name: string, pin: string | null) => invoke<{ key: string; servers: Record<string, { status?: string; error?: string }> }>("add_key", { name, pin }),
+  addKey: (name: string, pin: string | null) => invoke<Added>("add_key", { name, pin }),
+  touchId: () => invoke<TouchId>("touch_id"),
+  addTouchId: (name: string) => invoke<Added>("add_touch_id", { name }),
   enrollKey: (key: string, server: string) => invoke<string>("enroll_key", { key, server }),
   revokeKey: (key: string) => invoke<Record<string, unknown>>("revoke_key", { key }),
-  prepare: (server: string, approval: string) => invoke<{ request: Request; device: string }>("prepare", { server, approval }),
+  prepare: (server: string, approval: string) => invoke<{ request: Request; device: string; with: "security-key" | "touch-id" }>("prepare", { server, approval }),
   sign: (server: string, approval: string, option: string) => invoke<Signed>("sign", { server, approval, option }),
   deny: (server: string, approval: string) => invoke<void>("deny", { server, approval }),
   checkUpdate: () => invoke<UpdateStatus>("check_update"),

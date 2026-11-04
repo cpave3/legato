@@ -20,3 +20,4 @@ export const Servers = (p: Props) => <Svg {...p}><rect x="4" y="4" width="16" he
 export const Reload = (p: Props) => <Svg {...p}><path d="M20 11a8 8 0 1 0-2.3 5.7" /><path d="M20 4v7h-7" /></Svg>
 export const Seal = (p: Props) => <Svg {...p}><path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z" /><path d="M8.5 12.2l2.4 2.4 4.6-4.8" /></Svg>
 export const Lock = (p: Props) => <Svg {...p}><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></Svg>
+export const Fingerprint = (p: Props) => <Svg {...p}><path d="M6 13c0-3.9 2.7-7 6-7s6 3.1 6 7" /><path d="M9 18c-.6-1.4-.9-3-.9-5 0-2.3 1.7-4 3.9-4s3.9 1.7 3.9 4c0 1.8-.3 3.6-.9 5.2" /><path d="M12 13c0 2.6-.4 5-1.2 7" /></Svg>

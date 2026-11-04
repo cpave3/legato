@@ -5,8 +5,8 @@ type Props = { server: Server; approval: Approval; onClose: () => void }
 
 type SheetState =
   | { kind: "loading" }
-  | { kind: "ready"; request: Request; busy?: boolean }
-  | { kind: "signed"; request: Request; option: Option; out: Signed }
+  | { kind: "ready"; request: Request; touchId: boolean; busy?: boolean }
+  | { kind: "signed"; request: Request; touchId: boolean; option: Option; out: Signed }
   | { kind: "denied" }
   | { kind: "failed"; message: string }
 
@@ -17,17 +17,17 @@ export function ApprovalSheet({ server, approval, onClose }: Props) {
 
   useEffect(() => {
     api.prepare(server.id, approval.id)
-      .then((p) => setState({ kind: "ready", request: p.request }))
+      .then((p) => setState({ kind: "ready", request: p.request, touchId: p.with === "touch-id" }))
       .catch((e) => setState({ kind: "failed", message: errorText(e) }))
   }, [server.id, approval.id])
 
   const busy = state.kind === "ready" && state.busy
   const sign = async (option: Option) => {
     if (state.kind !== "ready") return
-    const request = state.request
-    setState({ kind: "ready", request, busy: true })
+    const { request, touchId } = state
+    setState({ kind: "ready", request, touchId, busy: true })
     try {
-      setState({ kind: "signed", request, option, out: await api.sign(server.id, approval.id, option.id) })
+      setState({ kind: "signed", request, touchId, option, out: await api.sign(server.id, approval.id, option.id) })
     } catch (e) {
       setState({ kind: "failed", message: errorText(e) })
     }
@@ -47,8 +47,8 @@ export function ApprovalSheet({ server, approval, onClose }: Props) {
           <span className="mono dim">{server.name}</span>
         </header>
         {state.kind === "loading" && <div className="center"><div className="spinner" /></div>}
-        {state.kind === "ready" && <RequestView request={state.request} busy={!!state.busy} onSign={sign} onDeny={deny} />}
-        {state.kind === "signed" && <SealView request={state.request} option={state.option} out={state.out} onClose={onClose} />}
+        {state.kind === "ready" && <RequestView request={state.request} touchId={state.touchId} busy={!!state.busy} onSign={sign} onDeny={deny} />}
+        {state.kind === "signed" && <SealView request={state.request} touchId={state.touchId} option={state.option} out={state.out} onClose={onClose} />}
         {state.kind === "denied" && <Ended title="Denied" message="The agent is told you said no." onClose={onClose} />}
         {state.kind === "failed" && <Ended title="Not signed" message={state.message} error onClose={onClose} />}
       </div>
@@ -56,7 +56,7 @@ export function ApprovalSheet({ server, approval, onClose }: Props) {
   )
 }
 
-function RequestView({ request, busy, onSign, onDeny }: { request: Request; busy: boolean; onSign: (o: Option) => void; onDeny: () => void }) {
+function RequestView({ request, touchId, busy, onSign, onDeny }: { request: Request; touchId: boolean; busy: boolean; onSign: (o: Option) => void; onDeny: () => void }) {
   const d = request.details ?? {}
   const allows = (request.options ?? []).filter((o) => o.kind === "allow")
   const asker = [d.agent_kind, d.task_title].filter(Boolean).join(" · ")
@@ -85,12 +85,30 @@ function RequestView({ request, busy, onSign, onDeny }: { request: Request; busy
         ))}
         <button className="big danger" disabled={busy} onClick={onDeny}>Deny</button>
       </div>
-      {busy ? <TouchPrompt /> : <p className="foot">Signs with a touch of your security key · the key never leaves it</p>}
+      {busy ? <TouchPrompt touchId={touchId} /> : (
+        <p className="foot">
+          {touchId ? "Signs with Touch ID · the key never leaves this Mac's Secure Enclave" : "Signs with a touch of your security key · the key never leaves it"}
+        </p>
+      )}
     </>
   )
 }
 
-function TouchPrompt() {
+function TouchPrompt({ touchId }: { touchId: boolean }) {
+  if (touchId) {
+    return (
+      <div className="touch">
+        <svg viewBox="0 0 64 64" className="fingerprint" aria-hidden="true">
+          <circle cx="32" cy="32" r="14" className="fp-ring" />
+          <path
+            className="fp-lines"
+            d="M18 34c0-8 6-14 14-14s14 6 14 14M23 42c-1-3-1-5-1-8 0-6 4-10 10-10s10 4 10 10c0 4-1 8-2 11M28 46c-1-4-2-8-2-12 0-3 3-6 6-6s6 3 6 6c0 5-1 9-3 13M32 34c0 6-1 11-3 15"
+          />
+        </svg>
+        <span>Use Touch ID</span>
+      </div>
+    )
+  }
   return (
     <div className="touch">
       <svg viewBox="0 0 120 64" className="key" aria-hidden="true">
@@ -111,13 +129,13 @@ const mix = (a: number[], b: number[], t: number) => `rgb(${a.map((v, i) => Math
 // The reward for signing, as on the phone: a dial of ticks lights up as the
 // sweep passes, the arc runs violet to green, the hexagon seal fills, a
 // check lands, the readout types out; then Close counts down 5 seconds.
-function SealView({ request, option, out, onClose }: { request: Request; option: Option; out: Signed; onClose: () => void }) {
+function SealView({ request, touchId, option, out, onClose }: { request: Request; touchId: boolean; option: Option; out: Signed; onClose: () => void }) {
   const [t, setT] = useState(0)
   const [typed, setTyped] = useState(0)
   const readout = [
     `option   ${option.label}`,
     `key      ${out.device}`,
-    `touch    present ✓   pin  ${out.verified ? "verified" : "not asked"}`,
+    touchId ? `touch id fingerprint ✓` : `touch    present ✓   pin  ${out.verified ? "verified" : "not asked"}`,
     `counter  ${out.counter}`,
     `sha256   ${out.message_sha256.slice(0, 24)}…`,
     `sig      ${out.signature.slice(0, 24)}…`,

@@ -2,14 +2,18 @@ package service
 
 import (
 	"context"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math/big"
+	"os"
 	"strings"
 	"testing"
 
@@ -33,6 +37,9 @@ type passkey struct {
 	assertFlags byte
 	// securityKey makes the credential as a hardware key does: not backed up.
 	securityKey bool
+	// madeAuthData and signedAuthData, when set, are another
+	// authenticator's own bytes, sent as they are.
+	madeAuthData, signedAuthData []byte
 }
 
 func newPasskey(t *testing.T, origin, rpID string) *passkey {
@@ -57,6 +64,12 @@ const (
 )
 
 func (p *passkey) authData(flags byte, attested bool) []byte {
+	if attested && p.madeAuthData != nil {
+		return p.madeAuthData
+	}
+	if !attested && p.signedAuthData != nil {
+		return p.signedAuthData
+	}
 	rp := sha256.Sum256([]byte(p.rpID))
 	out := append([]byte{}, rp[:]...)
 	out = append(out, flags, 0, 0, 0, 0)
@@ -390,5 +403,73 @@ func TestOneCredentialEnrollsAndSignsOnSeveralServers(t *testing.T) {
 		if _, err := f.approvals.Decide(ctx, a.ID, ApprovalDecision{Decision: ApprovalAllow, Option: "once", Signature: f.signWithPasskey(t, key, a.ID, "once")}); err != nil {
 			t.Fatalf("%s: signing: %v", name, err)
 		}
+	}
+}
+
+// The desktop app on a Mac is its own authenticator: a Secure Enclave key
+// that signs after a fingerprint, in authenticator data the app builds.
+// desktop/src-tauri/tests/fixtures/touch-id-key.json holds what it builds
+// for a known key (rewritten by its test with LEGATO_UPDATE_FIXTURES=1);
+// Legato enrolls those bytes and accepts their signature as verified.
+func TestADesktopTouchIDKeyEnrollsAndSignsAsVerified(t *testing.T) {
+	raw, err := os.ReadFile("../../desktop/src-tauri/tests/fixtures/touch-id-key.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fx struct {
+		PrivateKey     string `json:"private_key"`
+		CredentialID   string `json:"credential_id"`
+		MadeAuthData   string `json:"made_auth_data"`
+		SignedAuthData string `json:"signed_auth_data"`
+	}
+	if err := json.Unmarshal(raw, &fx); err != nil {
+		t.Fatal(err)
+	}
+	scalar, err := hex.DecodeString(fx.PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	priv, err := ecdh.P256().NewPrivateKey(scalar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := priv.PublicKey().Bytes()
+	key := &passkey{
+		key: &ecdsa.PrivateKey{
+			PublicKey: ecdsa.PublicKey{Curve: elliptic.P256(), X: new(big.Int).SetBytes(pub[1:33]), Y: new(big.Int).SetBytes(pub[33:])},
+			D:         new(big.Int).SetBytes(scalar),
+		},
+		rpID: "legato-desktop.invalid", origin: "https://legato-desktop.invalid",
+	}
+	for _, field := range []struct {
+		into *[]byte
+		from string
+	}{{&key.credID, fx.CredentialID}, {&key.madeAuthData, fx.MadeAuthData}, {&key.signedAuthData, fx.SignedAuthData}} {
+		if *field.into, err = b64u.DecodeString(field.from); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	f := newDevicesFixture(t)
+	ctx := context.Background()
+	device, err := f.enrollPasskey(t, key, "Touch ID")
+	if err != nil {
+		t.Fatalf("enrolling: %v", err)
+	}
+	if device.SecurityLevel != "passkey" {
+		t.Fatalf("security level = %q, want passkey: the key never leaves the Mac", device.SecurityLevel)
+	}
+	f.approvals.RegisterResolver(ApprovalSourceCredential, acceptingResolver{})
+	a, _, err := f.approvals.Submit(ctx, ApprovalInput{Source: ApprovalSourceCredential, SourceKey: "k", TaskID: "t", Title: "Use github",
+		Options: []ApprovalOption{{ID: "once", Label: "Once", Kind: ApprovalAllow}}, Signed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decided, err := f.approvals.Decide(ctx, a.ID, ApprovalDecision{Decision: ApprovalAllow, Option: "once", Signature: f.signWithPasskey(t, key, a.ID, "once")})
+	if err != nil {
+		t.Fatalf("signing: %v", err)
+	}
+	if got := decided.Decision.Verification; got != "verified" {
+		t.Fatalf("a fingerprint is recorded as %q, want verified", got)
 	}
 }

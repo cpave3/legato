@@ -17,9 +17,9 @@ use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, State, WebviewBuil
 use crate::legato::{self, Client};
 use crate::store::{Keyring, Server, Store};
 use crate::updates;
-use crate::webauthn::{self, ORIGIN, RP_ID};
+use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
-use crate::{fido, pin::Pin};
+use crate::{fido, pin::Pin, touchid};
 
 // The shell's chrome, in logical pixels: the title bar across the top and
 // the dock down the left. Server pages fill the rest.
@@ -38,6 +38,8 @@ struct Prepared {
     rp_id: String,
     origin: String,
     credential: Vec<u8>,
+    /// A Touch ID key's Secure Enclave blob; None for a security key.
+    enclave: Option<Vec<u8>>,
 }
 
 pub struct Desktop {
@@ -368,9 +370,18 @@ async fn poll(desktop: State<'_, Desktop>) -> Result<Vec<Status>, String> {
 pub struct KeyView {
     id: String,
     name: String,
+    /// "security-key" or "touch-id".
+    kind: &'static str,
+    /// A security key is plugged in; Touch ID is set up on this Mac.
     plugged: bool,
     /// By server ID: "active", "pending", or absent.
     servers: HashMap<String, String>,
+}
+
+/// The credentials of the security keys, which are asked over USB; a Touch
+/// ID key is not.
+fn security_key_credentials(keys: &[crate::store::Key]) -> Vec<Vec<u8>> {
+    keys.iter().filter(|k| !k.is_touch_id()).map(|k| URL_SAFE_NO_PAD.decode(&k.credential_id).unwrap_or_default()).collect()
 }
 
 /// The keys, whether each is plugged in, and how each server has it.
@@ -381,8 +392,9 @@ async fn keys(desktop: State<'_, Desktop>) -> Result<Vec<KeyView>, String> {
         let servers: Vec<(Server, Result<Client, String>)> = store.state.servers.iter().map(|s| (s.clone(), client(&store, &s.id))).collect();
         (store.state.keys.clone(), servers)
     };
-    let credentials: Vec<Vec<u8>> = keys.iter().map(|k| URL_SAFE_NO_PAD.decode(&k.credential_id).unwrap_or_default()).collect();
+    let credentials = security_key_credentials(&keys);
     let plugged = tauri::async_runtime::spawn_blocking(move || fido::held(RP_ID, &credentials)).await.map_err(|e| e.to_string())?;
+    let touch_id = touchid::this_mac().is_ok();
 
     let mut statuses: HashMap<(String, String), String> = HashMap::new();
     let mut gone: Vec<(String, String)> = Vec::new();
@@ -414,7 +426,8 @@ async fn keys(desktop: State<'_, Desktop>) -> Result<Vec<KeyView>, String> {
         .map(|k| KeyView {
             id: k.id.clone(),
             name: k.name.clone(),
-            plugged: plugged.iter().any(|c| URL_SAFE_NO_PAD.encode(c) == k.credential_id),
+            kind: if k.is_touch_id() { "touch-id" } else { "security-key" },
+            plugged: if k.is_touch_id() { touch_id } else { plugged.iter().any(|c| URL_SAFE_NO_PAD.encode(c) == k.credential_id) },
             servers: servers.iter().filter_map(|(s, _)| statuses.get(&(k.id.clone(), s.id.clone())).map(|st| (s.id.clone(), st.clone()))).collect(),
         })
         .collect())
@@ -433,7 +446,8 @@ async fn enroll(desktop: &Desktop, key_id: &str, server_id: &str) -> Result<Stri
     let client_data = webauthn::client_data("webauthn.create", challenge, ORIGIN);
     let credential = URL_SAFE_NO_PAD.decode(&key.credential_id).map_err(|e| e.to_string())?;
     let auth_data = URL_SAFE_NO_PAD.decode(&key.auth_data).map_err(|e| e.to_string())?;
-    let device = c.post("/api/devices", webauthn::registration(&key.name, &credential, &auth_data, &client_data)).await?;
+    let attachment = if key.is_touch_id() { Attachment::TouchId } else { Attachment::SecurityKey };
+    let device = c.post("/api/devices", webauthn::registration(&key.name, &credential, &auth_data, &client_data, attachment)).await?;
     let id = device["id"].as_str().ok_or("the server did not say which device")?.to_string();
     let mut store = desktop.store.lock().unwrap();
     if let Some(s) = store.server_mut(server_id) {
@@ -465,13 +479,52 @@ async fn add_key(desktop: State<'_, Desktop>, name: String, pin: Option<String>)
         store.save()?;
         k
     };
+    Ok(enroll_everywhere(&desktop, &key.id).await)
+}
+
+/// Enrolls a new key on every server, and says how each went.
+async fn enroll_everywhere(desktop: &Desktop, key_id: &str) -> Value {
     let servers: Vec<String> = desktop.store.lock().unwrap().state.servers.iter().map(|s| s.id.clone()).collect();
     let mut results = serde_json::Map::new();
     for sid in servers {
-        let r = enroll(&desktop, &key.id, &sid).await;
+        let r = enroll(desktop, key_id, &sid).await;
         results.insert(sid, match r { Ok(status) => json!({ "status": status }), Err(e) => json!({ "error": e }) });
     }
-    Ok(json!({ "key": key.id, "servers": results }))
+    json!({ "key": key_id, "servers": results })
+}
+
+/// Whether this computer can sign with Touch ID, and if not, why.
+#[tauri::command]
+fn touch_id() -> Value {
+    match touchid::this_mac() {
+        Ok(_) => json!({ "mac": true, "available": true }),
+        Err(reason) => json!({ "mac": cfg!(target_os = "macos"), "available": false, "reason": reason }),
+    }
+}
+
+/// Adds Touch ID as a key: a Secure Enclave key that signs only after a
+/// fingerprint (none is asked for now), enrolled on every server. One per
+/// Mac.
+#[tauri::command]
+async fn add_touch_id(desktop: State<'_, Desktop>, name: String) -> Result<Value, String> {
+    if desktop.store.lock().unwrap().state.keys.iter().any(|k| k.is_touch_id()) {
+        return Err("Touch ID is already added.".into());
+    }
+    let made = tauri::async_runtime::spawn_blocking(|| touchid::this_mac().and_then(|mac| touchid::make(mac.as_ref())))
+        .await
+        .map_err(|e| e.to_string())??;
+    let key = {
+        let mut store = desktop.store.lock().unwrap();
+        let k = store.add_touch_id_key(
+            name.trim(),
+            &URL_SAFE_NO_PAD.encode(&made.credential_id),
+            &URL_SAFE_NO_PAD.encode(&made.auth_data),
+            &URL_SAFE_NO_PAD.encode(&made.blob),
+        )?;
+        store.save()?;
+        k
+    };
+    Ok(enroll_everywhere(&desktop, &key.id).await)
 }
 
 #[tauri::command]
@@ -503,32 +556,47 @@ async fn revoke_key(desktop: State<'_, Desktop>, key: String) -> Result<Value, S
 
 // ---- Approvals ----
 
-/// The device a server knows a plugged-in key as.
-fn signing_device(desktop: &Desktop, server_id: &str, plugged: &[Vec<u8>]) -> Option<String> {
+/// The key to sign with on a server, and the device the server knows it
+/// as: Touch ID when this Mac has it and the server knows it, else a
+/// plugged-in security key the server knows.
+fn signing_key(desktop: &Desktop, server_id: &str, plugged: &[Vec<u8>], touch_id: bool) -> Option<(crate::store::Key, String)> {
     let store = desktop.store.lock().unwrap();
     let server = store.server(server_id)?;
-    store
-        .state
-        .keys
-        .iter()
-        .filter(|k| plugged.iter().any(|c| URL_SAFE_NO_PAD.encode(c) == k.credential_id))
-        .find_map(|k| server.devices.get(&k.id).cloned())
+    let usable = |k: &&crate::store::Key| {
+        if k.is_touch_id() {
+            touch_id
+        } else {
+            plugged.iter().any(|c| URL_SAFE_NO_PAD.encode(c) == k.credential_id)
+        }
+    };
+    let mut keys: Vec<&crate::store::Key> = store.state.keys.iter().filter(usable).collect();
+    keys.sort_by_key(|k| !k.is_touch_id());
+    keys.into_iter().find_map(|k| server.devices.get(&k.id).map(|d| (k.clone(), d.clone())))
 }
 
 /// Fetches the request a key would sign for an approval, and keeps it. The
 /// sheet is drawn from what this returns.
 #[tauri::command]
 async fn prepare(desktop: State<'_, Desktop>, server: String, approval: String) -> Result<Value, String> {
-    let (c, credentials) = {
+    let (c, keys) = {
         let store = desktop.store.lock().unwrap();
-        let creds: Vec<Vec<u8>> = store.state.keys.iter().map(|k| URL_SAFE_NO_PAD.decode(&k.credential_id).unwrap_or_default()).collect();
-        (client(&store, &server)?, creds)
+        (client(&store, &server)?, store.state.keys.clone())
     };
-    if credentials.is_empty() {
-        return Err("Add a security key first: Servers & keys, at the foot of the dock.".into());
+    if keys.is_empty() {
+        return Err("Add a key first: Servers & keys, at the foot of the dock.".into());
     }
+    let credentials = security_key_credentials(&keys);
     let plugged = tauri::async_runtime::spawn_blocking(move || fido::held(RP_ID, &credentials)).await.map_err(|e| e.to_string())?;
-    let device = signing_device(&desktop, &server, &plugged).ok_or("Plug in a key this server knows.")?;
+    let touch_id = touchid::this_mac().is_ok();
+    let (key, device) = signing_key(&desktop, &server, &plugged, touch_id).ok_or(if touch_id {
+        "This server knows neither Touch ID nor a plugged-in key. Enrol one in Servers & keys."
+    } else {
+        "Plug in a key this server knows."
+    })?;
+    let enclave = match &key.enclave {
+        Some(blob) => Some(URL_SAFE_NO_PAD.decode(blob).map_err(|e| e.to_string())?),
+        None => None,
+    };
     let given = c.post(&format!("/api/approvals/{approval}/challenge"), json!({ "device": device })).await?;
     let canonical = String::from_utf8(STANDARD.decode(given["canonical"].as_str().unwrap_or_default()).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     let passkey = &given["passkey"];
@@ -539,13 +607,24 @@ async fn prepare(desktop: State<'_, Desktop>, server: String, approval: String) 
         origin: passkey["origin"].as_str().unwrap_or(ORIGIN).to_string(),
         credential: URL_SAFE_NO_PAD.decode(passkey["credential_id"].as_str().unwrap_or_default()).map_err(|e| e.to_string())?,
         canonical: canonical.clone(),
+        enclave,
     };
+    let with = if prepared.enclave.is_some() { "touch-id" } else { "security-key" };
     desktop.prepared.lock().unwrap().insert(format!("{server}/{approval}"), prepared);
     let request: Value = serde_json::from_str(&canonical).map_err(|e| e.to_string())?;
-    Ok(json!({ "request": request, "device": device }))
+    Ok(json!({ "request": request, "device": device, "with": with }))
 }
 
-/// Signs the prepared request with one of its allow options: a touch.
+/// What the Touch ID dialog says after "Legato is trying to".
+fn touch_id_reason(request: &Value, server: &str) -> String {
+    match request["title"].as_str().filter(|t| !t.is_empty()) {
+        Some(title) => format!("sign \u{201c}{title}\u{201d} on {server}"),
+        None => format!("sign an approval on {server}"),
+    }
+}
+
+/// Signs the prepared request with one of its allow options: a touch of a
+/// security key, or a fingerprint.
 #[tauri::command]
 async fn sign(desktop: State<'_, Desktop>, server: String, approval: String, option: String) -> Result<Value, String> {
     let p = desktop.prepared.lock().unwrap().remove(&format!("{server}/{approval}")).ok_or("Nothing is prepared for this approval; open it again.")?;
@@ -556,7 +635,16 @@ async fn sign(desktop: State<'_, Desktop>, server: String, approval: String, opt
     let message = webauthn::signed_message(&p.challenge, &p.device, &option, &p.canonical);
     let client_data = webauthn::client_data("webauthn.get", &webauthn::decision_challenge(&message), &p.origin);
     let (cd, rp, cred) = (client_data.clone(), p.rp_id.clone(), p.credential.clone());
-    let signed = tauri::async_runtime::spawn_blocking(move || fido::sign(&rp, &cd, &cred)).await.map_err(|e| e.to_string())??;
+    let signed = match p.enclave.clone() {
+        Some(blob) => {
+            let name = desktop.store.lock().unwrap().server(&server).map(|s| s.name.clone()).unwrap_or_default();
+            let reason = touch_id_reason(&request, &name);
+            tauri::async_runtime::spawn_blocking(move || touchid::this_mac().and_then(|mac| touchid::sign(mac.as_ref(), &blob, &cd, &reason)))
+                .await
+                .map_err(|e| e.to_string())??
+        }
+        None => tauri::async_runtime::spawn_blocking(move || fido::sign(&rp, &cd, &cred)).await.map_err(|e| e.to_string())??,
+    };
     let value = webauthn::assertion(&p.credential, &signed.auth_data, &signed.signature, &client_data);
     let c = {
         let store = desktop.store.lock().unwrap();
@@ -712,6 +800,8 @@ pub fn run() {
             poll,
             keys,
             add_key,
+            touch_id,
+            add_touch_id,
             enroll_key,
             revoke_key,
             prepare,

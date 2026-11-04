@@ -61,17 +61,30 @@ pub fn none_attestation(auth_data: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Where a credential lives, as a browser reports it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Attachment {
+    /// A security key, plugged in over USB.
+    SecurityKey,
+    /// Touch ID: built into the Mac.
+    TouchId,
+}
+
 /// The body of POST /api/devices that enrolls a key's credential.
-pub fn registration(name: &str, credential_id: &[u8], auth_data: &[u8], client_data: &str) -> Value {
+pub fn registration(name: &str, credential_id: &[u8], auth_data: &[u8], client_data: &str, attachment: Attachment) -> Value {
     let id = b64url(credential_id);
+    let (attached, transport) = match attachment {
+        Attachment::SecurityKey => ("cross-platform", "usb"),
+        Attachment::TouchId => ("platform", "internal"),
+    };
     json!({
         "kind": "passkey", "name": name, "origin": ORIGIN,
         "credential": {
-            "id": id, "rawId": id, "type": "public-key", "authenticatorAttachment": "cross-platform",
+            "id": id, "rawId": id, "type": "public-key", "authenticatorAttachment": attached,
             "response": {
                 "clientDataJSON": b64url(client_data.as_bytes()),
                 "attestationObject": b64url(&none_attestation(auth_data)),
-                "transports": ["usb"],
+                "transports": [transport],
             },
             "clientExtensionResults": {},
         },
@@ -129,7 +142,7 @@ mod tests {
 
     #[test]
     fn a_registration_is_a_passkey_at_the_apps_origin() {
-        let body = registration("YubiKey 1", &[1, 2, 3], &[9; 40], "{}");
+        let body = registration("YubiKey 1", &[1, 2, 3], &[9; 40], "{}", Attachment::SecurityKey);
         assert_eq!(body["kind"], "passkey");
         assert_eq!(body["name"], "YubiKey 1");
         assert_eq!(body["origin"], ORIGIN);
@@ -140,6 +153,16 @@ mod tests {
         assert_eq!(c["response"]["clientDataJSON"], URL_SAFE_NO_PAD.encode("{}"));
         let att = URL_SAFE_NO_PAD.decode(c["response"]["attestationObject"].as_str().unwrap()).unwrap();
         assert_eq!(att, none_attestation(&[9; 40]));
+    }
+
+    #[test]
+    fn a_security_key_is_registered_as_a_usb_key_and_touch_id_as_built_in() {
+        let usb = registration("YubiKey 1", &[1], &[9; 40], "{}", Attachment::SecurityKey);
+        assert_eq!(usb["credential"]["authenticatorAttachment"], "cross-platform");
+        assert_eq!(usb["credential"]["response"]["transports"], json!(["usb"]));
+        let touch = registration("Touch ID", &[1], &[9; 40], "{}", Attachment::TouchId);
+        assert_eq!(touch["credential"]["authenticatorAttachment"], "platform");
+        assert_eq!(touch["credential"]["response"]["transports"], json!(["internal"]));
     }
 
     #[test]

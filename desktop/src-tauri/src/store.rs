@@ -31,7 +31,8 @@ pub struct Server {
     pub devices: BTreeMap<String, String>,
 }
 
-/// A security key's credential, made once for the app's origin.
+/// A key's credential, made once for the app's origin: a security key's,
+/// or a Touch ID key's (see `touchid`).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Key {
     pub id: String,
@@ -41,6 +42,17 @@ pub struct Key {
     /// The authenticator data the key gave when it made the credential,
     /// base64url: what each server's enrollment carries.
     pub auth_data: String,
+    /// A Touch ID key's Secure Enclave blob, base64url: the private key,
+    /// wrapped so only this Mac's chip can use it, and only after a
+    /// fingerprint. None for a security key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enclave: Option<String>,
+}
+
+impl Key {
+    pub fn is_touch_id(&self) -> bool {
+        self.enclave.is_some()
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -123,7 +135,13 @@ impl Store {
     }
 
     pub fn add_key(&mut self, name: &str, credential_id: &str, auth_data: &str) -> Result<Key, String> {
-        let key = Key { id: new_id("k"), name: name.into(), credential_id: credential_id.into(), auth_data: auth_data.into() };
+        let key = Key { id: new_id("k"), name: name.into(), credential_id: credential_id.into(), auth_data: auth_data.into(), enclave: None };
+        self.state.keys.push(key.clone());
+        Ok(key)
+    }
+
+    pub fn add_touch_id_key(&mut self, name: &str, credential_id: &str, auth_data: &str, enclave: &str) -> Result<Key, String> {
+        let key = Key { id: new_id("k"), name: name.into(), credential_id: credential_id.into(), auth_data: auth_data.into(), enclave: Some(enclave.into()) };
         self.state.keys.push(key.clone());
         Ok(key)
     }
@@ -241,6 +259,29 @@ pub(crate) mod tests {
         store.remove_key(&k.id).unwrap();
         assert!(store.state.keys.is_empty());
         assert!(store.server(&s.id).unwrap().devices.is_empty());
+    }
+
+    #[test]
+    fn a_touch_id_key_keeps_its_secure_enclave_blob_across_opens() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let mut store = open(&dir, &secrets);
+        let k = store.add_touch_id_key("Touch ID", "Y3JlZA", "YXV0aA", "YmxvYg").unwrap();
+        store.save().unwrap();
+
+        let again = open(&dir, &secrets);
+        let kept = again.state.keys.iter().find(|x| x.id == k.id).unwrap();
+        assert_eq!(kept.enclave.as_deref(), Some("YmxvYg"));
+        assert!(kept.is_touch_id());
+    }
+
+    // A state file saved before Touch ID keys existed.
+    #[test]
+    fn a_key_saved_without_a_blob_is_a_security_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legato-desktop.json");
+        std::fs::write(&path, r#"{"servers":[],"keys":[{"id":"k-1","name":"YubiKey","credential_id":"Y3JlZA","auth_data":"YXV0aA"}]}"#).unwrap();
+        let store = Store::open(path, Box::new(Memory::default())).unwrap();
+        assert!(!store.state.keys[0].is_touch_id());
     }
 
     #[test]

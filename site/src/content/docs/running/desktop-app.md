@@ -1,11 +1,11 @@
 ---
 title: The desktop app
-description: Every Legato server in one window, each paired by four words, with approvals signed by a touch of a security key.
+description: Every Legato server in one window, each paired by four words, with approvals signed by a touch of a security key or, on a Mac, Touch ID.
 sidebar:
   order: 35
 ---
 
-The Legato desktop app keeps all your Legato servers in one window. A dock down the left shows each server as a tile in its tint; click one and its web UI fills the rest of the window. Each server's page stays open, so switching is instant, and a server that goes down leaves the others alone. The app also signs approvals with a touch of a security key, such as a YubiKey, and gathers the approvals that wait for one from every server.
+The Legato desktop app keeps all your Legato servers in one window. A dock down the left shows each server as a tile in its tint; click one and its web UI fills the rest of the window. Each server's page stays open, so switching is instant, and a server that goes down leaves the others alone. The app also signs approvals with a touch of a security key, such as a YubiKey, or on a Mac with Touch ID, and gathers the approvals that wait for one from every server.
 
 :::caution
 The desktop app is new. The AppImage for Linux is the main build. The Mac build is an early version (see [On a Mac](#on-a-mac)), and there is no Windows build yet.
@@ -47,6 +47,15 @@ When an approval waits for a signature, its server's tile shows a count, and the
 
 To revoke a key, click **Revoke** beside it. Every server is asked to remove it; each removal is itself a signed approval, which you sign with another key (or that one, while you still have it).
 
+### Touch ID on a Mac
+
+On a Mac with Touch ID, **Servers & keys** also offers **Add Touch ID**. The Mac makes a key in its Secure Enclave, the chip that holds Touch ID, and the app enrolls it on every server as it does a security key. Nothing is asked when it is added. The key never leaves that chip, and it signs only after your fingerprint, so an agent cannot sign with it.
+
+When a server knows Touch ID, the sheet asks for your fingerprint instead of a touch of your key, and the Mac's own dialog names the approval and the server. A decision signed this way is recorded as verified.
+
+- If you add or remove a fingerprint in System Settings, the Mac retires the key: remove Touch ID in the app and add it again. Keep a security key enrolled as well, to sign that change and as a spare.
+- With the lid closed and a keyboard without Touch ID, sign with a security key.
+
 ## The window
 
 - The title bar is the app's own: drag it to move the window, double-click it to maximize. It names the server in front and has a button to reload its page.
@@ -66,6 +75,7 @@ There is a disk image for Apple Silicon Macs, `legato-desktop-macos-arm64.dmg`. 
 
 - A server's page loads only when the Mac trusts the server's certificate: a certificate from a public authority, or Legato's own CA installed in Keychain Access. Pairing, keys and approvals work either way.
 - It does not update itself; download the new disk image.
+- Touch ID is new and has had little use on a Mac.
 
 ## Build it yourself
 
