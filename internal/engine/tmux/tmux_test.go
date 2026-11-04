@@ -3,9 +3,35 @@ package tmux
 import (
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+// TestMain gives the tests a tmux server of their own, never the one they
+// run inside: $TMUX unset (tmux prefers it to TMUX_TMPDIR) and a socket
+// folder of their own, short enough for a socket's path. One session is
+// kept open for the whole run, since a server whose last session ends
+// exits, and a test's new-session that meets it on the way out fails with
+// "server exited unexpectedly". That session ends by itself when this
+// process does, and the server with it: nothing here kills tmux.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("/tmp", "lgtmux")
+	if err != nil {
+		panic(err)
+	}
+	os.Unsetenv("TMUX")
+	os.Setenv("TMUX_TMPDIR", dir)
+	if hasTmux() {
+		wait := "while kill -0 " + strconv.Itoa(os.Getpid()) + " 2>/dev/null; do sleep 1; done"
+		if out, err := exec.Command("tmux", "new-session", "-d", "-s", "legato-test-keepalive", wait).CombinedOutput(); err != nil {
+			panic("tmux: " + string(out))
+		}
+	}
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 func hasTmux() bool {
 	_, err := exec.LookPath("tmux")
