@@ -1,5 +1,6 @@
 import { useState } from "react"
-import type { NativeQuestion, NativeQuestionItem } from "../lib/nativeAgentSync"
+import type { NativeQuestionItem } from "../lib/nativeAgentSync"
+import { answerOf, emptyDraft, type QuestionDraft } from "../lib/questionDrafts"
 
 interface NativeQuestionCardProps {
   question: NativeQuestionItem
@@ -12,20 +13,7 @@ interface NativeQuestionCardProps {
   touch?: boolean
 }
 
-// What the person has entered for one question so far.
-interface Draft {
-  chosen: string[]
-  other: string
-}
-
-const emptyDraft: Draft = { chosen: [], other: "" }
-
-// One choice: a typed answer replaces the option. Several: it joins them.
-function answerOf(question: NativeQuestion, draft: Draft): string[] {
-  const other = draft.other.trim()
-  if (question.multiSelect) return other ? [...draft.chosen, other] : draft.chosen
-  return other ? [other] : draft.chosen
-}
+type Draft = QuestionDraft
 
 const settledLabel: Partial<Record<NativeQuestionItem["status"], string>> = {
   answered: "Answered",

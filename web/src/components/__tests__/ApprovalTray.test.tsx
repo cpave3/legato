@@ -26,6 +26,7 @@ vi.mock("../../lib/approvals", async (importOriginal) => {
 })
 
 import { ApprovalTray } from "../ApprovalTray"
+import { setFocusMode } from "../../lib/focusMode"
 
 function permission(overrides: Partial<Approval> = {}): Approval {
   return {
@@ -51,6 +52,22 @@ function question(): Approval {
   })
 }
 
+// Two questions from one agent, the first with the agent's recommendation.
+function questionnaire(id = "ap-44444444", overrides: Partial<Approval> = {}): Approval {
+  return permission({
+    id, source: "agent_question", title: "Share links", summary: "",
+    details: { request_id: "q2", agent_kind: "claude-code", task_title: "Preserve the shared version",
+      questions: [
+        { id: "conflicts", header: "Conflicts", question: "Should Save's 409 say which conflict it was?",
+          options: [{ label: "Two conflict reasons (Recommended)", description: "Say which kind." }, { label: "Single 409", description: "One notice for both." }] },
+        { id: "migration", header: "Migration", question: "Fresh schema or alter in place?",
+          options: [{ label: "Fresh schema" }, { label: "Alter in place" }] },
+      ] },
+    options: [],
+    ...overrides,
+  })
+}
+
 function Where() {
   const location = useLocation()
   return <div data-testid="where">{location.pathname + location.search}</div>
@@ -61,7 +78,7 @@ function renderTray(path = "/board") {
 }
 
 describe("ApprovalTray", () => {
-  afterEach(() => cleanup())
+  afterEach(() => { cleanup(); setFocusMode(false) })
   beforeEach(() => {
     vi.clearAllMocks()
     mockData = []
@@ -223,6 +240,151 @@ describe("ApprovalTray", () => {
       expect(JSON.parse(posted[0])).toEqual({ legatoShell: "approval", key: "k1", id: "ap-33333333" })
       window.dispatchEvent(new CustomEvent("legato:shell-approval", { detail: { id: "ap-33333333", status: "decided", option: "once" } }))
       await waitFor(() => expect(mockRefresh).toHaveBeenCalled())
+    })
+  })
+
+  describe("focus mode", () => {
+    it("opens the waiting questions one at a time", () => {
+      mockData = [questionnaire()]
+      renderTray()
+      fireEvent.click(screen.getByRole("button", { name: "Answer in focus mode" }))
+
+      const focus = screen.getByRole("dialog", { name: "Focus mode" })
+      expect(within(focus).getByText("Question 1 of 2")).toBeTruthy()
+      expect(within(focus).getByText("Should Save's 409 say which conflict it was?")).toBeTruthy()
+      expect(within(focus).queryByText("Fresh schema or alter in place?")).toBeNull()
+    })
+
+    function openFocus() {
+      fireEvent.click(screen.getByRole("button", { name: "Answer in focus mode" }))
+      return screen.getByRole("dialog", { name: "Focus mode" })
+    }
+    const press = (focus: HTMLElement, key: string, extra: Record<string, boolean> = {}) => fireEvent.keyDown(focus, { key, ...extra })
+
+    it("answers with keys, then reviews and sends one approval's answers together", async () => {
+      mockData = [questionnaire()]
+      renderTray()
+      const focus = openFocus()
+
+      press(focus, "2")
+      expect(within(focus).getByRole("button", { name: /Single 409/ }).getAttribute("aria-pressed")).toBe("true")
+      press(focus, "ArrowUp")
+      expect(within(focus).getByRole("button", { name: /Two conflict reasons/ }).getAttribute("aria-pressed")).toBe("true")
+      press(focus, "Enter")
+      expect(within(focus).getByText("Question 2 of 2")).toBeTruthy()
+      press(focus, "ArrowLeft")
+      expect(within(focus).getByText("Question 1 of 2")).toBeTruthy()
+      press(focus, "Enter")
+      press(focus, "2")
+      press(focus, "Enter")
+
+      const review = within(focus).getByRole("region", { name: "Review your answers" })
+      expect(within(review).getByText("Two conflict reasons")).toBeTruthy()
+      expect(within(review).getByText("Alter in place")).toBeTruthy()
+      expect(mockDecide).not.toHaveBeenCalled()
+      press(focus, "Enter", { metaKey: true })
+      await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-44444444", {
+        decision: "answer",
+        answers: { conflicts: ["Two conflict reasons (Recommended)"], migration: ["Alter in place"] },
+      }))
+      expect(mockRefresh).toHaveBeenCalled()
+    })
+
+    it("marks the agent's recommendation without changing the answer it sends", () => {
+      mockData = [questionnaire()]
+      renderTray()
+      const focus = openFocus()
+      const option = within(focus).getByRole("button", { name: /Two conflict reasons/ })
+      expect(within(option).getByText("Two conflict reasons")).toBeTruthy()
+      expect(within(option).getByText("Recommended")).toBeTruthy()
+    })
+
+    it("takes an answer in the person's own words", async () => {
+      mockData = [questionnaire()]
+      renderTray()
+      const focus = openFocus()
+      press(focus, "/")
+      const own = within(focus).getByRole("textbox", { name: "Or answer in your own words" })
+      expect(document.activeElement).toBe(own)
+      fireEvent.change(own, { target: { value: "Ask the team" } })
+      fireEvent.keyDown(own, { key: "Enter" })
+      expect(within(focus).getByText("Question 2 of 2")).toBeTruthy()
+      press(focus, "1")
+      press(focus, "Enter")
+      press(focus, "Enter")
+      await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-44444444", {
+        decision: "answer", answers: { conflicts: ["Ask the team"], migration: ["Fresh schema"] },
+      }))
+    })
+
+    it("sends a single question from the question itself, and not before it is answered", async () => {
+      mockData = [question()]
+      renderTray()
+      const focus = openFocus()
+      expect(within(focus).queryByText(/Question 1 of/)).toBeNull()
+      press(focus, "Enter")
+      expect(within(focus).getByRole("alert").textContent).toBe("Choose an answer first.")
+      press(focus, "2")
+      press(focus, "Enter")
+      await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-22222222", { decision: "answer", answers: { q1: ["Postgres"] } }))
+    })
+
+    it("leaves on Esc, back to the tray", async () => {
+      mockData = [questionnaire()]
+      renderTray()
+      press(openFocus(), "Escape")
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Focus mode" })).toBeNull())
+      expect(screen.getByRole("region", { name: "Approvals" })).toBeTruthy()
+      expect(screen.queryByText(/Focus is on/)).toBeNull()
+    })
+
+    it("fades out when nothing is left to answer, and opens again when a question comes in", async () => {
+      mockData = [questionnaire()]
+      const view = renderTray()
+      openFocus()
+
+      mockData = []
+      view.rerender(<MemoryRouter initialEntries={["/board"]}><ApprovalTray /><Where /></MemoryRouter>)
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Focus mode" })).toBeNull())
+      expect(screen.getByRole("status").textContent).toContain("Focus is on. It opens again when a question comes in.")
+
+      mockData = [questionnaire("ap-55555555")]
+      view.rerender(<MemoryRouter initialEntries={["/board"]}><ApprovalTray /><Where /></MemoryRouter>)
+      expect(screen.getByRole("dialog", { name: "Focus mode" })).toBeTruthy()
+      expect(screen.queryByText(/Focus is on/)).toBeNull()
+    })
+
+    // Layout drops the tray while nothing is pending; focus mode outlives it.
+    it("stays on while the tray is gone, and opens when the next question comes", () => {
+      mockData = [questionnaire()]
+      const view = renderTray()
+      openFocus()
+      view.unmount()
+
+      mockData = [questionnaire("ap-55555555")]
+      renderTray()
+      expect(screen.getByRole("dialog", { name: "Focus mode" })).toBeTruthy()
+    })
+
+    it("says in the tray that focus is on while other approvals wait", async () => {
+      mockData = [questionnaire(), permission()]
+      const view = renderTray()
+      openFocus()
+
+      mockData = [permission()]
+      view.rerender(<MemoryRouter initialEntries={["/board"]}><ApprovalTray /><Where /></MemoryRouter>)
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Focus mode" })).toBeNull())
+      const tray = screen.getByRole("region", { name: "Approvals" })
+      expect(within(tray).getByText("Focus is on")).toBeTruthy()
+      expect(screen.queryByText(/It opens again when a question comes in/)).toBeNull()
+      fireEvent.click(within(tray).getByRole("button", { name: "Leave focus" }))
+      expect(within(tray).queryByText("Focus is on")).toBeNull()
+    })
+
+    it("offers focus mode only when an agent asks a question", () => {
+      mockData = [permission()]
+      renderTray()
+      expect(screen.queryByRole("button", { name: "Answer in focus mode" })).toBeNull()
     })
   })
 })

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { Link, useSearchParams } from "react-router-dom"
 import { useApprovals } from "../hooks/useApprovals"
 import { useServer } from "../hooks/useServer"
@@ -8,13 +9,55 @@ import { onShellApproval, shellApprovals } from "../lib/mobileShell"
 import { usePasskeyDevice } from "../hooks/usePasskeyDevice"
 import { signWithPasskey } from "../lib/passkeys"
 import type { NativeQuestion } from "../lib/nativeAgentSync"
+import { QuestionFocus } from "./QuestionFocus"
+import { approvalQuestions } from "../lib/questionDrafts"
+import { setFocusMode, useFocusMode } from "../lib/focusMode"
+
+// Shows something while open, and for a moment after, so it can fade in and
+// out: mounted while it is on screen at all, visible while it is meant to be.
+function useFade(open: boolean, ms = 300) {
+  const [mounted, setMounted] = useState(open)
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    if (open) {
+      setMounted(true)
+      const frame = requestAnimationFrame(() => setVisible(true))
+      return () => cancelAnimationFrame(frame)
+    }
+    setVisible(false)
+    const timer = setTimeout(() => setMounted(false), ms)
+    return () => clearTimeout(timer)
+  }, [open, ms])
+  return { mounted, visible }
+}
 
 // The approvals waiting for the person, on every page: a column of cards at
 // the bottom right (above the tab bar on a phone) while any is pending, or a
 // count when the person folds it away. ?approval=<id> opens it on that one.
+//
+// Focus mode, from the tray's header, answers agents' questions one at a time
+// over the whole screen (QuestionFocus). It stays on until the person leaves
+// it: with no question left it fades out and waits, and the next question to
+// arrive opens it again.
 export function ApprovalTray() {
   const { data: approvals, refresh } = useApprovals()
   const [folded, setFolded] = useState(false)
+  const focusMode = useFocusMode()
+  const asking = approvals.filter((approval) => approvalQuestions(approval).length > 0)
+  const focusOpen = focusMode && asking.length > 0
+  const fade = useFade(focusOpen)
+  // While focus fades out, it keeps showing what it showed.
+  const [lastAsking, setLastAsking] = useState<Approval[]>([])
+  const askingIds = asking.map((approval) => `${approval.id}:${approval.revision}`).join(",")
+  useEffect(() => {
+    if (asking.length > 0) setLastAsking((shown) => (shown.map((a) => `${a.id}:${a.revision}`).join(",") === askingIds ? shown : asking))
+    // asking is rebuilt each render; its ids say when it changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askingIds])
+  const leaveFocus = () => {
+    setFocusMode(false)
+    setFolded(false)
+  }
   const [focused, setFocused] = useState<string | null>(null)
   const [params, setParams] = useSearchParams()
   const seen = useRef<Set<string>>(new Set())
@@ -36,10 +79,36 @@ export function ApprovalTray() {
     setParams(next, { replace: true })
   }, [wanted, params, setParams])
 
-  if (approvals.length === 0) return null
   const count = `${approvals.length} ${approvals.length === 1 ? "needs" : "need"} you`
+  const focus = (
+    <>
+      {fade.mounted && createPortal(
+        <div
+          aria-hidden={!focusOpen}
+          className={`fixed inset-0 z-50 transition-[opacity,transform] duration-300 ease-out motion-reduce:transition-none ${fade.visible ? "scale-100 opacity-100" : "pointer-events-none scale-[0.985] opacity-0"}`}
+        >
+          <QuestionFocus approvals={asking.length > 0 ? asking : lastAsking} waiting={approvals.length} onLeave={leaveFocus} onDone={refresh} />
+        </div>,
+        document.body,
+      )}
+      {focusMode && !focusOpen && approvals.length === 0 && createPortal(
+        <div
+          role="status"
+          className="fixed inset-x-2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-40 flex items-center gap-3 rounded-xl border border-lw-accent-ring bg-lw-surface py-2 pl-4 pr-2 font-lw text-sm text-lw-text shadow-2xl md:inset-x-auto md:right-4 md:max-w-md"
+        >
+          <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-lw-link" />
+          <span className="min-w-0 flex-1">Focus is on. It opens again when a question comes in.</span>
+          <button onClick={leaveFocus} className="min-h-11 shrink-0 rounded-lg border border-lw-line-strong px-3 hover:bg-lw-raised md:min-h-9">Leave focus</button>
+        </div>,
+        document.body,
+      )}
+    </>
+  )
+  if (approvals.length === 0) return focus
 
   return (
+    <>
+    {focus}
     <section
       aria-label="Approvals"
       className="fixed inset-x-2 bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.5rem)] z-40 flex max-h-[85dvh] flex-col font-lw text-lw-text md:inset-x-auto md:bottom-4 md:right-4 md:max-h-[70dvh] md:w-[400px]"
@@ -56,7 +125,25 @@ export function ApprovalTray() {
           <header className="flex items-center gap-2 border-b border-lw-line px-4 py-2 md:px-3">
             <span aria-hidden className="text-lw-needs">◆</span>
             <h2 className="text-base font-semibold md:text-sm">{count}</h2>
-            <button aria-label="Hide approvals" onClick={() => setFolded(true)} className="ml-auto flex h-11 w-11 items-center justify-center rounded-lg text-xl text-lw-text-2 hover:bg-lw-raised md:h-auto md:w-auto md:px-2 md:py-0.5 md:text-base">
+            {focusMode && !focusOpen && (
+              <>
+                <span className="ml-auto rounded-full border border-lw-accent-ring bg-lw-accent-soft px-2 py-0.5 text-xs text-lw-accent-text">Focus is on</span>
+                <button onClick={leaveFocus} className="min-h-11 rounded-lg px-2 text-sm text-lw-text-2 hover:bg-lw-raised md:min-h-0 md:py-0.5 md:text-xs">Leave focus</button>
+              </>
+            )}
+            {asking.length > 0 && (
+              <button
+                aria-label="Answer in focus mode"
+                title="Focus mode: one question at a time"
+                onClick={() => setFocusMode(true)}
+                className="ml-auto flex h-11 w-11 items-center justify-center rounded-lg border border-lw-accent-ring bg-lw-accent-soft text-lw-accent-text hover:brightness-125 md:h-7 md:w-7"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 9V4h5" /><path d="M20 9V4h-5" /><path d="M4 15v5h5" /><path d="M20 15v5h-5" />
+                </svg>
+              </button>
+            )}
+            <button aria-label="Hide approvals" onClick={() => setFolded(true)} className={`${asking.length > 0 || focusMode ? "" : "ml-auto "}flex h-11 w-11 items-center justify-center rounded-lg text-xl text-lw-text-2 hover:bg-lw-raised md:h-auto md:w-auto md:px-2 md:py-0.5 md:text-base`}>
               ⌄
             </button>
           </header>
@@ -68,6 +155,7 @@ export function ApprovalTray() {
         </div>
       )}
     </section>
+    </>
   )
 }
 

@@ -65,6 +65,24 @@ Legato raises approvals for agents it talks to natively: Claude Code and Codex t
 
 While approvals wait, a tray at the bottom right of every page shows them as cards. Each says which agent asks, what it would do, and its options. **Deny** takes a note for the agent. A question shows its options, and you can type an answer of your own. The tray folds to a count and opens again when a new approval arrives.
 
+### Focus mode
+
+When agents ask questions, the button beside the tray's fold arrow opens **focus mode**: the questions one at a time, in the middle of the screen with nothing else on it. Each option has a number; the agent's recommendation is marked. An agent's questions are reviewed and sent together; a single question sends from the question itself.
+
+| Key | Does |
+| --- | --- |
+| `1`–`9` | Choose an option (with several allowed, turn it on or off) |
+| `↑` `↓` | Move between options |
+| `Enter` | Next question, review, or send |
+| `←` | Back |
+| `/` | Type an answer in your own words |
+| `⌘ Enter` or `Ctrl Enter` | Send |
+| `Esc` | Leave focus mode |
+
+On a phone focus mode fills the screen, with **Back** and **Next** at the bottom.
+
+Focus mode stays on until you leave it. With no question left it fades away and says it is waiting, and the next question to arrive opens it again. It is for this page only: a reload turns it off.
+
 When the Legato tab is not in front, the browser shows a notification for each new approval. Click it to open the tray on that request. Turn this off in **Settings › Security › Notify me of approvals**.
 
 ### Answering in the TUI

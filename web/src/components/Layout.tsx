@@ -5,6 +5,7 @@ import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
 import { OfflineDialog } from "./OfflineDialog"
 import { ApprovalTray } from "./ApprovalTray"
+import { useFocusMode } from "../lib/focusMode"
 import { ApprovalNotifier } from "./ApprovalNotifier"
 import { notificationsSupported } from "../lib/approvalNotifications"
 import { AgentSelectionProvider } from "../hooks/useAgentSelection"
@@ -23,6 +24,9 @@ export function Layout() {
   const connected = open || !lost
   const { servers, activeServerName, baseUrl, setActiveServer } = useServer()
   const { data: summary } = useNavigationSummary()
+  // Focus mode waits for the next question with nothing pending, so the tray
+  // stays while it is on.
+  const focusMode = useFocusMode()
   // The tint of the server in use, so it is clear which Legato this is.
   const settings = useSettings().data
   const tint = settings?.tint
@@ -55,7 +59,7 @@ export function Layout() {
         </div>
       )}
       {!updateRequired && <UpdateNotice status={settings?.updates} baseUrl={baseUrl} />}
-      {(summary?.approvals ?? 0) > 0 && <ApprovalTray />}
+      {((summary?.approvals ?? 0) > 0 || focusMode) && <ApprovalTray />}
       {notificationsSupported() && <ApprovalNotifier />}
       <OfflineDialog />
       <PlanApprovalModal />
