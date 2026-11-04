@@ -25,8 +25,9 @@ func (s *fakeProviderSync) Sync(context.Context) (service.ProviderSyncResult, er
 func TestBoardSyncHandlerReturnsProviderOutcomes(t *testing.T) {
 	board := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
 	sync := &fakeProviderSync{result: service.ProviderSyncResult{
-		Jira:   service.ProviderSyncSourceResult{Status: service.ProviderSyncCompleted, TasksSynced: 3},
-		GitHub: service.ProviderSyncSourceResult{Status: service.ProviderSyncFailed, Error: "rate limited"},
+		"jira":     {Status: service.ProviderSyncCompleted, TasksSynced: 3},
+		"burnlite": {Status: service.ProviderSyncCompleted, TasksSynced: 1},
+		"github":   {Status: service.ProviderSyncFailed, Error: "rate limited"},
 	}}
 	srv := New(board, nil, nil, ":0")
 	srv.SetProviderSyncService(sync)
@@ -39,7 +40,7 @@ func TestBoardSyncHandlerReturnsProviderOutcomes(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Jira.TasksSynced != 3 || result.GitHub.Error != "rate limited" {
+	if result["jira"].TasksSynced != 3 || result["burnlite"].TasksSynced != 1 || result["github"].Error != "rate limited" {
 		t.Fatalf("result = %#v", result)
 	}
 }

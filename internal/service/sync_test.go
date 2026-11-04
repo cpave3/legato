@@ -451,7 +451,7 @@ func TestPullSyncPreservesLocalOnlyColumnOutsideConflictWindow(t *testing.T) {
 
 func TestPullSyncWithStatusSyncDisabledRefreshesTicketWithoutMovingCard(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
-	svc.statusSync = false
+	svc.jira().statusSync = false
 	ctx := context.Background()
 	oldRemoteUpdate := time.Now().Add(-time.Hour)
 	createSyncedTask(t, s, "TEST-1", "Old title", "Done", "Done", oldRemoteUpdate, nil)
@@ -691,7 +691,7 @@ func TestSyncRefreshesProviderDescriptionAndPreservesLegatoDetails(t *testing.T)
 
 func TestSearchRemoteReturnsMatchingTickets(t *testing.T) {
 	svc, _, provider, _ := newTestSync(t)
-	svc.projectKeys = []string{"TEST"}
+	svc.jira().projectKeys = []string{"TEST"}
 	ctx := context.Background()
 
 	provider.tickets = []RemoteTicket{
@@ -716,7 +716,7 @@ func TestSearchRemoteReturnsMatchingTickets(t *testing.T) {
 
 func TestSearchRemoteBuildsJQLWithProjectKeys(t *testing.T) {
 	svc, _, provider, _ := newTestSync(t)
-	svc.projectKeys = []string{"REX", "INF"}
+	svc.jira().projectKeys = []string{"REX", "INF"}
 	ctx := context.Background()
 
 	// Capture the query sent to the provider
@@ -781,7 +781,7 @@ func TestImportRemoteTaskCreatesLocalTask(t *testing.T) {
 		},
 	}
 
-	card, err := svc.ImportRemoteTask(ctx, "TEST-42", nil)
+	card, err := svc.ImportRemoteTask(ctx, "", "TEST-42", nil)
 	if err != nil {
 		t.Fatalf("ImportRemoteTask: %v", err)
 	}
@@ -819,7 +819,7 @@ func TestImportRemoteTaskSerializesConcurrentImports(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			card, err := svc.ImportRemoteTask(context.Background(), "TEST-42", nil)
+			card, err := svc.ImportRemoteTask(context.Background(), "", "TEST-42", nil)
 			results <- card
 			errors <- err
 		}()
@@ -851,7 +851,7 @@ func TestImportRemoteTaskAlreadyTracked(t *testing.T) {
 		{ID: "TEST-42", Summary: "Already here", Status: "To Do", UpdatedAt: time.Now()},
 	}
 
-	card, err := svc.ImportRemoteTask(ctx, "TEST-42", nil)
+	card, err := svc.ImportRemoteTask(ctx, "", "TEST-42", nil)
 	if err != nil {
 		t.Fatalf("ImportRemoteTask: %v", err)
 	}
@@ -879,7 +879,7 @@ func TestImportRemoteTaskWithWorkspace(t *testing.T) {
 		},
 	}
 
-	card, err := svc.ImportRemoteTask(ctx, "TEST-55", &wsID)
+	card, err := svc.ImportRemoteTask(ctx, "", "TEST-55", &wsID)
 	if err != nil {
 		t.Fatalf("ImportRemoteTask: %v", err)
 	}
@@ -901,7 +901,7 @@ func TestImportRemoteTaskNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	// Provider returns nil for unknown ticket
-	_, err := svc.ImportRemoteTask(ctx, "NOPE-99", nil)
+	_, err := svc.ImportRemoteTask(ctx, "", "NOPE-99", nil)
 	if err == nil {
 		t.Fatal("expected error for unknown ticket")
 	}
@@ -929,7 +929,7 @@ func TestImportRemoteTaskDownloadsAttachments(t *testing.T) {
 		Attachments: []RemoteAttachment{{ID: "100", Filename: "screen.png", MimeType: "image/png", Size: 3}},
 	}}
 
-	if _, err := svc.ImportRemoteTask(context.Background(), "TEST-100", nil); err != nil {
+	if _, err := svc.ImportRemoteTask(context.Background(), "", "TEST-100", nil); err != nil {
 		t.Fatalf("import: %v", err)
 	}
 	items, err := svc.attachments.List("TEST-100")
@@ -1011,7 +1011,7 @@ func TestPushMoveIntoLocalOnlyColumnDoesNotTransitionJira(t *testing.T) {
 
 func TestPushMoveWithStatusSyncDisabledMovesLocallyWithoutTransitioningJira(t *testing.T) {
 	svc, s, provider, _ := newTestSync(t)
-	svc.statusSync = false
+	svc.jira().statusSync = false
 	ctx := context.Background()
 	createSyncedTask(t, s, "TEST-1", "Test", "Backlog", "To Do", time.Now(), nil)
 

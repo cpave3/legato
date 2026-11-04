@@ -28,7 +28,6 @@ import (
 	"github.com/cpave3/legato/internal/engine/hooks"
 	"github.com/cpave3/legato/internal/engine/hotreload"
 	"github.com/cpave3/legato/internal/engine/ipc"
-	"github.com/cpave3/legato/internal/engine/jira"
 	"github.com/cpave3/legato/internal/engine/manticore"
 	"github.com/cpave3/legato/internal/engine/planvalidate"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -1471,12 +1470,8 @@ func runServeCmd(args []string) int {
 
 	// Set up remote sync so web card moves use the same conflict-aware path as
 	// the TUI and can transition provider-backed tasks when configured.
-	var syncSvc service.SyncService
-	if cfg.Jira.BaseURL != "" && cfg.Jira.Email != "" && cfg.Jira.APIToken != "" {
-		jiraProvider := jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second)
-		provider := service.NewJiraProvider(jiraProvider)
-		interval := time.Duration(cfg.Jira.SyncIntervalSeconds) * time.Second
-		syncSvc = service.NewSyncService(db, bus, provider, cfg.Jira.JQLFilter, cfg.Jira.ProjectKeys, interval, cfg.Jira.StatusSyncEnabled, attachmentCache)
+	syncSvc := newTicketSync(cfg, db, bus, attachmentCache)
+	if syncSvc != nil {
 		go syncSvc.Sync(context.Background())
 		stopSync := syncSvc.StartScheduler(context.Background())
 		defer stopSync()
@@ -1738,15 +1733,10 @@ func runTUI() int {
 		defer ipcServer.Close()
 	}
 
-	// Set up Jira sync if configured
-	var syncSvc service.SyncService
-	if cfg.Jira.BaseURL != "" && cfg.Jira.Email != "" && cfg.Jira.APIToken != "" {
-		jiraProvider := jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second)
-		provider := service.NewJiraProvider(jiraProvider)
-		interval := time.Duration(cfg.Jira.SyncIntervalSeconds) * time.Second
-		syncSvc = service.NewSyncService(db, bus, provider, cfg.Jira.JQLFilter, cfg.Jira.ProjectKeys, interval, cfg.Jira.StatusSyncEnabled, attachmentCache)
-
-		// Run initial sync, then start periodic scheduler
+	// Set up ticket sync if a provider is configured: an initial sync, then
+	// the periodic scheduler.
+	syncSvc := newTicketSync(cfg, db, bus, attachmentCache)
+	if syncSvc != nil {
 		go syncSvc.Sync(context.Background())
 		stopSync := syncSvc.StartScheduler(context.Background())
 		defer stopSync()

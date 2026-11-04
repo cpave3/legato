@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 	"time"
@@ -23,16 +22,13 @@ const (
 type syncService struct {
 	store       *store.Store
 	bus         *events.Bus
-	provider    TicketProvider
-	jql         string
-	projectKeys []string
-	interval    time.Duration
-	statusSync  bool
+	sources     []TicketSource
 	attachments *attachments.Cache
 
-	mu   sync.Mutex
-	last time.Time
-	subs []chan SyncEvent
+	mu       sync.Mutex
+	last     time.Time
+	lastPull map[string]time.Time
+	subs     []chan SyncEvent
 }
 
 // remoteMeta is the JSON shape stored in task.remote_meta for synced tasks.
@@ -64,46 +60,82 @@ func encodeRemoteMeta(m remoteMeta) *string {
 	return &s
 }
 
-// NewSyncService creates a SyncService backed by a TicketProvider.
+// NewSyncService creates a SyncService backed by Jira alone.
 func NewSyncService(s *store.Store, bus *events.Bus, provider TicketProvider, jql string, projectKeys []string, interval time.Duration, statusSync bool, attachmentCache ...*attachments.Cache) SyncService {
 	var cache *attachments.Cache
 	if len(attachmentCache) > 0 {
 		cache = attachmentCache[0]
 	}
-	return &syncService{
-		store:       s,
-		attachments: cache,
-		bus:         bus,
-		provider:    provider,
-		jql:         jql,
-		projectKeys: projectKeys,
-		interval:    interval,
-		statusSync:  statusSync,
+	return NewTicketSync(s, bus, cache, NewJiraSource(provider, jql, projectKeys, interval, statusSync))
+}
+
+// NewTicketSync creates a SyncService over every ticket source. Each task is
+// synced by the source whose name is its provider. cache may be nil.
+func NewTicketSync(s *store.Store, bus *events.Bus, cache *attachments.Cache, sources ...TicketSource) SyncService {
+	for _, source := range sources {
+		if b, ok := source.(storeBinder); ok {
+			b.bindStore(s)
+		}
 	}
+	return &syncService{store: s, bus: bus, sources: sources, attachments: cache, lastPull: map[string]time.Time{}}
+}
+
+// jira is the Jira source, nil when there is none.
+func (s *syncService) jira() *jiraSource {
+	for _, source := range s.sources {
+		if j, ok := source.(*jiraSource); ok && j.provider != nil {
+			return j
+		}
+	}
+	return nil
+}
+
+func (s *syncService) source(name string) TicketSource {
+	for _, source := range s.sources {
+		if source.Name() == name {
+			return source
+		}
+	}
+	return nil
 }
 
 func (s *syncService) Sync(ctx context.Context) (*SyncResult, error) {
+	return s.sync(ctx, false)
+}
+
+// sync pulls every enabled source, or with due only those whose interval
+// has passed since they were last pulled. One that fails leaves the others.
+func (s *syncService) sync(ctx context.Context, due bool) (*SyncResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.broadcast(SyncEvent{Type: EventSyncStarted, Message: "sync started"})
 	s.bus.Publish(events.Event{Type: events.EventSyncStarted, At: time.Now()})
 
-	result, err := s.pullSync(ctx)
-	if err != nil {
-		s.broadcast(SyncEvent{Type: EventSyncFailed, Message: err.Error()})
-		s.bus.Publish(events.Event{Type: events.EventSyncFailed, Payload: err.Error(), At: time.Now()})
-		// Publish specific error event
-		errType := classifyError(err)
-		s.bus.Publish(events.Event{
-			Type: errType,
-			Payload: events.ErrorPayload{
-				ErrorType: errorTypeName(errType),
-				Message:   err.Error(),
-			},
-			At: time.Now(),
-		})
-		return nil, err
+	result := &SyncResult{Sources: map[string]SourceSyncResult{}}
+	var errs []error
+	for _, source := range s.sources {
+		name := source.Name()
+		if !source.Enabled(ctx) {
+			result.Sources[name] = SourceSyncResult{Disabled: true}
+			continue
+		}
+		if due && time.Since(s.lastPull[name]) < source.Interval() {
+			continue
+		}
+		synced, err := s.pullSource(ctx, source)
+		if err != nil {
+			result.Sources[name] = SourceSyncResult{Err: err}
+			errs = append(errs, err)
+			s.publishSyncError(err)
+			continue
+		}
+		s.lastPull[name] = time.Now()
+		result.Sources[name] = SourceSyncResult{TasksSynced: synced}
+		result.TasksSynced += synced
+	}
+	if len(errs) > 0 && result.TasksSynced == 0 && len(errs) == s.enabledCount(ctx) {
+		return result, errors.Join(errs...)
 	}
 
 	// Retry any failed push transitions
@@ -117,66 +149,79 @@ func (s *syncService) Sync(ctx context.Context) (*SyncResult, error) {
 	s.broadcast(SyncEvent{Type: EventSyncCompleted, Message: "sync completed"})
 	s.bus.Publish(events.Event{Type: events.EventSyncCompleted, At: time.Now()})
 
-	return result, nil
+	return result, errors.Join(errs...)
 }
 
-func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
+func (s *syncService) enabledCount(ctx context.Context) int {
+	n := 0
+	for _, source := range s.sources {
+		if source.Enabled(ctx) {
+			n++
+		}
+	}
+	return n
+}
+
+func (s *syncService) publishSyncError(err error) {
+	s.broadcast(SyncEvent{Type: EventSyncFailed, Message: err.Error()})
+	s.bus.Publish(events.Event{Type: events.EventSyncFailed, Payload: err.Error(), At: time.Now()})
+	errType := classifyError(err)
+	s.bus.Publish(events.Event{
+		Type: errType,
+		Payload: events.ErrorPayload{
+			ErrorType: errorTypeName(errType),
+			Message:   err.Error(),
+		},
+		At: time.Now(),
+	})
+}
+
+// pullSource refreshes the tasks that are the source's, and says how many
+// changed.
+func (s *syncService) pullSource(ctx context.Context, source TicketSource) (int, error) {
 	allTasks, err := s.store.ListAllTasks(ctx)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
+	name := source.Name()
 	trackedTasks := make([]store.Task, 0, len(allTasks))
 	for _, task := range allTasks {
-		if task.ArchivedAt == nil && task.Provider != nil && *task.Provider == "jira" {
+		if task.ArchivedAt == nil && task.Provider != nil && *task.Provider == name {
 			trackedTasks = append(trackedTasks, task)
 		}
 	}
 	if len(trackedTasks) == 0 {
-		return &SyncResult{}, nil
+		return 0, nil
 	}
 
-	remoteTickets := make([]RemoteTicket, 0, len(trackedTasks))
-	for start := 0; start < len(trackedTasks); start += trackedTicketBatchSize {
-		end := start + trackedTicketBatchSize
-		if end > len(trackedTasks) {
-			end = len(trackedTasks)
-		}
-		jql := s.trackedTicketsJQL(trackedTasks[start:end])
-		batch, err := s.provider.Search(ctx, jql)
-		if err != nil {
-			return nil, err
-		}
-		remoteTickets = append(remoteTickets, batch...)
+	batch, err := source.Pull(ctx, trackedTasks)
+	if err != nil {
+		return 0, err
 	}
 
-	// Load column mappings for status-to-column resolution
+	// Load column mappings for local-only columns
 	mappings, err := s.store.ListColumnMappings(ctx)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	// Track which task IDs we've seen from the remote
-	seenIDs := make(map[string]bool, len(remoteTickets))
 	synced := 0
-
-	for _, rt := range remoteTickets {
-		seenIDs[rt.ID] = true
-
+	for _, rt := range batch.Tickets {
 		existing, err := s.store.GetTask(ctx, rt.ID)
 		if errors.Is(err, store.ErrNotFound) {
 			// Not tracked locally — skip. New tasks are only added via manual import.
 			continue
 		} else if err != nil {
-			return nil, err
+			return 0, err
 		}
 
-		// Skip archived tasks — don't resurface them
-		if existing.ArchivedAt != nil {
+		// Skip archived tasks, and a task with this key from another source.
+		if existing.ArchivedAt != nil || existing.Provider == nil || *existing.Provider != name {
 			continue
 		}
 
-		if err := s.reconcileAttachments(ctx, rt); err != nil {
-			return nil, err
+		if err := s.reconcileAttachments(ctx, source, rt); err != nil {
+			return 0, err
 		}
 
 		// Existing task — check if remote updated
@@ -199,7 +244,7 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 		existing.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
 		existingMeta.RemoteStatus = rt.Status
-		existingMeta.RemoteUpdatedAt = rt.UpdatedAt.UTC().Format(time.RFC3339)
+		existingMeta.RemoteUpdatedAt = rt.UpdatedAt.UTC().Format(time.RFC3339Nano)
 		existingMeta.IssueType = rt.IssueType
 		existingMeta.Assignee = rt.Assignee
 		existingMeta.Labels = strings.Join(rt.Labels, ",")
@@ -209,8 +254,11 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 		existingMeta.StaleAt = "" // clear stale marker
 
 		// Check if status/column changed
-		newColumn := resolveColumn(rt.Status, mappings)
-		if s.statusSync && newColumn != "" && newColumn != existing.Status {
+		newColumn, err := source.Column(ctx, rt)
+		if err != nil {
+			return 0, err
+		}
+		if source.MovesCards() && newColumn != "" && newColumn != existing.Status {
 			// Columns with no remote statuses are local-only. Jira updates may
 			// refresh the task fields, but must not move the card out of them.
 			if isLocalOnlyColumn(existing.Status, mappings) {
@@ -230,14 +278,18 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 
 		existing.RemoteMeta = encodeRemoteMeta(existingMeta)
 		if err := s.store.UpdateTaskFromProvider(ctx, *existing); err != nil {
-			return nil, err
+			return 0, err
 		}
 		synced++
 	}
 
-	// Mark active Jira tasks absent from the targeted remote results as stale.
+	// Mark tasks the provider no longer has as stale.
+	missing := make(map[string]bool, len(batch.Missing))
+	for _, key := range batch.Missing {
+		missing[key] = true
+	}
 	for _, task := range trackedTasks {
-		if seenIDs[task.ID] {
+		if !missing[task.ID] {
 			continue
 		}
 		meta := parseRemoteMeta(task.RemoteMeta)
@@ -248,34 +300,14 @@ func (s *syncService) pullSync(ctx context.Context) (*SyncResult, error) {
 		}
 	}
 
-	return &SyncResult{TasksSynced: synced}, nil
+	return synced, nil
 }
 
-func (s *syncService) trackedTicketsJQL(tasks []store.Task) string {
-	keys := make([]string, len(tasks))
-	for i, task := range tasks {
-		key := task.ID
-		if task.RemoteID != nil && *task.RemoteID != "" {
-			key = *task.RemoteID
-		}
-		keys[i] = `"` + strings.ReplaceAll(key, `"`, `\"`) + `"`
-	}
-	keyFilter := "key in (" + strings.Join(keys, ", ") + ")"
-	if strings.TrimSpace(s.jql) != "" {
-		return "(" + s.jql + ") AND " + keyFilter
-	}
-	return keyFilter
-}
-
-type attachmentDownloader interface {
-	DownloadAttachment(ctx context.Context, id string) (io.ReadCloser, error)
-}
-
-func (s *syncService) reconcileAttachments(ctx context.Context, ticket RemoteTicket) error {
+func (s *syncService) reconcileAttachments(ctx context.Context, source TicketSource, ticket RemoteTicket) error {
 	if s.attachments == nil {
 		return nil
 	}
-	downloader, ok := s.provider.(attachmentDownloader)
+	downloader, ok := downloader(source)
 	if !ok {
 		return nil
 	}
@@ -308,11 +340,12 @@ func (s *syncService) PushMove(ctx context.Context, taskID, targetColumn string)
 		return err
 	}
 
-	// Skip push for local tasks (no provider)
-	if task.Provider == nil {
+	// Only Jira takes card moves; other providers' cards move locally.
+	jira := s.jira()
+	if task.Provider == nil || jira == nil || *task.Provider != jira.Name() {
 		return nil
 	}
-	if !s.statusSync {
+	if !jira.statusSync {
 		return nil
 	}
 
@@ -342,7 +375,11 @@ func (s *syncService) PushMove(ctx context.Context, taskID, targetColumn string)
 func (s *syncService) executePush(taskID, transitionID, targetColumn string) {
 	ctx := context.Background()
 
-	err := s.provider.DoTransition(ctx, taskID, transitionID)
+	jira := s.jira()
+	if jira == nil {
+		return
+	}
+	err := jira.provider.DoTransition(ctx, taskID, transitionID)
 	if err != nil {
 		// Push failed — log and set warning
 		s.store.InsertSyncLog(ctx, store.SyncLogEntry{
@@ -400,7 +437,8 @@ func (s *syncService) executePush(taskID, transitionID, targetColumn string) {
 
 // retryFailedPushes retries any pending failed push transitions.
 func (s *syncService) retryFailedPushes(ctx context.Context) {
-	if !s.statusSync {
+	jira := s.jira()
+	if jira == nil || !jira.statusSync {
 		return
 	}
 	allTasks, err := s.store.ListAllTasks(ctx)
@@ -411,8 +449,8 @@ func (s *syncService) retryFailedPushes(ctx context.Context) {
 	mappings, _ := s.store.ListColumnMappings(ctx)
 
 	for _, task := range allTasks {
-		// Skip local tasks
-		if task.Provider == nil {
+		// Only Jira's tasks are pushed
+		if task.Provider == nil || *task.Provider != jira.Name() {
 			continue
 		}
 
@@ -439,18 +477,33 @@ func (s *syncService) retryFailedPushes(ctx context.Context) {
 func (s *syncService) StartScheduler(ctx context.Context) func() {
 	ctx, cancel := context.WithCancel(ctx)
 	go func() {
-		ticker := time.NewTicker(s.interval)
+		ticker := time.NewTicker(s.tick())
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				s.Sync(ctx)
+				s.sync(ctx, true)
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
 	return cancel
+}
+
+// tick is how often the scheduler looks for a source that is due: the
+// shortest interval.
+func (s *syncService) tick() time.Duration {
+	tick := time.Duration(0)
+	for _, source := range s.sources {
+		if i := source.Interval(); i > 0 && (tick == 0 || i < tick) {
+			tick = i
+		}
+	}
+	if tick == 0 {
+		tick = time.Minute
+	}
+	return tick
 }
 
 func (s *syncService) Status() SyncStatus {
@@ -509,31 +562,83 @@ func (s *syncService) SearchRemote(ctx context.Context, query string) ([]RemoteS
 	if len(strings.TrimSpace(query)) < 2 {
 		return nil, nil
 	}
-	jql := buildSearchJQL(s.projectKeys, query)
-	tickets, err := s.provider.Search(ctx, jql)
-	if err != nil {
-		return nil, err
-	}
-	results := make([]RemoteSearchResult, len(tickets))
-	for i, t := range tickets {
-		results[i] = RemoteSearchResult{
-			ID:        t.ID,
-			Summary:   t.Summary,
-			Status:    t.Status,
-			Priority:  t.Priority,
-			IssueType: t.IssueType,
+	var results []RemoteSearchResult
+	var firstErr error
+	searched := 0
+	for _, source := range s.sources {
+		if !source.Enabled(ctx) {
+			continue
 		}
+		searched++
+		tickets, err := source.Search(ctx, query)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("%s: %w", source.Label(), err)
+			}
+			continue
+		}
+		for _, t := range tickets {
+			results = append(results, RemoteSearchResult{
+				ID:        t.ID,
+				Summary:   t.Summary,
+				Status:    t.Status,
+				Priority:  t.Priority,
+				IssueType: t.IssueType,
+				Provider:  source.Name(),
+			})
+		}
+	}
+	// Results from the providers that answered, unless none did.
+	if len(results) == 0 && firstErr != nil {
+		if searched == 1 {
+			return nil, errors.Unwrap(firstErr)
+		}
+		return nil, firstErr
 	}
 	return results, nil
 }
 
-func (s *syncService) ImportRemoteTask(ctx context.Context, ticketID string, workspaceID *int) (*Card, error) {
+// importSource is the source named, or the only enabled one when none is.
+func (s *syncService) importSource(ctx context.Context, name string) (TicketSource, error) {
+	if name != "" {
+		source := s.source(name)
+		if source == nil || !source.Enabled(ctx) {
+			return nil, fmt.Errorf("%s is not connected to Legato", name)
+		}
+		return source, nil
+	}
+	var enabled []TicketSource
+	var names []string
+	for _, source := range s.sources {
+		if source.Enabled(ctx) {
+			enabled = append(enabled, source)
+			names = append(names, source.Name())
+		}
+	}
+	switch len(enabled) {
+	case 0:
+		return nil, errors.New("no ticket provider is connected to Legato")
+	case 1:
+		return enabled[0], nil
+	}
+	return nil, fmt.Errorf("say which provider the ticket is from: %s", strings.Join(names, ", "))
+}
+
+func (s *syncService) ImportRemoteTask(ctx context.Context, providerName, ticketID string, workspaceID *int) (*Card, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	source, err := s.importSource(ctx, providerName)
+	if err != nil {
+		return nil, err
+	}
 
 	// Check if already tracked locally
 	existing, err := s.store.GetTask(ctx, ticketID)
 	if err == nil {
+		if existing.Provider == nil || *existing.Provider != source.Name() {
+			return nil, fmt.Errorf("%s: %w", ticketID, ErrTicketKeyTaken)
+		}
 		return &Card{
 			ID:       existing.ID,
 			Title:    existing.Title,
@@ -546,7 +651,7 @@ func (s *syncService) ImportRemoteTask(ctx context.Context, ticketID string, wor
 	}
 
 	// Fetch from remote
-	rt, err := s.provider.GetTicket(ctx, ticketID)
+	rt, err := source.Get(ctx, ticketID)
 	if err != nil {
 		return nil, err
 	}
@@ -555,23 +660,22 @@ func (s *syncService) ImportRemoteTask(ctx context.Context, ticketID string, wor
 	}
 
 	// Resolve column
-	mappings, err := s.store.ListColumnMappings(ctx)
+	column, err := source.Column(ctx, *rt)
 	if err != nil {
 		return nil, err
 	}
-	column := resolveColumn(rt.Status, mappings)
 	if column == "" {
 		column = "Backlog"
 	}
 
 	// Create local task
 	now := time.Now().UTC().Format(time.RFC3339)
-	provider := "jira"
+	provider := source.Name()
 	remoteID := rt.ID
 	labels := strings.Join(rt.Labels, ",")
 	meta := remoteMeta{
 		RemoteStatus:    rt.Status,
-		RemoteUpdatedAt: rt.UpdatedAt.UTC().Format(time.RFC3339),
+		RemoteUpdatedAt: rt.UpdatedAt.UTC().Format(time.RFC3339Nano),
 		IssueType:       rt.IssueType,
 		Assignee:        rt.Assignee,
 		Labels:          labels,
@@ -592,7 +696,7 @@ func (s *syncService) ImportRemoteTask(ctx context.Context, ticketID string, wor
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}
-	if err := s.reconcileAttachments(ctx, *rt); err != nil {
+	if err := s.reconcileAttachments(ctx, source, *rt); err != nil {
 		return nil, err
 	}
 	if err := s.store.CreateTask(ctx, task); err != nil {

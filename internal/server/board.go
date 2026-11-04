@@ -764,6 +764,7 @@ func (s *Server) remoteSearchHandler() http.HandlerFunc {
 				Status:    r.Status,
 				Priority:  r.Priority,
 				IssueType: r.IssueType,
+				Provider:  r.Provider,
 			}
 		}
 		s.writeJSON(w, http.StatusOK, resp)
@@ -788,7 +789,9 @@ func (s *Server) remoteImportHandler() http.HandlerFunc {
 			return
 		}
 		var req struct {
-			TicketID    string `json:"ticket_id"`
+			TicketID string `json:"ticket_id"`
+			// Provider is the ticket's source; "" is the only one connected.
+			Provider    string `json:"provider,omitempty"`
 			WorkspaceID *int   `json:"workspace_id,omitempty"`
 		}
 		if err := json.Unmarshal(body, &req); err != nil {
@@ -805,7 +808,7 @@ func (s *Server) remoteImportHandler() http.HandlerFunc {
 			return
 		}
 		ctx := context.Background()
-		card, err := s.sync.ImportRemoteTask(ctx, req.TicketID, req.WorkspaceID)
+		card, err := s.sync.ImportRemoteTask(ctx, req.Provider, req.TicketID, req.WorkspaceID)
 		if err != nil {
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 			return

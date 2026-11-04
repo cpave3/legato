@@ -7,12 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/events"
-	"github.com/cpave3/legato/internal/engine/jira"
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/service"
@@ -22,12 +20,7 @@ var workflowServiceFactory = func(db *store.Store, cfg *config.Config) (*service
 	wd, _ := os.Getwd()
 	bus := events.New()
 	board := service.NewBoardService(db, bus)
-	var syncService service.SyncService
-	if cfg.Jira.BaseURL != "" && cfg.Jira.Email != "" && cfg.Jira.APIToken != "" {
-		jiraProvider := jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second)
-		provider := service.NewJiraProvider(jiraProvider)
-		syncService = service.NewSyncService(db, bus, provider, cfg.Jira.JQLFilter, cfg.Jira.ProjectKeys, time.Duration(cfg.Jira.SyncIntervalSeconds)*time.Second, cfg.Jira.StatusSyncEnabled)
-	}
+	syncService := newTicketSync(cfg, db, bus, nil)
 	return buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: board, Sync: syncService, WorkDir: wd})
 }
 

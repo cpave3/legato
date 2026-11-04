@@ -306,6 +306,8 @@ type mockSyncService struct {
 	searchResults     []service.RemoteSearchResult
 	importedCard      *service.Card
 	importedWorkspace *int
+	importedProvider  string
+	importedTicket    string
 	movedTaskID       string
 	movedTo           string
 }
@@ -439,7 +441,8 @@ func (m *mockSyncService) StartScheduler(_ context.Context) func() { return func
 func (m *mockSyncService) SearchRemote(_ context.Context, _ string) ([]service.RemoteSearchResult, error) {
 	return m.searchResults, nil
 }
-func (m *mockSyncService) ImportRemoteTask(_ context.Context, _ string, workspaceID *int) (*service.Card, error) {
+func (m *mockSyncService) ImportRemoteTask(_ context.Context, provider, ticketID string, workspaceID *int) (*service.Card, error) {
+	m.importedProvider, m.importedTicket = provider, ticketID
 	m.importedWorkspace = workspaceID
 	return m.importedCard, nil
 }
@@ -1711,6 +1714,30 @@ func TestRemoteImportReturns201(t *testing.T) {
 	}
 	if resp.ID != "imp-1" {
 		t.Errorf("id = %q, want imp-1", resp.ID)
+	}
+}
+
+func TestRemoteImportAndSearchSayWhichProviderATicketIsFrom(t *testing.T) {
+	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+	srv := New(svc, nil, nil, ":0")
+	sync := &mockSyncService{
+		importedCard:  &service.Card{ID: "EST-7"},
+		searchResults: []service.RemoteSearchResult{{ID: "EST-7", Summary: "A task", Provider: "burnlite"}},
+	}
+	srv.SetSyncService(sync)
+	handler := srv.Handler()
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest("POST", "/api/remote/import", strings.NewReader(`{"ticket_id":"EST-7","provider":"burnlite"}`)))
+	if w.Code != http.StatusCreated || sync.importedProvider != "burnlite" || sync.importedTicket != "EST-7" {
+		t.Fatalf("status %d, imported %q from %q", w.Code, sync.importedTicket, sync.importedProvider)
+	}
+
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest("GET", "/api/remote/search?q=task", nil))
+	var results []RemoteSearchResultResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &results); err != nil || len(results) != 1 || results[0].Provider != "burnlite" {
+		t.Fatalf("results = %s", w.Body.String())
 	}
 }
 

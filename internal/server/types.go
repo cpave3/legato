@@ -162,6 +162,8 @@ type RemoteSearchResultResponse struct {
 	Status    string `json:"status"`
 	Priority  string `json:"priority"`
 	IssueType string `json:"issue_type"`
+	// Provider is the source the ticket is from: "jira", "burnlite".
+	Provider string `json:"provider"`
 }
 
 // ArchiveDoneResponse is the JSON response for POST /api/board/archive-done.

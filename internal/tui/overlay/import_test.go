@@ -37,6 +37,21 @@ func TestImportOverlaySetResults(t *testing.T) {
 	mustContain(t, view, "REX-2")
 }
 
+func TestImportOverlaySelectionSaysWhichProviderTheTicketIsFrom(t *testing.T) {
+	m := NewImport(100, 30, nil)
+	m = m.SetResults([]service.RemoteSearchResult{
+		{ID: "EST-7", Summary: "Burnlite task", Provider: "burnlite"},
+	})
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected cmd from enter")
+	}
+	result, ok := cmd().(ImportSelectedMsg)
+	if !ok || result.TicketID != "EST-7" || result.Provider != "burnlite" {
+		t.Fatalf("got %#v", result)
+	}
+}
+
 func TestImportOverlaySelectResult(t *testing.T) {
 	m := NewImport(100, 30, nil)
 	m = m.SetResults([]service.RemoteSearchResult{

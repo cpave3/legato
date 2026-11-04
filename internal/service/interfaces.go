@@ -110,6 +110,16 @@ type LocalAttachment struct {
 // SyncResult contains the outcome of a sync operation.
 type SyncResult struct {
 	TasksSynced int
+	// Sources is each ticket source's outcome, by provider name.
+	Sources map[string]SourceSyncResult
+}
+
+// SourceSyncResult is one ticket source's part of a sync.
+type SourceSyncResult struct {
+	TasksSynced int
+	Err         error
+	// Disabled: the source is not configured or not connected.
+	Disabled bool
 }
 
 // SyncStatus reports the current state of sync.
@@ -202,6 +212,8 @@ type RemoteSearchResult struct {
 	Status    string
 	Priority  string
 	IssueType string
+	// Provider is the source the ticket is from ("jira").
+	Provider string
 }
 
 type SyncService interface {
@@ -210,7 +222,9 @@ type SyncService interface {
 	Subscribe() <-chan SyncEvent
 	StartScheduler(ctx context.Context) func()
 	SearchRemote(ctx context.Context, query string) ([]RemoteSearchResult, error)
-	ImportRemoteTask(ctx context.Context, ticketID string, workspaceID *int) (*Card, error)
+	// ImportRemoteTask tracks a ticket as a task. provider names its source;
+	// "" is the only one connected.
+	ImportRemoteTask(ctx context.Context, provider, ticketID string, workspaceID *int) (*Card, error)
 }
 
 // CardMoveSync coordinates a local card move with its remote provider.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -1953,12 +1954,12 @@ func (a App) handleImportSelected(msg overlay.ImportSelectedMsg) (tea.Model, tea
 		return a, nil
 	}
 	svc := a.syncSvc
-	ticketID := msg.TicketID
+	ticketID, provider := msg.TicketID, msg.Provider
 	workspaceID := msg.WorkspaceID
 	a.pendingImport = ticketID
 	a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{Text: "importing " + ticketID + "..."})
 	return a, func() tea.Msg {
-		_, err := svc.ImportRemoteTask(context.Background(), ticketID, workspaceID)
+		_, err := svc.ImportRemoteTask(context.Background(), provider, ticketID, workspaceID)
 		if err != nil {
 			return importRemoteDoneMsg{TicketID: ticketID, Err: err.Error()}
 		}
@@ -1978,14 +1979,41 @@ func (a App) manualRefresh() (tea.Model, tea.Cmd) {
 	}
 }
 
+// providerLabels are the providers' names for people, in the order the
+// summary gives them; another provider follows by its own name.
+var providerLabels = []struct{ name, label string }{{"jira", "Jira"}, {"burnlite", "Burnlite"}, {"github", "GitHub"}}
+
+type providerSyncSource struct {
+	name   string
+	result service.ProviderSyncSourceResult
+}
+
+func providerSyncSources(result service.ProviderSyncResult) []providerSyncSource {
+	var out []providerSyncSource
+	known := map[string]bool{}
+	for _, p := range providerLabels {
+		known[p.name] = true
+		if r, ok := result[p.name]; ok {
+			out = append(out, providerSyncSource{p.label, r})
+		}
+	}
+	var others []string
+	for name := range result {
+		if !known[name] {
+			others = append(others, name)
+		}
+	}
+	sort.Strings(others)
+	for _, name := range others {
+		out = append(out, providerSyncSource{name, result[name]})
+	}
+	return out
+}
+
 func providerSyncSummary(result service.ProviderSyncResult) (string, bool) {
 	failed := make([]string, 0, 2)
 	completed := make([]string, 0, 2)
-	sources := []struct {
-		name   string
-		result service.ProviderSyncSourceResult
-	}{{"Jira", result.Jira}, {"GitHub", result.GitHub}}
-	for _, source := range sources {
+	for _, source := range providerSyncSources(result) {
 		switch source.result.Status {
 		case service.ProviderSyncFailed:
 			failed = append(failed, source.name+": "+source.result.Error)

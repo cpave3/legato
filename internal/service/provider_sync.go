@@ -20,10 +20,10 @@ type ProviderSyncSourceResult struct {
 	TasksSynced int    `json:"tasks_synced,omitempty"`
 }
 
-type ProviderSyncResult struct {
-	Jira   ProviderSyncSourceResult `json:"jira"`
-	GitHub ProviderSyncSourceResult `json:"github"`
-}
+// ProviderSyncResult is each provider's outcome by name: every ticket
+// provider ("jira", "burnlite") and "github" for pull requests. "jira" and
+// "github" are always there.
+type ProviderSyncResult map[string]ProviderSyncSourceResult
 
 type ProviderSyncService interface {
 	Sync(context.Context) (ProviderSyncResult, error)
@@ -55,25 +55,38 @@ func (s *providerSyncCoordinator) Sync(ctx context.Context) (ProviderSyncResult,
 	}()
 
 	result := ProviderSyncResult{
-		Jira:   ProviderSyncSourceResult{Status: ProviderSyncUnavailable},
-		GitHub: ProviderSyncSourceResult{Status: ProviderSyncUnavailable},
+		"jira":   {Status: ProviderSyncUnavailable},
+		"github": {Status: ProviderSyncUnavailable},
 	}
 	if s.tickets != nil {
 		syncResult, err := s.tickets.Sync(ctx)
-		if err != nil {
-			result.Jira = ProviderSyncSourceResult{Status: ProviderSyncFailed, Error: err.Error()}
-		} else {
-			result.Jira.Status = ProviderSyncCompleted
-			if syncResult != nil {
-				result.Jira.TasksSynced = syncResult.TasksSynced
+		switch {
+		case syncResult != nil && len(syncResult.Sources) > 0:
+			for name, source := range syncResult.Sources {
+				switch {
+				case source.Disabled:
+					result[name] = ProviderSyncSourceResult{Status: ProviderSyncUnavailable}
+				case source.Err != nil:
+					result[name] = ProviderSyncSourceResult{Status: ProviderSyncFailed, Error: source.Err.Error()}
+				default:
+					result[name] = ProviderSyncSourceResult{Status: ProviderSyncCompleted, TasksSynced: source.TasksSynced}
+				}
 			}
+		case err != nil:
+			result["jira"] = ProviderSyncSourceResult{Status: ProviderSyncFailed, Error: err.Error()}
+		default:
+			r := ProviderSyncSourceResult{Status: ProviderSyncCompleted}
+			if syncResult != nil {
+				r.TasksSynced = syncResult.TasksSynced
+			}
+			result["jira"] = r
 		}
 	}
 	if s.prs != nil {
 		if err := s.prs.PollAll(ctx); err != nil {
-			result.GitHub = ProviderSyncSourceResult{Status: ProviderSyncFailed, Error: err.Error()}
+			result["github"] = ProviderSyncSourceResult{Status: ProviderSyncFailed, Error: err.Error()}
 		} else {
-			result.GitHub.Status = ProviderSyncCompleted
+			result["github"] = ProviderSyncSourceResult{Status: ProviderSyncCompleted}
 		}
 	}
 	return result, nil

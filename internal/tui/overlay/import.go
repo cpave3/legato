@@ -14,7 +14,9 @@ const importVisibleRows = 10
 
 // ImportSelectedMsg is sent when the user selects a remote ticket to import.
 type ImportSelectedMsg struct {
-	TicketID    string
+	TicketID string
+	// Provider is the source the ticket is from ("jira").
+	Provider    string
 	WorkspaceID *int
 }
 
@@ -110,9 +112,9 @@ func (m ImportOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, func() tea.Msg { return ImportCancelledMsg{} }
 		case "enter":
 			if len(m.results) > 0 && m.cursor < len(m.results) {
-				id := m.results[m.cursor].ID
+				id, provider := m.results[m.cursor].ID, m.results[m.cursor].Provider
 				workspaceID := m.workspaces[m.workspaceIndex].ID
-				return m, func() tea.Msg { return ImportSelectedMsg{TicketID: id, WorkspaceID: workspaceID} }
+				return m, func() tea.Msg { return ImportSelectedMsg{TicketID: id, Provider: provider, WorkspaceID: workspaceID} }
 			}
 			return m, nil
 		case "j", "down":
